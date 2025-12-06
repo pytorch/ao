@@ -26,13 +26,13 @@ from torchao.prototype.moe_training.utils import (
     _is_column_major,
 )
 from torchao.prototype.mx_formats.config import (
+    KernelPreference,
     MXFP8Dim1CastKernelChoice,
     ScaleCalculationMode,
 )
 from torchao.prototype.mx_formats.kernels import triton_to_mxfp8_dim0
 from torchao.prototype.mx_formats.mx_tensor import to_mx
 from torchao.prototype.mx_formats.utils import _to_mxfp8_dim1_kernel_wrapper
-from torchao.quantization.quantize_.common import KernelPreference
 
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -412,7 +412,7 @@ class _MXFP8GroupedMM(torch.autograd.Function):
             block_size,
             elem_dtype=torch.float8_e4m3fn,
             hp_dtype=grad_out.dtype,
-            kernel_preference=KernelPreference.AUTO,  # Not used
+            kernel_preference=KernelPreference.AUTO,
             cast_kernel_choice=MXFP8Dim1CastKernelChoice.CUDA,
             scale_calculation_mode=scale_calculation_mode,
         )
@@ -428,7 +428,7 @@ class _MXFP8GroupedMM(torch.autograd.Function):
             block_size,
             elem_dtype=torch.float8_e4m3fn,
             hp_dtype=A.dtype,
-            kernel_preference=KernelPreference.AUTO,  # Not used
+            kernel_preference=KernelPreference.AUTO,
             cast_kernel_choice=MXFP8Dim1CastKernelChoice.CUDA,
             scale_calculation_mode=scale_calculation_mode,
         )
@@ -475,7 +475,7 @@ def _to_mxfp8_dim1_3d(
         block_size,
         elem_dtype=torch.float8_e4m3fn,
         hp_dtype=B_reshaped.dtype,
-        kernel_preference=KernelPreference.AUTO,  # Not used
+        kernel_preference=KernelPreference.AUTO,
         cast_kernel_choice=MXFP8Dim1CastKernelChoice.CUDA,
         scale_calculation_mode=scaling_mode,
     )
