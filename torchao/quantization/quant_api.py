@@ -1679,7 +1679,9 @@ def _int8_static_activation_int8_weight_transform(
     *,
     parameter_name="weight",
 ):
-    assert config.granularity in {PerRow()}, "Only PerRow is supported currently"
+    assert config.granularity in {PerRow(), PerTensor()}, (
+        "Only PerRow and PerTensor is supported currently"
+    )
     assert config.act_mapping_type == MappingType.SYMMETRIC, (
         "asymmetric static quant not supported currently"
     )
@@ -1698,7 +1700,7 @@ def _int8_static_activation_int8_weight_transform(
         granularity=weight_granularity,
         act_quant_kwargs=QuantizeTensorToInt8Kwargs(
             granularity=activation_granularity,
-            static_quant=True,
+            mapping_type=config.act_mapping_type,
         ),
         activation_scale=config.scale.detach(),
     )

@@ -228,10 +228,9 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
 @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
 @common_utils.instantiate_parametrized_tests
 class TestInt8StaticQuant(TorchAOIntegrationTestCase):
+    @common_utils.parametrize("granularity", [PerRow(), PerTensor()])
     @common_utils.parametrize("dtype", [torch.bfloat16])
-    def test_static_activation_per_row_int8_weight_earger(self, dtype):
-        torch.set_printoptions(profile="full", linewidth=180)
-
+    def test_static_activation_per_row_int8_weight_earger(self, granularity, dtype):
         M, N, K = 32, 32, 32
         input_tensor = torch.randn(M, K, dtype=dtype, device="cuda")
 
@@ -240,7 +239,9 @@ class TestInt8StaticQuant(TorchAOIntegrationTestCase):
         )
         model_dynamic_quant = copy.deepcopy(model_static_quant)
 
-        dynamic_config = Int8DynamicActivationInt8WeightConfig(version=2)
+        dynamic_config = Int8DynamicActivationInt8WeightConfig(
+            version=2, granularity=granularity
+        )
         quantize_(model_dynamic_quant, dynamic_config)
 
         dynamic_quantize_out = model_dynamic_quant(input_tensor)
@@ -250,18 +251,18 @@ class TestInt8StaticQuant(TorchAOIntegrationTestCase):
         )
 
         static_config = Int8StaticActivationInt8WeightConfig(
-            scale=int8_input.scale.detach().clone()
+            scale=int8_input.scale.detach().clone(), granularity=granularity
         )
         quantize_(model_static_quant, static_config)
 
         static_quantize_out = model_static_quant(input_tensor)
         torch.testing.assert_close(dynamic_quantize_out, static_quantize_out)
 
+    @common_utils.parametrize("granularity", [PerRow(), PerTensor()])
     @common_utils.parametrize("dtype", [torch.bfloat16])
-    def test_static_activation_per_row_int8_weight_compile(self, dtype):
+    def test_static_activation_per_row_int8_weight_compile(self, granularity, dtype):
         # for compile, we can't compare dynamic vs static because we may get slightly different qparams
         torch.compiler.reset()
-        torch.set_printoptions(profile="full", linewidth=180)
 
         M, N, K = 32, 32, 32
         input_tensor = torch.randn(M, K, dtype=dtype, device="cuda")
@@ -272,7 +273,9 @@ class TestInt8StaticQuant(TorchAOIntegrationTestCase):
 
         model_out_baseline = model(input_tensor)
 
-        dynamic_config = Int8DynamicActivationInt8WeightConfig(version=2)
+        dynamic_config = Int8DynamicActivationInt8WeightConfig(
+            version=2, granularity=granularity
+        )
         quantize_(model_dynamic_quant, dynamic_config)
 
         dynamic_out_eager = model_dynamic_quant(input_tensor)
@@ -289,7 +292,8 @@ class TestInt8StaticQuant(TorchAOIntegrationTestCase):
         )
 
         static_config = Int8StaticActivationInt8WeightConfig(
-            scale=int8_input.scale.detach().clone()
+            scale=int8_input.scale.detach().clone(),
+            granularity=granularity,
         )
         quantize_(model_static_quant, static_config)
 

@@ -12,7 +12,7 @@ from torch.utils._python_dispatch import return_and_correct_aliasing
 
 from torchao.float8.inference import _slice_scale_for_dimension
 from torchao.kernel import int_scaled_matmul
-from torchao.quantization.granularity import Granularity
+from torchao.quantization.granularity import Granularity, PerRow, PerTensor
 from torchao.quantization.quant_primitives import (
     MappingType,
     choose_qparams_affine,
@@ -20,6 +20,7 @@ from torchao.quantization.quant_primitives import (
     quantize_affine,
 )
 from torchao.quantization.quantize_.common import (
+    QuantizeTensorKwargs,
     _choose_quant_func_and_quantize_tensor,
 )
 from torchao.quantization.utils import get_block_size
@@ -31,7 +32,7 @@ aten = torch.ops.aten
 
 
 @dataclass
-class QuantizeTensorToInt8Kwargs:
+class QuantizeTensorToInt8Kwargs(QuantizeTensorKwargs):
     """Tensor kwargs for creating int8 tensor for activation.
 
     Args:
@@ -41,7 +42,6 @@ class QuantizeTensorToInt8Kwargs:
 
     granularity: Granularity
     mapping_type: MappingType = MappingType.SYMMETRIC
-    static_quant: bool = False
 
 
 class Int8Tensor(TorchAOBaseTensor):
@@ -53,14 +53,12 @@ class Int8Tensor(TorchAOBaseTensor):
     Tensor Attributes:
         qdata: (N, K) or (B, N, K) int8 quantized weight data (2D or 3D)
         scale: scale factors for dequantization
-        # TODO: Static quantization support using `static_scale`
 
     Non-Tensor Attributes:
         granularity: the granularity for quantization (e.g., PerRow(), PerTensor())
         act_quant_kwargs: flags for dynamic activation quantization
     """
 
-    # TODO: Static quantization support using `static_scale`
     tensor_data_names = ["qdata", "scale"]
     optional_tensor_data_names = ["activation_scale"]
     tensor_attribute_names = ["block_size", "dtype"]
@@ -124,9 +122,6 @@ class Int8Tensor(TorchAOBaseTensor):
         activation_scale: Optional[torch.Tensor] = None,
     ):
         """Create Int8Tensor from high-precision tensor"""
-
-        if activation_scale is not None:
-            assert act_quant_kwargs.static_quant
         block_size = get_block_size(hp_tensor.shape, granularity)
         block_size = list(block_size)
 
@@ -143,7 +138,13 @@ class Int8Tensor(TorchAOBaseTensor):
                 keepdim=True,
             )
         else:
-            # For static quant when the scale is provided, we assume symmetric and no zero point
+            # Scale can be provided in the case of static quant
+            assert scale.ndim == hp_tensor.ndim
+            if isinstance(granularity, PerTensor):
+                assert scale.numel() == 1
+            elif isinstance(granularity, PerRow):
+                assert scale.numel() == block_size[-1]
+
             zero_point = torch.zeros_like(scale, dtype=torch.int8)
 
         int_data = quantize_affine(
