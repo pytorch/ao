@@ -34,8 +34,6 @@ from torchao.quantization.quant_primitives import (
 from torchao.quantization.quantize_.workflows import Int4PackingFormat
 from torchao.utils import _is_float8_type
 
-from .utils import _log_deprecation_warning
-
 
 class FakeQuantizeConfigBase(abc.ABC):
     """
@@ -201,14 +199,6 @@ class IntxFakeQuantizeConfig(FakeQuantizeConfigBase):
         if is_dynamic and range_learning:
             raise ValueError("`is_dynamic` is not compatible with `range_learning`")
 
-        self.__post_init__()
-
-    def __post_init__(self):
-        """
-        For deprecation only, can remove after https://github.com/pytorch/ao/issues/2630.
-        """
-        pass
-
     def _get_granularity(
         self,
         granularity: Union[Granularity, str, None],
@@ -332,16 +322,6 @@ class IntxFakeQuantizeConfig(FakeQuantizeConfigBase):
             super().__setattr__("mapping_type", mapping_type)
         else:
             super().__setattr__(name, value)
-
-
-# For BC
-class FakeQuantizeConfig(IntxFakeQuantizeConfig):
-    """
-    (Deprecated) Please use :class:`~torchao.quantization.qat.IntxFakeQuantizeConfig` instead.
-    """
-
-    def __post_init__(self):
-        _log_deprecation_warning(self)
 
 
 def _infer_fake_quantize_configs(
