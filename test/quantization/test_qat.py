@@ -96,6 +96,7 @@ from torchao.quantization.utils import (
     get_groupwise_affine_qparams,
     groupwise_affine_quantize_tensor,
 )
+from torchao.testing.utils import skip_if_xpu
 from torchao.utils import (
     _is_fbgemm_gpu_genai_available,
     get_current_accelerator_device,
@@ -695,10 +696,7 @@ class TestQAT(TestCase):
         self._test_qat_quantized_gradients(quantizer)
 
     @unittest.skipIf(_DEVICE is None, "skipping when GPU is not available")
-    @unittest.skipIf(
-        _DEVICE is torch.device("xpu"),
-        "skipped due to https://github.com/intel/torch-xpu-ops/issues/1770",
-    )
+    @skip_if_xpu("skipped due to https://github.com/intel/torch-xpu-ops/issues/1770")
     def test_qat_4w_quantizer(self):
         from torchao.quantization.GPTQ import Int4WeightOnlyQuantizer
         from torchao.quantization.qat import Int4WeightOnlyQATQuantizer
@@ -2015,6 +2013,7 @@ class TestQAT(TestCase):
         )
 
     @unittest.skipIf(_DEVICE is None, "skipping when GPU is not available")
+    @skip_if_xpu("XPU enablement in progress")
     @parametrize(
         "weight_dtype, granularity, dtype, module_type",
         [
