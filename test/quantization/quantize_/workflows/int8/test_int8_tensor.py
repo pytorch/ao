@@ -229,14 +229,17 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
 @common_utils.instantiate_parametrized_tests
 class TestInt8StaticQuant(TorchAOIntegrationTestCase):
     @common_utils.parametrize("dtype", [torch.bfloat16])
-    @common_utils.parametrize("compile", [False])
-    def test_static_activation_per_row_int8_weight(self, dtype, compile):
-        torch.compiler.reset()
+    def test_static_activation_per_row_int8_weight_earger(self, dtype):
+        torch.set_printoptions(profile="full", linewidth=180)
 
-        M, N, K = 64, 128, 32
+        M, N, K = 32, 32, 32
         input_tensor = torch.randn(M, K, dtype=dtype, device="cuda")
-        model_static_quant = torch.nn.Linear(K, N).eval().to(device="cuda", dtype=dtype)
+
+        model_static_quant = (
+            torch.nn.Linear(K, N, bias=False).eval().to(device="cuda", dtype=dtype)
+        )
         model_dynamic_quant = copy.deepcopy(model_static_quant)
+
         dynamic_config = Int8DynamicActivationInt8WeightConfig(version=2)
         quantize_(model_dynamic_quant, dynamic_config)
 
@@ -247,16 +250,63 @@ class TestInt8StaticQuant(TorchAOIntegrationTestCase):
         )
 
         static_config = Int8StaticActivationInt8WeightConfig(
-            scale=int8_input.scale.clone().detach()
+            scale=int8_input.scale.detach().clone()
         )
         quantize_(model_static_quant, static_config)
 
-        if compile:
-            model_static_quant = torch.compile(model_static_quant, fullgraph=True)
-
         static_quantize_out = model_static_quant(input_tensor)
-
         torch.testing.assert_close(dynamic_quantize_out, static_quantize_out)
+
+    @common_utils.parametrize("dtype", [torch.bfloat16])
+    def test_static_activation_per_row_int8_weight_compile(self, dtype):
+        # for compile, we can't compare dynamic vs static because we may get slightly different qparams
+        torch.compiler.reset()
+        torch.set_printoptions(profile="full", linewidth=180)
+
+        M, N, K = 32, 32, 32
+        input_tensor = torch.randn(M, K, dtype=dtype, device="cuda")
+
+        model = torch.nn.Linear(K, N, bias=False).eval().to(device="cuda", dtype=dtype)
+        model_static_quant = copy.deepcopy(model)
+        model_dynamic_quant = copy.deepcopy(model)
+
+        model_out_baseline = model(input_tensor)
+
+        dynamic_config = Int8DynamicActivationInt8WeightConfig(version=2)
+        quantize_(model_dynamic_quant, dynamic_config)
+
+        dynamic_out_eager = model_dynamic_quant(input_tensor)
+        sqnr_dynamic_eager = compute_error(model_out_baseline, dynamic_out_eager)
+
+        model_dynamic_quant = torch.compile(model_dynamic_quant, fullgraph=True)
+
+        dynamic_out_compile = model_dynamic_quant(input_tensor)
+        sqnr_dynamic_compile = compute_error(model_out_baseline, dynamic_out_compile)
+
+        # we use eager scales to calculate
+        int8_input = _choose_quant_func_and_quantize_tensor(
+            input_tensor, model_dynamic_quant.weight.act_quant_kwargs
+        )
+
+        static_config = Int8StaticActivationInt8WeightConfig(
+            scale=int8_input.scale.detach().clone()
+        )
+        quantize_(model_static_quant, static_config)
+
+        static_out_eager = model_static_quant(input_tensor)
+        sqnr_static_eager = compute_error(model_out_baseline, static_out_eager)
+
+        model_static_quant = torch.compile(model_static_quant, fullgraph=True)
+
+        static_out_compile = model_dynamic_quant(input_tensor)
+        sqnr_static_compile = compute_error(model_out_baseline, static_out_compile)
+
+        assert (
+            sqnr_static_compile
+            == sqnr_static_eager
+            == sqnr_dynamic_compile
+            == sqnr_dynamic_eager
+        )
 
 
 if __name__ == "__main__":

@@ -20,7 +20,6 @@ from torchao.quantization.quant_primitives import (
     quantize_affine,
 )
 from torchao.quantization.quantize_.common import (
-    QuantizeTensorKwargs,
     _choose_quant_func_and_quantize_tensor,
 )
 from torchao.quantization.utils import get_block_size
@@ -32,7 +31,7 @@ aten = torch.ops.aten
 
 
 @dataclass
-class QuantizeTensorToInt8Kwargs(QuantizeTensorKwargs):
+class QuantizeTensorToInt8Kwargs:
     """Tensor kwargs for creating int8 tensor for activation.
 
     Args:
@@ -42,7 +41,7 @@ class QuantizeTensorToInt8Kwargs(QuantizeTensorKwargs):
 
     granularity: Granularity
     mapping_type: MappingType = MappingType.SYMMETRIC
-    scale: Optional[torch.Tensor] = None
+    static_quant: bool = False
 
 
 class Int8Tensor(TorchAOBaseTensor):
@@ -63,6 +62,7 @@ class Int8Tensor(TorchAOBaseTensor):
 
     # TODO: Static quantization support using `static_scale`
     tensor_data_names = ["qdata", "scale"]
+    optional_tensor_data_names = ["activation_scale"]
     tensor_attribute_names = ["block_size", "dtype"]
     optional_tensor_attribute_names = [
         "act_quant_kwargs",
@@ -75,6 +75,7 @@ class Int8Tensor(TorchAOBaseTensor):
         block_size: List[int],
         dtype: torch.dtype,
         act_quant_kwargs: Optional[QuantizeTensorToInt8Kwargs] = None,
+        activation_scale=None,
     ):
         kwargs = {
             "device": qdata.device,
@@ -90,6 +91,7 @@ class Int8Tensor(TorchAOBaseTensor):
         block_size: List[int],
         dtype: torch.dtype,
         act_quant_kwargs: Optional[QuantizeTensorToInt8Kwargs] = None,
+        activation_scale=None,
     ):
         super().__init__()
         self.qdata = qdata
@@ -97,6 +99,7 @@ class Int8Tensor(TorchAOBaseTensor):
         self.block_size = block_size
         # don't set dtype because this gets done in __new__
         self.act_quant_kwargs = act_quant_kwargs
+        self.activation_scale = activation_scale
 
     def __repr__(self):
         return (
@@ -118,8 +121,12 @@ class Int8Tensor(TorchAOBaseTensor):
         act_quant_kwargs: Optional[QuantizeTensorToInt8Kwargs] = None,
         mapping_type=MappingType.SYMMETRIC,
         scale: Optional[torch.Tensor] = None,
+        activation_scale: Optional[torch.Tensor] = None,
     ):
         """Create Int8Tensor from high-precision tensor"""
+
+        if activation_scale is not None:
+            assert act_quant_kwargs.static_quant
         block_size = get_block_size(hp_tensor.shape, granularity)
         block_size = list(block_size)
 
@@ -136,9 +143,9 @@ class Int8Tensor(TorchAOBaseTensor):
                 keepdim=True,
             )
         else:
-            zero_point = torch.zeros_like(scale)
+            # For static quant when the scale is provided, we assume symmetric and no zero point
+            zero_point = torch.zeros_like(scale, dtype=torch.int8)
 
-        # if scale is given, then use to quantize. this is how we support static quantization
         int_data = quantize_affine(
             hp_tensor,
             block_size=block_size,
@@ -147,13 +154,15 @@ class Int8Tensor(TorchAOBaseTensor):
             output_dtype=torch.int8,
         )
 
-        return cls(
+        res = cls(
             int_data,
             scale,
             block_size,
             hp_tensor.dtype,
             act_quant_kwargs=act_quant_kwargs,
+            activation_scale=activation_scale,
         )
+        return res
 
     def dequantize(self, output_dtype: Optional[torch.dtype] = None) -> torch.Tensor:
         """Dequantize int8 tensor to floating point"""
@@ -191,7 +200,9 @@ def _(func, types, args, kwargs):
 
     if weight_tensor.act_quant_kwargs is not None:
         activation_tensor = _choose_quant_func_and_quantize_tensor(
-            activation_tensor, weight_tensor.act_quant_kwargs
+            activation_tensor,
+            weight_tensor.act_quant_kwargs,
+            scale=weight_tensor.activation_scale,
         )
         # Dynamic activation quantization path
 

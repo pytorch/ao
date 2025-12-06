@@ -1698,8 +1698,9 @@ def _int8_static_activation_int8_weight_transform(
         granularity=weight_granularity,
         act_quant_kwargs=QuantizeTensorToInt8Kwargs(
             granularity=activation_granularity,
-            scale=config.scale,
+            static_quant=True,
         ),
+        activation_scale=config.scale.detach(),
     )
 
     setattr(
