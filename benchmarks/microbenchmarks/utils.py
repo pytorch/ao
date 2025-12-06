@@ -281,6 +281,14 @@ def string_to_config(
         )
     elif "float8wo" in quantization:
         return Float8WeightOnlyConfig()
+    elif quantization == "float8_a1x128_w128x128":
+        # Blockwise float8 quantization with 1x128 activation and 128x128 weight blocks
+        from torchao.quantization import PerBlock
+
+        return Float8DynamicActivationFloat8WeightConfig(
+            granularity=(PerBlock([1, 128]), PerBlock([128, 128])),
+            activation_value_lb=1e-12,
+        )
     elif "float8dq" in quantization:
         if sparsity and "semi" in sparsity:
             return Float8DynamicActivationFloat8SemiSparseWeightConfig()
@@ -309,7 +317,423 @@ def string_to_config(
             256,
         ], f"int4wo group_size needs to be one of [32,64,128,256] but got {group_size}"
         return GemliteUIntXWeightOnlyConfig(group_size=group_size, bit_width=bit_width)
+    if "codebook" in quantization:
+        # Codebook quantization (prototype)
+        # Format: codebook or codebook-<scale_block_size>
+        from torchao.prototype.quantization.codebook import codebook_weight_only
+
+        params = quantization.split("-")
+        scale_block_size = int(params[1]) if len(params) > 1 else 64
+        return codebook_weight_only(dtype=torch.uint4, scale_block_size=scale_block_size)
     return None
+
+
+def _requires_calibration(quantization: Optional[str]) -> bool:
+    """Check if the quantization method requires calibration data."""
+    if quantization is None:
+        return False
+    calibration_methods = ["gptq", "autoround", "awq-uintx", "smoothquant"]
+    return any(method in quantization.lower() for method in calibration_methods)
+
+
+def _apply_spinquant(model: torch.nn.Module) -> torch.nn.Module:
+    """Apply SpinQuant rotation transform to the model.
+
+    SpinQuant applies a rotation transform before quantization to reduce
+    quantization error. This is a preprocessing step, not quantization itself.
+
+    Args:
+        model: The model to apply SpinQuant to
+
+    Returns:
+        The model with SpinQuant applied
+    """
+    from torchao.prototype.spinquant import apply_spinquant
+
+    apply_spinquant(model)
+    return model
+
+
+def _apply_gptq(
+    model: torch.nn.Module,
+    tokenizer,
+    quantization: str,
+    calibration_tasks: List[str],
+    calibration_limit: int,
+    calibration_seq_length: int,
+    pad_calibration_inputs: bool,
+    device: str,
+    input_prep_func=None,
+) -> torch.nn.Module:
+    """Apply GPTQ quantization with calibration.
+
+    Format: int4wo-<groupsize>-gptq
+
+    Args:
+        model: The model to quantize
+        tokenizer: Tokenizer for encoding calibration data
+        quantization: Quantization string (e.g., "int4wo-128-gptq")
+        calibration_tasks: Tasks to use for calibration (e.g., ["wikitext"])
+        calibration_limit: Number of calibration samples
+        calibration_seq_length: Sequence length for calibration
+        pad_calibration_inputs: Whether to pad short sequences
+        device: Device to run calibration on
+        input_prep_func: Optional function to prepare inputs for the model
+
+    Returns:
+        The quantized model
+    """
+    from torchao._models._eval import LMEvalInputRecorder
+    from torchao.quantization.GPTQ import Int4WeightOnlyGPTQQuantizer
+
+    # Parse group size from quantization string: int4wo-<groupsize>-gptq
+    parts = quantization.split("-")
+    groupsize = int(parts[1])
+    assert groupsize in [32, 64, 128, 256], (
+        f"int4wo groupsize needs to be one of [32,64,128,256] but got {groupsize}"
+    )
+
+    # Default input prep function if not provided
+    if input_prep_func is None:
+        input_prep_func = lambda x: (x,)
+
+    # Get vocab size from model config
+    vocab_size = getattr(model.config, "vocab_size", 32000)
+
+    # Record calibration inputs
+    inputs = (
+        LMEvalInputRecorder(
+            tokenizer,
+            calibration_seq_length,
+            input_prep_func,
+            vocab_size,
+            pad_calibration_inputs,
+            device="cpu",
+        )
+        .record_inputs(
+            calibration_tasks,
+            calibration_limit,
+        )
+        .get_recorded_inputs()
+    )
+    print("Obtained calibration inputs, starting GPTQ quantization")
+
+    # Setup caches if model supports it
+    if hasattr(model, "setup_caches"):
+        model.setup_caches(max_batch_size=1, max_seq_length=calibration_seq_length)
+
+    # Quantize with GPTQ
+    quantizer = Int4WeightOnlyGPTQQuantizer(group_size=groupsize, device=device)
+    quantizer.quantize(model, *inputs)
+    model = model.to(device)
+
+    return model
+
+
+def _apply_autoround(
+    model: torch.nn.Module,
+    tokenizer,
+    quantization: str,
+    device: str,
+    quant_lm_head: bool = False,
+) -> torch.nn.Module:
+    """Apply AutoRound quantization with calibration.
+
+    Format: autoround or autoround-<device>-<quant_lm_head>-<iters>-<groupsize>-<batch_size>-<seqlen>-<nsamples>-<grad_acc_steps>-<compile>
+
+    Args:
+        model: The model to quantize
+        tokenizer: Tokenizer for encoding calibration data
+        quantization: Quantization string with optional parameters
+        device: Device to run calibration on
+        quant_lm_head: Whether to quantize the lm_head layer
+
+    Returns:
+        The quantized model
+    """
+    from torchao.prototype.autoround.autoround_llm import quantize_model_with_autoround_
+
+    # Parse args from quantization string
+    _quant_args = quantization.split("-")
+    _default_quant_args = [False, 200, 128, 8, 2048, 128, 1, 0]
+    _model_device = _quant_args[1] if len(_quant_args) > 1 else device
+    _quant_args = _quant_args[2:]
+
+    (
+        quant_lm_head_arg,
+        iters,
+        groupsize,
+        batch_size,
+        seqlen,
+        nsamples,
+        grad_acc_steps,
+        compile_optimization_process,
+    ) = [int(x) for x in _quant_args] + _default_quant_args[len(_quant_args) :]
+
+    # Override quant_lm_head if explicitly passed
+    quant_lm_head = quant_lm_head or bool(quant_lm_head_arg)
+
+    model = model.to(_model_device)
+    print(
+        f"Quantizing model with AutoRound(iters={iters}, groupsize={groupsize}, "
+        f"quant_lm_head={quant_lm_head}, batch_size={batch_size}, seqlen={seqlen}, "
+        f"nsamples={nsamples}, gradient_accumulate_steps={grad_acc_steps}, "
+        f"compile_optimization_process={compile_optimization_process})"
+    )
+
+    # Setup caches if model supports it
+    if hasattr(model, "setup_caches"):
+        with torch.device(_model_device):
+            model.setup_caches(max_batch_size=batch_size, max_seq_length=seqlen, training=True)
+
+    # Determine target modules based on model architecture
+    # Try to find the decoder block class dynamically
+    decoder_cls = None
+    for name, module in model.named_modules():
+        cls_name = module.__class__.__name__
+        if "Block" in cls_name or "Layer" in cls_name:
+            decoder_cls = type(module)
+            break
+
+    if decoder_cls is not None:
+        if quant_lm_head:
+            is_target_module = lambda mod, fqn: isinstance(mod, decoder_cls) or "lm_head" in fqn or "output" in fqn
+        else:
+            is_target_module = lambda mod, fqn: isinstance(mod, decoder_cls)
+    else:
+        # Fallback: quantize all Linear layers except embeddings
+        if quant_lm_head:
+            is_target_module = lambda mod, fqn: isinstance(mod, torch.nn.Linear)
+        else:
+            is_target_module = lambda mod, fqn: isinstance(mod, torch.nn.Linear) and "lm_head" not in fqn
+
+    quantize_model_with_autoround_(
+        model=model,
+        tokenizer=tokenizer,
+        is_target_module=is_target_module,
+        bits=4,
+        seqlen=seqlen,
+        batch_size=batch_size,
+        iters=iters,
+        nsamples=nsamples,
+        gradient_accumulate_steps=grad_acc_steps,
+        compile_optimization_process=compile_optimization_process == 1,
+    )
+
+    model.to(device)
+    if hasattr(model, "reset_caches"):
+        model.reset_caches()
+
+    return model
+
+
+def _apply_awq(
+    model: torch.nn.Module,
+    tokenizer,
+    quantization: str,
+    eval_wrapper_cls,
+    max_seq_length: int,
+    device: str,
+    input_prep_func=None,
+) -> torch.nn.Module:
+    """Apply AWQ quantization with calibration.
+
+    Format: awq-uintx-<dtype>-<groupsize> or awq-uintx-<dtype>-<groupsize>-hqq
+
+    Args:
+        model: The model to quantize
+        tokenizer: Tokenizer for encoding calibration data
+        quantization: Quantization string (e.g., "awq-uintx-uint4-64")
+        eval_wrapper_cls: The evaluation wrapper class to use for calibration
+        max_seq_length: Maximum sequence length for calibration
+        device: Device to run calibration on
+        input_prep_func: Optional function to prepare inputs for the model
+
+    Returns:
+        The quantized model
+    """
+    from torchao.prototype.awq import (
+        AWQObservedLinear,
+        awq_uintx,
+        insert_awq_observer_,
+    )
+    from torchao.quantization import quantize_
+
+    # Parse quantization string: awq-uintx-<dtype>-<groupsize>[-hqq]
+    parts = quantization.split("-")
+    quant_dtype_str = parts[2] if len(parts) > 2 else "uint4"
+    group_size = int(parts[3]) if len(parts) > 3 else 64
+    use_hqq = "hqq" in quantization
+
+    quant_dtype = getattr(torch, quant_dtype_str, torch.uint4)
+
+    model = model.to(device)
+
+    # Insert AWQ observers
+    insert_awq_observer_(model, 1, 256, quant_dtype=quant_dtype, group_size=group_size)
+
+    # Run calibration
+    eval_wrapper_cls(
+        model=model,
+        tokenizer=tokenizer,
+        max_seq_length=max_seq_length,
+        input_prep_func=input_prep_func,
+        device=device,
+    ).run_eval(
+        tasks=["wikitext"],
+        limit=1,
+    )
+
+    # Convert observed model to quantized model
+    is_observed_linear = lambda m, fqn: isinstance(m, AWQObservedLinear)
+    quantize_(
+        model,
+        awq_uintx(quant_dtype=quant_dtype, group_size=group_size, use_hqq=use_hqq),
+        is_observed_linear,
+    )
+
+    return model
+
+
+def apply_quantization(
+    model: torch.nn.Module,
+    quantization: Optional[str],
+    sparsity: Optional[str] = None,
+    tokenizer=None,
+    calibration_tasks: Optional[List[str]] = None,
+    calibration_limit: Optional[int] = None,
+    calibration_seq_length: Optional[int] = None,
+    pad_calibration_inputs: bool = False,
+    device: str = "cuda",
+    input_prep_func=None,
+    eval_wrapper_cls=None,
+    max_seq_length: int = 2048,
+    **kwargs,
+) -> torch.nn.Module:
+    """Apply quantization to a model, handling both simple configs and calibration-based methods.
+
+    This is the main entry point for applying quantization. It handles:
+    - Simple config-based quantization (int8wo, int4wo, float8, etc.)
+    - Calibration-based quantization (GPTQ, AWQ, AutoRound)
+    - Preprocessing transforms (SpinQuant)
+    - Sparsity (semi-structured, block sparse)
+
+    Args:
+        model: The model to quantize
+        quantization: Quantization method string. Supported formats:
+            - Simple: "int8wo", "int8dq", "int4wo-128", "float8wo", "float8dq-row", etc.
+            - GPTQ: "int4wo-128-gptq" (requires tokenizer and calibration params)
+            - AWQ: "awq-uintx-uint4-64" (requires tokenizer and eval_wrapper_cls)
+            - AutoRound: "autoround" or "autoround-cuda-1-200-128-8-2048-128-1-0"
+            - SpinQuant: "spinquant" (preprocessing, can be combined with other methods)
+        sparsity: Sparsity method ("semi", "2:4", "block")
+        tokenizer: Tokenizer for calibration-based methods
+        calibration_tasks: Tasks for calibration (e.g., ["wikitext"])
+        calibration_limit: Number of calibration samples
+        calibration_seq_length: Sequence length for calibration
+        pad_calibration_inputs: Whether to pad short calibration sequences
+        device: Device to run on
+        input_prep_func: Function to prepare inputs for the model
+        eval_wrapper_cls: Evaluation wrapper class for AWQ calibration
+        max_seq_length: Maximum sequence length for AWQ calibration
+        **kwargs: Additional arguments passed to string_to_config
+
+    Returns:
+        The quantized model
+
+    Example:
+        >>> # Simple quantization
+        >>> model = apply_quantization(model, "int4wo-128")
+
+        >>> # GPTQ quantization
+        >>> model = apply_quantization(
+        ...     model, "int4wo-128-gptq",
+        ...     tokenizer=tokenizer,
+        ...     calibration_tasks=["wikitext"],
+        ...     calibration_limit=128,
+        ...     calibration_seq_length=2048,
+        ... )
+
+        >>> # SpinQuant + int4
+        >>> model = apply_quantization(model, "spinquant-int4wo-128", tokenizer=tokenizer)
+    """
+    from torchao.quantization import quantize_
+    from torchao.sparsity.sparse_api import sparsify_
+
+    if quantization is None and sparsity is None:
+        return model
+
+    # Handle SpinQuant preprocessing (can be combined with other quantization)
+    if quantization and "spinquant" in quantization:
+        model = _apply_spinquant(model)
+        # Remove spinquant from quantization string for further processing
+        quantization = quantization.replace("spinquant-", "").replace("spinquant", "")
+        if not quantization:
+            quantization = None
+
+    # Handle calibration-based methods
+    if quantization and "gptq" in quantization:
+        if tokenizer is None:
+            raise ValueError("GPTQ quantization requires a tokenizer")
+        if calibration_tasks is None:
+            calibration_tasks = ["wikitext"]
+        if calibration_limit is None:
+            calibration_limit = 128
+        if calibration_seq_length is None:
+            calibration_seq_length = 2048
+
+        return _apply_gptq(
+            model=model,
+            tokenizer=tokenizer,
+            quantization=quantization,
+            calibration_tasks=calibration_tasks,
+            calibration_limit=calibration_limit,
+            calibration_seq_length=calibration_seq_length,
+            pad_calibration_inputs=pad_calibration_inputs,
+            device=device,
+            input_prep_func=input_prep_func,
+        )
+
+    if quantization and "autoround" in quantization:
+        if tokenizer is None:
+            raise ValueError("AutoRound quantization requires a tokenizer")
+
+        return _apply_autoround(
+            model=model,
+            tokenizer=tokenizer,
+            quantization=quantization,
+            device=device,
+        )
+
+    if quantization and quantization.startswith("awq-uintx"):
+        if tokenizer is None:
+            raise ValueError("AWQ quantization requires a tokenizer")
+        if eval_wrapper_cls is None:
+            from torchao._models._eval import TransformerEvalWrapper
+            eval_wrapper_cls = TransformerEvalWrapper
+
+        return _apply_awq(
+            model=model,
+            tokenizer=tokenizer,
+            quantization=quantization,
+            eval_wrapper_cls=eval_wrapper_cls,
+            max_seq_length=max_seq_length,
+            device=device,
+            input_prep_func=input_prep_func,
+        )
+
+    # Handle simple config-based quantization and sparsity
+    config = string_to_config(quantization, sparsity, **kwargs)
+
+    if config is not None:
+        # Check if it's a sparsity-only config
+        if quantization is None and sparsity is not None:
+            sparsify_(model, config)
+        else:
+            model = model.to(device)
+            quantize_(model, config)
+
+    return model
 
 
 @torch.no_grad()
