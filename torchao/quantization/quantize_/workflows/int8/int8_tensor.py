@@ -155,7 +155,7 @@ class Int8Tensor(TorchAOBaseTensor):
             output_dtype=torch.int8,
         )
 
-        res = cls(
+        return cls(
             int_data,
             scale,
             block_size,
@@ -163,7 +163,6 @@ class Int8Tensor(TorchAOBaseTensor):
             act_quant_kwargs=act_quant_kwargs,
             activation_scale=activation_scale,
         )
-        return res
 
     def dequantize(self, output_dtype: Optional[torch.dtype] = None) -> torch.Tensor:
         """Dequantize int8 tensor to floating point"""
