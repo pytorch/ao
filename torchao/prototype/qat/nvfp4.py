@@ -162,6 +162,22 @@ class NVFP4FakeQuantizedLinear(torch.nn.Linear):
         else:
             return fq
 
+    def to_linear(self) -> torch.nn.Linear:
+        new_linear = torch.nn.Linear(
+            self.in_features,
+            self.out_features,
+            self.bias is not None,
+            device=self.weight.device,
+            dtype=self.weight.dtype,
+        )
+        # In distributed training, the model may be instantiated
+        # on the meta device, in which case there is no need to
+        # copy the weights, and doing so will result in an error
+        if self.weight.device != torch.device("meta"):
+            new_linear.weight = self.weight
+            new_linear.bias = self.bias
+        return new_linear
+
     @classmethod
     def from_linear(
         cls,

@@ -2106,29 +2106,46 @@ class TestQAT(TestCase):
         Test QAT with `NVFP4FakeQuantizeConfig`.
         """
         from torchao.prototype.mx_formats import NVFP4DynamicActivationNVFP4WeightConfig
-        from torchao.prototype.qat import NVFP4FakeQuantizeConfig
+        from torchao.prototype.mx_formats.nvfp4_tensor import NVFP4Tensor
+        from torchao.prototype.qat import (
+            NVFP4FakeQuantizeConfig,
+            NVFP4FakeQuantizedLinear,
+        )
 
         torch.manual_seed(self.SEED)
         m = M().cuda()
         baseline_model = copy.deepcopy(m)
-        quantize_(
-            baseline_model,
-            NVFP4DynamicActivationNVFP4WeightConfig(
-                use_dynamic_per_tensor_scale=use_per_tensor_scale
-            ),
+        base_config = NVFP4DynamicActivationNVFP4WeightConfig(
+            use_dynamic_per_tensor_scale=use_per_tensor_scale
         )
+        quantize_(baseline_model, base_config)
         qat_config = QATConfig(
             activation_config=NVFP4FakeQuantizeConfig(use_per_tensor_scale),
             weight_config=NVFP4FakeQuantizeConfig(use_per_tensor_scale),
             step="prepare",
         )
         quantize_(m, qat_config)
+        self.assertEqual(type(m.linear1), NVFP4FakeQuantizedLinear)
+        self.assertEqual(type(m.linear2), NVFP4FakeQuantizedLinear)
+        self.assertEqual(type(m.sub.linear), NVFP4FakeQuantizedLinear)
 
         # Compare prepared values
         torch.manual_seed(self.SEED)
         x = m.example_inputs("cuda")
         out = m(*x)
         baseline_out = baseline_model(*x)
+        sqnr = compute_error(out, baseline_out).item()
+        self.assertGreaterEqual(sqnr, float("inf"))
+
+        # Compare converted values
+        quantize_(m, QATConfig(base_config, step="convert"))
+        self.assertEqual(type(m.linear1), torch.nn.Linear)
+        self.assertEqual(type(m.linear2), torch.nn.Linear)
+        self.assertEqual(type(m.sub.linear), torch.nn.Linear)
+        self.assertEqual(type(m.linear1.weight), NVFP4Tensor)
+        self.assertEqual(type(m.linear2.weight), NVFP4Tensor)
+        self.assertEqual(type(m.sub.linear.weight), NVFP4Tensor)
+        out = m(*x)
         sqnr = compute_error(out, baseline_out).item()
         self.assertGreaterEqual(sqnr, float("inf"))
 
