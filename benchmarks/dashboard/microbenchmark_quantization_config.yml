@@ -10,9 +10,11 @@ output_dir: "benchmarks/microbenchmarks/results"
 model_params:
   - name: "small_bf16_linear"
     matrix_shapes:
-      - name: "small_sweep"
-        min_power: 10
-        max_power: 15
+      - name: "llama4"
+      - name: "deepseek_v3_236b"
+      - name: "deepseek_v3_671b"
+      - name: "qwen3_32b"
+      - name: "gemma3_27b"
     high_precision_dtype: "torch.bfloat16"
     torch_compile_mode: "max-autotune"
     device: "cuda"
