@@ -117,6 +117,13 @@ else:
     except Exception as e:
         logger.debug(f"Skipping import of cpp extensions: {e}")
 
+from torch.distributed import is_available
+if not torch.distributed.is_available():
+    logger.error(
+        "Unable to import torchao due to pytorch compiled with USE_DISTRIBUTED=0 \
+        Please see https://github.com/pytorch/ao/issues/2919 for more info"
+    )
+
 from torchao.quantization import (
     autoquant,
     quantize_,
