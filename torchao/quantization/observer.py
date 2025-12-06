@@ -130,8 +130,12 @@ class AffineQuantizedMinMaxObserver(AffineQuantizedObserverBase):
             block_size, input_detached.size()
         )
         input_detached = input_detached.view(shape_for_reduction)
-        min_val = torch.amin(input_detached, dim=reduction_dims, keepdim=False)
-        max_val = torch.amax(input_detached, dim=reduction_dims, keepdim=False)
+        if reduction_dims:
+            min_val = torch.amin(input_detached, dim=reduction_dims, keepdim=False)
+            max_val = torch.amax(input_detached, dim=reduction_dims, keepdim=False)
+        else:
+            min_val = input_detached
+            max_val = input_detached
         if not hasattr(self, "min_val") or not hasattr(self, "max_val"):
             self.min_val = min_val
             self.max_val = max_val
@@ -263,7 +267,9 @@ class AffineQuantizedMSEObserver(AffineQuantizedObserverBase):
             block_size, loss.size()
         )
         loss = loss.view(shape_for_reduction)
-        return torch.mean(loss, dim=reduction_dims, keepdim=False)
+        if reduction_dims:
+            return torch.mean(loss, dim=reduction_dims, keepdim=False)
+        return loss
 
     def loss_fn(self, x, new_min, new_max):
         block_size = get_block_size(x.shape, self.granularity)
@@ -305,8 +311,12 @@ class AffineQuantizedMSEObserver(AffineQuantizedObserverBase):
             block_size, input_detached.size()
         )
         input_detached = input_detached.view(shape_for_reduction)
-        min_val = torch.amin(input_detached, dim=reduction_dims, keepdim=False)
-        max_val = torch.amax(input_detached, dim=reduction_dims, keepdim=False)
+        if reduction_dims:
+            min_val = torch.amin(input_detached, dim=reduction_dims, keepdim=False)
+            max_val = torch.amax(input_detached, dim=reduction_dims, keepdim=False)
+        else:
+            min_val = input_detached
+            max_val = input_detached
 
         range_val = torch.max(min_val.abs(), max_val)
         optimal_loss = torch.zeros_like(min_val) + 1e9
