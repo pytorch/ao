@@ -378,3 +378,6 @@ checkpoints/
 # Experimental
 torchao/experimental/cmake-out
 torchao/experimental/deps
+
+# local claude code files
+CLAUDE.local.md
