@@ -52,7 +52,7 @@ try:
             "-O3",
             "--use_fast_math",
             "-std=c++17",
-            "-gencode=arch=compute_90,code=sm_90",
+            "-gencode=arch=compute_100,code=sm_100",
         ],
         extra_cflags=["-O3", "-std=c++17"],
         verbose=True,
@@ -101,7 +101,7 @@ def get_configs() -> List[ExperimentConfig]:
         (2048, 131072 // block_size),
     ]
     num_groups = [8]
-    versions = ["naive", "parallel", "cuda"]
+    versions = ["triton_naive", "triton_parallel", "cuda_parallel", "cuda_naive"]
 
     configs = []
     for shape, groups, version in itertools.product(
@@ -138,12 +138,18 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
     input_group_offsets = generate_jagged_offs(num_groups, Kg, multiple_of=block_size)
 
     # Select which kernel to benchmark based on version
-    if version == "naive":
+    if version == "triton_naive":
         kernel_fn = triton_mx_block_rearrange_2d_K_groups_naive
-    elif version == "parallel":
+    elif version == "triton_parallel":
         kernel_fn = triton_mx_block_rearrange_2d_K_groups
-    elif version == "cuda":
+    elif version == "cuda_parallel":
+        if mxfp8_cuda is None:
+            raise RuntimeError("CUDA kernel not available")
         kernel_fn = mxfp8_cuda.mx_block_rearrange_2d_K_groups
+    elif version == "cuda_naive":
+        if mxfp8_cuda is None:
+            raise RuntimeError("CUDA kernel not available")
+        kernel_fn = mxfp8_cuda.mx_block_rearrange_2d_K_groups_naive
     else:
         raise ValueError(f"Unknown version: {version}")
 
@@ -191,6 +197,7 @@ def print_results(experiments: List[Experiment]):
         "time_us",
         "mem_bw_gbps",
         "fastest_version",
+        "speedup_vs_triton_naive",
     ]
 
     rows = []
@@ -198,8 +205,19 @@ def print_results(experiments: List[Experiment]):
         # Find fastest version for this shape
         fastest_version = min(versions.items(), key=lambda x: x[1].time_us)[0]
 
+        # Get naive baseline time for speedup calculation
+        naive_time_us = (
+            versions.get("triton_naive").time_us if "triton_naive" in versions else None
+        )
+
         # Add rows for each version
         for version, result in versions.items():
+            # Calculate speedup vs naive
+            speedup_str = ""
+            if naive_time_us and naive_time_us > 0:
+                speedup = naive_time_us / result.time_us
+                speedup_str = f"{speedup:.2f}x"
+
             rows.append(
                 [
                     version,
@@ -207,6 +225,7 @@ def print_results(experiments: List[Experiment]):
                     f"{result.time_us:.2f}",
                     round(result.mem_bw_gbps, 3),
                     fastest_version,
+                    speedup_str,
                 ]
             )
 
