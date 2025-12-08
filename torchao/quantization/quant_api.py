@@ -98,7 +98,6 @@ from torchao.quantization.weight_tensor_linear_activation_quantization import (
     to_weight_tensor_with_linear_activation_quantization_metadata,
 )
 from torchao.utils import (
-    _ConfigDeprecationWrapper,
     is_MI300,
     is_sm_at_least_89,
     is_sm_at_least_90,
@@ -147,18 +146,7 @@ __all__ = [
     "autoquant",
     "_get_subclass_inserter",
     "quantize_",
-    "int8_dynamic_activation_int4_weight",
-    "int8_dynamic_activation_int8_weight",
-    "int8_dynamic_activation_int8_semi_sparse_weight",
-    "int4_weight_only",
-    "int8_weight_only",
     "intx_quantization_aware_training",
-    "float8_weight_only",
-    "uintx_weight_only",
-    "fpx_weight_only",
-    "gemlite_uintx_weight_only",
-    "float8_dynamic_activation_float8_weight",
-    "float8_static_activation_float8_weight",
     "Int8DynActInt4WeightQuantizer",
     "Float8DynamicActivationFloat8SemiSparseWeightConfig",
     "ModuleFqnToConfig",
@@ -478,7 +466,7 @@ def quantize_(
         # Int8DynamicActivationInt8WeightConfig (optimized with int8 mm op and torch.compile)
         # Int4WeightOnlyConfig (optimized with int4 tinygemm kernel and torch.compile)
         # Int8WeightOnlyConfig (optimized with int8 mm op and torch.compile
-        from torchao.quantization.quant_api import int4_weight_only
+        from torchao.quantization.quant_api import Int4WeightOnlyConfig
 
         m = nn.Sequential(nn.Linear(32, 1024), nn.Linear(1024, 32))
         quantize_(m, Int4WeightOnlyConfig(group_size=32, version=1))
@@ -608,12 +596,6 @@ class Int8DynamicActivationInt4WeightConfig(AOBaseConfig):
         warnings.warn(
             "`Int8DynamicActivationInt4WeightConfig` will be moving to prototype in a future release of torchao. Please see https://github.com/pytorch/ao/issues/2752 for more details."
         )
-
-
-# for BC
-int8_dynamic_activation_int4_weight = _ConfigDeprecationWrapper(
-    "int8_dynamic_activation_int4_weight", Int8DynamicActivationInt4WeightConfig
-)
 
 
 @register_quantize_module_handler(Int8DynamicActivationInt4WeightConfig)
@@ -984,12 +966,6 @@ class Int4DynamicActivationInt4WeightConfig(AOBaseConfig):
         )
 
 
-# for bc
-int4_dynamic_activation_int4_weight = _ConfigDeprecationWrapper(
-    "int4_dynamic_activation_int4_weight", Int4DynamicActivationInt4WeightConfig
-)
-
-
 @register_quantize_module_handler(Int4DynamicActivationInt4WeightConfig)
 def _int4_dynamic_activation_int4_weight_transform(
     module: torch.nn.Module, config: Int4DynamicActivationInt4WeightConfig
@@ -1048,12 +1024,6 @@ class GemliteUIntXWeightOnlyConfig(AOBaseConfig):
         warnings.warn(
             "`GemliteUIntXWeightOnlyConfig` will be moving to prototype in a future release of torchao. Please see https://github.com/pytorch/ao/issues/2752 for more details."
         )
-
-
-# for BC
-gemlite_uintx_weight_only = _ConfigDeprecationWrapper(
-    "gemlite_uintx_weight_only", GemliteUIntXWeightOnlyConfig
-)
 
 
 @register_quantize_module_handler(GemliteUIntXWeightOnlyConfig)
@@ -1131,11 +1101,6 @@ class Int4WeightOnlyConfig(AOBaseConfig):
 
     def __post_init__(self):
         torch._C._log_api_usage_once("torchao.quantization.Int4WeightOnlyConfig")
-
-
-# for BC
-# TODO maybe change other callsites
-int4_weight_only = _ConfigDeprecationWrapper("int4_weight_only", Int4WeightOnlyConfig)
 
 
 def _int4_weight_only_quantize_tensor(weight, config):
@@ -1347,10 +1312,6 @@ class Int8WeightOnlyConfig(AOBaseConfig):
             )
 
 
-# for BC
-int8_weight_only = _ConfigDeprecationWrapper("int8_weight_only", Int8WeightOnlyConfig)
-
-
 def _int8_weight_only_quantize_tensor(weight, config):
     if config.version == 1:
         warnings.warn(
@@ -1536,12 +1497,6 @@ class Int8DynamicActivationInt8WeightConfig(AOBaseConfig):
         )
 
 
-# for BC
-int8_dynamic_activation_int8_weight = _ConfigDeprecationWrapper(
-    "int8_dynamic_activation_int8_weight", Int8DynamicActivationInt8WeightConfig
-)
-
-
 def _int8_dynamic_activation_int8_weight_quantize_tensor(weight, config):
     if config.version == 1:
         layout = config.layout
@@ -1673,12 +1628,6 @@ class Float8WeightOnlyConfig(AOBaseConfig):
 
     def __post_init__(self):
         torch._C._log_api_usage_once("torchao.quantization.Float8WeightOnlyConfig")
-
-
-# for BC
-float8_weight_only = _ConfigDeprecationWrapper(
-    "float8_weight_only", Float8WeightOnlyConfig
-)
 
 
 def _float8_weight_only_quant_tensor(weight, config):
@@ -1863,12 +1812,6 @@ class Float8DynamicActivationFloat8WeightConfig(AOBaseConfig):
 
         if self.mm_config is None:
             self.mm_config = Float8MMConfig(use_fast_accum=default_use_fast_accum)
-
-
-# for bc
-float8_dynamic_activation_float8_weight = _ConfigDeprecationWrapper(
-    "float8_dynamic_activation_float8_weight", Float8DynamicActivationFloat8WeightConfig
-)
 
 
 def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
@@ -2079,12 +2022,6 @@ class Float8StaticActivationFloat8WeightConfig(AOBaseConfig):
         )
 
 
-# for bc
-float8_static_activation_float8_weight = _ConfigDeprecationWrapper(
-    "float8_static_activation_float8_weight", Float8StaticActivationFloat8WeightConfig
-)
-
-
 @register_quantize_module_handler(Float8StaticActivationFloat8WeightConfig)
 def _float8_static_activation_float8_weight_transform(
     module: torch.nn.Module, config: Float8StaticActivationFloat8WeightConfig
@@ -2168,12 +2105,6 @@ class UIntXWeightOnlyConfig(AOBaseConfig):
         warnings.warn(
             "`UIntXWeightOnlyConfig` will be moving to prototype in a future release of torchao. Please see https://github.com/pytorch/ao/issues/2752 for more details."
         )
-
-
-# for BC
-uintx_weight_only = _ConfigDeprecationWrapper(
-    "uintx_weight_only", UIntXWeightOnlyConfig
-)
 
 
 @register_quantize_module_handler(UIntXWeightOnlyConfig)
@@ -2467,10 +2398,6 @@ class FPXWeightOnlyConfig(AOBaseConfig):
         warnings.warn(
             "`FPXWeightOnlyConfig` will be moving to prototype in a future release of torchao. Please see https://github.com/pytorch/ao/issues/2752 for more details."
         )
-
-
-# for BC
-fpx_weight_only = _ConfigDeprecationWrapper("fpx_weight_only", FPXWeightOnlyConfig)
 
 
 @register_quantize_module_handler(FPXWeightOnlyConfig)
