@@ -9,8 +9,9 @@ from typing import Optional
 import torch
 import torch.nn.functional as F
 
-from torchao.quantization import Int8Tensor
-from torchao.quantization.granularity import PerRow
+from torchao.quantization.quantize_.common import (
+    _choose_quant_func_and_quantize_tensor,
+)
 
 
 class SmoothQuantStep(str, Enum):
@@ -44,7 +45,7 @@ class SmoothQuantObserver(torch.nn.Module):
         self.inputs.append(input.to("cpu"))
         return input
 
-    def calculate_qparams(self):
+    def calculate_qparams(self, weight_quant_kwargs=None):
         assert self.inputs and len(self.inputs) > 0, (
             "calibrate observer first by running model on exemplar data"
         )
@@ -68,11 +69,13 @@ class SmoothQuantObserver(torch.nn.Module):
                 w_abs_max + eps, 1 - self.alpha
             )
 
-        int8_activation = Int8Tensor.from_hp(
-            temp / smoothing_factor, granularity=PerRow()
-        )
-        # temp = Int8Tensor.from_hp(acc, PerRow())
-        return smoothing_factor, int8_activation.scale
+        if weight_quant_kwargs is not None:
+            quant_smooth_activation = _choose_quant_func_and_quantize_tensor(
+                temp / smoothing_factor, weight_quant_kwargs
+            )
+            return smoothing_factor, quant_smooth_activation.scale
+        else:
+            return smoothing_factor, None
 
 
 class SmoothQuantObservedLinear(torch.nn.Linear):
