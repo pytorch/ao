@@ -1,36 +1,54 @@
 # Quantization
 Typically quantization algorithms will have different schemes for how the activation and weights are quantized so A16W8 for instance means the activations are quantized to 16 bits wheras the weights are quantized to 8 bits. Trying out different quantization schemes in `torchao` is generally a 1 line change. Note: exact APIs are not stable, we may change them in the future.
 
-## Benchmarks
-Benchmarks and evaluation are gathered using the scripts for [generation](../_models/llama/generate.py) and [eval](../_models/llama/eval.py). Evaluation was done using the lm_eval library for tasks/data on the meta-llama/Meta-Llama-3-8B model.
+## Accuracy benchmarks
+
+All the following benchmarks are for `meta-llama/Llama-3-8.1B` using `lm-eval` measured on an H100 GPU.
+
+| weight | activation | wikitext-perplexity | winogrande | checkpoint size (GB) |
+| --------- | ------------------- | ---------- | -------------------- |
+| bfloat16 | bfloat16 | 7.3315 | 0.7380 | 16.1 |
+| float8_rowwise | float8_rowwise | 7.4197 | 0.7388 | 9.1 |
+| int8_rowwise | bfloat16 | 7.3451 | 0.7340 | 9.1 |
+| int8_rowwise | int8_rowwise | 7.4535 | 0.7285 | 9.1 |
+
+To reproduce, run the following command:
+
+```bash
+./benchmarks/quantization/eval_accuracy_for_readme.sh
+```
+
+## Performance benchmarks
+
+Benchmarks are gathered using the scripts for [generation](../_models/llama/generate.py).
 
 ### CUDA backend |  NVIDIA-A100-80GB GPU
-| Model       | Technique               | wikitext-perplexity | Tokens/Second | Memory Bandwidth (GB/s) | Peak Memory (GB) | Model Size (GB) |
-| ----------- | ----------------------- | ------------------- | ------------- | ----------------------- | ---------------- | --------------- |
-| Llama-3-8B  | Base (bfloat16)         |  7.441              |   95.64       | 1435.54                 | 16.43            | 15.01           |
-|             | int8dq                  |  7.581              |    8.61       |   64.75                 |  9.24            |  7.52           |
-|             | int8wo                  |  7.447              |  153.03       | 1150.80                 | 10.42            |  7.52           |
-|             | fp6                     |  7.661              |  161.58       |  910.02                 |  7.72            |  5.63           |
-|             | int4wo-64               |  8.316              |  180.80       |  763.33                 |  6.88            |  4.22           |
-|             | int4wo-64-GPTQ          |  7.921              |  180.80       |  763.33                 |  6.88            |  4.22           |
-|             | autoquant-int4hqq       |  8.110              |  188.41       |  800.58                 |  7.14            |  4.25           |
+| Model       | Technique               | Tokens/Second | Memory Bandwidth (GB/s) | Peak Memory (GB) |
+| ----------- | ----------------------- | ------------- | ----------------------- | ---------------- |
+| Llama-3-8B  | Base (bfloat16)         |   95.64       | 1435.54                 | 16.43            |
+|             | int8dq                  |    8.61       |   64.75                 |  9.24            |
+|             | int8wo                  |  153.03       | 1150.80                 | 10.42            |
+|             | fp6                     |  161.58       |  910.02                 |  7.72            |
+|             | int4wo-64               |  180.80       |  763.33                 |  6.88            |
+|             | int4wo-64-GPTQ          |  180.80       |  763.33                 |  6.88            |
+|             | autoquant-int4hqq       |  188.41       |  800.58                 |  7.14            |
 
 ### CUDA backend | NVIDIA-H100 GPU
-| Model         | Technique               | wikitext-perplexity | Tokens/Second | Memory Bandwidth (GB/s) | Peak Memory (GB) | Model Size (GB) |
-| -----------   | ----------------------- | ------------------- | ------------- | ----------------------- | ---------------- | --------------- |
-| Llama-3.1-8B  | Base (bfloat16)         |  7.54               |  126.90       | 1904.75                 | 16.75            | 15.01           |
-|               | int8wo                  |  7.56               |  198.85       | 1495.41                 | 11.05            |  7.52           |
-|               | int4wo-64               |  8.44               |  241.39       | 1019.14                 |  7.08            |  4.22           |
-|               | float8wo                |  7.60               |  178.46       | 1339.93                 | 12.09            |  7.51           |
-|               | float8dq (PerTensor)    |  7.62               |  116.40       |  873.58                 | 11.14            |  7.51           |
-|               | float8dq (Per Row)      |  7.61               |  154.63       | 1161.47                 | 11.14            |  7.51           |
+| Model         | Technique               | Tokens/Second | Memory Bandwidth (GB/s) | Peak Memory (GB) |
+| -----------   | ----------------------- | ------------- | ----------------------- | ---------------- |
+| Llama-3.1-8B  | Base (bfloat16)         |  126.90       | 1904.75                 | 16.75            |
+|               | int8wo                  |  198.85       | 1495.41                 | 11.05            |
+|               | int4wo-64               |  241.39       | 1019.14                 |  7.08            |
+|               | float8wo                |  178.46       | 1339.93                 | 12.09            |
+|               | float8dq (PerTensor)    |  116.40       |  873.58                 | 11.14            |
+|               | float8dq (Per Row)      |  154.63       | 1161.47                 | 11.14            |
 
 ### XPU backend | Intel-Max1100
-| Model         | Technique               | wikitext-perplexity | Tokens/Second | Memory Bandwidth (GB/s) | Peak Memory (GB) | Model Size (GB) |
-| -----------   | ----------------------- | ------------------- | ------------- | ----------------------- | ---------------- | --------------- |
-| Llama-3-8.1B  | Base (bfloat16)         |  7.441              |   40.36       | 605.77                 | 16.35            | 15.01           |
-|             | int8dq                  |  7.581              |    13.60       |   102.28                 |  18.69            |  7.52           |
-|             | int8wo                  |  7.447              |  59.49       | 447.27                 | 18.60            |  7.52
+| Model         | Technique               | Tokens/Second | Memory Bandwidth (GB/s) | Peak Memory (GB) |
+| -----------   | ----------------------- | ------------- | ----------------------- | ---------------- |
+| Llama-3-8.1B  | Base (bfloat16)         |   40.36       | 605.77                 | 16.35            |
+|             | int8dq                  |    13.60       |   102.28                 |  18.69            |
+|             | int8wo                  |  59.49       | 447.27                 | 18.60            |
 
 
 Benchmarks and evaluation for model meta-llama/Meta-Llama-3.1-8B are gathered using [generation](../_models/llama/generate.py) and [eval](../_models/llama/eval.py). Evaluation was done using the lm_eval library for tasks/data.
