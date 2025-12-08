@@ -11,10 +11,13 @@ import torch
 
 from torchao.quantization.quant_primitives import (
     MappingType,
+    _choose_qparams_and_quantize_affine_hqq,
     choose_qparams_affine,
     quantize_affine,
 )
 from torchao.utils import TorchAOBaseTensor, torch_version_at_least
+
+from .int4_choose_qparams_algorithm import Int4ChooseQParamsAlgorithm
 
 __all__ = [
     "Int4PlainInt32Tensor",
@@ -88,11 +91,12 @@ class Int4PlainInt32Tensor(TorchAOBaseTensor):
         cls,
         w: torch.Tensor,
         block_size: List[int],
+        int4_choose_qparams_algorithm: Int4ChooseQParamsAlgorithm = Int4ChooseQParamsAlgorithm.TINYGEMM,
     ):
         if w.device.type == "xpu":
-            return _from_hp_xpu(cls, w, block_size)
+            return _from_hp_xpu(cls, w, block_size, int4_choose_qparams_algorithm)
         elif w.device.type == "npu":
-            return _from_hp_npu(cls, w, block_size)
+            return _from_hp_npu(cls, w, block_size, int4_choose_qparams_algorithm)
         else:
             raise NotImplementedError(
                 f"Int4PlainInt32Tensor does not support device '{w.device.type}' yet."
@@ -103,6 +107,7 @@ def _from_hp_xpu(
     cls,
     w: torch.Tensor,
     block_size: List[int],
+    int4_choose_qparams_algorithm: Int4ChooseQParamsAlgorithm = Int4ChooseQParamsAlgorithm.TINYGEMM,
 ):
     assert w.ndim == 2 and w.device.type == "xpu", (
         f"Expecting 2D tensor on XPU, but got: {w.shape} on {w.device.type}"
@@ -112,33 +117,60 @@ def _from_hp_xpu(
         f"Expecting float16 or bfloat16 weight tensor, but got: {w.dtype}"
     )
     original_shape = w.shape
-    mapping_type = MappingType.ASYMMETRIC
     target_dtype = torch.int32
     quant_min = 0
     quant_max = 15
-    eps = 1e-6
-    scale_dtype = None
-    zero_point_dtype = torch.int32
-    scale, zero_point = choose_qparams_affine(
-        w,
-        mapping_type,
-        block_size,
-        target_dtype,
-        quant_min,
-        quant_max,
-        eps,
-        scale_dtype,
-        zero_point_dtype,
-    )
-    int_data = quantize_affine(
-        w,
-        block_size,
-        scale,
-        zero_point,
-        target_dtype,
-        quant_min,
-        quant_max,
-    )
+
+    # 1. use HQQ (Half-Quadratic Quantization) algorithm to compute
+    #    scale and zero_point, then convert to the format that's compatible with XPU kernels
+    if int4_choose_qparams_algorithm == Int4ChooseQParamsAlgorithm.HQQ:
+        import math
+
+        nbits = int(math.log2(quant_max + 1))
+        axis = 1
+        group_size = block_size[-1]
+        compute_dtype = w.dtype
+        device = str(w.device)
+        int_data, scale, zero_point, _ = _choose_qparams_and_quantize_affine_hqq(
+            w,
+            nbits=nbits,
+            group_size=group_size,
+            axis=axis,
+            compute_dtype=compute_dtype,
+            device=device,
+            verbose=False,
+            raw_output=False,
+        )
+        int_data = int_data.to(target_dtype)
+    # 2. don't use HQQ, use default choose_qparams_affine algorithm to compute scale and zero_point
+    else:
+        assert int4_choose_qparams_algorithm == Int4ChooseQParamsAlgorithm.TINYGEMM, (
+            f"Unsupported Int4ChooseQParamsAlgorithm: {int4_choose_qparams_algorithm}"
+        )
+        mapping_type = MappingType.ASYMMETRIC
+        eps = 1e-6
+        scale_dtype = None
+        zero_point_dtype = torch.int32
+        scale, zero_point = choose_qparams_affine(
+            w,
+            mapping_type,
+            block_size,
+            target_dtype,
+            quant_min,
+            quant_max,
+            eps,
+            scale_dtype,
+            zero_point_dtype,
+        )
+        int_data = quantize_affine(
+            w,
+            block_size,
+            scale,
+            zero_point,
+            target_dtype,
+            quant_min,
+            quant_max,
+        )
     assert int_data.dtype == torch.int32, (
         "torch.ops.aten._convert_weight_to_int4pack expects `int32` dtype"
     )
@@ -162,6 +194,7 @@ def _from_hp_npu(
     cls,
     w: torch.Tensor,
     block_size: List[int],
+    int4_choose_qparams_algorithm: Int4ChooseQParamsAlgorithm = Int4ChooseQParamsAlgorithm.TINYGEMM,
 ):
     assert (
         torch.accelerator.is_available()
@@ -189,35 +222,61 @@ def _from_hp_npu(
     )
 
     original_shape = w.shape
-    mapping_type = MappingType.ASYMMETRIC
     target_dtype = torch.int32
     quant_min = -8
     quant_max = 7
-    eps = 1e-6
-    scale_dtype = w.dtype
-    zero_point_dtype = w.dtype
 
-    scale, zero_point = choose_qparams_affine(
-        w,
-        mapping_type,
-        block_size,
-        target_dtype,
-        quant_min,
-        quant_max,
-        eps,
-        scale_dtype,
-        zero_point_dtype,
-    )
+    # 1. use HQQ (Half-Quadratic Quantization) algorithm to compute
+    #    scale and zero_point, then convert to the format that's compatible with XPU kernels
+    if int4_choose_qparams_algorithm == Int4ChooseQParamsAlgorithm.HQQ:
+        import math
 
-    int_data = quantize_affine(
-        w,
-        block_size,
-        scale,
-        zero_point,
-        target_dtype,
-        quant_min,
-        quant_max,
-    )
+        nbits = int(math.log2(quant_max - quant_min + 1))
+        axis = 1
+        compute_dtype = w.dtype
+        device = str(w.device)
+        int_data, scale, zero_point, _ = _choose_qparams_and_quantize_affine_hqq(
+            w,
+            nbits=nbits,
+            group_size=group_size,
+            axis=axis,
+            compute_dtype=compute_dtype,
+            device=device,
+            verbose=False,
+            raw_output=False,
+        )
+        int_data = int_data.to(target_dtype)
+    else:
+        assert int4_choose_qparams_algorithm == Int4ChooseQParamsAlgorithm.TINYGEMM, (
+            f"Unsupported Int4ChooseQParamsAlgorithm: {int4_choose_qparams_algorithm}"
+        )
+        # 2. don't use HQQ, use default choose_qparams_affine algorithm to compute scale and zero_point
+        mapping_type = MappingType.ASYMMETRIC
+        eps = 1e-6
+        scale_dtype = w.dtype
+        zero_point_dtype = w.dtype
+
+        scale, zero_point = choose_qparams_affine(
+            w,
+            mapping_type,
+            block_size,
+            target_dtype,
+            quant_min,
+            quant_max,
+            eps,
+            scale_dtype,
+            zero_point_dtype,
+        )
+
+        int_data = quantize_affine(
+            w,
+            block_size,
+            scale,
+            zero_point,
+            target_dtype,
+            quant_min,
+            quant_max,
+        )
 
     assert int_data.dtype == torch.int32, (
         "torch.ops.npu.npu_convert_weight_to_int4pack expects `int32` dtype"
