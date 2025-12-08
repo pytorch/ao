@@ -86,6 +86,7 @@ class TestSmoothQuant(unittest.TestCase):
         "base_config",
         [
             Int8DynamicActivationInt8WeightConfig(version=2),
+            # TODO: not sure if we should allow not passing scales as part of static config?
             Int8StaticActivationInt8WeightConfig(granularity=PerRow()),
             Int8StaticActivationInt8WeightConfig(granularity=PerTensor()),
             # Note: float8_static_activation_float8_weight is broken after recent PyTorch update.
