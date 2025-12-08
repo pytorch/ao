@@ -1,7 +1,6 @@
 # Llama Benchmarks
 
-> [! WARNING]
-> These benchmarks are deprecated.
+> :warning: **Warning:** These benchmarks are deprecated.
 
 The llama folder contains code/scripts for stable benchmarking llama models.
 
