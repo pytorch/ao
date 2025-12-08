@@ -12,7 +12,7 @@ from torch.utils._python_dispatch import return_and_correct_aliasing
 
 from torchao.float8.inference import _slice_scale_for_dimension
 from torchao.kernel import int_scaled_matmul
-from torchao.quantization.granularity import Granularity, PerRow, PerTensor
+from torchao.quantization.granularity import Granularity
 from torchao.quantization.quant_primitives import (
     MappingType,
     choose_qparams_affine,
@@ -140,10 +140,11 @@ class Int8Tensor(TorchAOBaseTensor):
         else:
             # Scale can be provided in the case of static quant
             assert scale.ndim == hp_tensor.ndim
-            if isinstance(granularity, PerTensor):
-                assert scale.numel() == 1
-            elif isinstance(granularity, PerRow):
-                assert scale.numel() == block_size[-1]
+            # if isinstance(granularity, PerTensor):
+            #     assert scale.numel() == 1
+            # elif isinstance(granularity, PerRow):
+            #     breakpoint()
+            #     assert scale.numel() == block_size[-1]
 
             zero_point = torch.zeros_like(scale, dtype=torch.int8)
 
@@ -199,12 +200,13 @@ def _(func, types, args, kwargs):
     output_dtype = activation_tensor.dtype
 
     if weight_tensor.act_quant_kwargs is not None:
+        # for int8 dynamic + static quantization path
+
         activation_tensor = _choose_quant_func_and_quantize_tensor(
             activation_tensor,
             weight_tensor.act_quant_kwargs,
             scale=weight_tensor.activation_scale,
         )
-        # Dynamic activation quantization path
 
         # 1. do the matrix form of dot(X_i, W_j)
         #

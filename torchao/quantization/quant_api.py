@@ -1658,7 +1658,7 @@ class Int8StaticActivationInt8WeightConfig(AOBaseConfig):
         set_inductor_config (bool): if True, adjusts `torchinductor` settings to recommended values.
     """
 
-    scale: torch.Tensor
+    scale: torch.Tensor = None
     granularity: Granularity = PerRow()
     act_mapping_type: Optional[MappingType] = MappingType.SYMMETRIC
     set_inductor_config: bool = True

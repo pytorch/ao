@@ -9,6 +9,9 @@ from typing import Optional
 import torch
 import torch.nn.functional as F
 
+from torchao.quantization import Int8Tensor
+from torchao.quantization.granularity import PerRow
+
 
 class SmoothQuantStep(str, Enum):
     PREPARE = "prepare"
@@ -48,6 +51,7 @@ class SmoothQuantObserver(torch.nn.Module):
         inputs = [inp.to(self.device) for inp in self.inputs]
         acc = torch.cat(inputs, dim=0)
         # Reshape if needed: [batch, seq, features] -> [batch*seq, features]
+        temp = acc
         if acc.ndim > 2:
             acc = acc.view(-1, acc.shape[-1])
 
@@ -57,12 +61,18 @@ class SmoothQuantObserver(torch.nn.Module):
 
         # Calculate smoothing factor
         if self.alpha is None:
-            return torch.ones_like(x_abs_max)
+            smoothing_factor = torch.ones_like(x_abs_max)
+        else:
+            eps = torch.finfo(torch.float32).eps
+            smoothing_factor = torch.pow(x_abs_max + eps, self.alpha) / torch.pow(
+                w_abs_max + eps, 1 - self.alpha
+            )
 
-        eps = torch.finfo(torch.float32).eps
-        return torch.pow(x_abs_max + eps, self.alpha) / torch.pow(
-            w_abs_max + eps, 1 - self.alpha
+        int8_activation = Int8Tensor.from_hp(
+            temp / smoothing_factor, granularity=PerRow()
         )
+        # temp = Int8Tensor.from_hp(acc, PerRow())
+        return smoothing_factor, int8_activation.scale
 
 
 class SmoothQuantObservedLinear(torch.nn.Linear):
