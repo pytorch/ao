@@ -1,0 +1,2154 @@
+
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
+<meta property="og:title" content="Writing Your Own Quantized Tensor" />
+<meta property="og:type" content="website" />
+<meta property="og:url" content="http://pytorch.org/subclass_basic.html" />
+<meta property="og:site_name" content="torchao" />
+<meta property="og:description" content="Quantization in torchao is built on the foundation of tensor subclasses. They are the main extension point for torchao to provide flexible inference and training support using low precision computa..." />
+<meta property="og:image" content="https://pytorch.org/assets/images/social-share.jpg" />
+<meta property="og:image:alt" content="torchao" />
+<meta name="description" content="Quantization in torchao is built on the foundation of tensor subclasses. They are the main extension point for torchao to provide flexible inference and training support using low precision computa..." />
+
+    <title>Writing Your Own Quantized Tensor &#8212; torchao 0.15 documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="_static/styles/theme.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
+<link href="_static/styles/bootstrap.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
+<link href="_static/styles/pydata-sphinx-theme.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
+
+  
+  <link href="_static/vendor/fontawesome/6.5.2/css/all.min.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
+  <link rel="preload" as="font" type="font/woff2" crossorigin href="_static/vendor/fontawesome/6.5.2/webfonts/fa-solid-900.woff2" />
+<link rel="preload" as="font" type="font/woff2" crossorigin href="_static/vendor/fontawesome/6.5.2/webfonts/fa-brands-400.woff2" />
+<link rel="preload" as="font" type="font/woff2" crossorigin href="_static/vendor/fontawesome/6.5.2/webfonts/fa-regular-400.woff2" />
+
+    <link rel="stylesheet" type="text/css" href="_static/pygments.css" />
+    <link rel="stylesheet" type="text/css" href="_static/css/theme.css" />
+    <link rel="stylesheet" type="text/css" href="_static/copybutton.css" />
+    <link rel="stylesheet" type="text/css" href="_static/tabs.css" />
+    <link rel="stylesheet" type="text/css" href="_static/design-style.1e8bd061cd6da7fc9cf755528e8ffc24.min.css" />
+    <link rel="stylesheet" type="text/css" href="_static/sg_gallery.css" />
+    <link rel="stylesheet" type="text/css" href="_static/sg_gallery-binder.css" />
+    <link rel="stylesheet" type="text/css" href="_static/sg_gallery-dataframe.css" />
+    <link rel="stylesheet" type="text/css" href="_static/sg_gallery-rendered-html.css" />
+    <link rel="stylesheet" type="text/css" href="_static/css/custom.css" />
+  
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="_static/scripts/bootstrap.js?digest=dfe6caa3a7d634c4db9b" />
+<link rel="preload" as="script" href="_static/scripts/pydata-sphinx-theme.js?digest=dfe6caa3a7d634c4db9b" />
+  <script src="_static/vendor/fontawesome/6.5.2/js/all.min.js?digest=dfe6caa3a7d634c4db9b"></script>
+
+    <script data-url_root="./" id="documentation_options" src="_static/documentation_options.js"></script>
+    <script src="_static/jquery.js"></script>
+    <script src="_static/underscore.js"></script>
+    <script src="_static/_sphinx_javascript_frameworks_compat.js"></script>
+    <script src="_static/doctools.js"></script>
+    <script src="_static/sphinx_highlight.js"></script>
+    <script src="_static/clipboard.min.js"></script>
+    <script src="_static/copybutton.js"></script>
+    <script src="_static/design-tabs.js"></script>
+    <link rel="canonical" href="https://pytorch.org/ao/subclass_basic.html" />
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Writing Your Own Quantized Tensor (advanced)" href="subclass_advanced.html" />
+    <link rel="prev" title="Static Quantization" href="static_quantization.html" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/list.js/2.3.1/list.min.js"></script>
+<script>
+  if (window.location.hostname === 'docs.pytorch.org' || window.location.hostname === 'docs-preview.pytorch.org') {
+    const script = document.createElement('script');
+    script.src = 'https://cmp.osano.com/16A0DbT9yDNIaQkvZ/31b1b91a-e0b6-47ea-bde2-7f2bd13dbe5c/osano.js?variant=one';
+    document.head.appendChild(script);
+  }
+</script>
+<script>
+  // Cookie banner for non-LF projects
+  document.addEventListener('DOMContentLoaded', function () {
+    // Hide cookie banner on local environments and LF owned docs
+    if (window.location.hostname === 'localhost' ||
+      window.location.hostname === '0.0.0.0' ||
+      window.location.hostname === '127.0.0.1' ||
+      window.location.hostname === 'docs.pytorch.org' ||
+      window.location.hostname === 'docs-preview.pytorch.org' ||
+      window.location.hostname.startsWith('192.168.')) {
+      const banner = document.querySelector('.cookie-banner-wrapper');
+      if (banner) {
+        banner.style.display = 'none';
+      }
+    }
+  });
+</script>
+<!-- Conditional CSS for header and footer height adjustment -->
+
+
+<link rel="stylesheet" type="text/css" href="_static/css/theme.css" crossorigin="anonymous">
+<script type="text/javascript" src="_static/js/theme.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400&display=swap" rel="stylesheet">
+<meta property="og:image" content="https://docs.pytorch.org/docs/stable/_static/img/pytorch_seo.png" />
+<link rel="stylesheet" href="_static/webfonts/all.min.css" crossorigin="anonymous">
+<meta http-equiv="Content-Security-Policy"
+  content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:; style-src * 'unsafe-inline'; script-src * 'unsafe-inline' 'unsafe-eval' blob:;">
+<meta name="pytorch_project" content="">
+<!-- Google Tag Manager (noscript) -->
+<noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-T8XT4PS" height="0" width="0"
+    style="display:none;visibility:hidden"></iframe></noscript>
+<!-- End Google Tag Manager (noscript) -->
+<!-- Google Tag Manager -->
+<script>(function (w, d, s, l, i) {
+    w[l] = w[l] || []; w[l].push({
+      'gtm.start':
+        new Date().getTime(), event: 'gtm.js'
+    }); var f = d.getElementsByTagName(s)[0],
+      j = d.createElement(s), dl = l != 'dataLayer' ? '&l=' + l : ''; j.async = true; j.src =
+        'https://www.googletagmanager.com/gtm.js?id=' + i + dl; f.parentNode.insertBefore(j, f);
+    j.onload = function () {
+      window.dispatchEvent(new Event('gtm_loaded'));
+      console.log('GTM loaded successfully');
+    };
+  })(window, document, 'script', 'dataLayer', 'GTM-T8XT4PS');
+</script>
+<!-- End Google Tag Manager -->
+<!-- Facebook Pixel Code -->
+<script>
+  !function (f, b, e, v, n, t, s) {
+    if (f.fbq) return; n = f.fbq = function () {
+      n.callMethod ?
+        n.callMethod.apply(n, arguments) : n.queue.push(arguments)
+    };
+    if (!f._fbq) f._fbq = n; n.push = n; n.loaded = !0; n.version = '2.0';
+    n.queue = []; t = b.createElement(e); t.async = !0;
+    t.src = v; s = b.getElementsByTagName(e)[0];
+    s.parentNode.insertBefore(t, s)
+  }(window, document, 'script',
+    'https://connect.facebook.net/en_US/fbevents.js');
+  fbq('init', '243028289693773');
+  fbq('track', 'PageView');
+</script>
+<script>
+  document.documentElement.setAttribute('data-version', '0.15');
+</script>
+<noscript>
+  <img height="1" width="1" src="https://www.facebook.com/tr?id=243028289693773&ev=PageView&noscript=1" />
+</noscript>
+<script>
+  function gtag() {
+    window.dataLayer.push(arguments);
+  }
+</script>
+<!-- End Facebook Pixel Code -->
+<!-- Repository configuration for tutorials -->
+
+<!-- Script to Fix scrolling -->
+<script>
+  document.addEventListener('DOMContentLoaded', function () {
+    // Fix anchor scrolling
+    document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+      anchor.addEventListener('click', function (e) {
+        e.preventDefault();
+        const targetId = this.getAttribute('href').substring(1);
+        const targetElement = document.getElementById(targetId);
+
+        if (targetElement) {
+          const headerHeight =
+            (document.querySelector('.header-holder') ? document.querySelector('.header-holder').offsetHeight : 0) +
+            (document.querySelector('.bd-header') ? document.querySelector('.bd-header').offsetHeight : 0) + 20;
+
+          const targetPosition = targetElement.getBoundingClientRect().top + window.pageYOffset - headerHeight;
+          window.scrollTo({
+            top: targetPosition,
+            behavior: 'smooth'
+          });
+
+          // Update URL hash without scrolling
+          history.pushState(null, null, '#' + targetId);
+        }
+      });
+    });
+  });
+</script>
+
+<script async src="https://cse.google.com/cse.js?cx=e65585f8c3ea1440e"></script>
+
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+
+  </head>
+
+<body data-feedback-url="" class="pytorch-body">
+  
+    <div class="container-fluid header-holder tutorials-header" id="header-holder">
+   <div class="header-container-wrapper">
+    <div class="header-container">
+      <a class="header-logo" href="https://pytorch.org/" aria-label="PyTorch"></a>
+
+      <div class="main-menu">
+        <ul>
+
+          <li class="main-menu-item">
+          <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
+              <a class="with-down-arrow">
+                <span>Learn</span>
+              </a>
+              <div class="resources-dropdown-menu">
+                <a class="nav-dropdown-item" href="https://pytorch.org/get-started/locally">
+                  <span class=dropdown-title>Get Started</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://docs.pytorch.org/tutorials">
+                  <span class="dropdown-title">Tutorials</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/tutorials/beginner/basics/intro.html">
+                  <span class="dropdown-title">Learn the Basics</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/tutorials/recipes/recipes_index.html">
+                  <span class="dropdown-title">PyTorch Recipes</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/tutorials/beginner/introyt.html">
+                  <span class="dropdown-title">Intro to PyTorch - YouTube Series</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/webinars/">
+                  <span class="dropdown-title">Webinars</span>
+                </a>
+              </div>
+            </div>
+          </li>
+
+          <li class="main-menu-item">
+          <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
+              <a class="with-down-arrow">
+              <span>Community</span>
+              </a>
+              <div class="resources-dropdown-menu">
+                <a class="nav-dropdown-item" href="https://landscape.pytorch.org/" target="_blank">
+                  <span class="dropdown-title">Landscape</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/join-ecosystem">
+                  <span class="dropdown-title">Join the Ecosystem</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/community-hub/">
+                  <span class="dropdown-title">Community Hub</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://discuss.pytorch.org/">
+                  <span class="dropdown-title">Forums</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/resources">
+                  <span class=dropdown-title>Developer Resources</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/contributor-awards/">
+                  <span class="dropdown-title">Contributor Awards</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/community-events/">
+                  <span class="dropdown-title">Community Events</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/programs/ambassadors/">
+                  <span class="dropdown-title">PyTorch Ambassadors</span>
+                </a>
+              </div>
+            </div>
+          </li>
+
+          <li class="main-menu-item">
+          <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
+              <a class="with-down-arrow">
+              <span>Projects</span>
+              </a>
+              <div class="resources-dropdown-menu">
+                <a class="nav-dropdown-item" href="https://pytorch.org/projects/pytorch/">
+                  <span class="dropdown-title">PyTorch</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/projects/vllm/">
+                  <span class="dropdown-title">vLLM</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/projects/deepspeed/">
+                  <span class="dropdown-title">DeepSpeed</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/projects/host-your-project/">
+                  <span class="dropdown-title">Host Your Project</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/projects/ray/">
+                  <span class="dropdown-title">RAY</span>
+                </a>
+              </div>
+            </div>
+          </li>
+
+          <li class="main-menu-item">
+            <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
+              <a class="with-down-arrow">
+              <span> Docs</span>
+              </a>
+              <div class="resources-dropdown-menu">
+                <a class="nav-dropdown-item" href="https://docs.pytorch.org/docs/stable/index.html">
+                  <span class="dropdown-title">PyTorch</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/domains">
+                  <span class="dropdown-title">Domains</span>
+                </a>
+              </div>
+            </div>
+          </li>
+
+          <li class="main-menu-item">
+            <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
+              <a class="with-down-arrow">
+              <span>Blogs & News</span>
+              </a>
+              <div class="resources-dropdown-menu">
+                <a class="nav-dropdown-item" href="https://pytorch.org/blog/">
+                  <span class="dropdown-title">Blog</span>
+                </a>
+                 <a class="nav-dropdown-item" href="https://pytorch.org/announcements">
+                  <span class="dropdown-title">Announcements</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/case-studies/">
+                  <span class="dropdown-title">Case Studies</span>
+                <a class="nav-dropdown-item" href="https://pytorch.org/events">
+                  <span class="dropdown-title">Events</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/newsletter">
+                  <span class="dropdown-title">Newsletter</span>
+                </a>
+            </div>
+          </li>
+
+          <li class="main-menu-item">
+            <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
+              <a class="with-down-arrow">
+              <span>About</span>
+              </a>
+              <div class="resources-dropdown-menu">
+                <a class="nav-dropdown-item" href="https://pytorch.org/foundation">
+                  <span class="dropdown-title">PyTorch Foundation</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/members">
+                  <span class="dropdown-title">Members</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/governing-board">
+                  <span class="dropdown-title">Governing Board</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/tac">
+                  <span class="dropdown-title">Technical Advisory Council</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/credits">
+                  <span class="dropdown-title">Cloud Credit Program</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/staff">
+                  <span class="dropdown-title">Staff</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/contact">
+                  <span class="dropdown-title">Contact</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/wp-content/uploads/2025/09/pytorch_brand_guide_091925a.pdf">
+                  <span class="dropdown-title">Brand Guidelines</span>
+                </a>
+              </div>
+            </div>
+          </li>
+
+          <li class="main-menu-item">
+            <div class="no-dropdown main-menu-button">
+              <a href="https://pytorch.org/join" data-cta="join">
+                JOIN
+              </a>
+            </div>
+          </li>
+        </ul>
+      </div>
+
+      <a class="main-menu-open-button" href="#" data-behavior="open-mobile-menu">
+        <i class="fa-solid fa-ellipsis"></i>
+      </a>
+    </div>
+  </div>
+ </div>
+
+ <!-- Begin Mobile Menu -->
+
+<div class="mobile-main-menu">
+  <div class="container-fluid">
+    <div class="header-container-wrapper">
+      <div class="mobile-main-menu-header-container">
+        <a class="main-menu-close-button" href="#" data-behavior="close-mobile-menu">
+        </a>
+      </div>
+    </div>
+  </div>
+
+  <div class="mobile-main-menu-links-container">
+    <div class="main-menu">
+      <ul>
+         <li class="resources-mobile-menu-title">
+           <a>Learn</a>
+         </li>
+         <ul class="resources-mobile-menu-items">
+           <li>
+             <a href="https://pytorch.org/get-started/locally">Get Started</a>
+           </li>
+           <li>
+             <a href="https://docs.pytorch.org/tutorials">Tutorials</a>
+           </li>
+           <li>
+             <a href="https://pytorch.org/tutorials/beginner/basics/intro.html">Learn the Basics</a>
+           </li>
+           <li>
+             <a href="https://pytorch.org/tutorials/recipes/recipes_index.html">PyTorch Recipes</a>
+           </li>
+           <li>
+             <a href="https://pytorch.org/tutorials/beginner/introyt.html">Introduction to PyTorch - YouTube Series</a>
+           </li>
+           <li>
+            <a href="https://pytorch.org/webinars/">Webinars</a>
+          </li>
+        </ul>
+         <li class="resources-mobile-menu-title">
+           <a>Community</a>
+         </li>
+         <ul class="resources-mobile-menu-items">
+          <li>
+            <a href="https://landscape.pytorch.org/">Landscape</a>
+          </li>
+          <li>
+             <a href="https://pytorch.org/join-ecosystem">Join the Ecosystem</a>
+           </li>
+           <li>
+             <a href="https://pytorch.org/community-hub/">Community Hub</a>
+           </li>
+           <li>
+             <a href="https://discuss.pytorch.org/">Forums</a>
+           </li>
+           <li>
+             <a href="https://pytorch.org/resources">Developer Resources</a>
+           </li>
+           <li>
+             <a href="https://pytorch.org/contributor-awards/">Contributor Awards</a>
+           </li>
+           <li>
+            <a href="https://pytorch.org/community-events/">Community Events</a>
+          </li>
+          <li>
+            <a href="https://pytorch.org/programs/ambassadors/">PyTorch Ambassadors</a>
+          </li>
+       </ul>
+
+         <li class="resources-mobile-menu-title">
+           <a>Projects</a>
+         </li>
+
+         <ul class="resources-mobile-menu-items">
+           <li>
+             <a href="https://pytorch.org/projects/pytorch/">PyTorch</a>
+           </li>
+
+           <li>
+             <a href="https://pytorch.org/projects/vllm/">vLLM</a>
+           </li>
+           <li>
+            <a href="https://pytorch.org/projects/deepspeed/">DeepSpeed</a>
+          </li>
+          <li>
+             <a href="https://pytorch.org/projects/host-your-project/">Host Your Project</a>
+           </li>
+         </ul>
+
+         <li class="resources-mobile-menu-title">
+           <a>Docs</a>
+         </li>
+
+         <ul class="resources-mobile-menu-items">
+          <li>
+            <a href="https://docs.pytorch.org/docs/stable/index.html">PyTorch</a>
+          </li>
+
+          <li>
+            <a href="https://pytorch.org/domains">Domains</a>
+          </li>
+        </ul>
+
+        <li class="resources-mobile-menu-title">
+          <a>Blog & News</a>
+        </li>
+
+         <ul class="resources-mobile-menu-items">
+          <li>
+            <a href="https://pytorch.org/blog/">Blog</a>
+          </li>
+          <li>
+            <a href="https://pytorch.org/announcements">Announcements</a>
+          </li>
+
+          <li>
+            <a href="https://pytorch.org/case-studies/">Case Studies</a>
+          </li>
+          <li>
+            <a href="https://pytorch.org/events">Events</a>
+          </li>
+          <li>
+             <a href="https://pytorch.org/newsletter">Newsletter</a>
+           </li>
+        </ul>
+
+        <li class="resources-mobile-menu-title">
+          <a>About</a>
+        </li>
+
+        <ul class="resources-mobile-menu-items">
+          <li>
+            <a href="https://pytorch.org/foundation">PyTorch Foundation</a>
+          </li>
+          <li>
+            <a href="https://pytorch.org/members">Members</a>
+          </li>
+          <li>
+            <a href="https://pytorch.org/governing-board">Governing Board</a>
+          </li>
+          <li>
+            <a href="https://pytorch.org/tac">Technical Advisory Council</a>
+         </li>
+         <li>
+             <a href="https://pytorch.org/credits">Cloud Credit Program</a>
+          </li>
+          <li>
+             <a href="https://pytorch.org/staff">Staff</a>
+          </li>
+          <li>
+             <a href="https://pytorch.org/contact">Contact</a>
+          </li>
+        </ul>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- End Mobile Menu -->
+  
+  
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <input type="checkbox"
+          class="sidebar-toggle"
+          id="pst-primary-sidebar-checkbox"/>
+  <label class="overlay overlay-primary" for="pst-primary-sidebar-checkbox"></label>
+  
+  <input type="checkbox"
+          class="sidebar-toggle"
+          id="pst-secondary-sidebar-checkbox"/>
+  <label class="overlay overlay-secondary" for="pst-secondary-sidebar-checkbox"></label>
+  
+  <div class="search-button__wrapper">
+    <div class="search-button__overlay"></div>
+    <div class="search-button__search-container">
+<form class="bd-search d-flex align-items-center"
+      action="search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         id="search-input"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form></div>
+  </div>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+  <a href="index.html" class="version">0.15</a>
+</div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="quick_start.html">
+    Quick Start Guide
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="quantization_overview.html">
+    Quantization Overview
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="contributor_guide.html">
+    Contributor Guide
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="sparsity.html">
+    Sparsity Overview
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="benchmarking_api_guide.html">
+    Benchmarking API Guide
+  </a>
+</li>
+
+            <li class="nav-item dropdown">
+                <button class="btn dropdown-toggle nav-item" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-controls="pst-nav-more-links">
+                    More
+                </button>
+                <ul id="pst-nav-more-links" class="dropdown-menu">
+                    
+<li class=" ">
+  <a class="nav-link dropdown-item nav-internal" href="benchmarking_user_guide.html">
+    Benchmarking User Guide
+  </a>
+</li>
+
+
+<li class=" ">
+  <a class="nav-link dropdown-item nav-internal" href="api_ref_dtypes.html">
+    torchao.dtypes
+  </a>
+</li>
+
+
+<li class=" ">
+  <a class="nav-link dropdown-item nav-internal" href="api_ref_quantization.html">
+    torchao.quantization
+  </a>
+</li>
+
+
+<li class=" ">
+  <a class="nav-link dropdown-item nav-internal" href="api_ref_qat.html">
+    torchao.quantization.qat
+  </a>
+</li>
+
+
+<li class=" ">
+  <a class="nav-link dropdown-item nav-internal" href="api_ref_sparsity.html">
+    torchao.sparsity
+  </a>
+</li>
+
+
+<li class=" ">
+  <a class="nav-link dropdown-item nav-internal" href="api_ref_float8.html">
+    torchao.float8
+  </a>
+</li>
+
+
+<li class=" ">
+  <a class="nav-link dropdown-item nav-internal" href="api_ref_utils.html">
+    torchao.utils
+  </a>
+</li>
+
+
+<li class=" ">
+  <a class="nav-link dropdown-item nav-internal" href="pretraining.html">
+    (Part 1) Pre-training with float8
+  </a>
+</li>
+
+
+<li class=" ">
+  <a class="nav-link dropdown-item nav-internal" href="finetuning.html">
+    (Part 2) Fine-tuning with QAT, QLoRA, and float8
+  </a>
+</li>
+
+
+<li class=" ">
+  <a class="nav-link dropdown-item nav-internal" href="serving.html">
+    (Part 3) Serving on vLLM, SGLang, ExecuTorch
+  </a>
+</li>
+
+
+<li class=" ">
+  <a class="nav-link dropdown-item nav-internal" href="torchao_vllm_integration.html">
+    Integration with VLLM: Architecture and Usage Guide
+  </a>
+</li>
+
+
+<li class=" ">
+  <a class="nav-link dropdown-item nav-internal" href="torchao_hf_integration.html">
+    Hugging Face Integration
+  </a>
+</li>
+
+
+<li class=" ">
+  <a class="nav-link dropdown-item nav-internal" href="serialization.html">
+    Serialization
+  </a>
+</li>
+
+
+<li class=" ">
+  <a class="nav-link dropdown-item nav-internal" href="static_quantization.html">
+    Static Quantization
+  </a>
+</li>
+
+
+<li class=" current active">
+  <a class="nav-link dropdown-item nav-internal" href="#">
+    Writing Your Own Quantized Tensor
+  </a>
+</li>
+
+
+<li class=" ">
+  <a class="nav-link dropdown-item nav-internal" href="subclass_advanced.html">
+    Writing Your Own Quantized Tensor (advanced)
+  </a>
+</li>
+
+
+<li class=" ">
+  <a class="nav-link dropdown-item nav-internal" href="tutorials_source/pt2e_quant_ptq.html">
+    PyTorch 2 Export Post Training Quantization
+  </a>
+</li>
+
+
+<li class=" ">
+  <a class="nav-link dropdown-item nav-internal" href="tutorials_source/pt2e_quant_qat.html">
+    PyTorch 2 Export Quantization-Aware Training (QAT)
+  </a>
+</li>
+
+
+<li class=" ">
+  <a class="nav-link dropdown-item nav-internal" href="tutorials_source/pt2e_quant_x86_inductor.html">
+    PyTorch 2 Export Quantization with X86 Backend through Inductor
+  </a>
+</li>
+
+
+<li class=" ">
+  <a class="nav-link dropdown-item nav-internal" href="tutorials_source/pt2e_quant_xpu_inductor.html">
+    PyTorch 2 Export Quantization with Intel GPU Backend through Inductor
+  </a>
+</li>
+
+
+<li class=" ">
+  <a class="nav-link dropdown-item nav-internal" href="tutorials_source/pt2e_quant_openvino_inductor.html">
+    PyTorch 2 Export Quantization for OpenVINO torch.compile Backend
+  </a>
+</li>
+
+
+<li class=" ">
+  <a class="nav-link dropdown-item nav-internal" href="tutorials_source/pt2e_quantizer.html">
+    How to Write a Quantizer for PyTorch 2 Export Quantization
+  </a>
+</li>
+
+                </ul>
+            </li>
+            
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+      
+        <div class="navbar-item">
+  
+<form class="bd-search d-flex align-items-center"
+      action="search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         id="search-input"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+</div>
+      
+        <div class="navbar-item">
+
+<script>
+document.write(`
+  <button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button" title="light/dark" aria-label="light/dark" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <i class="theme-switch fa-solid fa-sun fa-lg" data-mode="light"></i>
+    <i class="theme-switch fa-solid fa-moon fa-lg" data-mode="dark"></i>
+    <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"></i>
+  </button>
+`);
+</script></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://x.com/PyTorch" title="X" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-x-twitter fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">X</span></a>
+        </li>
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/pytorch/ao" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://dev-discuss.pytorch.org/" title="Discourse" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-discourse fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">Discourse</span></a>
+        </li>
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://pypi.org/project/torchao/" title="PyPi" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-python fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">PyPi</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <div class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="quick_start.html">
+    Quick Start Guide
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="quantization_overview.html">
+    Quantization Overview
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="contributor_guide.html">
+    Contributor Guide
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="sparsity.html">
+    Sparsity Overview
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="benchmarking_api_guide.html">
+    Benchmarking API Guide
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="benchmarking_user_guide.html">
+    Benchmarking User Guide
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="api_ref_dtypes.html">
+    torchao.dtypes
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="api_ref_quantization.html">
+    torchao.quantization
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="api_ref_qat.html">
+    torchao.quantization.qat
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="api_ref_sparsity.html">
+    torchao.sparsity
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="api_ref_float8.html">
+    torchao.float8
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="api_ref_utils.html">
+    torchao.utils
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="pretraining.html">
+    (Part 1) Pre-training with float8
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="finetuning.html">
+    (Part 2) Fine-tuning with QAT, QLoRA, and float8
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="serving.html">
+    (Part 3) Serving on vLLM, SGLang, ExecuTorch
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="torchao_vllm_integration.html">
+    Integration with VLLM: Architecture and Usage Guide
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="torchao_hf_integration.html">
+    Hugging Face Integration
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="serialization.html">
+    Serialization
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="static_quantization.html">
+    Static Quantization
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="#">
+    Writing Your Own Quantized Tensor
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="subclass_advanced.html">
+    Writing Your Own Quantized Tensor (advanced)
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="tutorials_source/pt2e_quant_ptq.html">
+    PyTorch 2 Export Post Training Quantization
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="tutorials_source/pt2e_quant_qat.html">
+    PyTorch 2 Export Quantization-Aware Training (QAT)
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="tutorials_source/pt2e_quant_x86_inductor.html">
+    PyTorch 2 Export Quantization with X86 Backend through Inductor
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="tutorials_source/pt2e_quant_xpu_inductor.html">
+    PyTorch 2 Export Quantization with Intel GPU Backend through Inductor
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="tutorials_source/pt2e_quant_openvino_inductor.html">
+    PyTorch 2 Export Quantization for OpenVINO torch.compile Backend
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="tutorials_source/pt2e_quantizer.html">
+    How to Write a Quantizer for PyTorch 2 Export Quantization
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+  
+<form class="bd-search d-flex align-items-center"
+      action="search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         id="search-input"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+</div>
+        
+          <div class="navbar-item">
+
+<script>
+document.write(`
+  <button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button" title="light/dark" aria-label="light/dark" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <i class="theme-switch fa-solid fa-sun fa-lg" data-mode="light"></i>
+    <i class="theme-switch fa-solid fa-moon fa-lg" data-mode="dark"></i>
+    <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"></i>
+  </button>
+`);
+</script></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://x.com/PyTorch" title="X" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-x-twitter fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">X</span></a>
+        </li>
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/pytorch/ao" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://dev-discuss.pytorch.org/" title="Discourse" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-discourse fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">Discourse</span></a>
+        </li>
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://pypi.org/project/torchao/" title="PyPi" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-python fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">PyPi</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"></div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+  </div>
+  
+  <div id="rtd-footer-container"></div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    <li class="breadcrumb-item active" aria-current="page">Writing...</li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+    <div class="header-article-items__end">
+      
+        <div class="header-article-item">
+<div class="rating">
+    Rate this Page
+    <div class="stars">
+        
+        <span class="star" data-behavior="tutorial-rating" data-count="1" data-value="1">★</span>
+        
+        <span class="star" data-behavior="tutorial-rating" data-count="2" data-value="2">★</span>
+        
+        <span class="star" data-behavior="tutorial-rating" data-count="3" data-value="3">★</span>
+        
+        <span class="star" data-behavior="tutorial-rating" data-count="4" data-value="4">★</span>
+        
+        <span class="star" data-behavior="tutorial-rating" data-count="5" data-value="5">★</span>
+        
+    </div>
+</div>
+</div>
+      
+    </div>
+  
+</div>
+</div>
+              
+              
+  
+<div id="searchbox"></div>
+  <article class="bd-article" id="pytorch-article">
+    <!-- Hidden breadcrumb schema for SEO only -->
+    <div style="display:none;" itemscope itemtype="https://schema.org/BreadcrumbList">
+      
+      <div itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
+        <meta itemprop="name" content="Writing Your Own Quantized Tensor">
+        <meta itemprop="position" content="1">
+      </div>
+    </div>
+
+    
+    
+
+    
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="writing-your-own-quantized-tensor">
+<h1>Writing Your Own Quantized Tensor<a class="headerlink" href="#writing-your-own-quantized-tensor" title="Permalink to this heading">#</a></h1>
+<p class="date-info-last-verified" style="color: #6c6c6d; font-size: small;">Created On: Dec 08, 2025 | Last Updated On: Dec 08, 2025</p>
+<p>Quantization in torchao is built on the foundation of tensor subclasses.
+They are the main extension point for torchao to provide flexible
+inference and training support using low precision computation, while
+composing with important PyTorch features such as torch.compile,
+autograd, and distributed primitives.</p>
+<p>In this tutorial, we will highlight the benefits of leveraging tensor
+subclasses compared to module swaps, and walk through a simple example
+of how to express quantization using this approach.</p>
+<section id="what-are-tensor-subclasses">
+<h2>What are Tensor Subclasses?<a class="headerlink" href="#what-are-tensor-subclasses" title="Permalink to this heading">#</a></h2>
+<p>Tensor subclasses are simply classes that inherit from <a class="reference external" href="https://pytorch.org/docs/stable/tensors.html">torch.Tensor</a>.
+They allow users to interpose their custom computation logic between existing
+ops in their models, such that functions in the top-level torch
+namespace like torch.add will continue to work seamlessly.</p>
+<p>An obvious alternative to the tensor subclass approach is module swaps:
+simply swap all nn.Linear modules in your model with your custom
+Int8QuantizedLinear modules, for example. There are a few important
+benefits of using tensor subclasses compared to this approach:</p>
+<ol class="arabic simple">
+<li><p><strong>Finer-grained integration point.</strong> Module swaps intercept
+computation at the module level and so will not work for models that
+rely on torch functions or variants of native modules (e.g. slightly
+modified versions of nn.Linear). In contrast, since tensor subclasses
+intercept computation at the function/op level, we will be able to
+quantize the model as long as the same function/op is used.</p></li>
+<li><p><strong>Better composability.</strong> Composing multiple features using module
+swaps is clunky. For example, combining two existing
+Int8QuantizedLinear and DistributedLinear modules would require users
+to create another linear class that duplicates these functionalities.
+Tensor subclasses bypass this problem by simply wrapping one subclass
+in another. This can also offer performance benefits if the outer
+tensor (e.g. <a class="reference external" href="https://pytorch.org/docs/stable/distributed.tensor.html">DTensor</a>)
+is aware that the inner tensor is quantized, and so can perform
+expensive allgather operations using less network and memory
+bandwidth.</p></li>
+<li><p><strong>Reusing PyTorch components.</strong> It is natural to express quantization
+using tensor subclasses since the quantized tensors are simply
+torch.Tensors with different dtypes. The model structure does not
+change (nn.Linears stay as nn.Linears), and so subsequent
+optimization passes can also stay exactly the same as before.</p></li>
+</ol>
+<div class="line-block">
+<div class="line"><br /></div>
+</div>
+<p>In the rest of the tutorial, we will walk through an example of how to
+express quantization using both approaches. For further reading on
+tensor subclasses, please refer to:</p>
+<ul class="simple">
+<li><p><a class="reference external" href="https://pytorch.org/docs/stable/notes/extending.html#extending-torch-with-a-tensor-like-type">Tensor subclass documentation</a></p></li>
+<li><p><a class="reference external" href="https://github.com/albanD/subclass_zoo">Tensor subclass zoo</a></p></li>
+<li><p><a class="reference external" href="https://podcasts.apple.com/us/podcast/tensor-subclasses-and-pt2/id1566080008?i=1000646728968">Tensor subclass podcast by Edward Yang</a></p></li>
+</ul>
+</section>
+<section id="quantization-with-module-swaps">
+<h2>Quantization with Module Swaps<a class="headerlink" href="#quantization-with-module-swaps" title="Permalink to this heading">#</a></h2>
+<p>We begin with a simple example of how to implement int8 symmetric weight
+only quantization using module swaps. All code can be found in this
+<a class="reference external" href="https://github.com/pytorch/ao/tree/main/tutorials/examples/quantized_module_swap.py">example script</a>.
+We will use the following function for quantizing float32 tensors into
+int8 tensors:</p>
+<div class="highlight-py notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Tuple</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">int8_symmetric_quantize</span><span class="p">(</span>
+    <span class="n">fp32_tensor</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tuple</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Symmetrically quantize the torch.float32 tensor into torch.int8.</span>
+<span class="sd">    Return a 2-tuple of (quantized value, scale).</span>
+
+<span class="sd">    input: dimensions=[M, N], dtype=torch.float32</span>
+<span class="sd">    output: dimensions=[M, N], dtype=torch.int8</span>
+<span class="sd">    scale: dimensions=[M, 1], dtype=torch.float32</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">quant_min</span> <span class="o">=</span> <span class="o">-</span><span class="mi">128</span>
+    <span class="n">quant_max</span> <span class="o">=</span> <span class="mi">127</span>
+    <span class="n">min_val</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">amin</span><span class="p">(</span><span class="n">fp32_tensor</span><span class="p">,</span> <span class="n">dim</span><span class="o">=</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="n">keepdim</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+    <span class="n">max_val</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">amax</span><span class="p">(</span><span class="n">fp32_tensor</span><span class="p">,</span> <span class="n">dim</span><span class="o">=</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="n">keepdim</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+    <span class="n">min_val_neg</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">min</span><span class="p">(</span><span class="n">min_val</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">zeros_like</span><span class="p">(</span><span class="n">min_val</span><span class="p">))</span>
+    <span class="n">max_val_pos</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">max_val</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">zeros_like</span><span class="p">(</span><span class="n">max_val</span><span class="p">))</span>
+    <span class="n">max_val_pos</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="o">-</span><span class="n">min_val_neg</span><span class="p">,</span> <span class="n">max_val_pos</span><span class="p">)</span>
+    <span class="n">scale</span> <span class="o">=</span> <span class="n">max_val_pos</span> <span class="o">/</span> <span class="p">(</span><span class="nb">float</span><span class="p">(</span><span class="n">quant_max</span> <span class="o">-</span> <span class="n">quant_min</span><span class="p">)</span> <span class="o">/</span> <span class="mi">2</span><span class="p">)</span>
+    <span class="n">scale</span> <span class="o">=</span> <span class="n">scale</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">fp32_tensor</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="o">-</span><span class="mi">1</span><span class="p">)</span>
+    <span class="n">out</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">round</span><span class="p">(</span><span class="n">fp32_tensor</span> <span class="o">*</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">/</span> <span class="n">scale</span><span class="p">))</span>
+    <span class="n">out</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">clamp</span><span class="p">(</span><span class="n">out</span><span class="p">,</span> <span class="n">quant_min</span><span class="p">,</span> <span class="n">quant_max</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">int8</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">out</span><span class="p">,</span> <span class="n">scale</span>
+</pre></div>
+</div>
+<p>Next, we will create a new QuantizedLinear module that calls this
+function to dynamically quantize the weights:</p>
+<div class="highlight-py notranslate"><div class="highlight"><pre><span></span><span class="k">class</span><span class="w"> </span><span class="nc">QuantizedLinear</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Linear module that performs dynamic and symmetric weight-only</span>
+<span class="sd">    int8 quantization.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+        <span class="n">w_int8</span><span class="p">,</span> <span class="n">scale</span> <span class="o">=</span> <span class="n">int8_symmetric_quantize</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">weight</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">matmul</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">w_int8</span><span class="o">.</span><span class="n">t</span><span class="p">()</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">x</span><span class="o">.</span><span class="n">dtype</span><span class="p">))</span> <span class="o">*</span> <span class="n">scale</span><span class="o">.</span><span class="n">t</span><span class="p">()</span>
+
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">from_float</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">mod</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">):</span>
+        <span class="n">new_linear</span> <span class="o">=</span> <span class="bp">cls</span><span class="p">(</span><span class="n">mod</span><span class="o">.</span><span class="n">in_features</span><span class="p">,</span> <span class="n">mod</span><span class="o">.</span><span class="n">out_features</span><span class="p">,</span> <span class="n">mod</span><span class="o">.</span><span class="n">bias</span><span class="p">)</span>
+        <span class="n">new_linear</span><span class="o">.</span><span class="n">weight</span> <span class="o">=</span> <span class="n">mod</span><span class="o">.</span><span class="n">weight</span>
+        <span class="k">return</span> <span class="n">new_linear</span>
+</pre></div>
+</div>
+<p>Then, the only thing that’s left is to swap all <cite>nn.Linear</cite> modules in the
+model with our new QuantizedLinear. Let’s use the following toy model
+for demonstration purposes:</p>
+<div class="highlight-py notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">copy</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">ToyModel</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">m</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">n</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">k</span><span class="p">:</span> <span class="nb">int</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">linear1</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="n">m</span><span class="p">,</span> <span class="n">n</span><span class="p">,</span> <span class="n">bias</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">linear2</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="n">n</span><span class="p">,</span> <span class="n">k</span><span class="p">,</span> <span class="n">bias</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">):</span>
+        <span class="n">x</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">linear1</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+        <span class="n">x</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">linear2</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">x</span>
+
+<span class="n">float_model</span> <span class="o">=</span> <span class="n">ToyModel</span><span class="p">(</span><span class="mi">64</span><span class="p">,</span> <span class="mi">128</span><span class="p">,</span> <span class="mi">32</span><span class="p">)</span><span class="o">.</span><span class="n">cuda</span><span class="p">()</span>
+<span class="n">quantized_model</span> <span class="o">=</span> <span class="n">copy</span><span class="o">.</span><span class="n">deepcopy</span><span class="p">(</span><span class="n">float_model</span><span class="p">)</span>
+
+<span class="c1"># Swap torch.nn.Linear with QuantizedLinear</span>
+<span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">child</span> <span class="ow">in</span> <span class="n">quantized_model</span><span class="o">.</span><span class="n">named_children</span><span class="p">():</span>
+    <span class="k">if</span> <span class="nb">type</span><span class="p">(</span><span class="n">child</span><span class="p">)</span> <span class="o">==</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">:</span>
+        <span class="n">new_linear</span> <span class="o">=</span> <span class="n">QuantizedLinear</span><span class="o">.</span><span class="n">from_float</span><span class="p">(</span><span class="n">child</span><span class="p">)</span>
+        <span class="nb">setattr</span><span class="p">(</span><span class="n">quantized_model</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="n">new_linear</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Verify that the model now uses our QuantizedLinear module. This model is
+now ready to use!</p>
+<div class="highlight-py notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="n">float_model</span><span class="p">)</span>
+<span class="go">ToyModel(</span>
+<span class="go">  (linear1): Linear(in_features=64, out_features=128, bias=False)</span>
+<span class="go">  (linear2): Linear(in_features=128, out_features=32, bias=False)</span>
+<span class="go">)</span>
+
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="n">quantized_model</span><span class="p">)</span>
+<span class="go">ToyModel(</span>
+<span class="go">  (linear1): QuantizedLinear(in_features=64, out_features=128, bias=False)</span>
+<span class="go">  (linear2): QuantizedLinear(in_features=128, out_features=32, bias=False)</span>
+<span class="go">)</span>
+</pre></div>
+</div>
+<p>An important drawback of this simple approach is flexibility. Currently
+this only works for native PyTorch modules, but what if the model has
+slightly modified linear modules that, for example, support distributed
+training? It also won’t work with models that directly call the functional
+version of linear (<cite>torch.nn.functional.linear</cite>) instead.</p>
+<p>Further, suppose we want to compose this feature with distribution,
+which is also implemented through module swaps. There is no clean way to
+do this except to create yet another module that combines both features.
+These limitations can be solved with tensor subclasses, which is a more
+elegant way to interpose custom computation such as quantization in your
+model.</p>
+</section>
+<section id="quantization-with-tensor-subclasses">
+<h2>Quantization with Tensor Subclasses<a class="headerlink" href="#quantization-with-tensor-subclasses" title="Permalink to this heading">#</a></h2>
+<p>Here we are going to re-implement the above quantization technique,
+using a <cite>__torch_dispatch__</cite>-based tensor subclass.</p>
+<p>Tensor subclasses (which often utilize <cite>__torch_dispatch__</cite>) are a pretty
+powerful/flexible extension point in pytorch. They serve two main
+purposes as an extension point:</p>
+<ol class="arabic simple">
+<li><p>Tensor subclasses allow you to override the <strong>implementation</strong> of
+(almost) every PyTorch API, and are used quite a bit to implement
+other PyTorch offerings</p></li>
+<li><p>Tensor subclasses allow you to <strong>couple</strong> your tensor data with
+additional metadata. A few examples</p>
+<ol class="arabic simple">
+<li><p>[distributed] metadata on how a tensor is sharded across ranks
+(<a class="reference external" href="https://github.com/pytorch/pytorch/blob/main/torch/distributed/tensor/_api.py#L217">DTensor</a>,
+<a class="reference external" href="https://pytorch.org/docs/stable/distributed.tensor.html#pytorch-dtensor-distributed-tensor">docs</a>)</p></li>
+<li><p>[quantization] scale/zero_point metadata
+(<a class="reference external" href="https://github.com/pytorch/ao/blob/v0.8.0/torchao/dtypes/affine_quantized_tensor.py#L46">AffineQuantizedTensor</a>)</p></li>
+<li><p>[raggedness] metadata on ragged structure
+(<a class="reference external" href="https://github.com/pytorch/pytorch/blob/main/torch/nested/_internal/nested_tensor.py#L53">NestedTensor</a>,
+<a class="reference external" href="https://pytorch.org/tutorials/prototype/nestedtensor.html#getting-started-with-nested-tensors">docs</a>)</p></li>
+</ol>
+</li>
+</ol>
+<p>Some other resources on tensor subclasses for those who are interested:</p>
+<ol class="arabic simple">
+<li><p>__torch_dispatch__ docs
+(<a class="reference external" href="https://pytorch.org/docs/stable/notes/extending.html#extending-torch-native-api">link</a>)</p></li>
+<li><p>What (and why) is __torch_dispatch__
+(<a class="reference external" href="https://dev-discuss.pytorch.org/t/what-and-why-is-torch-dispatch/557">link</a>)</p></li>
+<li><p>Google collab that implements a FlopCounter and MemoryTracker using
+__torch_dispatch__
+(<a class="reference external" href="https://colab.research.google.com/drive/1zjAisRrc8R6uixKsrs1DRm3lwz5MWN68?usp=sharing">link</a>)</p></li>
+</ol>
+<p>With that out of the way, let’s start by defining our bare-bones tensor
+subclass for symmetric quantization:</p>
+<div class="highlight-py notranslate"><div class="highlight"><pre><span></span><span class="k">class</span><span class="w"> </span><span class="nc">Int8SymmetricTensor</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Our subclass represents a tensor that has been quantized to int8</span>
+<span class="sd">    It will hold two inner tensors:</span>
+<span class="sd">      int_data: int8[M, N]</span>
+<span class="sd">      scale: fp32[M, 1]</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="nd">@staticmethod</span>
+    <span class="nd">@torch</span><span class="o">.</span><span class="n">_dynamo</span><span class="o">.</span><span class="n">disable</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__new__</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">int_data</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">scale</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="o">.</span><span class="n">_make_wrapper_subclass</span><span class="p">(</span>
+            <span class="bp">cls</span><span class="p">,</span>
+            <span class="n">int_data</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span>
+            <span class="n">strides</span><span class="o">=</span><span class="n">int_data</span><span class="o">.</span><span class="n">stride</span><span class="p">(),</span>
+            <span class="n">storage_offset</span><span class="o">=</span><span class="n">int_data</span><span class="o">.</span><span class="n">storage_offset</span><span class="p">(),</span>
+            <span class="n">dtype</span><span class="o">=</span><span class="n">scale</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span>
+            <span class="n">device</span><span class="o">=</span><span class="n">int_data</span><span class="o">.</span><span class="n">device</span><span class="p">,</span>
+        <span class="p">)</span>
+
+    <span class="nd">@torch</span><span class="o">.</span><span class="n">_dynamo</span><span class="o">.</span><span class="n">disable</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">int_data</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">scale</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">):</span>
+        <span class="c1"># inner data expected to be quantized already</span>
+        <span class="k">assert</span> <span class="n">int_data</span><span class="o">.</span><span class="n">dtype</span> <span class="ow">is</span> <span class="n">torch</span><span class="o">.</span><span class="n">int8</span>
+        <span class="c1"># we could do more work to support ndim &gt; 2!</span>
+        <span class="k">assert</span> <span class="n">int_data</span><span class="o">.</span><span class="n">ndim</span> <span class="o">==</span> <span class="mi">2</span>
+        <span class="k">assert</span> <span class="n">scale</span><span class="o">.</span><span class="n">ndim</span> <span class="o">==</span> <span class="mi">2</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">int_data</span> <span class="o">=</span> <span class="n">int_data</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">scale</span> <span class="o">=</span> <span class="n">scale</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">__tensor_flatten__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tuple</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Returns a tuple of:</span>
+<span class="sd">          names of all inner tensor attributes (two in our case)</span>
+<span class="sd">          any other additional, non-tensor metadata.</span>
+
+<span class="sd">        Needed for PT2 support.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="p">[</span><span class="s2">&quot;int_data&quot;</span><span class="p">,</span> <span class="s2">&quot;scale&quot;</span><span class="p">],</span> <span class="kc">None</span>
+
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">__tensor_unflatten__</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">tensor_data_dict</span><span class="p">,</span> <span class="n">extra_metadata</span><span class="p">,</span> <span class="n">outer_size</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">outer_stride</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">         __tensor_unflatten__ should effectively undo __tensor_flatten__.</span>
+
+<span class="sd">        inputs:</span>
+<span class="sd">          a dict mapping names of inner tensor attributes back to the tensors</span>
+<span class="sd">          the constant metadata from __tensor_flatten__</span>
+<span class="sd">        output:</span>
+<span class="sd">          a new instance of your subclass</span>
+
+<span class="sd">        Needed for PT2 support.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">assert</span> <span class="n">extra_metadata</span> <span class="ow">is</span> <span class="kc">None</span>
+        <span class="n">int_data</span> <span class="o">=</span> <span class="n">tensor_data_dict</span><span class="p">[</span><span class="s2">&quot;int_data&quot;</span><span class="p">]</span>
+        <span class="n">scale</span> <span class="o">=</span> <span class="n">tensor_data_dict</span><span class="p">[</span><span class="s2">&quot;scale&quot;</span><span class="p">]</span>
+        <span class="k">return</span> <span class="n">Int8SymmetricTensor</span><span class="p">(</span><span class="n">int_data</span><span class="p">,</span> <span class="n">scale</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__repr__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="sa">f</span><span class="s1">&#39;Int8SymmetricTensor(int_data=</span><span class="si">{</span><span class="nb">repr</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">int_data</span><span class="p">)</span><span class="si">}</span><span class="s1">, scale=</span><span class="si">{</span><span class="nb">repr</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">scale</span><span class="p">)</span><span class="si">}</span><span class="s1">)&#39;</span>
+
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">from_float</span><span class="p">(</span><span class="n">float_tensor</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Actually performs the symmetric quantization.</span>
+<span class="sd">        In our simple inference example we will quantize weights &quot;ahead-of-time&quot;,</span>
+<span class="sd">        although later in a training example we can quantize/dequantize</span>
+<span class="sd">        during model execution, inside of our __torch_dispatch__</span>
+
+<span class="sd">        input:</span>
+<span class="sd">          float32 torch.Tensor</span>
+<span class="sd">        output:</span>
+<span class="sd">          Int8SymmetricTensor</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">int8_tensor</span><span class="p">,</span> <span class="n">scale</span> <span class="o">=</span> <span class="n">int8_symmetric_quantize</span><span class="p">(</span><span class="n">float_tensor</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">Int8SymmetricTensor</span><span class="p">(</span><span class="n">int8_tensor</span><span class="p">,</span> <span class="n">scale</span><span class="p">)</span>
+
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">__torch_dispatch__</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">func</span><span class="p">,</span> <span class="n">types</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Called for each ATen operator that our subclass is passed as an input to.</span>
+<span class="sd">        We need to define our own implementation for every operator here.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">kwargs</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">kwargs</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="k">if</span> <span class="n">func</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">op_implementations_dict</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">AssertionError</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;Int8SymmetricTensor does not yet support op: </span><span class="si">{</span><span class="nb">str</span><span class="p">(</span><span class="n">func</span><span class="p">)</span><span class="si">}</span><span class="s1">&#39;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">op_implementations_dict</span><span class="p">[</span><span class="n">func</span><span class="p">](</span><span class="n">func</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+
+
+<span class="c1"># Convenience function for registering our own implementation</span>
+<span class="c1"># to every ATen operator in PyTorch</span>
+<span class="n">op_implementations_dict</span> <span class="o">=</span> <span class="p">{}</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">register_op</span><span class="p">(</span><span class="n">ops</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">_ops</span><span class="o">.</span><span class="n">OpOverload</span><span class="p">]):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">impl_decorator</span><span class="p">(</span><span class="n">op_impl</span><span class="p">):</span>
+        <span class="k">global</span> <span class="n">op_implementations_dict</span>
+        <span class="k">for</span> <span class="n">op</span> <span class="ow">in</span> <span class="n">ops</span><span class="p">:</span>
+            <span class="n">op_implementations_dict</span><span class="p">[</span><span class="n">op</span><span class="p">]</span> <span class="o">=</span> <span class="n">op_impl</span>
+        <span class="k">return</span> <span class="n">op_impl</span>
+
+    <span class="k">return</span> <span class="n">impl_decorator</span>
+</pre></div>
+</div>
+<p>In the above code, we have done a few things:</p>
+<ol class="arabic simple">
+<li><p>Defined a basic “wrapper” tensor subclass - it is effectively a
+container object, that holds some inner data (in particular, two
+tensors that correspond to our int8 data and scales)</p></li>
+<li><p>Defined a <cite>__torch_dispatch__</cite> implementation, which will be called
+for every ATen operator our model calls on any of our subclass inputs</p></li>
+<li><p>(For PT2 support) Defined a <cite>__tensor_flatten__</cite>/<cite>__tensor_unflatten__</cite>
+method. This is the largest of a few requirements we have in order for
+our subclass to work with torch.compile (more on this later). It
+effectively tells <cite>torch.compile</cite> how to “desugar” our subclass into
+its inner components.</p></li>
+<li><p>(For PT2 support) Added a <cite>torch._dynamo.disable</cite> decorator to both
+constructor methods (<cite>__new__</cite> and <cite>__init__</cite>) (more on this later).</p></li>
+</ol>
+<section id="which-operators-should-we-implement">
+<h3>Which operators should we implement?<a class="headerlink" href="#which-operators-should-we-implement" title="Permalink to this heading">#</a></h3>
+<p>PyTorch has a pretty large operator surface. Instead of trying to give
+our new tensor subclass 100% coverage, let’s just focus on the ops we
+need for our toy model above.</p>
+<p>Which operators are called in our model though, so we know what to
+implement first? The brute force way is to repeatedly run the model
+to see what ops error in your subclass. A more elegant way is to log
+every operator that your model sees during execution. This can be
+achieved through another <cite>LoggingTensor</cite> subclass as in <a class="reference external" href="https://github.com/pytorch/ao/tree/main/tutorials/examples/logging_subclass.py">this example</a>.</p>
+<p>Let’s implement the necessary ops below:</p>
+<div class="highlight-py notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">torch.utils._python_dispatch</span><span class="w"> </span><span class="kn">import</span> <span class="n">return_and_correct_aliasing</span>
+
+<span class="nd">@register_op</span><span class="p">([</span><span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">aten</span><span class="o">.</span><span class="n">mm</span><span class="o">.</span><span class="n">default</span><span class="p">])</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">int8_mm</span><span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">weight</span><span class="p">):</span>
+    <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">weight</span><span class="p">,</span> <span class="n">Int8SymmetricTensor</span><span class="p">),</span> <span class="s2">&quot;Int8SymmetricTensor: matmul currently only supports the weight in low precision, not the input!&quot;</span>
+    <span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">mm</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">weight</span><span class="o">.</span><span class="n">int_data</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">x</span><span class="o">.</span><span class="n">dtype</span><span class="p">))</span> <span class="o">*</span> <span class="n">weight</span><span class="o">.</span><span class="n">scale</span>
+
+<span class="nd">@register_op</span><span class="p">([</span>
+    <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">aten</span><span class="o">.</span><span class="n">detach</span><span class="o">.</span><span class="n">default</span><span class="p">,</span>
+    <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">aten</span><span class="o">.</span><span class="n">t</span><span class="o">.</span><span class="n">default</span><span class="p">,</span>
+<span class="p">])</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">int8_view_ops</span><span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+    <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">Int8SymmetricTensor</span><span class="p">)</span>
+    <span class="n">out_data</span> <span class="o">=</span> <span class="n">func</span><span class="p">(</span><span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">int_data</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">[</span><span class="mi">1</span><span class="p">:],</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+    <span class="n">out_scale</span> <span class="o">=</span> <span class="n">func</span><span class="p">(</span><span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">scale</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">[</span><span class="mi">1</span><span class="p">:],</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+    <span class="n">out</span> <span class="o">=</span> <span class="n">Int8SymmetricTensor</span><span class="p">(</span><span class="n">out_data</span><span class="p">,</span> <span class="n">out_scale</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">return_and_correct_aliasing</span><span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">,</span> <span class="n">out</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>One thing you’ll notice quickly is: our model itself consists of a few
+linear layers, but we see a few operations like <cite>aten.t</cite> and <cite>aten.mm</cite>
+hitting our subclass. Some background:</p>
+<ul class="simple">
+<li><p>We have a number of op decompositions that live in C++, that run
+“above” tensor subclasses. <cite>linear</cite> is one such op (the decomp
+lives <a class="reference external" href="https://github.com/pytorch/pytorch/blob/main/aten/src/ATen/native/LinearAlgebra.cpp#L2006">here</a>)</p></li>
+<li><p>Decompositions can be good in the sense that they shrink the size of
+the API that you as a subclass author have to implement. But they can
+be painful if you would rather override the “higher level” operator
+than the underlying operations in its decomposition.</p></li>
+<li><p>If you would prefer to override some operations (like Linear) at a
+higher level, you can do so using <cite>__torch_function__</cite>
+(<a class="reference external" href="https://github.com/pytorch/pytorch/blob/main/torch/nested/_internal/nested_tensor.py#L336">example</a>).
+It’s worth noting that if you want autograd support, then any
+overrides you perform at the <cite>__torch_function__</cite> layer need to be
+written in a way that is differentiable, while any overrides you
+perform in <cite>__torch_dispatch__</cite> will be automatically differentiable.</p></li>
+</ul>
+<p>There are a few nuances in our implementations worth pointing out:</p>
+<ol class="arabic simple">
+<li><p>You’ll notice that we no longer had to transpose our weight / scales
+inside of our mm implementation. That’s because the transposition
+“already happened” before we got to the <cite>aten.mm</cite> op.</p></li>
+<li><p>Our <cite>aten.mm</cite> implementation does <strong>not</strong> return a tensor subclass
+output. In that sense, the “propagation” of our quantized subclass
+ends with matmuls. This maps to the fact that our weights are in low
+precision, but we need to perform the matmuls themselves in high
+precision. In general, subclass authors are free to choose for which
+ops their subclasses do-or-do-not propagate. If you wanted every
+function in your model to be quantized (including all pointwise and
+reduction operations), you could write your subclass implementation
+to quantize the output of every op and always return a subclass.</p></li>
+<li><p>We were able to re-use the same implementation for 4 view operations.
+In general, many ops might work with a pretty generic implementation:
+unwrap any subclass inputs, run the underlying operator on the inner
+tensor, and wrap the output back into a subclass.</p>
+<ul class="simple">
+<li><p>Whether you can always re-use an implementation, though, depends
+on what you are trying to do. For example, we implemented
+<cite>transpose(dim0, dim1)</cite> on our subclass by calling the same
+transpose on our inner data and inner scale tensor. This wouldn’t
+work if our scale and data tensors had a different number of
+dimensions, so transposition in that case would require a custom
+implementation.</p></li>
+</ul>
+</li>
+</ol>
+</section>
+</section>
+<section id="comparing-the-outputs">
+<h2>Comparing the Outputs<a class="headerlink" href="#comparing-the-outputs" title="Permalink to this heading">#</a></h2>
+<p>And with all of that out of the way, let’s run our model with both
+versions of quantization and confirm that they give the same output!</p>
+<div class="highlight-py notranslate"><div class="highlight"><pre><span></span><span class="n">float_model</span> <span class="o">=</span> <span class="n">ToyModel</span><span class="p">(</span><span class="mi">64</span><span class="p">,</span> <span class="mi">128</span><span class="p">,</span> <span class="mi">32</span><span class="p">)</span><span class="o">.</span><span class="n">cuda</span><span class="p">()</span>
+<span class="n">quantized_model_module_swap</span> <span class="o">=</span> <span class="n">copy</span><span class="o">.</span><span class="n">deepcopy</span><span class="p">(</span><span class="n">float_model</span><span class="p">)</span>
+<span class="n">quantized_model_subclass</span> <span class="o">=</span> <span class="n">copy</span><span class="o">.</span><span class="n">deepcopy</span><span class="p">(</span><span class="n">float_model</span><span class="p">)</span>
+
+<span class="c1"># Swap torch.nn.Linear with QuantizedLinear</span>
+<span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">child</span> <span class="ow">in</span> <span class="n">quantized_model_module_swap</span><span class="o">.</span><span class="n">named_children</span><span class="p">():</span>
+    <span class="k">if</span> <span class="nb">type</span><span class="p">(</span><span class="n">child</span><span class="p">)</span> <span class="o">==</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">:</span>
+        <span class="n">new_linear</span> <span class="o">=</span> <span class="n">QuantizedLinear</span><span class="o">.</span><span class="n">from_float</span><span class="p">(</span><span class="n">child</span><span class="p">)</span>
+        <span class="nb">setattr</span><span class="p">(</span><span class="n">quantized_model_module_swap</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="n">new_linear</span><span class="p">)</span>
+
+<span class="c1"># Swap torch.nn.Linear weights with Int8SymmetricTensor subclasses</span>
+<span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">child</span> <span class="ow">in</span> <span class="n">quantized_model_subclass</span><span class="o">.</span><span class="n">named_children</span><span class="p">():</span>
+    <span class="k">if</span> <span class="nb">type</span><span class="p">(</span><span class="n">child</span><span class="p">)</span> <span class="o">==</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">:</span>
+        <span class="n">subclass_param</span> <span class="o">=</span> <span class="n">Int8SymmetricTensor</span><span class="o">.</span><span class="n">from_float</span><span class="p">(</span><span class="n">child</span><span class="o">.</span><span class="n">weight</span><span class="p">)</span>
+        <span class="n">child</span><span class="o">.</span><span class="n">weight</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Parameter</span><span class="p">(</span><span class="n">subclass_param</span><span class="p">,</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+<span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">():</span>
+    <span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">64</span><span class="p">,</span> <span class="mi">64</span><span class="p">,</span> <span class="mi">64</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="s1">&#39;cuda&#39;</span><span class="p">)</span>
+    <span class="n">out_module_swap</span> <span class="o">=</span> <span class="n">quantized_model_module_swap</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+    <span class="n">out</span> <span class="o">=</span> <span class="n">quantized_model_subclass</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">allclose</span><span class="p">(</span><span class="n">out</span><span class="p">,</span> <span class="n">out_module_swap</span><span class="p">))</span>  <span class="c1"># prints True</span>
+
+    <span class="c1"># We can also use torch.compile to fuse some of our quantized logic</span>
+    <span class="n">out_compiled</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="n">quantized_model_subclass</span><span class="p">)(</span><span class="n">x</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">allclose</span><span class="p">(</span><span class="n">out</span><span class="p">,</span> <span class="n">out_compiled</span><span class="p">))</span>  <span class="c1"># prints True</span>
+</pre></div>
+</div>
+</section>
+<section id="next-steps">
+<h2>Next Steps<a class="headerlink" href="#next-steps" title="Permalink to this heading">#</a></h2>
+<p>In this tutorial, we demonstrated how to build a simple quantized tensor
+subclass. This is part one of two tutorials in this series. The
+<a class="reference external" href="subclass_advanced.html">next post</a> will discuss how to add more advanced
+features to your tensor subclass, such as making it trainable, composing
+with DTensors, and adding tensor parallelism support. For a more detailed
+example of how <cite>AffineQuantizedTensor</cite> in torchao was built using tensor
+subclasses, also check out <a class="reference external" href="https://github.com/pytorch/ao/blob/main/tutorials/developer_api_guide/my_dtype_tensor_subclass.py">this example</a>.</p>
+<p>If you have any questions while implementing your subclass, feel free to
+file an issue <a class="reference external" href="https://github.com/pytorch/ao/issues">here</a>.</p>
+</section>
+</section>
+
+
+                </article>
+              
+  </article>
+  
+              
+              
+                <footer class="bd-footer-article">
+                  <div class="footer-article-items footer-article__inner">
+  
+    <div class="footer-article-item">
+<div class="feedback">
+  
+<div class="rating">
+    Rate this Page
+    <div class="stars">
+        
+        <span class="star" data-behavior="tutorial-rating" data-count="1" data-value="1">★</span>
+        
+        <span class="star" data-behavior="tutorial-rating" data-count="2" data-value="2">★</span>
+        
+        <span class="star" data-behavior="tutorial-rating" data-count="3" data-value="3">★</span>
+        
+        <span class="star" data-behavior="tutorial-rating" data-count="4" data-value="4">★</span>
+        
+        <span class="star" data-behavior="tutorial-rating" data-count="5" data-value="5">★</span>
+        
+    </div>
+</div>
+
+  <div class="feedback-send">
+    <button class="feedback-btn"
+            onclick="openGitHubIssue()"
+            data-bs-title="Create a GitHub Issue"
+            data-bs-placement="bottom"
+            data-bs-toggle="tooltip"
+            data-gtm="feedback-btn-click">Send Feedback
+    </button>
+  </div>
+</div>
+
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="static_quantization.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Static Quantization</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="subclass_advanced.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Writing Your Own Quantized Tensor (advanced)</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+
+<div class="footer-info">
+  <p class="copyright">
+    
+  </p>
+
+  <p class="theme-version">
+    Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.15.4.
+  </p>
+</div>
+</div>
+  
+</div>
+                </footer>
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="static_quantization.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Static Quantization</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="subclass_advanced.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Writing Your Own Quantized Tensor (advanced)</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <div class="bd-sidebar-secondary bd-toc">
+<div class="sidebar-secondary-items sidebar-secondary__inner">
+    
+       <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-are-tensor-subclasses">What are Tensor Subclasses?</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#quantization-with-module-swaps">Quantization with Module Swaps</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#quantization-with-tensor-subclasses">Quantization with Tensor Subclasses</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#which-operators-should-we-implement">Which operators should we implement?</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#comparing-the-outputs">Comparing the Outputs</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#next-steps">Next Steps</a></li>
+</ul>
+  </nav></div>
+    
+       <div class="sidebar-secondary-item">
+
+  
+  <div class="tocsection editthispage">
+    <a href="https://github.com/pytorch/ao/edit/main/docs/source/subclass_basic.rst">
+      <i class="fa-solid fa-pencil"></i>
+      
+      
+        
+          Edit on GitHub
+        
+      
+    </a>
+  </div>
+</div>
+    
+       <div class="sidebar-secondary-item">
+    <div class="tocsection sourcelink">
+      <a href="_sources/subclass_basic.rst.txt">
+        <i class="fa-solid fa-file-lines"></i> Show Source
+      </a>
+    </div>
+</div>
+    
+
+
+
+
+</div>
+</div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script src="_static/scripts/bootstrap.js?digest=dfe6caa3a7d634c4db9b"></script>
+<script src="_static/scripts/pydata-sphinx-theme.js?digest=dfe6caa3a7d634c4db9b"></script>
+
+  
+
+<div class="container-fluid docs-tutorials-resources" id="docs-tutorials-resources">
+  <div class="container">
+    <div class="row">
+      <div class="col-md-4">
+        <h2>Docs</h2>
+        <p>Access comprehensive developer documentation for PyTorch</p>
+        <a class="with-right-arrow" href="https://docs.pytorch.org/docs/stable/index.html">View Docs</a>
+      </div>
+
+      <div class="col-md-4">
+        <h2>Tutorials</h2>
+        <p>Get in-depth tutorials for beginners and advanced developers</p>
+        <a class="with-right-arrow" href="https://docs.pytorch.org/tutorials">View Tutorials</a>
+      </div>
+
+      <div class="col-md-4">
+        <h2>Resources</h2>
+        <p>Find development resources and get your questions answered</p>
+        <a class="with-right-arrow" href="https://pytorch.org/resources">View Resources</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+
+
+<footer class="site-footer">
+
+  <div class="container footer-container">
+
+    <div class="newsletter" id="newsletter">
+
+      <p class="newsletter__title is-style-max-width-800"><strong>Stay in touch</strong> for updates, event info, and
+        the latest news</p>
+
+
+      <script charset="utf-8" type="text/javascript" src="//js.hsforms.net/forms/embed/v2.js"></script>
+      <script>
+        hbspt.forms.create({
+          region: "na1",
+          portalId: "8112310",
+          formId: "2fb2231c-000b-4ec5-88a0-1ab242549c9e"
+        });
+      </script>
+
+
+      <p class="newsletter__privacy">By submitting this form, I consent to receive marketing emails from the LF and its
+        projects regarding their events, training, research, developments, and related announcements. I understand that
+        I can unsubscribe at any time using the links in the footers of the emails I receive. <a
+          href="https://www.linuxfoundation.org/privacy/">Privacy Policy</a>.</p>
+
+    </div>
+
+    <div class="lf-grid">
+      <ul class="social-links">
+        <li><a href="https://www.facebook.com/pytorch" target="_blank" title="PyTorch on Facebook">
+            <svg xmlns="http://www.w3.org/2000/svg" viewbox="-0.51 -0.26 26.45 26.45" aria-label="Facebook">
+              <path fill="currentColor"
+                d="M25.497 13.075c0-2.45-.698-4.848-2.011-6.911a12.765 12.765 0 0 0-5.398-4.73A12.671 12.671 0 0 0 11.008.38a12.705 12.705 0 0 0-6.529 2.95A12.827 12.827 0 0 0 .563 9.358a12.896 12.896 0 0 0-.07 7.201 12.831 12.831 0 0 0 3.801 6.103 12.709 12.709 0 0 0 6.471 3.078v-8.957H7.53v-3.708h3.235v-2.824c0-3.213 1.903-4.988 4.813-4.988.956.014 1.909.097 2.852.25V8.67h-1.607a1.83 1.83 0 0 0-1.518.497 1.854 1.854 0 0 0-.561 1.505v2.404h3.535l-.563 3.708h-2.97v8.957a12.725 12.725 0 0 0 7.697-4.337 12.87 12.87 0 0 0 3.054-8.328z" />
+            </svg>
+          </a></li>
+        <li><a href="https://twitter.com/pytorch" target="_blank" title="PyTorch on X">
+            <svg xmlns="http://www.w3.org/2000/svg" viewbox="0 0 300 300" aria-label="X">
+              <path fill="currentColor"
+                d="M178.57 127.15 290.27 0h-26.46l-97.03 110.38L89.34 0H0l117.13 166.93L0 300.25h26.46l102.4-116.59 81.8 116.59h89.34M36.01 19.54H76.66l187.13 262.13h-40.66" />
+            </svg>
+          </a></li>
+        <li><a href="https://www.youtube.com/pytorch" target="_blank" title="PyTorch on YouTube">
+            <svg xmlns="http://www.w3.org/2000/svg" viewbox="0.21 0.27 34.45 25.07" aria-label="YouTube">
+              <path fill="currentColor"
+                d="M33.729 6.084s-.327-2.33-1.317-3.356a4.691 4.691 0 0 0-3.32-1.432c-4.634-.34-11.589-.34-11.589-.34h-.014s-6.954 0-11.59.342a4.692 4.692 0 0 0-3.32 1.432c-.993 1.025-1.315 3.354-1.315 3.354a52.189 52.189 0 0 0-.331 5.473v2.566c.014 1.829.125 3.656.331 5.472 0 0 .322 2.33 1.316 3.36 1.26 1.345 2.916 1.3 3.653 1.445 2.65.26 11.263.34 11.263.34s6.96-.01 11.597-.353a4.691 4.691 0 0 0 3.32-1.432c.993-1.026 1.316-3.356 1.316-3.356.206-1.817.316-3.644.33-5.473v-2.57a52.26 52.26 0 0 0-.33-5.472zM14.076 17.232V7.729l8.951 4.768-8.95 4.735z" />
+            </svg>
+          </a></li>
+        <li><a href="https://www.linkedin.com/company/pytorch" target="_blank" title="PyTorch on LinkedIn">
+            <svg xmlns="http://www.w3.org/2000/svg" viewbox="-10.23 -10.23 531.96 531.96" aria-label="LinkedIn">
+              <rect width="512" height="512" rx="0" fill="currentColor" />
+              <circle fill="#000" cx="142" cy="138" r="37" />
+              <path stroke="#000" stroke-width="66" d="M244 194v198M142 194v198" />
+              <path fill="#000"
+                d="M276 282c0-20 13-40 36-40 24 0 33 18 33 45v105h66V279c0-61-32-89-76-89-34 0-51 19-59 32" />
+            </svg>
+          </a></li>
+        <li><a href="https://pytorch.slack.com" target="_blank" title="PyTorch Slack">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0.16 -0.03 21.19 21.19" aria-label="Slack">
+              <path fill="currentColor"
+                d="M4.896 13.27a2.147 2.147 0 0 1-2.141 2.142A2.147 2.147 0 0 1 .613 13.27c0-1.178.963-2.141 2.142-2.141h2.141v2.141zm1.08 0c0-1.178.962-2.141 2.141-2.141s2.142.963 2.142 2.141v5.363a2.147 2.147 0 0 1-2.142 2.141 2.147 2.147 0 0 1-2.141-2.142V13.27zm2.141-8.6a2.147 2.147 0 0 1-2.141-2.14c0-1.18.962-2.142 2.141-2.142s2.142.963 2.142 2.141v2.142H8.117zm0 1.08c1.179 0 2.141.962 2.141 2.141a2.147 2.147 0 0 1-2.141 2.142H2.755A2.147 2.147 0 0 1 .613 7.89c0-1.179.963-2.141 2.142-2.141h5.362zm8.599 2.141c0-1.179.963-2.141 2.141-2.141 1.179 0 2.143.962 2.143 2.14a2.147 2.147 0 0 1-2.142 2.142h-2.141V7.89zm-1.08 0a2.147 2.147 0 0 1-2.141 2.142 2.147 2.147 0 0 1-2.141-2.142V2.53c0-1.178.962-2.141 2.141-2.141s2.142.963 2.142 2.141v5.362zm-2.141 8.6c1.179 0 2.142.962 2.142 2.14a2.147 2.147 0 0 1-2.142 2.142 2.147 2.147 0 0 1-2.141-2.141V16.49h2.141zm0-1.08a2.147 2.147 0 0 1-2.141-2.141c0-1.179.962-2.142 2.141-2.142h5.362c1.179 0 2.142.963 2.142 2.142a2.147 2.147 0 0 1-2.142 2.142h-5.362z">
+              </path>
+            </svg>
+          </a></li>
+        <li><a href="https://pytorch.org/wechat" title="PyTorch on WeChat">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0.14 -0.17 38.02 33.02" aria-label="WeChat">
+              <path fill="currentColor"
+                d="M26.289 10.976a12.972 12.972 0 0 0-8.742 3.53 10.386 10.386 0 0 0-3.224 8.795c-1.326-.164-2.535-.345-3.75-.448a2.332 2.332 0 0 0-1.273.216c-1.18.666-2.311 1.418-3.652 2.255.246-1.112.405-2.087.687-3.024a1.15 1.15 0 0 0-.523-1.52C1.737 17.902.02 13.601 1.307 9.165c1.189-4.1 4.11-6.587 8.077-7.884A13.54 13.54 0 0 1 24.18 5.617a10.135 10.135 0 0 1 2.109 5.359zM10.668 9.594a1.564 1.564 0 0 0-2.095-1.472 1.52 1.52 0 0 0-.895 1.964 1.502 1.502 0 0 0 1.391.966 1.545 1.545 0 0 0 1.598-1.46v.002zm8.15-1.566a1.567 1.567 0 0 0-1.528 1.543 1.528 1.528 0 0 0 1.571 1.492 1.52 1.52 0 0 0 1.375-2.117 1.518 1.518 0 0 0-1.415-.919l-.003.001z">
+              </path>
+              <path fill="currentColor"
+                d="M33.914 32.137c-1.075-.478-2.062-1.196-3.11-1.306-1.049-.11-2.145.494-3.24.605a10.821 10.821 0 0 1-8.781-2.864c-4.682-4.33-4.013-10.97 1.403-14.518 4.811-3.154 11.874-2.102 15.268 2.273a8.671 8.671 0 0 1-1.002 12.095c-1.046.929-1.422 1.693-.751 2.917.102.257.174.525.213.798zM21.68 20.292a1.264 1.264 0 1 0 .01-2.528 1.264 1.264 0 0 0-.01 2.528zm7.887-2.526a1.266 1.266 0 0 0-1.256 1.21 1.247 1.247 0 1 0 1.256-1.21z">
+              </path>
+            </svg>
+          </a></li>
+      </ul>
+    </div>
+    
+    <div class="privacy-policy">
+      <div class="copyright">
+      
+        <p>
+          &copy; PyTorch. Copyright © The Linux Foundation®. All rights reserved. The Linux Foundation has registered
+          trademarks and uses trademarks. For more information, including terms of use, privacy policy, and trademark
+          usage, please see our <a href="https://www.linuxfoundation.org/legal/policies">Policies</a> page. <a
+            href="https://www.linuxfoundation.org/trademark-usage">Trademark Usage</a>. <a
+            href="http://www.linuxfoundation.org/privacy">Privacy Policy</a>.
+        </p>
+        
+      </div>
+    </div>
+
+
+  </div>
+</footer>
+
+<div class="cookie-banner-wrapper">
+  <div class="container">
+    <p class="gdpr-notice">To analyze traffic and optimize your experience, we serve cookies on this site. By clicking or navigating, you agree to allow our usage of cookies. As the current maintainers of this site, Facebook’s Cookies Policy applies. Learn more, including about available controls: <a href="https://www.facebook.com/policies/cookies/">Cookies Policy</a>.</p>
+    <img class="close-button" src="_static/img/pytorch-x.svg">
+  </div>
+</div>
+  
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2024-present, torchao Contributors.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 5.3.0.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.15.4.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  <script type="application/ld+json">
+    {
+       "@context": "https://schema.org",
+       "@type": "Article",
+       "name": "Writing Your Own Quantized Tensor",
+       "headline": "Writing Your Own Quantized Tensor",
+       "description": "PyTorch Documentation. Explore PyTorch, an open-source machine learning library that accelerates the path from research prototyping to production deployment. Discover tutorials, API references, and guides to help you build and deploy deep learning models efficiently.",
+       "url": "/subclass_basic.html",
+       "articleBody": "Writing Your Own Quantized Tensor# Created On: Dec 08, 2025 | Last Updated On: Dec 08, 2025 Quantization in torchao is built on the foundation of tensor subclasses. They are the main extension point for torchao to provide flexible inference and training support using low precision computation, while composing with important PyTorch features such as torch.compile, autograd, and distributed primitives. In this tutorial, we will highlight the benefits of leveraging tensor subclasses compared to module swaps, and walk through a simple example of how to express quantization using this approach. What are Tensor Subclasses?# Tensor subclasses are simply classes that inherit from torch.Tensor. They allow users to interpose their custom computation logic between existing ops in their models, such that functions in the top-level torch namespace like torch.add will continue to work seamlessly. An obvious alternative to the tensor subclass approach is module swaps: simply swap all nn.Linear modules in your model with your custom Int8QuantizedLinear modules, for example. There are a few important benefits of using tensor subclasses compared to this approach: Finer-grained integration point. Module swaps intercept computation at the module level and so will not work for models that rely on torch functions or variants of native modules (e.g. slightly modified versions of nn.Linear). In contrast, since tensor subclasses intercept computation at the function/op level, we will be able to quantize the model as long as the same function/op is used. Better composability. Composing multiple features using module swaps is clunky. For example, combining two existing Int8QuantizedLinear and DistributedLinear modules would require users to create another linear class that duplicates these functionalities. Tensor subclasses bypass this problem by simply wrapping one subclass in another. This can also offer performance benefits if the outer tensor (e.g. DTensor) is aware that the inner tensor is quantized, and so can perform expensive allgather operations using less network and memory bandwidth. Reusing PyTorch components. It is natural to express quantization using tensor subclasses since the quantized tensors are simply torch.Tensors with different dtypes. The model structure does not change (nn.Linears stay as nn.Linears), and so subsequent optimization passes can also stay exactly the same as before. In the rest of the tutorial, we will walk through an example of how to express quantization using both approaches. For further reading on tensor subclasses, please refer to: Tensor subclass documentation Tensor subclass zoo Tensor subclass podcast by Edward Yang Quantization with Module Swaps# We begin with a simple example of how to implement int8 symmetric weight only quantization using module swaps. All code can be found in this example script. We will use the following function for quantizing float32 tensors into int8 tensors: from typing import Tuple import torch def int8_symmetric_quantize( fp32_tensor: torch.Tensor, ) -\u003e Tuple[torch.Tensor, torch.Tensor]: \"\"\" Symmetrically quantize the torch.float32 tensor into torch.int8. Return a 2-tuple of (quantized value, scale). input: dimensions=[M, N], dtype=torch.float32 output: dimensions=[M, N], dtype=torch.int8 scale: dimensions=[M, 1], dtype=torch.float32 \"\"\" quant_min = -128 quant_max = 127 min_val = torch.amin(fp32_tensor, dim=[1], keepdim=False) max_val = torch.amax(fp32_tensor, dim=[1], keepdim=False) min_val_neg = torch.min(min_val, torch.zeros_like(min_val)) max_val_pos = torch.max(max_val, torch.zeros_like(max_val)) max_val_pos = torch.max(-min_val_neg, max_val_pos) scale = max_val_pos / (float(quant_max - quant_min) / 2) scale = scale.view(fp32_tensor.shape[0], -1) out = torch.round(fp32_tensor * (1.0 / scale)) out = torch.clamp(out, quant_min, quant_max).to(torch.int8) return out, scale Next, we will create a new QuantizedLinear module that calls this function to dynamically quantize the weights: class QuantizedLinear(torch.nn.Linear): \"\"\" Linear module that performs dynamic and symmetric weight-only int8 quantization. \"\"\" def forward(self, x: torch.Tensor) -\u003e torch.Tensor: w_int8, scale = int8_symmetric_quantize(self.weight) return torch.matmul(x, w_int8.t().to(x.dtype)) * scale.t() @classmethod def from_float(cls, mod: torch.nn.Linear): new_linear = cls(mod.in_features, mod.out_features, mod.bias) new_linear.weight = mod.weight return new_linear Then, the only thing that\u2019s left is to swap all nn.Linear modules in the model with our new QuantizedLinear. Let\u2019s use the following toy model for demonstration purposes: import copy class ToyModel(torch.nn.Module): def __init__(self, m: int, n: int, k: int): super().__init__() self.linear1 = torch.nn.Linear(m, n, bias=False) self.linear2 = torch.nn.Linear(n, k, bias=False) def forward(self, x): x = self.linear1(x) x = self.linear2(x) return x float_model = ToyModel(64, 128, 32).cuda() quantized_model = copy.deepcopy(float_model) # Swap torch.nn.Linear with QuantizedLinear for name, child in quantized_model.named_children(): if type(child) == torch.nn.Linear: new_linear = QuantizedLinear.from_float(child) setattr(quantized_model, name, new_linear) Verify that the model now uses our QuantizedLinear module. This model is now ready to use! \u003e\u003e\u003e print(float_model) ToyModel( (linear1): Linear(in_features=64, out_features=128, bias=False) (linear2): Linear(in_features=128, out_features=32, bias=False) ) \u003e\u003e\u003e print(quantized_model) ToyModel( (linear1): QuantizedLinear(in_features=64, out_features=128, bias=False) (linear2): QuantizedLinear(in_features=128, out_features=32, bias=False) ) An important drawback of this simple approach is flexibility. Currently this only works for native PyTorch modules, but what if the model has slightly modified linear modules that, for example, support distributed training? It also won\u2019t work with models that directly call the functional version of linear (torch.nn.functional.linear) instead. Further, suppose we want to compose this feature with distribution, which is also implemented through module swaps. There is no clean way to do this except to create yet another module that combines both features. These limitations can be solved with tensor subclasses, which is a more elegant way to interpose custom computation such as quantization in your model. Quantization with Tensor Subclasses# Here we are going to re-implement the above quantization technique, using a __torch_dispatch__-based tensor subclass. Tensor subclasses (which often utilize __torch_dispatch__) are a pretty powerful/flexible extension point in pytorch. They serve two main purposes as an extension point: Tensor subclasses allow you to override the implementation of (almost) every PyTorch API, and are used quite a bit to implement other PyTorch offerings Tensor subclasses allow you to couple your tensor data with additional metadata. A few examples [distributed] metadata on how a tensor is sharded across ranks (DTensor, docs) [quantization] scale/zero_point metadata (AffineQuantizedTensor) [raggedness] metadata on ragged structure (NestedTensor, docs) Some other resources on tensor subclasses for those who are interested: __torch_dispatch__ docs (link) What (and why) is __torch_dispatch__ (link) Google collab that implements a FlopCounter and MemoryTracker using __torch_dispatch__ (link) With that out of the way, let\u2019s start by defining our bare-bones tensor subclass for symmetric quantization: class Int8SymmetricTensor(torch.Tensor): \"\"\" Our subclass represents a tensor that has been quantized to int8 It will hold two inner tensors: int_data: int8[M, N] scale: fp32[M, 1] \"\"\" @staticmethod @torch._dynamo.disable def __new__(cls, int_data: torch.Tensor, scale: torch.Tensor): return torch.Tensor._make_wrapper_subclass( cls, int_data.shape, strides=int_data.stride(), storage_offset=int_data.storage_offset(), dtype=scale.dtype, device=int_data.device, ) @torch._dynamo.disable def __init__(self, int_data: torch.Tensor, scale: torch.Tensor): # inner data expected to be quantized already assert int_data.dtype is torch.int8 # we could do more work to support ndim \u003e 2! assert int_data.ndim == 2 assert scale.ndim == 2 self.int_data = int_data self.scale = scale def __tensor_flatten__(self) -\u003e Tuple[List[str], Any]: \"\"\" Returns a tuple of: names of all inner tensor attributes (two in our case) any other additional, non-tensor metadata. Needed for PT2 support. \"\"\" return [\"int_data\", \"scale\"], None @classmethod def __tensor_unflatten__(cls, tensor_data_dict, extra_metadata, outer_size=None, outer_stride=None): \"\"\" __tensor_unflatten__ should effectively undo __tensor_flatten__. inputs: a dict mapping names of inner tensor attributes back to the tensors the constant metadata from __tensor_flatten__ output: a new instance of your subclass Needed for PT2 support. \"\"\" assert extra_metadata is None int_data = tensor_data_dict[\"int_data\"] scale = tensor_data_dict[\"scale\"] return Int8SymmetricTensor(int_data, scale) def __repr__(self): return f\u0027Int8SymmetricTensor(int_data={repr(self.int_data)}, scale={repr(self.scale)})\u0027 @staticmethod def from_float(float_tensor): \"\"\" Actually performs the symmetric quantization. In our simple inference example we will quantize weights \"ahead-of-time\", although later in a training example we can quantize/dequantize during model execution, inside of our __torch_dispatch__ input: float32 torch.Tensor output: Int8SymmetricTensor \"\"\" int8_tensor, scale = int8_symmetric_quantize(float_tensor) return Int8SymmetricTensor(int8_tensor, scale) @classmethod def __torch_dispatch__(cls, func, types, args, kwargs): \"\"\" Called for each ATen operator that our subclass is passed as an input to. We need to define our own implementation for every operator here. \"\"\" if kwargs is None: kwargs = {} if func not in op_implementations_dict: raise AssertionError(f\u0027Int8SymmetricTensor does not yet support op: {str(func)}\u0027) return op_implementations_dict[func](func, *args, **kwargs) # Convenience function for registering our own implementation # to every ATen operator in PyTorch op_implementations_dict = {} def register_op(ops: List[torch._ops.OpOverload]): def impl_decorator(op_impl): global op_implementations_dict for op in ops: op_implementations_dict[op] = op_impl return op_impl return impl_decorator In the above code, we have done a few things: Defined a basic \u201cwrapper\u201d tensor subclass - it is effectively a container object, that holds some inner data (in particular, two tensors that correspond to our int8 data and scales) Defined a __torch_dispatch__ implementation, which will be called for every ATen operator our model calls on any of our subclass inputs (For PT2 support) Defined a __tensor_flatten__/__tensor_unflatten__ method. This is the largest of a few requirements we have in order for our subclass to work with torch.compile (more on this later). It effectively tells torch.compile how to \u201cdesugar\u201d our subclass into its inner components. (For PT2 support) Added a torch._dynamo.disable decorator to both constructor methods (__new__ and __init__) (more on this later). Which operators should we implement?# PyTorch has a pretty large operator surface. Instead of trying to give our new tensor subclass 100% coverage, let\u2019s just focus on the ops we need for our toy model above. Which operators are called in our model though, so we know what to implement first? The brute force way is to repeatedly run the model to see what ops error in your subclass. A more elegant way is to log every operator that your model sees during execution. This can be achieved through another LoggingTensor subclass as in this example. Let\u2019s implement the necessary ops below: from torch.utils._python_dispatch import return_and_correct_aliasing @register_op([torch.ops.aten.mm.default]) def int8_mm(func, x, weight): assert isinstance(weight, Int8SymmetricTensor), \"Int8SymmetricTensor: matmul currently only supports the weight in low precision, not the input!\" return torch.mm(x, weight.int_data.to(x.dtype)) * weight.scale @register_op([ torch.ops.aten.detach.default, torch.ops.aten.t.default, ]) def int8_view_ops(func, *args, **kwargs): assert isinstance(args[0], Int8SymmetricTensor) out_data = func(args[0].int_data, *args[1:], **kwargs) out_scale = func(args[0].scale, *args[1:], **kwargs) out = Int8SymmetricTensor(out_data, out_scale) return return_and_correct_aliasing(func, args, kwargs, out) One thing you\u2019ll notice quickly is: our model itself consists of a few linear layers, but we see a few operations like aten.t and aten.mm hitting our subclass. Some background: We have a number of op decompositions that live in C++, that run \u201cabove\u201d tensor subclasses. linear is one such op (the decomp lives here) Decompositions can be good in the sense that they shrink the size of the API that you as a subclass author have to implement. But they can be painful if you would rather override the \u201chigher level\u201d operator than the underlying operations in its decomposition. If you would prefer to override some operations (like Linear) at a higher level, you can do so using __torch_function__ (example). It\u2019s worth noting that if you want autograd support, then any overrides you perform at the __torch_function__ layer need to be written in a way that is differentiable, while any overrides you perform in __torch_dispatch__ will be automatically differentiable. There are a few nuances in our implementations worth pointing out: You\u2019ll notice that we no longer had to transpose our weight / scales inside of our mm implementation. That\u2019s because the transposition \u201calready happened\u201d before we got to the aten.mm op. Our aten.mm implementation does not return a tensor subclass output. In that sense, the \u201cpropagation\u201d of our quantized subclass ends with matmuls. This maps to the fact that our weights are in low precision, but we need to perform the matmuls themselves in high precision. In general, subclass authors are free to choose for which ops their subclasses do-or-do-not propagate. If you wanted every function in your model to be quantized (including all pointwise and reduction operations), you could write your subclass implementation to quantize the output of every op and always return a subclass. We were able to re-use the same implementation for 4 view operations. In general, many ops might work with a pretty generic implementation: unwrap any subclass inputs, run the underlying operator on the inner tensor, and wrap the output back into a subclass. Whether you can always re-use an implementation, though, depends on what you are trying to do. For example, we implemented transpose(dim0, dim1) on our subclass by calling the same transpose on our inner data and inner scale tensor. This wouldn\u2019t work if our scale and data tensors had a different number of dimensions, so transposition in that case would require a custom implementation. Comparing the Outputs# And with all of that out of the way, let\u2019s run our model with both versions of quantization and confirm that they give the same output! float_model = ToyModel(64, 128, 32).cuda() quantized_model_module_swap = copy.deepcopy(float_model) quantized_model_subclass = copy.deepcopy(float_model) # Swap torch.nn.Linear with QuantizedLinear for name, child in quantized_model_module_swap.named_children(): if type(child) == torch.nn.Linear: new_linear = QuantizedLinear.from_float(child) setattr(quantized_model_module_swap, name, new_linear) # Swap torch.nn.Linear weights with Int8SymmetricTensor subclasses for name, child in quantized_model_subclass.named_children(): if type(child) == torch.nn.Linear: subclass_param = Int8SymmetricTensor.from_float(child.weight) child.weight = torch.nn.Parameter(subclass_param, requires_grad=True) with torch.no_grad(): x = torch.randn(64, 64, 64, device=\u0027cuda\u0027) out_module_swap = quantized_model_module_swap(x) out = quantized_model_subclass(x) print(torch.allclose(out, out_module_swap)) # prints True # We can also use torch.compile to fuse some of our quantized logic out_compiled = torch.compile(quantized_model_subclass)(x) print(torch.allclose(out, out_compiled)) # prints True Next Steps# In this tutorial, we demonstrated how to build a simple quantized tensor subclass. This is part one of two tutorials in this series. The next post will discuss how to add more advanced features to your tensor subclass, such as making it trainable, composing with DTensors, and adding tensor parallelism support. For a more detailed example of how AffineQuantizedTensor in torchao was built using tensor subclasses, also check out this example. If you have any questions while implementing your subclass, feel free to file an issue here.",
+       "author": {
+         "@type": "Organization",
+         "name": "PyTorch Contributors",
+         "url": "https://pytorch.org"
+       },
+       "image": "https://pytorch.org/docs/stable/_static/img/pytorch_seo.png",
+       "mainEntityOfPage": {
+         "@type": "WebPage",
+         "@id": "/subclass_basic.html"
+       },
+       "datePublished": "Dec 08, 2025T00:00:00Z",
+       "dateModified": "Dec 08, 2025T00:00:00Z"
+     }
+ </script>
+  <script>
+    // Tutorials Call to action event tracking
+    $("[data-behavior='call-to-action-event']").on('click', function () {
+      fbq('trackCustom', "Download", {
+        tutorialTitle: $('h1:first').text(),
+        downloadLink: this.href,
+        tutorialLink: window.location.href,
+        downloadTitle: $(this).attr("data-response")
+      });
+      if (typeof gtag === 'function') {
+        gtag('event', 'click', {
+          'event_category': $(this).attr("data-response"),
+          'event_label': $("h1").first().text(),
+          'tutorial_link': window.location.href
+        });
+      }
+    });
+  </script>
+  
+  </body>
+</html>

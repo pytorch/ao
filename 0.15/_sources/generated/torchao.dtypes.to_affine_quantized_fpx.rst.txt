@@ -1,0 +1,9 @@
+﻿.. role:: hidden
+    :class: hidden-section
+.. currentmodule:: torchao.dtypes
+
+
+to_affine_quantized_fpx
+=======================
+
+.. autofunction:: to_affine_quantized_fpx

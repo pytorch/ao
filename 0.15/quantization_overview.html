@@ -1,0 +1,1931 @@
+
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
+<meta property="og:title" content="Quantization Overview" />
+<meta property="og:type" content="website" />
+<meta property="og:url" content="http://pytorch.org/quantization_overview.html" />
+<meta property="og:site_name" content="torchao" />
+<meta property="og:description" content="First we want to lay out the torchao stack: Any quantization algorithm will be using some components from the above stack, for example per row float8 dynamic activation and float8 weight quantizati..." />
+<meta property="og:image" content="https://pytorch.org/assets/images/social-share.jpg" />
+<meta property="og:image:alt" content="torchao" />
+<meta name="description" content="First we want to lay out the torchao stack: Any quantization algorithm will be using some components from the above stack, for example per row float8 dynamic activation and float8 weight quantizati..." />
+
+    <title>Quantization Overview &#8212; torchao 0.15 documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="_static/styles/theme.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
+<link href="_static/styles/bootstrap.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
+<link href="_static/styles/pydata-sphinx-theme.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
+
+  
+  <link href="_static/vendor/fontawesome/6.5.2/css/all.min.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
+  <link rel="preload" as="font" type="font/woff2" crossorigin href="_static/vendor/fontawesome/6.5.2/webfonts/fa-solid-900.woff2" />
+<link rel="preload" as="font" type="font/woff2" crossorigin href="_static/vendor/fontawesome/6.5.2/webfonts/fa-brands-400.woff2" />
+<link rel="preload" as="font" type="font/woff2" crossorigin href="_static/vendor/fontawesome/6.5.2/webfonts/fa-regular-400.woff2" />
+
+    <link rel="stylesheet" type="text/css" href="_static/pygments.css" />
+    <link rel="stylesheet" type="text/css" href="_static/css/theme.css" />
+    <link rel="stylesheet" type="text/css" href="_static/copybutton.css" />
+    <link rel="stylesheet" type="text/css" href="_static/tabs.css" />
+    <link rel="stylesheet" type="text/css" href="_static/design-style.1e8bd061cd6da7fc9cf755528e8ffc24.min.css" />
+    <link rel="stylesheet" type="text/css" href="_static/sg_gallery.css" />
+    <link rel="stylesheet" type="text/css" href="_static/sg_gallery-binder.css" />
+    <link rel="stylesheet" type="text/css" href="_static/sg_gallery-dataframe.css" />
+    <link rel="stylesheet" type="text/css" href="_static/sg_gallery-rendered-html.css" />
+    <link rel="stylesheet" type="text/css" href="_static/css/custom.css" />
+  
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="_static/scripts/bootstrap.js?digest=dfe6caa3a7d634c4db9b" />
+<link rel="preload" as="script" href="_static/scripts/pydata-sphinx-theme.js?digest=dfe6caa3a7d634c4db9b" />
+  <script src="_static/vendor/fontawesome/6.5.2/js/all.min.js?digest=dfe6caa3a7d634c4db9b"></script>
+
+    <script data-url_root="./" id="documentation_options" src="_static/documentation_options.js"></script>
+    <script src="_static/jquery.js"></script>
+    <script src="_static/underscore.js"></script>
+    <script src="_static/_sphinx_javascript_frameworks_compat.js"></script>
+    <script src="_static/doctools.js"></script>
+    <script src="_static/sphinx_highlight.js"></script>
+    <script src="_static/clipboard.min.js"></script>
+    <script src="_static/copybutton.js"></script>
+    <script src="_static/design-tabs.js"></script>
+    <link rel="canonical" href="https://pytorch.org/ao/quantization_overview.html" />
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Contributor Guide" href="contributor_guide.html" />
+    <link rel="prev" title="Quick Start Guide" href="quick_start.html" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/list.js/2.3.1/list.min.js"></script>
+<script>
+  if (window.location.hostname === 'docs.pytorch.org' || window.location.hostname === 'docs-preview.pytorch.org') {
+    const script = document.createElement('script');
+    script.src = 'https://cmp.osano.com/16A0DbT9yDNIaQkvZ/31b1b91a-e0b6-47ea-bde2-7f2bd13dbe5c/osano.js?variant=one';
+    document.head.appendChild(script);
+  }
+</script>
+<script>
+  // Cookie banner for non-LF projects
+  document.addEventListener('DOMContentLoaded', function () {
+    // Hide cookie banner on local environments and LF owned docs
+    if (window.location.hostname === 'localhost' ||
+      window.location.hostname === '0.0.0.0' ||
+      window.location.hostname === '127.0.0.1' ||
+      window.location.hostname === 'docs.pytorch.org' ||
+      window.location.hostname === 'docs-preview.pytorch.org' ||
+      window.location.hostname.startsWith('192.168.')) {
+      const banner = document.querySelector('.cookie-banner-wrapper');
+      if (banner) {
+        banner.style.display = 'none';
+      }
+    }
+  });
+</script>
+<!-- Conditional CSS for header and footer height adjustment -->
+
+
+<link rel="stylesheet" type="text/css" href="_static/css/theme.css" crossorigin="anonymous">
+<script type="text/javascript" src="_static/js/theme.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400&display=swap" rel="stylesheet">
+<meta property="og:image" content="https://docs.pytorch.org/docs/stable/_static/img/pytorch_seo.png" />
+<link rel="stylesheet" href="_static/webfonts/all.min.css" crossorigin="anonymous">
+<meta http-equiv="Content-Security-Policy"
+  content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:; style-src * 'unsafe-inline'; script-src * 'unsafe-inline' 'unsafe-eval' blob:;">
+<meta name="pytorch_project" content="">
+<!-- Google Tag Manager (noscript) -->
+<noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-T8XT4PS" height="0" width="0"
+    style="display:none;visibility:hidden"></iframe></noscript>
+<!-- End Google Tag Manager (noscript) -->
+<!-- Google Tag Manager -->
+<script>(function (w, d, s, l, i) {
+    w[l] = w[l] || []; w[l].push({
+      'gtm.start':
+        new Date().getTime(), event: 'gtm.js'
+    }); var f = d.getElementsByTagName(s)[0],
+      j = d.createElement(s), dl = l != 'dataLayer' ? '&l=' + l : ''; j.async = true; j.src =
+        'https://www.googletagmanager.com/gtm.js?id=' + i + dl; f.parentNode.insertBefore(j, f);
+    j.onload = function () {
+      window.dispatchEvent(new Event('gtm_loaded'));
+      console.log('GTM loaded successfully');
+    };
+  })(window, document, 'script', 'dataLayer', 'GTM-T8XT4PS');
+</script>
+<!-- End Google Tag Manager -->
+<!-- Facebook Pixel Code -->
+<script>
+  !function (f, b, e, v, n, t, s) {
+    if (f.fbq) return; n = f.fbq = function () {
+      n.callMethod ?
+        n.callMethod.apply(n, arguments) : n.queue.push(arguments)
+    };
+    if (!f._fbq) f._fbq = n; n.push = n; n.loaded = !0; n.version = '2.0';
+    n.queue = []; t = b.createElement(e); t.async = !0;
+    t.src = v; s = b.getElementsByTagName(e)[0];
+    s.parentNode.insertBefore(t, s)
+  }(window, document, 'script',
+    'https://connect.facebook.net/en_US/fbevents.js');
+  fbq('init', '243028289693773');
+  fbq('track', 'PageView');
+</script>
+<script>
+  document.documentElement.setAttribute('data-version', '0.15');
+</script>
+<noscript>
+  <img height="1" width="1" src="https://www.facebook.com/tr?id=243028289693773&ev=PageView&noscript=1" />
+</noscript>
+<script>
+  function gtag() {
+    window.dataLayer.push(arguments);
+  }
+</script>
+<!-- End Facebook Pixel Code -->
+<!-- Repository configuration for tutorials -->
+
+<!-- Script to Fix scrolling -->
+<script>
+  document.addEventListener('DOMContentLoaded', function () {
+    // Fix anchor scrolling
+    document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+      anchor.addEventListener('click', function (e) {
+        e.preventDefault();
+        const targetId = this.getAttribute('href').substring(1);
+        const targetElement = document.getElementById(targetId);
+
+        if (targetElement) {
+          const headerHeight =
+            (document.querySelector('.header-holder') ? document.querySelector('.header-holder').offsetHeight : 0) +
+            (document.querySelector('.bd-header') ? document.querySelector('.bd-header').offsetHeight : 0) + 20;
+
+          const targetPosition = targetElement.getBoundingClientRect().top + window.pageYOffset - headerHeight;
+          window.scrollTo({
+            top: targetPosition,
+            behavior: 'smooth'
+          });
+
+          // Update URL hash without scrolling
+          history.pushState(null, null, '#' + targetId);
+        }
+      });
+    });
+  });
+</script>
+
+<script async src="https://cse.google.com/cse.js?cx=e65585f8c3ea1440e"></script>
+
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+
+  </head>
+
+<body data-feedback-url="" class="pytorch-body">
+  
+    <div class="container-fluid header-holder tutorials-header" id="header-holder">
+   <div class="header-container-wrapper">
+    <div class="header-container">
+      <a class="header-logo" href="https://pytorch.org/" aria-label="PyTorch"></a>
+
+      <div class="main-menu">
+        <ul>
+
+          <li class="main-menu-item">
+          <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
+              <a class="with-down-arrow">
+                <span>Learn</span>
+              </a>
+              <div class="resources-dropdown-menu">
+                <a class="nav-dropdown-item" href="https://pytorch.org/get-started/locally">
+                  <span class=dropdown-title>Get Started</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://docs.pytorch.org/tutorials">
+                  <span class="dropdown-title">Tutorials</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/tutorials/beginner/basics/intro.html">
+                  <span class="dropdown-title">Learn the Basics</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/tutorials/recipes/recipes_index.html">
+                  <span class="dropdown-title">PyTorch Recipes</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/tutorials/beginner/introyt.html">
+                  <span class="dropdown-title">Intro to PyTorch - YouTube Series</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/webinars/">
+                  <span class="dropdown-title">Webinars</span>
+                </a>
+              </div>
+            </div>
+          </li>
+
+          <li class="main-menu-item">
+          <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
+              <a class="with-down-arrow">
+              <span>Community</span>
+              </a>
+              <div class="resources-dropdown-menu">
+                <a class="nav-dropdown-item" href="https://landscape.pytorch.org/" target="_blank">
+                  <span class="dropdown-title">Landscape</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/join-ecosystem">
+                  <span class="dropdown-title">Join the Ecosystem</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/community-hub/">
+                  <span class="dropdown-title">Community Hub</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://discuss.pytorch.org/">
+                  <span class="dropdown-title">Forums</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/resources">
+                  <span class=dropdown-title>Developer Resources</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/contributor-awards/">
+                  <span class="dropdown-title">Contributor Awards</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/community-events/">
+                  <span class="dropdown-title">Community Events</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/programs/ambassadors/">
+                  <span class="dropdown-title">PyTorch Ambassadors</span>
+                </a>
+              </div>
+            </div>
+          </li>
+
+          <li class="main-menu-item">
+          <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
+              <a class="with-down-arrow">
+              <span>Projects</span>
+              </a>
+              <div class="resources-dropdown-menu">
+                <a class="nav-dropdown-item" href="https://pytorch.org/projects/pytorch/">
+                  <span class="dropdown-title">PyTorch</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/projects/vllm/">
+                  <span class="dropdown-title">vLLM</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/projects/deepspeed/">
+                  <span class="dropdown-title">DeepSpeed</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/projects/host-your-project/">
+                  <span class="dropdown-title">Host Your Project</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/projects/ray/">
+                  <span class="dropdown-title">RAY</span>
+                </a>
+              </div>
+            </div>
+          </li>
+
+          <li class="main-menu-item">
+            <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
+              <a class="with-down-arrow">
+              <span> Docs</span>
+              </a>
+              <div class="resources-dropdown-menu">
+                <a class="nav-dropdown-item" href="https://docs.pytorch.org/docs/stable/index.html">
+                  <span class="dropdown-title">PyTorch</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/domains">
+                  <span class="dropdown-title">Domains</span>
+                </a>
+              </div>
+            </div>
+          </li>
+
+          <li class="main-menu-item">
+            <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
+              <a class="with-down-arrow">
+              <span>Blogs & News</span>
+              </a>
+              <div class="resources-dropdown-menu">
+                <a class="nav-dropdown-item" href="https://pytorch.org/blog/">
+                  <span class="dropdown-title">Blog</span>
+                </a>
+                 <a class="nav-dropdown-item" href="https://pytorch.org/announcements">
+                  <span class="dropdown-title">Announcements</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/case-studies/">
+                  <span class="dropdown-title">Case Studies</span>
+                <a class="nav-dropdown-item" href="https://pytorch.org/events">
+                  <span class="dropdown-title">Events</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/newsletter">
+                  <span class="dropdown-title">Newsletter</span>
+                </a>
+            </div>
+          </li>
+
+          <li class="main-menu-item">
+            <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
+              <a class="with-down-arrow">
+              <span>About</span>
+              </a>
+              <div class="resources-dropdown-menu">
+                <a class="nav-dropdown-item" href="https://pytorch.org/foundation">
+                  <span class="dropdown-title">PyTorch Foundation</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/members">
+                  <span class="dropdown-title">Members</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/governing-board">
+                  <span class="dropdown-title">Governing Board</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/tac">
+                  <span class="dropdown-title">Technical Advisory Council</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/credits">
+                  <span class="dropdown-title">Cloud Credit Program</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/staff">
+                  <span class="dropdown-title">Staff</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/contact">
+                  <span class="dropdown-title">Contact</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/wp-content/uploads/2025/09/pytorch_brand_guide_091925a.pdf">
+                  <span class="dropdown-title">Brand Guidelines</span>
+                </a>
+              </div>
+            </div>
+          </li>
+
+          <li class="main-menu-item">
+            <div class="no-dropdown main-menu-button">
+              <a href="https://pytorch.org/join" data-cta="join">
+                JOIN
+              </a>
+            </div>
+          </li>
+        </ul>
+      </div>
+
+      <a class="main-menu-open-button" href="#" data-behavior="open-mobile-menu">
+        <i class="fa-solid fa-ellipsis"></i>
+      </a>
+    </div>
+  </div>
+ </div>
+
+ <!-- Begin Mobile Menu -->
+
+<div class="mobile-main-menu">
+  <div class="container-fluid">
+    <div class="header-container-wrapper">
+      <div class="mobile-main-menu-header-container">
+        <a class="main-menu-close-button" href="#" data-behavior="close-mobile-menu">
+        </a>
+      </div>
+    </div>
+  </div>
+
+  <div class="mobile-main-menu-links-container">
+    <div class="main-menu">
+      <ul>
+         <li class="resources-mobile-menu-title">
+           <a>Learn</a>
+         </li>
+         <ul class="resources-mobile-menu-items">
+           <li>
+             <a href="https://pytorch.org/get-started/locally">Get Started</a>
+           </li>
+           <li>
+             <a href="https://docs.pytorch.org/tutorials">Tutorials</a>
+           </li>
+           <li>
+             <a href="https://pytorch.org/tutorials/beginner/basics/intro.html">Learn the Basics</a>
+           </li>
+           <li>
+             <a href="https://pytorch.org/tutorials/recipes/recipes_index.html">PyTorch Recipes</a>
+           </li>
+           <li>
+             <a href="https://pytorch.org/tutorials/beginner/introyt.html">Introduction to PyTorch - YouTube Series</a>
+           </li>
+           <li>
+            <a href="https://pytorch.org/webinars/">Webinars</a>
+          </li>
+        </ul>
+         <li class="resources-mobile-menu-title">
+           <a>Community</a>
+         </li>
+         <ul class="resources-mobile-menu-items">
+          <li>
+            <a href="https://landscape.pytorch.org/">Landscape</a>
+          </li>
+          <li>
+             <a href="https://pytorch.org/join-ecosystem">Join the Ecosystem</a>
+           </li>
+           <li>
+             <a href="https://pytorch.org/community-hub/">Community Hub</a>
+           </li>
+           <li>
+             <a href="https://discuss.pytorch.org/">Forums</a>
+           </li>
+           <li>
+             <a href="https://pytorch.org/resources">Developer Resources</a>
+           </li>
+           <li>
+             <a href="https://pytorch.org/contributor-awards/">Contributor Awards</a>
+           </li>
+           <li>
+            <a href="https://pytorch.org/community-events/">Community Events</a>
+          </li>
+          <li>
+            <a href="https://pytorch.org/programs/ambassadors/">PyTorch Ambassadors</a>
+          </li>
+       </ul>
+
+         <li class="resources-mobile-menu-title">
+           <a>Projects</a>
+         </li>
+
+         <ul class="resources-mobile-menu-items">
+           <li>
+             <a href="https://pytorch.org/projects/pytorch/">PyTorch</a>
+           </li>
+
+           <li>
+             <a href="https://pytorch.org/projects/vllm/">vLLM</a>
+           </li>
+           <li>
+            <a href="https://pytorch.org/projects/deepspeed/">DeepSpeed</a>
+          </li>
+          <li>
+             <a href="https://pytorch.org/projects/host-your-project/">Host Your Project</a>
+           </li>
+         </ul>
+
+         <li class="resources-mobile-menu-title">
+           <a>Docs</a>
+         </li>
+
+         <ul class="resources-mobile-menu-items">
+          <li>
+            <a href="https://docs.pytorch.org/docs/stable/index.html">PyTorch</a>
+          </li>
+
+          <li>
+            <a href="https://pytorch.org/domains">Domains</a>
+          </li>
+        </ul>
+
+        <li class="resources-mobile-menu-title">
+          <a>Blog & News</a>
+        </li>
+
+         <ul class="resources-mobile-menu-items">
+          <li>
+            <a href="https://pytorch.org/blog/">Blog</a>
+          </li>
+          <li>
+            <a href="https://pytorch.org/announcements">Announcements</a>
+          </li>
+
+          <li>
+            <a href="https://pytorch.org/case-studies/">Case Studies</a>
+          </li>
+          <li>
+            <a href="https://pytorch.org/events">Events</a>
+          </li>
+          <li>
+             <a href="https://pytorch.org/newsletter">Newsletter</a>
+           </li>
+        </ul>
+
+        <li class="resources-mobile-menu-title">
+          <a>About</a>
+        </li>
+
+        <ul class="resources-mobile-menu-items">
+          <li>
+            <a href="https://pytorch.org/foundation">PyTorch Foundation</a>
+          </li>
+          <li>
+            <a href="https://pytorch.org/members">Members</a>
+          </li>
+          <li>
+            <a href="https://pytorch.org/governing-board">Governing Board</a>
+          </li>
+          <li>
+            <a href="https://pytorch.org/tac">Technical Advisory Council</a>
+         </li>
+         <li>
+             <a href="https://pytorch.org/credits">Cloud Credit Program</a>
+          </li>
+          <li>
+             <a href="https://pytorch.org/staff">Staff</a>
+          </li>
+          <li>
+             <a href="https://pytorch.org/contact">Contact</a>
+          </li>
+        </ul>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- End Mobile Menu -->
+  
+  
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <input type="checkbox"
+          class="sidebar-toggle"
+          id="pst-primary-sidebar-checkbox"/>
+  <label class="overlay overlay-primary" for="pst-primary-sidebar-checkbox"></label>
+  
+  <input type="checkbox"
+          class="sidebar-toggle"
+          id="pst-secondary-sidebar-checkbox"/>
+  <label class="overlay overlay-secondary" for="pst-secondary-sidebar-checkbox"></label>
+  
+  <div class="search-button__wrapper">
+    <div class="search-button__overlay"></div>
+    <div class="search-button__search-container">
+<form class="bd-search d-flex align-items-center"
+      action="search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         id="search-input"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form></div>
+  </div>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+  <a href="index.html" class="version">0.15</a>
+</div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="quick_start.html">
+    Quick Start Guide
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="#">
+    Quantization Overview
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="contributor_guide.html">
+    Contributor Guide
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="sparsity.html">
+    Sparsity Overview
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="benchmarking_api_guide.html">
+    Benchmarking API Guide
+  </a>
+</li>
+
+            <li class="nav-item dropdown">
+                <button class="btn dropdown-toggle nav-item" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-controls="pst-nav-more-links">
+                    More
+                </button>
+                <ul id="pst-nav-more-links" class="dropdown-menu">
+                    
+<li class=" ">
+  <a class="nav-link dropdown-item nav-internal" href="benchmarking_user_guide.html">
+    Benchmarking User Guide
+  </a>
+</li>
+
+
+<li class=" ">
+  <a class="nav-link dropdown-item nav-internal" href="api_ref_dtypes.html">
+    torchao.dtypes
+  </a>
+</li>
+
+
+<li class=" ">
+  <a class="nav-link dropdown-item nav-internal" href="api_ref_quantization.html">
+    torchao.quantization
+  </a>
+</li>
+
+
+<li class=" ">
+  <a class="nav-link dropdown-item nav-internal" href="api_ref_qat.html">
+    torchao.quantization.qat
+  </a>
+</li>
+
+
+<li class=" ">
+  <a class="nav-link dropdown-item nav-internal" href="api_ref_sparsity.html">
+    torchao.sparsity
+  </a>
+</li>
+
+
+<li class=" ">
+  <a class="nav-link dropdown-item nav-internal" href="api_ref_float8.html">
+    torchao.float8
+  </a>
+</li>
+
+
+<li class=" ">
+  <a class="nav-link dropdown-item nav-internal" href="api_ref_utils.html">
+    torchao.utils
+  </a>
+</li>
+
+
+<li class=" ">
+  <a class="nav-link dropdown-item nav-internal" href="pretraining.html">
+    (Part 1) Pre-training with float8
+  </a>
+</li>
+
+
+<li class=" ">
+  <a class="nav-link dropdown-item nav-internal" href="finetuning.html">
+    (Part 2) Fine-tuning with QAT, QLoRA, and float8
+  </a>
+</li>
+
+
+<li class=" ">
+  <a class="nav-link dropdown-item nav-internal" href="serving.html">
+    (Part 3) Serving on vLLM, SGLang, ExecuTorch
+  </a>
+</li>
+
+
+<li class=" ">
+  <a class="nav-link dropdown-item nav-internal" href="torchao_vllm_integration.html">
+    Integration with VLLM: Architecture and Usage Guide
+  </a>
+</li>
+
+
+<li class=" ">
+  <a class="nav-link dropdown-item nav-internal" href="torchao_hf_integration.html">
+    Hugging Face Integration
+  </a>
+</li>
+
+
+<li class=" ">
+  <a class="nav-link dropdown-item nav-internal" href="serialization.html">
+    Serialization
+  </a>
+</li>
+
+
+<li class=" ">
+  <a class="nav-link dropdown-item nav-internal" href="static_quantization.html">
+    Static Quantization
+  </a>
+</li>
+
+
+<li class=" ">
+  <a class="nav-link dropdown-item nav-internal" href="subclass_basic.html">
+    Writing Your Own Quantized Tensor
+  </a>
+</li>
+
+
+<li class=" ">
+  <a class="nav-link dropdown-item nav-internal" href="subclass_advanced.html">
+    Writing Your Own Quantized Tensor (advanced)
+  </a>
+</li>
+
+
+<li class=" ">
+  <a class="nav-link dropdown-item nav-internal" href="tutorials_source/pt2e_quant_ptq.html">
+    PyTorch 2 Export Post Training Quantization
+  </a>
+</li>
+
+
+<li class=" ">
+  <a class="nav-link dropdown-item nav-internal" href="tutorials_source/pt2e_quant_qat.html">
+    PyTorch 2 Export Quantization-Aware Training (QAT)
+  </a>
+</li>
+
+
+<li class=" ">
+  <a class="nav-link dropdown-item nav-internal" href="tutorials_source/pt2e_quant_x86_inductor.html">
+    PyTorch 2 Export Quantization with X86 Backend through Inductor
+  </a>
+</li>
+
+
+<li class=" ">
+  <a class="nav-link dropdown-item nav-internal" href="tutorials_source/pt2e_quant_xpu_inductor.html">
+    PyTorch 2 Export Quantization with Intel GPU Backend through Inductor
+  </a>
+</li>
+
+
+<li class=" ">
+  <a class="nav-link dropdown-item nav-internal" href="tutorials_source/pt2e_quant_openvino_inductor.html">
+    PyTorch 2 Export Quantization for OpenVINO torch.compile Backend
+  </a>
+</li>
+
+
+<li class=" ">
+  <a class="nav-link dropdown-item nav-internal" href="tutorials_source/pt2e_quantizer.html">
+    How to Write a Quantizer for PyTorch 2 Export Quantization
+  </a>
+</li>
+
+                </ul>
+            </li>
+            
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+      
+        <div class="navbar-item">
+  
+<form class="bd-search d-flex align-items-center"
+      action="search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         id="search-input"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+</div>
+      
+        <div class="navbar-item">
+
+<script>
+document.write(`
+  <button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button" title="light/dark" aria-label="light/dark" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <i class="theme-switch fa-solid fa-sun fa-lg" data-mode="light"></i>
+    <i class="theme-switch fa-solid fa-moon fa-lg" data-mode="dark"></i>
+    <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"></i>
+  </button>
+`);
+</script></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://x.com/PyTorch" title="X" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-x-twitter fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">X</span></a>
+        </li>
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/pytorch/ao" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://dev-discuss.pytorch.org/" title="Discourse" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-discourse fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">Discourse</span></a>
+        </li>
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://pypi.org/project/torchao/" title="PyPi" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-python fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">PyPi</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <div class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="quick_start.html">
+    Quick Start Guide
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="#">
+    Quantization Overview
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="contributor_guide.html">
+    Contributor Guide
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="sparsity.html">
+    Sparsity Overview
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="benchmarking_api_guide.html">
+    Benchmarking API Guide
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="benchmarking_user_guide.html">
+    Benchmarking User Guide
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="api_ref_dtypes.html">
+    torchao.dtypes
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="api_ref_quantization.html">
+    torchao.quantization
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="api_ref_qat.html">
+    torchao.quantization.qat
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="api_ref_sparsity.html">
+    torchao.sparsity
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="api_ref_float8.html">
+    torchao.float8
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="api_ref_utils.html">
+    torchao.utils
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="pretraining.html">
+    (Part 1) Pre-training with float8
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="finetuning.html">
+    (Part 2) Fine-tuning with QAT, QLoRA, and float8
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="serving.html">
+    (Part 3) Serving on vLLM, SGLang, ExecuTorch
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="torchao_vllm_integration.html">
+    Integration with VLLM: Architecture and Usage Guide
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="torchao_hf_integration.html">
+    Hugging Face Integration
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="serialization.html">
+    Serialization
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="static_quantization.html">
+    Static Quantization
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="subclass_basic.html">
+    Writing Your Own Quantized Tensor
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="subclass_advanced.html">
+    Writing Your Own Quantized Tensor (advanced)
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="tutorials_source/pt2e_quant_ptq.html">
+    PyTorch 2 Export Post Training Quantization
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="tutorials_source/pt2e_quant_qat.html">
+    PyTorch 2 Export Quantization-Aware Training (QAT)
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="tutorials_source/pt2e_quant_x86_inductor.html">
+    PyTorch 2 Export Quantization with X86 Backend through Inductor
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="tutorials_source/pt2e_quant_xpu_inductor.html">
+    PyTorch 2 Export Quantization with Intel GPU Backend through Inductor
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="tutorials_source/pt2e_quant_openvino_inductor.html">
+    PyTorch 2 Export Quantization for OpenVINO torch.compile Backend
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="tutorials_source/pt2e_quantizer.html">
+    How to Write a Quantizer for PyTorch 2 Export Quantization
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+  
+<form class="bd-search d-flex align-items-center"
+      action="search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         id="search-input"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+</div>
+        
+          <div class="navbar-item">
+
+<script>
+document.write(`
+  <button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button" title="light/dark" aria-label="light/dark" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <i class="theme-switch fa-solid fa-sun fa-lg" data-mode="light"></i>
+    <i class="theme-switch fa-solid fa-moon fa-lg" data-mode="dark"></i>
+    <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"></i>
+  </button>
+`);
+</script></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://x.com/PyTorch" title="X" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-x-twitter fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">X</span></a>
+        </li>
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/pytorch/ao" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://dev-discuss.pytorch.org/" title="Discourse" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-discourse fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">Discourse</span></a>
+        </li>
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://pypi.org/project/torchao/" title="PyPi" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-python fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">PyPi</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"></div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+  </div>
+  
+  <div id="rtd-footer-container"></div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    <li class="breadcrumb-item active" aria-current="page">Quantization...</li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+    <div class="header-article-items__end">
+      
+        <div class="header-article-item">
+<div class="rating">
+    Rate this Page
+    <div class="stars">
+        
+        <span class="star" data-behavior="tutorial-rating" data-count="1" data-value="1">★</span>
+        
+        <span class="star" data-behavior="tutorial-rating" data-count="2" data-value="2">★</span>
+        
+        <span class="star" data-behavior="tutorial-rating" data-count="3" data-value="3">★</span>
+        
+        <span class="star" data-behavior="tutorial-rating" data-count="4" data-value="4">★</span>
+        
+        <span class="star" data-behavior="tutorial-rating" data-count="5" data-value="5">★</span>
+        
+    </div>
+</div>
+</div>
+      
+    </div>
+  
+</div>
+</div>
+              
+              
+  
+<div id="searchbox"></div>
+  <article class="bd-article" id="pytorch-article">
+    <!-- Hidden breadcrumb schema for SEO only -->
+    <div style="display:none;" itemscope itemtype="https://schema.org/BreadcrumbList">
+      
+      <div itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
+        <meta itemprop="name" content="Quantization Overview">
+        <meta itemprop="position" content="1">
+      </div>
+    </div>
+
+    
+    
+
+    
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="quantization-overview">
+<h1>Quantization Overview<a class="headerlink" href="#quantization-overview" title="Permalink to this heading">#</a></h1>
+<p class="date-info-last-verified" style="color: #6c6c6d; font-size: small;">Created On: Dec 08, 2025 | Last Updated On: Dec 08, 2025</p>
+<p>First we want to lay out the torchao stack:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">Quantization</span> <span class="n">Algorithms</span><span class="o">/</span><span class="n">Flows</span><span class="p">:</span> <span class="n">weight</span> <span class="n">only</span><span class="o">/</span><span class="n">dynamic</span><span class="o">/</span><span class="n">static</span> <span class="n">quantization</span><span class="p">,</span> <span class="n">hqq</span><span class="p">,</span> <span class="n">awq</span><span class="p">,</span> <span class="n">gptq</span> <span class="n">etc</span><span class="o">.</span>
+<span class="o">---------------------------------------------------------------------------------------------</span>
+    <span class="n">Quantized</span> <span class="n">Tensors</span> <span class="p">(</span><span class="n">derived</span> <span class="n">dtypes</span><span class="p">):</span> <span class="n">Int4Tensor</span><span class="p">,</span> <span class="n">Int4PreshuffledTensor</span><span class="p">,</span> <span class="n">Int8Tensor</span><span class="p">,</span> <span class="n">Float8Tensor</span>
+<span class="o">---------------------------------------------------------------------------------------------</span>
+  <span class="n">Quantization</span> <span class="n">Primitive</span> <span class="n">Ops</span><span class="o">/</span><span class="n">Efficient</span> <span class="n">Kernels</span><span class="p">:</span> <span class="n">matmul</span><span class="p">,</span> <span class="n">quantize</span><span class="p">,</span> <span class="n">dequantize</span>
+<span class="o">---------------------------------------------------------------------------------------------</span>
+            <span class="n">Basic</span> <span class="n">dtypes</span><span class="p">:</span> <span class="n">uint1</span><span class="o">-</span><span class="n">uint7</span><span class="p">,</span> <span class="n">int1</span><span class="o">-</span><span class="n">int8</span><span class="p">,</span> <span class="n">float3</span><span class="o">-</span><span class="n">float8</span>
+</pre></div>
+</div>
+<p>Any quantization algorithm will be using some components from the above stack, for example per row float8 dynamic activation and float8 weight quantization (with default preference) uses:</p>
+<ul class="simple">
+<li><p>dynamic quantization flow</p></li>
+<li><p><a class="reference external" href="https://github.com/pytorch/ao/blob/main/torchao/quantization/quantize_/workflows/float8/float8_tensor.py">Float8Tensor</a></p></li>
+<li><p><a class="reference external" href="https://github.com/pytorch/ao/blob/6cfa47705f60ea614695b52b4b120ac5fd84d1cb/torchao/quantization/quantize_/workflows/float8/float8_tensor.py#L280">float8 activation + float8 weight fbgemm kernel</a> and <a class="reference external" href="https://github.com/pytorch/ao/blob/6cfa47705f60ea614695b52b4b120ac5fd84d1cb/torchao/quantization/quantize_/workflows/float8/float8_tensor.py#L198">triton quant primitive ops from fbgemm library</a></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">torch.float8_e4m3fn</span></code> dtype</p></li>
+</ul>
+<section id="basic-dtypes">
+<h2>Basic DTypes<a class="headerlink" href="#basic-dtypes" title="Permalink to this heading">#</a></h2>
+<p><a class="reference external" href="https://en.wikipedia.org/wiki/Data_type">dtype</a> is a bit of overloaded term, by basic dtype, we mean the dtypes that makes sense without any extra metadata (e.g. makes sense when people call <code class="docutils literal notranslate"><span class="pre">torch.empty(..,</span> <span class="pre">dtype)</span></code>), for more details please check out <a class="reference external" href="https://dev-discuss.pytorch.org/t/supporting-new-dtypes-in-pytorch/1833">this post</a>.</p>
+<p>No matter what quantization we are doing, in the end we will be using some low precision dtypes to represent the quantized data or quantization parameters, the low precision dtypes relevant for torchao are:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">torch.uint1</span></code> to <code class="docutils literal notranslate"><span class="pre">torch.uint7</span></code> available in pytorch 2.3 and later</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">torch.int1</span></code> to <code class="docutils literal notranslate"><span class="pre">torch.int7</span></code> available in pytorch 2.6 and later</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">torch.float4_e2m1fn_x2</span></code>, <code class="docutils literal notranslate"><span class="pre">torch.float8_e4m3fn</span></code>, <code class="docutils literal notranslate"><span class="pre">torch.float8_e4m3fnuz</span></code>, <code class="docutils literal notranslate"><span class="pre">torch.float8_e5m2</span></code>, <code class="docutils literal notranslate"><span class="pre">torch.float8_e5m2fnuz</span></code>, <code class="docutils literal notranslate"><span class="pre">torch.float8_e8m0fnu</span></code></p></li>
+</ul>
+<p>In terms of actual implementation, <code class="docutils literal notranslate"><span class="pre">uint1</span></code> to <code class="docutils literal notranslate"><span class="pre">uint7</span></code> and <code class="docutils literal notranslate"><span class="pre">int1</span></code> to <code class="docutils literal notranslate"><span class="pre">int7</span></code> are just placeholders that does not have real implementations (i.e. the ops does not work for the PyTorch Tensor with these dtypes). Example PR added these dtypes can be found <a class="reference external" href="https://github.com/pytorch/pytorch/pull/117208">here</a>. Floating point dtypes are what we call shell dtypes that have limited op support.</p>
+<p>For more details please check out the <a class="reference external" href="https://docs.pytorch.org/docs/main/tensor_attributes.html">official PyTorch dtype doc</a>.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Dervied dtypes like mxfp8, mxfp4, nvfp4 are implemented with these basic dtypes, e.g. mxfp4 uses <code class="docutils literal notranslate"><span class="pre">torch.float8_e8m0fnu</span></code> for scale and <code class="docutils literal notranslate"><span class="pre">torch.float4_e2m1fn_x2</span></code> for 4 bit data.</p>
+</div>
+</section>
+<section id="quantization-primitive-ops">
+<h2>Quantization Primitive Ops<a class="headerlink" href="#quantization-primitive-ops" title="Permalink to this heading">#</a></h2>
+<p>Quantization primitive ops means the operators used to convert between low preicison quantized tensors and high precision tensors. We will mainly have the following quantization primitive operators:</p>
+<ul class="simple">
+<li><p>choose_qparams ops: that chooses quantization parameter based on the original Tensor, typically used in dynamic quantization, e.g. scale and zero_point for affine quantization</p></li>
+<li><p>quantize op: quantizes the original high precision tensor to the low precision tensor with the dtypes mentioned in previous section based on the quantization parameters</p></li>
+<li><p>dequantize op: dequantizes the low precision tensor into the high precision tensor based on quantization parameters</p></li>
+</ul>
+<p>There could be variations of the above to accommodate specific use cases, for example for static quantization we may have <code class="docutils literal notranslate"><span class="pre">choose_qparams_affine_with_min_max</span></code> that will choose quantization parameters based on min/max values derived from the observation process.</p>
+<p>There could be multiple versions of the op that is different by different kernel libraries that we can use in torchao, for example, for quantizing a bfloat16 Tensor to a raw float8 Tensor and scale: <a class="reference external" href="https://github.com/pytorch/ao/blob/6cfa47705f60ea614695b52b4b120ac5fd84d1cb/torchao/quantization/quant_primitives.py#L2183">_choose_scale_float8</a> and <a class="reference external" href="https://github.com/pytorch/ao/blob/6cfa47705f60ea614695b52b4b120ac5fd84d1cb/torchao/quantization/quant_primitives.py#L2282">_quantize_affine_float8</a> for torchao implementation, and <a class="reference external" href="https://github.com/pytorch/ao/blob/6cfa47705f60ea614695b52b4b120ac5fd84d1cb/torchao/quantization/quantize_/workflows/float8/float8_tensor.py#L198C27-L198C60">torch.ops.triton.quantize_fp8_row</a> from fbgemm library.</p>
+</section>
+<section id="efficient-kernels">
+<h2>Efficient kernels<a class="headerlink" href="#efficient-kernels" title="Permalink to this heading">#</a></h2>
+<p>We’ll also have efficient kernels that works with the low precision tensors, for example:</p>
+<ul class="simple">
+<li><p><a class="reference external" href="https://github.com/pytorch/ao/blob/6cfa47705f60ea614695b52b4b120ac5fd84d1cb/torchao/quantization/quantize_/workflows/float8/float8_tensor.py#L280">torch.ops.fbgemm.f8f8bf16_rowwise</a> (rowwise float8 activation and float8 weight matrix multiplication kernel in fbgemm library)</p></li>
+<li><p><a class="reference external" href="https://github.com/pytorch/ao/blob/6cfa47705f60ea614695b52b4b120ac5fd84d1cb/torchao/float8/inference.py#L116">torch._scaled_mm</a> (float8 activation and float8 weight matrix multiplication kernel in PyTorch for both rowwise and tensorwise)</p></li>
+<li><p><a class="reference external" href="https://github.com/pytorch/ao/blob/3e9746cf636e39e3c1ec0de6e0ef2e31f75c4c02/torchao/kernel/intmm.py#L90">int_matmul</a> that takes two int8 tensors and outputs an int32 tensor</p></li>
+<li><p><a class="reference external" href="https://github.com/pytorch/ao/blob/3e9746cf636e39e3c1ec0de6e0ef2e31f75c4c02/torchao/kernel/intmm.py#L107">int_scaled_matmul</a> that does matmul and also applies a scale to the result.</p></li>
+</ul>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>We can also rely on torch.compile to generate kernels (through triton), for example the current int8 weight only quantization <a class="reference external" href="https://github.com/pytorch/ao/blob/e283743b3cc4612bb641b88dca3670231724d396/torchao/dtypes/affine_quantized_tensor.py#L1292-L1309">kernel</a> just relies on torch.compile to get speedup. In this case there is no custom handwritten “efficient kernel” that’s corresponding to the type of quantization.</p>
+</div>
+</section>
+<section id="quantized-tensors-derived-dtypes-and-packing-format">
+<h2>Quantized Tensors (derived dtypes and packing format)<a class="headerlink" href="#quantized-tensors-derived-dtypes-and-packing-format" title="Permalink to this heading">#</a></h2>
+<p>On top of the basic dtypes, quantization primitive operators and efficient kernels, we can glue everything together and build out a Quantized (low precision) Tensor by subclassing torch.Tensor that can be constructed from a high precision Tensor and some parameters that can configure the specific quantization user wants, we can also call this derived dtypes since it can be represented with Tensors of basic dtypes and some extra metadata like scale.</p>
+<p>Another dimension for quantized Tensor is packing format, meaning how the quantized raw data is laid out in memory. For example, for int4, we can pack two elements together side by side in a uint8 value, or people can do some preshuffling/swizzling to make the format more efficient for memory operations (loading from memory to register) and computation.</p>
+<p>So in general we structure Tensor subclasses by dervied dtpype and packing format:</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>We don’t have granularity specific tensor subclasses, i.e. no Float8RowwiseTensor or Float8BlockwiseTensor, all granularities are implemented in the same Tensor, we typically use a general <cite>block_size</cite> attribute to distinguish between different granularities, and each Tensor is allowed to support only a subset of all possible granularity options.</p>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>We also don’t use dynamic activation in the name, since we are talking about the weight tensor object, including information about activation in the tensor subclass name will be confusing, but
+we do implement both weight only and dynamic activation quantization in the same linear function implementation, without relying on additional abstractions, this keeps relevant quantization operations close
+to each other (quantization of activation and weight) in the same tensor subclass.</p>
+</div>
+<p>In terms of how we quantize a Tensor, most of Tensors are using affine quantization, meaning the low precision Tensor is quantized from the high precision Tensor by an affine mapping, that is: <code class="docutils literal notranslate"><span class="pre">low_precision_val</span> <span class="pre">=</span> <span class="pre">high_precision_val</span> <span class="pre">/</span> <span class="pre">scale</span> <span class="pre">+</span> <span class="pre">zero_point</span></code>, where <code class="docutils literal notranslate"><span class="pre">scale</span></code> and <code class="docutils literal notranslate"><span class="pre">zero_point</span></code> are the quantization parameters that can be calculated by quantization primitive ops or through some optimization procedure. Another common type of quantization, especially for lower bitwidths (e.g. lower than 4 bit) is codebook / look up table based quantization where the raw quantized data is the index we can use to look up a <code class="docutils literal notranslate"><span class="pre">codebook</span></code> that stores the values or vectors each index corresponds to. A common way to get the codebook and the raw quantized data for codebook quantization is kmeans clustering.</p>
+</section>
+<section id="quantization-algorithms-flows">
+<h2>Quantization Algorithms/Flows<a class="headerlink" href="#quantization-algorithms-flows" title="Permalink to this heading">#</a></h2>
+<p>On the top of the stack will be the final quantization algorithms and quantization flows. Traditionally we have weight only quantization, dynamic quantization and static quantization, but now we are also seeing more types of quantization coming up.</p>
+<p>For demonstration purposes, let’s say after previous step we have <code class="docutils literal notranslate"><span class="pre">Float8Tensor</span></code> defined. <code class="docutils literal notranslate"><span class="pre">Float8Tensor.from_hp</span></code> takes a high precision floating point Tensor and a target_dtype (e.g <code class="docutils literal notranslate"><span class="pre">torch.float8_e4m3fn</span></code>) and converts it to a <code class="docutils literal notranslate"><span class="pre">Float8Tensor</span></code></p>
+<p>Note: below are all for explaining the concepts, more detailed introduction for utils and examples we provide can be found in <a class="reference external" href="contributor_guide.html">Contributor Guide</a>.</p>
+<section id="weight-only-quantization">
+<h3>Weight Only Quantization<a class="headerlink" href="#weight-only-quantization" title="Permalink to this heading">#</a></h3>
+<p>This is the simplest form of quantization and it’s easy to apply weight only quantization to the model, especially since we have Quantized Tensor. all we need to do is:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">linear_module</span><span class="o">.</span><span class="n">weight</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Parameter</span><span class="p">(</span><span class="n">Float8Tensor</span><span class="o">.</span><span class="n">from_hp</span><span class="p">(</span><span class="n">linear_module</span><span class="o">.</span><span class="n">weight</span><span class="p">,</span> <span class="o">...</span><span class="p">),</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">False</span><span class="p">))</span>
+</pre></div>
+</div>
+<p>apply the above to all linear modules in the model and we’ll get a weight only quantized model.</p>
+</section>
+<section id="dynamic-activation-and-weight-quantization">
+<h3>Dynamic Activation and Weight Quantization<a class="headerlink" href="#dynamic-activation-and-weight-quantization" title="Permalink to this heading">#</a></h3>
+<p>This is called “dynamic quantization” before but it means we quantize activation dynamically at runtime, and also quantize the weights as well. Compared to the weight only quantization, the main question is how do we apply the quantization to activation. In torchao we pass around the quantization keyword args for activation and the keyword args will be applied to activation when needed (e.g. in linear):</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">activation_dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">float8_e4m3fn</span>
+<span class="n">activation_granularity</span> <span class="o">=</span> <span class="n">PerRow</span><span class="p">()</span>
+<span class="c1"># define kwargs for float8 activation quantization</span>
+<span class="n">act_quant_kwargs</span> <span class="o">=</span> <span class="n">QuantizeTensorToFloat8Kwargs</span><span class="p">(</span>
+  <span class="n">activation_dtype</span><span class="p">,</span>
+  <span class="n">activation_granularity</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">weight_dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">float8_e4m3fn</span>
+<span class="n">weight_granularity</span> <span class="o">=</span> <span class="n">PerRow</span><span class="p">()</span>
+<span class="n">quantized_weight</span> <span class="o">=</span> <span class="n">Float8Tensor</span><span class="o">.</span><span class="n">from_hp</span><span class="p">(</span><span class="n">linear_module</span><span class="o">.</span><span class="n">weight</span><span class="p">,</span> <span class="n">float8_dtype</span><span class="o">=</span><span class="n">weight_dtype</span><span class="p">,</span> <span class="n">granularity</span><span class="o">=</span><span class="n">weight_granularity</span><span class="p">,</span> <span class="n">act_quant_kwargs</span><span class="o">=</span><span class="n">act_quant_kwargs</span><span class="p">)</span>
+<span class="n">linear_module</span><span class="o">.</span><span class="n">weight</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Parameter</span><span class="p">(</span><span class="n">quantized_weight</span><span class="p">,</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">False</span><span class="p">))</span>
+</pre></div>
+</div>
+</section>
+<section id="static-activation-quantization-and-weight-quantization">
+<h3>Static Activation Quantization and Weight Quantization<a class="headerlink" href="#static-activation-quantization-and-weight-quantization" title="Permalink to this heading">#</a></h3>
+<p>We’ll skip the instruction for now since we haven’t seen many use cases for static quantization with tensor subclass based flow, we recommend to look into the <a class="reference external" href="quick_start.html#pytorch-2-export-quantization">PT2 export quantization flow</a> for static quantization.</p>
+</section>
+<section id="other-quantization-flows">
+<h3>Other Quantization Flows<a class="headerlink" href="#other-quantization-flows" title="Permalink to this heading">#</a></h3>
+<p>For other quantization flow/algorithms that does not fit into any of the above, we also intend to provide examples for common patterns. For example, <a class="reference external" href="https://github.com/pytorch/ao/blob/e283743b3cc4612bb641b88dca3670231724d396/tutorials/calibration_flow/gptq_like.py">GPTQ like quantization flow</a> that is adopted by <a class="reference external" href="https://github.com/pytorch/ao/blob/e283743b3cc4612bb641b88dca3670231724d396/torchao/prototype/autoround/README.md">Autoround</a>, it uses <a class="reference external" href="https://gist.github.com/HDCharles/a1b575bbf8875f994af8a01b225e1227">MultiTensor</a> and module hooks to optimize the module.</p>
+<p>If you are working on a new quantization algorithm/flow and not sure how to implement it in a PyTorch native way, please feel free to open an issue to describe how your algorithm works and we can help advise on the implementation details.</p>
+</section>
+<section id="training">
+<h3>Training<a class="headerlink" href="#training" title="Permalink to this heading">#</a></h3>
+<p>The above flow are mainly focused on inference, but low bit dtype Tensors can be used in training as well.</p>
+<p>User facing docs for float8 training can be found <a class="reference external" href="https://docs.pytorch.org/ao/main/pretraining.html">here</a> and docs for finetuning can be found <a class="reference external" href="https://docs.pytorch.org/ao/main/finetuning.html">here</a></p>
+<section id="quantization-aware-training">
+<h4>Quantization Aware Training<a class="headerlink" href="#quantization-aware-training" title="Permalink to this heading">#</a></h4>
+<p>TorchAO supports <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/quantization/qat">quantization aware training</a> through the <cite>quantize_</cite> API as well.</p>
+</section>
+<section id="low-bit-optimizers">
+<h4>Low Bit Optimizers<a class="headerlink" href="#low-bit-optimizers" title="Permalink to this heading">#</a></h4>
+<p>We support <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/optim">low bit optimizers</a> that implements a specific type of 4 bit, 8 bit and float8, and is also composable with FSDP (with look up table quantization).</p>
+</section>
+<section id="quantized-training">
+<h4>Quantized Training<a class="headerlink" href="#quantized-training" title="Permalink to this heading">#</a></h4>
+<p>We have quantized training prototype in <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/prototype/quantized_training">main/torchao/prototype/quantized_training</a>, and we could extend existing tensor subclasses to support training as well, initial enablement is in progress, but there will be a lot of follow up work needed including making it work for different kernels etc.</p>
+<p>You can also checkout the tutorial for <a class="reference external" href="https://github.com/pytorch/ao/blob/main/tutorials/developer_api_guide/my_trainable_tensor_subclass.py">Quantized Training</a> that talks about how to make a dtype tensor subclass trainable.</p>
+</section>
+</section>
+</section>
+<section id="case-study-how-float8-dynamic-activation-and-float8-weight-quantization-works-in-torchao">
+<h2>Case Study: How float8 dynamic activation and float8 weight quantization works in torchao?<a class="headerlink" href="#case-study-how-float8-dynamic-activation-and-float8-weight-quantization-works-in-torchao" title="Permalink to this heading">#</a></h2>
+<p>To connect everything together, here is a more detailed walk through for float8 dynamic activation and float8 weight quantization in torchao (DEFAULT kernel preference, in H100, when fbgemm_gpu_genai library is installed):</p>
+<dl class="simple">
+<dt>Quantization Flow: <code class="docutils literal notranslate"><span class="pre">quantize_(model,</span> <span class="pre">Float8DynamicActivationFloat8WeightConfig())</span></code></dt><dd><ul class="simple">
+<li><p>What happens: <code class="docutils literal notranslate"><span class="pre">linear.weight</span> <span class="pre">=</span> <span class="pre">torch.nn.Parameter(Float8Tensor.from_hp(linear.weight),</span> <span class="pre">requires_grad=False)</span></code></p></li>
+<li><p>quantization primitive ops: <code class="docutils literal notranslate"><span class="pre">torch.ops.triton.quantize_fp8_row</span></code></p></li>
+<li><p>quantized Tensor will be <code class="docutils literal notranslate"><span class="pre">Float8Tensor</span></code>, a quantized tensor with derived dtype of scaled float8</p></li>
+</ul>
+</dd>
+<dt>During Model Execution: model(input)</dt><dd><ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">torch.ops.fbgemm.f8f8bf16_rowwise</span></code> is called on input, raw float8 weight and scale</p></li>
+</ul>
+</dd>
+</dl>
+<section id="during-quantization">
+<h3>During Quantization<a class="headerlink" href="#during-quantization" title="Permalink to this heading">#</a></h3>
+<p>First we start with the API call: <code class="docutils literal notranslate"><span class="pre">quantize_(model,</span> <span class="pre">Float8DynamicActivationFloat8WeightConfig())</span></code> what this does is it converts the weights of nn.Linear modules in the model to <code class="docutils literal notranslate"><span class="pre">Float8Tensor</span></code>, with plain packing format, no packing is required, since we have <code class="docutils literal notranslate"><span class="pre">torch.float8_e4m3fn</span></code> that can represent quantized float8 raw data directly without additional operations.</p>
+<ul class="simple">
+<li><p><a class="reference external" href="https://docs.pytorch.org/ao/main/generated/torchao.quantization.quantize_.html#torchao.quantization.quantize_">quantize_</a>: the model level API that quantizes the weight of linear by applying the config from user (second argument)</p></li>
+<li><p><a class="reference external" href="https://docs.pytorch.org/ao/main/generated/torchao.quantization.Float8DynamicActivationFloat8WeightConfig.html#torchao.quantization.Float8DynamicActivationFloat8WeightConfig">Float8DynamicActivationFloat8WeightConfig</a>: the config for float8 dynamic activation and float8 weight quantization
+* Calls quantization primitives ops <code class="docutils literal notranslate"><span class="pre">torch.ops.triton.quantize_fp8_row</span></code> to quantize a bfloat16 Tensor to float8 raw Tensor and get a scale</p></li>
+</ul>
+</section>
+<section id="during-model-execution">
+<h3>During Model Execution<a class="headerlink" href="#during-model-execution" title="Permalink to this heading">#</a></h3>
+<p>When we run the quantized model <code class="docutils literal notranslate"><span class="pre">model(inputs)</span></code>, we’ll run through the functional linear operator in nn.Linear:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="k">return</span> <span class="n">F</span><span class="o">.</span><span class="n">linear</span><span class="p">(</span><span class="nb">input</span><span class="p">,</span> <span class="n">weight</span><span class="p">,</span> <span class="n">bias</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>where input is a <code class="docutils literal notranslate"><span class="pre">bfloat16</span></code> Tensor, weight is a <code class="docutils literal notranslate"><span class="pre">Float8Tensor</span></code>, it calls into a <code class="docutils literal notranslate"><span class="pre">__torch_function__</span></code> of the <code class="docutils literal notranslate"><span class="pre">Float8Tensor</span></code> subclass, which will end up in an implementation for <code class="docutils literal notranslate"><span class="pre">F.linear</span></code> when one of the <a class="reference external" href="https://github.com/pytorch/ao/blob/6cfa47705f60ea614695b52b4b120ac5fd84d1cb/torchao/quantization/quantize_/workflows/float8/float8_tensor.py#L233">input</a> is <code class="docutils literal notranslate"><span class="pre">Float8Tensor</span></code>:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="nd">@implements</span><span class="p">([</span><span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">functional</span><span class="o">.</span><span class="n">linear</span><span class="p">,</span> <span class="n">aten</span><span class="o">.</span><span class="n">linear</span><span class="o">.</span><span class="n">default</span><span class="p">])</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_</span><span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="n">types</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">):</span>
+    <span class="n">input_tensor</span><span class="p">,</span> <span class="n">weight_tensor</span><span class="p">,</span> <span class="n">bias</span> <span class="o">=</span> <span class="p">(</span>
+      <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span>
+      <span class="n">args</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span>
+      <span class="n">args</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span> <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">args</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">2</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="c1"># quantizing activation, if `act_quant_kwargs` is specified</span>
+    <span class="k">if</span> <span class="n">act_quant_kwargs</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+      <span class="n">input_tensor</span> <span class="o">=</span> <span class="n">_choose_quant_func_and_quantize_tensor</span><span class="p">(</span>
+          <span class="n">input_tensor</span><span class="p">,</span> <span class="n">act_quant_kwargs</span>
+      <span class="p">)</span>
+
+    <span class="c1"># omitting kernel_preference related code</span>
+    <span class="c1"># granularity checks, let&#39;s say we are doing rowwise quant</span>
+    <span class="c1"># both input_tensor and weight_tensor will now be Float8Tensor</span>
+    <span class="n">xq</span> <span class="o">=</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">qdata</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">qdata</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span>
+    <span class="n">wq</span> <span class="o">=</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">qdata</span><span class="o">.</span><span class="n">contiguous</span><span class="p">()</span>
+    <span class="n">x_scale</span> <span class="o">=</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">scale</span>
+    <span class="n">w_scale</span> <span class="o">=</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">scale</span>
+    <span class="n">res</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">fbgemm</span><span class="o">.</span><span class="n">f8f8bf16_rowwise</span><span class="p">(</span>
+       <span class="n">xq</span><span class="p">,</span>
+       <span class="n">wq</span><span class="p">,</span>
+       <span class="n">x_scale</span><span class="p">,</span>
+       <span class="n">w_scale</span><span class="p">,</span>
+    <span class="p">)</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">out_shape</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">res</span>
+</pre></div>
+</div>
+<p>The function first quantizes the input to be <code class="docutils literal notranslate"><span class="pre">Float8Tensor</span></code>, then get the raw float Tensor and scale from both the input and weight Tensor: <code class="docutils literal notranslate"><span class="pre">t.qdata</span></code>, <code class="docutils literal notranslate"><span class="pre">t.scale</span></code>, and calls the fbgemm kernel to do the matrix multiplication for float8 dynamic quantization: <code class="docutils literal notranslate"><span class="pre">torch.ops.fbgemm.f8f8bf16_rowwise</span></code>.</p>
+</section>
+<section id="during-save-load">
+<h3>During Save/Load<a class="headerlink" href="#during-save-load" title="Permalink to this heading">#</a></h3>
+<p>Since <code class="docutils literal notranslate"><span class="pre">Float8Tensor</span></code> weight is still a <code class="docutils literal notranslate"><span class="pre">torch.Tensor</span></code>, save/load works the same way as the original high precision floating point model. See the <a class="reference external" href="serialization.html">serialization doc</a> for more details.</p>
+</section>
+</section>
+</section>
+
+
+                </article>
+              
+  </article>
+  
+              
+              
+                <footer class="bd-footer-article">
+                  <div class="footer-article-items footer-article__inner">
+  
+    <div class="footer-article-item">
+<div class="feedback">
+  
+<div class="rating">
+    Rate this Page
+    <div class="stars">
+        
+        <span class="star" data-behavior="tutorial-rating" data-count="1" data-value="1">★</span>
+        
+        <span class="star" data-behavior="tutorial-rating" data-count="2" data-value="2">★</span>
+        
+        <span class="star" data-behavior="tutorial-rating" data-count="3" data-value="3">★</span>
+        
+        <span class="star" data-behavior="tutorial-rating" data-count="4" data-value="4">★</span>
+        
+        <span class="star" data-behavior="tutorial-rating" data-count="5" data-value="5">★</span>
+        
+    </div>
+</div>
+
+  <div class="feedback-send">
+    <button class="feedback-btn"
+            onclick="openGitHubIssue()"
+            data-bs-title="Create a GitHub Issue"
+            data-bs-placement="bottom"
+            data-bs-toggle="tooltip"
+            data-gtm="feedback-btn-click">Send Feedback
+    </button>
+  </div>
+</div>
+
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="quick_start.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Quick Start Guide</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="contributor_guide.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Contributor Guide</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+
+<div class="footer-info">
+  <p class="copyright">
+    
+  </p>
+
+  <p class="theme-version">
+    Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.15.4.
+  </p>
+</div>
+</div>
+  
+</div>
+                </footer>
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="quick_start.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Quick Start Guide</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="contributor_guide.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Contributor Guide</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <div class="bd-sidebar-secondary bd-toc">
+<div class="sidebar-secondary-items sidebar-secondary__inner">
+    
+       <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#basic-dtypes">Basic DTypes</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#quantization-primitive-ops">Quantization Primitive Ops</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#efficient-kernels">Efficient kernels</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#quantized-tensors-derived-dtypes-and-packing-format">Quantized Tensors (derived dtypes and packing format)</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#quantization-algorithms-flows">Quantization Algorithms/Flows</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#weight-only-quantization">Weight Only Quantization</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#dynamic-activation-and-weight-quantization">Dynamic Activation and Weight Quantization</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#static-activation-quantization-and-weight-quantization">Static Activation Quantization and Weight Quantization</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#other-quantization-flows">Other Quantization Flows</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#training">Training</a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#quantization-aware-training">Quantization Aware Training</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#low-bit-optimizers">Low Bit Optimizers</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#quantized-training">Quantized Training</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#case-study-how-float8-dynamic-activation-and-float8-weight-quantization-works-in-torchao">Case Study: How float8 dynamic activation and float8 weight quantization works in torchao?</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#during-quantization">During Quantization</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#during-model-execution">During Model Execution</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#during-save-load">During Save/Load</a></li>
+</ul>
+</li>
+</ul>
+  </nav></div>
+    
+       <div class="sidebar-secondary-item">
+
+  
+  <div class="tocsection editthispage">
+    <a href="https://github.com/pytorch/ao/edit/main/docs/source/quantization_overview.rst">
+      <i class="fa-solid fa-pencil"></i>
+      
+      
+        
+          Edit on GitHub
+        
+      
+    </a>
+  </div>
+</div>
+    
+       <div class="sidebar-secondary-item">
+    <div class="tocsection sourcelink">
+      <a href="_sources/quantization_overview.rst.txt">
+        <i class="fa-solid fa-file-lines"></i> Show Source
+      </a>
+    </div>
+</div>
+    
+
+
+
+
+</div>
+</div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script src="_static/scripts/bootstrap.js?digest=dfe6caa3a7d634c4db9b"></script>
+<script src="_static/scripts/pydata-sphinx-theme.js?digest=dfe6caa3a7d634c4db9b"></script>
+
+  
+
+<div class="container-fluid docs-tutorials-resources" id="docs-tutorials-resources">
+  <div class="container">
+    <div class="row">
+      <div class="col-md-4">
+        <h2>Docs</h2>
+        <p>Access comprehensive developer documentation for PyTorch</p>
+        <a class="with-right-arrow" href="https://docs.pytorch.org/docs/stable/index.html">View Docs</a>
+      </div>
+
+      <div class="col-md-4">
+        <h2>Tutorials</h2>
+        <p>Get in-depth tutorials for beginners and advanced developers</p>
+        <a class="with-right-arrow" href="https://docs.pytorch.org/tutorials">View Tutorials</a>
+      </div>
+
+      <div class="col-md-4">
+        <h2>Resources</h2>
+        <p>Find development resources and get your questions answered</p>
+        <a class="with-right-arrow" href="https://pytorch.org/resources">View Resources</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+
+
+<footer class="site-footer">
+
+  <div class="container footer-container">
+
+    <div class="newsletter" id="newsletter">
+
+      <p class="newsletter__title is-style-max-width-800"><strong>Stay in touch</strong> for updates, event info, and
+        the latest news</p>
+
+
+      <script charset="utf-8" type="text/javascript" src="//js.hsforms.net/forms/embed/v2.js"></script>
+      <script>
+        hbspt.forms.create({
+          region: "na1",
+          portalId: "8112310",
+          formId: "2fb2231c-000b-4ec5-88a0-1ab242549c9e"
+        });
+      </script>
+
+
+      <p class="newsletter__privacy">By submitting this form, I consent to receive marketing emails from the LF and its
+        projects regarding their events, training, research, developments, and related announcements. I understand that
+        I can unsubscribe at any time using the links in the footers of the emails I receive. <a
+          href="https://www.linuxfoundation.org/privacy/">Privacy Policy</a>.</p>
+
+    </div>
+
+    <div class="lf-grid">
+      <ul class="social-links">
+        <li><a href="https://www.facebook.com/pytorch" target="_blank" title="PyTorch on Facebook">
+            <svg xmlns="http://www.w3.org/2000/svg" viewbox="-0.51 -0.26 26.45 26.45" aria-label="Facebook">
+              <path fill="currentColor"
+                d="M25.497 13.075c0-2.45-.698-4.848-2.011-6.911a12.765 12.765 0 0 0-5.398-4.73A12.671 12.671 0 0 0 11.008.38a12.705 12.705 0 0 0-6.529 2.95A12.827 12.827 0 0 0 .563 9.358a12.896 12.896 0 0 0-.07 7.201 12.831 12.831 0 0 0 3.801 6.103 12.709 12.709 0 0 0 6.471 3.078v-8.957H7.53v-3.708h3.235v-2.824c0-3.213 1.903-4.988 4.813-4.988.956.014 1.909.097 2.852.25V8.67h-1.607a1.83 1.83 0 0 0-1.518.497 1.854 1.854 0 0 0-.561 1.505v2.404h3.535l-.563 3.708h-2.97v8.957a12.725 12.725 0 0 0 7.697-4.337 12.87 12.87 0 0 0 3.054-8.328z" />
+            </svg>
+          </a></li>
+        <li><a href="https://twitter.com/pytorch" target="_blank" title="PyTorch on X">
+            <svg xmlns="http://www.w3.org/2000/svg" viewbox="0 0 300 300" aria-label="X">
+              <path fill="currentColor"
+                d="M178.57 127.15 290.27 0h-26.46l-97.03 110.38L89.34 0H0l117.13 166.93L0 300.25h26.46l102.4-116.59 81.8 116.59h89.34M36.01 19.54H76.66l187.13 262.13h-40.66" />
+            </svg>
+          </a></li>
+        <li><a href="https://www.youtube.com/pytorch" target="_blank" title="PyTorch on YouTube">
+            <svg xmlns="http://www.w3.org/2000/svg" viewbox="0.21 0.27 34.45 25.07" aria-label="YouTube">
+              <path fill="currentColor"
+                d="M33.729 6.084s-.327-2.33-1.317-3.356a4.691 4.691 0 0 0-3.32-1.432c-4.634-.34-11.589-.34-11.589-.34h-.014s-6.954 0-11.59.342a4.692 4.692 0 0 0-3.32 1.432c-.993 1.025-1.315 3.354-1.315 3.354a52.189 52.189 0 0 0-.331 5.473v2.566c.014 1.829.125 3.656.331 5.472 0 0 .322 2.33 1.316 3.36 1.26 1.345 2.916 1.3 3.653 1.445 2.65.26 11.263.34 11.263.34s6.96-.01 11.597-.353a4.691 4.691 0 0 0 3.32-1.432c.993-1.026 1.316-3.356 1.316-3.356.206-1.817.316-3.644.33-5.473v-2.57a52.26 52.26 0 0 0-.33-5.472zM14.076 17.232V7.729l8.951 4.768-8.95 4.735z" />
+            </svg>
+          </a></li>
+        <li><a href="https://www.linkedin.com/company/pytorch" target="_blank" title="PyTorch on LinkedIn">
+            <svg xmlns="http://www.w3.org/2000/svg" viewbox="-10.23 -10.23 531.96 531.96" aria-label="LinkedIn">
+              <rect width="512" height="512" rx="0" fill="currentColor" />
+              <circle fill="#000" cx="142" cy="138" r="37" />
+              <path stroke="#000" stroke-width="66" d="M244 194v198M142 194v198" />
+              <path fill="#000"
+                d="M276 282c0-20 13-40 36-40 24 0 33 18 33 45v105h66V279c0-61-32-89-76-89-34 0-51 19-59 32" />
+            </svg>
+          </a></li>
+        <li><a href="https://pytorch.slack.com" target="_blank" title="PyTorch Slack">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0.16 -0.03 21.19 21.19" aria-label="Slack">
+              <path fill="currentColor"
+                d="M4.896 13.27a2.147 2.147 0 0 1-2.141 2.142A2.147 2.147 0 0 1 .613 13.27c0-1.178.963-2.141 2.142-2.141h2.141v2.141zm1.08 0c0-1.178.962-2.141 2.141-2.141s2.142.963 2.142 2.141v5.363a2.147 2.147 0 0 1-2.142 2.141 2.147 2.147 0 0 1-2.141-2.142V13.27zm2.141-8.6a2.147 2.147 0 0 1-2.141-2.14c0-1.18.962-2.142 2.141-2.142s2.142.963 2.142 2.141v2.142H8.117zm0 1.08c1.179 0 2.141.962 2.141 2.141a2.147 2.147 0 0 1-2.141 2.142H2.755A2.147 2.147 0 0 1 .613 7.89c0-1.179.963-2.141 2.142-2.141h5.362zm8.599 2.141c0-1.179.963-2.141 2.141-2.141 1.179 0 2.143.962 2.143 2.14a2.147 2.147 0 0 1-2.142 2.142h-2.141V7.89zm-1.08 0a2.147 2.147 0 0 1-2.141 2.142 2.147 2.147 0 0 1-2.141-2.142V2.53c0-1.178.962-2.141 2.141-2.141s2.142.963 2.142 2.141v5.362zm-2.141 8.6c1.179 0 2.142.962 2.142 2.14a2.147 2.147 0 0 1-2.142 2.142 2.147 2.147 0 0 1-2.141-2.141V16.49h2.141zm0-1.08a2.147 2.147 0 0 1-2.141-2.141c0-1.179.962-2.142 2.141-2.142h5.362c1.179 0 2.142.963 2.142 2.142a2.147 2.147 0 0 1-2.142 2.142h-5.362z">
+              </path>
+            </svg>
+          </a></li>
+        <li><a href="https://pytorch.org/wechat" title="PyTorch on WeChat">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0.14 -0.17 38.02 33.02" aria-label="WeChat">
+              <path fill="currentColor"
+                d="M26.289 10.976a12.972 12.972 0 0 0-8.742 3.53 10.386 10.386 0 0 0-3.224 8.795c-1.326-.164-2.535-.345-3.75-.448a2.332 2.332 0 0 0-1.273.216c-1.18.666-2.311 1.418-3.652 2.255.246-1.112.405-2.087.687-3.024a1.15 1.15 0 0 0-.523-1.52C1.737 17.902.02 13.601 1.307 9.165c1.189-4.1 4.11-6.587 8.077-7.884A13.54 13.54 0 0 1 24.18 5.617a10.135 10.135 0 0 1 2.109 5.359zM10.668 9.594a1.564 1.564 0 0 0-2.095-1.472 1.52 1.52 0 0 0-.895 1.964 1.502 1.502 0 0 0 1.391.966 1.545 1.545 0 0 0 1.598-1.46v.002zm8.15-1.566a1.567 1.567 0 0 0-1.528 1.543 1.528 1.528 0 0 0 1.571 1.492 1.52 1.52 0 0 0 1.375-2.117 1.518 1.518 0 0 0-1.415-.919l-.003.001z">
+              </path>
+              <path fill="currentColor"
+                d="M33.914 32.137c-1.075-.478-2.062-1.196-3.11-1.306-1.049-.11-2.145.494-3.24.605a10.821 10.821 0 0 1-8.781-2.864c-4.682-4.33-4.013-10.97 1.403-14.518 4.811-3.154 11.874-2.102 15.268 2.273a8.671 8.671 0 0 1-1.002 12.095c-1.046.929-1.422 1.693-.751 2.917.102.257.174.525.213.798zM21.68 20.292a1.264 1.264 0 1 0 .01-2.528 1.264 1.264 0 0 0-.01 2.528zm7.887-2.526a1.266 1.266 0 0 0-1.256 1.21 1.247 1.247 0 1 0 1.256-1.21z">
+              </path>
+            </svg>
+          </a></li>
+      </ul>
+    </div>
+    
+    <div class="privacy-policy">
+      <div class="copyright">
+      
+        <p>
+          &copy; PyTorch. Copyright © The Linux Foundation®. All rights reserved. The Linux Foundation has registered
+          trademarks and uses trademarks. For more information, including terms of use, privacy policy, and trademark
+          usage, please see our <a href="https://www.linuxfoundation.org/legal/policies">Policies</a> page. <a
+            href="https://www.linuxfoundation.org/trademark-usage">Trademark Usage</a>. <a
+            href="http://www.linuxfoundation.org/privacy">Privacy Policy</a>.
+        </p>
+        
+      </div>
+    </div>
+
+
+  </div>
+</footer>
+
+<div class="cookie-banner-wrapper">
+  <div class="container">
+    <p class="gdpr-notice">To analyze traffic and optimize your experience, we serve cookies on this site. By clicking or navigating, you agree to allow our usage of cookies. As the current maintainers of this site, Facebook’s Cookies Policy applies. Learn more, including about available controls: <a href="https://www.facebook.com/policies/cookies/">Cookies Policy</a>.</p>
+    <img class="close-button" src="_static/img/pytorch-x.svg">
+  </div>
+</div>
+  
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2024-present, torchao Contributors.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 5.3.0.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.15.4.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  <script type="application/ld+json">
+    {
+       "@context": "https://schema.org",
+       "@type": "Article",
+       "name": "Quantization Overview",
+       "headline": "Quantization Overview",
+       "description": "PyTorch Documentation. Explore PyTorch, an open-source machine learning library that accelerates the path from research prototyping to production deployment. Discover tutorials, API references, and guides to help you build and deploy deep learning models efficiently.",
+       "url": "/quantization_overview.html",
+       "articleBody": "Quantization Overview# Created On: Dec 08, 2025 | Last Updated On: Dec 08, 2025 First we want to lay out the torchao stack: Quantization Algorithms/Flows: weight only/dynamic/static quantization, hqq, awq, gptq etc. --------------------------------------------------------------------------------------------- Quantized Tensors (derived dtypes): Int4Tensor, Int4PreshuffledTensor, Int8Tensor, Float8Tensor --------------------------------------------------------------------------------------------- Quantization Primitive Ops/Efficient Kernels: matmul, quantize, dequantize --------------------------------------------------------------------------------------------- Basic dtypes: uint1-uint7, int1-int8, float3-float8 Any quantization algorithm will be using some components from the above stack, for example per row float8 dynamic activation and float8 weight quantization (with default preference) uses: dynamic quantization flow Float8Tensor float8 activation + float8 weight fbgemm kernel and triton quant primitive ops from fbgemm library torch.float8_e4m3fn dtype Basic DTypes# dtype is a bit of overloaded term, by basic dtype, we mean the dtypes that makes sense without any extra metadata (e.g. makes sense when people call torch.empty(.., dtype)), for more details please check out this post. No matter what quantization we are doing, in the end we will be using some low precision dtypes to represent the quantized data or quantization parameters, the low precision dtypes relevant for torchao are: torch.uint1 to torch.uint7 available in pytorch 2.3 and later torch.int1 to torch.int7 available in pytorch 2.6 and later torch.float4_e2m1fn_x2, torch.float8_e4m3fn, torch.float8_e4m3fnuz, torch.float8_e5m2, torch.float8_e5m2fnuz, torch.float8_e8m0fnu In terms of actual implementation, uint1 to uint7 and int1 to int7 are just placeholders that does not have real implementations (i.e. the ops does not work for the PyTorch Tensor with these dtypes). Example PR added these dtypes can be found here. Floating point dtypes are what we call shell dtypes that have limited op support. For more details please check out the official PyTorch dtype doc. Note Dervied dtypes like mxfp8, mxfp4, nvfp4 are implemented with these basic dtypes, e.g. mxfp4 uses torch.float8_e8m0fnu for scale and torch.float4_e2m1fn_x2 for 4 bit data. Quantization Primitive Ops# Quantization primitive ops means the operators used to convert between low preicison quantized tensors and high precision tensors. We will mainly have the following quantization primitive operators: choose_qparams ops: that chooses quantization parameter based on the original Tensor, typically used in dynamic quantization, e.g. scale and zero_point for affine quantization quantize op: quantizes the original high precision tensor to the low precision tensor with the dtypes mentioned in previous section based on the quantization parameters dequantize op: dequantizes the low precision tensor into the high precision tensor based on quantization parameters There could be variations of the above to accommodate specific use cases, for example for static quantization we may have choose_qparams_affine_with_min_max that will choose quantization parameters based on min/max values derived from the observation process. There could be multiple versions of the op that is different by different kernel libraries that we can use in torchao, for example, for quantizing a bfloat16 Tensor to a raw float8 Tensor and scale: _choose_scale_float8 and _quantize_affine_float8 for torchao implementation, and torch.ops.triton.quantize_fp8_row from fbgemm library. Efficient kernels# We\u2019ll also have efficient kernels that works with the low precision tensors, for example: torch.ops.fbgemm.f8f8bf16_rowwise (rowwise float8 activation and float8 weight matrix multiplication kernel in fbgemm library) torch._scaled_mm (float8 activation and float8 weight matrix multiplication kernel in PyTorch for both rowwise and tensorwise) int_matmul that takes two int8 tensors and outputs an int32 tensor int_scaled_matmul that does matmul and also applies a scale to the result. Note We can also rely on torch.compile to generate kernels (through triton), for example the current int8 weight only quantization kernel just relies on torch.compile to get speedup. In this case there is no custom handwritten \u201cefficient kernel\u201d that\u2019s corresponding to the type of quantization. Quantized Tensors (derived dtypes and packing format)# On top of the basic dtypes, quantization primitive operators and efficient kernels, we can glue everything together and build out a Quantized (low precision) Tensor by subclassing torch.Tensor that can be constructed from a high precision Tensor and some parameters that can configure the specific quantization user wants, we can also call this derived dtypes since it can be represented with Tensors of basic dtypes and some extra metadata like scale. Another dimension for quantized Tensor is packing format, meaning how the quantized raw data is laid out in memory. For example, for int4, we can pack two elements together side by side in a uint8 value, or people can do some preshuffling/swizzling to make the format more efficient for memory operations (loading from memory to register) and computation. So in general we structure Tensor subclasses by dervied dtpype and packing format: Note We don\u2019t have granularity specific tensor subclasses, i.e. no Float8RowwiseTensor or Float8BlockwiseTensor, all granularities are implemented in the same Tensor, we typically use a general block_size attribute to distinguish between different granularities, and each Tensor is allowed to support only a subset of all possible granularity options. Note We also don\u2019t use dynamic activation in the name, since we are talking about the weight tensor object, including information about activation in the tensor subclass name will be confusing, but we do implement both weight only and dynamic activation quantization in the same linear function implementation, without relying on additional abstractions, this keeps relevant quantization operations close to each other (quantization of activation and weight) in the same tensor subclass. In terms of how we quantize a Tensor, most of Tensors are using affine quantization, meaning the low precision Tensor is quantized from the high precision Tensor by an affine mapping, that is: low_precision_val = high_precision_val / scale + zero_point, where scale and zero_point are the quantization parameters that can be calculated by quantization primitive ops or through some optimization procedure. Another common type of quantization, especially for lower bitwidths (e.g. lower than 4 bit) is codebook / look up table based quantization where the raw quantized data is the index we can use to look up a codebook that stores the values or vectors each index corresponds to. A common way to get the codebook and the raw quantized data for codebook quantization is kmeans clustering. Quantization Algorithms/Flows# On the top of the stack will be the final quantization algorithms and quantization flows. Traditionally we have weight only quantization, dynamic quantization and static quantization, but now we are also seeing more types of quantization coming up. For demonstration purposes, let\u2019s say after previous step we have Float8Tensor defined. Float8Tensor.from_hp takes a high precision floating point Tensor and a target_dtype (e.g torch.float8_e4m3fn) and converts it to a Float8Tensor Note: below are all for explaining the concepts, more detailed introduction for utils and examples we provide can be found in Contributor Guide. Weight Only Quantization# This is the simplest form of quantization and it\u2019s easy to apply weight only quantization to the model, especially since we have Quantized Tensor. all we need to do is: linear_module.weight = torch.nn.Parameter(Float8Tensor.from_hp(linear_module.weight, ...), requires_grad=False)) apply the above to all linear modules in the model and we\u2019ll get a weight only quantized model. Dynamic Activation and Weight Quantization# This is called \u201cdynamic quantization\u201d before but it means we quantize activation dynamically at runtime, and also quantize the weights as well. Compared to the weight only quantization, the main question is how do we apply the quantization to activation. In torchao we pass around the quantization keyword args for activation and the keyword args will be applied to activation when needed (e.g. in linear): activation_dtype = torch.float8_e4m3fn activation_granularity = PerRow() # define kwargs for float8 activation quantization act_quant_kwargs = QuantizeTensorToFloat8Kwargs( activation_dtype, activation_granularity, ) weight_dtype = torch.float8_e4m3fn weight_granularity = PerRow() quantized_weight = Float8Tensor.from_hp(linear_module.weight, float8_dtype=weight_dtype, granularity=weight_granularity, act_quant_kwargs=act_quant_kwargs) linear_module.weight = torch.nn.Parameter(quantized_weight, requires_grad=False)) Static Activation Quantization and Weight Quantization# We\u2019ll skip the instruction for now since we haven\u2019t seen many use cases for static quantization with tensor subclass based flow, we recommend to look into the PT2 export quantization flow for static quantization. Other Quantization Flows# For other quantization flow/algorithms that does not fit into any of the above, we also intend to provide examples for common patterns. For example, GPTQ like quantization flow that is adopted by Autoround, it uses MultiTensor and module hooks to optimize the module. If you are working on a new quantization algorithm/flow and not sure how to implement it in a PyTorch native way, please feel free to open an issue to describe how your algorithm works and we can help advise on the implementation details. Training# The above flow are mainly focused on inference, but low bit dtype Tensors can be used in training as well. User facing docs for float8 training can be found here and docs for finetuning can be found here Quantization Aware Training# TorchAO supports quantization aware training through the quantize_ API as well. Low Bit Optimizers# We support low bit optimizers that implements a specific type of 4 bit, 8 bit and float8, and is also composable with FSDP (with look up table quantization). Quantized Training# We have quantized training prototype in main/torchao/prototype/quantized_training, and we could extend existing tensor subclasses to support training as well, initial enablement is in progress, but there will be a lot of follow up work needed including making it work for different kernels etc. You can also checkout the tutorial for Quantized Training that talks about how to make a dtype tensor subclass trainable. Case Study: How float8 dynamic activation and float8 weight quantization works in torchao?# To connect everything together, here is a more detailed walk through for float8 dynamic activation and float8 weight quantization in torchao (DEFAULT kernel preference, in H100, when fbgemm_gpu_genai library is installed): Quantization Flow: quantize_(model, Float8DynamicActivationFloat8WeightConfig()) What happens: linear.weight = torch.nn.Parameter(Float8Tensor.from_hp(linear.weight), requires_grad=False) quantization primitive ops: torch.ops.triton.quantize_fp8_row quantized Tensor will be Float8Tensor, a quantized tensor with derived dtype of scaled float8 During Model Execution: model(input) torch.ops.fbgemm.f8f8bf16_rowwise is called on input, raw float8 weight and scale During Quantization# First we start with the API call: quantize_(model, Float8DynamicActivationFloat8WeightConfig()) what this does is it converts the weights of nn.Linear modules in the model to Float8Tensor, with plain packing format, no packing is required, since we have torch.float8_e4m3fn that can represent quantized float8 raw data directly without additional operations. quantize_: the model level API that quantizes the weight of linear by applying the config from user (second argument) Float8DynamicActivationFloat8WeightConfig: the config for float8 dynamic activation and float8 weight quantization * Calls quantization primitives ops torch.ops.triton.quantize_fp8_row to quantize a bfloat16 Tensor to float8 raw Tensor and get a scale During Model Execution# When we run the quantized model model(inputs), we\u2019ll run through the functional linear operator in nn.Linear: return F.linear(input, weight, bias) where input is a bfloat16 Tensor, weight is a Float8Tensor, it calls into a __torch_function__ of the Float8Tensor subclass, which will end up in an implementation for F.linear when one of the input is Float8Tensor: @implements([torch.nn.functional.linear, aten.linear.default]) def _(func, types, args, kwargs): input_tensor, weight_tensor, bias = ( args[0], args[1], args[2] if len(args) \u003e 2 else None, ) # quantizing activation, if `act_quant_kwargs` is specified if act_quant_kwargs is not None: input_tensor = _choose_quant_func_and_quantize_tensor( input_tensor, act_quant_kwargs ) # omitting kernel_preference related code # granularity checks, let\u0027s say we are doing rowwise quant # both input_tensor and weight_tensor will now be Float8Tensor xq = input_tensor.qdata.reshape(-1, input_tensor.qdata.shape[-1]) wq = weight_tensor.qdata.contiguous() x_scale = input_tensor.scale w_scale = weight_tensor.scale res = torch.ops.fbgemm.f8f8bf16_rowwise( xq, wq, x_scale, w_scale, ).reshape(out_shape) return res The function first quantizes the input to be Float8Tensor, then get the raw float Tensor and scale from both the input and weight Tensor: t.qdata, t.scale, and calls the fbgemm kernel to do the matrix multiplication for float8 dynamic quantization: torch.ops.fbgemm.f8f8bf16_rowwise. During Save/Load# Since Float8Tensor weight is still a torch.Tensor, save/load works the same way as the original high precision floating point model. See the serialization doc for more details.",
+       "author": {
+         "@type": "Organization",
+         "name": "PyTorch Contributors",
+         "url": "https://pytorch.org"
+       },
+       "image": "https://pytorch.org/docs/stable/_static/img/pytorch_seo.png",
+       "mainEntityOfPage": {
+         "@type": "WebPage",
+         "@id": "/quantization_overview.html"
+       },
+       "datePublished": "Dec 08, 2025T00:00:00Z",
+       "dateModified": "Dec 08, 2025T00:00:00Z"
+     }
+ </script>
+  <script>
+    // Tutorials Call to action event tracking
+    $("[data-behavior='call-to-action-event']").on('click', function () {
+      fbq('trackCustom', "Download", {
+        tutorialTitle: $('h1:first').text(),
+        downloadLink: this.href,
+        tutorialLink: window.location.href,
+        downloadTitle: $(this).attr("data-response")
+      });
+      if (typeof gtag === 'function') {
+        gtag('event', 'click', {
+          'event_category': $(this).attr("data-response"),
+          'event_label': $("h1").first().text(),
+          'tutorial_link': window.location.href
+        });
+      }
+    });
+  </script>
+  
+  </body>
+</html>
