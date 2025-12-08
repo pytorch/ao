@@ -52,7 +52,7 @@ class SmoothQuantObserver(torch.nn.Module):
         inputs = [inp.to(self.device) for inp in self.inputs]
         acc = torch.cat(inputs, dim=0)
         # Reshape if needed: [batch, seq, features] -> [batch*seq, features]
-        temp = acc
+        example_input_for_quantization = acc
         if acc.ndim > 2:
             acc = acc.view(-1, acc.shape[-1])
 
@@ -71,7 +71,7 @@ class SmoothQuantObserver(torch.nn.Module):
 
         if weight_quant_kwargs is not None:
             quant_smooth_activation = _choose_quant_func_and_quantize_tensor(
-                temp / smoothing_factor, weight_quant_kwargs
+                example_input_for_quantization / smoothing_factor, weight_quant_kwargs
             )
             return smoothing_factor, quant_smooth_activation.scale
         else:

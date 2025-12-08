@@ -3,7 +3,7 @@
 #
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
-
+import math
 from dataclasses import dataclass
 from typing import List, Optional
 
@@ -140,12 +140,10 @@ class Int8Tensor(TorchAOBaseTensor):
         else:
             # Scale can be provided in the case of static quant
             assert scale.ndim == hp_tensor.ndim
-            # if isinstance(granularity, PerTensor):
-            #     assert scale.numel() == 1
-            # elif isinstance(granularity, PerRow):
-            #     breakpoint()
-            #     assert scale.numel() == block_size[-1]
-
+            num_expected_values = math.prod(
+                [num_dim // bs for (bs, num_dim) in zip(block_size, hp_tensor.shape)]
+            )
+            assert scale.numel() == num_expected_values
             zero_point = torch.zeros_like(scale, dtype=torch.int8)
 
         int_data = quantize_affine(

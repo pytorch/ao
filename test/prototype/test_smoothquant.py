@@ -106,7 +106,12 @@ class TestSmoothQuant(unittest.TestCase):
         # Step 1. Basic quantization
         basic_model = deepcopy(m)
         if isinstance(base_config, Int8StaticActivationInt8WeightConfig):
-            quantize_(basic_model, Int8DynamicActivationInt8WeightConfig(version=2))
+            quantize_(
+                basic_model,
+                Int8DynamicActivationInt8WeightConfig(
+                    version=2, granularity=base_config.granularity
+                ),
+            )
         else:
             quantize_(basic_model, base_config)
         out_basic = basic_model(*x)
