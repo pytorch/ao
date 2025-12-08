@@ -6,6 +6,7 @@
 
 import json
 import os
+import subprocess
 import tempfile
 import warnings
 from dataclasses import dataclass
@@ -23,6 +24,11 @@ from torchao.prototype.awq import (
     AWQConfig,
     AWQStep,
 )
+from torchao.quantization import (
+    PerBlock,
+    PerRow,
+    PerTensor,
+)
 from torchao.quantization.quant_api import (
     Float8DynamicActivationFloat8WeightConfig,
     Float8DynamicActivationInt4WeightConfig,
@@ -35,16 +41,20 @@ from torchao.quantization.quant_api import (
     Int8DynamicActivationInt8WeightConfig,
     Int8WeightOnlyConfig,
     ModuleFqnToConfig,
-    PerRow,
     UIntXWeightOnlyConfig,
+    quantize_,
 )
 from torchao.sparsity.sparse_api import BlockSparseWeightConfig, SemiSparseWeightConfig
+from torchao.utils import is_sm_at_least_89
 
 # Define test configurations as fixtures
 configs = [
     Float8DynamicActivationFloat8WeightConfig(),
     Float8DynamicActivationFloat8WeightConfig(granularity=PerRow()),
     Float8DynamicActivationFloat8WeightConfig(granularity=[PerRow(), PerRow()]),
+    Float8DynamicActivationFloat8WeightConfig(
+        granularity=[PerBlock([1, 128]), PerBlock([128, 128])]
+    ),
     Float8WeightOnlyConfig(
         weight_dtype=torch.float8_e4m3fn,
     ),
@@ -149,6 +159,43 @@ def test_reconstructable_dict_file_round_trip(config):
         # Clean up the temporary file
         if os.path.exists(temp_file_path):
             os.unlink(temp_file_path)
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(not is_sm_at_least_89(), reason="needs CUDA capability 8.9+")
+@pytest.mark.parametrize(
+    "granularity",
+    [
+        PerTensor(),
+        PerRow(),
+        (PerBlock([1, 128]), PerBlock([128, 128])),
+    ],
+)
+def test_granularity_serialization(granularity):
+    """
+    Ensure that only `import torchao` is needed to load granularities used
+    in `Float8DynamicActivationFloat8WeightConfig`.
+    """
+
+    m = torch.nn.Linear(128, 256, bias=False, dtype=torch.bfloat16, device="cuda")
+    fname = None
+    with tempfile.NamedTemporaryFile(delete=False, mode="w") as f:
+        config = Float8DynamicActivationFloat8WeightConfig(granularity=granularity)
+        quantize_(m, config=config)
+        torch.save(m.state_dict(), f.name)
+        fname = f.name
+
+    assert fname is not None
+
+    code = f"""
+import torch
+import torchao
+_ = torch.load('{fname}', weights_only=True)
+    """
+
+    subprocess_out = subprocess.run(["python"], input=code, text=True)
+    os.remove(fname)
+    assert subprocess_out.returncode == 0, "failed weights-only load"
 
 
 # Define a dummy config in a non-allowed module

@@ -19,7 +19,7 @@ jobs:
       - name: Setup miniconda
         uses: pytorch/test-infra/.github/actions/setup-miniconda@main
         with:
-          python-version: "3.9"
+          python-version: "3.11"
 
       - name: Run tutorials
         shell: bash
@@ -28,6 +28,6 @@ jobs:
           ${CONDA_RUN} python -m pip install --upgrade pip
           ${CONDA_RUN} pip install ${{ matrix.torch-spec }}
           ${CONDA_RUN} pip install -r dev-requirements.txt
-          ${CONDA_RUN} pip install .
+          ${CONDA_RUN} pip install . --no-build-isolation
           cd tutorials
           ${CONDA_RUN} bash run_all.sh

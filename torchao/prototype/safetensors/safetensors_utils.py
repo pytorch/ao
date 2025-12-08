@@ -60,7 +60,23 @@ class TensorSubclassAttributeJSONEncoder(json.JSONEncoder):
                 encoded_attribute = self.encode_value(attribute)
                 tensor_attr_dict[tensor_attribute_name] = encoded_attribute
 
-            return {"_type": o.__class__.__name__, "_data": tensor_attr_dict}
+            optional_tensor_data_names = (
+                o.optional_tensor_data_names
+                if hasattr(o, "optional_tensor_data_names")
+                else []
+            )
+            all_tensor_data_names = optional_tensor_data_names + o.tensor_data_names
+
+            _tensor_data_names = []
+            for tensor_data_name in all_tensor_data_names:
+                if getattr(o, tensor_data_name) is not None:
+                    _tensor_data_names.append(tensor_data_name)
+
+            return {
+                "_type": o.__class__.__name__,
+                "_data": tensor_attr_dict,
+                "_tensor_data_names": _tensor_data_names,
+            }
 
         if hasattr(o, "_fields") and hasattr(
             o, "_asdict"
@@ -209,7 +225,7 @@ def is_metadata_torchao(metadata: Dict[str, Any]):
 
         # returns None if _type not in tensor_dict
         tensor_type = tensor_dict.get("_type")
-        if tensor_type not in ALLOWED_TENSORS_SUBCLASSES or tensor_type != "Tensor":
+        if tensor_type not in ALLOWED_TENSORS_SUBCLASSES and tensor_type != "Tensor":
             return False
 
     return True

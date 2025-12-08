@@ -29,7 +29,7 @@ from torch.utils._python_dispatch import (
 from torch.utils._pytree import tree_map
 
 import torchao.ops
-from torchao.prototype.mx_formats.config import MXGemmKernelChoice, ScaleCalculationMode
+from torchao.prototype.mx_formats.config import ScaleCalculationMode
 from torchao.prototype.mx_formats.constants import (
     BLOCK_SIZE_DEFAULT,
     DTYPE_FP6_E2M3,
@@ -58,9 +58,6 @@ from torchao.prototype.mx_formats.kernels import (
     f32_to_f6_e2m3_unpacked,
     f32_to_f6_e3m2_unpacked,
     pack_uint4,
-    pack_uint6,
-    triton_f6_e2m3_to_scaled_bf16,
-    triton_f6_e3m2_to_scaled_bf16,
     unpack_uint4,
 )
 from torchao.prototype.mx_formats.utils import (
@@ -72,6 +69,7 @@ from torchao.prototype.mx_formats.utils import (
 from torchao.quantization.quantize_.common import (
     QuantizeTensorKwargs,
 )
+from torchao.quantization.quantize_.common.kernel_preference import KernelPreference
 from torchao.utils import TorchAOBaseTensor, fill_defaults
 
 aten = torch.ops.aten
@@ -89,9 +87,9 @@ EBITS_F8_E5M2, MBITS_F8_E5M2 = 5, 2
 class QuantizeTensorToMXKwargs(QuantizeTensorKwargs):
     elem_dtype: Union[torch.dtype, str] = torch.float8_e4m3fn
     block_size: int = 32
+    # TODO(future PR): flip the scaling_mode default to RCEIL
     scaling_mode: ScaleCalculationMode = ScaleCalculationMode.FLOOR
-    gemm_kernel_choice: MXGemmKernelChoice = MXGemmKernelChoice.EMULATED
-    pack_fp6: bool = False
+    kernel_preference: KernelPreference = KernelPreference.EMULATED
     is_swizzled_scales: bool = False
 
 
@@ -148,7 +146,6 @@ def to_mx(
     elem_dtype: Union[torch.dtype, str],
     block_size: int,
     scaling_mode: ScaleCalculationMode = ScaleCalculationMode.FLOOR,
-    pack_fp6: bool = False,
     is_swizzled_scales: bool = False,
 ):
     """
@@ -311,16 +308,10 @@ def to_mx(
         data_lp = data_lp.reshape(orig_shape)
     elif elem_dtype == DTYPE_FP6_E2M3:
         data_lp = f32_to_f6_e2m3_unpacked(data_lp)
-        if pack_fp6:
-            orig_shape = [*orig_shape[:-1], 3 * orig_shape[-1] // 4]
-            data_lp = pack_uint6(data_lp)
         # need to reshape at the end to help inductor fuse things
         data_lp = data_lp.reshape(orig_shape)
     elif elem_dtype == DTYPE_FP6_E3M2:
         data_lp = f32_to_f6_e3m2_unpacked(data_lp)
-        if pack_fp6:
-            orig_shape = [*orig_shape[:-1], 3 * orig_shape[-1] // 4]
-            data_lp = pack_uint6(data_lp)
         # need to reshape at the end to help inductor fuse things
         data_lp = data_lp.reshape(orig_shape)
     elif elem_dtype == torch.float4_e2m1fn_x2:
@@ -370,7 +361,6 @@ def to_dtype(
     elem_dtype,
     block_size,
     target_dtype,
-    pack_fp6: bool = False,
 ):
     orig_shape = data_lp.shape
     is_transposed = not data_lp.is_contiguous()
@@ -385,33 +375,11 @@ def to_dtype(
     if elem_dtype in (torch.float8_e4m3fn, torch.float8_e5m2):
         data_hp = data_lp.to(target_dtype)
     elif elem_dtype == DTYPE_FP6_E2M3:
-        if pack_fp6:
-            orig_shape = (*orig_shape[:-1], 4 * orig_shape[-1] // 3)
-            data_hp_rescaled = triton_f6_e2m3_to_scaled_bf16(
-                data_lp,
-                scale_e8m0,
-                block_size,
-            ).reshape(orig_shape)
-            if is_transposed:
-                data_hp_rescaled = data_hp_rescaled.t()
-            return data_hp_rescaled.to(target_dtype)
-        else:
-            data_hp = f6_e2m3_unpacked_to_f32(data_lp)
-            data_hp = data_hp.to(target_dtype).reshape(orig_shape)
+        data_hp = f6_e2m3_unpacked_to_f32(data_lp)
+        data_hp = data_hp.to(target_dtype).reshape(orig_shape)
     elif elem_dtype == DTYPE_FP6_E3M2:
-        if pack_fp6:
-            orig_shape = (*orig_shape[:-1], 4 * orig_shape[-1] // 3)
-            data_hp_rescaled = triton_f6_e3m2_to_scaled_bf16(
-                data_lp,
-                scale_e8m0,
-                block_size,
-            ).reshape(orig_shape)
-            if is_transposed:
-                data_hp_rescaled = data_hp_rescaled.t()
-            return data_hp_rescaled.to(target_dtype)
-        else:
-            data_hp = f6_e3m2_unpacked_to_f32(data_lp)
-            data_hp = data_hp.to(target_dtype).reshape(orig_shape)
+        data_hp = f6_e3m2_unpacked_to_f32(data_lp)
+        data_hp = data_hp.to(target_dtype).reshape(orig_shape)
     elif elem_dtype == torch.float4_e2m1fn_x2:
         # fp4
         f4_unpacked = unpack_uint4(data_lp)
@@ -466,34 +434,13 @@ def tensor_size_fp4x2_to_hp(orig_size, is_contiguous):
     return new_size
 
 
-# TODO(future PR): fix this function for rank 3 and add tests
-def tensor_size_hpx3_to_fp6x4(orig_size, is_contiguous):
-    new_size = orig_size
-    if is_contiguous:
-        new_size = [*list(new_size[:-1]), 3 * new_size[-1] // 4]
-    else:
-        new_size = [3 * new_size[0] // 4, *list(new_size[1:])]
-    return new_size
-
-
-# TODO(future PR): fix this function for rank 3 and add tests
-def tensor_size_fp6x4_to_hpx3(orig_size, is_contiguous):
-    new_size = orig_size
-    if is_contiguous:
-        new_size = [*list(new_size[:-1]), 4 * new_size[-1] // 3]
-    else:
-        new_size = [4 * new_size[0] // 3, *list(new_size[1:])]
-    return new_size
-
-
 class MXTensor(TorchAOBaseTensor):
     tensor_data_names = ["qdata", "scale"]
     tensor_attribute_names = [
         "_elem_dtype",
-        "_block_size",
+        "block_size",
         "_orig_dtype",
-        "_gemm_kernel_choice",
-        "_pack_fp6",
+        "kernel_preference",
         "act_quant_kwargs",
         "_is_swizzled_scales",
     ]
@@ -505,8 +452,7 @@ class MXTensor(TorchAOBaseTensor):
         elem_dtype,
         block_size,
         orig_dtype,
-        gemm_kernel_choice,
-        pack_fp6,
+        kernel_preference,
         act_quant_kwargs,
         is_swizzled_scales,
     ):
@@ -518,12 +464,6 @@ class MXTensor(TorchAOBaseTensor):
             # broken for tensors of size (M, 1) or (1, M). Leaving broken until
             # a time when fixing this becomes important.
             new_size = tensor_size_fp4x2_to_hp(
-                new_size,
-                qdata.is_contiguous(),
-            )
-        elif pack_fp6 and elem_dtype in [DTYPE_FP6_E2M3, DTYPE_FP6_E3M2]:
-            # set the tensor size to what it would be without fp6 packing
-            new_size = tensor_size_fp6x4_to_hpx3(
                 new_size,
                 qdata.is_contiguous(),
             )
@@ -547,10 +487,9 @@ class MXTensor(TorchAOBaseTensor):
         self.qdata = qdata
         self.scale = scale_e8m0_bits
         self._elem_dtype = elem_dtype
-        self._block_size = block_size
+        self.block_size = block_size
         self._orig_dtype = orig_dtype
-        self._gemm_kernel_choice = gemm_kernel_choice
-        self._pack_fp6 = pack_fp6
+        self.kernel_preference = kernel_preference
         self.act_quant_kwargs = act_quant_kwargs
         self._is_swizzled_scales = is_swizzled_scales
         return self
@@ -560,7 +499,7 @@ class MXTensor(TorchAOBaseTensor):
         return f"MXTensor: elem_dtype: {self._elem_dtype}, s_e8m0: {self.scale}, d: {self.qdata}, act_quant_kwargs: {self.act_quant_kwargs}, _is_swizzled_scales={self._is_swizzled_scales}"  # noqa: E501
 
     def _quantization_type(self):
-        return f"{self._elem_dtype=}, {self._block_size=}, {self._orig_dtype=}, {self._gemm_kernel_choice=}, {self.act_quant_kwargs=}"
+        return f"{self._elem_dtype=}, {self.block_size=}, {self._orig_dtype=}, {self.kernel_preference=}, {self.act_quant_kwargs=}"
 
     def dequantize(self, output_dtype: Optional[torch.dtype] = None) -> torch.Tensor:
         if output_dtype is None:
@@ -575,9 +514,9 @@ class MXTensor(TorchAOBaseTensor):
             else:
                 leading_dims, M, K = self.shape[:-2], self.shape[-2], self.shape[-1]
             scale = from_blocked(
-                scale, math.prod(leading_dims) * M, K // self._block_size
+                scale, math.prod(leading_dims) * M, K // self.block_size
             )
-            scale = scale.view(*leading_dims, M, K // self._block_size)
+            scale = scale.view(*leading_dims, M, K // self.block_size)
             if is_transposed:
                 scale = scale.transpose(-2, -1)
 
@@ -585,9 +524,8 @@ class MXTensor(TorchAOBaseTensor):
             self.qdata,
             scale,
             self._elem_dtype,
-            self._block_size,
+            self.block_size,
             output_dtype,
-            self._pack_fp6,
         )
 
     @staticmethod
@@ -596,15 +534,15 @@ class MXTensor(TorchAOBaseTensor):
         data_hp: torch.Tensor,
         elem_dtype: Union[torch.dtype, str],
         block_size: int = BLOCK_SIZE_DEFAULT,
+        # TODO(future PR): flip the scaling_mode default to RCEIL
         scaling_mode: ScaleCalculationMode = ScaleCalculationMode.FLOOR,
         # TODO(future PR): switch default gemm to cublas
-        gemm_kernel_choice: MXGemmKernelChoice = MXGemmKernelChoice.EMULATED,
-        pack_fp6: bool = False,
+        kernel_preference: KernelPreference = KernelPreference.EMULATED,
         act_quant_kwargs: Optional[QuantizeTensorToMXKwargs] = None,
         is_swizzled_scales: bool = False,
     ):
         scale_e8m0_biased, data_lp = to_mx(
-            data_hp, elem_dtype, block_size, scaling_mode, pack_fp6, is_swizzled_scales
+            data_hp, elem_dtype, block_size, scaling_mode, is_swizzled_scales
         )
         if isinstance(scale_e8m0_biased, DTensor):
             assert isinstance(data_lp, DTensor), "unsupported"
@@ -616,8 +554,7 @@ class MXTensor(TorchAOBaseTensor):
                 elem_dtype,
                 block_size,
                 data_hp.dtype,
-                gemm_kernel_choice,
-                pack_fp6,
+                kernel_preference,
                 act_quant_kwargs,
                 is_swizzled_scales,
             )
@@ -635,8 +572,7 @@ class MXTensor(TorchAOBaseTensor):
             elem_dtype,
             block_size,
             data_hp.dtype,
-            gemm_kernel_choice,
-            pack_fp6,
+            kernel_preference,
             act_quant_kwargs,
             is_swizzled_scales,
         )
@@ -656,8 +592,8 @@ def _(func, types, args, kwargs):
 
 
 def _get_gemm_choice(
-    choice_a: Optional[MXGemmKernelChoice], choice_b: Optional[MXGemmKernelChoice]
-) -> MXGemmKernelChoice:
+    choice_a: Optional[KernelPreference], choice_b: Optional[KernelPreference]
+) -> KernelPreference:
     if choice_a is not None and choice_b is not None:
         assert choice_a == choice_b, (
             "Both MXTensor inputs must have the same gemm config if specified"
@@ -687,39 +623,34 @@ def _addmm_mx_dispatch(
             k.elem_dtype,
             k.block_size,
             k.scaling_mode,
-            k.gemm_kernel_choice,
-            k.pack_fp6,
+            k.kernel_preference,
             k.is_swizzled_scales,
         )
 
-    gemm_choice = _get_gemm_choice(a._gemm_kernel_choice, b._gemm_kernel_choice)
+    gemm_choice = _get_gemm_choice(a.kernel_preference, b.kernel_preference)
 
-    if gemm_choice in (MXGemmKernelChoice.CUBLAS, MXGemmKernelChoice.CUTLASS):
+    if gemm_choice == KernelPreference.AUTO:
         # real MX gemm backed by torchao's CUTLASS kernels
         M, K, N = a.shape[0], a.shape[1], b.shape[1]
         assert a.qdata.is_contiguous()
         assert b.qdata.t().is_contiguous()
-        assert a._block_size == 32, f"Invalid block size {a._block_size}"
-        assert b._block_size == 32, f"Invalid block size {b._block_size}"
+        assert a.block_size == 32, f"Invalid block size {a.block_size}"
+        assert b.block_size == 32, f"Invalid block size {b.block_size}"
 
         if a._is_swizzled_scales:
             a_scale_block = a.scale
         else:
-            a_scale = a.scale.view(M, K // a._block_size)
+            a_scale = a.scale.view(M, K // a.block_size)
             a_scale_block = to_blocked(a_scale)
 
         if b._is_swizzled_scales:
             b_scale_block = b.scale.t()
         else:
-            b_scale = b.scale.t().view(N, K // b._block_size)
+            b_scale = b.scale.t().view(N, K // b.block_size)
             b_scale_block = to_blocked(b_scale)
 
         if a._elem_dtype == torch.float8_e4m3fn:
             assert b._elem_dtype == torch.float8_e4m3fn
-            assert gemm_choice is MXGemmKernelChoice.CUBLAS, (
-                "CUBLAS is the only supported kernel choice for MX FP8 operations"
-            )
-
             res = torch._scaled_mm(
                 a.qdata,
                 b.qdata,
@@ -731,7 +662,6 @@ def _addmm_mx_dispatch(
         else:
             assert a._elem_dtype == torch.float4_e2m1fn_x2
             assert b._elem_dtype == torch.float4_e2m1fn_x2
-            assert gemm_choice is MXGemmKernelChoice.CUTLASS, "unsupported"
             # FP4 operations
             res = torchao.ops.mx_fp4_bf16(
                 a.qdata, b.qdata, a_scale_block, b_scale_block
@@ -741,6 +671,7 @@ def _addmm_mx_dispatch(
                 res = res + bias
 
     else:
+        assert gemm_choice == KernelPreference.EMULATED, "unimplemented"
         # emulated MX gemm
         a_hp = a.dequantize(a._orig_dtype)
         b_hp = b.dequantize(b._orig_dtype)
@@ -775,6 +706,27 @@ def mx_addmm(func, types, args, kwargs):
     return _addmm_mx_dispatch(a, b, func, bias=bias)
 
 
+@implements([aten.linear.default])
+def mx_linear(func, types, args, kwargs):
+    assert isinstance(args[0], torch.Tensor) and isinstance(args[1], MXTensor)
+    a = args[0]
+
+    # make a 2d
+    orig_a_shape = a.shape
+    a_2d = a.view(-1, orig_a_shape[-1])
+
+    b = args[1].t()
+    if len(args) > 2:
+        bias = args[2]
+        res = _addmm_mx_dispatch(a_2d, b, aten.addmm.default, bias)
+    else:
+        res = _addmm_mx_dispatch(a_2d, b, aten.mm.default)
+
+    # reshape back to original shape
+    res = res.view(*orig_a_shape[:-1], res.shape[-1])
+    return res
+
+
 @implements([aten.t.default])
 def mx_t(func, types, args, kwargs):
     # For now, only transpose(input, 0, 1) is supported.
@@ -783,10 +735,9 @@ def mx_t(func, types, args, kwargs):
         old.qdata.t(),
         old.scale.t(),
         old._elem_dtype,
-        old._block_size,
+        old.block_size,
         old._orig_dtype,
-        old._gemm_kernel_choice,
-        old._pack_fp6,
+        old.kernel_preference,
         old.act_quant_kwargs,
         old._is_swizzled_scales,
     )
@@ -820,18 +771,14 @@ def mx_view_op(func, types, args, kwargs):
     if args[0]._elem_dtype == torch.float4_e2m1fn_x2:
         # special case fp4 as we pack two elements per byte
         new_size = tensor_size_hp_to_fp4x2(new_size, data.is_contiguous())
-    elif args[0]._elem_dtype in [DTYPE_FP6_E3M2, DTYPE_FP6_E2M3] and args[0]._pack_fp6:
-        # special case fp6 as we pack 4 elements in 3 bytes
-        new_size = tensor_size_hpx3_to_fp6x4(new_size, data.is_contiguous())
     new_data = func(data, new_size, *args[2:], **kwargs)
     return MXTensor(
         new_data,
         args[0].scale,
         args[0]._elem_dtype,
-        args[0]._block_size,
+        args[0].block_size,
         args[0]._orig_dtype,
-        args[0]._gemm_kernel_choice,
-        args[0]._pack_fp6,
+        args[0].kernel_preference,
         args[0].act_quant_kwargs,
         args[0]._is_swizzled_scales,
     )
@@ -854,10 +801,9 @@ def mx_slice(func, types, args, kwargs):
             sliced_data,
             sliced_scale,
             x._elem_dtype,
-            x._block_size,
+            x.block_size,
             x._orig_dtype,
-            x._gemm_kernel_choice,
-            x._pack_fp6,
+            x.kernel_preference,
             x.act_quant_kwargs,
             x._is_swizzled_scales,
         ),
@@ -889,10 +835,9 @@ def mx_select(func, types, args, kwargs):
         old_mx_tensor.qdata[index],
         old_mx_tensor.scale[index],
         old_mx_tensor._elem_dtype,
-        old_mx_tensor._block_size,
+        old_mx_tensor.block_size,
         old_mx_tensor._orig_dtype,
-        old_mx_tensor._gemm_kernel_choice,
-        old_mx_tensor._pack_fp6,
+        old_mx_tensor.kernel_preference,
         old_mx_tensor.act_quant_kwargs,
         old_mx_tensor._is_swizzled_scales,
     )

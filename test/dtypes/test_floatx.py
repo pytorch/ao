@@ -14,29 +14,30 @@ from torch.testing._internal.common_utils import (
     run_tests,
 )
 
-from torchao.dtypes.floatx import (
+from torchao.prototype.custom_fp_utils import (
+    _f32_to_floatx_unpacked,
+    _floatx_unpacked_to_f32,
+)
+from torchao.prototype.dtypes.floatx import (
     FloatxTensorCoreLayout,
     from_scaled_tc_floatx,
     to_scaled_tc_floatx,
 )
-from torchao.dtypes.floatx.floatx_tensor_core_layout import (
+from torchao.prototype.dtypes.floatx.floatx_tensor_core_layout import (
     FloatxTensorCoreAQTTensorImpl,
     _pack_tc_floatx,
     _pack_tc_fp6,
-)
-from torchao.prototype.custom_fp_utils import (
-    _f32_to_floatx_unpacked,
-    _floatx_unpacked_to_f32,
 )
 from torchao.quantization import (
     FPXWeightOnlyConfig,
     quantize_,
 )
 from torchao.testing.utils import skip_if_rocm
-from torchao.utils import is_fbcode
+from torchao.utils import get_current_accelerator_device, is_fbcode
 
-_DEVICES = ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])
 _Floatx_DTYPES = [(3, 2), (2, 2)]
+_DEVICE = get_current_accelerator_device()
+_DEVICES = ["cpu"] + ([_DEVICE] if torch.accelerator.is_available() else [])
 
 
 class TestFloatxTensorCoreAQTTensorImpl(TestCase):
@@ -87,7 +88,7 @@ class TestFloatxTensorCoreAQTTensorImpl(TestCase):
         )
         torch.testing.assert_close(actual, expected)
 
-    @unittest.skipIf(not torch.cuda.is_available(), reason="CUDA not available")
+    @unittest.skipIf(not torch.accelerator.is_available(), reason="GPU not available")
     @parametrize("ebits,mbits", _Floatx_DTYPES)
     def test_to_copy_device(self, ebits, mbits):
         from torchao.quantization.quant_primitives import (
@@ -101,8 +102,8 @@ class TestFloatxTensorCoreAQTTensorImpl(TestCase):
         _layout = FloatxTensorCoreLayout(ebits, mbits)
         floatx_tensor_impl = FloatxTensorCoreAQTTensorImpl.from_plain(
             x, scale, None, _layout
-        ).cuda()
-        assert floatx_tensor_impl.device.type == "cuda"
+        ).to(_DEVICE)
+        assert floatx_tensor_impl.device.type == _DEVICE.type
         floatx_tensor_impl = floatx_tensor_impl.cpu()
         assert floatx_tensor_impl.device.type == "cpu"
 
@@ -114,7 +115,7 @@ class TestFloatxTensorCoreAQTTensorImpl(TestCase):
     @skip_if_rocm("ROCm enablement in progress")
     def test_fpx_weight_only(self, ebits, mbits, bias, dtype):
         N, OC, IC = 4, 256, 64
-        device = "cuda"
+        device = _DEVICE
 
         linear = torch.nn.Linear(IC, OC, bias=bias, device=device, dtype=dtype)
         fpx_linear = copy.deepcopy(linear)

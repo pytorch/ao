@@ -10,13 +10,17 @@ import unittest
 
 import torch
 
+from torchao.quantization.granularity import PerRow
 from torchao.quantization.quant_primitives import (
     MappingType,
     ZeroPointDomain,
     _choose_qparams_affine_tinygemm,
+    _choose_qparams_and_quantize_scale_only_sinq,
+    _choose_scale_float8,
     _fake_quantize_affine,
     _fake_quantize_affine_cachemask,
     _maybe_expand_scale_to_tensor_shape,
+    _quantize_affine_float8,
     choose_qparams_affine,
     dequantize_affine,
     quantize_affine,
@@ -25,6 +29,7 @@ from torchao.quantization.quant_primitives import (
 # TODO: remove test for utils?
 from torchao.quantization.utils import (
     _quantize_activation_per_token_absmax,
+    get_block_size,
     get_group_qparams_symmetric,
     groupwise_affine_dequantize_tensor_from_qparams,
     groupwise_affine_quantize_tensor_from_qparams,
@@ -32,11 +37,14 @@ from torchao.quantization.utils import (
 from torchao.utils import (
     check_cpu_version,
     check_xpu_version,
+    get_current_accelerator_device,
     is_fbcode,
 )
 
 _SEED = 1234
 torch.manual_seed(_SEED)
+
+_DEVICE = get_current_accelerator_device()
 
 
 # Helper function to run a function twice
@@ -53,6 +61,23 @@ def check_idempotent(self, fn, *args, **kwargs):
         torch.equal(output0, output1), f"Expected given function {fn} to be idempotent."
     )
     return output1
+
+
+# from https://github.com/pytorch/pytorch/blob/7563f61cc8a40a5ba21a498a2d98895b4eec3f39/test/test_scaled_matmul_cuda.py#L100
+# with scale modified to be the inverse of the version in PT core
+def _tensor_to_scale_block(
+    x: torch.Tensor,
+    float8_dtype: torch.dtype,
+    block_outer: int,
+    block_inner: int,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    x = x.unflatten(1, (-1, block_inner)).unflatten(0, (-1, block_outer))
+    amax = x.abs().amax(dim=[1, 3], keepdim=True).float()
+    scale = amax / torch.finfo(float8_dtype).max
+    x = x.div(scale).to(float8_dtype)
+    x = x.flatten(2, 3).flatten(0, 1)
+    scale = scale.flatten(2, 3).flatten(0, 1)
+    return x, scale
 
 
 # Legacy tinygemm ops
@@ -571,16 +596,17 @@ class TestQuantPrimitives(unittest.TestCase):
         self.assertEqual(scale, eps)
 
     @unittest.skipIf(
-        not torch.cuda.is_available(), "skipping when cuda is not available"
+        not torch.accelerator.is_available(), "skipping when gpu is not available"
     )
     def test_get_group_qparams_symmetric_memory(self):
         """Check the memory usage of the op"""
-        weight = torch.randn(1024, 1024).to(device="cuda")
-        original_mem_use = torch.cuda.memory_allocated()
+        weight = torch.randn(1024, 1024).to(device=_DEVICE)
+        device_module = torch.get_device_module(_DEVICE)
+        original_mem_use = device_module.memory_allocated()
         n_bit = 4
         groupsize = 128
         (scale_ao, _) = get_group_qparams_symmetric(weight, n_bit, groupsize)
-        after_choose_qparams_mem_use = torch.cuda.memory_allocated()
+        after_choose_qparams_mem_use = device_module.memory_allocated()
         self.assertTrue(after_choose_qparams_mem_use < 1.2 * original_mem_use)
 
     def test_raises(self):
@@ -797,6 +823,95 @@ class TestQuantPrimitives(unittest.TestCase):
         new_scale5 = _maybe_expand_scale_to_tensor_shape(scale5, target_shape)
         self.assertEqual(new_scale5.shape, torch.Size([3, 2, 8]))
         self.assertEqual(new_scale5.unique(dim=-1).shape, torch.Size([3, 2, 2]))
+
+    def test_choose_qparams_and_quantize_scale_only_sinq(self):
+        """Test SINQ quantization produces valid outputs and accuracy."""
+        torch.manual_seed(self.SEED)
+        input = torch.randn(128, 256, dtype=torch.float32)
+        group_size = 64
+        qmin = -(2 ** (4 - 1))
+        qmax = 2 ** (4 - 1) - 1
+
+        # Run SINQ
+        qdata, scale_row, scale_col = _choose_qparams_and_quantize_scale_only_sinq(
+            input,
+            group_size=group_size,
+            qmin=qmin,
+            qmax=qmax,
+            niter=20,
+        )
+
+        # Check quantized weight is producible
+        self.assertEqual(qdata.dtype, torch.int8)
+        self.assertEqual(qdata.shape, input.shape)
+        self.assertTrue((qdata >= qmin).all() and (qdata <= qmax).all())
+
+        # Check scale factors are producible
+        num_groups = input.shape[1] // group_size
+        self.assertEqual(scale_row.shape, (input.shape[0], num_groups))
+        self.assertEqual(scale_col.shape, (input.shape[1],))
+        self.assertTrue((scale_row > 0).all() and (scale_col > 0).all())
+
+        # Check weight transform with 2-scale factor is applicable
+        qdata_fp32 = qdata.to(torch.float32)
+        qdata_reshaped = qdata_fp32.reshape(-1, group_size)
+        scale_row_expanded = scale_row.reshape(-1, 1)
+        scale_col_reshaped = scale_col.reshape(num_groups, group_size)
+        scale_col_expanded = scale_col_reshaped.repeat(input.shape[0], 1)
+        reconstructed = (
+            qdata_reshaped * scale_row_expanded * scale_col_expanded
+        ).reshape(input.shape)
+        self.assertFalse(torch.isnan(reconstructed).any())
+
+    def test_float8_blockwise_scaling(self):
+        M, K = 512, 1024
+        hp_tensor = torch.randn(M, K, dtype=torch.float)
+        # make the scales from some of the blocks obviously different
+        hp_tensor[0:128, 0:128] *= 3.0
+        hp_tensor[0:128, 128:256] *= 7.0
+        hp_tensor[128:256, 0:128] *= 2.0
+        hp_tensor[128:256, 128:256] *= 100.0
+
+        block_size = (128, 128)
+
+        scale = _choose_scale_float8(
+            hp_tensor,
+            float8_dtype=torch.float8_e4m3fn,
+            block_size=block_size,
+            hp_value_lb=None,
+            hp_value_ub=None,
+        )
+        data = _quantize_affine_float8(hp_tensor, scale, torch.float8_e4m3fn)
+
+        ref_data, ref_scale = _tensor_to_scale_block(
+            hp_tensor, torch.float8_e4m3fn, 128, 128
+        )
+
+        torch.testing.assert_close(scale, ref_scale, atol=0, rtol=0)
+        torch.testing.assert_close(data.float(), ref_data.float(), atol=0, rtol=0)
+
+    def test_float8_rowwise_scaling_3d_weight_axis_1(self):
+        """
+        Test scaling a weight with shape (B, K, N) and row-major memory layout
+        across the K dimension.
+        """
+
+        B, K, N = 8, 16, 32
+        hp_tensor = torch.randn(B, K, N, dtype=torch.float)
+
+        granularity = PerRow(1)
+        block_size = get_block_size(hp_tensor.shape, granularity)
+        scale = _choose_scale_float8(
+            hp_tensor,
+            float8_dtype=torch.float8_e4m3fn,
+            block_size=block_size,
+            hp_value_lb=None,
+            hp_value_ub=None,
+        )
+        data = _quantize_affine_float8(hp_tensor, scale, torch.float8_e4m3fn)
+
+        assert scale.shape == (B, 1, N)
+        assert data.shape == (B, K, N)
 
 
 if __name__ == "__main__":

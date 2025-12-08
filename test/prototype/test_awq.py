@@ -15,6 +15,7 @@ from torch.testing._internal.common_utils import (
 )
 
 from torchao.prototype.awq import AWQConfig, AWQStep
+from torchao.prototype.int4_opaque_tensor import Int4WeightOnlyOpaqueTensorConfig
 from torchao.quantization import Int4WeightOnlyConfig, quantize_
 from torchao.utils import _is_fbgemm_gpu_genai_available, torch_version_at_least
 
@@ -76,7 +77,7 @@ device_to_base_configs = {
         # Note: the functionality unit test doesn't work for hqq
         Int4WeightOnlyConfig(group_size=128, int4_packing_format="tile_packed_to_4d"),
     ],
-    "cpu": [Int4WeightOnlyConfig(group_size=128, int4_packing_format="opaque")],
+    "cpu": [Int4WeightOnlyOpaqueTensorConfig(group_size=128)],
     "xpu": [Int4WeightOnlyConfig(group_size=128, int4_packing_format="plain_int32")],
 }
 

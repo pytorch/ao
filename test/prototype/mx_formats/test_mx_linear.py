@@ -26,6 +26,7 @@ from torchao.prototype.mx_formats.mx_linear import (
 from torchao.quantization import quantize_
 from torchao.quantization.utils import compute_error
 from torchao.utils import (
+    is_cuda_version_at_least,
     is_sm_at_least_89,
     is_sm_at_least_100,
     torch_version_at_least,
@@ -50,12 +51,25 @@ def run_around_tests():
 elem_dtypes = (
     [
         # test each dtype
-        (torch.float8_e4m3fn, torch.float8_e4m3fn, torch.float8_e4m3fn),
+        (
+            torch.float8_e4m3fn,
+            torch.float8_e4m3fn,
+            torch.float8_e4m3fn,
+        ),
         (DTYPE_FP6_E3M2, DTYPE_FP6_E3M2, DTYPE_FP6_E3M2),
         (DTYPE_FP6_E2M3, DTYPE_FP6_E2M3, DTYPE_FP6_E2M3),
-        (torch.float4_e2m1fn_x2, torch.float4_e2m1fn_x2, torch.float4_e2m1fn_x2),
-        # only test one type of mixed-dtype overrides, to save testing time
-        (torch.float8_e4m3fn, torch.float4_e2m1fn_x2, torch.float4_e2m1fn_x2),
+        (
+            torch.float4_e2m1fn_x2,
+            torch.float4_e2m1fn_x2,
+            torch.float4_e2m1fn_x2,
+        ),
+        # only test one type of mixed-dtype overrides, to save
+        # testing time
+        (
+            torch.float8_e4m3fn,
+            torch.float4_e2m1fn_x2,
+            torch.float4_e2m1fn_x2,
+        ),
     ]
     if torch_version_at_least("2.8.0")
     else [
@@ -117,6 +131,8 @@ def test_linear_eager_vs_hp(
             pytest.skip("unsupported configuration")
         elif not is_sm_at_least_100():
             pytest.skip("CUDA capability >= 10.0 required for MX dim1 cast cuda kernel")
+        elif not is_cuda_version_at_least(12, 8):
+            pytest.skip("CUDA version >= 12.8 required for MXFP8 CUDA extension")
 
     # elem_dtype is a tuple of (input, weight, gradient) dtypes.
     grad_shape = list(input_shape)
@@ -166,7 +182,12 @@ def test_linear_eager_vs_hp(
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(
-    not is_sm_at_least_100(), reason="CUDA capability >= 10.0 required for mxfloat8"
+    not is_sm_at_least_100(),
+    reason="CUDA capability >= 10.0 required for mxfloat8",
+)
+@pytest.mark.skipif(
+    not is_cuda_version_at_least(12, 8),
+    reason="CUDA version >= 12.8 required for MXFP8",
 )
 @pytest.mark.parametrize(
     "recipe_name",
@@ -238,9 +259,11 @@ def test_activation_checkpointing():
     "recipe_name",
     [
         "mxfp8_emulated",
-        "mxfp4_emulated",
         "mxfp8_cublas",
-        "mxfp4_cutlass",
+        # TODO(future PR): add mxfp4 back here, but ensure CI speed is not too
+        # slow
+        # "mxfp4_emulated",
+        # "mxfp4_cutlass",
     ],
 )
 @pytest.mark.parametrize("bias", [False, True])
@@ -258,7 +281,6 @@ def test_activation_checkpointing():
     "scale_calculation_mode",
     [
         ScaleCalculationMode.FLOOR,
-        ScaleCalculationMode.CEIL,
         # even + compile does not work yet:
         # https://gist.github.com/vkuzo/1a04845cd503b1c75291aa1ea3bf79c4
         # ScaleCalculationMode.EVEN,
@@ -302,6 +324,10 @@ def test_linear_compile(
             ScaleCalculationMode.RCEIL,
         ):
             pytest.skip("unsupported configuration")
+        elif not is_sm_at_least_100():
+            pytest.skip("CUDA capability >= 10.0 required for MX dim1 cast cuda kernel")
+        elif not is_cuda_version_at_least(12, 8):
+            pytest.skip("CUDA version >= 12.8 required for MXFP8")
 
     if hp_dtype == torch.bfloat16 and recipe_name != "mxfp8_cublas":
         # TODO(future PR): properly enable float32 + bfloat16 for every
@@ -317,7 +343,8 @@ def test_linear_compile(
     ):
         # TODO(future): debug this
         pytest.skip(
-            "there are currently accuracy issues with this configuration on H100 and below"
+            "there are currently accuracy issues with this configuration "
+            "on H100 and below"
         )
 
     M, K, N = 128, 256, 512

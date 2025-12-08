@@ -9,7 +9,7 @@ from typing import Optional, Tuple
 import torch
 
 from torchao.core.config import AOBaseConfig
-from torchao.dtypes.uintx.uintx_layout import _DTYPE_TO_BIT_WIDTH, UintxTensor
+from torchao.prototype.dtypes.uintx.uintx_layout import _DTYPE_TO_BIT_WIDTH, UintxTensor
 from torchao.prototype.quantization.codebook.codebook_ops import (
     choose_qparams_codebook,
     dequantize_codebook,

@@ -29,22 +29,13 @@ __all__ = [
     "get_model_size_in_bytes",
     "unwrap_tensor_subclass",
     "TorchAOBaseTensor",
+    "is_cuda_version_at_least",
     "is_MI300",
     "is_sm_at_least_89",
     "is_sm_at_least_90",
+    "is_sm_at_least_100",
     "is_package_at_least",
     "DummyModule",
-    # Deprecated
-    "TORCH_VERSION_AT_LEAST_2_2",
-    "TORCH_VERSION_AT_LEAST_2_3",
-    "TORCH_VERSION_AT_LEAST_2_4",
-    "TORCH_VERSION_AT_LEAST_2_5",
-    "TORCH_VERSION_AT_LEAST_2_6",
-    "TORCH_VERSION_AT_LEAST_2_7",
-    "TORCH_VERSION_AFTER_2_2",
-    "TORCH_VERSION_AFTER_2_3",
-    "TORCH_VERSION_AFTER_2_4",
-    "TORCH_VERSION_AFTER_2_5",
 ]
 
 
@@ -145,6 +136,13 @@ def get_available_devices():
     if torch.mps.is_available():
         devices.append("mps")
     return devices
+
+
+def get_current_accelerator_device():
+    if torch.accelerator.is_available():
+        return torch.accelerator.current_accelerator()
+    else:
+        return None
 
 
 def get_compute_capability():
@@ -378,61 +376,6 @@ def torch_version_at_least(min_version):
     return parse_version(torch.__version__) >= parse_version(min_version)
 
 
-def _deprecated_torch_version_at_least(version_str: str) -> str:
-    """
-    Wrapper for existing TORCH_VERSION_AT_LEAST* variables that will log
-    a deprecation warning if the variable is used.
-    """
-    version_str_var_name = "_".join(version_str.split(".")[:2])
-    deprecation_msg = f"TORCH_VERSION_AT_LEAST_{version_str_var_name} is deprecated and will be removed in torchao 0.14.0"
-    return _BoolDeprecationWrapper(
-        torch_version_at_least(version_str),
-        deprecation_msg,
-    )
-
-
-def _deprecated_torch_version_after(version_str: str) -> str:
-    """
-    Wrapper for existing TORCH_VERSION_AFTER* variables that will log
-    a deprecation warning if the variable is used.
-    """
-    bool_value = is_fbcode() or version("torch") >= version_str
-    version_str_var_name = "_".join(version_str.split(".")[:2])
-    deprecation_msg = f"TORCH_VERSION_AFTER_{version_str_var_name} is deprecated and will be removed in torchao 0.14.0"
-    return _BoolDeprecationWrapper(bool_value, deprecation_msg)
-
-
-class _BoolDeprecationWrapper:
-    """
-    A deprecation wrapper that logs a warning when the given bool value is accessed.
-    """
-
-    def __init__(self, bool_value: bool, msg: str):
-        self.bool_value = bool_value
-        self.msg = msg
-
-    def __bool__(self):
-        warnings.warn(self.msg)
-        return self.bool_value
-
-    def __eq__(self, other):
-        return bool(self) == bool(other)
-
-
-# Deprecated, use `torch_version_at_least` directly instead
-TORCH_VERSION_AT_LEAST_2_8 = _deprecated_torch_version_at_least("2.8.0")
-TORCH_VERSION_AT_LEAST_2_7 = _deprecated_torch_version_at_least("2.7.0")
-TORCH_VERSION_AT_LEAST_2_6 = _deprecated_torch_version_at_least("2.6.0")
-TORCH_VERSION_AT_LEAST_2_5 = _deprecated_torch_version_at_least("2.5.0")
-TORCH_VERSION_AT_LEAST_2_4 = _deprecated_torch_version_at_least("2.4.0")
-TORCH_VERSION_AT_LEAST_2_3 = _deprecated_torch_version_at_least("2.3.0")
-TORCH_VERSION_AT_LEAST_2_2 = _deprecated_torch_version_at_least("2.2.0")
-TORCH_VERSION_AFTER_2_5 = _deprecated_torch_version_after("2.5.0.dev")
-TORCH_VERSION_AFTER_2_4 = _deprecated_torch_version_after("2.4.0.dev")
-TORCH_VERSION_AFTER_2_3 = _deprecated_torch_version_after("2.3.0.dev")
-TORCH_VERSION_AFTER_2_2 = _deprecated_torch_version_after("2.2.0.dev")
-
-
 class _ConfigDeprecationWrapper:
     """
     A deprecation wrapper that directs users from a deprecated "config function"
@@ -507,6 +450,36 @@ def _implements_common_tensor_ops(cls):
     implements_torch_function = cls.implements_torch_function
     aten = torch.ops.aten
 
+    @implements(torch.ops.aten.to.dtype_layout)
+    def _(func, types, args, kwargs):
+        # only support kwargs for now
+        assert len(args) == 1
+        self = args[0]
+        # only support dtype, layout, and device for now
+        for k in kwargs.keys():
+            assert k in ["dtype", "layout", "device"]
+        # only support same dtype and layout
+        # different dtype and layout has undefined behavior
+        if "dtype" in kwargs:
+            assert kwargs["dtype"] == self.dtype
+        if "layout" in kwargs:
+            assert kwargs["layout"] == self.layout
+        # if device is the same, treat this like a no-op
+        device = kwargs.get("device")
+        if device == self.device:
+            return self
+        new_tensor = args[0]._apply_fn_to_data(lambda x: func(x, device=device))
+        return return_and_correct_aliasing(func, args, kwargs, new_tensor)
+
+    # This is called during _apply() to see if we can shallow
+    # copy the content of one tensor into another. For now,
+    # we only allow shallow copy if both tensors are of the
+    # same type and have the same shape.
+    @implements_torch_function(torch._has_compatible_shallow_copy_type)
+    def _(func, types, args, kwargs):
+        assert len(args) == 2
+        return type(args[0]) == type(args[1]) and args[0].shape == args[1].shape
+
     @implements_torch_function(
         [
             torch.Tensor.contiguous,
@@ -540,9 +513,11 @@ def _implements_common_tensor_ops(cls):
         if hasattr(self, "optional_tensor_data_names"):
             # either both are None or both are not Tensors and the shape match
             _optional_tensor_shape_match = all(
-                getattr(self, t_name).shape == getattr(src, t_name).shape
-                if getattr(self, t_name) is not None
-                else getattr(src, t_name) is None
+                (
+                    getattr(self, t_name).shape == getattr(src, t_name).shape
+                    if getattr(self, t_name) is not None
+                    else getattr(src, t_name) is None
+                )
                 for t_name in self.optional_tensor_data_names
             )
 
@@ -1125,6 +1100,16 @@ def is_sm_at_least_100():
     )
 
 
+def is_cuda_version_at_least(major: int, minor: int) -> bool:
+    if not torch.cuda.is_available():
+        return False
+    cuda_version = torch.version.cuda
+    if cuda_version is None:
+        return False
+    cuda_major, cuda_minor = map(int, cuda_version.split(".")[:2])
+    return (cuda_major, cuda_minor) >= (major, minor)
+
+
 def check_cpu_version(device, version="2.6.0"):
     if isinstance(device, torch.device):
         device = device.type
@@ -1152,7 +1137,10 @@ def is_package_at_least(package_name: str, min_version: str):
 def _is_fbgemm_gpu_genai_available():
     # TODO: use is_package_at_least("fbgemm_gpu", "1.2.0") when
     # https://github.com/pytorch/FBGEMM/issues/4198 is fixed
-    if importlib.util.find_spec("fbgemm_gpu") is None:
+    if (
+        importlib.util.find_spec("fbgemm_gpu") is None
+        or importlib.util.find_spec("fbgemm_gpu.experimental") is None
+    ):
         return False
 
     import fbgemm_gpu.experimental.gen_ai  # noqa: F401

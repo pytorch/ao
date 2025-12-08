@@ -16,6 +16,10 @@ from tokenizer import get_tokenizer
 
 import torchao
 from torchao._models.llama.model import prepare_inputs_for_model
+from torchao.prototype.mx_formats.inference_workflow import (
+    MXDynamicActivationMXWeightConfig,
+    NVFP4DynamicActivationNVFP4WeightConfig,
+)
 from torchao.quantization import (
     Float8DynamicActivationFloat8WeightConfig,
     Float8WeightOnlyConfig,
@@ -23,6 +27,7 @@ from torchao.quantization import (
     Int4WeightOnlyConfig,
     Int8DynamicActivationInt8WeightConfig,
     Int8WeightOnlyConfig,
+    PerBlock,
     PerRow,
     PerTensor,
     UIntXWeightOnlyConfig,
@@ -44,6 +49,7 @@ def run_evaluation(
     calibration_limit: Optional[int] = None,
     calibration_seq_length: Optional[int] = None,
     pad_calibration_inputs: bool = False,
+    print_model: bool = False,
 ):
     """Runs the evaluation of a model using LM Eval."""
     print(
@@ -168,6 +174,42 @@ def run_evaluation(
             quantize_(
                 model,
                 Float8DynamicActivationFloat8WeightConfig(granularity=granularity),
+                filter_fn=lambda mod, fqn: isinstance(mod, torch.nn.Linear)
+                and fqn != "output",
+            )
+        if quantization == "float8_a1x128_w128x128":
+            config = Float8DynamicActivationFloat8WeightConfig(
+                granularity=(PerBlock([1, 128]), PerBlock([128, 128])),
+                activation_value_lb=1e-12,
+            )
+            # TODO(future): all workflows in this file should be skipping quantization
+            # of `lm_head`/`output`
+            quantize_(model, config)
+        if quantization == "mxfp8":
+            config = MXDynamicActivationMXWeightConfig(
+                activation_dtype=torch.float8_e4m3fn,
+                weight_dtype=torch.float8_e4m3fn,
+            )
+            # TODO(future): all workflows in this file should be skipping quantization
+            # of `lm_head`/`output`
+            quantize_(
+                model,
+                config,
+                filter_fn=lambda mod, fqn: isinstance(mod, torch.nn.Linear)
+                and fqn != "output",
+            )
+        if quantization == "nvfp4":
+            config = NVFP4DynamicActivationNVFP4WeightConfig(
+                use_dynamic_per_tensor_scale=True,
+                use_triton_kernel=True,
+            )
+            # TODO(future): all workflows in this file should be skipping quantization
+            # of `lm_head`/`output`
+            quantize_(
+                model,
+                config,
+                filter_fn=lambda mod, fqn: isinstance(mod, torch.nn.Linear)
+                and fqn != "output",
             )
         if "autoround" in quantization:
             from transformers import AutoTokenizer
@@ -273,7 +315,16 @@ def run_evaluation(
             )
 
     if compile:
-        model = torch.compile(model, mode="max-autotune", fullgraph=True)
+        # TODO(future PR): clean this up
+        if quantization in ("float8_a1x128_w128x128", "mxfp8", "nvfp4"):
+            # we don't need max-autotune for float8 blockwise or mxfp8 quant
+            model = torch.compile(model)
+        else:
+            model = torch.compile(model, mode="max-autotune", fullgraph=True)
+
+    if print_model:
+        print(model)
+
     with torch.no_grad():
         print("Running evaluation ...")
         # avoid circular imports
@@ -371,6 +422,9 @@ if __name__ == "__main__":
         default=False,
         help="pads sequences shorter than calibration_seq_length to that length, yielding more calibration inputs but running much slower",
     )
+    parser.add_argument(
+        "--print_model", action="store_true", help="Whether to print the model."
+    )
 
     args = parser.parse_args()
     run_evaluation(
@@ -387,4 +441,5 @@ if __name__ == "__main__":
         args.calibration_limit,
         args.calibration_seq_length,
         args.pad_calibration_inputs,
+        args.print_model,
     )

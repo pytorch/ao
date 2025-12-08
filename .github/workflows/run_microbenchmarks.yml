@@ -22,7 +22,7 @@ jobs:
       - name: Setup miniconda
         uses: pytorch/test-infra/.github/actions/setup-miniconda@main
         with:
-          python-version: "3.9"
+          python-version: "3.10"
 
       - name: Run benchmark
         shell: bash
@@ -39,7 +39,7 @@ jobs:
           # Install dependencies
           ${CONDA_RUN} pip install ${{ matrix.torch-spec }}
           ${CONDA_RUN} pip install -r dev-requirements.txt
-          ${CONDA_RUN} pip install .
+          ${CONDA_RUN} pip install . --no-build-isolation
 
           ${CONDA_RUN} ls
           ${CONDA_RUN} bash -c 'pwd'

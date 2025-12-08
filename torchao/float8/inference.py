@@ -7,6 +7,7 @@
 Defines an nn module designed to be used during inference
 """
 
+import math
 from typing import List, NamedTuple, Optional, Tuple, Union
 
 import torch
@@ -14,6 +15,7 @@ import torch
 from torchao.float8.float8_utils import is_row_major, pad_tensor_for_matmul
 from torchao.float8.types import FP8Granularity
 from torchao.quantization.granularity import (
+    PerBlock,
     PerRow,
     PerTensor,
 )
@@ -196,6 +198,36 @@ def _is_tensorwise_scaled(x: torch.Tensor) -> bool:
     )
 
 
+def _is_1_128_scaled(x: torch.Tensor) -> bool:
+    """Checks if a quantized tensor is scaled with a block size of 1x128
+    Args:
+        x: quantized tensor (should have `block_size` attribute)
+    """
+    assert hasattr(x, "block_size"), "Expecting input to have `block_size` attribute"
+    b = x.block_size
+    return len(b) >= 2 and math.prod(b[:-1]) == 1 and b[-1] == 128
+
+
+def _is_128_128_scaled(x: torch.Tensor) -> bool:
+    """Checks if a quantized tensor is scaled with a block size of 128x128
+    Args:
+        x: quantized tensor (should have `block_size` attribute)
+    """
+    assert hasattr(x, "block_size"), "Expecting input to have `block_size` attribute"
+    b = x.block_size
+    return len(b) == 2 and b[0] == 128 and b[1] == 128
+
+
+def _granularity_is_a_1_128_w_128_128(
+    g: Union[
+        FP8Granularity,
+        Tuple[FP8Granularity, FP8Granularity],
+        list[FP8Granularity],
+    ],
+) -> bool:
+    return len(g) == 2 and g[0] == PerBlock([1, 128]) and g[1] == PerBlock([128, 128])
+
+
 def _normalize_granularity(
     granularity: Optional[
         Union[
@@ -211,22 +243,23 @@ def _normalize_granularity(
     elif isinstance(granularity, (PerTensor, PerRow)):
         processed_granularity = (granularity, granularity)
     elif isinstance(granularity, (tuple, list)) and len(granularity) == 2:
-        if not (
-            isinstance(granularity[0], (PerTensor, PerRow))
-            and isinstance(granularity[1], (PerTensor, PerRow))
-        ):
-            raise ValueError(
-                f"Invalid granularity types: {granularity}, only PerTensor or PerRow are supported."
-            )
+        is_per_tensor = isinstance(granularity[0], PerTensor) and isinstance(
+            granularity[1], PerTensor
+        )
+        is_per_row = isinstance(granularity[0], PerRow) and isinstance(
+            granularity[1], PerRow
+        )
+        is_a_1_128_w_128_128 = _granularity_is_a_1_128_w_128_128(granularity)
+
+        if not (is_per_tensor or is_per_row or is_a_1_128_w_128_128):
+            raise ValueError(f"Unsupported granularity types: {granularity}.")
         if not isinstance(granularity[0], type(granularity[1])):
             raise ValueError(
-                f"Different granularities for activation and weight are not supported: {granularity}, only PerTensor or PerRow are supported."
+                f"Different granularities for activation and weight are not supported: {granularity}."
             )
         processed_granularity = tuple(granularity)
     else:
-        raise ValueError(
-            f"Invalid granularity specification: {granularity}, only PerTensor or PerRow are supported."
-        )
+        raise ValueError(f"Invalid granularity specification: {granularity}.")
     return processed_granularity
 
 
@@ -243,12 +276,22 @@ def _check_hardware_support(
         AssertionError: If hardware doesn't support the requested granularity
         ValueError: If invalid granularity type is provided
     """
-    for _granularity in granularities:
-        if not isinstance(_granularity, (PerTensor, PerRow)):
-            raise ValueError(
-                f"Invalid granularity type: {_granularity}, only PerTensor or PerRow are supported."
-            )
+    is_per_tensor = isinstance(granularities[0], PerTensor) and isinstance(
+        granularities[1], PerTensor
+    )
+    is_per_row = isinstance(granularities[0], PerRow) and isinstance(
+        granularities[1], PerRow
+    )
+    is_a_1_128_w_128_128 = _granularity_is_a_1_128_w_128_128(granularities)
 
+    if is_per_tensor or is_per_row:
         assert is_sm_at_least_89() or is_MI300(), (
             "Float8 dynamic quantization requires CUDA compute capability ≥8.9 or MI300+."
         )
+    elif is_a_1_128_w_128_128:
+        # TODO(future PR): look into AMD support
+        assert is_sm_at_least_89(), (
+            "Float8 1x128 activation and 128x128 weight scaling requires CUDA compute capability ≥8.9."
+        )
+    else:
+        raise ValueError(f"Invalid granularities {granularities}.")

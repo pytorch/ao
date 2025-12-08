@@ -21,10 +21,10 @@ jobs:
   test:
     # Don't run on forked repos or empty test matrix
     # if: github.repository_owner == 'pytorch' && toJSON(fromJSON(inputs.test-matrix).include) != '[]'
-    timeout-minutes: 60
+    timeout-minutes: 120
     runs-on: linux.idc.xpu
     env:
-      DOCKER_IMAGE: ci-image:pytorch-linux-jammy-xpu-n-py3
+      DOCKER_IMAGE: ci-image:pytorch-linux-noble-xpu-n-py3
       PYTORCH_RETRY_TEST_CASES: 1
       PYTORCH_OVERRIDE_FLAKY_SIGNAL: 1
       XLA_CLANG_CACHE_S3_BUCKET_NAME: ossci-compiler-clang-cache-circleci-xla
@@ -166,7 +166,7 @@ jobs:
           GITHUB_RUN_NUMBER: ${{ github.run_number }}
           GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
           SHA1: ${{ github.event.pull_request.head.sha || github.sha }}
-        timeout-minutes: 60
+        timeout-minutes: 120
         run: |
           set -x
 

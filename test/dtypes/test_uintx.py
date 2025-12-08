@@ -3,10 +3,13 @@
 #
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
+import sys
+import warnings
+
 import pytest
 import torch
 
-from torchao.dtypes.uintx.uintx_layout import to_uintx
+from torchao.prototype.dtypes.uintx.uintx_layout import to_uintx
 from torchao.quantization.quant_api import UIntXWeightOnlyConfig, quantize_
 from torchao.quantization.quant_primitives import (
     MappingType,
@@ -14,6 +17,7 @@ from torchao.quantization.quant_primitives import (
     dequantize_affine,
     quantize_affine,
 )
+from torchao.utils import get_current_accelerator_device
 
 dtypes = (
     torch.uint1,
@@ -26,7 +30,8 @@ dtypes = (
 )
 
 group_sizes = [32, 64, 128]
-devices = ["cpu", "cuda"]
+_DEVICE = get_current_accelerator_device()
+devices = ["cpu", _DEVICE]
 
 
 @pytest.fixture(autouse=True)
@@ -56,15 +61,15 @@ class Linear16(torch.nn.Module):
 
 @pytest.mark.parametrize("dtype", dtypes)
 @pytest.mark.parametrize("group_size", group_sizes)
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(not torch.accelerator.is_available(), reason="GPU not available")
 def test_uintx_quant_on_cpu_then_move_to_cuda(dtype, group_size):
     scale = 512
     fp16_mod_on_cpu = Linear16(scale, "cpu")
     quantize_(fp16_mod_on_cpu, UIntXWeightOnlyConfig(dtype, group_size=group_size))
     test_input_on_cpu = torch.randn(scale * 2, dtype=torch.float16, device="cpu")
     output_on_cpu = fp16_mod_on_cpu(test_input_on_cpu)
-    fp16_mod_on_cuda = fp16_mod_on_cpu.to("cuda")
-    test_input_on_cuda = test_input_on_cpu.to("cuda")
+    fp16_mod_on_cuda = fp16_mod_on_cpu.to(_DEVICE)
+    test_input_on_cuda = test_input_on_cpu.to(_DEVICE)
     output_on_cuda = fp16_mod_on_cuda(test_input_on_cuda)
     assert torch.allclose(output_on_cpu, output_on_cuda.cpu(), atol=1.0e-3), (
         "The output of the model on CPU and CUDA should be close"
@@ -74,7 +79,7 @@ def test_uintx_quant_on_cpu_then_move_to_cuda(dtype, group_size):
 @pytest.mark.parametrize("dtype", dtypes)
 @pytest.mark.parametrize("group_size", group_sizes)
 @pytest.mark.parametrize("device", devices)
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(not torch.accelerator.is_available(), reason="GPU not available")
 def test_uintx_weight_only_model_quant(dtype, group_size, device):
     scale = 512
     fp16 = Linear16(scale, device)
@@ -88,7 +93,7 @@ def test_uintx_weight_only_model_quant(dtype, group_size, device):
 @pytest.mark.parametrize("dtype", dtypes)
 @pytest.mark.parametrize("group_size", group_sizes)
 @pytest.mark.parametrize("device", devices)
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(not torch.accelerator.is_available(), reason="GPU not available")
 def test_uintx_weight_only_quant(dtype, group_size, device):
     input_float = torch.randn((1, 256), dtype=torch.float16, device=device)
     mapping_type = MappingType.SYMMETRIC
@@ -122,26 +127,26 @@ def test_uintx_weight_only_quant(dtype, group_size, device):
 
 
 @pytest.mark.parametrize("dtype", dtypes)
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA available")
+@pytest.mark.skipif(not torch.accelerator.is_available(), reason="Need GPU available")
 def test_uintx_target_dtype(dtype):
-    linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16, device="cuda")
+    linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16, device=_DEVICE)
     # make sure it runs
     quantize_(linear, UIntXWeightOnlyConfig(dtype))
-    linear(torch.randn(1, 128, dtype=torch.bfloat16, device="cuda"))
+    linear(torch.randn(1, 128, dtype=torch.bfloat16, device=_DEVICE))
 
 
 @pytest.mark.parametrize("dtype", dtypes)
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA available")
+@pytest.mark.skipif(not torch.accelerator.is_available(), reason="Need GPU available")
 def test_uintx_target_dtype_compile(dtype):
-    linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16, device="cuda")
+    linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16, device=_DEVICE)
     # make sure it runs
     quantize_(linear, UIntXWeightOnlyConfig(dtype))
     linear = torch.compile(linear)
-    linear(torch.randn(1, 128, dtype=torch.bfloat16, device="cuda"))
+    linear(torch.randn(1, 128, dtype=torch.bfloat16, device=_DEVICE))
 
 
 @pytest.mark.parametrize("dtype", dtypes)
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA available")
+@pytest.mark.skipif(not torch.accelerator.is_available(), reason="Need GPU available")
 def test_uintx_model_size(dtype):
     from torchao.utils import get_model_size_in_bytes
 
@@ -158,10 +163,48 @@ def test_uintx_model_size(dtype):
         torch.uint7: (7 / 8 + 1 / 16 + 1 / 32) / 2,
     }
     linear = torch.nn.Sequential(
-        torch.nn.Linear(128, 256, bias=False, dtype=torch.bfloat16, device="cuda")
+        torch.nn.Linear(128, 256, bias=False, dtype=torch.bfloat16, device=_DEVICE)
     )
     bf16_size = get_model_size_in_bytes(linear)
     # make sure it runs
     quantize_(linear[0], UIntXWeightOnlyConfig(dtype))
     quantized_size = get_model_size_in_bytes(linear)
     assert bf16_size * _dtype_to_ratio[dtype] == quantized_size
+
+
+def test_uintx_api_deprecation():
+    """
+    Test that deprecated uintx APIs trigger deprecation warnings on import.
+    TODO: Remove this test once the deprecated APIs have been removed.
+    """
+    deprecated_apis = [
+        (
+            "Int8DynamicActInt4WeightCPULayout",
+            "torchao.dtypes.uintx.dyn_int8_act_int4_wei_cpu_layout",
+        ),
+        ("CutlassInt4PackedLayout", "torchao.dtypes.uintx.cutlass_int4_packed_layout"),
+        ("BlockSparseLayout", "torchao.dtypes.uintx.block_sparse_layout"),
+        ("MarlinQQQLayout", "torchao.dtypes.uintx.marlin_qqq_tensor"),
+        ("UintxLayout", "torchao.dtypes.uintx.uintx_layout"),
+    ]
+
+    for api_name, module_path in deprecated_apis:
+        # Clear the cache to force re-importing and trigger the warning again
+        modules_to_clear = [module_path, "torchao.dtypes"]
+        for mod in modules_to_clear:
+            if mod in sys.modules:
+                del sys.modules[mod]
+
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")  # Ensure all warnings are captured
+
+            # Dynamically import the deprecated API
+            exec(f"from torchao.dtypes import {api_name}")
+
+            assert any(
+                issubclass(warning.category, DeprecationWarning)
+                and api_name in str(warning.message)
+                for warning in w
+            ), (
+                f"Expected deprecation warning for {api_name}, got: {[str(warning.message) for warning in w]}"
+            )

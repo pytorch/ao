@@ -1877,7 +1877,9 @@ class TestExport(unittest.TestCase):
         config = Float8DynamicActivationFloat8WeightConfig()
         quantize_(model, config)
 
-        ep = torch.export.export(model, (inp,))
+        # Need to export with strict=True
+        # https://github.com/pytorch/pytorch/issues/167007
+        ep = torch.export.export(model, (inp,), strict=True)
         print(ep)
         FileCheck().check_count(
             "torch.ops.torchao.choose_scale_float8.default", 1, exactly=True
