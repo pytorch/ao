@@ -1668,8 +1668,6 @@ class Int8StaticActivationInt8WeightConfig(AOBaseConfig):
         torch._C._log_api_usage_once(
             "torchao.quantization.Int8StaticActivationInt8WeightConfig"
         )
-        if isinstance(self.granularity, PerTensor):
-            assert self.scale.numel() == 1
 
 
 @register_quantize_module_handler(Int8StaticActivationInt8WeightConfig)
