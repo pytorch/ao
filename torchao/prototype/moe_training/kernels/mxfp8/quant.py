@@ -238,9 +238,9 @@ def triton_mx_block_rearrange_2d_M_groups(
         - Rearranged tensor in block-scaled swizzle format
     """
     assert scales_tensor.ndim == 2, "scales tensor must be 2d"
-    assert (
-        scales_tensor.element_size() == 1
-    ), "Expected element size to be 1 byte (8 bits)"
+    assert scales_tensor.element_size() == 1, (
+        "Expected element size to be 1 byte (8 bits)"
+    )
     rows, cols = scales_tensor.shape
     num_groups = input_group_end_offsets.shape[0]
 
@@ -380,9 +380,9 @@ def triton_mx_block_rearrange_per_group_3d(scale_tensor: torch.Tensor) -> torch.
         Rearranged tensor in block-scaled swizzle format
     """
     assert scale_tensor.ndim == 3, "scales tensor must be 3d"
-    assert (
-        scale_tensor.element_size() == 1
-    ), "Expected element size to be 1 byte (8 bits)"
+    assert scale_tensor.element_size() == 1, (
+        "Expected element size to be 1 byte (8 bits)"
+    )
 
     num_groups, rows, cols = scale_tensor.shape
     input_stride_dim0 = scale_tensor.stride(0)
@@ -503,9 +503,9 @@ def triton_mx_block_rearrange_2d_K_groups(
         - Rearranged tensor in block-scaled swizzle format
     """
     assert scales_tensor.ndim == 2, "scales tensor must be 2d"
-    assert (
-        scales_tensor.element_size() == 1
-    ), "Expected element size to be 1 byte (8 bits)"
+    assert scales_tensor.element_size() == 1, (
+        "Expected element size to be 1 byte (8 bits)"
+    )
     rows, cols = scales_tensor.shape
     # Calculate blocks needed
     num_groups = input_group_end_offsets.shape[0]

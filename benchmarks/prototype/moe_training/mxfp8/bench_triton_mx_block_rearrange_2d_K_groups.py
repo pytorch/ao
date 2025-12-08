@@ -98,7 +98,7 @@ def get_configs() -> List[ExperimentConfig]:
         (2048, 131072 // block_size),
     ]
     num_groups = [8]
-    versions = ["triton", "cuda_parallel"]
+    versions = ["triton", "cuda_rowmajor", "cuda_colmajor"]
 
     configs = []
     for shape, groups, version in itertools.product(
@@ -137,24 +137,36 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
     # Select which kernel to benchmark based on version
     if version == "triton":
         kernel_fn = triton_mx_block_rearrange_2d_K_groups
-    elif version == "cuda_parallel":
+        # Triton uses row-major input
+        kernel_input = input_tensor
+    elif version == "cuda_rowmajor":
         if mxfp8_cuda is None:
             raise RuntimeError("CUDA kernel not available")
-        kernel_fn = mxfp8_cuda.mx_block_rearrange_2d_K_groups
+        kernel_fn = mxfp8_cuda.mx_block_rearrange_2d_K_groups_rowmajor
+        # Row-major kernel expects contiguous row-major input
+        kernel_input = input_tensor.contiguous()
+    elif version == "cuda_colmajor":
+        if mxfp8_cuda is None:
+            raise RuntimeError("CUDA kernel not available")
+        kernel_fn = mxfp8_cuda.mx_block_rearrange_2d_K_groups_colmajor
+        # Column-major kernel expects column-major input
+        # Column-major: same shape (rows, cols) but stride(0)=1, stride(1)=rows
+        kernel_input = input_tensor.T.contiguous().T
     else:
         raise ValueError(f"Unknown version: {version}")
 
     # Run kernel to get output shape
     out_scales = kernel_fn(
-        input_tensor,
+        kernel_input,
         input_group_offsets,
     )
 
     # Benchmark the kernel
-    assert input_tensor.is_contiguous()
+    # Note: column-major tensors are not "contiguous" in PyTorch's row-major sense,
+    # but they are valid and have the expected strides for the CUDA kernel
     time_us = benchmark_cuda_function_in_microseconds(
         kernel_fn,
-        input_tensor,
+        kernel_input,
         input_group_offsets,
     )
 

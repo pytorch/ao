@@ -25,9 +25,21 @@ void mxfp8_quantize_3d_cuda(const torch::Tensor &input,
                              const std::string &fp8_format,
                              const std::string &scaling_mode);
 
-void launch_mx_block_rearrange_2d_K_groups(
+void launch_mx_block_rearrange_2d_K_groups_rowmajor(
     const uint8_t* scales_ptr,
     int scales_stride_dim0,
+    int scale_rows,
+    int scale_cols,
+    int padded_rows,
+    const int32_t* input_group_end_offsets,
+    uint8_t* output_scales_ptr,
+    int num_groups,
+    cudaStream_t stream);
+
+void launch_mx_block_rearrange_2d_K_groups_colmajor(
+    const uint8_t* scales_ptr,
+    int scales_stride_dim0,
+    int scales_stride_dim1,
     int scale_rows,
     int scale_cols,
     int padded_rows,
@@ -39,7 +51,6 @@ void launch_mx_block_rearrange_2d_K_groups(
 // Helper for tensor validation
 void check_cuda_tensor(const torch::Tensor &t, const char *name) {
   TORCH_CHECK(t.is_cuda(), name, " must be a CUDA tensor");
-  TORCH_CHECK(t.is_contiguous(), name, " must be contiguous");
 }
 
 // Helper to validate FP8 format
@@ -188,8 +199,69 @@ mxfp8_quantize_3d(torch::Tensor input, int64_t scale_dim_n,
   return std::make_tuple(output_colwise, scales_colwise);
 }
 
-// Python wrapper for mx_block_rearrange_2d_K_groups
-torch::Tensor mx_block_rearrange_2d_K_groups(
+// Python wrapper for mx_block_rearrange_2d_K_groups (row-major input)
+torch::Tensor mx_block_rearrange_2d_K_groups_rowmajor(
+    torch::Tensor scales_tensor,
+    torch::Tensor input_group_end_offsets) {
+
+  // Validate inputs
+  check_cuda_tensor(scales_tensor, "scales_tensor");
+  check_cuda_tensor(input_group_end_offsets, "input_group_end_offsets");
+  
+  TORCH_CHECK(scales_tensor.dim() == 2, "scales_tensor must be 2D");
+  TORCH_CHECK(scales_tensor.is_contiguous(), "scales_tensor must be contiguous (row-major)");
+  TORCH_CHECK(scales_tensor.scalar_type() == torch::kUInt8 || 
+              scales_tensor.scalar_type() == torch::kFloat8_e8m0fnu,
+              "scales_tensor must be uint8 or e8m0");
+  TORCH_CHECK(input_group_end_offsets.scalar_type() == torch::kInt32,
+              "input_group_end_offsets must be int32");
+  TORCH_CHECK(input_group_end_offsets.dim() == 1,
+              "input_group_end_offsets must be 1D");
+
+  c10::cuda::CUDAGuard device_guard(scales_tensor.device());
+
+  const int rows = scales_tensor.size(0);
+  const int cols = scales_tensor.size(1);
+  const int num_groups = input_group_end_offsets.size(0);
+  TORCH_CHECK(num_groups <= 32, "num_groups must be <= 32");
+  
+  // Calculate blocks needed
+  const int BLOCK_ROWS = 128;
+  const int BLOCK_COLS = 4;
+  const int num_row_blocks = (rows + BLOCK_ROWS - 1) / BLOCK_ROWS;
+  const int padded_rows = num_row_blocks * BLOCK_ROWS;
+  
+  // Padding per group is variable/data dependent, so pad each group by upper bound
+  const int padded_cols = cols + num_groups * BLOCK_COLS;
+  
+  // Create output tensor
+  auto output = torch::zeros({padded_rows, padded_cols},
+                            torch::TensorOptions()
+                                .dtype(scales_tensor.scalar_type())
+                                .device(scales_tensor.device()));
+  
+  // Get raw pointers
+  const uint8_t* scales_ptr = scales_tensor.data_ptr<uint8_t>();
+  const int32_t* offsets_ptr = input_group_end_offsets.data_ptr<int32_t>();
+  uint8_t* output_ptr = output.data_ptr<uint8_t>();
+  
+  // Launch row-major kernel
+  launch_mx_block_rearrange_2d_K_groups_rowmajor(
+      scales_ptr,
+      scales_tensor.stride(0),
+      rows,
+      cols,
+      padded_rows,
+      offsets_ptr,
+      output_ptr,
+      num_groups,
+      at::cuda::getCurrentCUDAStream());
+  
+  return output;
+}
+
+// Python wrapper for mx_block_rearrange_2d_K_groups (column-major input)
+torch::Tensor mx_block_rearrange_2d_K_groups_colmajor(
     torch::Tensor scales_tensor,
     torch::Tensor input_group_end_offsets) {
 
@@ -233,10 +305,11 @@ torch::Tensor mx_block_rearrange_2d_K_groups(
   const int32_t* offsets_ptr = input_group_end_offsets.data_ptr<int32_t>();
   uint8_t* output_ptr = output.data_ptr<uint8_t>();
   
-  // Launch parallel kernel (optimized)
-  launch_mx_block_rearrange_2d_K_groups(
+  // Launch column-major kernel
+  launch_mx_block_rearrange_2d_K_groups_colmajor(
       scales_ptr,
       scales_tensor.stride(0),
+      scales_tensor.stride(1),
       rows,
       cols,
       padded_rows,
@@ -264,9 +337,15 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
         py::arg("fp8_format") = "e4m3",
         py::arg("scaling_mode") = "floor");
 
-  m.def("mx_block_rearrange_2d_K_groups", 
-        &mxfp8::mx_block_rearrange_2d_K_groups,
-        "Rearrange E8M0 scales to block-scaled swizzle format (parallelized)",
+  m.def("mx_block_rearrange_2d_K_groups_rowmajor", 
+        &mxfp8::mx_block_rearrange_2d_K_groups_rowmajor,
+        "Rearrange E8M0 scales to block-scaled swizzle format (row-major input)",
+        py::arg("scales_tensor"),
+        py::arg("input_group_end_offsets"));
+
+  m.def("mx_block_rearrange_2d_K_groups_colmajor", 
+        &mxfp8::mx_block_rearrange_2d_K_groups_colmajor,
+        "Rearrange E8M0 scales to block-scaled swizzle format (column-major input)",
         py::arg("scales_tensor"),
         py::arg("input_group_end_offsets"));
 }
