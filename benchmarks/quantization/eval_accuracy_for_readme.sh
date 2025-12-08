@@ -21,9 +21,9 @@ time python -u benchmarks/quantization/eval_accuracy_for_readme.py $BASE_ARGS 2>
 
 # quantized recipes
 # note:
-# * `int4_weight_float8_rowwise_activation` doesn't work with dtype_map auto: https://gist.github.com/vkuzo/6b128681b628744d445c553cdeac8a85
-# * `int4_weight_only_hqq` only works on A100
-for quant_recipe in float8_rowwise int4_weight_float8_rowwise_activation int4_weight_only_hqq int8_weight_only int8; do
+# * `int4_groupwise_hqq_weight_float8_rowwise_activation` doesn't work with dtype_map auto: https://gist.github.com/vkuzo/6b128681b628744d445c553cdeac8a85
+# * `int4_groupwise_hqq_weight_only` only works on A100
+for quant_recipe in float8_rowwise int4_groupwise_weight_float8_rowwise_activation int4_groupwise_hqq_weight_only int8_rowwise_weight_only int8_rowwise; do
   time python -u benchmarks/quantization/eval_accuracy_for_readme.py $BASE_ARGS --quant_recipe_name $quant_recipe 2>&1 | tee -a "$LOG_FILE"
 done
 

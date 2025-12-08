@@ -25,17 +25,17 @@ def string_to_config(s):
         return None
     elif s == "float8_rowwise":
         return Float8DynamicActivationFloat8WeightConfig(granularity=PerRow())
-    elif s == "int4_weight_float8_rowwise_activation":
+    elif s == "int4_groupwise_weight_float8_rowwise_activation":
         return Float8DynamicActivationInt4WeightConfig()
-    elif s == "int4_weight_only_hqq":
+    elif s == "int4_groupwise_hqq_weight_only":
         return Int4WeightOnlyConfig(
             group_size=32,
             int4_packing_format="tile_packed_to_4d",
             int4_choose_qparams_algorithm="hqq",
         )
-    elif s == "int8_weight_only":
+    elif s == "int8_rowwise_weight_only":
         return Int8WeightOnlyConfig()
-    elif s == "int8":
+    elif s == "int8_rowwise":
         return Int8DynamicActivationInt8WeightConfig()
     else:
         raise AssertionError(f"unsupported {s}")
