@@ -69,7 +69,7 @@ def test_kernel():
         sys.path.insert(0, ao_root)
 
         from torchao.prototype.moe_training.kernels.mxfp8.quant import (
-            triton_mx_block_rearrange_2d_K_groups_naive,
+            triton_mx_block_rearrange_2d_K_groups,
         )
         from torchao.prototype.moe_training.utils import generate_jagged_offs
         from torchao.prototype.mx_formats.mx_tensor import to_mx
@@ -122,46 +122,26 @@ def test_kernel():
     )
     print("✓ CUDA parallel kernel completed successfully")
 
-    # Test CUDA naive kernel
-    print("\n" + "-" * 80)
-    print("Running CUDA naive kernel...")
-    cuda_naive_out_scales = mx_block_rearrange.mx_block_rearrange_2d_K_groups_naive(
-        e8m0_scales.view(torch.uint8),
-        scale_group_offsets,
-    )
-    print("✓ CUDA naive kernel completed successfully")
-
     output_bytes = cuda_parallel_out_scales.numel() * bytes_per_element
     total_bytes = input_bytes + output_bytes
 
-    # Compare with Triton naive reference
+    # Compare with Triton reference
     print("\n" + "-" * 80)
-    print("Running Triton naive reference kernel...")
-    triton_naive_out = triton_mx_block_rearrange_2d_K_groups_naive(
+    print("Running Triton reference kernel...")
+    triton_out = triton_mx_block_rearrange_2d_K_groups(
         e8m0_scales,
         scale_group_offsets,
     )
-    print("✓ Triton naive kernel completed successfully")
+    print("✓ Triton kernel completed successfully")
 
     # Verify correctness
     cuda_parallel_out_e8m0 = cuda_parallel_out_scales.view(torch.float8_e8m0fnu)
-    cuda_naive_out_e8m0 = cuda_naive_out_scales.view(torch.float8_e8m0fnu)
 
     print("\nVerifying correctness...")
-    if not torch.equal(triton_naive_out, cuda_naive_out_e8m0):
-        print("✗ CUDA naive and Triton naive outputs differ!")
+    if not torch.equal(triton_out, cuda_parallel_out_e8m0):
+        print("✗ CUDA parallel and Triton outputs differ!")
         return False
-    print("✓ CUDA naive matches Triton naive")
-
-    if not torch.equal(triton_naive_out, cuda_parallel_out_e8m0):
-        print("✗ CUDA parallel and Triton naive outputs differ!")
-        return False
-    print("✓ CUDA parallel matches Triton naive")
-
-    if not torch.equal(cuda_naive_out_e8m0, cuda_parallel_out_e8m0):
-        print("✗ CUDA naive and CUDA parallel outputs differ!")
-        return False
-    print("✓ CUDA naive and CUDA parallel match each other")
+    print("✓ CUDA parallel matches Triton")
 
     print("\n✓ All outputs are IDENTICAL!")
 
@@ -172,13 +152,13 @@ def test_kernel():
 
     print("\nBenchmarking kernels (100 iterations each)...")
 
-    # Benchmark Triton naive
-    triton_naive_time_us = benchmark_kernel(
-        triton_mx_block_rearrange_2d_K_groups_naive,
+    # Benchmark Triton
+    triton_time_us = benchmark_kernel(
+        triton_mx_block_rearrange_2d_K_groups,
         e8m0_scales,
         scale_group_offsets,
     )
-    triton_naive_bw_gbps = (total_bytes / 1e9) / (triton_naive_time_us / 1e6)
+    triton_bw_gbps = (total_bytes / 1e9) / (triton_time_us / 1e6)
 
     # Benchmark CUDA parallel (optimized)
     cuda_parallel_time_us = benchmark_kernel(
@@ -188,14 +168,6 @@ def test_kernel():
     )
     cuda_parallel_bw_gbps = (total_bytes / 1e9) / (cuda_parallel_time_us / 1e6)
 
-    # Benchmark CUDA naive
-    cuda_naive_time_us = benchmark_kernel(
-        mx_block_rearrange.mx_block_rearrange_2d_K_groups_naive,
-        e8m0_scales.view(torch.uint8),
-        scale_group_offsets,
-    )
-    cuda_naive_bw_gbps = (total_bytes / 1e9) / (cuda_naive_time_us / 1e6)
-
     # Print results
     print("\nResults:")
     print(f"  Input size:  {input_bytes / 1e6:.2f} MB")
@@ -204,24 +176,19 @@ def test_kernel():
     print(f"{'Kernel':<25} {'Time (μs)':<15} {'Bandwidth (GB/s)':<20} {'Speedup':<10}")
     print("-" * 70)
     print(
-        f"{'Triton Naive':<25} {triton_naive_time_us:<15.2f} {triton_naive_bw_gbps:<20.2f} {'1.00x':<10}"
+        f"{'Triton':<25} {triton_time_us:<15.2f} {triton_bw_gbps:<20.2f} {'1.00x':<10}"
     )
     print(
-        f"{'CUDA Naive':<25} {cuda_naive_time_us:<15.2f} {cuda_naive_bw_gbps:<20.2f} {triton_naive_time_us / cuda_naive_time_us:<10.2f}x"
-    )
-    print(
-        f"{'CUDA Parallel':<25} {cuda_parallel_time_us:<15.2f} {cuda_parallel_bw_gbps:<20.2f} {triton_naive_time_us / cuda_parallel_time_us:<10.2f}x"
+        f"{'CUDA Parallel':<25} {cuda_parallel_time_us:<15.2f} {cuda_parallel_bw_gbps:<20.2f} {triton_time_us / cuda_parallel_time_us:<10.2f}x"
     )
     print()
 
     # Highlight best performer
-    best_bw = max(triton_naive_bw_gbps, cuda_naive_bw_gbps, cuda_parallel_bw_gbps)
+    best_bw = max(triton_bw_gbps, cuda_parallel_bw_gbps)
     if cuda_parallel_bw_gbps == best_bw:
         print("🏆 CUDA parallel kernel achieves highest memory bandwidth!")
-    elif cuda_naive_bw_gbps == best_bw:
-        print("🏆 CUDA naive kernel achieves highest memory bandwidth!")
     else:
-        print("🏆 Triton naive kernel achieves highest memory bandwidth!")
+        print("🏆 Triton kernel achieves highest memory bandwidth!")
 
     return True
 

@@ -15,11 +15,8 @@ from torch.utils.cpp_extension import load
 from tqdm import tqdm
 
 from benchmarks.utils import benchmark_cuda_function_in_microseconds
-from torchao.prototype.moe_training.kernels.mxfp8 import (
-    triton_mx_block_rearrange_2d_K_groups,
-)
 from torchao.prototype.moe_training.kernels.mxfp8.quant import (
-    triton_mx_block_rearrange_2d_K_groups_naive,
+    triton_mx_block_rearrange_2d_K_groups,
 )
 from torchao.prototype.moe_training.utils import generate_jagged_offs
 
@@ -101,7 +98,7 @@ def get_configs() -> List[ExperimentConfig]:
         (2048, 131072 // block_size),
     ]
     num_groups = [8]
-    versions = ["triton_naive", "triton_parallel", "cuda_parallel", "cuda_naive"]
+    versions = ["triton", "cuda_parallel"]
 
     configs = []
     for shape, groups, version in itertools.product(
@@ -138,18 +135,12 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
     input_group_offsets = generate_jagged_offs(num_groups, Kg, multiple_of=block_size)
 
     # Select which kernel to benchmark based on version
-    if version == "triton_naive":
-        kernel_fn = triton_mx_block_rearrange_2d_K_groups_naive
-    elif version == "triton_parallel":
+    if version == "triton":
         kernel_fn = triton_mx_block_rearrange_2d_K_groups
     elif version == "cuda_parallel":
         if mxfp8_cuda is None:
             raise RuntimeError("CUDA kernel not available")
         kernel_fn = mxfp8_cuda.mx_block_rearrange_2d_K_groups
-    elif version == "cuda_naive":
-        if mxfp8_cuda is None:
-            raise RuntimeError("CUDA kernel not available")
-        kernel_fn = mxfp8_cuda.mx_block_rearrange_2d_K_groups_naive
     else:
         raise ValueError(f"Unknown version: {version}")
 
@@ -197,7 +188,7 @@ def print_results(experiments: List[Experiment]):
         "time_us",
         "mem_bw_gbps",
         "fastest_version",
-        "speedup_vs_triton_naive",
+        "speedup_vs_triton",
     ]
 
     rows = []
@@ -205,17 +196,17 @@ def print_results(experiments: List[Experiment]):
         # Find fastest version for this shape
         fastest_version = min(versions.items(), key=lambda x: x[1].time_us)[0]
 
-        # Get naive baseline time for speedup calculation
-        naive_time_us = (
-            versions.get("triton_naive").time_us if "triton_naive" in versions else None
+        # Get triton baseline time for speedup calculation
+        triton_time_us = (
+            versions.get("triton").time_us if "triton" in versions else None
         )
 
         # Add rows for each version
         for version, result in versions.items():
-            # Calculate speedup vs naive
+            # Calculate speedup vs triton
             speedup_str = ""
-            if naive_time_us and naive_time_us > 0:
-                speedup = naive_time_us / result.time_us
+            if version != "triton" and triton_time_us > 0:
+                speedup = triton_time_us / result.time_us
                 speedup_str = f"{speedup:.2f}x"
 
             rows.append(

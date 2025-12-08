@@ -66,95 +66,7 @@ __device__ __forceinline__ int compute_swizzled_index(int row, int col) {
     int r_mod_32 = row % 32;
     return r_mod_32 * 16 + r_div_32 * 4 + col;
 }
-__global__ void mx_block_rearrange_2d_K_groups_naive_kernel(
-    const uint8_t* __restrict__ scales_ptr,
-    int scales_stride_dim0,
-    int scale_rows,
-    int scale_cols,
-    int padded_rows,
-    const int32_t* __restrict__ input_group_end_offsets,
-    uint8_t* __restrict__ output_scales_ptr,
-    int output_stride_per_block,
-    int num_groups
-) {
-    const int group_id = blockIdx.x;
-    const int block_row_id = blockIdx.y;
-    const int tid = threadIdx.x;
 
-    __shared__ __align__(16) uint8_t smem_block[BLOCK_ROWS * BLOCK_COLS];
-
-    int input_group_start_col = (group_id > 0) ? input_group_end_offsets[group_id - 1] : 0;
-    int input_group_end_col = input_group_end_offsets[group_id];
-    int num_cols_in_group = input_group_end_col - input_group_start_col;
-
-    int output_group_start_col = compute_output_group_start_col(
-        group_id, input_group_end_offsets, num_groups, 4);
-
-    int out_group_base_offset = output_group_start_col * padded_rows;
-
-    int num_col_blocks_in_group = ceil_div(num_cols_in_group, BLOCK_COLS);
-    int stride_per_row_of_blocks_in_group = num_col_blocks_in_group * output_stride_per_block;
-
-    int input_row = block_row_id * BLOCK_ROWS + tid;
-
-    int curr_input_start_col = input_group_start_col;
-    int curr_out_col_block = 0;
-
-    while (curr_input_start_col < input_group_end_col) {
-        int cols_remaining = input_group_end_col - curr_input_start_col;
-        int cols_to_load = min(BLOCK_COLS, cols_remaining);
-
-        uint32_t row_data = 0;
-        if (input_row < scale_rows && curr_input_start_col < input_group_end_col) {
-            int input_offset = input_row * scales_stride_dim0 + curr_input_start_col;
-            const uint8_t* input_ptr = scales_ptr + input_offset;
-
-            uintptr_t ptr_addr = reinterpret_cast<uintptr_t>(input_ptr);
-            if (cols_to_load >= 4 && ptr_addr % 4 == 0 && curr_input_start_col + 4 <= input_group_end_col) {
-                row_data = __ldg(reinterpret_cast<const uint32_t*>(input_ptr));
-            } else {
-                uint8_t* row_bytes = reinterpret_cast<uint8_t*>(&row_data);
-                for (int i = 0; i < cols_to_load && (curr_input_start_col + i) < input_group_end_col; i++) {
-                    row_bytes[i] = __ldg(input_ptr + i);
-                }
-            }
-        }
-
-        uint8_t* row_bytes = reinterpret_cast<uint8_t*>(&row_data);
-        #pragma unroll
-        for (int col = 0; col < BLOCK_COLS; col++) {
-            int swizzled_idx = compute_swizzled_index(tid, col);
-            smem_block[swizzled_idx] = row_bytes[col];
-        }
-
-        __syncthreads();
-
-        int offset_in_group = block_row_id * stride_per_row_of_blocks_in_group +
-                              curr_out_col_block * output_stride_per_block;
-        int final_offset = out_group_base_offset + offset_in_group;
-
-        uint8_t* output_ptr = output_scales_ptr + final_offset + tid * BLOCK_COLS;
-        uintptr_t out_ptr_addr = reinterpret_cast<uintptr_t>(output_ptr);
-
-        if (out_ptr_addr % 4 == 0 && cols_to_load >= 4) {
-            *reinterpret_cast<uint32_t*>(output_ptr) =
-                *reinterpret_cast<const uint32_t*>(&smem_block[tid * BLOCK_COLS]);
-        } else {
-            const uint8_t* smem_ptr = &smem_block[tid * BLOCK_COLS];
-            #pragma unroll
-            for (int i = 0; i < cols_to_load; i++) {
-                output_ptr[i] = smem_ptr[i];
-            }
-        }
-
-        curr_input_start_col += BLOCK_COLS;
-        curr_out_col_block += 1;
-
-        if (curr_input_start_col < input_group_end_col) {
-            __syncthreads();
-        }
-    }
-}
 __global__ void mx_block_rearrange_2d_K_groups_parallel_kernel(
     const uint8_t* __restrict__ scales_ptr,
     int scales_stride_dim0,
@@ -172,6 +84,7 @@ __global__ void mx_block_rearrange_2d_K_groups_parallel_kernel(
 
     __shared__ __align__(16) uint8_t smem_block[BLOCK_ROWS * BLOCK_COLS];
     __shared__ int smem_cumsum[32];
+    __shared__ int output_group_start_col;
 
     int group_id, local_col_block;
     find_group_and_local_offset(
@@ -189,6 +102,12 @@ __global__ void mx_block_rearrange_2d_K_groups_parallel_kernel(
 
     if (curr_input_start_col >= input_group_end_col) {
         return;
+    }
+
+    if (tid == 0) {
+        output_group_start_col = compute_output_group_start_col(
+            group_id, input_group_end_offsets, num_groups, 4
+        );
     }
 
     int input_row = row_block_pid * BLOCK_ROWS + tid;
@@ -220,9 +139,6 @@ __global__ void mx_block_rearrange_2d_K_groups_parallel_kernel(
 
     __syncthreads();
 
-    int output_group_start_col = compute_output_group_start_col(
-        group_id, input_group_end_offsets, num_groups, 4
-    );
     int out_group_base_offset = output_group_start_col * padded_rows;
 
     int num_cols_in_group = input_group_end_col - input_group_start_col;
@@ -247,42 +163,8 @@ __global__ void mx_block_rearrange_2d_K_groups_parallel_kernel(
         }
     }
 }
+
 namespace mxfp8 {
-void launch_mx_block_rearrange_2d_K_groups_naive(
-    const uint8_t* scales_ptr,
-    int scales_stride_dim0,
-    int scale_rows,
-    int scale_cols,
-    int padded_rows,
-    const int32_t* input_group_end_offsets,
-    uint8_t* output_scales_ptr,
-    int num_groups,
-    cudaStream_t stream
-) {
-    int num_row_blocks = (scale_rows + BLOCK_ROWS - 1) / BLOCK_ROWS;
-    int output_stride_per_block = BLOCK_ROWS * BLOCK_COLS;
-
-    dim3 grid(num_groups, num_row_blocks);
-    dim3 block(128);
-
-    mx_block_rearrange_2d_K_groups_naive_kernel<<<grid, block, 0, stream>>>(
-        scales_ptr,
-        scales_stride_dim0,
-        scale_rows,
-        scale_cols,
-        padded_rows,
-        input_group_end_offsets,
-        output_scales_ptr,
-        output_stride_per_block,
-        num_groups
-    );
-
-    cudaError_t err = cudaGetLastError();
-    if (err != cudaSuccess) {
-        printf("CUDA Error (naive): %s\n", cudaGetErrorString(err));
-    }
-}
-
 void launch_mx_block_rearrange_2d_K_groups(
     const uint8_t* scales_ptr,
     int scales_stride_dim0,
