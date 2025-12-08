@@ -6,7 +6,7 @@ Typically quantization algorithms will have different schemes for how the activa
 All the following benchmarks are for `meta-llama/Llama-3-8.1B` using `lm-eval` measured on an H100 GPU.
 
 | weight | activation | wikitext-perplexity | winogrande | checkpoint size (GB) |
-| --------- | ------------------- | ---------- | -------------------- |
+| --------- | ------------------- | ---------- | -------------------- | -------- |
 | bfloat16 | bfloat16 | 7.3315 | 0.7380 | 16.1 |
 | float8_rowwise | float8_rowwise | 7.4197 | 0.7388 | 9.1 |
 | int8_rowwise | bfloat16 | 7.3451 | 0.7340 | 9.1 |
