@@ -1,5 +1,8 @@
 # Llama Benchmarks
 
+> [! WARNING]
+> These benchmarks are deprecated.
+
 The llama folder contains code/scripts for stable benchmarking llama models.
 
 To get model weights, go to https://huggingface.co/meta-llama/Llama-2-7b, https://huggingface.co/meta-llama/Meta-Llama-3-8B, https://huggingface.co/meta-llama/Meta-Llama-3.1-8B
@@ -8,8 +11,8 @@ and follow the steps to gain access.
 Then from the torchao root directory use `huggingface-cli login` and follow the steps to login, then `sh ./scripts/prepare.sh` to
 download and convert the model weights
 
-once done you can execute benchmarks from the torchao/_models/llama dir with `sh benchmarks.sh`. You can perform and benchmarking or evaluation
-directly using `generate.py` or `eval.py`.
+once done you can execute benchmarks from the torchao/_models/llama dir with `sh benchmarks.sh`. You can perform and benchmarking
+directly using `generate.py`.
 
 ## KV Cache Quantization - Memory Efficient Inference
 We've added some features to `model.py` compared to the original gpt-fast implementation in order to enable long context length (and necessarily memory efficient) inference. Specifically we've added kv_cache quantization and a linear_causal_mask implementation which are **able to reduce memory usage by 50-60%** at long context lengths.
