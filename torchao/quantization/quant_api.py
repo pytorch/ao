@@ -1648,14 +1648,14 @@ def _int8_dynamic_activation_int8_weight_transform(
 @dataclass
 class Int8StaticActivationInt8WeightConfig(AOBaseConfig):
     """
-    Configuration for applying float8 static symmetric quantization to
+    Configuration for applying int8 static symmetric quantization to both activation and weight
 
     Args:
         scale (torch.Tensor): The scale tensor for activation quantization.
-        activation_dtype (torch.dtype): The target data type for activation quantization. Default is torch.float8_e4m
-        weight_dtype (torch.dtype): The target data type for weight quantization. Default is torch.float8_e4m
-        mm_config (Float8MMConfig): Configuration for the matrix multiplication. Default uses fast accumulation.
+        granularity (Granularity): The granularity of quantization. PerRow() and PerTensor() are supported currently
+        act_mapping_type (MappingType): The mapping type for activation quantization. only SYMMETRIC is supported currently
         set_inductor_config (bool): if True, adjusts `torchinductor` settings to recommended values.
+        version (int): the version of the config
     """
 
     scale: torch.Tensor
@@ -1668,8 +1668,6 @@ class Int8StaticActivationInt8WeightConfig(AOBaseConfig):
         torch._C._log_api_usage_once(
             "torchao.quantization.Int8StaticActivationInt8WeightConfig"
         )
-        if isinstance(self.granularity, PerTensor):
-            assert self.scale.numel() == 1
 
 
 @register_quantize_module_handler(Int8StaticActivationInt8WeightConfig)
@@ -1702,7 +1700,7 @@ def _int8_static_activation_int8_weight_transform(
             granularity=activation_granularity,
             mapping_type=config.act_mapping_type,
         ),
-        activation_scale=config.scale.detach(),
+        act_scale=config.scale.detach(),
     )
 
     setattr(
