@@ -15,6 +15,13 @@ model_params:
       - name: "deepseek_v3_671b"
       - name: "qwen3_32b"
       - name: "gemma3_27b"
+      - name: "custom"
+        shapes: [
+          [1920, 3072, 3072],
+          [1920, 3072, 9216],
+          [1920, 3072, 14336],
+          [1920, 14336, 3072]
+        ] 
     high_precision_dtype: "torch.bfloat16"
     torch_compile_mode: "max-autotune"
     device: "cuda"
