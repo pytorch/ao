@@ -60,7 +60,7 @@ class Int8Tensor(TorchAOBaseTensor):
     """
 
     tensor_data_names = ["qdata", "scale"]
-    optional_tensor_data_names = ["activation_scale"]
+    optional_tensor_data_names = ["act_scale"]
     tensor_attribute_names = ["block_size", "dtype"]
     optional_tensor_attribute_names = [
         "act_quant_kwargs",
@@ -72,8 +72,8 @@ class Int8Tensor(TorchAOBaseTensor):
         scale: torch.Tensor,
         block_size: List[int],
         dtype: torch.dtype,
+        act_scale=None,
         act_quant_kwargs: Optional[QuantizeTensorToInt8Kwargs] = None,
-        activation_scale=None,
     ):
         kwargs = {
             "device": qdata.device,
@@ -88,8 +88,8 @@ class Int8Tensor(TorchAOBaseTensor):
         scale: torch.Tensor,
         block_size: List[int],
         dtype: torch.dtype,
+        act_scale=None,
         act_quant_kwargs: Optional[QuantizeTensorToInt8Kwargs] = None,
-        activation_scale=None,
     ):
         super().__init__()
         self.qdata = qdata
@@ -97,7 +97,7 @@ class Int8Tensor(TorchAOBaseTensor):
         self.block_size = block_size
         # don't set dtype because this gets done in __new__
         self.act_quant_kwargs = act_quant_kwargs
-        self.activation_scale = activation_scale
+        self.act_scale = act_scale
 
     def __repr__(self):
         return (
@@ -105,6 +105,7 @@ class Int8Tensor(TorchAOBaseTensor):
             f"act_quant_kwargs={self.act_quant_kwargs}, "
             f"qdata={self.qdata}, "
             f"scale={self.scale}, "
+            f"act_scale={self.act_scale}, "
             f"block_size={self.block_size}, "
             f"shape={self.shape}, "
             f"device={self.device}, "
@@ -116,10 +117,10 @@ class Int8Tensor(TorchAOBaseTensor):
         cls,
         hp_tensor: torch.Tensor,
         granularity: Granularity,
-        act_quant_kwargs: Optional[QuantizeTensorToInt8Kwargs] = None,
         mapping_type=MappingType.SYMMETRIC,
         scale: Optional[torch.Tensor] = None,
-        activation_scale: Optional[torch.Tensor] = None,
+        act_quant_kwargs: Optional[QuantizeTensorToInt8Kwargs] = None,
+        act_scale: Optional[torch.Tensor] = None,
     ):
         """Create Int8Tensor from high-precision tensor"""
         block_size = get_block_size(hp_tensor.shape, granularity)
@@ -140,10 +141,10 @@ class Int8Tensor(TorchAOBaseTensor):
         else:
             # Scale can be provided in the case of static quant
             assert scale.ndim == hp_tensor.ndim
-            num_expected_values = math.prod(
-                [num_dim // bs for (bs, num_dim) in zip(block_size, hp_tensor.shape)]
+            assert all(
+                (hp_tensor.shape[i] // block_size[i]) == scale.shape[i]
+                for i in range(hp_tensor.ndim)
             )
-            assert scale.numel() == num_expected_values
             zero_point = torch.zeros_like(scale, dtype=torch.int8)
 
         int_data = quantize_affine(
@@ -159,8 +160,8 @@ class Int8Tensor(TorchAOBaseTensor):
             scale,
             block_size,
             hp_tensor.dtype,
+            act_scale=act_scale,
             act_quant_kwargs=act_quant_kwargs,
-            activation_scale=activation_scale,
         )
 
     def dequantize(self, output_dtype: Optional[torch.dtype] = None) -> torch.Tensor:
@@ -203,7 +204,7 @@ def _(func, types, args, kwargs):
         activation_tensor = _choose_quant_func_and_quantize_tensor(
             activation_tensor,
             weight_tensor.act_quant_kwargs,
-            scale=weight_tensor.activation_scale,
+            scale=weight_tensor.act_scale,
         )
 
         # 1. do the matrix form of dot(X_i, W_j)

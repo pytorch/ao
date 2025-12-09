@@ -230,38 +230,7 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
 class TestInt8StaticQuant(TorchAOIntegrationTestCase):
     @common_utils.parametrize("granularity", [PerRow(), PerTensor()])
     @common_utils.parametrize("dtype", [torch.bfloat16])
-    def test_static_activation_per_row_int8_weight_earger(self, granularity, dtype):
-        M, N, K = 32, 32, 32
-        input_tensor = torch.randn(M, K, dtype=dtype, device="cuda")
-
-        model_static_quant = (
-            torch.nn.Linear(K, N, bias=False).eval().to(device="cuda", dtype=dtype)
-        )
-        model_dynamic_quant = copy.deepcopy(model_static_quant)
-
-        dynamic_config = Int8DynamicActivationInt8WeightConfig(
-            version=2, granularity=granularity
-        )
-        quantize_(model_dynamic_quant, dynamic_config)
-
-        dynamic_quantize_out = model_dynamic_quant(input_tensor)
-
-        int8_input = _choose_quant_func_and_quantize_tensor(
-            input_tensor, model_dynamic_quant.weight.act_quant_kwargs
-        )
-
-        static_config = Int8StaticActivationInt8WeightConfig(
-            scale=int8_input.scale.detach().clone(), granularity=granularity
-        )
-        quantize_(model_static_quant, static_config)
-
-        static_quantize_out = model_static_quant(input_tensor)
-        torch.testing.assert_close(dynamic_quantize_out, static_quantize_out)
-
-    @common_utils.parametrize("granularity", [PerRow(), PerTensor()])
-    @common_utils.parametrize("dtype", [torch.bfloat16])
-    def test_static_activation_per_row_int8_weight_compile(self, granularity, dtype):
-        # for compile, we can't compare dynamic vs static because we may get slightly different qparams
+    def test_static_activation_per_row_int8_weight(self, granularity, dtype):
         torch.compiler.reset()
 
         M, N, K = 32, 32, 32
@@ -310,7 +279,11 @@ class TestInt8StaticQuant(TorchAOIntegrationTestCase):
             == sqnr_static_eager
             == sqnr_dynamic_compile
             == sqnr_dynamic_eager
-        )
+        ), "SQNR should be the same for all quantization methods and eager/compile"
+
+        # eager numerics should match exactly
+        # for compile, we can't compare dynamic vs static because we may get slightly different qparams when fused
+        torch.testing.assert_close(dynamic_out_eager, static_out_eager)
 
 
 if __name__ == "__main__":
