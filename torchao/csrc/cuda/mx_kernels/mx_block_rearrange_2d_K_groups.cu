@@ -5,6 +5,9 @@
 
 #define BLOCK_ROWS 128
 #define BLOCK_COLS 4
+#define BLOCK_ROWS_LARGE 512
+#define BYTES_PER_THREAD 16
+#define SCALE_FACTOR_ROWS 128
 
 __device__ __forceinline__ int ceil_div(int a, int b) {
     return (a + b - 1) / b;
@@ -67,9 +70,7 @@ __device__ __forceinline__ int compute_swizzled_index(int row, int col) {
     return r_mod_32 * 16 + r_div_32 * 4 + col;
 }
 
-// =============================================================================
-// ROW-MAJOR KERNEL: Input tensor is in row-major layout (cols contiguous)
-// =============================================================================
+// Row-major kernel: Input tensor has cols contiguous
 __global__ void mx_block_rearrange_2d_K_groups_rowmajor_kernel(
     const uint8_t* __restrict__ scales_ptr,
     int scales_stride_dim0,
@@ -166,9 +167,7 @@ __global__ void mx_block_rearrange_2d_K_groups_rowmajor_kernel(
     }
 }
 
-// =============================================================================
-// COLUMN-MAJOR KERNEL: Input tensor is in column-major layout (rows contiguous)
-// =============================================================================
+// Column-major kernel: Input tensor has rows contiguous
 __global__ void mx_block_rearrange_2d_K_groups_colmajor_kernel(
     const uint8_t* __restrict__ scales_ptr,
     int scales_stride_dim0,
@@ -254,13 +253,10 @@ __global__ void mx_block_rearrange_2d_K_groups_colmajor_kernel(
         *reinterpret_cast<const uint32_t*>(&smem_swizzled[tid * BLOCK_COLS]);
 }
 
-// =============================================================================
-// OPTIMIZED COLUMN-MAJOR KERNEL: 4 warps, each processing one column with
-// vectorized uint32_t loads (4 bytes per thread = 128 bytes per warp)
-// =============================================================================
+// Column-major vectorized kernel: 4 warps, each processing one column with uint32_t loads
 __global__ void mx_block_rearrange_2d_K_groups_colmajor_vectorized_kernel(
     const uint8_t* __restrict__ scales_ptr,
-    int scales_stride_dim1,  // stride between columns (= num_rows for col-major)
+    int scales_stride_dim1,
     int scale_rows,
     int scale_cols,
     int padded_rows,
@@ -272,10 +268,8 @@ __global__ void mx_block_rearrange_2d_K_groups_colmajor_vectorized_kernel(
     const int col_block_pid = blockIdx.x;
     const int row_block_pid = blockIdx.y;
     const int tid = threadIdx.x;
-
-    // Warp and lane decomposition: 128 threads = 4 warps × 32 lanes
-    const int warp_id = tid >> 5;      // tid / 32
-    const int lane_id = tid & 31;      // tid % 32
+    const int warp_id = tid >> 5;
+    const int lane_id = tid & 31;
 
     __shared__ __align__(16) uint8_t smem_block[BLOCK_ROWS * BLOCK_COLS];
     __shared__ int smem_cumsum[32];
@@ -308,34 +302,19 @@ __global__ void mx_block_rearrange_2d_K_groups_colmajor_vectorized_kernel(
     int cols_remaining = input_group_end_col - curr_input_start_col;
     int global_row_base = row_block_pid * BLOCK_ROWS;
 
-    // =========================================================================
-    // VECTORIZED LOAD PHASE
-    // Each warp (32 threads) handles one column
-    // Each lane loads 4 consecutive rows using a uint32_t vectorized load
-    // Total per warp: 32 lanes × 4 bytes = 128 bytes (one coalesced transaction)
-    // Total per block: 4 warps × 128 bytes = 512 bytes
-    // =========================================================================
-
     uint32_t loaded_data = 0;
-
-    // Each warp processes one column (warp 0 -> col 0, warp 1 -> col 1, etc.)
-    int col_idx = warp_id;  // Which column this warp handles (0-3)
+    int col_idx = warp_id;
 
     if (col_idx < cols_remaining) {
         int global_col = curr_input_start_col + col_idx;
-
-        // Each lane loads 4 consecutive rows: rows [lane_id*4, lane_id*4+3]
         int row_start = global_row_base + lane_id * 4;
 
-        // Pointer to start of this column
         const uint8_t* col_ptr = scales_ptr +
             static_cast<size_t>(global_col) * scales_stride_dim1;
 
         if (row_start + 3 < scale_rows) {
-            // Fast path: vectorized 4-byte load (LDG.32)
             loaded_data = __ldg(reinterpret_cast<const uint32_t*>(col_ptr + row_start));
         } else if (row_start < scale_rows) {
-            // Boundary handling: load available bytes
             uint8_t* bytes = reinterpret_cast<uint8_t*>(&loaded_data);
             #pragma unroll
             for (int i = 0; i < 4; i++) {
@@ -346,32 +325,18 @@ __global__ void mx_block_rearrange_2d_K_groups_colmajor_vectorized_kernel(
         }
     }
 
-    // =========================================================================
-    // STORE TO SHARED MEMORY WITH SWIZZLE PATTERN
-    // Each lane writes 4 bytes to 4 swizzled locations
-    // =========================================================================
-
     uint8_t* bytes = reinterpret_cast<uint8_t*>(&loaded_data);
 
     #pragma unroll
     for (int i = 0; i < 4; i++) {
-        // Row index within the block for this byte
         int row_in_block = lane_id * 4 + i;
-
-        // Apply swizzle: output layout is [r_mod_32 * 16 + r_div_32 * 4 + col]
         int r_div_32 = row_in_block >> 5;
         int r_mod_32 = row_in_block & 31;
         int swizzle_idx = (r_mod_32 << 4) + (r_div_32 << 2) + col_idx;
-
         smem_block[swizzle_idx] = bytes[i];
     }
 
     __syncthreads();
-
-    // =========================================================================
-    // OUTPUT WRITE PHASE (same as original)
-    // Each thread writes 4 bytes (its row's data across all 4 columns)
-    // =========================================================================
 
     int out_group_base_offset = output_group_start_col * padded_rows;
     int num_cols_in_group = input_group_end_col - input_group_start_col;
@@ -388,18 +353,10 @@ __global__ void mx_block_rearrange_2d_K_groups_colmajor_vectorized_kernel(
         *reinterpret_cast<const uint32_t*>(&smem_block[tid * BLOCK_COLS]);
 }
 
-// =============================================================================
-// HIGH-BANDWIDTH COLUMN-MAJOR KERNEL: 4 warps, each processing one column with
-// 16-byte (uint4) vectorized loads. Each thread loads 16 consecutive rows.
-// Block size: 512 rows × 4 cols = 2048 elements per block (4× more work)
-// =============================================================================
-#define BLOCK_ROWS_LARGE 512
-#define BYTES_PER_THREAD 16
-#define SCALE_FACTOR_ROWS 128
-
+// Column-major 16B vectorized kernel: 512-row blocks, uint4 loads (16 bytes per thread)
 __global__ void mx_block_rearrange_2d_K_groups_colmajor_vectorized_16B_kernel(
     const uint8_t* __restrict__ scales_ptr,
-    int scales_stride_dim1,  // stride between columns (= num_rows for col-major)
+    int scales_stride_dim1,
     int scale_rows,
     int scale_cols,
     int padded_rows,
@@ -411,12 +368,9 @@ __global__ void mx_block_rearrange_2d_K_groups_colmajor_vectorized_16B_kernel(
     const int col_block_pid = blockIdx.x;
     const int row_block_pid = blockIdx.y;
     const int tid = threadIdx.x;
+    const int warp_id = tid >> 5;
+    const int lane_id = tid & 31;
 
-    // Warp and lane decomposition: 128 threads = 4 warps × 32 lanes
-    const int warp_id = tid >> 5;      // tid / 32
-    const int lane_id = tid & 31;      // tid % 32
-
-    // Shared memory for 512 rows × 4 cols = 2048 bytes
     __shared__ __align__(16) uint8_t smem_block[BLOCK_ROWS_LARGE * BLOCK_COLS];
     __shared__ int smem_cumsum[32];
     __shared__ int output_group_start_col;
@@ -450,34 +404,19 @@ __global__ void mx_block_rearrange_2d_K_groups_colmajor_vectorized_16B_kernel(
     int cols_remaining = input_group_end_col - curr_input_start_col;
     int global_row_base = row_block_pid * BLOCK_ROWS_LARGE;
 
-    // =========================================================================
-    // VECTORIZED LOAD PHASE - 16 bytes per thread
-    // Each warp (32 threads) handles one column
-    // Each lane loads 16 consecutive rows using a uint4 (128-bit) vectorized load
-    // Total per warp: 32 lanes × 16 bytes = 512 bytes (one coalesced transaction)
-    // Total per block: 4 warps × 512 bytes = 2048 bytes
-    // =========================================================================
-
     uint4 loaded_data = make_uint4(0, 0, 0, 0);
-
-    // Each warp processes one column (warp 0 -> col 0, warp 1 -> col 1, etc.)
-    int col_idx = warp_id;  // Which column this warp handles (0-3)
+    int col_idx = warp_id;
 
     if (col_idx < cols_remaining) {
         int global_col = curr_input_start_col + col_idx;
-
-        // Each lane loads 16 consecutive rows: rows [lane_id*16, lane_id*16+15]
         int row_start = global_row_base + lane_id * BYTES_PER_THREAD;
 
-        // Pointer to start of this column
         const uint8_t* col_ptr = scales_ptr +
             static_cast<size_t>(global_col) * scales_stride_dim1;
 
         if (row_start + BYTES_PER_THREAD - 1 < scale_rows) {
-            // Fast path: vectorized 16-byte load (LDG.128)
             loaded_data = __ldg(reinterpret_cast<const uint4*>(col_ptr + row_start));
         } else if (row_start < scale_rows) {
-            // Boundary handling: load available bytes
             uint8_t* bytes = reinterpret_cast<uint8_t*>(&loaded_data);
             #pragma unroll
             for (int i = 0; i < BYTES_PER_THREAD; i++) {
@@ -488,28 +427,15 @@ __global__ void mx_block_rearrange_2d_K_groups_colmajor_vectorized_16B_kernel(
         }
     }
 
-    // =========================================================================
-    // STORE TO SHARED MEMORY WITH SWIZZLE PATTERN
-    // Each lane writes 16 bytes to 16 swizzled locations
-    // Swizzle pattern: r_mod_32 * 16 + r_div_32 * 4 + col
-    // For 512 rows: r_div_32 ranges from 0 to 15
-    // =========================================================================
-
     uint8_t* bytes = reinterpret_cast<uint8_t*>(&loaded_data);
 
     #pragma unroll
     for (int i = 0; i < BYTES_PER_THREAD; i++) {
-
-        // Row index within the block for this byte
         int row_in_block = lane_id * BYTES_PER_THREAD + i;
-
-        // We have 4 separate 128x4 blocks, stacked vertically into a 512x4 block.
-        // We need to apply the swizzle separately to each.
         int tile_idx = row_in_block / SCALE_FACTOR_ROWS;
         int row_in_tile = row_in_block % SCALE_FACTOR_ROWS;
         int tile_base_offset = tile_idx * SCALE_FACTOR_ROWS * BLOCK_COLS;
 
-        // Apply swizzle: output layout is [r_mod_32 * 16 + r_div_32 * 4 + col]
         int r_div_32 = row_in_tile >> 5;
         int r_mod_32 = row_in_tile & 31;
         int swizzle_idx = (r_mod_32 << 4) + (r_div_32 << 2) + col_idx;
@@ -519,33 +445,18 @@ __global__ void mx_block_rearrange_2d_K_groups_colmajor_vectorized_16B_kernel(
 
     __syncthreads();
 
-    // =========================================================================
-    // OUTPUT WRITE PHASE
-    // 128 threads need to write 512 rows × 4 cols = 2048 bytes
-    // We have 4 tiles of 128×4 each. Each tile must be written to a separate
-    // location in the output, as the output format expects 128-row blocks.
-    // =========================================================================
-
     int out_group_base_offset = output_group_start_col * padded_rows;
     int num_cols_in_group = input_group_end_col - input_group_start_col;
     int num_col_blocks_in_group = ceil_div(num_cols_in_group, BLOCK_COLS);
 
-    // stride_per_row_of_blocks uses 128-row blocks (SCALE_FACTOR_ROWS), not 512
-    constexpr int TILE_SIZE = SCALE_FACTOR_ROWS * BLOCK_COLS;  // 128 * 4 = 512 bytes per tile
+    constexpr int TILE_SIZE = SCALE_FACTOR_ROWS * BLOCK_COLS;
     int stride_per_row_of_blocks_in_group = num_col_blocks_in_group * TILE_SIZE;
 
-    // Each thread handles 4 rows (512 rows / 128 threads = 4 rows per thread)
-    // Each row belongs to a different 128-row tile
     #pragma unroll
     for (int r = 0; r < 4; r++) {
-        int row_idx = tid + r * 128;  // Rows: tid, tid+128, tid+256, tid+384
-
-        // Determine which 128-row tile this row belongs to
-        int tile_idx = row_idx >> 7;    // row_idx / 128 -> 0, 1, 2, or 3
-        int row_in_tile = row_idx & 127;  // row_idx % 128 -> 0-127
-
-        // Compute output offset for this tile
-        // row_block_pid is for 512-row blocks, so the actual 128-row block index is:
+        int row_idx = tid + r * 128;
+        int tile_idx = row_idx >> 7;
+        int row_in_tile = row_idx & 127;
         int actual_row_block = row_block_pid * 4 + tile_idx;
 
         int offset_in_group = actual_row_block * stride_per_row_of_blocks_in_group +
@@ -559,6 +470,259 @@ __global__ void mx_block_rearrange_2d_K_groups_colmajor_vectorized_16B_kernel(
     }
 }
 
+// Row-major vectorized kernel: 512-row blocks, uint32_t loads per row
+__global__ void mx_block_rearrange_2d_K_groups_rowmajor_vectorized_kernel(
+    const uint8_t* __restrict__ scales_ptr,
+    int scales_stride_dim0,
+    int scale_rows,
+    int scale_cols,
+    int padded_rows,
+    const int32_t* __restrict__ input_group_end_offsets,
+    uint8_t* __restrict__ output_scales_ptr,
+    int output_stride_per_block,
+    int num_groups
+) {
+    const int col_block_pid = blockIdx.x;
+    const int row_block_pid = blockIdx.y;
+    const int tid = threadIdx.x;
+
+    __shared__ __align__(16) uint8_t smem_block[BLOCK_ROWS_LARGE * BLOCK_COLS];
+    __shared__ int smem_cumsum[32];
+    __shared__ int output_group_start_col;
+
+    int group_id, local_col_block;
+    find_group_and_local_offset(
+        col_block_pid,
+        input_group_end_offsets,
+        num_groups,
+        smem_cumsum,
+        group_id,
+        local_col_block
+    );
+
+    int input_group_start_col = (group_id > 0) ? input_group_end_offsets[group_id - 1] : 0;
+    int input_group_end_col = input_group_end_offsets[group_id];
+    int curr_input_start_col = input_group_start_col + local_col_block * BLOCK_COLS;
+
+    if (curr_input_start_col >= input_group_end_col) {
+        return;
+    }
+
+    if (tid == 0) {
+        output_group_start_col = compute_output_group_start_col(
+            group_id, input_group_end_offsets, num_groups, 4
+        );
+    }
+
+    __syncthreads();
+
+    int cols_remaining = input_group_end_col - curr_input_start_col;
+    int cols_to_load = min(BLOCK_COLS, cols_remaining);
+    int global_row_base = row_block_pid * BLOCK_ROWS_LARGE;
+
+    #pragma unroll
+    for (int r = 0; r < 4; r++) {
+        int row_idx = tid + r * 128;
+        int global_row = global_row_base + row_idx;
+
+        uint32_t row_data = 0;
+
+        if (global_row < scale_rows) {
+            const uint8_t* row_ptr = scales_ptr +
+                static_cast<size_t>(global_row) * scales_stride_dim0 + curr_input_start_col;
+
+            uintptr_t ptr_addr = reinterpret_cast<uintptr_t>(row_ptr);
+            bool aligned = (ptr_addr % 4 == 0);
+
+            if (cols_to_load == 4 && aligned) {
+                row_data = __ldg(reinterpret_cast<const uint32_t*>(row_ptr));
+            } else {
+                uint8_t* bytes = reinterpret_cast<uint8_t*>(&row_data);
+                #pragma unroll
+                for (int c = 0; c < BLOCK_COLS; c++) {
+                    if (c < cols_to_load) {
+                        bytes[c] = __ldg(row_ptr + c);
+                    }
+                }
+            }
+        }
+
+        uint8_t* bytes = reinterpret_cast<uint8_t*>(&row_data);
+
+        int tile_idx = row_idx >> 7;
+        int row_in_tile = row_idx & 127;
+        int tile_base_offset = tile_idx * SCALE_FACTOR_ROWS * BLOCK_COLS;
+
+        int r_div_32 = row_in_tile >> 5;
+        int r_mod_32 = row_in_tile & 31;
+        int swizzle_base = (r_mod_32 << 4) + (r_div_32 << 2);
+
+        #pragma unroll
+        for (int c = 0; c < BLOCK_COLS; c++) {
+            smem_block[tile_base_offset + swizzle_base + c] = bytes[c];
+        }
+    }
+
+    __syncthreads();
+
+    int out_group_base_offset = output_group_start_col * padded_rows;
+    int num_cols_in_group = input_group_end_col - input_group_start_col;
+    int num_col_blocks_in_group = ceil_div(num_cols_in_group, BLOCK_COLS);
+
+    constexpr int TILE_SIZE = SCALE_FACTOR_ROWS * BLOCK_COLS;
+    int stride_per_row_of_blocks_in_group = num_col_blocks_in_group * TILE_SIZE;
+
+    #pragma unroll
+    for (int r = 0; r < 4; r++) {
+        int row_idx = tid + r * 128;
+        int tile_idx = row_idx >> 7;
+        int row_in_tile = row_idx & 127;
+        int actual_row_block = row_block_pid * 4 + tile_idx;
+
+        int offset_in_group = actual_row_block * stride_per_row_of_blocks_in_group +
+                              local_col_block * TILE_SIZE;
+        int final_offset = out_group_base_offset + offset_in_group;
+
+        uint8_t* output_ptr = output_scales_ptr + final_offset + row_in_tile * BLOCK_COLS;
+
+        *reinterpret_cast<uint32_t*>(output_ptr) =
+            *reinterpret_cast<const uint32_t*>(&smem_block[row_idx * BLOCK_COLS]);
+    }
+}
+
+#define MAX_COLS 128 // 4 threads * 4 uint4 which are each each 4 uint32s
+
+__global__ void mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec_kernel(
+    const uint8_t* __restrict__ scales_ptr,
+    int scales_stride_dim0,
+    int scale_rows,
+    int scale_cols,
+    int padded_rows,
+    const int32_t* __restrict__ input_group_end_offsets,
+    uint8_t* __restrict__ output_scales_ptr,
+    int output_stride_per_block,
+    int num_groups
+) {
+    const int col_block_pid = blockIdx.x;
+    const int row_block_pid = blockIdx.y;
+    const int tid = threadIdx.x;
+
+    __shared__ __align__(16) uint8_t smem_block[BLOCK_ROWS * MAX_COLS];
+    __shared__ int smem_cumsum[32];
+    __shared__ int output_group_start_col;
+
+    int group_id, local_col_block;
+    find_group_and_local_offset(
+        col_block_pid,
+        input_group_end_offsets,
+        num_groups,
+        smem_cumsum,
+        group_id,
+        local_col_block
+    );
+
+    int input_group_start_col = (group_id > 0) ? input_group_end_offsets[group_id - 1] : 0;
+    int input_group_end_col = input_group_end_offsets[group_id];
+    int curr_input_start_col = input_group_start_col + local_col_block * MAX_COLS;
+
+    if (curr_input_start_col >= input_group_end_col) {
+        return;
+    }
+
+    if (tid == 0) {
+        output_group_start_col = compute_output_group_start_col(
+            group_id, input_group_end_offsets, num_groups, 4
+        );
+    }
+
+    __syncthreads();
+
+    int cols_remaining = input_group_end_col - curr_input_start_col;
+    int cols_to_load = min(MAX_COLS, cols_remaining);
+    int global_row_base = row_block_pid * BLOCK_ROWS;
+
+    int row_idx = tid / MAX_COLS;
+    int col_idx = tid % MAX_COLS;
+    int global_row = global_row_base + row_idx;
+
+    if (global_row < scale_rows) {
+        const uint8_t* row_ptr = scales_ptr +
+            static_cast<size_t>(global_row) * scales_stride_dim0 + curr_input_start_col * BLOCK_COLS;
+
+        uintptr_t ptr_addr = reinterpret_cast<uintptr_t>(row_ptr);
+        bool aligned = (ptr_addr % 4 == 0);
+        int bytes_loaded = 0;
+
+        // 4 threads wide * 4 int32 each = 4*4*4bytes per int32 = 128 bytes
+        uint4 row_data = make_uint4(0, 0, 0, 0);
+        if (cols_to_load == MAX_COLS && aligned)
+        {
+            row_data = __ldg(reinterpret_cast<const uint4*>(row_ptr));
+            bytes_loaded = MAX_COLS;
+        }
+        // 4 threads wide * 2 uint32 each = 4*4*2 bytes per int32 = 64 bytes
+        else if (cols_to_load <= MAX_COLS / 2)
+        {
+            row_data = __ldg(reinterpret_cast<const uint2*>(row_ptr));
+            bytes_loaded = MAX_COLS / 2;
+        }
+        // 4 threads wide * 1 uint32 each = 4*4*1 byte per int32 = 32 bytes
+        else if (cols_to_load <= MAX_COLS / 4)
+        {
+            row_data = __ldg(reinterpret_cast<const uint32_t*>(row_ptr));
+            bytes_loaded = MAX_COLS / 4;
+        }
+        // Fall back to single byte loads
+        else {
+            #pragma unroll
+            for (int c = 0; c < BLOCK_COLS; c++) {
+                // 4 threads still, so mask if we have fewer than 4 cols to load
+                if (c * BLOCK_COLS < cols_to_load) {
+                    bytes[c] = __ldg(row_ptr + c);
+                }
+            }
+        }
+
+        int tile_idx = row_idx >> 7;
+        int row_in_tile = row_idx & 127;
+        int tile_base_offset = tile_idx * SCALE_FACTOR_ROWS * BLOCK_COLS;
+
+        int r_div_32 = row_in_tile >> 5;
+        int r_mod_32 = row_in_tile & 31;
+        int swizzle_base = (r_mod_32 << 4) + (r_div_32 << 2);
+
+        #pragma unroll
+        for (int c = 0; c < BLOCK_COLS; c++) {
+            smem_block[tile_base_offset + swizzle_base + c] = bytes[c];
+        }
+    }
+
+    __syncthreads();
+
+    int out_group_base_offset = output_group_start_col * padded_rows;
+    int num_cols_in_group = input_group_end_col - input_group_start_col;
+    int num_col_blocks_in_group = ceil_div(num_cols_in_group, BLOCK_COLS);
+
+    constexpr int TILE_SIZE = SCALE_FACTOR_ROWS * BLOCK_COLS;
+    int stride_per_row_of_blocks_in_group = num_col_blocks_in_group * TILE_SIZE;
+
+    #pragma unroll
+    for (int r = 0; r < 4; r++) {
+        int row_idx = tid + r * 128;
+        int tile_idx = row_idx >> 7;
+        int row_in_tile = row_idx & 127;
+        int actual_row_block = row_block_pid * 4 + tile_idx;
+
+        int offset_in_group = actual_row_block * stride_per_row_of_blocks_in_group +
+                              local_col_block * TILE_SIZE;
+        int final_offset = out_group_base_offset + offset_in_group;
+
+        uint8_t* output_ptr = output_scales_ptr + final_offset + row_in_tile * BLOCK_COLS;
+
+        *reinterpret_cast<uint32_t*>(output_ptr) =
+            *reinterpret_cast<const uint32_t*>(&smem_block[row_idx * BLOCK_COLS]);
+    }
+}
 
 namespace mxfp8 {
 
@@ -652,7 +816,7 @@ void launch_mx_block_rearrange_2d_K_groups_colmajor_vectorized(
     int total_col_blocks = (scale_cols + BLOCK_COLS - 1) / BLOCK_COLS + num_groups;
 
     dim3 grid(total_col_blocks, num_row_blocks);
-    dim3 block(128);  // 4 warps × 32 threads
+    dim3 block(128);
 
     mx_block_rearrange_2d_K_groups_colmajor_vectorized_kernel<<<grid, block, 0, stream>>>(
         scales_ptr,
@@ -683,17 +847,52 @@ void launch_mx_block_rearrange_2d_K_groups_colmajor_vectorized_16B(
     int num_groups,
     cudaStream_t stream
 ) {
-    // Use larger block size: 512 rows instead of 128
     int num_row_blocks = (scale_rows + BLOCK_ROWS_LARGE - 1) / BLOCK_ROWS_LARGE;
     int output_stride_per_block = BLOCK_ROWS_LARGE * BLOCK_COLS;
     int total_col_blocks = (scale_cols + BLOCK_COLS - 1) / BLOCK_COLS + num_groups;
 
     dim3 grid(total_col_blocks, num_row_blocks);
-    dim3 block(128);  // 4 warps × 32 threads
+    dim3 block(128);
 
     mx_block_rearrange_2d_K_groups_colmajor_vectorized_16B_kernel<<<grid, block, 0, stream>>>(
         scales_ptr,
         scales_stride_dim1,
+        scale_rows,
+        scale_cols,
+        padded_rows,
+        input_group_end_offsets,
+        output_scales_ptr,
+        output_stride_per_block,
+        num_groups
+    );
+
+    cudaError_t err = cudaGetLastError();
+    if (err != cudaSuccess) {
+        printf("CUDA Error: %s\n", cudaGetErrorString(err));
+    }
+}
+
+void launch_mx_block_rearrange_2d_K_groups_rowmajor_vectorized(
+    const uint8_t* scales_ptr,
+    int scales_stride_dim0,
+    int scale_rows,
+    int scale_cols,
+    int padded_rows,
+    const int32_t* input_group_end_offsets,
+    uint8_t* output_scales_ptr,
+    int num_groups,
+    cudaStream_t stream
+) {
+    int num_row_blocks = (scale_rows + BLOCK_ROWS_LARGE - 1) / BLOCK_ROWS_LARGE;
+    int output_stride_per_block = BLOCK_ROWS_LARGE * BLOCK_COLS;
+    int total_col_blocks = (scale_cols + BLOCK_COLS - 1) / BLOCK_COLS + num_groups;
+
+    dim3 grid(total_col_blocks, num_row_blocks);
+    dim3 block(128);
+
+    mx_block_rearrange_2d_K_groups_rowmajor_vectorized_kernel<<<grid, block, 0, stream>>>(
+        scales_ptr,
+        scales_stride_dim0,
         scale_rows,
         scale_cols,
         padded_rows,
