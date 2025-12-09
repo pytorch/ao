@@ -33,6 +33,7 @@ from tabulate import tabulate
 from torch.profiler import ProfilerActivity, profile
 from utils import (
     get_gpu_kernel_gemm_time_s,
+    get_gpu_kernel_conv_time_s,
     get_name_to_shapes_iter,
     profiler_output_to_filtered_time_by_kernel_name,
 )
@@ -161,6 +162,84 @@ def get_gemm_times(
             )
 
     f8_time_s = get_gpu_kernel_gemm_time_s(do_matmul, A, B)
+
+    return bf16_time_s, f8_time_s
+
+
+def get_conv_times(
+    op_name: str,
+    batch: int,
+    in_channels: int,
+    out_channels: int,
+    kernel_size: int,
+    D: Optional[int],
+    H: int,
+    W: int,
+    stride: int = 1,
+    padding: int = 0,
+    fast_accum: bool = True,
+    recipe_name: Optional[str] = None,
+):
+    """
+    Get conv kernel times for bf16 and fp8 operations.
+    Similar to get_gemm_times but for conv operations.
+
+    This measures only the conv kernel time itself, without quantization overhead.
+    """
+    device = torch.device("cuda")
+
+    # Create input tensors
+    if op_name == "conv2d":
+        x_bf16 = torch.randn(batch, in_channels, H, W, dtype=torch.bfloat16, device=device)
+        w_bf16 = torch.randn(out_channels, in_channels, kernel_size, kernel_size, dtype=torch.bfloat16, device=device)
+        conv_fn = torch.nn.functional.conv2d
+        conv_kwargs = {"stride": stride, "padding": padding}
+    elif op_name == "conv3d":
+        x_bf16 = torch.randn(batch, in_channels, D, H, W, dtype=torch.bfloat16, device=device)
+        w_bf16 = torch.randn(out_channels, in_channels, kernel_size, kernel_size, kernel_size, dtype=torch.bfloat16, device=device)
+        conv_fn = torch.nn.functional.conv3d
+        conv_kwargs = {"stride": stride, "padding": padding}
+    else:
+        raise ValueError(f"Unsupported op_name: {op_name}")
+
+    # Measure bf16 conv time
+    bf16_time_s = get_gpu_kernel_conv_time_s(
+        lambda x, w: conv_fn(x, w, **conv_kwargs), x_bf16, w_bf16
+    )
+
+    # For fp8 conv timing, we need to create fp8 tensors
+    if recipe_name in ("mxfp4_cutlass", "nvfp4"):
+        # For now, skip fp4 conv operations as they're more complex to set up
+        f8_time_s = 0.0
+    else:
+        # Create fp8 tensors
+        e4m3_dtype = torch.float8_e4m3fn
+        if torch.version.hip and torch.cuda.is_available() and is_MI300():
+            e4m3_dtype = torch.float8_e4m3fnuz
+
+        # Convert tensors to fp8
+        x_fp8 = x_bf16.to(e4m3_dtype)
+        w_fp8 = w_bf16.to(e4m3_dtype)
+
+        # Create scales (simplified for now - in real usage these would be computed properly)
+        if recipe_name == "rowwise":
+            # Per-row scaling would be more complex for conv - using tensor-wise for simplicity
+            scale_x = torch.tensor(1.0, device=device, dtype=torch.float32)
+            scale_w = torch.tensor(1.0, device=device, dtype=torch.float32)
+        else:
+            # Tensor-wise scaling
+            scale_x = torch.tensor(1.0, device=device, dtype=torch.float32)
+            scale_w = torch.tensor(1.0, device=device, dtype=torch.float32)
+
+        # For now, measure regular fp8 conv (torch doesn't have _scaled_conv yet)
+        # This measures the fp8 conv kernel time without the scaling overhead
+        try:
+            f8_time_s = get_gpu_kernel_conv_time_s(
+                lambda x, w: conv_fn(x, w, **conv_kwargs), x_fp8, w_fp8
+            )
+        except Exception as e:
+            print(f"Warning: Could not measure fp8 conv time: {e}")
+            f8_time_s = 0.0
 
     return bf16_time_s, f8_time_s
 
@@ -510,10 +589,37 @@ def run(
             r_fp8_gemm_and_ovhd_s = r_fp8_gemm_time_s + r_fp8_ovhd_time_s
             r_speedup = r_bf16_gemm_time_s / (r_fp8_gemm_time_s + r_fp8_ovhd_time_s)
 
-            # gemm benchmarks for conv not implemented, as conv uses implicit GEMM
+            # measure actual conv kernel times (without quant overhead)
             b_bf16_gemm_time_s, b_fp8_gemm_time_s = 0, 0
             rb_bf16_gemm_ratio = -1
             rb_fp8_gemm_ratio = -1
+            if do_benchmarks:
+                try:
+                    bf16_c1, f8_c1 = get_conv_times(
+                        op_name=op_name,
+                        batch=M_val,
+                        in_channels=K_val,
+                        out_channels=N_val,
+                        kernel_size=kernel_size,
+                        D=D,
+                        H=H,
+                        W=W,
+                        stride=stride,
+                        padding=padding,
+                        fast_accum=True,
+                        recipe_name=recipe_name,
+                    )
+                    b_bf16_gemm_time_s = bf16_c1
+                    b_fp8_gemm_time_s = f8_c1
+                    if b_bf16_gemm_time_s > 0:
+                        rb_bf16_gemm_ratio = r_bf16_gemm_time_s / b_bf16_gemm_time_s
+                    if b_fp8_gemm_time_s > 0:
+                        rb_fp8_gemm_ratio = r_fp8_gemm_time_s / b_fp8_gemm_time_s
+                except Exception as e:
+                    print(f"Warning: Could not benchmark conv times: {e}")
+                    b_bf16_gemm_time_s, b_fp8_gemm_time_s = 0, 0
+                    rb_bf16_gemm_ratio = -1
+                    rb_fp8_gemm_ratio = -1
 
         b_bf16_e2e_time_s, b_fp8_e2e_time_s = 0, 0
 
