@@ -32,6 +32,7 @@ from torch.testing._internal.common_quantization import (
 )
 from torch.testing._internal.common_utils import (
     TEST_CUDA,
+    TEST_XPU,
     TemporaryFileName,
     instantiate_parametrized_tests,
     parametrize,
@@ -70,9 +71,10 @@ from torchao.testing.pt2e._xnnpack_quantizer_utils import (
     QuantizationConfig,
 )
 from torchao.testing.pt2e.utils import PT2EQuantizationTestCase
-from torchao.utils import torch_version_at_least
+from torchao.utils import get_current_accelerator_device, torch_version_at_least
 
-DEVICE_LIST = ["cpu"] + (["cuda"] if TEST_CUDA else [])
+DEVICE_LIST = ["cpu"] + (["cuda"] if TEST_CUDA else []) + (["xpu"] if TEST_XPU else [])
+_DEVICE = get_current_accelerator_device()
 
 if torch_version_at_least("2.7.0"):
     from torch.testing._internal.common_utils import (
@@ -2154,7 +2156,7 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
             def forward(self, x):
                 return self.bn(x)
 
-        if TEST_CUDA or TEST_HPU:
+        if TEST_CUDA or TEST_HPU or TEST_XPU:
             m = M().train().to(device)
             example_inputs = (torch.randn((1, 3, 3, 3), device=device),)
 
@@ -2229,9 +2231,9 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
                 x = self.dropout(x)
                 return x
 
-        if TEST_CUDA:
-            m = M().train().cuda()
-            example_inputs = (torch.randn(1, 3, 3, 3).cuda(),)
+        if TEST_CUDA or TEST_XPU:
+            m = M().train().to(_DEVICE)
+            example_inputs = (torch.randn(1, 3, 3, 3).to(_DEVICE),)
         else:
             m = M().train()
             example_inputs = (torch.randn(1, 3, 3, 3),)
@@ -2243,7 +2245,7 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
             bn_op = bn_train_op if train else bn_eval_op
             bn_node = self._get_node(m, bn_op)
             self.assertTrue(bn_node is not None)
-            if TEST_CUDA:
+            if TEST_CUDA or TEST_XPU:
                 self.assertEqual(bn_node.args[5], train)
             dropout_node = self._get_node(m, torch.ops.aten.dropout.default)
             self.assertEqual(dropout_node.args[2], train)

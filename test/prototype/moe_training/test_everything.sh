@@ -12,8 +12,9 @@ IS_ROCM=$(rocm-smi --version || true)
 # These tests do not work on ROCm yet
 if [ -z "$IS_ROCM" ]
 then
-pytest test/prototype/moe_training/test_kernels.py -s
-pytest test/prototype/moe_training/test_training.py -s
+pytest test/prototype/moe_training/test_kernels.py -s -v
+pytest test/prototype/moe_training/test_scaled_grouped_mm.py -s -v 
+pytest test/prototype/moe_training/test_training.py -s -v
 ./test/prototype/moe_training/test_fsdp.sh
 ./test/prototype/moe_training/test_tp.sh
 ./test/prototype/moe_training/test_fsdp_tp.sh
