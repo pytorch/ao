@@ -121,8 +121,8 @@ def _from_hp_xpu(
     quant_min = 0
     quant_max = 15
 
-    # 1. use HQQ (Half-Quadratic Quantization) algorithm to compute
-    #    scale and zero_point, then convert to the format that's compatible with XPU kernels
+    # We support two algorithms for construction: HQQ (mostly better) and TinyGEMM
+    # Both use the same XPU kernel (_weight_int4pack_mm_with_scales_and_zeros)
     if int4_choose_qparams_algorithm == Int4ChooseQParamsAlgorithm.HQQ:
         import math
 
@@ -139,10 +139,9 @@ def _from_hp_xpu(
             compute_dtype=compute_dtype,
             device=device,
             verbose=False,
-            raw_output=False,
+            raw_output=True,
         )
         int_data = int_data.to(target_dtype)
-    # 2. don't use HQQ, use default choose_qparams_affine algorithm to compute scale and zero_point
     else:
         assert int4_choose_qparams_algorithm == Int4ChooseQParamsAlgorithm.TINYGEMM, (
             f"Unsupported Int4ChooseQParamsAlgorithm: {int4_choose_qparams_algorithm}"
@@ -226,8 +225,8 @@ def _from_hp_npu(
     quant_min = -8
     quant_max = 7
 
-    # 1. use HQQ (Half-Quadratic Quantization) algorithm to compute
-    #    scale and zero_point, then convert to the format that's compatible with XPU kernels
+    # We support two algorithms for construction: HQQ (mostly better) and TinyGEMM
+    # Both accept FLOAT zero points for NPU kernel (npu_weight_quant_batchmatmul)
     if int4_choose_qparams_algorithm == Int4ChooseQParamsAlgorithm.HQQ:
         import math
 
