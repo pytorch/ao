@@ -395,6 +395,7 @@ __global__ void mx_block_rearrange_2d_K_groups_colmajor_vectorized_kernel(
 // =============================================================================
 #define BLOCK_ROWS_LARGE 512
 #define BYTES_PER_THREAD 16
+#define SCALE_FACTOR_ROWS 128
 
 __global__ void mx_block_rearrange_2d_K_groups_colmajor_vectorized_16B_kernel(
     const uint8_t* __restrict__ scales_ptr,
@@ -443,6 +444,8 @@ __global__ void mx_block_rearrange_2d_K_groups_colmajor_vectorized_16B_kernel(
             group_id, input_group_end_offsets, num_groups, 4
         );
     }
+
+    __syncthreads();
 
     int cols_remaining = input_group_end_col - curr_input_start_col;
     int global_row_base = row_block_pid * BLOCK_ROWS_LARGE;
@@ -496,15 +499,22 @@ __global__ void mx_block_rearrange_2d_K_groups_colmajor_vectorized_16B_kernel(
 
     #pragma unroll
     for (int i = 0; i < BYTES_PER_THREAD; i++) {
+
         // Row index within the block for this byte
         int row_in_block = lane_id * BYTES_PER_THREAD + i;
 
+        // We have 4 separate 128x4 blocks, stacked vertically into a 512x4 block.
+        // We need to apply the swizzle separately to each.
+        int tile_idx = row_in_block / SCALE_FACTOR_ROWS;
+        int row_in_tile = row_in_block % SCALE_FACTOR_ROWS;
+        int tile_base_offset = tile_idx * SCALE_FACTOR_ROWS * BLOCK_COLS;
+
         // Apply swizzle: output layout is [r_mod_32 * 16 + r_div_32 * 4 + col]
-        int r_div_32 = row_in_block >> 5;
-        int r_mod_32 = row_in_block & 31;
+        int r_div_32 = row_in_tile >> 5;
+        int r_mod_32 = row_in_tile & 31;
         int swizzle_idx = (r_mod_32 << 4) + (r_div_32 << 2) + col_idx;
 
-        smem_block[swizzle_idx] = bytes[i];
+        smem_block[tile_base_offset + swizzle_idx] = bytes[i];
     }
 
     __syncthreads();
@@ -512,29 +522,43 @@ __global__ void mx_block_rearrange_2d_K_groups_colmajor_vectorized_16B_kernel(
     // =========================================================================
     // OUTPUT WRITE PHASE
     // 128 threads need to write 512 rows × 4 cols = 2048 bytes
-    // Each thread writes 16 bytes (4 rows × 4 cols each iteration, 4 iterations)
-    // Or: each thread writes 4 bytes per row for 4 rows
+    // We have 4 tiles of 128×4 each. Each tile must be written to a separate
+    // location in the output, as the output format expects 128-row blocks.
     // =========================================================================
 
     int out_group_base_offset = output_group_start_col * padded_rows;
     int num_cols_in_group = input_group_end_col - input_group_start_col;
     int num_col_blocks_in_group = ceil_div(num_cols_in_group, BLOCK_COLS);
-    int stride_per_row_of_blocks_in_group = num_col_blocks_in_group * output_stride_per_block;
 
-    int offset_in_group = row_block_pid * stride_per_row_of_blocks_in_group +
-                          local_col_block * output_stride_per_block;
-    int final_offset = out_group_base_offset + offset_in_group;
+    // stride_per_row_of_blocks uses 128-row blocks (SCALE_FACTOR_ROWS), not 512
+    constexpr int TILE_SIZE = SCALE_FACTOR_ROWS * BLOCK_COLS;  // 128 * 4 = 512 bytes per tile
+    int stride_per_row_of_blocks_in_group = num_col_blocks_in_group * TILE_SIZE;
 
     // Each thread handles 4 rows (512 rows / 128 threads = 4 rows per thread)
+    // Each row belongs to a different 128-row tile
     #pragma unroll
     for (int r = 0; r < 4; r++) {
         int row_idx = tid + r * 128;  // Rows: tid, tid+128, tid+256, tid+384
-        uint8_t* output_ptr = output_scales_ptr + final_offset + row_idx * BLOCK_COLS;
+
+        // Determine which 128-row tile this row belongs to
+        int tile_idx = row_idx >> 7;    // row_idx / 128 -> 0, 1, 2, or 3
+        int row_in_tile = row_idx & 127;  // row_idx % 128 -> 0-127
+
+        // Compute output offset for this tile
+        // row_block_pid is for 512-row blocks, so the actual 128-row block index is:
+        int actual_row_block = row_block_pid * 4 + tile_idx;
+
+        int offset_in_group = actual_row_block * stride_per_row_of_blocks_in_group +
+                              local_col_block * TILE_SIZE;
+        int final_offset = out_group_base_offset + offset_in_group;
+
+        uint8_t* output_ptr = output_scales_ptr + final_offset + row_in_tile * BLOCK_COLS;
 
         *reinterpret_cast<uint32_t*>(output_ptr) =
             *reinterpret_cast<const uint32_t*>(&smem_block[row_idx * BLOCK_COLS]);
     }
 }
+
 
 namespace mxfp8 {
 
