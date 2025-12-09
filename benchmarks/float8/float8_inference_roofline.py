@@ -226,6 +226,78 @@ def get_conv_equivalent_gemm_dims(
     return gemm_M, gemm_K, gemm_N
 
 
+def _create_model_and_input(
+    op_name: str,
+    batch: int,
+    in_channels: int,
+    out_channels: int,
+    D: Optional[int],
+    H: Optional[int],
+    W: Optional[int],
+    kernel_size: Optional[int],
+    stride: int,
+    padding: int,
+    enable_fusion_modeling: bool,
+) -> tuple[nn.Module, torch.Tensor]:
+    """
+    Build the model and its corresponding input tensor for benchmarking.
+    """
+
+    def _stack_layers_conv(core_layer: nn.Module, add_post_relu: bool = False) -> nn.Sequential:
+        layers = []
+        if enable_fusion_modeling:
+            layers.append(nn.ReLU())
+        layers.append(core_layer)
+        if enable_fusion_modeling:
+            layers.append(nn.ReLU())
+        return nn.Sequential(*layers)
+
+    if op_name == "conv2d":
+        core_layer = nn.Conv2d(
+            in_channels,
+            out_channels,
+            kernel_size,
+            stride=stride,
+            padding=padding,
+            bias=False,
+        )
+        memory_format = torch.channels_last
+        x = torch.randn(
+            batch, in_channels, H, W, dtype=torch.bfloat16, device="cuda"
+        ).to(memory_format=memory_format)
+    elif op_name == "conv3d":
+        core_layer = nn.Conv3d(
+            in_channels,
+            out_channels,
+            kernel_size,
+            stride=stride,
+            padding=padding,
+            bias=False,
+        )
+        memory_format = torch.channels_last_3d
+        x = torch.randn(
+            batch, in_channels, D, H, W, dtype=torch.bfloat16, device="cuda"
+        ).to(memory_format=memory_format)
+    else:
+        if not enable_fusion_modeling:
+            m_orig = nn.Sequential(nn.Linear(K_val, N_val, bias=False))
+        else:
+            m_orig = nn.Sequential(
+                nn.ReLU(), nn.Linear(K_val, N_val, bias=False)
+            )
+        memory_format = None
+        x = torch.randn(
+            batch, in_channels, dtype=torch.bfloat16, device="cuda"
+        ).requires_grad_()
+
+    m_orig = _stack_layers(core_layer, add_post_relu=add_post_relu)
+    if memory_format is not None:
+        m_orig = m_orig.to(memory_format=memory_format)
+    m_orig = m_orig.cuda().bfloat16()
+
+    return m_orig, x
+
+
 def run(
     outfile: str,
     recipe_name: str,
@@ -304,33 +376,30 @@ def run(
 
     # Roofline model setup: linear uses M/K/N directly, conv uses equivalent
     # implicit GEMM dimensions (computed per-iteration in the loop below)
-    if op_name in ("linear", "conv2d", "conv3d"):
-        fp8_ovhd_time_sympy = get_inference_float8_mem_sympy(
-            M,
-            K,
-            N,
-            recipe_name,
-            # TODO(future): also enable fusion modeling here
-        )
-        bf16_gemm_time_sympy = get_inference_gemm_time_sympy(
-            M, K, N, torch.bfloat16, None
-        )
+    fp8_ovhd_time_sympy = get_inference_float8_mem_sympy(
+        M,
+        K,
+        N,
+        recipe_name,
+        # TODO(future): also enable fusion modeling here
+    )
+    bf16_gemm_time_sympy = get_inference_gemm_time_sympy(
+        M, K, N, torch.bfloat16, None
+    )
 
-        if recipe_name and recipe_name.startswith(("nvfp4", "mxfp4")):
-            fp8_gemm_time_sympy = get_inference_gemm_time_sympy(
-                M, K, N, torch.float4_e2m1fn_x2, recipe_name
-            )
-        else:
-            gemm_recipe_name = "mxfp8" if recipe_name.startswith("mxfp8") else None
-            fp8_gemm_time_sympy = get_inference_gemm_time_sympy(
-                M, K, N, torch.float8_e4m3fn, gemm_recipe_name
-            )
-        print("bf16_gemm_time_sympy", bf16_gemm_time_sympy)
-        print("fp8_gemm_time_sympy", fp8_gemm_time_sympy)
-        print("fp8_ovhd_time_sympy", fp8_ovhd_time_sympy)
-        print()
+    if recipe_name and recipe_name.startswith(("nvfp4", "mxfp4")):
+        fp8_gemm_time_sympy = get_inference_gemm_time_sympy(
+            M, K, N, torch.float4_e2m1fn_x2, recipe_name
+        )
     else:
-        pass
+        gemm_recipe_name = "mxfp8" if recipe_name.startswith("mxfp8") else None
+        fp8_gemm_time_sympy = get_inference_gemm_time_sympy(
+            M, K, N, torch.float8_e4m3fn, gemm_recipe_name
+        )
+    print("bf16_gemm_time_sympy", bf16_gemm_time_sympy)
+    print("fp8_gemm_time_sympy", fp8_gemm_time_sympy)
+    print("fp8_ovhd_time_sympy", fp8_ovhd_time_sympy)
+    print()
 
     headers = [
         "fwd_M",  # for conv: batch size
@@ -447,152 +516,96 @@ def run(
             rb_fp8_gemm_ratio = -1
 
         b_bf16_e2e_time_s, b_fp8_e2e_time_s = 0, 0
-        # Check hardware requirements for conv operations
-        skip_conv_benchmarks = (
-            do_benchmarks
-            and op_name in ("conv2d", "conv3d")
-            and not is_sm_at_least_100()
-        )
 
-        if skip_conv_benchmarks:
-            print(
-                f"WARNING: Skipping {op_name} benchmarks for shape ({M_val}, {K_val}, {N_val}). "
-                f"Float8 convolution requires SM 10.0+ (Blackwell/B100 GPUs). "
-                f"Current GPU: {torch.cuda.get_device_name(0)} with SM {torch.cuda.get_device_capability()}. "
-                f"Roofline model estimates are still valid."
-            )
-
-        if do_benchmarks and not skip_conv_benchmarks:
-            # create the model
-            if op_name == "conv2d":
-                if not enable_fusion_modeling:
-                    m_orig = nn.Sequential(
-                        nn.Conv2d(
-                            K_val,
-                            N_val,
-                            kernel_size,
-                            stride=stride,
-                            padding=padding,
-                            bias=False,
-                        )
-                    ).to(memory_format=torch.channels_last)
-                else:
-                    m_orig = nn.Sequential(
-                        nn.ReLU(),
-                        nn.Conv2d(
-                            K_val,
-                            N_val,
-                            kernel_size,
-                            stride=stride,
-                            padding=padding,
-                            bias=False,
-                        ),
-                        nn.ReLU(),
-                    ).to(memory_format=torch.channels_last)
-            elif op_name == "conv3d":
-                if not enable_fusion_modeling:
-                    m_orig = nn.Sequential(
-                        nn.Conv3d(
-                            K_val,
-                            N_val,
-                            kernel_size,
-                            stride=stride,
-                            padding=padding,
-                            bias=False,
-                        )
-                    ).to(memory_format=torch.channels_last_3d)
-                else:
-                    m_orig = nn.Sequential(
-                        nn.ReLU(),
-                        nn.Conv3d(
-                            K_val,
-                            N_val,
-                            kernel_size,
-                            stride=stride,
-                            padding=padding,
-                            bias=False,
-                        ),
-                        nn.ReLU(),
-                    ).to(memory_format=torch.channels_last_3d)
+        if do_benchmarks:
+            if op_name in ("conv2d", "conv3d") and not is_sm_at_least_100():
+                print(
+                    f"WARNING: Skipping {op_name} benchmarks for shape ({M_val}, {K_val}, {N_val}). "
+                    f"Float8 convolution requires SM 10.0+ (Blackwell/B100 GPUs). "
+                    f"Current GPU: {torch.cuda.get_device_name(0)} with SM {torch.cuda.get_device_capability()}. "
+                    f"Roofline model estimates are still valid."
+                )
             else:
-                if not enable_fusion_modeling:
-                    m_orig = nn.Sequential(nn.Linear(K_val, N_val, bias=False))
-                else:
-                    m_orig = nn.Sequential(
-                        nn.ReLU(), nn.Linear(K_val, N_val, bias=False)
+                m_orig, x = _create_model_and_input(
+                    op_name,
+                    M_val,
+                    K_val,
+                    N_val,
+                    D,
+                    H,
+                    W,
+                    kernel_size,
+                    stride,
+                    padding,
+                    enable_fusion_modeling,
+                )
+
+                # get the bf16 gpu kernel time
+                torch._dynamo.reset()
+                m_bf16 = torch.compile(copy.deepcopy(m_orig))
+
+                bf16_trace_filename = None
+                if save_profile_traces:
+                    bf16_trace_filename = (
+                        f"{outfile}_{M_val}_{K_val}_{N_val}_bf16.json"
                     )
-            m_orig = m_orig.cuda().bfloat16()
-            if op_name == "conv2d":
-                x = torch.randn(
-                    M_val, K_val, H, W, dtype=torch.bfloat16, device="cuda"
-                ).to(memory_format=torch.channels_last)
-            elif op_name == "conv3d":
-                x = torch.randn(
-                    M_val, K_val, D, H, W, dtype=torch.bfloat16, device="cuda"
-                ).to(memory_format=torch.channels_last_3d)
-            else:
-                x = torch.randn(
-                    M_val, K_val, dtype=torch.bfloat16, device="cuda"
-                ).requires_grad_()
-
-            # get the bf16 gpu kernel time
-            torch._dynamo.reset()
-            m_bf16 = torch.compile(copy.deepcopy(m_orig))
-
-            bf16_trace_filename = None
-            if save_profile_traces:
-                bf16_trace_filename = f"{outfile}_{M_val}_{K_val}_{N_val}_bf16.json"
-            b_bf16_e2e_time_s = get_gpu_kernel_time(m_bf16, x, bf16_trace_filename)
-
-            # get the float8 dynamic scaling gpu kernel time
-            torch._dynamo.reset()
-
-            if recipe_name == "tensorwise":
-                config = Float8DynamicActivationFloat8WeightConfig(
-                    granularity=PerTensor(),
+                b_bf16_e2e_time_s = get_gpu_kernel_time(
+                    m_bf16, x, bf16_trace_filename
                 )
-            elif recipe_name == "rowwise":
-                config = Float8DynamicActivationFloat8WeightConfig(
-                    granularity=PerRow(),
-                    # for now, use TORCH. In the future might be interesting
-                    # to benchmark AUTO and FBGEMM.
-                    kernel_preference=KernelPreference.TORCH,
-                )
-            elif recipe_name == "mxfp8_cublas":
-                config = MXDynamicActivationMXWeightConfig(
-                    activation_dtype=torch.float8_e4m3fn,
-                    weight_dtype=torch.float8_e4m3fn,
-                    kernel_preference=KernelPreference.AUTO,
-                )
-            elif recipe_name == "mxfp4_cutlass":
-                config = MXDynamicActivationMXWeightConfig(
-                    activation_dtype=torch.float4_e2m1fn_x2,
-                    weight_dtype=torch.float4_e2m1fn_x2,
-                    kernel_preference=KernelPreference.AUTO,
-                )
-            elif recipe_name == "nvfp4":
-                config = NVFP4DynamicActivationNVFP4WeightConfig(
-                    use_dynamic_per_tensor_scale=False,
-                )
-            else:
-                assert False, "unsupported"
 
-            m_fp8_dyn = copy.deepcopy(m_orig)
-            if op_name == "linear":
-                quantize_(m_fp8_dyn, config)
-            elif op_name == "conv2d":
-                _is_conv2d = lambda m, fqn: isinstance(m, torch.nn.Conv2d)
-                quantize_(m_fp8_dyn, config, filter_fn=_is_conv2d)
-            else:
-                _is_conv3d = lambda m, fqn: isinstance(m, torch.nn.Conv3d)
-                quantize_(m_fp8_dyn, config, filter_fn=_is_conv3d)
+                # get the float8 dynamic scaling gpu kernel time
+                torch._dynamo.reset()
 
-            m_fp8_dyn = torch.compile(m_fp8_dyn)
+                if recipe_name == "tensorwise":
+                    config = Float8DynamicActivationFloat8WeightConfig(
+                        granularity=PerTensor(),
+                    )
+                elif recipe_name == "rowwise":
+                    config = Float8DynamicActivationFloat8WeightConfig(
+                        granularity=PerRow(),
+                        # for now, use TORCH. In the future might be interesting
+                        # to benchmark AUTO and FBGEMM.
+                        kernel_preference=KernelPreference.TORCH,
+                    )
+                elif recipe_name == "mxfp8_cublas":
+                    config = MXDynamicActivationMXWeightConfig(
+                        activation_dtype=torch.float8_e4m3fn,
+                        weight_dtype=torch.float8_e4m3fn,
+                        kernel_preference=KernelPreference.AUTO,
+                    )
+                elif recipe_name == "mxfp4_cutlass":
+                    config = MXDynamicActivationMXWeightConfig(
+                        activation_dtype=torch.float4_e2m1fn_x2,
+                        weight_dtype=torch.float4_e2m1fn_x2,
+                        kernel_preference=KernelPreference.AUTO,
+                    )
+                elif recipe_name == "nvfp4":
+                    config = NVFP4DynamicActivationNVFP4WeightConfig(
+                        use_dynamic_per_tensor_scale=False,
+                    )
+                else:
+                    assert False, "unsupported"
 
-            fp8_trace_filename = None
-            if save_profile_traces:
-                fp8_trace_filename = f"{outfile}_{M_val}_{K_val}_{N_val}_fp8.json"
-            b_fp8_e2e_time_s = get_gpu_kernel_time(m_fp8_dyn, x, fp8_trace_filename)
+                m_fp8_dyn = copy.deepcopy(m_orig)
+                if op_name == "linear":
+                    quantize_(m_fp8_dyn, config)
+                elif op_name == "conv2d":
+                    _is_conv2d = lambda m, fqn: isinstance(m, torch.nn.Conv2d)
+                    quantize_(m_fp8_dyn, config, filter_fn=_is_conv2d)
+                else:
+                    _is_conv3d = lambda m, fqn: isinstance(m, torch.nn.Conv3d)
+                    quantize_(m_fp8_dyn, config, filter_fn=_is_conv3d)
+
+                m_fp8_dyn = torch.compile(m_fp8_dyn)
+
+                fp8_trace_filename = None
+                if save_profile_traces:
+                    fp8_trace_filename = (
+                        f"{outfile}_{M_val}_{K_val}_{N_val}_fp8.json"
+                    )
+                b_fp8_e2e_time_s = get_gpu_kernel_time(
+                    m_fp8_dyn, x, fp8_trace_filename
+                )
 
         results.append(
             [
