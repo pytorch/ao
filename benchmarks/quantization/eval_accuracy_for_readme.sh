@@ -27,12 +27,11 @@ for quant_recipe in "${QUANT_RECIPES[@]}"; do
   echo "processing $quant_recipe"
  
   OUTPUT_DIR="benchmarks/data/quantized_model/$MODEL_ID-$quant_recipe/"
-  rm -rf $OUTPUT_DIR
 
   # create quantized model
   # Note: the -u flag is to prevent python from buffering stdout and stderr
   # and make the output log file be in chronological order
-  python -u benchmarks/quantization/create_quantized_model.py --model_id $MODEL_ID --output_dir $OUTPUT_DIR --quant_recipe_name $quant_recipe 2>&1 | tee -a "$LOG_FILE"
+  rm -rf $OUTPUT_DIR && python -u benchmarks/quantization/create_quantized_model.py --model_id $MODEL_ID --output_dir $OUTPUT_DIR --quant_recipe_name $quant_recipe 2>&1 | tee -a "$LOG_FILE"
 
   # run eval
   lm_eval --model hf --model_args "pretrained=$OUTPUT_DIR" --tasks "wikitext,winogrande" --device "cuda:0" --batch_size auto --output_path "$OUTPUT_DIR/lm_eval_outputs/" 2>&1 | tee -a "$LOG_FILE"
