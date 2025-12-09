@@ -62,7 +62,9 @@ def benchmark_kernel(kernel_fn, *args, warmup=10, iterations=100):
 
 def test_kernel():
     print("\n" + "=" * 80)
-    print("Testing mx_block_rearrange_2d_K_groups kernels (row-major and column-major)")
+    print(
+        "Testing mx_block_rearrange_2d_K_groups kernels (row-major, column-major, vectorized)"
+    )
     print("=" * 80)
 
     # Try importing the Triton reference implementation
@@ -158,6 +160,22 @@ def test_kernel():
     )
     print("✓ CUDA column-major kernel completed successfully")
 
+    # -------------------------------------------------------------------------
+    # Test Column-Major Vectorized CUDA Kernel
+    # -------------------------------------------------------------------------
+    print("\n" + "-" * 80)
+    print("Running CUDA column-major vectorized kernel...")
+    print(
+        f"  Input shape: {e8m0_scales_col_major.shape}, strides: {e8m0_scales_col_major.stride()}"
+    )
+    cuda_colmajor_vec_out = (
+        mx_block_rearrange.mx_block_rearrange_2d_K_groups_colmajor_vectorized(
+            e8m0_scales_col_major.view(torch.uint8),
+            scale_group_offsets,
+        )
+    )
+    print("✓ CUDA column-major vectorized kernel completed successfully")
+
     output_bytes = cuda_rowmajor_out.numel() * bytes_per_element
     total_bytes = input_bytes + output_bytes
 
@@ -178,6 +196,7 @@ def test_kernel():
     print("\nVerifying correctness...")
     cuda_rowmajor_out_e8m0 = cuda_rowmajor_out.view(torch.float8_e8m0fnu)
     cuda_colmajor_out_e8m0 = cuda_colmajor_out.view(torch.float8_e8m0fnu)
+    cuda_colmajor_vec_out_e8m0 = cuda_colmajor_vec_out.view(torch.float8_e8m0fnu)
 
     all_correct = True
 
@@ -192,6 +211,12 @@ def test_kernel():
         all_correct = False
     else:
         print("✓ CUDA column-major matches Triton")
+
+    if not torch.equal(triton_out, cuda_colmajor_vec_out_e8m0):
+        print("✗ CUDA column-major vectorized and Triton outputs differ!")
+        all_correct = False
+    else:
+        print("✓ CUDA column-major vectorized matches Triton")
 
     if not all_correct:
         return False
@@ -231,43 +256,61 @@ def test_kernel():
     )
     cuda_colmajor_bw_gbps = (total_bytes / 1e9) / (cuda_colmajor_time_us / 1e6)
 
+    # Benchmark CUDA column-major vectorized
+    cuda_colmajor_vec_time_us = benchmark_kernel(
+        mx_block_rearrange.mx_block_rearrange_2d_K_groups_colmajor_vectorized,
+        e8m0_scales_col_major.view(torch.uint8),
+        scale_group_offsets,
+    )
+    cuda_colmajor_vec_bw_gbps = (total_bytes / 1e9) / (cuda_colmajor_vec_time_us / 1e6)
+
     # Print results
     print("\nResults:")
     print(f"  Input size:  {input_bytes / 1e6:.2f} MB")
     print(f"  Output size: {output_bytes / 1e6:.2f} MB")
     print(f"  Total I/O:   {total_bytes / 1e6:.2f} MB\n")
     print(
-        f"{'Kernel':<25} {'Time (μs)':<15} {'Bandwidth (GB/s)':<20} {'Speedup vs Triton':<10}"
+        f"{'Kernel':<30} {'Time (μs)':<15} {'Bandwidth (GB/s)':<20} {'Speedup vs Triton':<10}"
     )
-    print("-" * 80)
+    print("-" * 85)
     print(
-        f"{'Triton':<25} {triton_time_us:<15.2f} {triton_bw_gbps:<20.2f} {'1.00x':<10}"
-    )
-    print(
-        f"{'CUDA Row-Major':<25} {cuda_rowmajor_time_us:<15.2f} {cuda_rowmajor_bw_gbps:<20.2f} {triton_time_us / cuda_rowmajor_time_us:<10.2f}x"
+        f"{'Triton':<30} {triton_time_us:<15.2f} {triton_bw_gbps:<20.2f} {'1.00x':<10}"
     )
     print(
-        f"{'CUDA Column-Major':<25} {cuda_colmajor_time_us:<15.2f} {cuda_colmajor_bw_gbps:<20.2f} {triton_time_us / cuda_colmajor_time_us:<10.2f}x"
+        f"{'CUDA Row-Major':<30} {cuda_rowmajor_time_us:<15.2f} {cuda_rowmajor_bw_gbps:<20.2f} {triton_time_us / cuda_rowmajor_time_us:<10.2f}x"
+    )
+    print(
+        f"{'CUDA Column-Major':<30} {cuda_colmajor_time_us:<15.2f} {cuda_colmajor_bw_gbps:<20.2f} {triton_time_us / cuda_colmajor_time_us:<10.2f}x"
+    )
+    print(
+        f"{'CUDA Column-Major Vectorized':<30} {cuda_colmajor_vec_time_us:<15.2f} {cuda_colmajor_vec_bw_gbps:<20.2f} {triton_time_us / cuda_colmajor_vec_time_us:<10.2f}x"
     )
     print()
 
-    # Compare row-major vs column-major
-    print("-" * 80)
-    if cuda_colmajor_time_us < cuda_rowmajor_time_us:
-        speedup = cuda_rowmajor_time_us / cuda_colmajor_time_us
-        print(f"🏆 Column-major kernel is {speedup:.2f}x faster than row-major!")
-    else:
-        speedup = cuda_colmajor_time_us / cuda_rowmajor_time_us
-        print(f"🏆 Row-major kernel is {speedup:.2f}x faster than column-major!")
+    # Compare kernels
+    print("-" * 85)
+    all_cuda_times = {
+        "Row-Major": cuda_rowmajor_time_us,
+        "Column-Major": cuda_colmajor_time_us,
+        "Column-Major Vectorized": cuda_colmajor_vec_time_us,
+    }
+    fastest_cuda = min(all_cuda_times, key=all_cuda_times.get)
+    fastest_time = all_cuda_times[fastest_cuda]
+
+    for name, time in all_cuda_times.items():
+        if name != fastest_cuda:
+            speedup = time / fastest_time
+            print(f"🏆 {fastest_cuda} is {speedup:.2f}x faster than {name}")
 
     # Highlight best overall performer
-    best_bw = max(triton_bw_gbps, cuda_rowmajor_bw_gbps, cuda_colmajor_bw_gbps)
-    if cuda_colmajor_bw_gbps == best_bw:
-        print("🏆 CUDA column-major kernel achieves highest memory bandwidth!")
-    elif cuda_rowmajor_bw_gbps == best_bw:
-        print("🏆 CUDA row-major kernel achieves highest memory bandwidth!")
-    else:
-        print("🏆 Triton kernel achieves highest memory bandwidth!")
+    all_bw = {
+        "Triton": triton_bw_gbps,
+        "CUDA Row-Major": cuda_rowmajor_bw_gbps,
+        "CUDA Column-Major": cuda_colmajor_bw_gbps,
+        "CUDA Column-Major Vectorized": cuda_colmajor_vec_bw_gbps,
+    }
+    best_name = max(all_bw, key=all_bw.get)
+    print(f"🏆 {best_name} achieves highest memory bandwidth!")
 
     return True
 

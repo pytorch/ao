@@ -98,7 +98,13 @@ def get_configs() -> List[ExperimentConfig]:
         (2048, 131072 // block_size),
     ]
     num_groups = [8]
-    versions = ["triton", "cuda_rowmajor", "cuda_colmajor"]
+    versions = [
+        "triton",
+        "cuda_rowmajor",
+        "cuda_colmajor",
+        "cuda_colmajor_vec",
+        "cuda_colmajor_vec_16B",
+    ]
 
     configs = []
     for shape, groups, version in itertools.product(
@@ -151,6 +157,18 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
         kernel_fn = mxfp8_cuda.mx_block_rearrange_2d_K_groups_colmajor
         # Column-major kernel expects column-major input
         # Column-major: same shape (rows, cols) but stride(0)=1, stride(1)=rows
+        kernel_input = input_tensor.T.contiguous().T
+    elif version == "cuda_colmajor_vec":
+        if mxfp8_cuda is None:
+            raise RuntimeError("CUDA kernel not available")
+        kernel_fn = mxfp8_cuda.mx_block_rearrange_2d_K_groups_colmajor_vectorized
+        # Vectorized column-major kernel also expects column-major input
+        kernel_input = input_tensor.T.contiguous().T
+    elif version == "cuda_colmajor_vec_16B":
+        if mxfp8_cuda is None:
+            raise RuntimeError("CUDA kernel not available")
+        kernel_fn = mxfp8_cuda.mx_block_rearrange_2d_K_groups_colmajor_vectorized_16B
+        # 16B vectorized column-major kernel also expects column-major input
         kernel_input = input_tensor.T.contiguous().T
     else:
         raise ValueError(f"Unknown version: {version}")
@@ -217,7 +235,7 @@ def print_results(experiments: List[Experiment]):
         for version, result in versions.items():
             # Calculate speedup vs triton
             speedup_str = ""
-            if version != "triton" and triton_time_us > 0:
+            if version != "triton":
                 speedup = triton_time_us / result.time_us
                 speedup_str = f"{speedup:.2f}x"
 
