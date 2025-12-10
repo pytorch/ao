@@ -20,7 +20,9 @@ from torchao.quantization.granularity import PerRow
 from torchao.quantization.quant_api import (
     Float8DynamicActivationFloat8WeightConfig,
     Int4WeightOnlyConfig,
+    Int8DynamicActivationInt8WeightConfig,
     Int8DynamicActivationIntxWeightConfig,
+    Int8WeightOnlyConfig,
     IntxWeightOnlyConfig,
 )
 from torchao.utils import is_sm_at_least_89
@@ -50,6 +52,8 @@ class TestSafeTensors(TestCase):
             (Int4WeightOnlyConfig(int4_packing_format="tile_packed_to_4d"), False),
             (IntxWeightOnlyConfig(), False),
             (Int8DynamicActivationIntxWeightConfig(), False),
+            (Int8WeightOnlyConfig(version=2), False),
+            (Int8DynamicActivationInt8WeightConfig(version=2), False),
         ],
     )
     def test_safetensors(self, config, act_pre_scale=False):
@@ -95,6 +99,8 @@ class TestSafeTensors(TestCase):
             (Int4WeightOnlyConfig(int4_packing_format="tile_packed_to_4d"), False),
             (IntxWeightOnlyConfig(), False),
             (Int8DynamicActivationIntxWeightConfig(), False),
+            (Int8WeightOnlyConfig(version=2), False),
+            (Int8DynamicActivationInt8WeightConfig(version=2), False),
         ],
     )
     def test_safetensors_sharded(self, config, act_pre_scale=False):
