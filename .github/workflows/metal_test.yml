@@ -1,0 +1,43 @@
+name: Run TorchAO Experimental MPS Tests
+on:
+  push:
+    branches:
+      - main
+      - 'gh/**'
+  pull_request:
+    branches:
+      - main
+      - 'gh/**'
+
+jobs:
+  test-mps-ops:
+    name: test-mps-ops
+    uses: pytorch/test-infra/.github/workflows/macos_job.yml@main
+    with:
+      runner: macos-m1-stable
+      python-version: '3.11'
+      submodules: 'recursive'
+      ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+      timeout: 90
+      script: |
+        set -eux
+
+        echo "::group::Install Torch"
+        ${CONDA_RUN} pip install torch --index-url "https://download.pytorch.org/whl/nightly/cpu"
+        echo "::endgroup::"
+
+        echo "::group::Install requirements"
+        ${CONDA_RUN} pip install cmake parameterized pyyaml
+        echo "::endgroup::"
+
+        echo "::group::Install experimental MPS ops"
+        ${CONDA_RUN} USE_CPP=1 TORCHAO_BUILD_EXPERIMENTAL_MPS=1 pip install . --no-build-isolation
+        echo "::endgroup::"
+
+        echo "::group::Run lowbit tests"
+        ${CONDA_RUN} python -m pytest torchao/experimental/ops/mps/test/test_lowbit.py
+        echo "::endgroup::"
+
+        echo "::group::Run quantizer tests"
+        ${CONDA_RUN} python -m pytest torchao/experimental/ops/mps/test/test_quantizer.py
+        echo "::endgroup::"
