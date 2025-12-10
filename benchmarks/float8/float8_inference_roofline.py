@@ -344,6 +344,7 @@ def _create_model_and_input(
         x = torch.randn(
             batch, in_channels, H, W, dtype=torch.bfloat16, device="cuda"
         ).to(memory_format=memory_format)
+        m_orig = _stack_layers_conv(core_layer)
     elif op_name == "conv3d":
         core_layer = nn.Conv3d(
             in_channels,
@@ -357,6 +358,7 @@ def _create_model_and_input(
         x = torch.randn(
             batch, in_channels, D, H, W, dtype=torch.bfloat16, device="cuda"
         ).to(memory_format=memory_format)
+        m_orig = _stack_layers_conv(core_layer)
     else:
         if not enable_fusion_modeling:
             m_orig = nn.Sequential(nn.Linear(K_val, N_val, bias=False))
@@ -369,7 +371,6 @@ def _create_model_and_input(
             batch, in_channels, dtype=torch.bfloat16, device="cuda"
         ).requires_grad_()
 
-    m_orig = _stack_layers(core_layer, add_post_relu=add_post_relu)
     if memory_format is not None:
         m_orig = m_orig.to(memory_format=memory_format)
     m_orig = m_orig.cuda().bfloat16()
@@ -713,6 +714,12 @@ def run(
                     m_fp8_dyn, x, fp8_trace_filename
                 )
 
+        # Calculate e2e speedup if benchmarks were run, otherwise -1
+        if b_bf16_e2e_time_s > 0 and b_fp8_e2e_time_s > 0:
+            b_fp8_e2e_speedup = b_bf16_e2e_time_s / b_fp8_e2e_time_s
+        else:
+            b_fp8_e2e_speedup = -1
+
         results.append(
             [
                 M_val,
@@ -736,7 +743,7 @@ def run(
                 # benchmarks - e2e, and speedup
                 b_bf16_e2e_time_s,
                 b_fp8_e2e_time_s,
-                b_bf16_e2e_time_s / (b_fp8_e2e_time_s + 1e-20),
+                b_fp8_e2e_speedup,
                 # gemm ratios
                 rb_bf16_gemm_ratio,
                 rb_fp8_gemm_ratio,
