@@ -27,7 +27,7 @@ jobs:
         echo "::endgroup::"
 
         echo "::group::Install requirements"
-        ${CONDA_RUN} pip install cmake parameterized pyyaml
+        ${CONDA_RUN} pip install cmake parameterized pyyaml pytest
         echo "::endgroup::"
 
         echo "::group::Install experimental MPS ops"
