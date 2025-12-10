@@ -69,7 +69,7 @@ from torchao.quantization.utils import (
 from torchao.quantization.utils import (
     compute_error as SQNR,
 )
-from torchao.testing.utils import skip_if_rocm
+from torchao.testing.utils import skip_if_rocm, skip_if_xpu
 from torchao.utils import (
     benchmark_model,
     check_cpu_version,
@@ -886,6 +886,7 @@ class TestSubclass(unittest.TestCase):
         )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
+    @skip_if_xpu("XPU enablement in progress")
     def test_int4_weight_only_quant_subclass_api(self, device, dtype):
         if dtype != torch.bfloat16:
             self.skipTest(f"Fails for {dtype}")
@@ -897,6 +898,7 @@ class TestSubclass(unittest.TestCase):
             )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
+    @skip_if_xpu("XPU enablement in progress")
     def test_int4_weight_only_hqq_quant_subclass_api(self, device, dtype):
         if dtype != torch.bfloat16:
             self.skipTest(f"Fails for {dtype}")
@@ -955,6 +957,7 @@ class TestSubclass(unittest.TestCase):
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @skip_if_rocm("ROCm enablement in progress")
+    @skip_if_xpu("XPU enablement in progress")
     def test_int4_weight_only_quant_subclass_api_grouped(self, device, dtype):
         if dtype != torch.bfloat16:
             self.skipTest(f"Fails for {dtype}")
@@ -1638,9 +1641,9 @@ class TestAutoQuant(unittest.TestCase):
         # setting min_sqnr for individual linear to be 60 allows us to achieve >= 50 final sqnr
         self.assertTrue(sqnr >= 50, f"sqnr: {sqnr}")
 
-    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_autoquant_hp_float(self):
-        device = _DEVICE
+        device = "cuda"
         dtype = torch.float32
         m, k, n = 128, 128, 128
         example_input = torch.randn(m, k, device=device, dtype=dtype)
@@ -1949,9 +1952,9 @@ class TestBenchmarkModel(unittest.TestCase):
         num_runs = 1
         return benchmark_model(m_bf16, num_runs, example_inputs)
 
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test_benchmark_model_cuda(self):
-        assert self.run_benchmark_model("cuda") is not None
+        assert self.run_benchmark_model(_DEVICE) is not None
 
     def test_benchmark_model_cpu(self):
         assert self.run_benchmark_model("cpu") is not None
