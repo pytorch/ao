@@ -106,7 +106,7 @@ class TransformerEvalWrapper(eval_wrapper):
 
     @property
     def max_gen_toks(self):
-        return 512
+        return 50
 
     @property
     def batch_size(self):
