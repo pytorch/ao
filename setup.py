@@ -329,6 +329,10 @@ def get_cutlass_build_flags():
         )
 
 
+def bool_to_on_off(value):
+    return "ON" if value else "OFF"
+
+
 # BuildExtension is a subclass of from setuptools.command.build_ext.build_ext
 class TorchAOBuildExt(BuildExtension):
     def __init__(self, *args, **kwargs) -> None:
@@ -353,8 +357,11 @@ class TorchAOBuildExt(BuildExtension):
     def build_cmake(self, ext):
         extdir = os.path.abspath(os.path.dirname(self.get_ext_fullpath(ext.name)))
 
-        if not os.path.exists(self.build_temp):
-            os.makedirs(self.build_temp)
+        # Use a unique build directory per CMake extension to avoid cache conflicts
+        # when multiple extensions use different CMakeLists.txt source directories
+        ext_build_temp = os.path.join(self.build_temp, ext.name.replace(".", "_"))
+        if not os.path.exists(ext_build_temp):
+            os.makedirs(ext_build_temp)
 
         # Get the expected extension file name that Python will look for
         # We force CMake to use this library name
@@ -362,7 +369,7 @@ class TorchAOBuildExt(BuildExtension):
         ext_basename = os.path.splitext(ext_filename)[0]
 
         print(
-            "CMAKE COMMANG",
+            "CMAKE COMMAND",
             [
                 "cmake",
                 ext.cmake_lists_dir,
@@ -384,9 +391,9 @@ class TorchAOBuildExt(BuildExtension):
                 "-DCMAKE_LIBRARY_OUTPUT_DIRECTORY=" + extdir,
                 "-DTORCHAO_CMAKE_EXT_SO_NAME=" + ext_basename,
             ],
-            cwd=self.build_temp,
+            cwd=ext_build_temp,
         )
-        subprocess.check_call(["cmake", "--build", "."], cwd=self.build_temp)
+        subprocess.check_call(["cmake", "--build", "."], cwd=ext_build_temp)
 
 
 class CMakeExtension(Extension):
@@ -772,9 +779,6 @@ def get_extensions():
     if build_macos_arm_auto or os.getenv("BUILD_TORCHAO_EXPERIMENTAL") == "1":
         build_options = BuildOptions()
 
-        def bool_to_on_off(value):
-            return "ON" if value else "OFF"
-
         from distutils.sysconfig import get_python_lib
 
         torch_dir = get_python_lib() + "/torch/share/cmake/Torch"
@@ -798,6 +802,21 @@ def get_extensions():
                 ),
             )
         )
+
+        if build_options.build_experimental_mps:
+            ext_modules.append(
+                CMakeExtension(
+                    "torchao._C_mps",
+                    cmake_lists_dir="torchao/experimental/ops/mps",
+                    cmake_args=(
+                        [
+                            f"-DCMAKE_BUILD_TYPE={'Debug' if use_debug_mode() else 'Release'}",
+                            f"-DTORCHAO_BUILD_MPS_OPS={bool_to_on_off(build_options.build_experimental_mps)}",
+                            "-DTorch_DIR=" + torch_dir,
+                        ]
+                    ),
+                )
+            )
 
     return ext_modules
 

@@ -6,35 +6,14 @@
 
 import copy
 import itertools
-import os
 import unittest
 
 import torch
 from parameterized import parameterized
 
-import torchao  # noqa: F401
+# Need to import to load the ops
+import torchao.experimental.ops.mps  # noqa: F401
 from torchao.experimental.quant_api import UIntxWeightOnlyLinearQuantizer, _quantize
-
-try:
-    for nbit in range(1, 8):
-        getattr(torch.ops.torchao, f"_linear_fp_act_{nbit}bit_weight")
-        getattr(torch.ops.torchao, f"_pack_weight_{nbit}bit")
-except AttributeError:
-    try:
-        libname = "libtorchao_ops_mps_aten.dylib"
-        libpath = os.path.abspath(
-            os.path.join(os.path.dirname(__file__), "../cmake-out/lib/", libname)
-        )
-        torch.ops.load_library(libpath)
-    except:
-        raise RuntimeError(f"Failed to load library {libpath}")
-    else:
-        try:
-            for nbit in range(1, 8):
-                getattr(torch.ops.torchao, f"_linear_fp_act_{nbit}bit_weight")
-                getattr(torch.ops.torchao, f"_pack_weight_{nbit}bit")
-        except AttributeError as e:
-            raise e
 
 
 class TestUIntxWeightOnlyLinearQuantizer(unittest.TestCase):
