@@ -1,4 +1,3 @@
-import logging
 from typing import Tuple
 
 import torch
@@ -10,6 +9,7 @@ from torch.library import triton_op, wrap_triton
 from torchao.prototype.mx_formats.utils import to_blocked
 from torchao.utils import (
     ceil_div,
+    is_cuda_version_at_least,
     is_sm_at_least_100,
 )
 
@@ -673,24 +673,18 @@ def _blocked_group_start_idx(
     return group_start_idx
 
 
-mxfp8_cuda_extension_available = False
-if is_sm_at_least_100():
-    try:
-        # MXFP8 CUDA kernel is only built on SM100+. Furthermore,
-        # currently our CI runners are not SM100+, so the user needs to build
-        # from source.
-        # TODO(#2932): improve this
-        from torchao.prototype import mxfp8_cuda
+mxfp8_cuda_extension_available = is_sm_at_least_100() and is_cuda_version_at_least(
+    12, 8
+)
 
-        mxfp8_cuda_extension_available = True
-    except ImportError:
-        logging.debug("Skipping import of torchao.prototype.mxfp8_cuda")
+lib = torch.library.Library("torchao", "FRAGMENT")
+lib.define(
+    "mxfp8_quantize_3d(Tensor input, int scale_dim_n, str fp8_format, str scaling_mode) -> (Tensor, Tensor)",
+    tags=[torch._C.Tag.needs_fixed_stride_order],
+)
 
 if mxfp8_cuda_extension_available:
-    # TODO: Make `scaling_mode` a choice (enum-like) rather than arbitrary string.
-    # Currently we have to use an arbitrary string because custom ops don't support enum
-    # params.
-    @torch.library.custom_op("torchao::mxfp8_quantize_cuda_3d", mutates_args=())
+
     def mxfp8_quantize_cuda_3d(
         x: torch.Tensor,
         block_size: int = 32,
@@ -699,40 +693,42 @@ if mxfp8_cuda_extension_available:
         """
         Quantizes a 3D tensor of shape (E,N,K) to MXFP8 format, scaling along N.
 
+        This is a high-level wrapper that calls the underlying CUDA kernel via
+        torch.ops.torchao.mxfp8_quantize_3d.
+
         Args:
             x (torch.Tensor): Input tensor to be quantized.
             block_size (int, optional): Block size for quantization. Defaults to 32.
             scaling_mode (str, optional): Scaling mode for quantization. Defaults to "floor".
 
         Returns:
-            torch.Tensor: quantized tensor
+            torch.Tensor: quantized tensor in column-major layout
             torch.Tensor: scales tensor
         """
         assert x.ndim == 3, "Input tensor must be 3D"
-        assert x.dtype in (torch.float32, torch.bfloat16), (
-            "Input tensor must be float32 or bfloat16"
+        assert x.dtype in (
+            torch.float32,
+            torch.bfloat16,
+        ), "Input tensor must be float32 or bfloat16"
+        return torch.ops.torchao.mxfp8_quantize_3d.default(
+            x, block_size, "e4m3", scaling_mode
         )
-        q_data, scales = mxfp8_cuda.quantize_3d(
-            x, scale_dim_n=block_size, scaling_mode=scaling_mode
-        )
-        return q_data, scales
 
-    @mxfp8_quantize_cuda_3d.register_fake
-    def _fake_mxfp8_quantize_cuda_3d(
+    @torch.library.register_fake("torchao::mxfp8_quantize_3d")
+    def _fake_mxfp8_quantize_3d(
         x: torch.Tensor,
-        block_size: int = 32,
-        scaling_mode: str = "floor",
+        scale_dim_n: int,
+        fp8_format: str,
+        scaling_mode: str,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Fake/meta implementation for mxfp8_quantize_3d."""
         assert x.ndim == 3, "Input tensor must be 3D"
-        assert x.dtype in (torch.float32, torch.bfloat16), (
-            "Input tensor must be float32 or bfloat16"
-        )
         E, N, K = x.shape
-        # Quantized tensor is in column major layouts
+        # Quantized tensor is in column major layout
         q_data = x.new_empty(x.shape, dtype=torch.float8_e4m3fn).as_strided(
             x.shape, (N * K, 1, N)
         )
-        scales = x.new_empty((E, N // block_size, K), dtype=torch.float8_e8m0fnu)
+        scales = x.new_empty((E, N // scale_dim_n, K), dtype=torch.float8_e8m0fnu)
         return q_data, scales
 
 else:

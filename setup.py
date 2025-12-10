@@ -710,7 +710,7 @@ def get_extensions():
             print("Building mxfp8_cuda extension")
             ext_modules.append(
                 CUDAExtension(
-                    name="torchao.prototype.mxfp8_cuda",
+                    name="torchao._C_mxfp8",
                     sources=mxfp8_sources,
                     include_dirs=[
                         mxfp8_extension_dir,  # For mxfp8_quantize.cuh, mxfp8_extension.cpp, and mxfp8_cuda.cu
