@@ -262,7 +262,7 @@ class TestNF4Linear(TestCase):
         _ = torch.nn.functional.linear(inp, a)
         _ = torch.nn.functional.linear(inp, a_nf4)
 
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     @parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
     def test_smoketest_linear_compile(self, dtype: torch.dtype):
         if (
@@ -634,7 +634,7 @@ class TestQLoRA(FSDPTest):
         return 2
 
     @pytest.mark.skipif(
-        version.parse(torch.__version__).base_version < "2.4.0",
+        version.parse(torch.__version__) < version.parse("2.4.0"),
         reason="torch >= 2.4 required",
     )
     @skip_if_lt_x_gpu(2)
