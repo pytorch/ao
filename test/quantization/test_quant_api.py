@@ -801,20 +801,15 @@ class TestQuantFlow(TestCase):
 
     def test_config_deprecation(self):
         """
-        Test that old config functions like `int4_weight_only` trigger deprecation warnings.
+        Test that old config functions like `Int8DynamicActivationInt4WeightConfig` trigger deprecation warnings.
         """
         from torchao.quantization import (
-            float8_dynamic_activation_float8_weight,
-            float8_static_activation_float8_weight,
-            float8_weight_only,
-            fpx_weight_only,
-            gemlite_uintx_weight_only,
-            int4_dynamic_activation_int4_weight,
-            int4_weight_only,
-            int8_dynamic_activation_int4_weight,
-            int8_dynamic_activation_int8_weight,
-            int8_weight_only,
-            uintx_weight_only,
+            Float8StaticActivationFloat8WeightConfig,
+            FPXWeightOnlyConfig,
+            GemliteUIntXWeightOnlyConfig,
+            Int4DynamicActivationInt4WeightConfig,
+            Int8DynamicActivationInt4WeightConfig,
+            UIntXWeightOnlyConfig,
         )
 
         # Reset deprecation warning state, otherwise we won't log warnings here
@@ -822,17 +817,12 @@ class TestQuantFlow(TestCase):
 
         # Map from deprecated API to the args needed to instantiate it
         deprecated_apis_to_args = {
-            float8_dynamic_activation_float8_weight: (),
-            float8_static_activation_float8_weight: (torch.randn(3)),
-            float8_weight_only: (),
-            fpx_weight_only: (3, 2),
-            gemlite_uintx_weight_only: (),
-            int4_dynamic_activation_int4_weight: (),
-            int4_weight_only: (),
-            int8_dynamic_activation_int4_weight: (),
-            int8_dynamic_activation_int8_weight: (),
-            int8_weight_only: (),
-            uintx_weight_only: (torch.uint4,),
+            Float8StaticActivationFloat8WeightConfig: (torch.randn(3),),
+            FPXWeightOnlyConfig: (3, 2),
+            GemliteUIntXWeightOnlyConfig: (),
+            Int4DynamicActivationInt4WeightConfig: (),
+            Int8DynamicActivationInt4WeightConfig: (),
+            UIntXWeightOnlyConfig: (torch.uint4,),
         }
 
         # Call each deprecated API twice
@@ -841,19 +831,16 @@ class TestQuantFlow(TestCase):
                 cls(*args)
                 cls(*args)
 
-                # Each call should have at least one warning.
-                # Some of them can have two warnings - one for deprecation,
-                # one for moving to prototype
-                # 1 warning - just deprecation
-                # 2 warnings - deprecation and prototype warnings
-                self.assertTrue(len(_warnings) in (1, 2))
+                self.assertTrue(len(_warnings) == 1)
                 found_deprecated = False
                 for w in _warnings:
-                    if "is deprecated and will be removed in a future release" in str(
+                    if "will be moving to prototype in a future release" in str(
                         w.message
                     ):
                         found_deprecated = True
-                    self.assertTrue(found_deprecated)
+                    self.assertTrue(
+                        found_deprecated, f"did not find deprecated warning for {cls}"
+                    )
 
 
 common_utils.instantiate_parametrized_tests(TestQuantFlow)
