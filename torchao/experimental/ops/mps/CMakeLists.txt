@@ -30,7 +30,9 @@ set(METAL_SHADERS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../kernels/mps/metal)
 file(GLOB METAL_FILES ${METAL_SHADERS_DIR}/*.metal)
 set(METAL_SHADERS_YAML ${CMAKE_CURRENT_SOURCE_DIR}/../../kernels/mps/metal.yaml)
 set(GEN_SCRIPT ${CMAKE_CURRENT_SOURCE_DIR}/../../kernels/mps/codegen/gen_metal_shader_lib.py)
-set(GENERATED_METAL_SHADER_LIB ${CMAKE_INSTALL_PREFIX}/include/torchao/experimental/kernels/mps/src/metal_shader_lib.h)
+# Use the build directory for generated files to avoid permission issues during pip install
+set(GENERATED_INCLUDE_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated_include)
+set(GENERATED_METAL_SHADER_LIB ${GENERATED_INCLUDE_DIR}/torchao/experimental/kernels/mps/src/metal_shader_lib.h)
 add_custom_command(
     OUTPUT ${GENERATED_METAL_SHADER_LIB}
     COMMAND python ${GEN_SCRIPT} ${GENERATED_METAL_SHADER_LIB}
@@ -45,7 +47,7 @@ endif()
 message(STATUS "TORCHAO_INCLUDE_DIRS: ${TORCHAO_INCLUDE_DIRS}")
 
 include_directories(${TORCHAO_INCLUDE_DIRS})
-include_directories(${CMAKE_INSTALL_PREFIX}/include)
+include_directories(${GENERATED_INCLUDE_DIR})
 add_library(torchao_ops_mps_linear_fp_act_xbit_weight_aten OBJECT linear_fp_act_xbit_weight_aten.mm)
 add_dependencies(torchao_ops_mps_linear_fp_act_xbit_weight_aten generated_metal_shader_lib)
 
