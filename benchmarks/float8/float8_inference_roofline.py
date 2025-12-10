@@ -743,7 +743,7 @@ def run(
                 # benchmarks - e2e, and speedup
                 b_bf16_e2e_time_s,
                 b_fp8_e2e_time_s,
-                b_fp8_e2e_speedup,
+                b_bf16_e2e_time_s / (b_fp8_e2e_time_s + 1e-20),
                 # gemm ratios
                 rb_bf16_gemm_ratio,
                 rb_fp8_gemm_ratio,
