@@ -13,7 +13,12 @@ from parameterized import parameterized
 
 # Need to import to load the ops
 import torchao.experimental.ops.mps  # noqa: F401
-from torchao.experimental.quant_api import UIntxWeightOnlyLinearQuantizer, _quantize
+from torchao.experimental.quant_api import (
+    UIntxWeightOnlyMPSConfig,
+    _linear_int_weight_mps_check,
+    _quantize,
+)
+from torchao.quantization.quant_api import quantize_
 
 
 class TestUIntxWeightOnlyLinearQuantizer(unittest.TestCase):
@@ -39,14 +44,13 @@ class TestUIntxWeightOnlyLinearQuantizer(unittest.TestCase):
         return model, group_size, k0, n
 
     def _quantize_model(self, model, precision, nbit, group_size):
-        quantizer = UIntxWeightOnlyLinearQuantizer(
-            device="mps",
-            precision=precision,
+        config = UIntxWeightOnlyMPSConfig(
             bitwidth=nbit,
-            groupsize=group_size,
+            group_size=group_size,
         )
         quantized_model = copy.deepcopy(model)
-        quantized_model = quantizer.quantize(quantized_model)
+        quantized_model = quantized_model.to(device="mps", dtype=precision)
+        quantize_(quantized_model, config, filter_fn=_linear_int_weight_mps_check)
         return quantized_model
 
     @parameterized.expand(BITWIDTHS)
