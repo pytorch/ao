@@ -12,6 +12,9 @@ from torchao.prototype.quantization.codebook_coreml.codebook_ops import (
     choose_qparams_and_quantize_codebook_coreml,
     dequantize_codebook,
 )
+from torchao.quantization.quant_primitives import (
+    _DTYPE_TO_BIT_WIDTH,
+)
 from torchao.utils import TorchAOBaseTensor
 
 aten = torch.ops.aten
@@ -95,7 +98,7 @@ class CodebookQuantizedTensor(TorchAOBaseTensor):
         return dequantize_codebook(
             codes,
             self.codebook,
-            self.code_dtype,
+            _DTYPE_TO_BIT_WIDTH[self.code_dtype],
             self.block_size,
             output_dtype=output_dtype,
         )
@@ -161,9 +164,11 @@ class CodebookQuantizedTensor(TorchAOBaseTensor):
 
 
 implements = CodebookQuantizedTensor.implements
+implements_torch_function = CodebookQuantizedTensor.implements_torch_function
 
 
-@implements([torch.nn.functional.linear, aten.linear.default])
+@implements([aten.linear.default])
+@implements_torch_function([torch.nn.functional.linear])
 def _(func, types, args, kwargs):
     input_tensor, weight_tensor, bias = (
         args[0],
@@ -172,6 +177,18 @@ def _(func, types, args, kwargs):
     )
     weight_tensor = weight_tensor.dequantize()
     return func(input_tensor, weight_tensor, bias)
+
+
+@implements([aten.embedding.default])
+@implements_torch_function([torch.nn.functional.embedding])
+def _(func, types, args, kwargs):
+    assert len(args) == 2
+    indices, weight_tensor = (
+        args[0],
+        args[1],
+    )
+    weight_tensor = weight_tensor.dequantize()
+    return func(indices, weight_tensor, **kwargs)
 
 
 @implements([aten.detach.default, aten.alias.default])

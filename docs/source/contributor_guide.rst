@@ -4,16 +4,34 @@ Contributor Guide
 General Guide on Extending torchao
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-For a new use case, for example, a training dtype (like fp4 training), it's fine to start with adding a new tensor subclass in prototype folder `torchao/prototype <https://github.com/pytorch/ao/tree/main/torchao/prototype>`__, but you could also take a look at ``AffineQuantizedTensor`` if what you want to do is mostly supported there, e.g. adding int3 kernel for the exact same affine quantization. Please feel free to open an issue and if you have questions on what to do for a specific new use case. For more details, please refer to our `quantization overview page <quantization.html>`__.
+Please start by reading our `quantization overview page <quantization_overview.html>`__ first.
 
 To contribute to existing code base:
 
-* Adding features to AffineQuantizedTensor, e.g. making it trainable, add tensor parallelism support etc.: `torchao/dtypes/affine_quantized_tensor.py <https://github.com/pytorch/ao/blob/main/torchao/dtypes/affine_quantized_tensor.py>`__
+* Adding a new Tensor: `torchao/quantization/quantize_/workflows <https://github.com/pytorch/ao/tree/main/torchao/quantization/quantize_/workflows>`__
 * Adding new quantization APIs: `torchao/quantization/quant_api.py <https://github.com/pytorch/ao/blob/main/torchao/quantization/quant_api.py>`__
+* Adding features to existing Tensor subclasses like ``Float8Tensor``, e.g. adding new operator support, making it trainable, add tensor parallelism support etc., `tensor subclasses <https://github.com/pytorch/ao/tree/main/torchao/quantization/quantize_/workflows>`__, `tests <https://github.com/pytorch/ao/tree/main/test/quantization/quantize_/workflows>`__
 * Adding new quantization primitive ops, e.g. slight variations of existing quantization primitive ops: `torchao/quantization/quant_primitives.py <https://github.com/pytorch/ao/blob/main/torchao/quantization/quant_primitives.py>`__
 * Adding new autotuned triton kernels: `torchao/kernel <https://github.com/pytorch/ao/tree/main/torchao/kernel>`__
 * Adding new custom cpu/cuda/mps kernels: `torchao/csrc <https://github.com/pytorch/ao/tree/main/torchao/csrc>`__
-* Integrating custom kernel with AffineQuantizedTensor (maybe a new layout as well): Add sparse marlin AQT layout `#621 <https://github.com/pytorch/ao/pull/621>`__ as an example. We are still not decided if we want to split ``AffineQuantizedTensor`` to more tensor subclasses or not.
+
+Adding New Tensor Subclasses
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+torchao Tensor subclasses are structured by ``derived dtype`` and ``packing format``, please check out the `quantization overview page <quantization_overview.html>`__ to understand these concepts. If a new tensor subclass is needed for your use case, i.e. a new dtype, or a new packing format that does not already exist, we could define a new Tensor.
+
+To understand how to use tensor subclass in the context of quantization, please also check `Writing Your Own Quantized Tensor <https://docs.pytorch.org/ao/main/subclass_basic.html>`__.
+
+We have utility base class: ``torchao.utils.TorchAOBaseTensor`` that can help define common util functions and methods for you, if you specified the names of Tensor and non-Tensor attributes of the tensor subclass. for example::
+
+  class MyTensor(TorchAOBaseTensor):
+      tensor_data_names = ["qdata", "scale"]
+      tensor_attribute_names = ["device", "dtype"]
+
+
+With the above, we'll have multiple methods and functions available to use for this Tensor, for more details please check the docs for `TorchAOBaseTensor <https://docs.pytorch.org/ao/main/generated/torchao.utils.TorchAOBaseTensor.html#torchao.utils.TorchAOBaseTensor>`__
+
+.. note::
+   Many of the existing use cases in torchao still uses AffineQuantizedTensor, but we plan to move away from it to reduce the abstractions and make it easier for people to contribute to torchao.
 
 Adding Efficient Kernels
 ~~~~~~~~~~~~~~~~~~~~~~~~
@@ -31,50 +49,59 @@ Custom hand written kernels
 ###########################
 Custom kernels (implementations) for cpu/cuda/mps can be implemented through `torchao/csrc <https://github.com/pytorch/ao/tree/main/torchao/csrc>`__ e.g. int4 cuda, and accessible through torch.ops.my_custom_op
 
-Dispatches
-~~~~~~~~~~
+Using hand written kernels in Tensor Subclasses
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-For dispatching to optimized kernels for cpu/cuda/mps devices, we can have checks for the dispatch conditions in ``__torch_function__`` or ``__torch_dispatch__`` and dispatch to target operators, for example, condition for bfloat16 activation and uint4 weight kernel can be found `here <https://github.com/pytorch/ao/blob/242f181fe59e233b458740b06464ad42da8df6af/torchao/dtypes/affine_quantized_tensor.py#L1784-L1797>`__.
+For calling optimized kernels, we have ``implements`` from the tensor subclass, for example, if we want to call into a new custom op: ``torch.ops.torchao.my_mm_for_mps``::
 
-Specifically for ``AffineQuantizedTensor``, we also allow people to extend the quantized linear to use a new efficient kernel or implement by defining two functions:
-``dispatch_condition`` (defines the condition to dispatch to the kernel) and impl (actual implementation that takes activation, (quantized) weight, bias Tensor and runs the efficient kernel), both taking ``input_tensor``, ``weight_tensor``, ``bias`` as argument, and can be registered into dispatch of quantized linear in ``AffineQuantizedTensor`` with ``register_aqt_quantized_linear_dispatch``. `Here <https://github.com/pytorch/ao/blob/e283743b3cc4612bb641b88dca3670231724d396/test/dtypes/test_affine_quantized.py#L92-L113>`__ is an example showing how it works.
+  class Float8Tensor(TorchAOBaseTensor):
+      ...
 
-Layout/TensorImpl
-~~~~~~~~~~~~~~~~~
+  implements = Float8Tensor.implements
 
-Sometimes the quantized weights has to be packed in order to yield optimal performance. And this can be abstracted with ``layout``. See `here <https://github.com/pytorch/ao/blob/17a0a96d24ebfc154a23342b84e788d9ed6776f4/tutorials/developer_api_guide/my_dtype_tensor_subclass.py#L215-L317>`__ for full example.
+  @implements([torch.nn.functional.linear, aten.linear.default])
+  def _(func, types, args, kwargs):
+      ...
+      # call into the custom op
+      res = torch.ops.torchao.my_mm_for_mps(input_tensor.qdata, weight_tensor.qdata, input_tensor.scale, weight_tensor.scale)
+      return res
+
+KernelPreference
+################
+
+For some tensor subclasses, there could be multiple kernel choices for quantize and mm etc. The recommended way to handle this in torchao tensor subclasses is through ``KernelPreference``, that represents which group of kernels we want to use for quantize, mm, group_mm etc. We can use use ``KernelPreference.AUTO`` as default option, as the option for developers to choose whatever we think is the fastest under different conditions for user, so user don't need to worry about the details, and we can have other more specific kernel options for debugging purposes.
+
+``Float8Tensor`` for example, has:
+
+* ``KernelPreference.AUTO`` that will choose the most performant quantize and mm kernel based on hardware (H100 SM89 or SM90+), availability of libraries (whether ``fbgemm_gpu_genai`` is installed), granularity (per row or per tensor)
+* ``KernelPreference.TORCH`` will use torchao quantize op (``_choose_scale_float8`` and ``_quantize_affine_float8``) and ``_scaled_mm``
+* ``Kerenel.FBGEMM`` uses fbgemm quantize and mm op (``torch.ops.fbgemm.f8f8bf16_rowwise``)
+
 
 Flow
 ~~~~
 
-After the tensor subclass is implemented, we can also wrap that into factory functions, e.g.::
-  # convert from floating point tensor to my dtype tensor subclass
-  to_my_dtype = MyDTypeTensor.from_float
+For model level API, people can reuse ``torchao.quantize_`` that allows people to apply a tensor subclass conversion to weight of linear, and allows `filtering function <https://docs.pytorch.org/ao/main/generated/torchao.quantization.quantize_.html#torchao.quantization.quantize_>`__ to choose which module the tensor subclass conversion should be applied to.
 
-For model level API, people can reuse ``torchao.quantize_`` that allows people to apply a tensor subclass conversion to weight of linear, and allows `filtering function <https://github.com/pytorch/ao/blob/17a0a96d24ebfc154a23342b84e788d9ed6776f4/torchao/quantization/quant_api.py#L421>`__ to choose which module the tensor subclass conversion should be applied to.
-
-See Quantization Algorithms/Flows section for examples of weight only/dynamic quant/static quant and other types of model level APIs based on the factory function.
+See Quantization Algorithms/Flows section for examples of weight only/dynamic quant and other types of model level APIs.
 
 Using torch.compile for Performance
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Note: for pytorch 2.4 and below, we need to use the following::
-  from torchao.utils import unwrap_tensor_subclass
-  m_unwrapped = unwrap_tensor_subclass(m)
-
 In order to be compatible with ``torch.compile``, to aim for performance optimization, we should run through ``torch.compile`` with ``fullgraph=True`` first, and remove any unnecessary graph breaks. You can add ``TORCH_LOGS="output_code"`` when you run the script in order to see the inductor generated code. e.g. ``TORCH_LOGS="output_code" python example.py``::
+
   model = torch.compile(model, mode="max-autotune", fullgraph=True)
 
 Serialization
 ~~~~~~~~~~~~~
 
-Please checkout the `serialization doc <https://pytorch.org/ao/stable/serialization.html>`__ for more details.
+To enable support for serialization (torch.save and torch.load with tensor subclasses as weights), we need to add the tensor subclass and the relevant object to safe globals (available after torch 2.5), e.g.::
+  torch.serialization.add_safe_globals([Float8Tensor, QuantizeTensorToFloat8Kwargs])
+
+Please checkout the `serialization doc <serialization.html>`__ for more details.
 
 .. note::
-   We are integrated with huggingface transformer and supports serialization/deserialization through the huggingface save_pretrained/push_to_hub/from_pretrained APIs: https://huggingface.co/docs/transformers/main/en/quantization/torchao
-
-.. note::
-   Another example can be found in integration with diffuser: https://github.com/sayakpaul/diffusers-torchao/blob/main/inference/serialization_and_loading.md
+   We are `integrated <https://huggingface.co/docs/transformers/main/en/quantization/torchao>`__ with huggingface transformer and supports serialization and deserialization through the huggingface ``save_pretrained``, ``push_to_hub`` and ``from_pretrained`` APIs. We also have `serialization examples <https://github.com/sayakpaul/diffusers-torchao/blob/main/inference/serialization_and_loading.md>`__ with diffuser models.
 
 
 Other Feature Support
@@ -85,8 +112,6 @@ The above just talks about basic feature support, we also provide examples on ho
 * `Quantized Training <https://github.com/pytorch/ao/blob/main/tutorials/developer_api_guide/my_trainable_tensor_subclass.py>`__
 * `Tensor Parallel Support for Quantized Tensor <https://github.com/pytorch/ao/blob/main/tutorials/developer_api_guide/tensor_parallel.py>`__
 * `Compatibility with executorch / torchchat <https://github.com/pytorch/ao/blob/main/tutorials/developer_api_guide/export_to_executorch.py>`__
-* [TODO] FSDP
-* [TODO] QAT
 
 
 Tensor Subclass Functionality/Composability Testing
@@ -126,11 +151,16 @@ After you have the quantization flow implemented, you can run benchmark and eval
 Note: llama model (llama2/llama3) is our representative model for memory bound models and sam is our representative model for compute bound models.
 
 * `llama <https://github.com/pytorch/ao/tree/main/torchao/_models/llama>`__
+
   * `benchmark <https://github.com/pytorch/ao/blob/main/torchao/_models/llama/generate.py>`__
   * `eval <https://github.com/pytorch/ao/blob/main/torchao/_models/llama/eval.py>`__
+
 * `sam <https://github.com/pytorch/ao/tree/main/torchao/_models/sam>`__
+
   * `benchmark and eval <https://github.com/pytorch/ao/blob/main/torchao/_models/sam/eval_combo.py>`__
 
 Please checkout the ``--help`` option for each of the script to understand the supported options, e.g. you can use ``--profile=profile_path`` to get the chrome trace of the run to understand detailed `chrome trace <https://pytorch.org/tutorials/recipes/recipes/profiler_recipe.html#using-tracing-functionality>`__.
 
 Please let us know if there are any new important models that makes sense to be added to torchao model benchmark/eval folder.
+
+Please also check out `Benchmarking User Guide <https://docs.pytorch.org/ao/main/benchmarking_user_guide.html>`__ and `Benchmarking API Guide <https://docs.pytorch.org/ao/main/benchmarking_api_guide.html>`__ to understand how to use our benchmarking framework.

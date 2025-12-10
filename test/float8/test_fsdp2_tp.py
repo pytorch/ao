@@ -13,14 +13,7 @@ TODO(future): make this run in CI
 import copy
 import os
 
-import pytest
 import torch
-
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
-
-if not TORCH_VERSION_AT_LEAST_2_5:
-    pytest.skip("Unsupported PyTorch version", allow_module_level=True)
-
 from torch.distributed._composable.fsdp import fully_shard
 from torch.distributed.device_mesh import DeviceMesh, init_device_mesh
 from torch.distributed.tensor.parallel import parallelize_module
@@ -33,6 +26,8 @@ from torchao.float8.float8_tensor_parallel import (
     Float8RowwiseParallel,
 )
 from torchao.testing.training.dtensor_utils import ToyModel
+
+torch.set_float32_matmul_precision("high")
 
 
 def setup_distributed():
@@ -61,7 +56,7 @@ def _test_fp8_mlp_tensor_parallelism_base(
         enable_fsdp_float8_all_gather=True,
     )
 
-    toy_model = ToyModel().to(device)
+    toy_model = ToyModel(size).to(device)
 
     tp_model = copy.deepcopy(toy_model)
     tp_model = convert_to_float8_training(tp_model, config=config)
@@ -94,11 +89,11 @@ def _test_fp8_mlp_tensor_parallelism_base(
     # TODO(future PR): test numerics, and add more cases
 
 
-def _test_fp8_mlp_tensor_parallelism_eager(mesh: DeviceMesh, size=16):
+def _test_fp8_mlp_tensor_parallelism_eager(mesh: DeviceMesh, size=32):
     _test_fp8_mlp_tensor_parallelism_base(mesh, size, compile=False)
 
 
-def _test_fp8_mlp_tensor_parallelism_compile(mesh: DeviceMesh, size=16):
+def _test_fp8_mlp_tensor_parallelism_compile(mesh: DeviceMesh, size=32):
     _test_fp8_mlp_tensor_parallelism_base(mesh, size, compile=True)
 
 

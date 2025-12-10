@@ -39,7 +39,7 @@ class _AdamBase(Optimizer):
         if not 0.0 <= betas[1] < 1.0:
             raise ValueError("Invalid beta parameter at index 1: {}".format(betas[1]))
         defaults = dict(
-            lr=torch.tensor(lr),
+            lr=lr,
             betas=betas,
             eps=eps,
             weight_decay=weight_decay,
@@ -49,6 +49,14 @@ class _AdamBase(Optimizer):
         self.block_size = block_size
         self.bf16_stochastic_round = bf16_stochastic_round
         self.is_adamw = is_adamw
+
+    def add_param_group(self, param_group: dict) -> None:
+        super().add_param_group(param_group)
+
+        # convert LR to a tensor
+        group = self.param_groups[-1]
+        if not isinstance(group["lr"], Tensor):
+            group["lr"] = torch.tensor(group["lr"], dtype=torch.float32)
 
     def __setstate__(self, state):
         super().__setstate__(state)
@@ -225,6 +233,7 @@ class Adam8bit(_AdamBase):
             bf16_stochastic_round=bf16_stochastic_round,
             is_adamw=False,
         )
+        torch._C._log_api_usage_once("torchao.optim.Adam8bit")
 
     @staticmethod
     def _subclass_zeros(p: Tensor, signed: bool, block_size: int):
@@ -255,6 +264,7 @@ class Adam4bit(_AdamBase):
             bf16_stochastic_round=bf16_stochastic_round,
             is_adamw=False,
         )
+        torch._C._log_api_usage_once("torchao.optim.Adam4bit")
 
     @staticmethod
     def _subclass_zeros(p: Tensor, signed: bool, block_size: int):
@@ -285,6 +295,7 @@ class AdamFp8(_AdamBase):
             bf16_stochastic_round=bf16_stochastic_round,
             is_adamw=False,
         )
+        torch._C._log_api_usage_once("torchao.optim.AdamFp8")
 
     @staticmethod
     def _subclass_zeros(p: Tensor, signed: bool, block_size: int):
@@ -315,6 +326,7 @@ class AdamW8bit(_AdamBase):
             bf16_stochastic_round=bf16_stochastic_round,
             is_adamw=True,
         )
+        torch._C._log_api_usage_once("torchao.optim.AdamW8bit")
 
     @staticmethod
     def _subclass_zeros(p: Tensor, signed: bool, block_size: int):
@@ -345,6 +357,7 @@ class AdamW4bit(_AdamBase):
             bf16_stochastic_round=bf16_stochastic_round,
             is_adamw=True,
         )
+        torch._C._log_api_usage_once("torchao.optim.AdamW4bit")
 
     @staticmethod
     def _subclass_zeros(p: Tensor, signed: bool, block_size: int):
@@ -375,6 +388,7 @@ class AdamWFp8(_AdamBase):
             bf16_stochastic_round=bf16_stochastic_round,
             is_adamw=True,
         )
+        torch._C._log_api_usage_once("torchao.optim.AdamWFp8")
 
     @staticmethod
     def _subclass_zeros(p: Tensor, signed: bool, block_size: int):

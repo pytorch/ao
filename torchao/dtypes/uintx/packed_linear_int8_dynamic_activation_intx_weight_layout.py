@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import logging
+import warnings
 from enum import Enum, auto
 from typing import Optional, Tuple, Union
 
@@ -13,13 +14,14 @@ from torch.utils._python_dispatch import return_and_correct_aliasing
 
 from torchao.dtypes.affine_quantized_tensor import register_layout
 from torchao.dtypes.utils import AQTTensorImpl, Layout
-from torchao.experimental.op_lib_utils import _check_torchao_ops_loaded
 from torchao.quantization.quant_primitives import (
     _DTYPE_TO_BIT_WIDTH,
     _DTYPE_TO_QVALUE_BOUNDS,
     ZeroPointDomain,
 )
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_6
+from torchao.quantization.quantize_.workflows.intx.intx_opaque_tensor import (
+    _is_kernel_library_loaded,
+)
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.WARNING)
@@ -76,6 +78,9 @@ class PackedLinearInt8DynamicActivationIntxWeightLayout(Layout):
         self,
         target: Union[str, Target] = "auto",
     ):
+        warnings.warn(
+            "Models quantized with version 1 of IntxWeightOnlyConfig/Int8DynamicActivationIntxWeightConfig are deprecated and will no longer be supported in a future release, please upgrade torchao and quantize again, or download a newer torchao checkpoint, see https://github.com/pytorch/ao/issues/2967 for more details"
+        )
         if isinstance(target, str):
             target = target_from_str(target)
         self.target = target
@@ -168,11 +173,8 @@ class PackedLinearInt8DynamicActivationIntxWeightAQTTensorImpl(AQTTensorImpl):
         )
 
         if layout.target != Target.ATEN:
-            _check_torchao_ops_loaded()
+            assert _is_kernel_library_loaded(), "Kernel library is not loaded"
         else:
-            assert TORCH_VERSION_AT_LEAST_2_6, (
-                "aten target is requires torch version > 2.6.0"
-            )
             assert torch.backends.kleidiai.is_available(), (
                 "ATEN target requires torch.backends.kleidiai.is_available()"
             )
@@ -378,7 +380,6 @@ def _linear_impl(input_tensor, weight_tensor, bias):
         )
 
     if target == Target.ATEN:
-        assert TORCH_VERSION_AT_LEAST_2_6 == 1, "Target.ATEN requires torch >= 2.6.0"
         _impl_2d = _impl_2d_aten
     else:
         _impl_2d = _impl_2d_non_aten
@@ -420,11 +421,6 @@ def make_packed_linear_int8_dynamic_activation_intx_weight_tensor(
     Constructs an AffineQuantizedTensor with PackedLinearInt8DynamicActivationIntxWeightLayout
     from plain data.
     """
-    # TORCH_VERSION_AT_LEAST_2_6 is needed for torch.intx with x < 8
-    assert TORCH_VERSION_AT_LEAST_2_6, (
-        "Using PackedLinearInt8DynamicActivationIntxWeightLayout requires torch version > 2.6.0"
-    )
-
     layout = PackedLinearInt8DynamicActivationIntxWeightLayout(target=target)
 
     bit_width = _DTYPE_TO_BIT_WIDTH[data_dtype]

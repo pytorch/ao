@@ -14,12 +14,8 @@ import torch
 from torch.ao.ns.fx.utils import compute_sqnr
 from torch.export import ExportedProgram
 from torch.fx import GraphModule, Node
+from torch.fx.traceback import NodeSource
 from torch.nn import functional as F
-
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_6
-
-if TORCH_VERSION_AT_LEAST_2_6:
-    from torch.fx.traceback import NodeSource
 
 from .graph_utils import bfs_trace_with_node_process
 
@@ -55,7 +51,7 @@ def generate_numeric_debug_handle(ep: ExportedProgram) -> None:
 
     Here's an example of using debug handle quantize flow::
 
-        ep = export_for_training(eager_model, example_inputs)
+        ep = torch.export.export(eager_model, example_inputs)
         generate_numeric_debug_handle(ep)
 
         m = ep.module()
@@ -118,10 +114,14 @@ def _extract_node_source_debug_info(node: Node) -> Optional[NodeSourceDebugInfo]
         return node_source
 
     def _is_node_in_original_graph(node: Node) -> bool:
+        # Handle guard nodes that don't have from_node metadata in newer PyTorch versions
+        if FROM_NODE_KEY not in node.meta or node.meta[FROM_NODE_KEY] is None:
+            # Guard nodes (like _guards_fn) created by newer PyTorch versions might not have from_node metadata
+            # Skip these nodes as they are not part of the original user graph
+            return False
+
         if (
-            FROM_NODE_KEY not in node.meta
-            or node.meta[FROM_NODE_KEY] is None
-            or node.meta[FROM_NODE_KEY][-1].pass_name
+            node.meta[FROM_NODE_KEY][-1].pass_name
             == "ExportedProgram.module().unlift()"
         ):
             # This node is not part of the ExportedProgram.module().graph, so it doesn't have a debug handle
@@ -262,12 +262,6 @@ def prepare_for_propagation_comparison(model: GraphModule) -> GraphModule:
     Returns:
         a model with output loggers for all unlifted nodes
     """
-    if not TORCH_VERSION_AT_LEAST_2_6:
-        log.warning(
-            "prepare_for_propagation_comparison is only supported for PyTorch 2.6+"
-        )
-        return model
-
     # don't change the original model
     model = copy.deepcopy(model)
     for n in model.graph.nodes:

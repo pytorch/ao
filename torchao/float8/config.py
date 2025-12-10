@@ -333,6 +333,7 @@ class Float8LinearConfig:
                 cast_config_input_for_grad_weight=cc_i_gw,
                 cast_config_weight_for_grad_input=cc_w_gi,
                 cast_config_grad_output_for_grad_weight=cc_go_gw,
+                round_scales_to_power_of_2=True,
             )
 
         else:

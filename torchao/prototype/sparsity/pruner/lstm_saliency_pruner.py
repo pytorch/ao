@@ -43,7 +43,7 @@ class LSTMSaliencyPruner(BaseStructuredSparsifier):
                     )
                 # take norm over all but first dim
                 dims = tuple(range(1, weights.dim()))
-                saliency = weights.norm(dim=dims, p=1)
+                saliency = torch.linalg.vector_norm(weights, dim=dims, ord=1)
 
                 # handle weights in 4 groups
                 split_size = len(mask) // 4

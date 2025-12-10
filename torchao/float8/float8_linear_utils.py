@@ -7,6 +7,7 @@ import logging
 from functools import partial
 from typing import Callable, List, Optional, Union
 
+import torch
 import torch.nn as nn
 
 from torchao.float8.config import Float8LinearConfig, Float8LinearRecipeName
@@ -101,6 +102,7 @@ def convert_to_float8_training(
     Returns:
      nn.Module: The modified module with swapped linear layers.
     """
+    torch._C._log_api_usage_once("torchao.float8.convert_to_float8_training")
     if config is None:
         config = Float8LinearConfig()
 

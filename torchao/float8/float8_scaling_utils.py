@@ -14,8 +14,8 @@ import torch
 
 from torchao.float8.config import ScalingGranularity
 from torchao.float8.distributed_utils import tensor_already_casted_to_fp8
-from torchao.float8.float8_tensor import (
-    Float8Tensor,
+from torchao.float8.float8_training_tensor import (
+    Float8TrainingTensor,
     GemmInputRole,
     LinearMMConfig,
     hp_tensor_and_scale_to_float8,
@@ -36,10 +36,10 @@ def hp_tensor_to_float8_dynamic(
     scaling_granularity: ScalingGranularity = ScalingGranularity.TENSORWISE,
     axiswise_dim: Optional[int] = None,
     round_scales_to_power_of_2: bool = False,
-) -> Float8Tensor:
+) -> Float8TrainingTensor:
     """
     Given a high precision tensor `hp_tensor`,
-    scales `hp_tensor` dynamically and returns a `Float8Tensor` of the result.
+    scales `hp_tensor` dynamically and returns a `Float8TrainingTensor` of the result.
 
     Args:
         hp_tensor: the tensor to convert

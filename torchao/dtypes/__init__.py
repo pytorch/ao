@@ -8,29 +8,29 @@ from .affine_quantized_tensor import (
     to_affine_quantized_intx,
     to_affine_quantized_intx_static,
 )
-from .fbgemm_fp8_tensor import FbgemmFp8Tensor, to_fbgemm_fp8
-from .fbgemm_int4_tensor import FbgemmInt4Tensor, to_fbgemm_int4
 from .floatx import (
     CutlassSemiSparseLayout,
     Float8Layout,
 )
 from .nf4tensor import NF4Tensor, to_nf4
 from .uintx import (
-    BlockSparseLayout,
-    CutlassInt4PackedLayout,
     Int4CPULayout,
     Int4XPULayout,
-    Int8DynamicActInt4WeightCPULayout,
-    MarlinQQQLayout,
-    MarlinQQQTensor,
     MarlinSparseLayout,
     PackedLinearInt8DynamicActivationIntxWeightLayout,
     QDQLayout,
     SemiSparseLayout,
     TensorCoreTiledLayout,
-    UintxLayout,
+)
+from .uintx.block_sparse_layout import BlockSparseLayout
+from .uintx.cutlass_int4_packed_layout import CutlassInt4PackedLayout
+from .uintx.dyn_int8_act_int4_wei_cpu_layout import Int8DynamicActInt4WeightCPULayout
+from .uintx.marlin_qqq_tensor import (
+    MarlinQQQLayout,
+    MarlinQQQTensor,
     to_marlinqqq_quantized_intx,
 )
+from .uintx.uintx_layout import UintxLayout
 from .utils import (
     Layout,
     PlainLayout,
@@ -64,8 +64,6 @@ __all__ = [
     "PackedLinearInt8DynamicActivationIntxWeightLayout",
     "to_affine_quantized_packed_linear_int8_dynamic_activation_intx_weight",
     "Int4XPULayout",
-    "to_fbgemm_int4",
-    "FbgemmInt4Tensor",
     "to_fbgemm_fp8",
     "FbgemmFp8Tensor",
     "Int8DynamicActInt4WeightCPULayout",

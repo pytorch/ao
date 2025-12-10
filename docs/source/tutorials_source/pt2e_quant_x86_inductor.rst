@@ -105,7 +105,7 @@ We will start by performing the necessary imports, capturing the FX Graph from t
         exported_model = export(
             model,
             example_inputs
-        )
+        ).module()
 
 
 Next, we will have the FX Module to be quantized.
@@ -243,12 +243,10 @@ The PyTorch 2 Export QAT flow is largely similar to the PTQ flow:
 .. code:: python
 
   import torch
-  from torch._export import capture_pre_autograd_graph
   from torchao.quantization.pt2e.quantize_pt2e import (
     prepare_qat_pt2e,
     convert_pt2e,
   )
-  from torch.export import export
   import torchao.quantization.pt2e.quantizer.x86_inductor_quantizer as xiq
   from torchao.quantization.pt2e.quantizer.x86_inductor_quantizer import X86InductorQuantizer
 
@@ -264,9 +262,7 @@ The PyTorch 2 Export QAT flow is largely similar to the PTQ flow:
   m = M()
 
   # Step 1. program capture
-  # NOTE: this API will be updated to torch.export API in the future, but the captured
-  # result shoud mostly stay the same
-  exported_model = export(m, example_inputs)
+  exported_model = torch.export.export(m, example_inputs).module()
   # we get a model with aten ops
 
   # Step 2. quantization-aware training

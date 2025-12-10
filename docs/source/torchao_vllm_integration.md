@@ -45,6 +45,7 @@ from torchao.quantization import Int4WeightOnlyConfig
 config = Int4WeightOnlyConfig(
     group_size=128,
     use_hqq=True,
+    version=1,
 )
 assert isinstance(config, AOBaseConfig)
 ```
@@ -53,22 +54,21 @@ assert isinstance(config, AOBaseConfig)
 All quantization configurations inherit from {class}`torchao.core.config.AOBaseConfig`, which provides serialization and validation capabilities.
 ```
 
-(module-level-configuration)=
-### 3. Module-Level Configuration
+(fqn-configuration)=
+### 3. FQN Configuration
 
-For granular control, use `ModuleFqnToConfig`:
+For granular control, use `FqnToConfig`:
 
 ```python
-from torchao.quantization import ModuleFqnToConfig, Int4WeightOnlyConfig, Int8WeightOnlyConfig
+from torchao.quantization import FqnToConfig, Int4WeightOnlyConfig, Int8WeightOnlyConfig
 
-config = ModuleFqnToConfig({
+config = FqnToConfig({
     "model.layers.0.self_attn.q_proj": Int4WeightOnlyConfig(group_size=64),
     "model.layers.0.self_attn.k_proj": Int4WeightOnlyConfig(group_size=64),
     "model.layers.0.mlp.gate_proj": Int8WeightOnlyConfig(),
-    "_default": Int4WeightOnlyConfig(group_size=128)  # Default for other modules
+    "_default": Int4WeightOnlyConfig(group_size=128, version=1)  # Default for other modules
 })
 ```
-
 (usage-examples)=
 ## Usage Examples
 
@@ -81,13 +81,13 @@ from torchao.quantization import Int4WeightOnlyConfig
 
 # Create quantization configuration
 quantization_config = TorchAoConfig(
-    quant_type=Int4WeightOnlyConfig(group_size=128, use_hqq=True)
+    quant_type=Int4WeightOnlyConfig(group_size=128, use_hqq=True, version=1)
 )
 
 # Load and automatically quantize the model
 model = AutoModelForCausalLM.from_pretrained(
     "meta-llama/Llama-3.2-1B",
-    torch_dtype="auto",
+    dtype="auto",
     device_map="auto",
     quantization_config=quantization_config
 )
@@ -170,7 +170,7 @@ class MyNewQuantConfig(AOBaseConfig):
     VERSION: ClassVar[int] = 1
 
 class MyQuantizedTensor(TorchAOBaseTensor):
-    """Example based on FbgemmFp8Tensor - stores quantized data + scale"""
+    """Example based on Float8Tensor - stores quantized data + scale"""
 
     tensor_data_attrs = ["quantized_data", "scale"]
     tensor_attributes = ["dtype"]

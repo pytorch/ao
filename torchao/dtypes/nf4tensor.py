@@ -15,8 +15,6 @@ import torch.nn.functional as F
 from torch._prims_common import make_contiguous_strides_for
 from torch.distributed.device_mesh import DeviceMesh
 
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
-
 aten = torch.ops.aten
 
 c10d_functional = torch.ops.c10d_functional
@@ -943,7 +941,7 @@ class NF4Tensor(torch.Tensor):
             f"NF4Tensor dispatch: attempting to run {func}, this is not supported"
         )
 
-    # Do not force the Float8Tensor type on the returned tensor
+    # Do not force the Float8TrainingTensor type on the returned tensor
 
     @classmethod
     def __torch_function__(cls, func, types, args=(), kwargs=None):
@@ -1131,6 +1129,26 @@ def _(*args, **kwargs):
     return out
 
 
+@implements_torch_function(torch.Tensor.view_as)
+def function_view_as(*args, **kwargs):
+    """Handle view_as for NF4Tensor.
+
+    When view_as is called (typically by autograd internals), we need to return
+    a fresh NF4Tensor without autograd metadata to avoid conflicts.
+    """
+    tensor = args[0]
+
+    # Create a new NF4Tensor with detached inner tensors to avoid autograd conflicts
+    updated_attrs = {}
+    tensor_attrs, _ = tensor.__tensor_flatten__()
+    for attr in tensor_attrs:
+        inner_tensor = getattr(tensor, attr)
+        # Detach to create a fresh tensor without autograd metadata
+        updated_attrs[attr] = inner_tensor.detach()
+
+    return NF4Tensor(*construct_nf4_args(tensor, updated_attrs))
+
+
 @torch._dynamo.allow_in_graph
 def nf4_constructor(
     tensor_meta: SubclassTensorArgs,
@@ -1156,6 +1174,5 @@ def nf4_constructor(
     )
 
 
-if TORCH_VERSION_AT_LEAST_2_5:
-    torch.serialization.add_safe_globals([NF4Tensor])
-    torch.serialization.add_safe_globals([NF4Tensor])
+torch.serialization.add_safe_globals([NF4Tensor])
+torch.serialization.add_safe_globals([NF4Tensor])

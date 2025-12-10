@@ -4,17 +4,22 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 import logging
+from enum import Enum
 from typing import Callable, Optional
 
 from torch import nn
 
 from torchao.core.config import AOBaseConfig
-from torchao.prototype.moe_training.tensor import ScaledGroupedMMTensor
 from torchao.quantization.transform_module import (
     register_quantize_module_handler,
 )
 
 logger: logging.Logger = logging.getLogger(__name__)
+
+
+class MoEScalingType(Enum):
+    FP8_ROWWISE = "fp8_rowwise"
+    MXFP8 = "mxfp8"
 
 
 class MoETrainingConfig(AOBaseConfig):
@@ -35,6 +40,10 @@ class MoETrainingConfig(AOBaseConfig):
 
     For all other ops, ScaledGroupedMMTensor behaves like a regular torch.Tensor.
     """
+
+    def __init__(self, scaling_type: MoEScalingType = MoEScalingType.FP8_ROWWISE):
+        super().__init__()
+        self.scaling_type = scaling_type
 
 
 @register_quantize_module_handler(MoETrainingConfig)
@@ -76,6 +85,8 @@ def _swap_params(
     Returns:
      nn.Module: The modified module with swapped linear layers.
     """
+    from torchao.prototype.moe_training.tensor import ScaledGroupedMMTensor
+
     if isinstance(module, nn.Parameter) and (
         module_filter_fn is None or module_filter_fn(module, "")
     ):
@@ -84,7 +95,7 @@ def _swap_params(
                 f"Does not support a root nn.Parameter with children: {module}"
             )
         if not isinstance(module.data, ScaledGroupedMMTensor):
-            new_data = ScaledGroupedMMTensor(module.data)
+            new_data = ScaledGroupedMMTensor(module.data, config.scaling_type)
             return nn.Parameter(new_data, requires_grad=module.requires_grad)
         return module
 
@@ -110,7 +121,7 @@ def _swap_params(
             for param_name, param in module.named_parameters(recurse=False):
                 if not isinstance(param.data, ScaledGroupedMMTensor):
                     new_param = nn.Parameter(
-                        ScaledGroupedMMTensor(param.data),
+                        ScaledGroupedMMTensor(param.data, config.scaling_type),
                         requires_grad=param.requires_grad,
                     )
                     setattr(module, param_name, new_param)

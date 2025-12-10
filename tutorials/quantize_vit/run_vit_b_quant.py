@@ -24,11 +24,11 @@ inputs = (torch.randn(1, 3, 224, 224, dtype=torch.bfloat16, device="cuda"),)
 
 # for torch 2.4+
 from torchao.quantization.quant_api import (
-    int8_dynamic_activation_int8_weight,
+    Int8DynamicActivationInt8WeightConfig,
     quantize_,
 )
 
-quantize_(model, int8_dynamic_activation_int8_weight())
+quantize_(model, Int8DynamicActivationInt8WeightConfig())
 ## Quantization code - end
 
 ## compilation configs
@@ -36,12 +36,6 @@ torch._dynamo.config.automatic_dynamic_shapes = False
 torch._inductor.config.force_fuse_int_mm_with_mul = True
 torch._inductor.config.use_mixed_mm = True
 ## compilation configs end
-
-# temporary workaround for the API to work with torch.compile
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, unwrap_tensor_subclass
-
-if not TORCH_VERSION_AT_LEAST_2_5:
-    unwrap_tensor_subclass(model)
 
 # temporary workaround to recover the perf with quantized model under torch.compile
 torch.backends.mha.set_fastpath_enabled(False)

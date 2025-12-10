@@ -594,8 +594,12 @@ def _update_special_qspecs_after_replacement(
     if "quantization_annotation" not in node.meta:
         return
     annotation = node.meta["quantization_annotation"]
+    # Update both keys and values of input_qspec_map
+    new_input_qspec_map = {}
     for input_node, qspec in annotation.input_qspec_map.items():
-        annotation.input_qspec_map[input_node] = _get_new_qspec(qspec)
+        new_input_node = original_to_replacement_node.get(input_node, input_node)
+        new_input_qspec_map[new_input_node] = _get_new_qspec(qspec)
+    annotation.input_qspec_map = new_input_qspec_map
     annotation.output_qspec = _get_new_qspec(annotation.output_qspec)
 
 
@@ -887,8 +891,8 @@ def _fold_conv_bn_qat(m: GraphModule) -> GraphModule:
             node.target == torch.ops.aten.add_.Tensor
             and node.args[0].op == "get_attr"
             and node.args[1] == 1
-            and torch.nn.modules.batchnorm.BatchNorm2d
-            in [val[1] for val in node.meta["source_fn_stack"]]
+            and "torch.nn.modules.batchnorm.BatchNorm2d"
+            in [val[1] for _, val in node.meta["nn_module_stack"].items()]
         ):
             m.graph.erase_node(node)
 

@@ -1,15 +1,13 @@
 from torchao.prototype.mx_formats.config import (
-    MXGemmKernelChoice,
-    MXInferenceLinearConfig,
     MXLinearConfig,
     MXLinearRecipeName,
 )
 
 # Note: Prototype and subject to change
-from torchao.prototype.mx_formats.mx_subclass import (
-    MXFPInferenceConfig,
-    NVFP4InferenceConfig,
-    NVFP4MMConfig,
+from torchao.prototype.mx_formats.inference_workflow import (
+    MXDynamicActivationMXWeightConfig,
+    NVFP4DynamicActivationNVFP4WeightConfig,
+    NVFP4WeightOnlyConfig,
 )
 
 # import mx_linear here to register the quantize_ transform logic
@@ -17,11 +15,9 @@ from torchao.prototype.mx_formats.mx_subclass import (
 import torchao.prototype.mx_formats.mx_linear  # noqa: F401
 
 __all__ = [
-    "MXGemmKernelChoice",
-    "MXInferenceLinearConfig",
     "MXLinearConfig",
     "MXLinearRecipeName",
-    "MXFPInferenceConfig",
-    "NVFP4InferenceConfig",
-    "NVFP4MMConfig",
+    "MXDynamicActivationMXWeightConfig",
+    "NVFP4DynamicActivationNVFP4WeightConfig",
+    "NVFP4WeightOnlyConfig",
 ]

@@ -8,13 +8,14 @@
 import contextlib
 from dataclasses import dataclass
 from functools import partial
-from typing import Any, Callable, Optional
+from typing import Any, Callable, List, Optional
 
 import torch
 from torch._higher_order_ops.out_dtype import out_dtype
 from torch.ao.quantization.fx._decomposed import quantized_decomposed_lib  # noqa: F401
 from torch.fx import GraphModule
-from torch.fx.subgraph_rewriter import replace_pattern
+from torch.fx.passes.utils.matcher_with_name_node_map_utils import InternalMatch
+from torch.fx.subgraph_rewriter import ReplacedPatterns, replace_pattern_with_filters
 
 from torchao.quantization.pt2e.export_utils import WrapperModule
 from torchao.quantization.pt2e.utils import (
@@ -23,12 +24,17 @@ from torchao.quantization.pt2e.utils import (
     _replace_literals_with_new_placeholders,
     remove_tensor_overload_for_qdq_ops,
 )
+from torchao.quantization.quant_primitives import MappingType
+from torchao.quantization.utils import _get_per_token_block_size
+from torchao.utils import _register_custom_op
 
 try:
     from torch._export.utils import _disable_aten_to_metadata_assertions
 except:
     _disable_aten_to_metadata_assertions = contextlib.nullcontext
 
+quant_lib = torch.library.Library("torchao", "FRAGMENT")
+register_custom_op = _register_custom_op(quant_lib)
 
 __all__ = [
     "reference_representation_rewrite",
@@ -201,6 +207,280 @@ def _reference_dynamic_quantized_linear(
     acc_i32 = acc_i32 + bias_i32
     out_fp32 = acc_i32 * (x_scale * weight_scale)
     return out_fp32
+
+
+def _qdq_dynamic_quantized_linear_4bit_groupwise(
+    x_fp32,
+    x_eps,
+    weight_i4,
+    weight_scale,
+    weight_zero_point,
+    bias_fp32,
+    group_size,
+):
+    # Dynamic quantization of activation
+    x_mapping_type = MappingType.ASYMMETRIC
+    per_token_block_size = _get_per_token_block_size(x_fp32)
+    x_quant_min = -128
+    x_quant_max = 127
+    x_scale, x_zero_point = torch.ops.torchao.choose_qparams_affine(
+        x_fp32,
+        x_mapping_type.name,
+        per_token_block_size,
+        torch.int8,
+        x_quant_min,
+        x_quant_max,
+        x_eps,
+        torch.float32,
+        torch.int32,
+    )
+    x_i8 = torch.ops.torchao.quantize_affine(
+        x_fp32,
+        per_token_block_size,
+        x_scale,
+        x_zero_point,
+        torch.int8,
+        x_quant_min,
+        x_quant_max,
+    )
+    x_fp32 = torch.ops.torchao.dequantize_affine(
+        x_i8,
+        per_token_block_size,
+        x_scale,
+        x_zero_point,
+        torch.int8,
+        x_quant_min,
+        x_quant_max,
+        torch.float32,
+    )
+
+    assert group_size > 0, "Group size must be positive"
+    assert weight_i4.shape[1] % group_size == 0, (
+        "Weight must be divisible by group_size"
+    )
+    assert weight_i4.dim() == 2, "Weight must be 2D tensor"
+    block_size = (1, group_size)
+    weight_fp32 = torch.ops.torchao.dequantize_affine(
+        weight_i4,
+        block_size,
+        weight_scale,
+        weight_zero_point,
+        torch.int8,
+        -8,
+        7,
+    )
+
+    out_fp32 = torch.ops.aten.linear.default(x_fp32, weight_fp32, bias_fp32)
+    return out_fp32
+
+
+@register_custom_op
+def _reference_dqlinear_int4(
+    x_fp32: torch.Tensor,
+    x_eps: float,
+    weight_i4: torch.Tensor,
+    weight_scale: torch.Tensor,
+    weight_zero_point: torch.Tensor,  # Not used because assuming weight is symmetric
+    bias_fp32: Optional[torch.Tensor],
+    group_size: List[int],
+) -> torch.Tensor:
+    """
+    Reference implementation for dynamically quantized linear 4-bit groupwise operation.
+    This implementation emulates actual numerics of on-device integer compute.
+
+    Args:
+        x_fp32: Input activation tensor in fp32
+        x_eps: Epsilon for quantization parameter computation
+        weight_i4: 4-bit quantized weight (stored as int8 with values in [-8, 7])
+        weight_scale: Groupwise scales for weight dequantization
+        weight_zero_point: Groupwise zero points for weight (unused for symmetric)
+        bias_fp32: Optional bias tensor in fp32
+        group_size: Size of each group for groupwise quantization
+
+    Returns:
+        Output tensor in fp32
+    """
+    # Dynamic quantization of activation
+    group_size = group_size[1]
+    x_mapping_type = MappingType.ASYMMETRIC
+    per_token_block_size = _get_per_token_block_size(x_fp32)
+    x_quant_min = -128
+    x_quant_max = 127
+    x_scale, x_zero_point = torch.ops.torchao.choose_qparams_affine(
+        x_fp32,
+        x_mapping_type.name,
+        per_token_block_size,
+        torch.int8,
+        x_quant_min,
+        x_quant_max,
+        x_eps,
+        torch.float32,
+        torch.int32,
+    )
+    x_i8 = torch.ops.torchao.quantize_affine(
+        x_fp32,
+        per_token_block_size,
+        x_scale,
+        x_zero_point,
+        torch.int8,
+        x_quant_min,
+        x_quant_max,
+    )
+
+    # For groupwise quantization, we need to handle the computation differently
+    # weight_i4 shape: [out_features, in_features]
+    # weight_scale shape: [out_features, in_features // group_size]
+    # weight_zero_point shape: [out_features, in_features // group_size]
+    out_features, in_features = weight_i4.shape
+    num_groups = in_features // group_size
+
+    # scales in xnnpack are stored as bf16 and converted to fp32 for computation
+    weight_scale = weight_scale.to(torch.bfloat16).to(torch.float32)
+
+    # Reshape for group-wise processing
+    # x: [batch_size, in_features] -> [batch_size, num_groups, group_size]
+    x_orig_shape = x_i8.shape
+    k_dim = x_i8.shape[-1]
+    x_i8 = x_i8.view(-1, k_dim)
+    batch_size = x_i8.shape[0]
+    x_i8_grouped = x_i8.view(batch_size, num_groups, group_size)
+
+    # weight: [out_features, in_features] -> [out_features, num_groups, group_size]
+    weight_i4_grouped = weight_i4.view(out_features, num_groups, group_size)
+
+    # Convert to int16 for computation
+    x_i32_grouped = x_i8_grouped.to(torch.int32)
+    weight_i32_grouped = weight_i4_grouped.to(torch.int32)
+
+    # Perform groupwise integer linear operation
+    acc_fp32 = torch.zeros(
+        batch_size, out_features, dtype=torch.float32, device=x_fp32.device
+    )
+    out_shape = list(x_orig_shape)
+    out_shape[-1] = out_features
+
+    if weight_scale.ndim == 1:
+        weight_scale = weight_scale.unsqueeze(0)
+
+    for group_idx in range(num_groups):
+        # Extract current group
+        x_group = x_i32_grouped[:, group_idx, :]  # [batch_size, group_size]
+        weight_group = weight_i32_grouped[:, group_idx, :]  # [out_features, group_size]
+        weight_group_col_sum = weight_group.sum(dim=-1)  # [out_features]
+
+        # Get scale for this group
+        weight_scale_group = weight_scale[:, group_idx]  # [out_features]
+
+        # Integer matmul: [batch_size, group_size] @ [group_size, out_features] -> [batch_size, out_features]
+        group_acc = out_dtype(
+            torch.ops.aten.linear.default,
+            torch.int32,
+            x_group,
+            weight_group,
+            None,
+        )
+
+        # Output has to be scaled by x_scale * weight_scale_group
+        # However we will first scale by weight_scale_group, that is accounting
+        # only for scale of weight, and then scale by x_scale at the end because
+        # x_scale applies to all groups
+        acc_fp32 = acc_fp32 + group_acc.to(torch.float32) * weight_scale_group.view(
+            1, -1
+        )
+
+        # we must also subtract x_zero_point * weight_group_sum
+        # since (X - x_zero_point) * W = X * W - x_zero_point * W
+        weights_col_sum_adjusted = (
+            weight_group_col_sum.to(torch.float32).view(1, -1)
+            * x_zero_point.view(-1, 1)
+            * weight_scale_group.view(1, -1)
+        )
+        acc_fp32 = acc_fp32 - weights_col_sum_adjusted
+    x_scale_multiplier = x_scale.view(-1, 1)
+    out_fp32 = acc_fp32 * x_scale_multiplier
+    if bias_fp32 is not None:
+        out_fp32 = out_fp32 + bias_fp32
+
+    return out_fp32.view(out_shape)
+
+
+def _reference_dynamic_quantized_linear_4bit_groupwise(
+    x_fp32,
+    x_eps,
+    weight_i4,
+    weight_scale,
+    weight_zero_point,  # Not used because assuming weight is symmetric
+    bias_fp32,
+    group_size,
+):
+    """
+    Reference implementation for dynamically quantized linear 4-bit groupwise operation.
+    This function now delegates to the custom op implementation.
+    """
+    return torch.ops.torchao.reference_dqlinear_int4(
+        x_fp32,
+        x_eps,
+        weight_i4,
+        weight_scale,
+        weight_zero_point,
+        bias_fp32,
+        (1, group_size),
+    )
+
+
+def _filter_fn_for_dynamic_quantized_linear_4bit_groupwise(
+    match,
+    original_graph,
+    pattern_graph,
+) -> bool:
+    weight_is_int4 = False
+    act_quant_is_int8 = False
+    for node in match.nodes_map.values():
+        if (
+            isinstance(node, torch.fx.Node)
+            and node.op == "call_function"
+            and node.target == torch.ops.torchao.dequantize_affine.default
+        ):
+            args = node.args
+            if len(args) >= 7:
+                weight_is_int4 = args[5] == -8 and args[6] == 7
+        if (
+            isinstance(node, torch.fx.Node)
+            and node.op == "call_function"
+            and node.target == torch.ops.torchao.quantize_affine.default
+        ):
+            args = node.args
+            if len(args) >= 5:
+                act_quant_is_int8 = args[4] == torch.int8
+    return weight_is_int4 and act_quant_is_int8
+
+
+def _port_metadata_for_dynamic_quantized_linear_4bit_groupwise(
+    replacement_pattern: ReplacedPatterns,
+):
+    """
+    Port metadata for dynamically quantized linear 4-bit groupwise operation.
+    It custom_op node's metadata with corresponding linear node's metadata.
+    """
+    from torch.fx.traceback import NodeSource, NodeSourceAction
+
+    linear_node = None
+    int4_custom_op_node = None
+    for _, g_n in replacement_pattern.nodes_map.items():
+        if g_n.target == torch.ops.aten.linear.default:
+            linear_node = g_n
+            break
+    if len(replacement_pattern.replacements) > 0:
+        int4_custom_op_node = replacement_pattern.replacements[-1]
+    if linear_node is not None and int4_custom_op_node is not None:
+        int4_custom_op_node.meta = linear_node.meta.copy()
+        int4_custom_op_node.meta["from_node"] = [
+            NodeSource(
+                linear_node,
+                "ReplaceInt4DynamicQuantWithCustomOp",
+                NodeSourceAction.REPLACE,
+            )
+        ]
 
 
 def _qdq_quantized_conv2d(
@@ -627,6 +907,11 @@ class _RewriteInfo:
     # post transformation on the exported pattern and replacement GraphModule
     pattern_post_trans: Optional[Callable[[GraphModule], GraphModule]] = None
     replacement_post_trans: Optional[Callable[[GraphModule], GraphModule]] = None
+    filter_fn: Optional[
+        list[Callable[["InternalMatch", torch.fx.Graph, torch.fx.Graph], bool]]
+    ] = None
+    ignore_literals: bool = False
+    port_metadata_fn: Optional[Callable[["ReplacedPatterns"], None]] = None
 
 
 def reference_representation_rewrite(model: GraphModule) -> GraphModule:
@@ -738,6 +1023,31 @@ def reference_representation_rewrite(model: GraphModule) -> GraphModule:
         127,
     )
 
+    _DYNAMIC_QUANTIZED_LINEAR_4BIT_GROUPWISE_EXAMPLE_INPUTS_1 = (
+        torch.randn((1, 32), dtype=torch.float),  # x_fp32
+        torch.finfo(torch.float32).eps,  # x_eps
+        torch.randint(-8, 7, (8, 32), dtype=torch.int8),  # weight_i4 (stored as int8)
+        torch.randn(8, 4, dtype=torch.float),  # weight_scale [out_features, num_groups]
+        torch.zeros(
+            8, 4, dtype=torch.int
+        ),  # weight_zero_point [out_features, num_groups]
+        torch.randn(8, dtype=torch.float),  # bias_fp32
+        8,  # group_size
+    )
+
+    # just saw that we can match again > 2 dim input. Hacky.
+    _DYNAMIC_QUANTIZED_LINEAR_4BIT_GROUPWISE_EXAMPLE_INPUTS_2 = (
+        torch.randn((1, 1, 32), dtype=torch.float),  # x_fp32
+        torch.finfo(torch.float32).eps,  # x_eps
+        torch.randint(-8, 7, (8, 32), dtype=torch.int8),  # weight_i4 (stored as int8)
+        torch.randn(8, 4, dtype=torch.float),  # weight_scale [out_features, num_groups]
+        torch.zeros(
+            8, 4, dtype=torch.int
+        ),  # weight_zero_point [out_features, num_groups]
+        torch.randn(8, dtype=torch.float),  # bias_fp32
+        8,  # group_size
+    )
+
     _REWRITE_INFO_LIST = [
         _RewriteInfo(
             _DYNAMIC_QUANTIZED_LINEAR_EXAMPLE_INPUTS,
@@ -751,6 +1061,50 @@ def reference_representation_rewrite(model: GraphModule) -> GraphModule:
                 _replace_literals_with_existing_placeholders,
                 literal_to_ph_idx={-128: 1, 127: 2, torch.finfo(torch.float32).eps: 3},
             ),
+        ),
+        _RewriteInfo(
+            _DYNAMIC_QUANTIZED_LINEAR_4BIT_GROUPWISE_EXAMPLE_INPUTS_1,
+            WrapperModule(_qdq_dynamic_quantized_linear_4bit_groupwise),
+            WrapperModule(_reference_dynamic_quantized_linear_4bit_groupwise),
+            partial(
+                _replace_literals_with_existing_placeholders,
+                literal_to_ph_idx={
+                    torch.finfo(torch.float32).eps: 1,
+                    (1, 8): 6,
+                },
+            ),
+            partial(
+                _replace_literals_with_existing_placeholders,
+                literal_to_ph_idx={
+                    torch.finfo(torch.float32).eps: 1,
+                    (1, 8): 6,
+                },
+            ),
+            filter_fn=[_filter_fn_for_dynamic_quantized_linear_4bit_groupwise],
+            ignore_literals=True,
+            port_metadata_fn=_port_metadata_for_dynamic_quantized_linear_4bit_groupwise,
+        ),
+        _RewriteInfo(
+            _DYNAMIC_QUANTIZED_LINEAR_4BIT_GROUPWISE_EXAMPLE_INPUTS_2,
+            WrapperModule(_qdq_dynamic_quantized_linear_4bit_groupwise),
+            WrapperModule(_reference_dynamic_quantized_linear_4bit_groupwise),
+            partial(
+                _replace_literals_with_existing_placeholders,
+                literal_to_ph_idx={
+                    torch.finfo(torch.float32).eps: 1,
+                    (1, 8): 6,
+                },
+            ),
+            partial(
+                _replace_literals_with_existing_placeholders,
+                literal_to_ph_idx={
+                    torch.finfo(torch.float32).eps: 1,
+                    (1, 8): 6,
+                },
+            ),
+            filter_fn=[_filter_fn_for_dynamic_quantized_linear_4bit_groupwise],
+            ignore_literals=True,
+            port_metadata_fn=_port_metadata_for_dynamic_quantized_linear_4bit_groupwise,
         ),
         _RewriteInfo(
             _QUANTIZED_LINEAR_EXAMPLE_INPUTS,
@@ -830,6 +1184,15 @@ def reference_representation_rewrite(model: GraphModule) -> GraphModule:
                 replacement = replacement_post_trans(replacement)
             pattern.recompile()  # type: ignore[attr-defined]
             replacement.recompile()  # type: ignore[attr-defined]
-            replace_pattern(model, pattern, replacement)
+            matches = replace_pattern_with_filters(
+                model,
+                pattern,
+                replacement,
+                match_filters=rewrite_info.filter_fn,
+                ignore_literals=rewrite_info.ignore_literals,
+            )  # type: ignore[arg-type]
+            if rewrite_info.port_metadata_fn:
+                for m in matches:
+                    rewrite_info.port_metadata_fn(m)  # type: ignore[arg-type]
 
     return model

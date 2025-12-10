@@ -16,8 +16,8 @@ import torch
 import torch.nn.functional as F
 
 from .utils import (
+    _quant_int8_dynamic_per_token_linear,
     dynamically_quantize_per_channel,
-    quant_int8_dynamic_per_token_linear,
 )
 
 __all__ = [
@@ -152,7 +152,7 @@ class SmoothFakeDynamicallyQuantizedLinear(SmoothFakeDynQuantMixin, torch.nn.Lin
             W_int_repr_t = (
                 self.W_int_repr if self.store_w_int_repr_t else self.W_int_repr.t()
             )
-            Y = quant_int8_dynamic_per_token_linear(
+            Y = _quant_int8_dynamic_per_token_linear(
                 X, W_int_repr_t, self.W_scales, self.bias, X.dtype
             )
         return Y

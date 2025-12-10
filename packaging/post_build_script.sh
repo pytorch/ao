@@ -21,8 +21,8 @@ if [[ "$CU_VERSION" == cu* ]]; then
     --exclude libtorch_cpu.so \
     --exclude libc10.so \
     --exclude libc10_cuda.so \
-    --exclude libcudart.so.12 \
-    --exclude libcudart.so.11.0 \
+    --exclude libcuda.so.* \
+    --exclude libcudart.so.* \
     "${WHEEL_NAME}"
 
     ls -lah .

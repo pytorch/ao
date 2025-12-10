@@ -101,11 +101,11 @@ def _intN_weight_only_transform(
     assert n in [8, 6, 5, 4, 3, 2], "n must be one of [8, 6, 5, 4, 3, 2]"
     if n == 8:
         raise AssertionError(
-            "Someone needs to refactor this code to handle int8_weight_only again"
+            "Someone needs to refactor this code to handle Int8WeightOnlyConfig again"
         )
     elif n == 4:
         raise AssertionError(
-            "Someone needs to refactor this code to handle int4_weight_only again"
+            "Someone needs to refactor this code to handle Int4WeightOnlyConfig again"
         )
     else:
         if symmetric:

@@ -13,7 +13,6 @@ to the post training quantization (PTQ) flow for the most part:
 .. code:: python
 
   import torch
-  from torch._export import capture_pre_autograd_graph
   from torchao.quantization.pt2e.quantize_pt2e import (
     prepare_qat_pt2e,
     convert_pt2e,
@@ -434,7 +433,6 @@ prepared. For example:
 
 .. code:: python
 
-    from torch._export import capture_pre_autograd_graph
     from executorch.backends.xnnpack.quantizer.xnnpack_quantizer import (
         get_symmetric_quantization_config,
         XNNPACKQuantizer,
@@ -443,7 +441,7 @@ prepared. For example:
 
     example_inputs = (torch.rand(2, 3, 224, 224),)
     float_model = resnet18(pretrained=False)
-    exported_model = capture_pre_autograd_graph(float_model, example_inputs)
+    exported_model = torch.export.export(float_model, example_inputs).module()
     quantizer = XNNPACKQuantizer()
     quantizer.set_global(get_symmetric_quantization_config(is_qat=True))
     prepared_model = prepare_qat_pt2e(exported_model, quantizer)

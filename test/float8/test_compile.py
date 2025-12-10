@@ -10,16 +10,6 @@ import unittest
 from io import StringIO
 
 import pytest
-
-from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_5,
-    is_sm_at_least_89,
-    is_sm_at_least_90,
-)
-
-if not TORCH_VERSION_AT_LEAST_2_5:
-    pytest.skip("Unsupported PyTorch version", allow_module_level=True)
-
 import torch
 import torch.nn as nn
 from torch._dynamo.test_case import TestCase as DynamoTestCase
@@ -36,8 +26,16 @@ from torchao.float8.float8_linear import Float8Linear
 from torchao.float8.float8_scaling_utils import (
     hp_tensor_to_float8_dynamic,
 )
-from torchao.float8.float8_tensor import GemmInputRole, LinearMMConfig, ScaledMMConfig
+from torchao.float8.float8_training_tensor import (
+    GemmInputRole,
+    LinearMMConfig,
+    ScaledMMConfig,
+)
 from torchao.testing.training.test_utils import get_test_float8_linear_config
+from torchao.utils import (
+    is_sm_at_least_89,
+    is_sm_at_least_90,
+)
 
 
 def _test_compile_base(
@@ -238,7 +236,7 @@ class TestGraphBreaks(DynamoTestCase):
         "CUDA with capability 9.0 or greater not available",
     )
     def test_float8_with_graph_break_in_the_middle(self):
-        """Test that having Float8Tensor object at the boundary of a subgraph"""
+        """Test that having Float8TrainingTensor object at the boundary of a subgraph"""
         cnts = CompileCounterWithBackend("inductor")
         mod = self.MockLinear(graph_break=True).cuda()
         compiled_mod = copy.deepcopy(mod)
@@ -254,7 +252,7 @@ class TestGraphBreaks(DynamoTestCase):
         "CUDA with float8 support not available",
     )
     def test_float8_graph_input(self):
-        """Test that having Float8Tensor object as a graph input"""
+        """Test that having Float8TrainingTensor object as a graph input"""
 
         def to_float(x):
             return x.to_original_precision()
@@ -278,7 +276,7 @@ class TestGraphBreaks(DynamoTestCase):
         "CUDA with float8 support not available",
     )
     def test_float8_graph_output(self):
-        """Test that having Float8Tensor object as a graph output works"""
+        """Test that having Float8TrainingTensor object as a graph output works"""
         cnts = CompileCounterWithBackend("inductor")
         mod = self.MockLinear(graph_break=False).cuda()
         compiled_mod = torch.compile(mod, backend=cnts)
@@ -290,14 +288,14 @@ class TestGraphBreaks(DynamoTestCase):
         for tensor in tensors:
             assert not isinstance(
                 getattr(y_compiled, tensor), torch._subclasses.fake_tensor.FakeTensor
-            ), "Float8Tensor should not contain any FakeTensors!"
+            ), "Float8TrainingTensor should not contain any FakeTensors!"
         assert isinstance(y_compiled._orig_dtype, torch.dtype), (
-            "Float8Tensor._orig_dtype should be a dtype but got {}".format(
+            "Float8TrainingTensor._orig_dtype should be a dtype but got {}".format(
                 type(y_compiled._orig_dtype)
             )
         )
         assert isinstance(y_compiled._linear_mm_config.output.emulate, bool), (
-            "Float8Tensor._emulate should be a bool but got {}".format(
+            "Float8TrainingTensor._emulate should be a bool but got {}".format(
                 type(y_compiled._linear_mm_config.output.emulate)
             )
         )

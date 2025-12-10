@@ -9,10 +9,6 @@ import torch.nn as nn
 from torchao.prototype.float8nocompile.float8nocompile_linear_utils import (
     convert_to_float8_nocompile_training,
 )
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
-
-if not TORCH_VERSION_AT_LEAST_2_5:
-    raise AssertionError("torchao.float8 requires PyTorch version 2.5 or greater")
 
 # create model and sample input
 m = (

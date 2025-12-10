@@ -16,19 +16,23 @@ from tokenizer import get_tokenizer
 
 import torchao
 from torchao._models.llama.model import prepare_inputs_for_model
+from torchao.prototype.mx_formats.inference_workflow import (
+    MXDynamicActivationMXWeightConfig,
+    NVFP4DynamicActivationNVFP4WeightConfig,
+)
 from torchao.quantization import (
+    Float8DynamicActivationFloat8WeightConfig,
+    Float8WeightOnlyConfig,
+    FPXWeightOnlyConfig,
+    Int4WeightOnlyConfig,
+    Int8DynamicActivationInt8WeightConfig,
+    Int8WeightOnlyConfig,
+    PerBlock,
     PerRow,
     PerTensor,
-    float8_dynamic_activation_float8_weight,
-    float8_weight_only,
-    fpx_weight_only,
-    int4_weight_only,
-    int8_dynamic_activation_int8_weight,
-    int8_weight_only,
+    UIntXWeightOnlyConfig,
     quantize_,
-    uintx_weight_only,
 )
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, unwrap_tensor_subclass
 
 
 def run_evaluation(
@@ -45,6 +49,7 @@ def run_evaluation(
     calibration_limit: Optional[int] = None,
     calibration_seq_length: Optional[int] = None,
     pad_calibration_inputs: bool = False,
+    print_model: bool = False,
 ):
     """Runs the evaluation of a model using LM Eval."""
     print(
@@ -74,11 +79,11 @@ def run_evaluation(
 
             apply_spinquant(model)
         if "int8wo" in quantization:
-            quantize_(model, int8_weight_only())
+            quantize_(model, Int8WeightOnlyConfig())
         if "int8dq" in quantization:
-            quantize_(model, int8_dynamic_activation_int8_weight())
+            quantize_(model, Int8DynamicActivationInt8WeightConfig())
         if "fp6" in quantization:
-            quantize_(model, fpx_weight_only(3, 2))
+            quantize_(model, FPXWeightOnlyConfig(3, 2))
         if "int4wo" in quantization and not "gptq" in quantization:
             if "hqq" in quantization:
                 use_hqq = True
@@ -90,7 +95,7 @@ def run_evaluation(
             )
             quantize_(
                 model.to(device),
-                int4_weight_only(group_size=groupsize, use_hqq=use_hqq),
+                Int4WeightOnlyConfig(group_size=groupsize, use_hqq=use_hqq, version=1),
             )
         if "uintx" in quantization:
             # uintx-nbits-groupsize
@@ -113,11 +118,13 @@ def run_evaluation(
             }
             dtype = _NBITS_TO_DTYPE[nbits]
             group_size = int(_quant_args[2])
-            quantize_(model, uintx_weight_only(dtype, group_size, use_hqq=use_hqq))
+            quantize_(model, UIntXWeightOnlyConfig(dtype, group_size, use_hqq=use_hqq))
         if "marlin" in quantization:
             from torchao.dtypes import MarlinSparseLayout
 
-            quantize_(model, int4_weight_only(layout=MarlinSparseLayout()))
+            quantize_(
+                model, Int4WeightOnlyConfig(layout=MarlinSparseLayout(), version=1)
+            )
         if "int4wo" in quantization and "gptq" in quantization:
             # avoid circular imports
             from torchao._models._eval import LMEvalInputRecorder
@@ -151,11 +158,8 @@ def run_evaluation(
             model.setup_caches(max_batch_size=1, max_seq_length=calibration_seq_length)
             quantizer.quantize(model, *inputs)
             model = model.to(device)
-        else:
-            if not TORCH_VERSION_AT_LEAST_2_5:
-                unwrap_tensor_subclass(model)
         if "float8wo" in quantization:
-            quantize_(model, float8_weight_only())
+            quantize_(model, Float8WeightOnlyConfig())
         if "float8dq" in quantization:
             granularity = str(quantization.split("-")[-1])
             if granularity == "tensor":
@@ -168,7 +172,44 @@ def run_evaluation(
                 else:
                     raise ValueError(f"Unknown granularity {granularity}")
             quantize_(
-                model, float8_dynamic_activation_float8_weight(granularity=granularity)
+                model,
+                Float8DynamicActivationFloat8WeightConfig(granularity=granularity),
+                filter_fn=lambda mod, fqn: isinstance(mod, torch.nn.Linear)
+                and fqn != "output",
+            )
+        if quantization == "float8_a1x128_w128x128":
+            config = Float8DynamicActivationFloat8WeightConfig(
+                granularity=(PerBlock([1, 128]), PerBlock([128, 128])),
+                activation_value_lb=1e-12,
+            )
+            # TODO(future): all workflows in this file should be skipping quantization
+            # of `lm_head`/`output`
+            quantize_(model, config)
+        if quantization == "mxfp8":
+            config = MXDynamicActivationMXWeightConfig(
+                activation_dtype=torch.float8_e4m3fn,
+                weight_dtype=torch.float8_e4m3fn,
+            )
+            # TODO(future): all workflows in this file should be skipping quantization
+            # of `lm_head`/`output`
+            quantize_(
+                model,
+                config,
+                filter_fn=lambda mod, fqn: isinstance(mod, torch.nn.Linear)
+                and fqn != "output",
+            )
+        if quantization == "nvfp4":
+            config = NVFP4DynamicActivationNVFP4WeightConfig(
+                use_dynamic_per_tensor_scale=True,
+                use_triton_kernel=True,
+            )
+            # TODO(future): all workflows in this file should be skipping quantization
+            # of `lm_head`/`output`
+            quantize_(
+                model,
+                config,
+                filter_fn=lambda mod, fqn: isinstance(mod, torch.nn.Linear)
+                and fqn != "output",
             )
         if "autoround" in quantization:
             from transformers import AutoTokenizer
@@ -237,9 +278,53 @@ def run_evaluation(
             quantize_(
                 model, codebook_weight_only(dtype=torch.uint4, scale_block_size=64)
             )
+        elif quantization.startswith("awq-uintx"):
+            from torchao._models._eval import TransformerEvalWrapper
+            from torchao.prototype.awq import (
+                AWQObservedLinear,
+                awq_uintx,
+                insert_awq_observer_,
+            )
+
+            quant_dtype = quantization.split("-")[1]
+            group_size = int(quantization.split("-")[2])
+            quant_dtype = getattr(torch, quant_dtype, torch.uint8)
+            model = model.to(device)
+            # get calibration data
+            insert_awq_observer_(
+                model, 1, 256, quant_dtype=quant_dtype, group_size=group_size
+            )
+            TransformerEvalWrapper(
+                model=model.to(device),
+                tokenizer=tokenizer,
+                max_seq_length=256,
+                input_prep_func=prepare_inputs_for_model,
+                device=device,
+            ).run_eval(
+                tasks=["wikitext"],
+                limit=1,
+            )
+            is_observed_linear = lambda m, fqn: isinstance(m, AWQObservedLinear)
+            use_hqq = "hqq" in quantization
+            quantize_(
+                model,
+                awq_uintx(
+                    quant_dtype=quant_dtype, group_size=group_size, use_hqq=use_hqq
+                ),
+                is_observed_linear,
+            )
 
     if compile:
-        model = torch.compile(model, mode="max-autotune", fullgraph=True)
+        # TODO(future PR): clean this up
+        if quantization in ("float8_a1x128_w128x128", "mxfp8", "nvfp4"):
+            # we don't need max-autotune for float8 blockwise or mxfp8 quant
+            model = torch.compile(model)
+        else:
+            model = torch.compile(model, mode="max-autotune", fullgraph=True)
+
+    if print_model:
+        print(model)
+
     with torch.no_grad():
         print("Running evaluation ...")
         # avoid circular imports
@@ -337,6 +422,9 @@ if __name__ == "__main__":
         default=False,
         help="pads sequences shorter than calibration_seq_length to that length, yielding more calibration inputs but running much slower",
     )
+    parser.add_argument(
+        "--print_model", action="store_true", help="Whether to print the model."
+    )
 
     args = parser.parse_args()
     run_evaluation(
@@ -353,4 +441,5 @@ if __name__ == "__main__":
         args.calibration_limit,
         args.calibration_seq_length,
         args.pad_calibration_inputs,
+        args.print_model,
     )

@@ -19,7 +19,9 @@ from .GPTQ import (
     MultiTensorInputRecorder,
 )
 from .granularity import (
+    Granularity,
     PerAxis,
+    PerBlock,
     PerGroup,
     PerRow,
     PerTensor,
@@ -43,19 +45,21 @@ from .observer import (
 )
 from .quant_api import (
     CutlassInt4PackedLayout,
-    FbgemmConfig,
     Float8DynamicActivationFloat8SemiSparseWeightConfig,
     Float8DynamicActivationFloat8WeightConfig,
+    Float8DynamicActivationInt4WeightConfig,
     Float8MMConfig,
     Float8StaticActivationFloat8WeightConfig,
     Float8WeightOnlyConfig,
     FPXWeightOnlyConfig,
+    FqnToConfig,
     GemliteUIntXWeightOnlyConfig,
     Int4DynamicActivationInt4WeightConfig,
     Int4WeightOnlyConfig,
     Int8DynamicActivationInt4WeightConfig,
     Int8DynamicActivationInt8WeightConfig,
     Int8DynamicActivationIntxWeightConfig,
+    Int8StaticActivationInt8WeightConfig,
     Int8WeightOnlyConfig,
     IntxWeightOnlyConfig,
     ModuleFqnToConfig,
@@ -66,6 +70,7 @@ from .quant_api import (
     float8_static_activation_float8_weight,
     float8_weight_only,
     fpx_weight_only,
+    fqn_matches_fqn_config,
     gemlite_uintx_weight_only,
     int4_dynamic_activation_int4_weight,
     int4_weight_only,
@@ -87,8 +92,16 @@ from .quant_primitives import (
     dequantize_affine,
     quantize_affine,
 )
-from .quantize_ import (
-    Int4GroupwisePreshuffleTensor,
+from .quantize_.workflows import (
+    Float8Tensor,
+    Int4MarlinSparseTensor,
+    Int4PlainInt32Tensor,
+    Int4PreshuffledTensor,
+    Int4Tensor,
+    Int4TilePackedTo4dTensor,
+    Int8Tensor,
+    IntxOpaqueTensor,
+    IntxUnpackedToInt8Tensor,
 )
 from .smoothquant import (
     SmoothFakeDynamicallyQuantizedLinear,
@@ -98,13 +111,11 @@ from .smoothquant import (
     smooth_fq_linear_to_inference,
     swap_linear_with_smooth_fq_linear,
 )
-from .subclass import *  # noqa: F403
 from .transform_module import register_quantize_module_handler
 from .unified import Quantizer, TwoStepQuantizer
 from .utils import (
     compute_error,
 )
-from .weight_only import WeightOnlyInt8QuantLinear
 
 # TODO: remove after migration of APIs are done
 AOPerModuleConfig = ModuleFqnToConfig
@@ -133,13 +144,16 @@ __all__ = [
     "float8_static_activation_float8_weight",
     "uintx_weight_only",
     "fpx_weight_only",
+    "fqn_matches_fqn_config",
     "gemlite_uintx_weight_only",
     "swap_conv2d_1x1_to_linear",
     "Int4DynamicActivationInt4WeightConfig",
     "Int8DynamicActivationInt4WeightConfig",
     "Int8DynamicActivationInt8WeightConfig",
     "Int8DynamicActivationIntxWeightConfig",
+    "Int8StaticActivationInt8WeightConfig",
     "Int4WeightOnlyConfig",
+    "Float8DynamicActivationInt4WeightConfig",
     "Int8WeightOnlyConfig",
     "Float8WeightOnlyConfig",
     "Float8DynamicActivationFloat8WeightConfig",
@@ -150,10 +164,18 @@ __all__ = [
     "FPXWeightOnlyConfig",
     "GemliteUIntXWeightOnlyConfig",
     "AOPerModuleConfig",
+    "FqnToConfig",
     "ModuleFqnToConfig",
-    "FbgemmConfig",
     # tensor subclasses
-    "Int4GroupwisePreshuffleTensor",
+    "Int8Tensor",
+    "Int4Tensor",
+    "Int4PlainInt32Tensor",
+    "Int4PreshuffledTensor",
+    "Int4MarlinSparseTensor",
+    "IntxOpaqueTensor",
+    "IntxUnpackedToInt8Tensor",
+    "Int4TilePackedTo4dTensor",
+    "Float8Tensor",
     # smooth quant - subject to change
     "get_scale",
     "SmoothFakeDynQuantMixin",
@@ -181,8 +203,10 @@ __all__ = [
     "MappingType",
     "ZeroPointDomain",
     "TorchAODType",
+    "Granularity",
     "PerTensor",
     "PerAxis",
+    "PerBlock",
     "PerGroup",
     "PerRow",
     "PerToken",
@@ -190,7 +214,6 @@ __all__ = [
     "Int4WeightOnlyQuantizer",
     "Int8DynActInt4WeightQuantizer",
     "Int8DynActInt4WeightLinear",
-    "WeightOnlyInt8QuantLinear",
     "TwoStepQuantizer",
     "Quantizer",
     # Layouts for quant_api

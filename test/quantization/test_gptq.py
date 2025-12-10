@@ -1,3 +1,9 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
+
 import unittest
 from pathlib import Path
 
@@ -12,16 +18,16 @@ from torchao._models.llama.model import (
 from torchao._models.llama.tokenizer import get_tokenizer
 from torchao.quantization import Int4WeightOnlyConfig, quantize_
 from torchao.quantization.utils import compute_error
-from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_4,
-)
+from torchao.utils import get_current_accelerator_device
 
 torch.manual_seed(0)
+
+_DEVICE = get_current_accelerator_device()
 
 
 class TestGPTQ(TestCase):
     @unittest.skip("skipping until we get checkpoints for gpt-fast")
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test_gptq_quantizer_int4_weight_only(self):
         from torchao._models._eval import (
             LMEvalInputRecorder,
@@ -30,7 +36,7 @@ class TestGPTQ(TestCase):
         from torchao.quantization.GPTQ import Int4WeightOnlyGPTQQuantizer
 
         precision = torch.bfloat16
-        device = "cuda"
+        device = _DEVICE
         checkpoint_path = Path(
             "../../checkpoints/meta-llama/Llama-2-7b-chat-hf/model.pth"
         )
@@ -77,15 +83,15 @@ class TestGPTQ(TestCase):
         )
         model.setup_caches(max_batch_size=1, max_seq_length=calibration_seq_length)
 
-        model = quantizer.quantize(model, *inputs).cuda()
+        model = quantizer.quantize(model, *inputs).to(_DEVICE)
 
         model.reset_caches()
-        with torch.device("cuda"):
+        with torch.device(_DEVICE):
             model.setup_caches(max_batch_size=1, max_seq_length=model.config.block_size)
 
         limit = 1
         result = TransformerEvalWrapper(
-            model.cuda(),
+            model.to(_DEVICE),
             tokenizer,
             model.config.block_size,
             prepare_inputs_for_model,
@@ -101,8 +107,7 @@ class TestGPTQ(TestCase):
 
 
 class TestMultiTensorFlow(TestCase):
-    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "Test only enabled for 2.4+")
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test_multitensor_add_tensors(self):
         from torchao.quantization.GPTQ import MultiTensor
 
@@ -114,8 +119,7 @@ class TestMultiTensorFlow(TestCase):
         self.assertTrue(torch.equal(mt.values[0], tensor1))
         self.assertTrue(torch.equal(mt.values[1], tensor2))
 
-    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "Test only enabled for 2.4+")
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test_multitensor_pad_unpad(self):
         from torchao.quantization.GPTQ import MultiTensor
 
@@ -126,8 +130,7 @@ class TestMultiTensorFlow(TestCase):
         mt.unpad()
         self.assertEqual(mt.count, 1)
 
-    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "Test only enabled for 2.4+")
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test_multitensor_inplace_operation(self):
         from torchao.quantization.GPTQ import MultiTensor
 
@@ -138,7 +141,7 @@ class TestMultiTensorFlow(TestCase):
 
 
 class TestMultiTensorInputRecorder(TestCase):
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test_multitensor_input_recorder(self):
         from torchao.quantization.GPTQ import MultiTensor, MultiTensorInputRecorder
 
@@ -159,7 +162,7 @@ class TestMultiTensorInputRecorder(TestCase):
         self.assertTrue(isinstance(MT_input[2][2], MultiTensor))
         self.assertEqual(MT_input[3], torch.float)
 
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test_gptq_with_input_recorder(self):
         from torchao.quantization.GPTQ import (
             Int4WeightOnlyGPTQQuantizer,
@@ -170,7 +173,7 @@ class TestMultiTensorInputRecorder(TestCase):
 
         config = ModelArgs(n_layer=2)
 
-        with torch.device("cuda"):
+        with torch.device(_DEVICE):
             model = Transformer(config)
             model.setup_caches(max_batch_size=2, max_seq_length=100)
             idx = torch.randint(1, 10000, (10, 2, 50)).to(torch.int32)
@@ -179,7 +182,7 @@ class TestMultiTensorInputRecorder(TestCase):
 
         model2 = copy.deepcopy(model)
         out = model(*test_input)
-        quantize_(model2, Int4WeightOnlyConfig())
+        quantize_(model2, Int4WeightOnlyConfig(version=1))
 
         outq = model2(*test_input)
         del model2
@@ -191,7 +194,14 @@ class TestMultiTensorInputRecorder(TestCase):
 
         args = input_recorder.get_recorded_inputs()
 
-        quantizer = Int4WeightOnlyGPTQQuantizer()
+        if _DEVICE.type == "xpu":
+            from torchao.dtypes import Int4XPULayout
+
+            quantizer = Int4WeightOnlyGPTQQuantizer(
+                device=torch.device("xpu"), layout=Int4XPULayout()
+            )
+        else:
+            quantizer = Int4WeightOnlyGPTQQuantizer()
 
         quantizer.quantize(model, *args)
 

@@ -121,9 +121,12 @@ def _apply_awq_transform(
                 weight, weight_scale, weight_zero_point, block_size, target_dtype
             )
         elif target_dtype == torch.float8_e4m3fn:
+            scale_2d = (
+                weight_scale.view(1, -1) if weight_scale.dim() == 1 else weight_scale
+            )
             return to_affine_quantized_floatx_static(
                 weight,
-                weight_scale,
+                scale_2d,
                 block_size,
                 target_dtype,
                 Float8Layout(mm_config=None),

@@ -18,9 +18,11 @@ for an overall introduction to the library and recent highlight and updates.
    :maxdepth: 1
    :caption: Developer Notes
 
-   quantization
-   sparsity
+   quantization_overview
    contributor_guide
+   sparsity
+   benchmarking_api_guide
+   benchmarking_user_guide
 
 .. toctree::
    :glob:
@@ -29,8 +31,10 @@ for an overall introduction to the library and recent highlight and updates.
 
    api_ref_dtypes
    api_ref_quantization
+   api_ref_qat
    api_ref_sparsity
    api_ref_float8
+   api_ref_utils
 
 .. toctree::
    :glob:
@@ -41,6 +45,7 @@ for an overall introduction to the library and recent highlight and updates.
    finetuning
    serving
    torchao_vllm_integration
+   torchao_hf_integration
    serialization
    static_quantization
    subclass_basic
@@ -55,5 +60,5 @@ for an overall introduction to the library and recent highlight and updates.
    tutorials_source/pt2e_quant_qat
    tutorials_source/pt2e_quant_x86_inductor
    tutorials_source/pt2e_quant_xpu_inductor
+   tutorials_source/pt2e_quant_openvino_inductor
    tutorials_source/pt2e_quantizer
-   tutorials_source/openvino_quantizer

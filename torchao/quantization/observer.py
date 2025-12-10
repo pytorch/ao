@@ -10,20 +10,16 @@ from typing import Any, Optional, Tuple
 
 import torch
 
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
+from torchao.quantization.quant_primitives import _fake_quantize_affine
 
-from .granularity import (
-    Granularity,
-    PerAxis,
-    PerRow,
-    PerTensor,
-)
+from .granularity import Granularity, PerRow, PerTensor  # noqa: F401
 from .quant_primitives import (
     MappingType,
     ZeroPointDomain,
     _get_reduction_params,
     choose_qparams_affine_with_min_max,
 )
+from .utils import get_block_size
 
 logger = logging.getLogger(__name__)
 
@@ -61,26 +57,6 @@ def _with_args(cls_or_self, *args, **kwargs):
     """
     r = _PartialWrapper(partial(cls_or_self, *args, **kwargs))
     return r
-
-
-def get_block_size(
-    input_shape: Tuple[int, ...], granularity: Granularity
-) -> Tuple[int, ...]:
-    """Get the block size based on the input shape and granularity type.
-
-    Args:
-        input_shape: The input tensor shape possibly more than 2 dimensions
-        granularity: The granularity type of the quantization
-    """
-    if isinstance(granularity, PerTensor):
-        return input_shape
-    elif isinstance(granularity, PerAxis):
-        block_size = list(input_shape)
-        block_size[granularity.axis] = 1
-        return tuple(block_size)
-    elif isinstance(granularity, PerRow):
-        return (1,) * (len(input_shape) - 1) + (input_shape[-1],)
-    raise ValueError(f"Unsupported Granularity: {granularity}")
 
 
 ABC: Any = ABCMeta("ABC", (object,), {})  # compatible with Python 2 *and* 3:
@@ -193,6 +169,180 @@ class AffineQuantizedMinMaxObserver(AffineQuantizedObserverBase):
         )
 
 
-if TORCH_VERSION_AT_LEAST_2_5:
-    # Allow a model with LinearActivationQuantizedTensor weights to be loaded with `weights_only=True`
-    torch.serialization.add_safe_globals([PerRow, PerTensor])
+class AffineQuantizedFixedQParamObserver(AffineQuantizedObserverBase):
+    """
+    Observer that allows manual setting of fixed quantization parameters.
+    """
+
+    def __init__(
+        self,
+        mapping_type: MappingType,
+        target_dtype: torch.dtype,
+        granularity: Granularity,
+        quant_min: Optional[int] = None,
+        quant_max: Optional[int] = None,
+        eps: Optional[float] = None,
+        scale_dtype: Optional[torch.dtype] = None,
+        zero_point_dtype: Optional[torch.dtype] = None,
+        preserve_zero: bool = True,
+        zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
+        scale: Optional[torch.Tensor] = None,
+        zero_point: Optional[torch.Tensor] = None,
+    ):
+        super().__init__(
+            mapping_type,
+            target_dtype,
+            granularity,
+            quant_min,
+            quant_max,
+            eps,
+            scale_dtype,
+            zero_point_dtype,
+            preserve_zero,
+            zero_point_domain,
+        )
+        if not scale:
+            scale = torch.Tensor([1])
+        if not zero_point:
+            zero_point = torch.zeros_like(scale)
+        self.register_buffer("scale", scale.to(dtype=scale_dtype))
+        self.register_buffer("zero_point", zero_point.to(dtype=zero_point_dtype))
+
+    def set_qparams(self, scale, zero_point=None):
+        if not zero_point:
+            zero_point = torch.zeros_like(scale)
+        self.scale = scale.to(dtype=self.scale_dtype)
+        self.zero_point = zero_point.to(dtype=self.zero_point_dtype)
+
+    def forward(self, input):
+        return input
+
+    def calculate_qparams(self):
+        return self.scale, self.zero_point
+
+
+class AffineQuantizedMSEObserver(AffineQuantizedObserverBase):
+    """
+    Minimize quantization loss caused by outlier via linear search. More details can be found at https://arxiv.org/pdf/2209.13325
+    """
+
+    def __init__(
+        self,
+        mapping_type: MappingType,
+        target_dtype: torch.dtype,
+        granularity: Granularity,
+        quant_min: Optional[int] = None,
+        quant_max: Optional[int] = None,
+        eps: Optional[float] = None,
+        scale_dtype: Optional[torch.dtype] = None,
+        zero_point_dtype: Optional[torch.dtype] = None,
+        preserve_zero: bool = True,
+        zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
+        steps: int = 100,
+        run_once: bool = False,
+    ):
+        super().__init__(
+            mapping_type,
+            target_dtype,
+            granularity,
+            quant_min,
+            quant_max,
+            eps,
+            scale_dtype,
+            zero_point_dtype,
+            preserve_zero,
+            zero_point_domain,
+        )
+        self.steps = steps
+        self.calibrated = False
+        self.run_once = run_once
+
+    def mse(self, pred, expect, block_size):
+        loss = (pred - expect).abs().pow(2)
+        shape_for_reduction, reduction_dims = _get_reduction_params(
+            block_size, loss.size()
+        )
+        loss = loss.view(shape_for_reduction)
+        return torch.mean(loss, dim=reduction_dims, keepdim=False)
+
+    def loss_fn(self, x, new_min, new_max):
+        block_size = get_block_size(x.shape, self.granularity)
+        scale, zero_point = choose_qparams_affine_with_min_max(
+            new_min,
+            new_max,
+            self.mapping_type,
+            [],
+            self.target_dtype,
+            self.quant_min,
+            self.quant_max,
+            self.eps,
+            self.scale_dtype,
+            self.zero_point_dtype,
+            self.preserve_zero,
+            self.zero_point_domain,
+        )
+        x_q = _fake_quantize_affine(
+            x,
+            block_size,
+            scale,
+            zero_point,
+            self.target_dtype,
+            self.quant_min,
+            self.quant_max,
+            self.zero_point_domain,
+        )
+        return self.mse(x_q, x, block_size)
+
+    def line_search(self, input):
+        if input.numel() == 0:
+            return input
+
+        input_detached = input.detach()
+        assert self.granularity is not None, "granularity is None"
+        block_size = get_block_size(input_detached.shape, self.granularity)
+
+        shape_for_reduction, reduction_dims = _get_reduction_params(
+            block_size, input_detached.size()
+        )
+        input_detached = input_detached.view(shape_for_reduction)
+        min_val = torch.amin(input_detached, dim=reduction_dims, keepdim=False)
+        max_val = torch.amax(input_detached, dim=reduction_dims, keepdim=False)
+
+        range_val = torch.max(min_val.abs(), max_val)
+        optimal_loss = torch.zeros_like(min_val) + 1e9
+
+        # check which clip range could produce smallest loss
+        for i in range(1, self.steps + 1):
+            thres = range_val / self.steps * i
+            current_loss = self.loss_fn(input, -thres, thres)
+            min_val = torch.where(current_loss < optimal_loss, -thres, min_val)
+            max_val = torch.where(current_loss < optimal_loss, thres, max_val)
+            optimal_loss = torch.min(current_loss, optimal_loss)
+
+        return min_val, max_val
+
+    def forward(self, input):
+        if not (self.run_once and self.calibrated):
+            self.min_val, self.max_val = self.line_search(input)
+            self.calibrated = True
+
+        return input
+
+    def calculate_qparams(self):
+        assert hasattr(self, "min_val") and hasattr(self, "max_val"), (
+            "Expecting the observer has min_val and max_val, please run the observer before calling calculate_qparams"
+        )
+        return choose_qparams_affine_with_min_max(
+            self.min_val,
+            self.max_val,
+            self.mapping_type,
+            [],
+            self.target_dtype,
+            self.quant_min,
+            self.quant_max,
+            self.eps,
+            self.scale_dtype,
+            self.zero_point_dtype,
+            self.preserve_zero,
+            self.zero_point_domain,
+        )

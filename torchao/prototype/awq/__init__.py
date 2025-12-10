@@ -1,8 +1,8 @@
-from .api import awq_uintx, insert_awq_observer_
-from .core import AWQObservedLinear
+from .api import AWQConfig
+from .core import AWQObservedLinear, AWQStep
 
 __all__ = [
-    "awq_uintx",
-    "insert_awq_observer_",
     "AWQObservedLinear",
+    "AWQConfig",
+    "AWQStep",
 ]

@@ -4,32 +4,25 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
+import logging
 from typing import Optional, Tuple
 
 import numpy as np
 import torch
+from torch.distributed.tensor import Replicate, Shard
+from torch.distributed.tensor.experimental import register_sharding
 from torch.utils._triton import has_triton
 
 from torchao.prototype.custom_fp_utils import (
     _f32_to_floatx_unpacked,
     _floatx_unpacked_to_f32,
 )
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_4, TORCH_VERSION_AT_LEAST_2_7
-
-# TODO(future): if needed, make the below work on previous PyTorch versions,
-# just need to hunt down the previous location of `libdevice`. An assert
-# at the callsite prevents usage of this on unsupported versions.
-if TORCH_VERSION_AT_LEAST_2_4 and has_triton():
-    from torch._inductor.runtime.triton_helpers import libdevice
-
-from torchao.prototype.mx_formats.constants import (
-    E8M0_EXPONENT_BIAS,
-    E8M0_EXPONENT_NAN_VAL,
-    F4_E2M1_EXP_BIAS,
-    F6_E2M3_EXP_BIAS,
-    F6_E3M2_EXP_BIAS,
-    F32_EXP_BIAS,
+from torchao.utils import (
+    is_sm_at_least_100,
+    torch_version_at_least,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def get_bits(x: torch.Tensor) -> str:
@@ -112,858 +105,6 @@ def f6_e3m2_unpacked_to_f32(x: torch.Tensor):
     return _floatx_unpacked_to_f32(x, EBITS_F6_E3M2, MBITS_F6_E3M2)
 
 
-if has_triton():
-    import triton
-    import triton.language as tl
-
-    @triton.jit
-    def _fp4_packed_to_bf16(
-        x_packed,
-        sign_mask_f4,
-        mantissa_mask_f4,
-        mbits_f4_e2m1,
-        ebits_f4_e2m1,
-        f4_e2m1_exp_bias,
-        mbits_f32,
-        ebits_f32,
-        f32_exp_bias,
-        zero_bits_f32,
-        zero_point_five_bits_f32,
-    ):
-        """
-        Input: a tensor of packed fp4 values
-        Output: a tensor of bfloat16 values
-        """
-
-        # low-bits: original location 0:3
-        # high-bits: original location 4:7
-        x_low_bits = x_packed >> 4
-        x_high_bits = x_packed & 0xF
-        x = tl.interleave(x_low_bits, x_high_bits)
-
-        # cast logic below
-        # output = x_unpacked.to(tl.float32)
-
-        # save the sign
-        sign_f4 = x & sign_mask_f4
-
-        # set everything to positive, will add sign back at the end
-        x_pos = x ^ sign_f4
-
-        # Special case zero
-        zero_mask = x_pos == 0
-
-        # There is only one denormal value in fp4: s001, which is 0.5 in f32
-        # Special case it.
-        # TODO(later): will it be faster to repeat this for all 8 positive
-        # values instead of the bit manipulations?
-        denormal_mask = x_pos == 1
-
-        # calculate the new exponent and shift it to bits 2:9 of the result
-        exp_biased_f4 = x_pos >> mbits_f4_e2m1
-        exp_biased_f32 = exp_biased_f4 - f4_e2m1_exp_bias + f32_exp_bias
-        exp_biased_f32 = exp_biased_f32.to(tl.int32) << mbits_f32
-
-        # shift the mantissa to bits 10:32 of the result
-        mantissa_f4 = x_pos & mantissa_mask_f4
-        mantissa_f32 = mantissa_f4.to(tl.int32) << (mbits_f32 - mbits_f4_e2m1)
-        output = mantissa_f32
-
-        # combine the pieces
-        result = exp_biased_f32 | mantissa_f32
-        # result[zero_mask] = ZERO_BITS_F32
-        result = tl.where(zero_mask, zero_bits_f32, result)
-        # result[denormal_mask] = ZERO_POINT_FIVE_BITS_F32
-        result = tl.where(denormal_mask, zero_point_five_bits_f32, result)
-
-        # add sign back
-        sign_f32 = sign_f4.to(tl.int32) << (
-            mbits_f32 - mbits_f4_e2m1 + ebits_f32 - ebits_f4_e2m1
-        )
-        result = result | sign_f32
-
-        # The bit shifting above is for float32, so for now we
-        # bitcast to float32 and then regular cast to bfloat16
-        # TODO(later): it should be pretty easy to cast directly to bf16, just
-        # need to adjust the mbits/ebits/special values. Perf impact is likely
-        # to be small as we would not be chaning memory access patterns.
-        output = result.to(tl.float32, bitcast=True)
-        output = output.to(tl.bfloat16)
-        return output
-
-    @triton.jit
-    def triton_f4_to_bf16_kernel(
-        x_ptr,
-        output_ptr,
-        n_elements_in,
-        sign_mask_f4: tl.constexpr,
-        mantissa_mask_f4: tl.constexpr,
-        mbits_f4_e2m1: tl.constexpr,
-        ebits_f4_e2m1: tl.constexpr,
-        f4_e2m1_exp_bias: tl.constexpr,
-        mbits_f32: tl.constexpr,
-        ebits_f32: tl.constexpr,
-        f32_exp_bias: tl.constexpr,
-        zero_bits_f32: tl.constexpr,
-        zero_point_five_bits_f32: tl.constexpr,
-        BLOCK_SIZE_IN: tl.constexpr,
-    ):
-        pid = tl.program_id(axis=0)
-        n_elements_out = n_elements_in * 2
-        BLOCK_SIZE_OUT: tl.constexpr = BLOCK_SIZE_IN * 2
-
-        block_start_in = pid * BLOCK_SIZE_IN
-        offsets_in = block_start_in + tl.arange(0, BLOCK_SIZE_IN)
-
-        mask_in = offsets_in < n_elements_in
-
-        # packed uint8
-        x_packed = tl.load(x_ptr + offsets_in, mask=mask_in)
-        output = _fp4_packed_to_bf16(
-            x_packed,
-            sign_mask_f4,
-            mantissa_mask_f4,
-            mbits_f4_e2m1,
-            ebits_f4_e2m1,
-            f4_e2m1_exp_bias,
-            mbits_f32,
-            ebits_f32,
-            f32_exp_bias,
-            zero_bits_f32,
-            zero_point_five_bits_f32,
-        )
-
-        # set up output offsets
-        block_start_out = pid * BLOCK_SIZE_OUT
-        offsets_out = block_start_out + tl.arange(0, BLOCK_SIZE_OUT)
-        mask_out = offsets_out < n_elements_out
-
-        tl.store(output_ptr + offsets_out, output, mask=mask_out)
-
-    @triton.autotune(
-        configs=[
-            triton.Config({"BLOCK_SIZE_IN": 128}),
-            triton.Config({"BLOCK_SIZE_IN": 256}),
-            triton.Config({"BLOCK_SIZE_IN": 512}),
-            triton.Config({"BLOCK_SIZE_IN": 1024}),
-            triton.Config({"BLOCK_SIZE_IN": 2048}),
-        ],
-        key=["n_elements_in"],
-    )
-    @triton.jit
-    def triton_f4_to_scaled_bf16_kernel(
-        x_ptr,
-        s_ptr,
-        output_ptr,
-        n_elements_in,
-        mx_block_size: tl.constexpr,
-        sign_mask_f4: tl.constexpr,
-        mantissa_mask_f4: tl.constexpr,
-        mbits_f4_e2m1: tl.constexpr,
-        ebits_f4_e2m1: tl.constexpr,
-        f4_e2m1_exp_bias: tl.constexpr,
-        mbits_f32: tl.constexpr,
-        ebits_f32: tl.constexpr,
-        f32_exp_bias: tl.constexpr,
-        zero_bits_f32: tl.constexpr,
-        zero_point_five_bits_f32: tl.constexpr,
-        e8m0_exponent_bias: tl.constexpr,
-        e8m0_exponent_nan_val: tl.constexpr,
-        BLOCK_SIZE_IN: tl.constexpr,
-    ):
-        pid = tl.program_id(axis=0)
-        n_elements_out = n_elements_in * 2
-        n_elements_s = n_elements_out // 32
-
-        BLOCK_SIZE_S: tl.constexpr = BLOCK_SIZE_IN // 16
-        BLOCK_SIZE_OUT: tl.constexpr = BLOCK_SIZE_IN * 2
-
-        block_start_in = pid * BLOCK_SIZE_IN
-        offsets_in = block_start_in + tl.arange(0, BLOCK_SIZE_IN)
-        mask_in = offsets_in < n_elements_in
-        # packed uint8
-        x_packed = tl.load(x_ptr + offsets_in, mask=mask_in)
-        output = _fp4_packed_to_bf16(
-            x_packed,
-            sign_mask_f4,
-            mantissa_mask_f4,
-            mbits_f4_e2m1,
-            ebits_f4_e2m1,
-            f4_e2m1_exp_bias,
-            mbits_f32,
-            ebits_f32,
-            f32_exp_bias,
-            zero_bits_f32,
-            zero_point_five_bits_f32,
-        )
-
-        # load scale
-        block_start_s = pid * BLOCK_SIZE_S
-        offsets_s = block_start_s + tl.arange(0, BLOCK_SIZE_S)
-        mask_s = offsets_s < n_elements_s
-        s = tl.load(s_ptr + offsets_s, mask=mask_s)
-
-        # create the scale in bf16
-        s_offset = s.to(tl.int16) - e8m0_exponent_bias
-        s_fp = libdevice.pow(2.0, s_offset).to(tl.bfloat16)
-        s_fp = tl.where(s != e8m0_exponent_nan_val, s_fp, float("nan"))
-
-        # multiply output by scale
-        # TODO(later): see if manipulating the exponent instead of fp
-        # multiplication is going to give a significant speedup
-        output = tl.reshape(output, (BLOCK_SIZE_OUT // mx_block_size, mx_block_size))  # noqa: E501
-        s_fp = tl.reshape(s_fp, (BLOCK_SIZE_S // 1, 1))
-        output = output * s_fp
-        output = tl.reshape(output, (BLOCK_SIZE_OUT,))
-
-        # set up output offsets
-        block_start_out = pid * BLOCK_SIZE_OUT
-        offsets_out = block_start_out + tl.arange(0, BLOCK_SIZE_OUT)
-        mask_out = offsets_out < n_elements_out
-
-        tl.store(output_ptr + offsets_out, output, mask=mask_out)
-
-    @triton.jit
-    def _fp6_packed_to_bf16(
-        packed_4bits_a,
-        packed_4bits_b,
-        packed_2bits,
-        sign_mask_f6,
-        mbits_f6,
-        f6_exp_bias,
-        mbits_f32,
-        f32_exp_bias,
-    ):
-        """
-        Input: a tensor of packed fp6 values
-        Output: a tensor of bfloat16 values
-        """
-
-        # L/R shift and combine back into uint8 with first 2 bits empty (i.e. unpacked)
-        x_0 = ((packed_4bits_a >> 2) & 0x3C) | ((packed_2bits & 0xC0) >> 6)
-        x_1 = ((packed_4bits_a << 2) & 0x3C) | ((packed_2bits & 0x30) >> 4)
-        x_2 = ((packed_4bits_b >> 2) & 0x3C) | ((packed_2bits & 0xC) >> 2)
-        x_3 = ((packed_4bits_b << 2) & 0x3C) | (packed_2bits & 0x3)
-
-        # repeat_interleave not supported yet, see https://github.com/triton-lang/triton/issues/1426
-        # instead we can interleave(interleave(4*i, 4*i+2), interleave(4*i+1, 4*i+3))
-        # TODO: is there a more performant way?
-        # We could stack all 4, then transpose and ravel and do it that way?
-        x_02 = tl.interleave(x_0, x_2)  # [x_0_0, x_2_0, x_0_1, x_2_1, ...]
-        x_13 = tl.interleave(x_1, x_3)  # [x_1_0, x_3_0, x_1_1, x_3_1, ...]
-        x = tl.interleave(x_02, x_13)  # [x_0_0, x_1_0, x_2_0, x_3_0, x_0_1, ...]
-
-        # save the sign
-        sign_f6 = x & sign_mask_f6
-
-        # set everything to positive, will add sign back at the end
-        x_pos = x ^ sign_f6
-
-        # shift the exponent and mantissa
-        result = x_pos.to(tl.int32) << (mbits_f32 - mbits_f6)
-
-        # add sign back
-        # left shift is always 26 regardless of fp6 variant
-        sign_f32 = sign_f6.to(tl.int32) << 26
-        result = result | sign_f32
-
-        # The bit shifting above is for float32, so for now we
-        # bitcast to float32 and then regular cast to bfloat16
-        # TODO(later): it should be pretty easy to cast directly to bf16, just
-        # need to adjust the mbits/ebits/special values. Perf impact is likely
-        # to be small as we would not be changing memory access patterns.
-        output = result.to(tl.float32, bitcast=True)
-
-        # Scale the fp32 exponent afterwards, handles the denorms correctly
-        output *= 2.0 ** (f32_exp_bias - f6_exp_bias)
-
-        output = output.to(tl.bfloat16)
-        return output
-
-    @triton.autotune(
-        configs=[
-            triton.Config({"BLOCK_SIZE_IN": 2}, num_warps=1),
-            triton.Config({"BLOCK_SIZE_IN": 4}, num_warps=1),
-            triton.Config({"BLOCK_SIZE_IN": 8}, num_warps=1),
-            triton.Config({"BLOCK_SIZE_IN": 16}, num_warps=1),
-        ],
-        key=["n_mx_blocks"],
-    )
-    @triton.jit
-    def triton_f6_to_bf16_kernel(
-        x_ptr,
-        output_ptr,
-        n_mx_blocks,
-        mx_block_size: tl.constexpr,
-        packed_mx_block_size: tl.constexpr,
-        sign_mask_f6: tl.constexpr,
-        mbits_f6: tl.constexpr,
-        f6_exp_bias: tl.constexpr,
-        mbits_f32: tl.constexpr,
-        f32_exp_bias: tl.constexpr,
-        BLOCK_SIZE_IN: tl.constexpr,
-    ):
-        pid = tl.program_id(axis=0)
-        block_start = pid * BLOCK_SIZE_IN
-
-        offsets_rows = block_start + tl.arange(0, BLOCK_SIZE_IN)
-        offsets_cols = tl.arange(0, packed_mx_block_size // 3)
-        mask_in = (offsets_rows[:, None] < n_mx_blocks) & (
-            offsets_cols[None, :] < packed_mx_block_size // 3
-        )
-        offsets_in = (
-            offsets_rows[:, None] * packed_mx_block_size + offsets_cols[None, :]
-        )
-
-        # packed 4 x fp6 into 3 x uint8
-        packed_4bits_a = tl.load(x_ptr + offsets_in, mask=mask_in, other=0)
-        packed_4bits_b = tl.load(
-            x_ptr + offsets_in + (packed_mx_block_size // 3), mask=mask_in, other=0
-        )
-        packed_2bits = tl.load(
-            x_ptr + offsets_in + (2 * packed_mx_block_size // 3), mask=mask_in, other=0
-        )
-
-        output = _fp6_packed_to_bf16(
-            packed_4bits_a,
-            packed_4bits_b,
-            packed_2bits,
-            sign_mask_f6,
-            mbits_f6,
-            f6_exp_bias,
-            mbits_f32,
-            f32_exp_bias,
-        )
-
-        # set up output offsets
-        offsets_rows_out = block_start + tl.arange(0, BLOCK_SIZE_IN)
-        offsets_cols_out = tl.arange(0, mx_block_size)
-        offsets_out = (
-            offsets_rows_out[:, None] * mx_block_size + offsets_cols_out[None, :]
-        )
-        mask_out = (offsets_rows_out[:, None] < n_mx_blocks) & (
-            offsets_cols_out[None, :] < mx_block_size
-        )
-
-        tl.store(output_ptr + offsets_out, output, mask=mask_out)
-
-    @triton.autotune(
-        configs=[
-            triton.Config({"BLOCK_SIZE_IN": 2}, num_warps=1),
-            triton.Config({"BLOCK_SIZE_IN": 4}, num_warps=1),
-            triton.Config({"BLOCK_SIZE_IN": 8}, num_warps=1),
-            triton.Config({"BLOCK_SIZE_IN": 16}, num_warps=1),
-        ],
-        key=["n_mx_blocks"],
-    )
-    @triton.jit
-    def triton_f6_to_scaled_bf16_kernel(
-        x_ptr,
-        s_ptr,
-        output_ptr,
-        n_mx_blocks,
-        mx_block_size: tl.constexpr,
-        packed_mx_block_size: tl.constexpr,
-        sign_mask_f6: tl.constexpr,
-        mbits_f6: tl.constexpr,
-        f6_exp_bias: tl.constexpr,
-        mbits_f32: tl.constexpr,
-        f32_exp_bias: tl.constexpr,
-        e8m0_exponent_bias: tl.constexpr,
-        e8m0_exponent_nan_val: tl.constexpr,
-        BLOCK_SIZE_IN: tl.constexpr,
-    ):
-        pid = tl.program_id(axis=0)
-
-        block_start = pid * BLOCK_SIZE_IN
-
-        offsets_rows = block_start + tl.arange(0, BLOCK_SIZE_IN)
-        offsets_cols = tl.arange(0, packed_mx_block_size // 3)
-        mask_in = (offsets_rows[:, None] < n_mx_blocks) & (
-            offsets_cols[None, :] < packed_mx_block_size // 3
-        )
-        offsets_in = (
-            offsets_rows[:, None] * packed_mx_block_size + offsets_cols[None, :]
-        )
-
-        # packed 4 x fp6 into 3 x uint8
-        packed_4bits_a = tl.load(x_ptr + offsets_in, mask=mask_in, other=0)
-        packed_4bits_b = tl.load(
-            x_ptr + offsets_in + (packed_mx_block_size // 3), mask=mask_in, other=0
-        )
-        packed_2bits = tl.load(
-            x_ptr + offsets_in + (2 * packed_mx_block_size // 3), mask=mask_in, other=0
-        )
-
-        output = _fp6_packed_to_bf16(
-            packed_4bits_a,
-            packed_4bits_b,
-            packed_2bits,
-            sign_mask_f6,
-            mbits_f6,
-            f6_exp_bias,
-            mbits_f32,
-            f32_exp_bias,
-        )
-
-        # load scale
-        offsets_s = block_start + tl.arange(0, BLOCK_SIZE_IN)
-        mask_s = offsets_s < n_mx_blocks
-        s = tl.load(s_ptr + offsets_s, mask=mask_s)
-
-        # create the scale in bf16
-        s_offset = s.to(tl.float32) - e8m0_exponent_bias
-        s_fp = libdevice.pow(2.0, s_offset).to(tl.bfloat16)
-        s_fp = tl.where(s != e8m0_exponent_nan_val, s_fp, float("nan"))
-
-        # multiply output by scale
-        # TODO(later): see if manipulating the exponent instead of fp
-        # multiplication is going to give a significant speedup
-        output = tl.reshape(output, (BLOCK_SIZE_IN, mx_block_size))  # noqa: E501
-        s_fp = tl.reshape(s_fp, (BLOCK_SIZE_IN // 1, 1))
-        output = output * s_fp
-        output = tl.reshape(output, (BLOCK_SIZE_IN, mx_block_size))
-
-        # set up output offsets
-        offsets_rows_out = block_start + tl.arange(0, BLOCK_SIZE_IN)
-        offsets_cols_out = tl.arange(0, mx_block_size)
-        offsets_out = (
-            offsets_rows_out[:, None] * mx_block_size + offsets_cols_out[None, :]
-        )
-        mask_out = (offsets_rows_out[:, None] < n_mx_blocks) & (
-            offsets_cols_out[None, :] < mx_block_size
-        )
-
-        tl.store(output_ptr + offsets_out, output, mask=mask_out)
-
-    @triton.autotune(
-        configs=[
-            triton.Config({"BLOCK_SIZE_IN": 2}, num_warps=1),
-            triton.Config({"BLOCK_SIZE_IN": 4}, num_warps=1),
-            triton.Config({"BLOCK_SIZE_IN": 8}, num_warps=1),
-            triton.Config({"BLOCK_SIZE_IN": 16}, num_warps=1),
-        ],
-        key=["n_mx_blocks"],
-    )
-    @triton.jit
-    def triton_pack_uint6_kernel(
-        input_ptr,
-        output_ptr,
-        n_mx_blocks,
-        MX_BLOCK_SIZE: tl.constexpr,
-        PACKED_MX_BLOCK_SIZE: tl.constexpr,
-        BLOCK_SIZE_IN: tl.constexpr,
-    ):
-        pid = tl.program_id(axis=0)
-        block_start = pid * BLOCK_SIZE_IN
-
-        # input_ptr is shape [n_mx_blocks, MX_BLOCK_SIZE]
-        # Load BLOCK_SIZE rows of input_ptr
-        offsets_rows = block_start + tl.arange(0, BLOCK_SIZE_IN)
-        offsets_cols = tl.arange(0, MX_BLOCK_SIZE // 4)
-        offsets = offsets_rows[:, None] * MX_BLOCK_SIZE + (4 * offsets_cols[None, :])
-        mask = (offsets_rows[:, None] < n_mx_blocks) & (
-            offsets_cols[None, :] < MX_BLOCK_SIZE // 4
-        )
-
-        # x is shape [BLOCK_SIZE, MX_BLOCK_SIZE]
-        x_0 = tl.load(input_ptr + offsets, mask=mask)
-        x_1 = tl.load(input_ptr + offsets + 1, mask=mask)
-        x_2 = tl.load(input_ptr + offsets + 2, mask=mask)
-        x_3 = tl.load(input_ptr + offsets + 3, mask=mask)
-
-        # OR between remainder 0/1, 2/3 elements to pack 2 x first-4-bit partial representations
-        # next to each other. These are the middle 4 bits of the uint8, so some gymnastics required.
-        # i.e. (00abcd00 >> 2) | (00wxyz00 << 2) = 0000abcd | wxyz0000 = wxyzabcd
-        bits_packed_4_a = (x_1 >> 2) | ((x_0 << 2) & 0xF0)
-        bits_packed_4_b = (x_3 >> 2) | ((x_2 << 2) & 0xF0)
-        # Similarly pack 4 remaining 2-bit partial representations into one uint8
-        # e.g. 000000ab, 0000cd00, 00ef0000, gh000000 --> abcdefgh
-        bits_packed_2 = (
-            (x_0 << 6) | ((x_1 << 4) & 0x30) | ((x_2 << 2) & 0xC) | (x_3 & 0x3)
-        )
-
-        # Store values in a uint8 tensor of length `3 * MX_BLOCK_SIZE / 4`
-        offsets_out_4_a = (
-            offsets_rows[:, None] * PACKED_MX_BLOCK_SIZE + offsets_cols[None, :]
-        )
-        offsets_out_4_b = (
-            offsets_rows[:, None] * PACKED_MX_BLOCK_SIZE
-            + offsets_cols[None, :]
-            + (MX_BLOCK_SIZE // 4)
-        )
-        offsets_out_2 = (
-            offsets_rows[:, None] * PACKED_MX_BLOCK_SIZE
-            + offsets_cols[None, :]
-            + (MX_BLOCK_SIZE // 2)
-        )
-
-        # Store into output tensor
-        tl.store(
-            output_ptr + offsets_out_4_a,
-            bits_packed_4_a,
-            mask=mask,
-        )
-
-        tl.store(
-            output_ptr + offsets_out_4_b,
-            bits_packed_4_b,
-            mask=mask,
-        )
-
-        tl.store(
-            output_ptr + offsets_out_2,
-            bits_packed_2,
-            mask=mask,
-        )
-
-else:
-
-    def triton_f4_to_bf16_kernel(
-        x_ptr,
-        output_ptr,
-        n_elements_in,
-        sign_mask_f4,
-        mantissa_mask_f4,
-        mbits_f4_e2m1,
-        ebits_f4_e2m1,
-        f4_e2m1_exp_bias,
-        mbits_f32,
-        ebits_f32,
-        f32_exp_bias,
-        zero_bits_f32,
-        zero_point_five_bits_f32,
-        BLOCK_SIZE_IN,
-    ):
-        raise AssertionError("unsupported without triton")
-
-    def triton_f4_to_scaled_bf16_kernel(
-        x_ptr,
-        s_ptr,
-        output_ptr,
-        n_elements_in,
-        mx_block_size,
-        sign_mask_f4,
-        mantissa_mask_f4,
-        mbits_f4_e2m1,
-        ebits_f4_e2m1,
-        f4_e2m1_exp_bias,
-        mbits_f32,
-        ebits_f32,
-        f32_exp_bias,
-        zero_bits_f32,
-        zero_point_five_bits_f32,
-        e8m0_exponent_bias,
-        e8m0_exponent_nan_val,
-        BLOCK_SIZE_IN,
-    ):
-        raise AssertionError("unsupported without triton")
-
-    def triton_f6_to_bf16_kernel(
-        x_ptr,
-        output_ptr,
-        n_elements_in,
-        sign_mask_f6,
-        mbits_f6,
-        f6_exp_bias,
-        mbits_f32,
-        f32_exp_bias,
-        BLOCK_SIZE_IN,
-    ):
-        raise AssertionError("unsupported without triton")
-
-    def triton_f6_to_scaled_bf16_kernel(
-        x_ptr,
-        s_ptr,
-        output_ptr,
-        n_elements_in,
-        mx_block_size,
-        sign_mask_f6,
-        mbits_f6,
-        f6_exp_bias,
-        mbits_f32,
-        f32_exp_bias,
-        e8m0_exponent_bias,
-        e8m0_exponent_nan_val,
-        BLOCK_SIZE_IN,
-    ):
-        raise AssertionError("unsupported without triton")
-
-    def triton_pack_uint6_kernel(
-        input_ptr,
-        output_ptr,
-        n_mx_blocks,
-        MX_BLOCK_SIZE,
-        PACKED_MX_BLOCK_SIZE,
-        BLOCK_SIZE,
-    ):
-        raise AssertionError("unsupported without triton")
-
-
-def triton_f4_to_bf16(x: torch.Tensor):
-    """
-    Input: a tensor of packed fp4 values
-    Output: a tensor of bfloat16 values
-
-    Note: this function is only used in testing, so we can test
-      the numerical correctness of the cast without the scaling.
-    """
-    new_shape = (*x.shape[:-1], x.shape[-1] * 2)
-    output = torch.empty(*new_shape, device=x.device, dtype=torch.bfloat16)
-    assert x.is_contiguous()
-    assert x.is_cuda and output.is_cuda
-    n_elements_in = x.numel()
-    grid = lambda meta: (  # noqa: E731
-        triton.cdiv(n_elements_in, meta["BLOCK_SIZE_IN"]),
-    )  # noqa: E731,E501
-    triton_f4_to_bf16_kernel[grid](
-        x,
-        output,
-        n_elements_in,
-        sign_mask_f4=SIGN_MASK_F4,
-        mantissa_mask_f4=MANTISSA_MASK_F4,
-        mbits_f4_e2m1=MBITS_F4_E2M1,
-        ebits_f4_e2m1=EBITS_F4_E2M1,
-        f4_e2m1_exp_bias=F4_E2M1_EXP_BIAS,
-        mbits_f32=MBITS_F32,
-        ebits_f32=EBITS_F32,
-        f32_exp_bias=F32_EXP_BIAS,
-        zero_bits_f32=ZERO_BITS_F32,
-        zero_point_five_bits_f32=ZERO_POINT_FIVE_BITS_F32,
-        BLOCK_SIZE_IN=512,
-    )
-    return output
-
-
-def triton_f4_to_scaled_bf16(
-    x: torch.Tensor,
-    s_e8m0: torch.Tensor,
-    mx_block_size: int,
-):
-    """
-    Input: a tensor of packed fp4 values, and a scale in e8m0 format. The block
-      size is currently assumed to be 32.
-    Output: a tensor of bfloat16 values, multiplied by the encoded scale
-    """
-    s_e8m0 = s_e8m0.view(torch.uint8)
-    assert TORCH_VERSION_AT_LEAST_2_4, "unsupported"
-    new_shape = (*x.shape[:-1], x.shape[-1] * 2)
-    output = torch.empty(*new_shape, device=x.device, dtype=torch.bfloat16)
-    assert x.is_contiguous()
-    assert x.is_cuda and output.is_cuda
-    n_elements_in = x.numel()
-    grid = lambda meta: (  # noqa: E731
-        triton.cdiv(n_elements_in, meta["BLOCK_SIZE_IN"]),
-    )
-    triton_f4_to_scaled_bf16_kernel[grid](
-        x,
-        s_e8m0,
-        output,
-        n_elements_in,
-        mx_block_size,
-        sign_mask_f4=SIGN_MASK_F4,
-        mantissa_mask_f4=MANTISSA_MASK_F4,
-        mbits_f4_e2m1=MBITS_F4_E2M1,
-        ebits_f4_e2m1=EBITS_F4_E2M1,
-        f4_e2m1_exp_bias=F4_E2M1_EXP_BIAS,
-        mbits_f32=MBITS_F32,
-        ebits_f32=EBITS_F32,
-        f32_exp_bias=F32_EXP_BIAS,
-        zero_bits_f32=ZERO_BITS_F32,
-        zero_point_five_bits_f32=ZERO_POINT_FIVE_BITS_F32,
-        e8m0_exponent_bias=E8M0_EXPONENT_BIAS,
-        e8m0_exponent_nan_val=E8M0_EXPONENT_NAN_VAL,
-    )
-    return output
-
-
-def triton_f6_e2m3_to_bf16(x: torch.Tensor) -> torch.Tensor:
-    """
-    Input: a tensor of packed fp6 values
-    Output: a tensor of bfloat16 values
-
-    Note: this function is only used in testing, so we can test
-      the numerical correctness of the cast without the scaling.
-    """
-    packed_mx_block_size = x.shape[-1]
-    mx_block_size = 4 * packed_mx_block_size // 3
-
-    x = x.view(-1, packed_mx_block_size)
-    new_shape = (x.shape[0], mx_block_size)
-
-    output = torch.empty(*new_shape, device=x.device, dtype=torch.bfloat16)
-
-    assert x.is_contiguous()
-    assert x.is_cuda and output.is_cuda
-
-    n_mx_blocks = x.shape[0]
-    grid = lambda meta: (triton.cdiv(n_mx_blocks, meta["BLOCK_SIZE_IN"]),)
-    triton_f6_to_bf16_kernel[grid](
-        x,
-        output,
-        n_mx_blocks,
-        mx_block_size,
-        packed_mx_block_size,
-        sign_mask_f6=SIGN_MASK_F6_E2M3,
-        mbits_f6=MBITS_F6_E2M3,
-        f6_exp_bias=F6_E2M3_EXP_BIAS,
-        mbits_f32=MBITS_F32,
-        f32_exp_bias=F32_EXP_BIAS,
-    )
-    return output
-
-
-def triton_f6_e3m2_to_bf16(x: torch.Tensor) -> torch.Tensor:
-    """
-    Input: a tensor of packed fp6 values
-    Output: a tensor of bfloat16 values
-
-    Note: this function is only used in testing, so we can test
-      the numerical correctness of the cast without the scaling.
-    """
-    packed_mx_block_size = x.shape[-1]
-    mx_block_size = 4 * packed_mx_block_size // 3
-
-    x = x.view(-1, packed_mx_block_size)
-    new_shape = (x.numel() // packed_mx_block_size, mx_block_size)
-
-    output = torch.empty(*new_shape, device=x.device, dtype=torch.bfloat16)
-
-    assert x.is_contiguous()
-    assert x.is_cuda and output.is_cuda
-
-    n_mx_blocks = x.shape[0]
-    grid = lambda meta: (triton.cdiv(n_mx_blocks, meta["BLOCK_SIZE_IN"]),)
-    triton_f6_to_bf16_kernel[grid](
-        x,
-        output,
-        n_mx_blocks,
-        mx_block_size,
-        packed_mx_block_size,
-        sign_mask_f6=SIGN_MASK_F6_E3M2,
-        mbits_f6=MBITS_F6_E3M2,
-        f6_exp_bias=F6_E3M2_EXP_BIAS,
-        mbits_f32=MBITS_F32,
-        f32_exp_bias=F32_EXP_BIAS,
-    )
-    return output
-
-
-if TORCH_VERSION_AT_LEAST_2_4:
-
-    @torch.library.custom_op("ao::triton_f6_e2m3_to_scaled_bf16", mutates_args=())
-    def triton_f6_e2m3_to_scaled_bf16(
-        x: torch.Tensor,
-        s_e8m0: torch.Tensor,
-        mx_block_size: int,
-    ) -> torch.Tensor:
-        """
-        Input: a tensor of packed fp6 values, and a scale in e8m0 format. The block
-        size is currently assumed to be 32.
-        Output: a tensor of bfloat16 values, multiplied by the encoded scale
-        """
-        s_e8m0 = s_e8m0.view(torch.uint8)
-
-        packed_mx_block_size = 3 * mx_block_size // 4
-
-        x = x.view(-1, packed_mx_block_size)
-        new_shape = (x.numel() // packed_mx_block_size, mx_block_size)
-
-        output = torch.empty(*new_shape, device=x.device, dtype=torch.bfloat16)
-
-        assert x.is_contiguous()
-        assert x.is_cuda and output.is_cuda
-
-        n_mx_blocks = x.shape[0]
-        grid = lambda meta: (triton.cdiv(n_mx_blocks, meta["BLOCK_SIZE_IN"]),)
-        triton_f6_to_scaled_bf16_kernel[grid](
-            x,
-            s_e8m0,
-            output,
-            n_mx_blocks,
-            mx_block_size,
-            packed_mx_block_size,
-            sign_mask_f6=SIGN_MASK_F6_E2M3,
-            mbits_f6=MBITS_F6_E2M3,
-            f6_exp_bias=F6_E2M3_EXP_BIAS,
-            mbits_f32=MBITS_F32,
-            f32_exp_bias=F32_EXP_BIAS,
-            e8m0_exponent_bias=E8M0_EXPONENT_BIAS,
-            e8m0_exponent_nan_val=E8M0_EXPONENT_NAN_VAL,
-        )
-        return output
-
-    @torch.library.custom_op("ao::triton_f6_e3m2_to_scaled_bf16", mutates_args=())
-    def triton_f6_e3m2_to_scaled_bf16(
-        x: torch.Tensor,
-        s_e8m0: torch.Tensor,
-        mx_block_size: int,
-    ) -> torch.Tensor:
-        """
-        Input: a tensor of packed fp6 values, and a scale in e8m0 format. The block
-        size is currently assumed to be 32.
-        Output: a tensor of bfloat16 values, multiplied by the encoded scale
-        """
-        s_e8m0 = s_e8m0.view(torch.uint8)
-
-        packed_mx_block_size = 3 * mx_block_size // 4
-
-        x = x.view(-1, packed_mx_block_size)
-        new_shape = (x.numel() // packed_mx_block_size, mx_block_size)
-
-        output = torch.empty(*new_shape, device=x.device, dtype=torch.bfloat16)
-
-        assert x.is_contiguous()
-        assert x.is_cuda and output.is_cuda
-
-        n_mx_blocks = x.numel() // packed_mx_block_size
-        grid = lambda meta: (triton.cdiv(n_mx_blocks, meta["BLOCK_SIZE_IN"]),)
-        triton_f6_to_scaled_bf16_kernel[grid](
-            x,
-            s_e8m0,
-            output,
-            n_mx_blocks,
-            mx_block_size,
-            packed_mx_block_size,
-            sign_mask_f6=SIGN_MASK_F6_E3M2,
-            mbits_f6=MBITS_F6_E3M2,
-            f6_exp_bias=F6_E3M2_EXP_BIAS,
-            mbits_f32=MBITS_F32,
-            f32_exp_bias=F32_EXP_BIAS,
-            e8m0_exponent_bias=E8M0_EXPONENT_BIAS,
-            e8m0_exponent_nan_val=E8M0_EXPONENT_NAN_VAL,
-        )
-        return output
-
-    @triton_f6_e3m2_to_scaled_bf16.register_fake
-    def _(x, s_e8m0, mx_block_size):
-        _padded_mx_block_size = 3 * mx_block_size // 4
-        out_shape = (x.numel() // _padded_mx_block_size, mx_block_size)
-        return torch.empty(*out_shape, device=x.device, dtype=torch.bfloat16)
-
-    @triton_f6_e2m3_to_scaled_bf16.register_fake
-    def _(x, s_e8m0, mx_block_size):
-        _padded_mx_block_size = 3 * mx_block_size // 4
-        out_shape = (x.numel() // _padded_mx_block_size, mx_block_size)
-        return torch.empty(*out_shape, device=x.device, dtype=torch.bfloat16)
-
-else:
-
-    def triton_f6_e2m3_to_scaled_bf16(
-        x: torch.Tensor,
-        s_e8m0: torch.Tensor,
-        mx_block_size: int,
-    ) -> torch.Tensor:
-        raise AssertionError("unsupported without torch >= 2.4")
-
-    def triton_f6_e3m2_to_scaled_bf16(
-        x: torch.Tensor,
-        s_e8m0: torch.Tensor,
-        mx_block_size: int,
-    ) -> torch.Tensor:
-        raise AssertionError("unsupported without torch >= 2.4")
-
-
 # pack/unpack code copy-pasted from
 # https://github.com/pytorch-labs/ao/blob/main/torchao/dtypes/uint4.py
 
@@ -992,8 +133,8 @@ def unpack_uint4(uint8_data) -> torch.Tensor:
     #   verified that we get a single triton kernel, but that is even slower
     #   than the two kernels before this PR
     # * TODO add a microbenchmark of just the cast and profile this
-    first_elements = (uint8_data >> 4).to(torch.uint8)
-    second_elements = (uint8_data & 0b1111).to(torch.uint8)
+    first_elements = (uint8_data & 0b1111).to(torch.uint8)
+    second_elements = (uint8_data >> 4).to(torch.uint8)
     unpacked = torch.stack([first_elements, second_elements], dim=-1).view(
         up_size(shape)
     )
@@ -1015,79 +156,10 @@ def pack_uint4(uint8_data: torch.Tensor) -> torch.Tensor:
     shape = uint8_data.shape
     assert shape[-1] % 2 == 0
     uint8_data = uint8_data.contiguous().view(-1)
-    return (uint8_data[::2] << 4 | uint8_data[1::2]).view(down_size(shape))
+    return (uint8_data[::2] | uint8_data[1::2] << 4).view(down_size(shape))
 
 
-# PyTorch implementation of fp6 packing for reference purposes
-def pack_uint6_pytorch(uint8_data: torch.Tensor) -> torch.Tensor:
-    # check shape is divisible by 4 along packing axis
-    shape = uint8_data.shape
-    assert shape[-1] % 4 == 0
-
-    packed_shape = [*shape[:-1], 3 * shape[-1] // 4]
-
-    uint8_data = uint8_data.contiguous().view(-1)
-
-    # pack 4 bits of each of 4 numbers into 2xuint8, remaining 2 bits into 1xuint8
-    bits_packed_4_a = (uint8_data[1::4] >> 2) | ((uint8_data[::4] << 2) & 0xF0)
-    bits_packed_4_b = (uint8_data[2::4] >> 2) | ((uint8_data[3::4] << 2) & 0xF0)
-    bits_packed_2 = (
-        (uint8_data[::4] << 6)
-        | ((uint8_data[1::4] << 4) & 0x30)
-        | ((uint8_data[3::4] << 2) & 0xC)
-        | (uint8_data[2::4] & 0x3)
-    )
-
-    return (
-        torch.stack((bits_packed_4_a, bits_packed_4_b, bits_packed_2), dim=-1)
-    ).view(packed_shape)
-
-
-if TORCH_VERSION_AT_LEAST_2_4:
-
-    @torch.library.custom_op("ao::pack_uint6", mutates_args=())
-    def pack_uint6(uint8_data: torch.Tensor) -> torch.Tensor:
-        # ensure input data is contiguous before passing to kernel
-        assert uint8_data.is_contiguous()
-
-        # tensor should already be of shape [..., mx_block_size]
-        mx_block_size = uint8_data.shape[-1]
-        assert mx_block_size % 4 == 0
-
-        # effective mx block size since we're packing 2 fp4 into 1 uint8
-        packed_mx_block_size = 3 * mx_block_size // 4
-        packed_shape = [*uint8_data.shape[:-1], packed_mx_block_size]
-        n_mx_blocks = uint8_data.numel() // mx_block_size
-
-        grid = lambda meta: (triton.cdiv(n_mx_blocks, meta["BLOCK_SIZE_IN"]),)
-
-        # contiguous uint8 container in which we can store the unpacked tensor
-        packed_uint8_data = torch.empty(
-            packed_shape, dtype=torch.uint8, device=uint8_data.device
-        )
-
-        triton_pack_uint6_kernel[grid](
-            uint8_data,
-            packed_uint8_data,
-            n_mx_blocks,
-            MX_BLOCK_SIZE=mx_block_size,
-            PACKED_MX_BLOCK_SIZE=packed_mx_block_size,
-        )
-
-        return packed_uint8_data
-
-    @pack_uint6.register_fake
-    def _(uint8_data):
-        out_shape = (*uint8_data.shape[:-1], 3 * uint8_data.shape[-1] // 4)
-        return torch.empty(*out_shape, device=uint8_data.device, dtype=torch.uint8)
-else:
-
-    def pack_uint6(uint8_data: torch.Tensor) -> torch.Tensor:
-        # Dummy placeholder op for torch < 2.4
-        raise AssertionError("fp6 packing unsupported without torch >= 2.4")
-
-
-if TORCH_VERSION_AT_LEAST_2_7 and has_triton():
+if torch_version_at_least("2.7.0") and has_triton():
     import triton
     import triton.language as tl
     from torch.library import triton_op, wrap_triton
@@ -1115,8 +187,9 @@ if TORCH_VERSION_AT_LEAST_2_7 and has_triton():
         scale_e8m0_unbiased = extracted_pow2.to(tl.bfloat16)
 
         # Clamp to exponents that can be represented in e8m0
+        # Add 1 to capture NaNs
         scale_e8m0_unbiased = tl.clamp(
-            scale_e8m0_unbiased, -1 * e8m0_exponent_bias, e8m0_exponent_bias
+            scale_e8m0_unbiased, -1 * e8m0_exponent_bias, e8m0_exponent_bias + 1
         )
 
         # Create the biased e8m0 representation and cast it to 8 bits
@@ -1126,41 +199,49 @@ if TORCH_VERSION_AT_LEAST_2_7 and has_triton():
         # TODO(future PR): add NaN handling here,
         # https://github.com/pytorch/pytorch/pull/100572 will likely be useful to
         # get proper NaN propagation working
-
         # Calculate the scale in floating point.
         scale_fp = (scale_e8m0_biased.to(tl.int32) << fp32_mbits).to(
             tl.float32, bitcast=True
         )
 
+        fp32_exp_bias = 127.0
+        fp32_min_normal = tl.exp2(-fp32_exp_bias + 1)
+        scale_fp = tl.clamp(scale_fp, min=fp32_min_normal, max=float("inf"))
+
         return scale_fp, scale_e8m0_biased
 
-    def _get_mxfp8_dim1_kernel_autotune_configs():
+    def _get_mxfp8_quant_autotune_configs():
         # Values to sweep over here were determined by a manual
         # sweep over a small set of shapes, it's likely that this
         # can be improved in the future.
         results = []
-        for ROW_TILE_SIZE in (64, 128):
-            for COL_TILE_SIZE in (64, 128):
-                for num_warps in (1, 2, 4):
-                    config = triton.Config(
-                        {
-                            "ROW_TILE_SIZE": ROW_TILE_SIZE,
-                            "COL_TILE_SIZE": COL_TILE_SIZE,
-                        },
-                        num_warps=num_warps,
-                    )
-                    results.append(config)
+        for ROW_TILE_SIZE in (128, 256, 512):
+            # TODO: we can't use 512 for COL_TILE_SIZE.
+            # This is likely a triton bug, tracked in
+            # https://github.com/pytorch/ao/issues/3362
+            for COL_TILE_SIZE in (128, 256):
+                for num_warps in (4, 8):
+                    for num_stages in (2, 3):
+                        config = triton.Config(
+                            {
+                                "ROW_TILE_SIZE": ROW_TILE_SIZE,
+                                "COL_TILE_SIZE": COL_TILE_SIZE,
+                            },
+                            num_warps=num_warps,
+                            num_stages=num_stages,
+                        )
+                        results.append(config)
         return results
 
     @triton.autotune(
-        configs=_get_mxfp8_dim1_kernel_autotune_configs(),
-        key=["n_rows", "n_cols", "INNER_BLOCK_SIZE"],
+        configs=_get_mxfp8_quant_autotune_configs(),
+        key=["n_cols", "INNER_BLOCK_SIZE"],
     )
     @triton.jit
     def to_mxfp8_dim1_kernel(
         x_ptr,  # pointer to input tensor
         output_col_major_ptr,  # pointer to column-major output tensor (column-normalized)
-        col_scale_ptr,  # pointer to store column-wise maximum absolute values
+        col_scale_ptr,  # pointer to store scales
         n_rows,  # number of rows in the tensor
         n_cols,  # number of columns in the tensor
         ROW_TILE_SIZE: tl.constexpr,
@@ -1301,6 +382,152 @@ if TORCH_VERSION_AT_LEAST_2_7 and has_triton():
         # TODO(future): mask this store
         tl.store(col_scale_start_ptr + col_scale_indices, col_scale_e8m0)
 
+    @triton.autotune(
+        configs=_get_mxfp8_quant_autotune_configs(),
+        key=["n_cols", "SCALE_BLOCK_SIZE"],
+    )
+    @triton.jit
+    def to_mxfp8_dim0_kernel(
+        x_ptr,
+        output_ptr,
+        scale_ptr,
+        n_rows,
+        n_cols,
+        ROW_TILE_SIZE: tl.constexpr,
+        COL_TILE_SIZE: tl.constexpr,
+        SCALE_BLOCK_SIZE: tl.constexpr,  # should be 32 for MX
+    ):
+        """
+        Quantizes a high precision tensor to mxfp8 rowwise (1x32 scaling granularity).
+        """
+
+        SCALE_BLOCKS_PER_COL_TILE: tl.constexpr = COL_TILE_SIZE // SCALE_BLOCK_SIZE
+
+        # Get program ID
+        pid_row = tl.program_id(0)
+        pid_col = tl.program_id(1)
+
+        start_row = pid_row * ROW_TILE_SIZE
+        start_col = pid_col * COL_TILE_SIZE
+        row_offs = start_row + tl.arange(0, ROW_TILE_SIZE)[:, None]
+        col_offs = start_col + tl.arange(0, COL_TILE_SIZE)[None, :]
+
+        # Compute memory offsets for row-major layout (rows, cols)
+        row_major_offsets = (row_offs * n_cols + col_offs).to(tl.int32)
+
+        # Load the entire block in a single operation
+        # shape: (ROW_TILE_SIZE, COL_TILE_SIZE)
+        mask = (row_offs < n_rows) & (col_offs < n_cols)
+        x_block = tl.load(x_ptr + row_major_offsets, mask=mask)
+
+        # Reshape to inner tile size for rowwise scaling
+        # shape: (ROW_TILE_SIZE, COL_TILE_SIZE) -> (ROW_TILE_SIZE * BLOCKS_PER_COL_TILE, SCALE_BLOCK_SIZE)
+        x_block_r = x_block.reshape(
+            ROW_TILE_SIZE * SCALE_BLOCKS_PER_COL_TILE, SCALE_BLOCK_SIZE
+        )
+
+        # Calculate the absolute values of elements in the block
+        x_block_abs_r = tl.abs(x_block_r)
+
+        # Find the maximum absolute value for each row (across columns)
+        # shape: (ROW_TILE_SIZE * BLOCKS_PER_COL_TILE,)
+        scale_fp32_r, scale_e8m0_r = _triton_calculate_scale(x_block_abs_r, axis=1)
+
+        # Divide each row by scale
+        # Broadcasting scale to match x_block's shape
+        # x_block_r shape:
+        #    (ROW_TILE_SIZE * BLOCKS_PER_COL_TILE, SCALE_BLOCK_SIZE)
+        # scale[:, None] shape:
+        #    (ROW_TILE_SIZE * BLOCKS_PER_COL_TILE, 1)
+        scaled_data_r = x_block_r / scale_fp32_r[:, None]
+
+        # Reshape back to original tile size
+        e4m3_data_2d = tl.reshape(scaled_data_r, ROW_TILE_SIZE, COL_TILE_SIZE).to(
+            tl.float8e4nv
+        )
+
+        # Store the row-normalized result in row-major format
+        tl.store(output_ptr + row_major_offsets, e4m3_data_2d, mask=mask)
+
+        # Calculate scale offsets to write to
+        scales_per_row = n_cols // SCALE_BLOCK_SIZE
+        scale_row_indices = (
+            pid_row * ROW_TILE_SIZE + tl.arange(0, ROW_TILE_SIZE)[:, None]
+        )
+        scale_col_indices = (
+            pid_col * SCALE_BLOCKS_PER_COL_TILE
+            + tl.arange(0, SCALE_BLOCKS_PER_COL_TILE)[None, :]
+        )
+        scale_offsets = scale_row_indices * scales_per_row + scale_col_indices
+
+        # Store e8m0 scales
+        scale_mask = (scale_row_indices < n_rows) & (scale_col_indices < scales_per_row)
+        scale_e8m0_2d = scale_e8m0_r.reshape(ROW_TILE_SIZE, SCALE_BLOCKS_PER_COL_TILE)
+        tl.store(scale_ptr + scale_offsets, scale_e8m0_2d, mask=scale_mask)
+
+    @triton_op("torchao::triton_to_mxfp8_dim0", mutates_args={})
+    def triton_to_mxfp8_dim0(
+        x: torch.Tensor, inner_block_size: int = 32
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Input:
+        * `x` - input tensor, in row major memory layout
+        * `inner_block_size` - size of tiles to scale across, default is 32 for MX recipes
+
+        Output:
+        * `output`: the `float8_e4m3fn` values of `x` cast to mxfp8 across dim0 (rowwise)
+        * `scale`: the `e8m0` values of `x_scale` used to cast `x` to mxfp8 across dim0
+        """
+        assert x.is_contiguous(), "`x` must be contiguous"
+        assert inner_block_size <= 32, "inner_block_size must be <= 32"
+        assert x.dtype == torch.bfloat16, "only bfloat16 inputs are supported"
+
+        # Reshape tensor to 2d if necessary and get shape
+        x_orig_shape = x.shape
+        x = x.reshape(-1, x.shape[-1])
+        n_rows, n_cols = x.shape
+
+        assert n_cols % inner_block_size == 0, (
+            "columns must be divisible by inner block size"
+        )
+
+        # Create output tensors
+        output = torch.empty(
+            (n_rows, n_cols), dtype=torch.float8_e4m3fn, device=x.device
+        )
+
+        # Create scale tensors for rowwise scaling
+        scale = torch.empty(
+            (n_rows, n_cols // inner_block_size),
+            dtype=torch.uint8,
+            device=x.device,
+        )
+
+        # Calculate grid dimensions based on tile size
+        grid = lambda META: (
+            triton.cdiv(n_rows, META["ROW_TILE_SIZE"]),
+            triton.cdiv(n_cols, META["COL_TILE_SIZE"]),
+        )
+
+        # Launch the kernel
+        wrap_triton(to_mxfp8_dim0_kernel)[grid](
+            x_ptr=x,
+            output_ptr=output,
+            scale_ptr=scale,
+            n_rows=n_rows,
+            n_cols=n_cols,
+            SCALE_BLOCK_SIZE=inner_block_size,
+        )
+
+        # Reshape output back to original shape
+        output = output.reshape(x_orig_shape)
+        scale = scale.reshape(*x_orig_shape[:-1], scale.shape[-1])
+
+        return (
+            output,
+            scale.view(torch.float8_e8m0fnu),
+        )
+
     @triton_op("torchao::triton_to_mxfp8_dim1", mutates_args={})
     def triton_to_mxfp8_dim1(
         x: torch.Tensor, inner_block_size: int = 32
@@ -1315,7 +542,6 @@ if TORCH_VERSION_AT_LEAST_2_7 and has_triton():
         * `col_scale`: the `e8m0` values of `x_scale` used to cast `x` to mxfp8 across dim1
         """
         assert x.is_contiguous(), "`x` must be contiguous"
-        assert x.dtype == torch.bfloat16
         assert inner_block_size <= 32
 
         # Get tensor shape
@@ -1360,8 +586,18 @@ if TORCH_VERSION_AT_LEAST_2_7 and has_triton():
 
         return (
             output_col_major.t(),
-            col_scale.view(torch.float8_e8m0fnu),
+            col_scale.view(torch.float8_e8m0fnu).squeeze(-1),
         )
+
+    @register_sharding(torch.ops.torchao.triton_to_mxfp8_dim1.default)
+    def custom_triton_to_mxfp8_dim1_sharding(x, inner_block_size=32):
+        replicate = ([Replicate(), Replicate()], [Replicate(), None])
+        # Note that the data is returned transposed, which is why
+        # we flip the sharding dim below
+        shard_dim0 = ([Shard(1), Shard(1)], [Shard(0), None])
+        shard_dim1 = ([Shard(0), Shard(0)], [Shard(1), None])
+        acceptable_shardings = [replicate, shard_dim0, shard_dim1]
+        return acceptable_shardings
 
     def triton_to_mxfp8_dim1_reference(
         x_hp: torch.Tensor, block_size
@@ -1382,6 +618,106 @@ if TORCH_VERSION_AT_LEAST_2_7 and has_triton():
             scale_e8m0_dim1,
         )
 
+    @triton_op("torchao::triton_mxfp8_dequant_dim0", mutates_args={})
+    def triton_mxfp8_dequant_dim0(
+        e4m3_data: torch.Tensor,
+        e8m0_scales: torch.Tensor,
+        out_dtype: torch.dtype,
+        scale_block_size: int = 32,
+    ) -> torch.Tensor:
+        assert scale_block_size == 32, "scale_block_size must be 32 for now"
+        assert out_dtype in (torch.bfloat16, torch.float32), (
+            "out_dtype must be bf16 or fp32"
+        )
+
+        # Input shape must be 2D.
+        orig_shape = e4m3_data.shape
+        e4m3_data = e4m3_data.reshape(-1, orig_shape[-1])
+        out_buffer = torch.empty_like(e4m3_data, dtype=out_dtype)
+        out_dtype_tl = tl.bfloat16 if out_dtype == torch.bfloat16 else tl.float32
+
+        grid = lambda META: (
+            triton.cdiv(e4m3_data.shape[0], META["ROW_TILE_SIZE"]),
+            triton.cdiv(e4m3_data.shape[1], META["COL_TILE_SIZE"]),
+        )
+        wrap_triton(_dequant_mxfp8_kernel)[grid](
+            e4m3_data,
+            e8m0_scales.to(torch.uint8),
+            out_buffer,
+            e4m3_data.size(0),
+            e4m3_data.size(1),
+            e8m0_scales.size(0),
+            e8m0_scales.size(1),
+            out_dtype=out_dtype_tl,
+            SCALE_BLOCK_SIZE=scale_block_size,
+        )
+        return out_buffer.reshape(orig_shape)
+
+    @triton.autotune(
+        configs=_get_mxfp8_quant_autotune_configs(),
+        key=["input_num_cols", "SCALE_BLOCK_SIZE"],
+    )
+    @triton.jit
+    def _dequant_mxfp8_kernel(
+        e4m3_data,
+        e8m0_scales,
+        out_buffer,
+        input_num_rows,
+        input_num_cols,
+        scale_num_rows,
+        scale_num_cols,
+        out_dtype: tl.constexpr,
+        SCALE_BLOCK_SIZE: tl.constexpr,
+        ROW_TILE_SIZE: tl.constexpr,
+        COL_TILE_SIZE: tl.constexpr,
+    ):
+        pid_row = tl.program_id(0)
+        pid_col = tl.program_id(1)
+        SCALE_BLOCKS_PER_COL_TILE: tl.constexpr = COL_TILE_SIZE // SCALE_BLOCK_SIZE
+
+        # Load block of e4m3 data
+        row_offs = pid_row * ROW_TILE_SIZE + tl.arange(0, ROW_TILE_SIZE)
+        col_offs = pid_col * COL_TILE_SIZE + tl.arange(0, COL_TILE_SIZE)
+        block_offs = row_offs[:, None] * input_num_cols + col_offs[None, :]
+        mask = (row_offs[:, None] < input_num_rows) & (
+            col_offs[None, :] < input_num_cols
+        )
+        e4m3_data_block = tl.load(e4m3_data + block_offs, mask=mask)
+
+        # Load block of e8m0 scales
+        scale_col_offs = pid_col * SCALE_BLOCKS_PER_COL_TILE + tl.arange(
+            0, SCALE_BLOCKS_PER_COL_TILE
+        )
+        scale_block_offs = row_offs[:, None] * scale_num_cols + scale_col_offs[None, :]
+        scale_mask = (row_offs[:, None] < scale_num_rows) & (
+            scale_col_offs[None, :] < scale_num_cols
+        )
+        e8m0_scale_block = tl.load(e8m0_scales + scale_block_offs, mask=scale_mask)
+
+        # Dequantize and return output
+        e4m3_data_block_r = e4m3_data_block.reshape(
+            ROW_TILE_SIZE * SCALE_BLOCKS_PER_COL_TILE, SCALE_BLOCK_SIZE
+        )
+        e8m0_scale_block_r = e8m0_scale_block.reshape(
+            ROW_TILE_SIZE * SCALE_BLOCKS_PER_COL_TILE, 1
+        )
+        fp32_scale = _e8m0_to_fp32(e8m0_scale_block_r)
+        data_hp = e4m3_data_block_r.to(tl.float32) * fp32_scale
+
+        # Write to output buffer
+        out_buffer_block = data_hp.to(out_dtype)
+        out_buffer_block = out_buffer_block.reshape(ROW_TILE_SIZE, COL_TILE_SIZE)
+        tl.store(out_buffer + block_offs, out_buffer_block, mask=mask)
+
+    @triton.jit
+    def _e8m0_to_fp32(scale_e8m0):
+        e8m0_nan_val = 255
+        e8m0_exponent_bias = 127
+        s_offset = scale_e8m0.to(tl.int16) - e8m0_exponent_bias
+        s_fp = tl.exp2(s_offset.to(tl.float32))
+        s_fp = tl.where(scale_e8m0 != e8m0_nan_val, s_fp, float("nan"))
+        return s_fp.to(tl.float32)
+
     @triton.jit
     def triton_scale_swizzle(
         scale_ptr,
@@ -1389,6 +725,7 @@ if TORCH_VERSION_AT_LEAST_2_7 and has_triton():
         scale_cols,
         output_ptr,
         input_row_stride,
+        input_col_stride,
         output_block_stride,
         BLOCK_ROWS: tl.constexpr,
         BLOCK_COLS: tl.constexpr,
@@ -1408,7 +745,7 @@ if TORCH_VERSION_AT_LEAST_2_7 and has_triton():
         mask = (global_rows < scale_rows) & (global_cols < scale_cols)
 
         input_scales = tl.load(
-            scale_ptr + global_rows * input_row_stride + global_cols,
+            scale_ptr + global_rows * input_row_stride + global_cols * input_col_stride,
             mask=mask,
             other=0.0,
         )
@@ -1432,9 +769,10 @@ if TORCH_VERSION_AT_LEAST_2_7 and has_triton():
             scales_flat,
         )
 
+    @torch.library.custom_op("torchao::triton_mx_block_rearrange", mutates_args=())
     def triton_mx_block_rearrange(scale_tensor: torch.Tensor) -> torch.Tensor:
         """
-        Rearranges an E8M0 tensor scale from row-major format to block-scaled swizzle format.
+        Rearranges an E8M0 tensor scale to block-scaled swizzle format.
 
         This format is suitable for Tmem as described in NVIDIA documentation:
         https://docs.nvidia.com/cuda/cublas/index.html#d-block-scaling-factors-layout
@@ -1448,7 +786,6 @@ if TORCH_VERSION_AT_LEAST_2_7 and has_triton():
         assert scale_tensor.element_size() == 1, (
             "Expected element size to be 1 byte (8 bits)"
         )
-        assert scale_tensor.is_contiguous(), "Input tensor must be contiguous"
 
         rows, cols = scale_tensor.shape
 
@@ -1461,7 +798,8 @@ if TORCH_VERSION_AT_LEAST_2_7 and has_triton():
         out = scale_tensor.new_empty((padded_rows, padded_cols))
 
         # Input stride (for row-major format)
-        input_row_stride = cols
+        input_row_stride = scale_tensor.stride()[0]
+        input_col_stride = scale_tensor.stride()[1]
 
         # We probably want handle multiple blocks per tile but for now keep it simple
         BLOCK_ROWS, BLOCK_COLS = 128, 4
@@ -1480,6 +818,7 @@ if TORCH_VERSION_AT_LEAST_2_7 and has_triton():
             cols,
             out.view(torch.uint8),
             input_row_stride,
+            input_col_stride,
             output_block_stride,
             BLOCK_ROWS=BLOCK_ROWS,
             BLOCK_COLS=BLOCK_COLS,
@@ -1501,8 +840,8 @@ if TORCH_VERSION_AT_LEAST_2_7 and has_triton():
         Returns:
             Packed tensor with shape [...] (last dimension removed) where each
             element is an int8 containing 2 FP4 values:
-            - First value of pair → high nibble (bits 4-7)
-            - Second value of pair → low nibble (bits 0-3)
+            - First value of pair → low nibble (bits 0-3)
+            - Second value of pair → high nibble (bits 4-7)
 
         Example:
             Input:  [128, 32, 2] containing FP32 pairs
@@ -1514,10 +853,10 @@ if TORCH_VERSION_AT_LEAST_2_7 and has_triton():
             asm="""
             {
             .reg .b8 byte0, byte1, byte2, byte3;
-            cvt.rn.satfinite.e2m1x2.f32 byte0, $1, $5;
-            cvt.rn.satfinite.e2m1x2.f32 byte1, $2, $6;
-            cvt.rn.satfinite.e2m1x2.f32 byte2, $3, $7;
-            cvt.rn.satfinite.e2m1x2.f32 byte3, $4, $8;
+            cvt.rn.satfinite.e2m1x2.f32 byte0, $5, $1;
+            cvt.rn.satfinite.e2m1x2.f32 byte1, $6, $2;
+            cvt.rn.satfinite.e2m1x2.f32 byte2, $7, $3;
+            cvt.rn.satfinite.e2m1x2.f32 byte3, $8, $4;
             mov.b32 $0, {byte0, byte1, byte2, byte3};
             }
             """,
@@ -1642,6 +981,10 @@ if TORCH_VERSION_AT_LEAST_2_7 and has_triton():
             Since VLLM does not use dyanmo guards we need to make this a custom op
             to avoid the triton kernel being invoked w/ the wrong use of `MASK_SCALES`
         """
+        # reshape to 2d
+        orig_leading_dims, _orig_M, orig_N = x.shape[:-2], x.shape[-2], x.shape[-1]
+        x = x.reshape(-1, orig_N)
+
         M, N = x.shape
         # assert M % 128 == 0 and N % 64 == 0
         assert N % 16 == 0, "N must be divisible by 16 for NVFP4 quantization"
@@ -1682,6 +1025,10 @@ if TORCH_VERSION_AT_LEAST_2_7 and has_triton():
             MASK_SCALES=MASK_SCALES,
         )
 
+        # reshape back to original shape
+        scales = scales.view(*orig_leading_dims, -1, padded_cols)
+        xq = xq.view(*orig_leading_dims, -1, N // 2)
+
         return scales, xq.view(torch.uint8)
 
     @triton_quantize_nvfp4.register_fake
@@ -1699,7 +1046,22 @@ if TORCH_VERSION_AT_LEAST_2_7 and has_triton():
         xq = torch.empty(M, N // 2, device=x.device, dtype=torch.uint8)
         return scales, xq
 
+    @triton_mx_block_rearrange.register_fake
+    def _(scale_tensor):
+        rows, cols = scale_tensor.shape
+        n_row_blocks = triton.cdiv(rows, 128)
+        n_col_blocks = triton.cdiv(cols, 4)
+        padded_rows = n_row_blocks * 128
+        padded_cols = n_col_blocks * 4
+
+        return scale_tensor.new_empty((padded_rows, padded_cols))
 else:
+
+    def triton_to_mxfp8_dim0(
+        x: torch.Tensor,
+        inner_block_size=32,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        raise AssertionError("needs torch version 2.8+ and triton")
 
     def triton_to_mxfp8_dim1(
         x, inner_block_size=32
@@ -1707,7 +1069,8 @@ else:
         raise AssertionError("needs torch version 2.8+ and triton")
 
     def triton_to_mxfp8_dim1_reference(
-        x_hp: torch.Tensor, block_size
+        x_hp: torch.Tensor,
+        block_size,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         raise AssertionError("needs torch version 2.8+ and triton")
 
@@ -1718,3 +1081,149 @@ else:
         x: torch.Tensor, tensor_scale: Optional[torch.Tensor] = None
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         raise AssertionError("needs torch version 2.8+ and triton")
+
+    def triton_mxfp8_dequant_dim0(
+        e4m3_data: torch.Tensor,
+        e8m0_scales: torch.Tensor,
+        out_dtype: torch.dtype,
+        inner_block_size=32,
+    ) -> torch.Tensor:
+        raise AssertionError("needs torch version 2.8+ and triton")
+
+
+mxfp8_cuda_extension_available = False
+if is_sm_at_least_100():
+    try:
+        # MXFP8 CUDA kernel is only built on SM100+. Furthermore,
+        # currently our CI runners are not SM100+, so the user needs to build
+        # from source.
+        # TODO(#2932): improve this
+        from torchao.prototype import mxfp8_cuda
+
+        mxfp8_cuda_extension_available = True
+    except ImportError:
+        logging.debug("Skipping import of torchao.prototype.mxfp8_cuda")
+
+if mxfp8_cuda_extension_available:
+    # TODO: Make `scaling_mode` a choice (enum-like) rather than arbitrary string.
+    # Currently we have to use an arbitrary string because custom ops don't support enum
+    # params.
+    @torch.library.custom_op("torchao::mxfp8_quantize_cuda", mutates_args=())
+    def mxfp8_quantize_cuda(
+        x: torch.Tensor,
+        rowwise: bool = False,
+        colwise: bool = True,
+        scaling_mode: str = "floor",
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        # Input shape must be 2D.
+        assert x.ndim == 2
+        rows, cols = x.shape
+
+        # Block size must be a multiple of 32.
+        block_size = 32
+        assert rows % block_size == 0, "rows must be a multiple of 32"
+        assert cols % block_size == 0, "cols must be a multiple of 32"
+
+        # Convert scaling mode to expected string format and call into kernel.
+        output_rowwise, output_colwise, scales_rowwise, scales_colwise = (
+            mxfp8_cuda.quantize(
+                x,
+                rowwise=rowwise,
+                colwise=colwise,
+                scaling_mode=scaling_mode,
+            )
+        )
+        return output_rowwise, output_colwise, scales_rowwise, scales_colwise
+
+    @mxfp8_quantize_cuda.register_fake
+    def _(
+        x: torch.Tensor,
+        rowwise: bool = False,
+        colwise: bool = True,
+        scaling_mode: str = "floor",
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        assert x.ndim == 2
+        rows, cols = x.shape
+        block_size = 32
+        assert rows % block_size == 0, "rows must be a multiple of 32"
+        assert cols % block_size == 0, "cols must be a multiple of 32"
+        num_row_blocks = rows // 32
+        num_col_blocks = cols // 32
+
+        # rowwise
+        if rowwise:
+            output_rowwise = x.new_empty(rows, cols, dtype=torch.float8_e4m3fn)
+            scales_rowwise = x.new_empty(
+                rows, num_col_blocks, 1, dtype=torch.float8_e8m0fnu
+            )
+        else:
+            output_rowwise = x.new_empty(0, dtype=torch.float8_e4m3fn)
+            scales_rowwise = x.new_empty(0, dtype=torch.float8_e8m0fnu)
+
+        # colwise
+        if colwise:
+            # column major
+            output_colwise = torch.empty_strided(
+                (rows, cols), (1, rows), dtype=torch.float8_e4m3fn, device=x.device
+            )
+
+            # colwise scales are written in column-major format to avoid uncoalesced global memory accesses
+            scales_colwise = torch.empty_strided(
+                (cols, num_row_blocks),
+                (1, cols),
+                dtype=torch.float8_e8m0fnu,
+                device=x.device,
+            )
+        else:
+            output_colwise = x.new_empty(0, dtype=torch.float8_e4m3fn)
+            scales_colwise = x.new_empty(0, dtype=torch.float8_e8m0fnu)
+
+        return output_rowwise, output_colwise, scales_rowwise, scales_colwise
+
+    @register_sharding(torch.ops.torchao.mxfp8_quantize_cuda.default)
+    def custom_mxfp8_quantize_cuda_dim1_sharding(
+        x: torch.Tensor,
+        rowwise: bool = False,
+        colwise: bool = True,
+        scaling_mode: str = "floor",
+    ):
+        # This function signature can be used to understand the shardings:
+        # _, colwise_data, _, colwise_scales = mxfp8_quantize_cuda(x, rowwise=False, colwise=True)
+
+        # When inputs and scale are replicated, we return a quantized output tensor (replicated).
+        inputs_replicated = [None, Replicate(), None, Replicate()]
+        outputs_replicated = [None, Replicate(), None, None]
+        rule_for_input_replicated = (
+            inputs_replicated,
+            outputs_replicated,
+        )
+
+        # When inputs and scale are sharded along dim 0,
+        # we return a quantized output tensor (sharded along dim1 due to transpose).
+        inputs_sharded_dim0 = [None, Shard(0), None, Shard(0)]
+        outputs_sharded_dim1 = [None, Shard(1), None, None]
+        rule_for_input_sharded_dim0 = (inputs_sharded_dim0, outputs_sharded_dim1)
+
+        # When inputs and scale are sharded along dim 1,
+        # we return a quantized output tensor (sharded along dim0 due to transpose).
+        inputs_sharded_dim1 = [None, Shard(1), None, Shard(1)]
+        outputs_sharded_dim0 = [None, Shard(0), None, None]
+        rule_for_input_sharded_dim1 = (inputs_sharded_dim1, outputs_sharded_dim0)
+
+        acceptable_shardings = [
+            rule_for_input_replicated,
+            rule_for_input_sharded_dim0,
+            rule_for_input_sharded_dim1,
+        ]
+        return acceptable_shardings
+else:
+
+    def mxfp8_quantize_cuda(
+        x: torch.Tensor,
+        rowwise: bool = False,
+        colwise: bool = True,
+        scaling_mode: str = "floor",
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        raise NotImplementedError(
+            "`mxfp8_quantize_cuda` needs (1) torch 2.8+ and (2) torchao built from source on a machine with CUDA capability 10.0+. Please see https://github.com/pytorch/ao/issues/2932 for more details."
+        )

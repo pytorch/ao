@@ -2,20 +2,8 @@ Quick Start Guide
 -----------------
 
 In this quick start guide, we will explore how to perform basic quantization using torchao.
-First, install the latest stable torchao release::
 
-  pip install torchao
-
-If you prefer to use the nightly release, you can install torchao using the following
-command instead::
-
-  pip install --pre torchao --index-url https://download.pytorch.org/whl/nightly/cu121
-
-torchao is compatible with the latest 3 major versions of PyTorch, which you will also
-need to install (`detailed instructions <https://pytorch.org/get-started/locally/>`__)::
-
-  pip install torch
-
+Follow `torchao installation and compatibility guide <https://github.com/pytorch/ao#-installation>`__ to install torchao and compatible pytorch.
 
 First Quantization Example
 ==========================
@@ -55,9 +43,8 @@ for efficient mixed dtype matrix multiplication:
 
 .. code:: py
 
-  # torch 2.4+ only
   from torchao.quantization import Int4WeightOnlyConfig, quantize_
-  quantize_(model, Int4WeightOnlyConfig(group_size=32))
+  quantize_(model, Int4WeightOnlyConfig(group_size=32, int4_packing_format="tile_packed_to_4d", int4_choose_qparams_algorithm="hqq"))
 
 The quantized model is now ready to use! Note that the quantization
 logic is inserted through tensor subclasses, so there is no change
@@ -95,15 +82,9 @@ it is also much faster!
 .. code:: py
 
   from torchao.utils import (
-      TORCH_VERSION_AT_LEAST_2_5,
       benchmark_model,
       unwrap_tensor_subclass,
   )
-
-  # Temporary workaround for tensor subclass + torch.compile
-  # Only needed for torch version < 2.5
-  if not TORCH_VERSION_AT_LEAST_2_5:
-      unwrap_tensor_subclass(model)
 
   num_runs = 100
   torch._dynamo.reset()
@@ -191,16 +172,16 @@ Please follow these tutorials to get started on PyTorch 2 Export Quantization:
 
 Modeling Users:
 
-- `PyTorch 2 Export Post Training Quantization <https://docs.pytorch.org/ao/stable/tutorial_source/pt2e_quant_ptq.html>`_
-- `PyTorch 2 Export Quantization Aware Training <ttps://docs.pytorch.org/ao/stable/tutorial_source/pt2e_quant_qat.html>`_
-- `PyTorch 2 Export Post Training Quantization with X86 Backend through Inductor <https://docs.pytorch.org/ao/stable/tutorial_source/pt2e_quant_x86_inductor.html>`_
-- `PyTorch 2 Export Post Training Quantization with XPU Backend through Inductor <https://docs.pytorch.org/ao/stable/tutorial_source/pt2e_quant_xpu_inductor.html>`_
-- `PyTorch 2 Export Quantization for OpenVINO torch.compile Backend <https://docs.pytorch.org/ao/stable/tutorial_source/pt2e_quant_openvino.html>`_
+- `PyTorch 2 Export Post Training Quantization <tutorials_source/pt2e_quant_ptq.html>`__
+- `PyTorch 2 Export Quantization Aware Training <tutorials_source/pt2e_quant_qat.html>`__
+- `PyTorch 2 Export Post Training Quantization with X86 Backend through Inductor <tutorials_source/pt2e_quant_x86_inductor.html>`__
+- `PyTorch 2 Export Post Training Quantization with XPU Backend through Inductor <tutorials_source/pt2e_quant_xpu_inductor.html>`__
+- `PyTorch 2 Export Quantization for OpenVINO torch.compile Backend <tutorials_source/pt2e_quant_openvino_inductor.html>`__
 
 
 Backend Developers (please check out all Modeling Users docs as well):
 
-- `How to Write a Quantizer for PyTorch 2 Export Quantization <https://docs.pytorch.org/ao/stable/tutorial_source/pt2e_quantizer.html>`_
+- `How to Write a Quantizer for PyTorch 2 Export Quantization <tutorials_source/pt2e_quantizer.html>`_
 
 
 Next Steps
@@ -210,7 +191,7 @@ In this quick start guide, we learned how to quantize a simple model with
 torchao. To learn more about the different workflows supported in torchao,
 see our main `README <https://github.com/pytorch/ao/blob/main/README.md>`__.
 For a more detailed overview of quantization in torchao, visit
-`this page <quantization.html>`__.
+`this page <quantization_overview.html>`__.
 
 Finally, if you would like to contribute to torchao, don't forget to check
 out our `contributor guide <contributor_guide.html>`__ and our list of

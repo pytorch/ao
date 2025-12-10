@@ -21,6 +21,7 @@ from torchao.quantization.pt2e.quantizer import (
     QuantizationSpec,
     Quantizer,
 )
+from torchao.quantization.pt2e.quantizer.quantizer import Q_ANNOTATION_KEY
 
 __all__ = [
     "get_embedding_operators_config",
@@ -87,7 +88,7 @@ class EmbeddingQuantizer(Quantizer):
                     raise ValueError(
                         "Embedding config must have a valid weight quantization spec."
                     )
-                node.meta["quantization_annotation"] = QuantizationAnnotation(
+                node.meta[Q_ANNOTATION_KEY] = QuantizationAnnotation(
                     input_qspec_map={
                         node.args[0]: embedding_config.config.weight,
                     }

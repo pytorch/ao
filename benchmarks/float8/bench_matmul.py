@@ -17,7 +17,9 @@ from utils import (
 
 from torchao.ops import mx_fp4_bf16
 from torchao.prototype.mx_formats.mx_tensor import to_mx
+from torchao.prototype.mx_formats.utils import to_blocked
 from torchao.testing.training.roofline_utils import get_specs
+from torchao.utils import is_MI300
 
 
 @torch.inference_mode()
@@ -46,6 +48,7 @@ def run(
     bf16_peak_tops = specs["bf16_peak_tops"]
     fp8_peak_tops = specs["fp8_peak_tops"]
     fp4_peak_tops = specs.get("fp4_peak_tops", 0.0)  # only on sm120
+    print(f"recipe: {recipe}")
     print(f"gpu_name: {torch.cuda.get_device_name(0)}")
     print(
         f"peak tops: bf16 {bf16_peak_tops:.2e}, fp8 {fp8_peak_tops:.2e}, fp4 {fp4_peak_tops:.2e}"
@@ -56,8 +59,8 @@ def run(
         "M",
         "K",
         "N",
+        "ref_time_s",
         "time_s",
-        "speedup",
         "fp8_speedup",
     )
     results = []
@@ -106,7 +109,10 @@ def run(
         else:
             # raw float8 matmul (upper bound for what we can achive in eager mode)
             # TODO(future): add e5m2
-            d1, d2, d3 = torch.float8_e4m3fn, torch.float8_e4m3fn, dtype
+            e4m3_dtype = torch.float8_e4m3fn
+            if torch.version.hip and torch.cuda.is_available() and is_MI300():
+                e4m3_dtype = torch.float8_e4m3fnuz
+            d1, d2, d3 = e4m3_dtype, e4m3_dtype, dtype
             A = A_hp.to(d1)
             B = B_hp_t.to(d2).contiguous().T
             peak_tops = fp8_peak_tops
@@ -120,10 +126,16 @@ def run(
         elif recipe in ("mxfp8_cublas", "mxfp4_cutlass"):
             scale_a = torch.ones(M, K // 32, device=device, dtype=torch.float8_e8m0fnu)
             scale_b = torch.ones(N, K // 32, device=device, dtype=torch.float8_e8m0fnu)
+            # pad if needed
+            scale_a = to_blocked(scale_a)
+            scale_b = to_blocked(scale_b)
         elif recipe == "nvfp4":
             # Use the blockwise scales from nvfp4_quantize
             scale_a = A_scales.view(torch.float8_e4m3fn)
             scale_b = B_scales.view(torch.float8_e4m3fn)
+            # pad if needed
+            scale_a = to_blocked(scale_a)
+            scale_b = to_blocked(scale_b)
         else:
             assert False, f"unknown recipe {recipe}"
 

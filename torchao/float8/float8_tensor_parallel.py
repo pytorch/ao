@@ -19,7 +19,7 @@ from torchao.float8.float8_scaling_utils import (
     NoopFwToFloat8BwDynamic,
     hp_tensor_to_float8_dynamic,
 )
-from torchao.float8.float8_tensor import GemmInputRole
+from torchao.float8.float8_training_tensor import GemmInputRole
 
 # subclass the ColwiseParallel and RowwiseParallel classes
 # to add the float8 support
@@ -62,7 +62,7 @@ class Float8ColwiseParallel(ColwiseParallel):
                 mod.config.cast_config_input.target_dtype,
                 mod.linear_mm_config,
                 gemm_input_role=GemmInputRole.INPUT,
-            )  # DTensor(Float8Tensor)
+            )  # DTensor(Float8TrainingTensor)
 
         # transform the input layouts to the desired layouts of ColwiseParallel
         if input_layouts != desired_input_layouts:
@@ -79,7 +79,7 @@ class Float8ColwiseParallel(ColwiseParallel):
                 placements=output_layouts, async_op=True
             )  # DTensor(torch.Tensor)
 
-        # fwd noop bwd cast to DTensor(Float8Tensor)
+        # fwd noop bwd cast to DTensor(Float8TrainingTensor)
         outputs = NoopFwToFloat8BwDynamic.apply(
             outputs,
             mod.linear_mm_config,
@@ -126,7 +126,7 @@ class Float8RowwiseParallel(RowwiseParallel):
                 mod.config.cast_config_input.target_dtype,
                 mod.linear_mm_config,
                 gemm_input_role=GemmInputRole.INPUT,
-            )  # DTensor(Float8Tensor)
+            )  # DTensor(Float8TrainingTensor)
 
         if input_layouts != desired_input_layouts:
             input_tensor = input_tensor.redistribute(
@@ -142,7 +142,7 @@ class Float8RowwiseParallel(RowwiseParallel):
         if outputs.placements != output_layouts:
             outputs = outputs.redistribute(placements=output_layouts, async_op=True)
 
-        # fwd noop bwd cast to DTensor(Float8Tensor)
+        # fwd noop bwd cast to DTensor(Float8TrainingTensor)
         outputs = NoopFwToFloat8BwDynamic.apply(
             outputs,
             mod.linear_mm_config,
@@ -173,7 +173,7 @@ class PrepareFloat8ModuleInput(PrepareModuleInput):
     currently assumes tensorwise scaling.
 
     The only difference from `PrepareModuleInput` is that
-    after we prepare the input DTensor, we cast the input to DTensor(Float8Tensor)
+    after we prepare the input DTensor, we cast the input to DTensor(Float8TrainingTensor)
     This is to ensure the float8 cast happens before the all-gather (i.e. Shard -> Replicate)
     so that if there are multiple float8 users of the input activation, we perform fp8 allgather
     only once.
@@ -234,7 +234,7 @@ class PrepareFloat8ModuleInput(PrepareModuleInput):
                 e4m3_dtype,
                 self.linear_mm_config,
                 gemm_input_role=GemmInputRole.INPUT,
-            )  # DTensor(Float8Tensor)
+            )  # DTensor(Float8TrainingTensor)
             if desired_layout is not None and input_layout != desired_layout:
                 dt_inp = dt_inp.redistribute(placements=(desired_layout,))
 

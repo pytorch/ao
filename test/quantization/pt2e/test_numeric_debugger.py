@@ -18,26 +18,24 @@ from torchao.quantization.pt2e import (
     prepare_for_propagation_comparison,
 )
 from torchao.testing.pt2e.utils import PT2ENumericDebuggerTestCase
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_8
-
-if TORCH_VERSION_AT_LEAST_2_8:
-    from torch.export import export_for_training
+from torchao.utils import torch_version_at_least
 
 # Increase cache size limit to avoid FailOnRecompileLimitHit error when running multiple tests
-# that use export_for_training, which causes many dynamo recompilations
-if TORCH_VERSION_AT_LEAST_2_8:
+# that use torch.export.export, which causes many dynamo recompilations
+if torch_version_at_least("2.8.0"):
     torch._dynamo.config.cache_size_limit = 128
 
 
 @unittest.skipIf(
-    not TORCH_VERSION_AT_LEAST_2_8, "Requires torch 2.8 and above, including nightly"
+    not torch_version_at_least("2.8.0"),
+    "Requires torch 2.8 and above, including nightly",
 )
 @unittest.skipIf(IS_WINDOWS, "Windows not yet supported for torch.compile")
 class TestNumericDebuggerInfra(PT2ENumericDebuggerTestCase):
     def test_simple(self):
         m = TestHelperModules.Conv2dThenConv1d()
         example_inputs = m.example_inputs()
-        ep = export_for_training(m, example_inputs, strict=True)
+        ep = torch.export.export(m, example_inputs, strict=True)
         m = ep.module()
         self._assert_each_node_has_from_node_source(m)
         from_node_source_map = self._extract_from_node_source(m)
@@ -50,7 +48,7 @@ class TestNumericDebuggerInfra(PT2ENumericDebuggerTestCase):
     def test_control_flow(self):
         m = TestHelperModules.ControlFlow()
         example_inputs = m.example_inputs()
-        ep = export_for_training(m, example_inputs, strict=True)
+        ep = torch.export.export(m, example_inputs, strict=True)
         m = ep.module()
 
         self._assert_each_node_has_from_node_source(m)
@@ -93,13 +91,13 @@ class TestNumericDebuggerInfra(PT2ENumericDebuggerTestCase):
     def test_re_export_preserve_handle(self):
         m = TestHelperModules.Conv2dThenConv1d()
         example_inputs = m.example_inputs()
-        ep = export_for_training(m, example_inputs, strict=True)
+        ep = torch.export.export(m, example_inputs, strict=True)
         m = ep.module()
 
         self._assert_each_node_has_from_node_source(m)
         from_node_source_map_ref = self._extract_from_node_source(m)
 
-        ep_reexport = export_for_training(m, example_inputs, strict=True)
+        ep_reexport = torch.export.export(m, example_inputs, strict=True)
         m_reexport = ep_reexport.module()
 
         self._assert_each_node_has_from_node_source(m_reexport)
@@ -110,7 +108,7 @@ class TestNumericDebuggerInfra(PT2ENumericDebuggerTestCase):
     def test_run_decompositions_same_handle_id(self):
         m = TestHelperModules.Conv2dThenConv1d()
         example_inputs = m.example_inputs()
-        ep = export_for_training(m, example_inputs, strict=True)
+        ep = torch.export.export(m, example_inputs, strict=True)
         m = ep.module()
 
         self._assert_each_node_has_from_node_source(m)
@@ -136,7 +134,7 @@ class TestNumericDebuggerInfra(PT2ENumericDebuggerTestCase):
 
         for m in test_models:
             example_inputs = m.example_inputs()
-            ep = export_for_training(m, example_inputs, strict=True)
+            ep = torch.export.export(m, example_inputs, strict=True)
             m = ep.module()
 
             self._assert_each_node_has_from_node_source(m)
@@ -161,7 +159,7 @@ class TestNumericDebuggerInfra(PT2ENumericDebuggerTestCase):
     def test_prepare_for_propagation_comparison(self):
         m = TestHelperModules.Conv2dThenConv1d()
         example_inputs = m.example_inputs()
-        ep = export_for_training(m, example_inputs, strict=True)
+        ep = torch.export.export(m, example_inputs, strict=True)
         m = ep.module()
         m_logger = prepare_for_propagation_comparison(m)
         ref = m(*example_inputs)
@@ -177,7 +175,7 @@ class TestNumericDebuggerInfra(PT2ENumericDebuggerTestCase):
     def test_added_node_gets_unique_id(self) -> None:
         m = TestHelperModules.Conv2dThenConv1d()
         example_inputs = m.example_inputs()
-        ep = export_for_training(m, example_inputs, strict=True)
+        ep = torch.export.export(m, example_inputs, strict=True)
 
         ref_from_node_source = self._extract_from_node_source(ep.module())
         ref_counter = Counter(ref_from_node_source.values())

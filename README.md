@@ -6,35 +6,40 @@
 
 ### PyTorch-Native Training-to-Serving Model Optimization
 - Pre-train Llama-3.1-70B **1.5x faster** with float8 training
-- Recover **77% of quantized perplexity degradation** on Llama-3.2-3B with QAT
+- Recover **67% of quantized accuracy degradation** on Gemma3-4B with QAT
 - Quantize Llama-3-8B to int4 for **1.89x faster** inference with **58% less memory**
 
 <div align="center">
 
-[![](https://img.shields.io/badge/CodeML_%40_ICML-2025-blue)](https://codeml-workshop.github.io/codeml2025/)
+[![](https://img.shields.io/badge/CodeML_%40_ICML-2025-blue)](https://openreview.net/attachment?id=HpqH0JakHf&name=pdf)
 [![](https://dcbadge.vercel.app/api/server/gpumode?style=flat&label=TorchAO%20in%20GPU%20Mode)](https://discord.com/channels/1189498204333543425/1205223658021458100)
 [![](https://img.shields.io/github/contributors-anon/pytorch/ao?color=yellow&style=flat-square)](https://github.com/pytorch/ao/graphs/contributors)
 [![](https://img.shields.io/badge/torchao-documentation-blue?color=DE3412)](https://docs.pytorch.org/ao/stable/index.html)
 [![license](https://img.shields.io/badge/license-BSD_3--Clause-lightgrey.svg)](./LICENSE)
 
-[Latest News](#-latest-news) | [Overview](#-overview) | [Quick Start](#-quick-start)  | [Integrations](#-integrations) | [Inference](#-inference) | [Training](#-training) | [Videos](#-videos) | [Citation](#-citation)
+[Latest News](#-latest-news) | [Overview](#-overview) | [Quick Start](#-quick-start)  | [Installation](#-installation) | [Integrations](#-integrations) | [Inference](#-inference) | [Training](#-training) | [Videos](#-videos) | [Citation](#-citation)
 
 </div>
 
 
 ## 📣 Latest News
 
-- [Jun 25] Our [TorchAO paper](https://codeml-workshop.github.io/codeml2025/) was accepted to CodeML @ ICML 2025!
+- [Oct 25] QAT is now integrated into [Unsloth](https://docs.unsloth.ai/new/quantization-aware-training-qat) for both full and LoRA fine-tuning! Try it out using [this notebook](https://colab.research.google.com/github/unslothai/notebooks/blob/main/nb/Qwen3_%284B%29_Instruct-QAT.ipynb).
+- [Oct 25] MXFP8 MoE training prototype achieved **~1.45x speedup** for MoE layer in Llama4 Scout, and **~1.25x** speedup for MoE layer in DeepSeekV3 671b - with comparable numerics to bfloat16! Check out the [docs](./torchao/prototype/moe_training/) to try it out.
+- [Sept 25] MXFP8 training achieved [1.28x speedup on Crusoe B200 cluster](https://pytorch.org/blog/accelerating-2k-scale-pre-training-up-to-1-28x-with-torchao-mxfp8-and-torchtitan-on-crusoe-b200-cluster/) with virtually identical loss curve to bfloat16!
+- [Sept 19] [TorchAO Quantized Model and Quantization Recipes Now Available on Huggingface Hub](https://pytorch.org/blog/torchao-quantized-models-and-quantization-recipes-now-available-on-huggingface-hub/)!
+- [Jun 25] Our [TorchAO paper](https://openreview.net/attachment?id=HpqH0JakHf&name=pdf) was accepted to CodeML @ ICML 2025!
+
+
+<details>
+  <summary>Older news</summary>
+
 - [May 25] QAT is now integrated into [Axolotl](https://github.com/axolotl-ai-cloud/axolotl) for fine-tuning ([docs](https://docs.axolotl.ai/docs/qat.html))!
 - [Apr 25] Float8 rowwise training yielded [1.34-1.43x training speedup](https://pytorch.org/blog/accelerating-large-scale-training-and-convergence-with-pytorch-float8-rowwise-on-crusoe-2k-h200s/) at 2k H100 GPU scale
 - [Apr 25] TorchAO is added as a [quantization backend to vLLM](https://docs.vllm.ai/en/latest/features/quantization/torchao.html) ([docs](https://docs.vllm.ai/en/latest/features/quantization/torchao.html))!
 - [Mar 25] Our [2:4 Sparsity paper](https://openreview.net/pdf?id=O5feVk7p6Y) was accepted to SLLM @ ICLR 2025!
 - [Jan 25] Our [integration with GemLite and SGLang](https://pytorch.org/blog/accelerating-llm-inference/) yielded 1.1-2x faster inference with int4 and float8 quantization across different batch sizes and tensor parallel sizes
 - [Jan 25] We added [1-8 bit ARM CPU kernels](https://pytorch.org/blog/hi-po-low-bit-operators/) for linear and embedding ops
-
-<details>
-  <summary>Older news</summary>
-
 - [Nov 24] We achieved [1.43-1.51x faster pre-training](https://pytorch.org/blog/training-using-float8-fsdp2/) on Llama-3.1-70B and 405B using float8 training
 - [Oct 24] TorchAO is added as a quantization backend to HF Transformers!
 - [Sep 24] We officially launched TorchAO. Check out our blog [here](https://pytorch.org/blog/pytorch-native-architecture-optimization/)!
@@ -47,27 +52,60 @@
 
 ## 🌅 Overview
 
-TorchAO is a PyTorch-native model optimization framework leveraging quantization and sparsity to provide an end-to-end, training-to-serving workflow
-for AI models. TorchAO works out-of-the-box with `torch.compile()` and `FSDP2` across most HuggingFace PyTorch models. Key features include:
-* Float8 [training](torchao/float8/README.md) and [inference](https://docs.pytorch.org/ao/main/generated/torchao.quantization.Float8DynamicActivationFloat8WeightConfig.html) for speedups without compromising accuracy
-* [MX training and inference](torchao/prototype/mx_formats/README.md), provides MX tensor formats based on native PyTorch MX dtypes (prototype)
-* [Quantization-Aware Training (QAT)](torchao/quantization/qat/README.md) for mitigating quantization degradation
-* [Post-Training Quantization (PTQ)](torchao/quantization/README.md) for int4, int8, fp6 etc, with matching kernels targeting a variety of backends including CUDA, ARM CPU, and XNNPACK
-* [Sparsity](torchao/sparsity/README.md), includes different techniques such as 2:4 sparsity and block sparsity
+TorchAO is an easy to use quantization library for native PyTorch. TorchAO works out-of-the-box with `torch.compile()` and `FSDP2` across most HuggingFace PyTorch models. 
+
+### Stable Workflows
+
+🟢 = stable, 🟡 = prototype, 🟠 = planned, ⚪ = not supported
+
+| recommended hardware | weight | activation | quantized training | QAT | PTQ data algorithms | quantized inference |
+| -------- | ------ | ---------- | ------------------ | --- | ------------------- | ------------------- |
+| H100, B200 GPUs | float8 rowwise | float8 rowwise | 🟢 [(link)](torchao/float8) | 🟢 [(link)](torchao/quantization/qat) | ⚪ | 🟢 [(link)](torchao/quantization#a8w8-float8-dynamic-quantization-with-rowwise-scaling) |
+| H100 GPUs | int4 | float8 rowwise | ⚪ | 🟢 [(link)](torchao/quantization/qat) | 🟠 | 🟢 [(link)](https://github.com/pytorch/ao/blob/257d18ae1b41e8bd8d85849dd2bd43ad3885678e/torchao/quantization/quant_api.py#L1296) |
+| A100 GPUs | int4 | bfloat16 | ⚪ | 🟢 [(link)](torchao/quantization/qat) | 🟡: [HQQ](torchao/prototype/hqq/README.md), [AWQ](torchao/prototype/awq), [GPTQ](torchao/quantization/GPTQ) | 🟢 [(link)](torchao/quantization#a16w4-weightonly-quantization) |
+| A100 GPUs | int8 | bfloat16 | ⚪ | 🟢 [(link)](torchao/quantization/qat) | ⚪ | 🟢 [(link)](torchao/quantization#a16w8-int8-weightonly-quantization) |
+| A100 GPUs | int8 | int8 | 🟡 [(link)](torchao/prototype/quantized_training) | 🟢 [(link)](torchao/quantization/qat) | ⚪ | 🟢 [(link)](https://github.com/pytorch/ao/tree/main/torchao/quantization#a8w8-int8-dynamic-quantization) |
+| edge | intx (1..7) | bfloat16 | ⚪ | 🟢 [(link)](torchao/quantization/qat) | ⚪ | 🟢 [(link)](https://github.com/pytorch/ao/blob/257d18ae1b41e8bd8d85849dd2bd43ad3885678e/torchao/quantization/quant_api.py#L2267) | 
+| edge | intx (1..7) | bfloat16 | ⚪ | 🟢 [(link)](torchao/quantization/qat) | ⚪ | 🟢 [(link)](https://github.com/pytorch/ao/blob/257d18ae1b41e8bd8d85849dd2bd43ad3885678e/torchao/quantization/quant_api.py#L702) |
+
+### Prototype Workflows
+
+🟢 = stable, 🟡 = prototype, 🟠 = planned, ⚪ = not supported
+
+| recommended hardware | weight | activation | quantized training | QAT | PTQ data algorithms | quantized inference |
+| -------- | ------ | ---------- | ------------------ | --- | ------------------- | ------------------- |
+| B200, MI350x GPUs | mxfp8 | mxfp8 | 🟡 [(dense)](torchao/prototype/mx_formats#mx-training), [(moe)](torchao/prototype/moe_training) | ⚪ | ⚪ | 🟡 [(link)](torchao/prototype/mx_formats#mx-inference) |
+| B200 GPUs | nvfp4 | nvfp4 | 🟠 | 🟡 [(link)](torchao/prototype/qat/nvfp4.py) | ⚪ |  🟡 [(link)](torchao/prototype/mx_formats#mx-inference) |
+| B200, MI350x GPUs | mxfp4 | mxfp4 | ⚪ not supported | 🟠 | 🟠 | 🟡 [(link)](torchao/prototype/mx_formats#mx-inference) |
+| H100 | float8 128x128 (blockwise) | float8 1x128 | 🟠 | ⚪ | ⚪ | 🟡 |
+
+### Other
+
+* [Quantization-Aware Training (QAT) README.md](torchao/quantization/qat/README.md)
+* [Post-Training Quantization (PTQ) README.md](torchao/quantization/README.md)
+* [Sparsity README.md](torchao/sparsity/README.md), includes different techniques such as 2:4 sparsity and block sparsity
+* [the prototype folder](torchao/prototype) for other prototype features
 
 Check out our [docs](https://docs.pytorch.org/ao/main/) for more details!
-
-From the team that brought you the fast series:
-* 9.5x inference speedups for Image segmentation models with [sam-fast](https://pytorch.org/blog/accelerating-generative-ai)
-* 10x inference speedups for Language models with [gpt-fast](https://pytorch.org/blog/accelerating-generative-ai-2)
-* 3x inference speedup for Diffusion models with [sd-fast](https://pytorch.org/blog/accelerating-generative-ai-3) (new: [flux-fast](https://pytorch.org/blog/presenting-flux-fast-making-flux-go-brrr-on-h100s/))
-* 2.7x inference speedup for FAIR’s Seamless M4T-v2 model with [seamlessv2-fast](https://pytorch.org/blog/accelerating-generative-ai-4/)
-
 
 ## 🚀 Quick Start
 
 First, install TorchAO. We recommend installing the latest stable version:
+```bash
+pip install torchao
 ```
+
+Quantize your model weights to int4!
+```python
+from torchao.quantization import Int4WeightOnlyConfig, quantize_
+quantize_(model, Int4WeightOnlyConfig(group_size=32, int4_packing_format="tile_packed_to_4d", int4_choose_qparams_algorithm="hqq"))
+```
+See our [quick start guide](https://docs.pytorch.org/ao/stable/quick_start.html) for more details.
+
+## 🛠 Installation
+
+To install the latest stable version:
+```bash
 pip install torchao
 ```
 
@@ -76,92 +114,72 @@ pip install torchao
 
   ```
   # Nightly
-  pip install --pre torchao --index-url https://download.pytorch.org/whl/nightly/cu126
-  
+  pip install --pre torchao --index-url https://download.pytorch.org/whl/nightly/cu128
+
   # Different CUDA versions
   pip install torchao --index-url https://download.pytorch.org/whl/cu126  # CUDA 12.6
+  pip install torchao --index-url https://download.pytorch.org/whl/cu129  # CUDA 12.9
   pip install torchao --index-url https://download.pytorch.org/whl/cpu    # CPU only
 
   # For developers
-  USE_CUDA=1 python setup.py develop
+  # Note: the `--no-build-isolation` flag is required.
+  USE_CUDA=1 pip install -e . --no-build-isolation
+  USE_CPP=0 pip install -e . --no-build-isolation
   ```
 
 </details>
 
-Quantize your model weights to int4!
-```
-from torchao.quantization import Int4WeightOnlyConfig, quantize_
-quantize_(model, Int4WeightOnlyConfig(group_size=32))
-```
-Compared to a `torch.compiled` bf16 baseline, your quantized model should be significantly smaller and faster on a single A100 GPU:
-```
-int4 model size: 1.25 MB
-bfloat16 model size: 4.00 MB
-compression ratio: 3.2
-
-bf16 mean time: 30.393 ms
-int4 mean time: 4.410 ms
-speedup: 6.9x
-```
-For the full model setup and benchmark details, check out our [quick start guide](https://docs.pytorch.org/ao/stable/quick_start.html). Alternatively, try quantizing your favorite model using our [HuggingFace space](https://huggingface.co/spaces/pytorch/torchao-my-repo)!
-
-
-## 🔗 Integrations
-
-TorchAO is integrated into some of the leading open-source libraries including:
-
-* HuggingFace transformers with a [builtin inference backend](https://huggingface.co/docs/transformers/main/quantization/torchao) and [low bit optimizers](https://github.com/huggingface/transformers/pull/31865)
-* HuggingFace diffusers best practices with `torch.compile` and TorchAO in a standalone repo [diffusers-torchao](https://github.com/huggingface/diffusers/blob/main/docs/source/en/quantization/torchao.md)
-* Mobius HQQ backend leveraged our int4 kernels to get [195 tok/s on a 4090](https://github.com/mobiusml/hqq#faster-inference)
-* TorchTune for our [QLoRA](https://docs.pytorch.org/torchtune/main/tutorials/qlora_finetune.html), [QAT](https://docs.pytorch.org/torchtune/main/recipes/qat_distributed.html), and [float8 quantized fine-tuning](https://github.com/pytorch/torchtune/pull/2546) recipes
-* TorchTitan for [float8 pre-training](https://github.com/pytorch/torchtitan/blob/main/docs/float8.md)
-* VLLM for LLM serving: [usage](https://docs.vllm.ai/en/latest/features/quantization/torchao.html), [detailed docs](https://docs.pytorch.org/ao/main/torchao_vllm_integration.html)
-* SGLang for LLM serving: [usage](https://docs.sglang.ai/backend/server_arguments.html#server-arguments) and the major [PR](https://github.com/sgl-project/sglang/pull/1341).
-* Axolotl for [QAT](https://docs.axolotl.ai/docs/qat.html) and [PTQ](https://docs.axolotl.ai/docs/quantize.html)
-
+Please see the [torchao compability table](https://github.com/pytorch/ao/issues/2919) for version requirements for dependencies.
 
 ## 🔎 Inference
 
 TorchAO delivers substantial performance gains with minimal code changes:
 
-- **Int4 weight-only**: [1.89x throughput with 58.1% less memory](torchao/quantization/README.md) on Llama-3-8B
-- **Float8 dynamic quantization**: [1.54x and 1.27x speedup on Flux.1-Dev* and CogVideoX-5b respectively](https://github.com/sayakpaul/diffusers-torchao) on H100 with preserved quality
+- **Int4 weight-only**: [1.73x speedup with 65% less memory](https://huggingface.co/pytorch/gemma-3-12b-it-INT4) for Gemma3-12b-it on H100 with slight impact on accuracy
+- **Float8 dynamic quantization**: [1.5-1.6x speedup on gemma-3-27b-it](https://huggingface.co/pytorch/gemma-3-27b-it-FP8/blob/main/README.md#results-h100-machine) and [1.54x and 1.27x speedup on Flux.1-Dev* and CogVideoX-5b respectively](https://github.com/sayakpaul/diffusers-torchao) on H100 with preserved quality
+- **Int8 activation quantization and int4 weight quantization**: Quantized Qwen3-4B running with 14.8 tokens/s with 3379 MB memory usage on iPhone 15 Pro through [ExecuTorch](https://huggingface.co/pytorch/Qwen3-4B-INT8-INT4#running-in-a-mobile-app)
 - **Int4 + 2:4 Sparsity**: [2.37x throughput with 67.7% memory reduction](torchao/sparsity/README.md) on Llama-3-8B
 
-Quantize any model with `nn.Linear` layers in just one line (Option 1), or load the quantized model directly from HuggingFace using our integration with HuggingFace transformers (Option 2):
-
-#### Option 1: Direct TorchAO API
-
-```python
-from torchao.quantization.quant_api import quantize_, Int4WeightOnlyConfig
-quantize_(model, Int4WeightOnlyConfig(group_size=128, use_hqq=True))
-```
-
-#### Option 2: HuggingFace Integration
-
+Following is our recommended flow for quantization and deployment:
 ```python
 from transformers import TorchAoConfig, AutoModelForCausalLM
-from torchao.quantization.quant_api import Int4WeightOnlyConfig
+from torchao.quantization import Float8DynamicActivationFloat8WeightConfig, PerRow
 
 # Create quantization configuration
-quantization_config = TorchAoConfig(quant_type=Int4WeightOnlyConfig(group_size=128, use_hqq=True))
+quantization_config = TorchAoConfig(quant_type=Float8DynamicActivationFloat8WeightConfig(granularity=PerRow()))
 
 # Load and automatically quantize
 quantized_model = AutoModelForCausalLM.from_pretrained(
-    "microsoft/Phi-4-mini-instruct",
-    torch_dtype="auto",
+    "Qwen/Qwen3-32B",
+    dtype="auto",
     device_map="auto",
     quantization_config=quantization_config
 )
 ```
 
-#### Deploy quantized models in vLLM with one command:
+Alternative quantization API to use when the above doesn't work is `quantize_` API in [quick start guide](https://docs.pytorch.org/ao/main/quick_start.html).
 
+Serving with vllm on 1xH100 machine:
 ```shell
-vllm serve pytorch/Phi-4-mini-instruct-int4wo-hqq --tokenizer microsoft/Phi-4-mini-instruct -O3
+# Server
+VLLM_DISABLE_COMPILE_CACHE=1 vllm serve pytorch/Qwen3-32B-FP8 --tokenizer Qwen/Qwen3-32B -O3
 ```
 
-With this quantization flow, we achieve **67% VRAM reduction and 12-20% speedup** on A100 GPUs while maintaining model quality. For more detail, see this [step-by-step quantization guide](https://huggingface.co/pytorch/Phi-4-mini-instruct-int4wo-hqq#quantization-recipe). We also release some pre-quantized models [here](https://huggingface.co/pytorch).
+```shell
+# Client
+curl http://localhost:8000/v1/chat/completions -H "Content-Type: application/json" -d '{
+  "model": "pytorch/Qwen3-32B-FP8",
+  "messages": [
+    {"role": "user", "content": "Give me a short introduction to large language models."}
+  ],
+  "temperature": 0.6,
+  "top_p": 0.95,
+  "top_k": 20,
+  "max_tokens": 32768
+}'
+```
+
+We also support deployment to edge devices through ExecuTorch, for more detail, see [quantization and serving guide](https://docs.pytorch.org/ao/main/serving.html). We also release pre-quantized models [here](https://huggingface.co/pytorch).
 
 ## 🚅 Training
 
@@ -170,18 +188,23 @@ With this quantization flow, we achieve **67% VRAM reduction and 12-20% speedup*
 Post-training quantization can result in a fast and compact model, but may also lead to accuracy degradation. We recommend exploring Quantization-Aware Training (QAT) to overcome this limitation, especially for lower bit-width dtypes such as int4. In collaboration with [TorchTune](https://github.com/pytorch/torchtune/blob/main/recipes/quantization.md#quantization-aware-training-qat), we've developed a QAT recipe that demonstrates significant accuracy improvements over traditional PTQ, recovering **96% of the accuracy degradation on hellaswag and 68% of the perplexity degradation on wikitext** for Llama3 compared to post-training quantization (PTQ). For more details, please refer to the [QAT README](torchao/quantization/qat/README.md) and the [original blog](https://pytorch.org/blog/quantization-aware-training/):
 
 ```python
-from torchao.quantization import quantize_
-from torchao.quantization.qat import FakeQuantizeConfig, IntXQuantizationAwareTrainingConfig
-activation_config = FakeQuantizeConfig(torch.int8, "per_token", is_symmetric=False)
-weight_config = FakeQuantizeConfig(torch.int4, group_size=32)
-qat_config = IntXQuantizationAwareTrainingConfig(activation_config, weight_config),
-quantize_(my_model, qat_config)
+from torchao.quantization import quantize_, Int8DynamicActivationInt4WeightConfig
+from torchao.quantization.qat import QATConfig
+
+# prepare
+base_config = Int8DynamicActivationInt4WeightConfig(group_size=32)
+quantize_(my_model, QATConfig(base_config, step="prepare"))
+
+# train model (not shown)
+
+# convert
+quantize_(my_model, QATConfig(base_config, step="convert"))
 ```
 
 Users can also combine LoRA + QAT to speed up training by [1.89x](https://dev-discuss.pytorch.org/t/speeding-up-qat-by-1-89x-with-lora/2700) compared to vanilla QAT using this [fine-tuning recipe](https://github.com/pytorch/torchtune/blob/main/recipes/qat_lora_finetune_distributed.py).
 
 
-### Float8
+### Quantized training
 
 [torchao.float8](torchao/float8) implements training recipes with the scaled float8 dtypes, as laid out in https://arxiv.org/abs/2209.05433. With ``torch.compile`` on, current results show throughput speedups of up to **1.5x on up to 512 GPU / 405B parameter count scale** ([details](https://pytorch.org/blog/training-using-float8-fsdp2/)):
 
@@ -196,6 +219,8 @@ Our float8 training is integrated into [TorchTitan's pre-training flows](https:/
 * [Efficient Pre-training of Llama 3-like model architectures using torchtitan on Amazon SageMaker](https://aws.amazon.com/blogs/machine-learning/efficient-pre-training-of-llama-3-like-model-architectures-using-torchtitan-on-amazon-sagemaker/)
 * [Float8 in PyTorch](https://dev-discuss.pytorch.org/t/float8-in-pytorch-1-x/1815)
 
+<details>
+  <summary>Other features (sparse training, memory efficient optimizers)</summary>
 
 ### Sparse Training
 
@@ -227,6 +252,8 @@ optim = CPUOffloadOptimizer(model.parameters(), torch.optim.AdamW, fused=True)
 optim.load_state_dict(ckpt["optim"])
 ```
 
+</details>
+
 <!--
 ## For Developers
 
@@ -250,6 +277,21 @@ We've added support for authoring and releasing [custom ops](./torchao/csrc/) th
 If you believe there's other CUDA kernels we should be taking a closer look at please leave a comment on [this issue](https://github.com/pytorch/ao/issues/697) or feel free to contribute directly to the repo.
 -->
 
+## 🔗 Integrations
+
+TorchAO is integrated into some of the leading open-source libraries including:
+
+* Unsloth now supports QAT: [Read blog](https://docs.unsloth.ai/new/quantization-aware-training-qat) and [guide](https://docs.unsloth.ai/new/quantization-aware-training-qat#qat--lora-finetuning).
+* HuggingFace transformers with a [builtin inference backend](https://huggingface.co/docs/transformers/main/quantization/torchao) and [low bit optimizers](https://github.com/huggingface/transformers/pull/31865)
+* HuggingFace diffusers best practices with `torch.compile` and TorchAO in a standalone repo [diffusers-torchao](https://github.com/huggingface/diffusers/blob/main/docs/source/en/quantization/torchao.md)
+* vLLM for LLM serving: [usage](https://docs.vllm.ai/en/latest/features/quantization/torchao.html), [detailed docs](https://docs.pytorch.org/ao/main/torchao_vllm_integration.html)
+* Integration with [FBGEMM](https://github.com/pytorch/FBGEMM/tree/main/fbgemm_gpu/experimental/gen_ai) for SOTA kernels on server GPUs
+* Integration with [ExecuTorch](https://github.com/pytorch/executorch/) for edge device deployment
+* Axolotl for [QAT](https://docs.axolotl.ai/docs/qat.html) and [PTQ](https://docs.axolotl.ai/docs/quantize.html)
+* TorchTitan for [float8 pre-training](https://github.com/pytorch/torchtitan/blob/main/docs/float8.md)
+* HuggingFace PEFT for LoRA using TorchAO as their [quantization backend](https://huggingface.co/docs/peft/en/developer_guides/quantization#torchao-pytorch-architecture-optimization)
+* TorchTune for our NF4 [QLoRA](https://docs.pytorch.org/torchtune/main/tutorials/qlora_finetune.html), [QAT](https://docs.pytorch.org/torchtune/main/recipes/qat_distributed.html), and [float8 quantized fine-tuning](https://github.com/pytorch/torchtune/pull/2546) recipes
+* SGLang for LLM serving: [usage](https://docs.sglang.ai/advanced_features/quantization.html#online-quantization)
 
 ## 🎥 Videos
 * [Keynote talk at GPU MODE IRL](https://youtu.be/FH5wiwOyPX4?si=VZK22hHz25GRzBG1&t=1009)
@@ -269,7 +311,7 @@ If you find the torchao library useful, please cite it in your work as below.
 @software{torchao,
   title={TorchAO: PyTorch-Native Training-to-Serving Model Optimization},
   author={torchao},
-  url={https://github.com/pytorch/torchao},
+  url={https://github.com/pytorch/ao},
   license={BSD-3-Clause},
   month={oct},
   year={2024}

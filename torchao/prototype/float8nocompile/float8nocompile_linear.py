@@ -11,7 +11,11 @@ does not require `torch.compile` to be performant.
 import torch
 
 from torchao.float8.config import Float8LinearConfig
-from torchao.float8.float8_tensor import GemmInputRole, LinearMMConfig, ScaledMMConfig
+from torchao.float8.float8_training_tensor import (
+    GemmInputRole,
+    LinearMMConfig,
+    ScaledMMConfig,
+)
 from torchao.prototype.float8nocompile.float8nocompile_scaling_utils import (
     ToFP8ColumnMajor,
     ToFP8ColumnMajorT,

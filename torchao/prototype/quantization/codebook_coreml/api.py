@@ -42,13 +42,12 @@ def _codebook_weight_only_transform(
         raise ImportError("Requires coremltools >= 8.3.0")
 
     dtype = config.dtype
-    block_size = config.block_size
     weight = module.weight
 
     quantized_weight = CodebookQuantizedTensor.from_float(
         weight,
         dtype,
-        block_size,
+        config.block_size,
     )
     module.weight = torch.nn.Parameter(quantized_weight, requires_grad=False)
     return module
