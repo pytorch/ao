@@ -57,7 +57,7 @@ from torchao.dtypes.uintx.packed_linear_int8_dynamic_activation_intx_weight_layo
     make_packed_linear_int8_dynamic_activation_intx_weight_tensor,
 )
 from torchao.dtypes.utils import Layout
-from torchao.float8.config import e4m3_dtype, e5m2_dtype
+from torchao.float8.config import e4m3_dtype
 from torchao.float8.float8_linear import Float8Linear
 from torchao.float8.inference import (
     Float8MMConfig,
@@ -74,6 +74,8 @@ from torchao.quantization.quantize_.common import (
     KernelPreference,
 )
 from torchao.quantization.quantize_.workflows import (
+    Float8SemiSparseTensor,
+    Float8SemiSparseTensorPackingFormat,
     Float8Tensor,
     Int4ChooseQParamsAlgorithm,
     Int4MarlinSparseTensor,
@@ -2088,44 +2090,82 @@ class Float8DynamicActivationFloat8SemiSparseWeightConfig(AOBaseConfig):
         `weight_dtype`: data type for quantized weight tensor.
     """
 
-    layout: Layout = CutlassSemiSparseLayout()
-    activation_dtype: torch.dtype = e5m2_dtype
+    activation_dtype: torch.dtype = e4m3_dtype
     weight_dtype: torch.dtype = e4m3_dtype
+    granularity: Optional[Union[FP8Granularity, List[FP8Granularity]]] = PerRow()
+    activation_value_lb: Optional[float] = None
+    activation_value_ub: Optional[float] = None
+    float8_packing_format: Float8SemiSparseTensorPackingFormat = (
+        Float8SemiSparseTensorPackingFormat.SPARSE_CUTLASS
+    )
+    version: int = 2
 
     def __post_init__(self):
         torch._C._log_api_usage_once(
             "torchao.quantization.Float8DynamicActivationFloat8SemiSparseWeightConfig"
         )
 
+        assert self.float8_packing_format in {
+            Float8SemiSparseTensorPackingFormat.SPARSE_CUTLASS,
+            Float8SemiSparseTensorPackingFormat.SPARSE_CUSPARSELT,
+        }, f"{self.float8_packing_format} is not supported"
+
 
 @register_quantize_module_handler(Float8DynamicActivationFloat8SemiSparseWeightConfig)
 def _float8_dynamic_activation_float8_semi_sparse_weight_transform(
-    module: torch.nn.Module, config: Float8DynamicActivationFloat8SemiSparseWeightConfig
+    module: torch.nn.Module,
+    config: Float8DynamicActivationFloat8SemiSparseWeightConfig,
+    *,
+    parameter_name: str = "weight",
 ):
     assert is_sm_at_least_90(), "Float8 quantization is only supported on CUDA>=9.0"
 
     if isinstance(module, Float8Linear):
         module = _unwrap_float8_linear(module)
 
-    weight = module.weight
+    unquantized_param = getattr(module, parameter_name)
     weight_dtype = config.weight_dtype
     activation_dtype = config.activation_dtype
-    layout = config.layout
+    version = config.version
+    activation_granularity, weight_granularity = _normalize_granularity(
+        config.granularity
+    )
+    activation_value_lb = config.activation_value_lb
+    activation_value_ub = config.activation_value_ub
+    act_quant_kwargs = QuantizeTensorToFloat8Kwargs(
+        activation_dtype,
+        activation_granularity,
+        hp_value_lb=activation_value_lb,
+        hp_value_ub=activation_value_ub,
+    )
+    packing_format = config.float8_packing_format
 
-    if not isinstance(layout, CutlassSemiSparseLayout):
+    if version == 2:
+        quantized_param = Float8SemiSparseTensor.from_hp(
+            unquantized_param,
+            float8_dtype=weight_dtype,
+            granularity=weight_granularity,
+            packing_format=packing_format,
+            act_quant_kwargs=act_quant_kwargs,
+        )
+    else:
         raise NotImplementedError(
-            f"Only CutlassSemiSparseLayout layout is supported. Received {layout}."
+            f"Only version 2 of Float8DynamicActivationFloat8SemiSparseWeightConfig is supported. Received {version}."
         )
 
-    weight = _float8_cutlass_quant_sparse(weight, weight_dtype)
-    weight = to_linear_activation_quantized(
-        weight,
-        _float8_cutlass_quant,
-        quant_kwargs={"target_dtype": activation_dtype},
+    setattr(
+        module,
+        parameter_name,
+        torch.nn.Parameter(quantized_param, requires_grad=False),
     )
-
-    module.weight = torch.nn.Parameter(weight, requires_grad=False)
-    module.extra_repr = types.MethodType(_linear_extra_repr, module)
+    module.extra_repr = types.MethodType(
+        partial(
+            _module_extra_repr,
+            original_extra_repr=module.extra_repr,
+            parameter_name=parameter_name,
+        ),
+        module,
+    )
     return module
 
 
