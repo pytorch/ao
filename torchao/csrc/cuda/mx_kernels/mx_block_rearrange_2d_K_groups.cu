@@ -651,76 +651,136 @@ __global__ void mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec_kernel(
 
         uintptr_t ptr_addr = reinterpret_cast<uintptr_t>(row_ptr);
         bool aligned = (ptr_addr % 4 == 0);
-        int bytes_loaded = 0;
 
         // 4 threads wide * 4 int32 each = 4*4*4bytes per int32 = 128 bytes
         uint4 row_data = make_uint4(0, 0, 0, 0);
-        if (cols_to_load == MAX_COLS && aligned)
-        {
-            row_data = __ldg(reinterpret_cast<const uint4*>(row_ptr));
-            bytes_loaded = MAX_COLS;
-        }
-        // 4 threads wide * 2 uint32 each = 4*4*2 bytes per int32 = 64 bytes
-        else if (cols_to_load <= MAX_COLS / 2)
-        {
-            row_data = __ldg(reinterpret_cast<const uint2*>(row_ptr));
-            bytes_loaded = MAX_COLS / 2;
-        }
-        // 4 threads wide * 1 uint32 each = 4*4*1 byte per int32 = 32 bytes
-        else if (cols_to_load <= MAX_COLS / 4)
-        {
-            row_data = __ldg(reinterpret_cast<const uint32_t*>(row_ptr));
-            bytes_loaded = MAX_COLS / 4;
-        }
-        // Fall back to single byte loads
-        else {
-            #pragma unroll
-            for (int c = 0; c < BLOCK_COLS; c++) {
-                // 4 threads still, so mask if we have fewer than 4 cols to load
-                if (c * BLOCK_COLS < cols_to_load) {
-                    bytes[c] = __ldg(row_ptr + c);
+        uint8_t* bytes = reinterpret_cast<uint8_t*>(&row_data);
+        int bytes_to_load = cols_to_load;
+
+        while (bytes_to_load > 0) {
+            // Load full 128 bytes per row at once if we can
+            if (bytes_to_load == MAX_COLS && aligned)
+            {
+                row_data = __ldg(reinterpret_cast<const uint4*>(row_ptr));
+                break;
+            }
+            // 4 threads wide * 2 uint32 each = 4*4*2 bytes per int32 = 64 bytes
+            else if (bytes_to_load >= 64)
+            {
+                *reinterpret_cast<uint2*>(&row_data) = __ldg(reinterpret_cast<const uint2*>(row_ptr));
+                bytes_to_load -= 64;
+
+                // Increment row_ptr by 2 uint4s (64 bytes)
+                row_ptr += 64;
+            }
+            // 4 threads wide * 1 uint32 each = 4*4*1 byte per int32 = 32 bytes
+            else if (bytes_to_load >= 32)
+            {
+                *reinterpret_cast<uint32_t*>(&row_data) = __ldg(reinterpret_cast<const uint32_t*>(row_ptr));
+                bytes_to_load -= 32;
+
+                // Increment row_ptr by 1 uint32 (32 bytes)
+                row_ptr += 32;
+            }
+            // Fall back to single byte loads if final chunk < 32 bytes
+            else {
+                #pragma unroll
+                for (int c = 0; c < BLOCK_COLS; c++) {
+                    // 4 threads still, so mask if we have fewer than 4 cols to load
+                    if (c * BLOCK_COLS < bytes_to_load)
+                    {
+                        bytes[c] = __ldg(row_ptr + c);
+                    }
                 }
+                break;
             }
         }
 
-        int tile_idx = row_idx >> 7;
-        int row_in_tile = row_idx & 127;
-        int tile_base_offset = tile_idx * SCALE_FACTOR_ROWS * BLOCK_COLS;
-
-        int r_div_32 = row_in_tile >> 5;
-        int r_mod_32 = row_in_tile & 31;
-        int swizzle_base = (r_mod_32 << 4) + (r_div_32 << 2);
+        int r_div_32 = row_idx >> 5; // row / 32
+        int r_mod_32 = row_idx & 31; // row % 32
+        int swizzle_base = (r_mod_32 << 4) + (r_div_32 << 2); // r_mod_32 * 16 + r_div_32 * 4
 
         #pragma unroll
-        for (int c = 0; c < BLOCK_COLS; c++) {
-            smem_block[tile_base_offset + swizzle_base + c] = bytes[c];
+        for (int c = 0; c < cols_to_load; c++) {
+            // We loaded potentially multiple 128x4 tiles, which we need to swizzle individually.
+            // Determine which tile we are in, and swizzle accordingly.
+            int tile_idx = c >> 2; // col / 4
+            int col_in_tile = c & 3; // col % 4
+            int tile_base_offset = tile_idx * SCALE_FACTOR_ROWS * BLOCK_COLS;
+            smem_block[tile_base_offset + swizzle_base + col_in_tile] = bytes[col_in_tile];
         }
     }
 
     __syncthreads();
 
+    // Store phase: Direct copy from SMEM to GMEM
+    // SMEM layout matches GMEM layout exactly - just copy with coalesced vectorized stores
+    // Same pattern as load phase: try 128 bytes, then 64, then 32, then byte-by-byte
+
     int out_group_base_offset = output_group_start_col * padded_rows;
+    int num_tiles = ceil_div(cols_to_load, BLOCK_COLS);
+    constexpr int TILE_SIZE = SCALE_FACTOR_ROWS * BLOCK_COLS;  // 128 * 4 = 512
+    int total_bytes = num_tiles * TILE_SIZE;
+
+    // Calculate output base for this threadblock's contiguous output region
     int num_cols_in_group = input_group_end_col - input_group_start_col;
-    int num_col_blocks_in_group = ceil_div(num_cols_in_group, BLOCK_COLS);
+    int num_128col_blocks_in_group = ceil_div(num_cols_in_group, MAX_COLS);
+    int tiles_per_128col_block = MAX_COLS / BLOCK_COLS;  // 32
+    int stride_per_row_block = num_128col_blocks_in_group * tiles_per_128col_block * TILE_SIZE;
 
-    constexpr int TILE_SIZE = SCALE_FACTOR_ROWS * BLOCK_COLS;
-    int stride_per_row_of_blocks_in_group = num_col_blocks_in_group * TILE_SIZE;
+    int output_offset = out_group_base_offset +
+                        row_block_pid * stride_per_row_block +
+                        local_col_block * tiles_per_128col_block * TILE_SIZE;
 
-    #pragma unroll
-    for (int r = 0; r < 4; r++) {
-        int row_idx = tid + r * 128;
-        int tile_idx = row_idx >> 7;
-        int row_in_tile = row_idx & 127;
-        int actual_row_block = row_block_pid * 4 + tile_idx;
+    uint8_t* output_base = output_scales_ptr + output_offset;
 
-        int offset_in_group = actual_row_block * stride_per_row_of_blocks_in_group +
-                              local_col_block * TILE_SIZE;
-        int final_offset = out_group_base_offset + offset_in_group;
+    // Distribute bytes across all 512 threads
+    // Each thread handles (total_bytes / 512) bytes, with vectorized stores
+    constexpr int NUM_THREADS = 512;
+    int bytes_per_thread = total_bytes / NUM_THREADS;
+    int thread_start_byte = tid * bytes_per_thread;
 
-        uint8_t* output_ptr = output_scales_ptr + final_offset + row_in_tile * BLOCK_COLS;
+    // Handle any remainder bytes with the last few threads
+    int extra_bytes = total_bytes % NUM_THREADS;
+    if (tid < extra_bytes) {
+        thread_start_byte += tid;
+        bytes_per_thread += 1;
+    } else {
+        thread_start_byte += extra_bytes;
+    }
 
-        *reinterpret_cast<uint32_t*>(output_ptr) =
-            *reinterpret_cast<const uint32_t*>(&smem_block[row_idx * BLOCK_COLS]);
+    const uint8_t* smem_ptr = smem_block + thread_start_byte;
+    uint8_t* gmem_ptr = output_base + thread_start_byte;
+    int bytes_remaining = bytes_per_thread;
+
+    // Try 128-byte stores (uint4 = 16 bytes, need 8 consecutive threads for 128 bytes)
+    while (bytes_remaining >= 16 && (reinterpret_cast<uintptr_t>(gmem_ptr) % 16 == 0)) {
+        *reinterpret_cast<uint4*>(gmem_ptr) = *reinterpret_cast<const uint4*>(smem_ptr);
+        gmem_ptr += 16;
+        smem_ptr += 16;
+        bytes_remaining -= 16;
+    }
+
+    // Try 8-byte stores (uint2)
+    while (bytes_remaining >= 8 && (reinterpret_cast<uintptr_t>(gmem_ptr) % 8 == 0)) {
+        *reinterpret_cast<uint2*>(gmem_ptr) = *reinterpret_cast<const uint2*>(smem_ptr);
+        gmem_ptr += 8;
+        smem_ptr += 8;
+        bytes_remaining -= 8;
+    }
+
+    // Try 4-byte stores (uint32_t)
+    while (bytes_remaining >= 4 && (reinterpret_cast<uintptr_t>(gmem_ptr) % 4 == 0)) {
+        *reinterpret_cast<uint32_t*>(gmem_ptr) = *reinterpret_cast<const uint32_t*>(smem_ptr);
+        gmem_ptr += 4;
+        smem_ptr += 4;
+        bytes_remaining -= 4;
+    }
+
+    // Fall back to single byte stores for remainder
+    while (bytes_remaining > 0) {
+        *gmem_ptr++ = *smem_ptr++;
+        bytes_remaining--;
     }
 }
 
