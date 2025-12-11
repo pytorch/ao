@@ -112,6 +112,21 @@ def benchmark_model(model, num_runs, args=(), kwargs=None, device_type=None):
         average_time_per_run = (end_time - start_time) / num_runs
         return average_time_per_run
 
+    elif device_type == "xpu":
+        torch.xpu.synchronize()
+        start_event = torch.xpu.Event(enable_timing=True)
+        end_event = torch.xpu.Event(enable_timing=True)
+        start_event.record()
+
+        # benchmark
+        for _ in range(num_runs):
+            with torch.autograd.profiler.record_function("timed region"):
+                model(*args, **kwargs)
+
+        end_event.record()
+        torch.xpu.synchronize()
+        return start_event.elapsed_time(end_event) / num_runs
+
 
 def profiler_runner(path, fn, *args, **kwargs):
     with torch.profiler.profile(
