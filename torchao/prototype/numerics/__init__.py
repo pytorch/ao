@@ -2,12 +2,12 @@ import math
 import types
 from dataclasses import dataclass
 from functools import partial
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
+from typing import List
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from fbgemm_gpu.experimental.gen_ai.quantize import int4_row_quantize_zp, pack_int4
+from fbgemm_gpu.experimental.gen_ai.quantize import int4_row_quantize_zp
 
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # All rights reserved.
@@ -15,11 +15,8 @@ from fbgemm_gpu.experimental.gen_ai.quantize import int4_row_quantize_zp, pack_i
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 from torchao.core.config import AOBaseConfig
-from torchao.quantization import Int4Tensor, Int4WeightOnlyConfig
+from torchao.quantization import Int4Tensor, Int4WeightOnlyConfig, quantize_
 from torchao.quantization.quant_api import _module_extra_repr
-from torchao.quantization.quantize_.workflows.int4.int4_tensor import (
-    int4_row_quantize_zp,
-)
 from torchao.quantization.transform_module import register_quantize_module_handler
 from torchao.utils import TorchAOBaseTensor
 
@@ -34,7 +31,7 @@ def _observer_config_transform(
     module: torch.nn.Module, config: ObserverConfig, *, parameter_name="weight"
 ) -> torch.nn.Module:
     tensor = getattr(module, parameter_name)
-    new_tensor = GPTQObserverTensor.from_hp(tensor)
+    new_tensor = ObserverTensor.from_hp(tensor, config.step, [])
     setattr(module, parameter_name, nn.Parameter(new_tensor, requires_grad=False))
     module.extra_repr = types.MethodType(
         partial(
@@ -45,6 +42,7 @@ def _observer_config_transform(
         module,
     )
     return module
+
 
 class ObserverTensor(TorchAOBaseTensor):
     """
@@ -74,10 +72,12 @@ class ObserverTensor(TorchAOBaseTensor):
     """
 
     tensor_data_names = ["hp_data"]
-    tensor_attribute_names = ["observed_data"]
+    tensor_attribute_names = ["observed_data", "step"]
     optional_tensor_attribute_names = []
 
-    def __new__(cls, hp_data: torch.Tensor, observed_data: List[torch.Tensor] = []):
+    def __new__(
+        cls, hp_data: torch.Tensor, step, observed_data: List[torch.Tensor] = []
+    ):
         shape = hp_data.shape
         kwargs = {}
         kwargs["device"] = hp_data.device
@@ -85,17 +85,25 @@ class ObserverTensor(TorchAOBaseTensor):
         kwargs["requires_grad"] = False
         return torch.Tensor._make_wrapper_subclass(cls, shape, **kwargs)  # type: ignore[attr-defined]
 
-    def __init__(self, hp_data: torch.Tensor, observed_data: List[torch.Tensor] = []):
+    def __init__(
+        self, hp_data: torch.Tensor, step, observed_data: List[torch.Tensor] = []
+    ):
         super().__init__()
         self.hp_data = hp_data
         self.observed_data = observed_data
+        self.step = step
 
     @classmethod
-    def from_hp(cls, hp_tensor):
-        return ObserverTensor(hp_tensor, [])
+    def from_hp(cls, hp_tensor, step, observed_data=[]):
+        return ObserverTensor(hp_tensor, step, observed_data)
 
     def update(self, input_tensor):
-        self.observed_data.append(input_tensor.detach())
+        if not input_tensor.is_meta:
+            self.observed_data.append(input_tensor.detach())
+
+    def pop_observed_data(self):
+        return self.observed_data.pop(0)
+
 
 implements = ObserverTensor.implements
 implements_torch_function = ObserverTensor.implements_torch_function
@@ -110,8 +118,19 @@ def _(func, types, args, kwargs):
         args[1],
         args[2] if len(args) > 2 else None,
     )
-    weight_tensor.update(input_tensor.detach())
-    return F.linear(input_tensor, weight_tensor.hp_data, bias)
+    if weight_tensor.step == "observe":
+        weight_tensor.update(input_tensor.detach())
+        res = F.linear(input_tensor, weight_tensor.hp_data, bias).to(device="meta")
+        return res
+    elif weight_tensor.step == "replay":
+        if input_tensor.is_meta:
+            input_tensor = weight_tensor.pop_observed_data()
+            return F.linear(input_tensor, weight_tensor.hp_data, bias)
+    elif weight_tensor.step == "observe_all":
+        weight_tensor.update(input_tensor.detach())
+        return F.linear(input_tensor, weight_tensor.hp_data, bias)
+    else:
+        raise ValueError(f"Unknown step {weight_tensor.step}")
 
 
 @implements(aten.bmm.default)
@@ -136,20 +155,65 @@ def _gptq_config_transform(
     module: torch.nn.Module, config: GPTQConfig, *, parameter_name="weight"
 ) -> torch.nn.Module:
     tensor = getattr(module, parameter_name)
-    assert isinstance(tensor, GPTQObserverTensor)
-    new_tensor = gptq_quantize(tensor.hessian, tensor.hp_data, config)
-    setattr(module, parameter_name, nn.Parameter(new_tensor, requires_grad=False))
-    module.extra_repr = types.MethodType(
-        partial(
-            _module_extra_repr,
-            original_extra_repr=module.extra_repr,
-            parameter_name=parameter_name,
-        ),
-        module,
-    )
-    return module
+
+    if isinstance(tensor, ObserverTensor):
+        if tensor.step == "observe_all":
+            hessian = _calculate_hessian(tensor.observed_data)
+            new_tensor = gptq_quantize(hessian, tensor.hp_data, config)
+            new_quantized_tensor = nn.Parameter(new_tensor, requires_grad=False)
+            setattr(module, parameter_name, new_quantized_tensor)
+            module.extra_repr = types.MethodType(
+                partial(
+                    _module_extra_repr,
+                    original_extra_repr=module.extra_repr,
+                    parameter_name=parameter_name,
+                ),
+                module,
+            )
+            return module
+
+        # if replay, we remove observed tensor
+        if tensor.step == "replay":
+            new_tensor = tensor.hp_data
+            setattr(
+                module, parameter_name, nn.Parameter(new_tensor, requires_grad=False)
+            )
+            module.extra_repr = types.MethodType(
+                partial(
+                    _module_extra_repr,
+                    original_extra_repr=module.extra_repr,
+                    parameter_name=parameter_name,
+                ),
+                module,
+            )
+            return module
+
+        # assert isinstance(tensor, GPTQObserverTensor)
+        if len(tensor.observed_data) > 0:
+            if tensor.step == "observe":
+                hessian = _calculate_hessian(tensor.observed_data)
+                new_tensor = gptq_quantize(hessian, tensor.hp_data, config)
+                new_observed_tensor = nn.Parameter(
+                    ObserverTensor.from_hp(new_tensor, "replay", tensor.observed_data),
+                    requires_grad=False,
+                )
+                setattr(module, parameter_name, new_observed_tensor)
+                module.extra_repr = types.MethodType(
+                    partial(
+                        _module_extra_repr,
+                        original_extra_repr=module.extra_repr,
+                        parameter_name=parameter_name,
+                    ),
+                    module,
+                )
+                return module
+
+    else:
+        return module
+
 
 def gptq_quantize(H, W, config):
+    print("gptq quantizing weight of shape: ", W.shape)
     block_size = [1, config.acceleration_config.group_size]
     gptq_quantize_block_size = config.gptq_quantize_block_size
     percdamp = config.percdamp
@@ -162,7 +226,9 @@ def gptq_quantize(H, W, config):
     columns = W.shape[1]
     device = W.device
 
-    gptq_quantize_block_size = math.ceil(gptq_quantize_block_size / group_size) * group_size
+    gptq_quantize_block_size = (
+        math.ceil(gptq_quantize_block_size / group_size) * group_size
+    )
 
     dead = torch.diag(H) == 0
     H[dead, dead] = 1
@@ -178,8 +244,7 @@ def gptq_quantize(H, W, config):
 
     all_qparams = []
 
-
-    for (W_quantize_block, block_start) in zip(
+    for W_quantize_block, block_start in zip(
         torch.split(W, gptq_quantize_block_size, dim=1),
         range(0, columns, gptq_quantize_block_size),
     ):
@@ -188,8 +253,7 @@ def gptq_quantize(H, W, config):
         Err1 = torch.zeros_like(W_quantize_block, dtype=H.dtype)
         Hinv_quantize_block = Hinv[block_start:block_end, block_start:block_end]
 
-
-        for (W_group, group_start) in zip(
+        for W_group, group_start in zip(
             torch.split(W_quantize_block, group_size, dim=1),
             range(block_start, block_end, group_size),
         ):
@@ -197,55 +261,50 @@ def gptq_quantize(H, W, config):
 
             if group_start % group_size == 0:
                 # calculate qparams once per group
-                _, scale, zero = int4_row_quantize_zp(
-                    W_group, group_size
-                )
+                _, scale, zero = int4_row_quantize_zp(W_group, group_size)
                 all_qparams.append((scale, zero))
-            
+
             # within each group
-            for i in range(group_start-block_start, group_end-block_start):
+            for i in range(group_start - block_start, group_end - block_start):
                 w = W_quantize_block[:, i].unsqueeze(1)
 
                 q = Int4Tensor.int4_row_quantize_zp_precomputed_qparams(
                     w, scale, zero, group_size
                 )
-                dq = (
-                    Int4Tensor(
-                        qdata=q,
-                        scale=scale,
-                        zero_point=zero,
-                        block_size=block_size,
-                        shape=q.shape,
-                    ).dequantize()
-                )
+                dq = Int4Tensor(
+                    qdata=q,
+                    scale=scale,
+                    zero_point=zero,
+                    block_size=block_size,
+                    shape=q.shape,
+                ).dequantize()
 
                 err1 = (w - dq) / Hinv_quantize_block[i, i]
-                W_quantize_block[:, i:] -= (
-                    err1.matmul(Hinv_quantize_block[i, i:].unsqueeze(0))
+                W_quantize_block[:, i:] -= err1.matmul(
+                    Hinv_quantize_block[i, i:].unsqueeze(0)
                 )
                 Err1[:, i] = err1.flatten()
 
-        W[:, block_end:] -= Err1.matmul(
-            Hinv[block_start:block_end, block_end:]
-        )
+        W[:, block_end:] -= Err1.matmul(Hinv[block_start:block_end, block_end:])
 
     if "cuda" in device.type:
         torch.cuda.synchronize()
 
     final_qparams = [torch.cat(x, dim=0) for x in zip(*all_qparams)]
-    return Int4Tensor.from_hp_scale_and_zero_point(
-        W,
-        block_size,
-        final_qparams[0].to(W.dtype),
-        final_qparams[1].to(W.dtype)
+    res = Int4Tensor.from_hp_scale_and_zero_point(
+        W, block_size, final_qparams[0].to(W.dtype), final_qparams[1].to(W.dtype)
     )
-    
+    return res
+
+
 class GPTQObserverTensor(ObserverTensor):
     tensor_data_names = ["hp_data", "hessian"]
     tensor_attribute_names = []
     optional_tensor_attribute_names = ["total_batches"]
 
-    def __new__(cls, hp_data: torch.Tensor, hessian: torch.Tensor, total_batches: int = 0):
+    def __new__(
+        cls, hp_data: torch.Tensor, hessian: torch.Tensor, total_batches: int = 0
+    ):
         shape = hp_data.shape
         kwargs = {}
         kwargs["device"] = hp_data.device
@@ -253,7 +312,9 @@ class GPTQObserverTensor(ObserverTensor):
         kwargs["requires_grad"] = False
         return torch.Tensor._make_wrapper_subclass(cls, shape, **kwargs)  # type: ignore[attr-defined]
 
-    def __init__(self, hp_data: torch.Tensor, hessian: torch.Tensor, total_batches: int = 0):
+    def __init__(
+        self, hp_data: torch.Tensor, hessian: torch.Tensor, total_batches: int = 0
+    ):
         super(ObserverTensor).__init__()
         self.total_batches = total_batches
         self.hessian = hessian
@@ -263,9 +324,7 @@ class GPTQObserverTensor(ObserverTensor):
     def from_hp(cls, hp_tensor):
         return cls(
             hp_tensor,
-            torch.tensor([],
-                         device=hp_tensor.device,
-                         dtype=torch.float),
+            torch.tensor([], device=hp_tensor.device, dtype=torch.float),
             0,
         )
 
@@ -284,3 +343,45 @@ class GPTQObserverTensor(ObserverTensor):
         x = ((2 / self.total_batches) ** (1 / 2)) * x.t()
         H += x.matmul(x.t())
         self.hessian = H
+
+
+def sequential_quantize_(model, config, sample_input):
+    # convert all observers with non null values.
+    quantize_(model, config)
+
+    for i in range(1):
+        model(sample_input.to(device="meta"))
+
+    quantize_(model, config)
+    quantize_(model, config)
+
+
+def _calculate_hessian(inputs):
+    """
+    Calculate the Hessian matrix for GPTQ.
+
+    Args:
+        grouped_args: Grouped arguments
+        spec: Original structure specification
+        device: accelerator device
+
+    Returns:
+        torch.Tensor: Hessian matrix
+    """
+    H = 0
+    total_batches = 0
+    for inp in inputs:
+        # Setup x (activation tensor)
+        x = inp.float()
+        shape = x.shape
+        n = 1 if len(shape) == 2 else shape[0]
+        x = x.reshape(-1, shape[-1])
+
+        # Update Hessian with running average
+        H *= total_batches / (total_batches + n)
+        total_batches += n
+
+        x = ((2 / total_batches) ** (1 / 2)) * x.t()
+        H += x.matmul(x.t())
+
+    return H
