@@ -1217,7 +1217,7 @@ def choose_qparams_affine(
     eps: Optional[float] = None,
     scale_dtype: Optional[torch.dtype] = None,
     zero_point_dtype: Optional[torch.dtype] = torch.int32,
-    keepdim: bool = True,
+    keepdim: bool = False,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Args:
@@ -1524,7 +1524,7 @@ def _choose_qparams_affine(
     eps: Optional[float] = None,
     scale_dtype: Optional[torch.dtype] = None,
     zero_point_dtype: Optional[torch.dtype] = None,
-    keepdim: bool = True,
+    keepdim: bool = False,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """op definition that has compatible signatures with custom op library
 

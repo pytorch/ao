@@ -229,6 +229,7 @@ class IntxUnpackedToInt8Tensor(TorchAOBaseTensor):
                 quant_min=qmin,
                 quant_max=qmax,
                 zero_point_dtype=torch.int8,
+                keepdim=True,  # Use keepdim=True to get reshaped output matching block structure
             )
             qdata = quantize_affine(
                 hp_tensor,
