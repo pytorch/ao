@@ -30,6 +30,7 @@ from torchao.quantization.quant_primitives import (
 # TODO: remove test for utils?
 from torchao.quantization.utils import (
     _quantize_activation_per_token_absmax,
+    compute_error,
     get_block_size,
     get_group_qparams_symmetric,
     groupwise_affine_dequantize_tensor_from_qparams,
@@ -896,6 +897,9 @@ class TestQuantPrimitives(unittest.TestCase):
         reconstructed = qdata.to(input.dtype) * scale_expanded
         self.assertFalse(torch.isnan(reconstructed).any())
         self.assertEqual(reconstructed.shape, input.shape)
+
+        error = compute_error(input, reconstructed)
+        self.assertLess(error, 25)
 
     def test_float8_blockwise_scaling(self):
         M, K = 512, 1024
