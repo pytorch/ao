@@ -6,12 +6,18 @@
 
 import logging
 import sys
+from dataclasses import dataclass
 from typing import Optional
 
 import torch
 import torch.nn as nn
 from torch.ao.quantization.fx._decomposed import (
     quantize_per_channel_group,
+)
+
+from torchao.core.config import AOBaseConfig
+from torchao.quantization.transform_module import (
+    register_quantize_module_handler,
 )
 
 logger = logging.getLogger(__name__)
@@ -86,7 +92,9 @@ class UIntxWeightOnlyQuantizedLinear(nn.Module):
         weight_zeros = -weight_zeros * weight_scales
         self.weight_scales = nn.Parameter(weight_scales, requires_grad=False)
         self.weight_zeros = nn.Parameter(weight_zeros, requires_grad=False)
-        packed_weights = self._pack_weights_op(weight_qvals.cpu()).to(device="mps")
+        packed_weights = self._pack_weights_op(weight_qvals.cpu()).to(
+            device=weight_qvals.device
+        )
         self.packed_weights = nn.Parameter(packed_weights, requires_grad=False)
 
     def forward(self, x):
@@ -138,20 +146,24 @@ def _replace_linear_with_quantized_linear_mps(module: nn.Module, kwargs={}):
 class UIntxWeightOnlyLinearQuantizer:
     def __init__(
         self,
-        device,
-        precision,
         *,
+        device: Optional[str] = None,
+        precision: Optional[torch.dtype] = None,
         bitwidth: Optional[int] = None,
         groupsize: Optional[int] = None,
     ):
-        if device != "mps":
+        if device and device != "mps":
             raise NotImplementedError(
                 "Only device=mps is currently supported in UIntxWeightOnlyLinearQuantizer"
             )
         else:
             self.device = device
 
-        if precision not in [torch.float32, torch.float16, torch.bfloat16]:
+        if precision and precision not in [
+            torch.float32,
+            torch.float16,
+            torch.bfloat16,
+        ]:
             raise ValueError(
                 "Only precisions float32, float16 & bfloat16 are supported in UIntxWeightOnlyLinearQuantizer"
             )
@@ -179,7 +191,10 @@ class UIntxWeightOnlyLinearQuantizer:
             self.groupsize = groupsize
 
     def quantize(self, model: nn.Module) -> nn.Module:
-        model = model.to(self.device).to(self.precision)
+        if self.device:
+            model = model.to(self.device)
+        if self.precision:
+            model = model.to(self.precision)
         _replace_linear_with_quantized_linear_mps(
             model,
             kwargs={
@@ -188,3 +203,49 @@ class UIntxWeightOnlyLinearQuantizer:
             },
         )
         return model
+
+
+@dataclass
+class UIntxWeightOnlyConfig(AOBaseConfig):
+    """
+    Configuration for applying uintx weight-only asymmetric per-group quantization
+    to linear layers for MPS devices.
+
+    Args:
+        bitwidth (int): Number of bits for quantization, must be between 1 and 7 inclusive.
+            Default is 4.
+        group_size (int): Group size for quantization. Must be one of [32, 64, 128, 256].
+            Default is 128.
+    """
+
+    bitwidth: int = 4
+    group_size: int = 128
+
+    def __post_init__(self):
+        if self.bitwidth not in range(1, 8):
+            raise ValueError(
+                f"bitwidth must be between 1 and 7 inclusive, got {self.bitwidth}"
+            )
+        if self.group_size not in [32, 64, 128, 256]:
+            raise ValueError(
+                f"group_size must be one of [32, 64, 128, 256], got {self.group_size}"
+            )
+
+
+def _linear_int_weight_mps_check(module: nn.Module, fqn: str) -> bool:
+    return isinstance(module, nn.Linear) and module.bias is None
+
+
+@register_quantize_module_handler(UIntxWeightOnlyConfig)
+def _uintx_weight_only_mps_transform(
+    module: torch.nn.Module, config: UIntxWeightOnlyConfig
+) -> torch.nn.Module:
+    nbit = config.bitwidth
+    group_size = config.group_size
+
+    qlinear = UIntxWeightOnlyQuantizedLinear(
+        pack_weight_op=getattr(torch.ops.torchao, f"_pack_weight_{nbit}bit"),
+        linear_op=getattr(torch.ops.torchao, f"_linear_fp_act_{nbit}bit_weight"),
+    )
+    qlinear.quantize_and_pack_weights(module.weight, nbit, group_size)
+    return qlinear
