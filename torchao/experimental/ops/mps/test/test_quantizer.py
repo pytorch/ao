@@ -14,7 +14,7 @@ from parameterized import parameterized
 # Need to import to load the ops
 import torchao.experimental.ops.mps  # noqa: F401
 from torchao.experimental.quant_api import (
-    UIntxWeightOnlyMPSConfig,
+    UIntxWeightOnlyConfig,
     _linear_int_weight_mps_check,
     _quantize,
 )
@@ -44,7 +44,7 @@ class TestUIntxWeightOnlyLinearQuantizer(unittest.TestCase):
         return model, group_size, k0, n
 
     def _quantize_model(self, model, precision, nbit, group_size):
-        config = UIntxWeightOnlyMPSConfig(
+        config = UIntxWeightOnlyConfig(
             bitwidth=nbit,
             group_size=group_size,
         )

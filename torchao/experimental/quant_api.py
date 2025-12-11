@@ -206,7 +206,7 @@ class UIntxWeightOnlyLinearQuantizer:
 
 
 @dataclass
-class UIntxWeightOnlyMPSConfig(AOBaseConfig):
+class UIntxWeightOnlyConfig(AOBaseConfig):
     """
     Configuration for applying uintx weight-only asymmetric per-group quantization
     to linear layers for MPS devices.
@@ -236,9 +236,9 @@ def _linear_int_weight_mps_check(module: nn.Module, fqn: str) -> bool:
     return isinstance(module, nn.Linear) and module.bias is None
 
 
-@register_quantize_module_handler(UIntxWeightOnlyMPSConfig)
+@register_quantize_module_handler(UIntxWeightOnlyConfig)
 def _uintx_weight_only_mps_transform(
-    module: torch.nn.Module, config: UIntxWeightOnlyMPSConfig
+    module: torch.nn.Module, config: UIntxWeightOnlyConfig
 ) -> torch.nn.Module:
     nbit = config.bitwidth
     group_size = config.group_size
