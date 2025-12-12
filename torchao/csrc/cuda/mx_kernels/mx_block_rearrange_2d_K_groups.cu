@@ -613,9 +613,9 @@ __global__ void mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec_kernel(
     const int row_block_pid = blockIdx.y;
     const int tid = threadIdx.x;
 
-    // Two shared memory buffers: one for row-major load, one for swizzled output
-    __shared__ __align__(16) uint8_t smem_rowmajor[BLOCK_ROWS * MAX_COLS];   // 128 * 64 = 8KB
-    __shared__ __align__(16) uint8_t smem_swizzled[BLOCK_ROWS * MAX_COLS];   // 128 * 64 = 8KB
+    // Single shared memory buffer for swizzled output (8KB instead of 16KB)
+    // Data is written directly in swizzled format during load
+    __shared__ __align__(16) uint8_t smem[BLOCK_ROWS * MAX_COLS];  // 128 * 64 = 8KB
     __shared__ int smem_cumsum[32];
     __shared__ int output_group_start_col;
 
@@ -655,90 +655,63 @@ __global__ void mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec_kernel(
     int col_idx = tid % BLOCK_COLS;   // 0-3
     int global_row = global_row_base + row_idx;
 
-    // Zero-initialize smem_swizzled to handle padding columns correctly.
-    // When cols_to_load is not a multiple of 4, the last tile has padding
-    // columns that won't be written in Phase 2, so they need to be zero.
-    #pragma unroll
-    for (int i = 0; i < 16; i++) {
-        smem_swizzled[tid + i * 512] = 0;
-    }
-    __syncthreads();
-
-    // ============================================================
-    // PHASE 1: Load from GMEM to SMEM in row-major order
-    // Each of 4 threads per row loads 16 bytes (4 threads × 16 bytes = 64 bytes per row)
-    // Coalesced global memory reads, coalesced shared memory writes
-    // ============================================================
-
-    if (global_row < scale_rows) {
-        const uint8_t* row_ptr = scales_ptr +
-            static_cast<size_t>(global_row) * scales_stride_dim0 + curr_input_start_col;
-
-        int smem_row_offset = row_idx * MAX_COLS;
-        int thread_col_start = col_idx * 16;  // 0, 16, 32, or 48
-
-        uintptr_t gmem_addr = reinterpret_cast<uintptr_t>(row_ptr + thread_col_start);
-        bool aligned = (gmem_addr % 16 == 0);
-
-        // Check if this thread's 16-byte chunk is fully within bounds
-        if (thread_col_start + 16 <= cols_to_load && aligned) {
-            // Full vectorized load (uint4 = 16 bytes)
-            uint4 data = __ldg(reinterpret_cast<const uint4*>(row_ptr + thread_col_start));
-            *reinterpret_cast<uint4*>(&smem_rowmajor[smem_row_offset + thread_col_start]) = data;
-        }
-        else if (thread_col_start < cols_to_load) {
-            // Partial load for edge case (last few columns)
-            int bytes_this_thread = min(16, cols_to_load - thread_col_start);
-            #pragma unroll
-            for (int i = 0; i < 16; i++) {
-                if (i < bytes_this_thread) {
-                    smem_rowmajor[smem_row_offset + thread_col_start + i] =
-                        __ldg(row_ptr + thread_col_start + i);
-                }
-            }
-        }
-    }
-
-    __syncthreads();
-
-    // ============================================================
-    // PHASE 2: Swizzle within shared memory
-    // Read from smem_rowmajor (row-major), write to smem_swizzled (swizzled layout)
-    // All shared memory operations - very fast
-    // ============================================================
-
     // Compute swizzle base offset for this thread's row
     int r_div_32 = row_idx >> 5;   // row / 32
     int r_mod_32 = row_idx & 31;   // row % 32
     int swizzle_base = (r_mod_32 << 4) + (r_div_32 << 2);  // r_mod_32 * 16 + r_div_32 * 4
+    int thread_col_start = col_idx * 16;  // 0, 16, 32, or 48
 
-    // Each thread swizzles its 16 columns (the same columns it loaded)
-    // Note: ALL threads participate in swizzle even if global_row >= scale_rows,
-    // because we need to write zeros for padding rows in the output
-    int thread_col_start = col_idx * 16;
-    int smem_row_offset = row_idx * MAX_COLS;
+    // ============================================================
+    // PHASE 1: Load from GMEM directly to SMEM in swizzled format
+    // Each thread loads 16 bytes from GMEM using vectorized load,
+    // then scatter-writes to swizzled positions in SMEM.
+    uint4 data = make_uint4(0, 0, 0, 0);
+
+    if (global_row < scale_rows && thread_col_start < cols_to_load)
+    {
+        const uint8_t* row_ptr = scales_ptr +
+            static_cast<size_t>(global_row) * scales_stride_dim0 + curr_input_start_col;
+
+        uintptr_t gmem_addr = reinterpret_cast<uintptr_t>(row_ptr + thread_col_start);
+        bool aligned = (gmem_addr % 16 == 0);
+
+        // Load 16 bytes from GMEM (vectorized if aligned and full)
+        if (thread_col_start + 16 <= cols_to_load && aligned)
+        {
+            data = __ldg(reinterpret_cast<const uint4*>(row_ptr + thread_col_start));
+        }
+        else
+        {
+            // Partial/unaligned load
+            uint8_t* bytes = reinterpret_cast<uint8_t*>(&data);
+            int bytes_to_load = min(16, cols_to_load - thread_col_start);
+            #pragma unroll
+            for (int i = 0; i < 16; i++) {
+                if (i < bytes_to_load) {
+                    bytes[i] = __ldg(row_ptr + thread_col_start + i);
+                }
+            }
+        }
+    }
+    // else: data remains zero (padding rows or columns beyond cols_to_load)
+
+    // Scatter-write to swizzled SMEM positions using vectorized uint32 writes
+    // Each group of 4 columns within a tile are contiguous in SMEM
+    // So we can write 4 bytes at a time (4 tiles × 1 uint32 write = 4 writes total)
+    uint32_t* data32 = reinterpret_cast<uint32_t*>(&data);
+    int first_tile_idx = thread_col_start >> 2;  // thread_col_start / 4
 
     #pragma unroll
-    for (int i = 0; i < 16; i++) {
-        int c = thread_col_start + i;
-        if (c < cols_to_load) {
-            int tile_idx = c >> 2;          // c / 4
-            int col_in_tile = c & 3;        // c % 4
-            int tile_base = tile_idx * SCALE_FACTOR_ROWS * BLOCK_COLS;  // tile_idx * 128 * 4
-            int swizzled_idx = tile_base + swizzle_base + col_in_tile;
-
-            smem_swizzled[swizzled_idx] = smem_rowmajor[smem_row_offset + c];
-        }
+    for (int t = 0; t < 4; t++) {
+        int tile_idx = first_tile_idx + t;
+        int tile_base = tile_idx * SCALE_FACTOR_ROWS * BLOCK_COLS;  // tile_idx * 128 * 4
+        int swizzled_idx = tile_base + swizzle_base;
+        *reinterpret_cast<uint32_t*>(&smem[swizzled_idx]) = data32[t];
     }
 
     __syncthreads();
 
-    // ============================================================
-    // PHASE 3: Store from SMEM to GMEM
-    // Simple approach: iterate through 128x4 tiles one at a time
-    // Each tile is 512 bytes. With 512 threads, each thread copies 1 byte per tile.
-    // ============================================================
-
+    // PHASE 2: Store from SMEM to GMEM, data already in swizzled format, can do a direct copy
     int out_group_base_offset = output_group_start_col * padded_rows;
     int num_cols_in_group = input_group_end_col - input_group_start_col;
     int num_4col_blocks_in_group = ceil_div(num_cols_in_group, BLOCK_COLS);
@@ -746,27 +719,25 @@ __global__ void mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec_kernel(
     constexpr int TILE_SIZE = SCALE_FACTOR_ROWS * BLOCK_COLS;  // 128 * 4 = 512
     int stride_per_row_of_4col_blocks = num_4col_blocks_in_group * TILE_SIZE;
 
-    // Number of 4-column tiles in this threadblock
-    int num_tiles_this_block = ceil_div(cols_to_load, BLOCK_COLS);
-
     // tiles_before_this_block: 4-col tiles that came before this 64-col block
     int tiles_before_this_block = local_col_block * (MAX_COLS / BLOCK_COLS);
 
-    // Each thread copies 1 byte per tile (512 threads = 512 bytes = 1 tile)
-    // Iterate through all tiles in this threadblock
-    for (int tile_idx = 0; tile_idx < num_tiles_this_block; tile_idx++) {
-        int global_tile_idx = tiles_before_this_block + tile_idx;
+    // Base output pointer for this threadblock
+    uint8_t* out_base = output_scales_ptr + out_group_base_offset +
+                        row_block_pid * stride_per_row_of_4col_blocks +
+                        tiles_before_this_block * TILE_SIZE;
 
-        // SMEM offset for this tile: tile starts at tile_idx * TILE_SIZE
-        int smem_tile_offset = tile_idx * TILE_SIZE;
+    // Number of 4-column tiles in this threadblock (max 16 for 64 columns)
+    int num_tiles_this_block = ceil_div(cols_to_load, BLOCK_COLS);
+    int bytes_to_copy = num_tiles_this_block * TILE_SIZE;
 
-        // GMEM offset for this tile
-        int gmem_tile_offset = out_group_base_offset +
-                               row_block_pid * stride_per_row_of_4col_blocks +
-                               global_tile_idx * TILE_SIZE;
-
-        // Each thread copies 1 byte: thread tid copies byte tid within the tile
-        output_scales_ptr[gmem_tile_offset + tid] = smem_swizzled[smem_tile_offset + tid];
+    // Each thread copies 16 bytes using uint4
+    // Thread tid copies bytes [tid*16, tid*16+15]
+    int byte_offset = tid * 16;
+    if (byte_offset < bytes_to_copy)
+    {
+        *reinterpret_cast<uint4*>(out_base + byte_offset) =
+            *reinterpret_cast<uint4*>(&smem[byte_offset]);
     }
 }
 

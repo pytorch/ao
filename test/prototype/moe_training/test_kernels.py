@@ -395,7 +395,7 @@ def test_cuda_mx_block_rearrange_2d_K_groups(
     )
 
     # CUDA kernel implementation
-    cuda_out_scales = mxfp8_cuda.mx_block_rearrange_2d_K_groups(
+    cuda_out_scales = mxfp8_cuda.mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec(
         e8m0_scales.view(torch.uint8),
         scale_group_offsets,
     )
@@ -410,6 +410,9 @@ def test_cuda_mx_block_rearrange_2d_K_groups(
     expected_cols = (
         e8m0_scales.size(1) + n_groups * 4
     )  # Original cols + padding per group
-    assert cuda_out_scales.shape == (expected_rows, expected_cols), (
+    assert cuda_out_scales.shape == (
+        expected_rows,
+        expected_cols,
+    ), (
         f"Output shape mismatch: expected {(expected_rows, expected_cols)}, got {cuda_out_scales.shape}"
     )
