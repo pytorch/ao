@@ -11,11 +11,21 @@ on:
 
 jobs:
   benchmark:
-    runs-on: linux.aws.h100
+    name: microbenchmarks-${{ matrix.gpu }}
+    runs-on: ${{ matrix.runner }}
     strategy:
+      fail-fast: false
       matrix:
-        torch-spec:
-          - '--pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu126'
+        include:
+          - gpu: h100
+            runner: linux.aws.h100
+            config: benchmarks/dashboard/microbenchmark_quantization_config_h100.yml
+            torch-spec: "--pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu126"
+          - gpu: a100
+            runner: linux.aws.a100
+            config: benchmarks/dashboard/microbenchmark_quantization_config_a100.yml
+            torch-spec: "--pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu126"
+
     steps:
       - uses: actions/checkout@v4
 
@@ -32,33 +42,23 @@ jobs:
           # Upgrade pip
           ${CONDA_RUN} python -m pip install --upgrade pip
 
-          ${CONDA_RUN} ls
-          ${CONDA_RUN} bash -c 'pwd'
-          ${CONDA_RUN} bash -c 'echo $PYTHONPATH'
-
           # Install dependencies
-          ${CONDA_RUN} pip install ${{ matrix.torch-spec }}
+          ${CONDA_RUN} pip install "${{ matrix['torch-spec'] }}"
           ${CONDA_RUN} pip install -r dev-requirements.txt
           ${CONDA_RUN} pip install . --no-build-isolation
 
-          ${CONDA_RUN} ls
-          ${CONDA_RUN} bash -c 'pwd'
-          ${CONDA_RUN} bash -c 'echo $PYTHONPATH'
-
-          # Set PYTHONPATH to current directory (.) if not set, and include the benchmarks directory
-          ${CONDA_RUN} export PYTHONPATH="${PYTHONPATH:-$(pwd)}:$(pwd)/benchmarks"
-
-          # Create benchmark results directory
-          mkdir -p ${{ runner.temp }}/benchmark-results
+          # Create benchmark results directory and ensure PYTHONPATH is set
+          mkdir -p "$RUNNER_TEMP/benchmark-results"
+          export PYTHONPATH="${PYTHONPATH:-$(pwd)}:$(pwd)/benchmarks"
 
           # Run microbenchmarks for dashboard
-          ${CONDA_RUN} bash -c '
-            export PYTHONPATH="${PYTHONPATH:-$(pwd)}:$(pwd)/benchmarks"
-            echo "PYTHONPATH is: $PYTHONPATH"
-            echo "Current directory is: $(pwd)"
+          ${CONDA_RUN} bash -c "
+            export PYTHONPATH=\"\${PYTHONPATH:-$(pwd)}:$(pwd)/benchmarks\"
+            echo \"PYTHONPATH is: $PYTHONPATH\"
+            echo \"Current directory is: $(pwd)\"
             python benchmarks/dashboard/ci_microbenchmark_runner.py \
-              --config benchmarks/dashboard/microbenchmark_quantization_config_h100.yml \
-              --output "$RUNNER_TEMP/benchmark-results/microbenchmark-results-h100.json"'
+              --config \"${{ matrix.config }}\" \
+              --output \"\$RUNNER_TEMP/benchmark-results/microbenchmark-results-${{ matrix.gpu }}.json\""
 
       - name: Upload the benchmark results to OSS benchmark database for the dashboard
         uses: pytorch/test-infra/.github/actions/upload-benchmark-results@main
