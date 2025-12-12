@@ -11,7 +11,7 @@ on:
 
 jobs:
   benchmark:
-    runs-on: linux.aws.h100
+    runs-on: linux.aws.a100
     strategy:
       matrix:
         torch-spec:
@@ -57,8 +57,8 @@ jobs:
             echo "PYTHONPATH is: $PYTHONPATH"
             echo "Current directory is: $(pwd)"
             python benchmarks/dashboard/ci_microbenchmark_runner.py \
-              --config benchmarks/dashboard/microbenchmark_quantization_config.yml \
-              --output "$RUNNER_TEMP/benchmark-results/microbenchmark-results.json"'
+              --config benchmarks/dashboard/microbenchmark_quantization_config_a100.yml \
+              --output "$RUNNER_TEMP/benchmark-results/microbenchmark-results-a100.json"'
 
       - name: Upload the benchmark results to OSS benchmark database for the dashboard
         uses: pytorch/test-infra/.github/actions/upload-benchmark-results@main
