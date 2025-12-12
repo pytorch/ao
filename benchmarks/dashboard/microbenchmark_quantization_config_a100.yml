@@ -1,7 +1,7 @@
 # Benchmark configuration for microbenchmarks
 benchmark_mode: "inference"
 quantization_config_recipe_names: # Will run a baseline inference for model by default, without quantization for comparison
-  # - "int8wo"
+  - "int8wo"
   - "int8dq"
   - "float8dq-tensor"
   - "float8dq-row"
