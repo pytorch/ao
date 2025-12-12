@@ -43,7 +43,7 @@ jobs:
           ${CONDA_RUN} python -m pip install --upgrade pip
 
           # Install dependencies
-          ${CONDA_RUN} pip install "${{ matrix.torch-spec }}"
+          ${CONDA_RUN} pip install ${{ matrix.torch-spec }}
           ${CONDA_RUN} pip install -r dev-requirements.txt
           ${CONDA_RUN} pip install . --no-build-isolation
 
