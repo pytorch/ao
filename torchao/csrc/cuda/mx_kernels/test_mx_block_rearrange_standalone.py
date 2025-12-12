@@ -86,7 +86,7 @@ def test_kernel():
 
     # Test parameters - use larger size for meaningful benchmarks
     device = "cuda"
-    m, total_k = 5120, 16384
+    m, total_k = 7168, 131072
     n_groups = 8
     block_size = 32
 
@@ -206,6 +206,22 @@ def test_kernel():
     print("CUDA row-major vectorized kernel completed successfully")
 
     # -------------------------------------------------------------------------
+    # Test Row-Major 128x4 Vectorized CUDA Kernel
+    # -------------------------------------------------------------------------
+    print("\n" + "-" * 80)
+    print("Running CUDA row-major 128x4 vectorized kernel...")
+    print(
+        f"  Input shape: {e8m0_scales_row_major.shape}, strides: {e8m0_scales_row_major.stride()}"
+    )
+    cuda_rowmajor_128x4_vec_out = (
+        mx_block_rearrange.mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec(
+            e8m0_scales_row_major.view(torch.uint8),
+            scale_group_offsets,
+        )
+    )
+    print("CUDA row-major 128x4 vectorized kernel completed successfully")
+
+    # -------------------------------------------------------------------------
     # Test Triton Reference
     # -------------------------------------------------------------------------
     print("\n" + "-" * 80)
@@ -259,6 +275,19 @@ def test_kernel():
         all_correct = False
     else:
         print("PASSED: CUDA row-major vectorized matches Triton")
+
+    cuda_rowmajor_128x4_vec_out_e8m0 = cuda_rowmajor_128x4_vec_out.view(
+        torch.float8_e8m0fnu
+    )
+    if not torch.equal(triton_out, cuda_rowmajor_128x4_vec_out_e8m0):
+        print("FAILED: CUDA row-major 128x4 vectorized and Triton outputs differ!")
+        # Print debug info for differences
+        diff_mask = triton_out != cuda_rowmajor_128x4_vec_out_e8m0
+        num_diffs = diff_mask.sum().item()
+        print(f"  Number of differences: {num_diffs} / {triton_out.numel()}")
+        all_correct = False
+    else:
+        print("PASSED: CUDA row-major 128x4 vectorized matches Triton")
 
     if not all_correct:
         return False

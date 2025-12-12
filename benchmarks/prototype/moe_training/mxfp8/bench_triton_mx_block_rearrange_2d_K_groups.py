@@ -105,6 +105,7 @@ def get_configs() -> List[ExperimentConfig]:
         "cuda_colmajor_vec",
         "cuda_colmajor_vec_16B",
         "cuda_rowmajor_vec",
+        "cuda_rowmajor_128x4_vec",
     ]
 
     configs = []
@@ -176,6 +177,12 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
             raise RuntimeError("CUDA kernel not available")
         kernel_fn = mxfp8_cuda.mx_block_rearrange_2d_K_groups_rowmajor_vectorized
         # Row-major vectorized kernel expects contiguous row-major input
+        kernel_input = input_tensor.contiguous()
+    elif version == "cuda_rowmajor_128x4_vec":
+        if mxfp8_cuda is None:
+            raise RuntimeError("CUDA kernel not available")
+        kernel_fn = mxfp8_cuda.mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec
+        # Row-major 128x4 vectorized kernel expects contiguous row-major input
         kernel_input = input_tensor.contiguous()
     else:
         raise ValueError(f"Unknown version: {version}")
