@@ -61,6 +61,18 @@ class TestIntxUnpackedToInt8Tensor(TestCase):
         error = compute_error(original, quantized)
         self.assertTrue(error > 20)
 
+    def test_conv2d(self):
+        dtype = torch.bfloat16
+        device = "cpu"
+        input = torch.randn(1, 128, 224, 224, dtype=dtype, device=device)
+        conv = torch.nn.Conv2d(128, 64, 3, dtype=dtype, device=device)
+        original = conv(input)
+        is_conv = lambda n, _: isinstance(n, torch.nn.Conv2d)
+        quantize_(conv, self.config, filter_fn=is_conv)
+        quantized = conv(input)
+        error = compute_error(original, quantized)
+        self.assertGreater(error, 15)
+
     def test_hqq_intx_weight_only_config(self):
         dtype = torch.bfloat16
         device = "cpu"

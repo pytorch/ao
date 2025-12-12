@@ -38,13 +38,9 @@ from utils import (
 )
 
 import torchao
-from torchao.prototype.mx_formats.config import (
-    MXGemmKernelChoice,
-)
 from torchao.prototype.mx_formats.inference_workflow import (
-    MXFPInferenceConfig,
-    NVFP4InferenceConfig,
-    NVFP4MMConfig,
+    MXDynamicActivationMXWeightConfig,
+    NVFP4DynamicActivationNVFP4WeightConfig,
 )
 from torchao.prototype.mx_formats.utils import to_blocked
 from torchao.quantization.quant_api import (
@@ -436,20 +432,19 @@ def run(
                     kernel_preference=KernelPreference.TORCH,
                 )
             elif recipe_name == "mxfp8_cublas":
-                config = MXFPInferenceConfig(
+                config = MXDynamicActivationMXWeightConfig(
                     activation_dtype=torch.float8_e4m3fn,
                     weight_dtype=torch.float8_e4m3fn,
-                    gemm_kernel_choice=MXGemmKernelChoice.CUBLAS,
+                    kernel_preference=KernelPreference.AUTO,
                 )
             elif recipe_name == "mxfp4_cutlass":
-                config = MXFPInferenceConfig(
+                config = MXDynamicActivationMXWeightConfig(
                     activation_dtype=torch.float4_e2m1fn_x2,
                     weight_dtype=torch.float4_e2m1fn_x2,
-                    gemm_kernel_choice=MXGemmKernelChoice.CUTLASS,
+                    kernel_preference=KernelPreference.AUTO,
                 )
             elif recipe_name == "nvfp4":
-                config = NVFP4InferenceConfig(
-                    mm_config=NVFP4MMConfig.DYNAMIC,
+                config = NVFP4DynamicActivationNVFP4WeightConfig(
                     use_dynamic_per_tensor_scale=False,
                 )
             else:

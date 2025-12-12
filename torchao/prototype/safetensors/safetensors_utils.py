@@ -10,21 +10,29 @@ from torchao.quantization import (
     Float8Tensor,
     Int4Tensor,
     Int4TilePackedTo4dTensor,
+    Int8Tensor,
     IntxUnpackedToInt8Tensor,
+    MappingType,
 )
 from torchao.quantization.quantize_.common import KernelPreference
-from torchao.quantization.quantize_.workflows import QuantizeTensorToFloat8Kwargs
+from torchao.quantization.quantize_.workflows import (
+    QuantizeTensorToFloat8Kwargs,
+    QuantizeTensorToInt8Kwargs,
+)
 
 ALLOWED_CLASSES = {
     "Float8Tensor": Float8Tensor,
     "Int4Tensor": Int4Tensor,
     "Int4TilePackedTo4dTensor": Int4TilePackedTo4dTensor,
     "IntxUnpackedToInt8Tensor": IntxUnpackedToInt8Tensor,
+    "Int8Tensor": Int8Tensor,
     "Float8MMConfig": torchao.float8.inference.Float8MMConfig,
     "QuantizeTensorToFloat8Kwargs": QuantizeTensorToFloat8Kwargs,
+    "QuantizeTensorToInt8Kwargs": QuantizeTensorToInt8Kwargs,
     "PerRow": torchao.quantization.PerRow,
     "PerTensor": torchao.quantization.PerTensor,
     "KernelPreference": KernelPreference,
+    "MappingType": MappingType,
 }
 
 ALLOWED_TENSORS_SUBCLASSES = [
@@ -32,6 +40,7 @@ ALLOWED_TENSORS_SUBCLASSES = [
     "Int4Tensor",
     "Int4TilePackedTo4dTensor",
     "IntxUnpackedToInt8Tensor",
+    "Int8Tensor",
 ]
 
 __all__ = [

@@ -151,7 +151,7 @@ def _to_mxfp8_dim1_kernel_wrapper(
     block_size,
     elem_dtype,
     hp_dtype,
-    gemm_kernel_choice,
+    kernel_preference,
     cast_kernel_choice,
     scale_calculation_mode: ScaleCalculationMode,
 ):
@@ -187,8 +187,7 @@ def _to_mxfp8_dim1_kernel_wrapper(
             elem_dtype,
             block_size,
             hp_dtype,
-            gemm_kernel_choice,
-            False,
+            kernel_preference,
             None,
             is_swizzled_scales,
         )
@@ -207,8 +206,7 @@ def _to_mxfp8_dim1_kernel_wrapper(
             elem_dtype,
             block_size,
             hp_dtype,
-            gemm_kernel_choice,
-            False,
+            kernel_preference,
             None,
             is_swizzled_scales,
         )
@@ -232,7 +230,7 @@ def _swizzle_aware_slice(
 
     if x._is_swizzled_scales:
         scale_rows = M
-        scale_cols = K // x._block_size
+        scale_cols = K // x.block_size
         n_row_blocks = ceil_div(scale_rows, 128)
         n_col_blocks = ceil_div(scale_cols, 4)
         elements_per_block = 32 * 16  # 512 elements
@@ -351,7 +349,7 @@ def _swizzle_aware_slice(
             )
 
     else:
-        scale_shaped = x.scale.view(M, K // x._block_size)
+        scale_shaped = x.scale.view(M, K // x.block_size)
 
         if dim == 0:
             sliced_scale = aten.slice.Tensor(scale_shaped, dim, start, end, step)
@@ -359,16 +357,16 @@ def _swizzle_aware_slice(
 
         elif dim == 1:
             if start is not None:
-                assert start % x._block_size == 0, (
-                    f"Start index {start} must be a multiple of block_size {x._block_size}"
+                assert start % x.block_size == 0, (
+                    f"Start index {start} must be a multiple of block_size {x.block_size}"
                 )
                 assert start % 2 == 0, (
                     f"Start index {start} must be even for FP4 packing"
                 )
 
             if end is not None and end != sys.maxsize:
-                assert end % x._block_size == 0, (
-                    f"End index {end} must be a multiple of block_size {x._block_size}"
+                assert end % x.block_size == 0, (
+                    f"End index {end} must be a multiple of block_size {x.block_size}"
                 )
                 assert end % 2 == 0, f"End index {end} must be even for FP4 packing"
 
@@ -382,8 +380,8 @@ def _swizzle_aware_slice(
                 x.qdata, dim, packed_start, packed_end, step
             )
 
-            start_block = 0 if start is None else start // x._block_size
-            end_block = None if end is None else end // x._block_size
+            start_block = 0 if start is None else start // x.block_size
+            end_block = None if end is None else end // x.block_size
             sliced_scale = aten.slice.Tensor(
                 scale_shaped, 1, start_block, end_block, step
             )
@@ -398,12 +396,12 @@ def _swizzle_aware_slice(
         # multiply by 2 to convert from bytes to num_elements
         sliced_K = sliced_data.shape[1] * 2
     if x._is_swizzled_scales:
-        if x._block_size == 16:
+        if x.block_size == 16:
             scale_M, scale_K = hp_data_dims_to_swizzled_scale_dims_nvfp4(
                 sliced_M, sliced_K
             )
         else:
-            assert x._block_size == 32, f"unexpected {x._block_size=}"
+            assert x.block_size == 32, f"unexpected {x.block_size=}"
             scale_M, scale_K = hp_data_dims_to_swizzled_scale_dims_mx(
                 sliced_M, sliced_K
             )
@@ -413,7 +411,7 @@ def _swizzle_aware_slice(
         # mx: a 1x32 unpacked or 1x16 packed qdata tile corresponds to 1
         # scale element
         scale_M = sliced_M
-        scale_K = sliced_K // x._block_size
+        scale_K = sliced_K // x.block_size
     sliced_scale = sliced_scale.view(scale_M, scale_K)
 
     return sliced_data, sliced_scale

@@ -119,6 +119,45 @@ class TestQuantize(TestCase):
         # must cast BF16 tensor back to FP32 so that .mean() is accurate
         torch.testing.assert_close(x_rep_bf16.float().mean(1), x, atol=3e-5, rtol=3e-5)
 
+    @parametrize("device", _DEVICES)
+    @parametrize("compile", [False, True])
+    def test_bf16_stochastic_round_dtensor(self, device, compile):
+        pytest.importorskip("torch.distributed")
+        import torch.distributed as dist
+        from torch.distributed.device_mesh import init_device_mesh
+        from torch.distributed.tensor import DTensor, Replicate
+
+        created_pg = False
+        if dist.is_available() and not dist.is_initialized():
+            store = dist.TCPStore("127.0.0.1", 29500, 1, True)
+            dist.init_process_group(
+                backend="gloo",
+                store=store,
+                rank=0,
+                world_size=1,
+            )
+            created_pg = True
+
+        try:
+            torch.manual_seed(common_utils.SEED)
+            x = torch.rand(32, device=device) * 100
+            x_rep = x.view(-1, 1).repeat(1, 100_000)
+
+            func = torch.compile(
+                _fp32_to_bf16_sr, fullgraph=True, dynamic=False, disable=not compile
+            )
+            out_plain = func(x_rep)
+
+            mesh = init_device_mesh(device, (1,))
+            x_dt = DTensor.from_local(x_rep, mesh, [Replicate()], run_check=False)
+            out_dt = func(x_dt)
+
+            assert isinstance(out_dt, DTensor)
+            torch.testing.assert_close(out_dt.to_local(), out_plain)
+        finally:
+            if created_pg:
+                dist.destroy_process_group()
+
 
 class TestOptim(TestCase):
     @parametrize(
@@ -419,8 +458,8 @@ class TestOptim(TestCase):
         for p1, p2 in zip(model1.parameters(), model2.parameters()):
             torch.testing.assert_close(p2, p1)
 
-    def test_optim_bf16_stochastic_round_correctness(self):
-        device = "cuda" if torch.cuda.is_available() else "cpu"
+    @parametrize("device", _DEVICES)
+    def test_optim_bf16_stochastic_round_correctness(self, device):
         torch.manual_seed(2024)
         model1 = nn.Sequential(nn.Linear(32, 1024), nn.ReLU(), nn.Linear(1024, 128))
         model1.to(device)

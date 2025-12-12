@@ -28,7 +28,7 @@ from torch.testing._internal.common_quantization import (
     skipIfNoQNNPACK,
 )
 from torch.testing._internal.common_quantized import override_quantized_engine
-from torch.testing._internal.common_utils import run_tests
+from torch.testing._internal.common_utils import TEST_XPU, run_tests
 
 from torchao.quantization.pt2e import (
     FusedMovingAvgObsFakeQuantize,
@@ -52,7 +52,9 @@ from torchao.testing.pt2e._xnnpack_quantizer import (
     XNNPACKQuantizer,
     get_symmetric_quantization_config,
 )
-from torchao.utils import torch_version_at_least
+from torchao.utils import get_current_accelerator_device, torch_version_at_least
+
+_DEVICE = get_current_accelerator_device()
 
 
 class PT2EQATTestCase(QuantizationTestCase):
@@ -453,10 +455,10 @@ class TestQuantizePT2EQAT_ConvBn_Base(PT2EQATTestCase):
         self._verify_symmetric_xnnpack_qat_graph(m, self.example_inputs, has_relu=False)
         self._verify_symmetric_xnnpack_qat_numerics(m, self.example_inputs)
 
-    @unittest.skipIf(not TEST_CUDA, "CUDA unavailable")
+    @unittest.skipIf(not TEST_CUDA and not TEST_XPU, "GPU unavailable")
     def test_qat_conv_bn_fusion_cuda(self):
-        m = self._get_conv_bn_model().cuda()
-        example_inputs = (self.example_inputs[0].cuda(),)
+        m = self._get_conv_bn_model().to(_DEVICE)
+        example_inputs = (self.example_inputs[0].to(_DEVICE),)
         self._verify_symmetric_xnnpack_qat_graph(
             m,
             example_inputs,
@@ -540,10 +542,10 @@ class TestQuantizePT2EQAT_ConvBn_Base(PT2EQATTestCase):
         self._verify_symmetric_xnnpack_qat_graph(m, self.example_inputs, has_relu=True)
         self._verify_symmetric_xnnpack_qat_numerics(m, self.example_inputs)
 
-    @unittest.skipIf(not TEST_CUDA, "CUDA unavailable")
+    @unittest.skipIf(not TEST_CUDA and not TEST_XPU, "GPU unavailable")
     def test_qat_conv_bn_relu_fusion_cuda(self):
-        m = self._get_conv_bn_model(has_relu=True).cuda()
-        example_inputs = (self.example_inputs[0].cuda(),)
+        m = self._get_conv_bn_model(has_relu=True).to(_DEVICE)
+        example_inputs = (self.example_inputs[0].to(_DEVICE),)
         self._verify_symmetric_xnnpack_qat_graph(
             m,
             example_inputs,

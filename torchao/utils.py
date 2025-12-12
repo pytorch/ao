@@ -8,11 +8,10 @@ import importlib
 import itertools
 import re
 import time
-import warnings
 from functools import reduce
 from importlib.metadata import version
 from math import gcd
-from typing import Any, Callable, Optional, Type
+from typing import Any, Callable, Optional
 
 import torch
 import torch.nn.utils.parametrize as parametrize
@@ -29,6 +28,7 @@ __all__ = [
     "get_model_size_in_bytes",
     "unwrap_tensor_subclass",
     "TorchAOBaseTensor",
+    "is_cuda_version_at_least",
     "is_MI300",
     "is_sm_at_least_89",
     "is_sm_at_least_90",
@@ -111,6 +111,21 @@ def benchmark_model(model, num_runs, args=(), kwargs=None, device_type=None):
         torch.cpu.synchronize()
         average_time_per_run = (end_time - start_time) / num_runs
         return average_time_per_run
+
+    elif device_type == "xpu":
+        torch.xpu.synchronize()
+        start_event = torch.xpu.Event(enable_timing=True)
+        end_event = torch.xpu.Event(enable_timing=True)
+        start_event.record()
+
+        # benchmark
+        for _ in range(num_runs):
+            with torch.autograd.profiler.record_function("timed region"):
+                model(*args, **kwargs)
+
+        end_event.record()
+        torch.xpu.synchronize()
+        return start_event.elapsed_time(end_event) / num_runs
 
 
 def profiler_runner(path, fn, *args, **kwargs):
@@ -375,25 +390,6 @@ def torch_version_at_least(min_version):
     return parse_version(torch.__version__) >= parse_version(min_version)
 
 
-class _ConfigDeprecationWrapper:
-    """
-    A deprecation wrapper that directs users from a deprecated "config function"
-    (e.g. `int4_weight_only`) to the replacement config class.
-    """
-
-    def __init__(self, deprecated_name: str, config_cls: Type):
-        self.deprecated_name = deprecated_name
-        self.config_cls = config_cls
-
-    def __call__(self, *args, **kwargs):
-        warnings.warn(
-            f"`{self.deprecated_name}` is deprecated and will be removed in a future release. "
-            f"Please use `{self.config_cls.__name__}` instead. Example usage:\n"
-            f"    quantize_(model, {self.config_cls.__name__}(...))"
-        )
-        return self.config_cls(*args, **kwargs)
-
-
 """
 Helper function for implementing aten op or torch function dispatch
 and dispatching to these implementations.
@@ -512,9 +508,11 @@ def _implements_common_tensor_ops(cls):
         if hasattr(self, "optional_tensor_data_names"):
             # either both are None or both are not Tensors and the shape match
             _optional_tensor_shape_match = all(
-                getattr(self, t_name).shape == getattr(src, t_name).shape
-                if getattr(self, t_name) is not None
-                else getattr(src, t_name) is None
+                (
+                    getattr(self, t_name).shape == getattr(src, t_name).shape
+                    if getattr(self, t_name) is not None
+                    else getattr(src, t_name) is None
+                )
                 for t_name in self.optional_tensor_data_names
             )
 
@@ -1095,6 +1093,16 @@ def is_sm_at_least_100():
         and torch.version.cuda
         and torch.cuda.get_device_capability() >= (10, 0)
     )
+
+
+def is_cuda_version_at_least(major: int, minor: int) -> bool:
+    if not torch.cuda.is_available():
+        return False
+    cuda_version = torch.version.cuda
+    if cuda_version is None:
+        return False
+    cuda_major, cuda_minor = map(int, cuda_version.split(".")[:2])
+    return (cuda_major, cuda_minor) >= (major, minor)
 
 
 def check_cpu_version(device, version="2.6.0"):

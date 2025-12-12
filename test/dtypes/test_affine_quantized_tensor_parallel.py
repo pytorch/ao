@@ -21,8 +21,9 @@ from torchao.quantization import (
     Int4WeightOnlyConfig,
     Int8DynamicActivationInt8WeightConfig,
     Int8WeightOnlyConfig,
+    PerRow,
+    PerTensor,
 )
-from torchao.quantization.observer import PerRow, PerTensor
 from torchao.quantization.quant_api import quantize_
 
 if common_utils.SEED is None:

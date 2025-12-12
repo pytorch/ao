@@ -41,7 +41,7 @@ if VLLM_AVAILABLE:
 from transformers import AutoModelForCausalLM, AutoTokenizer, TorchAoConfig
 from vllm import LLM, SamplingParams
 
-from torchao.prototype.mx_formats import MXFPInferenceConfig
+from torchao.prototype.mx_formats import MXDynamicActivationMXWeightConfig
 from torchao.quantization.granularity import PerRow, PerTensor
 from torchao.quantization.quant_api import (
     CutlassInt4PackedLayout,
@@ -70,7 +70,7 @@ def get_tests() -> List[TorchAoConfig]:
             Int8DynamicActivationInt4WeightConfig(layout=CutlassInt4PackedLayout())
         )
     ]
-    SM100_TESTS = [TorchAoConfig(MXFPInferenceConfig())]
+    SM100_TESTS = [TorchAoConfig(MXDynamicActivationMXWeightConfig())]
 
     # Check CUDA availability first
     if not torch.cuda.is_available():
