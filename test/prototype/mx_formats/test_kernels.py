@@ -33,6 +33,7 @@ from torchao.prototype.mx_formats.kernels import (
     f32_to_f6_e2m3_unpacked,
     f32_to_f6_e3m2_unpacked,
     get_bits,
+    mxfp8_quantize_cuda,
     pack_uint4,
     triton_mxfp8_dequant_dim0,
     triton_to_mxfp8_dim0,
@@ -541,8 +542,6 @@ def test_rearrange(shape):
     "scaling_mode", (ScaleCalculationMode.FLOOR, ScaleCalculationMode.RCEIL)
 )
 def test_cuda_mx_dim1_numerics(M, K, input_dtype, scaling_mode):
-    from torchao.prototype import mxfp8_cuda
-
     scaling_mode_str = (
         "floor" if scaling_mode == ScaleCalculationMode.FLOOR else "rceil"
     )
@@ -561,13 +560,11 @@ def test_cuda_mx_dim1_numerics(M, K, input_dtype, scaling_mode):
         scaling_mode=scaling_mode,
     )
 
-    _, y_d1, _, s_d1 = mxfp8_cuda.quantize(
+    _, y_d1, _, s_d1 = mxfp8_quantize_cuda(
         x,
         rowwise=False,
         colwise=True,
         scaling_mode=scaling_mode_str,
-        scale_dim_x=1,
-        scale_dim_y=block_size,
     )
 
     # check scales
@@ -587,48 +584,15 @@ def test_cuda_mx_dim1_numerics(M, K, input_dtype, scaling_mode):
     reason="CUDA version >= 12.8 required for MXFP8 CUDA kernels",
 )
 def test_cuda_mx_dim0_not_supported():
-    from torchao.prototype import mxfp8_cuda
-
     M, K = 64, 64
-    block_size = 32
     x = (
         torch.arange(0, M * K, dtype=torch.bfloat16, device="cuda")
         .reshape(M, K)
         .contiguous()
     )
     with pytest.raises(RuntimeError):
-        _, y_d1, _, s_d1 = mxfp8_cuda.quantize(
+        _, y_d1, _, s_d1 = mxfp8_quantize_cuda(
             x,
             rowwise=True,
             colwise=False,
-            scale_dim_x=block_size,
-            scale_dim_y=1,
-        )
-
-
-@pytest.mark.skipif(
-    not is_sm_at_least_100(),
-    reason="MXFP8 requires CUDA capability 10.0 or greater",
-)
-@pytest.mark.skipif(
-    not is_cuda_version_at_least(12, 8),
-    reason="CUDA version >= 12.8 required for MXFP8 CUDA kernels",
-)
-def test_cuda_mx_dim1_invalid_block_size():
-    from torchao.prototype import mxfp8_cuda
-
-    M, K = 64, 64
-    x = (
-        torch.arange(0, M * K, dtype=torch.bfloat16, device="cuda")
-        .reshape(M, K)
-        .contiguous()
-    )
-    invalid_block_size = 4
-    with pytest.raises(RuntimeError):
-        _, y_d1, _, s_d1 = mxfp8_cuda.quantize(
-            x,
-            rowwise=False,
-            colwise=True,
-            scale_dim_x=1,
-            scale_dim_y=invalid_block_size,
         )

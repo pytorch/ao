@@ -21,6 +21,7 @@ from torchao.prototype.moe_training.kernels.jagged_float8_scales import (
     triton_fp8_per_group_rowwise_scales,
 )
 from torchao.prototype.moe_training.kernels.mxfp8 import (
+    mxfp8_quantize_cuda_3d,
     torch_to_blocked_2d_K_groups,
     torch_to_blocked_2d_M_groups,
     torch_to_blocked_per_group_3d,
@@ -317,8 +318,6 @@ def test_triton_mx_block_rearrange_2d_K_groups(
 @pytest.mark.parametrize("input_dtype", (torch.bfloat16,))
 @pytest.mark.parametrize("scaling_mode", (ScaleCalculationMode.FLOOR,))
 def test_cuda_mx_dim1_3d_numerics(E, N, K, input_dtype, scaling_mode):
-    from torchao.prototype import mxfp8_cuda
-
     scaling_mode_str = (
         "floor" if scaling_mode == ScaleCalculationMode.FLOOR else "rceil"
     )
@@ -344,9 +343,8 @@ def test_cuda_mx_dim1_3d_numerics(E, N, K, input_dtype, scaling_mode):
     y_d1_ref = y_d1_ref.transpose(-2, -1)
     s_d1_ref = s_d1_ref.transpose(-2, -1)
 
-    # CUDA implementation (should work with any stride pattern)
-    y_d1, s_d1 = mxfp8_cuda.quantize_3d(
-        x, scale_dim_n=block_size, scaling_mode=scaling_mode_str
+    y_d1, s_d1 = mxfp8_quantize_cuda_3d(
+        x, block_size=block_size, scaling_mode=scaling_mode_str
     )
     # Check scales
     torch.testing.assert_close(s_d1, s_d1_ref, rtol=0, atol=0)
