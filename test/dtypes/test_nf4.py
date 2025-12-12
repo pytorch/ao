@@ -634,7 +634,7 @@ class TestQLoRA(FSDPTest):
         return 2
 
     @pytest.mark.skipif(
-        version.parse(torch.__version__) < version.parse("2.4.0"),
+        version.parse(torch.__version__).base_version < "2.4.0",
         reason="torch >= 2.4 required",
     )
     @skip_if_lt_x_gpu(2)
