@@ -262,7 +262,7 @@ class TestNF4Linear(TestCase):
         _ = torch.nn.functional.linear(inp, a)
         _ = torch.nn.functional.linear(inp, a_nf4)
 
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     @parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
     def test_smoketest_linear_compile(self, dtype: torch.dtype):
         if (
