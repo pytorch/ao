@@ -15,7 +15,11 @@ from torchao.quantization.linear_activation_scale import (
 )
 from torchao.quantization.quant_api import (
     _QUANTIZE_CONFIG_HANDLER,
+    Int8StaticActivationInt8WeightConfig,
     _linear_extra_repr,
+)
+from torchao.quantization.quantize_.workflows.int8.int8_tensor import (
+    QuantizeTensorToInt8Kwargs,
 )
 from torchao.quantization.transform_module import (
     register_quantize_module_handler,
@@ -95,8 +99,18 @@ def _smooth_quant_transform(
     else:
         raise ValueError(f"Unexpected step: {step}")
 
+    if isinstance(base_config, Int8StaticActivationInt8WeightConfig):
+        quant_kwargs = QuantizeTensorToInt8Kwargs(
+            granularity=base_config.granularity,
+            mapping_type=base_config.act_mapping_type,
+        )
+    else:
+        quant_kwargs = None
+
     # Compute smoothed weight parameters
-    smoothing_factor = observed_linear.obs.calculate_qparams()
+    smoothing_factor, activation_scale = observed_linear.obs.calculate_qparams(
+        weight_quant_kwargs=quant_kwargs
+    )
     weight = observed_linear.weight * smoothing_factor
 
     # Create new linear layer
@@ -111,6 +125,9 @@ def _smooth_quant_transform(
     linear.bias = observed_linear.bias
 
     # Quantize weights
+    if isinstance(base_config, Int8StaticActivationInt8WeightConfig):
+        base_config.scale = activation_scale
+
     base_config_handler = _QUANTIZE_CONFIG_HANDLER[type(base_config)]
     dummy_mod = DummyModule(weight)
     quant_mod = base_config_handler(dummy_mod, base_config)
@@ -120,6 +137,7 @@ def _smooth_quant_transform(
     qw = to_weight_tensor_with_linear_activation_scale_metadata(
         qw, smoothing_factor.to(qw.dtype)
     )
+
     linear.weight = torch.nn.Parameter(qw, requires_grad=False)
     linear.extra_repr = types.MethodType(_linear_extra_repr, linear)
 

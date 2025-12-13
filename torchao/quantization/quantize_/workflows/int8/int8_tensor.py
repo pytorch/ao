@@ -3,7 +3,7 @@
 #
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
-
+import math
 from dataclasses import dataclass
 from typing import List, Optional
 
@@ -199,12 +199,13 @@ def _(func, types, args, kwargs):
     output_dtype = activation_tensor.dtype
 
     if weight_tensor.act_quant_kwargs is not None:
+        # for int8 dynamic + static quantization path
+
         activation_tensor = _choose_quant_func_and_quantize_tensor(
             activation_tensor,
             weight_tensor.act_quant_kwargs,
             scale=weight_tensor.act_scale,
         )
-        # Dynamic activation quantization path
 
         # 1. do the matrix form of dot(X_i, W_j)
         #

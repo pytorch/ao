@@ -15,11 +15,13 @@ from torchao.prototype.smoothquant import (
 )
 from torchao.prototype.smoothquant.core import SmoothQuantStep
 from torchao.quantization import quantize_
+from torchao.quantization.granularity import PerRow, PerTensor
 from torchao.quantization.linear_activation_scale import (
     WeightTensorWithLinearActivationScaleMetadata,
 )
 from torchao.quantization.quant_api import (
     Int8DynamicActivationInt8WeightConfig,
+    Int8StaticActivationInt8WeightConfig,
 )
 from torchao.quantization.utils import (
     compute_error as SQNR,
@@ -83,7 +85,10 @@ class TestSmoothQuant(unittest.TestCase):
     @common_utils.parametrize(
         "base_config",
         [
-            Int8DynamicActivationInt8WeightConfig(),
+            Int8DynamicActivationInt8WeightConfig(version=2),
+            # TODO: not sure if we should allow not passing scales as part of static config?
+            Int8StaticActivationInt8WeightConfig(granularity=PerRow()),
+            Int8StaticActivationInt8WeightConfig(granularity=PerTensor()),
             # Note: float8_static_activation_float8_weight is broken after recent PyTorch update.
             # TODO(#1639): Fix for supporting more API in torchao/quantization/quant_api.py
         ],
@@ -101,7 +106,15 @@ class TestSmoothQuant(unittest.TestCase):
 
         # Step 1. Basic quantization
         basic_model = deepcopy(m)
-        quantize_(basic_model, base_config)
+        if isinstance(base_config, Int8StaticActivationInt8WeightConfig):
+            quantize_(
+                basic_model,
+                Int8DynamicActivationInt8WeightConfig(
+                    version=2, granularity=base_config.granularity
+                ),
+            )
+        else:
+            quantize_(basic_model, base_config)
         out_basic = basic_model(*x)
         loss_base = torch.nn.functional.mse_loss(out_basic, out_ref).item()
 
