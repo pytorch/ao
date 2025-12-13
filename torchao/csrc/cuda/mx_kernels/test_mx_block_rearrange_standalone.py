@@ -222,6 +222,66 @@ def test_kernel():
     print("CUDA row-major 128x4 vectorized kernel completed successfully")
 
     # -------------------------------------------------------------------------
+    # Test Row-Major 128x4 Vectorized Pipelined CUDA Kernel (default chunks_per_tb=4)
+    # -------------------------------------------------------------------------
+    print("\n" + "-" * 80)
+    print(
+        "Running CUDA row-major 128x4 vectorized pipelined kernel (chunks_per_tb=4)..."
+    )
+    print(
+        f"  Input shape: {e8m0_scales_row_major.shape}, strides: {e8m0_scales_row_major.stride()}"
+    )
+    cuda_rowmajor_128x4_vec_pipelined_out = (
+        mx_block_rearrange.mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec_pipelined(
+            e8m0_scales_row_major.view(torch.uint8),
+            scale_group_offsets,
+            64,  # max_cols
+            4,  # chunks_per_tb
+        )
+    )
+    print(
+        "CUDA row-major 128x4 vectorized pipelined kernel (chunks_per_tb=4) completed successfully"
+    )
+
+    # -------------------------------------------------------------------------
+    # Test Row-Major 128x4 Vectorized Pipelined CUDA Kernel (chunks_per_tb=8)
+    # -------------------------------------------------------------------------
+    print("\n" + "-" * 80)
+    print(
+        "Running CUDA row-major 128x4 vectorized pipelined kernel (chunks_per_tb=8)..."
+    )
+    cuda_rowmajor_128x4_vec_pipelined_8_out = (
+        mx_block_rearrange.mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec_pipelined(
+            e8m0_scales_row_major.view(torch.uint8),
+            scale_group_offsets,
+            64,  # max_cols
+            8,  # chunks_per_tb
+        )
+    )
+    print(
+        "CUDA row-major 128x4 vectorized pipelined kernel (chunks_per_tb=8) completed successfully"
+    )
+
+    # -------------------------------------------------------------------------
+    # Test Row-Major 128x4 Vectorized Pipelined CUDA Kernel (chunks_per_tb=16)
+    # -------------------------------------------------------------------------
+    print("\n" + "-" * 80)
+    print(
+        "Running CUDA row-major 128x4 vectorized pipelined kernel (chunks_per_tb=16)..."
+    )
+    cuda_rowmajor_128x4_vec_pipelined_16_out = (
+        mx_block_rearrange.mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec_pipelined(
+            e8m0_scales_row_major.view(torch.uint8),
+            scale_group_offsets,
+            64,  # max_cols
+            16,  # chunks_per_tb
+        )
+    )
+    print(
+        "CUDA row-major 128x4 vectorized pipelined kernel (chunks_per_tb=16) completed successfully"
+    )
+
+    # -------------------------------------------------------------------------
     # Test Triton Reference
     # -------------------------------------------------------------------------
     print("\n" + "-" * 80)
@@ -288,6 +348,54 @@ def test_kernel():
         all_correct = False
     else:
         print("PASSED: CUDA row-major 128x4 vectorized matches Triton")
+
+    cuda_rowmajor_128x4_vec_pipelined_out_e8m0 = (
+        cuda_rowmajor_128x4_vec_pipelined_out.view(torch.float8_e8m0fnu)
+    )
+    if not torch.equal(triton_out, cuda_rowmajor_128x4_vec_pipelined_out_e8m0):
+        print(
+            "FAILED: CUDA row-major 128x4 vectorized pipelined (chunks_per_tb=4) and Triton outputs differ!"
+        )
+        diff_mask = triton_out != cuda_rowmajor_128x4_vec_pipelined_out_e8m0
+        num_diffs = diff_mask.sum().item()
+        print(f"  Number of differences: {num_diffs} / {triton_out.numel()}")
+        all_correct = False
+    else:
+        print(
+            "PASSED: CUDA row-major 128x4 vectorized pipelined (chunks_per_tb=4) matches Triton"
+        )
+
+    cuda_rowmajor_128x4_vec_pipelined_8_out_e8m0 = (
+        cuda_rowmajor_128x4_vec_pipelined_8_out.view(torch.float8_e8m0fnu)
+    )
+    if not torch.equal(triton_out, cuda_rowmajor_128x4_vec_pipelined_8_out_e8m0):
+        print(
+            "FAILED: CUDA row-major 128x4 vectorized pipelined (chunks_per_tb=8) and Triton outputs differ!"
+        )
+        diff_mask = triton_out != cuda_rowmajor_128x4_vec_pipelined_8_out_e8m0
+        num_diffs = diff_mask.sum().item()
+        print(f"  Number of differences: {num_diffs} / {triton_out.numel()}")
+        all_correct = False
+    else:
+        print(
+            "PASSED: CUDA row-major 128x4 vectorized pipelined (chunks_per_tb=8) matches Triton"
+        )
+
+    cuda_rowmajor_128x4_vec_pipelined_16_out_e8m0 = (
+        cuda_rowmajor_128x4_vec_pipelined_16_out.view(torch.float8_e8m0fnu)
+    )
+    if not torch.equal(triton_out, cuda_rowmajor_128x4_vec_pipelined_16_out_e8m0):
+        print(
+            "FAILED: CUDA row-major 128x4 vectorized pipelined (chunks_per_tb=16) and Triton outputs differ!"
+        )
+        diff_mask = triton_out != cuda_rowmajor_128x4_vec_pipelined_16_out_e8m0
+        num_diffs = diff_mask.sum().item()
+        print(f"  Number of differences: {num_diffs} / {triton_out.numel()}")
+        all_correct = False
+    else:
+        print(
+            "PASSED: CUDA row-major 128x4 vectorized pipelined (chunks_per_tb=16) matches Triton"
+        )
 
     if not all_correct:
         return False

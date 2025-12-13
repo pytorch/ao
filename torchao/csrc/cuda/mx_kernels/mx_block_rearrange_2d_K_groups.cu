@@ -48,6 +48,69 @@ __device__ void find_group_and_local_offset(
     }
 }
 
+// =============================================================================
+// PIPELINED SUPERBLOCK MAPPING FUNCTION
+// =============================================================================
+// For pipelined execution, each super-block processes up to CHUNKS_PER_TB chunks.
+// This function maps a super_block_pid to:
+//   - group_id: which group this super-block starts in
+//   - first_chunk_in_group: the local chunk index within that group
+//   - chunks_until_group_end: how many chunks can be processed before hitting group boundary
+//
+// KEY INSIGHT: We cannot simply multiply super_col_block_pid * CHUNKS_PER_TB because
+// chunks within groups don't form a contiguous global numbering. Instead, we must
+// iterate through the groups and assign super-blocks based on the chunks each group contains.
+template <int CHUNKS_PER_TB>
+__device__ void find_group_and_local_offset_for_superblock(
+    int super_col_block_pid,
+    const int32_t* __restrict__ input_group_end_offsets,
+    int num_groups,
+    int cols_per_block,
+    int* __restrict__ smem_data,  // smem_data[0..num_groups-1] = chunks_in_group, smem_data[num_groups..2*num_groups-1] = super_blocks_in_group cumsum
+    int& group_id,
+    int& first_chunk_in_group,
+    int& chunks_until_group_end
+) {
+    // Thread 0 computes chunks per group and cumulative super-blocks
+    if (threadIdx.x == 0) {
+        int superblock_cumsum = 0;
+        for (int g = 0; g < num_groups; g++) {
+            int input_group_start = (g > 0) ? input_group_end_offsets[g - 1] : 0;
+            int input_group_end = input_group_end_offsets[g];
+            int group_size = input_group_end - input_group_start;
+            int chunks_in_group = ceil_div(group_size, cols_per_block);
+            int superblocks_in_group = ceil_div(chunks_in_group, CHUNKS_PER_TB);
+            smem_data[g] = chunks_in_group;
+            superblock_cumsum += superblocks_in_group;
+            smem_data[num_groups + g] = superblock_cumsum;
+        }
+    }
+    __syncthreads();
+
+    // Find which group this super-block belongs to
+    group_id = 0;
+    int superblock_cumsum_before = 0;
+    for (int g = 0; g < num_groups; g++) {
+        int cumsum_at_g = smem_data[num_groups + g];
+        if (super_col_block_pid < cumsum_at_g) {
+            group_id = g;
+            // local_superblock_in_group = super_col_block_pid - superblock_cumsum_before
+            int local_superblock = super_col_block_pid - superblock_cumsum_before;
+            // first_chunk_in_group = local_superblock * CHUNKS_PER_TB
+            first_chunk_in_group = local_superblock * CHUNKS_PER_TB;
+            // How many chunks remain until group boundary
+            int chunks_in_group = smem_data[g];
+            chunks_until_group_end = chunks_in_group - first_chunk_in_group;
+            return;
+        }
+        superblock_cumsum_before = cumsum_at_g;
+    }
+
+    // Fallback (should not reach here if super_col_block_pid is valid)
+    first_chunk_in_group = 0;
+    chunks_until_group_end = 0;
+}
+
 __device__ __forceinline__ int compute_output_group_start_col(
     int group_id,
     const int32_t* input_group_end_offsets,
@@ -764,6 +827,281 @@ template __global__ void mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec_kerne
     const uint8_t* __restrict__, int, int, int, int,
     const int32_t* __restrict__, uint8_t* __restrict__, int, int);
 
+// =============================================================================
+// PIPELINED ROW-MAJOR VECTORIZED KERNEL (TRUE 2-STAGE SOFTWARE PIPELINE)
+// =============================================================================
+// This kernel uses true 2-stage software pipelining with double buffering to
+// overlap memory transfers with compute:
+//   - While processing (swizzle + store) chunk N from buffer A
+//   - Simultaneously loading chunk N+1 into buffer B via cp.async
+//
+// KEY DESIGN: Each threadblock processes MULTIPLE consecutive chunks within
+// the SAME group. This respects group boundaries while enabling true overlap.
+//
+// Pipeline stages:
+//   Prologue: Async load chunk 0 into buffer 0, wait for completion
+//   Steady state loop (for each chunk 0..N-2):
+//     - Kick off async load of chunk K+1 into buffer[(K+1)%2]
+//     - Process chunk K from buffer[K%2] (swizzle + store to GMEM)
+//     - Wait for chunk K+1 load to complete
+//   Epilogue: Process final chunk
+//
+// Template parameter CHUNKS_PER_TB controls how many MAX_COLS-wide chunks
+// each threadblock processes within a single group.
+
+template <int MAX_COLS, int CHUNKS_PER_TB = 4>
+__global__ void mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec_pipelined_kernel(
+    const uint8_t* __restrict__ scales_ptr,
+    int scales_stride_dim0,
+    int scale_rows,
+    int scale_cols,
+    int padded_rows,
+    const int32_t* __restrict__ input_group_end_offsets,
+    uint8_t* __restrict__ output_scales_ptr,
+    int output_stride_per_block,
+    int num_groups
+) {
+    // Compile-time constants
+    constexpr int THREADS_PER_ROW = MAX_COLS / 16;
+    constexpr int NUM_TILES_PER_THREAD = 4;  // 16 bytes / 4 bytes per tile
+    constexpr int TILE_SIZE = SCALE_FACTOR_ROWS * BLOCK_COLS;  // 128 * 4 = 512
+    constexpr int SMEM_SIZE = BLOCK_ROWS * MAX_COLS;
+    constexpr int NUM_BUFFERS = 2;
+
+    const int super_col_block_pid = blockIdx.x;
+    const int row_block_pid = blockIdx.y;
+    const int tid = threadIdx.x;
+
+    // Double-buffered shared memory for true pipelining
+    __shared__ __align__(16) uint8_t smem[NUM_BUFFERS][SMEM_SIZE];
+    __shared__ int smem_cumsum[32];
+    __shared__ int s_output_group_start_col;
+    __shared__ int s_input_group_start_col;
+    __shared__ int s_input_group_end_col;
+    __shared__ int s_first_chunk_in_group;
+    __shared__ int s_num_chunks_to_process;
+
+    // =========================================================================
+    // PHASE 0: Map this super-block to a (group, first_chunk) pair
+    // =========================================================================
+    // Use the superblock-aware mapping function that correctly handles
+    // the relationship between super-blocks and group boundaries.
+
+    int group_id, first_chunk_in_group, chunks_until_group_end;
+    find_group_and_local_offset_for_superblock<CHUNKS_PER_TB>(
+        super_col_block_pid,
+        input_group_end_offsets,
+        num_groups,
+        MAX_COLS,
+        smem_cumsum,  // Re-use smem_cumsum (needs 2*num_groups ints)
+        group_id,
+        first_chunk_in_group,
+        chunks_until_group_end
+    );
+
+    // Compute group boundaries and output group start
+    if (tid == 0) {
+        s_input_group_start_col = (group_id > 0) ? input_group_end_offsets[group_id - 1] : 0;
+        s_input_group_end_col = input_group_end_offsets[group_id];
+        s_first_chunk_in_group = first_chunk_in_group;
+        s_output_group_start_col = compute_output_group_start_col(
+            group_id, input_group_end_offsets, num_groups, 4
+        );
+        // Early stop: only process chunks until group boundary
+        // chunks_until_group_end could be <= 0 for over-allocated super-blocks
+        s_num_chunks_to_process = (chunks_until_group_end > 0) ? min(CHUNKS_PER_TB, chunks_until_group_end) : 0;
+    }
+
+    __syncthreads();
+
+    int input_group_start_col = s_input_group_start_col;
+    int input_group_end_col = s_input_group_end_col;
+    first_chunk_in_group = s_first_chunk_in_group;
+    int output_group_start_col = s_output_group_start_col;
+    int num_chunks_to_process = s_num_chunks_to_process;
+
+    if (num_chunks_to_process <= 0) {
+        return;
+    }
+
+    // =========================================================================
+    // PHASE 1: Precompute thread-constant values
+    // =========================================================================
+    int global_row_base = row_block_pid * BLOCK_ROWS;
+    int row_idx = tid / THREADS_PER_ROW;
+    int col_idx = tid % THREADS_PER_ROW;
+    int global_row = global_row_base + row_idx;
+    bool row_valid = (global_row < scale_rows);
+
+    // Swizzle computation (constant for this thread)
+    int r_div_32 = row_idx >> 5;
+    int r_mod_32 = row_idx & 31;
+    int swizzle_base = (r_mod_32 << 4) + (r_div_32 << 2);
+    int thread_col_start = col_idx * 16;
+    int first_tile_idx = thread_col_start >> 2;
+
+    // Output address constants
+    int out_group_base_offset = output_group_start_col * padded_rows;
+    int num_cols_in_group = input_group_end_col - input_group_start_col;
+    int num_4col_blocks_in_group = ceil_div(num_cols_in_group, BLOCK_COLS);
+    int stride_per_row_of_4col_blocks = num_4col_blocks_in_group * TILE_SIZE;
+
+    // Base input pointer for this row
+    const uint8_t* row_base_ptr = scales_ptr +
+        static_cast<size_t>(global_row) * scales_stride_dim0;
+
+    // =========================================================================
+    // PIPELINED EXECUTION WITH DOUBLE BUFFERING
+    // =========================================================================
+
+    // Lambda to load a chunk asynchronously into specified buffer
+    auto load_chunk_async = [&](int chunk_idx, int buf_idx) {
+        int curr_chunk_in_group = first_chunk_in_group + chunk_idx;
+        int curr_input_start_col = input_group_start_col + curr_chunk_in_group * MAX_COLS;
+        int cols_remaining = input_group_end_col - curr_input_start_col;
+        int cols_to_load = min(MAX_COLS, cols_remaining);
+        bool can_load = row_valid && (thread_col_start < cols_to_load);
+
+        if (can_load) {
+            const uint8_t* src_ptr = row_base_ptr + curr_input_start_col + thread_col_start;
+            uintptr_t gmem_addr = reinterpret_cast<uintptr_t>(src_ptr);
+            bool aligned = (gmem_addr % 16 == 0);
+            bool full_vec = (thread_col_start + 16 <= cols_to_load) && aligned;
+
+            if (full_vec) {
+                asm volatile(
+                    "cp.async.cg.shared.global [%0], [%1], 16;\n"
+                    :
+                    : "l"(&smem[buf_idx][row_idx * MAX_COLS + thread_col_start]),
+                      "l"(src_ptr)
+                );
+            } else {
+                // Fallback for partial/unaligned - load to registers then store
+                uint4 data = make_uint4(0, 0, 0, 0);
+                uint8_t* bytes = reinterpret_cast<uint8_t*>(&data);
+                int bytes_to_load = min(16, cols_to_load - thread_col_start);
+                #pragma unroll
+                for (int i = 0; i < 16; i++) {
+                    if (i < bytes_to_load) bytes[i] = __ldg(src_ptr + i);
+                }
+                *reinterpret_cast<uint4*>(&smem[buf_idx][row_idx * MAX_COLS + thread_col_start]) = data;
+            }
+        } else {
+            *reinterpret_cast<uint4*>(&smem[buf_idx][row_idx * MAX_COLS + thread_col_start]) = make_uint4(0, 0, 0, 0);
+        }
+    };
+
+    // Lambda to process a chunk: read from linear SMEM, swizzle, write to SMEM, store to GMEM
+    auto process_chunk = [&](int chunk_idx, int buf_idx) {
+        int curr_chunk_in_group = first_chunk_in_group + chunk_idx;
+        int curr_input_start_col = input_group_start_col + curr_chunk_in_group * MAX_COLS;
+        int cols_remaining = input_group_end_col - curr_input_start_col;
+        int cols_to_load = min(MAX_COLS, cols_remaining);
+
+        // Read from linear layout in SMEM
+        uint4 data = *reinterpret_cast<uint4*>(&smem[buf_idx][row_idx * MAX_COLS + thread_col_start]);
+
+        __syncthreads();  // Ensure all reads complete before overwriting
+
+        // Write to swizzled positions in same buffer
+        uint32_t* data32 = reinterpret_cast<uint32_t*>(&data);
+        #pragma unroll
+        for (int t = 0; t < NUM_TILES_PER_THREAD; t++) {
+            int tile_idx = first_tile_idx + t;
+            int tile_base = tile_idx * SCALE_FACTOR_ROWS * BLOCK_COLS;
+            int swizzled_idx = tile_base + swizzle_base;
+            *reinterpret_cast<uint32_t*>(&smem[buf_idx][swizzled_idx]) = data32[t];
+        }
+
+        __syncthreads();  // Ensure swizzle writes complete
+
+        // Copy swizzled data to GMEM
+        int tiles_before_this_chunk = curr_chunk_in_group * (MAX_COLS / BLOCK_COLS);
+        uint8_t* out_base = output_scales_ptr + out_group_base_offset +
+                            row_block_pid * stride_per_row_of_4col_blocks +
+                            tiles_before_this_chunk * TILE_SIZE;
+
+        int num_tiles_this_chunk = ceil_div(cols_to_load, BLOCK_COLS);
+        int bytes_to_copy = num_tiles_this_chunk * TILE_SIZE;
+
+        int byte_offset = tid * 16;
+        if (byte_offset < bytes_to_copy) {
+            *reinterpret_cast<uint4*>(out_base + byte_offset) =
+                *reinterpret_cast<uint4*>(&smem[buf_idx][byte_offset]);
+        }
+    };
+
+    if (num_chunks_to_process == 1) {
+        // Single chunk: no pipelining benefit, just load-process-store
+        load_chunk_async(0, 0);
+        asm volatile("cp.async.commit_group;\n");
+        asm volatile("cp.async.wait_group 0;\n");
+        __syncthreads();
+        process_chunk(0, 0);
+    } else {
+        // =====================================================================
+        // TRUE PIPELINING: Overlap load of N+1 with compute of N
+        // =====================================================================
+
+        // PROLOGUE: Load first chunk into buffer 0
+        load_chunk_async(0, 0);
+        asm volatile("cp.async.commit_group;\n");
+        asm volatile("cp.async.wait_group 0;\n");
+        __syncthreads();
+
+        // STEADY STATE: For chunks 0 to N-2
+        for (int chunk = 0; chunk < num_chunks_to_process - 1; chunk++) {
+            int curr_buf = chunk & 1;        // chunk % 2
+            int next_buf = (chunk + 1) & 1;  // (chunk + 1) % 2
+
+            // Kick off async load of NEXT chunk into alternate buffer
+            // This runs in parallel with the processing below!
+            load_chunk_async(chunk + 1, next_buf);
+            asm volatile("cp.async.commit_group;\n");
+
+            // Process CURRENT chunk (swizzle + store to GMEM)
+            // This overlaps with the async load above
+            process_chunk(chunk, curr_buf);
+
+            // Wait for next chunk load to complete before next iteration
+            asm volatile("cp.async.wait_group 0;\n");
+            __syncthreads();
+        }
+
+        // EPILOGUE: Process the final chunk (already loaded)
+        int last_chunk = num_chunks_to_process - 1;
+        int last_buf = last_chunk & 1;
+        process_chunk(last_chunk, last_buf);
+    }
+}
+
+// Explicit template instantiations for pipelined kernel
+// MAX_COLS = 64, various CHUNKS_PER_TB values
+template __global__ void mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec_pipelined_kernel<64, 4>(
+    const uint8_t* __restrict__, int, int, int, int,
+    const int32_t* __restrict__, uint8_t* __restrict__, int, int);
+
+template __global__ void mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec_pipelined_kernel<64, 8>(
+    const uint8_t* __restrict__, int, int, int, int,
+    const int32_t* __restrict__, uint8_t* __restrict__, int, int);
+
+template __global__ void mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec_pipelined_kernel<64, 16>(
+    const uint8_t* __restrict__, int, int, int, int,
+    const int32_t* __restrict__, uint8_t* __restrict__, int, int);
+
+// MAX_COLS = 128, various CHUNKS_PER_TB values
+template __global__ void mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec_pipelined_kernel<128, 4>(
+    const uint8_t* __restrict__, int, int, int, int,
+    const int32_t* __restrict__, uint8_t* __restrict__, int, int);
+
+template __global__ void mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec_pipelined_kernel<128, 8>(
+    const uint8_t* __restrict__, int, int, int, int,
+    const int32_t* __restrict__, uint8_t* __restrict__, int, int);
+
+template __global__ void mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec_pipelined_kernel<128, 16>(
+    const uint8_t* __restrict__, int, int, int, int,
+    const int32_t* __restrict__, uint8_t* __restrict__, int, int);
+
 namespace mxfp8 {
 
 void launch_mx_block_rearrange_2d_K_groups_rowmajor(
@@ -992,6 +1330,87 @@ void launch_mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec(
     cudaError_t err = cudaGetLastError();
     if (err != cudaSuccess) {
         printf("CUDA Error (128x4 vec max_cols=%d): %s\n", max_cols, cudaGetErrorString(err));
+    }
+}
+
+void launch_mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec_pipelined(
+    const uint8_t* scales_ptr,
+    int scales_stride_dim0,
+    int scale_rows,
+    int scale_cols,
+    int padded_rows,
+    const int32_t* input_group_end_offsets,
+    uint8_t* output_scales_ptr,
+    int num_groups,
+    int max_cols,  // Template selector: 64 or 128
+    int chunks_per_tb,  // Chunks per super-block: 4, 8, or 16
+    cudaStream_t stream
+) {
+    int num_row_blocks = (scale_rows + BLOCK_ROWS - 1) / BLOCK_ROWS;
+    int output_stride_per_block = BLOCK_ROWS * BLOCK_COLS;
+
+    // Compute upper bound for super-blocks:
+    // Each group needs ceil(chunks_in_group / chunks_per_tb) super-blocks.
+    // Add num_groups to account for group boundary fragmentation.
+    int total_chunks = (scale_cols + max_cols - 1) / max_cols + num_groups;
+    int total_super_col_blocks = (total_chunks + chunks_per_tb - 1) / chunks_per_tb + num_groups;
+
+    dim3 grid(total_super_col_blocks, num_row_blocks);
+
+    // Dispatch based on max_cols and chunks_per_tb
+    if (max_cols == 64) {
+        dim3 block(512);  // 128 rows × 4 threads/row
+        switch (chunks_per_tb) {
+            case 4:
+                mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec_pipelined_kernel<64, 4><<<grid, block, 0, stream>>>(
+                    scales_ptr, scales_stride_dim0, scale_rows, scale_cols, padded_rows,
+                    input_group_end_offsets, output_scales_ptr, output_stride_per_block, num_groups);
+                break;
+            case 8:
+                mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec_pipelined_kernel<64, 8><<<grid, block, 0, stream>>>(
+                    scales_ptr, scales_stride_dim0, scale_rows, scale_cols, padded_rows,
+                    input_group_end_offsets, output_scales_ptr, output_stride_per_block, num_groups);
+                break;
+            case 16:
+                mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec_pipelined_kernel<64, 16><<<grid, block, 0, stream>>>(
+                    scales_ptr, scales_stride_dim0, scale_rows, scale_cols, padded_rows,
+                    input_group_end_offsets, output_scales_ptr, output_stride_per_block, num_groups);
+                break;
+            default:
+                printf("CUDA Error: chunks_per_tb must be 4, 8, or 16, got %d\n", chunks_per_tb);
+                return;
+        }
+    } else if (max_cols == 128) {
+        dim3 block(1024);  // 128 rows × 8 threads/row
+        switch (chunks_per_tb) {
+            case 4:
+                mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec_pipelined_kernel<128, 4><<<grid, block, 0, stream>>>(
+                    scales_ptr, scales_stride_dim0, scale_rows, scale_cols, padded_rows,
+                    input_group_end_offsets, output_scales_ptr, output_stride_per_block, num_groups);
+                break;
+            case 8:
+                mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec_pipelined_kernel<128, 8><<<grid, block, 0, stream>>>(
+                    scales_ptr, scales_stride_dim0, scale_rows, scale_cols, padded_rows,
+                    input_group_end_offsets, output_scales_ptr, output_stride_per_block, num_groups);
+                break;
+            case 16:
+                mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec_pipelined_kernel<128, 16><<<grid, block, 0, stream>>>(
+                    scales_ptr, scales_stride_dim0, scale_rows, scale_cols, padded_rows,
+                    input_group_end_offsets, output_scales_ptr, output_stride_per_block, num_groups);
+                break;
+            default:
+                printf("CUDA Error: chunks_per_tb must be 4, 8, or 16, got %d\n", chunks_per_tb);
+                return;
+        }
+    } else {
+        printf("CUDA Error: max_cols must be 64 or 128, got %d\n", max_cols);
+        return;
+    }
+
+    cudaError_t err = cudaGetLastError();
+    if (err != cudaSuccess) {
+        printf("CUDA Error (pipelined max_cols=%d, chunks_per_tb=%d): %s\n",
+               max_cols, chunks_per_tb, cudaGetErrorString(err));
     }
 }
 
