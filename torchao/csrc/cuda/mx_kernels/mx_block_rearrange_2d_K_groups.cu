@@ -596,8 +596,18 @@ __global__ void mx_block_rearrange_2d_K_groups_rowmajor_vectorized_kernel(
     }
 }
 
-#define MAX_COLS 64 // Maximum columns per threadblock (4 threads wide, 16 bytes per thread)
+// =============================================================================
+// TEMPLATED ROW-MAJOR VECTORIZED KERNEL
+// =============================================================================
+// Template parameter MAX_COLS controls the width of data processed per threadblock:
+//   MAX_COLS = 64:  512 threads (128 rows × 4 cols/16B),  8KB SMEM, 128×64 data tile
+//   MAX_COLS = 128: 1024 threads (128 rows × 8 cols/16B), 16KB SMEM, 128×128 data tile
+//
+// Thread layout: (BLOCK_ROWS * MAX_COLS / 16) threads
+// Each thread loads 16 bytes from GMEM, scatter-writes to SMEM in swizzled format,
+// then copies 16 bytes from SMEM to GMEM.
 
+template <int MAX_COLS>
 __global__ void mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec_kernel(
     const uint8_t* __restrict__ scales_ptr,
     int scales_stride_dim0,
@@ -609,13 +619,17 @@ __global__ void mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec_kernel(
     int output_stride_per_block,
     int num_groups
 ) {
+    // Compile-time constants derived from MAX_COLS
+    constexpr int THREADS_PER_ROW = MAX_COLS / 16;  // Each thread handles 16 bytes
+    constexpr int NUM_TILES_PER_THREAD = 4;  // Each thread writes 4 tiles (16 bytes = 4 × 4-byte writes)
+
     const int col_block_pid = blockIdx.x;
     const int row_block_pid = blockIdx.y;
     const int tid = threadIdx.x;
 
-    // Single shared memory buffer for swizzled output (8KB instead of 16KB)
-    // Data is written directly in swizzled format during load
-    __shared__ __align__(16) uint8_t smem[BLOCK_ROWS * MAX_COLS];  // 128 * 64 = 8KB
+    // Shared memory buffer for swizzled output
+    // MAX_COLS=64: 8KB, MAX_COLS=128: 16KB
+    __shared__ __align__(16) uint8_t smem[BLOCK_ROWS * MAX_COLS];
     __shared__ int smem_cumsum[32];
     __shared__ int output_group_start_col;
 
@@ -650,16 +664,16 @@ __global__ void mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec_kernel(
     int cols_to_load = min(MAX_COLS, cols_remaining);
     int global_row_base = row_block_pid * BLOCK_ROWS;
 
-    // Thread layout: 512 threads = 128 rows × 4 threads per row
-    int row_idx = tid / BLOCK_COLS;   // 0-127
-    int col_idx = tid % BLOCK_COLS;   // 0-3
+    // Thread layout: (128 × THREADS_PER_ROW) threads = 128 rows × THREADS_PER_ROW threads per row
+    int row_idx = tid / THREADS_PER_ROW;   // 0-127
+    int col_idx = tid % THREADS_PER_ROW;   // 0 to (THREADS_PER_ROW-1)
     int global_row = global_row_base + row_idx;
 
     // Compute swizzle base offset for this thread's row
     int r_div_32 = row_idx >> 5;   // row / 32
     int r_mod_32 = row_idx & 31;   // row % 32
     int swizzle_base = (r_mod_32 << 4) + (r_div_32 << 2);  // r_mod_32 * 16 + r_div_32 * 4
-    int thread_col_start = col_idx * 16;  // 0, 16, 32, or 48
+    int thread_col_start = col_idx * 16;  // 0, 16, 32, 48, ... up to (MAX_COLS - 16)
 
     // ============================================================
     // PHASE 1: Load from GMEM directly to SMEM in swizzled format
@@ -702,7 +716,7 @@ __global__ void mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec_kernel(
     int first_tile_idx = thread_col_start >> 2;  // thread_col_start / 4
 
     #pragma unroll
-    for (int t = 0; t < 4; t++) {
+    for (int t = 0; t < NUM_TILES_PER_THREAD; t++) {
         int tile_idx = first_tile_idx + t;
         int tile_base = tile_idx * SCALE_FACTOR_ROWS * BLOCK_COLS;  // tile_idx * 128 * 4
         int swizzled_idx = tile_base + swizzle_base;
@@ -719,7 +733,7 @@ __global__ void mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec_kernel(
     constexpr int TILE_SIZE = SCALE_FACTOR_ROWS * BLOCK_COLS;  // 128 * 4 = 512
     int stride_per_row_of_4col_blocks = num_4col_blocks_in_group * TILE_SIZE;
 
-    // tiles_before_this_block: 4-col tiles that came before this 64-col block
+    // tiles_before_this_block: 4-col tiles that came before this MAX_COLS-col block
     int tiles_before_this_block = local_col_block * (MAX_COLS / BLOCK_COLS);
 
     // Base output pointer for this threadblock
@@ -727,7 +741,7 @@ __global__ void mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec_kernel(
                         row_block_pid * stride_per_row_of_4col_blocks +
                         tiles_before_this_block * TILE_SIZE;
 
-    // Number of 4-column tiles in this threadblock (max 16 for 64 columns)
+    // Number of 4-column tiles in this threadblock
     int num_tiles_this_block = ceil_div(cols_to_load, BLOCK_COLS);
     int bytes_to_copy = num_tiles_this_block * TILE_SIZE;
 
@@ -740,6 +754,15 @@ __global__ void mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec_kernel(
             *reinterpret_cast<uint4*>(&smem[byte_offset]);
     }
 }
+
+// Explicit template instantiations
+template __global__ void mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec_kernel<64>(
+    const uint8_t* __restrict__, int, int, int, int,
+    const int32_t* __restrict__, uint8_t* __restrict__, int, int);
+
+template __global__ void mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec_kernel<128>(
+    const uint8_t* __restrict__, int, int, int, int,
+    const int32_t* __restrict__, uint8_t* __restrict__, int, int);
 
 namespace mxfp8 {
 
@@ -934,31 +957,41 @@ void launch_mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec(
     const int32_t* input_group_end_offsets,
     uint8_t* output_scales_ptr,
     int num_groups,
+    int max_cols,  // Template selector: 64 or 128
     cudaStream_t stream
 ) {
     int num_row_blocks = (scale_rows + BLOCK_ROWS - 1) / BLOCK_ROWS;
     int output_stride_per_block = BLOCK_ROWS * BLOCK_COLS;
-    // Each col_block handles MAX_COLS (128) columns
-    int total_col_blocks = (scale_cols + MAX_COLS - 1) / MAX_COLS + num_groups;
+    int total_col_blocks = (scale_cols + max_cols - 1) / max_cols + num_groups;
 
     dim3 grid(total_col_blocks, num_row_blocks);
-    dim3 block(512);  // 512 threads for 128x128 block
 
-    mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec_kernel<<<grid, block, 0, stream>>>(
-        scales_ptr,
-        scales_stride_dim0,
-        scale_rows,
-        scale_cols,
-        padded_rows,
-        input_group_end_offsets,
-        output_scales_ptr,
-        output_stride_per_block,
-        num_groups
-    );
+    // Dispatch to appropriate template instantiation based on max_cols
+    switch (max_cols) {
+        case 64: {
+            dim3 block(512);  // 128 rows × 4 threads/row = 512 threads
+            mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec_kernel<64><<<grid, block, 0, stream>>>(
+                scales_ptr, scales_stride_dim0, scale_rows, scale_cols, padded_rows,
+                input_group_end_offsets, output_scales_ptr, output_stride_per_block, num_groups
+            );
+            break;
+        }
+        case 128: {
+            dim3 block(1024);  // 128 rows × 8 threads/row = 1024 threads
+            mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec_kernel<128><<<grid, block, 0, stream>>>(
+                scales_ptr, scales_stride_dim0, scale_rows, scale_cols, padded_rows,
+                input_group_end_offsets, output_scales_ptr, output_stride_per_block, num_groups
+            );
+            break;
+        }
+        default:
+            printf("CUDA Error: Unsupported max_cols value %d. Must be 64 or 128.\n", max_cols);
+            return;
+    }
 
     cudaError_t err = cudaGetLastError();
     if (err != cudaSuccess) {
-        printf("CUDA Error (128x4 vec): %s\n", cudaGetErrorString(err));
+        printf("CUDA Error (128x4 vec max_cols=%d): %s\n", max_cols, cudaGetErrorString(err));
     }
 }
 

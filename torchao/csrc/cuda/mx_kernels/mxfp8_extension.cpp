@@ -90,6 +90,7 @@ void launch_mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec(
     const int32_t* input_group_end_offsets,
     uint8_t* output_scales_ptr,
     int num_groups,
+    int max_cols,  // Template selector: 64 or 128
     cudaStream_t stream);
 
 // Helper for tensor validation
@@ -546,9 +547,13 @@ torch::Tensor mx_block_rearrange_2d_K_groups_rowmajor_vectorized(
 }
 
 // Python wrapper for mx_block_rearrange_2d_K_groups (row-major input, 128x4 vectorized)
+// max_cols parameter controls the width of data processed per threadblock:
+//   64  -> 512 threads (128 rows × 4 cols/16B),  8KB SMEM, 128×64 data tile
+//   128 -> 1024 threads (128 rows × 8 cols/16B), 16KB SMEM, 128×128 data tile
 torch::Tensor mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec(
     torch::Tensor scales_tensor,
-    torch::Tensor input_group_end_offsets) {
+    torch::Tensor input_group_end_offsets,
+    int64_t max_cols) {
 
   // Validate inputs
   check_cuda_tensor(scales_tensor, "scales_tensor");
@@ -563,6 +568,8 @@ torch::Tensor mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec(
               "input_group_end_offsets must be int32");
   TORCH_CHECK(input_group_end_offsets.dim() == 1,
               "input_group_end_offsets must be 1D");
+  TORCH_CHECK(max_cols == 64 || max_cols == 128,
+              "max_cols must be 64 or 128, got: ", max_cols);
 
   c10::cuda::CUDAGuard device_guard(scales_tensor.device());
 
@@ -571,7 +578,7 @@ torch::Tensor mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec(
   const int num_groups = input_group_end_offsets.size(0);
   TORCH_CHECK(num_groups <= 32, "num_groups must be <= 32");
   
-  // Calculate blocks needed - uses 128-row blocks, processing up to 64 columns at a time
+  // Calculate blocks needed - uses 128-row blocks
   const int BLOCK_ROWS = 128;
   const int BLOCK_COLS = 4;
   const int num_row_blocks = (rows + BLOCK_ROWS - 1) / BLOCK_ROWS;
@@ -591,7 +598,7 @@ torch::Tensor mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec(
   const int32_t* offsets_ptr = input_group_end_offsets.data_ptr<int32_t>();
   uint8_t* output_ptr = output.data_ptr<uint8_t>();
   
-  // Launch row-major 128x4 vectorized kernel
+  // Launch templated kernel with specified max_cols
   launch_mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec(
       scales_ptr,
       scales_tensor.stride(0),
@@ -601,6 +608,7 @@ torch::Tensor mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec(
       offsets_ptr,
       output_ptr,
       num_groups,
+      static_cast<int>(max_cols),
       at::cuda::getCurrentCUDAStream());
   
   return output;
@@ -656,5 +664,6 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
         &mxfp8::mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec,
         "Rearrange E8M0 scales to block-scaled swizzle format (row-major input, 128x4 vectorized, 128-row blocks)",
         py::arg("scales_tensor"),
-        py::arg("input_group_end_offsets"));
+        py::arg("input_group_end_offsets"),
+        py::arg("max_cols") = 64);
 }

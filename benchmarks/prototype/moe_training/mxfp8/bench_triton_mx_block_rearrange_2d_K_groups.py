@@ -46,6 +46,7 @@ try:
             os.path.join(KERNEL_DIR, "mx_block_rearrange_2d_K_groups.cu"),
         ],
         extra_cuda_cflags=[
+            "-lineinfo",
             "-O3",
             "--use_fast_math",
             "-std=c++17",
@@ -105,7 +106,8 @@ def get_configs() -> List[ExperimentConfig]:
         "cuda_colmajor_vec",
         "cuda_colmajor_vec_16B",
         "cuda_rowmajor_vec",
-        "cuda_rowmajor_128x4_vec",
+        "cuda_rowmajor_128x4_vec_64",  # max_cols=64: 512 threads, 8KB SMEM
+        "cuda_rowmajor_128x4_vec_128",  # max_cols=128: 1024 threads, 16KB SMEM
     ]
 
     configs = []
@@ -181,8 +183,32 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
     elif version == "cuda_rowmajor_128x4_vec":
         if mxfp8_cuda is None:
             raise RuntimeError("CUDA kernel not available")
-        kernel_fn = mxfp8_cuda.mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec
+        kernel_fn = (
+            lambda t, o: mxfp8_cuda.mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec(
+                t, o, 64
+            )
+        )
         # Row-major 128x4 vectorized kernel expects contiguous row-major input
+        kernel_input = input_tensor.contiguous()
+    elif version == "cuda_rowmajor_128x4_vec_64":
+        if mxfp8_cuda is None:
+            raise RuntimeError("CUDA kernel not available")
+        kernel_fn = (
+            lambda t, o: mxfp8_cuda.mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec(
+                t, o, 64
+            )
+        )
+        # Row-major 128x4 vectorized kernel with max_cols=64 (512 threads, 8KB SMEM)
+        kernel_input = input_tensor.contiguous()
+    elif version == "cuda_rowmajor_128x4_vec_128":
+        if mxfp8_cuda is None:
+            raise RuntimeError("CUDA kernel not available")
+        kernel_fn = (
+            lambda t, o: mxfp8_cuda.mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec(
+                t, o, 128
+            )
+        )
+        # Row-major 128x4 vectorized kernel with max_cols=128 (1024 threads, 16KB SMEM)
         kernel_input = input_tensor.contiguous()
     else:
         raise ValueError(f"Unknown version: {version}")
