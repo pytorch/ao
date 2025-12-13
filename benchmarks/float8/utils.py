@@ -400,6 +400,31 @@ def get_gpu_kernel_gemm_time_s(f, *args, **kwargs):
     return value / 1e6 / n_iter
 
 
+def get_gpu_kernel_conv_time_s(f, *args, **kwargs):
+    # warmup
+    f(*args, **kwargs)
+    n_iter = 5
+    with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA]) as prof:
+        for idx in range(n_iter):
+            f(*args, **kwargs)
+    print(prof)
+    data = profiler_output_to_filtered_time_by_kernel_name(
+        prof, n_iter, num_leaf_tensors=0
+    )
+    # there is only 1 key, typically aten::conv2d, aten::conv3d, or similar, with unit nanoseconds
+    assert len(data) == 1, f"unexpected data: {data}"
+    key, value = next(iter(data.items()))
+    assert key in (
+        "aten::conv2d",
+        "aten::conv3d",
+        "aten::convolution",
+        "aten::cudnn_convolution",
+        "torchao::_conv2d_fp8_inner",
+        "torchao::_conv3d_fp8_inner",
+    ), f"unexpected kernel: {key}"
+    return value / 1e6 / n_iter
+
+
 def benchmark_fn_in_sec(f, *args, **kwargs):
     # Manual warmup
     for _ in range(4):

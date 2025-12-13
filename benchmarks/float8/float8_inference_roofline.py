@@ -33,6 +33,7 @@ from tabulate import tabulate
 from torch.profiler import ProfilerActivity, profile
 from utils import (
     get_gpu_kernel_gemm_time_s,
+    get_gpu_kernel_conv_time_s,
     get_name_to_shapes_iter,
     profiler_output_to_filtered_time_by_kernel_name,
 )
@@ -54,7 +55,7 @@ from torchao.testing.training.roofline_utils import (
     get_inference_float8_mem_sympy,
     get_inference_gemm_time_sympy,
 )
-from torchao.utils import is_MI300
+from torchao.utils import is_MI300, is_sm_at_least_100
 
 
 @torch.no_grad()
@@ -165,6 +166,218 @@ def get_gemm_times(
     return bf16_time_s, f8_time_s
 
 
+def get_conv_times(
+    op_name: str,
+    batch: int,
+    in_channels: int,
+    out_channels: int,
+    kernel_size: int,
+    D: Optional[int],
+    H: int,
+    W: int,
+    stride: int = 1,
+    padding: int = 0,
+    fast_accum: bool = True,
+    recipe_name: Optional[str] = None,
+):
+    """
+    Get conv kernel times for bf16 and fp8 operations.
+    Similar to get_gemm_times but for conv operations.
+
+    This measures only the conv kernel time itself, without quantization overhead.
+    """
+    device = torch.device("cuda")
+
+    # Create input tensors
+    if op_name == "conv2d":
+        x_bf16 = torch.randn(batch, in_channels, H, W, dtype=torch.bfloat16, device=device)
+        w_bf16 = torch.randn(out_channels, in_channels, kernel_size, kernel_size, dtype=torch.bfloat16, device=device)
+        conv_fn = torch.nn.functional.conv2d
+        conv_kwargs = {"stride": stride, "padding": padding}
+    elif op_name == "conv3d":
+        x_bf16 = torch.randn(batch, in_channels, D, H, W, dtype=torch.bfloat16, device=device)
+        w_bf16 = torch.randn(out_channels, in_channels, kernel_size, kernel_size, kernel_size, dtype=torch.bfloat16, device=device)
+        conv_fn = torch.nn.functional.conv3d
+        conv_kwargs = {"stride": stride, "padding": padding}
+    else:
+        raise ValueError(f"Unsupported op_name: {op_name}")
+
+    # Measure bf16 conv time
+    bf16_time_s = get_gpu_kernel_conv_time_s(
+        lambda x, w: conv_fn(x, w, **conv_kwargs), x_bf16, w_bf16
+    )
+
+    # For fp8 conv timing, we need to create fp8 tensors
+    if recipe_name in ("mxfp4_cutlass", "nvfp4"):
+        # For now, skip fp4 conv operations as they're more complex to set up
+        f8_time_s = 0.0
+    else:
+        # Create fp8 tensors
+        e4m3_dtype = torch.float8_e4m3fn
+        if torch.version.hip and torch.cuda.is_available() and is_MI300():
+            e4m3_dtype = torch.float8_e4m3fnuz
+
+        # Convert tensors to fp8
+        x_fp8 = x_bf16.to(e4m3_dtype)
+        w_fp8 = w_bf16.to(e4m3_dtype)
+
+        # Create scales (simplified for now - in real usage these would be computed properly)
+        if recipe_name == "rowwise":
+            # Per-row scaling would be more complex for conv - using tensor-wise for simplicity
+            scale_x = torch.tensor(1.0, device=device, dtype=torch.float32)
+            scale_w = torch.tensor(1.0, device=device, dtype=torch.float32)
+        else:
+            # Tensor-wise scaling
+            scale_x = torch.tensor(1.0, device=device, dtype=torch.float32)
+            scale_w = torch.tensor(1.0, device=device, dtype=torch.float32)
+
+        # For now, measure regular fp8 conv (torch doesn't have _scaled_conv yet)
+        # This measures the fp8 conv kernel time without the scaling overhead
+        try:
+            f8_time_s = get_gpu_kernel_conv_time_s(
+                lambda x, w: conv_fn(x, w, **conv_kwargs), x_fp8, w_fp8
+            )
+        except Exception as e:
+            print(f"Warning: Could not measure fp8 conv time: {e}")
+            f8_time_s = 0.0
+
+    return bf16_time_s, f8_time_s
+
+
+def get_conv_equivalent_gemm_dims(
+    op_name: str,
+    batch: int,
+    in_channels: int,
+    out_channels: int,
+    kernel_size: int,
+    D: Optional[int],
+    H: int,
+    W: int,
+    stride: int = 1,
+    padding: int = 0,
+):
+    """
+    Get equivalent GEMM dimensions for a conv operation using analytical calculation.
+
+    Conv operations can be expressed as implicit GEMM. This function computes
+    the equivalent GEMM dimensions without creating any tensors.
+
+    Args:
+        op_name: "conv2d" or "conv3d"
+        batch: Batch size
+        in_channels: Number of input channels
+        out_channels: Number of output channels
+        kernel_size: Kernel size (assumes square/cubic kernel)
+        D: Depth dimension (required for conv3d)
+        H: Height dimension
+        W: Width dimension
+        stride: Stride value
+        padding: Padding value
+
+    Returns:
+        Tuple[int, int, int]: (gemm_M, gemm_K, gemm_N)
+            gemm_M: Number of output spatial positions (batch * spatial_output_size)
+            gemm_K: Size of each filter (in_channels * kernel_volume)
+            gemm_N: Number of filters (out_channels)
+    """
+    if op_name == "conv2d":
+        # Output spatial dimensions
+        H_out = (H + 2 * padding - kernel_size) // stride + 1
+        W_out = (W + 2 * padding - kernel_size) // stride + 1
+
+        gemm_M = batch * H_out * W_out
+        gemm_K = in_channels * kernel_size * kernel_size
+        gemm_N = out_channels
+
+    elif op_name == "conv3d":
+        # Output spatial dimensions
+        D_out = (D + 2 * padding - kernel_size) // stride + 1
+        H_out = (H + 2 * padding - kernel_size) // stride + 1
+        W_out = (W + 2 * padding - kernel_size) // stride + 1
+
+        gemm_M = batch * D_out * H_out * W_out
+        gemm_K = in_channels * kernel_size * kernel_size * kernel_size
+        gemm_N = out_channels
+
+    else:
+        raise ValueError(f"Unsupported op_name: {op_name}")
+
+    return gemm_M, gemm_K, gemm_N
+
+
+def _create_model_and_input(
+    op_name: str,
+    batch: int,
+    in_channels: int,
+    out_channels: int,
+    D: Optional[int],
+    H: Optional[int],
+    W: Optional[int],
+    kernel_size: Optional[int],
+    stride: int,
+    padding: int,
+    enable_fusion_modeling: bool,
+) -> tuple[nn.Module, torch.Tensor]:
+    """
+    Build the model and its corresponding input tensor for benchmarking.
+    """
+
+    def _stack_layers_conv(core_layer: nn.Module, add_post_relu: bool = False) -> nn.Sequential:
+        layers = []
+        if enable_fusion_modeling:
+            layers.append(nn.ReLU())
+        layers.append(core_layer)
+        if enable_fusion_modeling:
+            layers.append(nn.ReLU())
+        return nn.Sequential(*layers)
+
+    if op_name == "conv2d":
+        core_layer = nn.Conv2d(
+            in_channels,
+            out_channels,
+            kernel_size,
+            stride=stride,
+            padding=padding,
+            bias=False,
+        )
+        memory_format = torch.channels_last
+        x = torch.randn(
+            batch, in_channels, H, W, dtype=torch.bfloat16, device="cuda"
+        ).to(memory_format=memory_format)
+        m_orig = _stack_layers_conv(core_layer)
+    elif op_name == "conv3d":
+        core_layer = nn.Conv3d(
+            in_channels,
+            out_channels,
+            kernel_size,
+            stride=stride,
+            padding=padding,
+            bias=False,
+        )
+        memory_format = torch.channels_last_3d
+        x = torch.randn(
+            batch, in_channels, D, H, W, dtype=torch.bfloat16, device="cuda"
+        ).to(memory_format=memory_format)
+        m_orig = _stack_layers_conv(core_layer)
+    else:
+        if not enable_fusion_modeling:
+            m_orig = nn.Sequential(nn.Linear(K_val, N_val, bias=False))
+        else:
+            m_orig = nn.Sequential(
+                nn.ReLU(), nn.Linear(K_val, N_val, bias=False)
+            )
+        memory_format = None
+        x = torch.randn(
+            batch, in_channels, dtype=torch.bfloat16, device="cuda"
+        ).requires_grad_()
+
+    if memory_format is not None:
+        m_orig = m_orig.to(memory_format=memory_format)
+    m_orig = m_orig.cuda().bfloat16()
+
+    return m_orig, x
+
+
 def run(
     outfile: str,
     recipe_name: str,
@@ -181,6 +394,8 @@ def run(
     H: Optional[int] = None,
     W: Optional[int] = None,
     kernel_size: Optional[int] = None,
+    stride: int = 1,
+    padding: int = 0,
 ):
     """
     Args:
@@ -189,16 +404,19 @@ def run(
     * `shape_gen_name`: `llama`, `pow2`, `pow2_extended`, `sweep`, or `custom`
     * `M|K|N`: if shape_gen_name is `custom`, then these values are used for MKN
     * `n_limit (optional)`: if specified, only runs `n_limit` iterations
-    # `save_profile_traces (optional)`: if True, saves profiling traces
-    # `enable_fusion_modeling`: if True, models activation -> gemm instead of just gemm
-    # `op_name`: linear, conv2d or conv3d, decides which op to benchmark
-    # `D`, `H`, `W`: spatial dimensiosn for conv3d / conv2d
-    # `kernel_size`: kernel_size for conv3d / conv2d
+    * `save_profile_traces (optional)`: if True, saves profiling traces
+    * `enable_fusion_modeling`: if True, models activation -> gemm instead of just gemm
+    * `op_name`: linear, conv2d or conv3d, decides which op to benchmark
+    * `D`, `H`, `W`: spatial dimensions for conv3d / conv2d
+    * `kernel_size`: kernel_size for conv3d / conv2d
+    * `stride`: stride for conv ops (default: 1)
+    * `padding`: padding for conv ops (default: 0)
     """
     _SUPPORTED_OPS = ["linear", "conv2d", "conv3d"]
     assert op_name in _SUPPORTED_OPS, (
         f"Unsupported op: {op_name}, supported are: {_SUPPORTED_OPS}"
     )
+
     if op_name == "conv2d":
         assert H is not None and W is not None, (
             "Expected D, H, W to be specified for conv2d"
@@ -226,6 +444,8 @@ def run(
         ["MKN", f"{M} {K} {N}"],
         ["DHW", f"{D} {H} {W}"],
         ["kernel_size", kernel_size],
+        ["stride", stride],
+        ["padding", padding],
     ]
     print(tabulate(config_table, headers=["Parameter", "Value"], tablefmt="simple"))
 
@@ -234,46 +454,42 @@ def run(
 
     M, K, N = sympy.symbols("M K N")
 
-    if op_name == "linear":
-        fp8_ovhd_time_sympy = get_inference_float8_mem_sympy(
-            M,
-            K,
-            N,
-            recipe_name,
-            # TODO(future): also enable fusion modeling here
-        )
-        bf16_gemm_time_sympy = get_inference_gemm_time_sympy(
-            M, K, N, torch.bfloat16, None
-        )
+    # Roofline model setup: linear uses M/K/N directly, conv uses equivalent
+    # implicit GEMM dimensions (computed per-iteration in the loop below)
+    fp8_ovhd_time_sympy = get_inference_float8_mem_sympy(
+        M,
+        K,
+        N,
+        recipe_name,
+        # TODO(future): also enable fusion modeling here
+    )
+    bf16_gemm_time_sympy = get_inference_gemm_time_sympy(
+        M, K, N, torch.bfloat16, None
+    )
 
-        if recipe_name and recipe_name.startswith(("nvfp4", "mxfp4")):
-            fp8_gemm_time_sympy = get_inference_gemm_time_sympy(
-                M, K, N, torch.float4_e2m1fn_x2, recipe_name
-            )
-        else:
-            gemm_recipe_name = "mxfp8" if recipe_name.startswith("mxfp8") else None
-            fp8_gemm_time_sympy = get_inference_gemm_time_sympy(
-                M, K, N, torch.float8_e4m3fn, gemm_recipe_name
-            )
-        print("bf16_gemm_time_sympy", bf16_gemm_time_sympy)
-        print("fp8_gemm_time_sympy", fp8_gemm_time_sympy)
-        print("fp8_ovhd_time_sympy", fp8_ovhd_time_sympy)
-        print()
+    if recipe_name and recipe_name.startswith(("nvfp4", "mxfp4")):
+        fp8_gemm_time_sympy = get_inference_gemm_time_sympy(
+            M, K, N, torch.float4_e2m1fn_x2, recipe_name
+        )
     else:
-        # TODO: enable roofline analysis for conv
-        pass
+        gemm_recipe_name = "mxfp8" if recipe_name.startswith("mxfp8") else None
+        fp8_gemm_time_sympy = get_inference_gemm_time_sympy(
+            M, K, N, torch.float8_e4m3fn, gemm_recipe_name
+        )
+    print("bf16_gemm_time_sympy", bf16_gemm_time_sympy)
+    print("fp8_gemm_time_sympy", fp8_gemm_time_sympy)
+    print("fp8_ovhd_time_sympy", fp8_ovhd_time_sympy)
+    print()
 
-    # Note: roofline for conv2d/conv3d is not added yet, so most of the
-    # things for conv2d/conv3d we'll left out for now
     headers = [
-        "fwd_M",
-        "fwd_K",
-        "fwd_N",
+        "fwd_M",  # for conv: batch size
+        "fwd_K",  # for conv: in_channels
+        "fwd_N",  # for conv: out_channels
         "D",
         "H",
         "W",
         "kernel_size",
-        # roofline - gemm time (fwd + bwd, 3 gemms)
+        # roofline - gemm time (fwd + bwd, 3 gemms; for conv: using equivalent implicit gemm dims)
         "r_bf16_gemm_s",
         "r_fp8_gemm_s",
         # roofline - fp8 overhead time (by counting reads/writes in the ideal case)
@@ -327,7 +543,6 @@ def run(
             b_bf16_gemm_time_s, b_fp8_gemm_time_s = 0, 0
             rb_bf16_gemm_ratio = -1
             rb_fp8_gemm_ratio = -1
-
             if do_benchmarks:
                 # TODO(future): make the bf16 gemm times exactly match the e2e
                 # benchmarks, there is a slight deviation, probably related to gemm
@@ -347,125 +562,163 @@ def run(
                 rb_fp8_gemm_ratio = r_fp8_gemm_time_s / b_fp8_gemm_time_s
 
         else:
-            # roofline analysis for conv2d/conv3d are not added yet
-            r_bf16_gemm_time_s = None
-            r_fp8_gemm_time_s = None
+            # For conv ops, compute equivalent GEMM dimensions
+            # M_val=batch, K_val=in_channels, N_val=out_channels
+            gemm_M, gemm_K, gemm_N = get_conv_equivalent_gemm_dims(
+                op_name=op_name,
+                batch=M_val,
+                in_channels=K_val,
+                out_channels=N_val,
+                kernel_size=kernel_size,
+                D=D,
+                H=H,
+                W=W,
+                stride=stride,
+                padding=padding,
+            )
 
-            r_fp8_ovhd_time_s = None
-            r_fp8_gemm_and_ovhd_s = None
-            r_speedup = None
+            # use roofline model to estimate gemm time using equivalent GEMM dims
+            r_bf16_gemm_time_s = float(
+                bf16_gemm_time_sympy.subs(M, gemm_M).subs(K, gemm_K).subs(N, gemm_N)
+            )
+            r_fp8_gemm_time_s = float(
+                fp8_gemm_time_sympy.subs(M, gemm_M).subs(K, gemm_K).subs(N, gemm_N)
+            )
+            r_fp8_ovhd_time_s = float(
+                fp8_ovhd_time_sympy.subs(M, gemm_M).subs(K, gemm_K).subs(N, gemm_N)
+            )
+            r_fp8_gemm_and_ovhd_s = r_fp8_gemm_time_s + r_fp8_ovhd_time_s
+            r_speedup = r_bf16_gemm_time_s / (r_fp8_gemm_time_s + r_fp8_ovhd_time_s)
 
-            # real gemm benchmark time, also not added yet
-            # if enabled, also measured observed gemm time
+            # measure actual conv kernel times (without quant overhead)
             b_bf16_gemm_time_s, b_fp8_gemm_time_s = 0, 0
-            # gemm roofline ratio achieved in real benchmark
             rb_bf16_gemm_ratio = -1
             rb_fp8_gemm_ratio = -1
+            if do_benchmarks:
+                try:
+                    bf16_c1, f8_c1 = get_conv_times(
+                        op_name=op_name,
+                        batch=M_val,
+                        in_channels=K_val,
+                        out_channels=N_val,
+                        kernel_size=kernel_size,
+                        D=D,
+                        H=H,
+                        W=W,
+                        stride=stride,
+                        padding=padding,
+                        fast_accum=True,
+                        recipe_name=recipe_name,
+                    )
+                    b_bf16_gemm_time_s = bf16_c1
+                    b_fp8_gemm_time_s = f8_c1
+                    if b_bf16_gemm_time_s > 0:
+                        rb_bf16_gemm_ratio = r_bf16_gemm_time_s / b_bf16_gemm_time_s
+                    if b_fp8_gemm_time_s > 0:
+                        rb_fp8_gemm_ratio = r_fp8_gemm_time_s / b_fp8_gemm_time_s
+                except Exception as e:
+                    print(f"Warning: Could not benchmark conv times: {e}")
+                    b_bf16_gemm_time_s, b_fp8_gemm_time_s = 0, 0
+                    rb_bf16_gemm_ratio = -1
+                    rb_fp8_gemm_ratio = -1
 
         b_bf16_e2e_time_s, b_fp8_e2e_time_s = 0, 0
+
         if do_benchmarks:
-            # create the model
-            if op_name == "conv2d":
-                if not enable_fusion_modeling:
-                    m_orig = nn.Sequential(
-                        nn.Conv2d(K_val, N_val, kernel_size, bias=False)
-                    ).to(memory_format=torch.channels_last)
-                else:
-                    m_orig = nn.Sequential(
-                        nn.ReLU(),
-                        nn.Conv2d(K_val, N_val, kernel_size, bias=False),
-                        nn.ReLU(),
-                    ).to(memory_format=torch.channels_last)
-            elif op_name == "conv3d":
-                if not enable_fusion_modeling:
-                    m_orig = nn.Sequential(
-                        nn.Conv3d(K_val, N_val, kernel_size, bias=False)
-                    ).to(memory_format=torch.channels_last_3d)
-                else:
-                    m_orig = nn.Sequential(
-                        nn.ReLU(),
-                        nn.Conv3d(K_val, N_val, kernel_size, bias=False),
-                        nn.ReLU(),
-                    ).to(memory_format=torch.channels_last_3d)
+            if op_name in ("conv2d", "conv3d") and not is_sm_at_least_100():
+                print(
+                    f"WARNING: Skipping {op_name} benchmarks for shape ({M_val}, {K_val}, {N_val}). "
+                    f"Float8 convolution requires SM 10.0+ (Blackwell/B100 GPUs). "
+                    f"Current GPU: {torch.cuda.get_device_name(0)} with SM {torch.cuda.get_device_capability()}. "
+                    f"Roofline model estimates are still valid."
+                )
             else:
-                if not enable_fusion_modeling:
-                    m_orig = nn.Sequential(nn.Linear(K_val, N_val, bias=False))
-                else:
-                    m_orig = nn.Sequential(
-                        nn.ReLU(), nn.Linear(K_val, N_val, bias=False)
+                m_orig, x = _create_model_and_input(
+                    op_name,
+                    M_val,
+                    K_val,
+                    N_val,
+                    D,
+                    H,
+                    W,
+                    kernel_size,
+                    stride,
+                    padding,
+                    enable_fusion_modeling,
+                )
+
+                # get the bf16 gpu kernel time
+                torch._dynamo.reset()
+                m_bf16 = torch.compile(copy.deepcopy(m_orig))
+
+                bf16_trace_filename = None
+                if save_profile_traces:
+                    bf16_trace_filename = (
+                        f"{outfile}_{M_val}_{K_val}_{N_val}_bf16.json"
                     )
-            m_orig = m_orig.cuda().bfloat16()
-            if op_name == "conv2d":
-                x = torch.randn(
-                    M_val, K_val, H, W, dtype=torch.bfloat16, device="cuda"
-                ).to(memory_format=torch.channels_last)
-            elif op_name == "conv3d":
-                x = torch.randn(
-                    M_val, K_val, D, H, W, dtype=torch.bfloat16, device="cuda"
-                ).to(memory_format=torch.channels_last_3d)
-            else:
-                x = torch.randn(
-                    M_val, K_val, dtype=torch.bfloat16, device="cuda"
-                ).requires_grad_()
-
-            # get the bf16 gpu kernel time
-            torch._dynamo.reset()
-            m_bf16 = torch.compile(copy.deepcopy(m_orig))
-
-            bf16_trace_filename = None
-            if save_profile_traces:
-                bf16_trace_filename = f"{outfile}_{M_val}_{K_val}_{N_val}_bf16.json"
-            b_bf16_e2e_time_s = get_gpu_kernel_time(m_bf16, x, bf16_trace_filename)
-
-            # get the float8 dynamic scaling gpu kernel time
-            torch._dynamo.reset()
-
-            if recipe_name == "tensorwise":
-                config = Float8DynamicActivationFloat8WeightConfig(
-                    granularity=PerTensor(),
+                b_bf16_e2e_time_s = get_gpu_kernel_time(
+                    m_bf16, x, bf16_trace_filename
                 )
-            elif recipe_name == "rowwise":
-                config = Float8DynamicActivationFloat8WeightConfig(
-                    granularity=PerRow(),
-                    # for now, use TORCH. In the future might be interesting
-                    # to benchmark AUTO and FBGEMM.
-                    kernel_preference=KernelPreference.TORCH,
-                )
-            elif recipe_name == "mxfp8_cublas":
-                config = MXDynamicActivationMXWeightConfig(
-                    activation_dtype=torch.float8_e4m3fn,
-                    weight_dtype=torch.float8_e4m3fn,
-                    kernel_preference=KernelPreference.AUTO,
-                )
-            elif recipe_name == "mxfp4_cutlass":
-                config = MXDynamicActivationMXWeightConfig(
-                    activation_dtype=torch.float4_e2m1fn_x2,
-                    weight_dtype=torch.float4_e2m1fn_x2,
-                    kernel_preference=KernelPreference.AUTO,
-                )
-            elif recipe_name == "nvfp4":
-                config = NVFP4DynamicActivationNVFP4WeightConfig(
-                    use_dynamic_per_tensor_scale=False,
-                )
-            else:
-                assert False, "unsupported"
 
-            m_fp8_dyn = copy.deepcopy(m_orig)
-            if op_name == "linear":
-                quantize_(m_fp8_dyn, config)
-            elif op_name == "conv2d":
-                _is_conv2d = lambda m, fqn: isinstance(m, torch.nn.Conv2d)
-                quantize_(m_fp8_dyn, config, filter_fn=_is_conv2d)
-            else:
-                _is_conv3d = lambda m, fqn: isinstance(m, torch.nn.Conv3d)
-                quantize_(m_fp8_dyn, config, filter_fn=_is_conv3d)
+                # get the float8 dynamic scaling gpu kernel time
+                torch._dynamo.reset()
 
-            m_fp8_dyn = torch.compile(m_fp8_dyn)
+                if recipe_name == "tensorwise":
+                    config = Float8DynamicActivationFloat8WeightConfig(
+                        granularity=PerTensor(),
+                    )
+                elif recipe_name == "rowwise":
+                    config = Float8DynamicActivationFloat8WeightConfig(
+                        granularity=PerRow(),
+                        # for now, use TORCH. In the future might be interesting
+                        # to benchmark AUTO and FBGEMM.
+                        kernel_preference=KernelPreference.TORCH,
+                    )
+                elif recipe_name == "mxfp8_cublas":
+                    config = MXDynamicActivationMXWeightConfig(
+                        activation_dtype=torch.float8_e4m3fn,
+                        weight_dtype=torch.float8_e4m3fn,
+                        kernel_preference=KernelPreference.AUTO,
+                    )
+                elif recipe_name == "mxfp4_cutlass":
+                    config = MXDynamicActivationMXWeightConfig(
+                        activation_dtype=torch.float4_e2m1fn_x2,
+                        weight_dtype=torch.float4_e2m1fn_x2,
+                        kernel_preference=KernelPreference.AUTO,
+                    )
+                elif recipe_name == "nvfp4":
+                    config = NVFP4DynamicActivationNVFP4WeightConfig(
+                        use_dynamic_per_tensor_scale=False,
+                    )
+                else:
+                    assert False, "unsupported"
 
-            fp8_trace_filename = None
-            if save_profile_traces:
-                fp8_trace_filename = f"{outfile}_{M_val}_{K_val}_{N_val}_fp8.json"
-            b_fp8_e2e_time_s = get_gpu_kernel_time(m_fp8_dyn, x, fp8_trace_filename)
+                m_fp8_dyn = copy.deepcopy(m_orig)
+                if op_name == "linear":
+                    quantize_(m_fp8_dyn, config)
+                elif op_name == "conv2d":
+                    _is_conv2d = lambda m, fqn: isinstance(m, torch.nn.Conv2d)
+                    quantize_(m_fp8_dyn, config, filter_fn=_is_conv2d)
+                else:
+                    _is_conv3d = lambda m, fqn: isinstance(m, torch.nn.Conv3d)
+                    quantize_(m_fp8_dyn, config, filter_fn=_is_conv3d)
+
+                m_fp8_dyn = torch.compile(m_fp8_dyn)
+
+                fp8_trace_filename = None
+                if save_profile_traces:
+                    fp8_trace_filename = (
+                        f"{outfile}_{M_val}_{K_val}_{N_val}_fp8.json"
+                    )
+                b_fp8_e2e_time_s = get_gpu_kernel_time(
+                    m_fp8_dyn, x, fp8_trace_filename
+                )
+
+        # Calculate e2e speedup if benchmarks were run, otherwise -1
+        if b_bf16_e2e_time_s > 0 and b_fp8_e2e_time_s > 0:
+            b_fp8_e2e_speedup = b_bf16_e2e_time_s / b_fp8_e2e_time_s
+        else:
+            b_fp8_e2e_speedup = -1
 
         results.append(
             [
