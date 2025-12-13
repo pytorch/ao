@@ -1,12 +1,12 @@
 # From https://github.com/pytorch/test-infra/wiki/Using-Nova-Reusable-Build-Workflows
-name: Build Linux Wheels
+name: Build Linux Wheels (x86)
 
 on:
   pull_request:
     paths:
       - build/packaging/**
       - packaging/**
-      - .github/workflows/build_wheels_linux.yml
+      - .github/workflows/build_wheels_linux_x86.yml
       - setup.py
       - .github/scripts/**
   push:
@@ -58,6 +58,7 @@ jobs:
       trigger-event: ${{ github.event_name }}
       # This is the CUDA version to be uploaded to torchao-nightly pypi
       upload-to-pypi: cu121
+      architecture: x86_64
     secrets:
       PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
   notify:
