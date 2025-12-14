@@ -89,13 +89,21 @@ def get_configs() -> List[ExperimentConfig]:
     # Llama4 and DSV3 671b shapes. Input activations are scaled along the total_M dim, which contains all the token groups.
     block_size = 32
     input_shapes = [
-        (5120, 16384 // block_size),
-        (5120, 131072 // block_size),
         (8192, 16384 // block_size),
+        (8192, 32768 // block_size),
+        (8192, 65536 // block_size),
         (8192, 131072 // block_size),
+        (5120, 16384 // block_size),
+        (5120, 32768 // block_size),
+        (5120, 65536 // block_size),
+        (5120, 131072 // block_size),
         (7168, 16384 // block_size),
+        (7168, 32768 // block_size),
+        (7168, 65536 // block_size),
         (7168, 131072 // block_size),
         (2048, 16384 // block_size),
+        (2048, 32768 // block_size),
+        (2048, 65536 // block_size),
         (2048, 131072 // block_size),
     ]
     num_groups = [8]
@@ -394,7 +402,7 @@ def print_results(experiments: List[Experiment]):
             rows.append(
                 [
                     version,
-                    f"({shape[0]}, {shape[1]})",
+                    f"({shape[0]}, {shape[1] * 32})",
                     f"{result.time_us:.2f}",
                     round(result.mem_bw_gbps, 3),
                     fastest_version,

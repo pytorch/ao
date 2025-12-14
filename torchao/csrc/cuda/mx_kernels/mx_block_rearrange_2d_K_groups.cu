@@ -1081,10 +1081,10 @@ __global__ void mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec_pipelined_kern
         // Compute XOR offsets for bank conflict avoidance
         // XOR 1: Spread across tiles (col_idx * 4)
         int tile_xor = (col_idx & 3) << 2;  // (col_idx % 4) * 4
-        
+
         // XOR 2: Spread within tiles based on superrow group (swizzle_base / 128) % 4 * 4
         int superrow_xor = ((swizzle_base >> 7) & 3) << 2;
-        
+
         // Combined XOR
         int combined_xor = tile_xor ^ superrow_xor;
 
@@ -1114,28 +1114,28 @@ __global__ void mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec_pipelined_kern
         if (byte_offset < bytes_to_copy) {
             // Read 4 × 4-byte chunks, applying combined XOR to each address
             uint32_t out_data[4];
-            
+
             #pragma unroll
             for (int i = 0; i < 4; i++) {
                 int out_byte = byte_offset + i * 4;
                 int read_tile_idx = out_byte / TILE_SIZE;
                 int within_tile_offset = out_byte % TILE_SIZE;
-                
+
                 // Reverse tile_xor: determine which col_idx wrote this tile
                 int writer_col_idx = (read_tile_idx / NUM_TILES_PER_THREAD) % THREADS_PER_ROW;
                 int read_tile_xor = (writer_col_idx & 3) << 2;
-                
+
                 // Reverse superrow_xor: determine which superrow group this offset belongs to
                 int read_superrow_xor = ((within_tile_offset >> 7) & 3) << 2;
-                
+
                 // Combined XOR to get swizzled address
                 int read_combined_xor = read_tile_xor ^ read_superrow_xor;
                 int smem_addr = read_tile_idx * TILE_SIZE + (within_tile_offset ^ read_combined_xor);
                 out_data[i] = *reinterpret_cast<uint32_t*>(&smem[buf_idx][smem_addr]);
             }
-            
+
             // Write 16 bytes to GMEM (output is contiguous, so this is aligned)
-            *reinterpret_cast<uint4*>(out_base + byte_offset) = 
+            *reinterpret_cast<uint4*>(out_base + byte_offset) =
                 *reinterpret_cast<uint4*>(out_data);
         }
     };
