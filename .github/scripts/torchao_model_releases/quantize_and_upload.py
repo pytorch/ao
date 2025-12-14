@@ -715,7 +715,6 @@ def quantize_and_upload(
         model_to_quantize = _untie_weights_and_save_locally(model_to_quantize, device)
 
     # quantization
-
     if "AWQ" in quant:
         # awq will use torchao API directly
         assert quant == "AWQ-INT4", "Only support AWQ-INT4 for now"
@@ -928,11 +927,15 @@ if __name__ == "__main__":
         description="Evaluate a model with the specified parameters."
     )
     parser.add_argument(
-        "--model_id", type=str, help="Huggingface hub model ID of the model."
+        "--model_id",
+        type=str,
+        required=True,
+        help="Huggingface hub model ID of the model.",
     )
     parser.add_argument(
         "--quant",
         type=str,
+        required=True,
         help="Quantization method. Options are FP8, INT4, INT8-INT4, INT8-INT4-HQQ, AWQ-INT4, SmoothQuant-INT8-INT8",
     )
     parser.add_argument(
