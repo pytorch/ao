@@ -685,14 +685,33 @@ __global__ void mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec_kernel(
     // Compile-time constants derived from MAX_COLS
     constexpr int THREADS_PER_ROW = MAX_COLS / 16;  // Each thread handles 16 bytes
     constexpr int NUM_TILES_PER_THREAD = 4;  // Each thread writes 4 tiles (16 bytes = 4 × 4-byte writes)
+    constexpr int TILE_SIZE = SCALE_FACTOR_ROWS * BLOCK_COLS;  // 128 * 4 = 512
+    constexpr int NUM_TILES = MAX_COLS / BLOCK_COLS;  // Number of 4-col tiles per chunk
+
+    // BANK CONFLICT AVOIDANCE via XOR swizzle:
+    // Problem: Tiles are 512 bytes apart. 512 % 128 = 0, so all tiles start at bank 0.
+    // Within a warp, threads write to different tiles at the same within-tile offset,
+    // causing all writes to hit the same bank → multi-way conflict.
+    //
+    // Solution: XOR the within-tile offset by (tile_idx % 4) * 4 bytes.
+    // This rotates the bank assignment per tile:
+    //   Tile 0: XOR 0  → original banks
+    //   Tile 1: XOR 4  → banks rotated by 1
+    //   Tile 2: XOR 8  → banks rotated by 2
+    //   Tile 3: XOR 12 → banks rotated by 3
+    // Now threads writing to tiles 0,1,2,3 at the same row offset hit different banks.
+    //
+    // Trade-off: XOR scrambles data within tiles. Read phase must apply same XOR
+    // to recover correct data. This requires scalar (4-byte) reads instead of
+    // vectorized (16-byte) reads, since XOR breaks 16-byte contiguity.
+    constexpr int SMEM_SIZE = NUM_TILES * TILE_SIZE;  // No padding needed with XOR
 
     const int col_block_pid = blockIdx.x;
     const int row_block_pid = blockIdx.y;
     const int tid = threadIdx.x;
 
-    // Shared memory buffer for swizzled output
-    // MAX_COLS=64: 8KB, MAX_COLS=128: 16KB
-    __shared__ __align__(16) uint8_t smem[BLOCK_ROWS * MAX_COLS];
+    // Shared memory buffer for swizzled output (XOR swizzle for bank conflict avoidance)
+    __shared__ __align__(16) uint8_t smem[SMEM_SIZE];
     __shared__ int smem_cumsum[32];
     __shared__ int output_group_start_col;
 
@@ -773,27 +792,46 @@ __global__ void mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec_kernel(
     // else: data remains zero (padding rows or columns beyond cols_to_load)
 
     // Scatter-write to swizzled SMEM positions using vectorized uint32 writes
-    // Each group of 4 columns within a tile are contiguous in SMEM
-    // So we can write 4 bytes at a time (4 tiles × 1 uint32 write = 4 writes total)
+    // Apply XOR swizzle based on col_idx to spread bank accesses across tiles
+    // col_idx determines which set of tiles a thread writes to:
+    //   col_idx=0 writes tiles 0,1,2,3
+    //   col_idx=1 writes tiles 4,5,6,7
+    //   col_idx=2 writes tiles 8,9,10,11
+    //   col_idx=3 writes tiles 12,13,14,15
+    // By XORing by col_idx, threads writing to different tile sets hit different banks.
+    //
+    // ADDITIONAL XOR for read phase: We also XOR by (swizzle_base / 128) % 4 to spread
+    // reads within each tile. This is needed because the read phase reads contiguous
+    // superrows, and superrows 0, 8, 16, 24 would otherwise hit the same bank.
     uint32_t* data32 = reinterpret_cast<uint32_t*>(&data);
     int first_tile_idx = thread_col_start >> 2;  // thread_col_start / 4
+
+    // XOR 1: Spread across tiles (col_idx * 4)
+    int tile_xor = (col_idx & 3) << 2;  // (col_idx % 4) * 4
+
+    // XOR 2: Spread within tiles based on superrow group (swizzle_base / 128) % 4 * 4
+    // swizzle_base ranges 0-508, divide by 128 gives 0-3 for the 4 groups of 32 rows
+    int superrow_xor = ((swizzle_base >> 7) & 3) << 2;  // (swizzle_base / 128) % 4 * 4
+
+    // Combined XOR
+    int combined_xor = tile_xor ^ superrow_xor;
 
     #pragma unroll
     for (int t = 0; t < NUM_TILES_PER_THREAD; t++) {
         int tile_idx = first_tile_idx + t;
-        int tile_base = tile_idx * SCALE_FACTOR_ROWS * BLOCK_COLS;  // tile_idx * 128 * 4
-        int swizzled_idx = tile_base + swizzle_base;
+        int tile_base = tile_idx * TILE_SIZE;
+        int swizzled_idx = tile_base + (swizzle_base ^ combined_xor);
         *reinterpret_cast<uint32_t*>(&smem[swizzled_idx]) = data32[t];
     }
 
     __syncthreads();
 
-    // PHASE 2: Store from SMEM to GMEM, data already in swizzled format, can do a direct copy
+    // PHASE 2: Store from SMEM to GMEM
+    // Read from padded SMEM layout, write contiguous tiles to GMEM
     int out_group_base_offset = output_group_start_col * padded_rows;
     int num_cols_in_group = input_group_end_col - input_group_start_col;
     int num_4col_blocks_in_group = ceil_div(num_cols_in_group, BLOCK_COLS);
 
-    constexpr int TILE_SIZE = SCALE_FACTOR_ROWS * BLOCK_COLS;  // 128 * 4 = 512
     int stride_per_row_of_4col_blocks = num_4col_blocks_in_group * TILE_SIZE;
 
     // tiles_before_this_block: 4-col tiles that came before this MAX_COLS-col block
@@ -808,13 +846,47 @@ __global__ void mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec_kernel(
     int num_tiles_this_block = ceil_div(cols_to_load, BLOCK_COLS);
     int bytes_to_copy = num_tiles_this_block * TILE_SIZE;
 
-    // Each thread copies 16 bytes using uint4
-    // Thread tid copies bytes [tid*16, tid*16+15]
+    // Each thread copies 16 bytes to GMEM
+    // With XOR swizzle, we must apply the same combined XOR to read back correctly.
+    // Since XOR breaks 16-byte contiguity, we use 4-byte scalar reads.
+    //
+    // During write, combined_xor = tile_xor ^ superrow_xor where:
+    //   tile_xor = (col_idx & 3) << 2
+    //   superrow_xor = ((swizzle_base >> 7) & 3) << 2
+    //
+    // To reverse the XOR during read:
+    //   - Determine which col_idx wrote this tile: (tile_idx / NUM_TILES_PER_THREAD) % THREADS_PER_ROW
+    //   - Determine the superrow group from the within-tile offset: (within_tile_offset / 128) % 4
+    //   - Apply the same combined XOR to get the swizzled address
     int byte_offset = tid * 16;
     if (byte_offset < bytes_to_copy)
     {
+        // Read 4 × 4-byte chunks, applying combined XOR to each address
+        uint32_t out_data[4];
+
+        #pragma unroll
+        for (int i = 0; i < 4; i++) {
+            int out_byte = byte_offset + i * 4;
+            int tile_idx = out_byte / TILE_SIZE;
+            int within_tile_offset = out_byte % TILE_SIZE;
+
+            // Reverse tile_xor: determine which col_idx wrote this tile
+            int writer_col_idx = (tile_idx / NUM_TILES_PER_THREAD) % THREADS_PER_ROW;
+            int read_tile_xor = (writer_col_idx & 3) << 2;
+
+            // Reverse superrow_xor: determine which superrow group this offset belongs to
+            // within_tile_offset / 128 gives the row group (0-3) within the tile
+            int read_superrow_xor = ((within_tile_offset >> 7) & 3) << 2;
+
+            // Combined XOR to get swizzled address
+            int read_combined_xor = read_tile_xor ^ read_superrow_xor;
+            int smem_addr = tile_idx * TILE_SIZE + (within_tile_offset ^ read_combined_xor);
+            out_data[i] = *reinterpret_cast<uint32_t*>(&smem[smem_addr]);
+        }
+
+        // Write 16 bytes to GMEM (output is contiguous, so this is aligned)
         *reinterpret_cast<uint4*>(out_base + byte_offset) =
-            *reinterpret_cast<uint4*>(&smem[byte_offset]);
+            *reinterpret_cast<uint4*>(out_data);
     }
 }
 
@@ -992,6 +1064,9 @@ __global__ void mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec_pipelined_kern
     };
 
     // Lambda to process a chunk: read from linear SMEM, swizzle, write to SMEM, store to GMEM
+    // Uses dual XOR swizzle to avoid SMEM bank conflicts:
+    //   tile_xor: spreads writes across tiles (based on col_idx)
+    //   superrow_xor: spreads writes within tiles (based on swizzle_base / 128)
     auto process_chunk = [&](int chunk_idx, int buf_idx) {
         int curr_chunk_in_group = first_chunk_in_group + chunk_idx;
         int curr_input_start_col = input_group_start_col + curr_chunk_in_group * MAX_COLS;
@@ -1003,19 +1078,30 @@ __global__ void mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec_pipelined_kern
 
         __syncthreads();  // Ensure all reads complete before overwriting
 
-        // Write to swizzled positions in same buffer
+        // Compute XOR offsets for bank conflict avoidance
+        // XOR 1: Spread across tiles (col_idx * 4)
+        int tile_xor = (col_idx & 3) << 2;  // (col_idx % 4) * 4
+        
+        // XOR 2: Spread within tiles based on superrow group (swizzle_base / 128) % 4 * 4
+        int superrow_xor = ((swizzle_base >> 7) & 3) << 2;
+        
+        // Combined XOR
+        int combined_xor = tile_xor ^ superrow_xor;
+
+        // Write to swizzled positions in same buffer with XOR swizzle
         uint32_t* data32 = reinterpret_cast<uint32_t*>(&data);
         #pragma unroll
         for (int t = 0; t < NUM_TILES_PER_THREAD; t++) {
             int tile_idx = first_tile_idx + t;
             int tile_base = tile_idx * SCALE_FACTOR_ROWS * BLOCK_COLS;
-            int swizzled_idx = tile_base + swizzle_base;
+            int swizzled_idx = tile_base + (swizzle_base ^ combined_xor);
             *reinterpret_cast<uint32_t*>(&smem[buf_idx][swizzled_idx]) = data32[t];
         }
 
         __syncthreads();  // Ensure swizzle writes complete
 
         // Copy swizzled data to GMEM
+        // Must reverse the XOR to read correct data
         int tiles_before_this_chunk = curr_chunk_in_group * (MAX_COLS / BLOCK_COLS);
         uint8_t* out_base = output_scales_ptr + out_group_base_offset +
                             row_block_pid * stride_per_row_of_4col_blocks +
@@ -1026,8 +1112,31 @@ __global__ void mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec_pipelined_kern
 
         int byte_offset = tid * 16;
         if (byte_offset < bytes_to_copy) {
-            *reinterpret_cast<uint4*>(out_base + byte_offset) =
-                *reinterpret_cast<uint4*>(&smem[buf_idx][byte_offset]);
+            // Read 4 × 4-byte chunks, applying combined XOR to each address
+            uint32_t out_data[4];
+            
+            #pragma unroll
+            for (int i = 0; i < 4; i++) {
+                int out_byte = byte_offset + i * 4;
+                int read_tile_idx = out_byte / TILE_SIZE;
+                int within_tile_offset = out_byte % TILE_SIZE;
+                
+                // Reverse tile_xor: determine which col_idx wrote this tile
+                int writer_col_idx = (read_tile_idx / NUM_TILES_PER_THREAD) % THREADS_PER_ROW;
+                int read_tile_xor = (writer_col_idx & 3) << 2;
+                
+                // Reverse superrow_xor: determine which superrow group this offset belongs to
+                int read_superrow_xor = ((within_tile_offset >> 7) & 3) << 2;
+                
+                // Combined XOR to get swizzled address
+                int read_combined_xor = read_tile_xor ^ read_superrow_xor;
+                int smem_addr = read_tile_idx * TILE_SIZE + (within_tile_offset ^ read_combined_xor);
+                out_data[i] = *reinterpret_cast<uint32_t*>(&smem[buf_idx][smem_addr]);
+            }
+            
+            // Write 16 bytes to GMEM (output is contiguous, so this is aligned)
+            *reinterpret_cast<uint4*>(out_base + byte_offset) = 
+                *reinterpret_cast<uint4*>(out_data);
         }
     };
 

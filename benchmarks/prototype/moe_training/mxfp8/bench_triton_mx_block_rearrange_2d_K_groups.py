@@ -101,11 +101,11 @@ def get_configs() -> List[ExperimentConfig]:
     num_groups = [8]
     versions = [
         "triton",
-        "cuda_rowmajor",
+        # "cuda_rowmajor",
         # "cuda_colmajor",
         # "cuda_colmajor_vec",
         # "cuda_colmajor_vec_16B",
-        "cuda_rowmajor_vec",
+        # "cuda_rowmajor_vec",
         "cuda_rowmajor_128x4_vec_64",  # max_cols=64: 512 threads, 8KB SMEM
         # "cuda_rowmajor_128x4_vec_128",  # max_cols=128: 1024 threads, 16KB SMEM
         # Pipelined kernels with different chunks_per_tb values
