@@ -626,9 +626,10 @@ if torch_version_at_least("2.7.0") and has_triton():
         scale_block_size: int = 32,
     ) -> torch.Tensor:
         assert scale_block_size == 32, "scale_block_size must be 32 for now"
-        assert out_dtype in (torch.bfloat16, torch.float32), (
-            "out_dtype must be bf16 or fp32"
-        )
+        assert out_dtype in (
+            torch.bfloat16,
+            torch.float32,
+        ), "out_dtype must be bf16 or fp32"
 
         # Input shape must be 2D.
         orig_shape = e4m3_data.shape
@@ -1055,6 +1056,7 @@ if torch_version_at_least("2.7.0") and has_triton():
         padded_cols = n_col_blocks * 4
 
         return scale_tensor.new_empty((padded_rows, padded_cols))
+
 else:
 
     def triton_to_mxfp8_dim0(
@@ -1216,6 +1218,7 @@ if mxfp8_cuda_extension_available:
             rule_for_input_sharded_dim1,
         ]
         return acceptable_shardings
+
 else:
 
     def mxfp8_quantize_cuda(

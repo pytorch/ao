@@ -499,7 +499,6 @@ def triton_mx_block_rearrange_2d_K_groups(
     Args:
         scales_tensor: Input tensor containing e8m0 scales for each logical group of a target tensor.
         input_group_end_offsets: tensor of int32 values representing group end indexes for the input scales
-        output_group_start_offsets: tensor of int32 values representing pre-computed group start indexes after blocked format padding
     Returns:
         - Rearranged tensor in block-scaled swizzle format
     """
@@ -522,8 +521,7 @@ def triton_mx_block_rearrange_2d_K_groups(
     BLOCK_ROWS, BLOCK_COLS = 128, 4
     output_stride_per_block = BLOCK_ROWS * BLOCK_COLS
 
-    # We parallelize per group and per row block.
-    # Cols per group is variable, so we just loop through col blocks for each group.
+    # Naive grid - only parallelize by group and row
     grid = lambda META: (
         num_groups,
         num_row_blocks,
@@ -709,9 +707,10 @@ if mxfp8_cuda_extension_available:
             torch.Tensor: scales tensor
         """
         assert x.ndim == 3, "Input tensor must be 3D"
-        assert x.dtype in (torch.float32, torch.bfloat16), (
-            "Input tensor must be float32 or bfloat16"
-        )
+        assert x.dtype in (
+            torch.float32,
+            torch.bfloat16,
+        ), "Input tensor must be float32 or bfloat16"
         q_data, scales = mxfp8_cuda.quantize_3d(
             x, scale_dim_n=block_size, scaling_mode=scaling_mode
         )
@@ -724,9 +723,10 @@ if mxfp8_cuda_extension_available:
         scaling_mode: str = "floor",
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         assert x.ndim == 3, "Input tensor must be 3D"
-        assert x.dtype in (torch.float32, torch.bfloat16), (
-            "Input tensor must be float32 or bfloat16"
-        )
+        assert x.dtype in (
+            torch.float32,
+            torch.bfloat16,
+        ), "Input tensor must be float32 or bfloat16"
         E, N, K = x.shape
         # Quantized tensor is in column major layouts
         q_data = x.new_empty(x.shape, dtype=torch.float8_e4m3fn).as_strided(
