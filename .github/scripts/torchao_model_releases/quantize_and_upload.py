@@ -44,9 +44,9 @@ def _get_username():
     return username
 
 
-def _untie_weights_and_save_locally(model_id):
+def _untie_weights_and_save_locally(model_id, device):
     untied_model = AutoModelForCausalLM.from_pretrained(
-        model_id, torch_dtype="auto", device_map="cuda:0"
+        model_id, torch_dtype="auto", device_map=device
     )
 
     tokenizer = AutoTokenizer.from_pretrained(model_id)
@@ -150,7 +150,7 @@ print("Templated prompt:", templated_prompt)
 inputs = tokenizer(
     templated_prompt,
     return_tensors="pt",
-).to("cuda")
+).to("{device}")
 generated_ids = quantized_model.generate(**inputs, max_new_tokens=128)
 output_text = tokenizer.batch_decode(
     generated_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False
@@ -222,7 +222,7 @@ _int4_quant_code = """
 from torchao.quantization import Int4WeightOnlyConfig
 quant_config = Int4WeightOnlyConfig(group_size=128, int4_packing_format="tile_packed_to_4d", int4_choose_qparams_algorithm="hqq")
 quantization_config = TorchAoConfig(quant_type=quant_config)
-quantized_model = AutoModelForCausalLM.from_pretrained(model_to_quantize, device_map="cuda:0", torch_dtype=torch.bfloat16, quantization_config=quantization_config)
+quantized_model = AutoModelForCausalLM.from_pretrained(model_to_quantize, device_map="{device}", torch_dtype=torch.bfloat16, quantization_config=quantization_config)
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 """
 
@@ -230,7 +230,7 @@ _fp8_quant_code = """
 from torchao.quantization import Float8DynamicActivationFloat8WeightConfig, PerRow
 quant_config = Float8DynamicActivationFloat8WeightConfig(granularity=PerRow())
 quantization_config = TorchAoConfig(quant_type=quant_config)
-quantized_model = AutoModelForCausalLM.from_pretrained(model_to_quantize, device_map="cuda:0", torch_dtype=torch.bfloat16, quantization_config=quantization_config)
+quantized_model = AutoModelForCausalLM.from_pretrained(model_to_quantize, device_map="{device}", torch_dtype=torch.bfloat16, quantization_config=quantization_config)
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 """
 
@@ -251,7 +251,7 @@ linear_config = Int8DynamicActivationIntxWeightConfig(
 )
 quant_config = ModuleFqnToConfig({{"_default": linear_config, "model.embed_tokens": embedding_config}})
 quantization_config = TorchAoConfig(quant_type=quant_config, include_input_output_embeddings=True, modules_to_not_convert=[])
-quantized_model = AutoModelForCausalLM.from_pretrained(model_to_quantize, device_map="cuda:0", torch_dtype=torch.bfloat16, quantization_config=quantization_config)
+quantized_model = AutoModelForCausalLM.from_pretrained(model_to_quantize, device_map="{device}", torch_dtype=torch.bfloat16, quantization_config=quantization_config)
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 """
 
@@ -274,7 +274,7 @@ linear_config = Int8DynamicActivationIntxWeightConfig(
 )
 quant_config = ModuleFqnToConfig({{"_default": linear_config, "model.embed_tokens": embedding_config}})
 quantization_config = TorchAoConfig(quant_type=quant_config, include_input_output_embeddings=True, modules_to_not_convert=[])
-quantized_model = AutoModelForCausalLM.from_pretrained(model_to_quantize, device_map="cuda:0", torch_dtype=torch.bfloat16, quantization_config=quantization_config)
+quantized_model = AutoModelForCausalLM.from_pretrained(model_to_quantize, device_map="{device}", torch_dtype=torch.bfloat16, quantization_config=quantization_config)
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 """
 
@@ -322,7 +322,7 @@ from torchao.prototype.awq import (
 from torchao._models._eval import TransformerEvalWrapper
 model = AutoModelForCausalLM.from_pretrained(
     model_to_quantize,
-    device_map="cuda:0",
+    device_map="{device}",
     torch_dtype=torch.bfloat16,
 )
 tokenizer = AutoTokenizer.from_pretrained(model_id)
@@ -405,7 +405,7 @@ tokenizer = AutoTokenizer.from_pretrained(model_name)
 model = AutoModelForCausalLM.from_pretrained(
     model_name,
     torch_dtype="auto",
-    device_map="cuda:0"
+    device_map="{device}"
 )
 
 # prepare the model input
@@ -466,7 +466,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, TorchAoConfig
 
 # use "{base_model}" or "{quantized_model}"
 model_id = "{quantized_model}"
-quantized_model = AutoModelForCausalLM.from_pretrained(model_id, device_map="cuda:0", torch_dtype=torch.bfloat16)
+quantized_model = AutoModelForCausalLM.from_pretrained(model_id, device_map="{device}", torch_dtype=torch.bfloat16)
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 
 torch.cuda.reset_peak_memory_stats()
@@ -489,7 +489,7 @@ print("Templated prompt:", templated_prompt)
 inputs = tokenizer(
     templated_prompt,
     return_tensors="pt",
-).to("cuda")
+).to("{device}")
 generated_ids = quantized_model.generate(**inputs, max_new_tokens=128)
 output_text = tokenizer.batch_decode(
     generated_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False
@@ -569,7 +569,7 @@ from transformers import (
 import torch
 
 model_id = "{base_model}"
-untied_model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype="auto", device_map="cuda:0")
+untied_model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype="auto", device_map="{device}")
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 
 print(untied_model)
@@ -660,6 +660,7 @@ def quantize_and_upload(
     push_to_hub: bool,
     push_to_user_id: str,
     populate_model_card_template: bool,
+    device: str,
 ):
     is_mobile = quant in ["INT8-INT4", "INT8-INT4-HQQ"]
 
@@ -711,7 +712,7 @@ def quantize_and_upload(
     # preparation
     model_to_quantize = model_id
     if is_mobile:
-        model_to_quantize = _untie_weights_and_save_locally(model_to_quantize)
+        model_to_quantize = _untie_weights_and_save_locally(model_to_quantize, device)
 
     # quantization
 
@@ -720,7 +721,7 @@ def quantize_and_upload(
         assert quant == "AWQ-INT4", "Only support AWQ-INT4 for now"
         model = AutoModelForCausalLM.from_pretrained(
             model_to_quantize,
-            device_map="cuda:0",
+            device_map=device,
             torch_dtype=torch.bfloat16,
         )
         tokenizer = AutoTokenizer.from_pretrained(model_id)
@@ -766,7 +767,7 @@ def quantize_and_upload(
                 config=quantized_model.config,
                 quantization_config=None,
                 dtype=torch.bfloat16,
-                device_map="cuda:0",
+                device_map=device,
                 weights_only=True,
                 user_agent={
                     "file_type": "model",
@@ -842,16 +843,19 @@ def quantize_and_upload(
         quantized_model=quantized_model_id,
         model_type=quantized_model.config.model_type,
         quant=quant,
-        quant_code=quant_to_quant_code[quant],
+        quant_code=quant_to_quant_code[quant].format(device=device),
         safe_serialization=safe_serialization,
+        device=device,
         # server specific recipes
         server_inference_recipe=""
         if is_mobile
-        else _server_inference_recipe.format(quantized_model=quantized_model_id),
+        else _server_inference_recipe.format(
+            quantized_model=quantized_model_id, device=device
+        ),
         server_peak_memory_usage=""
         if is_mobile
         else _server_peak_memory_usage.format(
-            base_model=model_id, quantized_model=quantized_model_id
+            base_model=model_id, quantized_model=quantized_model_id, device=device
         ),
         server_model_performance=""
         if is_mobile
@@ -860,7 +864,11 @@ def quantize_and_upload(
         ),
         # mobile specific recipes
         untied_model=untied_model_path if is_mobile else model_id,
-        untie_embedding_recipe=_untie_embedding_recipe if is_mobile else "",
+        untie_embedding_recipe=_untie_embedding_recipe.format(
+            base_model=model_id, device=device
+        )
+        if is_mobile
+        else "",
         mobile_inference_recipe=_mobile_inference_recipe.format(
             quantized_model=quantized_model_id
         )
@@ -964,7 +972,25 @@ if __name__ == "__main__":
         default=False,
         help="Flag to indicate whether push model card to huggingface hub or not",
     )
+    parser.add_argument(
+        "--device",
+        type=str,
+        default="cuda:0",
+        help="Device to run the model on (e.g., 'cuda', 'cuda:0', 'cpu'). Default is 'cuda:0'",
+    )
     args = parser.parse_args()
+
+    # Validate CUDA devicedevice
+    try:
+        device = torch.device(args.device)
+        if not torch.cuda.is_available():
+            raise RuntimeError("CUDA is not available on this system")
+        if device.index is not None and device.index >= torch.cuda.device_count():
+            raise RuntimeError(
+                f"CUDA device {device.index} is not available. Available devices: {torch.cuda.device_count()}"
+            )
+    except RuntimeError as e:
+        parser.error(f"Invalid device '{args.device}': {e}")
     quantize_and_upload(
         args.model_id,
         args.quant,
@@ -974,4 +1000,5 @@ if __name__ == "__main__":
         args.push_to_hub,
         args.push_to_user_id,
         args.populate_model_card_template,
+        args.device,
     )
