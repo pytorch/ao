@@ -93,18 +93,22 @@ def get_configs() -> List[ExperimentConfig]:
         (8192, 32768 // block_size),
         (8192, 65536 // block_size),
         (8192, 131072 // block_size),
+        (8192, 1048576 // block_size),
         (5120, 16384 // block_size),
         (5120, 32768 // block_size),
         (5120, 65536 // block_size),
         (5120, 131072 // block_size),
+        (5120, 1048576 // block_size),
         (7168, 16384 // block_size),
         (7168, 32768 // block_size),
         (7168, 65536 // block_size),
         (7168, 131072 // block_size),
+        (7168, 1048576 // block_size),
         (2048, 16384 // block_size),
         (2048, 32768 // block_size),
         (2048, 65536 // block_size),
         (2048, 131072 // block_size),
+        (2048, 1048576 // block_size),
     ]
     num_groups = [8]
     versions = [
@@ -374,7 +378,7 @@ def print_results(experiments: List[Experiment]):
 
     headers = [
         "kernel_version",
-        "input_shape",
+        "scale_shape",
         "time_us",
         "mem_bw_gbps",
         "fastest_version",
@@ -402,7 +406,7 @@ def print_results(experiments: List[Experiment]):
             rows.append(
                 [
                     version,
-                    f"({shape[0]}, {shape[1] * 32})",
+                    f"({shape[0]}, {shape[1]})",
                     f"{result.time_us:.2f}",
                     round(result.mem_bw_gbps, 3),
                     fastest_version,
