@@ -139,44 +139,6 @@ quantize_(model, Float8DynamicActivationFloat8WeightConfig(granularity=PerRow())
 
 Per-row scaling is only supported for bfloat16 weight and activation. This API is only tested on H100. Hardware with CUDA compute capability 8.9 or greater is required.
 
-#### A16W6 Floating Point WeightOnly Quantization
-
-```python
-# for torch 2.4+
-from torchao.quantization import quantize_, FPXWeightOnlyConfig
-quantize_(model, FPXWeightOnlyConfig(3, 2))
-```
-
-You can find more information [here](../dtypes/floatx/README.md). It should be noted where most other TorchAO apis and benchmarks have focused on applying techniques on top of a bf16 model, performance, fp6 works primarily with the fp16 dtype.
-
-```
-
-KleidiAI Int4 Kernels can be utilized on the Arm platform with PyTorch versions 2.6.0 or later by adjusting the quantization parameters as follows:
-
-```python
-from torchao.quantization.quant_api import (
-    Int8DynamicActivationIntxWeightConfig,
-    quantize_,
-)
-from torchao.quantization.granularity import PerGroup, PerAxis
-from torchao.quantization.quant_primitives import MappingType
-from torch.profiler import profile, ProfilerActivity, tensorboard_trace_handler
-
-my_model = Model()
-
-quantize_(
-    my_model,
-    Int8DynamicActivationIntxWeightConfig(
-        weight_scale_dtype=torch.float32,
-        weight_granularity=PerGroup(32),  # PerAxis is also supported
-        weight_mapping_type=MappingType.SYMMETRIC_NO_CLIPPING_ERR, # MappingType.SYMMETRIC can also be used but increases error
-        layout=layout,
-        weight_dtype=torch.int4,
-        intx_packing_format="opaque_aten_kleidiai",
-    ),
-)
-```
-
 #### Workaround with `unwrap_tensor_subclass` for `export`, `AOTI` and `torch.compile`
 
 If you are using pytorch 2.6 or before, you need to call `unwrap_tensor_subclass` before `torch.export.export` and `aot_compile`:
@@ -221,25 +183,6 @@ Marlin QQQ is an optimized GPU kernel that supports W4A8 mixed precision GEMM. F
 | Llama-2-7B  | Base (float16)          |  112.45       |  1486.00                | 13.93            | 13.21           |
 |             | w4a8                    |  197.45       |  653.50                 | 4.79            |  3.31           |
 |             | w4a8-g128               |  187.62       |  640.32                 | 4.82            |  3.41           |
-
-### Gemlite Triton
-Int4 and Int8 quantization using the [Gemlite Triton](https://github.com/mobiusml/gemlite) kernels. You can try it out with the `quantize_` api as above alongside the constructor `GemliteUIntXWeightOnlyConfig`.  An example can be found in `torchao/_models/llama/generate.py`.
-
-Note: we test on gemlite 0.4.1, but should be able to use any version after that, we'd recommend to use the latest release to get the most recent performance improvements.
-
-### UINTx Quantization
-We're trying to develop kernels for low bit quantization for intx quantization formats. While the current performance is not ideal, we're hoping to continue to iterate on these kernels to improve their performance.
-
-| Model       | Technique               | wikitext-perplexity | Tokens/Second | Memory Bandwidth (GB/s) | Peak Memory (GB) | Model Size (GB) |
-| ----------- | ----------------------- | ------------------- | ------------- | ----------------------- | ---------------- | --------------- |
-| Llama-2-7B  | Base (bfloat16)         | 12.212              | 107.38        | 1418.93                 | 13.88            | 13.21           |
-|             | uintx-4-64-hqq          | 12.775              |  50.99        |  200.08                 |  6.29            |  3.92           |
-|             | uintx-2-8-hqq           | 24.500              |  40.25        |  265.95                 |  9.24            |  6.61           |
-| Llama-3-8B  | Base (bfloat16)         |  7.441              |  95.64        | 1435.54                 | 16.43            | 15.01           |
-|             | uintx-4-64-hqq          |  8.124              |  47.85        |  213.24                 | 11.85            |  4.46           |
-|             | uintx-2-8-hqq           | 39.605              |  34.83        |  261.42                 | 14.99            |  7.51           |
-
-You try can out these apis with the `quantize_` api as above alongside the config `UIntXWeightOnlyConfig`. An example can be found in  in `torchao/_models/llama/generate.py`.
 
 ### Int8DynamicActivationIntxWeightConfig Quantization
 We have kernels that do 8-bit dynamic quantization of activations and uintx groupwise quantization of weights.  These kernels are experimental and can only be run on a device with an ARM CPU (e.g., a Mac computers with Apple silicon).  The benchmarks below were run on an M1 Mac Pro, with 8 perf cores, and 2 efficiency cores, and 32GB of RAM.  In all cases, torch.compile was used.
@@ -431,6 +374,62 @@ We've added kv cache quantization and other features in order to enable long con
 
 In practice these features alongside int4 weight only quantization allow us to **reduce peak memory by ~55%**, meaning we can Llama3.1-8B inference with a **130k context length with only 18.9 GB of peak memory.** More details can be found [here](../../torchao/_models/llama/README.md#KV-Cache-Quantization-Memory-Efficient-Inference)
 
+#### A16W6 Floating Point WeightOnly Quantization
+
+```python
+# for torch 2.4+
+from torchao.quantization import quantize_, FPXWeightOnlyConfig
+quantize_(model, FPXWeightOnlyConfig(3, 2))
+```
+
+You can find more information [here](../dtypes/floatx/README.md). It should be noted where most other TorchAO apis and benchmarks have focused on applying techniques on top of a bf16 model, performance, fp6 works primarily with the fp16 dtype.
+
+```
+
+KleidiAI Int4 Kernels can be utilized on the Arm platform with PyTorch versions 2.6.0 or later by adjusting the quantization parameters as follows:
+
+```python
+from torchao.quantization.quant_api import (
+    Int8DynamicActivationIntxWeightConfig,
+    quantize_,
+)
+from torchao.quantization.granularity import PerGroup, PerAxis
+from torchao.quantization.quant_primitives import MappingType
+from torch.profiler import profile, ProfilerActivity, tensorboard_trace_handler
+
+my_model = Model()
+
+quantize_(
+    my_model,
+    Int8DynamicActivationIntxWeightConfig(
+        weight_scale_dtype=torch.float32,
+        weight_granularity=PerGroup(32),  # PerAxis is also supported
+        weight_mapping_type=MappingType.SYMMETRIC_NO_CLIPPING_ERR, # MappingType.SYMMETRIC can also be used but increases error
+        layout=layout,
+        weight_dtype=torch.int4,
+        intx_packing_format="opaque_aten_kleidiai",
+    ),
+)
+```
+
+### Gemlite Triton
+Int4 and Int8 quantization using the [Gemlite Triton](https://github.com/mobiusml/gemlite) kernels. You can try it out with the `quantize_` api as above alongside the constructor `GemliteUIntXWeightOnlyConfig`.  An example can be found in `torchao/_models/llama/generate.py`.
+
+Note: we test on gemlite 0.4.1, but should be able to use any version after that, we'd recommend to use the latest release to get the most recent performance improvements.
+
+### UINTx Quantization
+We're trying to develop kernels for low bit quantization for intx quantization formats. While the current performance is not ideal, we're hoping to continue to iterate on these kernels to improve their performance.
+
+| Model       | Technique               | wikitext-perplexity | Tokens/Second | Memory Bandwidth (GB/s) | Peak Memory (GB) | Model Size (GB) |
+| ----------- | ----------------------- | ------------------- | ------------- | ----------------------- | ---------------- | --------------- |
+| Llama-2-7B  | Base (bfloat16)         | 12.212              | 107.38        | 1418.93                 | 13.88            | 13.21           |
+|             | uintx-4-64-hqq          | 12.775              |  50.99        |  200.08                 |  6.29            |  3.92           |
+|             | uintx-2-8-hqq           | 24.500              |  40.25        |  265.95                 |  9.24            |  6.61           |
+| Llama-3-8B  | Base (bfloat16)         |  7.441              |  95.64        | 1435.54                 | 16.43            | 15.01           |
+|             | uintx-4-64-hqq          |  8.124              |  47.85        |  213.24                 | 11.85            |  4.46           |
+|             | uintx-2-8-hqq           | 39.605              |  34.83        |  261.42                 | 14.99            |  7.51           |
+
+You try can out these apis with the `quantize_` api as above alongside the config `UIntXWeightOnlyConfig`. An example can be found in  in `torchao/_models/llama/generate.py`.
     
 </details>
 
