@@ -480,19 +480,23 @@ def quantize_(
             raise ValueError(
                 "Custom filter_fn and FqnToConfig were both specified. Only filter_fn=None is supported when FqnToConfig is specified."
             )
-
-        for module_fqn, module in model.named_modules():
+        named_modules = dict(model.named_modules())
+        for module_fqn, module in named_modules.items():
             if (
                 fqn_matches_fqn_config(module_fqn, config)
                 or _module_param_matches_fqn_config(module, module_fqn, config)
                 or ("_default" in config.fqn_to_config and _is_linear(module))
             ):
-                # this replaces inplace, so no need to reassign
-                _fqn_to_config_handler(module, module_fqn, config)
+                replacement = _fqn_to_config_handler(module, module_fqn, config)
                 if device is not None:
-                    module.to(device=device)
-        return
-    if isinstance(config, AOBaseConfig):
+                    replacement = replacement.to(device=device)
+                # handle module swap
+                if replacement is not module and module_fqn != "":
+                    child_name = module_fqn.split(".")[-1]
+                    parent_fqn = module_fqn.removesuffix(child_name).removesuffix(".")
+                    parent_module = named_modules[parent_fqn]
+                    setattr(parent_module, child_name, replacement)
+    elif isinstance(config, AOBaseConfig):
         filter_fn = _is_linear if filter_fn is None else filter_fn
         handler = _QUANTIZE_CONFIG_HANDLER[type(config)]
         # for each linear in the model, apply the transform if filtering passes
@@ -503,7 +507,6 @@ def quantize_(
             device=device,
             extra_args=(config,),
         )
-
     else:
         raise AssertionError(
             """Passing a generic Callable to `quantize_` is no longer recommended and will be deprecated at a later release. Please see https://github.com/pytorch/ao/issues/1690 for instructions on how to pass in workflow configuration instead."""
