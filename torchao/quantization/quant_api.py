@@ -33,7 +33,7 @@ import torchao
 from torchao.core.config import AOBaseConfig
 from torchao.dtypes import (
     AffineQuantizedTensor,
-    CutlassInt4PackedLayout,  # noqa: F401
+    CutlassInt4PackedLayout,
     CutlassSemiSparseLayout,
     Float8Layout,
     Int4CPULayout,
