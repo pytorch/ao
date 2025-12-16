@@ -3275,7 +3275,7 @@ class TestDynamicPatternMatcher(TestPatternMatcherBase):
                 annotate_matmul=annotate_matmul, is_fp8=True
             )
 
-    def _test_scaled_embedding_bag_helper(self, dtype, with_quant=False):
+    def _test_scaled_embedding_bag_helper(self, dtype, with_output_quant=False):
         class FP8QDQEmbeddingBag(torch.nn.Module):
             def __init__(self):
                 super().__init__()
