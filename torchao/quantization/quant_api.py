@@ -557,33 +557,6 @@ def _int8_symm_per_token_quant(x: torch.Tensor) -> torch.Tensor:
     )
 
 
-def _int8_symm_cutlass_quant(x: torch.Tensor) -> torch.Tensor:
-    return to_affine_quantized_intx(
-        x,
-        mapping_type=MappingType.SYMMETRIC,
-        block_size=_get_per_token_block_size(x),
-        target_dtype=torch.int8,
-        scale_dtype=torch.float32,
-        eps=torch.finfo(torch.float32).eps,
-        zero_point_domain=ZeroPointDomain.NONE,
-    )
-
-
-def _int4_symm_cutlass_quant(x: torch.Tensor) -> torch.Tensor:
-    return to_affine_quantized_intx(
-        x,
-        mapping_type=MappingType.SYMMETRIC,
-        block_size=_get_per_token_block_size(x),
-        target_dtype=torch.int8,
-        quant_min=-8,
-        quant_max=7,
-        scale_dtype=torch.float32,
-        eps=torch.finfo(torch.float32).eps,
-        zero_point_domain=ZeroPointDomain.NONE,
-        _layout=CutlassInt4PackedLayout(),
-    )
-
-
 @dataclass
 class Int8DynamicActivationIntxWeightConfig(AOBaseConfig):
     """
@@ -1200,6 +1173,33 @@ def _int8_symm_per_token_reduced_range_quant_noop_decode(
             quant_max=quant_max,
             scale_dtype=torch.float32 if x.dtype == torch.float16 else None,
         )
+
+
+def _int8_symm_cutlass_quant(x: torch.Tensor) -> torch.Tensor:
+    return to_affine_quantized_intx(
+        x,
+        mapping_type=MappingType.SYMMETRIC,
+        block_size=_get_per_token_block_size(x),
+        target_dtype=torch.int8,
+        scale_dtype=torch.float32,
+        eps=torch.finfo(torch.float32).eps,
+        zero_point_domain=ZeroPointDomain.NONE,
+    )
+
+
+def _int4_symm_cutlass_quant(x: torch.Tensor) -> torch.Tensor:
+    return to_affine_quantized_intx(
+        x,
+        mapping_type=MappingType.SYMMETRIC,
+        block_size=_get_per_token_block_size(x),
+        target_dtype=torch.int8,
+        quant_min=-8,
+        quant_max=7,
+        scale_dtype=torch.float32,
+        eps=torch.finfo(torch.float32).eps,
+        zero_point_domain=ZeroPointDomain.NONE,
+        _layout=CutlassInt4PackedLayout(),
+    )
 
 
 def _float8_cutlass_quant(
@@ -2269,6 +2269,5 @@ torch.serialization.add_safe_globals(
         _float8_cutlass_quant,
         _float8_cutlass_quant_sparse,
         Target,
-        _int8_symm_per_token_quant,
     ]
 )
