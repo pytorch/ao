@@ -91,14 +91,6 @@ from .quantize_.workflows import (
     IntxOpaqueTensor,
     IntxUnpackedToInt8Tensor,
 )
-from .smoothquant import (
-    SmoothFakeDynamicallyQuantizedLinear,
-    SmoothFakeDynQuantMixin,
-    get_scale,
-    set_smooth_fq_attribute,
-    smooth_fq_linear_to_inference,
-    swap_linear_with_smooth_fq_linear,
-)
 from .transform_module import register_quantize_module_handler
 from .unified import Quantizer, TwoStepQuantizer
 from .utils import (
@@ -152,13 +144,6 @@ __all__ = [
     "IntxUnpackedToInt8Tensor",
     "Int4TilePackedTo4dTensor",
     "Float8Tensor",
-    # smooth quant - subject to change
-    "get_scale",
-    "SmoothFakeDynQuantMixin",
-    "SmoothFakeDynamicallyQuantizedLinear",
-    "swap_linear_with_smooth_fq_linear",
-    "smooth_fq_linear_to_inference",
-    "set_smooth_fq_attribute",
     "compute_error",
     # building blocks
     "to_linear_activation_quantized",
