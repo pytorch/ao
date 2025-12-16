@@ -2992,7 +2992,7 @@ def _register_scaled_embedding_bag_pass(pattern, pass_number, dtype=torch.float3
 
         counter_name = "scaled_embedding_bag"
         if "o_dtype" in kwargs:
-            counter_name += "_with_quant"
+            counter_name += "_with_output_quant"
         counters["inductor"][f"{counter_name}_matcher_count"] += 1
         counters["inductor"][f"{counter_name}_matcher_nodes"] += len(match.nodes)
 
