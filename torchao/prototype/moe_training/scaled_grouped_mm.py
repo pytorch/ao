@@ -17,8 +17,8 @@ from torchao.prototype.moe_training.kernels import (
     triton_fp8_rowwise_3d_transpose_rhs,
 )
 from torchao.prototype.moe_training.kernels.mxfp8 import (
+    mx_block_rearrange_2d_K_groups_cuda,
     mxfp8_quantize_cuda_3d,
-    triton_mx_block_rearrange_2d_K_groups,
     triton_mx_block_rearrange_2d_M_groups,
     triton_mx_block_rearrange_per_group_3d,
 )
@@ -449,11 +449,11 @@ class _MXFP8GroupedMM(torch.autograd.Function):
 
             # Convert scales to blocked format for 2d-2d grouped mm
             scale_group_offsets = offs // block_size
-            grad_out_t_scales_blocked = triton_mx_block_rearrange_2d_K_groups(
+            grad_out_t_scales_blocked = mx_block_rearrange_2d_K_groups_cuda(
                 grad_out_t_scales,
                 scale_group_offsets,
             )
-            A_t_scales_blocked = triton_mx_block_rearrange_2d_K_groups(
+            A_t_scales_blocked = mx_block_rearrange_2d_K_groups_cuda(
                 A_t_scales,
                 scale_group_offsets,
             )
