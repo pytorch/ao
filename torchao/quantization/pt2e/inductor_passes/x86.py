@@ -3030,9 +3030,7 @@ def _register_quantization_embeddingbag_pass():
             )
 
             _register_scaled_embedding_bag_pass(
-                embeddingbag_pattern,
-                pass_number=1,
-                dtype=dtype
+                embeddingbag_pattern, pass_number=1, dtype=dtype
             )
 
             # will support fp8 output later

@@ -3294,16 +3294,20 @@ class TestDynamicPatternMatcher(TestPatternMatcherBase):
                         weight.data,
                         self.weight_scale,
                         0,
-                        -128, 127, torch.int8,
+                        -128,
+                        127,
+                        torch.int8,
                     )
                 return res
 
             def _quantize(self, x):
                 if dtype == torch.float8_e4m3fn:
-                    qx = torch.ops.torchao.quantize_affine_float8_non_decomposed.default(
-                        tensor=x,
-                        scale=torch.tensor([self.output_scale]),
-                        float8_dtype=dtype,
+                    qx = (
+                        torch.ops.torchao.quantize_affine_float8_non_decomposed.default(
+                            tensor=x,
+                            scale=torch.tensor([self.output_scale]),
+                            float8_dtype=dtype,
+                        )
                     )
                 else:
                     qx = torch.ops.quantized_decomposed.quantize_per_tensor.default(
@@ -3317,7 +3321,7 @@ class TestDynamicPatternMatcher(TestPatternMatcherBase):
                 input,
                 offsets=None,
             ):
-                weight = self._dq(weight)
+                weight = self._dequantize(weight)
 
                 res = torch.nn.functional.embedding_bag(
                     input,
@@ -3326,8 +3330,8 @@ class TestDynamicPatternMatcher(TestPatternMatcherBase):
                     mode="sum",
                     include_last_offset=True,
                 )
-                if with_quant:
-                    res = self._q(res)
+                if with_output_quant:
+                    res = self._quantize(res)
                 return res
 
         EMBEDINGBAG_MULTIHOT_SIZES = [1, 2, 3, 10]
@@ -3356,7 +3360,7 @@ class TestDynamicPatternMatcher(TestPatternMatcherBase):
 
                 def matcher_check_fn():
                     counter_name = "scaled_embedding_bag"
-                    if with_quant:
+                    if with_output_quant:
                         counter_name += "_with_output_quant"
                     self.assertEqual(
                         counters["inductor"][f"{counter_name}_matcher_count"], 1
@@ -3367,7 +3371,6 @@ class TestDynamicPatternMatcher(TestPatternMatcherBase):
                     (weight, indices, offsets),
                     matcher_check_fn,
                 )
-
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
@@ -3389,7 +3392,6 @@ class TestDynamicPatternMatcher(TestPatternMatcherBase):
     def test_int8_scaled_embedding_bag(self):
         self._test_scaled_embedding_bag_helper(torch.int8)
 
-
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
     @skipIfNoFloat8Support
@@ -3397,7 +3399,7 @@ class TestDynamicPatternMatcher(TestPatternMatcherBase):
         "CPU" not in torch._C._dispatch_dump("torchao::_scaled_embedding_bag"),
         reason="cpp kernels not built",
     )
-    def test_int8_scaled_embedding_bag_with_quant(self):
+    def test_int8_scaled_embedding_bag_with_output_quant(self):
         self._test_scaled_embedding_bag_helper(torch.int8, True)
 
 
