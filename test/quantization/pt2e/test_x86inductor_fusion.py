@@ -3282,7 +3282,7 @@ class TestDynamicPatternMatcher(TestPatternMatcherBase):
                 self.weight_scale = 2.0
                 self.output_scale = 3.0
 
-            def _dq(self, weight):
+            def _dequantize(self, weight):
                 if dtype == torch.float8_e4m3fn:
                     res = torch.ops.torchao.dequantize_affine_float8_non_decomposed.default(
                         tensor=weight.data,
