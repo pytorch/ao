@@ -677,13 +677,12 @@ mxfp8_cuda_extension_available = is_sm_at_least_100() and is_cuda_version_at_lea
     12, 8
 )
 
-lib = torch.library.Library("torchao", "FRAGMENT")
-lib.define(
-    "mxfp8_quantize_3d(Tensor input, int scale_dim_n, str fp8_format, str scaling_mode) -> (Tensor, Tensor)",
-    tags=[torch._C.Tag.needs_fixed_stride_order],
-)
-
 if mxfp8_cuda_extension_available:
+    lib = torch.library.Library("torchao", "FRAGMENT")
+    lib.define(
+        "mxfp8_quantize_3d(Tensor input, int scale_dim_n, str fp8_format, str scaling_mode) -> (Tensor, Tensor)",
+        tags=[torch._C.Tag.needs_fixed_stride_order],
+    )
 
     def mxfp8_quantize_cuda_3d(
         x: torch.Tensor,

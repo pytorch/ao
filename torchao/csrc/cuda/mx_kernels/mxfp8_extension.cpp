@@ -180,6 +180,7 @@ mxfp8_quantize_3d(const at::Tensor& input, int64_t scale_dim_n,
 
 } // namespace mxfp8
 
+
 // Register CUDA implementations
 TORCH_LIBRARY_IMPL(torchao, CUDA, m) {
   m.impl("mxfp8_quantize", &mxfp8::mxfp8_quantize);
