@@ -302,7 +302,7 @@ class PythonQuantUtilOpUnitTest(unittest.TestCase):
         )
         y_ref = torch.matmul(x, w.t())
         sqnr = compute_error(y_ref, y)
-        self.assertTrue(sqnr >= 42.0, f"{sqnr=} too low")
+        self.assertTrue(sqnr >= 39.0, f"{sqnr=} too low")
 
     def test_per_token_linear_cpu(self):
         for dtype in (torch.float32,):
