@@ -187,13 +187,16 @@ We also support deployment to edge devices through ExecuTorch, for more detail, 
 
 Post-training quantization can result in a fast and compact model, but may also lead to accuracy degradation. We recommend exploring Quantization-Aware Training (QAT) to overcome this limitation, especially for lower bit-width dtypes such as int4. In collaboration with [TorchTune](https://github.com/pytorch/torchtune/blob/main/recipes/quantization.md#quantization-aware-training-qat), we've developed a QAT recipe that demonstrates significant accuracy improvements over traditional PTQ, recovering **96% of the accuracy degradation on hellaswag and 68% of the perplexity degradation on wikitext** for Llama3 compared to post-training quantization (PTQ). For more details, please refer to the [QAT README](torchao/quantization/qat/README.md) and the [original blog](https://pytorch.org/blog/quantization-aware-training/):
 
-TODO (before land): update this code snippet with a more recent config
 ```python
-from torchao.quantization import quantize_, Int8DynamicActivationInt4WeightConfig
+import torch
+from torchao.quantization import quantize_, Int8DynamicActivationIntxWeightConfig, PerGroup
 from torchao.quantization.qat import QATConfig
 
 # prepare
-base_config = Int8DynamicActivationInt4WeightConfig(group_size=32)
+base_config = Int8DynamicActivationIntxWeightConfig(
+    weight_dtype=torch.int4,
+    weight_granularity=PerGroup(32),
+)
 quantize_(my_model, QATConfig(base_config, step="prepare"))
 
 # train model (not shown)

@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pytest:*)",
+      "Bash(with-proxy pytest:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

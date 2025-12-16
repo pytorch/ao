@@ -54,7 +54,6 @@ from torchao.quantization.transform_module import (
 )
 from torchao.quantization.utils import (
     _fp8_mm_compat,
-    _get_per_token_block_size,
     _linear_extra_repr,
     get_block_size,
 )
@@ -67,92 +66,6 @@ from torchao.utils import (
 )
 
 logger = logging.getLogger(__name__)
-
-
-def _int8_asymm_per_token_quant(x: torch.Tensor) -> torch.Tensor:
-    """This is defined here instead of local function to support serialization"""
-    mapping_type = MappingType.ASYMMETRIC
-    target_dtype = torch.int8
-    scale_dtype = torch.float32
-    eps = torch.finfo(torch.float32).eps
-    zero_point_dtype = torch.int8
-    return to_affine_quantized_intx(
-        x,
-        mapping_type,
-        _get_per_token_block_size(x),
-        target_dtype,
-        eps=eps,
-        scale_dtype=scale_dtype,
-        zero_point_dtype=zero_point_dtype,
-    )
-
-
-def _uint8_asymm_per_token_quant(x: torch.Tensor) -> torch.Tensor:
-    mapping_type = MappingType.ASYMMETRIC
-    target_dtype = torch.uint8
-    scale_dtype = torch.float32
-    eps = torch.finfo(torch.float32).eps
-    zero_point_dtype = torch.int32
-    quant_min = 0
-    quant_max = 255
-    out = to_affine_quantized_intx(
-        x,
-        mapping_type,
-        _get_per_token_block_size(x),
-        target_dtype,
-        quant_min=quant_min,
-        quant_max=quant_max,
-        eps=eps,
-        scale_dtype=scale_dtype,
-        zero_point_dtype=zero_point_dtype,
-    )
-    return out
-
-
-def _int8_symm_per_token_quant(x: torch.Tensor) -> torch.Tensor:
-    mapping_type = MappingType.SYMMETRIC
-    target_dtype = torch.int8
-    eps = 1e-5
-    quant_min = -127
-    quant_max = 127
-
-    return to_affine_quantized_intx(
-        x,
-        mapping_type,
-        _get_per_token_block_size(x),
-        target_dtype,
-        eps=eps,
-        quant_min=quant_min,
-        quant_max=quant_max,
-        scale_dtype=torch.float32,
-    )
-
-
-def _int8_symm_cutlass_quant(x: torch.Tensor) -> torch.Tensor:
-    return to_affine_quantized_intx(
-        x,
-        mapping_type=MappingType.SYMMETRIC,
-        block_size=_get_per_token_block_size(x),
-        target_dtype=torch.int8,
-        scale_dtype=torch.float32,
-        eps=torch.finfo(torch.float32).eps,
-        zero_point_domain=ZeroPointDomain.NONE,
-    )
-
-
-def _int4_symm_cutlass_quant(x: torch.Tensor) -> torch.Tensor:
-    return to_affine_quantized_intx(
-        x,
-        mapping_type=MappingType.SYMMETRIC,
-        block_size=_get_per_token_block_size(x),
-        target_dtype=torch.int8,
-        quant_min=-8,
-        quant_max=7,
-        scale_dtype=torch.float32,
-        eps=torch.finfo(torch.float32).eps,
-        zero_point_domain=ZeroPointDomain.NONE,
-        _layout=CutlassInt4PackedLayout(),
-    )
 
 
 @dataclass
@@ -212,6 +125,15 @@ def _int8_dynamic_activation_int4_weight_transform(
     target_dtype = torch.int8
     quant_min = -8
     quant_max = 7
+
+    # avoid circular import
+    from torchao.quantization.quant_api import (
+        _int4_symm_cutlass_quant,
+        _int8_asymm_per_token_quant,
+        _int8_symm_cutlass_quant,
+        _int8_symm_per_token_quant,
+        _uint8_asymm_per_token_quant,
+    )
 
     # input settings
     if act_mapping_type == MappingType.ASYMMETRIC:
@@ -309,6 +231,9 @@ def _int4_dynamic_activation_int4_weight_transform(
         raise NotImplementedError("Only mapping_type=SYMMETRIC is supported.")
     if act_mapping_type != MappingType.SYMMETRIC:
         raise NotImplementedError("Only act_mapping_type=SYMMETRIC is supported.")
+
+    # avoid circular import
+    from torchao.quantization.quant_api import _int4_symm_cutlass_quant
 
     weight = _int4_symm_cutlass_quant(weight)
     weight = to_linear_activation_quantized(
