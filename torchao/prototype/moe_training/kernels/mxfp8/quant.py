@@ -730,6 +730,67 @@ if mxfp8_cuda_extension_available:
         scales = x.new_empty((E, N // scale_dim_n, K), dtype=torch.float8_e8m0fnu)
         return q_data, scales
 
+    # CUDA kernel for converting e8m0 scale factors to blocked layout on a per-group basis,
+    # where the groups are along the K/contracting dimension.
+    lib.define(
+        "mx_block_rearrange_2d_K_groups(Tensor scales_tensor, Tensor input_group_end_offsets, int max_cols, int chunks_per_tb) -> Tensor",
+        tags=[torch._C.Tag.needs_fixed_stride_order],
+    )
+
+    def mx_block_rearrange_2d_K_groups_cuda(
+        scales_tensor: torch.Tensor,
+        input_group_end_offsets: torch.Tensor,
+        max_cols: int = 64,
+        chunks_per_tb: int = 4,
+    ) -> torch.Tensor:
+        """
+        Rearranges an E8M0 tensor scale to block-scaled swizzle format on a per group basis,
+        where the groups are along the contraction dimension of the GEMM.
+
+        This format is suitable for Tmem as described in NVIDIA documentation:
+        https://docs.nvidia.com/cuda/cublas/index.html#d-block-scaling-factors-layout
+
+        Args:
+            scales_tensor: Input tensor containing e8m0 scales for each logical group of a target tensor.
+            input_group_end_offsets: tensor of int32 values representing group end indexes for the input scales
+            max_cols (int, optional): Maximum columns processed per 128x4 thread block. Defaults to 64 (i.e. 128x64 chunk size).
+            chunks_per_tb (int, optional): How many chunks to process per thread block (for pipelining). Defaults to 4.
+        """
+        assert scales_tensor.ndim == 2, "scales tensor must be 2d"
+        assert scales_tensor.dtype == torch.float8_e8m0fnu, (
+            "Expected dtype to be torch.float8_e8m0fnu"
+        )
+
+        return torch.ops.torchao.mx_block_rearrange_2d_K_groups.default(
+            scales_tensor,
+            input_group_end_offsets,
+            max_cols,
+            chunks_per_tb,
+        )
+
+    @torch.library.register_fake("torchao::mx_block_rearrange_2d_K_groups")
+    def _fake_mx_block_rearrange_2d_K_groups_cuda(
+        scales_tensor: torch.Tensor,
+        input_group_end_offsets: torch.Tensor,
+        max_cols: int,
+        chunks_per_tb: int,
+    ) -> torch.Tensor:
+        """Fake/meta implementation for mx_block_rearrange_2d_K_groups_cuda."""
+        assert scales_tensor.ndim == 2, "scales tensor must be 2d"
+        assert scales_tensor.dtype == torch.float8_e8m0fnu, (
+            "Expected dtype to be torch.float8_e8m0fnu"
+        )
+        num_groups = input_group_end_offsets.shape[0]
+        M, total_K = scales_tensor.shape
+
+        # Group sizes are dynamic, and must be padded to next multiple of 4.
+        # Therefore, when allocating a buffer for the output, we use upper bound
+        # padding 4 * num_groups.
+        blocked_scales = scales_tensor.new_empty(
+            (M, total_K + 4 * num_groups), dtype=torch.float8_e8m0fnu
+        )
+        return blocked_scales
+
 else:
 
     def mxfp8_quantize_cuda_3d(
