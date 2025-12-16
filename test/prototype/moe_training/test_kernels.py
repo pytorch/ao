@@ -416,3 +416,73 @@ def test_cuda_mx_block_rearrange_2d_K_groups(
     ), (
         f"Output shape mismatch: expected {(expected_rows, expected_cols)}, got {cuda_out_scales.shape}"
     )
+
+
+@pytest.mark.skipif(
+    not is_sm_at_least_100(),
+    reason="MXFP8 requires CUDA capability 10.0 or greater",
+)
+@pytest.mark.parametrize("m", [256, 512, 1024, 5120])
+@pytest.mark.parametrize("total_k", [512, 1024, 2048, 4096, 8192, 16384])
+@pytest.mark.parametrize("n_groups", [1, 4, 8, 16])
+@pytest.mark.parametrize("chunks_per_tb", [4, 8, 16])
+def test_cuda_mx_block_rearrange_2d_K_groups_pipelined(
+    m: int,
+    total_k: int,
+    n_groups: int,
+    chunks_per_tb: int,
+):
+    """
+    Test pipelined CUDA kernel for mx_block_rearrange_2d_K_groups against Triton reference.
+    This kernel uses cp.async for double-buffered pipelined execution.
+    """
+    from torchao.prototype import mxfp8_cuda
+
+    device = "cuda"
+    block_size = 32
+    input_data = torch.randn(m, total_k, device=device)
+
+    e8m0_scales, _ = to_mx(
+        input_data, elem_dtype=torch.float8_e4m3fn, block_size=block_size
+    )
+
+    # Generate group end offsets along total_K, then divide by block_size to get scale group end offsets
+    input_group_offsets = generate_jagged_offs(
+        n_groups, total_k, multiple_of=block_size, device=device
+    )
+    scale_group_offsets = input_group_offsets // block_size
+
+    # Triton reference implementation
+    triton_out_scales = triton_mx_block_rearrange_2d_K_groups(
+        e8m0_scales,
+        scale_group_offsets,
+    )
+
+    # Pipelined CUDA kernel implementation
+    # max_cols=64 is a common configuration
+    max_cols = 64
+    cuda_out_scales = (
+        mxfp8_cuda.mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec_pipelined(
+            e8m0_scales.view(torch.uint8),
+            scale_group_offsets,
+            max_cols,
+            chunks_per_tb,
+        )
+    )
+
+    # Check that outputs match
+    assert torch.equal(triton_out_scales, cuda_out_scales.view(torch.float8_e8m0fnu)), (
+        f"Pipelined CUDA (chunks_per_tb={chunks_per_tb}) and Triton blocked scales not equal"
+    )
+
+    # Verify output shape
+    expected_rows = ((m + 127) // 128) * 128  # Padded to multiple of 128
+    expected_cols = (
+        e8m0_scales.size(1) + n_groups * 4
+    )  # Original cols + padding per group
+    assert cuda_out_scales.shape == (
+        expected_rows,
+        expected_cols,
+    ), (
+        f"Output shape mismatch: expected {(expected_rows, expected_cols)}, got {cuda_out_scales.shape}"
+    )
