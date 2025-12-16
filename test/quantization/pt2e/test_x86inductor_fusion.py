@@ -3357,7 +3357,7 @@ class TestDynamicPatternMatcher(TestPatternMatcherBase):
                 def matcher_check_fn():
                     counter_name = "scaled_embedding_bag"
                     if with_quant:
-                        counter_name += "_with_quant"
+                        counter_name += "_with_output_quant"
                     self.assertEqual(
                         counters["inductor"][f"{counter_name}_matcher_count"], 1
                     )
