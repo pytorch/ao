@@ -89,26 +89,18 @@ def get_configs() -> List[ExperimentConfig]:
     # Llama4 and DSV3 671b shapes. Input activations are scaled along the total_M dim, which contains all the token groups.
     block_size = 32
     input_shapes = [
-        (8192, 16384 // block_size),
         (8192, 32768 // block_size),
         (8192, 65536 // block_size),
         (8192, 131072 // block_size),
-        (8192, 1048576 // block_size),
-        (5120, 16384 // block_size),
         (5120, 32768 // block_size),
         (5120, 65536 // block_size),
         (5120, 131072 // block_size),
-        (5120, 1048576 // block_size),
-        (7168, 16384 // block_size),
         (7168, 32768 // block_size),
         (7168, 65536 // block_size),
         (7168, 131072 // block_size),
-        (7168, 1048576 // block_size),
-        (2048, 16384 // block_size),
         (2048, 32768 // block_size),
         (2048, 65536 // block_size),
         (2048, 131072 // block_size),
-        (2048, 1048576 // block_size),
     ]
     num_groups = [8]
     versions = [
@@ -118,15 +110,15 @@ def get_configs() -> List[ExperimentConfig]:
         # "cuda_colmajor_vec",
         # "cuda_colmajor_vec_16B",
         # "cuda_rowmajor_vec",
-        "cuda_rowmajor_128x4_vec_64",  # max_cols=64: 512 threads, 8KB SMEM
+        # "cuda_rowmajor_128x4_vec_64",  # max_cols=64: 512 threads, 8KB SMEM
         # "cuda_rowmajor_128x4_vec_128",  # max_cols=128: 1024 threads, 16KB SMEM
         # Pipelined kernels with different chunks_per_tb values
         "cuda_pipelined_64_chunks4",  # max_cols=64, chunks_per_tb=4
-        # "cuda_pipelined_64_chunks8",  # max_cols=64, chunks_per_tb=8
-        # "cuda_pipelined_64_chunks16",  # max_cols=64, chunks_per_tb=16
-        # "cuda_pipelined_128_chunks4",  # max_cols=128, chunks_per_tb=4
-        # "cuda_pipelined_128_chunks8",  # max_cols=128, chunks_per_tb=8
-        # "cuda_pipelined_128_chunks16",  # max_cols=128, chunks_per_tb=16
+        "cuda_pipelined_64_chunks8",  # max_cols=64, chunks_per_tb=8
+        "cuda_pipelined_64_chunks16",  # max_cols=64, chunks_per_tb=16
+        "cuda_pipelined_128_chunks4",  # max_cols=128, chunks_per_tb=4
+        "cuda_pipelined_128_chunks8",  # max_cols=128, chunks_per_tb=8
+        "cuda_pipelined_128_chunks16",  # max_cols=128, chunks_per_tb=16
     ]
 
     configs = []
@@ -232,106 +224,82 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
     elif version == "cuda_rowmajor_128x4_vec_pipelined_64":
         if mxfp8_cuda is None:
             raise RuntimeError("CUDA kernel not available")
-        kernel_fn = (
-            lambda t,
-            o: mxfp8_cuda.mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec_pipelined(
-                t,
-                o,
-                64,
-                4,  # max_cols=64, chunks_per_tb=4 (default)
-            )
+        kernel_fn = lambda t, o: mxfp8_cuda.mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec_pipelined(
+            t,
+            o,
+            64,
+            4,  # max_cols=64, chunks_per_tb=4 (default)
         )
         kernel_input = input_tensor.contiguous()
     elif version == "cuda_rowmajor_128x4_vec_pipelined_128":
         if mxfp8_cuda is None:
             raise RuntimeError("CUDA kernel not available")
-        kernel_fn = (
-            lambda t,
-            o: mxfp8_cuda.mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec_pipelined(
-                t,
-                o,
-                128,
-                4,  # max_cols=128, chunks_per_tb=4 (default)
-            )
+        kernel_fn = lambda t, o: mxfp8_cuda.mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec_pipelined(
+            t,
+            o,
+            128,
+            4,  # max_cols=128, chunks_per_tb=4 (default)
         )
         kernel_input = input_tensor.contiguous()
     # Pipelined kernels with different chunks_per_tb values
     elif version == "cuda_pipelined_64_chunks4":
         if mxfp8_cuda is None:
             raise RuntimeError("CUDA kernel not available")
-        kernel_fn = (
-            lambda t,
-            o: mxfp8_cuda.mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec_pipelined(
-                t,
-                o,
-                64,
-                4,  # max_cols=64, chunks_per_tb=4
-            )
+        kernel_fn = lambda t, o: mxfp8_cuda.mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec_pipelined(
+            t,
+            o,
+            64,
+            4,  # max_cols=64, chunks_per_tb=4
         )
         kernel_input = input_tensor.contiguous()
     elif version == "cuda_pipelined_64_chunks8":
         if mxfp8_cuda is None:
             raise RuntimeError("CUDA kernel not available")
-        kernel_fn = (
-            lambda t,
-            o: mxfp8_cuda.mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec_pipelined(
-                t,
-                o,
-                64,
-                8,  # max_cols=64, chunks_per_tb=8
-            )
+        kernel_fn = lambda t, o: mxfp8_cuda.mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec_pipelined(
+            t,
+            o,
+            64,
+            8,  # max_cols=64, chunks_per_tb=8
         )
         kernel_input = input_tensor.contiguous()
     elif version == "cuda_pipelined_64_chunks16":
         if mxfp8_cuda is None:
             raise RuntimeError("CUDA kernel not available")
-        kernel_fn = (
-            lambda t,
-            o: mxfp8_cuda.mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec_pipelined(
-                t,
-                o,
-                64,
-                16,  # max_cols=64, chunks_per_tb=16
-            )
+        kernel_fn = lambda t, o: mxfp8_cuda.mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec_pipelined(
+            t,
+            o,
+            64,
+            16,  # max_cols=64, chunks_per_tb=16
         )
         kernel_input = input_tensor.contiguous()
     elif version == "cuda_pipelined_128_chunks4":
         if mxfp8_cuda is None:
             raise RuntimeError("CUDA kernel not available")
-        kernel_fn = (
-            lambda t,
-            o: mxfp8_cuda.mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec_pipelined(
-                t,
-                o,
-                128,
-                4,  # max_cols=128, chunks_per_tb=4
-            )
+        kernel_fn = lambda t, o: mxfp8_cuda.mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec_pipelined(
+            t,
+            o,
+            128,
+            4,  # max_cols=128, chunks_per_tb=4
         )
         kernel_input = input_tensor.contiguous()
     elif version == "cuda_pipelined_128_chunks8":
         if mxfp8_cuda is None:
             raise RuntimeError("CUDA kernel not available")
-        kernel_fn = (
-            lambda t,
-            o: mxfp8_cuda.mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec_pipelined(
-                t,
-                o,
-                128,
-                8,  # max_cols=128, chunks_per_tb=8
-            )
+        kernel_fn = lambda t, o: mxfp8_cuda.mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec_pipelined(
+            t,
+            o,
+            128,
+            8,  # max_cols=128, chunks_per_tb=8
         )
         kernel_input = input_tensor.contiguous()
     elif version == "cuda_pipelined_128_chunks16":
         if mxfp8_cuda is None:
             raise RuntimeError("CUDA kernel not available")
-        kernel_fn = (
-            lambda t,
-            o: mxfp8_cuda.mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec_pipelined(
-                t,
-                o,
-                128,
-                16,  # max_cols=128, chunks_per_tb=16
-            )
+        kernel_fn = lambda t, o: mxfp8_cuda.mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec_pipelined(
+            t,
+            o,
+            128,
+            16,  # max_cols=128, chunks_per_tb=16
         )
         kernel_input = input_tensor.contiguous()
     else:
