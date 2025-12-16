@@ -2261,14 +2261,14 @@ def _unwrap_float8_linear(module: Float8Linear) -> nn.Linear:
 
 torch.serialization.add_safe_globals(
     [
+        _int8_asymm_per_token_quant,
         _int8_symm_per_token_reduced_range_quant,
         _input_activation_quant_func_fp8,
+        _int4_symm_cutlass_quant,
+        _int8_symm_cutlass_quant,
         _float8_cutlass_quant,
         _float8_cutlass_quant_sparse,
         Target,
-        _int8_asymm_per_token_quant,
-        _int4_symm_cutlass_quant,
-        _int8_symm_cutlass_quant,
         _int8_symm_per_token_quant,
     ]
 )
