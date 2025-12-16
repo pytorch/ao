@@ -3298,7 +3298,7 @@ class TestDynamicPatternMatcher(TestPatternMatcherBase):
                     )
                 return res
 
-            def _q(self, x):
+            def _quantize(self, x):
                 if dtype == torch.float8_e4m3fn:
                     qx = torch.ops.torchao.quantize_affine_float8_non_decomposed.default(
                         tensor=x,
