@@ -64,7 +64,6 @@ from .quant_api import (
     IntxWeightOnlyConfig,
     ModuleFqnToConfig,
     PlainLayout,
-    TensorCoreTiledLayout,
     UIntXWeightOnlyConfig,
     fqn_matches_fqn_config,
     intx_quantization_aware_training,
@@ -179,7 +178,6 @@ __all__ = [
     "Quantizer",
     # Layouts for quant_api
     "PlainLayout",
-    "TensorCoreTiledLayout",
     "CutlassInt4PackedLayout",
     "Float8MMConfig",
     # GPTQ
