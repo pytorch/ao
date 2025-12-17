@@ -274,9 +274,7 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
         model = ToyLinearModel(10, 25).to(_DEVICE)  # 10x25 and 25x10 weights
 
         # Set up logging capture
-        with self.assertLogs(
-            "torchao.quantization.quant_api", level="INFO"
-        ) as log_context:
+        with self.assertLogs("torchao.quantization.utils", level="INFO") as log_context:
             quantize_(
                 model,
                 Float8DynamicActivationFloat8WeightConfig(

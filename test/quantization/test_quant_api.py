@@ -834,9 +834,7 @@ class TestQuantFlow(TestCase):
                 self.assertTrue(len(_warnings) == 1)
                 found_deprecated = False
                 for w in _warnings:
-                    if "will be moving to prototype in a future release" in str(
-                        w.message
-                    ):
+                    if "will be deleted in a future release" in str(w.message):
                         found_deprecated = True
                     self.assertTrue(
                         found_deprecated, f"did not find deprecated warning for {cls}"
