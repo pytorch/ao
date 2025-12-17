@@ -45,7 +45,6 @@ from torchao.prototype.mx_formats.mx_tensor import ScaleCalculationMode, to_dtyp
 from torchao.prototype.mx_formats.utils import to_blocked
 from torchao.utils import (
     is_cuda_version_at_least,
-    is_sm_at_least_89,
     is_sm_at_least_100,
     torch_version_at_least,
 )
@@ -445,8 +444,8 @@ def triton_to_mxfp8_dim0_reference(
 
 @pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
 @pytest.mark.skipif(
-    not is_sm_at_least_89(),
-    reason="float8 in triton requires CUDA capability 8.9 or greater",
+    not is_sm_at_least_100(),
+    reason="mxfp8 in triton requires CUDA capability 10.0 or greater",
 )
 @pytest.mark.parametrize("M", (128, 256))
 @pytest.mark.parametrize("K", (128, 256))
