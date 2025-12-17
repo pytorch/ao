@@ -478,8 +478,8 @@ def _addmm_nvfp4_dispatch(
     # should_add_bias_separately = bias is not None
 
     result = torch._scaled_mm(
-        a.qdata.view(torch.float4_e2m1fn_x2),
-        b.qdata.view(torch.float4_e2m1fn_x2),
+        a.qdata,
+        b.qdata,
         a_scale_blocked.view(torch.float8_e4m3fn),
         b_scale_blocked.view(torch.float8_e4m3fn),
         bias=None if should_add_bias_separately else bias,
@@ -685,7 +685,6 @@ def nvfp4_quantize(
     data_scaled = torch.clamp(data_scaled, -F4_E2M1_MAX, F4_E2M1_MAX)
     data_scaled = data_scaled.view(orig_shape)
     data_lp = f32_to_f4_unpacked(data_scaled)
-    # TODO: NotImplementedError: "copy_kernel" not implemented for 'Float4_e2m1fn_x2'
-    # data_lp = pack_uint4(data_lp).view(torch.float4_e2m1fn_x2)
     data_lp = pack_uint4(data_lp)
+    data_lp = data_lp.view(torch.float4_e2m1fn_x2)
     return out_scales, data_lp
