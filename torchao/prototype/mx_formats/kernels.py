@@ -200,6 +200,8 @@ if torch_version_at_least("2.7.0") and has_triton():
                 pack=1,
             ).to(tl.uint8)
         else:
+            tl.static_assert(mode == "floor")
+
             # Original floor implementation
             # Calculate the e8m0 scale by extracting the exponent (floor)
             max_abs = max_abs.to(tl.bfloat16)
