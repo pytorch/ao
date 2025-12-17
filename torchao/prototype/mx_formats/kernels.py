@@ -166,7 +166,7 @@ if torch_version_at_least("2.7.0") and has_triton():
     from torch.library import triton_op, wrap_triton
 
     @triton.jit
-    def _triton_calculate_scale(x, axis, mode: tl.constexpr = "floor"):
+    def _triton_calculate_scale(x, axis, SCALING_MODE: tl.constexpr):
         # There is no good support for accessing globals from a jit'ed triton
         # function, so we redefine them here. Since this is prototype code which
         # we plan to remove after torch.compile catches up, this is fine.
@@ -180,7 +180,7 @@ if torch_version_at_least("2.7.0") and has_triton():
         max_abs = tl.max(x, axis=axis)
 
         # Compute e8m0 biased scale using either RCEIL or FLOOR rounding.
-        if mode == "rceil":
+        if SCALING_MODE == "rceil":
             # RCEIL scaling mode using PTX instruction supported on sm100.
             # The input should be: amax / 448.0
             # where 448.0 is the max representable value in FP8 E4M3 format.
@@ -200,7 +200,7 @@ if torch_version_at_least("2.7.0") and has_triton():
                 pack=1,
             ).to(tl.uint8)
         else:
-            tl.static_assert(mode == "floor")
+            tl.static_assert(SCALING_MODE == "floor")
 
             # Original floor implementation
             # Calculate the e8m0 scale by extracting the exponent (floor)
@@ -273,6 +273,7 @@ if torch_version_at_least("2.7.0") and has_triton():
         ROW_TILE_SIZE: tl.constexpr,
         COL_TILE_SIZE: tl.constexpr,
         INNER_BLOCK_SIZE: tl.constexpr,  # should be 32 for MX
+        SCALING_MODE: tl.constexpr,
     ):
         """
         Example tiling for n_rows==8, n_cols=8, ROW_TILE_SIZE=4, COL_TILE_SIZE=4, INNER_BLOCK_SIZE=2,
@@ -359,7 +360,11 @@ if torch_version_at_least("2.7.0") and has_triton():
 
         # Find the maximum absolute value for each column
         # shape: (COL_TILE_SIZE * BLOCKS_PER_ROW_TILE,)
-        col_scale_r, col_scale_e8m0_r = _triton_calculate_scale(x_block_abs_t_r, axis=1)
+        col_scale_r, col_scale_e8m0_r = _triton_calculate_scale(
+            x_block_abs_t_r,
+            axis=1,
+            SCALING_MODE=SCALING_MODE,
+        )
 
         # Divide each column by scale
         # Broadcasting col_scale to match x_block's shape
@@ -563,7 +568,7 @@ if torch_version_at_least("2.7.0") and has_triton():
 
     @triton_op("torchao::triton_to_mxfp8_dim1", mutates_args={})
     def triton_to_mxfp8_dim1(
-        x: torch.Tensor, inner_block_size: int = 32
+        x: torch.Tensor, inner_block_size: int = 32, scaling_mode: str = "rceil"
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Input:
@@ -615,6 +620,7 @@ if torch_version_at_least("2.7.0") and has_triton():
             n_rows=n_rows,
             n_cols=n_cols,
             INNER_BLOCK_SIZE=inner_block_size,
+            SCALING_MODE=scaling_mode,
         )
 
         return (
