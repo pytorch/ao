@@ -18,10 +18,11 @@ import pandas as pd
 import torch
 from triton.testing import do_bench
 
+from torchao.prototype.moe_training.conversion_utils import MoEScalingType
 from torchao.prototype.moe_training.kernels.mxfp8 import (
+    mx_block_rearrange_2d_K_groups_cuda,
     torch_to_blocked_2d_M_groups,
     torch_to_blocked_per_group_3d,
-    triton_mx_block_rearrange_2d_K_groups,
     triton_mx_block_rearrange_2d_M_groups,
     triton_mx_block_rearrange_per_group_3d,
 )
@@ -29,10 +30,7 @@ from torchao.prototype.moe_training.kernels.mxfp8.quant import (
     mxfp8_quantize_cuda_3d,
 )
 from torchao.prototype.moe_training.scaled_grouped_mm import (
-    ScaleCalculationMode as MoEScaleCalculationMode,
-)
-from torchao.prototype.moe_training.scaled_grouped_mm import (
-    _to_mxfp8_then_scaled_grouped_mm,
+    _quantize_then_scaled_grouped_mm,
 )
 from torchao.prototype.moe_training.utils import generate_jagged_offs
 from torchao.prototype.mx_formats.config import (
@@ -45,16 +43,6 @@ from torchao.prototype.mx_formats.utils import _to_mxfp8_dim1_kernel_wrapper
 from torchao.testing.training.roofline_utils import (
     gpu_name_to_specs,
 )
-
-
-# Compile to_mx wrapper function once at module level for reuse
-def _to_mx_wrapper(data_hp, block_size, scaling_mode):
-    """Wrapper function for to_mx that matches cast_bench.py pattern"""
-    scale, data = to_mx(data_hp, torch.float8_e4m3fn, block_size, scaling_mode)
-    return data, scale
-
-
-_compiled_to_mx_wrapper = torch.compile(_to_mx_wrapper, fullgraph=True)
 
 
 class RooflineModel:
@@ -431,54 +419,60 @@ def benchmark_cuda_function_in_microseconds(f, *args):
 
 
 def benchmark_torch_grouped_mm_fwd_bwd(x, w_t, offs, labels):
-    """Benchmark torch._grouped_mm forward + backward"""
+    """Benchmark torch._grouped_mm forward + backward.
+
+    Uses the same approach as benchmark_scaled_grouped_mm_dq.py:
+    - Uses bench_fwd_bwd_microseconds pattern with *args/**kwargs
+    - Compiles the entire fwd+bwd wrapper with fullgraph=False
+    """
     x_clone = x.clone().requires_grad_(True)
     w_t_clone = w_t.clone().requires_grad_(True)
 
-    fn = torch.compile(torch._grouped_mm, fullgraph=True)
-
-    def wrapper():
-        out = fn(x_clone, w_t_clone, offs=offs, out_dtype=torch.bfloat16)
+    def fwd_bwd(A, B_t, offs_arg):
+        out = torch._grouped_mm(A, B_t, offs_arg)
         loss = torch.nn.functional.mse_loss(out, labels)
         loss.backward()
 
-    time_ms = do_bench(wrapper, return_mode="median")
-    return time_ms
+    # Compile entire fwd+bwd wrapper with fullgraph=False to match benchmark_scaled_grouped_mm_dq.py
+    fwd_bwd_compiled = torch.compile(fwd_bwd, fullgraph=False)
+
+    time_us = (
+        do_bench(
+            lambda: fwd_bwd_compiled(x_clone, w_t_clone, offs), return_mode="median"
+        )
+        * 1e3
+    )
+    return time_us / 1000  # Convert to ms
 
 
 def benchmark_mxfp8_grouped_mm_fwd_bwd(x, w_t, offs, labels, block_size=32):
-    """Benchmark _to_mxfp8_then_scaled_grouped_mm forward + backward"""
+    """Benchmark _quantize_then_scaled_grouped_mm forward + backward.
+
+    Uses the same approach as benchmark_scaled_grouped_mm_dq.py:
+    - Uses bench_fwd_bwd_microseconds pattern with *args/**kwargs
+    - Compiles the entire fwd+bwd wrapper with fullgraph=False
+    """
     x_clone = x.clone().requires_grad_(True)
     w_t_clone = w_t.clone().requires_grad_(True)
 
-    fn = torch.compile(_to_mxfp8_then_scaled_grouped_mm, fullgraph=True)
-
-    # Set all parameters explicitly as variables for positional args
-    A = x_clone
-    B_t = w_t_clone
-    offs_arg = offs
-    block_size_arg = block_size
-    out_dtype = torch.bfloat16
-    emulated = False
-    use_triton_for_dim0_cast = True
-    scale_calculation_mode = MoEScaleCalculationMode.RCEIL
-
-    def wrapper():
-        out = fn(
-            A,
-            B_t,
-            offs_arg,
-            block_size_arg,
-            out_dtype,
-            emulated,
-            use_triton_for_dim0_cast,
-            scale_calculation_mode,
+    def fwd_bwd(A, B_t, offs_arg, scaling_type):
+        out = _quantize_then_scaled_grouped_mm(
+            A, B_t, offs_arg, scaling_type=scaling_type
         )
         loss = torch.nn.functional.mse_loss(out, labels)
         loss.backward()
 
-    time_ms = do_bench(wrapper, return_mode="median")
-    return time_ms
+    # Compile entire fwd+bwd wrapper with fullgraph=False to match benchmark_scaled_grouped_mm_dq.py
+    fwd_bwd_compiled = torch.compile(fwd_bwd, fullgraph=False)
+
+    time_us = (
+        do_bench(
+            lambda: fwd_bwd_compiled(x_clone, w_t_clone, offs, MoEScalingType.MXFP8),
+            return_mode="median",
+        )
+        * 1e3
+    )
+    return time_us / 1000  # Convert to ms
 
 
 def benchmark_triton_to_mxfp8_dim0(tensor, block_size=32):
@@ -496,17 +490,10 @@ def benchmark_to_mxfp8_dim1_cuda(tensor, block_size=32):
             block_size=block_size,
             elem_dtype=torch.float8_e4m3fn,
             hp_dtype=torch.bfloat16,
-            gemm_kernel_choice=None,
+            kernel_preference=None,
             cast_kernel_choice=MXFP8Dim1CastKernelChoice.CUDA,
             scale_calculation_mode=ScaleCalculationMode.RCEIL,
         )
-    )
-
-
-def benchmark_to_mx(tensor, block_size=32):
-    """Benchmark to_mx kernel"""
-    return benchmark_cuda_function_in_microseconds(
-        lambda: _compiled_to_mx_wrapper(tensor, block_size, ScaleCalculationMode.RCEIL)
     )
 
 
@@ -716,23 +703,6 @@ def run(
             f"  to_mxfp8_dim1_cuda: Roofline={roofline_bandwidth_gbs:.1f} GB/s, Actual={dim1_cuda_bandwidth_gbs:.1f} GB/s, Efficiency={result_dict['cuda_dim1_efficiency_pct']:.1f}%"
         )
 
-        # Benchmark to_mx
-        # Warmup runs before benchmarking to ensure compiled function is optimized
-        for _ in range(2):
-            with torch.no_grad():
-                _ = _compiled_to_mx_wrapper(tensor, 32, ScaleCalculationMode.RCEIL)
-
-        to_mx_time_us = benchmark_to_mx(tensor)
-        to_mx_bandwidth_gbs = total_gb / (to_mx_time_us / 1e6)
-        result_dict["to_mx_us"] = to_mx_time_us
-        result_dict["to_mx_bandwidth_gbs"] = to_mx_bandwidth_gbs
-        result_dict["to_mx_efficiency_pct"] = (
-            to_mx_bandwidth_gbs / roofline_bandwidth_gbs
-        ) * 100
-        print(
-            f"  to_mx: Roofline={roofline_bandwidth_gbs:.1f} GB/s, Actual={to_mx_bandwidth_gbs:.1f} GB/s, Efficiency={result_dict['to_mx_efficiency_pct']:.1f}%"
-        )
-
         quant_2d_results.append(result_dict)
 
         # Clean up tensors to free GPU memory
@@ -875,6 +845,12 @@ def run(
         torch.cuda.empty_cache()
 
     # K-groups configurations (backward weight pass scales)
+    # The K-groups kernel is used for two tensors in backward weight:
+    # 1. grad_out.T scales: shape (N, M//32)
+    # 2. x.T scales: shape (K, M//32)
+    # We benchmark both shapes
+
+    # First: grad_out.T scales with shape (N, M_blocks)
     for M, K_val, N_val, _, desc in configs:
         M_blocks = M // block_size
 
@@ -892,51 +868,127 @@ def run(
         roofline_bandwidth_gbs = model.memory_bandwidth_gbs
 
         result_dict = {
-            "kernel_type": "K_groups",
+            "kernel_type": "K_groups_grad",
             "M": M,
-            "N": N_val,
+            "rows": N_val,
             "M_blocks": M_blocks,
-            "description": desc,
+            "description": f"{desc} (N={N_val})",
             "roofline_time_ms": roofline_time * 1000,
             "roofline_bandwidth_gbs": roofline_bandwidth_gbs,
             "total_gb": total_gb,
         }
 
-        print(f"\nBenchmarking K-groups rearrange {desc}...")
+        print(
+            f"\nBenchmarking K-groups rearrange grad_out.T {desc} (shape=({N_val}, {M_blocks}))..."
+        )
 
-        # Create test tensor (uint8 scales from transposed quantization)
+        # Create test tensor (float8_e8m0fnu scales from transposed quantization)
         input_tensor = torch.randint(
             low=0,
             high=256,
             size=(N_val, M_blocks),
             dtype=torch.uint8,
             device="cuda",
-        )
-        scale_group_offsets = generate_jagged_offs(num_groups, M) // block_size
+        ).view(torch.float8_e8m0fnu)
 
-        # Benchmark triton kernel
-        triton_out = triton_mx_block_rearrange_2d_K_groups(
+        # Generate offsets along the column dimension (M_blocks), matching the benchmark script
+        scale_group_offsets = generate_jagged_offs(
+            num_groups, M_blocks, multiple_of=block_size
+        )
+
+        # Benchmark CUDA kernel
+        cuda_out = mx_block_rearrange_2d_K_groups_cuda(
             input_tensor, scale_group_offsets
         )
-        triton_time_us = benchmark_cuda_function_in_microseconds(
-            triton_mx_block_rearrange_2d_K_groups,
+        cuda_time_us = benchmark_cuda_function_in_microseconds(
+            mx_block_rearrange_2d_K_groups_cuda,
             input_tensor,
             scale_group_offsets,
         )
-        triton_bandwidth_gbs = total_gb / (triton_time_us / 1e6)
-        result_dict["triton_mx_block_rearrange_2d_K_groups_us"] = triton_time_us
-        result_dict["triton_bandwidth_gbs"] = triton_bandwidth_gbs
-        result_dict["triton_efficiency_pct"] = (
-            triton_bandwidth_gbs / roofline_bandwidth_gbs
+        cuda_bandwidth_gbs = total_gb / (cuda_time_us / 1e6)
+        result_dict["mx_block_rearrange_2d_K_groups_cuda_us"] = cuda_time_us
+        result_dict["cuda_bandwidth_gbs"] = cuda_bandwidth_gbs
+        result_dict["cuda_efficiency_pct"] = (
+            cuda_bandwidth_gbs / roofline_bandwidth_gbs
         ) * 100
         print(
-            f"  triton_mx_block_rearrange_2d_K_groups: Roofline={roofline_bandwidth_gbs:.1f} GB/s, Actual={triton_bandwidth_gbs:.1f} GB/s, Efficiency={result_dict['triton_efficiency_pct']:.1f}%"
+            f"  mx_block_rearrange_2d_K_groups_cuda: Roofline={roofline_bandwidth_gbs:.1f} GB/s, Actual={cuda_bandwidth_gbs:.1f} GB/s, Efficiency={result_dict['cuda_efficiency_pct']:.1f}%"
         )
 
         rearrange_results.append(result_dict)
 
         # Clean up tensors
-        del input_tensor, scale_group_offsets, triton_out
+        del input_tensor, scale_group_offsets, cuda_out
+        torch.cuda.empty_cache()
+
+    # Second: x.T scales with shape (K, M_blocks)
+    for M, K_val, N_val, _, desc in configs:
+        M_blocks = M // block_size
+
+        # Calculate roofline time
+        roofline_time = model.compute_rearrange_2d_K_groups_time(
+            K_val,
+            M_blocks,
+        )
+
+        # Calculate bandwidth metrics
+        read_bytes = K_val * M_blocks * 1  # uint8
+        write_bytes = K_val * M_blocks * 1  # float8
+        total_bytes = read_bytes + write_bytes
+        total_gb = total_bytes / 1e9
+        roofline_bandwidth_gbs = model.memory_bandwidth_gbs
+
+        result_dict = {
+            "kernel_type": "K_groups_input",
+            "M": M,
+            "rows": K_val,
+            "M_blocks": M_blocks,
+            "description": f"{desc} (K={K_val})",
+            "roofline_time_ms": roofline_time * 1000,
+            "roofline_bandwidth_gbs": roofline_bandwidth_gbs,
+            "total_gb": total_gb,
+        }
+
+        print(
+            f"\nBenchmarking K-groups rearrange x.T {desc} (shape=({K_val}, {M_blocks}))..."
+        )
+
+        # Create test tensor (float8_e8m0fnu scales from transposed quantization)
+        input_tensor = torch.randint(
+            low=0,
+            high=256,
+            size=(K_val, M_blocks),
+            dtype=torch.uint8,
+            device="cuda",
+        ).view(torch.float8_e8m0fnu)
+        # Generate offsets along the column dimension (M_blocks), matching the benchmark script
+        scale_group_offsets = generate_jagged_offs(
+            num_groups, M_blocks, multiple_of=block_size
+        )
+
+        # Benchmark CUDA kernel
+        cuda_out = mx_block_rearrange_2d_K_groups_cuda(
+            input_tensor, scale_group_offsets
+        )
+        cuda_time_us = benchmark_cuda_function_in_microseconds(
+            mx_block_rearrange_2d_K_groups_cuda,
+            input_tensor,
+            scale_group_offsets,
+        )
+        cuda_bandwidth_gbs = total_gb / (cuda_time_us / 1e6)
+        result_dict["mx_block_rearrange_2d_K_groups_cuda_us"] = cuda_time_us
+        result_dict["cuda_bandwidth_gbs"] = cuda_bandwidth_gbs
+        result_dict["cuda_efficiency_pct"] = (
+            cuda_bandwidth_gbs / roofline_bandwidth_gbs
+        ) * 100
+        print(
+            f"  mx_block_rearrange_2d_K_groups_cuda: Roofline={roofline_bandwidth_gbs:.1f} GB/s, Actual={cuda_bandwidth_gbs:.1f} GB/s, Efficiency={result_dict['cuda_efficiency_pct']:.1f}%"
+        )
+
+        rearrange_results.append(result_dict)
+
+        # Clean up tensors
+        del input_tensor, scale_group_offsets, cuda_out
         torch.cuda.empty_cache()
 
     df_rearrange = pd.DataFrame(rearrange_results)
@@ -1165,7 +1217,7 @@ def run(
             32,
             elem_dtype=torch.float8_e4m3fn,
             hp_dtype=torch.bfloat16,
-            gemm_kernel_choice=None,
+            kernel_preference=None,
             cast_kernel_choice=MXFP8Dim1CastKernelChoice.CUDA,
             scale_calculation_mode=ScaleCalculationMode.RCEIL,
         )
@@ -1179,7 +1231,7 @@ def run(
             32,
             elem_dtype=torch.float8_e4m3fn,
             hp_dtype=torch.bfloat16,
-            gemm_kernel_choice=None,
+            kernel_preference=None,
             cast_kernel_choice=MXFP8Dim1CastKernelChoice.CUDA,
             scale_calculation_mode=ScaleCalculationMode.RCEIL,
         )
@@ -1188,10 +1240,10 @@ def run(
 
         # Convert scales to blocked format for 2D/2D grouped mm
         scale_group_offsets = offs // 32
-        grad_out_t_scales_blocked = triton_mx_block_rearrange_2d_K_groups(
+        grad_out_t_scales_blocked = mx_block_rearrange_2d_K_groups_cuda(
             grad_out_t_scales, scale_group_offsets
         )
-        x_t_scales_blocked = triton_mx_block_rearrange_2d_K_groups(
+        x_t_scales_blocked = mx_block_rearrange_2d_K_groups_cuda(
             x_t_scales, scale_group_offsets
         )
 
@@ -1303,18 +1355,10 @@ def run(
         label="to_mxfp8_dim1_cuda",
         color="orange",
     )
-    ax2.plot(
-        df_quant_2d["M"],
-        df_quant_2d["to_mx_efficiency_pct"],
-        marker="^",
-        linewidth=2,
-        linestyle="-",
-        label="to_mx",
-        color="green",
-    )
     # 2D Rearrange kernels
     df_m_groups = df_rearrange[df_rearrange["kernel_type"] == "M_groups"]
-    df_k_groups = df_rearrange[df_rearrange["kernel_type"] == "K_groups"]
+    df_k_groups_grad = df_rearrange[df_rearrange["kernel_type"] == "K_groups_grad"]
+    df_k_groups_input = df_rearrange[df_rearrange["kernel_type"] == "K_groups_input"]
     ax2.plot(
         df_m_groups["M"],
         df_m_groups["triton_efficiency_pct"],
@@ -1325,13 +1369,22 @@ def run(
         color="purple",
     )
     ax2.plot(
-        df_k_groups["M"],
-        df_k_groups["triton_efficiency_pct"],
+        df_k_groups_grad["M"],
+        df_k_groups_grad["cuda_efficiency_pct"],
         marker="d",
         linewidth=2,
         linestyle="--",
-        label="triton K-groups scale blocked format",
+        label="CUDA K-groups (N×M) scale blocked format",
         color="red",
+    )
+    ax2.plot(
+        df_k_groups_input["M"],
+        df_k_groups_input["cuda_efficiency_pct"],
+        marker="x",
+        linewidth=2,
+        linestyle="--",
+        label="CUDA K-groups (K×M) scale blocked format",
+        color="brown",
     )
     ax2.set_xlabel("Local Batch Size x Sequence Length (M)", fontsize=12)
     ax2.set_ylabel("Bandwidth Utilization (% of Peak)", fontsize=12)
@@ -1536,31 +1589,38 @@ def run(
     bwd_input_gemm_ms = fwd_gemm_ms
 
     # Backward weight pass
-    # Grad.T quantization (N, M)
-    grad_out_t_tensor = torch.randn(N_val, M_large, dtype=torch.bfloat16, device="cuda")
-    bwd_weight_grad_quant_ms = benchmark_triton_to_mxfp8_dim0(grad_out_t_tensor) / 1000
+    # Grad.T quantization (N, total_M) uses CUDA dim1 kernel, quantizing (total_M, N) then transposing
+    # to get (N, total_M) e4m3 data and (N, total_M//block_size) scales
+    bwd_weight_grad_quant_ms = benchmark_to_mxfp8_dim1_cuda(grad_out_tensor) / 1000
 
-    # Input quantization (M, K) - same as forward
-    bwd_weight_input_quant_ms = fwd_input_quant_ms
+    # Input quantization (total_M, K) - uses CUDA dim1 kernel, quantizing (total_M, K) then transposing
+    # to get (K, total_M) e4m3 data and (K, total_M//block_size) scales
+    input_tensor = torch.randn(M_large, K, dtype=torch.bfloat16, device="cuda")
+    bwd_weight_input_quant_ms = benchmark_to_mxfp8_dim1_cuda(input_tensor) / 1000
 
     # Grad.T scale rearrangement (N, M//32) - K-groups
-    idx_k_groups = df_rearrange[
-        (df_rearrange["kernel_type"] == "K_groups") & (df_rearrange["M"] == M_large)
+    idx_k_groups_grad = df_rearrange[
+        (df_rearrange["kernel_type"] == "K_groups_grad")
+        & (df_rearrange["M"] == M_large)
     ].index[0]
     bwd_weight_grad_scale_rearrange_ms = (
-        df_rearrange.loc[idx_k_groups, "triton_mx_block_rearrange_2d_K_groups_us"]
+        df_rearrange.loc[idx_k_groups_grad, "mx_block_rearrange_2d_K_groups_cuda_us"]
         / 1000
     )
 
     # Input scale rearrangement - need K-groups for (K, M//32)
+    idx_k_groups_input = df_rearrange[
+        (df_rearrange["kernel_type"] == "K_groups_input")
+        & (df_rearrange["M"] == M_large)
+    ].index[0]
     input_scales_k = torch.randint(
         0, 256, size=(K_val, M_large // block_size), dtype=torch.uint8, device="cuda"
+    ).view(torch.float8_e8m0fnu)
+    scale_group_offs = generate_jagged_offs(
+        G_val, M_large // block_size, multiple_of=block_size
     )
-    scale_group_offs = generate_jagged_offs(G_val, M_large) // block_size
     bwd_weight_input_scale_rearrange_ms = (
-        benchmark_cuda_function_in_microseconds(
-            triton_mx_block_rearrange_2d_K_groups, input_scales_k, scale_group_offs
-        )
+        df_rearrange.loc[idx_k_groups_input, "mx_block_rearrange_2d_K_groups_cuda_us"]
         / 1000
     )
 
@@ -1577,70 +1637,233 @@ def run(
         grad_out_tensor,
         grad_scales,
         grad_offs,
-        grad_out_t_tensor,
+        input_tensor,
         input_scales_k,
         scale_group_offs,
     )
     torch.cuda.empty_cache()
 
-    # Data for stacked bars
+    # Create granular kernel breakdown with exact kernel names
+    # Each pass has different kernels - we'll show them all individually
+
+    # Define kernel data for each pass with exact kernel names and shapes
+    # Forward pass kernels
+    fwd_kernels = [
+        (f"triton_to_mxfp8_dim0\n(M={M_large}, K={K})", fwd_input_quant_ms, "#1f77b4"),
+        (
+            f"mxfp8_quantize_cuda_3d\n(G={G}, N={N}, K={K})",
+            fwd_weight_quant_ms,
+            "#ff7f0e",
+        ),
+        (
+            f"triton_mx_block_rearrange_2d_M_groups\n(M={M_large}, K/{block_size})",
+            fwd_input_scale_rearrange_ms,
+            "#2ca02c",
+        ),
+        (
+            f"triton_mx_block_rearrange_per_group_3d\n(G={G}, N={N}, K/{block_size})",
+            fwd_weight_scale_rearrange_ms,
+            "#d62728",
+        ),
+        (
+            f"_scaled_grouped_mm 2D/3D\n(M={M_large}, K={K}, N={N})",
+            fwd_gemm_ms,
+            "#9467bd",
+        ),
+    ]
+
+    # Backward input pass kernels
+    bwd_input_kernels = [
+        (
+            f"triton_to_mxfp8_dim0\n(M={M_large}, N={N})",
+            bwd_input_grad_quant_ms,
+            "#1f77b4",
+        ),
+        (
+            f"mxfp8_quantize_cuda_3d\n(G={G}, K={K}, N={N})",
+            bwd_input_weight_quant_ms,
+            "#ff7f0e",
+        ),
+        (
+            f"triton_mx_block_rearrange_2d_M_groups\n(M={M_large}, N/{block_size})",
+            bwd_input_grad_scale_rearrange_ms,
+            "#2ca02c",
+        ),
+        (
+            f"triton_mx_block_rearrange_per_group_3d\n(G={G}, K={K}, N/{block_size})",
+            bwd_input_weight_scale_rearrange_ms,
+            "#d62728",
+        ),
+        (
+            f"_scaled_grouped_mm 2D/3D\n(M={M_large}, N={N}, K={K})",
+            bwd_input_gemm_ms,
+            "#9467bd",
+        ),
+    ]
+
+    # Backward weight pass kernels - note different quantization kernels
+    bwd_weight_kernels = [
+        (
+            f"_to_mxfp8_dim1_cuda\n(M={M_large}, N={N})→(N, M)",
+            bwd_weight_grad_quant_ms,
+            "#17becf",
+        ),
+        (
+            f"_to_mxfp8_dim1_cuda\n(M={M_large}, K={K})→(K, M)",
+            bwd_weight_input_quant_ms,
+            "#bcbd22",
+        ),
+        (
+            f"mx_block_rearrange_2d_K_groups_cuda\n(N={N}, M/{block_size})",
+            bwd_weight_grad_scale_rearrange_ms,
+            "#e377c2",
+        ),
+        (
+            f"mx_block_rearrange_2d_K_groups_cuda\n(K={K}, M/{block_size})",
+            bwd_weight_input_scale_rearrange_ms,
+            "#7f7f7f",
+        ),
+        (
+            f"_scaled_grouped_mm 2D/2D\n(N={N}, M={M_large}, K={K})",
+            bwd_weight_gemm_ms,
+            "#9467bd",
+        ),
+    ]
+
+    # Create a horizontal bar chart for each pass
+    all_passes = [
+        ("Forward", fwd_kernels),
+        ("Backward Input", bwd_input_kernels),
+        ("Backward Weight", bwd_weight_kernels),
+    ]
+
+    # Prepare data for grouped horizontal bars
+    pass_names = []
+    kernel_names = []
+    kernel_times = []
+    kernel_colors = []
+
+    for pass_name, kernels in all_passes:
+        for kernel_name, time_ms, color in kernels:
+            pass_names.append(pass_name)
+            kernel_names.append(kernel_name)
+            kernel_times.append(time_ms)
+            kernel_colors.append(color)
+
+    # Create stacked bar chart per pass
     passes = ["Forward", "Backward\nInput", "Backward\nWeight"]
-
-    # Stack components (bottom to top)
-    quant_1 = [fwd_input_quant_ms, bwd_input_grad_quant_ms, bwd_weight_grad_quant_ms]
-    quant_2 = [
-        fwd_weight_quant_ms,
-        bwd_input_weight_quant_ms,
-        bwd_weight_input_quant_ms,
-    ]
-    rearrange_1 = [
-        fwd_input_scale_rearrange_ms,
-        bwd_input_grad_scale_rearrange_ms,
-        bwd_weight_grad_scale_rearrange_ms,
-    ]
-    rearrange_2 = [
-        fwd_weight_scale_rearrange_ms,
-        bwd_input_weight_scale_rearrange_ms,
-        bwd_weight_input_scale_rearrange_ms,
-    ]
-    gemm = [fwd_gemm_ms, bwd_input_gemm_ms, bwd_weight_gemm_ms]
-
-    # Calculate cumulative bottoms for stacking
-    bottom_quant_2 = quant_1
-    bottom_rearrange_1 = [quant_1[i] + quant_2[i] for i in range(3)]
-    bottom_rearrange_2 = [bottom_rearrange_1[i] + rearrange_1[i] for i in range(3)]
-    bottom_gemm = [bottom_rearrange_2[i] + rearrange_2[i] for i in range(3)]
-
-    # Create stacked bars
     x_pos = range(len(passes))
     bar_width = 0.6
 
-    ax6.bar(x_pos, quant_1, bar_width, label="Input/Grad Quant", color="#1f77b4")
-    ax6.bar(
-        x_pos,
-        quant_2,
-        bar_width,
-        bottom=bottom_quant_2,
-        label="Weight Quant",
-        color="#ff7f0e",
-    )
-    ax6.bar(
-        x_pos,
-        rearrange_1,
-        bar_width,
-        bottom=bottom_rearrange_1,
-        label="Input/Grad Rearrange",
-        color="#2ca02c",
-    )
-    ax6.bar(
-        x_pos,
-        rearrange_2,
-        bar_width,
-        bottom=bottom_rearrange_2,
-        label="Weight Rearrange",
-        color="#d62728",
-    )
-    ax6.bar(x_pos, gemm, bar_width, bottom=bottom_gemm, label="GEMM", color="#9467bd")
+    # Stack the kernels for each pass
+    fwd_times = [k[1] for k in fwd_kernels]
+    bwd_input_times = [k[1] for k in bwd_input_kernels]
+    bwd_weight_times = [k[1] for k in bwd_weight_kernels]
+
+    # Use distinct colors for each kernel type
+    colors = [
+        "#1f77b4",  # blue - input/grad quant dim0
+        "#ff7f0e",  # orange - weight quant 3D / input quant dim1
+        "#2ca02c",  # green - input/grad scale rearrange
+        "#d62728",  # red - weight/input scale rearrange
+        "#9467bd",  # purple - GEMM
+    ]
+
+    # Create stacked bars with individual kernel labels
+    bottom_fwd = 0
+    bottom_bwd_input = 0
+    bottom_bwd_weight = 0
+
+    for i in range(5):  # 5 kernels per pass
+        ax6.bar(x_pos[0], fwd_times[i], bar_width, bottom=bottom_fwd, color=colors[i])
+        ax6.bar(
+            x_pos[1],
+            bwd_input_times[i],
+            bar_width,
+            bottom=bottom_bwd_input,
+            color=colors[i],
+        )
+        ax6.bar(
+            x_pos[2],
+            bwd_weight_times[i],
+            bar_width,
+            bottom=bottom_bwd_weight,
+            color=(
+                colors[i]
+                if i == 4
+                else (
+                    "#17becf"
+                    if i == 0  # cyan for dim1 quant
+                    else (
+                        "#bcbd22"
+                        if i == 1  # yellow-green for dim1 quant
+                        else (
+                            "#e377c2"
+                            if i == 2  # pink for K-groups rearrange
+                            else "#7f7f7f"
+                        )
+                    )  # gray for K-groups rearrange
+                )
+            ),
+        )
+
+        # Add time labels inside bars if space permits
+        if fwd_times[i] > 0.1:
+            ax6.text(
+                x_pos[0],
+                bottom_fwd + fwd_times[i] / 2,
+                f"{fwd_times[i]:.2f}",
+                ha="center",
+                va="center",
+                fontsize=7,
+                color="white",
+                fontweight="bold",
+            )
+        if bwd_input_times[i] > 0.1:
+            ax6.text(
+                x_pos[1],
+                bottom_bwd_input + bwd_input_times[i] / 2,
+                f"{bwd_input_times[i]:.2f}",
+                ha="center",
+                va="center",
+                fontsize=7,
+                color="white",
+                fontweight="bold",
+            )
+        if bwd_weight_times[i] > 0.1:
+            ax6.text(
+                x_pos[2],
+                bottom_bwd_weight + bwd_weight_times[i] / 2,
+                f"{bwd_weight_times[i]:.2f}",
+                ha="center",
+                va="center",
+                fontsize=7,
+                color="white",
+                fontweight="bold",
+            )
+
+        bottom_fwd += fwd_times[i]
+        bottom_bwd_input += bwd_input_times[i]
+        bottom_bwd_weight += bwd_weight_times[i]
+
+    # Create custom legend with all kernel names
+    from matplotlib.patches import Patch
+
+    legend_elements = [
+        Patch(facecolor="#1f77b4", label="triton_to_mxfp8_dim0 (M×K or M×N)"),
+        Patch(facecolor="#ff7f0e", label="mxfp8_quantize_cuda_3d (G×N×K)"),
+        Patch(facecolor="#2ca02c", label="triton_mx_block_rearrange_2d_M_groups"),
+        Patch(facecolor="#d62728", label="triton_mx_block_rearrange_per_group_3d"),
+        Patch(facecolor="#17becf", label="_to_mxfp8_dim1_cuda (M×N→N×M)"),
+        Patch(facecolor="#bcbd22", label="_to_mxfp8_dim1_cuda (M×K→K×M)"),
+        Patch(
+            facecolor="#e377c2", label="mx_block_rearrange_2d_K_groups_cuda (N×M/32)"
+        ),
+        Patch(
+            facecolor="#7f7f7f", label="mx_block_rearrange_2d_K_groups_cuda (K×M/32)"
+        ),
+        Patch(facecolor="#9467bd", label="_scaled_grouped_mm"),
+    ]
 
     # Formatting
     ax6.set_ylabel("Time (ms)", fontsize=12)
@@ -1650,30 +1873,32 @@ def run(
     ax6.grid(True, alpha=0.3, axis="y")
 
     # Add total time labels on top of each bar
-    totals = [
-        sum([quant_1[i], quant_2[i], rearrange_1[i], rearrange_2[i], gemm[i]])
-        for i in range(3)
-    ]
+    totals = [sum(fwd_times), sum(bwd_input_times), sum(bwd_weight_times)]
     for i, (pos, total) in enumerate(zip(x_pos, totals)):
-        ax6.text(pos, total, f"{total:.1f}", ha="center", va="bottom", fontsize=9)
+        ax6.text(
+            pos,
+            total,
+            f"{total:.2f}",
+            ha="center",
+            va="bottom",
+            fontsize=9,
+            fontweight="bold",
+        )
 
     # Add BF16 GEMM baseline reference lines
-    # Forward and Backward Input use 2D/3D GEMM
     bf16_fwd_gemm_ms = df_grouped_gemm.loc[idx_gemm, "bf16_gemm_time_ms"]
-    # Backward Weight uses 2D/2D GEMM
     bf16_bwd_weight_gemm_ms = df_grouped_gemm_2d_2d.loc[
         idx_gemm_2d2d, "bf16_2d_2d_gemm_time_ms"
     ]
 
     # Draw horizontal lines for BF16 baseline at each bar position
-    bar_width_visual = 0.4  # Visual width for the line
+    bar_width_visual = 0.4
     ax6.plot(
         [x_pos[0] - bar_width_visual, x_pos[0] + bar_width_visual],
         [bf16_fwd_gemm_ms, bf16_fwd_gemm_ms],
         color="red",
         linestyle="--",
         linewidth=2,
-        label="BF16 GEMM baseline",
     )
     ax6.plot(
         [x_pos[1] - bar_width_visual, x_pos[1] + bar_width_visual],
@@ -1689,9 +1914,19 @@ def run(
         linestyle="--",
         linewidth=2,
     )
+    legend_elements.append(
+        plt.Line2D(
+            [0],
+            [0],
+            color="red",
+            linestyle="--",
+            linewidth=2,
+            label="BF16 GEMM baseline",
+        )
+    )
 
-    # Add legend after all plot elements are added
-    ax6.legend(loc="upper right", fontsize=8)
+    # Add legend outside the plot
+    ax6.legend(handles=legend_elements, loc="upper left", fontsize=6, ncol=1)
 
     plt.tight_layout()
     plt.savefig(plot_file, dpi=150, bbox_inches="tight")
@@ -1711,7 +1946,6 @@ Net Speedup Analysis:
 2D Quantization Kernels:
   triton_to_mxfp8_dim0 avg efficiency: {df_quant_2d["triton_dim0_efficiency_pct"].mean():.1f}%
   to_mxfp8_dim1_cuda avg efficiency: {df_quant_2d["cuda_dim1_efficiency_pct"].mean():.1f}%
-  to_mx avg efficiency: {df_quant_2d["to_mx_efficiency_pct"].mean():.1f}%
 
 3D Quantization Kernels:
   mxfp8_quantize_cuda_3d avg efficiency: {df_quant_3d["cuda_3d_efficiency_pct"].mean():.1f}%
