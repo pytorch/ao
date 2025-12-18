@@ -29,7 +29,7 @@ logging.basicConfig(
 )
 
 
-class TestFloat8SemiSparseTensor(common_utils.TestCase):
+class TestSparse2x4Float8Tensor(common_utils.TestCase):
     @unittest.skipIf(not is_sm_at_least_90(), "Need H100 to run")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @common_utils.parametrize("compile", [True, False])
@@ -117,7 +117,7 @@ class TestFloat8SemiSparseTensor(common_utils.TestCase):
             torch.testing.assert_close(expected, original, atol=1e-1, rtol=1e-1)
 
 
-common_utils.instantiate_parametrized_tests(TestFloat8SemiSparseTensor)
+common_utils.instantiate_parametrized_tests(TestSparse2x4Float8Tensor)
 
 if __name__ == "__main__":
     unittest.main()

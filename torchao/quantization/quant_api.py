@@ -74,7 +74,6 @@ from torchao.quantization.quantize_.common import (
     KernelPreference,
 )
 from torchao.quantization.quantize_.workflows import (
-    Float8SemiSparseTensor,
     Float8Tensor,
     Float8TensorPackingFormat,
     Int4ChooseQParamsAlgorithm,
@@ -90,6 +89,7 @@ from torchao.quantization.quantize_.workflows import (
     IntxPackingFormat,
     IntxUnpackedToInt8Tensor,
     QuantizeTensorToFloat8Kwargs,
+    Sparse2x4Float8Tensor,
 )
 from torchao.quantization.transform_module import (
     _QUANTIZE_CONFIG_HANDLER,
@@ -2025,7 +2025,7 @@ def _float8_dynamic_activation_float8_semi_sparse_weight_transform(
     packing_format = config.float8_packing_format
 
     if version == 2:
-        quantized_param = Float8SemiSparseTensor.from_hp(
+        quantized_param = Sparse2x4Float8Tensor.from_hp(
             unquantized_param,
             float8_dtype=weight_dtype,
             granularity=weight_granularity,

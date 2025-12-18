@@ -32,7 +32,7 @@ from torchao.utils import (
 )
 
 __all__ = [
-    "Float8SemiSparseTensor",
+    "Sparse2x4Float8Tensor",
 ]
 
 aten = torch.ops.aten
@@ -42,7 +42,7 @@ from .float8_packing_format import Float8TensorPackingFormat
 from .float8_tensor import QuantizeTensorToFloat8Kwargs
 
 
-class Float8SemiSparseTensor(TorchAOBaseTensor):
+class Sparse2x4Float8Tensor(TorchAOBaseTensor):
     """
     Float8 Quantized + 2:4 sparse (weight) Tensor, with float8 dynamic quantization for activation.
 
@@ -55,7 +55,7 @@ class Float8SemiSparseTensor(TorchAOBaseTensor):
         block_size (List[int]): the block size for float8 quantization, meaning the shape of the elements
         sharing the same set of quantization parameters (scale), have the same rank as qdata or
         is an empty list (representing per tensor quantization)
-        act_quant_kwargs (QuantizeTensorToFloat8Kwargs): the kwargs for Float8SemiSparseTensor.from_hp
+        act_quant_kwargs (QuantizeTensorToFloat8Kwargs): the kwargs for Sparse2x4Float8Tensor.from_hp
         packing_format (Float8PackingFormat): the preference for quantize, mm etc. kernel to use,
         by default, this will be chosen for user based on hardware, library availabilities etc.
         dtype: Original Tensor dtype
@@ -194,7 +194,7 @@ class Float8SemiSparseTensor(TorchAOBaseTensor):
                 f"packing_format={packing_format} is not supported currently!"
             )
 
-        return Float8SemiSparseTensor(
+        return Sparse2x4Float8Tensor(
             qdata,
             sparse_metadata,
             scale,
@@ -205,8 +205,8 @@ class Float8SemiSparseTensor(TorchAOBaseTensor):
         )
 
 
-implements = Float8SemiSparseTensor.implements
-implements_torch_function = Float8SemiSparseTensor.implements_torch_function
+implements = Sparse2x4Float8Tensor.implements
+implements_torch_function = Sparse2x4Float8Tensor.implements_torch_function
 
 
 @implements(aten.linear.default)
@@ -289,5 +289,5 @@ def _(func, types, args, kwargs):
 
 # Allow a model with Float8Tensor weights to be loaded with `weights_only=True`
 torch.serialization.add_safe_globals(
-    [Float8SemiSparseTensor, QuantizeTensorToFloat8Kwargs]
+    [Sparse2x4Float8Tensor, QuantizeTensorToFloat8Kwargs]
 )
