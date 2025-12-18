@@ -459,10 +459,7 @@ class TestFloat8Linear:
         s = m.__repr__()
         assert "i:dyn_ten_e4m3,w:dyn_ten_e4m3,go:dyn_ten_e5m2" in s
 
-    @unittest.skipIf(not torch.accelerator.is_available(), "GPU not available")
-    @unittest.skipIf(
-        torch.cuda.is_available() and not is_sm_at_least_89(), "CUDA 8.9 not available"
-    )
+    @unittest.skipIf(not is_sm_at_least_89(), "CUDA 8.9 not available")
     def test_inference_mode(self):
         x = torch.randn(32, 32, device=_DEVICE)
         m = nn.Sequential(nn.Linear(32, 32)).to(_DEVICE)
@@ -491,9 +488,8 @@ class TestFloat8Linear:
 
 
 class TestScaledMM:
-    @unittest.skipIf(not torch.accelerator.is_available(), "GPU not available")
     @unittest.skipIf(
-        torch.cuda.is_available() and not is_sm_at_least_89(),
+        not is_sm_at_least_89(),
         "CUDA not available",
     )
     @pytest.mark.parametrize(
