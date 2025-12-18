@@ -427,26 +427,23 @@ class Int8DynActInt4WeightLinear(torch.nn.Module):
         # that his module represents.
         self.precision = precision
 
-        if dtype is not None:
-            raise ValueError("Please specify 'precision' instead of 'dtype'")
-
         # currently storing unpacked int8 weights
         self.register_buffer(
             "weight",
-            torch.zeros((out_features, in_features), dtype=torch.int8),
+            torch.zeros((out_features, in_features), precision=torch.int8),
         )
         self.register_buffer(
             "scales",
             torch.zeros(
                 (out_features, in_features // groupsize),
-                dtype=scales_precision,
+                precision=scales_precision,
             ),
         )
         self.register_buffer(
             "zeros",
             torch.zeros(
                 (out_features, in_features // groupsize),
-                dtype=scales_precision,
+                precision=scales_precision,
             ),
         )
 
