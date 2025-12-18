@@ -19,7 +19,7 @@ from torchao.quantization.quant_api import (
     quantize_,
 )
 from torchao.quantization.quantize_.workflows import (
-    Float8SemiSparseTensorPackingFormat,
+    Float8TensorPackingFormat,
 )
 from torchao.sparsity import apply_fake_sparsity
 from torchao.utils import is_sm_at_least_90
@@ -36,8 +36,8 @@ class TestFloat8SemiSparseTensor(common_utils.TestCase):
     @common_utils.parametrize(
         "packing_format",
         [
-            Float8SemiSparseTensorPackingFormat.SPARSE_CUTLASS,
-            Float8SemiSparseTensorPackingFormat.SPARSE_CUSPARSELT,
+            Float8TensorPackingFormat.SPARSE_CUTLASS,
+            Float8TensorPackingFormat.SPARSE_CUSPARSELT,
         ],
     )
     def test_fp8_cutlass_sparse(self, compile, packing_format):
@@ -64,7 +64,8 @@ class TestFloat8SemiSparseTensor(common_utils.TestCase):
             quantize_(
                 model,
                 Float8DynamicActivationFloat8SemiSparseWeightConfig(
-                    float8_packing_format=packing_format
+                    float8_packing_format=packing_format,
+                    version=2,
                 ),
             )
             if compile:
@@ -84,7 +85,9 @@ class TestFloat8SemiSparseTensor(common_utils.TestCase):
         with torch.inference_mode():
             model = nn.Linear(256, 1024).half().cuda().eval()
             apply_fake_sparsity(model)
-            quantize_(model, Float8DynamicActivationFloat8SemiSparseWeightConfig())
+            quantize_(
+                model, Float8DynamicActivationFloat8SemiSparseWeightConfig(version=2)
+            )
 
             original = model.weight.dequantize()
             cloned = model.weight.clone().dequantize()
@@ -102,7 +105,9 @@ class TestFloat8SemiSparseTensor(common_utils.TestCase):
             model_copy = copy.deepcopy(model)
             expected = model_copy.weight.to(dtype=torch.float)
 
-            quantize_(model, Float8DynamicActivationFloat8SemiSparseWeightConfig())
+            quantize_(
+                model, Float8DynamicActivationFloat8SemiSparseWeightConfig(version=2)
+            )
 
             original = torch.ops.aten.to.dtype_layout(
                 model.weight,

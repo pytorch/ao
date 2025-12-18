@@ -75,8 +75,8 @@ from torchao.quantization.quantize_.common import (
 )
 from torchao.quantization.quantize_.workflows import (
     Float8SemiSparseTensor,
-    Float8SemiSparseTensorPackingFormat,
     Float8Tensor,
+    Float8TensorPackingFormat,
     Int4ChooseQParamsAlgorithm,
     Int4MarlinSparseTensor,
     Int4OpaqueTensor,
@@ -1973,15 +1973,16 @@ class Float8DynamicActivationFloat8SemiSparseWeightConfig(AOBaseConfig):
         `weight_dtype`: data type for quantized weight tensor.
     """
 
+    layout: Layout = CutlassSemiSparseLayout()
     activation_dtype: torch.dtype = e4m3_dtype
     weight_dtype: torch.dtype = e4m3_dtype
     granularity: Optional[Union[FP8Granularity, List[FP8Granularity]]] = PerRow()
     activation_value_lb: Optional[float] = None
     activation_value_ub: Optional[float] = None
-    float8_packing_format: Float8SemiSparseTensorPackingFormat = (
-        Float8SemiSparseTensorPackingFormat.SPARSE_CUTLASS
+    float8_packing_format: Float8TensorPackingFormat = (
+        Float8TensorPackingFormat.SPARSE_CUTLASS
     )
-    version: int = 2
+    version: int = 1
 
     def __post_init__(self):
         torch._C._log_api_usage_once(
@@ -1989,8 +1990,8 @@ class Float8DynamicActivationFloat8SemiSparseWeightConfig(AOBaseConfig):
         )
 
         assert self.float8_packing_format in {
-            Float8SemiSparseTensorPackingFormat.SPARSE_CUTLASS,
-            Float8SemiSparseTensorPackingFormat.SPARSE_CUSPARSELT,
+            Float8TensorPackingFormat.SPARSE_CUTLASS,
+            Float8TensorPackingFormat.SPARSE_CUSPARSELT,
         }, f"{self.float8_packing_format} is not supported"
 
 
@@ -2031,10 +2032,21 @@ def _float8_dynamic_activation_float8_semi_sparse_weight_transform(
             packing_format=packing_format,
             act_quant_kwargs=act_quant_kwargs,
         )
-    else:
-        raise NotImplementedError(
-            f"Only version 2 of Float8DynamicActivationFloat8SemiSparseWeightConfig is supported. Received {version}."
+    elif version == 1:
+        layout = config.layout
+        if not isinstance(layout, CutlassSemiSparseLayout):
+            raise NotImplementedError(
+                f"Only CutlassSemiSparseLayout layout is supported. Received {layout}."
+            )
+
+        quantized_param = _float8_cutlass_quant_sparse(unquantized_param, weight_dtype)
+        quantized_param = to_linear_activation_quantized(
+            quantized_param,
+            _float8_cutlass_quant,
+            quant_kwargs={"target_dtype": activation_dtype},
         )
+    else:
+        raise NotImplementedError(f"Unsupported version: {version}")
 
     setattr(
         module,
