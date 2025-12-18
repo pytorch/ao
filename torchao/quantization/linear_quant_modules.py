@@ -86,10 +86,8 @@ class WeightOnlyInt4Linear(torch.nn.Module):
         self,
         in_features: int,
         out_features: int,
-        # TODO: remove dtype field, not used
         bias=False,
         device=None,
-        dtype=None,
         groupsize: int = 128,
         inner_k_tiles: int = 8,
         precision: torch.dtype = torch.bfloat16,
@@ -410,8 +408,6 @@ class Int8DynActInt4WeightLinear(torch.nn.Module):
         out_features: int,
         bias=True,
         device=None,
-        # TODO: remove this field, not used
-        dtype=None,
         groupsize: int = 256,
         precision: torch.dtype = torch.float32,
         scales_precision: torch.dtype = torch.float32,
