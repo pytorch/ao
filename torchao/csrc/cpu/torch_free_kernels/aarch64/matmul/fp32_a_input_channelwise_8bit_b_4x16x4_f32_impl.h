@@ -16,7 +16,7 @@
 #include <torchao/csrc/cpu/torch_free_kernels/macro.h>
 #include <torchao/csrc/cpu/torch_free_kernels/aarch64/matmul/matmul_utils.h>
 
-namespace torchao::kernels::cpu::aarch64::quantized_matmul {
+namespace torchao::cpu::aarch64::quantized_matmul {
 namespace fp32_a_input_channelwise_8bit_b_4x16x4_f32::internal {
 
 namespace {
@@ -305,7 +305,7 @@ void kernel(
     const float* rhs_scales,
     const float beta,
     const int rhs_qparams_stride) {
-  torchao::kernels::cpu::aarch64::quantized_matmul::
+  torchao::cpu::aarch64::quantized_matmul::
       fp32_a_input_channelwise_8bit_b_4x16x4_f32::internal::
           KernelImpl<b_has_zeros, a_transposed, b_transposed>::run(
               m,
@@ -323,6 +323,6 @@ void kernel(
               rhs_qparams_stride);
 }
 } // namespace fp32_a_input_channelwise_8bit_b_4x16x4_f32
-} // namespace torchao::kernels::cpu::aarch64::quantized_matmul
+} // namespace torchao::cpu::aarch64::quantized_matmul
 
 #endif // defined(__aarch64__) && defined(__ARM_NEON)

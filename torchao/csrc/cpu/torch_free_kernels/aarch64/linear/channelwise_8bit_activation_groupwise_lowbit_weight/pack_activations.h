@@ -12,7 +12,7 @@
 #include <torchao/csrc/cpu/torch_free_kernels/aarch64/reduction/reduction.h>
 #include <cassert>
 
-namespace torchao::kernels::cpu::aarch64::linear::channelwise_8bit_activation_groupwise_lowbit_weight::activation_packing {
+namespace torchao::cpu::aarch64::linear::channelwise_8bit_activation_groupwise_lowbit_weight::activation_packing {
 
 // Prepares activation data for kernel_impl.
 //   Per m_idx (row), activations are stored as follows:
@@ -72,7 +72,7 @@ void inline pack_activations(
       qmin, qmax, /*nbit=*/8, /*is_symmetric=*/false);
 
   for (int m_idx = 0; m_idx < m; m_idx++) {
-    torchao::kernels::cpu::aarch64::reduction::find_min_and_max(
+    torchao::cpu::aarch64::reduction::find_min_and_max(
         vmin, vmax, activations, k);
     torchao::quantization::get_scale_and_zero(
         scale, zero, vmin, vmax, qmin, qmax);
@@ -86,7 +86,7 @@ void inline pack_activations(
 
     if (has_weight_zeros) {
       for (int k_idx = 0; k_idx < k; k_idx += group_size) {
-        torchao::kernels::cpu::aarch64::quantization::quantize(
+        torchao::cpu::aarch64::quantization::quantize(
             /*qvals=*/(int8_t*)activation_data_byte_ptr,
             /*vals=*/activations,
             /*size=*/group_size,
@@ -95,7 +95,7 @@ void inline pack_activations(
             /*qmin=*/qmin,
             /*qmax=*/qmax);
 
-        qvals_sum = torchao::kernels::cpu::aarch64::reduction::compute_sum(
+        qvals_sum = torchao::cpu::aarch64::reduction::compute_sum(
             /*vals=*/(int8_t*)activation_data_byte_ptr,
             /*size=*/group_size);
 
@@ -107,7 +107,7 @@ void inline pack_activations(
         activations += group_size;
       }
     } else {
-      torchao::kernels::cpu::aarch64::quantization::quantize(
+      torchao::cpu::aarch64::quantization::quantize(
           /*qvals=*/(int8_t*)activation_data_byte_ptr,
           /*vals=*/activations,
           /*size=*/k,
@@ -121,6 +121,6 @@ void inline pack_activations(
   }
 }
 
-} // namespace torchao::kernels::cpu::aarch64::linear::channelwise_8bit_activation_groupwise_lowbit_weight::activation_packing
+} // namespace torchao::cpu::aarch64::linear::channelwise_8bit_activation_groupwise_lowbit_weight::activation_packing
 
 #endif // defined(__aarch64__) || defined(__ARM_NEON)

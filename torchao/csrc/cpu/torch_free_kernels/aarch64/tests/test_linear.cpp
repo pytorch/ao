@@ -40,7 +40,7 @@ void test_channelwise_8bit_activation_groupwise_lowbit_weight_1x1x32(
           has_bias,
           has_clamp);
 
-  using namespace torchao::kernels::cpu::aarch64::linear::
+  using namespace torchao::cpu::aarch64::linear::
       channelwise_8bit_activation_groupwise_lowbit_weight;
 
   std::vector<char> packed_activations(
@@ -116,7 +116,7 @@ void test_channelwise_8bit_activation_groupwise_lowbit_weight_1x4x16(
           has_bias,
           has_clamp);
 
-  using namespace torchao::kernels::cpu::aarch64::linear::
+  using namespace torchao::cpu::aarch64::linear::
       channelwise_8bit_activation_groupwise_lowbit_weight;
 
   std::vector<char> packed_activations(
@@ -192,7 +192,7 @@ void test_channelwise_8bit_activation_groupwise_lowbit_weight_1x8x16(
           has_bias,
           has_clamp);
 
-  using namespace torchao::kernels::cpu::aarch64::linear::
+  using namespace torchao::cpu::aarch64::linear::
       channelwise_8bit_activation_groupwise_lowbit_weight;
 
   std::vector<char> packed_activations(
@@ -438,7 +438,7 @@ void test_channelwise_8bit_activation_groupwise_lowbit_weight_lut(
           has_bias,
           has_clamp);
 
-  using namespace torchao::kernels::cpu::aarch64::linear::
+  using namespace torchao::cpu::aarch64::linear::
       channelwise_8bit_activation_groupwise_lowbit_weight;
 
   std::vector<char> packed_activations(

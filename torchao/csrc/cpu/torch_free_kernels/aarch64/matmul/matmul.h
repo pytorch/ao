@@ -15,7 +15,7 @@
 
 #include <arm_neon.h>
 
-namespace torchao::kernels::cpu::aarch64::quantized_matmul {
+namespace torchao::cpu::aarch64::quantized_matmul {
 namespace channelwise_8bit_a_channelwise_8bit_b_1x8x16_f32_neondot {
 
 template <
@@ -307,7 +307,7 @@ void kernel(
 }
 
 } // namespace fp32_a_input_channelwise_8bit_b_f32
-} // namespace torchao::kernels::cpu::aarch64::quantized_matmul
+} // namespace torchao::cpu::aarch64::quantized_matmul
 
 #include <torchao/csrc/cpu/torch_free_kernels/aarch64/matmul/channelwise_8bit_a_channelwise_8bit_b_1x16x16_f32_smlal-impl.h>
 #include <torchao/csrc/cpu/torch_free_kernels/aarch64/matmul/channelwise_8bit_a_channelwise_8bit_b_1x8x16_f32_neondot-impl.h>

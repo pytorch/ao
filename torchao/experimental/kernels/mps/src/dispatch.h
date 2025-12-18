@@ -8,7 +8,7 @@
 
 #include <functional>
 
-namespace torchao::kernels::mps::lowbit::dispatch {
+namespace torchao::mps::lowbit::dispatch {
 
 inline void dispatch_mm(
     id<MTLComputeCommandEncoder> encoder,
@@ -48,4 +48,4 @@ inline void dispatch_qmv_fast(
       threadsPerThreadgroup:MTLSizeMake(32, 2, 1)];
 }
 
-} // namespace torchao::kernels::mps::lowbit::dispatch
+} // namespace torchao::mps::lowbit::dispatch

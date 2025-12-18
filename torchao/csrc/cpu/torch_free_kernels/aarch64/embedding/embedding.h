@@ -15,7 +15,7 @@
 #include <cassert>
 #include <vector>
 
-namespace torchao::kernels::cpu::aarch64::embedding {
+namespace torchao::cpu::aarch64::embedding {
 
 namespace internal {
 
@@ -353,7 +353,7 @@ inline void shared_embedding(
   n_idx = n_idx * nr;
   int j = index - n_idx;
 
-  torchao::kernels::cpu::aarch64::linear::
+  torchao::cpu::aarch64::linear::
       channelwise_8bit_activation_groupwise_lowbit_weight::weight_packing::
           unpack_weights_at_n_idx<weight_nbit, nr, kr, sr>(
               weight_qvals.data(),
@@ -381,6 +381,6 @@ inline void shared_embedding(
   }
 }
 
-} // namespace torchao::kernels::cpu::aarch64::embedding
+} // namespace torchao::cpu::aarch64::embedding
 
 #endif // defined(__aarch64__) || defined(__ARM_NEON)

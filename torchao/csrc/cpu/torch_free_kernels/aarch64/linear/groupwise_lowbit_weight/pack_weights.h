@@ -11,7 +11,7 @@
 #include <numeric>
 #include <vector>
 
-namespace torchao::kernels::cpu::aarch64::linear::groupwise_lowbit_weight_lut::
+namespace torchao::cpu::aarch64::linear::groupwise_lowbit_weight_lut::
     weight_packing {
 namespace lut_utils = torchao::lut;
 namespace packing_utils = torchao::packing;
@@ -224,5 +224,5 @@ TORCHAO_ALWAYS_INLINE inline void pack_weights(
   }
 }
 } // namespace
-  // torchao::kernels::cpu::aarch64::linear::groupwise_lowbit_weight_lut::weight_packing
+  // torchao::cpu::aarch64::linear::groupwise_lowbit_weight_lut::weight_packing
 #endif // defined(aarch64) || defined(__ARM_NEON)

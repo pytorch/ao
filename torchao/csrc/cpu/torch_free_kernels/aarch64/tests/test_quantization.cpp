@@ -49,7 +49,7 @@ TEST(test_quantize, ExpectedOutput) {
   int qmin, qmax, zero;
   float vmin, vmax, scale;
 
-  torchao::kernels::cpu::aarch64::reduction::find_min_and_max(
+  torchao::cpu::aarch64::reduction::find_min_and_max(
       vmin, vmax, vals.data(), vals.size());
 
   std::vector<int8_t> qvals(vals.size());
@@ -61,7 +61,7 @@ TEST(test_quantize, ExpectedOutput) {
     torchao::quantization::get_scale_and_zero(
         scale, zero, vmin, vmax, qmin, qmax);
 
-    torchao::kernels::cpu::aarch64::quantization::quantize(
+    torchao::cpu::aarch64::quantization::quantize(
         qvals.data(), vals.data(), vals.size(), scale, zero, qmin, qmax);
 
     for (int i = 0; i < vals.size(); ++i) {

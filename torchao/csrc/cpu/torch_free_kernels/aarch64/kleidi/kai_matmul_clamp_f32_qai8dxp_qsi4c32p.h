@@ -30,7 +30,7 @@
 
 #include <torchao/csrc/cpu/torch_free_kernels/aarch64/kleidi/pack.h>
 
-namespace torchao::kernels::cpu::aarch64::kleidi {
+namespace torchao::cpu::aarch64::kleidi {
 
 // Helper functions
 // TODO: find a better place for these?
@@ -319,4 +319,4 @@ DEFINE_KERNEL_STRUCT(matmul_clamp_f32_qai8dxp4x8_qsi4c32p8x8_4x8x32_neon_i8mm);
 #undef DEFINE_KERNEL_STRUCT
 
 } // namespace kai_matmul_clamp_f32_qai8dxp_qsi4c32p
-} // namespace torchao::kernels::cpu::aarch64::kleidi
+} // namespace torchao::cpu::aarch64::kleidi

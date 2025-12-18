@@ -16,7 +16,7 @@
 
 namespace lut_utils = torchao::lut;
 namespace kernel_api =
-    torchao::kernels::cpu::aarch64::linear::groupwise_lowbit_weight_lut;
+    torchao::cpu::aarch64::linear::groupwise_lowbit_weight_lut;
 
 TEST(test_fp32_lut, LutLookup) {
   auto lut = torchao::get_random_vector(16, -1.0, 1.0);
@@ -53,7 +53,7 @@ void test_groupwise_lowbit_lut_kernel(
     bool has_bias,
     bool has_clamp) {
   namespace kernel_api =
-      torchao::kernels::cpu::aarch64::linear::groupwise_lowbit_weight_lut;
+      torchao::cpu::aarch64::linear::groupwise_lowbit_weight_lut;
   // 1. Generate test case
   auto test_case = torchao::groupwise_lowbit_weight_lut_test_case::
       generate_with_decoupled_grouping(

@@ -19,7 +19,7 @@ channelwise_8bit_activation_groupwise_lowbit_weight_1x1x32_f32_neondot(
   int k = state.range(2);
   int group_size = state.range(3);
 
-  using namespace torchao::kernels::cpu::aarch64::linear::
+  using namespace torchao::cpu::aarch64::linear::
       channelwise_8bit_activation_groupwise_lowbit_weight_1x1x32_f32_neondot;
 
   auto test_case = torchao::
@@ -91,7 +91,7 @@ channelwise_8bit_activation_groupwise_lowbit_weight_1x4x16_f32_neondot(
   int k = state.range(2);
   int group_size = state.range(3);
 
-  using namespace torchao::kernels::cpu::aarch64::linear::
+  using namespace torchao::cpu::aarch64::linear::
       channelwise_8bit_activation_groupwise_lowbit_weight;
 
   auto test_case = torchao::
@@ -163,7 +163,7 @@ channelwise_8bit_activation_groupwise_lowbit_weight_1x8x16_f32_neondot(
   int k = state.range(2);
   int group_size = state.range(3);
 
-  using namespace torchao::kernels::cpu::aarch64::linear::
+  using namespace torchao::cpu::aarch64::linear::
       channelwise_8bit_activation_groupwise_lowbit_weight;
 
   auto test_case = torchao::

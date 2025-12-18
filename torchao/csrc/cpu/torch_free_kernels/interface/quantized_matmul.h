@@ -15,7 +15,7 @@
 #include <torchao/csrc/cpu/torch_free_kernels/aarch64/matmul/matmul.h>
 #endif // defined(__aarch64__) && defined(__ARM_NEON)
 
-namespace torchao::kernels::cpu::quantized_matmul {
+namespace torchao::cpu::quantized_matmul {
 
 /*
 a_stride_m: stride of a in memory to indiciate how far apart each row is.
@@ -78,10 +78,10 @@ get_int8_a_int8_b_channelwise_qmatmul(
   if (b_transposed) {
     a_stride_m = k;
     b_stride_n = k;
-    return torchao::kernels::cpu::fallback::quantized_matmul::
+    return torchao::cpu::fallback::quantized_matmul::
         channelwise_8bit_a_channelwise_8bit_b::kernel<true, true, false, true>;
   } else {
-    return torchao::kernels::cpu::fallback::quantized_matmul::
+    return torchao::cpu::fallback::quantized_matmul::
         channelwise_8bit_a_channelwise_8bit_b::kernel<true, true, false, false>;
   }
 }
@@ -144,13 +144,13 @@ get_fp32_a_input_channelwise_8bit_b_f32_c_matmul(
   if (b_transposed) {
     a_stride_m = k;
     b_stride_n = k;
-    return torchao::kernels::cpu::fallback::quantized_matmul::
+    return torchao::cpu::fallback::quantized_matmul::
         fp32_a_input_channelwise_8bit_b_fp32::kernel<true, false, true>;
   } else {
     a_stride_m = k;
     b_stride_n = n;
-    return torchao::kernels::cpu::fallback::quantized_matmul::
+    return torchao::cpu::fallback::quantized_matmul::
         fp32_a_input_channelwise_8bit_b_fp32::kernel<true, false, false>;
   }
 }
-} // namespace torchao::kernels::cpu::quantized_matmul
+} // namespace torchao::cpu::quantized_matmul

@@ -12,7 +12,7 @@
 #include <cassert>
 #include <cstring>
 
-namespace torchao::kernels::cpu::aarch64::linear::
+namespace torchao::cpu::aarch64::linear::
     channelwise_8bit_activation_groupwise_lowbit_weight::kernel {
 namespace internal {
 
@@ -361,6 +361,6 @@ void kernel_1x8x16_f32_neondot(
 }
 
 } // namespace
-  // torchao::kernels::cpu::aarch64::linear::channelwise_8bit_activation_groupwise_lowbit_weight::kernel
+  // torchao::cpu::aarch64::linear::channelwise_8bit_activation_groupwise_lowbit_weight::kernel
 
 #endif // defined(__aarch64__) || defined(__ARM_NEON)

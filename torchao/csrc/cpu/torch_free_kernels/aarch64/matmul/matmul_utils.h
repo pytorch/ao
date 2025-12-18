@@ -13,7 +13,7 @@
 #include <cassert>
 #include <cstddef>
 
-namespace torchao::kernels::cpu::aarch64::quantized_matmul {
+namespace torchao::cpu::aarch64::quantized_matmul {
 namespace utils {
 
 TORCHAO_ALWAYS_INLINE static void transpose_scales_and_zero_points(
@@ -148,6 +148,6 @@ void pack_kxn_b_matrix_for_mx8_dotprod_ukernel(
   }
 }
 } // namespace utils
-} // namespace torchao::kernels::cpu::aarch64::quantized_matmul
+} // namespace torchao::cpu::aarch64::quantized_matmul
 
 #endif // defined(__aarch64__) || defined(__ARM_NEON)

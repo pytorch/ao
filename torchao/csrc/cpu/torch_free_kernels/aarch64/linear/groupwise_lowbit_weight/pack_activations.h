@@ -7,7 +7,7 @@
 #include <cstring>
 #include <vector>
 
-namespace torchao::kernels::cpu::aarch64::linear::groupwise_lowbit_weight_lut::
+namespace torchao::cpu::aarch64::linear::groupwise_lowbit_weight_lut::
     activation_packing {
 
 inline size_t packed_activations_size(int m, int k) {
@@ -26,6 +26,6 @@ void pack_activations(
   std::memcpy(packed_activations, activations, sizeof(float) * m * k);
 }
 } // namespace
-  // torchao::kernels::cpu::aarch64::linear::groupwise_lowbit_weight_lut::activation_packing
+  // torchao::cpu::aarch64::linear::groupwise_lowbit_weight_lut::activation_packing
 
 #endif // defined(__aarch64__) || defined(__ARM_NEON)

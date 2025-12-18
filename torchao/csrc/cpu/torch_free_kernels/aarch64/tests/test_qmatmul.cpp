@@ -54,11 +54,11 @@ struct test_channelwise_8bit_channelwise_8bit_b<
         const int);
     kernel_fn_type kernel_fn = nullptr;
     if (use_gemm && (m % 4 == 0) && (n % 8 == 0) && (k % 16 == 0)) {
-      using namespace torchao::kernels::cpu::aarch64::quantized_matmul::
+      using namespace torchao::cpu::aarch64::quantized_matmul::
           channelwise_8bit_a_channelwise_8bit_b_4x8x8_f32_neondot;
       kernel_fn = kernel<a_has_zeros, b_has_zeros, false, true>;
     } else {
-      using namespace torchao::kernels::cpu::aarch64::quantized_matmul::
+      using namespace torchao::cpu::aarch64::quantized_matmul::
           channelwise_8bit_a_channelwise_8bit_b_1x8x16_f32_neondot;
       kernel_fn = kernel<a_has_zeros, b_has_zeros, false, true>;
     }
@@ -99,7 +99,7 @@ struct test_channelwise_8bit_channelwise_8bit_b<
         torchao::channelwise_8bit_a_channelwise_8bit_b_qmatmul_test_case::
             generate(m, k, n, a_has_zeros, a_has_zeros, false, false);
 
-    using namespace torchao::kernels::cpu::aarch64::quantized_matmul::
+    using namespace torchao::cpu::aarch64::quantized_matmul::
         channelwise_8bit_a_channelwise_8bit_b_1x16x16_f32_smlal;
 
     std::vector<float> output(m * n);
@@ -416,11 +416,11 @@ static void test_fp32_a_input_channelwise_8bit_b(
 
   kernel_fn_type kernel_fn = nullptr;
   if (test_case.use_gemm_kernel() && (m % 4 == 0)) {
-    using namespace torchao::kernels::cpu::aarch64::quantized_matmul::
+    using namespace torchao::cpu::aarch64::quantized_matmul::
         fp32_a_input_channelwise_8bit_b_4x16x4_f32;
     kernel_fn = kernel<true, false, false>;
   } else {
-    using namespace torchao::kernels::cpu::aarch64::quantized_matmul::
+    using namespace torchao::cpu::aarch64::quantized_matmul::
         fp32_a_input_channelwise_8bit_b_1x16x4_f32;
     kernel_fn = kernel<true, false, false>;
   }
@@ -568,11 +568,11 @@ static void test_8bit_per_token_q_at_k_matmul_attention(
       const int);
   kernel_fn_type kernel_fn = nullptr;
   if ((s_q % 4 == 0) && (s_k % 8 == 0) && (d % 16 == 0)) {
-    using namespace torchao::kernels::cpu::aarch64::quantized_matmul::
+    using namespace torchao::cpu::aarch64::quantized_matmul::
         channelwise_8bit_a_channelwise_8bit_b_4x8x8_f32_neondot;
     kernel_fn = kernel<true, true, false, true>;
   } else {
-    using namespace torchao::kernels::cpu::aarch64::quantized_matmul::
+    using namespace torchao::cpu::aarch64::quantized_matmul::
         channelwise_8bit_a_channelwise_8bit_b_1x8x16_f32_neondot;
     kernel_fn = kernel<true, true, false, true>;
   }
@@ -660,7 +660,7 @@ static void test_fp32_attn_scores_at_v_matmul_attention(
       torchao::fp32_a_channelwise_8bit_b_attn_scores_at_v_test_case::generate(
           b, s_attn, s_v, h, d, transpose_v);
 
-  using namespace torchao::kernels::cpu::aarch64::quantized_matmul::
+  using namespace torchao::cpu::aarch64::quantized_matmul::
       fp32_a_input_channelwise_8bit_b_f32;
 
   size_t attn_b_stride = test_case.b_attn_stride;
