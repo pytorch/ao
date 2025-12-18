@@ -52,11 +52,13 @@ skip_loading_so_files = False
 force_skip_loading_so_files = (
     os.getenv("TORCHAO_FORCE_SKIP_LOADING_SO_FILES", "0") == "1"
 )
-if force_skip_loading_so_files or is_fbcode():
+if force_skip_loading_so_files:
     # user override
     # users can set env var TORCHAO_FORCE_SKIP_LOADING_SO_FILES=1 to skip loading .so files
     # this way, if they are using an incompatbile torch version, they can still use the API by setting the env var
     skip_loading_so_files = True
+elif is_fbcode():
+    skip_loading_so_files = False
 # if torchao version has "+git", assume it's locally built and we don't know
 #   anything about the PyTorch version used to build it unless user provides override flag
 # otherwise, assume it's prebuilt by torchao's build scripts and we can make
@@ -74,9 +76,12 @@ elif not ("+git" in __version__) and not ("unknown" in __version__):
         # Built against torch 2.9.0
         (_parse_version("0.14.1"), _parse_version("2.9.0")),
         (_parse_version("0.14.1"), _parse_version("2.10.0.dev")),
+        # Built against torch 2.9.1
+        (_parse_version("0.15.0"), _parse_version("2.9.1")),
+        (_parse_version("0.15.0"), _parse_version("2.10.0.dev")),
         # Current torchao version
-        (_parse_version("0.15.0.dev"), _parse_version("2.9.0")),
-        (_parse_version("0.15.0.dev"), _parse_version("2.10.0.dev")),
+        (_parse_version("0.16.0.dev"), _parse_version("2.9.1")),
+        (_parse_version("0.16.0.dev"), _parse_version("2.10.0.dev")),
     ]
 
     current_torch_version = _parse_version(torch.__version__)

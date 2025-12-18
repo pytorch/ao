@@ -55,7 +55,7 @@ class Float8DynamicActivationFloat8WeightOpaqueTensorConfig(AOBaseConfig):
 
     def __post_init__(self):
         torch._C._log_api_usage_once(
-            "torchao.quantization.Float8DynamicActivationFloat8WeightConfig"
+            "torchao.prototype.float8_opaque_tensor.Float8DynamicActivationFloat8WeightOpaqueTensorConfig"
         )
         activation_granularity, weight_granularity = (
             Float8OpaqueTensor._normalize_and_check_granularity(self.granularity)

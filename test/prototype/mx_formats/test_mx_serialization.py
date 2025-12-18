@@ -12,15 +12,12 @@ import pytest
 import torch
 import torch.nn as nn
 
-from torchao.prototype.mx_formats.config import (
-    MXGemmKernelChoice,
-)
 from torchao.prototype.mx_formats.inference_workflow import (
-    MXFPInferenceConfig,
-    NVFP4InferenceConfig,
-    NVFP4MMConfig,
+    MXDynamicActivationMXWeightConfig,
+    NVFP4DynamicActivationNVFP4WeightConfig,
 )
 from torchao.quantization import quantize_
+from torchao.quantization.quantize_.common import KernelPreference
 from torchao.utils import (
     is_sm_at_least_100,
     torch_version_at_least,
@@ -43,15 +40,14 @@ def test_serialization(recipe_name):
     fname = None
     with tempfile.NamedTemporaryFile(delete=False, mode="w") as f:
         if recipe_name == "mxfp8":
-            config = MXFPInferenceConfig(
+            config = MXDynamicActivationMXWeightConfig(
                 activation_dtype=torch.float8_e4m3fn,
                 weight_dtype=torch.float8_e4m3fn,
-                gemm_kernel_choice=MXGemmKernelChoice.EMULATED,
+                kernel_preference=KernelPreference.EMULATED,
             )
         else:
             assert recipe_name == "nvfp4", "unsupported"
-            config = NVFP4InferenceConfig(
-                mm_config=NVFP4MMConfig.DYNAMIC,
+            config = NVFP4DynamicActivationNVFP4WeightConfig(
                 use_triton_kernel=False,
                 use_dynamic_per_tensor_scale=False,
             )

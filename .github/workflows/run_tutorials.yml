@@ -19,7 +19,7 @@ jobs:
       - name: Setup miniconda
         uses: pytorch/test-infra/.github/actions/setup-miniconda@main
         with:
-          python-version: "3.9"
+          python-version: "3.11"
 
       - name: Run tutorials
         shell: bash

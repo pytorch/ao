@@ -8,8 +8,13 @@ import argparse
 from typing import List
 
 import torch
+import transformers
 from huggingface_hub import ModelCard, get_token, whoami
 from transformers import AutoModelForCausalLM, AutoTokenizer, TorchAoConfig
+
+_transformers_version = str(transformers.__version__)
+if _transformers_version >= "5":
+    from transformers.quantizers.auto import get_hf_quantizer
 
 from torchao._models._eval import TransformerEvalWrapper
 from torchao.prototype.awq import (
@@ -28,6 +33,9 @@ from torchao.quantization import (
     PerRow,
     quantize_,
 )
+from torchao.quantization.quant_api import _is_linear
+
+safe_serialization = _transformers_version >= "5"
 
 
 def _get_username():
@@ -43,7 +51,10 @@ def _untie_weights_and_save_locally(model_id):
 
     tokenizer = AutoTokenizer.from_pretrained(model_id)
 
-    from transformers.modeling_utils import find_tied_parameters
+    if _transformers_version >= "5":
+        from accelerate.utils.modeling import find_tied_parameters
+    else:
+        from transformers.modeling_utils import find_tied_parameters
 
     if getattr(
         untied_model.config.get_text_config(decoder=True), "tie_word_embeddings"
@@ -117,7 +128,7 @@ model_to_quantize = "{untied_model}"
 USER_ID = "YOUR_USER_ID"
 MODEL_NAME = model_id.split("/")[-1]
 save_to = f"{{USER_ID}}/{{MODEL_NAME}}-{quant}"
-quantized_model.push_to_hub(save_to, safe_serialization=False)
+quantized_model.push_to_hub(save_to, safe_serialization={safe_serialization})
 tokenizer.push_to_hub(save_to)
 
 # Manual Testing
@@ -719,11 +730,18 @@ def quantize_and_upload(
             int4_packing_format="tile_packed_to_4d",
             int4_choose_qparams_algorithm="hqq",
         )
-        quant_config = AWQConfig(base_config, step="prepare")
-        quantize_(
-            model,
-            quant_config,
-        )
+
+        def filter_fn_skip_lmhead(module, fqn):
+            if fqn == "lm_head":
+                return False
+            return _is_linear(module, fqn)
+
+        awq_config = AWQConfig(base_config, step="prepare")
+        if safe_serialization:
+            quantize_(model, awq_config, filter_fn=filter_fn_skip_lmhead)
+        else:
+            quantize_(model, awq_config)
+
         TransformerEvalWrapper(
             model=model,
             tokenizer=tokenizer,
@@ -732,12 +750,33 @@ def quantize_and_upload(
             tasks=tasks,
             limit=calibration_limit,
         )
-        quant_config = AWQConfig(base_config, step="convert")
-        quantize_(model, quant_config)
+        awq_config = AWQConfig(base_config, step="convert")
+        if safe_serialization:
+            quantize_(model, awq_config, filter_fn=filter_fn_skip_lmhead)
+        else:
+            quantize_(model, awq_config)
 
         quantized_model = model
         quant_config = AWQConfig(base_config, step="prepare_for_loading")
-        quantized_model.config.quantization_config = TorchAoConfig(quant_config)
+        if safe_serialization:
+            quantization_config = TorchAoConfig(quant_config).to_dict()
+            quantized_model.config.quantization_config = quantization_config
+
+            hf_quantizer, _, _, _ = get_hf_quantizer(
+                config=quantized_model.config,
+                quantization_config=None,
+                dtype=torch.bfloat16,
+                device_map="cuda:0",
+                weights_only=True,
+                user_agent={
+                    "file_type": "model",
+                    "framework": "pytorch",
+                    "from_auto_class": False,
+                },
+            )
+            quantized_model.hf_quantizer = hf_quantizer
+        else:
+            quantized_model.config.quantization_config = TorchAoConfig(quant_config)
     elif quant == "SmoothQuant-INT8-INT8":
         model = AutoModelForCausalLM.from_pretrained(
             model_to_quantize,
@@ -804,6 +843,7 @@ def quantize_and_upload(
         model_type=quantized_model.config.model_type,
         quant=quant,
         quant_code=quant_to_quant_code[quant],
+        safe_serialization=safe_serialization,
         # server specific recipes
         server_inference_recipe=""
         if is_mobile
@@ -836,12 +876,16 @@ def quantize_and_upload(
 
     # Push to hub
     if push_to_hub:
-        quantized_model.push_to_hub(quantized_model_id, safe_serialization=False)
+        quantized_model.push_to_hub(
+            quantized_model_id, safe_serialization=safe_serialization
+        )
         tokenizer.push_to_hub(quantized_model_id)
         if populate_model_card_template:
             card.push_to_hub(quantized_model_id)
     else:
-        quantized_model.save_pretrained(quantized_model_id, safe_serialization=False)
+        quantized_model.save_pretrained(
+            quantized_model_id, safe_serialization=safe_serialization
+        )
         tokenizer.save_pretrained(quantized_model_id)
 
     # Manual Testing
