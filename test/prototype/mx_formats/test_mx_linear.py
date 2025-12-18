@@ -125,14 +125,9 @@ def test_linear_eager_vs_hp(
             ScaleCalculationMode.FLOOR,
             ScaleCalculationMode.RCEIL,
         ):
-            pytest.skip("unsupported configuration")
-        elif (
-            scale_calculation_mode == ScaleCalculationMode.RCEIL
-            and not is_sm_at_least_100()
-        ):
-            pytest.skip(
-                "triton dim1 mxfp8 quantization kernel requires sm100 for RCEIL scaling mode"
-            )
+            pytest.skip("triton mxfp8 quantization kernels only require sm100")
+        if not is_sm_at_least_100():
+            pytest.skip("triton mxfp8 quantization kernels require sm100")
     elif mxfp8_cast_kernel_choice == MXFP8Dim1CastKernelChoice.CUDA:
         if scale_calculation_mode not in (
             ScaleCalculationMode.FLOOR,
@@ -330,14 +325,11 @@ def test_linear_compile(
             ScaleCalculationMode.FLOOR,
             ScaleCalculationMode.RCEIL,
         ):
-            pytest.skip("unsupported configuration")
-        elif (
-            scale_calculation_mode == ScaleCalculationMode.RCEIL
-            and not is_sm_at_least_100()
-        ):
             pytest.skip(
-                "triton dim1 mxfp8 quantization kernel requires sm100 for RCEIL scaling mode"
+                "triton mxfp8 quantization kernels only support FLOOR and RCEIL scaling modes"
             )
+        if is_sm_at_least_100():
+            pytest.skip("triton mxfp8 quantization kernels require sm100")
     elif mxfp8_cast_kernel_choice == MXFP8Dim1CastKernelChoice.CUDA:
         if scale_calculation_mode not in (
             ScaleCalculationMode.FLOOR,
