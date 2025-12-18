@@ -96,8 +96,8 @@ from torchao.quantization.quantize_.workflows import (
     IntxPackingFormat,
     IntxUnpackedToInt8Tensor,
     QuantizeTensorToFloat8Kwargs,
-    Sparse2x4Float8Tensor,
     QuantizeTensorToInt8Kwargs,
+    Sparse2x4Float8Tensor,
 )
 from torchao.quantization.transform_module import (
     _QUANTIZE_CONFIG_HANDLER,
