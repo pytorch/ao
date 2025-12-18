@@ -143,7 +143,7 @@ class WeightOnlyInt4Linear(torch.nn.Module):
             "scales_and_zeros",
             torch.zeros(
                 (in_features // groupsize, out_features, 2),
-                dtype=self.scales_precision,
+                precision=self.scales_precision,
                 device=device,
             ),
         )
