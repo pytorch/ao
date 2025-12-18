@@ -345,7 +345,6 @@ def main(
             FPXWeightOnlyConfig,
             GemliteUIntXWeightOnlyConfig,
             Int4DynamicActivationInt4WeightConfig,
-            Int4WeightOnlyConfig,
             Int8DynamicActivationInt4WeightConfig,
             Int8DynamicActivationInt8WeightConfig,
             Int8WeightOnlyConfig,
@@ -417,24 +416,7 @@ def main(
                 )
             else:
                 quantize_(model, Int8DynamicActivationInt8WeightConfig())
-        if "int4wo" in quantization:
-            use_hqq = False
-            if "hqq" in quantization:
-                use_hqq = True
-            group_size = int(quantization.split("-")[1])
-            assert group_size in [
-                32,
-                64,
-                128,
-                256,
-            ], (
-                f"int4wo group_size needs to be one of [32,64,128,256] but got {group_size}"
-            )
-            quantize_(
-                model,
-                Int4WeightOnlyConfig(group_size=group_size, use_hqq=use_hqq, version=1),
-            )
-        elif "int4dq-" in quantization:
+        if "int4dq-" in quantization:
             from torchao.dtypes import CutlassInt4PackedLayout
 
             nbits = int(quantization.removeprefix("int4dq-"))
@@ -470,14 +452,6 @@ def main(
                         act_mapping_type=MappingType.SYMMETRIC,
                         layout=MarlinQQQLayout(),
                     ),
-                )
-            elif "semi" in sparsity:
-                from torchao.dtypes import MarlinSparseLayout
-
-                quantize_(
-                    model,
-                    Int4WeightOnlyConfig(layout=MarlinSparseLayout(), version=1),
-                    filter_fn=ffn_or_attn_only,
                 )
         if "fp6" in quantization:
             quantize_(model, FPXWeightOnlyConfig(3, 2))

@@ -12,7 +12,6 @@ from parameterized import parameterized
 
 from torchao.dtypes.floatx.float8_layout import Float8AQTTensorImpl
 from torchao.dtypes.uintx.plain_layout import PlainAQTTensorImpl
-from torchao.dtypes.uintx.tensor_core_tiled_layout import TensorCoreTiledAQTTensorImpl
 from torchao.prototype.moe_quant.quantizable_moe_modules import (
     MOEFeedForwardAOQuantizable,
 )
@@ -26,7 +25,6 @@ from torchao.quantization.quant_api import (
     AffineQuantizedTensor,
     Float8DynamicActivationFloat8WeightConfig,
     Float8WeightOnlyConfig,
-    Int4WeightOnlyConfig,
     Int8DynamicActivationInt8WeightConfig,
     Int8WeightOnlyConfig,
     LinearActivationQuantizedTensor,
@@ -108,51 +106,6 @@ class TestMoEQuantCompile(unittest.TestCase):
 
         self.assertGreaterEqual(compute_error(out_q, out), 10)
         self.assertGreaterEqual(compute_error(out_qc, out), 10)
-
-    @parameterized.expand(
-        [
-            ("single_token", 1, False),
-            ("multiple_tokens", 8, False),
-        ]
-    )
-    def test_int4wo_fake_dim(self, name, num_tokens, fullgraph):
-        if not torch.cuda.is_available():
-            self.skipTest("Need CUDA available")
-
-        config = MoEQuantConfig(
-            Int4WeightOnlyConfig(version=1),
-            use_fake_extra_dim_tensor=UseFakeExtraDimTensor.TRUE,
-        )
-        tensor_impl_class = TensorCoreTiledAQTTensorImpl
-
-        self._test_impl_moe_quant(
-            config=config,
-            num_tokens=num_tokens,
-            tensor_impl_class=tensor_impl_class,
-            fullgraph=fullgraph,
-        )
-
-    @parameterized.expand(
-        [
-            ("single_token", 1, True),
-            ("multiple_tokens", 8, False),
-        ]
-    )
-    def test_int4wo_base(self, name, num_tokens, fullgraph):
-        if not torch.cuda.is_available():
-            self.skipTest("Need CUDA available")
-        if not is_sm_at_least_90():
-            self.skipTest("Requires CUDA capability >= 9.0")
-
-        config = MoEQuantConfig(Int4WeightOnlyConfig(version=1))
-        tensor_impl_class = TensorCoreTiledAQTTensorImpl
-
-        self._test_impl_moe_quant(
-            config=config,
-            num_tokens=num_tokens,
-            tensor_impl_class=tensor_impl_class,
-            fullgraph=fullgraph,
-        )
 
     @parameterized.expand(
         [

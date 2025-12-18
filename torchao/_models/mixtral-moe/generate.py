@@ -244,7 +244,6 @@ def main(
     from torchao.quantization.quant_api import (
         Float8DynamicActivationFloat8WeightConfig,
         Float8WeightOnlyConfig,
-        Int4WeightOnlyConfig,
         Int8DynamicActivationInt8WeightConfig,
         Int8DynamicActivationIntxWeightConfig,
         Int8WeightOnlyConfig,
@@ -270,15 +269,6 @@ def main(
         elif "int8dq" in moe_quant:
             config = MoEQuantConfig(
                 Int8DynamicActivationInt8WeightConfig(),
-                use_fake_extra_dim_tensor=UseFakeExtraDimTensor.TRUE,
-            )
-
-        elif "int4wo-base" in moe_quant:
-            config = MoEQuantConfig(Int4WeightOnlyConfig(version=1))
-
-        elif "int4wo" in moe_quant:
-            config = MoEQuantConfig(
-                Int4WeightOnlyConfig(version=1),
                 use_fake_extra_dim_tensor=UseFakeExtraDimTensor.TRUE,
             )
 

@@ -24,7 +24,6 @@ from torchao.quantization import (
     Float8DynamicActivationFloat8WeightConfig,
     Float8WeightOnlyConfig,
     FPXWeightOnlyConfig,
-    Int4WeightOnlyConfig,
     Int8DynamicActivationInt8WeightConfig,
     Int8WeightOnlyConfig,
     PerBlock,
@@ -84,19 +83,6 @@ def run_evaluation(
             quantize_(model, Int8DynamicActivationInt8WeightConfig())
         if "fp6" in quantization:
             quantize_(model, FPXWeightOnlyConfig(3, 2))
-        if "int4wo" in quantization and not "gptq" in quantization:
-            if "hqq" in quantization:
-                use_hqq = True
-            else:
-                use_hqq = False
-            groupsize = int(quantization.split("-")[1])
-            assert groupsize in [32, 64, 128, 256], (
-                f"int4wo groupsize needs to be one of [32,64,128,256] but got {groupsize}"
-            )
-            quantize_(
-                model.to(device),
-                Int4WeightOnlyConfig(group_size=groupsize, use_hqq=use_hqq, version=1),
-            )
         if "uintx" in quantization:
             # uintx-nbits-groupsize
             # "uintx-2-64"
@@ -119,12 +105,6 @@ def run_evaluation(
             dtype = _NBITS_TO_DTYPE[nbits]
             group_size = int(_quant_args[2])
             quantize_(model, UIntXWeightOnlyConfig(dtype, group_size, use_hqq=use_hqq))
-        if "marlin" in quantization:
-            from torchao.dtypes import MarlinSparseLayout
-
-            quantize_(
-                model, Int4WeightOnlyConfig(layout=MarlinSparseLayout(), version=1)
-            )
         if "int4wo" in quantization and "gptq" in quantization:
             # avoid circular imports
             from torchao._models._eval import LMEvalInputRecorder
