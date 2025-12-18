@@ -18,6 +18,7 @@ from torchao.prototype.custom_fp_utils import (
     _floatx_unpacked_to_f32,
 )
 from torchao.utils import (
+    is_cuda_version_at_least,
     is_sm_at_least_100,
     torch_version_at_least,
 )
@@ -626,9 +627,10 @@ if torch_version_at_least("2.7.0") and has_triton():
         scale_block_size: int = 32,
     ) -> torch.Tensor:
         assert scale_block_size == 32, "scale_block_size must be 32 for now"
-        assert out_dtype in (torch.bfloat16, torch.float32), (
-            "out_dtype must be bf16 or fp32"
-        )
+        assert out_dtype in (
+            torch.bfloat16,
+            torch.float32,
+        ), "out_dtype must be bf16 or fp32"
 
         # Input shape must be 2D.
         orig_shape = e4m3_data.shape
@@ -1055,6 +1057,7 @@ if torch_version_at_least("2.7.0") and has_triton():
         padded_cols = n_col_blocks * 4
 
         return scale_tensor.new_empty((padded_rows, padded_cols))
+
 else:
 
     def triton_to_mxfp8_dim0(
@@ -1091,30 +1094,38 @@ else:
         raise AssertionError("needs torch version 2.8+ and triton")
 
 
-mxfp8_cuda_extension_available = False
-if is_sm_at_least_100():
-    try:
-        # MXFP8 CUDA kernel is only built on SM100+. Furthermore,
-        # currently our CI runners are not SM100+, so the user needs to build
-        # from source.
-        # TODO(#2932): improve this
-        from torchao.prototype import mxfp8_cuda
-
-        mxfp8_cuda_extension_available = True
-    except ImportError:
-        logging.debug("Skipping import of torchao.prototype.mxfp8_cuda")
+mxfp8_cuda_extension_available = is_sm_at_least_100() and is_cuda_version_at_least(
+    12, 8
+)
 
 if mxfp8_cuda_extension_available:
-    # TODO: Make `scaling_mode` a choice (enum-like) rather than arbitrary string.
-    # Currently we have to use an arbitrary string because custom ops don't support enum
-    # params.
-    @torch.library.custom_op("torchao::mxfp8_quantize_cuda", mutates_args=())
+    lib = torch.library.Library("torchao", "FRAGMENT")
+    lib.define(
+        "mxfp8_quantize(Tensor input, bool rowwise, bool colwise, int scale_dim_x, int scale_dim_y, str fp8_format, str scaling_mode) -> (Tensor, Tensor, Tensor, Tensor)",
+        tags=[torch._C.Tag.needs_fixed_stride_order],
+    )
+
     def mxfp8_quantize_cuda(
         x: torch.Tensor,
         rowwise: bool = False,
         colwise: bool = True,
         scaling_mode: str = "floor",
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Quantizes a 2D tensor to MXFP8 format using CUDA kernels.
+
+        This is a high-level wrapper that calls the underlying CUDA kernel via
+        torch.ops.torchao.mxfp8_quantize.
+
+        Args:
+            x: Input tensor to be quantized. Must be 2D with shape (rows, cols).
+            rowwise: If True, compute rowwise scales.
+            colwise: If True, compute colwise scales.
+            scaling_mode: Scaling mode for quantization. Defaults to "floor".
+
+        Returns:
+            Tuple of (output_rowwise, output_colwise, scales_rowwise, scales_colwise)
+        """
         # Input shape must be 2D.
         assert x.ndim == 2
         rows, cols = x.shape
@@ -1124,29 +1135,32 @@ if mxfp8_cuda_extension_available:
         assert rows % block_size == 0, "rows must be a multiple of 32"
         assert cols % block_size == 0, "cols must be a multiple of 32"
 
-        # Convert scaling mode to expected string format and call into kernel.
         output_rowwise, output_colwise, scales_rowwise, scales_colwise = (
-            mxfp8_cuda.quantize(
+            torch.ops.torchao.mxfp8_quantize.default(
                 x,
-                rowwise=rowwise,
-                colwise=colwise,
-                scaling_mode=scaling_mode,
+                rowwise,
+                colwise,
+                1,  # scale_dim_x
+                block_size,  # scale_dim_y
+                "e4m3",  # fp8_format
+                scaling_mode,
             )
         )
         return output_rowwise, output_colwise, scales_rowwise, scales_colwise
 
-    @mxfp8_quantize_cuda.register_fake
-    def _(
+    @torch.library.register_fake("torchao::mxfp8_quantize")
+    def _fake_mxfp8_quantize(
         x: torch.Tensor,
-        rowwise: bool = False,
-        colwise: bool = True,
-        scaling_mode: str = "floor",
+        rowwise: bool,
+        colwise: bool,
+        scale_dim_x: int,
+        scale_dim_y: int,
+        fp8_format: str,
+        scaling_mode: str,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Fake/meta implementation for mxfp8_quantize."""
         assert x.ndim == 2
         rows, cols = x.shape
-        block_size = 32
-        assert rows % block_size == 0, "rows must be a multiple of 32"
-        assert cols % block_size == 0, "cols must be a multiple of 32"
         num_row_blocks = rows // 32
         num_col_blocks = cols // 32
 
@@ -1180,7 +1194,7 @@ if mxfp8_cuda_extension_available:
 
         return output_rowwise, output_colwise, scales_rowwise, scales_colwise
 
-    @register_sharding(torch.ops.torchao.mxfp8_quantize_cuda.default)
+    @register_sharding(torch.ops.torchao.mxfp8_quantize.default)
     def custom_mxfp8_quantize_cuda_dim1_sharding(
         x: torch.Tensor,
         rowwise: bool = False,
@@ -1216,6 +1230,7 @@ if mxfp8_cuda_extension_available:
             rule_for_input_sharded_dim1,
         ]
         return acceptable_shardings
+
 else:
 
     def mxfp8_quantize_cuda(
