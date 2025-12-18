@@ -41,6 +41,7 @@ from torchao.quantization.utils import get_block_size
 from torchao.utils import (
     TorchAOBaseTensor,
     _is_fbgemm_gpu_genai_available,
+    _is_mslk_available,
     fill_defaults,
     is_sm_at_least_90,
     is_sm_at_least_100,
@@ -506,9 +507,7 @@ def _quantize_and_scaled_conv3d(
     assert input_tensor.dim() == 5 and weight_tensor.dim() == 5, (
         "Only support 3D conv currently"
     )
-    assert _is_fbgemm_gpu_genai_available(), (
-        "quantized fp8 conv3d requires fbgemm_gpu_genai to be available"
-    )
+    assert _is_mslk_available(), "quantized fp8 conv3d requires mslk to be available"
     act_quant_kwargs = weight_tensor.act_quant_kwargs
     # quantize activation, if `act_quant_kwargs` is specified
     if act_quant_kwargs is not None:
@@ -519,8 +518,8 @@ def _quantize_and_scaled_conv3d(
     if isinstance(input_tensor, Float8Tensor):
         kernel_choice = None
         if weight_tensor.kernel_preference == KernelPreference.AUTO:
-            if _is_fbgemm_gpu_genai_available() and is_sm_at_least_100():
-                kernel_choice = "fbgemm"
+            if _is_mslk_available() and is_sm_at_least_100():
+                kernel_choice = "mslk"
             else:
                 raise NotImplementedError(
                     f"No available kernel choice for {weight_tensor.kernel_preference}"
@@ -532,7 +531,7 @@ def _quantize_and_scaled_conv3d(
                 f"No available kernel choice for {weight_tensor.kernel_preference}"
             )
 
-    assert kernel_choice == "fbgemm", "Only fbgemm kernel choice is supported currently"
+    assert kernel_choice == "mslk", "Only mslk kernel choice is supported currently"
     input_qdata = input_tensor.qdata
     weight_qdata = weight_tensor.qdata
 
@@ -560,7 +559,10 @@ def _quantize_and_scaled_conv3d(
 
     input_scale = input_tensor.scale
     weight_scale = weight_tensor.scale
-    output = torch.ops.fbgemm.f8f8bf16_conv(
+
+    import mslk.conv  # noqa: F401
+
+    output = torch.ops.mslk.f8f8bf16_conv(
         input_qdata,
         weight_qdata,
         input_scale * weight_scale,
