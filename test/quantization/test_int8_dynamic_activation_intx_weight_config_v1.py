@@ -20,10 +20,9 @@ from torch.testing._internal.common_utils import (
 from torchao.dtypes import PackedLinearInt8DynamicActivationIntxWeightLayout, QDQLayout
 from torchao.quantization.granularity import PerAxis, PerGroup
 from torchao.quantization.qat import (
-    FromIntXQuantizationAwareTrainingConfig,
     Int8DynActInt4WeightQATQuantizer,
     IntxFakeQuantizeConfig,
-    IntXQuantizationAwareTrainingConfig,
+    QATConfig,
 )
 from torchao.quantization.quant_api import (
     Int8DynamicActivationInt4WeightConfig,
@@ -499,7 +498,7 @@ class TestInt8DynamicActivationIntxWeight(TestCase):
             for model_dtype in [torch.float32, torch.bfloat16, torch.float16]
         ],
     )
-    def test_identical_to_IntXQuantizationAwareTrainingConfig(
+    def test_identical_to_QATConfig(
         self,
         weight_dtype,
         group_size,
@@ -545,7 +544,11 @@ class TestInt8DynamicActivationIntxWeight(TestCase):
 
         quantize_(
             model,
-            IntXQuantizationAwareTrainingConfig(activation_config, weight_config),
+            QATConfig(
+                activation_config=activation_config,
+                weight_config=weight_config,
+                step="prepare",
+            ),
         )
         try:
             prepared_out = model(activations)
@@ -555,7 +558,7 @@ class TestInt8DynamicActivationIntxWeight(TestCase):
                 return
             raise e
 
-        quantize_(model, FromIntXQuantizationAwareTrainingConfig())
+        quantize_(model, QATConfig(step="convert"))
         quantize_(
             model,
             Int8DynamicActivationIntxWeightConfig(
@@ -606,7 +609,7 @@ class TestInt8DynamicActivationIntxWeight(TestCase):
         prepared_out = model(activations)
 
         # Convert model method 1
-        quantize_(model, FromIntXQuantizationAwareTrainingConfig())
+        quantize_(model, QATConfig(step="convert"))
         quantize_(
             model,
             Int8DynamicActivationIntxWeightConfig(
