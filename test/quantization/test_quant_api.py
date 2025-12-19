@@ -40,6 +40,10 @@ from torchao.quantization import (
     LinearActivationQuantizedTensor,
     PerGroup,
 )
+from torchao.quantization.qat import (
+    FakeQuantizedLinear,
+    QATConfig,
+)
 from torchao.quantization.quant_api import (
     Float8DynamicActivationFloat8WeightConfig,
     Float8StaticActivationFloat8WeightConfig,
@@ -834,9 +838,7 @@ class TestQuantFlow(TestCase):
                 self.assertTrue(len(_warnings) == 1)
                 found_deprecated = False
                 for w in _warnings:
-                    if "will be moving to prototype in a future release" in str(
-                        w.message
-                    ):
+                    if "will be deleted in a future release" in str(w.message):
                         found_deprecated = True
                     self.assertTrue(
                         found_deprecated, f"did not find deprecated warning for {cls}"
@@ -1198,6 +1200,32 @@ class TestFqnToConfig(TestCase):
 
         assert isinstance(m.nested.linear.weight, AffineQuantizedTensor)
         assert isinstance(m.linear1.weight, AffineQuantizedTensor)
+
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
+    def test_fqn_config_quantized_nested_module_module_swap(self):
+        class NestedModule(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.linear = torch.nn.Linear(16, 16)
+
+        class TopLevelModule(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.nested = NestedModule()
+                self.linear1 = torch.nn.Linear(16, 16)
+
+        m = TopLevelModule()
+        config = QATConfig(Int4WeightOnlyConfig(), step="prepare")
+        quant_config = FqnToConfig(
+            {
+                "nested.linear": config,
+                "linear1": config,
+            }
+        )
+        quantize_(m, quant_config, filter_fn=None)
+
+        assert isinstance(m.nested.linear, FakeQuantizedLinear)
+        assert isinstance(m.linear1, FakeQuantizedLinear)
 
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test_fqn_config_quantized_nested_module_param(self):

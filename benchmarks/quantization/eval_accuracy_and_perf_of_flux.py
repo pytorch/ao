@@ -16,17 +16,10 @@ import torch
 from datasets import load_dataset
 from diffusers import FluxPipeline
 from PIL import Image, ImageDraw, ImageFont
+from utils import string_to_config
 
-# import torchao.prototype.mx_formats
-from torchao.prototype.mx_formats.inference_workflow import (
-    MXDynamicActivationMXWeightConfig,
-    NVFP4DynamicActivationNVFP4WeightConfig,
-)
 from torchao.quantization import (
-    Float8DynamicActivationFloat8WeightConfig,
-    Float8WeightOnlyConfig,
     FqnToConfig,
-    PerRow,
     quantize_,
 )
 
@@ -36,102 +29,8 @@ from torchao.quantization import (
 IMAGE_SIZE = (512, 512)  # (width, height)
 OUTPUT_DIR = "benchmarks/data/flux_eval"
 RANDOM_SEED = 42
-PROMPTS_FILES = {
-    "drawbench_calibration": "hf://sayakpaul/drawbench:calibration",
-    "drawbench_test": "hf://sayakpaul/drawbench:test",
-}
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)
-
-
-def load_prompts(prompts_file: str) -> list[str]:
-    """Load prompts from a text file, one prompt per line."""
-    with open(prompts_file, "r") as f:
-        prompts = [line.strip() for line in f if line.strip()]
-    return prompts
-
-
-def load_prompts_from_hf_dataset(
-    dataset_name: str, split_type: str = None
-) -> list[str]:
-    """
-    Load prompts from a HuggingFace dataset.
-
-    Args:
-        dataset_name: Name of the HuggingFace dataset (e.g., 'sayakpaul/drawbench')
-        split_type: Optional split type ('calibration' or 'test'). If provided, splits
-                   the dataset with 20% for calibration and 80% for test using a
-                   reproducible random seed.
-
-    Returns:
-        List of prompt strings
-
-    Raises:
-        ImportError: If datasets library is not installed
-        Exception: If dataset loading fails
-    """
-    print(f"Loading dataset from HuggingFace: {dataset_name}")
-    dataset = load_dataset(dataset_name, split="train")
-    prompts = [item["Prompts"] for item in dataset]
-
-    # Apply split if requested
-    if split_type is not None:
-        # Use a fixed seed for reproducibility
-        rng = random.Random(42)
-
-        # Create indices and shuffle them reproducibly
-        indices = list(range(len(prompts)))
-        rng.shuffle(indices)
-
-        # Split: 20% calibration, 80% test
-        calibration_size = int(len(prompts) * 0.2)
-
-        if split_type == "calibration":
-            selected_indices = indices[:calibration_size]
-            prompts = [prompts[i] for i in selected_indices]
-            print(
-                f"Loaded {len(prompts)} prompts from {dataset_name} (calibration split, 20%)"
-            )
-        elif split_type == "test":
-            selected_indices = indices[calibration_size:]
-            prompts = [prompts[i] for i in selected_indices]
-            print(
-                f"Loaded {len(prompts)} prompts from {dataset_name} (test split, 80%)"
-            )
-        else:
-            raise ValueError(
-                f"Invalid split_type: {split_type}. Must be 'calibration' or 'test'."
-            )
-    else:
-        print(f"Loaded {len(prompts)} prompts from {dataset_name}")
-
-    return prompts
-
-
-def load_prompts_unified(prompts_source: str) -> list[str]:
-    """
-    Load prompts from either a file or HuggingFace dataset.
-
-    Args:
-        prompts_source: Either a file path or HuggingFace dataset identifier
-                       (prefixed with 'hf://dataset_name' or 'hf://dataset_name:split_type')
-
-    Returns:
-        List of prompt strings
-    """
-    if prompts_source.startswith("hf://"):
-        # Remove 'hf://' prefix
-        source_spec = prompts_source[5:]
-
-        # Check if split type is specified (format: dataset_name:split_type)
-        if ":" in source_spec:
-            dataset_name, split_type = source_spec.split(":", 1)
-            return load_prompts_from_hf_dataset(dataset_name, split_type=split_type)
-        else:
-            dataset_name = source_spec
-            return load_prompts_from_hf_dataset(dataset_name)
-    else:
-        return load_prompts(prompts_source)
 
 
 def print_pipeline_architecture(pipe):
@@ -169,20 +68,13 @@ def print_pipeline_architecture(pipe):
     print("=" * 80 + "\n")
 
 
-def generate_image(pipe, prompt: str, seed: int, device: str) -> Image.Image:
-    """
-    Generate a single image from a prompt and seed, and return it.
-
-    Args:
-        pipe: The diffusion pipeline to use for generation
-        prompt: Text prompt for image generation
-        seed: Random seed for reproducibility
-        device: Device string ('cuda' or 'cpu') for the generator
-    """
+def generate_image(
+    pipe, prompt: str, seed: int, device: str, num_inference_steps: int
+) -> Image.Image:
     generator = torch.Generator(device=device).manual_seed(seed)
     image = pipe(
         prompt=prompt,
-        num_inference_steps=4,  # can tweak for speed vs quality
+        num_inference_steps=num_inference_steps,  # can tweak for speed vs quality
         guidance_scale=7.5,
         generator=generator,
     ).images[0]
@@ -232,19 +124,11 @@ def create_comparison_image(
 
     # Try to use reasonable font sizes, fallback to default if truetype fails
     try:
-        prompt_font = ImageFont.truetype(
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 20
-        )
-        lpips_font = ImageFont.truetype(
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 24
-        )
+        prompt_font = ImageFont.truetype("arial.ttf", 20)
+        lpips_font = ImageFont.truetype("arialbd.ttf", 24)
     except Exception:
-        try:
-            prompt_font = ImageFont.truetype("arial.ttf", 20)
-            lpips_font = ImageFont.truetype("arialbd.ttf", 24)
-        except Exception:
-            prompt_font = ImageFont.load_default()
-            lpips_font = ImageFont.load_default()
+        prompt_font = ImageFont.load_default()
+        lpips_font = ImageFont.load_default()
 
     # Draw prompt text at the top if provided
     y_offset = 5
@@ -354,35 +238,44 @@ def pil_to_lpips_tensor(img: Image.Image, device: str):
 @torch.inference_mode()
 def run(
     num_prompts: int = None,
-    prompt_set: str = "drawbench_calibration",
-    quant_config: str = "f8d",
+    num_inference_steps: int = 20,
+    quant_config_str: str = "float8_rowwise",
     use_compile: bool = False,
     torch_compile_mode: str = "default",
+    debug_prompt: str | None = None,
+    print_model: bool = False,
 ):
     """
-    Main execution function: generates baseline and modified images,
-    computes LPIPS, and creates a comparison visualization.
+    A performance and accuracy eval script for quantizing flux-1.dev:
+
+      1. load flux-1.dev model
+      2. run it on a prompts dataset and save the images
+      3. quantize the model, run it on the same dataset and save the images
+      4. report performance difference between 2 and 3
+      5. report accuracy difference (using LPIPS) between 2 and 3
 
     Args:
         num_prompts: Optional limit on number of prompts to use (for debugging)
-        prompt_set: Which prompt set to use ('calibration' or 'test')
-        quant_config: Quantization config to use ('nvfp4', 'f8d', 'f8wo', 'mxfp8'). Default: 'f8d'
+        num_inference_steps: Number of passes through the transformer,
+          default 20 for flux-1.dev. Can set to 1 for speeding up debugging.
+        quant_config_str: Quantization config to use ('float8_rowwise'). Default: 'float8_rowwise'
         use_compile: if true, uses torch.compile
         torch_compile_mode: mode to use torch.compile with
+        debug_prompt: if specified, use this prompt instead of the drawbench dataset
+        print_model: if True, prints model architecture
     """
-    assert prompt_set in PROMPTS_FILES, (
-        f"unsupported {prompt_set=}, choose from {list(PROMPTS_FILES.keys())}"
-    )
-    assert quant_config in ("nvfp4", "f8d", "f8wo", "mxfp8"), (
-        f"unsupported {quant_config=}, choose from ['nvfp4', 'f8d', 'f8wo', 'mxfp8']"
-    )
-
+    # TODO(future): maybe support other models and datasets
     model = "black-forest-labs/FLUX.1-dev"
+    prompts_dataset = "sayakpaul/drawbench"
+    if debug_prompt is not None:
+        prompts_dataset = "debug"
 
-    # Get model configuration
     print(f"Model: {model}")
-    print(f"Prompt set: {prompt_set}")
-    print(f"Quant config: {quant_config}")
+    print(f"Quant config: {quant_config_str}")
+    print(f"num_inference_steps: {num_inference_steps}")
+    print(f"prompts_dataset: {prompts_dataset}")
+    print(f"use_compile: {use_compile}")
+    print(f"torch_compile_mode: {torch_compile_mode}")
 
     # Create model-specific output directory
     output_dir = os.path.join(OUTPUT_DIR, model)
@@ -417,8 +310,11 @@ def run(
     # 2. Baseline images (for all prompts)
     # -----------------------------
     # Load prompts from file or HuggingFace dataset
-    prompts_source = PROMPTS_FILES[prompt_set]
-    all_prompts = load_prompts_unified(prompts_source)
+    if debug_prompt is None:
+        dataset = load_dataset(prompts_dataset, split="train")
+        all_prompts = [item["Prompts"] for item in dataset]
+    else:
+        all_prompts = [debug_prompt]
 
     # Limit prompts for debugging if requested
     prompts_to_use = all_prompts if num_prompts is None else all_prompts[:num_prompts]
@@ -429,7 +325,9 @@ def run(
         prompt_idx = f"prompt_{idx}"
         print(f"Generating baseline for {prompt_idx}: {prompt}")
         t0 = time.time()
-        baseline_img = generate_image(pipe, prompt, RANDOM_SEED, device)
+        baseline_img = generate_image(
+            pipe, prompt, RANDOM_SEED, device, num_inference_steps
+        )
         t1 = time.time()
         baseline_t = pil_to_lpips_tensor(baseline_img, device)
         baseline_data.append((prompt_idx, prompt, baseline_img, baseline_t))
@@ -440,32 +338,15 @@ def run(
         pipe.transformer = orig_transformer
 
     # Inspect Linear layers in main component
-    print("Inspecting Linear layers in transformer")
     component_linear_fqns_and_weight_shapes = []
     for fqn, module in orig_transformer.named_modules():
         if isinstance(module, torch.nn.Linear):
             weight_shape = module.weight.shape
-            print(f"  {fqn}: {weight_shape}")
+            if print_model:
+                print(f"  {fqn}: {weight_shape}")
             component_linear_fqns_and_weight_shapes.append([fqn, weight_shape])
 
-    # 3. "Quantized" image
-    print("Applying quantization to transformer")
-    # Map quant_config string to actual config class
-    if quant_config == "nvfp4":
-        config_obj = NVFP4DynamicActivationNVFP4WeightConfig(
-            use_triton_kernel=True, use_dynamic_per_tensor_scale=True
-        )
-    elif quant_config == "f8d":
-        config_obj = Float8DynamicActivationFloat8WeightConfig(granularity=PerRow())
-    elif quant_config == "f8wo":
-        config_obj = Float8WeightOnlyConfig()
-    elif quant_config == "mxfp8":
-        config_obj = MXDynamicActivationMXWeightConfig(
-            activation_dtype=torch.float8_e4m3fn,
-            weight_dtype=torch.float8_e4m3fn,
-        )
-    else:
-        raise AssertionError(f"Unsupported quant_config: {quant_config}")
+    config_obj = string_to_config(quant_config_str)
 
     # Create FqnToConfig mapping
     fqn_to_config_dict = {}
@@ -487,7 +368,8 @@ def run(
     quantize_(pipe.transformer, fqn_to_config, filter_fn=None)
     if use_compile:
         pipe.transformer = torch.compile(pipe.transformer, mode=torch_compile_mode)
-    print_pipeline_architecture(pipe)
+    if print_model:
+        print_pipeline_architecture(pipe)
 
     print("Generating images with quantized model for all prompts")
     lpips_values = []
@@ -496,7 +378,9 @@ def run(
     for prompt_idx, prompt, baseline_img, baseline_t in baseline_data:
         print(f"Generating image for {prompt_idx}")
         t0 = time.time()
-        modified_img = generate_image(pipe, prompt, RANDOM_SEED, device)
+        modified_img = generate_image(
+            pipe, prompt, RANDOM_SEED, device, num_inference_steps
+        )
         t1 = time.time()
         times.append(t1 - t0)
 
@@ -516,7 +400,7 @@ def run(
         comparison_images.append(comparison_img)
         comparison_path = os.path.join(
             output_dir,
-            f"comparison_prompt_{prompt_set}_mode_full_quant_config_{quant_config}_{prompt_idx}.png",
+            f"comparison_prompt_mode_full_quant_config_str_{quant_config_str}_{prompt_idx}.png",
         )
         comparison_img.save(comparison_path)
         print(f"Saved comparison image to: {comparison_path}")
@@ -525,7 +409,7 @@ def run(
     combined_img = create_combined_comparison_image(comparison_images)
     combined_path = os.path.join(
         output_dir,
-        f"comparison_prompt_{prompt_set}_mode_full_quant_config_{quant_config}_combined.png",
+        f"comparison_prompt_mode_full_quant_config_str_{quant_config_str}_combined.png",
     )
     combined_img.save(combined_path)
     print(f"Saved combined comparison image to: {combined_path}")
@@ -549,13 +433,18 @@ def run(
     print("times", times)
     speedups = [x / y for (x, y) in zip(baseline_times, times)]
     print("speedups", speedups)
-    # ignore first value as it includes torch.compile compilation time
-    print("avg speedup ignoring first value", sum(speedups[1:])/len(speedups[1:]))
+    if len(speedups) > 1:
+        # ignore first value as it includes torch.compile compilation time
+        avg_speedup = sum(speedups[1:]) / len(speedups[1:])
+        print("avg speedup ignoring first value", avg_speedup)
+    else:
+        avg_speedup = sum(speedups) / len(speedups)
+        print("avg speedup", avg_speedup)
 
     # Save summary stats to CSV
     summary_csv_path = os.path.join(
         output_dir,
-        f"summary_stats_prompt_{prompt_set}_mode_full_quant_config_{quant_config}.csv",
+        f"summary_stats_prompt_mode_full_quant_config_str_{quant_config_str}.csv",
     )
     with open(summary_csv_path, "w", newline="") as f:
         writer = csv.writer(f)
@@ -566,6 +455,7 @@ def run(
         writer.writerow(["average_lpips", f"{avg_lpips:.4f}"])
         writer.writerow(["max_lpips", f"{max_lpips:.4f}"])
         writer.writerow(["min_lpips", f"{min_lpips:.4f}"])
+        writer.writerow(["average_speedup", avg_speedup])
         # Write individual LPIPS values
         for idx, val in enumerate(lpips_values):
             writer.writerow([f"lpips_prompt_{idx}", f"{val:.4f}"])

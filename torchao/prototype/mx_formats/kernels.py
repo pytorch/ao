@@ -18,6 +18,7 @@ from torchao.prototype.custom_fp_utils import (
     _floatx_unpacked_to_f32,
 )
 from torchao.utils import (
+    is_cuda_version_at_least,
     is_sm_at_least_100,
     torch_version_at_least,
 )
@@ -165,7 +166,7 @@ if torch_version_at_least("2.7.0") and has_triton():
     from torch.library import triton_op, wrap_triton
 
     @triton.jit
-    def _triton_calculate_scale(x, axis):
+    def _triton_calculate_scale(x, axis, SCALING_MODE: tl.constexpr):
         # There is no good support for accessing globals from a jit'ed triton
         # function, so we redefine them here. Since this is prototype code which
         # we plan to remove after torch.compile catches up, this is fine.
@@ -178,23 +179,48 @@ if torch_version_at_least("2.7.0") and has_triton():
         # Find the maximum absolute value for each row
         max_abs = tl.max(x, axis=axis)
 
-        # Calculate the e8m0 scale by extracting the exponent (floor)
-        # TODO(future PR): support other exponent extraction types (ceil, RNE)
-        max_abs = max_abs.to(tl.bfloat16)
-        max_abs_int16 = max_abs.to(tl.int16, bitcast=True)
-        extracted_pow2 = ((max_abs_int16 >> bf16_mbits) & 0b11111111) - bf16_exp_bias
-        extracted_pow2 = extracted_pow2 - target_max_pow2
-        scale_e8m0_unbiased = extracted_pow2.to(tl.bfloat16)
+        # Compute e8m0 biased scale using either RCEIL or FLOOR rounding.
+        if SCALING_MODE == "rceil":
+            # RCEIL scaling mode using PTX instruction supported on sm100.
+            # The input should be: amax / 448.0
+            # where 448.0 is the max representable value in FP8 E4M3 format.
+            F8E4M3_MAX_RCP: tl.constexpr = 1.0 / 448.0
+            scale_input = max_abs.to(tl.float32) * F8E4M3_MAX_RCP
 
-        # Clamp to exponents that can be represented in e8m0
-        # Add 1 to capture NaNs
-        scale_e8m0_unbiased = tl.clamp(
-            scale_e8m0_unbiased, -1 * e8m0_exponent_bias, e8m0_exponent_bias + 1
-        )
+            # The PTX instruction outputs a packed uint16 where:
+            # - high byte = E8M0 of first input (0.0 in our case)
+            # - low byte = E8M0 of second input (scale_input)
+            # Casting uint16 to uint8 naturally truncates to the low byte.
+            scale_e8m0_biased = tl.inline_asm_elementwise(
+                asm="cvt.rp.satfinite.ue8m0x2.f32 $0, 0.0, $1;",
+                constraints="=h,r",
+                args=[scale_input.to(tl.float32, bitcast=False)],
+                dtype=tl.uint16,
+                is_pure=True,
+                pack=1,
+            ).to(tl.uint8)
+        else:
+            tl.static_assert(SCALING_MODE == "floor")
 
-        # Create the biased e8m0 representation and cast it to 8 bits
-        scale_e8m0_biased = scale_e8m0_unbiased + e8m0_exponent_bias
-        scale_e8m0_biased = scale_e8m0_biased.to(tl.uint8)
+            # Original floor implementation
+            # Calculate the e8m0 scale by extracting the exponent (floor)
+            max_abs = max_abs.to(tl.bfloat16)
+            max_abs_int16 = max_abs.to(tl.int16, bitcast=True)
+            extracted_pow2 = (
+                (max_abs_int16 >> bf16_mbits) & 0b11111111
+            ) - bf16_exp_bias
+            extracted_pow2 = extracted_pow2 - target_max_pow2
+            scale_e8m0_unbiased = extracted_pow2.to(tl.bfloat16)
+
+            # Clamp to exponents that can be represented in e8m0
+            # Add 1 to capture NaNs
+            scale_e8m0_unbiased = tl.clamp(
+                scale_e8m0_unbiased, -1 * e8m0_exponent_bias, e8m0_exponent_bias + 1
+            )
+
+            # Create the biased e8m0 representation and cast it to 8 bits
+            scale_e8m0_biased = scale_e8m0_unbiased + e8m0_exponent_bias
+            scale_e8m0_biased = scale_e8m0_biased.to(tl.uint8)
 
         # TODO(future PR): add NaN handling here,
         # https://github.com/pytorch/pytorch/pull/100572 will likely be useful to
@@ -247,6 +273,7 @@ if torch_version_at_least("2.7.0") and has_triton():
         ROW_TILE_SIZE: tl.constexpr,
         COL_TILE_SIZE: tl.constexpr,
         INNER_BLOCK_SIZE: tl.constexpr,  # should be 32 for MX
+        SCALING_MODE: tl.constexpr,
     ):
         """
         Example tiling for n_rows==8, n_cols=8, ROW_TILE_SIZE=4, COL_TILE_SIZE=4, INNER_BLOCK_SIZE=2,
@@ -333,7 +360,11 @@ if torch_version_at_least("2.7.0") and has_triton():
 
         # Find the maximum absolute value for each column
         # shape: (COL_TILE_SIZE * BLOCKS_PER_ROW_TILE,)
-        col_scale_r, col_scale_e8m0_r = _triton_calculate_scale(x_block_abs_t_r, axis=1)
+        col_scale_r, col_scale_e8m0_r = _triton_calculate_scale(
+            x_block_abs_t_r,
+            axis=1,
+            SCALING_MODE=SCALING_MODE,
+        )
 
         # Divide each column by scale
         # Broadcasting col_scale to match x_block's shape
@@ -396,6 +427,7 @@ if torch_version_at_least("2.7.0") and has_triton():
         ROW_TILE_SIZE: tl.constexpr,
         COL_TILE_SIZE: tl.constexpr,
         SCALE_BLOCK_SIZE: tl.constexpr,  # should be 32 for MX
+        SCALING_MODE: tl.constexpr,
     ):
         """
         Quantizes a high precision tensor to mxfp8 rowwise (1x32 scaling granularity).
@@ -431,7 +463,9 @@ if torch_version_at_least("2.7.0") and has_triton():
 
         # Find the maximum absolute value for each row (across columns)
         # shape: (ROW_TILE_SIZE * BLOCKS_PER_COL_TILE,)
-        scale_fp32_r, scale_e8m0_r = _triton_calculate_scale(x_block_abs_r, axis=1)
+        scale_fp32_r, scale_e8m0_r = _triton_calculate_scale(
+            x_block_abs_r, axis=1, mode=SCALING_MODE
+        )
 
         # Divide each row by scale
         # Broadcasting scale to match x_block's shape
@@ -467,12 +501,15 @@ if torch_version_at_least("2.7.0") and has_triton():
 
     @triton_op("torchao::triton_to_mxfp8_dim0", mutates_args={})
     def triton_to_mxfp8_dim0(
-        x: torch.Tensor, inner_block_size: int = 32
+        x: torch.Tensor,
+        inner_block_size: int = 32,
+        scaling_mode: str = "rceil",
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Input:
         * `x` - input tensor, in row major memory layout
         * `inner_block_size` - size of tiles to scale across, default is 32 for MX recipes
+        * `scaling_mode` - floor or rceil
 
         Output:
         * `output`: the `float8_e4m3fn` values of `x` cast to mxfp8 across dim0 (rowwise)
@@ -517,6 +554,7 @@ if torch_version_at_least("2.7.0") and has_triton():
             n_rows=n_rows,
             n_cols=n_cols,
             SCALE_BLOCK_SIZE=inner_block_size,
+            SCALING_MODE=scaling_mode,
         )
 
         # Reshape output back to original shape
@@ -530,7 +568,7 @@ if torch_version_at_least("2.7.0") and has_triton():
 
     @triton_op("torchao::triton_to_mxfp8_dim1", mutates_args={})
     def triton_to_mxfp8_dim1(
-        x: torch.Tensor, inner_block_size: int = 32
+        x: torch.Tensor, inner_block_size: int = 32, scaling_mode: str = "rceil"
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Input:
@@ -582,6 +620,7 @@ if torch_version_at_least("2.7.0") and has_triton():
             n_rows=n_rows,
             n_cols=n_cols,
             INNER_BLOCK_SIZE=inner_block_size,
+            SCALING_MODE=scaling_mode,
         )
 
         return (
@@ -626,9 +665,10 @@ if torch_version_at_least("2.7.0") and has_triton():
         scale_block_size: int = 32,
     ) -> torch.Tensor:
         assert scale_block_size == 32, "scale_block_size must be 32 for now"
-        assert out_dtype in (torch.bfloat16, torch.float32), (
-            "out_dtype must be bf16 or fp32"
-        )
+        assert out_dtype in (
+            torch.bfloat16,
+            torch.float32,
+        ), "out_dtype must be bf16 or fp32"
 
         # Input shape must be 2D.
         orig_shape = e4m3_data.shape
@@ -1055,6 +1095,7 @@ if torch_version_at_least("2.7.0") and has_triton():
         padded_cols = n_col_blocks * 4
 
         return scale_tensor.new_empty((padded_rows, padded_cols))
+
 else:
 
     def triton_to_mxfp8_dim0(
@@ -1091,30 +1132,38 @@ else:
         raise AssertionError("needs torch version 2.8+ and triton")
 
 
-mxfp8_cuda_extension_available = False
-if is_sm_at_least_100():
-    try:
-        # MXFP8 CUDA kernel is only built on SM100+. Furthermore,
-        # currently our CI runners are not SM100+, so the user needs to build
-        # from source.
-        # TODO(#2932): improve this
-        from torchao.prototype import mxfp8_cuda
-
-        mxfp8_cuda_extension_available = True
-    except ImportError:
-        logging.debug("Skipping import of torchao.prototype.mxfp8_cuda")
+mxfp8_cuda_extension_available = is_sm_at_least_100() and is_cuda_version_at_least(
+    12, 8
+)
 
 if mxfp8_cuda_extension_available:
-    # TODO: Make `scaling_mode` a choice (enum-like) rather than arbitrary string.
-    # Currently we have to use an arbitrary string because custom ops don't support enum
-    # params.
-    @torch.library.custom_op("torchao::mxfp8_quantize_cuda", mutates_args=())
+    lib = torch.library.Library("torchao", "FRAGMENT")
+    lib.define(
+        "mxfp8_quantize(Tensor input, bool rowwise, bool colwise, int scale_dim_x, int scale_dim_y, str fp8_format, str scaling_mode) -> (Tensor, Tensor, Tensor, Tensor)",
+        tags=[torch._C.Tag.needs_fixed_stride_order],
+    )
+
     def mxfp8_quantize_cuda(
         x: torch.Tensor,
         rowwise: bool = False,
         colwise: bool = True,
         scaling_mode: str = "floor",
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Quantizes a 2D tensor to MXFP8 format using CUDA kernels.
+
+        This is a high-level wrapper that calls the underlying CUDA kernel via
+        torch.ops.torchao.mxfp8_quantize.
+
+        Args:
+            x: Input tensor to be quantized. Must be 2D with shape (rows, cols).
+            rowwise: If True, compute rowwise scales.
+            colwise: If True, compute colwise scales.
+            scaling_mode: Scaling mode for quantization. Defaults to "floor".
+
+        Returns:
+            Tuple of (output_rowwise, output_colwise, scales_rowwise, scales_colwise)
+        """
         # Input shape must be 2D.
         assert x.ndim == 2
         rows, cols = x.shape
@@ -1124,29 +1173,32 @@ if mxfp8_cuda_extension_available:
         assert rows % block_size == 0, "rows must be a multiple of 32"
         assert cols % block_size == 0, "cols must be a multiple of 32"
 
-        # Convert scaling mode to expected string format and call into kernel.
         output_rowwise, output_colwise, scales_rowwise, scales_colwise = (
-            mxfp8_cuda.quantize(
+            torch.ops.torchao.mxfp8_quantize.default(
                 x,
-                rowwise=rowwise,
-                colwise=colwise,
-                scaling_mode=scaling_mode,
+                rowwise,
+                colwise,
+                1,  # scale_dim_x
+                block_size,  # scale_dim_y
+                "e4m3",  # fp8_format
+                scaling_mode,
             )
         )
         return output_rowwise, output_colwise, scales_rowwise, scales_colwise
 
-    @mxfp8_quantize_cuda.register_fake
-    def _(
+    @torch.library.register_fake("torchao::mxfp8_quantize")
+    def _fake_mxfp8_quantize(
         x: torch.Tensor,
-        rowwise: bool = False,
-        colwise: bool = True,
-        scaling_mode: str = "floor",
+        rowwise: bool,
+        colwise: bool,
+        scale_dim_x: int,
+        scale_dim_y: int,
+        fp8_format: str,
+        scaling_mode: str,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Fake/meta implementation for mxfp8_quantize."""
         assert x.ndim == 2
         rows, cols = x.shape
-        block_size = 32
-        assert rows % block_size == 0, "rows must be a multiple of 32"
-        assert cols % block_size == 0, "cols must be a multiple of 32"
         num_row_blocks = rows // 32
         num_col_blocks = cols // 32
 
@@ -1180,7 +1232,7 @@ if mxfp8_cuda_extension_available:
 
         return output_rowwise, output_colwise, scales_rowwise, scales_colwise
 
-    @register_sharding(torch.ops.torchao.mxfp8_quantize_cuda.default)
+    @register_sharding(torch.ops.torchao.mxfp8_quantize.default)
     def custom_mxfp8_quantize_cuda_dim1_sharding(
         x: torch.Tensor,
         rowwise: bool = False,
@@ -1216,6 +1268,7 @@ if mxfp8_cuda_extension_available:
             rule_for_input_sharded_dim1,
         ]
         return acceptable_shardings
+
 else:
 
     def mxfp8_quantize_cuda(
