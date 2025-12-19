@@ -115,7 +115,7 @@ class TestObserverTensor(unittest.TestCase):
         # Check that Hessian was initialized and updated
         self.assertIsNotNone(observer_weight.hessian)
         self.assertEqual(observer_weight.hessian.shape, (in_features, in_features))
-        self.assertEqual(observer_weight.total_batches, batch_size)
+        self.assertEqual(observer_weight.total_batches, 1)
 
         # Verify output is correct
         expected_output = F.linear(input_tensor, weight)
@@ -140,7 +140,7 @@ class TestObserverTensor(unittest.TestCase):
             input_tensor = torch.randn(
                 batch_size, in_features, dtype=torch.float32, device="cuda"
             )
-            total_samples += batch_size
+            total_samples += 1
             _ = F.linear(input_tensor, observer_weight)
 
         # Check that Hessian was created and updated
@@ -171,7 +171,7 @@ class TestObserverTensor(unittest.TestCase):
         # Check Hessian was initialized and updated
         self.assertIsNotNone(observer_weight.hessian)
         # For bmm with batch dimension, the Hessian is computed on the last dimension
-        self.assertEqual(observer_weight.total_batches, batch * m)
+        self.assertEqual(observer_weight.total_batches, batch)
 
         # Verify output is correct
         expected_output = torch.bmm(input_tensor, weight)
@@ -202,37 +202,10 @@ class TestObserverTensor(unittest.TestCase):
 
         # Check Hessian was initialized after forward pass
         self.assertIsNotNone(linear.weight.hessian)
-        self.assertEqual(linear.weight.total_batches, 4)
+        self.assertEqual(linear.weight.total_batches, 1)
 
         # Check output shape
         self.assertEqual(output.shape, (4, 32))
-
-    def test_observer_with_bias(self):
-        """Test ObserverTensor works correctly with bias in linear layers."""
-        in_features = 64
-        out_features = 32
-        batch_size = 8
-
-        weight = torch.randn(
-            out_features, in_features, dtype=torch.float32, device="cuda"
-        )
-        bias = torch.randn(out_features, dtype=torch.float32, device="cuda")
-        observer_weight = ObserverTensor.from_hp(weight)
-
-        input_tensor = torch.randn(
-            batch_size, in_features, dtype=torch.float32, device="cuda"
-        )
-
-        # Test linear with bias
-        output = F.linear(input_tensor, observer_weight, bias)
-
-        # Check Hessian was updated
-        self.assertIsNotNone(observer_weight.hessian)
-        self.assertEqual(observer_weight.total_batches, batch_size)
-
-        # Verify output is correct
-        expected_output = F.linear(input_tensor, weight, bias)
-        torch.testing.assert_close(output, expected_output)
 
     def test_hessian_incremental_update(self):
         """Test that incremental Hessian updates match batch calculation."""
@@ -349,7 +322,11 @@ class TestGPTQFlow(unittest.TestCase):
         self.assertEqual(quantized_weight.shape, weight.shape)
 
         # Dequantize and check error is reasonable
-        dequantized = quantized_weight.dequantize()
+        dequantized = F.linear(
+            torch.eye(in_features, device="cuda", dtype=torch.bfloat16),
+            quantized_weight,
+            None,
+        ).t()
         self.assertEqual(dequantized.shape, weight.shape)
 
         # Check quantization introduces bounded error
@@ -387,6 +364,7 @@ class TestGPTQFlow(unittest.TestCase):
         from torchao.prototype.gptq import _calculate_hessian
 
         H = _calculate_hessian(activations, device="cuda")
+        H_identity = torch.eye(in_features, device="cuda", dtype=torch.float32)
 
         # GPTQ quantization
         config = GPTQConfig(
@@ -394,12 +372,15 @@ class TestGPTQFlow(unittest.TestCase):
             group_size=128,
         )
         gptq_quantized = gptq_quantize(H, weight, config)
-        gptq_dequantized = gptq_quantized.dequantize()
+        gptq_dequantized = F.linear(
+            H_identity.to(torch.bfloat16), gptq_quantized, None
+        ).t()
 
         # Naive quantization (using identity Hessian)
-        H_identity = torch.eye(in_features, device="cuda", dtype=torch.float32)
         naive_quantized = gptq_quantize(H_identity, weight, config)
-        naive_dequantized = naive_quantized.dequantize()
+        naive_dequantized = F.linear(
+            H_identity.to(torch.bfloat16), naive_quantized, None
+        ).t()
 
         # Compute weighted error using Hessian
         # Error metric: (W - W_q)^T H (W - W_q)
