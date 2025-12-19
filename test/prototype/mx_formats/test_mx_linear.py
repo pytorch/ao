@@ -121,8 +121,13 @@ def test_linear_eager_vs_hp(
             pytest.skip("CUDA capability >= 8.9 required for float8 in triton")
 
     if mxfp8_cast_kernel_choice == MXFP8Dim1CastKernelChoice.TRITON:
-        if scale_calculation_mode != ScaleCalculationMode.FLOOR:
-            pytest.skip("unsupported configuration")
+        if scale_calculation_mode not in (
+            ScaleCalculationMode.FLOOR,
+            ScaleCalculationMode.RCEIL,
+        ):
+            pytest.skip("triton mxfp8 quantization kernels only require sm100")
+        if not is_sm_at_least_100():
+            pytest.skip("triton mxfp8 quantization kernels require sm100")
     elif mxfp8_cast_kernel_choice == MXFP8Dim1CastKernelChoice.CUDA:
         if scale_calculation_mode not in (
             ScaleCalculationMode.FLOOR,
@@ -316,8 +321,15 @@ def test_linear_compile(
             pytest.skip("unsupported configuration")
 
     if mxfp8_cast_kernel_choice == MXFP8Dim1CastKernelChoice.TRITON:
-        if scale_calculation_mode != ScaleCalculationMode.FLOOR:
-            pytest.skip("unsupported configuration")
+        if scale_calculation_mode not in (
+            ScaleCalculationMode.FLOOR,
+            ScaleCalculationMode.RCEIL,
+        ):
+            pytest.skip(
+                "triton mxfp8 quantization kernels only support FLOOR and RCEIL scaling modes"
+            )
+        if is_sm_at_least_100():
+            pytest.skip("triton mxfp8 quantization kernels require sm100")
     elif mxfp8_cast_kernel_choice == MXFP8Dim1CastKernelChoice.CUDA:
         if scale_calculation_mode not in (
             ScaleCalculationMode.FLOOR,
