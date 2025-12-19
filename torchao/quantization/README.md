@@ -386,31 +386,6 @@ You can find more information [here](../dtypes/floatx/README.md). It should be n
 
 ```
 
-KleidiAI Int4 Kernels can be utilized on the Arm platform with PyTorch versions 2.6.0 or later by adjusting the quantization parameters as follows:
-
-```python
-from torchao.quantization.quant_api import (
-    Int8DynamicActivationIntxWeightConfig,
-    quantize_,
-)
-from torchao.quantization.granularity import PerGroup, PerAxis
-from torchao.quantization.quant_primitives import MappingType
-from torch.profiler import profile, ProfilerActivity, tensorboard_trace_handler
-
-my_model = Model()
-
-quantize_(
-    my_model,
-    Int8DynamicActivationIntxWeightConfig(
-        weight_scale_dtype=torch.float32,
-        weight_granularity=PerGroup(32),  # PerAxis is also supported
-        weight_mapping_type=MappingType.SYMMETRIC_NO_CLIPPING_ERR, # MappingType.SYMMETRIC can also be used but increases error
-        layout=layout,
-        weight_dtype=torch.int4,
-        intx_packing_format="opaque_aten_kleidiai",
-    ),
-)
-```
 
 ### Gemlite Triton
 Int4 and Int8 quantization using the [Gemlite Triton](https://github.com/mobiusml/gemlite) kernels. You can try it out with the `quantize_` api as above alongside the constructor `GemliteUIntXWeightOnlyConfig`.  An example can be found in `torchao/_models/llama/generate.py`.

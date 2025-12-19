@@ -41,12 +41,6 @@ _DEPRECATED_SINGLE_LINEAR_MODEL_INFO = [
         1,
         "IntxWeightOnlyConfig",
     ),
-    # model card: https://huggingface.co/torchao-testing/single-linear-Int8DynamicActivationIntxWeightConfig-v1-0.14.dev
-    (
-        "torchao-testing/single-linear-Int8DynamicActivationIntxWeightConfig-v1-0.14.dev",
-        1,
-        "Int8DynamicActivationIntxWeightConfig",
-    ),
 ]
 
 _DEPRECATED_MODEL_INFO = [
@@ -61,12 +55,6 @@ _DEPRECATED_MODEL_INFO = [
         "torchao-testing/opt-125m-IntxWeightOnlyConfig-v1-0.14.0.dev",
         1,
         "IntxWeightOnlyConfig",
-    ),
-    # https://huggingface.co/torchao-testing/opt-125m-Int8DynamicActivationIntxWeightConfig-v1-0.14.0.dev
-    (
-        "torchao-testing/opt-125m-Int8DynamicActivationIntxWeightConfig-v1-0.14.0.dev",
-        1,
-        "Int8DynamicActivationIntxWeightConfig",
     ),
 ]
 
