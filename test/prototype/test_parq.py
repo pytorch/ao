@@ -51,7 +51,12 @@ from torchao.utils import (
     torch_version_at_least,
 )
 
-_DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+if torch.cuda.is_available():
+    _DEVICE = "cuda"
+elif torch.xpu.is_available():
+    _DEVICE = "xpu"
+else:
+    _DEVICE = "cpu"
 
 
 class M(nn.Module):
