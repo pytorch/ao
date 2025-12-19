@@ -112,6 +112,7 @@ def run(
         "dim0_mxfp4_floor",
         "dim0_mxfp8_rceil",
         "dim0_mxfp8_triton_floor",
+        "dim0_mxfp8_triton_rceil",
         "dim0_nvfp4",
         "dim0_nvfp4_triton_swizzle",
         "dim1_mxfp8_floor",
@@ -243,9 +244,33 @@ def run(
         y_d0, s_d0 = triton_to_mxfp8_dim0(x, inner_block_size=BLOCK_SIZE)
 
         for _ in range(2):
-            __ = triton_to_mxfp8_dim0(x, inner_block_size=BLOCK_SIZE)
+            __ = triton_to_mxfp8_dim0(
+                x, inner_block_size=BLOCK_SIZE, scaling_mode="floor"
+            )
         time_us = benchmark_cuda_function_in_microseconds(
-            lambda x, b: triton_to_mxfp8_dim0(x, inner_block_size=BLOCK_SIZE),
+            lambda x, b: triton_to_mxfp8_dim0(
+                x, inner_block_size=BLOCK_SIZE, scaling_mode="floor"
+            ),
+            x,
+            BLOCK_SIZE,
+        )
+        assert y_d0.dtype == torch.float8_e4m3fn
+        assert s_d0.dtype == torch.float8_e8m0fnu
+        bytes_r = x.numel() * bytes_per_el_bf16
+        bytes_w = (y_d0.numel() + s_d0.numel()) * bytes_per_el_fp8
+        bps = (bytes_r + bytes_w) / (time_us / 1e6)
+
+    elif mode == "dim0_mxfp8_triton_rceil":
+        y_d0, s_d0 = triton_to_mxfp8_dim0(x, inner_block_size=BLOCK_SIZE)
+
+        for _ in range(2):
+            __ = triton_to_mxfp8_dim0(
+                x, inner_block_size=BLOCK_SIZE, scaling_mode="rceil"
+            )
+        time_us = benchmark_cuda_function_in_microseconds(
+            lambda x, b: triton_to_mxfp8_dim0(
+                x, inner_block_size=BLOCK_SIZE, scaling_mode="rceil"
+            ),
             x,
             BLOCK_SIZE,
         )
