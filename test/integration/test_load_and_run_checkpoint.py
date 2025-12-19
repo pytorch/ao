@@ -35,12 +35,6 @@ _DEPRECATED_SINGLE_LINEAR_MODEL_INFO = [
         1,
         "Int4WeightOnlyConfig",
     ),
-    # model card: https://huggingface.co/torchao-testing/single-linear-IntxWeightOnlyConfig-v1-0.14.dev
-    (
-        "torchao-testing/single-linear-IntxWeightOnlyConfig-v1-0.14.dev",
-        1,
-        "IntxWeightOnlyConfig",
-    ),
 ]
 
 _DEPRECATED_MODEL_INFO = [
@@ -49,12 +43,6 @@ _DEPRECATED_MODEL_INFO = [
         "torchao-testing/opt-125m-Int4WeightOnlyConfig-v1-0.14.dev",
         1,
         "Int4WeightOnlyConfig",
-    ),
-    # https://huggingface.co/torchao-testing/opt-125m-IntxWeightOnlyConfig-v1-0.14.0.dev
-    (
-        "torchao-testing/opt-125m-IntxWeightOnlyConfig-v1-0.14.0.dev",
-        1,
-        "IntxWeightOnlyConfig",
     ),
 ]
 
