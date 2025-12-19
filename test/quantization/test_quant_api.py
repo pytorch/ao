@@ -28,8 +28,6 @@ from torchao._models.llama.model import Transformer, prepare_inputs_for_model
 from torchao._models.llama.tokenizer import get_tokenizer
 from torchao.dtypes import (
     AffineQuantizedTensor,
-    Int4CPULayout,
-    Int4XPULayout,
     PlainLayout,
     TensorCoreTiledLayout,
 )
@@ -73,7 +71,6 @@ from torchao.utils import (
     get_current_accelerator_device,
     is_sm_at_least_89,
     is_sm_at_least_90,
-    torch_version_at_least,
     unwrap_tensor_subclass,
 )
 
@@ -218,34 +215,6 @@ class TestQuantFlow(TestCase):
         m = torch.compile(m, mode="max-autotune")
         compiled = m(*example_inputs)
         torch.testing.assert_close(quantized, compiled, atol=0, rtol=0)
-
-    @unittest.skipIf(not torch.xpu.is_available(), "Need XPU available")
-    @unittest.skipIf(not torch_version_at_least("2.8.0"), "only works for torch 2.8+")
-    def test_int4_wo_quant_save_load(self):
-        m = ToyLinearModel().eval().cpu()
-
-        def api(model):
-            quantize_(model, Int4WeightOnlyConfig(layout=Int4XPULayout(), version=1))
-            unwrap_tensor_subclass(model)
-
-        api(m)
-
-        example_inputs = m.example_inputs()
-        ref = m(*example_inputs)
-        with tempfile.NamedTemporaryFile() as f:
-            torch.save(m.state_dict(), f)
-            f.seek(0)
-            state_dict = torch.load(f)
-
-        m2 = ToyLinearModel().eval().cpu()
-        api(m2)
-
-        m2.load_state_dict(state_dict)
-        m2 = m2.to(device="xpu")
-        example_inputs = map(lambda x: x.xpu(), example_inputs)
-        res = m2(*example_inputs)
-
-        torch.testing.assert_close(ref, res.cpu())
 
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test_int8_wo_quant_save_load(self):
@@ -524,37 +493,11 @@ class TestQuantFlow(TestCase):
             assert param.device.type == _DEVICE.type
         self.assertLess(memory_streaming, memory_baseline)
 
-    @common_utils.parametrize("dtype", [torch.float, torch.bfloat16, torch.half])
-    @common_utils.parametrize("x_dim", [2, 3])
-    @common_utils.parametrize("use_hqq", [True, False])
-    def test_int4wo_cpu(self, dtype, x_dim, use_hqq):
-        device = "cpu"
-        m = ToyLinearModel().eval().to(dtype).to(device)
-        example_inputs = m.example_inputs(dtype=dtype, device=device)
-        if x_dim == 3:
-            example_inputs = (example_inputs[0].unsqueeze(0),)
-
-        with torch.no_grad():
-            quantize_(
-                m,
-                Int4WeightOnlyConfig(
-                    group_size=32, layout=Int4CPULayout(), use_hqq=use_hqq, version=1
-                ),
-            )
-            # ensure the expected op is in the code
-            _, code = torch._inductor.utils.run_and_get_code(
-                torch.compile(m, fullgraph=True, dynamic=True),
-                *example_inputs,
-            )
-            assert "_weight_int4pack_mm_for_cpu" in code[0]
-            assert "aten.mm.default" not in code[0]
-
     # TODO(#1690): move to new config names
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     @common_utils.parametrize(
         "config",
         [
-            Int4WeightOnlyConfig(version=1),
             Float8WeightOnlyConfig(),
             Float8DynamicActivationFloat8WeightConfig(),
             Float8StaticActivationFloat8WeightConfig(scale=torch.tensor([1.0])),
@@ -621,7 +564,7 @@ class TestQuantFlow(TestCase):
 
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test_module_fqn_to_config_default(self):
-        config1 = Int4WeightOnlyConfig(group_size=32, version=1)
+        config1 = Int4WeightOnlyConfig(group_size=32)
         config2 = Int8WeightOnlyConfig()
         config = ModuleFqnToConfig({"_default": config1, "linear2": config2})
         model = ToyLinearModel().to(_DEVICE).to(dtype=torch.bfloat16)
@@ -635,7 +578,7 @@ class TestQuantFlow(TestCase):
 
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test_module_fqn_to_config_module_name(self):
-        config1 = Int4WeightOnlyConfig(group_size=32, version=1)
+        config1 = Int4WeightOnlyConfig(group_size=32)
         config2 = Int8WeightOnlyConfig()
         config = ModuleFqnToConfig({"linear1": config1, "linear2": config2})
         model = ToyLinearModel().to(_DEVICE).to(dtype=torch.bfloat16)
@@ -774,7 +717,7 @@ class TestQuantFlow(TestCase):
 
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test_module_fqn_to_config_skip(self):
-        config1 = Int4WeightOnlyConfig(group_size=32, version=1)
+        config1 = Int4WeightOnlyConfig(group_size=32)
         config = ModuleFqnToConfig({"_default": config1, "linear2": None})
         model = ToyLinearModel().to(_DEVICE).to(dtype=torch.bfloat16)
         example_inputs = model.example_inputs(device=_DEVICE, dtype=torch.bfloat16)
@@ -783,25 +726,6 @@ class TestQuantFlow(TestCase):
         assert isinstance(model.linear1.weight, AffineQuantizedTensor)
         assert isinstance(model.linear1.weight._layout, TensorCoreTiledLayout)
         assert not isinstance(model.linear2.weight, AffineQuantizedTensor)
-
-    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
-    def test_int4wo_cuda_serialization(self):
-        config = Int4WeightOnlyConfig(group_size=32, version=1)
-        model = ToyLinearModel().to(_DEVICE).to(dtype=torch.bfloat16)
-        # quantize in cuda
-        quantize_(model, config)
-        example_inputs = model.example_inputs(device=_DEVICE, dtype=torch.bfloat16)
-        model(*example_inputs)
-        with tempfile.NamedTemporaryFile() as ckpt:
-            # save checkpoint in cuda
-            torch.save(model.state_dict(), ckpt)
-            # load checkpoint on cpu then move checkpoint to cuda
-            # This is what torchtune does: https://github.com/pytorch/torchtune/blob/v0.6.1/torchtune/training/checkpointing/_utils.py#L253
-            sd = torch.load(ckpt.name, weights_only=False, map_location="cpu")
-            for k, v in sd.items():
-                sd[k] = v.to(_DEVICE)
-            # load state_dict in cuda
-            model.load_state_dict(sd, assign=True)
 
     def test_config_deprecation(self):
         """

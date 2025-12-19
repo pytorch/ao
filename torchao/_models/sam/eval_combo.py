@@ -22,7 +22,6 @@ from torchao._models.utils import (
 from torchao.dtypes import SemiSparseLayout
 from torchao.prototype.quantization.autoquant_v2 import autoquant_v2
 from torchao.quantization import (
-    Int4WeightOnlyConfig,
     Int8DynamicActivationInt8WeightConfig,
     autoquant,
     quantize_,
@@ -389,22 +388,6 @@ def run(
         quantize_(
             predictor.model.image_encoder,
             Int8DynamicActivationInt8WeightConfig(layout=SemiSparseLayout()),
-            mlp_lin1_only,
-        )
-        sparsify_(predictor.model.image_encoder, semi_sparse_weight(), mlp_lin2_only)
-    elif compress == "int4_weight_only_sparse":
-        # apply sparsify first to set qparams
-        apply_fake_sparsity(predictor.model.image_encoder, filter_fn=mlp_only)
-        from torchao.dtypes import MarlinSparseLayout
-
-        quantize_(
-            predictor.model.image_encoder,
-            Int8DynamicActivationInt8WeightConfig(),
-            attn_only,
-        )
-        quantize_(
-            predictor.model.image_encoder,
-            Int4WeightOnlyConfig(layout=MarlinSparseLayout(), version=1),
             mlp_lin1_only,
         )
         sparsify_(predictor.model.image_encoder, semi_sparse_weight(), mlp_lin2_only)

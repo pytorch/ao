@@ -8,13 +8,11 @@ import unittest
 import torch
 
 from torchao.quantization import (
-    Int4WeightOnlyConfig,
     MappingType,
     UIntXWeightOnlyConfig,
     ZeroPointDomain,
     quantize_,
 )
-from torchao.testing.utils import skip_if_rocm
 
 cuda_available = torch.cuda.is_available()
 
@@ -54,12 +52,7 @@ def _eval_hqq(dtype):
         in_features=in_features, out_features=out_features, bias=False
     )
     dummy_linear.weight.data = W
-    if dtype == torch.uint4:
-        config = Int4WeightOnlyConfig(
-            group_size=max(block_size), use_hqq=True, version=1
-        )
-    else:
-        config = UIntXWeightOnlyConfig(dtype, group_size=max(block_size), use_hqq=True)
+    config = UIntXWeightOnlyConfig(dtype, group_size=max(block_size), use_hqq=True)
     quantize_(dummy_linear, config)
     q_tensor_hqq = dummy_linear.weight
 
@@ -111,14 +104,6 @@ class TestHQQ(unittest.TestCase):
             dtype=torch.uint5,
             ref_dequantize_error=0.00023,
             ref_dot_product_error=0.000704,
-        )
-
-    @skip_if_rocm("ROCm enablement in progress")
-    def test_hqq_plain_4bit(self):
-        self._test_hqq(
-            dtype=torch.uint4,
-            ref_dequantize_error=0.000487,
-            ref_dot_product_error=0.001472,
         )
 
     def test_hqq_plain_3bit(self):

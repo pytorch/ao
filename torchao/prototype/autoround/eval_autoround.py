@@ -105,7 +105,7 @@ def main(args):
 
                 quantize_(
                     model,
-                    Int4WeightOnlyConfig(group_size=args.group_size, version=1),
+                    Int4WeightOnlyConfig(group_size=args.group_size),
                     filter_fn=filter_fn,
                     device=model_device,
                 )

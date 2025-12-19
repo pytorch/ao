@@ -122,30 +122,6 @@ def _int8da_int8w_api(
     )
 
 
-def _int4wo_api(mod, use_hqq=False):
-    if check_cpu_version(next(mod.parameters()).device):
-        quantize_(
-            mod,
-            Int4WeightOnlyConfig(
-                layout=Int4CPULayout(),
-                use_hqq=use_hqq,
-                set_inductor_config=False,
-                version=1,
-            ),
-        )
-        unwrap_tensor_subclass(mod)
-    elif check_xpu_version(next(mod.parameters()).device):
-        quantize_(
-            mod,
-            Int4WeightOnlyConfig(
-                layout=Int4XPULayout(), set_inductor_config=False, version=1
-            ),
-        )
-        unwrap_tensor_subclass(mod)
-    else:
-        quantize_(mod, Int4WeightOnlyConfig(set_inductor_config=False, version=1))
-
-
 def _int8da_int4w_api(mod):
     quantize_(mod, Int8DynamicActivationInt4WeightConfig(set_inductor_config=False))
 
@@ -154,7 +130,6 @@ def _int8da_int4w_api(mod):
 TENSOR_SUBCLASS_APIS = [
     _int8wo_api,
     _int8da_int8w_api,
-    _int4wo_api,
 ]
 
 
@@ -623,32 +598,6 @@ class TestSubclass(unittest.TestCase):
         )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
-    @skip_if_xpu("XPU enablement in progress")
-    def test_int4_weight_only_quant_subclass_api(self, device, dtype):
-        if dtype != torch.bfloat16:
-            self.skipTest(f"Fails for {dtype}")
-        for test_shape in [(16, 1024, 16)] + (
-            [(1, 1024, 256)] if device == _DEVICE else []
-        ):
-            self._test_lin_weight_subclass_api_impl(
-                _int4wo_api, device, 15, test_shape=test_shape, test_dtype=dtype
-            )
-
-    @parameterized.expand(COMMON_DEVICE_DTYPE)
-    @skip_if_xpu("XPU enablement in progress")
-    def test_int4_weight_only_hqq_quant_subclass_api(self, device, dtype):
-        if dtype != torch.bfloat16:
-            self.skipTest(f"Fails for {dtype}")
-        for test_shape in [(16, 1024, 16), (1, 1024, 256)]:
-            api = partial(
-                _int4wo_api,
-                use_hqq=True,
-            )
-            self._test_lin_weight_subclass_api_impl(
-                api, device, 15, test_shape=test_shape, test_dtype=dtype
-            )
-
-    @parameterized.expand(COMMON_DEVICE_DTYPE)
     @unittest.skipIf(not has_gemlite, "gemlite not available")
     def test_gemlite_layout(self, device, dtype):
         from torchao.quantization import GemliteUIntXWeightOnlyConfig
@@ -942,13 +891,6 @@ class TestSaveLoadMeta(unittest.TestCase):
     def test_save_load_int8woqtensors(self, device, dtype):
         undo_recommended_configs()
         self._test_handle_save_load_meta_impl(_int8wo_api, device, test_dtype=dtype)
-
-    @parameterized.expand(COMMON_DEVICE_DTYPE)
-    @torch.no_grad()
-    def test_save_load_int4woqtensors(self, device, dtype):
-        if dtype != torch.bfloat16:
-            self.skipTest(f"Fails for {dtype}")
-        self._test_handle_save_load_meta_impl(_int4wo_api, device, 20, test_dtype=dtype)
 
 
 class UtilsUnitTest(unittest.TestCase):
