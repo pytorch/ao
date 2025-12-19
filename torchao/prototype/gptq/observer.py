@@ -30,9 +30,6 @@ class ObserverTensor(TorchAOBaseTensor):
         self.total_batches = total_batches
 
     def update(self, input: torch.Tensor):
-        # if torch.isnan(input).any():
-        #     print("nan in input")
-        #     breakpoint()
         """Incrementally update Hessian matrix from input activations."""
         # Move input to same device as hp_data and convert to float
         x = input.float().to(self.hp_data.device)
