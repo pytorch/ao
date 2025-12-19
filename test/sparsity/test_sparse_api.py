@@ -11,13 +11,12 @@ import torch
 from torch import nn
 from torch.testing._internal import common_utils
 
-from torchao.dtypes import MarlinSparseLayout, SemiSparseLayout
+from torchao.dtypes import SemiSparseLayout
 from torchao.quantization import (
     Float8DynamicActivationFloat8SemiSparseWeightConfig,
     Float8DynamicActivationFloat8WeightConfig,
 )
 from torchao.quantization.quant_api import (
-    Int4WeightOnlyConfig,
     Int8DynamicActivationInt8WeightConfig,
     quantize_,
 )
@@ -93,38 +92,6 @@ class TestQuantSemiSparse(common_utils.TestCase):
         sparse_result = model(input)
 
         torch.testing.assert_close(dense_result, sparse_result, rtol=1e-2, atol=1e-2)
-
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
-    @common_utils.parametrize("compile", [True, False])
-    def test_sparse_marlin(self, compile):
-        if not torch.backends.cusparselt.is_available():
-            self.skipTest("Need cuSPARSELt")
-
-        input = torch.rand((256, 256)).half().cuda()
-        model = (
-            nn.Sequential(
-                nn.Linear(256, 1024),
-                nn.Linear(1024, 256),
-            )
-            .half()
-            .cuda()
-            .eval()
-        )
-
-        apply_fake_sparsity(model)
-        model_copy = copy.deepcopy(model)
-
-        # Quantized
-        quantize_(model_copy.bfloat16(), Int4WeightOnlyConfig(version=1))
-        dense_result = model_copy(input.bfloat16()).half()
-
-        # Sparse + quantized
-        quantize_(model, Int4WeightOnlyConfig(layout=MarlinSparseLayout(), version=1))
-        if compile:
-            model = torch.compile(model)
-        sparse_result = model(input)
-
-        torch.testing.assert_close(dense_result, sparse_result, atol=3e-1, rtol=3e-1)
 
     @unittest.skipIf(not is_sm_at_least_90(), "Need H100 to run")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")

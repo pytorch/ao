@@ -28,23 +28,9 @@ else:
 # high precision model, used for testing config deprecation warning
 _HIGH_PRECISION_MODEL = "facebook/opt-125m"
 
-_DEPRECATED_SINGLE_LINEAR_MODEL_INFO = [
-    # model card: https://huggingface.co/torchao-testing/single-linear-Int4WeightOnlyConfig-v1-0.14.dev
-    (
-        "torchao-testing/single-linear-Int4WeightOnlyConfig-v1-0.14.dev",
-        1,
-        "Int4WeightOnlyConfig",
-    ),
-]
+_DEPRECATED_SINGLE_LINEAR_MODEL_INFO = []
 
-_DEPRECATED_MODEL_INFO = [
-    # model card: https://huggingface.co/torchao-testing/opt-125m-Int4WeightOnlyConfig-v1-0.14.dev
-    (
-        "torchao-testing/opt-125m-Int4WeightOnlyConfig-v1-0.14.dev",
-        1,
-        "Int4WeightOnlyConfig",
-    ),
-]
+_DEPRECATED_MODEL_INFO = []
 
 _SINGLE_LINEAR_MODEL_INFO = [
     # model card: https://huggingface.co/torchao-testing/single-linear-Float8DynamicActivationFloat8WeightConfig-v2-0.13.dev

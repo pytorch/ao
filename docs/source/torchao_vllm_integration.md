@@ -44,8 +44,6 @@ from torchao.quantization import Int4WeightOnlyConfig
 # Example configuration
 config = Int4WeightOnlyConfig(
     group_size=128,
-    use_hqq=True,
-    version=1,
 )
 assert isinstance(config, AOBaseConfig)
 ```
@@ -66,7 +64,7 @@ config = FqnToConfig({
     "model.layers.0.self_attn.q_proj": Int4WeightOnlyConfig(group_size=64),
     "model.layers.0.self_attn.k_proj": Int4WeightOnlyConfig(group_size=64),
     "model.layers.0.mlp.gate_proj": Int8WeightOnlyConfig(),
-    "_default": Int4WeightOnlyConfig(group_size=128, version=1)  # Default for other modules
+    "_default": Int4WeightOnlyConfig(group_size=128)  # Default for other modules
 })
 ```
 (usage-examples)=
@@ -81,7 +79,7 @@ from torchao.quantization import Int4WeightOnlyConfig
 
 # Create quantization configuration
 quantization_config = TorchAoConfig(
-    quant_type=Int4WeightOnlyConfig(group_size=128, use_hqq=True, version=1)
+    quant_type=Int4WeightOnlyConfig(group_size=128)
 )
 
 # Load and automatically quantize the model

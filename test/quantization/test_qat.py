@@ -2064,14 +2064,6 @@ class TestQAT(TestCase):
             _infer_fake_quantize_configs,
         )
 
-        base_config = Int4WeightOnlyConfig(version=1)
-        (act_config, weight_config) = _infer_fake_quantize_configs(base_config)
-        self.assertIsNone(act_config)
-        self.assertIsInstance(weight_config, IntxFakeQuantizeConfig)
-        self.assertEqual(weight_config.dtype, torch.uint4)
-        self.assertEqual(weight_config.group_size, 128)
-        self.assertFalse(weight_config.is_symmetric)
-
         base_config = Int4WeightOnlyConfig(version=2)
         (act_config, weight_config) = _infer_fake_quantize_configs(base_config)
         self.assertIsNone(act_config)

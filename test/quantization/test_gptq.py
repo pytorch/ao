@@ -11,13 +11,10 @@ import torch
 from torch.testing._internal.common_utils import TestCase
 
 from torchao._models.llama.model import (
-    ModelArgs,
     Transformer,
     prepare_inputs_for_model,
 )
 from torchao._models.llama.tokenizer import get_tokenizer
-from torchao.quantization import Int4WeightOnlyConfig, quantize_
-from torchao.quantization.utils import compute_error
 from torchao.utils import get_current_accelerator_device
 
 torch.manual_seed(0)
@@ -161,55 +158,6 @@ class TestMultiTensorInputRecorder(TestCase):
         self.assertEqual(MT_input[2][1], "dog")
         self.assertTrue(isinstance(MT_input[2][2], MultiTensor))
         self.assertEqual(MT_input[3], torch.float)
-
-    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
-    def test_gptq_with_input_recorder(self):
-        from torchao.quantization.GPTQ import (
-            Int4WeightOnlyGPTQQuantizer,
-            MultiTensorInputRecorder,
-        )
-
-        torch.set_default_dtype(torch.bfloat16)
-
-        config = ModelArgs(n_layer=2)
-
-        with torch.device(_DEVICE):
-            model = Transformer(config)
-            model.setup_caches(max_batch_size=2, max_seq_length=100)
-            idx = torch.randint(1, 10000, (10, 2, 50)).to(torch.int32)
-            test_input = prepare_inputs_for_model(idx[0])
-        import copy
-
-        model2 = copy.deepcopy(model)
-        out = model(*test_input)
-        quantize_(model2, Int4WeightOnlyConfig(version=1))
-
-        outq = model2(*test_input)
-        del model2
-
-        input_recorder = MultiTensorInputRecorder()
-        for i in range(10):
-            input = prepare_inputs_for_model(idx[i])
-            input_recorder(*input)
-
-        args = input_recorder.get_recorded_inputs()
-
-        if _DEVICE.type == "xpu":
-            from torchao.dtypes import Int4XPULayout
-
-            quantizer = Int4WeightOnlyGPTQQuantizer(
-                device=torch.device("xpu"), layout=Int4XPULayout()
-            )
-        else:
-            quantizer = Int4WeightOnlyGPTQQuantizer()
-
-        quantizer.quantize(model, *args)
-
-        outgptq = model(*test_input)
-
-        self.assertGreater(compute_error(outgptq, out), 30)
-        self.assertGreater(compute_error(outgptq, out), compute_error(outq, out))
-        torch.set_default_dtype(torch.float32)
 
 
 if __name__ == "__main__":

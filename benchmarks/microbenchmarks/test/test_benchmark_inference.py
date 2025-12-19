@@ -50,37 +50,6 @@ class TestBenchmarkInference(unittest.TestCase):
         )
 
     @patch("benchmarks.microbenchmarks.benchmark_inference.string_to_config")
-    def test_run_inference_with_semi_sparse_marlin(self, mock_string_to_config):
-        """Test running inference with sparsity configurations"""
-        # Mock string_to_config to return valid configs
-        from torchao.dtypes import MarlinSparseLayout
-        from torchao.quantization import Int4WeightOnlyConfig
-
-        # Test with semi-sparse config
-        mock_string_to_config.return_value = Int4WeightOnlyConfig(
-            layout=MarlinSparseLayout(),
-            version=1,
-        )
-        config = BenchmarkConfig(
-            quantization="marlin",
-            sparsity="semi-sparse",
-            params={
-                "high_precision_dtype": "torch.float32",
-                "device": "cpu",
-                "model_type": "linear",
-            },
-            shape_name="custom",
-            shape=[64, 64, 64],  # Use dimensions divisible by 64
-            output_dir=self.temp_dir,
-            benchmark_mode="inference",
-        )
-        result = run(config)
-        self.assertIsInstance(result, BenchmarkResult)
-        self.assertTrue(
-            hasattr(result, "quantized_model_compiled_inference_time_in_ms")
-        )
-
-    @patch("benchmarks.microbenchmarks.benchmark_inference.string_to_config")
     def test_run_inference_with_block_sparsity(self, mock_string_to_config):
         """Test running inference with sparsity configurations"""
         # Mock string_to_config to return valid configs
