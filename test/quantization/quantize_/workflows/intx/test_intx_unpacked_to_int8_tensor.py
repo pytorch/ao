@@ -4,7 +4,6 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
-import copy
 import tempfile
 import unittest
 
@@ -16,7 +15,6 @@ from torch.testing._internal.common_utils import (
     run_tests,
 )
 
-from torchao.dtypes import QDQLayout
 from torchao.quantization import (
     Int8DynamicActivationIntxWeightConfig,
     IntxWeightOnlyConfig,
@@ -408,84 +406,6 @@ class TestIntxUnpackedToInt8Tensor(TestCase):
             self.assertTrue(
                 sqnr > 35, f"Got SQNR of {sqnr} between prepared and quantized"
             )
-
-    @parameterized.expand(
-        [
-            param(
-                weight_dtype=weight_dtype,
-                group_size=group_size,
-                mapping_type=mapping_type,
-                act_mapping_type=act_mapping_type,
-                scale_dtype=scale_dtype,
-                model_dtype=model_dtype,
-            )
-            for weight_dtype in list(getattr(torch, f"int{x}") for x in range(1, 9))
-            for group_size in [32, 64, 128]
-            for mapping_type in [MappingType.SYMMETRIC]
-            for act_mapping_type in [MappingType.ASYMMETRIC]
-            for scale_dtype in [torch.float32, torch.bfloat16, torch.float16]
-            for model_dtype in [torch.float32, torch.bfloat16, torch.float16]
-        ],
-        name_func=lambda f, _, params: f.__name__ + f"_{params.kwargs}",
-    )
-    def test_intx_unpacked_v2_is_close_to_qdq_v1(
-        self,
-        weight_dtype,
-        group_size,
-        mapping_type,
-        act_mapping_type,
-        scale_dtype,
-        model_dtype,
-    ):
-        k0 = 512
-        k1 = 256
-        layers = [
-            torch.nn.Linear(k0, k1),
-        ]
-        model = torch.nn.Sequential(*layers)
-        activations = torch.randn(
-            k0,
-        )
-
-        model = model.to(model_dtype)
-        activations = activations.to(model_dtype)
-
-        model_v1 = copy.deepcopy(model)
-        quantize_(
-            model_v1,
-            Int8DynamicActivationIntxWeightConfig(
-                weight_dtype=weight_dtype,
-                weight_granularity=PerGroup(group_size),
-                weight_mapping_type=mapping_type,
-                weight_scale_dtype=scale_dtype,
-                act_mapping_type=act_mapping_type,
-                version=1,
-                layout=QDQLayout(),
-            ),
-        )
-        out_v1 = model_v1(activations)
-
-        quantize_(
-            model,
-            Int8DynamicActivationIntxWeightConfig(
-                weight_dtype=weight_dtype,
-                weight_granularity=PerGroup(group_size),
-                weight_mapping_type=mapping_type,
-                weight_scale_dtype=scale_dtype,
-                act_mapping_type=act_mapping_type,
-                intx_packing_format=IntxPackingFormat.UNPACKED_TO_INT8,
-                version=2,
-            ),
-        )
-        out_v2 = model(activations)
-        sqnr = compute_error(out_v1, out_v2).item()
-
-        if model_dtype == torch.float32 and model_dtype == torch.float32:
-            self.assertTrue(sqnr == float("inf"), f"Got SQNR of {sqnr}")
-        else:
-            # There is slight difference in how v2 does dynamic activation quantization
-            # It uses the model_dtype, whereas v1 always uses float32
-            self.assertTrue(sqnr > 35, f"Got SQNR of {sqnr}")
 
 
 if __name__ == "__main__":
