@@ -2,7 +2,7 @@ from .float8.float8_packing_format import (
     Float8TensorPackingFormat,
 )
 from .float8.float8_semi_sparse_tensor import (
-    Sparse2x4Float8Tensor,
+    Sparse2x4Float8TensorCUTLASS,
 )
 from .float8.float8_tensor import (
     Float8Tensor,
@@ -47,7 +47,7 @@ __all__ = [
     "Int8Tensor",
     "QuantizeTensorToInt8Kwargs",
     "Float8Tensor",
-    "Sparse2x4Float8Tensor",
+    "Sparse2x4Float8TensorCUTLASS",
     "Float8TensorPackingFormat",
     "QuantizeTensorToFloat8Kwargs",
     "Int8Tensor",

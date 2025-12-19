@@ -18,9 +18,6 @@ from torchao.quantization import (
 from torchao.quantization.quant_api import (
     quantize_,
 )
-from torchao.quantization.quantize_.workflows import (
-    Float8TensorPackingFormat,
-)
 from torchao.sparsity import apply_fake_sparsity
 from torchao.utils import is_sm_at_least_90
 
@@ -33,14 +30,7 @@ class TestSparse2x4Float8Tensor(common_utils.TestCase):
     @unittest.skipIf(not is_sm_at_least_90(), "Need H100 to run")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @common_utils.parametrize("compile", [True, False])
-    @common_utils.parametrize(
-        "packing_format",
-        [
-            Float8TensorPackingFormat.SPARSE_CUTLASS,
-            Float8TensorPackingFormat.SPARSE_CUSPARSELT,
-        ],
-    )
-    def test_fp8_cutlass_sparse(self, compile, packing_format):
+    def test_fp8_cutlass_sparse(self, compile):
         with torch.inference_mode():
             input = torch.rand((256, 256), dtype=torch.bfloat16, device="cuda")
             model = (
@@ -64,7 +54,6 @@ class TestSparse2x4Float8Tensor(common_utils.TestCase):
             quantize_(
                 model,
                 Float8DynamicActivationFloat8SemiSparseWeightConfig(
-                    float8_packing_format=packing_format,
                     version=2,
                 ),
             )

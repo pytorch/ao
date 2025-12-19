@@ -97,7 +97,7 @@ from torchao.quantization.quantize_.workflows import (
     IntxUnpackedToInt8Tensor,
     QuantizeTensorToFloat8Kwargs,
     QuantizeTensorToInt8Kwargs,
-    Sparse2x4Float8Tensor,
+    Sparse2x4Float8TensorCUTLASS,
 )
 from torchao.quantization.transform_module import (
     _QUANTIZE_CONFIG_HANDLER,
@@ -1786,10 +1786,9 @@ class Float8DynamicActivationFloat8SemiSparseWeightConfig(AOBaseConfig):
             "torchao.quantization.Float8DynamicActivationFloat8SemiSparseWeightConfig"
         )
 
-        assert self.float8_packing_format in {
-            Float8TensorPackingFormat.SPARSE_CUTLASS,
-            Float8TensorPackingFormat.SPARSE_CUSPARSELT,
-        }, f"{self.float8_packing_format} is not supported"
+        assert self.float8_packing_format == Float8TensorPackingFormat.SPARSE_CUTLASS, (
+            f"{self.float8_packing_format} is not supported. Only SPARSE_CUTLASS is supported."
+        )
 
 
 @register_quantize_module_handler(Float8DynamicActivationFloat8SemiSparseWeightConfig)
@@ -1819,14 +1818,12 @@ def _float8_dynamic_activation_float8_semi_sparse_weight_transform(
         hp_value_lb=activation_value_lb,
         hp_value_ub=activation_value_ub,
     )
-    packing_format = config.float8_packing_format
 
     if version == 2:
-        quantized_param = Sparse2x4Float8Tensor.from_hp(
+        quantized_param = Sparse2x4Float8TensorCUTLASS.from_hp(
             unquantized_param,
             float8_dtype=weight_dtype,
             granularity=weight_granularity,
-            packing_format=packing_format,
             act_quant_kwargs=act_quant_kwargs,
         )
     elif version == 1:
