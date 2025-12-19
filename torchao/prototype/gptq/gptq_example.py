@@ -12,22 +12,12 @@ import time
 from typing import Any, List, Optional
 
 import torch
-import torch.distributed as dist
 from datasets import load_dataset
 from tqdm import tqdm
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from torchao.prototype.gptq import GPTQConfig
 from torchao.quantization import quantize_
-
-
-def is_dist_available_and_initialized():
-    return dist.is_available() and dist.is_initialized()
-
-
-def barrier(device_ids=None):
-    if is_dist_available_and_initialized():
-        dist.barrier(device_ids=device_ids)
 
 
 def sequential_quantize(
