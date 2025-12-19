@@ -9,6 +9,7 @@ import os
 import random
 import time
 
+import diffusers
 import fire
 import lpips
 import numpy as np
@@ -18,6 +19,7 @@ from diffusers import FluxPipeline
 from PIL import Image, ImageDraw, ImageFont
 from utils import string_to_config
 
+import torchao
 from torchao.quantization import (
     FqnToConfig,
     quantize_,
@@ -72,6 +74,7 @@ def generate_image(
     pipe, prompt: str, seed: int, device: str, num_inference_steps: int
 ) -> Image.Image:
     generator = torch.Generator(device=device).manual_seed(seed)
+
     image = pipe(
         prompt=prompt,
         num_inference_steps=num_inference_steps,  # can tweak for speed vs quality
@@ -244,6 +247,7 @@ def run(
     torch_compile_mode: str = "default",
     debug_prompt: str | None = None,
     print_model: bool = False,
+    cache_baseline_images_after_n: int | None = None,
 ):
     """
     A performance and accuracy eval script for quantizing flux-1.dev:
@@ -263,6 +267,9 @@ def run(
         torch_compile_mode: mode to use torch.compile with
         debug_prompt: if specified, use this prompt instead of the drawbench dataset
         print_model: if True, prints model architecture
+        cache_baseline_images_after_n: if specified, baseline images after index n-1
+          are read from cache (disk) instead of regenerated, if available. This is useful
+          to make eval runs faster if we know the baseline is not changing.
     """
     # TODO(future): maybe support other models and datasets
     model = "black-forest-labs/FLUX.1-dev"
@@ -270,6 +277,9 @@ def run(
     if debug_prompt is not None:
         prompts_dataset = "debug"
 
+    print(f"{torch.__version__=}")
+    print(f"{torchao.__version__=}")
+    print(f"{diffusers.__version__=}")
     print(f"Model: {model}")
     print(f"Quant config: {quant_config_str}")
     print(f"num_inference_steps: {num_inference_steps}")
@@ -280,6 +290,8 @@ def run(
     # Create model-specific output directory
     output_dir = os.path.join(OUTPUT_DIR, model)
     os.makedirs(output_dir, exist_ok=True)
+    cache_dir = os.path.join(output_dir, "baseline_cache")
+    os.makedirs(cache_dir, exist_ok=True)
 
     # Set seeds for reproducibility
     torch.manual_seed(RANDOM_SEED)
@@ -289,10 +301,14 @@ def run(
 
     # Load model
     device = "cuda"
+    # TODO(future): support FqnToConfig in diffusers, so we can use it here
+    # and easily save a quantized checkpoint to disk
     pipe = FluxPipeline.from_pretrained(
         model,
         torch_dtype=torch.bfloat16,
     )
+    pipe.set_progress_bar_config(disable=True)
+
     print("Moving model to device")
     pipe = pipe.to(device)
 
@@ -319,16 +335,35 @@ def run(
     # Limit prompts for debugging if requested
     prompts_to_use = all_prompts if num_prompts is None else all_prompts[:num_prompts]
     print(f"Generating baseline images for {len(prompts_to_use)} prompts")
+
+    if cache_baseline_images_after_n is not None:
+        print(
+            f"Cache mode: baseline images after index {cache_baseline_images_after_n} will use cache if available"
+        )
+
     baseline_data = []  # List of (prompt_idx, prompt, baseline_img, baseline_t)
     baseline_times = []
     for idx, prompt in enumerate(prompts_to_use):
         prompt_idx = f"prompt_{idx}"
-        print(f"Generating baseline for {prompt_idx}: {prompt}")
-        t0 = time.time()
-        baseline_img = generate_image(
-            pipe, prompt, RANDOM_SEED, device, num_inference_steps
+
+        # Check if we should try to load from cache
+        should_use_cache = cache_baseline_images_after_n is not None and idx > (
+            cache_baseline_images_after_n - 1
         )
-        t1 = time.time()
+
+        img_path = os.path.join(cache_dir, f"{prompt_idx}.png")
+        if should_use_cache and os.path.exists(img_path):
+            t0 = time.time()
+            baseline_img = Image.open(img_path)
+            t1 = time.time()
+        else:
+            print(f"Generating baseline image for prompt {prompt_idx}: {prompt}")
+            t0 = time.time()
+            baseline_img = generate_image(
+                pipe, prompt, RANDOM_SEED, device, num_inference_steps
+            )
+            t1 = time.time()
+            baseline_img.save(img_path)
         baseline_t = pil_to_lpips_tensor(baseline_img, device)
         baseline_data.append((prompt_idx, prompt, baseline_img, baseline_t))
         baseline_times.append(t1 - t0)
@@ -429,16 +464,36 @@ def run(
     print(f"  Min LPIPS: {min_lpips:.4f}")
     print(f"  All values: {[f'{v:.4f}' for v in lpips_values]}")
     print("=" * 80)
+
     print("baseline_times", baseline_times)
     print("times", times)
+    # adjust the perf data for loading from cache, if applicable
+    if cache_baseline_images_after_n is not None:
+        print("adjusting times for cache_baseline_images_after_n")
+        idx = cache_baseline_images_after_n
+        baseline_times = baseline_times[:idx]
+        times = times[:idx]
+
     speedups = [x / y for (x, y) in zip(baseline_times, times)]
+
+    print("baseline_times", baseline_times)
+    print("times", times)
     print("speedups", speedups)
+
     if len(speedups) > 1:
         # ignore first value as it includes torch.compile compilation time
+        avg_baseline_time = sum(baseline_times[1:]) / len(baseline_times[1:])
+        avg_time = sum(times[1:]) / len(times[1:])
         avg_speedup = sum(speedups[1:]) / len(speedups[1:])
+        print("avg baseline_time ignoring first value", avg_baseline_time)
+        print("avg time ignoring first value", avg_time)
         print("avg speedup ignoring first value", avg_speedup)
     else:
+        avg_baseline_time = sum(baseline_times) / len(baseline_times)
+        avg_time = sum(times) / len(times)
         avg_speedup = sum(speedups) / len(speedups)
+        print("avg baseline_time", avg_baseline_time)
+        print("avg time", avg_time)
         print("avg speedup", avg_speedup)
 
     # Save summary stats to CSV
@@ -455,11 +510,13 @@ def run(
         writer.writerow(["average_lpips", f"{avg_lpips:.4f}"])
         writer.writerow(["max_lpips", f"{max_lpips:.4f}"])
         writer.writerow(["min_lpips", f"{min_lpips:.4f}"])
+        writer.writerow(["average_baseline_time", avg_baseline_time])
+        writer.writerow(["average_time", avg_time])
         writer.writerow(["average_speedup", avg_speedup])
         # Write individual LPIPS values
         for idx, val in enumerate(lpips_values):
             writer.writerow([f"lpips_prompt_{idx}", f"{val:.4f}"])
-    print(f"Summary stats saved to {summary_csv_path}")
+    print(f"Summary stats saved to {summary_csv_path}\n\n")
 
 
 if __name__ == "__main__":
