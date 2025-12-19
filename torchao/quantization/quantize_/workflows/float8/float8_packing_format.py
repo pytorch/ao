@@ -18,12 +18,20 @@ __all__ = [
 # after python 3.10 is end of life (https://devguide.python.org/versions/)
 class Float8TensorPackingFormat(str, Enum):
     """
-    Sparse packing formats for 2:4 sparsity + FP8 quantization
+    plain packing format for Float8Tensor will lay out elements in Tensor sequentially,
+    for example:                                                                                                                                                                                          for a Tensor of shape (4, 6):
+    a_0_0, a_0_1, ..., a_0_5,
+    ...
+    a_3_0, a_3_1, ..., a_3_5
+    """
+
+    PLAIN = "plain"
+    """
+    Sparse packing format for 2:4 sparsity + FP8 quantization
 
     SPARSE_CUTLASS will pack the quantized_data into two tensors, qdata and sparse_metadata, for the specified values and metadata respectively.
     This packing format will dispatch to `rowwise_scaled_linear_sparse_cutlass_f8f8`, which will fuse the per-row scaling into the sparse matmul.
     """
-
     SPARSE_CUTLASS = "sparse_cutlass"
 
 
