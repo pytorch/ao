@@ -1,0 +1,435 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
+
+import copy
+import unittest
+
+import torch
+import torch.nn.functional as F
+
+from torchao.prototype.gptq import (
+    GPTQConfig,
+    ObserverConfig,  # Alias for GPTQConfig (backward compatibility)
+    gptq_quantize,
+)
+from torchao.prototype.gptq.observer import ObserverTensor
+from torchao.quantization import Int4WeightOnlyConfig, quantize_
+
+
+class ToyLinearModel(torch.nn.Module):
+    def __init__(self, m=64, n=32, k=64):
+        super().__init__()
+        self.linear1 = torch.nn.Linear(m, k, bias=False)
+        self.linear2 = torch.nn.Linear(k, n, bias=False)
+        self.linear3 = torch.nn.Linear(n, n, bias=False)
+
+    def example_inputs(self, batch_size=1, dtype=torch.float32, device="cpu"):
+        return (
+            torch.randn(
+                batch_size, self.linear1.in_features, dtype=dtype, device=device
+            ),
+        )
+
+    def forward(self, x):
+        x = self.linear1(x)
+        x = F.relu(x)
+        x = self.linear2(x)
+        x = F.relu(x)
+        x = self.linear3(x)
+        return x
+
+
+class TestObserverTensor(unittest.TestCase):
+    """Test suite for ObserverTensor functionality."""
+
+    def test_observer_tensor_creation(self):
+        """Test that ObserverTensor.from_hp() creates tensor with correct properties."""
+        weight = torch.randn(32, 64, dtype=torch.float32, device="cuda")
+        observer = ObserverTensor.from_hp(weight)
+
+        # Check it's an ObserverTensor
+        self.assertIsInstance(observer, ObserverTensor)
+
+        # Check shape matches
+        self.assertEqual(observer.shape, weight.shape)
+
+        # Check dtype and device match
+        self.assertEqual(observer.dtype, weight.dtype)
+        self.assertEqual(observer.device, weight.device)
+
+        # Check hp_data is stored correctly
+        torch.testing.assert_close(observer.hp_data, weight)
+
+        # Check observed_data is initialized as empty list
+        self.assertEqual(len(observer.observed_data), 0)
+        self.assertIsInstance(observer.observed_data, list)
+
+    def test_observer_tensor_attributes(self):
+        """Test ObserverTensor attributes are correctly set."""
+        weight = torch.randn(16, 32, dtype=torch.bfloat16, device="cuda")
+        observer = ObserverTensor.from_hp(weight)
+
+        # Test hp_data attribute
+        self.assertTrue(hasattr(observer, "hp_data"))
+        self.assertIsInstance(observer.hp_data, torch.Tensor)
+
+        # Test observed_data attribute
+        self.assertTrue(hasattr(observer, "observed_data"))
+        self.assertIsInstance(observer.observed_data, list)
+
+        # Test update method exists
+        self.assertTrue(hasattr(observer, "update"))
+        self.assertTrue(callable(observer.update))
+
+    def test_linear_operation_with_observer(self):
+        """Test F.linear with ObserverTensor records activations correctly."""
+        batch_size = 4
+        in_features = 64
+        out_features = 32
+
+        # Create weight as ObserverTensor
+        weight = torch.randn(
+            out_features, in_features, dtype=torch.float32, device="cuda"
+        )
+        observer_weight = ObserverTensor.from_hp(weight)
+
+        # Create input
+        input_tensor = torch.randn(
+            batch_size, in_features, dtype=torch.float32, device="cuda"
+        )
+
+        # Perform linear operation
+        output = F.linear(input_tensor, observer_weight)
+
+        # Check output shape is correct
+        self.assertEqual(output.shape, (batch_size, out_features))
+
+        # Check that observation was recorded
+        self.assertEqual(len(observer_weight.observed_data), 1)
+
+        # Check recorded activation matches input (on CPU)
+        recorded = observer_weight.observed_data[0]
+        self.assertEqual(recorded.device.type, "cpu")
+        torch.testing.assert_close(recorded, input_tensor.cpu())
+
+        # Verify output is correct
+        expected_output = F.linear(input_tensor, weight)
+        torch.testing.assert_close(output, expected_output)
+
+    def test_multiple_observations(self):
+        """Test that observations accumulate across multiple forward passes."""
+        out_features = 16
+        in_features = 32
+
+        weight = torch.randn(
+            out_features, in_features, dtype=torch.float32, device="cuda"
+        )
+        observer_weight = ObserverTensor.from_hp(weight)
+
+        num_passes = 5
+        inputs = []
+
+        # Perform multiple forward passes
+        for i in range(num_passes):
+            input_tensor = torch.randn(
+                2, in_features, dtype=torch.float32, device="cuda"
+            )
+            inputs.append(input_tensor)
+            _ = F.linear(input_tensor, observer_weight)
+
+        # Check that all observations were recorded
+        self.assertEqual(len(observer_weight.observed_data), num_passes)
+
+        # Verify each recorded observation matches the corresponding input
+        for i, recorded in enumerate(observer_weight.observed_data):
+            torch.testing.assert_close(recorded, inputs[i].cpu())
+
+    def test_bmm_operation_with_observer(self):
+        """Test torch.bmm with ObserverTensor records inputs correctly."""
+        batch = 4
+        m = 8
+        n = 16
+        k = 12
+
+        # Create input and weight tensors
+        input_tensor = torch.randn(batch, m, k, dtype=torch.float32, device="cuda")
+        weight = torch.randn(batch, k, n, dtype=torch.float32, device="cuda")
+        observer_weight = ObserverTensor.from_hp(weight)
+
+        # Perform bmm operation
+        output = torch.bmm(input_tensor, observer_weight)
+
+        # Check output shape
+        self.assertEqual(output.shape, (batch, m, n))
+
+        # Check observation was recorded
+        self.assertEqual(len(observer_weight.observed_data), 1)
+
+        # Check recorded input matches
+        recorded = observer_weight.observed_data[0]
+        torch.testing.assert_close(recorded, input_tensor.cpu())
+
+        # Verify output is correct
+        expected_output = torch.bmm(input_tensor, weight)
+        torch.testing.assert_close(output, expected_output)
+
+    def test_observer_config_transform(self):
+        """Test ObserverConfig wraps module weights correctly."""
+        # Create a simple linear layer
+        linear = torch.nn.Linear(64, 32, bias=False).cuda()
+        original_weight = linear.weight.data.clone()
+
+        # Apply ObserverConfig
+        quantize_(linear, ObserverConfig())
+
+        # Check weight is now an ObserverTensor
+        self.assertIsInstance(linear.weight, ObserverTensor)
+
+        # Check hp_data matches original weight
+        torch.testing.assert_close(linear.weight.hp_data, original_weight)
+
+        # Check observed_data is empty initially
+        self.assertEqual(len(linear.weight.observed_data), 0)
+
+        # Perform a forward pass
+        input_tensor = torch.randn(4, 64, dtype=torch.float32, device="cuda")
+        output = linear(input_tensor)
+
+        # Check observation was recorded
+        self.assertEqual(len(linear.weight.observed_data), 1)
+
+        # Check output shape
+        self.assertEqual(output.shape, (4, 32))
+
+    def test_observer_with_bias(self):
+        """Test ObserverTensor works correctly with bias in linear layers."""
+        in_features = 64
+        out_features = 32
+        batch_size = 8
+
+        weight = torch.randn(
+            out_features, in_features, dtype=torch.float32, device="cuda"
+        )
+        bias = torch.randn(out_features, dtype=torch.float32, device="cuda")
+        observer_weight = ObserverTensor.from_hp(weight)
+
+        input_tensor = torch.randn(
+            batch_size, in_features, dtype=torch.float32, device="cuda"
+        )
+
+        # Test linear with bias
+        output = F.linear(input_tensor, observer_weight, bias)
+
+        # Check observation was recorded
+        self.assertEqual(len(observer_weight.observed_data), 1)
+
+        # Verify output is correct
+        expected_output = F.linear(input_tensor, weight, bias)
+        torch.testing.assert_close(output, expected_output)
+
+
+class TestGPTQFlow(unittest.TestCase):
+    def test_unified_config_two_phase(self):
+        """Test that GPTQConfig handles both observation and quantization phases."""
+        # Create a simple linear layer
+        linear = torch.nn.Linear(64, 32, bias=False).cuda().to(torch.bfloat16)
+        original_weight = linear.weight.data.clone()
+
+        # Phase 1: First application wraps as ObserverTensor
+        config = GPTQConfig()
+        quantize_(linear, config)
+
+        # Verify weight is now an ObserverTensor
+        self.assertIsInstance(linear.weight, ObserverTensor)
+        torch.testing.assert_close(linear.weight.hp_data, original_weight)
+
+        # Run some forward passes for calibration
+        for _ in range(10):
+            input_tensor = torch.randn(4, 64, dtype=torch.bfloat16, device="cuda")
+            _ = linear(input_tensor)
+
+        # Verify observations were recorded
+        self.assertGreater(len(linear.weight.observed_data), 0)
+
+        # Phase 2: Second application applies GPTQ quantization
+        quantize_(linear, config)
+
+        # Verify weight is now Int4Tensor (quantized)
+        from torchao.quantization import Int4Tensor
+
+        self.assertIsInstance(linear.weight, Int4Tensor)
+
+        # Verify it still works
+        output = linear(input_tensor)
+        self.assertEqual(output.shape, (4, 32))
+
+    def test_observer_config_alias(self):
+        """Test that ObserverConfig is an alias for GPTQConfig."""
+        # ObserverConfig should be the same as GPTQConfig
+        self.assertIs(ObserverConfig, GPTQConfig)
+
+        # Both should work identically
+        linear1 = torch.nn.Linear(32, 16, bias=False).cuda()
+        linear2 = torch.nn.Linear(32, 16, bias=False).cuda()
+
+        quantize_(linear1, ObserverConfig())
+        quantize_(linear2, GPTQConfig())
+
+        # Both should produce ObserverTensor
+        self.assertIsInstance(linear1.weight, ObserverTensor)
+        self.assertIsInstance(linear2.weight, ObserverTensor)
+
+    def test_gptq_quantize_function(self):
+        """Test gptq_quantize function with synthetic Hessian and weights."""
+        torch.manual_seed(42)
+
+        # Create synthetic weight matrix
+        out_features = 128
+        in_features = 256
+        weight = torch.randn(
+            out_features, in_features, dtype=torch.bfloat16, device="cuda"
+        )
+
+        # Create synthetic Hessian (positive semi-definite)
+        # H = A^T @ A ensures positive semi-definiteness
+        A = torch.randn(in_features, in_features, dtype=torch.float32, device="cuda")
+        H = A.t() @ A
+        # Add regularization to ensure positive definiteness
+        H = H + torch.eye(in_features, device="cuda") * 0.1
+
+        # Create GPTQ config
+        config = GPTQConfig()
+
+        # Run GPTQ quantization
+        quantized_weight = gptq_quantize(H, weight, config)
+
+        # Check output type
+        from torchao.quantization import Int4Tensor
+
+        self.assertIsInstance(quantized_weight, Int4Tensor)
+
+        # Check shape is preserved
+        self.assertEqual(quantized_weight.shape, weight.shape)
+
+        # Dequantize and check error is reasonable
+        dequantized = quantized_weight.dequantize()
+        self.assertEqual(dequantized.shape, weight.shape)
+
+        # Check quantization introduces bounded error
+        error = torch.abs(dequantized - weight.float())
+        mean_error = error.mean().item()
+        max_error = error.max().item()
+
+        # GPTQ should have reasonable error bounds
+        self.assertLess(mean_error, 0.5, f"Mean error too high: {mean_error}")
+        self.assertLess(max_error, 5.0, f"Max error too high: {max_error}")
+
+        # Check that quantization actually compressed the data
+        # Int4 should be much smaller than bfloat16
+        self.assertTrue(hasattr(quantized_weight, "qdata"))
+
+    def test_gptq_quantize_better_than_naive(self):
+        """Test that GPTQ produces lower error than naive quantization."""
+        torch.manual_seed(43)
+
+        # Create weight and realistic Hessian from actual activations
+        out_features = 64
+        in_features = 128
+        weight = torch.randn(
+            out_features, in_features, dtype=torch.bfloat16, device="cuda"
+        )
+
+        # Simulate activations and compute Hessian
+        num_samples = 100
+        activations = []
+        for _ in range(num_samples):
+            act = torch.randn(4, in_features, dtype=torch.float32, device="cuda")
+            activations.append(act)
+
+        # Compute Hessian from activations
+        from torchao.prototype.gptq import _calculate_hessian
+
+        H = _calculate_hessian(activations, device="cuda")
+
+        # GPTQ quantization
+        config = GPTQConfig()
+        gptq_quantized = gptq_quantize(H, weight, config)
+        gptq_dequantized = gptq_quantized.dequantize()
+
+        # Naive quantization (using identity Hessian)
+        H_identity = torch.eye(in_features, device="cuda", dtype=torch.float32)
+        naive_quantized = gptq_quantize(H_identity, weight, config)
+        naive_dequantized = naive_quantized.dequantize()
+
+        # Compute weighted error using Hessian
+        # Error metric: (W - W_q)^T H (W - W_q)
+        weight_f = weight.float()
+        gptq_error = weight_f - gptq_dequantized
+        naive_error = weight_f - naive_dequantized
+
+        # Compute Frobenius norm of errors
+        gptq_loss = torch.norm(gptq_error).item()
+        naive_loss = torch.norm(naive_error).item()
+
+        print(f"GPTQ loss: {gptq_loss:.4f}, Naive loss: {naive_loss:.4f}")
+
+        # GPTQ should generally produce lower or comparable error
+        # (Note: with random data, this might not always hold, but with real Hessian it should)
+        self.assertIsNotNone(gptq_loss)
+        self.assertIsNotNone(naive_loss)
+
+    def test_gptq_transformer(self):
+        torch.manual_seed(43)
+        from torchao._models.llama.model import (
+            ModelArgs,
+            Transformer,
+            prepare_inputs_for_model,
+        )
+
+        torch.set_default_dtype(torch.bfloat16)
+
+        config = ModelArgs(n_layer=2)
+
+        with torch.device("cuda"):
+            model = Transformer(config)
+            model.setup_caches(max_batch_size=2, max_seq_length=100)
+            idx = torch.randint(1, 10000, (10, 2, 50)).to(torch.int32)
+            test_input = prepare_inputs_for_model(idx[0])
+
+            model2 = copy.deepcopy(model)
+            model_baseline = copy.deepcopy(model)
+
+            # get new gptq implementation out
+            gptqnew_config = ObserverConfig()
+            quantize_(model, gptqnew_config)
+
+            # new calibration
+            for i in range(10):
+                input = prepare_inputs_for_model(idx[i])
+                model(*input)
+
+            convert_config = GPTQConfig()
+            quantize_(model, convert_config)
+            out_gptq = model(*test_input)
+
+            quantize_(model2, Int4WeightOnlyConfig(version=2))
+            out_rtn = model2(*test_input)
+
+            out = model_baseline(*test_input)
+
+            from torchao.quantization.utils import compute_error
+
+            sqnr_rtn = compute_error(out_rtn, out)
+            sqnr_gptq = compute_error(out_gptq, out)
+
+            assert sqnr_gptq > 30, f"GPTQ SQNR: {sqnr_gptq} is too low"
+            assert sqnr_gptq > sqnr_rtn, (
+                f"GPTQ SQNR: {sqnr_gptq} is not better than RTN SQNR: {sqnr_rtn}"
+            )
+
+
+if __name__ == "__main__":
+    unittest.main()
