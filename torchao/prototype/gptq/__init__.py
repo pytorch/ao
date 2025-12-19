@@ -11,10 +11,10 @@ from functools import partial
 
 import torch
 import torch.nn as nn
-from fbgemm_gpu.experimental.gen_ai.quantize import int4_row_quantize_zp
+from fbgemm_gpu.experimental.gen_ai.quantize import int4_row_quantize_zp, pack_int4
 
 from torchao.core.config import AOBaseConfig
-from torchao.quantization import Int4Tensor, Int4WeightOnlyConfig
+from torchao.quantization import Int4Tensor
 from torchao.quantization.quant_api import _module_extra_repr
 from torchao.quantization.transform_module import register_quantize_module_handler
 
@@ -23,32 +23,26 @@ from .observer import ObserverTensor
 
 @dataclass
 class GPTQConfig(AOBaseConfig):
-    """Unified config for GPTQ quantization with automatic phase detection.
+    """Unified config for GPTQ quantization with explicit step control.
 
-    On first application: wraps weights as ObserverTensor for observation.
-    On second application: applies GPTQ quantization to observed tensors.
+    step="observe": wraps weights as ObserverTensor for observation.
+    step="convert": applies GPTQ quantization to observed tensors.
     """
 
-    acceleration_config = Int4WeightOnlyConfig()
-    percdamp: int = 0.01
-    gptq_quantize_block_size = 128
+    step: str = "observe"  # "observe" or "convert"
+    group_size: int = 128
+    percdamp: float = 0.01
+    gptq_quantize_block_size: int = 128
 
 
 @register_quantize_module_handler(GPTQConfig)
 def _gptq_config_transform(
     module: torch.nn.Module, config: GPTQConfig, *, parameter_name="weight"
 ) -> torch.nn.Module:
-    """Unified transform handler that auto-detects observation vs quantization phase."""
+    """Unified transform handler that uses explicit step control."""
     tensor = getattr(module, parameter_name)
 
-    if isinstance(tensor, ObserverTensor):
-        # Quantization phase: tensor is already an ObserverTensor
-        hessian = _calculate_hessian(tensor.observed_data, device=tensor.hp_data.device)
-        new_tensor = gptq_quantize(hessian, tensor.hp_data, config)
-        new_quantized_tensor = nn.Parameter(new_tensor, requires_grad=False)
-        setattr(module, parameter_name, new_quantized_tensor)
-        return module
-    else:
+    if config.step == "observe":
         # Observation phase: wrap as ObserverTensor
         new_tensor = ObserverTensor.from_hp(tensor)
         setattr(module, parameter_name, nn.Parameter(new_tensor, requires_grad=False))
@@ -61,6 +55,31 @@ def _gptq_config_transform(
             module,
         )
         return module
+    elif config.step == "convert":
+        # Quantization phase: tensor should be an ObserverTensor
+        if not isinstance(tensor, ObserverTensor):
+            raise ValueError(
+                f"Expected {parameter_name} to be ObserverTensor in 'convert' step, "
+                f"but got {type(tensor)}. Did you run the 'observe' step first?"
+            )
+
+        # Validate that observations were recorded
+        if tensor.hessian is None:
+            raise ValueError(
+                f"No observations recorded for {parameter_name}. "
+                f"Hessian is None. Did you run forward passes during the observe step?"
+            )
+
+        # Use pre-computed Hessian directly
+        hessian = tensor.hessian
+        new_tensor = gptq_quantize(hessian, tensor.hp_data, config)
+        new_quantized_tensor = nn.Parameter(new_tensor, requires_grad=False)
+        setattr(module, parameter_name, new_quantized_tensor)
+        return module
+    else:
+        raise ValueError(
+            f"Invalid step '{config.step}'. Must be 'observe' or 'convert'."
+        )
 
 
 def _int4_row_quantize_zp_precomputed_qparams(
@@ -94,17 +113,6 @@ def _int4_row_quantize_zp_precomputed_qparams(
     return out
 
 
-def _pack_int4(x: torch.Tensor) -> torch.Tensor:
-    """Pack int8 tensor containing int4 values into packed int4 format."""
-    # Recenter from [-8, 7] to [0, 15]
-    x = x + 8
-    # Pack two 4-bit values into one byte
-    assert x.shape[-1] % 2 == 0
-    x = x.reshape(-1, x.shape[-1] // 2, 2)
-    packed = x[:, :, 0] | (x[:, :, 1] << 4)
-    return packed.reshape(x.shape[0], -1)
-
-
 def _int4_row_dequantize_zp(
     x: torch.Tensor,
     scales: torch.Tensor,
@@ -133,10 +141,10 @@ def _int4_row_dequantize_zp(
 
 def gptq_quantize(H, W, config):
     print("gptq quantizing weight of shape: ", W.shape)
-    block_size = [1, config.acceleration_config.group_size]
+    block_size = [1, config.group_size]
     gptq_quantize_block_size = config.gptq_quantize_block_size
     percdamp = config.percdamp
-    group_size = config.acceleration_config.group_size
+    group_size = config.group_size
 
     assert W.dim() == 2
     assert group_size > 0
@@ -211,7 +219,7 @@ def gptq_quantize(H, W, config):
     wq = _int4_row_quantize_zp_precomputed_qparams(
         W, final_qparams[0], final_qparams[1], group_size
     )
-    wq_packed = _pack_int4(wq)
+    wq_packed = pack_int4(wq)
 
     res = Int4Tensor(
         qdata=wq_packed,
@@ -225,7 +233,12 @@ def gptq_quantize(H, W, config):
 
 
 def _calculate_hessian(inputs, device=None):
-    """Calculate Hessian matrix from input activations for GPTQ."""
+    """Calculate Hessian matrix from input activations for GPTQ.
+
+    DEPRECATED: This function is kept for backward compatibility in tests only.
+    ObserverTensor now computes Hessian incrementally during observation.
+    Use ObserverTensor.hessian instead for production code.
+    """
     H = 0
     total_batches = 0
 
@@ -248,14 +261,7 @@ def _calculate_hessian(inputs, device=None):
     return H
 
 
-# Re-export public API
-from .seq_quant_tracing import sequential_quantize_
-
-# Backward compatibility alias
-ObserverConfig = GPTQConfig
-
 __all__ = [
-    "ObserverConfig",  # Alias for backward compatibility
     "ObserverTensor",
     "GPTQConfig",
     "gptq_quantize",

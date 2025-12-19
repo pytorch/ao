@@ -12,7 +12,6 @@ import torch.nn.functional as F
 
 from torchao.prototype.gptq import (
     GPTQConfig,
-    ObserverConfig,  # Alias for GPTQConfig (backward compatibility)
     gptq_quantize,
 )
 from torchao.prototype.gptq.observer import ObserverTensor
@@ -63,9 +62,11 @@ class TestObserverTensor(unittest.TestCase):
         # Check hp_data is stored correctly
         torch.testing.assert_close(observer.hp_data, weight)
 
-        # Check observed_data is initialized as empty list
-        self.assertEqual(len(observer.observed_data), 0)
-        self.assertIsInstance(observer.observed_data, list)
+        # Check hessian is initialized as None
+        self.assertIsNone(observer.hessian)
+
+        # Check total_batches is initialized as 0
+        self.assertEqual(observer.total_batches, 0)
 
     def test_observer_tensor_attributes(self):
         """Test ObserverTensor attributes are correctly set."""
@@ -76,16 +77,20 @@ class TestObserverTensor(unittest.TestCase):
         self.assertTrue(hasattr(observer, "hp_data"))
         self.assertIsInstance(observer.hp_data, torch.Tensor)
 
-        # Test observed_data attribute
-        self.assertTrue(hasattr(observer, "observed_data"))
-        self.assertIsInstance(observer.observed_data, list)
+        # Test hessian attribute
+        self.assertTrue(hasattr(observer, "hessian"))
+        self.assertIsNone(observer.hessian)
+
+        # Test total_batches attribute
+        self.assertTrue(hasattr(observer, "total_batches"))
+        self.assertEqual(observer.total_batches, 0)
 
         # Test update method exists
         self.assertTrue(hasattr(observer, "update"))
         self.assertTrue(callable(observer.update))
 
     def test_linear_operation_with_observer(self):
-        """Test F.linear with ObserverTensor records activations correctly."""
+        """Test F.linear with ObserverTensor updates Hessian correctly."""
         batch_size = 4
         in_features = 64
         out_features = 32
@@ -107,20 +112,17 @@ class TestObserverTensor(unittest.TestCase):
         # Check output shape is correct
         self.assertEqual(output.shape, (batch_size, out_features))
 
-        # Check that observation was recorded
-        self.assertEqual(len(observer_weight.observed_data), 1)
-
-        # Check recorded activation matches input (on CPU)
-        recorded = observer_weight.observed_data[0]
-        self.assertEqual(recorded.device.type, "cpu")
-        torch.testing.assert_close(recorded, input_tensor.cpu())
+        # Check that Hessian was initialized and updated
+        self.assertIsNotNone(observer_weight.hessian)
+        self.assertEqual(observer_weight.hessian.shape, (in_features, in_features))
+        self.assertEqual(observer_weight.total_batches, batch_size)
 
         # Verify output is correct
         expected_output = F.linear(input_tensor, weight)
         torch.testing.assert_close(output, expected_output)
 
     def test_multiple_observations(self):
-        """Test that observations accumulate across multiple forward passes."""
+        """Test that Hessian updates incrementally across multiple forward passes."""
         out_features = 16
         in_features = 32
 
@@ -130,25 +132,26 @@ class TestObserverTensor(unittest.TestCase):
         observer_weight = ObserverTensor.from_hp(weight)
 
         num_passes = 5
-        inputs = []
+        total_samples = 0
 
         # Perform multiple forward passes
         for i in range(num_passes):
+            batch_size = 2
             input_tensor = torch.randn(
-                2, in_features, dtype=torch.float32, device="cuda"
+                batch_size, in_features, dtype=torch.float32, device="cuda"
             )
-            inputs.append(input_tensor)
+            total_samples += batch_size
             _ = F.linear(input_tensor, observer_weight)
 
-        # Check that all observations were recorded
-        self.assertEqual(len(observer_weight.observed_data), num_passes)
+        # Check that Hessian was created and updated
+        self.assertIsNotNone(observer_weight.hessian)
+        self.assertEqual(observer_weight.hessian.shape, (in_features, in_features))
 
-        # Verify each recorded observation matches the corresponding input
-        for i, recorded in enumerate(observer_weight.observed_data):
-            torch.testing.assert_close(recorded, inputs[i].cpu())
+        # Check total_batches matches total samples
+        self.assertEqual(observer_weight.total_batches, total_samples)
 
     def test_bmm_operation_with_observer(self):
-        """Test torch.bmm with ObserverTensor records inputs correctly."""
+        """Test torch.bmm with ObserverTensor updates Hessian correctly."""
         batch = 4
         m = 8
         n = 16
@@ -165,25 +168,23 @@ class TestObserverTensor(unittest.TestCase):
         # Check output shape
         self.assertEqual(output.shape, (batch, m, n))
 
-        # Check observation was recorded
-        self.assertEqual(len(observer_weight.observed_data), 1)
-
-        # Check recorded input matches
-        recorded = observer_weight.observed_data[0]
-        torch.testing.assert_close(recorded, input_tensor.cpu())
+        # Check Hessian was initialized and updated
+        self.assertIsNotNone(observer_weight.hessian)
+        # For bmm with batch dimension, the Hessian is computed on the last dimension
+        self.assertEqual(observer_weight.total_batches, batch * m)
 
         # Verify output is correct
         expected_output = torch.bmm(input_tensor, weight)
         torch.testing.assert_close(output, expected_output)
 
     def test_observer_config_transform(self):
-        """Test ObserverConfig wraps module weights correctly."""
+        """Test GPTQConfig wraps module weights correctly."""
         # Create a simple linear layer
         linear = torch.nn.Linear(64, 32, bias=False).cuda()
         original_weight = linear.weight.data.clone()
 
-        # Apply ObserverConfig
-        quantize_(linear, ObserverConfig())
+        # Apply GPTQConfig with observe step
+        quantize_(linear, GPTQConfig(step="observe", group_size=128))
 
         # Check weight is now an ObserverTensor
         self.assertIsInstance(linear.weight, ObserverTensor)
@@ -191,15 +192,17 @@ class TestObserverTensor(unittest.TestCase):
         # Check hp_data matches original weight
         torch.testing.assert_close(linear.weight.hp_data, original_weight)
 
-        # Check observed_data is empty initially
-        self.assertEqual(len(linear.weight.observed_data), 0)
+        # Check hessian is None initially
+        self.assertIsNone(linear.weight.hessian)
+        self.assertEqual(linear.weight.total_batches, 0)
 
         # Perform a forward pass
         input_tensor = torch.randn(4, 64, dtype=torch.float32, device="cuda")
         output = linear(input_tensor)
 
-        # Check observation was recorded
-        self.assertEqual(len(linear.weight.observed_data), 1)
+        # Check Hessian was initialized after forward pass
+        self.assertIsNotNone(linear.weight.hessian)
+        self.assertEqual(linear.weight.total_batches, 4)
 
         # Check output shape
         self.assertEqual(output.shape, (4, 32))
@@ -223,12 +226,48 @@ class TestObserverTensor(unittest.TestCase):
         # Test linear with bias
         output = F.linear(input_tensor, observer_weight, bias)
 
-        # Check observation was recorded
-        self.assertEqual(len(observer_weight.observed_data), 1)
+        # Check Hessian was updated
+        self.assertIsNotNone(observer_weight.hessian)
+        self.assertEqual(observer_weight.total_batches, batch_size)
 
         # Verify output is correct
         expected_output = F.linear(input_tensor, weight, bias)
         torch.testing.assert_close(output, expected_output)
+
+    def test_hessian_incremental_update(self):
+        """Test that incremental Hessian updates match batch calculation."""
+        in_features = 32
+        out_features = 16
+
+        weight = torch.randn(
+            out_features, in_features, dtype=torch.float32, device="cuda"
+        )
+
+        # Create two ObserverTensors - one for incremental, one for batch
+        observer_incremental = ObserverTensor.from_hp(weight)
+
+        # Collect activations for batch computation
+        activations = []
+        num_batches = 3
+        for _ in range(num_batches):
+            batch_size = 4
+            input_tensor = torch.randn(
+                batch_size, in_features, dtype=torch.float32, device="cuda"
+            )
+            activations.append(input_tensor)
+            # Update incrementally
+            _ = F.linear(input_tensor, observer_incremental)
+
+        # Compute Hessian in batch using _calculate_hessian
+        from torchao.prototype.gptq import _calculate_hessian
+
+        hessian_batch = _calculate_hessian(activations, device="cuda")
+
+        # Compare incremental vs batch
+        self.assertIsNotNone(observer_incremental.hessian)
+        torch.testing.assert_close(
+            observer_incremental.hessian, hessian_batch, rtol=1e-4, atol=1e-5
+        )
 
 
 class TestGPTQFlow(unittest.TestCase):
@@ -238,9 +277,12 @@ class TestGPTQFlow(unittest.TestCase):
         linear = torch.nn.Linear(64, 32, bias=False).cuda().to(torch.bfloat16)
         original_weight = linear.weight.data.clone()
 
-        # Phase 1: First application wraps as ObserverTensor
-        config = GPTQConfig()
-        quantize_(linear, config)
+        # Phase 1: Observation step - wrap as ObserverTensor
+        observe_config = GPTQConfig(
+            step="observe",
+            group_size=128,
+        )
+        quantize_(linear, observe_config)
 
         # Verify weight is now an ObserverTensor
         self.assertIsInstance(linear.weight, ObserverTensor)
@@ -251,11 +293,16 @@ class TestGPTQFlow(unittest.TestCase):
             input_tensor = torch.randn(4, 64, dtype=torch.bfloat16, device="cuda")
             _ = linear(input_tensor)
 
-        # Verify observations were recorded
-        self.assertGreater(len(linear.weight.observed_data), 0)
+        # Verify Hessian was computed
+        self.assertIsNotNone(linear.weight.hessian)
+        self.assertGreater(linear.weight.total_batches, 0)
 
-        # Phase 2: Second application applies GPTQ quantization
-        quantize_(linear, config)
+        # Phase 2: Convert step - apply GPTQ quantization
+        convert_config = GPTQConfig(
+            step="convert",
+            group_size=128,
+        )
+        quantize_(linear, convert_config)
 
         # Verify weight is now Int4Tensor (quantized)
         from torchao.quantization import Int4Tensor
@@ -265,22 +312,6 @@ class TestGPTQFlow(unittest.TestCase):
         # Verify it still works
         output = linear(input_tensor)
         self.assertEqual(output.shape, (4, 32))
-
-    def test_observer_config_alias(self):
-        """Test that ObserverConfig is an alias for GPTQConfig."""
-        # ObserverConfig should be the same as GPTQConfig
-        self.assertIs(ObserverConfig, GPTQConfig)
-
-        # Both should work identically
-        linear1 = torch.nn.Linear(32, 16, bias=False).cuda()
-        linear2 = torch.nn.Linear(32, 16, bias=False).cuda()
-
-        quantize_(linear1, ObserverConfig())
-        quantize_(linear2, GPTQConfig())
-
-        # Both should produce ObserverTensor
-        self.assertIsInstance(linear1.weight, ObserverTensor)
-        self.assertIsInstance(linear2.weight, ObserverTensor)
 
     def test_gptq_quantize_function(self):
         """Test gptq_quantize function with synthetic Hessian and weights."""
@@ -301,7 +332,10 @@ class TestGPTQFlow(unittest.TestCase):
         H = H + torch.eye(in_features, device="cuda") * 0.1
 
         # Create GPTQ config
-        config = GPTQConfig()
+        config = GPTQConfig(
+            step="convert",
+            group_size=128,
+        )
 
         # Run GPTQ quantization
         quantized_weight = gptq_quantize(H, weight, config)
@@ -355,7 +389,10 @@ class TestGPTQFlow(unittest.TestCase):
         H = _calculate_hessian(activations, device="cuda")
 
         # GPTQ quantization
-        config = GPTQConfig()
+        config = GPTQConfig(
+            step="convert",
+            group_size=128,
+        )
         gptq_quantized = gptq_quantize(H, weight, config)
         gptq_dequantized = gptq_quantized.dequantize()
 
@@ -403,7 +440,7 @@ class TestGPTQFlow(unittest.TestCase):
             model_baseline = copy.deepcopy(model)
 
             # get new gptq implementation out
-            gptqnew_config = ObserverConfig()
+            gptqnew_config = GPTQConfig(step="observe", group_size=128)
             quantize_(model, gptqnew_config)
 
             # new calibration
@@ -411,7 +448,7 @@ class TestGPTQFlow(unittest.TestCase):
                 input = prepare_inputs_for_model(idx[i])
                 model(*input)
 
-            convert_config = GPTQConfig()
+            convert_config = GPTQConfig(step="convert", group_size=128)
             quantize_(model, convert_config)
             out_gptq = model(*test_input)
 

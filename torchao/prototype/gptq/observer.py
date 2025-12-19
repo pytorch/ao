@@ -12,9 +12,10 @@ from torchao.utils import TorchAOBaseTensor
 
 class ObserverTensor(TorchAOBaseTensor):
     tensor_data_names = ["hp_data"]
-    tensor_attribute_names = ["observed_data"]
+    optional_tensor_data_names = ["hessian"]
+    tensor_attribute_names = ["total_batches"]
 
-    def __new__(cls, hp_data: torch.Tensor, observed_data):
+    def __new__(cls, hp_data: torch.Tensor, total_batches: int, hessian=None):
         shape = hp_data.shape
         kwargs = {}
         kwargs["device"] = hp_data.device
@@ -22,18 +23,48 @@ class ObserverTensor(TorchAOBaseTensor):
         kwargs["requires_grad"] = False
         return torch.Tensor._make_wrapper_subclass(cls, shape, **kwargs)  # type: ignore[attr-defined]
 
-    def __init__(self, hp_data: torch.Tensor, observed_data):
+    def __init__(self, hp_data: torch.Tensor, total_batches: int, hessian=None):
         super().__init__()
         self.hp_data = hp_data
-        self.observed_data = observed_data
+        self.hessian = hessian
+        self.total_batches = total_batches
 
     def update(self, input: torch.Tensor):
-        """Store observation in external registry"""
-        self.observed_data.append(input.detach().cpu())
+        # if torch.isnan(input).any():
+        #     print("nan in input")
+        #     breakpoint()
+        """Incrementally update Hessian matrix from input activations."""
+        # Move input to same device as hp_data and convert to float
+        x = input.float().to(self.hp_data.device)
+        shape = x.shape
+
+        # Calculate batch size
+        n = 1 if len(shape) == 2 else shape[0]
+        x = x.reshape(-1, shape[-1])
+
+        # Lazily initialize Hessian on first call
+        if self.hessian is None:
+            feature_dim = x.shape[-1]
+            self.hessian = torch.zeros(
+                feature_dim,
+                feature_dim,
+                dtype=torch.float32,
+                device=self.hp_data.device,
+            )
+
+        # Apply running average formula
+        if self.total_batches > 0:
+            self.hessian *= self.total_batches / (self.total_batches + n)
+
+        self.total_batches += n
+
+        # Update Hessian: x = ((2 / total_batches) ** (1 / 2)) * x.t()
+        x = ((2 / self.total_batches) ** (1 / 2)) * x.t()
+        self.hessian += x.matmul(x.t())
 
     @classmethod
     def from_hp(cls, hp_tensor):
-        return ObserverTensor(hp_tensor, [])
+        return ObserverTensor(hp_tensor, 0, None)
 
 
 implements = ObserverTensor.implements
