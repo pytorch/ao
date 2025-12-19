@@ -148,7 +148,7 @@ def parse_args():
     parser.add_argument(
         "--num-calibration-samples",
         type=int,
-        default=1000,
+        default=5000,
         help="Number of calibration samples to use",
     )
     parser.add_argument(
@@ -174,7 +174,7 @@ def parse_args():
     parser.add_argument(
         "--percdamp",
         type=float,
-        default=0.01,
+        default=0.5,
         help="Percentage damping for GPTQ",
     )
     parser.add_argument(
