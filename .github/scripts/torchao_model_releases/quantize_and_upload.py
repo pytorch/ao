@@ -982,18 +982,6 @@ if __name__ == "__main__":
         help="Device to run the model on (e.g., 'cuda', 'cuda:0', 'cpu'). Default is 'cuda:0'",
     )
     args = parser.parse_args()
-
-    # Validate CUDA devicedevice
-    try:
-        device = torch.device(args.device)
-        if not torch.cuda.is_available():
-            raise RuntimeError("CUDA is not available on this system")
-        if device.index is not None and device.index >= torch.cuda.device_count():
-            raise RuntimeError(
-                f"CUDA device {device.index} is not available. Available devices: {torch.cuda.device_count()}"
-            )
-    except RuntimeError as e:
-        parser.error(f"Invalid device '{args.device}': {e}")
     quantize_and_upload(
         args.model_id,
         args.quant,
