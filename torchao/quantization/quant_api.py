@@ -97,7 +97,7 @@ from torchao.quantization.quantize_.workflows import (
     IntxUnpackedToInt8Tensor,
     QuantizeTensorToFloat8Kwargs,
     QuantizeTensorToInt8Kwargs,
-    Sparse2x4Float8TensorCUTLASS,
+    Sparse2x4CUTLASSFloat8Tensor,
 )
 from torchao.quantization.transform_module import (
     _QUANTIZE_CONFIG_HANDLER,
@@ -1670,15 +1670,11 @@ def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
         # TODO(future PR): this should really throw an exception instead of silently
         # not doing what the user asked
         return weight
-
-    if packing_format == Float8PackingFormat.PLAIN and isinstance(
-        weight_granularity, PerRow
-    ):
-        assert weight.dtype == torch.bfloat16, (
-            "PerRow quantization only works for bfloat16 precision input weight"
-        )
-
     if config.version == 1:
+        if isinstance(weight_granularity, PerRow):
+            assert weight.dtype == torch.bfloat16, (
+                "PerRow quantization only works for bfloat16 precision input weight"
+            )
         warnings.warn(
             "Config Deprecation: version 1 of Float8DynamicActivationFloat8WeightConfig is deprecated and will no longer be supported in a future release, please use version 2, see https://github.com/pytorch/ao/issues/2649 for more details"
         )
@@ -1705,6 +1701,12 @@ def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
         )
     else:
         assert config.version == 2, f"Unexpected version: {config.version}"
+        if packing_format == Float8PackingFormat.PLAIN and isinstance(
+            weight_granularity, PerRow
+        ):
+            assert weight.dtype == torch.bfloat16, (
+                "PerRow quantization only works for bfloat16 precision input weight"
+            )
         act_quant_kwargs = QuantizeTensorToFloat8Kwargs(
             activation_dtype,
             activation_granularity,
@@ -1725,7 +1727,7 @@ def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
             assert isinstance(weight_granularity, PerRow), (
                 "Sparse packing format only supports per-row quantization"
             )
-            quantized_weight = Sparse2x4Float8TensorCUTLASS.from_hp(
+            quantized_weight = Sparse2x4CUTLASSFloat8Tensor.from_hp(
                 weight,
                 float8_dtype=weight_dtype,
                 granularity=weight_granularity,

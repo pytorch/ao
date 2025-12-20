@@ -31,7 +31,7 @@ from torchao.utils import (
 )
 
 __all__ = [
-    "Sparse2x4Float8TensorCUTLASS",
+    "Sparse2x4CUTLASSFloat8Tensor",
 ]
 
 aten = torch.ops.aten
@@ -40,7 +40,7 @@ aten = torch.ops.aten
 from .float8_tensor import QuantizeTensorToFloat8Kwargs
 
 
-class Sparse2x4Float8TensorCUTLASS(TorchAOBaseTensor):
+class Sparse2x4CUTLASSFloat8Tensor(TorchAOBaseTensor):
     """
     Float8 Quantized + 2:4 sparse (weight) Tensor using CUTLASS kernels, with float8 dynamic quantization for activation.
 
@@ -176,7 +176,7 @@ class Sparse2x4Float8TensorCUTLASS(TorchAOBaseTensor):
         # Use CUTLASS rowwise fp8 + 2:4 sparse mm kernel
         qdata, sparse_metadata = to_sparse_semi_structured_cutlass_sm9x_f8(data)
 
-        return Sparse2x4Float8TensorCUTLASS(
+        return Sparse2x4CUTLASSFloat8Tensor(
             qdata,
             sparse_metadata,
             scale,
@@ -186,8 +186,8 @@ class Sparse2x4Float8TensorCUTLASS(TorchAOBaseTensor):
         )
 
 
-implements = Sparse2x4Float8TensorCUTLASS.implements
-implements_torch_function = Sparse2x4Float8TensorCUTLASS.implements_torch_function
+implements = Sparse2x4CUTLASSFloat8Tensor.implements
+implements_torch_function = Sparse2x4CUTLASSFloat8Tensor.implements_torch_function
 
 
 @implements(aten.linear.default)
@@ -234,4 +234,4 @@ def _(func, types, args, kwargs):
 
 
 # Allow a model with Float8Tensor weights to be loaded with `weights_only=True`
-torch.serialization.add_safe_globals([Sparse2x4Float8TensorCUTLASS])
+torch.serialization.add_safe_globals([Sparse2x4CUTLASSFloat8Tensor])

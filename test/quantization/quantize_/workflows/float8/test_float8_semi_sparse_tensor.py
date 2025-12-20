@@ -21,6 +21,7 @@ from torchao.quantization.quant_api import (
 from torchao.quantization.quantize_.workflows import (
     Float8PackingFormat,
 )
+from torchao.quantization.utils import compute_error
 from torchao.sparsity import apply_fake_sparsity
 from torchao.utils import is_sm_at_least_90
 
@@ -47,11 +48,13 @@ class TestSparse2x4Float8Tensor(common_utils.TestCase):
             )
 
             apply_fake_sparsity(model)
+            baseline_result = model(input)
             model_copy = copy.deepcopy(model)
 
             # Quantized
             quantize_(model_copy, Float8DynamicActivationFloat8WeightConfig())
             dense_result = model_copy(input)
+            dense_sqnr = compute_error(baseline_result, dense_result)
 
             # Sparse + quantized
             quantize_(
@@ -65,13 +68,9 @@ class TestSparse2x4Float8Tensor(common_utils.TestCase):
             if compile:
                 model = torch.compile(model)
             sparse_result = model(input)
+            sparse_sqnr = compute_error(baseline_result, sparse_result)
 
-            torch.testing.assert_close(
-                dense_result.to(torch.float),
-                sparse_result.to(torch.float),
-                atol=3e-1,
-                rtol=3e-1,
-            )
+            self.assertEqual(dense_sqnr, sparse_sqnr)
 
     @unittest.skipIf(not is_sm_at_least_90(), "Need H100 to run")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
@@ -92,7 +91,7 @@ class TestSparse2x4Float8Tensor(common_utils.TestCase):
             cloned = model.weight.clone().dequantize()
 
             for o, c in zip(original, cloned):
-                torch.testing.assert_close(o, c, atol=0.0, rtol=0.0)
+                self.assertEqual(o, c)
 
     @unittest.skipIf(not is_sm_at_least_90(), "Need H100 to run")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
