@@ -53,7 +53,7 @@ from torchao.dtypes.uintx.packed_linear_int8_dynamic_activation_intx_weight_layo
     make_packed_linear_int8_dynamic_activation_intx_weight_tensor,
 )
 from torchao.dtypes.utils import Layout
-from torchao.float8.config import e4m3_dtype
+from torchao.float8.config import e4m3_dtype, e5m2_dtype
 from torchao.float8.float8_linear import Float8Linear
 from torchao.float8.inference import (
     Float8MMConfig,
@@ -82,7 +82,6 @@ from torchao.quantization.quantize_.common import (
 )
 from torchao.quantization.quantize_.workflows import (
     Float8Tensor,
-    Float8TensorPackingFormat,
     Int4ChooseQParamsAlgorithm,
     Int4MarlinSparseTensor,
     Int4PackingFormat,
@@ -97,7 +96,6 @@ from torchao.quantization.quantize_.workflows import (
     IntxUnpackedToInt8Tensor,
     QuantizeTensorToFloat8Kwargs,
     QuantizeTensorToInt8Kwargs,
-    Sparse2x4Float8TensorCUTLASS,
 )
 from torchao.quantization.transform_module import (
     _QUANTIZE_CONFIG_HANDLER,
@@ -1771,90 +1769,43 @@ class Float8DynamicActivationFloat8SemiSparseWeightConfig(AOBaseConfig):
     """
 
     layout: Layout = CutlassSemiSparseLayout()
-    activation_dtype: torch.dtype = e4m3_dtype
+    activation_dtype: torch.dtype = e5m2_dtype
     weight_dtype: torch.dtype = e4m3_dtype
-    granularity: Optional[Union[FP8Granularity, List[FP8Granularity]]] = PerRow()
-    activation_value_lb: Optional[float] = None
-    activation_value_ub: Optional[float] = None
-    float8_packing_format: Float8TensorPackingFormat = (
-        Float8TensorPackingFormat.SPARSE_CUTLASS
-    )
-    version: int = 1
 
     def __post_init__(self):
         torch._C._log_api_usage_once(
             "torchao.quantization.Float8DynamicActivationFloat8SemiSparseWeightConfig"
         )
 
-        assert self.float8_packing_format == Float8TensorPackingFormat.SPARSE_CUTLASS, (
-            f"{self.float8_packing_format} is not supported. Only SPARSE_CUTLASS is supported."
-        )
-
 
 @register_quantize_module_handler(Float8DynamicActivationFloat8SemiSparseWeightConfig)
 def _float8_dynamic_activation_float8_semi_sparse_weight_transform(
-    module: torch.nn.Module,
-    config: Float8DynamicActivationFloat8SemiSparseWeightConfig,
-    *,
-    parameter_name: str = "weight",
+    module: torch.nn.Module, config: Float8DynamicActivationFloat8SemiSparseWeightConfig
 ):
     assert is_sm_at_least_90(), "Float8 quantization is only supported on CUDA>=9.0"
 
     if isinstance(module, Float8Linear):
         module = _unwrap_float8_linear(module)
 
-    unquantized_param = getattr(module, parameter_name)
+    weight = module.weight
     weight_dtype = config.weight_dtype
     activation_dtype = config.activation_dtype
-    version = config.version
-    activation_granularity, weight_granularity = _normalize_granularity(
-        config.granularity
-    )
-    activation_value_lb = config.activation_value_lb
-    activation_value_ub = config.activation_value_ub
-    act_quant_kwargs = QuantizeTensorToFloat8Kwargs(
-        activation_dtype,
-        activation_granularity,
-        hp_value_lb=activation_value_lb,
-        hp_value_ub=activation_value_ub,
-    )
+    layout = config.layout
 
-    if version == 2:
-        quantized_param = Sparse2x4Float8TensorCUTLASS.from_hp(
-            unquantized_param,
-            float8_dtype=weight_dtype,
-            granularity=weight_granularity,
-            act_quant_kwargs=act_quant_kwargs,
+    if not isinstance(layout, CutlassSemiSparseLayout):
+        raise NotImplementedError(
+            f"Only CutlassSemiSparseLayout layout is supported. Received {layout}."
         )
-    elif version == 1:
-        layout = config.layout
-        if not isinstance(layout, CutlassSemiSparseLayout):
-            raise NotImplementedError(
-                f"Only CutlassSemiSparseLayout layout is supported. Received {layout}."
-            )
 
-        quantized_param = _float8_cutlass_quant_sparse(unquantized_param, weight_dtype)
-        quantized_param = to_linear_activation_quantized(
-            quantized_param,
-            _float8_cutlass_quant,
-            quant_kwargs={"target_dtype": activation_dtype},
-        )
-    else:
-        raise NotImplementedError(f"Unsupported version: {version}")
+    weight = _float8_cutlass_quant_sparse(weight, weight_dtype)
+    weight = to_linear_activation_quantized(
+        weight,
+        _float8_cutlass_quant,
+        quant_kwargs={"target_dtype": activation_dtype},
+    )
 
-    setattr(
-        module,
-        parameter_name,
-        torch.nn.Parameter(quantized_param, requires_grad=False),
-    )
-    module.extra_repr = types.MethodType(
-        partial(
-            _module_extra_repr,
-            original_extra_repr=module.extra_repr,
-            parameter_name=parameter_name,
-        ),
-        module,
-    )
+    module.weight = torch.nn.Parameter(weight, requires_grad=False)
+    module.extra_repr = types.MethodType(_linear_extra_repr, module)
     return module
 
 
