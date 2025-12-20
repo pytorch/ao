@@ -81,6 +81,7 @@ from torchao.quantization.quantize_.common import (
     KernelPreference,
 )
 from torchao.quantization.quantize_.workflows import (
+    Float8PackingFormat,
     Float8Tensor,
     Int4ChooseQParamsAlgorithm,
     Int4MarlinSparseTensor,
@@ -96,6 +97,7 @@ from torchao.quantization.quantize_.workflows import (
     IntxUnpackedToInt8Tensor,
     QuantizeTensorToFloat8Kwargs,
     QuantizeTensorToInt8Kwargs,
+    Sparse2x4Float8TensorCUTLASS,
 )
 from torchao.quantization.transform_module import (
     _QUANTIZE_CONFIG_HANDLER,
@@ -1603,6 +1605,7 @@ class Float8DynamicActivationFloat8WeightConfig(AOBaseConfig):
     activation_dtype: torch.dtype = e4m3_dtype
     weight_dtype: torch.dtype = e4m3_dtype
     granularity: Optional[Union[FP8Granularity, List[FP8Granularity]]] = None
+    packing_format: Optional[Float8PackingFormat] = Float8PackingFormat.PLAIN
     mm_config: Optional[Float8MMConfig] = None
     activation_value_lb: Optional[float] = None
     activation_value_ub: Optional[float] = None
@@ -1640,6 +1643,7 @@ def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
     activation_value_lb = config.activation_value_lb
     activation_value_ub = config.activation_value_ub
     kernel_preference = config.kernel_preference
+    packing_format = config.packing_format
 
     # Ensure works on device
     _check_hardware_support(granularity)
@@ -1667,7 +1671,9 @@ def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
         # not doing what the user asked
         return weight
 
-    if isinstance(weight_granularity, PerRow):
+    if packing_format == Float8PackingFormat.PLAIN and isinstance(
+        weight_granularity, PerRow
+    ):
         assert weight.dtype == torch.bfloat16, (
             "PerRow quantization only works for bfloat16 precision input weight"
         )
@@ -1706,15 +1712,25 @@ def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
             hp_value_ub=activation_value_ub,
             kernel_preference=kernel_preference,
         )
-
-        quantized_weight = Float8Tensor.from_hp(
-            weight,
-            float8_dtype=weight_dtype,
-            granularity=weight_granularity,
-            mm_config=mm_config,
-            kernel_preference=kernel_preference,
-            act_quant_kwargs=act_quant_kwargs,
-        )
+        if packing_format == Float8PackingFormat.PLAIN:
+            quantized_weight = Float8Tensor.from_hp(
+                weight,
+                float8_dtype=weight_dtype,
+                granularity=weight_granularity,
+                mm_config=mm_config,
+                kernel_preference=kernel_preference,
+                act_quant_kwargs=act_quant_kwargs,
+            )
+        elif packing_format == Float8PackingFormat.SPARSE_CUTLASS:
+            assert isinstance(weight_granularity, PerRow), (
+                "Sparse packing format only supports per-row quantization"
+            )
+            quantized_weight = Sparse2x4Float8TensorCUTLASS.from_hp(
+                weight,
+                float8_dtype=weight_dtype,
+                granularity=weight_granularity,
+                act_quant_kwargs=act_quant_kwargs,
+            )
 
     return quantized_weight
 

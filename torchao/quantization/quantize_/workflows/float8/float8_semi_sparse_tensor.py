@@ -8,7 +8,6 @@
 from typing import List, Optional
 
 import torch
-from torch.utils._python_dispatch import return_and_correct_aliasing
 
 from torchao.float8.inference import (
     FP8Granularity,
@@ -199,8 +198,6 @@ def _(func, types, args, kwargs):
         args[1],
         args[2] if len(args) > 2 else None,
     )
-    from torchao.ops import rowwise_scaled_linear_sparse_cutlass_f8f8
-
     act_quant_kwargs = weight_tensor.act_quant_kwargs
     # quantize activation, if `act_quant_kwargs` is specified
     if act_quant_kwargs is not None:
@@ -223,13 +220,6 @@ def _(func, types, args, kwargs):
     return out
 
 
-@implements(aten.clone.default)
-def _(func, types, args, kwargs):
-    return return_and_correct_aliasing(
-        func, args, kwargs, args[0]._apply_fn_to_data(torch.clone)
-    )
-
-
 @implements(aten.to.dtype_layout)
 def _(func, types, args, kwargs):
     return (
@@ -244,6 +234,4 @@ def _(func, types, args, kwargs):
 
 
 # Allow a model with Float8Tensor weights to be loaded with `weights_only=True`
-torch.serialization.add_safe_globals(
-    [Sparse2x4Float8TensorCUTLASS, QuantizeTensorToFloat8Kwargs]
-)
+torch.serialization.add_safe_globals([Sparse2x4Float8TensorCUTLASS])

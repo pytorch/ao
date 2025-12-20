@@ -12,11 +12,14 @@ from torch import nn
 from torch.testing._internal import common_utils
 
 from torchao.quantization import (
-    Float8DynamicActivationFloat8SemiSparseWeightConfig,
     Float8DynamicActivationFloat8WeightConfig,
 )
+from torchao.quantization.granularity import PerRow
 from torchao.quantization.quant_api import (
     quantize_,
+)
+from torchao.quantization.quantize_.workflows import (
+    Float8PackingFormat,
 )
 from torchao.sparsity import apply_fake_sparsity
 from torchao.utils import is_sm_at_least_90
@@ -53,8 +56,10 @@ class TestSparse2x4Float8Tensor(common_utils.TestCase):
             # Sparse + quantized
             quantize_(
                 model,
-                Float8DynamicActivationFloat8SemiSparseWeightConfig(
+                Float8DynamicActivationFloat8WeightConfig(
                     version=2,
+                    packing_format=Float8PackingFormat.SPARSE_CUTLASS,
+                    granularity=PerRow(),
                 ),
             )
             if compile:
@@ -75,7 +80,12 @@ class TestSparse2x4Float8Tensor(common_utils.TestCase):
             model = nn.Linear(256, 1024).half().cuda().eval()
             apply_fake_sparsity(model)
             quantize_(
-                model, Float8DynamicActivationFloat8SemiSparseWeightConfig(version=2)
+                model,
+                Float8DynamicActivationFloat8WeightConfig(
+                    version=2,
+                    packing_format=Float8PackingFormat.SPARSE_CUTLASS,
+                    granularity=PerRow(),
+                ),
             )
 
             original = model.weight.dequantize()
@@ -95,7 +105,12 @@ class TestSparse2x4Float8Tensor(common_utils.TestCase):
             expected = model_copy.weight.to(dtype=torch.float)
 
             quantize_(
-                model, Float8DynamicActivationFloat8SemiSparseWeightConfig(version=2)
+                model,
+                Float8DynamicActivationFloat8WeightConfig(
+                    version=2,
+                    packing_format=Float8PackingFormat.SPARSE_CUTLASS,
+                    granularity=PerRow(),
+                ),
             )
 
             original = torch.ops.aten.to.dtype_layout(

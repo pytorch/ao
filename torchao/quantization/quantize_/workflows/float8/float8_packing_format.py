@@ -10,13 +10,13 @@ from enum import Enum
 import torch
 
 __all__ = [
-    "Float8TensorPackingFormat",
+    "Float8PackingFormat",
 ]
 
 
 # can switch to StrEnum (https://docs.python.org/3/library/enum.html#enum.StrEnum)
 # after python 3.10 is end of life (https://devguide.python.org/versions/)
-class Float8TensorPackingFormat(str, Enum):
+class Float8PackingFormat(str, Enum):
     """
     plain packing format for Float8Tensor will lay out elements in Tensor sequentially,
     for example:                                                                                                                                                                                          for a Tensor of shape (4, 6):
@@ -35,4 +35,4 @@ class Float8TensorPackingFormat(str, Enum):
     SPARSE_CUTLASS = "sparse_cutlass"
 
 
-torch.serialization.add_safe_globals([Float8TensorPackingFormat])
+torch.serialization.add_safe_globals([Float8PackingFormat])
