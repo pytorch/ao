@@ -17,6 +17,7 @@ from torchao.prototype.custom_fp_utils import (
     _f32_to_floatx_unpacked,
     _floatx_unpacked_to_f32,
 )
+from torchao.prototype.mx_formats.config import ScaleCalculationMode
 from torchao.utils import (
     is_cuda_version_at_least,
     is_sm_at_least_100,
@@ -640,8 +641,8 @@ if torch_version_at_least("2.7.0") and has_triton():
 
     def triton_to_mxfp8_dim1_reference(
         x_hp: torch.Tensor,
-        block_size,
-        scaling_mode,
+        block_size: int = 32,
+        scaling_mode: ScaleCalculationMode = ScaleCalculationMode.RCEIL,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         A reference version of `to_mxfp8_dim1`.
