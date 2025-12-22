@@ -31,6 +31,7 @@ from torchao.quantization.utils import compute_error
 from torchao.testing.utils import TorchAOIntegrationTestCase
 from torchao.utils import (
     _is_fbgemm_gpu_genai_available,
+    _is_mslk_available,
     is_sm_at_least_89,
     is_sm_at_least_90,
     is_sm_at_least_100,
@@ -329,8 +330,8 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         not is_sm_at_least_100(), "Requires GPU with compute capability >= 10.0"
     )
     @unittest.skipIf(
-        not _is_fbgemm_gpu_genai_available(),
-        "Requires fbgemm_gpu_genai to be installed",
+        not _is_mslk_available(),
+        "Requires mslk to be installed",
     )
     @common_utils.parametrize("dtype", [torch.bfloat16, torch.float32])
     @common_utils.parametrize("compile", [True, False])
