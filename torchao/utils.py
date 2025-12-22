@@ -1105,6 +1105,10 @@ def is_cuda_version_at_least(major: int, minor: int) -> bool:
     return (cuda_major, cuda_minor) >= (major, minor)
 
 
+def is_xpu():
+    return torch.xpu.is_available() and torch.version.xpu
+
+
 def check_cpu_version(device, version="2.6.0"):
     if isinstance(device, torch.device):
         device = device.type

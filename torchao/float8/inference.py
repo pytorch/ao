@@ -22,6 +22,7 @@ from torchao.quantization.granularity import (
 from torchao.utils import (
     is_MI300,
     is_sm_at_least_89,
+    is_xpu,
 )
 
 Tensor = torch.Tensor
@@ -285,8 +286,8 @@ def _check_hardware_support(
     is_a_1_128_w_128_128 = _granularity_is_a_1_128_w_128_128(granularities)
 
     if is_per_tensor or is_per_row:
-        assert is_sm_at_least_89() or is_MI300(), (
-            "Float8 dynamic quantization requires CUDA compute capability ≥8.9 or MI300+."
+        assert is_sm_at_least_89() or is_MI300() or is_xpu(), (
+            "Float8 dynamic quantization requires CUDA compute capability ≥8.9 or MI300+ or XPU."
         )
     elif is_a_1_128_w_128_128:
         # TODO(future PR): look into AMD support
