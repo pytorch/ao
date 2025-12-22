@@ -101,8 +101,11 @@ __global__ void mx_blocked_layout_2d_M_groups_kernel(
     const int input_scale_stride_dim0,
     const int32_t* __restrict__ input_group_end_offsets,
     const uint8_t* __restrict__ output_scales,
+    const int output_stride_per_block,
+    const int output_stride_per_row_of_blocks,
     const int num_groups,
-    const __grid_constant__ CUtensorMap* __restrict__ tensor_map
+    const __grid_constant__ CUtensorMap* __restrict__ input_tensor_map,
+    const __grid_constant__ CUtensorMap* __restrict__ output_tensor_map
 ) {
     const int row_block_pid = blockIdx.y;
     const int col_block_pid = blockIdx.x;
@@ -110,7 +113,7 @@ __global__ void mx_blocked_layout_2d_M_groups_kernel(
     const bool is_master_thread = tid == 0;
     const int row_idx = tid / BLOCK_COLS;
     const int col_idx = tid % BLOCK_COLS;
-    const int SMEM_SIZE = BLOCK_ROWS * MAX_COLS;
+    constexpr int SMEM_SIZE = BLOCK_ROWS * MAX_COLS;
 
     // Shared memory
     __shared__ int smem_group_data[64]; // max 32 groups; 32 ints for group sizes, 32 for cumsums at each group
@@ -177,9 +180,7 @@ __global__ void mx_blocked_layout_2d_M_groups_kernel(
             constexpr uint32_t tile_bytes = BLOCK_ROWS * MAX_COLS; // 1 byte per uint8
 
             // TMA async load chunk
-            int col_offset = (col_block_pid * MAX_COLS) + (chunk_idx * MAX_COLS);
-            int row_offset = global_row_base;
-            void* chunk_ptr = (void*)(base_ptr + chunk_idx * MAX_COLS);
+            void* chunk_ptr = (void*)(base_ptr + chunk_idx * output_stride_per_row_of_blocks);
             copy_2d_to_shared(
                 &smem_buffers[buf_idx],
                 chunk_ptr,
@@ -193,23 +194,44 @@ __global__ void mx_blocked_layout_2d_M_groups_kernel(
     };
 
     // Chunk process func
-    auto process_chunk = [&](int chunk_idx, int buffer_idx) {
+    auto process_chunk = [&](int chunk_idx, int buf_idx) {
+        // Each thread reads 16 bytes
+        const int thread_col_start = col_idx * BYTES_PER_THREAD;
+        uint4 row_data = *reinterpret_cast<uint4*>(smem_buffers[buf_idx][row_idx * MAX_COLS + thread_col_start]);
+        __syncthreads();
 
+        // Write each 4 byte chunk to the appropriate position in blocked layout
+        constexpr int thread_iters = BYTES_PER_THREAD / BLOCK_COLS;
+        #pragma
+        for (int i = 0; i < thread_iters; i++) {
+            const int thread_off = i * BLOCK_COLS;
+
+        }
     };
 
     // Pipeline to overlap loads of chunk N+1 with process + store of chunk N
+    constexpr int BUFFER_MOD = NUM_BUFFERS - 1;
+    for (int chunk = 0; chunk < CHUNKS_PER_TB; chunk++) {
+        int buf_idx = chunk & BUFFER_MOD;                   // chunk % num_buffers
+        int next_buf_idx = (chunk + 1) & BUFFER_MOD;        // (chunk + 1) % num_buffers
+        load_chunk(chunk, buf_idx);
+        if (chunk > 0) {
+            int prev_buf_idx = (chunk - 1) & BUFFER_MOD;    // (chunk - 1) % num_buffers
+            process_chunk(chunk - 1, prev_buf_idx);
+        }
+        parity ^= 1;
+    }
 }
 
 // Reference: https://docs.nvidia.com/cuda/cuda-c-programming-guide/#using-tma-to-transfer-multi-dimensional-arrays
 CUtensorMap create_tensor_map(
     const void* tensor_ptr,
+    CUtensorMap* tensor_map_ptr,
     const uint64_t gmem_width,
     const uint64_t gmem_height,
     const uint32_t smem_width,
-    const uint32_t smem_height,
+    const uint32_t smem_height
 ) {
-  CUtensorMap tensor_map{};
-
   // rank is the number of dimensions of the array.
   constexpr uint32_t rank = 2;
   uint64_t size[rank] = {gmem_width, gmem_height};
@@ -226,7 +248,7 @@ CUtensorMap create_tensor_map(
 
   // Create the tensor descriptor.
   CUresult res = cuTensorMapEncodeTiled(
-    &tensor_map,                // CUtensorMap *tensorMap,
+    tensor_map_ptr,                // CUtensorMap *tensorMap,
     CUtensorMapDataType::CU_TENSOR_MAP_DATA_TYPE_UINT8,
     rank,                       // cuuint32_t tensorRank,
     tensor_ptr,                 // void *globalAddress,
@@ -240,7 +262,6 @@ CUtensorMap create_tensor_map(
     CUtensorMapFloatOOBfill::CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE
   );
   CUDA_CHECK(res);
-  return tensor_map;
 }
 
 
@@ -261,11 +282,22 @@ void launch_mx_block_rearrange_2d_M_groups_rowmajor_128x4_vec_pipelined(
 ) {
     int num_row_blocks = (scale_rows + BLOCK_ROWS - 1) / BLOCK_ROWS;
     int output_stride_per_block = BLOCK_ROWS * BLOCK_COLS;
+    int blocks_per_row = (scale_cols + BLOCK_COLS - 1) / BLOCK_COLS;
+    int output_stride_per_row_of_blocks = output_stride_per_block * blocks_per_row;
 
     int total_chunks = (scale_cols + max_cols - 1) / max_cols + num_groups;
     int total_super_col_blocks = (total_chunks + chunks_per_tb - 1) / chunks_per_tb + num_groups;
 
+    // Create input tensor map for TMA loads
     alignas(64) CUtensorMap tensor_map = CUtensorMap{};
+    create_tensor_map(
+        scales_ptr,
+        &tensor_map,
+        max_cols,
+        BLOCK_ROWS,
+        max_cols,
+        BLOCK_ROWS
+    );
 
     dim3 grid(total_super_col_blocks, num_row_blocks);
 
@@ -275,17 +307,20 @@ void launch_mx_block_rearrange_2d_M_groups_rowmajor_128x4_vec_pipelined(
             case 4:
                 mx_blocked_layout_2d_M_groups_kernel<64, 4><<<grid, block, 0, stream>>>(
                     scales_ptr, scale_stride_dim0, scale_rows, scale_cols, padded_rows,
-                    input_group_end_offsets, output_scales_ptr, output_stride_per_block, num_groups);
+                    input_group_end_offsets, output_scales_ptr, output_stride_per_block,
+                    output_stride_per_row_of_blocks, num_groups);
                 break;
             case 8:
                 mx_blocked_layout_2d_M_groups_kernel<64, 8><<<grid, block, 0, stream>>>(
                     scales_ptr, scale_stride_dim0, scale_rows, scale_cols, padded_rows,
-                    input_group_end_offsets, output_scales_ptr, output_stride_per_block, num_groups);
+                    input_group_end_offsets, output_scales_ptr, output_stride_per_block,
+                    output_stride_per_row_of_blocks, num_groups);
                 break;
             case 16:
                 mx_blocked_layout_2d_M_groups_kernel<64, 16><<<grid, block, 0, stream>>>(
                     scales_ptr, scale_stride_dim0, scale_rows, scale_cols, padded_rows,
-                    input_group_end_offsets, output_scales_ptr, output_stride_per_block, num_groups);
+                    input_group_end_offsets, output_scales_ptr, output_stride_per_block,
+                    output_stride_per_row_of_blocks, num_groups);
                 break;
             default:
                 printf("CUDA Error: chunks_per_tb must be 4, 8, or 16, got %d\n", chunks_per_tb);
@@ -297,17 +332,20 @@ void launch_mx_block_rearrange_2d_M_groups_rowmajor_128x4_vec_pipelined(
             case 4:
                 mx_blocked_layout_2d_M_groups_kernel<128, 4><<<grid, block, 0, stream>>>(
                     scales_ptr, scale_stride_dim0, scale_rows, scale_cols, padded_rows,
-                    input_group_end_offsets, output_scales_ptr, output_stride_per_block, num_groups);
+                    input_group_end_offsets, output_scales_ptr, output_stride_per_block,
+                    output_stride_per_row_of_blocks, num_groups);
                 break;
             case 8:
                 mx_blocked_layout_2d_M_groups_kernel<128, 8><<<grid, block, 0, stream>>>(
                     scales_ptr, scale_stride_dim0, scale_rows, scale_cols, padded_rows,
-                    input_group_end_offsets, output_scales_ptr, output_stride_per_block, num_groups);
+                    input_group_end_offsets, output_scales_ptr, output_stride_per_block,
+                    output_stride_per_row_of_blocks, num_groups);
                 break;
             case 16:
                 mx_blocked_layout_2d_M_groups_kernel<128, 16><<<grid, block, 0, stream>>>(
                     scales_ptr, scale_stride_dim0, scale_rows, scale_cols, padded_rows,
-                    input_group_end_offsets, output_scales_ptr, output_stride_per_block, num_groups);
+                    input_group_end_offsets, output_scales_ptr, output_stride_per_block,
+                    output_stride_per_row_of_blocks, num_groups);
                 break;
             default:
                 printf("CUDA Error: chunks_per_tb must be 4, 8, or 16, got %d\n", chunks_per_tb);
