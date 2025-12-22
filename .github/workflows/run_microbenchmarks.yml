@@ -13,6 +13,9 @@ jobs:
   benchmark:
     name: microbenchmarks-${{ matrix.gpu }}
     runs-on: ${{ matrix.runner }}
+    permissions:
+      id-token: write
+      contents: read
     strategy:
       fail-fast: false
       matrix:
