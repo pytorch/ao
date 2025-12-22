@@ -13,6 +13,7 @@ jobs:
   benchmark:
     name: microbenchmarks-${{ matrix.gpu }}
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 480
     permissions:
       id-token: write
       contents: read
