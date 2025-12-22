@@ -1381,6 +1381,7 @@ class Int8StaticActivationInt8WeightConfig(AOBaseConfig):
 
     scale: torch.Tensor
     granularity: Granularity = PerRow()
+    act_granularity: Granularity = PerTensor()
     act_mapping_type: Optional[MappingType] = MappingType.SYMMETRIC
     set_inductor_config: bool = True
     version: int = 1
@@ -1411,7 +1412,7 @@ def _int8_static_activation_int8_weight_transform(
     if config.set_inductor_config:
         torchao.quantization.utils.recommended_inductor_config_setter()
 
-    activation_granularity = config.granularity
+    activation_granularity = config.act_granularity
     weight_granularity = config.granularity
 
     quantized_tensor = Int8Tensor.from_hp(
