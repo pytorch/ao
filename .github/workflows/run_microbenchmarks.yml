@@ -20,11 +20,15 @@ jobs:
           - gpu: h100
             runner: linux.aws.h100
             config: benchmarks/dashboard/microbenchmark_quantization_config_h100.yml
-            torch-spec: "--pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu126"
+            torch-spec: "--pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu128"
           - gpu: a100
             runner: linux.aws.a100
             config: benchmarks/dashboard/microbenchmark_quantization_config_a100.yml
-            torch-spec: "--pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu126"
+            torch-spec: "--pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu128"
+          - gpu: b200
+            runner: linux.dgx.b200
+            config: benchmarks/dashboard/microbenchmark_quantization_config_b200.yml
+            torch-spec: "--pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu130"
 
     steps:
       - uses: actions/checkout@v4
