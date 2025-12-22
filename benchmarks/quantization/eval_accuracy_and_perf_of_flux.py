@@ -240,6 +240,7 @@ def pil_to_lpips_tensor(img: Image.Image, device: str):
 
 @torch.inference_mode()
 def run(
+    mode: str = "accuracy",
     num_prompts: int = None,
     num_inference_steps: int = 20,
     quant_config_str: str = "float8_rowwise",
@@ -247,45 +248,63 @@ def run(
     torch_compile_mode: str = "default",
     debug_prompt: str | None = None,
     print_model: bool = False,
-    cache_baseline_images_after_n: int | None = None,
+    cache_baseline_images: bool = False,
+    perf_n_iter: int = 10,
+    use_deterministic_algorithms: bool = False,
 ):
     """
-    A performance and accuracy eval script for quantizing flux-1.dev:
+    A performance and accuracy eval script for quantizing flux-1.schnell:
 
-      1. load flux-1.dev model
-      2. run it on a prompts dataset and save the images
-      3. quantize the model, run it on the same dataset and save the images
-      4. report performance difference between 2 and 3
-      5. report accuracy difference (using LPIPS) between 2 and 3
+      1. load flux-1.schnell model
+      2a. for mode == 'accuracy':
+        2. run it on a prompts dataset and save the images
+        3. quantize the model, run it on the same dataset and save the images
+        4. report accuracy difference (using LPIPS) between 2 and 3
+      2b. for mode == 'performance':
+        2. run it on a debug prompt and measure performance
+        3. quantize the model, run it on the same prompt and measure performance
 
     Args:
+        mode: 'accuracy' or 'performance'
         num_prompts: Optional limit on number of prompts to use (for debugging)
         num_inference_steps: Number of passes through the transformer,
-          default 20 for flux-1.dev. Can set to 1 for speeding up debugging.
+          default 4 for flux-1.schnell. Can set to 1 for speeding up debugging.
         quant_config_str: Quantization config to use ('float8_rowwise'). Default: 'float8_rowwise'
         use_compile: if true, uses torch.compile
         torch_compile_mode: mode to use torch.compile with
         debug_prompt: if specified, use this prompt instead of the drawbench dataset
         print_model: if True, prints model architecture
-        cache_baseline_images_after_n: if specified, baseline images after index n-1
-          are read from cache (disk) instead of regenerated, if available. This is useful
-          to make eval runs faster if we know the baseline is not changing.
+        cache_baseline_images: if specified, baseline images are read from cache (disk)
+          instead of regenerated, if available. This is useful to make eval runs faster
+          if we know the baseline is not changing.
+        perf_n_iter: number of measurements to take for measuring performance
+        use_deterministic_algorithms: if True, sets torch.use_deterministic_algorithms(True)
     """
     # TODO(future): maybe support other models and datasets
-    model = "black-forest-labs/FLUX.1-dev"
+    # model = "black-forest-labs/FLUX.1-dev"
+    model = "black-forest-labs/FLUX.1-schnell"
     prompts_dataset = "sayakpaul/drawbench"
     if debug_prompt is not None:
         prompts_dataset = "debug"
 
+    if use_deterministic_algorithms:
+        # this is needed to make torch.compile be deterministic with flux-1.schnell
+        torch.use_deterministic_algorithms(True)
+
     print(f"{torch.__version__=}")
     print(f"{torchao.__version__=}")
     print(f"{diffusers.__version__=}")
+    print(f"{mode=}")
     print(f"Model: {model}")
     print(f"Quant config: {quant_config_str}")
     print(f"num_inference_steps: {num_inference_steps}")
     print(f"prompts_dataset: {prompts_dataset}")
     print(f"use_compile: {use_compile}")
     print(f"torch_compile_mode: {torch_compile_mode}")
+    print(f"{use_deterministic_algorithms=}")
+    print(f"{cache_baseline_images=}")
+
+    assert mode in ("accuracy", "performance")
 
     # Create model-specific output directory
     output_dir = os.path.join(OUTPUT_DIR, model)
@@ -336,37 +355,45 @@ def run(
     prompts_to_use = all_prompts if num_prompts is None else all_prompts[:num_prompts]
     print(f"Generating baseline images for {len(prompts_to_use)} prompts")
 
-    if cache_baseline_images_after_n is not None:
-        print(
-            f"Cache mode: baseline images after index {cache_baseline_images_after_n} will use cache if available"
-        )
-
     baseline_data = []  # List of (prompt_idx, prompt, baseline_img, baseline_t)
     baseline_times = []
-    for idx, prompt in enumerate(prompts_to_use):
-        prompt_idx = f"prompt_{idx}"
 
-        # Check if we should try to load from cache
-        should_use_cache = cache_baseline_images_after_n is not None and idx > (
-            cache_baseline_images_after_n - 1
+    if mode == "accuracy":
+        for idx, prompt in enumerate(prompts_to_use):
+            prompt_idx = f"prompt_{idx}"
+            img_path = os.path.join(cache_dir, f"{prompt_idx}.png")
+            if cache_baseline_images and os.path.exists(img_path):
+                print(
+                    f"Loading baseline image for prompt {prompt_idx}: {prompt} from cache"
+                )
+                t0 = time.time()
+                baseline_img = Image.open(img_path)
+                t1 = time.time()
+            else:
+                print(f"Generating baseline image for prompt {prompt_idx}: {prompt}")
+                t0 = time.time()
+                baseline_img = generate_image(
+                    pipe, prompt, RANDOM_SEED, device, num_inference_steps
+                )
+                t1 = time.time()
+                baseline_img.save(img_path)
+            baseline_t = pil_to_lpips_tensor(baseline_img, device)
+            baseline_data.append((prompt_idx, prompt, baseline_img, baseline_t))
+            baseline_times.append(t1 - t0)
+
+    elif mode == "performance":
+        # warm up compile
+        _ = generate_image(
+            pipe, prompts_to_use[0], RANDOM_SEED, device, num_inference_steps
         )
 
-        img_path = os.path.join(cache_dir, f"{prompt_idx}.png")
-        if should_use_cache and os.path.exists(img_path):
+        for _ in range(perf_n_iter):
             t0 = time.time()
-            baseline_img = Image.open(img_path)
-            t1 = time.time()
-        else:
-            print(f"Generating baseline image for prompt {prompt_idx}: {prompt}")
-            t0 = time.time()
-            baseline_img = generate_image(
-                pipe, prompt, RANDOM_SEED, device, num_inference_steps
+            _ = generate_image(
+                pipe, prompts_to_use[0], RANDOM_SEED, device, num_inference_steps
             )
             t1 = time.time()
-            baseline_img.save(img_path)
-        baseline_t = pil_to_lpips_tensor(baseline_img, device)
-        baseline_data.append((prompt_idx, prompt, baseline_img, baseline_t))
-        baseline_times.append(t1 - t0)
+            baseline_times.append(t1 - t0)
 
     if use_compile:
         print("Restoring original (uncompiled) transformer before quantization")
@@ -406,73 +433,83 @@ def run(
     if print_model:
         print_pipeline_architecture(pipe)
 
-    print("Generating images with quantized model for all prompts")
-    lpips_values = []
-    comparison_images = []
     times = []
-    for prompt_idx, prompt, baseline_img, baseline_t in baseline_data:
-        print(f"Generating image for {prompt_idx}")
-        t0 = time.time()
-        modified_img = generate_image(
-            pipe, prompt, RANDOM_SEED, device, num_inference_steps
-        )
-        t1 = time.time()
-        times.append(t1 - t0)
 
-        # Compute LPIPS for fully quantized model
-        modified_t = pil_to_lpips_tensor(modified_img, device)
-        with torch.no_grad():
-            lpips_value = loss_fn(baseline_t, modified_t).item()
+    if mode == "accuracy":
+        print("Generating images with quantized model for all prompts")
+        lpips_values = []
+        comparison_images = []
+        for prompt_idx, prompt, baseline_img, baseline_t in baseline_data:
+            print(f"Generating image for {prompt_idx}")
+            t0 = time.time()
+            modified_img = generate_image(
+                pipe, prompt, RANDOM_SEED, device, num_inference_steps
+            )
+            t1 = time.time()
+            times.append(t1 - t0)
 
-        lpips_values.append(lpips_value)
-        print(f"LPIPS distance (full quantization, {prompt_idx}): {lpips_value:.4f}")
+            # Compute LPIPS for fully quantized model
+            modified_t = pil_to_lpips_tensor(modified_img, device)
+            with torch.no_grad():
+                lpips_value = loss_fn(baseline_t, modified_t).item()
 
-        # Create and save comparison image
-        print("Creating comparison image")
-        comparison_img = create_comparison_image(
-            baseline_img, modified_img, lpips_value, prompt=prompt
-        )
-        comparison_images.append(comparison_img)
-        comparison_path = os.path.join(
+            lpips_values.append(lpips_value)
+            print(
+                f"LPIPS distance (full quantization, {prompt_idx}): {lpips_value:.4f}"
+            )
+
+            # Create and save comparison image
+            print("Creating comparison image")
+            comparison_img = create_comparison_image(
+                baseline_img, modified_img, lpips_value, prompt=prompt
+            )
+            comparison_images.append(comparison_img)
+            comparison_path = os.path.join(
+                output_dir,
+                f"comparison_prompt_mode_full_quant_config_str_{quant_config_str}_{prompt_idx}.png",
+            )
+            comparison_img.save(comparison_path)
+            print(f"Saved comparison image to: {comparison_path}")
+
+        # Create combined image with all comparisons stacked vertically
+        combined_img = create_combined_comparison_image(comparison_images)
+        combined_path = os.path.join(
             output_dir,
-            f"comparison_prompt_mode_full_quant_config_str_{quant_config_str}_{prompt_idx}.png",
+            f"comparison_prompt_mode_full_quant_config_str_{quant_config_str}_combined.png",
         )
-        comparison_img.save(comparison_path)
-        print(f"Saved comparison image to: {comparison_path}")
+        combined_img.save(combined_path)
+        print(f"Saved combined comparison image to: {combined_path}")
 
-    # Create combined image with all comparisons stacked vertically
-    combined_img = create_combined_comparison_image(comparison_images)
-    combined_path = os.path.join(
-        output_dir,
-        f"comparison_prompt_mode_full_quant_config_str_{quant_config_str}_combined.png",
-    )
-    combined_img.save(combined_path)
-    print(f"Saved combined comparison image to: {combined_path}")
+    elif mode == "performance":
+        # warm up compile
+        _ = generate_image(
+            pipe, prompts_to_use[0], RANDOM_SEED, device, num_inference_steps
+        )
+
+        for _ in range(perf_n_iter):
+            t0 = time.time()
+            _ = generate_image(
+                pipe, prompts_to_use[0], RANDOM_SEED, device, num_inference_steps
+            )
+            t1 = time.time()
+            times.append(t1 - t0)
 
     # Print summary
     print("=" * 80)
     print("Test Mode Summary:")
     print(f"  Total Linear layers quantized: {len(fqn_to_config_dict)}")
-    print(f"  Prompts tested: {len(baseline_data)}")
-    print("")
-    print("LPIPS Results:")
-    avg_lpips = sum(lpips_values) / len(lpips_values)
-    max_lpips = max(lpips_values)
-    min_lpips = min(lpips_values)
-    print(f"  Average LPIPS: {avg_lpips:.4f}")
-    print(f"  Max LPIPS: {max_lpips:.4f}")
-    print(f"  Min LPIPS: {min_lpips:.4f}")
-    print(f"  All values: {[f'{v:.4f}' for v in lpips_values]}")
-    print("=" * 80)
-
-    print("baseline_times", baseline_times)
-    print("times", times)
-    # adjust the perf data for loading from cache, if applicable
-    if cache_baseline_images_after_n is not None:
-        print("adjusting times for cache_baseline_images_after_n")
-        idx = cache_baseline_images_after_n
-        baseline_times = baseline_times[:idx]
-        times = times[:idx]
+    if mode == "accuracy":
+        print(f"  Prompts tested: {len(baseline_data)}")
+        print("")
+        print("LPIPS Results:")
+        avg_lpips = sum(lpips_values) / len(lpips_values)
+        max_lpips = max(lpips_values)
+        min_lpips = min(lpips_values)
+        print(f"  Average LPIPS: {avg_lpips:.4f}")
+        print(f"  Max LPIPS: {max_lpips:.4f}")
+        print(f"  Min LPIPS: {min_lpips:.4f}")
+        print(f"  All values: {[f'{v:.4f}' for v in lpips_values]}")
+        print("=" * 80)
 
     speedups = [x / y for (x, y) in zip(baseline_times, times)]
 
@@ -480,26 +517,17 @@ def run(
     print("times", times)
     print("speedups", speedups)
 
-    if len(speedups) > 1:
-        # ignore first value as it includes torch.compile compilation time
-        avg_baseline_time = sum(baseline_times[1:]) / len(baseline_times[1:])
-        avg_time = sum(times[1:]) / len(times[1:])
-        avg_speedup = sum(speedups[1:]) / len(speedups[1:])
-        print("avg baseline_time ignoring first value", avg_baseline_time)
-        print("avg time ignoring first value", avg_time)
-        print("avg speedup ignoring first value", avg_speedup)
-    else:
-        avg_baseline_time = sum(baseline_times) / len(baseline_times)
-        avg_time = sum(times) / len(times)
-        avg_speedup = sum(speedups) / len(speedups)
-        print("avg baseline_time", avg_baseline_time)
-        print("avg time", avg_time)
-        print("avg speedup", avg_speedup)
+    avg_baseline_time = sum(baseline_times) / len(baseline_times)
+    avg_time = sum(times) / len(times)
+    avg_speedup = sum(speedups) / len(speedups)
+    print("avg baseline_time", avg_baseline_time)
+    print("avg time", avg_time)
+    print("avg speedup", avg_speedup)
 
     # Save summary stats to CSV
     summary_csv_path = os.path.join(
         output_dir,
-        f"summary_stats_prompt_mode_full_quant_config_str_{quant_config_str}.csv",
+        f"summary_stats_prompt_mode_{mode}_config_str_{quant_config_str}.csv",
     )
     with open(summary_csv_path, "w", newline="") as f:
         writer = csv.writer(f)
@@ -507,15 +535,17 @@ def run(
         writer.writerow(["mode", "full_quant"])
         writer.writerow(["total_linear_layers_quantized", len(fqn_to_config_dict)])
         writer.writerow(["prompts_tested", len(baseline_data)])
-        writer.writerow(["average_lpips", f"{avg_lpips:.4f}"])
-        writer.writerow(["max_lpips", f"{max_lpips:.4f}"])
-        writer.writerow(["min_lpips", f"{min_lpips:.4f}"])
-        writer.writerow(["average_baseline_time", avg_baseline_time])
-        writer.writerow(["average_time", avg_time])
-        writer.writerow(["average_speedup", avg_speedup])
-        # Write individual LPIPS values
-        for idx, val in enumerate(lpips_values):
-            writer.writerow([f"lpips_prompt_{idx}", f"{val:.4f}"])
+        if mode == "accuracy":
+            writer.writerow(["average_lpips", f"{avg_lpips:.4f}"])
+            writer.writerow(["max_lpips", f"{max_lpips:.4f}"])
+            writer.writerow(["min_lpips", f"{min_lpips:.4f}"])
+            # Write individual LPIPS values
+            for idx, val in enumerate(lpips_values):
+                writer.writerow([f"lpips_prompt_{idx}", f"{val:.4f}"])
+        elif mode == "performance":
+            writer.writerow(["average_baseline_time", avg_baseline_time])
+            writer.writerow(["average_time", avg_time])
+            writer.writerow(["average_speedup", avg_speedup])
     print(f"Summary stats saved to {summary_csv_path}\n\n")
 
 
