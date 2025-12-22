@@ -29,9 +29,17 @@ jobs:
             runner: linux.dgx.b200
             config: benchmarks/dashboard/microbenchmark_quantization_config_b200.yml
             torch-spec: "--pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu130"
+            aws-role-to-assume: arn:aws:iam::308535385114:role/gha_workflow_s3_and_ecr_read_only
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        if: matrix.aws-role-to-assume
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ matrix.aws-role-to-assume }}
+          aws-region: us-east-1
 
       - name: Setup miniconda
         uses: pytorch/test-infra/.github/actions/setup-miniconda@main
@@ -71,4 +79,3 @@ jobs:
           dry-run: false
           schema-version: v3
           github-token: ${{ secrets.GITHUB_TOKEN }}
-    secrets: inherit
