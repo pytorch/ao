@@ -39,6 +39,7 @@ class _NVFP4QuantizedForwardFakeQuantizedBackward(torch.autograd.Function):
     """
 
     @staticmethod
+    @torch.amp.custom_fwd(device_type="cuda")
     def forward(
         ctx,
         _input: torch.Tensor,
@@ -87,6 +88,7 @@ class _NVFP4QuantizedForwardFakeQuantizedBackward(torch.autograd.Function):
         )
 
     @staticmethod
+    @torch.amp.custom_bwd(device_type="cuda")
     def backward(ctx, grad_output: torch.Tensor) -> torch.Tensor:
         _input, weight = ctx.saved_tensors
         assert isinstance(_input, NVFP4Tensor)

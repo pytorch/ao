@@ -492,7 +492,7 @@ def _addmm_nvfp4_dispatch(
 
     # Add bias after scaling if needed
     if should_add_bias_separately:
-        result = result + bias
+        result = result + bias.to(a._orig_dtype)
 
     return result
 
