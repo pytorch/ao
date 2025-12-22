@@ -69,6 +69,40 @@ class matmul_with_hp_or_float8_args(torch.autograd.Function):
             weight_maybe_fp8_t = weight_hp_t
         elif c.cast_config_weight.scaling_type is ScalingType.DISABLED:
             weight_maybe_fp8_t = weight_hp_t
+        elif (
+            config.cast_config_weight.scaling_granularity
+            is ScalingGranularity.TENSORWISE
+        ):
+            # Special case tensorwise to allow the checkpointing of float8
+            # casted weight, to prevent blowing up peak memory usage in FSDP.
+
+            # inductor kernels for tensorwise max are faster when `weight` is
+            # contiguous.
+            # context: https://github.com/pytorch/pytorch/issues/144431
+            weight_hp_t_t = weight_hp_t.t()
+            assert weight_hp_t_t.is_contiguous()
+            weight_scale = tensor_to_scale(
+                weight_hp_t_t, config.cast_config_weight.target_dtype
+            )
+
+            if config.force_recompute_fp8_weight_in_bwd:
+                weight_maybe_fp8_t = checkpoint.checkpoint(
+                    hp_tensor_and_scale_to_float8,
+                    weight_hp_t,
+                    weight_scale,
+                    config.cast_config_weight.target_dtype,
+                    linear_mm_config,
+                    GemmInputRole.WEIGHT,
+                )
+            else:
+                weight_maybe_fp8_t = hp_tensor_and_scale_to_float8(
+                    weight_hp_t,
+                    weight_scale,
+                    config.cast_config_weight.target_dtype,
+                    linear_mm_config,
+                    GemmInputRole.WEIGHT,
+                )
+
         else:
             weight_maybe_fp8_t = hp_tensor_to_float8_dynamic(
                 weight_hp_t,
