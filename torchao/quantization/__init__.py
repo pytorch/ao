@@ -67,7 +67,6 @@ from .quant_api import (
     TensorCoreTiledLayout,
     UIntXWeightOnlyConfig,
     fqn_matches_fqn_config,
-    intx_quantization_aware_training,
     quantize_,
     swap_conv2d_1x1_to_linear,
 )
@@ -112,7 +111,6 @@ __all__ = [
     "ALL_AUTOQUANT_CLASS_LIST",
     # top level API - manual
     "quantize_",
-    "intx_quantization_aware_training",
     "fqn_matches_fqn_config",
     "swap_conv2d_1x1_to_linear",
     "Int4DynamicActivationInt4WeightConfig",
