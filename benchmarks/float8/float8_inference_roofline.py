@@ -207,36 +207,65 @@ def get_conv_times(
         lambda x, w: conv_fn(x, w, **conv_kwargs), x_bf16, w_bf16
     )
 
-    # For fp8 conv timing, we need to create fp8 tensors
+    # For fp8 conv timing, we need to use fbgemm operator
     if recipe_name in ("mxfp4_cutlass", "nvfp4"):
         # For now, skip fp4 conv operations as they're more complex to set up
         f8_time_s = 0.0
     else:
-        # Create fp8 tensors
-        e4m3_dtype = torch.float8_e4m3fn
-        if torch.version.hip and torch.cuda.is_available() and is_MI300():
-            e4m3_dtype = torch.float8_e4m3fnuz
-
-        # Convert tensors to fp8
-        x_fp8 = x_bf16.to(e4m3_dtype)
-        w_fp8 = w_bf16.to(e4m3_dtype)
-
-        # Create scales (simplified for now - in real usage these would be computed properly)
-        if recipe_name == "rowwise":
-            # Per-row scaling would be more complex for conv - using tensor-wise for simplicity
-            scale_x = torch.tensor(1.0, device=device, dtype=torch.float32)
-            scale_w = torch.tensor(1.0, device=device, dtype=torch.float32)
-        else:
-            # Tensor-wise scaling
-            scale_x = torch.tensor(1.0, device=device, dtype=torch.float32)
-            scale_w = torch.tensor(1.0, device=device, dtype=torch.float32)
-
-        # For now, measure regular fp8 conv (torch doesn't have _scaled_conv yet)
-        # This measures the fp8 conv kernel time without the scaling overhead
+        # Try to use fbgemm fp8 conv operator
         try:
-            f8_time_s = get_gpu_kernel_conv_time_s(
-                lambda x, w: conv_fn(x, w, **conv_kwargs), x_fp8, w_fp8
-            )
+            # Check if fbgemm fp8 conv is available
+            if not hasattr(torch.ops.fbgemm, 'f8f8bf16_conv'):
+                print(f"Warning: fbgemm.f8f8bf16_conv not available, skipping fp8 conv timing")
+                f8_time_s = 0.0
+            else:
+                # Create fp8 tensors
+                e4m3_dtype = torch.float8_e4m3fn
+                if torch.version.hip and torch.cuda.is_available() and is_MI300():
+                    e4m3_dtype = torch.float8_e4m3fnuz
+
+                # Quantize tensors to fp8
+                x_scale = x_bf16.abs().max() / torch.finfo(e4m3_dtype).max
+                w_scale = w_bf16.abs().max() / torch.finfo(e4m3_dtype).max
+
+                # Convert to channels_last_3d format first
+                x_bf16_cl = x_bf16.contiguous(memory_format=torch.channels_last_3d)
+                w_bf16_cl = w_bf16.contiguous(memory_format=torch.channels_last_3d)
+
+                x_fp8 = (x_bf16_cl / x_scale).to(e4m3_dtype)
+                w_fp8 = (w_bf16_cl / w_scale).to(e4m3_dtype)
+
+                # Permute to match fbgemm expected layout:
+                # Input: (N, C_in, D, H, W) -> (N, D, H, W, C_in)
+                x_fp8 = x_fp8.permute([0, 2, 3, 4, 1])
+                # Weight: (C_out, C_in, K1, K2, K3) -> (C_out, K1, K2, K3, C_in)
+                w_fp8 = w_fp8.permute([0, 2, 3, 4, 1])
+
+                # Prepare scales for fbgemm operator
+                if op_name == "conv3d":
+                    # fbgemm expects a combined scale tensor
+                    combined_scale = float(x_scale * w_scale)
+                    scale_tensor = torch.tensor([combined_scale], device=device, dtype=torch.float32)
+
+                    # Use fbgemm fp8 conv operator
+                    # Signature: f8f8bf16_conv(activation, filter, scale, padding, stride, dilation)
+                    f8_time_s = get_gpu_kernel_conv_time_s(
+                        lambda x, w: torch.ops.fbgemm.f8f8bf16_conv(
+                            x,
+                            w,
+                            scale_tensor,
+                            padding if isinstance(padding, (list, tuple)) else [padding] * 3,
+                            stride if isinstance(stride, (list, tuple)) else [stride] * 3,
+                            [1, 1, 1],  # dilation
+                        ),
+                        x_fp8,
+                        w_fp8
+                    )
+                else:
+                    # conv2d not yet implemented for fbgemm
+                    print(f"Warning: fbgemm fp8 conv2d not implemented, skipping fp8 conv timing")
+                    f8_time_s = 0.0
+
         except Exception as e:
             print(f"Warning: Could not measure fp8 conv time: {e}")
             f8_time_s = 0.0

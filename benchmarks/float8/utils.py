@@ -407,21 +407,31 @@ def get_gpu_kernel_conv_time_s(f, *args, **kwargs):
     with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA]) as prof:
         for idx in range(n_iter):
             f(*args, **kwargs)
-    print(prof)
     data = profiler_output_to_filtered_time_by_kernel_name(
         prof, n_iter, num_leaf_tensors=0
     )
-    # there is only 1 key, typically aten::conv2d, aten::conv3d, or similar, with unit nanoseconds
-    assert len(data) == 1, f"unexpected data: {data}"
-    key, value = next(iter(data.items()))
-    assert key in (
+
+    # Filter to only conv-related kernels and remove aten::fill_
+    expected_conv_kernels = {
         "aten::conv2d",
         "aten::conv3d",
         "aten::convolution",
         "aten::cudnn_convolution",
+        "aten::slow_conv_dilated2d",
+        "aten::slow_conv_dilated3d",
         "torchao::_conv2d_fp8_inner",
         "torchao::_conv3d_fp8_inner",
-    ), f"unexpected kernel: {key}"
+        "fbgemm::f8f8bf16_conv",
+    }
+
+    # Filter out aten::fill_ and other non-conv operations
+    filtered_data = {k: v for k, v in data.items() if k in expected_conv_kernels}
+
+    assert len(filtered_data) >= 1, f"unexpected data: {data}"
+
+    # If there are multiple conv kernels, take the one with the highest time (the actual conv)
+    key, value = max(filtered_data.items(), key=lambda x: x[1])
+
     return value / 1e6 / n_iter
 
 
