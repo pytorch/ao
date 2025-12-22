@@ -71,3 +71,4 @@ jobs:
           dry-run: false
           schema-version: v3
           github-token: ${{ secrets.GITHUB_TOKEN }}
+    secrets: inherit
