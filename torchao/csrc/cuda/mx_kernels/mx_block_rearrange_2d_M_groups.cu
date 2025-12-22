@@ -1,7 +1,25 @@
-#include <cuda_runtime.h>
-#include <cuda_fp8.h>
 #include <cstdint>
 #include <cstdio>
+
+#include <cuda.h>
+#include <cuda/barrier>
+#include <cuda/ptx>
+#include <cudaTypedefs.h>
+#include <cuda_runtime.h>
+#include <cuda_fp8.h>
+#include "ptx.cuh"
+
+#define CUDA_CHECK(result)                                                     \
+  do {                                                                         \
+    CUresult status = result;                                                  \
+    if (status != CUDA_SUCCESS) {                                              \
+      const char* error_str;                                                   \
+      cuGetErrorString(status, &error_str);                                    \
+      fprintf(stderr, "CUDA Error at %s:%d - %s\n", __FILE__, __LINE__,        \
+              error_str);                                                      \
+      exit(EXIT_FAILURE);                                                      \
+    }                                                                          \
+  } while (0)
 
 #define BLOCK_ROWS 128
 #define BLOCK_COLS 4
@@ -78,16 +96,18 @@ __device__ __forceinline__ int compute_output_group_start_row(
 }
 
 template <int MAX_COLS, int CHUNKS_PER_TB>
-__global__ void mx_block_rearrange_2d_M_groups_128x4_vec_pipelined(
+__global__ void mx_blocked_layout_2d_M_groups_kernel(
     const uint8_t* __restrict__ input_scales,
-    const int input_scales_stride_dim0,
+    const int input_scale_stride_dim0,
     const int32_t* __restrict__ input_group_end_offsets,
     const uint8_t* __restrict__ output_scales,
     const int num_groups,
+    const __grid_constant__ CUtensorMap* __restrict__ tensor_map
 ) {
     const int row_block_pid = blockIdx.y;
     const int col_block_pid = blockIdx.x;
     const int tid = threadIdx.x;
+    const bool is_master_thread = tid == 0;
     const int row_idx = tid / BLOCK_COLS;
     const int col_idx = tid % BLOCK_COLS;
     const int SMEM_SIZE = BLOCK_ROWS * MAX_COLS;
@@ -138,45 +158,37 @@ __global__ void mx_block_rearrange_2d_M_groups_128x4_vec_pipelined(
     // Prepare for pipeline phase, compute thread constant vals
     int thread_col_start = col_idx * BYTES_PER_THREAD;
     int global_row_base = input_group_start_row + (local_row_block * BLOCK_ROWS);
-    int global_col_base = (col_block_pid * MAX_COLS) + thread_col_start;
-    const uint8_t* base_ptr = input_scales + static_cast<size_t>(global_row_base) * input_scales_stride_dim0 + static_cast<size_t>(global_col_base);
+    int global_col_base = col_block_pid * MAX_COLS;
+    const uint8_t* base_ptr = input_scales + static_cast<size_t>(global_row_base) * input_scale_stride_dim0 + static_cast<size_t>(global_col_base);
 
-    // Blocked layout swizzle base
+    // Blocked layout base offset
     int r_div_32 = row_idx << 5;
     int r_mod_32 = row_idx & 31;
     int blocked_layout_base = (r_mod_32 << 4) + (r_div_32 << 2);
 
-    // Compute XOR swizzle to avoid bank conflicts on both reads and writes
-    int tile_xor = (col_idx >> 2) & 3;                  // (col_idx / 4) % 4
-    int superrow_xor = (blocked_layout_base >> 7) & 3;  // (blocked_layout_base / 128) % 4
-    int combined_xor = tile_xor ^ superrow_xor;
 
-    // Chunk async load func
+    __shared__ __align__(8) uint64_t mbar[NUM_BUFFERS];
+    initialize_barriers<NUM_BUFFERS, BLOCK_ROWS>(mbar, is_master_thread);
+    int parity = 0;
+
     auto load_chunk = [&](int chunk_idx, int buf_idx) {
-        int rows_to_load = min(BLOCK_ROWS, input_group_end_row - global_row_base);
-        bool thread_can_load = row_idx < rows_to_load;
-        if (thread_can_load)
-        {
-            // Shift to next chunk colwise
-            const uint8_t* src_ptr = base_ptr + static_cast<size_t>(chunk_idx) * MAX_COLS;
-            bool aligned = reinterpret_cast<uintptr_t>(src_ptr) % 16 == 0;
+        if (is_master_thread) {
+            uint64_t* mbar_ptr = &mbar[buf_idx];
+            constexpr uint32_t tile_bytes = BLOCK_ROWS * MAX_COLS; // 1 byte per uint8
 
-            // Use uint4 vectorized loads if possible
-            if (aligned)
-            {
-                asm volatile(
-                    "cp.async.cg.shared.global [%0], [%1], 16;\n"
-                    :
-                    : "l"(&smem_buffers[buf_idx][row_idx * MAX_COLS + thread_col_start]),
-                      "l"(src_ptr)
-                );
-            }
-
-            // Fall back to single byte loads if alignment is invalid
-            else
-            {
-                uint4 row_data = make_uint4(0, 0, 0, 0);
-            }
+            // TMA async load chunk
+            int col_offset = (col_block_pid * MAX_COLS) + (chunk_idx * MAX_COLS);
+            int row_offset = global_row_base;
+            void* chunk_ptr = (void*)(base_ptr + chunk_idx * MAX_COLS);
+            copy_2d_to_shared(
+                &smem_buffers[buf_idx],
+                chunk_ptr,
+                MAX_COLS,
+                BLOCK_ROWS,
+                tile_bytes,
+                mbar_ptr,
+                is_master_thread
+            );
         }
     };
 
@@ -188,6 +200,128 @@ __global__ void mx_block_rearrange_2d_M_groups_128x4_vec_pipelined(
     // Pipeline to overlap loads of chunk N+1 with process + store of chunk N
 }
 
+// Reference: https://docs.nvidia.com/cuda/cuda-c-programming-guide/#using-tma-to-transfer-multi-dimensional-arrays
+CUtensorMap create_tensor_map(
+    const void* tensor_ptr,
+    const uint64_t gmem_width,
+    const uint64_t gmem_height,
+    const uint32_t smem_width,
+    const uint32_t smem_height,
+) {
+  CUtensorMap tensor_map{};
+
+  // rank is the number of dimensions of the array.
+  constexpr uint32_t rank = 2;
+  uint64_t size[rank] = {gmem_width, gmem_height};
+  uint64_t stride[rank - 1] = {gmem_width}; // 1 byte per e8m0
+  uint32_t box_size[rank] = {smem_width, smem_height};
+
+  // The distance between elements in units of sizeof(element)
+  uint32_t elem_stride[rank] = {1, 1};
+
+  // Get function pointer to cuTensorMapEncodeTiled
+  void *driver_ptr = get_driver_ptr();
+  auto cuTensorMapEncodeTiled = reinterpret_cast<PFN_cuTensorMapEncodeTiled_v12000>(driver_ptr);
+
+
+  // Create the tensor descriptor.
+  CUresult res = cuTensorMapEncodeTiled(
+    &tensor_map,                // CUtensorMap *tensorMap,
+    CUtensorMapDataType::CU_TENSOR_MAP_DATA_TYPE_UINT8,
+    rank,                       // cuuint32_t tensorRank,
+    tensor_ptr,                 // void *globalAddress,
+    size,                       // const cuuint64_t *globalDim,
+    stride,                     // const cuuint64_t *globalStrides,
+    box_size,                   // const cuuint32_t *boxDim,
+    elem_stride,                // const cuuint32_t *elementStrides,
+    CUtensorMapInterleave::CU_TENSOR_MAP_INTERLEAVE_NONE,
+    CUtensorMapSwizzle::CU_TENSOR_MAP_SWIZZLE_NONE,
+    CUtensorMapL2promotion::CU_TENSOR_MAP_L2_PROMOTION_NONE,
+    CUtensorMapFloatOOBfill::CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE
+  );
+  CUDA_CHECK(res);
+  return tensor_map;
+}
+
+
 namespace mxfp8 {
 
+void launch_mx_block_rearrange_2d_M_groups_rowmajor_128x4_vec_pipelined(
+    const uint8_t* scales_ptr,
+    int scale_stride_dim0,
+    int scale_rows,
+    int scale_cols,
+    int padded_rows,
+    const int32_t* input_group_end_offsets,
+    uint8_t* output_scales_ptr,
+    int num_groups,
+    int max_cols,  // Template selector: 64 or 128
+    int chunks_per_tb,  // Chunks per super-block: 4, 8, or 16
+    cudaStream_t stream
+) {
+    int num_row_blocks = (scale_rows + BLOCK_ROWS - 1) / BLOCK_ROWS;
+    int output_stride_per_block = BLOCK_ROWS * BLOCK_COLS;
+
+    int total_chunks = (scale_cols + max_cols - 1) / max_cols + num_groups;
+    int total_super_col_blocks = (total_chunks + chunks_per_tb - 1) / chunks_per_tb + num_groups;
+
+    alignas(64) CUtensorMap tensor_map = CUtensorMap{};
+
+    dim3 grid(total_super_col_blocks, num_row_blocks);
+
+    if (max_cols == 64) {
+        dim3 block(512);
+        switch (chunks_per_tb) {
+            case 4:
+                mx_blocked_layout_2d_M_groups_kernel<64, 4><<<grid, block, 0, stream>>>(
+                    scales_ptr, scale_stride_dim0, scale_rows, scale_cols, padded_rows,
+                    input_group_end_offsets, output_scales_ptr, output_stride_per_block, num_groups);
+                break;
+            case 8:
+                mx_blocked_layout_2d_M_groups_kernel<64, 8><<<grid, block, 0, stream>>>(
+                    scales_ptr, scale_stride_dim0, scale_rows, scale_cols, padded_rows,
+                    input_group_end_offsets, output_scales_ptr, output_stride_per_block, num_groups);
+                break;
+            case 16:
+                mx_blocked_layout_2d_M_groups_kernel<64, 16><<<grid, block, 0, stream>>>(
+                    scales_ptr, scale_stride_dim0, scale_rows, scale_cols, padded_rows,
+                    input_group_end_offsets, output_scales_ptr, output_stride_per_block, num_groups);
+                break;
+            default:
+                printf("CUDA Error: chunks_per_tb must be 4, 8, or 16, got %d\n", chunks_per_tb);
+                return;
+        }
+    } else if (max_cols == 128) {
+        dim3 block(1024);
+        switch (chunks_per_tb) {
+            case 4:
+                mx_blocked_layout_2d_M_groups_kernel<128, 4><<<grid, block, 0, stream>>>(
+                    scales_ptr, scale_stride_dim0, scale_rows, scale_cols, padded_rows,
+                    input_group_end_offsets, output_scales_ptr, output_stride_per_block, num_groups);
+                break;
+            case 8:
+                mx_blocked_layout_2d_M_groups_kernel<128, 8><<<grid, block, 0, stream>>>(
+                    scales_ptr, scale_stride_dim0, scale_rows, scale_cols, padded_rows,
+                    input_group_end_offsets, output_scales_ptr, output_stride_per_block, num_groups);
+                break;
+            case 16:
+                mx_blocked_layout_2d_M_groups_kernel<128, 16><<<grid, block, 0, stream>>>(
+                    scales_ptr, scale_stride_dim0, scale_rows, scale_cols, padded_rows,
+                    input_group_end_offsets, output_scales_ptr, output_stride_per_block, num_groups);
+                break;
+            default:
+                printf("CUDA Error: chunks_per_tb must be 4, 8, or 16, got %d\n", chunks_per_tb);
+                return;
+        }
+    } else {
+        printf("CUDA Error: max_cols must be 64 or 128, got %d\n", max_cols);
+        return;
+    }
+
+    cudaError_t err = cudaGetLastError();
+    if (err != cudaSuccess) {
+        printf("CUDA Error (pipelined max_cols=%d, chunks_per_tb=%d): %s\n",
+               max_cols, chunks_per_tb, cudaGetErrorString(err));
+    }
+}
 } // namespace mxfp8
