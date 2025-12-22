@@ -32,8 +32,8 @@ import tqdm
 from tabulate import tabulate
 from torch.profiler import ProfilerActivity, profile
 from utils import (
-    get_gpu_kernel_gemm_time_s,
     get_gpu_kernel_conv_time_s,
+    get_gpu_kernel_gemm_time_s,
     get_name_to_shapes_iter,
     profiler_output_to_filtered_time_by_kernel_name,
 )
@@ -190,13 +190,32 @@ def get_conv_times(
 
     # Create input tensors
     if op_name == "conv2d":
-        x_bf16 = torch.randn(batch, in_channels, H, W, dtype=torch.bfloat16, device=device)
-        w_bf16 = torch.randn(out_channels, in_channels, kernel_size, kernel_size, dtype=torch.bfloat16, device=device)
+        x_bf16 = torch.randn(
+            batch, in_channels, H, W, dtype=torch.bfloat16, device=device
+        )
+        w_bf16 = torch.randn(
+            out_channels,
+            in_channels,
+            kernel_size,
+            kernel_size,
+            dtype=torch.bfloat16,
+            device=device,
+        )
         conv_fn = torch.nn.functional.conv2d
         conv_kwargs = {"stride": stride, "padding": padding}
     elif op_name == "conv3d":
-        x_bf16 = torch.randn(batch, in_channels, D, H, W, dtype=torch.bfloat16, device=device)
-        w_bf16 = torch.randn(out_channels, in_channels, kernel_size, kernel_size, kernel_size, dtype=torch.bfloat16, device=device)
+        x_bf16 = torch.randn(
+            batch, in_channels, D, H, W, dtype=torch.bfloat16, device=device
+        )
+        w_bf16 = torch.randn(
+            out_channels,
+            in_channels,
+            kernel_size,
+            kernel_size,
+            kernel_size,
+            dtype=torch.bfloat16,
+            device=device,
+        )
         conv_fn = torch.nn.functional.conv3d
         conv_kwargs = {"stride": stride, "padding": padding}
     else:
@@ -215,8 +234,10 @@ def get_conv_times(
         # Try to use fbgemm fp8 conv operator
         try:
             # Check if fbgemm fp8 conv is available
-            if not hasattr(torch.ops.fbgemm, 'f8f8bf16_conv'):
-                print(f"Warning: fbgemm.f8f8bf16_conv not available, skipping fp8 conv timing")
+            if not hasattr(torch.ops.fbgemm, "f8f8bf16_conv"):
+                print(
+                    "Warning: fbgemm.f8f8bf16_conv not available, skipping fp8 conv timing"
+                )
                 f8_time_s = 0.0
             else:
                 # Create fp8 tensors
@@ -245,7 +266,9 @@ def get_conv_times(
                 if op_name == "conv3d":
                     # fbgemm expects a combined scale tensor
                     combined_scale = float(x_scale * w_scale)
-                    scale_tensor = torch.tensor([combined_scale], device=device, dtype=torch.float32)
+                    scale_tensor = torch.tensor(
+                        [combined_scale], device=device, dtype=torch.float32
+                    )
 
                     # Use fbgemm fp8 conv operator
                     # Signature: f8f8bf16_conv(activation, filter, scale, padding, stride, dilation)
@@ -254,16 +277,22 @@ def get_conv_times(
                             x,
                             w,
                             scale_tensor,
-                            padding if isinstance(padding, (list, tuple)) else [padding] * 3,
-                            stride if isinstance(stride, (list, tuple)) else [stride] * 3,
+                            padding
+                            if isinstance(padding, (list, tuple))
+                            else [padding] * 3,
+                            stride
+                            if isinstance(stride, (list, tuple))
+                            else [stride] * 3,
                             [1, 1, 1],  # dilation
                         ),
                         x_fp8,
-                        w_fp8
+                        w_fp8,
                     )
                 else:
                     # conv2d not yet implemented for fbgemm
-                    print(f"Warning: fbgemm fp8 conv2d not implemented, skipping fp8 conv timing")
+                    print(
+                        "Warning: fbgemm fp8 conv2d not implemented, skipping fp8 conv timing"
+                    )
                     f8_time_s = 0.0
 
         except Exception as e:
@@ -351,7 +380,9 @@ def _create_model_and_input(
     Build the model and its corresponding input tensor for benchmarking.
     """
 
-    def _stack_layers_conv(core_layer: nn.Module, add_post_relu: bool = False) -> nn.Sequential:
+    def _stack_layers_conv(
+        core_layer: nn.Module, add_post_relu: bool = False
+    ) -> nn.Sequential:
         layers = []
         if enable_fusion_modeling:
             layers.append(nn.ReLU())
@@ -390,10 +421,10 @@ def _create_model_and_input(
         m_orig = _stack_layers_conv(core_layer)
     else:
         if not enable_fusion_modeling:
-            m_orig = nn.Sequential(nn.Linear(K_val, N_val, bias=False))
+            m_orig = nn.Sequential(nn.Linear(in_channels, out_channels, bias=False))
         else:
             m_orig = nn.Sequential(
-                nn.ReLU(), nn.Linear(K_val, N_val, bias=False)
+                nn.ReLU(), nn.Linear(in_channels, out_channels, bias=False)
             )
         memory_format = None
         x = torch.randn(
@@ -492,9 +523,7 @@ def run(
         recipe_name,
         # TODO(future): also enable fusion modeling here
     )
-    bf16_gemm_time_sympy = get_inference_gemm_time_sympy(
-        M, K, N, torch.bfloat16, None
-    )
+    bf16_gemm_time_sympy = get_inference_gemm_time_sympy(M, K, N, torch.bfloat16, None)
 
     if recipe_name and recipe_name.startswith(("nvfp4", "mxfp4")):
         fp8_gemm_time_sympy = get_inference_gemm_time_sympy(
@@ -682,12 +711,8 @@ def run(
 
                 bf16_trace_filename = None
                 if save_profile_traces:
-                    bf16_trace_filename = (
-                        f"{outfile}_{M_val}_{K_val}_{N_val}_bf16.json"
-                    )
-                b_bf16_e2e_time_s = get_gpu_kernel_time(
-                    m_bf16, x, bf16_trace_filename
-                )
+                    bf16_trace_filename = f"{outfile}_{M_val}_{K_val}_{N_val}_bf16.json"
+                b_bf16_e2e_time_s = get_gpu_kernel_time(m_bf16, x, bf16_trace_filename)
 
                 # get the float8 dynamic scaling gpu kernel time
                 torch._dynamo.reset()
@@ -736,18 +761,8 @@ def run(
 
                 fp8_trace_filename = None
                 if save_profile_traces:
-                    fp8_trace_filename = (
-                        f"{outfile}_{M_val}_{K_val}_{N_val}_fp8.json"
-                    )
-                b_fp8_e2e_time_s = get_gpu_kernel_time(
-                    m_fp8_dyn, x, fp8_trace_filename
-                )
-
-        # Calculate e2e speedup if benchmarks were run, otherwise -1
-        if b_bf16_e2e_time_s > 0 and b_fp8_e2e_time_s > 0:
-            b_fp8_e2e_speedup = b_bf16_e2e_time_s / b_fp8_e2e_time_s
-        else:
-            b_fp8_e2e_speedup = -1
+                    fp8_trace_filename = f"{outfile}_{M_val}_{K_val}_{N_val}_fp8.json"
+                b_fp8_e2e_time_s = get_gpu_kernel_time(m_fp8_dyn, x, fp8_trace_filename)
 
         results.append(
             [
