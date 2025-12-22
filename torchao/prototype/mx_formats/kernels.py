@@ -1219,10 +1219,9 @@ if mxfp8_cuda_extension_available:
                 (rows, cols), (1, rows), dtype=torch.float8_e4m3fn, device=x.device
             )
 
-            # colwise scales are written in column-major format to avoid uncoalesced global memory accesses
-            scales_colwise = torch.empty_strided(
+            # and microb
+            scales_colwise = torch.empty(
                 (cols, num_row_blocks),
-                (1, cols),
                 dtype=torch.float8_e8m0fnu,
                 device=x.device,
             )

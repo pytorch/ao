@@ -114,13 +114,11 @@ mxfp8_quantize(const at::Tensor& input, bool rowwise, bool colwise,
   if (colwise) {
     const int64_t num_row_blocks = (rows + scale_dim_y - 1) / scale_dim_y;
     output_colwise = at::empty_strided({rows, cols}, {1, rows}, options_fp8);
-    // Need scales_colwise to be this shape so the 'col' dim stride is 1, 
-    // for colwise scaling, we can avoid uncoalesced writes to global memory.
-    // This is because each of the 32 threads in a warp will be computing
-    // a scale for a different column of 32 input data values, then each writing
-    // that scale to global memory - so the stride along this `col` dim should be 1
-    // so writes can be coalesced into a single transaction.
-    scales_colwise = at::empty_strided({cols, num_row_blocks}, {1, cols}, options_scale);
+
+    // Accept uncoalesced global stores for scale tensor, since row major is much for favorable for the subsequent 
+    // per-group blocked format kernel.
+    // Microbenchmarks show the memory bandwidth utilization is virtually identical to coalesced global stores.
+    scales_colwise = at::empty({cols, num_row_blocks}, options_scale);
   } else {
     output_colwise = at::empty({0}, options_fp8);
     scales_colwise = at::empty({0}, options_scale);
