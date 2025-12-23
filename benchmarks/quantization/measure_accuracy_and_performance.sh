@@ -31,9 +31,6 @@
 
 set -e
 
-# print relevant library version
-python -c "import torch; import torchao; import vllm; print(f'{torch.__version__=}\n{torch.cuda.get_device_name()=}\n{torchao.__version__=}\n{vllm.__version__=}')"
-
 # Define all available quantization recipes
 QUANT_RECIPES_ALL=(
   # no quantization (baseline)
@@ -108,6 +105,9 @@ fi
 
 rm -rf $LOG_FILE
 touch $LOG_FILE
+
+# print relevant library version
+python -c "import torch; import torchao; import vllm; print(f'{torch.__version__=}\n{torch.cuda.get_device_name()=}\n{torchao.__version__=}\n{vllm.__version__=}')" | tee -a "$LOG_FILE"
 
 for quant_recipe in "${QUANT_RECIPES[@]}"; do
 
