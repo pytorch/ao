@@ -47,6 +47,9 @@ from torchao.utils import (
     is_sm_at_least_100,
 )
 
+if _is_mslk_available():
+    import mslk.conv  # noqa: F401
+
 __all__ = [
     "Float8Tensor",
     "QuantizeTensorToFloat8Kwargs",
@@ -571,18 +574,13 @@ def _quantize_and_scaled_conv3d(
     input_qdata = input_qdata.contiguous(memory_format=torch.channels_last_3d)
     weight_qdata = weight_qdata.contiguous(memory_format=torch.channels_last_3d)
 
-    # move C_in to last dim
-    # after permute: (N, D, H, W, C_in)
-    input_qdata = input_qdata.permute([0, 2, 3, 4, 1])
-
-    # move C_in to last dim
-    # after permute: (C_out, K1, K2, K3, C_in)
-    weight_qdata = weight_qdata.permute([0, 2, 3, 4, 1])
-
     input_scale = input_tensor.scale
     weight_scale = weight_tensor.scale
 
-    import mslk.conv  # noqa: F401
+    # input: (N, C_in, D, H, W)
+    # weight: (C_out, C_in, K1, K2, K3)
+    # output: (N, C_out, D_out, H_out, W_out)
+    # all in channels_last_3d memory_format
 
     output = torch.ops.mslk.f8f8bf16_conv(
         input_qdata,
@@ -592,8 +590,6 @@ def _quantize_and_scaled_conv3d(
         stride,
         dilation,
     )
-    # output shape after permute: N, C_out, D_out, H_out, W_out
-    output = output.permute([0, 4, 1, 2, 3])
 
     # aligning the semantics with bfloat16 conv ops, the
     # output should use contiguous_format if none of the input/weight
