@@ -294,6 +294,28 @@ def _(func, types, args, kwargs):
     return bias_tensor.add_(out)
 
 
+@implements(aten.is_pinned.default)
+def _(func, types, args, kwargs):
+    is_pinned = args[0].qdata.is_pinned() and args[0].scale.is_pinned()
+    return is_pinned
+
+
+@implements(aten._pin_memory.default)
+def _(func, types, args, kwargs):
+    pinned_qdata = args[0].qdata.pin_memory()
+    pinned_scale = args[0].scale.pin_memory()
+
+    return Float8Tensor(
+        pinned_qdata,
+        pinned_scale,
+        args[0].block_size,
+        args[0].mm_config,
+        act_quant_kwargs=args[0].act_quant_kwargs,
+        kernel_preference=args[0].kernel_preference,
+        dtype=args[0].dtype,
+    )
+
+
 def _float8_addmm_impl(
     input_tensor: Float8Tensor,
     weight_tensor: Float8Tensor,

@@ -1191,6 +1191,32 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         x_fp8 = Float8Tensor.from_hp(x)
         self._test_chunk_similar_to_vllm_llama4(x_fp8, dim)
 
+    @common_utils.parametrize(
+        "config",
+        [
+            Float8DynamicActivationFloat8WeightConfig(granularity=PerTensor()),
+            Float8DynamicActivationFloat8WeightConfig(granularity=PerRow()),
+            Float8WeightOnlyConfig(),
+        ],
+    )
+    def test_pin_memory(self, config):
+        linear = torch.nn.Linear(
+            256, 512, bias=False, dtype=torch.bfloat16, device="cuda"
+        )
+        quantize_(linear, config)
+        weight_cpu = linear.weight.cpu()
+        self.assertFalse(weight_cpu.is_pinned())
+
+        weight_pinned = weight_cpu.pin_memory()
+
+        self.assertTrue(weight_pinned.is_pinned())
+        self.assertFalse(weight_cpu.is_pinned())
+
+        self.assertTrue(weight_pinned.qdata.is_pinned())
+        self.assertTrue(weight_pinned.scale.is_pinned())
+
+        self.assertEqual(weight_cpu.dequantize(), weight_pinned.dequantize())
+
 
 common_utils.instantiate_parametrized_tests(TestFloat8Tensor)
 
