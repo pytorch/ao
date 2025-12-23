@@ -16,7 +16,7 @@
 #include <torchao/csrc/cpu/torch_free_kernels/fallback/bitpacking/uint7.h>
 #include <cassert>
 
-namespace torchao::kernels::cpu::fallback::bitpacking {
+namespace torchao::cpu::fallback::bitpacking {
 namespace internal {
 /**
  * @brief Packs 128 unsigned 8-bit integers into a packed format of 'nbit' bits.
@@ -176,4 +176,4 @@ inline void unpack_128_lowbit_values_with_lut(
   }
 }
 } // namespace internal
-} // namespace torchao::kernels::cpu::fallback::bitpacking
+} // namespace torchao::cpu::fallback::bitpacking

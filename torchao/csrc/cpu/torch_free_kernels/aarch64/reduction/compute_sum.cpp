@@ -9,7 +9,7 @@
 #include <torchao/csrc/cpu/torch_free_kernels/aarch64/reduction/reduction.h>
 #include <cassert>
 
-int32_t torchao::kernels::cpu::aarch64::reduction::compute_sum(
+int32_t torchao::cpu::aarch64::reduction::compute_sum(
     const int8_t* vals,
     int size) {
   assert(size >= 1);

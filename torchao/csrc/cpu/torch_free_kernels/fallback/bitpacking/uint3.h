@@ -9,7 +9,7 @@
 #include <torchao/csrc/cpu/torch_free_kernels/macro.h>
 #include <cstdint>
 
-namespace torchao::kernels::cpu::fallback::bitpacking {
+namespace torchao::cpu::fallback::bitpacking {
 namespace internal {
 
 /**
@@ -192,4 +192,4 @@ TORCHAO_ALWAYS_INLINE inline void unpack_128_uint3_values(
 }
 
 } // namespace internal
-} // namespace torchao::kernels::cpu::fallback::bitpacking
+} // namespace torchao::cpu::fallback::bitpacking

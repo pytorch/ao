@@ -117,7 +117,7 @@ void register_ukernel_config(
   int preferred_alignment = 16;
 
   namespace kernel_api =
-      torchao::kernels::cpu::aarch64::linear::groupwise_lowbit_weight_lut;
+      torchao::cpu::aarch64::linear::groupwise_lowbit_weight_lut;
 
   using kernel_fn_ptr_t =
       decltype(&kernel_api::groupwise_lowbit_weight_lut_kernel_1x4x32<

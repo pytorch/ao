@@ -11,7 +11,7 @@
 #include <torchao/csrc/cpu/torch_free_kernels/aarch64/linear/groupwise_lowbit_weight/pack_activations.h>
 #include <torchao/csrc/cpu/torch_free_kernels/aarch64/linear/groupwise_lowbit_weight/pack_weights.h>
 
-namespace torchao::kernels::cpu::aarch64::linear::groupwise_lowbit_weight_lut {
+namespace torchao::cpu::aarch64::linear::groupwise_lowbit_weight_lut {
 
 /**
  * @brief Calculates the total size in bytes required for the packed weight.
@@ -258,6 +258,6 @@ inline size_t packed_weights_offset(
   return (n_idx / nr) * packed_tile_size_for_nr_cols;
 }
 } // namespace
-  // torchao::kernels::cpu::aarch64::linear::groupwise_lowbit_weight_lut
+  // torchao::cpu::aarch64::linear::groupwise_lowbit_weight_lut
 
 #endif // defined(__aarch64__) || defined(__ARM_NEON)

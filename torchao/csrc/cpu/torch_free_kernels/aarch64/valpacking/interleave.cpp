@@ -42,7 +42,7 @@
 // but it can be something else if we are applying this method
 // to a matrix tile.
 
-void torchao::kernels::cpu::valpacking::interleave_data(
+void torchao::cpu::valpacking::interleave_data(
     void* data_interleaved,
     const void* data,
     int bytes_per_val,
