@@ -34,21 +34,22 @@ def parse_header(lines: List[str]) -> Dict[str, str]:
 def parse_accuracy_metrics(section_lines: List[str]) -> Dict[str, Optional[float]]:
     """Parse accuracy metrics from lm_eval output table."""
     metrics = {
-        "wikitext_bits_per_byte": None,
+        "wikitext_word_perplexity": None,
         "winogrande_acc": None,
         "winogrande_acc_stderr": None,
     }
 
     for line in section_lines:
-        # Parse wikitext metrics
-        # Format: |wikitext  |      2|none  |     0|bits_per_byte  |↓  |0.5452|±  |   N/A|
-        if "|wikitext" in line and "|bits_per_byte" in line:
+        # Parse wikitext word_perplexity
+        # Format: |          |       |none  |     0|word_perplexity|↓  |7.5435|±  |   N/A|
+        # Note: The task name "wikitext" is on a previous line, this is a continuation row
+        if "|word_perplexity" in line:
             parts = [p.strip() for p in line.split("|")]
-            # Find the value (should be after bits_per_byte)
+            # Find the value (should be after word_perplexity)
             try:
-                idx = parts.index("bits_per_byte")
+                idx = parts.index("word_perplexity")
                 if idx + 2 < len(parts):
-                    metrics["wikitext_bits_per_byte"] = float(parts[idx + 2])
+                    metrics["wikitext_word_perplexity"] = float(parts[idx + 2])
             except (ValueError, IndexError):
                 pass
 
@@ -249,7 +250,7 @@ def format_as_csv(data: Dict) -> str:
     fieldnames = [
         "recipe",
         "checkpoint_size_gb",
-        "wikitext_bits_per_byte",
+        "wikitext_word_perplexity",
         "winogrande_acc",
         "winogrande_acc_stderr",
         "prefill_total_tokens_per_sec",
@@ -286,7 +287,7 @@ def format_as_table(data: Dict) -> str:
     headers = [
         "Recipe",
         "Checkpoint\n(GB)",
-        "Wikitext\nbits/byte",
+        "Wikitext\nPerplexity",
         "Winogrande\nAcc",
         "Winogrande\nStderr",
         "Prefill\ntoks/s",
@@ -301,8 +302,8 @@ def format_as_table(data: Dict) -> str:
             f"{result['checkpoint_size_gb']:.2f}"
             if result["checkpoint_size_gb"] is not None
             else None,
-            f"{result['wikitext_bits_per_byte']:.4f}"
-            if result["wikitext_bits_per_byte"] is not None
+            f"{result['wikitext_word_perplexity']:.4f}"
+            if result["wikitext_word_perplexity"] is not None
             else None,
             f"{result['winogrande_acc']:.4f}"
             if result["winogrande_acc"] is not None
