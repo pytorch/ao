@@ -31,6 +31,11 @@
 
 set -e
 
+# print relevant library version
+python -c "import torch; print(f'{torch.__version__=}')"
+python -c "import torchao; print(f'{torchao.__version__=}')"
+python -c "import vllm; print(f'{vllm.__version__=}')"
+
 # Define all available quantization recipes
 QUANT_RECIPES_ALL=(
   # no quantization (baseline)
@@ -44,6 +49,7 @@ QUANT_RECIPES_ALL=(
 )
 
 # Define H100-compatible recipes (excludes A100-only recipes)
+# Note: the int8 ones work but performance is not ideal
 # TODO(future PR): add `int4_groupwise_weight_float8_rowwise_activation` here,
 #   need to fix https://gist.github.com/vkuzo/6b128681b628744d445c553cdeac8a85
 QUANT_RECIPES_H100=(
@@ -55,13 +61,6 @@ QUANT_RECIPES_H100=(
 
 # Define recipes that are known to be broken in vllm
 VLLM_BROKEN_RECIPES=(
-  # TODO(future PR): fix this
-  # current stack trace: https://gist.github.com/vkuzo/eed4894c5f3434e15d70b163e6077f60
-  "float8_rowwise"
-  # as of this PR, this recipe is still using AQT and CUDA graph capture time
-  # in vLLM is really slow (>5 mins)
-  # TODO(future PR): reenable this once we migrate this recipe off of AQT
-  "int8_rowwise_weight_only"
   # TODO(future PR): fix this
   # error: https://gist.github.com/vkuzo/5bf389079442bb9851ef315cdcb797b4
   "int8_rowwise"
@@ -114,7 +113,9 @@ touch $LOG_FILE
 
 for quant_recipe in "${QUANT_RECIPES[@]}"; do
 
-  echo "processing $quant_recipe"
+  echo
+  echo "processing quant_recipe $quant_recipe"
+  echo
 
   OUTPUT_DIR="benchmarks/data/quantized_model/$MODEL_ID-$quant_recipe/"
 
@@ -148,7 +149,19 @@ for quant_recipe in "${QUANT_RECIPES[@]}"; do
     if [ "$RECIPE_BROKEN_IN_VLLM" = true ]; then
       echo "Skipping vllm benchmarking for $quant_recipe (known to be broken in vllm)"
     else
-      vllm bench latency --input_len 256 --output_len 256 --model $OUTPUT_DIR --batch_size 1 2>&1 | tee -a "$LOG_FILE"
+      # prefill
+      PREFILL_ARGS="--num_prompts 32 --input_len 4096 --output_len 32 --max_model_len 4128"
+      echo
+      echo "benchmarking vllm prefill performance with $PREFILL_ARGS"
+      echo
+      vllm bench throughput --model $OUTPUT_DIR --dtype bfloat16 $PREFILL_ARGS 2>&1 | tee -a "$LOG_FILE"
+
+      # decode
+      DECODE_ARGS="--num_prompts 128 --input_len 32 --output_len 2048 --max_model_len 2080"
+      echo
+      echo "benchmarking vllm decode performance with $DECODE_ARGS"
+      echo
+      vllm bench throughput --model $OUTPUT_DIR --dtype bfloat16 $DECODE_ARGS 2>&1 | tee -a "$LOG_FILE"
     fi
   else
     echo "Skipping vllm benchmarking (SKIP_VLLM=1)"

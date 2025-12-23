@@ -66,22 +66,10 @@ from .quant_api import (
     PlainLayout,
     TensorCoreTiledLayout,
     UIntXWeightOnlyConfig,
-    float8_dynamic_activation_float8_weight,
-    float8_static_activation_float8_weight,
-    float8_weight_only,
-    fpx_weight_only,
     fqn_matches_fqn_config,
-    gemlite_uintx_weight_only,
-    int4_dynamic_activation_int4_weight,
-    int4_weight_only,
-    int8_dynamic_activation_int4_weight,
-    int8_dynamic_activation_int8_semi_sparse_weight,
-    int8_dynamic_activation_int8_weight,
-    int8_weight_only,
     intx_quantization_aware_training,
     quantize_,
     swap_conv2d_1x1_to_linear,
-    uintx_weight_only,
 )
 from .quant_primitives import (
     MappingType,
@@ -102,14 +90,6 @@ from .quantize_.workflows import (
     Int8Tensor,
     IntxOpaqueTensor,
     IntxUnpackedToInt8Tensor,
-)
-from .smoothquant import (
-    SmoothFakeDynamicallyQuantizedLinear,
-    SmoothFakeDynQuantMixin,
-    get_scale,
-    set_smooth_fq_attribute,
-    smooth_fq_linear_to_inference,
-    swap_linear_with_smooth_fq_linear,
 )
 from .transform_module import register_quantize_module_handler
 from .unified import Quantizer, TwoStepQuantizer
@@ -132,20 +112,8 @@ __all__ = [
     "ALL_AUTOQUANT_CLASS_LIST",
     # top level API - manual
     "quantize_",
-    "int4_dynamic_activation_int4_weight",
-    "int8_dynamic_activation_int4_weight",
-    "int8_dynamic_activation_int8_weight",
-    "int8_dynamic_activation_int8_semi_sparse_weight",
-    "int4_weight_only",
-    "int8_weight_only",
     "intx_quantization_aware_training",
-    "float8_weight_only",
-    "float8_dynamic_activation_float8_weight",
-    "float8_static_activation_float8_weight",
-    "uintx_weight_only",
-    "fpx_weight_only",
     "fqn_matches_fqn_config",
-    "gemlite_uintx_weight_only",
     "swap_conv2d_1x1_to_linear",
     "Int4DynamicActivationInt4WeightConfig",
     "Int8DynamicActivationInt4WeightConfig",
@@ -176,13 +144,6 @@ __all__ = [
     "IntxUnpackedToInt8Tensor",
     "Int4TilePackedTo4dTensor",
     "Float8Tensor",
-    # smooth quant - subject to change
-    "get_scale",
-    "SmoothFakeDynQuantMixin",
-    "SmoothFakeDynamicallyQuantizedLinear",
-    "swap_linear_with_smooth_fq_linear",
-    "smooth_fq_linear_to_inference",
-    "set_smooth_fq_attribute",
     "compute_error",
     # building blocks
     "to_linear_activation_quantized",

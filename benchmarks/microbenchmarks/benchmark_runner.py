@@ -60,6 +60,53 @@ def get_shapes_for_config(
                 "ffn.w2": (M, 3584, 8192),
             }
             shapes.extend([(f"{name}_{k}", v) for k, v in llama_shapes.items()])
+        elif name == "llama4":
+            # LLaMa 4 shapes
+            llama4_shapes = [
+                ("FFN", (16384, 8192, 5120)),
+                ("QO_proj", (16384, 8192, 8192)),
+                ("KV_proj", (16384, 8192, 1024)),
+                ("FFN", (128000, 8192, 5120)),
+                ("QO_proj", (128000, 8192, 8192)),
+                ("KV_proj", (128000, 8192, 1024)),
+            ]
+            shapes.extend([(f"{name}_{k}", v) for k, v in llama4_shapes])
+        elif name == "deepseek_v3_236b":
+            # DeepSeek V3 236B shapes
+            deepseek_v3_236b_shapes = [
+                ("FFN", (16384, 1536, 5120)),
+                ("QKVO_proj", (16384, 7168, 7168)),
+                ("FFN", (128000, 1536, 5120)),
+                ("QKVO_proj", (128000, 7168, 7168)),
+            ]
+            shapes.extend([(f"{name}_{k}", v) for k, v in deepseek_v3_236b_shapes])
+        elif name == "deepseek_v3_671b":
+            # DeepSeek V3 671B shapes
+            deepseek_v3_671b_shapes = [
+                ("FFN", (16384, 2048, 7168)),
+                ("QKVO_proj", (16384, 7168, 7168)),
+                ("FFN", (128000, 2048, 7168)),
+                ("QKVO_proj", (128000, 7168, 7168)),
+            ]
+            shapes.extend([(f"{name}_{k}", v) for k, v in deepseek_v3_671b_shapes])
+        elif name == "qwen3_32b":
+            # Qwen3 32B shapes
+            qwen3_32b_shapes = [
+                ("QO_proj", (16384, 5120, 5120)),
+                ("KV_proj", (16384, 5120, 640)),
+                ("QO_proj", (128000, 5120, 5120)),
+                ("KV_proj", (128000, 5120, 640)),
+            ]
+            shapes.extend([(f"{name}_{k}", v) for k, v in qwen3_32b_shapes])
+        elif name == "gemma3_27b":
+            # Gemma3 27B shapes
+            gemma3_27b_shapes = [
+                ("QO_proj", (16384, 4096, 4096)),
+                ("KV_proj", (16384, 4096, 1024)),
+                ("QO_proj", (128000, 4096, 4096)),
+                ("KV_proj", (128000, 4096, 1024)),
+            ]
+            shapes.extend([(f"{name}_{k}", v) for k, v in gemma3_27b_shapes])
         elif name == "pow2":
             # Generate shapes with dimensions that are powers of 2
             min_power_of_2 = shape_config.get("min_power", 10)  # 1024
@@ -105,7 +152,7 @@ def get_shapes_for_config(
                         counter += 1
         else:
             raise NotImplementedError(
-                f"Shape config {name} not supported. Supported options: custom, llama, pow2, pow2_extended, sweep."
+                f"Shape config {name} not supported. Supported options: custom, llama, llama4, deepseek_v3_236b, deepseek_v3_671b, qwen3_32b, gemma3_27b, pow2, pow2_extended, sweep."
             )
     return shapes
 

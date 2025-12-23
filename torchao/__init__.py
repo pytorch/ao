@@ -136,3 +136,5 @@ __all__ = [
     "ops",
     "quantization",
 ]
+# TODO(before land): remove this
+torch.serialization.add_safe_globals([getattr])

@@ -6,35 +6,19 @@
 
 import copy
 import itertools
-import os
 import unittest
 
 import torch
 from parameterized import parameterized
 
-import torchao  # noqa: F401
-from torchao.experimental.quant_api import UIntxWeightOnlyLinearQuantizer, _quantize
-
-try:
-    for nbit in range(1, 8):
-        getattr(torch.ops.torchao, f"_linear_fp_act_{nbit}bit_weight")
-        getattr(torch.ops.torchao, f"_pack_weight_{nbit}bit")
-except AttributeError:
-    try:
-        libname = "libtorchao_ops_mps_aten.dylib"
-        libpath = os.path.abspath(
-            os.path.join(os.path.dirname(__file__), "../cmake-out/lib/", libname)
-        )
-        torch.ops.load_library(libpath)
-    except:
-        raise RuntimeError(f"Failed to load library {libpath}")
-    else:
-        try:
-            for nbit in range(1, 8):
-                getattr(torch.ops.torchao, f"_linear_fp_act_{nbit}bit_weight")
-                getattr(torch.ops.torchao, f"_pack_weight_{nbit}bit")
-        except AttributeError as e:
-            raise e
+# Need to import to load the ops
+import torchao.experimental.ops.mps  # noqa: F401
+from torchao.experimental.quant_api import (
+    UIntxWeightOnlyConfig,
+    _linear_int_weight_mps_check,
+    _quantize,
+)
+from torchao.quantization.quant_api import quantize_
 
 
 class TestUIntxWeightOnlyLinearQuantizer(unittest.TestCase):
@@ -60,14 +44,13 @@ class TestUIntxWeightOnlyLinearQuantizer(unittest.TestCase):
         return model, group_size, k0, n
 
     def _quantize_model(self, model, precision, nbit, group_size):
-        quantizer = UIntxWeightOnlyLinearQuantizer(
-            device="mps",
-            precision=precision,
+        config = UIntxWeightOnlyConfig(
             bitwidth=nbit,
-            groupsize=group_size,
+            group_size=group_size,
         )
         quantized_model = copy.deepcopy(model)
-        quantized_model = quantizer.quantize(quantized_model)
+        quantized_model = quantized_model.to(device="mps", dtype=precision)
+        quantize_(quantized_model, config, filter_fn=_linear_int_weight_mps_check)
         return quantized_model
 
     @parameterized.expand(BITWIDTHS)
