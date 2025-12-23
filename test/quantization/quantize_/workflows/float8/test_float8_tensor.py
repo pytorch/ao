@@ -91,6 +91,46 @@ class ToyConvModel(torch.nn.Module):
         return self.conv(x)
 
 
+class ToyTwoConvModel(torch.nn.Module):
+    def __init__(
+        self,
+        dim,
+        in_channels,
+        out_channels1,
+        out_channels2,
+        kernel_size,
+        bias,
+        padding,
+        dtype,
+        device,
+    ):
+        super().__init__()
+        convs = {1: torch.nn.Conv1d, 2: torch.nn.Conv2d, 3: torch.nn.Conv3d}
+        self.conv1 = convs[dim](
+            in_channels,
+            out_channels1,
+            kernel_size,
+            bias=bias,
+            padding=padding,
+            dtype=dtype,
+            device=device,
+        )
+        self.conv2 = convs[dim](
+            out_channels1,
+            out_channels2,
+            kernel_size,
+            bias=bias,
+            padding=padding,
+            dtype=dtype,
+            device=device,
+        )
+
+    def forward(self, x):
+        x = self.conv1(x)
+        x = self.conv2(x)
+        return x
+
+
 class ToyLoRAModel(torch.nn.Module):
     def __init__(
         self,
@@ -342,11 +382,11 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
     @common_utils.parametrize(
         "sizes",
         [
-            (1, 160, 320, (3, 194, 130), 3),
             # Note: kernel_size can't be 1, otherwise
             # the weight will be channels_last even though
             # it's contiguous because of the value of
             # stride
+            (1, 160, 320, (3, 194, 130), 3),
             (1, 320, 640, (96, 64), 3),
         ],
     )
@@ -415,7 +455,133 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         inference_mode_ctx = torch.inference_mode() if inference_mode else nullcontext()
         with inference_mode_ctx:
             output_original = model(input_tensor)
-            output_quantized = quantized_model(input_tensor)
+            if compile:
+                output_quantized, code = run_and_get_code(quantized_model, input_tensor)
+                FileCheck().check_not("aten.permute").run(code[0])
+                if is_input_channels_last or is_weight_channels_last:
+                    FileCheck().check_count(
+                        "torch.ops.mslk.f8f8bf16_conv.default(", 1
+                    ).check_not(".run(").run(code[0])
+                else:
+                    # checking the for contigous case, we ran the contiguous / clone op (fused with other ops)
+                    # explicitly
+                    FileCheck().check_count(
+                        "torch.ops.mslk.f8f8bf16_conv.default(", 1
+                    ).check(".run(").run(code[0])
+            else:
+                output_quantized = quantized_model(input_tensor)
+
+        # making sure quantized kernel produces tensor with memory_format
+        # that's aligned with bf16 kernel
+        is_bf16_output_channels_last = output_original.is_contiguous(
+            memory_format=channels_last_memory_format
+        )
+        is_quantized_output_channels_last = output_quantized.is_contiguous(
+            memory_format=channels_last_memory_format
+        )
+
+        assert is_bf16_output_channels_last == is_quantized_output_channels_last, (
+            "unexpected output strides for quantized model: "
+            f"{output_original.stride()} {output_quantized.stride()}"
+        )
+
+        error = compute_error(output_original, output_quantized)
+        assert compute_error(output_original, output_quantized) > 20, (
+            f"Quantization error is too high got a SQNR of {error}"
+        )
+
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(
+        not is_sm_at_least_100(), "Requires GPU with compute capability >= 10.0"
+    )
+    @unittest.skipIf(
+        not _is_mslk_available(),
+        "Requires mslk to be installed",
+    )
+    @common_utils.parametrize("compile", [True, False])
+    @common_utils.parametrize("inference_mode", [True, False])
+    # test for 2D/3D conv
+    # Inputs are (N, C_in, C_out, (D, H, W), kernel_size or
+    # (N, C_in, C_out, (H, W), kernel_size
+    @common_utils.parametrize(
+        "sizes",
+        [
+            # Note: kernel_size can't be 1, otherwise
+            # the weight will be channels_last even though
+            # it's contiguous because of the value of
+            # stride
+            (1, 160, 320, 640, (20, 194, 130), 3),
+            (1, 320, 640, 320, (96, 64), 3),
+        ],
+    )
+    def test_fp8_conv_no_input_copy(
+        self,
+        compile: bool,
+        inference_mode: bool,
+        sizes: Tuple,
+    ):
+        """Test that no additional copy is introduced when we chain multiple
+        convs together with channels_last memory_format
+        """
+        torch.compiler.reset()
+        dtype = torch.bfloat16
+        granularity = PerTensor()
+        kernel_preference = KernelPreference.AUTO
+
+        N, C_in, C_out1, C_out2, spatial_dims, kernel_size = sizes
+        dim = len(spatial_dims)
+        convs = {1: torch.nn.Conv1d, 2: torch.nn.Conv2d, 3: torch.nn.Conv3d}
+        assert dim in convs, f"Unsupported dim: {dim}"
+        conv_class = convs[dim]
+
+        input_tensor = torch.randn(N, C_in, *spatial_dims, dtype=dtype, device="cuda")
+
+        model = ToyTwoConvModel(
+            dim,
+            C_in,
+            C_out1,
+            C_out2,
+            kernel_size,
+            bias=False,
+            padding=0,
+            dtype=dtype,
+            device="cuda",
+        ).eval()
+
+        channels_last_memory_format = (
+            torch.channels_last_3d if dim == 3 else torch.channels_last
+        )
+        input_tensor = input_tensor.to(memory_format=channels_last_memory_format)
+        model = model.to(memory_format=channels_last_memory_format)
+
+        quantized_model = copy.deepcopy(model)
+
+        config = Float8DynamicActivationFloat8WeightConfig(
+            granularity=granularity,
+            kernel_preference=kernel_preference,
+        )
+
+        _is_conv = lambda m, fqn: isinstance(m, conv_class)
+
+        quantize_(quantized_model, config, filter_fn=_is_conv)
+
+        if compile:
+            quantized_model = torch.compile(quantized_model, fullgraph=True)
+
+        inference_mode_ctx = torch.inference_mode() if inference_mode else nullcontext()
+        with inference_mode_ctx:
+            output_original = model(input_tensor)
+            if compile:
+                output_quantized, code = run_and_get_code(quantized_model, input_tensor)
+                FileCheck().check_not("aten.permute").run(code[0])
+                # check no permute op between the two runs
+                FileCheck().check_count(
+                    "torch.ops.mslk.f8f8bf16_conv.default(", 1
+                ).check_not("permute").check_not("clone").check_count(
+                    "torch.ops.mslk.f8f8bf16_conv.default(", 1
+                ).run(code[0])
+            else:
+                output_quantized = quantized_model(input_tensor)
 
         # making sure quantized kernel produces tensor with memory_format
         # that's aligned with bf16 kernel
