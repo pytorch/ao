@@ -132,7 +132,7 @@ if(TORCHAO_BUILD_CPU_AARCH64)
             set(KLEIDIAI_BUILD_BENCHMARKS OFF CACHE BOOL "" FORCE)
             FetchContent_Declare(kleidiai
                 GIT_REPOSITORY https://git.gitlab.arm.com/kleidi/kleidiai.git
-                GIT_TAG v1.12.0
+                GIT_TAG 63205aa90afa6803d8f58bc3081b69288e9f1906
             )
             FetchContent_MakeAvailable(kleidiai)
         endif()

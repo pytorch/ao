@@ -10,6 +10,7 @@ on:
 
 jobs:
   benchmark:
+    timeout-minutes: 500
     runs-on: linux.aws.a100
     strategy:
       matrix:
