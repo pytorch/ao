@@ -32,9 +32,7 @@
 set -e
 
 # print relevant library version
-python -c "import torch; print(f'{torch.__version__=}')"
-python -c "import torchao; print(f'{torchao.__version__=}')"
-python -c "import vllm; print(f'{vllm.__version__=}')"
+python -c "import torch; import torchao; import vllm; print(f'{torch.__version__=}\n{torch.cuda.get_device_name()=}\n{torchao.__version__=}\n{vllm.__version__=}')"
 
 # Define all available quantization recipes
 QUANT_RECIPES_ALL=(
@@ -113,9 +111,9 @@ touch $LOG_FILE
 
 for quant_recipe in "${QUANT_RECIPES[@]}"; do
 
-  echo
-  echo "processing quant_recipe $quant_recipe"
-  echo
+  echo | tee -a "$LOG_FILE"
+  echo "processing quant_recipe $quant_recipe" | tee -a "$LOG_FILE"
+  echo | tee -a "$LOG_FILE"
 
   OUTPUT_DIR="benchmarks/data/quantized_model/$MODEL_ID-$quant_recipe/"
 
@@ -125,14 +123,14 @@ for quant_recipe in "${QUANT_RECIPES[@]}"; do
     # and make the output log file be in chronological order
     rm -rf $OUTPUT_DIR && python -u benchmarks/quantization/create_quantized_model.py --model_id $MODEL_ID --output_dir $OUTPUT_DIR --quant_recipe_name $quant_recipe 2>&1 | tee -a "$LOG_FILE"
   else
-    echo "Skipping model creation (SKIP_MODEL_CREATE=1), using existing model at $OUTPUT_DIR"
+    echo "Skipping model creation (SKIP_MODEL_CREATE=1), using existing model at $OUTPUT_DIR" | tee -a "$LOG_FILE"
   fi
 
   # run eval (unless skipped via environment variable)
   if [ "${SKIP_LM_EVAL:-0}" != "1" ]; then
     lm_eval --model hf --model_args "pretrained=$OUTPUT_DIR" --tasks "wikitext,winogrande" --device "cuda:0" --batch_size auto --output_path "$OUTPUT_DIR/lm_eval_outputs/" 2>&1 | tee -a "$LOG_FILE"
   else
-    echo "Skipping lm_eval (SKIP_LM_EVAL=1)"
+    echo "Skipping lm_eval (SKIP_LM_EVAL=1)" | tee -a "$LOG_FILE"
   fi
 
   # simple performance test (unless skipped via environment variable)
@@ -147,24 +145,24 @@ for quant_recipe in "${QUANT_RECIPES[@]}"; do
     done
 
     if [ "$RECIPE_BROKEN_IN_VLLM" = true ]; then
-      echo "Skipping vllm benchmarking for $quant_recipe (known to be broken in vllm)"
+      echo "Skipping vllm benchmarking for $quant_recipe (known to be broken in vllm)" | tee -a "$LOG_FILE"
     else
       # prefill
       PREFILL_ARGS="--num_prompts 32 --input_len 4096 --output_len 32 --max_model_len 4128"
-      echo
-      echo "benchmarking vllm prefill performance with $PREFILL_ARGS"
-      echo
+      echo | tee -a "$LOG_FILE"
+      echo "benchmarking vllm prefill performance with $PREFILL_ARGS" | tee -a "$LOG_FILE"
+      echo | tee -a "$LOG_FILE"
       vllm bench throughput --model $OUTPUT_DIR --dtype bfloat16 $PREFILL_ARGS 2>&1 | tee -a "$LOG_FILE"
 
       # decode
       DECODE_ARGS="--num_prompts 128 --input_len 32 --output_len 2048 --max_model_len 2080"
-      echo
+      echo | tee -a "$LOG_FILE"
       echo "benchmarking vllm decode performance with $DECODE_ARGS"
-      echo
+      echo | tee -a "$LOG_FILE"
       vllm bench throughput --model $OUTPUT_DIR --dtype bfloat16 $DECODE_ARGS 2>&1 | tee -a "$LOG_FILE"
     fi
   else
-    echo "Skipping vllm benchmarking (SKIP_VLLM=1)"
+    echo "Skipping vllm benchmarking (SKIP_VLLM=1)" | tee -a "$LOG_FILE"
   fi
 
 done
