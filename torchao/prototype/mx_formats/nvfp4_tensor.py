@@ -470,13 +470,36 @@ def _addmm_nvfp4_dispatch(
         assert b.per_tensor_scale is None and a.per_tensor_scale is None
         scale_result = None
 
-    # THIS IS A WORKAROUND:
-    # RuntimeError: CUDA error: CUBLAS_STATUS_INVALID_VALUE when calling
+    # THIS IS A WORKAROUND FOR TWO ERRORS:
+    #
+    # (1) RuntimeError: CUDA error: CUBLAS_STATUS_INVALID_VALUE when calling
     # When we have per-tensor scaling, we need to apply it before bias
     # since bias is not quantized
-    should_add_bias_separately = (scale_result is not None) and (bias is not None)
+    #
+    # (2) RuntimeError: Bias is not supported when out_dtype is set to Float32
+    # This is not supported by _scaled_mm
+    should_add_bias_separately = (
+        scale_result is not None or a._orig_dtype == torch.float32
+    ) and (bias is not None)
     # should_add_bias_separately = bias is not None
 
+    # For gemm(A, B) with original high precision inputs A and B:
+    #
+    # 1. A and B are always cast to fp32 before being quantized and packed
+    #    into uint8 (2 fp4 values per byte)
+    # 2. _scaled_mm (cublas) always accumulates in fp32 since use_fast_accum=False
+    # 3. Outputs are cast to A.dtype before returning
+    # 4. Bias is added outside _scaled_mm if per_tensor_scale exists
+    #    or output dtype is fp32
+    #
+    # -----------------------------------------------------------------------------
+    # | A.dtype | B.dtype | Accum dtype | Out dtype | Bias added in _scaled_mm?   |
+    # -----------------------------------------------------------------------------
+    # | fp32    | fp32    | fp32        | fp32      | No                          |
+    # | fp32    | bf16    | fp32        | fp32      | No                          |
+    # | bf16    | fp32    | fp32        | bf16      | Only if no per_tensor_scale |
+    # | bf16    | bf16    | fp32        | bf16      | Only if no per_tensor_scale |
+    # -----------------------------------------------------------------------------
     result = torch._scaled_mm(
         a.qdata.view(torch.float4_e2m1fn_x2),
         b.qdata.view(torch.float4_e2m1fn_x2),
