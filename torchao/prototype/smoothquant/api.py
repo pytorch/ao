@@ -95,6 +95,15 @@ def _smooth_quant_transform(
     else:
         raise ValueError(f"Unexpected step: {step}")
 
+    if hasattr(base_config, 'static_scale'):
+        # Static quantization
+         quant_kwargs = QuantizeTensorToInt8Kwargs(
+             granularity=base_config.granularity[0],
+             mapping_type=base_config.act_mapping_type,
+         )
+    else:
+        quant_kwargs = None
+
     # Compute smoothed weight parameters
     smoothing_factor = observed_linear.obs.calculate_qparams()
     weight = observed_linear.weight * smoothing_factor
