@@ -17,7 +17,6 @@ from torchao.quantization import (
     Float8DynamicActivationFloat8SemiSparseWeightConfig,
     Float8DynamicActivationFloat8WeightConfig,
     Float8WeightOnlyConfig,
-    FPXWeightOnlyConfig,
     GemliteUIntXWeightOnlyConfig,
     Int4WeightOnlyConfig,
     Int8DynamicActivationInt4WeightConfig,
@@ -230,9 +229,7 @@ def string_to_config(
             from torchao.dtypes import MarlinSparseLayout
 
             return Int4WeightOnlyConfig(layout=MarlinSparseLayout(), version=1)
-    if "fp6" in quantization:
-        return FPXWeightOnlyConfig(3, 2)
-    elif "uintx" in quantization:
+    if "uintx" in quantization:
         # uintx-nbits-group_size, e.g. "uintx-2-64"
         if "hqq" in quantization:
             # uintx-nbits-group_size-hqq

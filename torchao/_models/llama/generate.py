@@ -342,7 +342,6 @@ def main(
             Float8DynamicActivationFloat8SemiSparseWeightConfig,
             Float8DynamicActivationFloat8WeightConfig,
             Float8WeightOnlyConfig,
-            FPXWeightOnlyConfig,
             GemliteUIntXWeightOnlyConfig,
             Int4DynamicActivationInt4WeightConfig,
             Int4WeightOnlyConfig,
@@ -479,9 +478,7 @@ def main(
                     Int4WeightOnlyConfig(layout=MarlinSparseLayout(), version=1),
                     filter_fn=ffn_or_attn_only,
                 )
-        if "fp6" in quantization:
-            quantize_(model, FPXWeightOnlyConfig(3, 2))
-        elif "embed-int8wo" in quantization:
+        if "embed-int8wo" in quantization:
             quantize_(
                 model,
                 Int8WeightOnlyConfig(group_size=64),
