@@ -23,7 +23,6 @@ from torchao.prototype.mx_formats.inference_workflow import (
 from torchao.quantization import (
     Float8DynamicActivationFloat8WeightConfig,
     Float8WeightOnlyConfig,
-    FPXWeightOnlyConfig,
     Int4WeightOnlyConfig,
     Int8DynamicActivationInt8WeightConfig,
     Int8WeightOnlyConfig,
@@ -82,8 +81,6 @@ def run_evaluation(
             quantize_(model, Int8WeightOnlyConfig())
         if "int8dq" in quantization:
             quantize_(model, Int8DynamicActivationInt8WeightConfig())
-        if "fp6" in quantization:
-            quantize_(model, FPXWeightOnlyConfig(3, 2))
         if "int4wo" in quantization and not "gptq" in quantization:
             if "hqq" in quantization:
                 use_hqq = True
