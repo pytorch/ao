@@ -55,7 +55,6 @@ from torchao.quantization.utils import (
 
 
 class TestOps(TestCase):
-
     def _scaled_dot_product_int8_op_ref(
         self,
         q,
