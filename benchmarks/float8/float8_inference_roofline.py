@@ -777,6 +777,12 @@ def run(
                     fp8_trace_filename = f"{outfile}_{M_val}_{K_val}_{N_val}_fp8.json"
                 b_fp8_e2e_time_s = get_gpu_kernel_time(m_fp8_dyn, x, fp8_trace_filename)
 
+        # Calculate e2e speedup if benchmarks were run, otherwise -1
+        if b_bf16_e2e_time_s > 0 and b_fp8_e2e_time_s > 0:
+            b_fp8_e2e_speedup = b_bf16_e2e_time_s / b_fp8_e2e_time_s
+        else:
+            b_fp8_e2e_speedup = -1
+
         results.append(
             [
                 M_val,
@@ -800,7 +806,7 @@ def run(
                 # benchmarks - e2e, and speedup
                 b_bf16_e2e_time_s,
                 b_fp8_e2e_time_s,
-                b_bf16_e2e_time_s / (b_fp8_e2e_time_s + 1e-20),
+                b_fp8_e2e_speedup,
                 # gemm ratios
                 rb_bf16_gemm_ratio,
                 rb_fp8_gemm_ratio,
