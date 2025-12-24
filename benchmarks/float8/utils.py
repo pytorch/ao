@@ -425,7 +425,9 @@ def get_gpu_kernel_conv_time_s(f, *args, **kwargs):
     # Filter out aten::fill_ and other non-conv operations
     filtered_data = {k: v for k, v in data.items() if k in expected_conv_kernels}
 
-    assert len(filtered_data) >= 1, f"No expected conv kernels found. This likely means the kernel list is incomplete. Found kernels: {data}"
+    assert len(filtered_data) >= 1, (
+        f"No expected conv kernels found. This likely means the kernel list is incomplete. Found kernels: {data}"
+    )
 
     # If there are multiple conv kernels, take the one with the highest time (the actual conv)
     key, value = max(filtered_data.items(), key=lambda x: x[1])

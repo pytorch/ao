@@ -57,6 +57,10 @@ from torchao.testing.training.roofline_utils import (
 )
 from torchao.utils import _is_mslk_available, is_MI300, is_sm_at_least_100
 
+# Import mslk.conv to register the fp8 conv operator
+if _is_mslk_available():
+    import mslk.conv  # noqa: F401
+
 
 @torch.no_grad()
 def get_gpu_kernel_time(m, x, trace_filename=None):
@@ -253,6 +257,16 @@ def get_conv_times(
     elif op_name != "conv3d":
         raise ValueError(f"Unsupported op_name: {op_name}")
 
+    # Check kernel_size constraint
+    # Note: kernel_size=1 causes ambiguous memory layout where tensors are both
+    # contiguous and channels_last_3d, which the mslk operator cannot handle correctly
+    if kernel_size == 1:
+        raise ValueError(
+            "kernel_size=1 is not supported for fp8 conv3d benchmarking. "
+            "The mslk operator requires kernel_size > 1 to correctly determine memory layout. "
+            "To skip fp8 conv benchmarking for this configuration, set --do_benchmarks=False to run roofline model only."
+        )
+
     # Measure fp8 conv3d time
     # Create fp8 tensors for conv3d
     e4m3_dtype = torch.float8_e4m3fn
@@ -270,17 +284,14 @@ def get_conv_times(
     x_fp8 = (x_bf16_cl / x_scale).to(e4m3_dtype)
     w_fp8 = (w_bf16_cl / w_scale).to(e4m3_dtype)
 
-    # Permute to match mslk expected layout:
-    # Input: (N, C_in, D, H, W) -> (N, D, H, W, C_in)
-    x_fp8 = x_fp8.permute([0, 2, 3, 4, 1])
-    # Weight: (C_out, C_in, K1, K2, K3) -> (C_out, K1, K2, K3, C_in)
-    w_fp8 = w_fp8.permute([0, 2, 3, 4, 1])
+    # mslk operator now supports channels_first shape with channels_last_3d memory format
+    # No permute needed - tensors are already in correct format
+    # Input: (N, C_in, D, H, W) in channels_last_3d memory format
+    # Weight: (C_out, C_in, K1, K2, K3) in channels_last_3d memory format
 
     # mslk expects a combined scale tensor
     combined_scale = float(x_scale * w_scale)
-    scale_tensor = torch.tensor(
-        [combined_scale], device=device, dtype=torch.float32
-    )
+    scale_tensor = torch.tensor([combined_scale], device=device, dtype=torch.float32)
 
     # Use mslk fp8 conv operator
     # Signature: f8f8bf16_conv(activation, filter, scale, padding, stride, dilation)
@@ -289,12 +300,8 @@ def get_conv_times(
             x,
             w,
             scale_tensor,
-            padding
-            if isinstance(padding, (list, tuple))
-            else [padding] * 3,
-            stride
-            if isinstance(stride, (list, tuple))
-            else [stride] * 3,
+            padding if isinstance(padding, (list, tuple)) else [padding] * 3,
+            stride if isinstance(stride, (list, tuple)) else [stride] * 3,
             [1, 1, 1],  # dilation
         ),
         x_fp8,
@@ -665,36 +672,26 @@ def run(
             rb_bf16_gemm_ratio = -1
             rb_fp8_gemm_ratio = -1
             if do_benchmarks:
-                try:
-                    bf16_c1, f8_c1 = get_conv_times(
-                        op_name=op_name,
-                        batch=M_val,
-                        in_channels=K_val,
-                        out_channels=N_val,
-                        kernel_size=kernel_size,
-                        D=D,
-                        H=H,
-                        W=W,
-                        stride=stride,
-                        padding=padding,
-                        fast_accum=True,
-                        recipe_name=recipe_name,
-                    )
-                    b_bf16_gemm_time_s = bf16_c1
-                    b_fp8_gemm_time_s = f8_c1
-                    if b_bf16_gemm_time_s > 0:
-                        rb_bf16_gemm_ratio = r_bf16_gemm_time_s / b_bf16_gemm_time_s
-                    if b_fp8_gemm_time_s > 0:
-                        rb_fp8_gemm_ratio = r_fp8_gemm_time_s / b_fp8_gemm_time_s
-                except (NotImplementedError, RuntimeError, ValueError):
-                    # Re-raise expected errors (conv2d not implemented, mslk not available, unsupported recipe)
-                    raise
-                except Exception as e:
-                    # Catch only unexpected errors (CUDA errors, OOM, etc.)
-                    print(f"Warning: Could not benchmark conv times: {e}")
-                    b_bf16_gemm_time_s, b_fp8_gemm_time_s = 0, 0
-                    rb_bf16_gemm_ratio = -1
-                    rb_fp8_gemm_ratio = -1
+                bf16_c1, f8_c1 = get_conv_times(
+                    op_name=op_name,
+                    batch=M_val,
+                    in_channels=K_val,
+                    out_channels=N_val,
+                    kernel_size=kernel_size,
+                    D=D,
+                    H=H,
+                    W=W,
+                    stride=stride,
+                    padding=padding,
+                    fast_accum=True,
+                    recipe_name=recipe_name,
+                )
+                b_bf16_gemm_time_s = bf16_c1
+                b_fp8_gemm_time_s = f8_c1
+                if b_bf16_gemm_time_s > 0:
+                    rb_bf16_gemm_ratio = r_bf16_gemm_time_s / b_bf16_gemm_time_s
+                if b_fp8_gemm_time_s > 0:
+                    rb_fp8_gemm_ratio = r_fp8_gemm_time_s / b_fp8_gemm_time_s
 
         b_bf16_e2e_time_s, b_fp8_e2e_time_s = 0, 0
 
