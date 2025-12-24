@@ -29,14 +29,16 @@ def _register_dequantize_fp8_lowering():
             input = to_dtype(input, torch.float32)
         input_loader = input.make_loader()
         scale_loader = scale.make_loader()
+        q_min = torch.finfo(float8_dtype).min
+        q_max = torch.finfo(float8_dtype).max
 
         def inner_fn(idx, scale):
             input = input_loader(idx)
             one = ops.constant(1.0, torch.float)
             inv_scale = ops.truediv(one, scale_loader(0))
             val = ops.round(input * inv_scale)
-            qmin = ops.constant(-448.0, torch.float32)
-            qmax = ops.constant(448.0, torch.float32)
+            qmin = ops.constant(q_min, torch.float32)
+            qmax = ops.constant(q_max, torch.float32)
             clamped = ops.minimum(ops.maximum(val, qmin), qmax)
             return ops.to_dtype(clamped, float8_dtype)
 
