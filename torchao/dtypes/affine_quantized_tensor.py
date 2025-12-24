@@ -19,16 +19,13 @@ from torchao.quantization.quant_primitives import (
     MappingType,
     ZeroPointDomain,
     _choose_qparams_affine_dont_preserve_zero,
-    _choose_qparams_affine_floatx,
     _choose_qparams_affine_tinygemm,
     _choose_qparams_and_quantize_affine_hqq,
     _choose_scale_float8,
     _dequantize_affine_float8,
-    _dequantize_affine_floatx,
     _dequantize_affine_no_zero_point,
     _dequantize_affine_tinygemm,
     _quantize_affine_float8,
-    _quantize_affine_floatx,
     _quantize_affine_no_zero_point,
     _quantize_affine_tinygemm,
     choose_qparams_affine,
@@ -47,7 +44,6 @@ __all__ = [
     "to_affine_quantized_floatx",
     "to_affine_quantized_intx_static",
     "to_affine_quantized_floatx_static",
-    "to_affine_quantized_fpx",
 ]
 
 
@@ -137,18 +133,8 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
             output_dtype = self.dtype
 
         from torchao.dtypes.floatx import Float8Layout
-        from torchao.prototype.dtypes.floatx import FloatxTensorCoreLayout
 
-        if isinstance(self._layout, FloatxTensorCoreLayout):
-            int_data, scale = self.tensor_impl.get_plain()
-            return _dequantize_affine_floatx(
-                int_data,
-                scale,
-                self._layout.ebits,
-                self._layout.mbits,
-                output_dtype=output_dtype,
-            )
-        elif isinstance(self._layout, Float8Layout):
+        if isinstance(self._layout, Float8Layout):
             data, scale, _ = self.tensor_impl.get_plain()
             return _dequantize_affine_float8(data, scale, output_dtype)
         else:
@@ -533,36 +519,6 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
                 f"Unsupported dtype {target_dtype} for from_hp_to_floatx_static"
             )
 
-    @classmethod
-    def from_hp_to_fpx(
-        cls,
-        input_float: torch.Tensor,
-        _layout: Layout,
-    ):
-        """Create a floatx AffineQuantizedTensor from a high precision tensor. Floatx is represented as ebits and mbits, and supports the representation of float1-float7."""
-        from torchao.prototype.dtypes.floatx import FloatxTensorCoreLayout
-
-        assert isinstance(_layout, FloatxTensorCoreLayout), (
-            f"Only FloatxTensorCoreLayout is supported for floatx, got {_layout}"
-        )
-        original_shape = input_float.shape
-        input_float = _layout.pre_process(input_float)
-        # per axis quantization, where axis = 1
-        block_size = list(input_float.shape)
-        block_size[1] = 1
-
-        ebits, mbits = _layout.ebits, _layout.mbits
-        # Note: these ops are hardcoded to have per axis quantization (axis=1) right now
-        scale = _choose_qparams_affine_floatx(input_float, ebits, mbits)
-        floatx_unpacked = _quantize_affine_floatx(input_float, scale, ebits, mbits)
-        floatx_packed, scale, _ = _layout.post_process(
-            floatx_unpacked, scale, None, block_size
-        )
-
-        tensor_impl_ctr = get_tensor_impl_constructor(type(_layout))
-        tensor_impl = tensor_impl_ctr(floatx_packed, scale, None, _layout)
-        return cls(tensor_impl, block_size, original_shape, dtype=input_float.dtype)
-
     @property
     def _layout(self) -> Layout:
         return self.tensor_impl._layout
@@ -618,8 +574,6 @@ to_affine_quantized_intx = AffineQuantizedTensor.from_hp_to_intx
 to_affine_quantized_intx_static = AffineQuantizedTensor.from_hp_to_intx_static
 to_affine_quantized_floatx = AffineQuantizedTensor.from_hp_to_floatx
 to_affine_quantized_floatx_static = AffineQuantizedTensor.from_hp_to_floatx_static
-# experimental will be merged in to floatx
-to_affine_quantized_fpx = AffineQuantizedTensor.from_hp_to_fpx
 
 # Allow a model with AffineQuantizedTensor weights to be loaded with `weights_only=True`
 torch.serialization.add_safe_globals([AffineQuantizedTensor])
