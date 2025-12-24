@@ -17,6 +17,7 @@ from torchao.prototype.custom_fp_utils import (
     _f32_to_floatx_unpacked,
     _floatx_unpacked_to_f32,
 )
+from torchao.prototype.mx_formats.config import ScaleCalculationMode
 from torchao.utils import (
     is_cuda_version_at_least,
     is_sm_at_least_100,
@@ -464,7 +465,7 @@ if torch_version_at_least("2.7.0") and has_triton():
         # Find the maximum absolute value for each row (across columns)
         # shape: (ROW_TILE_SIZE * BLOCKS_PER_COL_TILE,)
         scale_fp32_r, scale_e8m0_r = _triton_calculate_scale(
-            x_block_abs_r, axis=1, mode=SCALING_MODE
+            x_block_abs_r, axis=1, SCALING_MODE=SCALING_MODE
         )
 
         # Divide each row by scale
@@ -639,7 +640,9 @@ if torch_version_at_least("2.7.0") and has_triton():
         return acceptable_shardings
 
     def triton_to_mxfp8_dim1_reference(
-        x_hp: torch.Tensor, block_size
+        x_hp: torch.Tensor,
+        block_size: int = 32,
+        scaling_mode: ScaleCalculationMode = ScaleCalculationMode.RCEIL,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         A reference version of `to_mxfp8_dim1`.
@@ -649,7 +652,10 @@ if torch_version_at_least("2.7.0") and has_triton():
         # cast across dim1
         x_hp_d1 = x_hp.t().contiguous()
         scale_e8m0_dim1, x_hp_d1_normalized = to_mx(
-            x_hp_d1, torch.float8_e4m3fn, block_size
+            x_hp_d1,
+            torch.float8_e4m3fn,
+            block_size,
+            scaling_mode=scaling_mode,
         )
         scale_e8m0_dim1 = scale_e8m0_dim1.view(torch.float8_e8m0fnu)
         return (
