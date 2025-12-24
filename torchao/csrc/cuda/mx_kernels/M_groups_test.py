@@ -27,13 +27,13 @@ mx_block_rearrange = load(
         os.path.join(SCRIPT_DIR, "mxfp8_cuda.cu"),
     ],
     extra_cuda_cflags=[
-        "-O3",
-        "--use_fast_math",
+        "-O0",
+        "-g",
+        "-DNDEBUG=0",  # Ensure NDEBUG is not defined so asserts are active
         "-std=c++17",
-        "-gencode=arch=compute_100,code=sm_100",
-        "-Xptxas=-v",  # Show register usage per kernel
+        "-gencode=arch=compute_100a,code=sm_100a",
     ],
-    extra_cflags=["-O3", "-std=c++17"],
+    extra_cflags=["-O0", "-g", "-std=c++17"],
     extra_ldflags=["-lcuda"],  # Link against CUDA driver API for cuGetErrorString
     verbose=True,
 )
@@ -94,7 +94,7 @@ def test_kernel():
     print("\nTest configuration:")
     print(f"  Matrix size: {total_m} x {k}")
     print(f"  Number of groups: {n_groups}")
-    print(f"  Groups are along M (row) dimension")
+    print("  Groups are along M (row) dimension")
 
     # Generate test data
     print("\nGenerating test data...")
@@ -107,13 +107,13 @@ def test_kernel():
         )
 
         # For M groups, offsets are along the row dimension
+        # Since MX scaling is along K (columns), scale rows = input rows
+        # So input_group_offsets = input_group_offsets (no division by block_size)
         input_group_offsets = generate_jagged_offs(
             n_groups, total_m, multiple_of=block_size, device=device
         )
-        scale_group_offsets = input_group_offsets // block_size
-
         print(f"  Scales shape: {e8m0_scales.shape}")
-        print(f"  Scale group offsets: {scale_group_offsets.tolist()}")
+        print(f"  Group offsets: {input_group_offsets.tolist()}")
     else:
         return False
 
@@ -134,7 +134,7 @@ def test_kernel():
     cuda_pipelined_4_out = (
         mx_block_rearrange.mx_block_rearrange_2d_M_groups_rowmajor_128x4_vec_pipelined(
             e8m0_scales_row_major.view(torch.uint8),
-            scale_group_offsets,
+            input_group_offsets,
             64,  # max_cols
             4,  # chunks_per_tb
         )
@@ -149,7 +149,7 @@ def test_kernel():
     cuda_pipelined_8_out = (
         mx_block_rearrange.mx_block_rearrange_2d_M_groups_rowmajor_128x4_vec_pipelined(
             e8m0_scales_row_major.view(torch.uint8),
-            scale_group_offsets,
+            input_group_offsets,
             64,  # max_cols
             8,  # chunks_per_tb
         )
@@ -164,7 +164,7 @@ def test_kernel():
     cuda_pipelined_16_out = (
         mx_block_rearrange.mx_block_rearrange_2d_M_groups_rowmajor_128x4_vec_pipelined(
             e8m0_scales_row_major.view(torch.uint8),
-            scale_group_offsets,
+            input_group_offsets,
             64,  # max_cols
             16,  # chunks_per_tb
         )
@@ -178,7 +178,7 @@ def test_kernel():
     print("Running Triton reference kernel...")
     triton_out = triton_mx_block_rearrange_2d_M_groups(
         e8m0_scales,
-        scale_group_offsets,
+        input_group_offsets,
     )
     print("Triton kernel completed successfully")
 
@@ -269,41 +269,41 @@ def test_kernel():
     triton_time = benchmark_kernel(
         triton_mx_block_rearrange_2d_M_groups,
         e8m0_scales,
-        scale_group_offsets,
+        input_group_offsets,
     )
     print(f"  Triton reference: {triton_time:.2f} us")
 
     cuda_4_time = benchmark_kernel(
         mx_block_rearrange.mx_block_rearrange_2d_M_groups_rowmajor_128x4_vec_pipelined,
         e8m0_scales_row_major.view(torch.uint8),
-        scale_group_offsets,
+        input_group_offsets,
         64,
         4,
     )
     print(
-        f"  CUDA pipelined (chunks_per_tb=4): {cuda_4_time:.2f} us ({triton_time/cuda_4_time:.2f}x vs Triton)"
+        f"  CUDA pipelined (chunks_per_tb=4): {cuda_4_time:.2f} us ({triton_time / cuda_4_time:.2f}x vs Triton)"
     )
 
     cuda_8_time = benchmark_kernel(
         mx_block_rearrange.mx_block_rearrange_2d_M_groups_rowmajor_128x4_vec_pipelined,
         e8m0_scales_row_major.view(torch.uint8),
-        scale_group_offsets,
+        input_group_offsets,
         64,
         8,
     )
     print(
-        f"  CUDA pipelined (chunks_per_tb=8): {cuda_8_time:.2f} us ({triton_time/cuda_8_time:.2f}x vs Triton)"
+        f"  CUDA pipelined (chunks_per_tb=8): {cuda_8_time:.2f} us ({triton_time / cuda_8_time:.2f}x vs Triton)"
     )
 
     cuda_16_time = benchmark_kernel(
         mx_block_rearrange.mx_block_rearrange_2d_M_groups_rowmajor_128x4_vec_pipelined,
         e8m0_scales_row_major.view(torch.uint8),
-        scale_group_offsets,
+        input_group_offsets,
         64,
         16,
     )
     print(
-        f"  CUDA pipelined (chunks_per_tb=16): {cuda_16_time:.2f} us ({triton_time/cuda_16_time:.2f}x vs Triton)"
+        f"  CUDA pipelined (chunks_per_tb=16): {cuda_16_time:.2f} us ({triton_time / cuda_16_time:.2f}x vs Triton)"
     )
 
     return True
