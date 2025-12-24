@@ -44,6 +44,7 @@ from torchao.prototype.mx_formats.kernels import (
 from torchao.prototype.mx_formats.mx_tensor import MXTensor, to_mx
 from torchao.prototype.mx_formats.utils import _to_mxfp8_dim1_kernel_wrapper
 from torchao.quantization.quantize_.common import KernelPreference
+from torchao.utils import is_MI300, is_MI350, is_ROCM
 
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -54,6 +55,15 @@ _SM100_KERNELS_AVAILABLE = (
     and _mxfp8_cuda_kernels_available_mx
     and _triton_kernels_available
 )
+
+
+def _get_float8_dtype():
+    if is_ROCM():
+        if is_MI300():
+            return torch.float8_e4m3fnuz
+        elif is_MI350():
+            return torch.float8_e4m3fn
+    return torch.float8_e4m3fn
 
 
 def _quantize_then_scaled_grouped_mm(
@@ -155,13 +165,13 @@ class _Float8GroupedMM(torch.autograd.Function):
         # A_scales shape: (M,1) or (B, M, 1)
         A_scales = tensor_to_scale(
             A,
-            torch.float8_e4m3fn,
+            _get_float8_dtype(),
             scaling_granularity=ScalingGranularity.AXISWISE,
             axiswise_dim=-1,
             round_scales_to_power_of_2=True,
         )
         A_scaled = A.to(torch.float32) * A_scales
-        A_data_row_major = to_fp8_saturated(A_scaled, torch.float8_e4m3fn)
+        A_data_row_major = to_fp8_saturated(A_scaled, _get_float8_dtype())
 
         # Convert B to float8, column-major for right operand of grouped GEMM.
         # B_t shape: (E, K, N)
@@ -169,13 +179,13 @@ class _Float8GroupedMM(torch.autograd.Function):
         # B_t_scales shape: (E, 1, N)
         B_t_scales = tensor_to_scale(
             B_t,
-            torch.float8_e4m3fn,
+            _get_float8_dtype(),
             scaling_granularity=ScalingGranularity.AXISWISE,
             axiswise_dim=-2,
             round_scales_to_power_of_2=True,
         )
         B_t_scaled = B_t.to(torch.float32) * B_t_scales
-        B_t_data_col_major = to_fp8_saturated(B_t_scaled, torch.float8_e4m3fn)
+        B_t_data_col_major = to_fp8_saturated(B_t_scaled, _get_float8_dtype())
 
         # Store what we need for backward.
         ctx.save_for_backward(A, B_t, offs)
@@ -217,21 +227,21 @@ class _Float8GroupedMM(torch.autograd.Function):
         # grad_output_scale shape: (Mg, 1)
         grad_output_scales = tensor_to_scale(
             grad_output,
-            torch.float8_e4m3fn,
+            _get_float8_dtype(),
             scaling_granularity=ScalingGranularity.AXISWISE,
             axiswise_dim=-1,
             round_scales_to_power_of_2=True,
         )
         grad_output_scaled = grad_output.to(torch.float32) * grad_output_scales
         grad_output_data_row_major = to_fp8_saturated(
-            grad_output_scaled, torch.float8_e4m3fn
+            grad_output_scaled, _get_float8_dtype()
         )
 
         # Compute B fp8 column-major for right operand of grouped GEMM:
         # grad_A = grad_output @ B.
         B_data_col_major, B_scales = triton_fp8_rowwise_3d_transpose_rhs(
             B_t._data if hasattr(B_t, "_data") else B_t,
-            output_dtype=torch.float8_e4m3fn,
+            output_dtype=_get_float8_dtype(),
             round_scales_to_power_of_2=True,
         )
 
@@ -271,7 +281,7 @@ class _Float8GroupedMM(torch.autograd.Function):
             .contiguous()
             .t(),  # Quantization is over 2x faster when input is col major, even with this transformation
             offs,
-            torch.float8_e4m3fn,
+            _get_float8_dtype(),
             round_scales_to_power_of_2=True,
         )
         grad_output_t_data_row_major = grad_out_data_colwise.t()
@@ -282,7 +292,7 @@ class _Float8GroupedMM(torch.autograd.Function):
             .contiguous()
             .t(),  # Quantization is over 2x faster when input is col major, even with this transformation
             offs,
-            torch.float8_e4m3fn,
+            _get_float8_dtype(),
             round_scales_to_power_of_2=True,
         )
 
@@ -804,7 +814,7 @@ def _to_mxfp8_dim1_3d(
     B_t_mx = _to_mxfp8_dim1_kernel_wrapper(
         B_reshaped,
         block_size,
-        elem_dtype=torch.float8_e4m3fn,
+        elem_dtype=_get_float8_dtype(),
         hp_dtype=B_reshaped.dtype,
         kernel_preference=KernelPreference.AUTO,  # Not used
         cast_kernel_choice=MXFP8Dim1CastKernelChoice.CUDA,
