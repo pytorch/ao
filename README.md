@@ -52,7 +52,7 @@
 
 ## 🌅 Overview
 
-TorchAO is an easy to use quantization library for native PyTorch. TorchAO works out-of-the-box with `torch.compile()` and `FSDP2` across most HuggingFace PyTorch models. 
+TorchAO is an easy to use quantization library for native PyTorch. TorchAO works out-of-the-box with `torch.compile()` and `FSDP2` across most HuggingFace PyTorch models.
 
 ### Stable Workflows
 
@@ -65,7 +65,7 @@ TorchAO is an easy to use quantization library for native PyTorch. TorchAO works
 | A100 GPUs | int4 | bfloat16 | ⚪ | 🟢 [(link)](torchao/quantization/qat) | 🟡: [HQQ](torchao/prototype/hqq/README.md), [AWQ](torchao/prototype/awq), [GPTQ](torchao/quantization/GPTQ) | 🟢 [(link)](torchao/quantization#a16w4-weightonly-quantization) |
 | A100 GPUs | int8 | bfloat16 | ⚪ | 🟢 [(link)](torchao/quantization/qat) | ⚪ | 🟢 [(link)](torchao/quantization#a16w8-int8-weightonly-quantization) |
 | A100 GPUs | int8 | int8 | 🟡 [(link)](torchao/prototype/quantized_training) | 🟢 [(link)](torchao/quantization/qat) | ⚪ | 🟢 [(link)](https://github.com/pytorch/ao/tree/main/torchao/quantization#a8w8-int8-dynamic-quantization) |
-| edge | intx (1..7) | bfloat16 | ⚪ | 🟢 [(link)](torchao/quantization/qat) | ⚪ | 🟢 [(link)](https://github.com/pytorch/ao/blob/257d18ae1b41e8bd8d85849dd2bd43ad3885678e/torchao/quantization/quant_api.py#L2267) | 
+| edge | intx (1..7) | bfloat16 | ⚪ | 🟢 [(link)](torchao/quantization/qat) | ⚪ | 🟢 [(link)](https://github.com/pytorch/ao/blob/257d18ae1b41e8bd8d85849dd2bd43ad3885678e/torchao/quantization/quant_api.py#L2267) |
 | edge | intx (1..7) | bfloat16 | ⚪ | 🟢 [(link)](torchao/quantization/qat) | ⚪ | 🟢 [(link)](https://github.com/pytorch/ao/blob/257d18ae1b41e8bd8d85849dd2bd43ad3885678e/torchao/quantization/quant_api.py#L702) |
 
 ### Prototype Workflows
@@ -179,6 +179,24 @@ curl http://localhost:8000/v1/chat/completions -H "Content-Type: application/jso
 }'
 ```
 
+For diffusion models, you can quantize using Hugging Face diffusers
+
+```python
+import torch
+from diffusers import DiffusionPipeline, PipelineQuantizationConfig, TorchAoConfig
+from torchao.quantization import Int8WeightOnlyConfig
+
+pipeline_quant_config = PipelineQuantizationConfig(
+    quant_mapping={"transformer": TorchAoConfig(Int8WeightOnlyConfig(group_size=128))}
+)
+pipeline = DiffusionPipeline.from_pretrained(
+    "black-forest-labs/FLUX.1-dev",
+    quantization_config=pipeline_quant_config,
+    torch_dtype=torch.bfloat16,
+    device_map="cuda"
+)
+```
+
 We also support deployment to edge devices through ExecuTorch, for more detail, see [quantization and serving guide](https://docs.pytorch.org/ao/main/serving.html). We also release pre-quantized models [here](https://huggingface.co/pytorch).
 
 ## 🚅 Training
@@ -278,7 +296,7 @@ TorchAO is integrated into some of the leading open-source libraries including:
 
 * Unsloth now supports QAT: [Read blog](https://docs.unsloth.ai/new/quantization-aware-training-qat) and [guide](https://docs.unsloth.ai/new/quantization-aware-training-qat#qat--lora-finetuning).
 * HuggingFace transformers with a [builtin inference backend](https://huggingface.co/docs/transformers/main/quantization/torchao) and [low bit optimizers](https://github.com/huggingface/transformers/pull/31865)
-* HuggingFace diffusers best practices with `torch.compile` and TorchAO in a standalone repo [diffusers-torchao](https://github.com/huggingface/diffusers/blob/main/docs/source/en/quantization/torchao.md)
+* HuggingFace [diffusers](https://huggingface.co/docs/diffusers/main/en/quantization/torchao) best practices with `torch.compile` and TorchAO in a standalone repo [diffusers-torchao](https://github.com/huggingface/diffusers/blob/main/docs/source/en/quantization/torchao.md)
 * vLLM for LLM serving: [usage](https://docs.vllm.ai/en/latest/features/quantization/torchao.html), [detailed docs](https://docs.pytorch.org/ao/main/torchao_vllm_integration.html)
 * Integration with [FBGEMM](https://github.com/pytorch/FBGEMM/tree/main/fbgemm_gpu/experimental/gen_ai) for SOTA kernels on server GPUs
 * Integration with [ExecuTorch](https://github.com/pytorch/executorch/) for edge device deployment
