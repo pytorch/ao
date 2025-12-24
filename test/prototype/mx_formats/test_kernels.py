@@ -449,10 +449,17 @@ def triton_to_mxfp8_dim0_reference(
 )
 @pytest.mark.parametrize("M", (128, 256))
 @pytest.mark.parametrize("K", (128, 256))
-def test_triton_mxfp8_dim1_randn(M, K):
+@pytest.mark.parametrize(
+    "scaling_mode", (ScaleCalculationMode.FLOOR, ScaleCalculationMode.RCEIL)
+)
+def test_triton_mxfp8_dim1_randn(M, K, scaling_mode):
     x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
-    x_mx_ref, x_s_ref = triton_to_mxfp8_dim1_reference(x, block_size=32)
-    x_mx_t, x_s_t = triton_to_mxfp8_dim1(x, inner_block_size=32)
+    x_mx_ref, x_s_ref = triton_to_mxfp8_dim1_reference(
+        x, block_size=32, scaling_mode=scaling_mode
+    )
+    x_mx_t, x_s_t = triton_to_mxfp8_dim1(
+        x, inner_block_size=32, scaling_mode=scaling_mode.value.lower()
+    )
     torch.testing.assert_close(x_mx_t, x_mx_ref, rtol=0, atol=0)
     torch.testing.assert_close(x_s_t, x_s_ref, rtol=0, atol=0)
 
