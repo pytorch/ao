@@ -492,8 +492,6 @@ def run(
         assert recipe_name in _SUPPORTED_CONV_RECIPES, (
             f"Recipe '{recipe_name}' is not supported for {op_name}. "
             f"Supported recipes for conv operations: {_SUPPORTED_CONV_RECIPES}. "
-            f"Note: rowwise requires per-tensor for 4D/5D tensors, "
-            f"mxfp8/mxfp4/nvfp4 have block size or implementation constraints."
         )
 
     if op_name == "conv2d":
