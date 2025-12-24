@@ -55,7 +55,7 @@ from torchao.testing.training.roofline_utils import (
     get_inference_float8_mem_sympy,
     get_inference_gemm_time_sympy,
 )
-from torchao.utils import is_MI300, is_sm_at_least_100
+from torchao.utils import _is_mslk_available, is_MI300, is_sm_at_least_100
 
 
 @torch.no_grad()
@@ -226,78 +226,80 @@ def get_conv_times(
         lambda x, w: conv_fn(x, w, **conv_kwargs), x_bf16, w_bf16
     )
 
-    # For fp8 conv timing, we need to use fbgemm operator
-    if recipe_name in ("mxfp4_cutlass", "nvfp4"):
-        # For now, skip fp4 conv operations as they're more complex to set up
-        f8_time_s = 0.0
-    else:
-        # Try to use fbgemm fp8 conv operator
-        try:
-            # Check if fbgemm fp8 conv is available
-            if not hasattr(torch.ops.fbgemm, "f8f8bf16_conv"):
-                print(
-                    "Warning: fbgemm.f8f8bf16_conv not available, skipping fp8 conv timing"
-                )
-                f8_time_s = 0.0
-            else:
-                # Create fp8 tensors
-                e4m3_dtype = torch.float8_e4m3fn
-                if torch.version.hip and torch.cuda.is_available() and is_MI300():
-                    e4m3_dtype = torch.float8_e4m3fnuz
+    # Measure fp8 conv time using mslk operator
+    # Note: Only tensorwise recipe is supported for conv (validated in run())
 
-                # Quantize tensors to fp8
-                x_scale = x_bf16.abs().max() / torch.finfo(e4m3_dtype).max
-                w_scale = w_bf16.abs().max() / torch.finfo(e4m3_dtype).max
+    # Validate recipe for conv operations (defense in depth)
+    _SUPPORTED_CONV_RECIPES = ["tensorwise"]
+    if recipe_name not in _SUPPORTED_CONV_RECIPES:
+        raise ValueError(
+            f"Recipe '{recipe_name}' is not supported for conv operations. "
+            f"Supported recipes: {_SUPPORTED_CONV_RECIPES}"
+        )
 
-                # Convert to channels_last_3d format first
-                x_bf16_cl = x_bf16.contiguous(memory_format=torch.channels_last_3d)
-                w_bf16_cl = w_bf16.contiguous(memory_format=torch.channels_last_3d)
+    # Check if mslk fp8 conv is available
+    if not _is_mslk_available():
+        raise RuntimeError(
+            "mslk fp8 conv operator is not available. "
+            "To skip fp8 conv benchmarking, set --do_benchmarks=False to run roofline model only."
+        )
 
-                x_fp8 = (x_bf16_cl / x_scale).to(e4m3_dtype)
-                w_fp8 = (w_bf16_cl / w_scale).to(e4m3_dtype)
+    # Check if op is supported
+    if op_name == "conv2d":
+        raise NotImplementedError(
+            "mslk fp8 conv2d is not yet implemented. "
+            "To skip fp8 conv benchmarking, set --do_benchmarks=False to run roofline model only."
+        )
+    elif op_name != "conv3d":
+        raise ValueError(f"Unsupported op_name: {op_name}")
 
-                # Permute to match fbgemm expected layout:
-                # Input: (N, C_in, D, H, W) -> (N, D, H, W, C_in)
-                x_fp8 = x_fp8.permute([0, 2, 3, 4, 1])
-                # Weight: (C_out, C_in, K1, K2, K3) -> (C_out, K1, K2, K3, C_in)
-                w_fp8 = w_fp8.permute([0, 2, 3, 4, 1])
+    # Measure fp8 conv3d time
+    # Create fp8 tensors for conv3d
+    e4m3_dtype = torch.float8_e4m3fn
+    if torch.version.hip and torch.cuda.is_available() and is_MI300():
+        e4m3_dtype = torch.float8_e4m3fnuz
 
-                # Prepare scales for fbgemm operator
-                if op_name == "conv3d":
-                    # fbgemm expects a combined scale tensor
-                    combined_scale = float(x_scale * w_scale)
-                    scale_tensor = torch.tensor(
-                        [combined_scale], device=device, dtype=torch.float32
-                    )
+    # Quantize tensors to fp8
+    x_scale = x_bf16.abs().max() / torch.finfo(e4m3_dtype).max
+    w_scale = w_bf16.abs().max() / torch.finfo(e4m3_dtype).max
 
-                    # Use fbgemm fp8 conv operator
-                    # Signature: f8f8bf16_conv(activation, filter, scale, padding, stride, dilation)
-                    f8_time_s = get_gpu_kernel_conv_time_s(
-                        lambda x, w: torch.ops.fbgemm.f8f8bf16_conv(
-                            x,
-                            w,
-                            scale_tensor,
-                            padding
-                            if isinstance(padding, (list, tuple))
-                            else [padding] * 3,
-                            stride
-                            if isinstance(stride, (list, tuple))
-                            else [stride] * 3,
-                            [1, 1, 1],  # dilation
-                        ),
-                        x_fp8,
-                        w_fp8,
-                    )
-                else:
-                    # conv2d not yet implemented for fbgemm
-                    print(
-                        "Warning: fbgemm fp8 conv2d not implemented, skipping fp8 conv timing"
-                    )
-                    f8_time_s = 0.0
+    # Convert to channels_last_3d format for conv3d
+    x_bf16_cl = x_bf16.contiguous(memory_format=torch.channels_last_3d)
+    w_bf16_cl = w_bf16.contiguous(memory_format=torch.channels_last_3d)
 
-        except Exception as e:
-            print(f"Warning: Could not measure fp8 conv time: {e}")
-            f8_time_s = 0.0
+    x_fp8 = (x_bf16_cl / x_scale).to(e4m3_dtype)
+    w_fp8 = (w_bf16_cl / w_scale).to(e4m3_dtype)
+
+    # Permute to match mslk expected layout:
+    # Input: (N, C_in, D, H, W) -> (N, D, H, W, C_in)
+    x_fp8 = x_fp8.permute([0, 2, 3, 4, 1])
+    # Weight: (C_out, C_in, K1, K2, K3) -> (C_out, K1, K2, K3, C_in)
+    w_fp8 = w_fp8.permute([0, 2, 3, 4, 1])
+
+    # mslk expects a combined scale tensor
+    combined_scale = float(x_scale * w_scale)
+    scale_tensor = torch.tensor(
+        [combined_scale], device=device, dtype=torch.float32
+    )
+
+    # Use mslk fp8 conv operator
+    # Signature: f8f8bf16_conv(activation, filter, scale, padding, stride, dilation)
+    f8_time_s = get_gpu_kernel_conv_time_s(
+        lambda x, w: torch.ops.mslk.f8f8bf16_conv(
+            x,
+            w,
+            scale_tensor,
+            padding
+            if isinstance(padding, (list, tuple))
+            else [padding] * 3,
+            stride
+            if isinstance(stride, (list, tuple))
+            else [stride] * 3,
+            [1, 1, 1],  # dilation
+        ),
+        x_fp8,
+        w_fp8,
+    )
 
     return bf16_time_s, f8_time_s
 
@@ -476,6 +478,16 @@ def run(
     assert op_name in _SUPPORTED_OPS, (
         f"Unsupported op: {op_name}, supported are: {_SUPPORTED_OPS}"
     )
+
+    # Validate recipe compatibility with conv operations
+    if op_name in ("conv2d", "conv3d"):
+        _SUPPORTED_CONV_RECIPES = ["tensorwise"]
+        assert recipe_name in _SUPPORTED_CONV_RECIPES, (
+            f"Recipe '{recipe_name}' is not supported for {op_name}. "
+            f"Supported recipes for conv operations: {_SUPPORTED_CONV_RECIPES}. "
+            f"Note: rowwise requires per-tensor for 4D/5D tensors, "
+            f"mxfp8/mxfp4/nvfp4 have block size or implementation constraints."
+        )
 
     if op_name == "conv2d":
         assert H is not None and W is not None, (
@@ -674,7 +686,11 @@ def run(
                         rb_bf16_gemm_ratio = r_bf16_gemm_time_s / b_bf16_gemm_time_s
                     if b_fp8_gemm_time_s > 0:
                         rb_fp8_gemm_ratio = r_fp8_gemm_time_s / b_fp8_gemm_time_s
+                except (NotImplementedError, RuntimeError, ValueError):
+                    # Re-raise expected errors (conv2d not implemented, mslk not available, unsupported recipe)
+                    raise
                 except Exception as e:
+                    # Catch only unexpected errors (CUDA errors, OOM, etc.)
                     print(f"Warning: Could not benchmark conv times: {e}")
                     b_bf16_gemm_time_s, b_fp8_gemm_time_s = 0, 0
                     rb_bf16_gemm_ratio = -1
