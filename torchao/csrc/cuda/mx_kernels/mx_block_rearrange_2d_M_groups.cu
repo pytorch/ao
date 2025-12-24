@@ -129,8 +129,7 @@ __global__ void mx_blocked_layout_2d_M_groups_kernel(
     const int output_stride_per_block,
     const int output_stride_per_row_of_blocks,
     const int num_groups,
-    const __grid_constant__ CUtensorMap input_tensor_map,
-    const __grid_constant__ CUtensorMap output_tensor_map
+    const __grid_constant__ CUtensorMap input_tensor_map
 ) {
     const int row_block_pid = blockIdx.y;
     const int col_block_pid = blockIdx.x;
@@ -204,7 +203,12 @@ __global__ void mx_blocked_layout_2d_M_groups_kernel(
     int buf_parity[NUM_BUFFERS] = {0};
     auto load_chunk = [&](int chunk_idx, int buf_idx) {
         if (chunk_idx >= NUM_BUFFERS) {
-            ptx::cp_async_bulk_wait_group_read<0>();
+            // Wait for pending TMA loads to complete (at most 1 pending)
+            ptx::cp_async_bulk_wait_group_read<1>();
+            // Wait for pending TMA stores to complete before reusing buffer
+            // (the TMA store from process_chunk reads from SMEM asynchronously)
+            ptx::cp_async_bulk_wait_group();
+            __syncthreads();
         }
 
         uint64_t* mbar_ptr = &mbar[buf_idx];
@@ -230,12 +234,12 @@ __global__ void mx_blocked_layout_2d_M_groups_kernel(
 
     auto process_chunk = [&](int chunk_idx, int buf_idx) {
         uint64_t* mbar_ptr = &mbar[buf_idx];
-        ptx::fence_proxy_async_shared_cta();
         ptx::mbarrier_wait_parity(mbar_ptr, buf_parity[buf_idx]);
         buf_parity[buf_idx] ^= 1;
+        // Fence to ensure TMA-written data is visible to all threads after barrier wait
+        ptx::fence_proxy_async_shared_cta();
 
         // Read 16 bytes via coalesced vectorized loads from SMEM (row-major input)
-        const int thread_col_start = col_idx * BYTES_PER_THREAD;
         uint4 row_data = make_uint4(0, 0, 0, 0);
         const uint32_t chunk_start_row = global_row_base + (chunk_idx * SF_ROWS);
         if (chunk_start_row + row_idx < input_group_end_row) {
@@ -251,31 +255,53 @@ __global__ void mx_blocked_layout_2d_M_groups_kernel(
             const uint32_t data = reinterpret_cast<const uint32_t*>(&row_data)[i];
             *reinterpret_cast<uint32_t*>(&smem_buffers[buf_idx][blocked_layout_base + tile_idx * output_stride_per_block]) = data;
         }
-        __syncthreads();
+        __syncthreads();  // Ensure all threads finished writing blocked layout before TMA stores
 
-        // Store to global memory using regular stores, since blocked layout is not well suited for TMA
+        // Fence to ensure SMEM writes are visible to TMA async proxy before issuing stores
+        ptx::fence_proxy_async_shared_cta();
+
+        // Store to global memory using async TMA 1D stores with 128x4 tile granularity
+        // Each tile is 512 contiguous bytes in blocked layout
+        // Output memory layout: [tile_row][tile_col][128][4]
+        // Linear tile offset = (row_tile * tiles_per_row + col_tile) * 512
+
         const int sf_row_tile_within_group = (group_local_row_superblock * CHUNKS_PER_TB) + chunk_idx;
         const int sf_row_tile_global = (output_group_start_row / SF_ROWS) + sf_row_tile_within_group;
 
         // col_block_pid is the column SUPERBLOCK index (MAX_COLS columns each)
         // Need to convert to tile offset: superblock * tiles_per_superblock
         constexpr int TILES_PER_SUPERBLOCK = MAX_COLS / SF_COLS;  // 16 for MAX_COLS=64, 32 for MAX_COLS=128
-        const int superblock_sf_tile_start = col_block_pid * TILES_PER_SUPERBLOCK;
+        const int col_sf_tile_start = col_block_pid * TILES_PER_SUPERBLOCK;
 
-        // Output base for this chunk's blocked layout data
-        const int chunk_output_base = (sf_row_tile_global * output_stride_per_row_of_blocks)
-                                    + (superblock_sf_tile_start * output_stride_per_block);
+        // Compute tiles_per_row from output_stride_per_row_of_blocks
+        // output_stride_per_row_of_blocks = tiles_per_row * SF_ROWS * SF_COLS
+        const int tiles_per_row = output_stride_per_row_of_blocks / output_stride_per_block;
 
         // Check if this chunk has any valid rows
         const uint32_t rows_remaining_in_group = (input_group_end_row > chunk_start_row) ? (input_group_end_row - chunk_start_row) : 0;
 
-        // Each thread copies 16 bytes from blocked layout in SMEM to GMEM
-        const int thread_smem_offset = tid * BYTES_PER_THREAD;
+        // Issue multiple async TMA 1D stores (one per 128x4 SF tile in the buffer)
+        // Each TMA store moves one 512-byte tile from SMEM to GMEM
+        // Master thread issues all TMA stores, other threads wait
+        if (rows_remaining_in_group > 0 && is_master_thread) {
+            constexpr int TILE_SIZE = SF_ROWS * SF_COLS;  // 512 bytes per tile
+            #pragma unroll
+            for (int tile = 0; tile < TILES_PER_SUPERBLOCK; tile++) {
+                // Linear tile index = row_tile * tiles_per_row + col_tile
+                const int col_tile = col_sf_tile_start + tile;
+                const int linear_tile_index = sf_row_tile_global * tiles_per_row + col_tile;
 
-        if (rows_remaining_in_group > 0) {
-            uint8_t* output_ptr = output_scales + chunk_output_base + thread_smem_offset;
-            *reinterpret_cast<uint4*>(output_ptr) =
-                *reinterpret_cast<uint4*>(&smem_buffers[buf_idx][thread_smem_offset]);
+                // Compute destination address in GMEM
+                uint64_t* dst_gmem = reinterpret_cast<uint64_t*>(output_scales + linear_tile_index * TILE_SIZE);
+                const uint32_t smem_tile_offset = tile * TILE_SIZE;
+
+                ptx::cp_async_bulk_tensor_1d_shared_to_global(
+                    dst_gmem,
+                    reinterpret_cast<const uint64_t*>(&smem_buffers[buf_idx][smem_tile_offset]),
+                    TILE_SIZE
+                );
+            }
+            ptx::cp_async_bulk_commit_group();
         }
     };
 
@@ -303,7 +329,9 @@ __global__ void mx_blocked_layout_2d_M_groups_kernel(
     // Process last chunk
     int last_buf_idx = (chunks_to_process - 1) & BUFFER_MOD;
     process_chunk(chunks_to_process - 1, last_buf_idx);
-    ptx::cp_async_bulk_wait_group_read<0>();
+
+    // Wait for all pending TMA stores to complete before exiting
+    ptx::cp_async_bulk_wait_group();
 
     // Clean up barriers
     destroy_barriers<NUM_BUFFERS>(mbar, is_master_thread);
@@ -316,9 +344,7 @@ void create_tensor_map(
     const uint64_t gmem_width,
     const uint64_t gmem_height,
     const uint32_t smem_width,
-    const uint32_t smem_height,
-    CUtensorMapFloatOOBfill oob_fill =
-        CUtensorMapFloatOOBfill::CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE
+    const uint32_t smem_height
 ) {
   // rank is the number of dimensions of the array.
   constexpr uint32_t rank = 2;
@@ -382,24 +408,13 @@ void launch_mx_block_rearrange_2d_M_groups_rowmajor_128x4_vec_pipelined(
     int output_stride_per_sf_tile = SF_ROWS * SF_COLS;
     int output_stride_per_row_of_sf_tiles = output_stride_per_sf_tile * sf_tiles_per_row;
 
-    // Create input tensor map for TMA loads
+    // Create input tensor map for TMA loads of 128x64 / 128x128 chunks
     alignas(64) CUtensorMap input_tensor_map = {};
     create_tensor_map(
         (void*)scales_ptr,
         input_tensor_map,
         scale_cols,
         scale_rows,
-        max_cols,
-        SF_ROWS
-    );
-
-    // Create output tensor for TMA stores
-    alignas(64) CUtensorMap output_tensor_map = {};
-    create_tensor_map(
-        (void*)output_scales_ptr,
-        output_tensor_map,
-        scale_cols,
-        padded_rows,
         max_cols,
         SF_ROWS
     );
@@ -414,21 +429,21 @@ void launch_mx_block_rearrange_2d_M_groups_rowmajor_128x4_vec_pipelined(
                     scales_ptr, scale_stride_dim0, scale_rows, scale_cols, padded_rows, input_group_end_offsets,
                     output_scales_ptr, output_stride_per_sf_tile,
                     output_stride_per_row_of_sf_tiles, num_groups,
-                    input_tensor_map, output_tensor_map);
+                    input_tensor_map);
                 break;
             case 8:
                 mx_blocked_layout_2d_M_groups_kernel<64, 8><<<grid, block, 0, stream>>>(
                     scales_ptr, scale_stride_dim0, scale_rows, scale_cols, padded_rows, input_group_end_offsets,
                     output_scales_ptr, output_stride_per_sf_tile,
                     output_stride_per_row_of_sf_tiles, num_groups,
-                    input_tensor_map, output_tensor_map);
+                    input_tensor_map);
                 break;
             case 16:
                 mx_blocked_layout_2d_M_groups_kernel<64, 16><<<grid, block, 0, stream>>>(
                     scales_ptr, scale_stride_dim0, scale_rows, scale_cols, padded_rows, input_group_end_offsets,
                     output_scales_ptr, output_stride_per_sf_tile,
                     output_stride_per_row_of_sf_tiles, num_groups,
-                    input_tensor_map, output_tensor_map);
+                    input_tensor_map);
                 break;
             default:
                 printf("CUDA Error: chunks_per_tb must be 4, 8, or 16, got %d\n", chunks_per_tb);
@@ -442,21 +457,21 @@ void launch_mx_block_rearrange_2d_M_groups_rowmajor_128x4_vec_pipelined(
                     scales_ptr, scale_stride_dim0, scale_rows, scale_cols, padded_rows, input_group_end_offsets,
                     output_scales_ptr, output_stride_per_sf_tile,
                     output_stride_per_row_of_sf_tiles, num_groups,
-                    input_tensor_map, output_tensor_map);
+                    input_tensor_map);
                 break;
             case 8:
                 mx_blocked_layout_2d_M_groups_kernel<128, 8><<<grid, block, 0, stream>>>(
                     scales_ptr, scale_stride_dim0, scale_rows, scale_cols, padded_rows, input_group_end_offsets,
                     output_scales_ptr, output_stride_per_sf_tile,
                     output_stride_per_row_of_sf_tiles, num_groups,
-                    input_tensor_map, output_tensor_map);
+                    input_tensor_map);
                 break;
             case 16:
                 mx_blocked_layout_2d_M_groups_kernel<128, 16><<<grid, block, 0, stream>>>(
                     scales_ptr, scale_stride_dim0, scale_rows, scale_cols, padded_rows, input_group_end_offsets,
                     output_scales_ptr, output_stride_per_sf_tile,
                     output_stride_per_row_of_sf_tiles, num_groups,
-                    input_tensor_map, output_tensor_map);
+                    input_tensor_map);
                 break;
             default:
                 printf("CUDA Error: chunks_per_tb must be 4, 8, or 16, got %d\n", chunks_per_tb);
