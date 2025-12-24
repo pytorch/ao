@@ -21,6 +21,7 @@ from torchao.prototype.moe_training.kernels.jagged_float8_scales import (
     triton_fp8_per_group_rowwise_scales,
 )
 from torchao.prototype.moe_training.kernels.mxfp8 import (
+    mx_block_rearrange_2d_M_groups_cuda,
     mxfp8_quantize_cuda_3d,
     torch_to_blocked_2d_K_groups,
     torch_to_blocked_2d_M_groups,
@@ -240,6 +241,50 @@ def test_triton_mx_block_rearrange_2d_M_groups(
         input_group_offsets,
     )
     assert torch.allclose(ref_out_scales, triton_out_scales, atol=0, rtol=0), (
+        "blocked scales not equal"
+    )
+
+
+@pytest.mark.skipif(
+    not is_sm_at_least_100(),
+    reason="MXFP8 requires CUDA capability 10.0 or greater",
+)
+@skip_if_rocm("ROCm enablement in progress")
+@pytest.mark.parametrize(
+    "m,k,n_groups", [(256, 512, 4), (16640, 2048, 8), (131072, 8192, 32)]
+)
+@pytest.mark.parametrize("max_cols", [64, 128])
+@pytest.mark.parametrize("chunks_per_tb", [4, 8, 16])
+def test_cuda_mx_block_rearrange_2d_M_groups(
+    m: int,
+    k: int,
+    n_groups: int,
+    max_cols: int,
+    chunks_per_tb: int,
+):
+    device = "cuda"
+    block_size = 32
+    input_data = torch.randn(m, k, device=device)
+    e8m0_scales, _ = to_mx(
+        input_data, elem_dtype=torch.float8_e4m3fn, block_size=block_size
+    )
+    input_group_offsets = generate_jagged_offs(
+        n_groups, m, multiple_of=block_size, device=device
+    )
+
+    # torch reference
+    ref_out_scales, _ = torch_to_blocked_2d_M_groups(
+        e8m0_scales, input_group_offsets, block_size=block_size
+    )
+
+    # triton kernel
+    cuda_out_scales = mx_block_rearrange_2d_M_groups_cuda(
+        e8m0_scales,
+        input_group_offsets,
+        max_cols=max_cols,
+        chunks_per_tb=chunks_per_tb,
+    )
+    assert torch.allclose(ref_out_scales, cuda_out_scales, atol=0, rtol=0), (
         "blocked scales not equal"
     )
 

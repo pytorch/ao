@@ -26,6 +26,18 @@ void mxfp8_quantize_3d_cuda(const at::Tensor &input,
                              const std::string &fp8_format,
                              const std::string &scaling_mode);
 
+void launch_mx_block_rearrange_2d_M_groups_rowmajor_128x4_vec_pipelined(
+    const uint8_t* scales_ptr,
+    int scale_stride_dim0,
+    int scale_rows,
+    int scale_cols,
+    int padded_rows,
+    const int32_t* input_group_end_offsets,
+    uint8_t* output_scales_ptr,
+    int num_groups,
+    int max_cols,         // Template selector: 64 or 128
+    int chunks_per_tb);   // Chunks per super-block: 4, 8, or 16
+
 // Helper for tensor validation
 void check_cuda_tensor(const at::Tensor &t, const char *name) {
   TORCH_CHECK(t.is_cuda(), name, " must be a CUDA tensor");
@@ -178,6 +190,77 @@ mxfp8_quantize_3d(const at::Tensor& input, int64_t scale_dim_n,
   return std::make_tuple(output_colwise, scales_colwise);
 }
 
+at::Tensor mx_block_rearrange_2d_M_groups(
+    at::Tensor scales_tensor,
+    at::Tensor input_group_end_offsets,
+    int64_t max_cols,
+    int64_t chunks_per_tb) {
+
+  // Validate inputs
+  check_cuda_tensor(scales_tensor, "scales_tensor");
+  check_cuda_tensor(input_group_end_offsets, "input_group_end_offsets");
+
+  TORCH_CHECK(scales_tensor.dim() == 2, "scales_tensor must be 2D");
+  TORCH_CHECK(scales_tensor.is_contiguous(), "scales_tensor must be contiguous (row-major)");
+  TORCH_CHECK(scales_tensor.scalar_type() == at::kByte || // uint8
+              scales_tensor.scalar_type() == at::kFloat8_e8m0fnu,
+              "scales_tensor must be uint8 or e8m0");
+  TORCH_CHECK(input_group_end_offsets.scalar_type() == at::kInt,
+              "input_group_end_offsets must be int32");
+  TORCH_CHECK(input_group_end_offsets.dim() == 1,
+              "input_group_end_offsets must be 1D");
+  TORCH_CHECK(max_cols == 64 || max_cols == 128,
+              "max_cols must be 64 or 128, got: ", max_cols);
+  TORCH_CHECK(chunks_per_tb == 4 || chunks_per_tb == 8 || chunks_per_tb == 16,
+              "chunks_per_tb must be 4, 8, or 16, got: ", chunks_per_tb);
+
+  c10::cuda::CUDAGuard device_guard(scales_tensor.device());
+
+  const int rows = scales_tensor.size(0);
+  const int cols = scales_tensor.size(1);
+  const int num_groups = input_group_end_offsets.size(0);
+  TORCH_CHECK(num_groups <= 32, "num_groups must be <= 32");
+
+  // Calculate blocks needed - uses 128-row blocks
+  // For M groups, groups are along rows, so we pad each group to 128 rows
+  const int BLOCK_ROWS = 128;
+  const int BLOCK_COLS = 4;
+
+  // Each group is padded to 128 rows upper bound
+  const int padded_rows = rows + num_groups * BLOCK_ROWS;
+
+  // Columns are padded to multiple of BLOCK_COLS
+  const int num_col_blocks = (cols + BLOCK_COLS - 1) / BLOCK_COLS;
+  const int padded_cols = num_col_blocks * BLOCK_COLS;
+
+  // Create output tensor
+  auto output = at::zeros({padded_rows, padded_cols},
+                            at::TensorOptions()
+                                .dtype(scales_tensor.scalar_type())
+                                .device(scales_tensor.device()));
+
+  // Get raw pointers
+  const uint8_t* scales_ptr = scales_tensor.data_ptr<uint8_t>();
+  const int32_t* offsets_ptr = input_group_end_offsets.data_ptr<int32_t>();
+  uint8_t* output_ptr = output.data_ptr<uint8_t>();
+
+  // Launch pipelined M groups kernel with specified max_cols and chunks_per_tb
+  launch_mx_block_rearrange_2d_M_groups_rowmajor_128x4_vec_pipelined(
+      scales_ptr,
+      scales_tensor.stride(0),
+      rows,
+      cols,
+      padded_rows,
+      offsets_ptr,
+      output_ptr,
+      num_groups,
+      static_cast<int>(max_cols),
+      static_cast<int>(chunks_per_tb));
+
+  return output;
+}
+
+
 } // namespace mxfp8
 
 
@@ -185,4 +268,5 @@ mxfp8_quantize_3d(const at::Tensor& input, int64_t scale_dim_n,
 TORCH_LIBRARY_IMPL(torchao, CUDA, m) {
   m.impl("mxfp8_quantize", &mxfp8::mxfp8_quantize);
   m.impl("mxfp8_quantize_3d", &mxfp8::mxfp8_quantize_3d);
+  m.impl("mx_block_rearrange_2d_M_groups", &mxfp8::mx_block_rearrange_2d_M_groups);
 }
