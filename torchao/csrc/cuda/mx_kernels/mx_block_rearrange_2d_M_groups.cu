@@ -204,7 +204,7 @@ __global__ void mx_blocked_layout_2d_M_groups_kernel(
     int buf_parity[NUM_BUFFERS] = {0};
     auto load_chunk = [&](int chunk_idx, int buf_idx) {
         if (chunk_idx >= NUM_BUFFERS) {
-            ptx::cp_async_bulk_wait_group_read<1>();
+            ptx::cp_async_bulk_wait_group_read<0>();
         }
 
         uint64_t* mbar_ptr = &mbar[buf_idx];
@@ -234,15 +234,16 @@ __global__ void mx_blocked_layout_2d_M_groups_kernel(
         ptx::mbarrier_wait_parity(mbar_ptr, buf_parity[buf_idx]);
         buf_parity[buf_idx] ^= 1;
 
-        // Read 16 bytes via coalesced vectorized loads from SMEM
+        // Read 16 bytes via coalesced vectorized loads from SMEM (row-major input)
         const int thread_col_start = col_idx * BYTES_PER_THREAD;
         uint4 row_data = make_uint4(0, 0, 0, 0);
-        if (global_row_base + row_idx < input_group_end_row) {
+        const uint32_t chunk_start_row = global_row_base + (chunk_idx * SF_ROWS);
+        if (chunk_start_row + row_idx < input_group_end_row) {
             row_data = *reinterpret_cast<uint4*>(&smem_buffers[buf_idx][row_idx * MAX_COLS + thread_col_start]);
         }
         __syncthreads();
 
-        // Scatter to blocked layout (4-byte writes per tile)
+        // Scatter to blocked layout in SMEM (4-byte writes per tile)
         constexpr int tiles_per_thread = BYTES_PER_THREAD / SF_COLS;
         #pragma unroll
         for (int i = 0; i < tiles_per_thread; i++) {
@@ -252,16 +253,29 @@ __global__ void mx_blocked_layout_2d_M_groups_kernel(
         }
         __syncthreads();
 
-        // TMA store to global memory
-        const uint32_t store_y = output_group_start_row + ((group_local_row_superblock * CHUNKS_PER_TB + chunk_idx) * SF_ROWS);
-        if (is_master_thread) {
-            ptx::cp_async_bulk_tensor_2d_shared_to_global(
-                reinterpret_cast<const uint64_t*>(&output_tensor_map),
-                global_col_base,
-                store_y,
-                reinterpret_cast<uint64_t*>(&smem_buffers[buf_idx])
-            );
-            ptx::cp_async_bulk_commit_group();
+        // Store to global memory using regular stores, since blocked layout is not well suited for TMA
+        const int sf_row_tile_within_group = (group_local_row_superblock * CHUNKS_PER_TB) + chunk_idx;
+        const int sf_row_tile_global = (output_group_start_row / SF_ROWS) + sf_row_tile_within_group;
+
+        // col_block_pid is the column SUPERBLOCK index (MAX_COLS columns each)
+        // Need to convert to tile offset: superblock * tiles_per_superblock
+        constexpr int TILES_PER_SUPERBLOCK = MAX_COLS / SF_COLS;  // 16 for MAX_COLS=64, 32 for MAX_COLS=128
+        const int superblock_sf_tile_start = col_block_pid * TILES_PER_SUPERBLOCK;
+
+        // Output base for this chunk's blocked layout data
+        const int chunk_output_base = (sf_row_tile_global * output_stride_per_row_of_blocks)
+                                    + (superblock_sf_tile_start * output_stride_per_block);
+
+        // Check if this chunk has any valid rows
+        const uint32_t rows_remaining_in_group = (input_group_end_row > chunk_start_row) ? (input_group_end_row - chunk_start_row) : 0;
+
+        // Each thread copies 16 bytes from blocked layout in SMEM to GMEM
+        const int thread_smem_offset = tid * BYTES_PER_THREAD;
+
+        if (rows_remaining_in_group > 0) {
+            uint8_t* output_ptr = output_scales + chunk_output_base + thread_smem_offset;
+            *reinterpret_cast<uint4*>(output_ptr) =
+                *reinterpret_cast<uint4*>(&smem_buffers[buf_idx][thread_smem_offset]);
         }
     };
 
@@ -451,12 +465,6 @@ void launch_mx_block_rearrange_2d_M_groups_rowmajor_128x4_vec_pipelined(
     } else {
         printf("CUDA Error: max_cols must be 64 or 128, got %d\n", max_cols);
         return;
-    }
-
-    cudaError_t err = cudaGetLastError();
-    if (err != cudaSuccess) {
-        printf("CUDA Error (pipelined max_cols=%d, chunks_per_tb=%d): %s\n",
-               max_cols, chunks_per_tb, cudaGetErrorString(err));
     }
 
 }
