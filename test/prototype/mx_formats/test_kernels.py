@@ -45,6 +45,7 @@ from torchao.prototype.mx_formats.mx_tensor import ScaleCalculationMode, to_dtyp
 from torchao.prototype.mx_formats.utils import to_blocked
 from torchao.utils import (
     is_cuda_version_at_least,
+    is_MI350,
     is_sm_at_least_100,
     torch_version_at_least,
 )
@@ -556,12 +557,12 @@ def test_rearrange(shape):
 
 
 @pytest.mark.skipif(
-    not is_sm_at_least_100(),
-    reason="MXFP8 requires CUDA capability 10.0 or greater",
+    not (is_sm_at_least_100() or is_MI350()),
+    reason="MXFP8 requires CUDA capability 10.0 or greater, or ROCm MI350",
 )
 @pytest.mark.skipif(
-    not is_cuda_version_at_least(12, 8),
-    reason="CUDA version >= 12.8 required for MXFP8 CUDA kernels",
+    not (is_cuda_version_at_least(12, 8) or is_MI350()),
+    reason="CUDA version >= 12.8 required for MXFP8 CUDA kernels, or ROCm MI350",
 )
 @pytest.mark.parametrize("M", (32, 256))
 @pytest.mark.parametrize("K", (32, 256))
@@ -604,12 +605,12 @@ def test_cuda_mx_dim1_numerics(M, K, input_dtype, scaling_mode):
 
 
 @pytest.mark.skipif(
-    not is_sm_at_least_100(),
-    reason="MXFP8 requires CUDA capability 10.0 or greater",
+    not (is_sm_at_least_100() or is_MI350()),
+    reason="MXFP8 requires CUDA capability 10.0 or greater, or ROCm MI350",
 )
 @pytest.mark.skipif(
-    not is_cuda_version_at_least(12, 8),
-    reason="CUDA version >= 12.8 required for MXFP8 CUDA kernels",
+    not (is_cuda_version_at_least(12, 8) or is_MI350()),
+    reason="CUDA version >= 12.8 required for MXFP8 CUDA kernels, or ROCm MI350",
 )
 def test_cuda_mx_dim0_not_supported():
     M, K = 64, 64

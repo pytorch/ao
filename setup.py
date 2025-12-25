@@ -581,6 +581,10 @@ def get_extensions():
     # Add CUDA source files if needed
     if use_cuda:
         sources += cuda_sources
+    if use_rocm:
+        extra_compile_args["nvcc"].append("--offload-arch=gfx942")
+        extra_compile_args["nvcc"].append("--offload-arch=gfx950")
+        sources += rocm_sources
 
     # Add MXFP8 cuda extension dir
     mxfp8_extension_dir = os.path.join(extensions_dir, "cuda", "mx_kernels")
@@ -589,12 +593,15 @@ def get_extensions():
     )
     sources = [s for s in sources if s not in mxfp8_sources_to_exclude]
 
+    # Add MXFP8 rocm extension dir
+    mxfp8_rocm_extension_dir = os.path.join(extensions_dir, "rocm", "mx_kernels")
+    mxfp8_rocm_sources_to_exclude = list(
+        glob.glob(os.path.join(mxfp8_rocm_extension_dir, "**/*"), recursive=True)
+    )
+    sources = [s for s in sources if s not in mxfp8_rocm_sources_to_exclude]
+
     # TOOD: Remove this and use what CUDA has once we fix all the builds.
-    # TODO: Add support for other ROCm GPUs
-    if use_rocm:
-        extra_compile_args["nvcc"].append("--offload-arch=gfx942")
-        sources += rocm_sources
-    else:
+    if not use_rocm:
         # Remove ROCm-based sources from the sources list.
         extensions_rocm_dir = os.path.join(extensions_dir, "rocm")
         rocm_sources = list(
@@ -732,6 +739,37 @@ def get_extensions():
                         + [
                             "-gencode=arch=compute_100,code=sm_100",
                             "-gencode=arch=compute_120,code=compute_120",
+                        ],
+                    },
+                ),
+            )
+    # Add the mxfp8 casting ROCm extension
+    if use_rocm:
+        mxfp8_rocm_sources = [
+            os.path.join(mxfp8_rocm_extension_dir, "mxfp8_extension.cpp"),
+            os.path.join(mxfp8_rocm_extension_dir, "mxfp8_rocm.hip"),
+        ]
+
+        # Only add the extension if the source files exist
+        mxfp8_rocm_src_files_exist = all(os.path.exists(f) for f in mxfp8_rocm_sources)
+        if mxfp8_rocm_src_files_exist:
+            print("Building mxfp8_rocm extension")
+            ext_modules.append(
+                CUDAExtension(
+                    name="torchao._C_mxfp8",
+                    sources=mxfp8_rocm_sources,
+                    include_dirs=[
+                        mxfp8_rocm_extension_dir,
+                    ],
+                    extra_compile_args={
+                        "cxx": [
+                            f"-DPy_LIMITED_API={min_supported_cpython_hexcode}",
+                            "-std=c++17",
+                            "-O3",
+                        ],
+                        "nvcc": rocm_args
+                        + [
+                            "--offload-arch=gfx950",
                         ],
                     },
                 ),
