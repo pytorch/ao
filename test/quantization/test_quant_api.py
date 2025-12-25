@@ -14,10 +14,6 @@ import warnings
 from pathlib import Path
 
 import torch
-from torch.ao.quantization.quantizer.xnnpack_quantizer import (
-    XNNPACKQuantizer,
-    get_symmetric_quantization_config,
-)
 from torch.testing._internal import common_utils
 from torch.testing._internal.common_quantization import TestHelperModules
 from torch.testing._internal.common_utils import TestCase
@@ -68,6 +64,10 @@ from torchao.quantization.quant_api import (
 )
 from torchao.quantization.quant_primitives import MappingType
 from torchao.quantization.utils import compute_error
+from torchao.testing.pt2e._xnnpack_quantizer import (
+    XNNPACKQuantizer,
+    get_symmetric_quantization_config,
+)
 from torchao.testing.utils import skip_if_rocm, skip_if_xpu
 from torchao.utils import (
     get_current_accelerator_device,
