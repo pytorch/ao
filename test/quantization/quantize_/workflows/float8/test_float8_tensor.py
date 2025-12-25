@@ -1390,7 +1390,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
     )
     def test_pin_memory(self, config):
         linear = torch.nn.Linear(
-            256, 512, bias=False, dtype=torch.bfloat16, device="cuda"
+            256, 512, bias=False, dtype=torch.bfloat16, device=_DEVICE
         )
         quantize_(linear, config)
         weight_cpu = linear.weight.cpu()
