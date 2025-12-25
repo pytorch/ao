@@ -135,8 +135,9 @@ __global__ void mx_blocked_layout_2d_M_groups_kernel(
     const int col_block_pid = blockIdx.x;
     const int tid = threadIdx.x;
     const bool is_master_thread = tid == 0;
-    const int row_idx = tid / SF_COLS;
-    const int col_idx = tid % SF_COLS;
+    constexpr int THREADS_PER_ROW = MAX_COLS / BYTES_PER_THREAD;
+    const int row_idx = tid / THREADS_PER_ROW;
+    const int col_idx = tid % THREADS_PER_ROW;
     constexpr int SMEM_SIZE = SF_ROWS * MAX_COLS;
 
     __shared__ int smem_group_data[64]; // max 32 groups; 32 ints for group sizes, 32 for cumsums at each group
@@ -203,11 +204,8 @@ __global__ void mx_blocked_layout_2d_M_groups_kernel(
     int buf_parity[NUM_BUFFERS] = {0};
     auto load_chunk = [&](int chunk_idx, int buf_idx) {
         if (chunk_idx >= NUM_BUFFERS) {
-            // Wait for pending TMA loads to complete (at most 1 pending)
-            ptx::cp_async_bulk_wait_group_read<1>();
-            // Wait for pending TMA stores to complete before reusing buffer
-            // (the TMA store from process_chunk reads from SMEM asynchronously)
-            ptx::cp_async_bulk_wait_group();
+            // Wait for pending TMA stores to complete (at most 1 pending)
+            ptx::cp_async_bulk_wait_group_read<0>();
             __syncthreads();
         }
 
