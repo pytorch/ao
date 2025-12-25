@@ -14,7 +14,6 @@ import warnings
 from pathlib import Path
 
 import torch
-from torch.ao.quantization.quantize_pt2e import convert_pt2e, prepare_pt2e
 from torch.ao.quantization.quantizer.xnnpack_quantizer import (
     XNNPACKQuantizer,
     get_symmetric_quantization_config,
@@ -40,6 +39,7 @@ from torchao.quantization import (
     LinearActivationQuantizedTensor,
     PerGroup,
 )
+from torchao.quantization.pt2e.quantize_pt2e import convert_pt2e, prepare_pt2e
 from torchao.quantization.qat import (
     FakeQuantizedLinear,
     QATConfig,
