@@ -830,7 +830,7 @@ inline void _fp8_exp_reduce_sum_quant_fusion_kernel(
   for (; i < vec_size * (size / vec_size); i += vec_size) {
     auto tmp0 = at::vec::Vectorized<float>::loadu(a + i);
     auto tmp1 = tmp0 - vec_max;
-    auto tmp2 = tmp1.exp_u20();
+    auto tmp2 = tmp1.fexp_u20();
     vec_tmp_sum += tmp2;
     auto tmp3 = tmp2 * vec_scale;
     auto tmp4 = at::vec::clamp(tmp3, vec_min_val, vec_max_val);
@@ -839,7 +839,7 @@ inline void _fp8_exp_reduce_sum_quant_fusion_kernel(
   if (i < size) {
     auto tmp0 = at::vec::Vectorized<float>::loadu(a + i, size - i);
     auto tmp1 = tmp0 - vec_max;
-    auto tmp2 = tmp1.exp_u20();
+    auto tmp2 = tmp1.fexp_u20();
     vec_tmp_sum = at::vec::Vectorized<float>::set(vec_tmp_sum, vec_tmp_sum + tmp2, size - i);
     auto tmp3 = tmp2 * vec_scale;
     auto tmp4 = at::vec::clamp(tmp3, vec_min_val, vec_max_val);
@@ -1912,36 +1912,22 @@ fp8_sdpa_fused_kernel_impl(
   }
 
   // Reorder K, V
-  at::Tensor tranpose_t_reorder = at::empty(
-    {num_thread, kvSplitSize, headSize},
-    c10::CppTypeToScalarType<scalar_t>::value);
-  scalar_t* transpose_buffer_ptr = tranpose_t_reorder.data_ptr<scalar_t>();
   at::parallel_for(0, batchSize * num_head * kvSlice, 1, [&](int64_t begin, int64_t end) {
       int ompIdx = at::get_thread_num();
       int64_t i = 0, j = 0, l = 0, n = 0;
-      scalar_t* transpose_ptr = transpose_buffer_ptr + ompIdx * kvSplitSize * headSize;
       at::native::data_index_init(begin, i, batchSize, j, num_head, l, kvSlice);
       for ([[maybe_unused]] auto z : c10::irange(begin, end)) {
         n = l * kvSplitSize;
         int64_t kvBlockSize = std::min(kvSplitSize, kvSize - n);
 
-        // transpose [kvBlockSize, headSize] -> [headSize, kvBlockSize]
-        at::native::utils::transpose<uint8_t>(
-            kvBlockSize,
-            headSize,
-            /* src */ reinterpret_cast<const uint8_t*>(k_data + i * kStrideB + j * kStrideH + n * kStrideN),
-            /* ld_src */ kStrideN,
-            /* dst */ reinterpret_cast<uint8_t*>(transpose_ptr),
-            /* ld_dst */ kvBlockSize);
-
-        // Pack [headSize, kvBlockSize]
-        at::vec::pack_vnni4(
-          /* src */ reinterpret_cast<const uint8_t*>(transpose_ptr),
+        // transpose and pack [kvBlockSize, headSize] -> [headSize, kvBlockSize]
+        at::vec::transpose_pack_vnni4(
+          /* src */ reinterpret_cast<const uint8_t*>(k_data + i * kStrideB + j * kStrideH + n * kStrideN),
           /* dst */ reinterpret_cast<uint8_t*>(key_reorder_ptr + i * num_head * eheadSize * kvSize +
                   j * eheadSize * kvSize + n * eheadSize),
-          /* ld_src */ kvBlockSize,
-          /* K */ headSize,
-          /* N */ kvBlockSize);
+          /* ld_src */ kStrideN,
+          /* K */ kvBlockSize,
+          /* N */ headSize);
 
         // Pack [kvBlockSize, headSize]
         at::vec::pack_vnni4(
@@ -2330,26 +2316,26 @@ void fp8_sdpa_fused_kernel(
   if (q_seq_len >= 768) {
     q_split_size = 256;
   } else if (q_seq_len >= 192) {
-    q_split_size = 64;
+    q_split_size = 128;
   }
 
   if (!attn_mask.has_value()) {
     if (q_split_size == 256) {
-      fp8_sdpa_fused_kernel_impl<at::Float8_e4m3fn, float, 256, 64>(
+      fp8_sdpa_fused_kernel_impl<at::Float8_e4m3fn, float, 256, 512>(
         output, query, key, value,
         dropout_p, is_causal, attn_mask, scale,
         q_scale, k_scale,
         v_scale, a_scale,
         o_scale);
-    } else if (q_split_size == 64) {
-      fp8_sdpa_fused_kernel_impl<at::Float8_e4m3fn, float, 64, 64>(
+    } else if (q_split_size == 128) {
+      fp8_sdpa_fused_kernel_impl<at::Float8_e4m3fn, float, 128, 512>(
         output, query, key, value,
         dropout_p, is_causal, attn_mask, scale,
         q_scale, k_scale,
         v_scale, a_scale,
         o_scale);
     } else {
-      fp8_sdpa_fused_kernel_impl<at::Float8_e4m3fn, float, 32, 64>(
+      fp8_sdpa_fused_kernel_impl<at::Float8_e4m3fn, float, 32, 512>(
         output, query, key, value,
         dropout_p, is_causal, attn_mask, scale,
         q_scale, k_scale,
@@ -2359,21 +2345,21 @@ void fp8_sdpa_fused_kernel(
   } else {
     AT_DISPATCH_MASK_TYPES(attn_mask.value().scalar_type(), "sdpa_mask", [&]() {
       if (q_split_size == 256) {
-        fp8_sdpa_fused_kernel_impl<at::Float8_e4m3fn, mask_t, 256, 64>(
+        fp8_sdpa_fused_kernel_impl<at::Float8_e4m3fn, mask_t, 256, 512>(
           output, query, key, value,
           dropout_p, is_causal, attn_mask, scale,
           q_scale, k_scale,
           v_scale, a_scale,
           o_scale);
-      } else if (q_split_size == 64) {
-        fp8_sdpa_fused_kernel_impl<at::Float8_e4m3fn, mask_t, 64, 64>(
+      } else if (q_split_size == 128) {
+        fp8_sdpa_fused_kernel_impl<at::Float8_e4m3fn, mask_t, 128, 512>(
           output, query, key, value,
           dropout_p, is_causal, attn_mask, scale,
           q_scale, k_scale,
           v_scale, a_scale,
           o_scale);
       } else {
-        fp8_sdpa_fused_kernel_impl<at::Float8_e4m3fn, mask_t, 32, 64>(
+        fp8_sdpa_fused_kernel_impl<at::Float8_e4m3fn, mask_t, 32, 512>(
           output, query, key, value,
           dropout_p, is_causal, attn_mask, scale,
           q_scale, k_scale,
