@@ -352,3 +352,57 @@ def test_cuda_mx_dim1_3d_numerics(E, N, K, input_dtype, scaling_mode):
     # Check quantized values
     torch.testing.assert_close(y_d1, y_d1_ref, rtol=0, atol=0)
     assert y_d1.stride() == y_d1_ref.stride(), "quantized tensor strides do not match"
+
+
+@pytest.mark.skipif(
+    not is_sm_at_least_100(),
+    reason="MXFP8 requires CUDA capability 10.0 or greater",
+)
+@pytest.mark.parametrize("m", [256, 512, 1024, 5120])
+@pytest.mark.parametrize("total_k", [512, 1024, 2048, 4096, 8192, 16384])
+@pytest.mark.parametrize("n_groups", [1, 4, 8, 16])
+def test_cuda_mx_block_rearrange_2d_K_groups(
+    m: int,
+    total_k: int,
+    n_groups: int,
+):
+    """
+    Test CUDA kernel for mx_block_rearrange_2d_K_groups against Triton reference.
+    """
+    from torchao.prototype.moe_training.kernels.mxfp8.quant import (
+        mx_block_rearrange_2d_K_groups_cuda,
+    )
+
+    device = "cuda"
+    block_size = 32
+    input_data = torch.randn(m, total_k, device=device)
+
+    e8m0_scales, _ = to_mx(
+        input_data, elem_dtype=torch.float8_e4m3fn, block_size=block_size
+    )
+
+    # Generate group end offsets along total_K, then divide by block_size to get scale group end offsets
+    input_group_offsets = generate_jagged_offs(
+        n_groups, total_k, multiple_of=block_size, device=device
+    )
+    scale_group_offsets = input_group_offsets // block_size
+
+    # Triton reference implementation
+    triton_out_scales = triton_mx_block_rearrange_2d_K_groups(
+        e8m0_scales,
+        scale_group_offsets,
+    )
+
+    # CUDA kernel implementation
+    cuda_out_scales = mx_block_rearrange_2d_K_groups_cuda(
+        e8m0_scales,
+        scale_group_offsets,
+    )
+
+    # Check that outputs match
+    assert torch.equal(triton_out_scales, cuda_out_scales.view(torch.float8_e8m0fnu)), (
+        "CUDA and Triton blocked scales not equal"
+    )
+
+    # Check strides
+    assert triton_out_scales.stride() == cuda_out_scales.stride(), "strides not equal"
