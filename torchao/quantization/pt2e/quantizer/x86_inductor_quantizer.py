@@ -1630,7 +1630,7 @@ class X86InductorQuantizer(Quantizer):
 # Register Inductor fusion passes
 import torch._inductor.config
 
-from torchao.quantization.pt2e.inductor_passes.dequantize_fp8_lowering import (
+from torchao.quantization.pt2e.inductor_passes.lowering import (
     _register_dequantize_fp8_lowering,
 )
 from torchao.quantization.pt2e.inductor_passes.x86 import (
