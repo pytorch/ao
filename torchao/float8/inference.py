@@ -288,7 +288,7 @@ def _check_hardware_support(
         assert torch.xpu.is_available() or (
             torch.cuda.is_available() and is_sm_at_least_89() or is_MI300()
         ), (
-            "Float8 dynamic quantization requires CUDA compute capability ≥8.9 or MI300+."
+            "Float8 dynamic quantization requires CUDA compute capability ≥8.9 or MI300+ or XPU."
         )
     elif is_a_1_128_w_128_128:
         # TODO(future PR): look into AMD support
