@@ -32,7 +32,6 @@ from torchao.testing.utils import TorchAOIntegrationTestCase
 from torchao.utils import (
     _is_fbgemm_gpu_genai_available,
     _is_mslk_available,
-    auto_detect_device,
     get_current_accelerator_device,
     is_sm_at_least_89,
     is_sm_at_least_90,
