@@ -10,6 +10,10 @@ import subprocess
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, TorchAoConfig
 
+from torchao.prototype.mx_formats.inference_workflow import (
+    MXDynamicActivationMXWeightConfig,
+    NVFP4DynamicActivationNVFP4WeightConfig,
+)
 from torchao.quantization import (
     Float8DynamicActivationFloat8WeightConfig,
     Float8DynamicActivationInt4WeightConfig,
@@ -37,6 +41,16 @@ def string_to_config(s):
         return Int8WeightOnlyConfig()
     elif s == "int8_rowwise":
         return Int8DynamicActivationInt8WeightConfig()
+    elif s == "mxfp8":
+        return MXDynamicActivationMXWeightConfig(
+            activation_dtype=torch.float8_e4m3fn,
+            weight_dtype=torch.float8_e4m3fn,
+        )
+    elif s == "nvfp4":
+        return NVFP4DynamicActivationNVFP4WeightConfig(
+            use_dynamic_per_tensor_scale=True,
+            use_triton_kernel=True,
+        )
     else:
         raise AssertionError(f"unsupported {s}")
 
