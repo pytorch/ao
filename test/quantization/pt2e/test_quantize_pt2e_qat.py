@@ -30,6 +30,7 @@ from torch.testing._internal.common_quantization import (
 from torch.testing._internal.common_quantized import override_quantized_engine
 from torch.testing._internal.common_utils import TEST_XPU, run_tests
 
+import torchao
 from torchao.quantization.pt2e import (
     FusedMovingAvgObsFakeQuantize,
     MovingAverageMinMaxObserver,
@@ -178,12 +179,12 @@ class PT2EQATTestCase(QuantizationTestCase):
         self.assertEqual(after_prepare_result_pt2e, after_prepare_result_fx)
 
         if verify_convert:
-            from torch.ao.quantization.quantize_pt2e import (
+            from torch.ao.quantization.quantize_fx import (
                 _convert_to_reference_decomposed_fx,
             )
 
             # We don't want to impose any ordering requirements between move_exported_model_to_eval and convert_pt2e
-            torch.ao.quantization.move_exported_model_to_eval(model_pt2e)
+            torchao.quantization.pt2e.move_exported_model_to_eval(model_pt2e)
             model_pt2e = convert_pt2e(model_pt2e)
             quant_result_pt2e = model_pt2e(*example_inputs)
             model_fx.eval()
@@ -1270,7 +1271,7 @@ class TestQuantizeMixQATAndPTQ(QuantizationTestCase):
     def _convert_qat_linears(self, model):
         for name, child in model.named_children():
             if isinstance(child, torch.fx.GraphModule):
-                torch.ao.quantization.move_exported_model_to_eval(child)
+                torchao.quantization.pt2e.move_exported_model_to_eval(child)
                 converted_child = convert_pt2e(child)
                 setattr(model, name, converted_child)
             else:

@@ -81,6 +81,7 @@ from torchao.quantization.quantize_.common import (
     KernelPreference,
 )
 from torchao.quantization.quantize_.workflows import (
+    Float8PackingFormat,
     Float8Tensor,
     Int4ChooseQParamsAlgorithm,
     Int4MarlinSparseTensor,
@@ -96,6 +97,7 @@ from torchao.quantization.quantize_.workflows import (
     IntxUnpackedToInt8Tensor,
     QuantizeTensorToFloat8Kwargs,
     QuantizeTensorToInt8Kwargs,
+    Sparse2x4CUTLASSFloat8Tensor,
 )
 from torchao.quantization.transform_module import (
     _QUANTIZE_CONFIG_HANDLER,
@@ -1461,7 +1463,7 @@ class Float8WeightOnlyConfig(AOBaseConfig):
     Args:
         weight_dtype (torch.dtype): The target data type for weight quantization. Default is torch.float8_e4m3fn.
         set_inductor_config (bool): if True, adjusts `torchinductor` settings to recommended values.
-        version (int): the version of the config, version 1 is using AffineQuantizedTensor that we plan to deprecate/split, version 2 is using Float8Tensor (default)
+        version (int): the version of the config, version 1 is deprecated, version 2 is using Float8Tensor (default)
 
     Note:
         The actual matmul will be computed in original precision of the weight tensor.
@@ -1476,26 +1478,11 @@ class Float8WeightOnlyConfig(AOBaseConfig):
 
 
 def _float8_weight_only_quant_tensor(weight, config):
-    if config.version == 1:
-        warnings.warn(
-            "Config Deprecation: version 1 of Float8WeightOnlyConfig is deprecated and will no longer be supported in a future release, please use version 2, see https://github.com/pytorch/ao/issues/2649 for more details"
-        )
-        from torchao.dtypes import to_affine_quantized_floatx
-
-        block_size = tuple([1 for _ in range(weight.dim() - 1)] + [weight.shape[-1]])
-        new_weight = to_affine_quantized_floatx(
-            input_float=weight,
-            block_size=block_size,
-            target_dtype=config.weight_dtype,
-            scale_dtype=None,
-            _layout=Float8Layout(mm_config=None),
-        )
-    else:
-        assert config.version == 2, f"Unexpected version: {config.version}"
-        weight_dtype = config.weight_dtype
-        new_weight = Float8Tensor.from_hp(
-            weight, float8_dtype=weight_dtype, granularity=PerRow()
-        )
+    assert config.version == 2, f"Unexpected version: {config.version}"
+    weight_dtype = config.weight_dtype
+    new_weight = Float8Tensor.from_hp(
+        weight, float8_dtype=weight_dtype, granularity=PerRow()
+    )
     return new_weight
 
 
@@ -1596,13 +1583,14 @@ class Float8DynamicActivationFloat8WeightConfig(AOBaseConfig):
         activation_value_ub (Optional[float]): the upper bound for activation value for calculating scale
         kernel_preference (KernelPreference): kernel preference for ops like matmul, grouped matmul etc. by defalut (KernelPreference.AUTO) it will be chosen for user based on hardware or other information, this only needs to be set in weight
         set_inductor_config (bool): if True, adjusts `torchinductor` settings to recommended values.
-        version (int): the version of the config, version 1 is using AffineQuantizedTensor that we plan to deprecate/split, version 2 is using Float8Tensor (default)
+        version (int): the version of the config, version 1 is deprecated, version 2 is using Float8Tensor (default)
 
     """
 
     activation_dtype: torch.dtype = e4m3_dtype
     weight_dtype: torch.dtype = e4m3_dtype
     granularity: Optional[Union[FP8Granularity, List[FP8Granularity]]] = None
+    packing_format: Optional[Float8PackingFormat] = Float8PackingFormat.PLAIN
     mm_config: Optional[Float8MMConfig] = None
     activation_value_lb: Optional[float] = None
     activation_value_ub: Optional[float] = None
@@ -1627,6 +1615,9 @@ class Float8DynamicActivationFloat8WeightConfig(AOBaseConfig):
             ), "unimplemented"
             assert self.version >= 2, "unimplemented"
             default_use_fast_accum = False
+        if torch.xpu.is_available():
+            # XPU does not support fast_accum for now
+            default_use_fast_accum = False
 
         if self.mm_config is None:
             self.mm_config = Float8MMConfig(use_fast_accum=default_use_fast_accum)
@@ -1640,6 +1631,7 @@ def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
     activation_value_lb = config.activation_value_lb
     activation_value_ub = config.activation_value_ub
     kernel_preference = config.kernel_preference
+    packing_format = config.packing_format
 
     # Ensure works on device
     _check_hardware_support(granularity)
@@ -1666,47 +1658,21 @@ def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
         # TODO(future PR): this should really throw an exception instead of silently
         # not doing what the user asked
         return weight
-
-    if isinstance(weight_granularity, PerRow):
+    assert config.version == 2, f"Unexpected version: {config.version}"
+    if packing_format == Float8PackingFormat.PLAIN and isinstance(
+        weight_granularity, PerRow
+    ):
         assert weight.dtype == torch.bfloat16, (
             "PerRow quantization only works for bfloat16 precision input weight"
         )
-
-    if config.version == 1:
-        warnings.warn(
-            "Config Deprecation: version 1 of Float8DynamicActivationFloat8WeightConfig is deprecated and will no longer be supported in a future release, please use version 2, see https://github.com/pytorch/ao/issues/2649 for more details"
-        )
-
-        block_size = get_block_size(weight.shape[-2:], weight_granularity)
-        if weight.dim() == 3:
-            block_size = tuple([1] + list(block_size))
-        quantized_weight = to_affine_quantized_floatx(
-            input_float=weight,
-            block_size=block_size,
-            target_dtype=weight_dtype,
-            scale_dtype=torch.float32,
-            _layout=Float8Layout(mm_config=mm_config),
-        )
-
-        input_quant_func = _input_activation_quant_func_fp8
-        input_quant_kwargs = {
-            "activation_granularity": activation_granularity,
-            "activation_dtype": activation_dtype,
-        }
-
-        quantized_weight = to_linear_activation_quantized(
-            quantized_weight, input_quant_func, quant_kwargs=input_quant_kwargs
-        )
-    else:
-        assert config.version == 2, f"Unexpected version: {config.version}"
-        act_quant_kwargs = QuantizeTensorToFloat8Kwargs(
-            activation_dtype,
-            activation_granularity,
-            hp_value_lb=activation_value_lb,
-            hp_value_ub=activation_value_ub,
-            kernel_preference=kernel_preference,
-        )
-
+    act_quant_kwargs = QuantizeTensorToFloat8Kwargs(
+        activation_dtype,
+        activation_granularity,
+        hp_value_lb=activation_value_lb,
+        hp_value_ub=activation_value_ub,
+        kernel_preference=kernel_preference,
+    )
+    if packing_format == Float8PackingFormat.PLAIN:
         quantized_weight = Float8Tensor.from_hp(
             weight,
             float8_dtype=weight_dtype,
@@ -1715,8 +1681,18 @@ def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
             kernel_preference=kernel_preference,
             act_quant_kwargs=act_quant_kwargs,
         )
-
-    return quantized_weight
+        return quantized_weight
+    elif packing_format == Float8PackingFormat.SPARSE_CUTLASS:
+        assert isinstance(weight_granularity, PerRow), (
+            "Sparse packing format only supports per-row quantization"
+        )
+        quantized_weight = Sparse2x4CUTLASSFloat8Tensor.from_hp(
+            weight,
+            float8_dtype=weight_dtype,
+            granularity=weight_granularity,
+            act_quant_kwargs=act_quant_kwargs,
+        )
+        return quantized_weight
 
 
 @register_quantize_module_handler(Float8DynamicActivationFloat8WeightConfig)
@@ -1726,9 +1702,10 @@ def _float8_dynamic_activation_float8_weight_transform(
     *,
     parameter_name: str = "weight",
 ):
-    assert is_sm_at_least_89() or is_MI300(), (
-        "Float8 dynamic activation quantization is only supported on CUDA>=8.9 and MI300+"
-    )
+    if torch.cuda.is_available():
+        assert is_sm_at_least_89() or is_MI300(), (
+            "Float8 dynamic activation quantization is only supported on CUDA>=8.9 and MI300+"
+        )
     if config.set_inductor_config:
         torchao.quantization.utils.recommended_inductor_config_setter()
 
