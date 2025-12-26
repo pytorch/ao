@@ -106,7 +106,7 @@ void launch_mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec_pipelined(
     int chunks_per_tb,  // Chunks per super-block: 4, 8, or 16
     cudaStream_t stream);
 
-void launch_mx_block_rearrange_2d_M_groups_rowmajor_128x4_vec_pipelined(
+void launch_mx_block_rearrange_2d_M_groups_cuda(
     const uint8_t* scales_ptr,
     int scale_stride_dim0,
     int scale_rows,
@@ -115,7 +115,7 @@ void launch_mx_block_rearrange_2d_M_groups_rowmajor_128x4_vec_pipelined(
     const int32_t* input_group_end_offsets,
     uint8_t* output_scales_ptr,
     int num_groups,
-    int max_cols,  // Template selector: 64 or 128
+    int chunk_width,  // Template selector: 64 or 128
     int chunks_per_tb,  // Chunks per super-block: 4, 8, or 16
     cudaStream_t stream);
 
@@ -668,8 +668,8 @@ torch::Tensor mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec_pipelined(
               "input_group_end_offsets must be 1D");
   TORCH_CHECK(max_cols == 64 || max_cols == 128,
               "max_cols must be 64 or 128, got: ", max_cols);
-  TORCH_CHECK(chunks_per_tb == 4 || chunks_per_tb == 8 || chunks_per_tb == 16,
-              "chunks_per_tb must be 4, 8, or 16, got: ", chunks_per_tb);
+  TORCH_CHECK(chunks_per_tb == 1 || chunks_per_tb == 4 || chunks_per_tb == 8 || chunks_per_tb == 16,
+              "chunks_per_tb must be 1, 4, 8, or 16, got: ", chunks_per_tb);
 
   c10::cuda::CUDAGuard device_guard(scales_tensor.device());
 
@@ -723,7 +723,7 @@ torch::Tensor mx_block_rearrange_2d_K_groups_rowmajor_128x4_vec_pipelined(
 //   128 -> 1024 threads (128 rows × 8 cols/16B), 16KB SMEM, 128×128 data tile
 // chunks_per_tb parameter controls how many chunks each super-block processes:
 //   Higher values increase steady-state iterations and amortize pipeline overhead.
-torch::Tensor mx_block_rearrange_2d_M_groups_rowmajor_128x4_vec_pipelined(
+torch::Tensor mx_block_rearrange_2d_M_groups(
     torch::Tensor scales_tensor,
     torch::Tensor input_group_end_offsets,
     int64_t max_cols,
@@ -744,8 +744,8 @@ torch::Tensor mx_block_rearrange_2d_M_groups_rowmajor_128x4_vec_pipelined(
               "input_group_end_offsets must be 1D");
   TORCH_CHECK(max_cols == 64 || max_cols == 128,
               "max_cols must be 64 or 128, got: ", max_cols);
-  TORCH_CHECK(chunks_per_tb == 4 || chunks_per_tb == 8 || chunks_per_tb == 16,
-              "chunks_per_tb must be 4, 8, or 16, got: ", chunks_per_tb);
+  TORCH_CHECK(chunks_per_tb == 1 || chunks_per_tb == 4 || chunks_per_tb == 8 || chunks_per_tb == 16,
+              "chunks_per_tb must be 1, 4, 8, or 16, got: ", chunks_per_tb);
 
   c10::cuda::CUDAGuard device_guard(scales_tensor.device());
 
@@ -778,7 +778,7 @@ torch::Tensor mx_block_rearrange_2d_M_groups_rowmajor_128x4_vec_pipelined(
   uint8_t* output_ptr = output.data_ptr<uint8_t>();
   
   // Launch pipelined M groups kernel with specified max_cols and chunks_per_tb
-  launch_mx_block_rearrange_2d_M_groups_rowmajor_128x4_vec_pipelined(
+  launch_mx_block_rearrange_2d_M_groups_cuda(
       scales_ptr,
       scales_tensor.stride(0),
       rows,
@@ -855,11 +855,11 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
         py::arg("max_cols") = 64,
         py::arg("chunks_per_tb") = 4);
 
-  m.def("mx_block_rearrange_2d_M_groups_rowmajor_128x4_vec_pipelined", 
-        &mxfp8::mx_block_rearrange_2d_M_groups_rowmajor_128x4_vec_pipelined,
+  m.def("mx_block_rearrange_2d_M_groups_cuda", 
+        &mxfp8::mx_block_rearrange_2d_M_groups,
         "Rearrange E8M0 scales to block-scaled swizzle format for M groups (row-major input, 128x4 vectorized, pipelined with TMA)",
         py::arg("scales_tensor"),
         py::arg("input_group_end_offsets"),
-        py::arg("max_cols") = 64,
+        py::arg("chunk_width") = 64,
         py::arg("chunks_per_tb") = 4);
 }

@@ -149,14 +149,14 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
     )
 
     # bench CUDA pipelined kernel with configured max_cols and chunks_per_tb
-    _ = mx_block_rearrange_cuda.mx_block_rearrange_2d_M_groups_rowmajor_128x4_vec_pipelined(
+    _ = mx_block_rearrange_cuda.mx_block_rearrange_2d_M_groups_cuda(
         input_tensor.view(torch.uint8),
         input_group_offsets.to(torch.int32),
         max_cols,
         chunks_per_tb,
     )
     cuda_time_us = benchmark_cuda_function_in_microseconds(
-        mx_block_rearrange_cuda.mx_block_rearrange_2d_M_groups_rowmajor_128x4_vec_pipelined,
+        mx_block_rearrange_cuda.mx_block_rearrange_2d_M_groups_cuda,
         input_tensor.view(torch.uint8),
         input_group_offsets.to(torch.int32),
         max_cols,
