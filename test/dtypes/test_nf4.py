@@ -765,6 +765,10 @@ class TestComm(FSDPTest):
         )
 
     def _test_comm(self, input_size: int):
+        from torchao.utils import is_ROCM
+        if is_ROCM():
+            self.skipTest("ROCm enablement in progress")
+
         from torch.distributed._composable.fsdp import fully_shard
         from torch.distributed._tensor import distribute_tensor
 
