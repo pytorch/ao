@@ -507,6 +507,28 @@ def wait_tensor_fp8(aten_op, args, kwargs=None):
     )
 
 
+@implements([_c10d_functional._wrap_tensor_autograd.default])
+def wrap_tensor_autograd_fp8(aten_op, args, kwargs=None):
+    """
+    Handle _wrap_tensor_autograd for Float8TrainingTensor.
+    This wraps the underlying fp8 data in AsyncCollectiveTensor while
+    preserving the Float8TrainingTensor wrapper with its scale and metadata.
+    """
+    _assert_tensorwise_scale(aten_op, args[0]._scale)
+    fp8_input = args[0]
+    assert isinstance(fp8_input, Float8TrainingTensor)
+
+    fp8_data = fp8_input._data
+    fp8_out = aten_op(fp8_data, *args[1:], **kwargs)
+    return Float8TrainingTensor(
+        fp8_out,
+        fp8_input._scale,
+        fp8_input._orig_dtype,
+        fp8_input._linear_mm_config,
+        fp8_input._gemm_input_role,
+    )
+
+
 @implements([aten.index_put_.default])
 def index_put_fp8(aten_op, args, kwargs=None):
     fp8_self = args[0]
