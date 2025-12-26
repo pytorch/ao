@@ -770,7 +770,7 @@ class TestComm(FSDPTest):
         return 2
 
     @skip_if_lt_x_gpu(2)
-    @unittest.skipIf(not torch.cuda.is_available(), "Need GPU available")
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test_comm(self):
         self.run_subtests(
             {"input_size": [512, 2048]},
