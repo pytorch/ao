@@ -177,10 +177,6 @@ def test_inference_workflow_nvfp4(
     # DYNAMIC mode requires SM100+, but WEIGHT_ONLY works on older GPUs
     if quant_type == "dynamic" and not is_sm_at_least_100():
         pytest.skip("CUDA capability >= 10.0 required for DYNAMIC float4 gemm")
-
-    if bias and inpt_dtype == torch.float32:
-        pytest.xfail("Bias is not supported when module weight is in fp32")
-
     if quant_type == "weight_only" and compile:
         pytest.skip("TODO: weight_only quant currently errors w/ compile")
     if quant_type == "weight_only" and use_triton_kernel:
