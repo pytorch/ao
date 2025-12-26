@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(with-proxy python benchmarks/quantization/eval_accuracy_and_perf_of_flux.py --num_prompts 3 --num_inference_steps 1 --quant_config_str float8_rowwise)",
+      "Bash(with-proxy python:*)",
+      "Bash(torchrun:*)",
+      "Bash(python3:*)",
+      "Bash(python benchmarks/quantization/eval_accuracy_and_perf_of_flux.py:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

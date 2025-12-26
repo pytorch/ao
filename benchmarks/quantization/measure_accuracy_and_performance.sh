@@ -6,7 +6,7 @@
 #
 # Arguments:
 #   TAG_OR_RECIPE  (optional) Tag group, single recipe name, or "all" (default: all)
-#                  Valid tags: all, h100
+#                  Valid tags: all, h100, b200
 #                  Valid recipes: None, float8_rowwise,
 #                                 int4_groupwise_weight_float8_rowwise_activation,
 #                                 int4_groupwise_hqq_weight_only,
@@ -41,6 +41,16 @@ QUANT_RECIPES_ALL=(
   "int4_groupwise_hqq_weight_only"
   "int8_rowwise_weight_only"
   "int8_rowwise"
+  "mxfp8"
+  "nvfp4"
+)
+
+# Define B200-compatible recipes
+QUANT_RECIPES_B200=(
+  "None"
+  "mxfp8"
+  "nvfp4"
+  "float8_rowwise"
 )
 
 # Define H100-compatible recipes (excludes A100-only recipes)
@@ -59,6 +69,9 @@ VLLM_BROKEN_RECIPES=(
   # TODO(future PR): fix this
   # error: https://gist.github.com/vkuzo/5bf389079442bb9851ef315cdcb797b4
   "int8_rowwise"
+  # TODO(future PR): fix this
+  # error: https://gist.github.com/vkuzo/b15ec478ee0a04d274ddb46acfa6d209
+  "mxfp8"
 )
 
 # TODO(future PR): add A100 and B200 tag groups
@@ -77,6 +90,8 @@ if [ "$TAG_OR_RECIPE" = "all" ]; then
   QUANT_RECIPES=("${QUANT_RECIPES_ALL[@]}")
 elif [ "$TAG_OR_RECIPE" = "h100" ]; then
   QUANT_RECIPES=("${QUANT_RECIPES_H100[@]}")
+elif [ "$TAG_OR_RECIPE" = "b200" ]; then
+  QUANT_RECIPES=("${QUANT_RECIPES_B200[@]}")
 else
   # Check if it's a valid recipe name
   VALID_RECIPE=false
@@ -127,7 +142,7 @@ for quant_recipe in "${QUANT_RECIPES[@]}"; do
 
   # run eval (unless skipped via environment variable)
   if [ "${SKIP_LM_EVAL:-0}" != "1" ]; then
-    lm_eval --model hf --model_args "pretrained=$OUTPUT_DIR" --tasks "wikitext,winogrande" --device "cuda:0" --batch_size auto --output_path "$OUTPUT_DIR/lm_eval_outputs/" 2>&1 | tee -a "$LOG_FILE"
+    lm_eval --model hf --model_args "pretrained=$OUTPUT_DIR" --tasks "wikitext,winogrande" --device "cuda:0" --batch_size 1 --output_path "$OUTPUT_DIR/lm_eval_outputs/" 2>&1 | tee -a "$LOG_FILE"
   else
     echo "Skipping lm_eval (SKIP_LM_EVAL=1)" | tee -a "$LOG_FILE"
   fi
