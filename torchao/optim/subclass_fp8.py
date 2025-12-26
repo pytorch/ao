@@ -139,6 +139,7 @@ def _(func, types, args, kwargs):
         _c10d_functional.all_gather_into_tensor.default,
         c10d_functional.wait_tensor.default,
         _c10d_functional.wait_tensor.default,
+        _c10d_functional._wrap_tensor_autograd.default,
         # required by torch.distributed.checkpoint.save
         aten.detach.default,
     ]
