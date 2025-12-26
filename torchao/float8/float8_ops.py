@@ -6,6 +6,7 @@
 from typing import Any, Dict, Optional, Tuple
 
 import torch
+import torch.distributed._functional_collectives  # noqa: F401
 from torch.utils._pytree import tree_map
 
 from torchao.float8.float8_training_tensor import (
@@ -492,6 +493,23 @@ def allgather_fp8(aten_op, args, kwargs=None):
 
 @implements([c10d_functional.wait_tensor.default, _c10d_functional.wait_tensor.default])
 def wait_tensor_fp8(aten_op, args, kwargs=None):
+    _assert_tensorwise_scale(aten_op, args[0]._scale)
+    fp8_input = args[0]
+    assert isinstance(fp8_input, Float8TrainingTensor)
+
+    fp8_data = fp8_input._data
+    fp8_out = aten_op(fp8_data, *args[1:], **kwargs)
+    return Float8TrainingTensor(
+        fp8_out,
+        fp8_input._scale,
+        fp8_input._orig_dtype,
+        fp8_input._linear_mm_config,
+        fp8_input._gemm_input_role,
+    )
+
+
+@implements([_c10d_functional._wrap_tensor_autograd.default])
+def _wrap_tensor_autograd_fp8(aten_op, args, kwargs=None):
     _assert_tensorwise_scale(aten_op, args[0]._scale)
     fp8_input = args[0]
     assert isinstance(fp8_input, Float8TrainingTensor)
