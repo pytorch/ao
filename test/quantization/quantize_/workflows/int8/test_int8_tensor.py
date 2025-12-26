@@ -228,6 +228,7 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
             "extern_kernels._int_mm", 1
         ).check_count("triton_poi_fused", 1).run(code[0])
 
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @common_utils.parametrize("config", INT8_TEST_CONFIGS)
     def test_pin_memory(self, config):
         linear = torch.nn.Linear(
