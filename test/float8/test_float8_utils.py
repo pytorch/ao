@@ -10,11 +10,14 @@ import torch
 
 from torchao.float8.float8_utils import _round_scale_down_to_power_of_2
 from torchao.testing.utils import skip_if_rocm
+from torchao.utils import get_current_accelerator_device
+
+_DEVICE = get_current_accelerator_device()
 
 
 # source for notable single-precision cases:
 # https://en.wikipedia.org/wiki/Single-precision_floating-point_format
-@unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
+@unittest.skipIf(not torch.accelerator.is_available(), "GPU not available")
 @pytest.mark.parametrize(
     "test_case",
     [
@@ -38,8 +41,8 @@ def test_round_scale_down_to_power_of_2_valid_inputs(
 ):
     test_case_name, input, expected_result = test_case
     input_tensor, expected_tensor = (
-        torch.tensor(input, dtype=torch.float32).cuda(),
-        torch.tensor(expected_result, dtype=torch.float32).cuda(),
+        torch.tensor(input, dtype=torch.float32).to(_DEVICE),
+        torch.tensor(expected_result, dtype=torch.float32).to(_DEVICE),
     )
     result = _round_scale_down_to_power_of_2(input_tensor)
 
