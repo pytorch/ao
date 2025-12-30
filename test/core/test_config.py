@@ -33,7 +33,6 @@ from torchao.quantization.quant_api import (
     Float8DynamicActivationFloat8WeightConfig,
     Float8DynamicActivationInt4WeightConfig,
     Float8WeightOnlyConfig,
-    FPXWeightOnlyConfig,
     GemliteUIntXWeightOnlyConfig,
     Int4DynamicActivationInt4WeightConfig,
     Int4WeightOnlyConfig,
@@ -87,7 +86,6 @@ configs = [
         group_size=128,  # Optional, has default of 64
         bit_width=8,  # Optional, has default of 4
     ),
-    FPXWeightOnlyConfig(ebits=4, mbits=8),
     # Sparsity configs
     SemiSparseWeightConfig(),
     BlockSparseWeightConfig(blocksize=128),
