@@ -111,9 +111,9 @@ if __name__ == "__main__":
     tests = [
         _test_dtensor_cast_to_mxfp8,
         _test_mxfp8_mlp_tensor_parallelism,
-        _test_mxfp8_mlp_tensor_parallelism_dim1_triton,
     ]
     if is_sm_at_least_100():
+        tests.append(_test_mxfp8_mlp_tensor_parallelism_dim1_triton)
         tests.append(_test_mxfp8_mlp_tensor_parallelism_dim1_cuda)
 
     for test in tqdm(tests, desc="Running tests"):

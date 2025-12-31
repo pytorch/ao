@@ -14,11 +14,6 @@ import warnings
 from pathlib import Path
 
 import torch
-from torch.ao.quantization.quantize_pt2e import convert_pt2e, prepare_pt2e
-from torch.ao.quantization.quantizer.xnnpack_quantizer import (
-    XNNPACKQuantizer,
-    get_symmetric_quantization_config,
-)
 from torch.testing._internal import common_utils
 from torch.testing._internal.common_quantization import TestHelperModules
 from torch.testing._internal.common_utils import TestCase
@@ -39,6 +34,11 @@ from torchao.quantization import (
     IntxUnpackedToInt8Tensor,
     LinearActivationQuantizedTensor,
     PerGroup,
+)
+from torchao.quantization.pt2e.quantize_pt2e import convert_pt2e, prepare_pt2e
+from torchao.quantization.qat import (
+    FakeQuantizedLinear,
+    QATConfig,
 )
 from torchao.quantization.quant_api import (
     Float8DynamicActivationFloat8WeightConfig,
@@ -64,6 +64,10 @@ from torchao.quantization.quant_api import (
 )
 from torchao.quantization.quant_primitives import MappingType
 from torchao.quantization.utils import compute_error
+from torchao.testing.pt2e._xnnpack_quantizer import (
+    XNNPACKQuantizer,
+    get_symmetric_quantization_config,
+)
 from torchao.testing.utils import skip_if_rocm, skip_if_xpu
 from torchao.utils import (
     get_current_accelerator_device,
@@ -834,9 +838,7 @@ class TestQuantFlow(TestCase):
                 self.assertTrue(len(_warnings) == 1)
                 found_deprecated = False
                 for w in _warnings:
-                    if "will be moving to prototype in a future release" in str(
-                        w.message
-                    ):
+                    if "will be deleted in a future release" in str(w.message):
                         found_deprecated = True
                     self.assertTrue(
                         found_deprecated, f"did not find deprecated warning for {cls}"
@@ -1198,6 +1200,32 @@ class TestFqnToConfig(TestCase):
 
         assert isinstance(m.nested.linear.weight, AffineQuantizedTensor)
         assert isinstance(m.linear1.weight, AffineQuantizedTensor)
+
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
+    def test_fqn_config_quantized_nested_module_module_swap(self):
+        class NestedModule(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.linear = torch.nn.Linear(16, 16)
+
+        class TopLevelModule(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.nested = NestedModule()
+                self.linear1 = torch.nn.Linear(16, 16)
+
+        m = TopLevelModule()
+        config = QATConfig(Int4WeightOnlyConfig(), step="prepare")
+        quant_config = FqnToConfig(
+            {
+                "nested.linear": config,
+                "linear1": config,
+            }
+        )
+        quantize_(m, quant_config, filter_fn=None)
+
+        assert isinstance(m.nested.linear, FakeQuantizedLinear)
+        assert isinstance(m.linear1, FakeQuantizedLinear)
 
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test_fqn_config_quantized_nested_module_param(self):

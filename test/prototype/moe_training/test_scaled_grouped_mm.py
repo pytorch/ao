@@ -319,8 +319,14 @@ def test_emulate_mxfp8_grouped_gemm_2d_2d(M, N, num_experts):
 )
 @pytest.mark.parametrize("num_experts", (2, 4, 8, 16))
 @pytest.mark.parametrize("use_triton_for_dim0_cast", (True, False))
+@pytest.mark.parametrize("wgrad_with_hp", (True, False))
 def test_mxfp8_grouped_gemm_with_dq_fwd_bwd(
-    M, K, N, num_experts, use_triton_for_dim0_cast
+    M,
+    K,
+    N,
+    num_experts,
+    use_triton_for_dim0_cast,
+    wgrad_with_hp,
 ):
     block_size = 32
     x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda", requires_grad=True)
@@ -340,8 +346,17 @@ def test_mxfp8_grouped_gemm_with_dq_fwd_bwd(
     )
 
     # Forward
+    out_dtype = torch.bfloat16
+    emulated = False
     out = _to_mxfp8_then_scaled_grouped_mm(
-        x, w_t, offs, block_size, torch.bfloat16, use_triton_for_dim0_cast
+        x,
+        w_t,
+        offs,
+        block_size,
+        out_dtype,
+        emulated,
+        use_triton_for_dim0_cast,
+        wgrad_with_hp,
     )
     ref_out = torch._grouped_mm(x_ref, w_t_ref, offs=offs_ref, out_dtype=torch.bfloat16)
     sqnr = compute_error(ref_out, out)

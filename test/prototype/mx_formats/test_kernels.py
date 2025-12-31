@@ -45,7 +45,6 @@ from torchao.prototype.mx_formats.mx_tensor import ScaleCalculationMode, to_dtyp
 from torchao.prototype.mx_formats.utils import to_blocked
 from torchao.utils import (
     is_cuda_version_at_least,
-    is_sm_at_least_89,
     is_sm_at_least_100,
     torch_version_at_least,
 )
@@ -423,7 +422,9 @@ def test_fp6_e3m2_rounding(f32_val, f6_e3m2_enc, device):
 
 
 def triton_to_mxfp8_dim0_reference(
-    x_hp: torch.Tensor, block_size
+    x_hp: torch.Tensor,
+    block_size,
+    scaling_mode=ScaleCalculationMode.FLOOR,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """
     A reference version of `triton_to_mxfp8_dim0` for rowwise quantization.
@@ -431,7 +432,9 @@ def triton_to_mxfp8_dim0_reference(
     from torchao.prototype.mx_formats.mx_tensor import to_mx
 
     # cast across dim0 (rowwise) - no transpose needed
-    scale_e8m0_dim0, x_hp_d0_normalized = to_mx(x_hp, torch.float8_e4m3fn, block_size)
+    scale_e8m0_dim0, x_hp_d0_normalized = to_mx(
+        x_hp, torch.float8_e4m3fn, block_size, scaling_mode=scaling_mode
+    )
     scale_e8m0_dim0 = scale_e8m0_dim0.view(torch.float8_e8m0fnu)
     return (
         x_hp_d0_normalized,
@@ -441,15 +444,22 @@ def triton_to_mxfp8_dim0_reference(
 
 @pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
 @pytest.mark.skipif(
-    not is_sm_at_least_89(),
-    reason="float8 in triton requires CUDA capability 8.9 or greater",
+    not is_sm_at_least_100(),
+    reason="mxfp8 in triton requires CUDA capability 10.0 or greater",
 )
 @pytest.mark.parametrize("M", (128, 256))
 @pytest.mark.parametrize("K", (128, 256))
-def test_triton_mxfp8_dim1_randn(M, K):
+@pytest.mark.parametrize(
+    "scaling_mode", (ScaleCalculationMode.FLOOR, ScaleCalculationMode.RCEIL)
+)
+def test_triton_mxfp8_dim1_randn(M, K, scaling_mode):
     x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
-    x_mx_ref, x_s_ref = triton_to_mxfp8_dim1_reference(x, block_size=32)
-    x_mx_t, x_s_t = triton_to_mxfp8_dim1(x, inner_block_size=32)
+    x_mx_ref, x_s_ref = triton_to_mxfp8_dim1_reference(
+        x, block_size=32, scaling_mode=scaling_mode
+    )
+    x_mx_t, x_s_t = triton_to_mxfp8_dim1(
+        x, inner_block_size=32, scaling_mode=scaling_mode.value.lower()
+    )
     torch.testing.assert_close(x_mx_t, x_mx_ref, rtol=0, atol=0)
     torch.testing.assert_close(x_s_t, x_s_ref, rtol=0, atol=0)
 
@@ -461,10 +471,19 @@ def test_triton_mxfp8_dim1_randn(M, K):
 )
 @pytest.mark.parametrize("M", (128, 256))
 @pytest.mark.parametrize("K", (128, 256))
-def test_triton_mxfp8_dim0_randn(M, K):
+@pytest.mark.parametrize(
+    "scaling_mode", (ScaleCalculationMode.FLOOR, ScaleCalculationMode.RCEIL)
+)
+def test_triton_mxfp8_dim0_randn(M, K, scaling_mode):
     x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
-    x_mx_ref, x_s_ref = triton_to_mxfp8_dim0_reference(x, block_size=32)
-    x_mx_t, x_s_t = triton_to_mxfp8_dim0(x, inner_block_size=32)
+    x_mx_ref, x_s_ref = triton_to_mxfp8_dim0_reference(
+        x, block_size=32, scaling_mode=scaling_mode
+    )
+    x_mx_t, x_s_t = triton_to_mxfp8_dim0(
+        x,
+        inner_block_size=32,
+        scaling_mode=scaling_mode.value.lower(),
+    )
     torch.testing.assert_close(x_mx_t, x_mx_ref, rtol=0, atol=0)
     torch.testing.assert_close(x_s_t, x_s_ref, rtol=0, atol=0)
 
@@ -474,10 +493,19 @@ def test_triton_mxfp8_dim0_randn(M, K):
     not is_sm_at_least_100(),
     reason="mxfp8 requires CUDA capability 10.0 or greater",
 )
-def test_triton_mxfp8_dim0_zeros():
+@pytest.mark.parametrize(
+    "scaling_mode", (ScaleCalculationMode.FLOOR, ScaleCalculationMode.RCEIL)
+)
+def test_triton_mxfp8_dim0_zeros(scaling_mode):
     x = torch.zeros(128, 256, dtype=torch.bfloat16, device="cuda")
-    x_mx_ref, x_s_ref = triton_to_mxfp8_dim0_reference(x, block_size=32)
-    x_mx_t, x_s_t = triton_to_mxfp8_dim0(x, inner_block_size=32)
+    x_mx_ref, x_s_ref = triton_to_mxfp8_dim0_reference(
+        x, block_size=32, scaling_mode=scaling_mode
+    )
+    x_mx_t, x_s_t = triton_to_mxfp8_dim0(
+        x,
+        inner_block_size=32,
+        scaling_mode=scaling_mode.value.lower(),
+    )
     assert not x_mx_t.isnan().any(), "quantized tensor should not contain NaNs"
     torch.testing.assert_close(x_mx_t, x_mx_ref, rtol=0, atol=0)
     torch.testing.assert_close(x_s_t, x_s_ref, rtol=0, atol=0)

@@ -17,6 +17,7 @@ from torchao.prototype.custom_fp_utils import (
     _f32_to_floatx_unpacked,
     _floatx_unpacked_to_f32,
 )
+from torchao.prototype.mx_formats.config import ScaleCalculationMode
 from torchao.utils import (
     is_cuda_version_at_least,
     is_sm_at_least_100,
@@ -166,7 +167,7 @@ if torch_version_at_least("2.7.0") and has_triton():
     from torch.library import triton_op, wrap_triton
 
     @triton.jit
-    def _triton_calculate_scale(x, axis):
+    def _triton_calculate_scale(x, axis, SCALING_MODE: tl.constexpr):
         # There is no good support for accessing globals from a jit'ed triton
         # function, so we redefine them here. Since this is prototype code which
         # we plan to remove after torch.compile catches up, this is fine.
@@ -179,23 +180,48 @@ if torch_version_at_least("2.7.0") and has_triton():
         # Find the maximum absolute value for each row
         max_abs = tl.max(x, axis=axis)
 
-        # Calculate the e8m0 scale by extracting the exponent (floor)
-        # TODO(future PR): support other exponent extraction types (ceil, RNE)
-        max_abs = max_abs.to(tl.bfloat16)
-        max_abs_int16 = max_abs.to(tl.int16, bitcast=True)
-        extracted_pow2 = ((max_abs_int16 >> bf16_mbits) & 0b11111111) - bf16_exp_bias
-        extracted_pow2 = extracted_pow2 - target_max_pow2
-        scale_e8m0_unbiased = extracted_pow2.to(tl.bfloat16)
+        # Compute e8m0 biased scale using either RCEIL or FLOOR rounding.
+        if SCALING_MODE == "rceil":
+            # RCEIL scaling mode using PTX instruction supported on sm100.
+            # The input should be: amax / 448.0
+            # where 448.0 is the max representable value in FP8 E4M3 format.
+            F8E4M3_MAX_RCP: tl.constexpr = 1.0 / 448.0
+            scale_input = max_abs.to(tl.float32) * F8E4M3_MAX_RCP
 
-        # Clamp to exponents that can be represented in e8m0
-        # Add 1 to capture NaNs
-        scale_e8m0_unbiased = tl.clamp(
-            scale_e8m0_unbiased, -1 * e8m0_exponent_bias, e8m0_exponent_bias + 1
-        )
+            # The PTX instruction outputs a packed uint16 where:
+            # - high byte = E8M0 of first input (0.0 in our case)
+            # - low byte = E8M0 of second input (scale_input)
+            # Casting uint16 to uint8 naturally truncates to the low byte.
+            scale_e8m0_biased = tl.inline_asm_elementwise(
+                asm="cvt.rp.satfinite.ue8m0x2.f32 $0, 0.0, $1;",
+                constraints="=h,r",
+                args=[scale_input.to(tl.float32, bitcast=False)],
+                dtype=tl.uint16,
+                is_pure=True,
+                pack=1,
+            ).to(tl.uint8)
+        else:
+            tl.static_assert(SCALING_MODE == "floor")
 
-        # Create the biased e8m0 representation and cast it to 8 bits
-        scale_e8m0_biased = scale_e8m0_unbiased + e8m0_exponent_bias
-        scale_e8m0_biased = scale_e8m0_biased.to(tl.uint8)
+            # Original floor implementation
+            # Calculate the e8m0 scale by extracting the exponent (floor)
+            max_abs = max_abs.to(tl.bfloat16)
+            max_abs_int16 = max_abs.to(tl.int16, bitcast=True)
+            extracted_pow2 = (
+                (max_abs_int16 >> bf16_mbits) & 0b11111111
+            ) - bf16_exp_bias
+            extracted_pow2 = extracted_pow2 - target_max_pow2
+            scale_e8m0_unbiased = extracted_pow2.to(tl.bfloat16)
+
+            # Clamp to exponents that can be represented in e8m0
+            # Add 1 to capture NaNs
+            scale_e8m0_unbiased = tl.clamp(
+                scale_e8m0_unbiased, -1 * e8m0_exponent_bias, e8m0_exponent_bias + 1
+            )
+
+            # Create the biased e8m0 representation and cast it to 8 bits
+            scale_e8m0_biased = scale_e8m0_unbiased + e8m0_exponent_bias
+            scale_e8m0_biased = scale_e8m0_biased.to(tl.uint8)
 
         # TODO(future PR): add NaN handling here,
         # https://github.com/pytorch/pytorch/pull/100572 will likely be useful to
@@ -248,6 +274,7 @@ if torch_version_at_least("2.7.0") and has_triton():
         ROW_TILE_SIZE: tl.constexpr,
         COL_TILE_SIZE: tl.constexpr,
         INNER_BLOCK_SIZE: tl.constexpr,  # should be 32 for MX
+        SCALING_MODE: tl.constexpr,
     ):
         """
         Example tiling for n_rows==8, n_cols=8, ROW_TILE_SIZE=4, COL_TILE_SIZE=4, INNER_BLOCK_SIZE=2,
@@ -334,7 +361,11 @@ if torch_version_at_least("2.7.0") and has_triton():
 
         # Find the maximum absolute value for each column
         # shape: (COL_TILE_SIZE * BLOCKS_PER_ROW_TILE,)
-        col_scale_r, col_scale_e8m0_r = _triton_calculate_scale(x_block_abs_t_r, axis=1)
+        col_scale_r, col_scale_e8m0_r = _triton_calculate_scale(
+            x_block_abs_t_r,
+            axis=1,
+            SCALING_MODE=SCALING_MODE,
+        )
 
         # Divide each column by scale
         # Broadcasting col_scale to match x_block's shape
@@ -397,6 +428,7 @@ if torch_version_at_least("2.7.0") and has_triton():
         ROW_TILE_SIZE: tl.constexpr,
         COL_TILE_SIZE: tl.constexpr,
         SCALE_BLOCK_SIZE: tl.constexpr,  # should be 32 for MX
+        SCALING_MODE: tl.constexpr,
     ):
         """
         Quantizes a high precision tensor to mxfp8 rowwise (1x32 scaling granularity).
@@ -432,7 +464,9 @@ if torch_version_at_least("2.7.0") and has_triton():
 
         # Find the maximum absolute value for each row (across columns)
         # shape: (ROW_TILE_SIZE * BLOCKS_PER_COL_TILE,)
-        scale_fp32_r, scale_e8m0_r = _triton_calculate_scale(x_block_abs_r, axis=1)
+        scale_fp32_r, scale_e8m0_r = _triton_calculate_scale(
+            x_block_abs_r, axis=1, SCALING_MODE=SCALING_MODE
+        )
 
         # Divide each row by scale
         # Broadcasting scale to match x_block's shape
@@ -468,12 +502,15 @@ if torch_version_at_least("2.7.0") and has_triton():
 
     @triton_op("torchao::triton_to_mxfp8_dim0", mutates_args={})
     def triton_to_mxfp8_dim0(
-        x: torch.Tensor, inner_block_size: int = 32
+        x: torch.Tensor,
+        inner_block_size: int = 32,
+        scaling_mode: str = "rceil",
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Input:
         * `x` - input tensor, in row major memory layout
         * `inner_block_size` - size of tiles to scale across, default is 32 for MX recipes
+        * `scaling_mode` - floor or rceil
 
         Output:
         * `output`: the `float8_e4m3fn` values of `x` cast to mxfp8 across dim0 (rowwise)
@@ -518,6 +555,7 @@ if torch_version_at_least("2.7.0") and has_triton():
             n_rows=n_rows,
             n_cols=n_cols,
             SCALE_BLOCK_SIZE=inner_block_size,
+            SCALING_MODE=scaling_mode,
         )
 
         # Reshape output back to original shape
@@ -531,7 +569,7 @@ if torch_version_at_least("2.7.0") and has_triton():
 
     @triton_op("torchao::triton_to_mxfp8_dim1", mutates_args={})
     def triton_to_mxfp8_dim1(
-        x: torch.Tensor, inner_block_size: int = 32
+        x: torch.Tensor, inner_block_size: int = 32, scaling_mode: str = "rceil"
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Input:
@@ -583,6 +621,7 @@ if torch_version_at_least("2.7.0") and has_triton():
             n_rows=n_rows,
             n_cols=n_cols,
             INNER_BLOCK_SIZE=inner_block_size,
+            SCALING_MODE=scaling_mode,
         )
 
         return (
@@ -601,7 +640,9 @@ if torch_version_at_least("2.7.0") and has_triton():
         return acceptable_shardings
 
     def triton_to_mxfp8_dim1_reference(
-        x_hp: torch.Tensor, block_size
+        x_hp: torch.Tensor,
+        block_size: int = 32,
+        scaling_mode: ScaleCalculationMode = ScaleCalculationMode.RCEIL,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         A reference version of `to_mxfp8_dim1`.
@@ -611,7 +652,10 @@ if torch_version_at_least("2.7.0") and has_triton():
         # cast across dim1
         x_hp_d1 = x_hp.t().contiguous()
         scale_e8m0_dim1, x_hp_d1_normalized = to_mx(
-            x_hp_d1, torch.float8_e4m3fn, block_size
+            x_hp_d1,
+            torch.float8_e4m3fn,
+            block_size,
+            scaling_mode=scaling_mode,
         )
         scale_e8m0_dim1 = scale_e8m0_dim1.view(torch.float8_e8m0fnu)
         return (

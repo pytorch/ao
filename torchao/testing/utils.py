@@ -27,6 +27,7 @@ from torchao.testing.model_architectures import LlamaModelsLlama4Experts
 from torchao.utils import (
     DummyModule,
     get_compute_capability,
+    get_current_accelerator_device,
 )
 
 """
@@ -496,15 +497,16 @@ class TorchAOIntegrationTestCase(common_utils.TestCase):
         # and does not use tensor parallelism
 
         dtype = torch.bfloat16
-        device = "cuda"
-        l = torch.nn.Linear(1024, 1024, device="cuda", dtype=dtype)
+        assert torch.accelerator.is_available(), "no accelerator device found"
+        device = get_current_accelerator_device()
+        l = torch.nn.Linear(1024, 1024, device=device, dtype=dtype)
         quantize_(l, config)
 
         # high level, we do a narrow for both param.data and the loaded_weights
         # and do inplace copy_ to copy from the loaded_weights into param.data
 
         # simulate loaded_weight
-        dummy_l = torch.nn.Linear(1024, 1024).to("cuda").to(torch.bfloat16)
+        dummy_l = torch.nn.Linear(1024, 1024).to(device).to(torch.bfloat16)
         # making the weight different
         dummy_l.weight = torch.nn.Parameter(
             dummy_l.weight
