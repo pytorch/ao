@@ -293,7 +293,7 @@ class _MXFP8GroupedMM(torch.autograd.Function):
         block_size: int = 32,
         out_dtype: Optional[torch.dtype] = torch.bfloat16,
         emulated: bool = False,
-        use_triton_for_dim0_cast: bool = False,
+        use_triton_for_dim0_cast: bool = True,
         wgrad_with_hp: bool = False,
         scale_calculation_mode: ScaleCalculationMode = ScaleCalculationMode.RCEIL,
     ) -> torch.Tensor:
