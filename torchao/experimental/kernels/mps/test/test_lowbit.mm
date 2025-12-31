@@ -37,7 +37,7 @@ inline id<MTLBuffer> allocSharedBuffer(id<MTLDevice> device, unsigned length) {
   return rc;
 }
 
-namespace torchao::kernels::mps::lowbit {
+namespace torchao::mps::lowbit {
 
 // Reference CPU implementation of lowbit quantized linear
 template <typename T>
@@ -184,11 +184,11 @@ class LowBitTester {
   id<MTLBuffer> buf_Z; // (K/group_size)xN elements
 };
 
-} // namespace torchao::kernels::mps::lowbit
+} // namespace torchao::mps::lowbit
 
 template <typename T, int nbit>
 void run_test(int32_t m, int32_t k, int32_t n, int32_t group_size) {
-  torchao::kernels::mps::lowbit::LowBitTester<T, nbit> tester(
+  torchao::mps::lowbit::LowBitTester<T, nbit> tester(
       m, k, n, group_size);
   tester.init();
   tester.pack();

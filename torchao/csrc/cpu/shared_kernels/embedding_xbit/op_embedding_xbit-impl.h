@@ -133,7 +133,7 @@ Tensor embedding_out_cpu(
     }
     TORCHAO_CHECK(index >= 0 && index < num_embeddings, "index out of bounds");
 #if defined(TORCHAO_BUILD_CPU_AARCH64)
-    torchao::kernels::cpu::aarch64::embedding::embedding<weight_nbit>(
+    torchao::cpu::aarch64::embedding::embedding<weight_nbit>(
         out.mutable_data_ptr<float>() + idx * embedding_dim,
         embedding_dim,
         group_size,
@@ -199,7 +199,7 @@ Tensor pack_embedding_cpu(const Tensor& weight_qvals) {
 
   torchao::parallel_1d(0, num_embeddings, [&](int64_t idx) {
 #if defined(TORCHAO_BUILD_CPU_AARCH64)
-    torchao::kernels::cpu::aarch64::embedding::pack_embedding_weight_qvals<
+    torchao::cpu::aarch64::embedding::pack_embedding_weight_qvals<
         weight_nbit>(
         out.mutable_data_ptr<int8_t>() +
             torchao::ops::PackedWeightsHeader::size(),
@@ -289,7 +289,7 @@ Tensor shared_embedding_out_cpu(
     }
     TORCHAO_CHECK(index >= 0 && index < n, "index out of bounds");
 #if defined(TORCHAO_BUILD_CPU_AARCH64)
-    torchao::kernels::cpu::aarch64::embedding::
+    torchao::cpu::aarch64::embedding::
         shared_embedding<weight_nbit, nr, kr, sr>(
             out.mutable_data_ptr<float>() + idx * k,
             packed_weights.const_data_ptr<int8_t>() +

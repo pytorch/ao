@@ -13,11 +13,11 @@
 #include <cassert>
 #include <cstring>
 
-namespace torchao::kernels::cpu::aarch64::linear::groupwise_lowbit_weight_lut::
+namespace torchao::cpu::aarch64::linear::groupwise_lowbit_weight_lut::
     kernel {
 
 namespace lut_utils = torchao::lut;
-namespace weight_packing = torchao::kernels::cpu::aarch64::linear::
+namespace weight_packing = torchao::cpu::aarch64::linear::
     groupwise_lowbit_weight_lut::weight_packing;
 
 namespace internal {
@@ -235,5 +235,5 @@ void groupwise_lowbit_weight_lut_kernel_1x4x32(
   }
 }
 } // namespace
-  // torchao::kernels::cpu::aarch64::linear::groupwise_lowbit_weight_lut::kernel
+  // torchao::cpu::aarch64::linear::groupwise_lowbit_weight_lut::kernel
 #endif // defined(aarch64) || defined(__ARM_NEON)

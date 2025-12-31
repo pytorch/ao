@@ -55,13 +55,13 @@ auto generate_per_token_quantized_tensor(int m, int n, bool transposed) {
   torchao::quantization::get_qvals_range(
       qmin, qmax, /*nbit=*/8, /*is_symmetric=*/false);
   for (int m_idx = 0; m_idx < m; m_idx++) {
-    torchao::kernels::cpu::aarch64::reduction::find_min_and_max(
+    torchao::cpu::aarch64::reduction::find_min_and_max(
         vmin, vmax, /*vals=*/activations.data() + m_idx * n, /*size=*/n);
     torchao::quantization::get_scale_and_zero(
         scale, zero, vmin, vmax, qmin, qmax);
     activation_scales[m_idx] = scale;
     activation_zeros[m_idx] = zero;
-    torchao::kernels::cpu::aarch64::quantization::quantize(
+    torchao::cpu::aarch64::quantization::quantize(
         /*qvals=*/activation_qvals.data() + m_idx * n,
         /*vals=*/activations.data() + m_idx * n,
         /*size=*/n,
@@ -209,7 +209,7 @@ struct channelwise_8bit_activation_groupwise_lowbit_weight_test_case {
 
     int n_groups = (n * k) / weight_group_size;
     for (int group_idx = 0; group_idx < n_groups; group_idx += 1) {
-      torchao::kernels::cpu::aarch64::reduction::find_min_and_max(
+      torchao::cpu::aarch64::reduction::find_min_and_max(
           vmin,
           vmax,
           /*vals=*/weights.data() + group_idx * weight_group_size,
@@ -230,7 +230,7 @@ struct channelwise_8bit_activation_groupwise_lowbit_weight_test_case {
       weight_scales[group_idx] = scale;
       weight_zeros[group_idx] = zero;
 
-      torchao::kernels::cpu::aarch64::quantization::quantize(
+      torchao::cpu::aarch64::quantization::quantize(
           /*qvals=*/weight_qvals.data() + group_idx * weight_group_size,
           /*vals=*/weights.data() + group_idx * weight_group_size,
           /*size=*/weight_group_size,

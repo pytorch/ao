@@ -9,7 +9,7 @@
 #include <array>
 #include <cstring>
 
-namespace torchao::kernels::cpu::aarch64::linear::
+namespace torchao::cpu::aarch64::linear::
     channelwise_8bit_activation_groupwise_lowbit_weight::weight_packing {
 
 namespace internal {
@@ -583,6 +583,6 @@ size_t inline packed_weights_with_lut_size(
 }
 
 } // namespace
-  // torchao::kernels::cpu::aarch64::linear::channelwise_8bit_activation_groupwise_lowbit_weight::weight_packing
+  // torchao::cpu::aarch64::linear::channelwise_8bit_activation_groupwise_lowbit_weight::weight_packing
 
 #endif // defined(__aarch64__) || defined(__ARM_NEON)

@@ -26,10 +26,10 @@ void test_weight_packing(
           has_bias,
           /*has_clamp*/ false);
 
-  //   using namespace torchao::kernels::cpu::aarch64::linear::packing;
+  //   using namespace torchao::cpu::aarch64::linear::packing;
 
   std::vector<char> packed_weights(
-      torchao::kernels::cpu::aarch64::linear::
+      torchao::cpu::aarch64::linear::
           channelwise_8bit_activation_groupwise_lowbit_weight::weight_packing::
               packed_weights_size(
                   n,
@@ -56,7 +56,7 @@ void test_weight_packing(
   std::vector<int8_t> weight_zeros_out(test_case.weight_zeros.size());
   std::vector<float> bias_out(test_case.bias.size());
 
-  torchao::kernels::cpu::aarch64::linear::
+  torchao::cpu::aarch64::linear::
       channelwise_8bit_activation_groupwise_lowbit_weight::weight_packing::
           pack_weights<weight_nbit, nr, kr, sr>(
               packed_weights.data(),
@@ -67,7 +67,7 @@ void test_weight_packing(
               weight_scales_in,
               weight_zeros_in,
               bias_in);
-  torchao::kernels::cpu::aarch64::linear::
+  torchao::cpu::aarch64::linear::
       channelwise_8bit_activation_groupwise_lowbit_weight::weight_packing::
           unpack_weights<weight_nbit, nr, kr, sr>(
               weight_qvals_out.data(),

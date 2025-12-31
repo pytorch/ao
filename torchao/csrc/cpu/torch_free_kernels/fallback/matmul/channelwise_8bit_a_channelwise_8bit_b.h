@@ -8,7 +8,7 @@
 
 #include <cstdint>
 
-namespace torchao::kernels::cpu::fallback::quantized_matmul {
+namespace torchao::cpu::fallback::quantized_matmul {
 namespace channelwise_8bit_a_channelwise_8bit_b::internal {
 
 template <
@@ -85,10 +85,10 @@ struct KernelImpl<true, true, false, b_transposed> {
 
 } // namespace
   // channelwise_8bit_a_channelwise_8bit_b::internal
-} // namespace torchao::kernels::cpu::fallback::quantized_matmul
+} // namespace torchao::cpu::fallback::quantized_matmul
 
 // TODO: Remove all ::kernels. No need for extra namespace.
-namespace torchao::kernels::cpu::fallback::quantized_matmul {
+namespace torchao::cpu::fallback::quantized_matmul {
 namespace channelwise_8bit_a_channelwise_8bit_b {
 template <
     bool a_has_zeros,
@@ -130,4 +130,4 @@ void kernel(
           rhs_qparams_stride);
 }
 } // namespace channelwise_8bit_a_channelwise_8bit_b
-} // namespace torchao::kernels::cpu::fallback::quantized_matmul
+} // namespace torchao::cpu::fallback::quantized_matmul

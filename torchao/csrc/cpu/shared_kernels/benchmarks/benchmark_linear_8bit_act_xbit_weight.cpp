@@ -18,7 +18,7 @@ template <int weight_nbit, bool has_weight_zeros, bool has_bias, bool has_clamp>
 UKernelConfig get_ukernel_config() {
   UKernelConfig config;
 
-  namespace ukernel = torchao::kernels::cpu::aarch64::linear::
+  namespace ukernel = torchao::cpu::aarch64::linear::
       channelwise_8bit_activation_groupwise_lowbit_weight_1x8x16_f32_neondot;
   config.mr = 1;
   config.nr = 8;
