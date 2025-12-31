@@ -709,6 +709,7 @@ def get_extensions():
         mxfp8_sources = [
             os.path.join(mxfp8_extension_dir, "mxfp8_extension.cpp"),
             os.path.join(mxfp8_extension_dir, "mxfp8_cuda.cu"),
+            os.path.join(mxfp8_extension_dir, "mx_block_rearrange_2d_M_groups.cu"),
         ]
 
         # Only add the extension if the source files exist AND we are building for sm100
