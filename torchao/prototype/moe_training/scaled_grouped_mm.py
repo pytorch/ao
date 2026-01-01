@@ -30,7 +30,7 @@ from torchao.prototype.mx_formats.config import (
     ScaleCalculationMode,
 )
 from torchao.prototype.mx_formats.kernels import triton_to_mxfp8_dim0
-from torchao.prototype.mx_formats.mx_tensor import to_mx
+from torchao.prototype.mx_formats.mx_tensor import MXTensor, to_mx
 from torchao.prototype.mx_formats.utils import _to_mxfp8_dim1_kernel_wrapper
 from torchao.quantization.quantize_.common import KernelPreference
 
@@ -305,13 +305,28 @@ class _MXFP8GroupedMM(torch.autograd.Function):
             "out_dtype must be bfloat16 or float32"
         )
 
-        # A_data shape: (M, K)
-        # A_scale shape: (M, K//block_size)
+        # A tensor (input activations) may be pre-quantized to MXFP8 or in high-precision.
+        if isinstance(A, MXTensor):
+            A_data = A.qdata
+            A_scale = A.scales
+        else:
+            # A_data shape: (M, K)
+            # A_scale shape: (M, K//block_size)
+            if use_triton_for_dim0_cast:
+                A_data, A_scale = triton_to_mxfp8_dim0(
+                    A,
+                    inner_block_size=block_size,
+                )
+            else:
+                A_scale, A_data = to_mx(
+                    A,
+                    elem_dtype=torch.float8_e4m3fn,
+                    block_size=block_size,
+                    scaling_mode=scale_calculation_mode,
+                )
+
+        # B tensor (weights) are never pre-quantized for training.
         if use_triton_for_dim0_cast:
-            A_data, A_scale = triton_to_mxfp8_dim0(
-                A,
-                inner_block_size=block_size,
-            )
             # B_data shape: (E, N, K)
             # B_scale shape: (E, N, K//block_size)
             B_data, B_scales = triton_to_mxfp8_dim0(
@@ -319,12 +334,6 @@ class _MXFP8GroupedMM(torch.autograd.Function):
                 inner_block_size=block_size,
             )
         else:
-            A_scale, A_data = to_mx(
-                A,
-                elem_dtype=torch.float8_e4m3fn,
-                block_size=block_size,
-                scaling_mode=scale_calculation_mode,
-            )
             B_scales, B_data = to_mx(
                 B_t.transpose(-2, -1),
                 elem_dtype=torch.float8_e4m3fn,

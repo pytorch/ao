@@ -11,6 +11,7 @@ from torchao.prototype.moe_training.kernels.triton_utils import (
     blockwise_barrier,
     sync_threads,
 )
+from torchao.prototype.mx_formats.config import ScaleCalculationMode
 from torchao.prototype.mx_formats.kernels import (
     triton_mxfp8_dequant_dim0,
     triton_to_mxfp8_dim0,
@@ -460,7 +461,7 @@ def _exchange_row_offsets(
     return input_offset_for_remote_rank, output_offset_for_remote_rank, num_rows_to_read
 
 
-class ToMXFP8AllToAllVDequant(torch.autograd.Function):
+class _ToMXFP8AllToAll(torch.autograd.Function):
     @staticmethod
     def forward(
         ctx,
@@ -468,17 +469,30 @@ class ToMXFP8AllToAllVDequant(torch.autograd.Function):
         output_splits: list[int],
         input_splits: list[int],
         group: dist.ProcessGroup = dist.group.WORLD,
+        scaling_mode: str = ScaleCalculationMode.RCEIL,
+        dequant_output: bool = False,
     ):
         """
         Dynamically quantizes input to mxfp8, performs all-to-all, then dequantizes output back to original precision.
         Requires d2h sync to get input_splits and output_splits on host, as required by torch.distributed.all_to_all_single API.
-        Uses RCEIL scaling mode for quantization.
+
+        Args:
+            `input`: input tensor to be all-to-all'd.
+            `output_splits`: list of output splits for all-to-all.
+            `input_splits`: list of input splits for all-to-all.
+            `group`: process group to scope the collective.
+            `scaling_mode`: scaling mode for quantization.
+            `dequant_output`: whether to dequantize the output back to original precision.
+        Returns:
+            `output`: all-to-all output tensor. If dequant_output is True, this is in original precision, else MXTensor.
         """
         # Quantize input
         block_size = 32
+        scaling_mode_str = str(scaling_mode.value).lower()
         input_data, input_scales = triton_to_mxfp8_dim0(
             input,
             inner_block_size=block_size,
+            scaling_mode=scaling_mode_str,
         )
 
         # Dispatch data (async)
@@ -501,36 +515,41 @@ class ToMXFP8AllToAllVDequant(torch.autograd.Function):
         output_scales = torch.ops._c10d_functional.wait_tensor(output_scales)
         output_data = torch.ops._c10d_functional.wait_tensor(output_data)
 
-        # Dequantize output
+        # Optionally dequantize output
         hp_dtype = input.dtype
-        triton_hp_output = triton_mxfp8_dequant_dim0(
-            output_data,
-            output_scales,
-            hp_dtype,
-            block_size,
-        )
+        if dequant_output:
+            output_data = triton_mxfp8_dequant_dim0(
+                output_data,
+                output_scales,
+                hp_dtype,
+                block_size,
+            )
+            output_scales = None
+
         ctx.input_splits = input_splits
         ctx.output_splits = output_splits
         ctx.group = group
-        return triton_hp_output
+        ctx.hp_dtype = hp_dtype
+        ctx.scaling_mode_str = scaling_mode_str
+        return output_data, output_scales
 
     @staticmethod
-    def backward(ctx, grad_output_hp):
-        """
-        Backward is implemented as a shuffle of the output's gradients to the input.
-        Args:
-            `grad_output_hp`: high precision output gradient passed from upstream
-        """
+    def backward(ctx, grad_output_hp, grad_scales):
         # In backward, mxfp8_all_to_all_v input is `grad_output`, and output is `grad_input`.
         # Input splits are the output splits from forward (and vice-versa).
         input_splits, output_splits = ctx.input_splits, ctx.output_splits
 
-        # Quantize grad_output
+        # Quantize grad_output if not already quantized
         block_size = 32
-        grad_out_data, grad_out_scales = triton_to_mxfp8_dim0(
-            grad_output_hp,
-            inner_block_size=block_size,
-        )
+        if grad_output_hp.dtype == torch.float8_e4m3fn:
+            grad_out_data = grad_output_hp
+            grad_out_scales = grad_scales
+        else:
+            grad_out_data, grad_out_scales = triton_to_mxfp8_dim0(
+                grad_output_hp,
+                inner_block_size=block_size,
+                scaling_mode=ctx.scaling_mode_str,
+            )
 
         # Dispatch data (async)
         grad_input_data = all_to_all_single(
@@ -552,6 +571,7 @@ class ToMXFP8AllToAllVDequant(torch.autograd.Function):
         grad_input_data = torch.ops._c10d_functional.wait_tensor(grad_input_data)
         grad_input_scales = torch.ops._c10d_functional.wait_tensor(grad_input_scales)
 
+        # We always dequant the grad_input back to high precision since arbitrary ops may follow which MXTensor doesn't support
         hp_dtype = grad_output_hp.dtype
         grad_input_hp = triton_mxfp8_dequant_dim0(
             grad_input_data,
@@ -559,8 +579,37 @@ class ToMXFP8AllToAllVDequant(torch.autograd.Function):
             hp_dtype,
             block_size,
         )
-        return grad_input_hp, None, None, None
+
+        return grad_input_hp, None, None, None, None, None
 
 
-# Alias
-to_mxfp8_a2a_dequant = ToMXFP8AllToAllVDequant.apply
+def to_mxfp8_all_to_all_autograd(
+    tensor: torch.Tensor,
+    output_splits: list[int],
+    input_splits: list[int],
+    group: dist.ProcessGroup = dist.group.WORLD,
+    scaling_mode: ScaleCalculationMode = ScaleCalculationMode.RCEIL,
+    dequant_output: bool = False,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """
+    Dynamically quantizes input to mxfp8, performs all-to-all, then optionally dequantizes output back to original precision.
+    Requires d2h sync to get input_splits and output_splits on host, as required by torch.distributed.all_to_all_single API.
+    Args:
+        tensor: input tensor to be all-to-all'd.
+        output_splits: list of output splits for all-to-all.
+        input_splits: list of input splits for all-to-all.
+        group: process group to scope the collective.
+        scaling_mode: scaling mode for quantization.
+        dequant_output: whether to dequantize the output back to original precision.
+    Returns:
+        output: all-to-all output tensor. If dequant_output is True, this is in original precision, else in torch.float8_e4m3fn.
+        scales: output torch.float8_e8m0fnu scales tensor if dequant_output is False, else None.
+    """
+    return _ToMXFP8AllToAll.apply(
+        tensor,
+        output_splits,
+        input_splits,
+        group,
+        scaling_mode,
+        dequant_output,
+    )

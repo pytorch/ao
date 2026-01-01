@@ -29,7 +29,7 @@ from tqdm import tqdm
 
 from benchmarks.utils import profile_fn
 from torchao.prototype.moe_training.kernels.mxfp8.comms import (
-    to_mxfp8_a2a_dequant,
+    to_mxfp8_all_to_all_autograd,
 )
 
 device = torch.device("cuda")
@@ -96,11 +96,12 @@ def mxfp8_a2a_fwd(
     input_splits_list: list[int],
     device_mesh: DeviceMesh,
 ):
-    routed_input = to_mxfp8_a2a_dequant(
+    routed_input = to_mxfp8_all_to_all_autograd(
         routed_input,
         output_splits_list,
         input_splits_list,
         device_mesh.get_group(),
+        dequant_output=True,
     )
     torch.cuda.synchronize()
     return routed_input

@@ -19,15 +19,14 @@ from torch.testing._internal.common_utils import (
     run_tests,
 )
 
+from test.prototype.moe_training.testing_utils import generate_split_sizes
 from torchao.float8.float8_utils import (
     compute_error,
 )
 from torchao.prototype.moe_training.kernels.mxfp8.comms import (
     mxfp8_on_device_all_to_all_v,
-    to_mxfp8_a2a_dequant,
+    to_mxfp8_all_to_all_autograd,
 )
-
-from ..testing_utils import generate_split_sizes
 
 
 @instantiate_parametrized_tests
@@ -236,14 +235,14 @@ class ToMXFP8AllToAllVDequantTest(MultiProcessTestCase):
             )
 
             # Compute mxfp8 a2a sync
-            output = to_mxfp8_a2a_dequant(
+            output, _ = to_mxfp8_all_to_all_autograd(
                 input_tensor,
                 output_splits.tolist(),
                 input_splits.tolist(),
                 group_name,
+                dequant_output=True,
             )
 
-            # Compare output
             sqnr = compute_error(ref_output, output)
             min_sqnr = 30.0
             assert sqnr > min_sqnr, f"sqnr={sqnr} is less than min_sqnr={min_sqnr}"
