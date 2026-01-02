@@ -19,7 +19,7 @@ Exponent E8M0 encoding details (OCP spec section 5.4.1):
 
 import math
 from dataclasses import dataclass
-from typing import Optional, Union
+from typing import Any, Optional, Union
 
 import torch
 from torch.distributed._tensor import DTensor
@@ -29,7 +29,10 @@ from torch.utils._python_dispatch import (
 from torch.utils._pytree import tree_map
 
 import torchao.ops
-from torchao.prototype.mx_formats.config import ScaleCalculationMode
+from torchao.prototype.mx_formats.config import (
+    MXFP8Dim0CastKernelChoice,
+    ScaleCalculationMode,
+)
 from torchao.prototype.mx_formats.constants import (
     BLOCK_SIZE_DEFAULT,
     DTYPE_FP6_E2M3,
@@ -58,6 +61,7 @@ from torchao.prototype.mx_formats.kernels import (
     f32_to_f6_e2m3_unpacked,
     f32_to_f6_e3m2_unpacked,
     pack_uint4,
+    triton_to_mxfp8_dim0,
     unpack_uint4,
 )
 from torchao.prototype.mx_formats.utils import (
@@ -921,3 +925,43 @@ def mx_wait_tensor(func, types, args, kwargs):
         mx_tensor.act_quant_kwargs,
         mx_tensor._is_swizzled_scales,
     )
+
+
+def _to_mxfp8_dim0(
+    tensor: torch.Tensor,
+    elem_dtype: Any,
+    block_size: int,
+    kernel_preference: KernelPreference,
+    scale_calculation_mode: ScaleCalculationMode,
+    mxfp8_dim0_cast_kernel_choice: MXFP8Dim0CastKernelChoice,
+) -> MXTensor:
+    """
+    Quantize a tensor to MXFP8 along dimension 0.
+
+    Uses Triton kernel or falls back to MXTensor.to_mx() based on the
+    mxfp8_dim0_cast_kernel_choice parameter.
+    """
+    if mxfp8_dim0_cast_kernel_choice == MXFP8Dim0CastKernelChoice.TRITON:
+        data, scales = triton_to_mxfp8_dim0(
+            tensor,
+            inner_block_size=block_size,
+            scaling_mode=scale_calculation_mode.value,
+        )
+        return MXTensor(
+            data,
+            scales,
+            elem_dtype=data.dtype,
+            block_size=block_size,
+            orig_dtype=tensor.dtype,
+            kernel_preference=kernel_preference,
+            act_quant_kwargs=None,
+            is_swizzled_scales=False,
+        )
+    else:
+        return MXTensor.to_mx(
+            tensor,
+            elem_dtype,
+            block_size,
+            kernel_preference=kernel_preference,
+            scaling_mode=scale_calculation_mode,
+        )

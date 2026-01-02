@@ -1179,14 +1179,17 @@ if mxfp8_cuda_extension_available:
         assert rows % block_size == 0, "rows must be a multiple of 32"
         assert cols % block_size == 0, "cols must be a multiple of 32"
 
+        scale_dim_x = 1
+        scale_dim_y = block_size
+        fp8_format = "e4m3"
         output_rowwise, output_colwise, scales_rowwise, scales_colwise = (
             torch.ops.torchao.mxfp8_quantize.default(
                 x,
                 rowwise,
                 colwise,
-                1,  # scale_dim_x
-                block_size,  # scale_dim_y
-                "e4m3",  # fp8_format
+                scale_dim_x,
+                scale_dim_y,
+                fp8_format,
                 scaling_mode,
             )
         )
@@ -1241,9 +1244,12 @@ if mxfp8_cuda_extension_available:
     @register_sharding(torch.ops.torchao.mxfp8_quantize.default)
     def custom_mxfp8_quantize_cuda_dim1_sharding(
         x: torch.Tensor,
-        rowwise: bool = False,
-        colwise: bool = True,
-        scaling_mode: str = "floor",
+        rowwise: bool,
+        colwise: bool,
+        scale_dim_x: int,
+        scale_dim_y: int,
+        fp8_format: str,
+        scaling_mode: str,
     ):
         # This function signature can be used to understand the shardings:
         # _, colwise_data, _, colwise_scales = mxfp8_quantize_cuda(x, rowwise=False, colwise=True)
