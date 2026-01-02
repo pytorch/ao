@@ -227,9 +227,11 @@ def run(
         y_d0, s_d0 = to_mx_dim0_reference_c(x, BLOCK_SIZE, ScaleCalculationMode.RCEIL)
 
         for _ in range(2):
-            __ = to_mx_dim0_reference_c(x, BLOCK_SIZE)
+            __ = to_mx_dim0_reference_c(x, BLOCK_SIZE, ScaleCalculationMode.RCEIL)
         time_us = benchmark_cuda_function_in_microseconds(
-            lambda x, b: to_mx_dim0_reference_c(x, BLOCK_SIZE),
+            lambda x, b: to_mx_dim0_reference_c(
+                x, BLOCK_SIZE, ScaleCalculationMode.RCEIL
+            ),
             x,
             BLOCK_SIZE,
         )
