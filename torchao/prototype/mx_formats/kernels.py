@@ -20,6 +20,7 @@ from torchao.prototype.custom_fp_utils import (
 from torchao.prototype.mx_formats.config import ScaleCalculationMode
 from torchao.utils import (
     is_cuda_version_at_least,
+    is_MI350,
     is_sm_at_least_100,
     torch_version_at_least,
 )
@@ -1138,9 +1139,9 @@ else:
         raise AssertionError("needs torch version 2.8+ and triton")
 
 
-mxfp8_cuda_extension_available = is_sm_at_least_100() and is_cuda_version_at_least(
-    12, 8
-)
+mxfp8_cuda_extension_available = (
+    is_sm_at_least_100() and is_cuda_version_at_least(12, 8)
+) or is_MI350()
 
 if mxfp8_cuda_extension_available:
     lib = torch.library.Library("torchao", "FRAGMENT")
