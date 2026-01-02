@@ -1,5 +1,20 @@
-# Low precision MoE Training
+# MXFP8 MoE Training
 
+## Table of Contents
+- [Overview](#overview)
+- [Case study training at scale: 1.2x e2e speedup with equivalent convergence versus to bf16](#case-study-training-at-scale-12x-e2e-speedup-with-equivalent-convergence-versus-to-bf16)
+- [Examples](#examples)
+- [System requirements](#system-requirements)
+- [Benchmarks](#benchmarks)
+  - [Autograd function](#autograd-function)
+  - [Kernel Microbenchmarks: Breakdown by Pass](#kernel-microbenchmarks-breakdown-by-pass)
+  - [Roofline Performance Analysis](#roofline-performance-analysis)
+  - [Single MoE layer forward + backward pass](#benchmark-single-moe-layer-forward--backward-pass)
+  - [End-to-end training benchmark with TorchTitan: Llama4 Scout vs bfloat16 baseline](#end-to-end-training-benchmark-with-torchtitan-llama4-scout-vs-bfloat16-baseline)
+- [Implementation details for developers](#implementation-details-for-developers)
+- [Limitations](#limitations)
+
+## Overview
 This prototype provides:
 
 1. Quantized building block for low precision MoE training: [_to_mxfp8_then_scaled_grouped_mm](https://github.com/pytorch/ao/blob/53b5efdac921a38fd15e8d3ac8191c3927140287/torchao/prototype/moe_training/scaled_grouped_mm.py#L677). It is a differentiable drop-in replacement for `torch._grouped_mm` that dynamically quantizes inputs using the given recipe, performs a scaled grouped GEMM, then returns the results in original precision. See runnable [example](#torchao_scaled_grouped_mm-example-forward--backward-pass) of a forward and backward pass below.
@@ -14,7 +29,7 @@ This prototype provides:
 3. Model conversion API to swap all `torch._grouped_mm` ops in your model definition to use torchao `_quantize_then_scaled_grouped_mm` under the hood (see [example](#model-conversion-api-example-end-to-end-training) below).
 
 
-## 1.2x e2e training speedup with equivalent convergence versus to bfloat16
+## Case study training at scale: 1.2x e2e speedup with equivalent convergence versus to bf16
 
 Training runs on 64 node GB200 cluster with TorchTitan Llama4 Scout demonstrated a 1.2x e2e training speedup with equivalent convergence to bfloat16 training baseline. Infact, after 3,000 steps it finishes with slightly *lower* loss than bfloat16! This is consistent with our scaling experiments with [MXFP8 training for dense models](https://pytorch.org/blog/accelerating-2k-scale-pre-training-up-to-1-28x-with-torchao-mxfp8-and-torchtitan-on-crusoe-b200-cluster/).
 
@@ -42,16 +57,6 @@ Training and model configurations for this run:
 - `mxfp8` applied to routed experts computation (grouped GEMMs)
 - `mxfp8` applied to all linear layers except: `output`, `router.gate`, `attention.wk`, `attention.wv` (Wk and Wv too small to benefit from mxfp8)
 
-
-## Table of Contents
-
-- [Examples](#examples)
-- [System Requirements](#system-requirements)
-- [Microbenchmarks](#microbenchmarks)
-- [Single MoE layer benchmarks](#benchmark-single-moe-layer-forward--backward-pass)
-- [E2E training benchmarks](#end-to-end-training-benchmark-with-torchtitan-llama4-scout-vs-bfloat16-baseline)
-- [Implementation Details for Developers](#implementation-details-for-developers)
-- [Limitations](#limitations)
 
 ## Examples
 #### _to_mxfp8_and_scaled_grouped_mm usage
@@ -86,91 +91,20 @@ loss = F.mse_loss(out, labels)
 loss.backward()
 ```
 
-#### Model conversion API example: end-to-end training
-```python
-from torchao.prototype.moe_training.conversion_utils import MoEScalingType
-import torch
-from torch import nn
-from torch.nn import functional as F
-
-# This feature requires CUDA 12.8+ and SM100+
-assert torch.cuda.is_available() and torch.cuda.get_device_capability() >= (10, 0)
-
-from torchao.prototype.moe_training.conversion_utils import MoETrainingConfig
-from torchao.quantization.quant_api import quantize_
-
-# This example uses torchtitan Llama4 MoE.
-try:
-    from torchtitan.models.moe.utils import (
-        set_token_group_alignment_size_m,
-    )
-    from torchtitan.models.moe import MoE, MoEArgs
-except ImportError:
-    pytest.skip(
-        "torchtitan not installed, skipping MoE tests.", allow_module_level=True
-    )
-
-
-# Initialize model
-device = torch.device("cuda")
-moe_args = MoEArgs(
-    num_experts=8,
-)
-dim, hidden_dim = 5120, 8192
-model = MoE(moe_args, dim, hidden_dim).to(torch.bfloat16).to(device)
-init_std = 0.02
-model.init_weights(init_std, device)
-
-# Module filter function to define which modules to quantize
-target_fqns = ["experts"]
-
-
-def moe_module_filter_fn(mod: nn.Module, cur_fqn: str) -> bool:
-    for target_fqn in target_fqns:
-        if target_fqn in cur_fqn:
-            return True
-    return False
-
-# Token group sizes must be padded to multiple of MXFP8 scaling block size (1x32)
-alignment_size = 32
-set_token_group_alignment_size_m(alignment_size)
-
-# Convert model to use MXFP8 scaled grouped GEMMs
-config = MoETrainingConfig(scaling_type=MoEScalingType.MXFP8)
-quantize_(model, config=config, filter_fn=moe_module_filter_fn)
-
-# Training loop
-optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
-batch_size, seq_len = 2, 2048
-for step in range(10):
-    # Simulate random batch of input data
-    x = torch.randn(
-        batch_size, seq_len, dim, dtype=torch.bfloat16, requires_grad=True, device=device
-    )
-
-    # Forward pass
-    out = model(x)
-
-    # Compute loss with fake labels for demonstration purposes
-    labels = torch.ones_like(out)
-    out_loss = F.mse_loss(out, labels)
-    print(f"step {step} loss: {out_loss.item()}")
-
-    # Backward pass
-    out_loss.backward()
-    optimizer.step()
-    optimizer.zero_grad()
-```
-
 ## System requirements
 - torchao 0.14+
 - For MXFP8 MoE training, CUDA 12.8+ and SM100+ GPU arch are required.
 - For FP8 rowwise MoE training, CUDA 12.4+ and SM89+ GPU arch are required.
 
 
-## Microbenchmarks for `_to_mxfp8_then_scaled_grouped_mm` autograd function 
+## Benchmarks
 
-**MXFP8 with Llama4 17b 16e shapes** (with G from 1 to 8 to simulate different degrees of expert parallelism)
+### Autograd function 
+Forward + backward pass benchmarks for the [autograd function](https://github.com/pytorch/ao/blob/8bb433e989ad6f7ee0920f946d3a9be7f14be8c7/torchao/prototype/moe_training/scaled_grouped_mm.py#L284) powering MXFP8 MoE training.
+
+#### Llama4 Scout shapes 
+
+* `G` (number of groups/experts per device) varies from 1 to 8 to simulate different degrees of expert parallelism
 
 | M,N,K,G                 | bf16_fwd_bwd_us | scaled_fwd_bwd_us | scaled_fwd_bwd_speedup |
 | ----------------------- | --------------: | ----------------: | ---------------------: |
@@ -179,7 +113,9 @@ for step in range(10):
 | (128000, 8192, 5120, 4) |        39189.20 |          23945.50 |                 1.637x |
 | (128000, 8192, 5120, 8) |        37700.70 |          22170.60 |                 1.700x |
 
-**MXFP8 with DeepSeekV3** (with G from 1 to 8 to simulate different degrees of expert parallelism)
+#### DeepSeekV3 671b shapes
+
+* `G` (number of groups/experts per device) varies 1 to 8 to simulate different degrees of expert parallelism
 
 | M,N,K,G                 | bf16_fwd_bwd_us | scaled_fwd_bwd_us | scaled_fwd_bwd_speedup |
 | ----------------------- | --------------: | ----------------: | ---------------------: |
@@ -194,7 +130,7 @@ To reproduce this benchmark, on a B200 GPU machine, run the following command:
 - torchao: `0.14.0+gitc7b8e13da`
 - torch: `2.10.0a0+gitf6de195`
 
-### MXFP8 Kernel Microbenchmarks: Breakdown by Pass
+### Kernel Microbenchmarks: Breakdown by Pass
 
 The following table provides a detailed breakdown of all MXFP8 kernels used in the forward and backward passes, with shapes representative of **DeepSeekV3 671B** (dim=7168, hidden_dim=2048, total_tokens=131072, groups=8, block_size=32).
 
@@ -274,7 +210,7 @@ cd benchmarks/prototype/moe_training/mxfp8
 python roofline_unified.py --K=7168 --N=2048 --G=8 --power_limit_percent=100 --breakdown_M=131072 --plot_file=dsv3_rooflines.png
 ```
 
-## Benchmark: single MoE layer forward + backward pass
+### Single MoE layer forward + backward pass
 
 | Model        | total_M | N    | K    | bf16 time (ms) | mxfp8 time (ms) | speedup |
 |--------------|---------|------|------|---------------|-----------------|---------|
@@ -295,7 +231,7 @@ CUDA_VISIBLE_DEVICES=6 python benchmarks/prototype/moe_training/bench_moe_layer.
 
 
 
-## End-to-end training benchmark with TorchTitan: Llama4 Scout vs bfloat16 baseline
+### End-to-end training benchmark with TorchTitan: Llama4 Scout vs bfloat16 baseline
 - Single node benchmarks with 4xB200
 - Llama4 16e default configs; FSDP=4, EP=4; AC=none; compile=True; seq_len=8192; local_bs=8
 - Reduced num layers from 48 -> 2 to avoid OOM in single node setting
