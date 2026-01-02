@@ -297,11 +297,13 @@ class _MXFP8GroupedMM(torch.autograd.Function):
         wgrad_with_hp: bool = False,
         scale_calculation_mode: ScaleCalculationMode = ScaleCalculationMode.RCEIL,
     ) -> torch.Tensor:
-        # torchao _quantize_then_scaled_grouped_mm only supports A=2D and B=3D.
         assert A.ndim == 2, "A must be 2D"
         assert B_t.ndim == 3, "B must be 3D"
         assert block_size == 32, "Only block_size=32 is supported"
         assert offs is not None, "offs must be provided for 2d-2d and 2d-3d grouped mm"
+        assert out_dtype in (torch.bfloat16, torch.float32), (
+            "out_dtype must be bfloat16 or float32"
+        )
 
         # A_data shape: (M, K)
         # A_scale shape: (M, K//block_size)
@@ -682,5 +684,49 @@ def round_up(x, y):
 
 
 # Aliases for convenience/clarity
-_to_mxfp8_then_scaled_grouped_mm = _MXFP8GroupedMM.apply
+def _to_mxfp8_then_scaled_grouped_mm(
+    A: torch.Tensor,
+    B_t: torch.Tensor,
+    offs: Optional[torch.Tensor] = None,
+    block_size: int = 32,
+    out_dtype: Optional[torch.dtype] = torch.bfloat16,
+    emulated: bool = False,
+    use_triton_for_dim0_cast: bool = True,
+    wgrad_with_hp: bool = False,
+    scale_calculation_mode: ScaleCalculationMode = ScaleCalculationMode.RCEIL,
+) -> torch.Tensor:
+    """
+    Differentiable mxfp8 grouped gemm with dynamic mxfp8 quantization.
+
+    Args:
+        - A (bf16/float32 torch.Tensor): The first high-precision input tensor,
+            which must be a 2D tensor of shape (M * num_groups, K)
+            and in row-major memory layout.
+        - B_t (bf16/float32 torch.Tensor): The second high-precision input tensor
+            which must be 3D, which must be shape (G, K, N)
+            and in "per group column-major memory" layout (i.e., strides of (N*K, 1, N)).
+        - offs (int32 torch.Tensor): The offsets to use to mark the end index of each group along the dim0 of the A tensor.
+        - block_size (int): The block size to use for mxpf8 quantization. Currently only 32 is supported.
+        - out_dtype (Optional[torch.dtype]): The dtype of the output tensor. Default is torch.bfloat16.
+        - emulated (bool): Whether to use the emulated mxpf8 scaled grouped mm kernel (for testing).
+        - use_triton_for_dim0_cast (bool): Whether to use Triton for the dim0 cast. Default true. If false, use torch native implementation.
+        - wgrad_with_hp (bool): Whether to compute weight gradients in high precision.
+        - scale_calculation_mode (ScaleCalculationMode): The mode to use for scale calculation.
+
+    Returns:
+        - out (torch.Tensor): The result of the mxpf8 scaled grouped gemm.
+    """
+    return _MXFP8GroupedMM.apply(
+        A,
+        B_t,
+        offs,
+        block_size,
+        out_dtype,
+        emulated,
+        use_triton_for_dim0_cast,
+        wgrad_with_hp,
+        scale_calculation_mode,
+    )
+
+
 _to_fp8_rowwise_then_scaled_grouped_mm = _Float8GroupedMM.apply
