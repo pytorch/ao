@@ -19,10 +19,10 @@ import torch
 from triton.testing import do_bench
 
 from torchao.prototype.moe_training.kernels.mxfp8 import (
+    mx_block_rearrange_2d_M_groups_cuda,
     torch_to_blocked_2d_M_groups,
     torch_to_blocked_per_group_3d,
     triton_mx_block_rearrange_2d_K_groups,
-    triton_mx_block_rearrange_2d_M_groups,
     triton_mx_block_rearrange_per_group_3d,
 )
 from torchao.prototype.moe_training.kernels.mxfp8.quant import (
@@ -40,21 +40,10 @@ from torchao.prototype.mx_formats.config import (
     ScaleCalculationMode,
 )
 from torchao.prototype.mx_formats.kernels import triton_to_mxfp8_dim0
-from torchao.prototype.mx_formats.mx_tensor import to_mx
 from torchao.prototype.mx_formats.utils import _to_mxfp8_dim1_kernel_wrapper
 from torchao.testing.training.roofline_utils import (
     gpu_name_to_specs,
 )
-
-
-# Compile to_mx wrapper function once at module level for reuse
-def _to_mx_wrapper(data_hp, block_size, scaling_mode):
-    """Wrapper function for to_mx that matches cast_bench.py pattern"""
-    scale, data = to_mx(data_hp, torch.float8_e4m3fn, block_size, scaling_mode)
-    return data, scale
-
-
-_compiled_to_mx_wrapper = torch.compile(_to_mx_wrapper, fullgraph=True)
 
 
 class RooflineModel:
@@ -461,6 +450,7 @@ def benchmark_mxfp8_grouped_mm_fwd_bwd(x, w_t, offs, labels, block_size=32):
     out_dtype = torch.bfloat16
     emulated = False
     use_triton_for_dim0_cast = True
+    wgrad_with_hp = False
     scale_calculation_mode = MoEScaleCalculationMode.RCEIL
 
     def wrapper():
@@ -472,6 +462,7 @@ def benchmark_mxfp8_grouped_mm_fwd_bwd(x, w_t, offs, labels, block_size=32):
             out_dtype,
             emulated,
             use_triton_for_dim0_cast,
+            wgrad_with_hp,
             scale_calculation_mode,
         )
         loss = torch.nn.functional.mse_loss(out, labels)
@@ -496,17 +487,10 @@ def benchmark_to_mxfp8_dim1_cuda(tensor, block_size=32):
             block_size=block_size,
             elem_dtype=torch.float8_e4m3fn,
             hp_dtype=torch.bfloat16,
-            gemm_kernel_choice=None,
+            kernel_preference=None,
             cast_kernel_choice=MXFP8Dim1CastKernelChoice.CUDA,
             scale_calculation_mode=ScaleCalculationMode.RCEIL,
         )
-    )
-
-
-def benchmark_to_mx(tensor, block_size=32):
-    """Benchmark to_mx kernel"""
-    return benchmark_cuda_function_in_microseconds(
-        lambda: _compiled_to_mx_wrapper(tensor, block_size, ScaleCalculationMode.RCEIL)
     )
 
 
@@ -716,23 +700,6 @@ def run(
             f"  to_mxfp8_dim1_cuda: Roofline={roofline_bandwidth_gbs:.1f} GB/s, Actual={dim1_cuda_bandwidth_gbs:.1f} GB/s, Efficiency={result_dict['cuda_dim1_efficiency_pct']:.1f}%"
         )
 
-        # Benchmark to_mx
-        # Warmup runs before benchmarking to ensure compiled function is optimized
-        for _ in range(2):
-            with torch.no_grad():
-                _ = _compiled_to_mx_wrapper(tensor, 32, ScaleCalculationMode.RCEIL)
-
-        to_mx_time_us = benchmark_to_mx(tensor)
-        to_mx_bandwidth_gbs = total_gb / (to_mx_time_us / 1e6)
-        result_dict["to_mx_us"] = to_mx_time_us
-        result_dict["to_mx_bandwidth_gbs"] = to_mx_bandwidth_gbs
-        result_dict["to_mx_efficiency_pct"] = (
-            to_mx_bandwidth_gbs / roofline_bandwidth_gbs
-        ) * 100
-        print(
-            f"  to_mx: Roofline={roofline_bandwidth_gbs:.1f} GB/s, Actual={to_mx_bandwidth_gbs:.1f} GB/s, Efficiency={result_dict['to_mx_efficiency_pct']:.1f}%"
-        )
-
         quant_2d_results.append(result_dict)
 
         # Clean up tensors to free GPU memory
@@ -849,29 +816,29 @@ def run(
         )
         input_group_offsets = generate_jagged_offs(num_groups, M)
 
-        # Benchmark triton kernel
-        triton_out = triton_mx_block_rearrange_2d_M_groups(
+        # Benchmark CUDA kernel
+        cuda_out = mx_block_rearrange_2d_M_groups_cuda(
             input_tensor, input_group_offsets
         )
-        triton_time_us = benchmark_cuda_function_in_microseconds(
-            triton_mx_block_rearrange_2d_M_groups,
+        cuda_time_us = benchmark_cuda_function_in_microseconds(
+            mx_block_rearrange_2d_M_groups_cuda,
             input_tensor,
             input_group_offsets,
         )
-        triton_bandwidth_gbs = total_gb / (triton_time_us / 1e6)
-        result_dict["triton_mx_block_rearrange_2d_M_groups_us"] = triton_time_us
-        result_dict["triton_bandwidth_gbs"] = triton_bandwidth_gbs
-        result_dict["triton_efficiency_pct"] = (
-            triton_bandwidth_gbs / roofline_bandwidth_gbs
+        cuda_bandwidth_gbs = total_gb / (cuda_time_us / 1e6)
+        result_dict["mx_block_rearrange_2d_M_groups_cuda_us"] = cuda_time_us
+        result_dict["cuda_bandwidth_gbs"] = cuda_bandwidth_gbs
+        result_dict["cuda_efficiency_pct"] = (
+            cuda_bandwidth_gbs / roofline_bandwidth_gbs
         ) * 100
         print(
-            f"  triton_mx_block_rearrange_2d_M_groups: Roofline={roofline_bandwidth_gbs:.1f} GB/s, Actual={triton_bandwidth_gbs:.1f} GB/s, Efficiency={result_dict['triton_efficiency_pct']:.1f}%"
+            f"  mx_block_rearrange_2d_M_groups_cuda: Roofline={roofline_bandwidth_gbs:.1f} GB/s, Actual={cuda_bandwidth_gbs:.1f} GB/s, Efficiency={result_dict['cuda_efficiency_pct']:.1f}%"
         )
 
         rearrange_results.append(result_dict)
 
         # Clean up tensors
-        del input_tensor, input_group_offsets, triton_out
+        del input_tensor, input_group_offsets, cuda_out
         torch.cuda.empty_cache()
 
     # K-groups configurations (backward weight pass scales)
@@ -1062,10 +1029,10 @@ def run(
             f"  BF16 Grouped GEMM: Roofline={model.bf16_tflops:.1f} TFLOPS, Actual={bf16_actual_tflops:.1f} TFLOPS, Efficiency={result_dict['bf16_tflops_efficiency_pct']:.1f}%"
         )
 
-        # Convert to MXFP8 format
-        x_scales, x_fp8 = to_mx(x, elem_dtype=torch.float8_e4m3fn, block_size=32)
-        w_scales, w_fp8 = to_mx(
-            w_t.transpose(-2, -1), elem_dtype=torch.float8_e4m3fn, block_size=32
+        # Convert to MXFP8 format using triton_to_mxfp8_dim0 (blocks along dim0)
+        x_fp8, x_scales = triton_to_mxfp8_dim0(x, inner_block_size=32)
+        w_fp8, w_scales = triton_to_mxfp8_dim0(
+            w_t.transpose(-2, -1), inner_block_size=32
         )
 
         # Convert scales to blocked format
@@ -1165,7 +1132,7 @@ def run(
             32,
             elem_dtype=torch.float8_e4m3fn,
             hp_dtype=torch.bfloat16,
-            gemm_kernel_choice=None,
+            kernel_preference=None,
             cast_kernel_choice=MXFP8Dim1CastKernelChoice.CUDA,
             scale_calculation_mode=ScaleCalculationMode.RCEIL,
         )
@@ -1179,7 +1146,7 @@ def run(
             32,
             elem_dtype=torch.float8_e4m3fn,
             hp_dtype=torch.bfloat16,
-            gemm_kernel_choice=None,
+            kernel_preference=None,
             cast_kernel_choice=MXFP8Dim1CastKernelChoice.CUDA,
             scale_calculation_mode=ScaleCalculationMode.RCEIL,
         )
@@ -1303,25 +1270,16 @@ def run(
         label="to_mxfp8_dim1_cuda",
         color="orange",
     )
-    ax2.plot(
-        df_quant_2d["M"],
-        df_quant_2d["to_mx_efficiency_pct"],
-        marker="^",
-        linewidth=2,
-        linestyle="-",
-        label="to_mx",
-        color="green",
-    )
     # 2D Rearrange kernels
     df_m_groups = df_rearrange[df_rearrange["kernel_type"] == "M_groups"]
     df_k_groups = df_rearrange[df_rearrange["kernel_type"] == "K_groups"]
     ax2.plot(
         df_m_groups["M"],
-        df_m_groups["triton_efficiency_pct"],
+        df_m_groups["cuda_efficiency_pct"],
         marker="^",
         linewidth=2,
         linestyle="--",
-        label="triton M-groups scale blocked format",
+        label="CUDA M-groups scale blocked format",
         color="purple",
     )
     ax2.plot(
@@ -1488,8 +1446,7 @@ def run(
         (df_rearrange["kernel_type"] == "M_groups") & (df_rearrange["M"] == M_large)
     ].index[0]
     fwd_input_scale_rearrange_ms = (
-        df_rearrange.loc[idx_m_groups, "triton_mx_block_rearrange_2d_M_groups_us"]
-        / 1000
+        df_rearrange.loc[idx_m_groups, "mx_block_rearrange_2d_M_groups_cuda_us"] / 1000
     )
 
     # Weight scale rearrangement: 3D per-group for (G, N, K//32)
@@ -1524,7 +1481,7 @@ def run(
     grad_offs = generate_jagged_offs(G_val, M_large)
     bwd_input_grad_scale_rearrange_ms = (
         benchmark_cuda_function_in_microseconds(
-            triton_mx_block_rearrange_2d_M_groups, grad_scales, grad_offs
+            mx_block_rearrange_2d_M_groups_cuda, grad_scales, grad_offs
         )
         / 1000
     )
@@ -1711,7 +1668,6 @@ Net Speedup Analysis:
 2D Quantization Kernels:
   triton_to_mxfp8_dim0 avg efficiency: {df_quant_2d["triton_dim0_efficiency_pct"].mean():.1f}%
   to_mxfp8_dim1_cuda avg efficiency: {df_quant_2d["cuda_dim1_efficiency_pct"].mean():.1f}%
-  to_mx avg efficiency: {df_quant_2d["to_mx_efficiency_pct"].mean():.1f}%
 
 3D Quantization Kernels:
   mxfp8_quantize_cuda_3d avg efficiency: {df_quant_3d["cuda_3d_efficiency_pct"].mean():.1f}%
