@@ -197,23 +197,25 @@ on supported hardware, you can run the following command:
 // example output: https://gist.github.com/vkuzo/a1ddb782e6e1c2aef0c726b3df99efbc
 ```
 
-## to_mx cast across dim0 and dim1
+## quantization kernel microbenchmarks
 
-On NVIDIA B200 machines, our to_mx kernels for mxfp8 achieve **up to 6.3 TB/s** for the dim0 cast (with torch.compile),
-and **up to 3.9 TB/s** for the dim1 cast (with a triton kernel). We are actively working on improving
-the performance of this cast ([details](https://github.com/pytorch/ao/issues/1768)).
+Results for shape 16384x16384 on NVIDIA B200 with 1000W power supply:
 
-To reproduce this on supported hardware, you can run the following command:
+| Mode | Time (μs) | Memory Bandwidth (GB/s) | Notes
+| --- | --- | --- | --- |
+| dim0_mxfp8_floor | 125.92 | 6462.00 | `to_mx` + `torch.compile`
+| dim0_mxfp8_rceil | 220.10 | 3697.00 | `to_mx` + `torch.compile` (not used: https://github.com/pytorch/pytorch/issues/170635)
+| dim0_mxfp8_triton_floor | 139.23 | 5844.17 | Triton kernel
+| dim0_mxfp8_triton_rceil | 138.18 | 5888.83 | Triton kernel
+| dim1_mxfp8_cuda_floor | 150.56 | 5404.46 | CUDA kernel
+| dim1_mxfp8_cuda_rceil | 142.34 | 5716.72 | CUDA kernel
 
+To reproduce these benchmarks:
 ```bash
-// dim0 cast with torch.compile
-> python benchmarks/mx_formats/cast_bench.py --mode dim0_mx --M 16384 --K 16384
-// example output: https://gist.github.com/vkuzo/06aae58de9b8aae02c82adb00eb33197
-
-// dim1 cast with a handwritten triton kernel
-> python benchmarks/mx_formats/cast_bench.py --mode dim1_mx_triton --M 16384 --K 16384
-// example output: https://gist.github.com/vkuzo/7ac5fce44c9b90bfb9eae2a07b721cda
+conda run -n torch python benchmarks/mx_formats/cast_bench.py --M 16384 --K 16384 --mode <mode>
 ```
+
+
 
 # accuracy
 
