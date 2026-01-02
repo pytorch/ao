@@ -17,6 +17,7 @@ from torchao.prototype.mx_formats.config import (
     MXLinearConfig,
     ScaleCalculationMode,
 )
+from torchao.prototype.mx_formats.kernels import triton_to_mxfp8_dim0
 from torchao.prototype.mx_formats.mx_tensor import MXTensor
 from torchao.prototype.mx_formats.utils import _to_mxfp8_dim1_kernel_wrapper
 from torchao.quantization.quantize_.common.kernel_preference import KernelPreference
@@ -61,19 +62,19 @@ class mx_mm(torch.autograd.Function):
         input_orig_shape = input_hp.shape
         input_hp_r = input_hp.reshape(-1, input_orig_shape[-1])
 
-        input_mx_r_dim0 = MXTensor.to_mx(
+        input_mx_r_dim0 = _to_mxfp8_dim0(
             input_hp_r,
             in_elem_dtype,
             block_size,
-            kernel_preference=kernel_preference,
-            scaling_mode=scale_calculation_mode,
+            kernel_preference,
+            scale_calculation_mode,
         )
-        weight_mx_dim0 = MXTensor.to_mx(
+        weight_mx_dim0 = _to_mxfp8_dim0(
             weight_hp,
             w_elem_dtype,
             block_size,
-            kernel_preference=kernel_preference,
-            scaling_mode=scale_calculation_mode,
+            kernel_preference,
+            scale_calculation_mode,
         )
         output = torch.mm(input_mx_r_dim0, weight_mx_dim0.t())
         output = output.reshape(*input_orig_shape[:-1], output.shape[-1])
@@ -98,12 +99,12 @@ class mx_mm(torch.autograd.Function):
         input_hp_r = input_hp.reshape(-1, input_hp_orig_shape[-1])
 
         # grad_output @ weight = grad_input
-        grad_output_mx_dim0 = MXTensor.to_mx(
+        grad_output_mx_dim0 = _to_mxfp8_dim0(
             grad_output_hp_r,
             grad_elem_dtype,
             block_size,
-            kernel_preference=kernel_preference,
-            scaling_mode=scale_calculation_mode,
+            kernel_preference,
+            scale_calculation_mode,
         )
 
         if mxfp8_cast_kernel_choice != MXFP8Dim1CastKernelChoice.TORCH:
@@ -231,3 +232,42 @@ class MXLinear(torch.nn.Linear):
 @register_quantize_module_handler(MXLinearConfig)
 def _mx_linear_transform(module: torch.nn.Module, config: MXLinearConfig):
     return MXLinear.from_float(module, config=config)
+
+
+def _to_mxfp8_dim0(
+    tensor: torch.Tensor,
+    elem_dtype: Any,
+    block_size: int,
+    kernel_preference: KernelPreference,
+    scale_calculation_mode: ScaleCalculationMode,
+) -> MXTensor:
+    """
+    Quantize a tensor to MXFP8 along dimension 0.
+
+    Uses Triton kernel for RCEIL scaling mode for better performance, otherwise
+    falls back to MXTensor.to_mx().
+    """
+    if scale_calculation_mode == ScaleCalculationMode.RCEIL:
+        data, scales = triton_to_mxfp8_dim0(
+            tensor,
+            inner_block_size=block_size,
+            scaling_mode="rceil",
+        )
+        return MXTensor(
+            data,
+            scales,
+            elem_dtype=data.dtype,
+            block_size=block_size,
+            orig_dtype=tensor.dtype,
+            kernel_preference=kernel_preference,
+            act_quant_kwargs=None,
+            is_swizzled_scales=False,
+        )
+    else:
+        return MXTensor.to_mx(
+            tensor,
+            elem_dtype,
+            block_size,
+            kernel_preference=kernel_preference,
+            scaling_mode=scale_calculation_mode,
+        )
