@@ -90,7 +90,10 @@ def _validate_mxfp8_cast_kernel_choice(
     mxfp8_cast_kernel_choice, scale_calculation_mode
 ):
     if mxfp8_cast_kernel_choice == MXFP8Dim1CastKernelChoice.TRITON:
-        assert scale_calculation_mode == ScaleCalculationMode.FLOOR, (
+        assert scale_calculation_mode in (
+            ScaleCalculationMode.FLOOR,
+            ScaleCalculationMode.RCEIL,
+        ), (
             f"unsupported ScaleCalculationMode value {scale_calculation_mode} for dim1 triton cast"
         )
     elif mxfp8_cast_kernel_choice == MXFP8Dim1CastKernelChoice.CUDA:
