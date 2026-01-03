@@ -23,7 +23,7 @@ import torch
 from torchao.prototype.mx_formats.mx_tensor import MXTensor
 
 
-class Unpermute(torch.autograd.Function):
+class _Unpermute(torch.autograd.Function):
     """
     Unpermute operation.
 
@@ -136,4 +136,4 @@ def unpermute(
     Returns:
         Unpermuted bf16 tensor
     """
-    return Unpermute.apply(input, permuted_indices, padded_shape)
+    return _Unpermute.apply(input, permuted_indices, padded_shape)

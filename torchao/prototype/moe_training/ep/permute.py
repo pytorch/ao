@@ -10,6 +10,7 @@ Green AutoGrad function: permute
 Forward:
 - Input: MXTensor (mxfp8 qdata + scales)
 - Permute qdata and scales separately based on routing indices
+- Pads each token group to a multiple of TOKEN_GROUP_ALIGN_SIZE_M
 - Output: MXTensor (permuted qdata + scales)
 
 Backward:
@@ -22,13 +23,23 @@ import torch
 
 from torchao.prototype.mx_formats.mx_tensor import MXTensor
 
+from .kernels import generate_permute_indices
 
-class Permute(torch.autograd.Function):
+
+def _round_up(x: int, y: int) -> int:
+    """Round up x to the nearest multiple of y."""
+    x_ceil_div_y = (x + y - 1) // y
+    return x_ceil_div_y * y
+
+
+class _Permute(torch.autograd.Function):
     """
-    Permute operation for MXTensor.
+    Permute operation for MXTensor with token group alignment.
 
     Forward:
         - Takes MXTensor input (qdata + scales)
+        - Generates permutation indices using triton kernel
+        - Pads each token group to multiple of TOKEN_GROUP_ALIGN_SIZE_M
         - Permutes qdata and scales separately based on routing
         - Returns MXTensor with permuted components
 
@@ -42,30 +53,57 @@ class Permute(torch.autograd.Function):
     def forward(
         ctx,
         mx_tensor: MXTensor,
-        permuted_indices: torch.Tensor,
-        padded_shape: torch.Size,
+        num_tokens_per_expert: torch.Tensor,
+        ep_degree: int,
+        num_local_experts: int,
+        group_size_multiple_of: int = 32,
     ):
         """
         Args:
             mx_tensor: MXTensor input with qdata and scales
-            permuted_indices: indices for permutation
-            padded_shape: shape after adding padding row
+            num_tokens_per_expert: number of tokens per expert (shape: [ep_degree * num_local_experts])
+            ep_degree: expert parallelism degree
+            num_local_experts: number of local experts
+            group_size_multiple_of: alignment size for token groups
 
         Returns:
-            MXTensor: permuted MXTensor
+            tuple: (padded_shape, permuted MXTensor, permuted_indices, updated num_tokens_per_expert with padding)
         """
+
         # Extract qdata and scales from MXTensor
         qdata = mx_tensor.qdata
         scales = mx_tensor.scale
 
-        # Add padding row of zeros to qdata
+        # Assume worst case where each token group needs to be padded with group_size_multiple_of tokens
+        x_padded_per_expert = (
+            qdata.shape[0] + num_local_experts * group_size_multiple_of
+        )
+        padded_max_len = _round_up(x_padded_per_expert, group_size_multiple_of)
+
+        # Generate permuted indices and updated num_tokens_per_expert with padding
+        with torch.no_grad():
+            (
+                permuted_indices,
+                num_tokens_per_expert_padded,
+                _offsets,
+            ) = generate_permute_indices(
+                num_tokens_per_expert,
+                num_local_experts,
+                ep_degree,
+                padded_max_len,
+                group_size_multiple_of,
+            )
+
+        # Append row of zeros to qdata to act as a dummy padding row
+        # Every time `permuted_indices` selects this index, it will correspond to a padded token
         qdata_padded = torch.vstack((qdata, qdata.new_zeros((qdata.shape[-1],))))
+        input_shape = qdata_padded.shape
 
-        # Add padding row of zeros to scales
-        scales_padded = torch.vstack((scales, scales.new_zeros((scales.shape[-1],))))
-
-        # Permute using indices
+        # Permute qdata using indices
         qdata_permuted = qdata_padded[permuted_indices, :]
+
+        # Permute scales to match data
+        scales_padded = torch.vstack((scales, scales.new_zeros((scales.shape[-1],))))
         scales_permuted = scales_padded[permuted_indices, :]
 
         # Wrap back into MXTensor
@@ -82,17 +120,26 @@ class Permute(torch.autograd.Function):
 
         # Save for backward
         ctx.save_for_backward(permuted_indices)
-        ctx.padded_shape = padded_shape
+        ctx.input_shape = input_shape
 
-        return mx_output
+        return input_shape, mx_output, permuted_indices, num_tokens_per_expert_padded
 
     @staticmethod
-    def backward(ctx, grad_output):
+    def backward(
+        ctx,
+        grad_padded_shape,
+        grad_output,
+        grad_permuted_indices,
+        grad_num_tokens_per_expert_padded,
+    ):
         """
         Backward pass: unpermute bf16 gradients.
 
         Args:
+            grad_padded_shape: None (padded_shape doesn't need gradients)
             grad_output: bf16 gradient tensor from upstream
+            grad_permuted_indices: None (permuted_indices doesn't need gradients)
+            grad_num_tokens_per_expert_padded: None (num_tokens_per_expert_padded doesn't need gradients)
 
         Returns:
             grad_input: bf16 gradient tensor (unpermuted)
@@ -101,29 +148,44 @@ class Permute(torch.autograd.Function):
         (permuted_indices,) = ctx.saved_tensors
 
         # Unpermute: create empty tensor and scatter gradients back to original positions
-        grad_input_padded = grad_output.new_empty(ctx.padded_shape)
+        grad_input_padded = grad_output.new_empty(ctx.input_shape)
         grad_input_padded[permuted_indices, :] = grad_output
 
         # Remove the padding row (last row)
         grad_input = grad_input_padded[:-1]
 
-        return grad_input, None, None
+        return grad_input, None, None, None, None
 
 
 def permute(
     mx_tensor: MXTensor,
-    permuted_indices: torch.Tensor,
-    padded_shape: torch.Size,
-) -> MXTensor:
+    num_tokens_per_expert: torch.Tensor,
+    ep_degree: int,
+    num_local_experts: int,
+    group_size_multiple_of: int = 32,
+) -> tuple[torch.Size, MXTensor, torch.Tensor, torch.Tensor]:
     """
-    Permute MXTensor based on routing indices.
+    Permute and pad MXTensor based on routing indices with token group alignment.
+
+    This function:
+    1. Uses a triton kernel to efficiently generate permutation indices
+    2. Pads each token group to a multiple of TOKEN_GROUP_ALIGN_SIZE_M
+    3. Permutes the MXTensor data accordingly
 
     Args:
         mx_tensor: input MXTensor
-        permuted_indices: permutation indices
-        padded_shape: shape after padding
+        num_tokens_per_expert: number of tokens per expert (shape: [ep_degree * num_local_experts])
+        ep_degree: expert parallelism degree
+        num_local_experts: number of local experts
+        group_size_multiple_of: alignment size for token groups
 
     Returns:
-        Permuted MXTensor
+        tuple: (padded_shape, permuted MXTensor, permuted_indices, updated num_tokens_per_expert with padding)
     """
-    return Permute.apply(mx_tensor, permuted_indices, padded_shape)
+    return _Permute.apply(
+        mx_tensor,
+        num_tokens_per_expert,
+        ep_degree,
+        num_local_experts,
+        group_size_multiple_of,
+    )

@@ -28,7 +28,7 @@ from torchao.prototype.mx_formats.kernels import triton_to_mxfp8_dim0
 from torchao.prototype.mx_formats.mx_tensor import MXTensor
 
 
-class A2ACombine(torch.autograd.Function):
+class _A2ACombine(torch.autograd.Function):
     """
     All-to-all combine with MXFP8 quantization in backward.
 
@@ -176,7 +176,7 @@ def a2a_combine(
     Returns:
         bf16 output from all-to-all
     """
-    return A2ACombine.apply(
+    return _A2ACombine.apply(
         input,
         output_splits,
         input_splits,

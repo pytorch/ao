@@ -12,22 +12,16 @@ with selective MXFP8 quantization during forward and backward passes.
 
 The functions are designed to work together in the following pipeline:
 
-Forward: bf16 -> a2a_dispatch (quantize) -> permute -> GEMM -> unpermute -> a2a_combine -> bf16
-Backward: bf16 <- a2a_dispatch <- permute <- GEMM <- unpermute (quantize) <- a2a_combine <- bf16
+Forward: bf16 -> a2a_dispatch (quantize) -> permute -> mxfp8 grouped GEMM -> unpermute -> a2a_combine
+Backward: bf16 <- a2a_dispatch <- permute <- mxfp8 grouped GEMMs <- unpermute <- a2a_combine (quantize)
 """
 
-from .a2a_combine import A2ACombine, a2a_combine
-from .a2a_dispatch import A2ADispatch, a2a_dispatch
-from .permute import Permute, permute
-from .unpermute import Unpermute, unpermute
+from .a2a_combine import a2a_combine
+from .a2a_dispatch import a2a_dispatch
+from .permute import permute
+from .unpermute import unpermute
 
 __all__ = [
-    # Classes
-    "A2ADispatch",
-    "A2ACombine",
-    "Permute",
-    "Unpermute",
-    # Functions
     "a2a_dispatch",
     "a2a_combine",
     "permute",

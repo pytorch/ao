@@ -28,7 +28,7 @@ from torchao.prototype.mx_formats.kernels import triton_to_mxfp8_dim0
 from torchao.prototype.mx_formats.mx_tensor import MXTensor
 
 
-class A2ADispatch(torch.autograd.Function):
+class _A2ADispatch(torch.autograd.Function):
     """
     All-to-all dispatch with MXFP8 quantization in forward.
 
@@ -138,8 +138,6 @@ class A2ADispatch(torch.autograd.Function):
             grad_input: bf16 gradient tensor
             None values for other forward arguments (output_splits, input_splits, group, scaling_mode, block_size)
         """
-        print("Starting A2A combine in backward...")
-        print(f"grad_output type: {type(grad_output)}, shape: {grad_output.shape}")
         # Inverse all-to-all: swap input_splits and output_splits
         grad_input = all_to_all_single(
             grad_output,
@@ -176,7 +174,7 @@ def a2a_dispatch(
     Returns:
         MXTensor with quantized output from all-to-all
     """
-    return A2ADispatch.apply(
+    return _A2ADispatch.apply(
         input,
         output_splits,
         input_splits,

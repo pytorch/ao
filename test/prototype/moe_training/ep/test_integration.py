@@ -1,3 +1,10 @@
+import sys
+from pathlib import Path
+
+# Get the repo root (5 levels up from this file: ep -> moe_training -> prototype -> test -> ao)
+repo_root = Path(__file__).resolve().parent.parent.parent.parent.parent
+sys.path.insert(0, str(repo_root))
+
 import torch
 import torch.distributed as dist
 import torch.nn.functional as F
@@ -73,10 +80,11 @@ class TestIntegration(MultiProcessTestCase):
             )
 
             # Generate random tokens per expert that sum to total tokens
-            num_tokens_per_expert = generate_split_sizes(
-                self.world_size, tokens, self.device
-            )
+            # Shape should be [ep_degree * num_experts] where each rank has num_experts values
             ep_degree = self.world_size
+            num_tokens_per_expert = generate_split_sizes(
+                ep_degree * num_experts, tokens, self.device
+            )
 
             # Compute tokens per expert group using tokens per expert
             with torch.no_grad():
@@ -105,7 +113,9 @@ class TestIntegration(MultiProcessTestCase):
 
             group = dist.group.WORLD
 
-            print("Starting A2A dispatch...")
+            # === Stage 1: a2a dispatch
+            # - inputs: bf16
+            # - outputs: MXTensor (mxfp8)
             mx_dispatched = a2a_dispatch(
                 input_tensor,
                 output_splits.tolist(),
@@ -113,62 +123,63 @@ class TestIntegration(MultiProcessTestCase):
                 group=group,
             )
             assert isinstance(mx_dispatched, MXTensor)
-            print(f"A2A dispatch complete. Output shape: {mx_dispatched.shape}")
-
-            # Permutation should be based on the size AFTER a2a
-            tokens_after_a2a = mx_dispatched.shape[0]
 
             # Use deterministic permutation based on rank to avoid randomness issues
             torch.manual_seed(42)  # Same seed on all ranks
-            permuted_indices = torch.randperm(tokens_after_a2a, device=self.device)
-            padded_shape = torch.Size([tokens_after_a2a + 1, hidden_dim])
 
-            print(
-                f"Rank {self.rank}: tokens_after_a2a={tokens_after_a2a}, permuted_indices size={permuted_indices.shape}"
+            # === Stage 2: permute
+            # - inputs: MXTensor (mxfp8)
+            # - outputs: MXTensor (mxfp8)
+            block_size = 32
+            (
+                padded_mx_shape,
+                mx_permuted,
+                permuted_indices,
+                num_tokens_per_expert_padded,
+            ) = permute(
+                mx_dispatched,
+                num_tokens_per_expert_group,
+                ep_degree,
+                num_experts,
+                group_size_multiple_of=block_size,
             )
-
-            print("Starting permute...")
-            mx_permuted = permute(mx_dispatched, permuted_indices, padded_shape)
             assert isinstance(mx_permuted, MXTensor)
-            print("Permute complete.")
 
-            print("Starting MXFP8 scaled grouped MM...")
-            # Create group offsets that match the actual token distribution
-            # Each expert gets tokens_after_a2a / num_experts tokens
-            tokens_per_expert = tokens_after_a2a // num_experts
-            group_offsets = torch.tensor(
-                [tokens_per_expert * (i + 1) for i in range(num_experts)],
-                device=self.device,
-                dtype=torch.int32,
-            )
-            print(f"Group offsets: {group_offsets.tolist()}")
+            # === Stage 3: mxfp8 grouped mm
+            # - inputs: MXTensor (mxfp8), bf16 weight
+            # - outputs: bf16
             gemm_output = _to_mxfp8_then_scaled_grouped_mm(
-                mx_permuted, expert_weights_t, offs=group_offsets, block_size=32
+                mx_permuted,
+                expert_weights_t,
+                offs=num_tokens_per_expert_padded,
+                block_size=block_size,
+                use_cuda_for_blocked_layout=False,
             )
             assert gemm_output.dtype == torch.bfloat16
-            print("MXFP8 scaled grouped MM complete.")
 
-            print("Starting unpermute...")
-            unpermuted = unpermute(gemm_output, permuted_indices, padded_shape)
+            # === Stage 4: unpermute
+            # - inputs: bf16
+            # - outputs: bf16
+            unpermuted = unpermute(gemm_output, permuted_indices, padded_mx_shape)
             assert unpermuted.dtype == torch.bfloat16
-            print("Unpermute complete.")
 
-            print("Starting A2A combine...")
+            # === Stage 5: a2a combine
+            # - inputs: bf16
+            # - outputs: bf16
             final_output = a2a_combine(
                 unpermuted,
-                output_splits.tolist(),
-                input_splits.tolist(),
+                output_splits=input_splits.tolist(),
+                input_splits=output_splits.tolist(),
                 group=group,
             )
             assert final_output.dtype == torch.bfloat16
-            print("A2A combine complete.")
 
-            print("Starting backward pass...")
-            # Create toy labels (all ones)
+            # === Stage 6: backward
+            # bf16 grad -> a2a combine backward produes MXTensor grad -> unpermute backward -> ...
+            # ... mxfp8 grouped mm backward -> permute backward -> a2a
             labels = torch.ones_like(final_output)
             loss = F.mse_loss(final_output, labels)
             loss.backward()
-            print("Backward pass complete.")
 
             assert input_tensor.grad is not None
             assert input_tensor.grad.dtype == torch.bfloat16
