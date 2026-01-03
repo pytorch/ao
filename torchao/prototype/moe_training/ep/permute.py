@@ -85,7 +85,7 @@ class _Permute(torch.autograd.Function):
             (
                 permuted_indices,
                 num_tokens_per_expert_padded,
-                _offsets,
+                group_offsets,
             ) = generate_permute_indices(
                 num_tokens_per_expert,
                 num_local_experts,
@@ -122,7 +122,13 @@ class _Permute(torch.autograd.Function):
         ctx.save_for_backward(permuted_indices)
         ctx.input_shape = input_shape
 
-        return input_shape, mx_output, permuted_indices, num_tokens_per_expert_padded
+        return (
+            input_shape,
+            mx_output,
+            permuted_indices,
+            num_tokens_per_expert_padded,
+            group_offsets,
+        )
 
     @staticmethod
     def backward(
@@ -131,6 +137,7 @@ class _Permute(torch.autograd.Function):
         grad_output,
         grad_permuted_indices,
         grad_num_tokens_per_expert_padded,
+        grad_group_offsets,
     ):
         """
         Backward pass: unpermute bf16 gradients.
@@ -154,7 +161,7 @@ class _Permute(torch.autograd.Function):
         # Remove the padding row (last row)
         grad_input = grad_input_padded[:-1]
 
-        return grad_input, None, None, None, None
+        return grad_input, None, None, None, None, None
 
 
 def permute(

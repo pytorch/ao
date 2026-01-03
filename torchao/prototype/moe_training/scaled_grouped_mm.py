@@ -429,8 +429,6 @@ class _MXFP8GroupedMM(torch.autograd.Function):
             scale_calculation_mode,
             wgrad_with_hp,
         )
-
-        # Return gradients matching forward signature (9 params total, removed emulated)
         return grad_input, grad_weight_t, None, None, None, None, None, None, None
 
 
@@ -651,7 +649,7 @@ def _dequantize_if_mxtensor(
     if isinstance(tensor, MXTensor):
         return triton_mxfp8_dequant_dim0(
             tensor.qdata,
-            tensor.scale,
+            tensor.scale.view(torch.uint8),  # Triton can't handle e8m0 directly yet
             out_dtype=tensor._orig_dtype,
             scale_block_size=block_size,
         )

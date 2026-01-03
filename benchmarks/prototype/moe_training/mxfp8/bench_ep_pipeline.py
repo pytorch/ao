@@ -299,14 +299,16 @@ def run_experiment(
     num_experts = config.num_experts
 
     # Create input tensors
+    # NOTE: Initially create with requires_grad=False, then enable gradients
+    # right before forward pass to avoid tracking operations during setup
     input_tensor = torch.randn(
         num_tokens,
         dim,
         dtype=torch.bfloat16,
         device=device,
-        requires_grad=True,
+        requires_grad=False,
     )
-    ref_input_tensor = input_tensor.detach().clone().requires_grad_(True)
+    ref_input_tensor = input_tensor.detach().clone()
 
     expert_weights = torch.randn(
         num_experts,
@@ -314,15 +316,21 @@ def run_experiment(
         hidden_dim,
         dtype=torch.bfloat16,
         device=device,
-        requires_grad=True,
+        requires_grad=False,
     )
     # Convert to column-major layout once, outside benchmark measurement
     expert_weights_t = expert_weights.transpose(-2, -1).contiguous().transpose(-2, -1)
 
-    ref_expert_weights = expert_weights.detach().clone().requires_grad_(True)
+    ref_expert_weights = expert_weights.detach().clone()
     ref_expert_weights_t = (
         ref_expert_weights.transpose(-2, -1).contiguous().transpose(-2, -1)
     )
+
+    # Enable gradients AFTER column-major conversion so gradient flow is tracked correctly
+    input_tensor.requires_grad_(True)
+    ref_input_tensor.requires_grad_(True)
+    expert_weights.requires_grad_(True)
+    ref_expert_weights.requires_grad_(True)
 
     # Generate token distribution
     ep_degree = dist.get_world_size()
@@ -360,6 +368,9 @@ def run_experiment(
     def warmup(func_no_args, n=2):
         for _ in range(n):
             func_no_args()
+
+    # Set seed for deterministic execution across both pipelines
+    torch.manual_seed(42)
 
     # === Benchmark Standard BF16 Pipeline ===
 
@@ -430,6 +441,9 @@ def run_experiment(
         )
 
     # === Benchmark MXFP8 Optimized Pipeline ===
+
+    # Reset seed to ensure same random state as BF16 pipeline
+    torch.manual_seed(42)
 
     # MXFP8 Forward
     mxfp8_fwd = lambda: mxfp8_optimized_pipeline(
