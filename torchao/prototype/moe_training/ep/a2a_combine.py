@@ -150,7 +150,6 @@ class _A2ACombine(torch.autograd.Function):
             act_quant_kwargs=None,
             is_swizzled_scales=False,
         )
-
         return grad_input, None, None, None, None, None
 
 
