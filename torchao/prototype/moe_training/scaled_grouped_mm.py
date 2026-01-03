@@ -29,7 +29,10 @@ from torchao.prototype.mx_formats.config import (
     MXFP8Dim1CastKernelChoice,
     ScaleCalculationMode,
 )
-from torchao.prototype.mx_formats.kernels import triton_to_mxfp8_dim0
+from torchao.prototype.mx_formats.kernels import (
+    triton_mxfp8_dequant_dim0,
+    triton_to_mxfp8_dim0,
+)
 from torchao.prototype.mx_formats.mx_tensor import MXTensor, to_mx
 from torchao.prototype.mx_formats.utils import _to_mxfp8_dim1_kernel_wrapper
 from torchao.quantization.quantize_.common import KernelPreference
@@ -308,7 +311,7 @@ class _MXFP8GroupedMM(torch.autograd.Function):
         # A tensor (input activations) may be pre-quantized to MXFP8 or in high-precision.
         if isinstance(A, MXTensor):
             A_data = A.qdata
-            A_scale = A.scales
+            A_scale = A.scale
         else:
             # A_data shape: (M, K)
             # A_scale shape: (M, K//block_size)
@@ -377,19 +380,24 @@ class _MXFP8GroupedMM(torch.autograd.Function):
         wgrad_with_hp = ctx.wgrad_with_hp
         scale_calculation_mode = ctx.scale_calculation_mode
 
+        # Upstream grad may already be pre-quantized to MXFP8 or in high-precision.
         # grad_out_data shape: (M, N)
         # grad_out_scale shape: (M, N//block_size)
-        if use_triton_for_dim0_cast:
-            grad_out_data, grad_out_scale = triton_to_mxfp8_dim0(
-                grad_out, inner_block_size=block_size
-            )
+        if isinstance(grad_out, MXTensor):
+            grad_out_data = grad_out.qdata
+            grad_out_scale = grad_out.scale
         else:
-            grad_out_scale, grad_out_data = to_mx(
-                grad_out,
-                elem_dtype=torch.float8_e4m3fn,
-                block_size=block_size,
-                scaling_mode=scale_calculation_mode,
-            )
+            if use_triton_for_dim0_cast:
+                grad_out_data, grad_out_scale = triton_to_mxfp8_dim0(
+                    grad_out, inner_block_size=block_size
+                )
+            else:
+                grad_out_scale, grad_out_data = to_mx(
+                    grad_out,
+                    elem_dtype=torch.float8_e4m3fn,
+                    block_size=block_size,
+                    scaling_mode=scale_calculation_mode,
+                )
 
         # Quantize 3d expert weights along N (contraction dimension for next grouped gemm)
         # (E, K, N) -> (E, N, K)
@@ -428,6 +436,15 @@ class _MXFP8GroupedMM(torch.autograd.Function):
             )
             grad_B_t = grad_B.transpose(-2, -1)
         else:
+            # If grad_out is a MXTensor, we need to dequantize so we can quantize transposed grad_out.
+            if isinstance(grad_out, MXTensor):
+                grad_out = triton_mxfp8_dequant_dim0(
+                    grad_out.qdata,
+                    grad_out.scale,
+                    block_size=block_size,
+                    out_dtype=torch.bfloat16,
+                )
+
             # grad_out_t_data shape: (M, N)
             # grad_out_t_scales shape: (N, M//block_size)
             grad_out_t_mx = _to_mxfp8_dim1_kernel_wrapper(
