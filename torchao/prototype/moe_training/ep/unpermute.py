@@ -82,40 +82,35 @@ class _Unpermute(torch.autograd.Function):
         (permuted_indices,) = ctx.saved_tensors
 
         # Check if we received an MXTensor
-        if isinstance(grad_output, MXTensor):
-            # Extract qdata and scales
-            qdata = grad_output.qdata
-            scales = grad_output.scale
+        assert isinstance(grad_output, MXTensor)
+        
+        # Extract qdata and scales
+        qdata = grad_output.qdata
+        scales = grad_output.scale
 
-            # Add padding row of zeros to qdata
-            qdata_padded = torch.vstack((qdata, qdata.new_zeros((qdata.shape[-1],))))
+        # Add padding row of zeros to qdata
+        qdata_padded = torch.vstack((qdata, qdata.new_zeros((qdata.shape[-1],))))
 
-            # Add padding row of zeros to scales
-            scales_padded = torch.vstack(
-                (scales, scales.new_zeros((scales.shape[-1],)))
-            )
+        # Add padding row of zeros to scales
+        scales_padded = torch.vstack(
+            (scales, scales.new_zeros((scales.shape[-1],)))
+        )
 
-            # Permute using indices
-            qdata_permuted = qdata_padded[permuted_indices, :]
-            scales_permuted = scales_padded[permuted_indices, :]
+        # Permute using indices
+        qdata_permuted = qdata_padded[permuted_indices, :]
+        scales_permuted = scales_padded[permuted_indices, :]
 
-            # Wrap back into MXTensor with the correct shape
-            grad_input = MXTensor(
-                qdata_permuted,
-                scales_permuted,
-                elem_dtype=grad_output._elem_dtype,
-                block_size=grad_output.block_size,
-                orig_dtype=grad_output._orig_dtype,
-                kernel_preference=grad_output.kernel_preference,
-                act_quant_kwargs=grad_output.act_quant_kwargs,
-                is_swizzled_scales=grad_output._is_swizzled_scales,
-            )
-        else:
-            # Fallback: if we receive regular tensor, permute it
-            grad_output_padded = torch.vstack(
-                (grad_output, grad_output.new_zeros((grad_output.shape[-1],)))
-            )
-            grad_input = grad_output_padded[permuted_indices, :]
+        # Wrap back into MXTensor with the correct shape
+        grad_input = MXTensor(
+            qdata_permuted,
+            scales_permuted,
+            elem_dtype=grad_output._elem_dtype,
+            block_size=grad_output.block_size,
+            orig_dtype=grad_output._orig_dtype,
+            kernel_preference=grad_output.kernel_preference,
+            act_quant_kwargs=grad_output.act_quant_kwargs,
+            is_swizzled_scales=grad_output._is_swizzled_scales,
+        )
 
         return grad_input, None, None
 

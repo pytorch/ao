@@ -10,7 +10,7 @@
 # 1. Standard BF16 Pipeline:
 #    bf16 all_to_all -> bf16 permute -> bf16 grouped_mm -> bf16 unpermute -> bf16 all_to_all
 #
-# 2. MXFP8 Optimized Pipeline (chained autograd):
+# 2. MXFP8 Pipeline (chained autograd):
 #    bf16 -> a2a_dispatch (outputs MXTensor) -> permute (MXTensor) ->
 #    _to_mxfp8_then_scaled_grouped_mm -> unpermute -> a2a_combine -> bf16
 #
@@ -218,7 +218,7 @@ def standard_bf16_pipeline(
     return final_output
 
 
-def mxfp8_optimized_pipeline(
+def mxfp8_pipeline(
     input_tensor: torch.Tensor,
     expert_weights_t: torch.Tensor,
     num_tokens_per_expert: torch.Tensor,
@@ -250,6 +250,7 @@ def mxfp8_optimized_pipeline(
         mx_permuted,
         permuted_indices,
         num_tokens_per_expert_padded,
+        mx_group_offsets,
     ) = permute(
         mx_dispatched,
         num_tokens_per_expert_group,
@@ -262,7 +263,7 @@ def mxfp8_optimized_pipeline(
     gemm_output = _to_mxfp8_then_scaled_grouped_mm(
         mx_permuted,
         expert_weights_t,
-        offs=num_tokens_per_expert_padded,
+        offs=mx_group_offsets,
         block_size=block_size,
         use_cuda_for_blocked_layout=False,
     )
@@ -286,8 +287,6 @@ def mse_loss_and_bwd(output: torch.Tensor, labels: torch.Tensor):
     """Compute MSE loss and run backward pass."""
     loss = F.mse_loss(output, labels)
     loss.backward()
-    torch.cuda.synchronize()
-
 
 def run_experiment(
     config: ExperimentConfig, args: argparse.Namespace
@@ -299,44 +298,31 @@ def run_experiment(
     num_experts = config.num_experts
 
     # Create input tensors
-    # NOTE: Initially create with requires_grad=False, then enable gradients
-    # right before forward pass to avoid tracking operations during setup
     input_tensor = torch.randn(
         num_tokens,
         dim,
         dtype=torch.bfloat16,
         device=device,
-        requires_grad=False,
+        requires_grad=True,
     )
-    ref_input_tensor = input_tensor.detach().clone()
+    ref_input_tensor = input_tensor.detach().clone().requires_grad_(True)
 
     expert_weights = torch.randn(
         num_experts,
-        dim,
         hidden_dim,
+        dim,
         dtype=torch.bfloat16,
         device=device,
-        requires_grad=False,
+        requires_grad=True,
     )
-    # Convert to column-major layout once, outside benchmark measurement
-    expert_weights_t = expert_weights.transpose(-2, -1).contiguous().transpose(-2, -1)
-
-    ref_expert_weights = expert_weights.detach().clone()
-    ref_expert_weights_t = (
-        ref_expert_weights.transpose(-2, -1).contiguous().transpose(-2, -1)
-    )
-
-    # Enable gradients AFTER column-major conversion so gradient flow is tracked correctly
-    input_tensor.requires_grad_(True)
-    ref_input_tensor.requires_grad_(True)
-    expert_weights.requires_grad_(True)
-    ref_expert_weights.requires_grad_(True)
+    ref_expert_weights = expert_weights.detach().clone().requires_grad_(True)
 
     # Generate token distribution
     ep_degree = dist.get_world_size()
-    num_tokens_per_expert = generate_split_sizes(
-        ep_degree * num_experts, num_tokens, device
-    )
+    total_experts = ep_degree * num_experts
+    assert num_tokens % total_experts == 0
+    uniform_group_size = num_tokens // total_experts
+    num_tokens_per_expert = torch.full((total_experts,), uniform_group_size, dtype=torch.int32, device="cuda")
 
     # Compute splits for all-to-all
     group = dist.group.WORLD
@@ -375,28 +361,10 @@ def run_experiment(
     # === Benchmark Standard BF16 Pipeline ===
 
     # BF16 Forward
-    bf16_fwd = lambda: standard_bf16_pipeline(
-        ref_input_tensor,
-        ref_expert_weights_t,
-        num_tokens_per_expert,
-        num_tokens_per_expert_group,
-        input_splits_list,
-        output_splits_list,
-        ep_degree,
-        num_experts,
-        group,
-    )
-    warmup(bf16_fwd)
-    start_sec = time.perf_counter()
-    bf16_output = bf16_fwd()
-    end_sec = time.perf_counter()
-    fwd_bf16_ms = (end_sec - start_sec) * 1e3
-
-    if args.profile:
-        profile_fn(
-            standard_bf16_pipeline,
-            ref_input_tensor,
-            ref_expert_weights_t,
+    def bf16_fwd(input_t, weight_t):
+        return standard_bf16_pipeline(
+            input_t,
+            weight_t,
             num_tokens_per_expert,
             num_tokens_per_expert_group,
             input_splits_list,
@@ -404,70 +372,86 @@ def run_experiment(
             ep_degree,
             num_experts,
             group,
-            distributed=True,
-            profile_name="bf16_pipeline_fwd",
         )
 
+    warmup(lambda: bf16_fwd(ref_input_tensor, ref_expert_weights.transpose(-2, -1)))
+    torch.cuda.synchronize()
+    start_sec = time.perf_counter()
+    _ = bf16_fwd(ref_input_tensor, ref_expert_weights.transpose(-2, -1))
+    torch.cuda.synchronize()
+    end_sec = time.perf_counter()
+    fwd_bf16_ms = (end_sec - start_sec) * 1e3
+
     # BF16 Backward
-    def bf16_fwd_bwd():
+    # Warmup backward pass
+    def bf16_bwd_warmup():
         ref_input_tensor.grad = None
         ref_expert_weights.grad = None
-        output = bf16_fwd()
+        output = bf16_fwd(ref_input_tensor, ref_expert_weights.transpose(-2, -1))
         labels = torch.ones_like(output)
         mse_loss_and_bwd(output, labels)
 
-    warmup(bf16_fwd_bwd)
+    warmup(bf16_bwd_warmup)
+
+    # Do a fresh forward pass right before timing backward
     ref_input_tensor.grad = None
     ref_expert_weights.grad = None
-    bf16_output_for_bwd = bf16_fwd()
+    bf16_output_for_bwd = bf16_fwd(
+        ref_input_tensor, ref_expert_weights.transpose(-2, -1)
+    )
     bf16_labels = torch.ones_like(bf16_output_for_bwd)
+    torch.cuda.synchronize()
     start_sec = time.perf_counter()
     mse_loss_and_bwd(bf16_output_for_bwd, bf16_labels)
+    torch.cuda.synchronize()
     end_sec = time.perf_counter()
     bwd_bf16_ms = (end_sec - start_sec) * 1e3
+    print(f"[DEBUG] BF16 output shape: {bf16_output_for_bwd.shape}, requires_grad: {bf16_output_for_bwd.requires_grad}")
+    print(f"[DEBUG] BF16 backward time: {bwd_bf16_ms:.3f}ms")
+
+
+    # BF16 Forward + Backward
+    def bf16_fwd_bwd(input_t, weight_t, labels):
+        output = bf16_fwd(input_t, weight_t)
+        mse_loss_and_bwd(output, labels)
 
     if args.profile:
-        # Reset grads and rerun forward for profiling backward
-        ref_input_tensor.grad = None
-        ref_expert_weights.grad = None
-        bf16_output = bf16_fwd()
-        bf16_labels = torch.ones_like(bf16_output)
+        # Create fresh tensors for profiling to avoid autograd graph conflicts
+        ref_input_tensor_profile = torch.randn(
+            num_tokens,
+            dim,
+            dtype=torch.bfloat16,
+            device=device,
+            requires_grad=True,
+        )
+        ref_expert_weights_profile = torch.randn(
+            num_experts,
+            hidden_dim,
+            dim,
+            dtype=torch.bfloat16,
+            device=device,
+            requires_grad=True,
+        )
+        # Profile backward using fresh tensors
         profile_fn(
-            mse_loss_and_bwd,
-            bf16_output,
+            bf16_fwd_bwd,
+            ref_input_tensor_profile,
+            ref_expert_weights_profile.transpose(-2, -1),
             bf16_labels,
             distributed=True,
             profile_name="bf16_pipeline_bwd",
         )
 
-    # === Benchmark MXFP8 Optimized Pipeline ===
+    # === Benchmark MXFP8 Pipeline ===
 
     # Reset seed to ensure same random state as BF16 pipeline
     torch.manual_seed(42)
 
     # MXFP8 Forward
-    mxfp8_fwd = lambda: mxfp8_optimized_pipeline(
-        input_tensor,
-        expert_weights_t,
-        num_tokens_per_expert,
-        num_tokens_per_expert_group,
-        input_splits_list,
-        output_splits_list,
-        ep_degree,
-        num_experts,
-        group,
-    )
-    warmup(mxfp8_fwd)
-    start_sec = time.perf_counter()
-    mxfp8_output = mxfp8_fwd()
-    end_sec = time.perf_counter()
-    fwd_mxfp8_ms = (end_sec - start_sec) * 1e3
-
-    if args.profile:
-        profile_fn(
-            mxfp8_optimized_pipeline,
-            input_tensor,
-            expert_weights_t,
+    def mxfp8_fwd(input_t, weight_t):
+        return mxfp8_pipeline(
+            input_t,
+            weight_t,
             num_tokens_per_expert,
             num_tokens_per_expert_group,
             input_splits_list,
@@ -475,37 +459,68 @@ def run_experiment(
             ep_degree,
             num_experts,
             group,
-            distributed=True,
-            profile_name="mxfp8_pipeline_fwd",
         )
 
+    warmup(lambda: mxfp8_fwd(input_tensor, expert_weights.transpose(-2, -1)))
+    torch.cuda.synchronize()
+    start_sec = time.perf_counter()
+    _ = mxfp8_fwd(input_tensor, expert_weights.transpose(-2, -1))
+    torch.cuda.synchronize()
+    end_sec = time.perf_counter()
+    fwd_mxfp8_ms = (end_sec - start_sec) * 1e3
+
     # MXFP8 Backward
-    def mxfp8_fwd_bwd():
+    # Warmup backward pass to compile Triton kernels
+    def mxfp8_bwd_warmup():
         input_tensor.grad = None
         expert_weights.grad = None
-        output = mxfp8_fwd()
+        output = mxfp8_fwd(input_tensor, expert_weights.transpose(-2, -1))
         labels = torch.ones_like(output)
         mse_loss_and_bwd(output, labels)
 
-    warmup(mxfp8_fwd_bwd)
+    warmup(mxfp8_bwd_warmup)
+
+    # Do a fresh forward pass right before timing backward
     input_tensor.grad = None
     expert_weights.grad = None
-    mxfp8_output_for_bwd = mxfp8_fwd()
+    mxfp8_output_for_bwd = mxfp8_fwd(input_tensor, expert_weights.transpose(-2, -1))
     mxfp8_labels = torch.ones_like(mxfp8_output_for_bwd)
+    torch.cuda.synchronize()
     start_sec = time.perf_counter()
     mse_loss_and_bwd(mxfp8_output_for_bwd, mxfp8_labels)
+    torch.cuda.synchronize()
     end_sec = time.perf_counter()
     bwd_mxfp8_ms = (end_sec - start_sec) * 1e3
+    print(f"[DEBUG] MXFP8 output shape: {mxfp8_output_for_bwd.shape}, requires_grad: {mxfp8_output_for_bwd.requires_grad}")
+    print(f"[DEBUG] MXFP8 backward time: {bwd_mxfp8_ms:.3f}ms")
+
+    # MXFP8 Forward + Backward
+    def mxfp8_fwd_bwd(input_t, weight_t, labels):
+        output = mxfp8_fwd(input_t, weight_t)
+        mse_loss_and_bwd(output, labels)
 
     if args.profile:
-        # Reset grads and rerun forward for profiling backward
-        input_tensor.grad = None
-        expert_weights.grad = None
-        mxfp8_output = mxfp8_fwd()
-        mxfp8_labels = torch.ones_like(mxfp8_output)
+        # Create fresh tensors for profiling to avoid autograd graph conflicts
+        input_tensor_profile = torch.randn(
+            num_tokens,
+            dim,
+            dtype=torch.bfloat16,
+            device=device,
+            requires_grad=True,
+        )
+        expert_weights_profile = torch.randn(
+            num_experts,
+            hidden_dim,
+            dim,
+            dtype=torch.bfloat16,
+            device=device,
+            requires_grad=True,
+        )
+        # Profile backward using fresh tensors
         profile_fn(
-            mse_loss_and_bwd,
-            mxfp8_output,
+            mxfp8_fwd_bwd,
+            input_tensor_profile,
+            expert_weights_profile.transpose(-2, -1),
             mxfp8_labels,
             distributed=True,
             profile_name="mxfp8_pipeline_bwd",
@@ -611,6 +626,11 @@ if __name__ == "__main__":
         "--profile",
         action="store_true",
         help="Enable profiling for detailed performance analysis",
+    )
+    parser.add_argument(
+        "--compile",
+        action="store_true",
+        help="Use torch.compile",
     )
     args = parser.parse_args()
     main(args)

@@ -114,7 +114,7 @@ class TestIntegration(MultiProcessTestCase):
             # right before forward pass to avoid tracking operations during setup
             input_tensor = torch.randn(
                 tokens,
-                hidden_dim,
+                dim,
                 device=self.device,
                 dtype=torch.bfloat16,
                 requires_grad=True,
@@ -124,7 +124,7 @@ class TestIntegration(MultiProcessTestCase):
             expert_weights = torch.randn(
                 num_experts,
                 hidden_dim,
-                hidden_dim,
+                dim,
                 device=self.device,
                 dtype=torch.bfloat16,
                 requires_grad=True,
@@ -283,8 +283,10 @@ class TestIntegration(MultiProcessTestCase):
             )
 
             # MXFP8: Unpermute
+            # Update padded_shape to have output dimension instead of input dimension
+            padded_output_shape = torch.Size([padded_mx_shape[0], mx_gemm_output.shape[-1]])
             mx_unpermuted = unpermute(
-                mx_gemm_output, mx_permuted_indices, padded_mx_shape
+                mx_gemm_output, mx_permuted_indices, padded_output_shape
             )
             assert mx_unpermuted.dtype == torch.bfloat16
 
