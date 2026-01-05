@@ -1615,9 +1615,9 @@ class Float8DynamicActivationFloat8WeightConfig(AOBaseConfig):
             ), "unimplemented"
             assert self.version >= 2, "unimplemented"
             default_use_fast_accum = False
-        # if torch.xpu.is_available():
-        #     # XPU does not support fast_accum for now
-        #     default_use_fast_accum = False
+        if torch.xpu.is_available():
+            # XPU does not support fast_accum for now
+            default_use_fast_accum = False
 
         if self.mm_config is None:
             self.mm_config = Float8MMConfig(use_fast_accum=default_use_fast_accum)
