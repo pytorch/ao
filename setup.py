@@ -709,6 +709,7 @@ def get_extensions():
         mxfp8_sources = [
             os.path.join(mxfp8_extension_dir, "mxfp8_extension.cpp"),
             os.path.join(mxfp8_extension_dir, "mxfp8_cuda.cu"),
+            os.path.join(mxfp8_extension_dir, "mx_block_rearrange_2d_M_groups.cu"),
         ]
 
         # Only add the extension if the source files exist AND we are building for sm100
@@ -722,6 +723,7 @@ def get_extensions():
                     include_dirs=[
                         mxfp8_extension_dir,  # For mxfp8_quantize.cuh, mxfp8_extension.cpp, and mxfp8_cuda.cu
                     ],
+                    libraries=["cuda"],
                     extra_compile_args={
                         "cxx": [
                             f"-DPy_LIMITED_API={min_supported_cpython_hexcode}",
