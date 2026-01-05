@@ -1535,7 +1535,7 @@ def _choose_qparams_affine(
        and `zero_point_domain`
 
     Note:
-        keepdim defaults to True to align with _choose_scale_float8 behavior. This ensures
+        Set keepdim=True to align with _choose_scale_float8 behavior. This ensures
         scale/zero_point maintain the same rank as input, making it easier to handle downstream.
     """
     quant_min, quant_max = _get_and_check_qmin_qmax(target_dtype, quant_min, quant_max)
