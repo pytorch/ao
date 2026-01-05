@@ -41,7 +41,6 @@ from torchao.quantization.quant_api import (
     Float8DynamicActivationFloat8WeightConfig,
     Float8StaticActivationFloat8WeightConfig,
     Float8WeightOnlyConfig,
-    FPXWeightOnlyConfig,
     FqnToConfig,
     GemliteUIntXWeightOnlyConfig,
     Int4DynamicActivationInt4WeightConfig,
@@ -451,7 +450,6 @@ class TestQuantFlow(TestCase):
             Int8DynamicActivationInt8WeightConfig(),
             Int8DynamicActivationInt4WeightConfig(),
             Int8WeightOnlyConfig(),
-            FPXWeightOnlyConfig(ebits=4, mbits=3),
             GemliteUIntXWeightOnlyConfig(),
             UIntXWeightOnlyConfig(dtype=torch.uint4),
         ],
@@ -698,7 +696,6 @@ class TestQuantFlow(TestCase):
         """
         from torchao.quantization import (
             Float8StaticActivationFloat8WeightConfig,
-            FPXWeightOnlyConfig,
             GemliteUIntXWeightOnlyConfig,
             Int4DynamicActivationInt4WeightConfig,
             Int8DynamicActivationInt4WeightConfig,
@@ -711,7 +708,6 @@ class TestQuantFlow(TestCase):
         # Map from deprecated API to the args needed to instantiate it
         deprecated_apis_to_args = {
             Float8StaticActivationFloat8WeightConfig: (torch.randn(3),),
-            FPXWeightOnlyConfig: (3, 2),
             GemliteUIntXWeightOnlyConfig: (),
             Int4DynamicActivationInt4WeightConfig: (),
             Int8DynamicActivationInt4WeightConfig: (),
