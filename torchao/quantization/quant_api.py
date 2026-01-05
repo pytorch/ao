@@ -67,7 +67,6 @@ from torchao.float8.inference import (
 # ruff from removing "unused imports"
 from torchao.prototype.quantization.quant_api import (
     Float8StaticActivationFloat8WeightConfig,  # noqa: F401
-    FPXWeightOnlyConfig,  # noqa: F401
     GemliteUIntXWeightOnlyConfig,  # noqa: F401
     Int4DynamicActivationInt4WeightConfig,  # noqa: F401
     Int8DynamicActivationInt4WeightConfig,  # noqa: F401
