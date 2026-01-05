@@ -360,18 +360,6 @@ We've added kv cache quantization and other features in order to enable long con
 
 In practice these features alongside int4 weight only quantization allow us to **reduce peak memory by ~55%**, meaning we can Llama3.1-8B inference with a **130k context length with only 18.9 GB of peak memory.** More details can be found [here](../../torchao/_models/llama/README.md#KV-Cache-Quantization-Memory-Efficient-Inference)
 
-#### A16W6 Floating Point WeightOnly Quantization
-
-```python
-# for torch 2.4+
-from torchao.quantization import quantize_, FPXWeightOnlyConfig
-quantize_(model, FPXWeightOnlyConfig(3, 2))
-```
-
-You can find more information [here](../dtypes/floatx/README.md). It should be noted where most other TorchAO apis and benchmarks have focused on applying techniques on top of a bf16 model, performance, fp6 works primarily with the fp16 dtype.
-
-```
-
 KleidiAI Int4 Kernels can be utilized on the Arm platform with PyTorch versions 2.6.0 or later by adjusting the quantization parameters as follows:
 
 ```python
