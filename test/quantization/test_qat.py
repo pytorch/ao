@@ -238,6 +238,7 @@ class TestQAT(TestCase):
             group_size,
         )
         out.sum().backward()
+        print(out.sum())
 
         # compare against PTQ ops
         out_ptq = torch.ops.quantized_decomposed.quantize_per_channel_group(

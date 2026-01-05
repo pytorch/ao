@@ -164,6 +164,7 @@ class TestQuantizedTraining(TestCase):
             assert rel_error < 2e-3, rel_error
 
             loss_fp32.backward()
+            print(loss_fp32)
             optim_fp32.step()
             optim_fp32.zero_grad()
 

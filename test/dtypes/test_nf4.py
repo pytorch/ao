@@ -322,6 +322,8 @@ class TestNF4Linear(TestCase):
         self.assertEqual(nf4_out, ref_out)
 
         grad_out = torch.randn(2, 512, device=_DEVICE)
+        print(_DEVICE)
+        print(nf4_out)
         nf4_out.backward(grad_out)
         ref_out.backward(grad_out)
         self.assertEqual(nf4_x.grad, ref_x.grad)
