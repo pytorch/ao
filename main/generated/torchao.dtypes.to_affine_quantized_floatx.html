@@ -65,7 +65,7 @@
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
     <link rel="next" title="to_affine_quantized_floatx_static" href="torchao.dtypes.to_affine_quantized_floatx_static.html" />
-    <link rel="prev" title="to_affine_quantized_fpx" href="torchao.dtypes.to_affine_quantized_fpx.html" />
+    <link rel="prev" title="to_affine_quantized_intx_static" href="torchao.dtypes.to_affine_quantized_intx_static.html" />
 
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
@@ -1245,7 +1245,6 @@ document.write(`
 <ul class="current nav bd-sidenav">
 <li class="toctree-l1"><a class="reference internal" href="torchao.dtypes.to_affine_quantized_intx.html">to_affine_quantized_intx</a></li>
 <li class="toctree-l1"><a class="reference internal" href="torchao.dtypes.to_affine_quantized_intx_static.html">to_affine_quantized_intx_static</a></li>
-<li class="toctree-l1"><a class="reference internal" href="torchao.dtypes.to_affine_quantized_fpx.html">to_affine_quantized_fpx</a></li>
 <li class="toctree-l1 current active"><a class="current reference internal" href="#">to_affine_quantized_floatx</a></li>
 <li class="toctree-l1"><a class="reference internal" href="torchao.dtypes.to_affine_quantized_floatx_static.html">to_affine_quantized_floatx_static</a></li>
 <li class="toctree-l1"><a class="reference internal" href="torchao.dtypes.to_marlinqqq_quantized_intx.html">to_marlinqqq_quantized_intx</a></li>
@@ -1257,7 +1256,6 @@ document.write(`
 <li class="toctree-l1"><a class="reference internal" href="torchao.prototype.dtypes.Int8DynamicActInt4WeightCPULayout.html">Int8DynamicActInt4WeightCPULayout</a></li>
 <li class="toctree-l1"><a class="reference internal" href="torchao.prototype.dtypes.MarlinQQQTensor.html">MarlinQQQTensor</a></li>
 <li class="toctree-l1"><a class="reference internal" href="torchao.prototype.dtypes.MarlinQQQLayout.html">MarlinQQQLayout</a></li>
-<li class="toctree-l1"><a class="reference internal" href="torchao.prototype.dtypes.FloatxTensorCoreLayout.html">FloatxTensorCoreLayout</a></li>
 <li class="toctree-l1"><a class="reference internal" href="torchao.prototype.dtypes.UintxLayout.html">UintxLayout</a></li>
 </ul>
 </div>
@@ -1365,7 +1363,7 @@ document.write(`
 <h1>to_affine_quantized_floatx<a class="headerlink" href="#to-affine-quantized-floatx" title="Permalink to this heading">#</a></h1>
 <dl class="py function">
 <dt class="sig sig-object py" id="torchao.dtypes.to_affine_quantized_floatx">
-<span class="sig-prename descclassname"><span class="pre">torchao.dtypes.</span></span><span class="sig-name descname"><span class="pre">to_affine_quantized_floatx</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">input_float</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.pytorch.org/docs/stable/tensors.html#torch.Tensor" title="(in PyTorch v2.9)"><span class="pre">Tensor</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">block_size</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Tuple" title="(in Python v3.14)"><span class="pre">Tuple</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="p"><span class="pre">...</span></span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">target_dtype</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.pytorch.org/docs/stable/tensor_attributes.html#torch.dtype" title="(in PyTorch v2.9)"><span class="pre">dtype</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">_layout</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="torchao.dtypes.Layout.html#torchao.dtypes.Layout" title="torchao.dtypes.utils.Layout"><span class="pre">Layout</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">scale_dtype</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.14)"><span class="pre">Optional</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.pytorch.org/docs/stable/tensor_attributes.html#torch.dtype" title="(in PyTorch v2.9)"><span class="pre">dtype</span></a><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference external" href="https://github.com/pytorch/ao/blob/main/torchao/dtypes/affine_quantized_tensor.py#L460"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#torchao.dtypes.to_affine_quantized_floatx" title="Permalink to this definition">#</a></dt>
+<span class="sig-prename descclassname"><span class="pre">torchao.dtypes.</span></span><span class="sig-name descname"><span class="pre">to_affine_quantized_floatx</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">input_float</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.pytorch.org/docs/stable/tensors.html#torch.Tensor" title="(in PyTorch v2.9)"><span class="pre">Tensor</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">block_size</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Tuple" title="(in Python v3.14)"><span class="pre">Tuple</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="p"><span class="pre">...</span></span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">target_dtype</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.pytorch.org/docs/stable/tensor_attributes.html#torch.dtype" title="(in PyTorch v2.9)"><span class="pre">dtype</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">_layout</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="torchao.dtypes.Layout.html#torchao.dtypes.Layout" title="torchao.dtypes.utils.Layout"><span class="pre">Layout</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">scale_dtype</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.14)"><span class="pre">Optional</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.pytorch.org/docs/stable/tensor_attributes.html#torch.dtype" title="(in PyTorch v2.9)"><span class="pre">dtype</span></a><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference external" href="https://github.com/pytorch/ao/blob/main/torchao/dtypes/affine_quantized_tensor.py#L446"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#torchao.dtypes.to_affine_quantized_floatx" title="Permalink to this definition">#</a></dt>
 <dd><p>Convert a high precision tensor to a float8 quantized tensor.</p>
 </dd></dl>
 
@@ -1414,12 +1412,12 @@ document.write(`
 
 <div class="prev-next-area">
     <a class="left-prev"
-       href="torchao.dtypes.to_affine_quantized_fpx.html"
+       href="torchao.dtypes.to_affine_quantized_intx_static.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">to_affine_quantized_fpx</p>
+        <p class="prev-next-title">to_affine_quantized_intx_static</p>
       </div>
     </a>
     <a class="right-next"
@@ -1453,12 +1451,12 @@ document.write(`
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="torchao.dtypes.to_affine_quantized_fpx.html"
+       href="torchao.dtypes.to_affine_quantized_intx_static.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">to_affine_quantized_fpx</p>
+        <p class="prev-next-title">to_affine_quantized_intx_static</p>
       </div>
     </a>
     <a class="right-next"
