@@ -73,7 +73,7 @@ def _permute(x, num_tokens_per_expert, ep_degree, num_local_experts, alignment):
 def _unpermute(out, input_shape, permuted_indices):
     out_unpermuted = out.new_empty(input_shape)
     out_unpermuted[permuted_indices, :] = out
-    out = out_unpermuted[:-1]
+    out = out_unpermuted[:-1]  # Remove padding row
     return out
 
 
@@ -233,7 +233,8 @@ class TestIntegration(MultiProcessTestCase):
                 num_tokens_per_expert_group,
                 ep_degree,
                 num_experts,
-                group_size_multiple_of=block_size,
+                block_size,
+                use_mxfp8=True,
             )
             assert isinstance(mx_permuted, MXTensor)
 
@@ -284,9 +285,11 @@ class TestIntegration(MultiProcessTestCase):
 
             # MXFP8: Unpermute
             # Update padded_shape to have output dimension instead of input dimension
-            padded_output_shape = torch.Size([padded_mx_shape[0], mx_gemm_output.shape[-1]])
+            padded_output_shape = torch.Size(
+                [padded_mx_shape[0], mx_gemm_output.shape[-1]]
+            )
             mx_unpermuted = unpermute(
-                mx_gemm_output, mx_permuted_indices, padded_output_shape
+                mx_gemm_output, mx_permuted_indices, padded_output_shape, use_mxfp8=True
             )
             assert mx_unpermuted.dtype == torch.bfloat16
 

@@ -4,21 +4,6 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-"""
-Pink AutoGrad function: a2a_dispatch
-
-Forward:
-- Input: bf16 tensor
-- Quantize to mxfp8 using triton_to_mxfp8_dim0()
-- All-to-all on qdata and scales separately
-- Output: MXTensor (wrapping qdata and scales)
-
-Backward:
-- Input: bf16 gradient tensor
-- Inverse all-to-all (no mxfp8, just bf16)
-- Output: bf16 gradient tensor
-"""
-
 import torch
 import torch.distributed as dist
 from torch.distributed._functional_collectives import all_to_all_single

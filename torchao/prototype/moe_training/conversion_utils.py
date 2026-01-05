@@ -70,6 +70,7 @@ def _swap_params(
     *,
     module_filter_fn: Optional[Callable[[nn.Module, str], bool]] = None,
     config: Optional[MoETrainingConfig] = None,
+    root_fqn: str = "",
 ) -> nn.Module:
     """
     Recurses through the nn.Module, recursively swapping the data tensor of
@@ -81,6 +82,7 @@ def _swap_params(
         module_filter_fn: If specified, only the `torch.nn.Parameter` subclasses that
             that pass the filter function will be swapped. The inputs to the
             filter function are the module instance, and the FQN.
+        root_fqn: The fully qualified name of the root module being processed.
 
     Returns:
      nn.Module: The modified module with swapped linear layers.
@@ -88,7 +90,7 @@ def _swap_params(
     from torchao.prototype.moe_training.tensor import ScaledGroupedMMTensor
 
     if isinstance(module, nn.Parameter) and (
-        module_filter_fn is None or module_filter_fn(module, "")
+        module_filter_fn is None or module_filter_fn(module, root_fqn)
     ):
         if len(list(module.children())) > 0:
             raise AssertionError(
@@ -103,12 +105,9 @@ def _swap_params(
 
     def post_order_traversal(
         module: nn.Module,
-        cur_fqn: Optional[str] = None,
+        cur_fqn: str,
         parent_module: Optional[nn.Module] = None,
     ):
-        if cur_fqn is None:
-            cur_fqn = ""
-
         for child_module_name, child_module in module.named_children():
             if cur_fqn == "":
                 new_fqn = child_module_name
@@ -125,9 +124,8 @@ def _swap_params(
                         requires_grad=param.requires_grad,
                     )
                     setattr(module, param_name, new_param)
-                    logger.info(
-                        f"Swapped {cur_fqn}.{param_name} to ScaledGroupedMMTensor"
-                    )
+                    param_fqn = f"{cur_fqn}.{param_name}" if cur_fqn else param_name
+                    logger.info(f"Swapped {param_fqn} to ScaledGroupedMMTensor")
 
-    post_order_traversal(root_module)
+    post_order_traversal(root_module, root_fqn)
     return root_module

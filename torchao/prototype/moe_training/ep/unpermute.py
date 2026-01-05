@@ -4,20 +4,6 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-"""
-Purple AutoGrad function: unpermute
-
-Forward:
-- Input: bf16 tensor
-- Unpermute using saved indices
-- Output: bf16 tensor
-
-Backward:
-- Input: MXTensor (mxfp8 qdata + scales from downstream)
-- Permute qdata and scales separately
-- Output: MXTensor (permuted qdata + scales)
-"""
-
 import torch
 
 from torchao.prototype.mx_formats.mx_tensor import MXTensor
@@ -70,52 +56,61 @@ class _Unpermute(torch.autograd.Function):
     @staticmethod
     def backward(ctx, grad_output):
         """
-        Backward pass: permute MXTensor gradients.
+        Backward pass: permute gradients (MXTensor or bf16 tensor).
 
         Args:
-            grad_output: MXTensor from upstream (qdata + scales)
+            grad_output: MXTensor from upstream (qdata + scales) or bf16 tensor
 
         Returns:
-            grad_input: MXTensor (permuted qdata + scales)
+            grad_input: MXTensor (permuted qdata + scales) or bf16 tensor
             None values for other forward arguments
         """
         (permuted_indices,) = ctx.saved_tensors
 
-        # Check if we received an MXTensor
-        assert isinstance(grad_output, MXTensor)
-        
-        # Extract qdata and scales
-        qdata = grad_output.qdata
-        scales = grad_output.scale
+        # Check if we received an MXTensor or bf16 tensor
+        if isinstance(grad_output, MXTensor):
+            # MXTensor path: permute qdata and scales separately
+            # Extract qdata and scales
+            qdata = grad_output.qdata
+            scales = grad_output.scale
 
-        # Add padding row of zeros to qdata
-        qdata_padded = torch.vstack((qdata, qdata.new_zeros((qdata.shape[-1],))))
+            # Add padding row of zeros to qdata
+            qdata_padded = torch.vstack((qdata, qdata.new_zeros((qdata.shape[-1],))))
 
-        # Add padding row of zeros to scales
-        scales_padded = torch.vstack(
-            (scales, scales.new_zeros((scales.shape[-1],)))
-        )
+            # Add padding row of zeros to scales
+            scales_padded = torch.vstack(
+                (scales, scales.new_zeros((scales.shape[-1],)))
+            )
 
-        # Permute using indices
-        qdata_permuted = qdata_padded[permuted_indices, :]
-        scales_permuted = scales_padded[permuted_indices, :]
+            # Permute using indices
+            qdata_permuted = qdata_padded[permuted_indices, :]
+            scales_permuted = scales_padded[permuted_indices, :]
 
-        # Wrap back into MXTensor with the correct shape
-        grad_input = MXTensor(
-            qdata_permuted,
-            scales_permuted,
-            elem_dtype=grad_output._elem_dtype,
-            block_size=grad_output.block_size,
-            orig_dtype=grad_output._orig_dtype,
-            kernel_preference=grad_output.kernel_preference,
-            act_quant_kwargs=grad_output.act_quant_kwargs,
-            is_swizzled_scales=grad_output._is_swizzled_scales,
-        )
+            # Wrap back into MXTensor with the correct shape
+            grad_input = MXTensor(
+                qdata_permuted,
+                scales_permuted,
+                elem_dtype=grad_output._elem_dtype,
+                block_size=grad_output.block_size,
+                orig_dtype=grad_output._orig_dtype,
+                kernel_preference=grad_output.kernel_preference,
+                act_quant_kwargs=grad_output.act_quant_kwargs,
+                is_swizzled_scales=grad_output._is_swizzled_scales,
+            )
+        else:
+            # BF16 tensor path: permute directly
+            # Add padding row of zeros
+            grad_padded = torch.vstack(
+                (grad_output, grad_output.new_zeros((grad_output.shape[-1],)))
+            )
+
+            # Permute using indices
+            grad_input = grad_padded[permuted_indices, :]
 
         return grad_input, None, None
 
 
-def unpermute(
+def _unpermute_mx(
     input: torch.Tensor,
     permuted_indices: torch.Tensor,
     padded_shape: torch.Size,
@@ -132,3 +127,54 @@ def unpermute(
         Unpermuted bf16 tensor
     """
     return _Unpermute.apply(input, permuted_indices, padded_shape)
+
+
+def _unpermute_bf16(
+    out: torch.Tensor,
+    permuted_indices: torch.Tensor,
+    input_shape: torch.Size,
+) -> torch.Tensor:
+    """
+    BF16 unpermute operation used for benchmarking.
+
+    This is a non-autograd version that operates on BF16 tensors directly.
+
+    Args:
+        out: BF16 output tensor from grouped matrix multiplication
+        permuted_indices: indices used during permutation
+        input_shape: shape to restore the tensor to after unpermutation
+
+    Returns:
+        Unpermuted BF16 tensor
+    """
+    out_unpermuted = out.new_empty(input_shape)
+    out_unpermuted[permuted_indices, :] = out
+    out = out_unpermuted[:-1]
+    return out
+
+
+def unpermute(
+    out: torch.Tensor,
+    permuted_indices: torch.Tensor,
+    output_shape: torch.Size,
+    use_mxfp8: bool = False,
+):
+    """
+    Wrapper for unpermute operations that supports both BF16 and MXFP8 implementations.
+
+    Args:
+        out: Output tensor from the grouped matrix multiplication
+        permuted_indices: Indices used during permutation
+        output_shape: Shape to restore the tensor to after unpermutation
+        use_mxfp8: If True, use the MXFP8 autograd unpermute function.
+                   If False (default), use the standard BF16 unpermute function.
+
+    Returns:
+        Unpermuted tensor with the specified output_shape
+    """
+    if use_mxfp8:
+        # Use the MXFP8 autograd unpermute function
+        return _unpermute_mx(out, permuted_indices, output_shape)
+    else:
+        # Use the standard BF16 unpermute function
+        return _unpermute_bf16(out, permuted_indices, output_shape)

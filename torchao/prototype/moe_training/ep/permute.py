@@ -4,21 +4,6 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-"""
-Green AutoGrad function: permute
-
-Forward:
-- Input: MXTensor (mxfp8 qdata + scales)
-- Permute qdata and scales separately based on routing indices
-- Pads each token group to a multiple of TOKEN_GROUP_ALIGN_SIZE_M
-- Output: MXTensor (permuted qdata + scales)
-
-Backward:
-- Input: bf16 gradient tensor
-- Unpermute using saved indices (no mxfp8)
-- Output: bf16 gradient tensor
-"""
-
 import torch
 
 from torchao.prototype.mx_formats.mx_tensor import MXTensor
@@ -164,7 +149,7 @@ class _Permute(torch.autograd.Function):
         return grad_input, None, None, None, None, None
 
 
-def permute(
+def _permute_mx(
     mx_tensor: MXTensor,
     num_tokens_per_expert: torch.Tensor,
     ep_degree: int,
@@ -195,4 +180,86 @@ def permute(
         ep_degree,
         num_local_experts,
         group_size_multiple_of,
+    )
+
+
+def _permute_bf16(
+    x: torch.Tensor,
+    num_tokens_per_expert: torch.Tensor,
+    ep_degree: int,
+    num_local_experts: int,
+    alignment: int,
+):
+    """
+    BF16 permute operation used for benchmarking.
+
+    This is a non-autograd version that operates on BF16 tensors directly.
+
+    Args:
+        x: BF16 input tensor
+        num_tokens_per_expert: number of tokens per expert
+        ep_degree: expert parallelism degree
+        num_local_experts: number of local experts
+        alignment: block size alignment
+
+    Returns:
+        tuple: (input_shape, permuted tensor, permuted_indices, offsets)
+    """
+    x_padded_per_expert = x.shape[0] + num_local_experts * alignment
+    padded_max_len = _round_up(x_padded_per_expert, alignment)
+
+    with torch.no_grad():
+        (
+            permuted_indices,
+            _sizes,
+            offsets,
+        ) = generate_permute_indices(
+            num_tokens_per_expert,
+            num_local_experts,
+            ep_degree,
+            padded_max_len,
+            alignment,
+        )
+
+    x = torch.vstack((x, x.new_zeros((1, x.shape[-1]))))
+    input_shape = x.shape
+    x = x[permuted_indices, :]
+
+    return input_shape, x, permuted_indices, offsets
+
+
+def permute(
+    x,
+    num_tokens_per_expert: torch.Tensor,
+    ep_degree: int,
+    num_local_experts: int,
+    alignment: int,
+    use_mxfp8: bool = False,
+):
+    """
+    Wrapper for permute operations that supports both BF16 and MXFP8 implementations.
+
+    Args:
+        x: Input tensor (BF16 tensor or MXTensor)
+        num_tokens_per_expert: Number of tokens assigned to each expert
+        ep_degree: Expert parallelism degree (world size)
+        num_local_experts: Number of experts per rank
+        alignment: Block size alignment for permutation
+        use_mxfp8: If True, use the MXFP8 autograd permute function.
+                   If False (default), use the standard BF16 permute function.
+
+    Returns:
+        If use_mxfp8=False:
+            Tuple of (input_shape, permuted_tensor, permuted_indices, offsets)
+        If use_mxfp8=True:
+            Tuple of (padded_shape, permuted_tensor, permuted_indices,
+                      num_tokens_per_expert_padded, offsets)
+    """
+    permute_func = _permute_mx if use_mxfp8 else _permute_bf16
+    return permute_func(
+        x,
+        num_tokens_per_expert,
+        ep_degree,
+        num_local_experts,
+        alignment,
     )

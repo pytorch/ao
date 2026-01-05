@@ -16,38 +16,78 @@ class TestPermute(TestCase):
     def test_forward_output_is_mxtensor(self):
         tokens = 64
         dim = 128
+        num_experts = 8
+        ep_degree = 1
+        block_size = 32
+
         input_tensor = torch.randn(
             tokens, dim, device=self.device, dtype=torch.bfloat16
         )
 
         mx_input = MXTensor.to_mx(
-            input_tensor, elem_dtype=torch.float8_e4m3fn, block_size=32
+            input_tensor, elem_dtype=torch.float8_e4m3fn, block_size=block_size
         )
 
-        permuted_indices = torch.randperm(tokens, device=self.device)
-        padded_shape = torch.Size([tokens + 1, dim])
+        # Create num_tokens_per_expert tensor
+        tokens_per_expert = tokens // num_experts
+        num_tokens_per_expert = torch.full(
+            (num_experts,), tokens_per_expert, dtype=torch.int32, device=self.device
+        )
 
-        output = permute(mx_input, permuted_indices, padded_shape)
+        (
+            padded_shape,
+            output,
+            permuted_indices,
+            num_tokens_per_expert_padded,
+            offsets,
+        ) = permute(
+            mx_input,
+            num_tokens_per_expert,
+            ep_degree,
+            num_experts,
+            block_size,
+            use_mxfp8=True,
+        )
 
         assert isinstance(output, MXTensor)
-        assert output.qdata.shape[0] == tokens
-        assert output.scale.shape[0] == tokens
+        assert output.qdata.shape[0] >= tokens  # May have padding
+        assert output.scale.shape[0] >= tokens
 
     def test_backward_pass(self):
         tokens = 64
         dim = 128
+        num_experts = 8
+        ep_degree = 1
+        block_size = 32
+
         input_tensor = torch.randn(
             tokens, dim, device=self.device, dtype=torch.bfloat16
         )
 
         mx_input = MXTensor.to_mx(
-            input_tensor, elem_dtype=torch.float8_e4m3fn, block_size=32
+            input_tensor, elem_dtype=torch.float8_e4m3fn, block_size=block_size
         )
 
-        permuted_indices = torch.randperm(tokens, device=self.device)
-        padded_shape = torch.Size([tokens + 1, dim])
+        # Create num_tokens_per_expert tensor
+        tokens_per_expert = tokens // num_experts
+        num_tokens_per_expert = torch.full(
+            (num_experts,), tokens_per_expert, dtype=torch.int32, device=self.device
+        )
 
-        output = permute(mx_input, permuted_indices, padded_shape)
+        (
+            padded_shape,
+            output,
+            permuted_indices,
+            num_tokens_per_expert_padded,
+            offsets,
+        ) = permute(
+            mx_input,
+            num_tokens_per_expert,
+            ep_degree,
+            num_experts,
+            block_size,
+            use_mxfp8=True,
+        )
         assert isinstance(output, MXTensor)
 
 

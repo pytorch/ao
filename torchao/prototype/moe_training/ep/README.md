@@ -69,10 +69,35 @@ mx_output = a2a_dispatch(
 ```python
 from torchao.prototype.moe_training.ep import permute
 
-mx_permuted = permute(
-    mx_tensor,          # MXTensor
-    permuted_indices,   # torch.Tensor
-    padded_shape,       # torch.Size
+# For MXFP8 pipeline (use_mxfp8=True)
+(
+    padded_shape,
+    mx_permuted,
+    permuted_indices,
+    num_tokens_per_expert_padded,
+    offsets,
+) = permute(
+    mx_tensor,               # MXTensor
+    num_tokens_per_expert,   # torch.Tensor
+    ep_degree,               # int
+    num_local_experts,       # int
+    alignment,               # int (block size)
+    use_mxfp8=True,
+)
+
+# For BF16 pipeline (use_mxfp8=False)
+(
+    input_shape,
+    permuted,
+    permuted_indices,
+    offsets,
+) = permute(
+    tensor,                  # bf16 tensor
+    num_tokens_per_expert,   # torch.Tensor
+    ep_degree,               # int
+    num_local_experts,       # int
+    alignment,               # int (block size)
+    use_mxfp8=False,
 )
 ```
 
@@ -94,10 +119,20 @@ mx_permuted = permute(
 ```python
 from torchao.prototype.moe_training.ep import unpermute
 
+# For MXFP8 pipeline (use_mxfp8=True)
 output = unpermute(
     input,              # bf16 tensor
     permuted_indices,   # torch.Tensor
-    padded_shape,       # torch.Size
+    output_shape,       # torch.Size
+    use_mxfp8=True,
+)
+
+# For BF16 pipeline (use_mxfp8=False)
+output = unpermute(
+    input,              # bf16 tensor
+    permuted_indices,   # torch.Tensor
+    output_shape,       # torch.Size
+    use_mxfp8=False,
 )
 ```
 
@@ -144,14 +179,30 @@ x = torch.randn(num_tokens, hidden_dim, dtype=torch.bfloat16)
 # 1. Dispatch with quantization
 mx_dispatched = a2a_dispatch(x, output_splits, input_splits, group)
 
-# 2. Permute
-mx_permuted = permute(mx_dispatched, permuted_indices, padded_shape)
+# 2. Permute (MXFP8 mode)
+(
+    padded_shape,
+    mx_permuted,
+    permuted_indices,
+    num_tokens_per_expert_padded,
+    offsets,
+) = permute(
+    mx_dispatched,
+    num_tokens_per_expert_group,
+    ep_degree,
+    num_local_experts,
+    block_size,
+    use_mxfp8=True,
+)
 
 # 3. GEMM (existing mxfp8 grouped GEMM - outputs bf16)
-out = mxfp8_grouped_gemm(mx_permuted, weights)
+out = mxfp8_grouped_gemm(mx_permuted, weights, offsets)
 
-# 4. Unpermute
-out_unpermuted = unpermute(out, permuted_indices, padded_shape)
+# 4. Unpermute (MXFP8 mode)
+padded_output_shape = torch.Size([padded_shape[0], out.shape[-1]])
+out_unpermuted = unpermute(
+    out, permuted_indices, padded_output_shape, use_mxfp8=True
+)
 
 # 5. Combine
 final_out = a2a_combine(out_unpermuted, output_splits, input_splits, group)

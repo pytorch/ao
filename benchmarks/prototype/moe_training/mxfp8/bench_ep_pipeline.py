@@ -45,7 +45,6 @@ from torchao.prototype.moe_training.ep import (
     permute,
     unpermute,
 )
-from torchao.prototype.moe_training.ep.kernels import generate_permute_indices
 from torchao.prototype.moe_training.scaled_grouped_mm import (
     _to_mxfp8_then_scaled_grouped_mm,
 )
@@ -123,41 +122,6 @@ def generate_split_sizes(K: int, N: int, device: str = "cuda") -> torch.Tensor:
     return result.to(dtype=torch.int32)
 
 
-def _round_up(x, y):
-    return ((x + y - 1) // y) * y
-
-
-def _permute(x, num_tokens_per_expert, ep_degree, num_local_experts, alignment):
-    x_padded_per_expert = x.shape[0] + num_local_experts * alignment
-    padded_max_len = _round_up(x_padded_per_expert, alignment)
-
-    with torch.no_grad():
-        (
-            permuted_indices,
-            _sizes,
-            offsets,
-        ) = generate_permute_indices(
-            num_tokens_per_expert,
-            num_local_experts,
-            ep_degree,
-            padded_max_len,
-            alignment,
-        )
-
-    x = torch.vstack((x, x.new_zeros((1, x.shape[-1]))))
-    input_shape = x.shape
-    x = x[permuted_indices, :]
-
-    return input_shape, x, permuted_indices, offsets
-
-
-def _unpermute(out, input_shape, permuted_indices):
-    out_unpermuted = out.new_empty(input_shape)
-    out_unpermuted[permuted_indices, :] = out
-    out = out_unpermuted[:-1]
-    return out
-
-
 def standard_bf16_pipeline(
     input_tensor: torch.Tensor,
     expert_weights_t: torch.Tensor,
@@ -185,16 +149,17 @@ def standard_bf16_pipeline(
     dispatched = torch.ops._c10d_functional.wait_tensor(dispatched)
 
     # Step 2: Permute (BF16)
-    input_shape, permuted, permuted_indices, offsets = _permute(
+    input_shape, permuted, permuted_indices, offsets = permute(
         dispatched,
         num_tokens_per_expert_group,
         ep_degree,
         num_experts,
         block_size,
+        use_mxfp8=False,
     )
 
     # Step 3: BF16 Grouped MM
-    gemm_output = torch._grouped_mm(
+    gemm_output = _to_mxfp8_then_scaled_grouped_mm(
         permuted,
         expert_weights_t,
         offs=offsets,
@@ -204,7 +169,7 @@ def standard_bf16_pipeline(
     # Step 4: Unpermute (BF16)
     # Create output shape with same number of rows as input_shape, but output dimension from gemm_output
     output_shape = (input_shape[0], gemm_output.shape[-1])
-    unpermuted = _unpermute(gemm_output, output_shape, permuted_indices)
+    unpermuted = unpermute(gemm_output, permuted_indices, output_shape, use_mxfp8=False)
 
     # Step 5: All-to-all combine (BF16)
     final_output = all_to_all_single(
@@ -256,7 +221,8 @@ def mxfp8_pipeline(
         num_tokens_per_expert_group,
         ep_degree,
         num_experts,
-        group_size_multiple_of=block_size,
+        block_size,
+        use_mxfp8=True,
     )
 
     # Step 3: MXFP8 Grouped MM - outputs BF16
@@ -271,7 +237,9 @@ def mxfp8_pipeline(
     # Step 4: Unpermute - maintains BF16
     # Update padded_shape to have output dimension instead of input dimension
     padded_output_shape = torch.Size([padded_mx_shape[0], gemm_output.shape[-1]])
-    unpermuted = unpermute(gemm_output, permuted_indices, padded_output_shape)
+    unpermuted = unpermute(
+        gemm_output, permuted_indices, padded_output_shape, use_mxfp8=True
+    )
 
     # Step 5: A2A combine - maintains BF16
     final_output = a2a_combine(
@@ -279,7 +247,9 @@ def mxfp8_pipeline(
         output_splits=input_splits_list,
         input_splits=output_splits_list,
         group=group,
+        mxfp8_bwd=True,
     )
+
     return final_output
 
 
@@ -287,6 +257,7 @@ def mse_loss_and_bwd(output: torch.Tensor, labels: torch.Tensor):
     """Compute MSE loss and run backward pass."""
     loss = F.mse_loss(output, labels)
     loss.backward()
+
 
 def run_experiment(
     config: ExperimentConfig, args: argparse.Namespace
@@ -322,7 +293,9 @@ def run_experiment(
     total_experts = ep_degree * num_experts
     assert num_tokens % total_experts == 0
     uniform_group_size = num_tokens // total_experts
-    num_tokens_per_expert = torch.full((total_experts,), uniform_group_size, dtype=torch.int32, device="cuda")
+    num_tokens_per_expert = torch.full(
+        (total_experts,), uniform_group_size, dtype=torch.int32, device="cuda"
+    )
 
     # Compute splits for all-to-all
     group = dist.group.WORLD
@@ -406,9 +379,6 @@ def run_experiment(
     torch.cuda.synchronize()
     end_sec = time.perf_counter()
     bwd_bf16_ms = (end_sec - start_sec) * 1e3
-    print(f"[DEBUG] BF16 output shape: {bf16_output_for_bwd.shape}, requires_grad: {bf16_output_for_bwd.requires_grad}")
-    print(f"[DEBUG] BF16 backward time: {bwd_bf16_ms:.3f}ms")
-
 
     # BF16 Forward + Backward
     def bf16_fwd_bwd(input_t, weight_t, labels):
@@ -491,8 +461,6 @@ def run_experiment(
     torch.cuda.synchronize()
     end_sec = time.perf_counter()
     bwd_mxfp8_ms = (end_sec - start_sec) * 1e3
-    print(f"[DEBUG] MXFP8 output shape: {mxfp8_output_for_bwd.shape}, requires_grad: {mxfp8_output_for_bwd.requires_grad}")
-    print(f"[DEBUG] MXFP8 backward time: {bwd_mxfp8_ms:.3f}ms")
 
     # MXFP8 Forward + Backward
     def mxfp8_fwd_bwd(input_t, weight_t, labels):
