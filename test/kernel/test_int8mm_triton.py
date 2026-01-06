@@ -9,7 +9,7 @@ import unittest
 import torch
 from torch.testing._internal import common_utils
 
-import torchao.kernel.int8mm_triton  # noqa: F401
+import torchao.kernel.int8_scaled_mm_triton  # noqa: F401
 from torchao.quantization.utils import compute_error
 from torchao.testing.utils import TorchAOIntegrationTestCase
 
@@ -36,7 +36,7 @@ class TestInt8TritonKernel(TorchAOIntegrationTestCase):
         ref_output = ref_output.to(torch.float16)
 
         # Triton kernel via torch.ops
-        triton_output = torch.ops.torchao.int8_scaled_matmul(A, B, scale_a, scale_b)
+        triton_output = torch.ops.torchao.scaled_int8_mm(A, B, scale_a, scale_b)
 
         # Compare results using SQNR (higher = better match)
         sqnr = compute_error(ref_output, triton_output)
