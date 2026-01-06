@@ -223,6 +223,7 @@ def mxfp8_pipeline(
         num_experts,
         block_size,
         use_mxfp8=True,
+        use_triton_for_bwd=True,
     )
 
     # Step 3: MXFP8 Grouped MM - outputs BF16
@@ -231,7 +232,8 @@ def mxfp8_pipeline(
         expert_weights_t,
         offs=mx_group_offsets,
         block_size=block_size,
-        use_cuda_for_blocked_layout=False,
+        use_cuda_for_blocked_layout=True,
+        wgrad_with_hp=True,
     )
 
     # Step 4: Unpermute - maintains BF16
@@ -409,7 +411,7 @@ def run_experiment(
             ref_expert_weights_profile.transpose(-2, -1),
             bf16_labels,
             distributed=True,
-            profile_name="bf16_pipeline_bwd",
+            profile_name="bf16_pipeline",
         )
 
     # === Benchmark MXFP8 Pipeline ===
@@ -491,7 +493,7 @@ def run_experiment(
             expert_weights_profile.transpose(-2, -1),
             mxfp8_labels,
             distributed=True,
-            profile_name="mxfp8_pipeline_bwd",
+            profile_name="mxfp8_pipeline",
         )
 
     # Calculate speedups

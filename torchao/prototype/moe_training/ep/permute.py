@@ -5,6 +5,9 @@
 # LICENSE file in the root directory of this source tree.
 
 import torch
+import triton
+import triton.language as tl
+from torch.library import triton_op, wrap_triton
 
 from torchao.prototype.mx_formats.mx_tensor import MXTensor
 
@@ -42,6 +45,7 @@ class _Permute(torch.autograd.Function):
         ep_degree: int,
         num_local_experts: int,
         group_size_multiple_of: int = 32,
+        use_triton_for_bwd: bool = False,
     ):
         """
         Args:
@@ -82,7 +86,7 @@ class _Permute(torch.autograd.Function):
         # Append row of zeros to qdata to act as a dummy padding row
         # Every time `permuted_indices` selects this index, it will correspond to a padded token
         qdata_padded = torch.vstack((qdata, qdata.new_zeros((qdata.shape[-1],))))
-        input_shape = qdata_padded.shape
+        padded_input_shape = qdata_padded.shape
 
         # Permute qdata using indices
         qdata_permuted = qdata_padded[permuted_indices, :]
@@ -105,10 +109,11 @@ class _Permute(torch.autograd.Function):
 
         # Save for backward
         ctx.save_for_backward(permuted_indices)
-        ctx.input_shape = input_shape
+        ctx.padded_input_shape = padded_input_shape
+        ctx.use_triton_for_bwd = use_triton_for_bwd
 
         return (
-            input_shape,
+            padded_input_shape,
             mx_output,
             permuted_indices,
             num_tokens_per_expert_padded,
@@ -138,14 +143,24 @@ class _Permute(torch.autograd.Function):
             None values for other forward arguments
         """
         (permuted_indices,) = ctx.saved_tensors
+        input_rows, input_cols = ctx.padded_input_shape
+        use_triton_for_bwd = ctx.use_triton_for_bwd
 
-        # Unpermute: create empty tensor and scatter gradients back to original positions
-        grad_input_padded = grad_output.new_empty(ctx.input_shape)
-        grad_input_padded[permuted_indices, :] = grad_output
+        if use_triton_for_bwd:
+            grad_input = _triton_permute_bwd(
+                grad_output,
+                permuted_indices,
+                input_rows - 1,  # Remove padding row
+                input_cols,
+            )
+        else:
+            # Unpermute: scatter gradients back to original positions
+            # Note: permuted_indices may contain -1 for padding, which correctly maps to the last row
+            grad_input_padded = grad_output.new_zeros(ctx.padded_input_shape)
+            grad_input_padded[permuted_indices, :] = grad_output
 
-        # Remove the padding row (last row)
-        grad_input = grad_input_padded[:-1]
-
+            # Remove the padding row (last row)
+            grad_input = grad_input_padded[:input_rows]
         return grad_input, None, None, None, None, None
 
 
@@ -155,6 +170,7 @@ def _permute_mx(
     ep_degree: int,
     num_local_experts: int,
     group_size_multiple_of: int = 32,
+    use_triton_for_bwd: bool = False,
 ) -> tuple[torch.Size, MXTensor, torch.Tensor, torch.Tensor]:
     """
     Permute and pad MXTensor based on routing indices with token group alignment.
@@ -170,6 +186,7 @@ def _permute_mx(
         ep_degree: expert parallelism degree
         num_local_experts: number of local experts
         group_size_multiple_of: alignment size for token groups
+        use_triton_for_bwd: if True, use triton kernel for backward pass
 
     Returns:
         tuple: (padded_shape, permuted MXTensor, permuted_indices, updated num_tokens_per_expert with padding)
@@ -180,6 +197,7 @@ def _permute_mx(
         ep_degree,
         num_local_experts,
         group_size_multiple_of,
+        use_triton_for_bwd,
     )
 
 
@@ -233,8 +251,9 @@ def permute(
     num_tokens_per_expert: torch.Tensor,
     ep_degree: int,
     num_local_experts: int,
-    alignment: int,
-    use_mxfp8: bool = False,
+    alignment: int = 32,
+    use_mxfp8: bool = True,
+    use_triton_for_bwd: bool = True,
 ):
     """
     Wrapper for permute operations that supports both BF16 and MXFP8 implementations.
@@ -247,6 +266,7 @@ def permute(
         alignment: Block size alignment for permutation
         use_mxfp8: If True, use the MXFP8 autograd permute function.
                    If False (default), use the standard BF16 permute function.
+        use_triton_for_bwd: If True and use_mxfp8=True, use triton kernel for backward pass.
 
     Returns:
         If use_mxfp8=False:
@@ -255,11 +275,98 @@ def permute(
             Tuple of (padded_shape, permuted_tensor, permuted_indices,
                       num_tokens_per_expert_padded, offsets)
     """
-    permute_func = _permute_mx if use_mxfp8 else _permute_bf16
-    return permute_func(
-        x,
-        num_tokens_per_expert,
-        ep_degree,
-        num_local_experts,
-        alignment,
+    if use_mxfp8:
+        return _permute_mx(
+            x,
+            num_tokens_per_expert,
+            ep_degree,
+            num_local_experts,
+            alignment,
+            use_triton_for_bwd,
+        )
+    else:
+        return _permute_bf16(
+            x,
+            num_tokens_per_expert,
+            ep_degree,
+            num_local_experts,
+            alignment,
+        )
+
+
+@triton_op("torchao::_triton_permute_bwd", mutates_args={})
+def _triton_permute_bwd(
+    grad_output: torch.Tensor,
+    permuted_indices: torch.Tensor,
+    original_rows: int,
+    original_cols: int,
+) -> torch.Tensor:
+    """
+    Backward pass for BF16 permute operation.
+
+    Args:
+        grad_output: bf16 gradient tensor from upstream
+        permuted_indices: permutation indices used in the forward pass
+        original_shape: original shape of the input (with extra padding row)
+    Returns:
+        grad_input: bf16 gradient tensor (unpermuted)
+    """
+    grad_rows, grad_cols = grad_output.shape
+    output_buffer = grad_output.new_zeros((original_rows, original_cols))
+    grid = lambda meta: (
+        triton.cdiv(grad_rows, meta["BLOCK_ROWS"]),
+        triton.cdiv(grad_cols, meta["BLOCK_COLS"]),
+    )
+    wrap_triton(_triton_permute_bwd_kernel)[grid](
+        grad_output,
+        permuted_indices,
+        output_buffer,
+        grad_rows,
+        grad_cols,
+        original_rows,
+        original_cols,
+        BLOCK_ROWS=256,
+        BLOCK_COLS=256,
+    )
+    return output_buffer
+
+
+@triton.jit
+def _triton_permute_bwd_kernel(
+    grad_ptr,
+    permuted_indices_ptr,
+    output_buffer_ptr,
+    grad_rows,
+    grad_cols,
+    original_rows,
+    original_cols,
+    BLOCK_ROWS: tl.constexpr,
+    BLOCK_COLS: tl.constexpr,
+    PADDING_VALUE: tl.constexpr = -1,
+):
+    row_pid = tl.program_id(0)
+    col_pid = tl.program_id(1)
+    row_offsets = row_pid * BLOCK_ROWS + tl.arange(0, BLOCK_ROWS)
+    col_offsets = col_pid * BLOCK_COLS + tl.arange(0, BLOCK_COLS)
+
+    dest_rows = tl.load(
+        permuted_indices_ptr + row_offsets,
+        mask=row_offsets < grad_rows,
+        other=PADDING_VALUE,
+    )
+
+    read_mask = (row_offsets[:, None] < grad_rows) & (col_offsets[None, :] < grad_cols)
+    grad_values = tl.load(
+        grad_ptr + row_offsets[:, None] * grad_cols + col_offsets[None, :],
+        mask=read_mask,
+        other=PADDING_VALUE,
+    )
+
+    write_mask = (dest_rows[:, None] != PADDING_VALUE) & (
+        col_offsets[None, :] < original_cols
+    )
+    tl.store(
+        output_buffer_ptr + dest_rows[:, None] * original_cols + col_offsets[None, :],
+        grad_values,
+        mask=write_mask,
     )

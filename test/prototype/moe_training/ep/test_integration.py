@@ -235,6 +235,7 @@ class TestIntegration(MultiProcessTestCase):
                 num_experts,
                 block_size,
                 use_mxfp8=True,
+                use_triton_for_bwd=True,
             )
             assert isinstance(mx_permuted, MXTensor)
 
@@ -264,6 +265,7 @@ class TestIntegration(MultiProcessTestCase):
                 offs=mx_group_offsets,
                 block_size=block_size,
                 use_cuda_for_blocked_layout=False,
+                wgrad_with_hp=True,
             )
             assert mx_gemm_output.dtype == torch.bfloat16
 

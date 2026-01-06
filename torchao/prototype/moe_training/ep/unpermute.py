@@ -157,7 +157,7 @@ def unpermute(
     out: torch.Tensor,
     permuted_indices: torch.Tensor,
     output_shape: torch.Size,
-    use_mxfp8: bool = False,
+    use_mxfp8: bool = True,
 ):
     """
     Wrapper for unpermute operations that supports both BF16 and MXFP8 implementations.

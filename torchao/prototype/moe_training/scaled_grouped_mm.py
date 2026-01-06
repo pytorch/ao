@@ -303,7 +303,7 @@ class _MXFP8GroupedMM(torch.autograd.Function):
         block_size: int = 32,
         out_dtype: Optional[torch.dtype] = torch.bfloat16,
         use_triton_for_dim0_cast: bool = True,
-        wgrad_with_hp: bool = False,
+        wgrad_with_hp: bool = True,
         scale_calculation_mode: ScaleCalculationMode = ScaleCalculationMode.RCEIL,
         use_cuda_for_blocked_layout: bool = True,
     ) -> torch.Tensor:
@@ -334,6 +334,10 @@ class _MXFP8GroupedMM(torch.autograd.Function):
         assert out_dtype in (torch.bfloat16, torch.float32), (
             "out_dtype must be bfloat16 or float32"
         )
+        if isinstance(input_act, MXTensor):
+            assert wgrad_with_hp, (
+                "wgrad_with_hp must be True when input_act is MXTensor (pre-quantized)"
+            )
 
         # Quantize input activations along dim0
         # input_act_data shape: (M, K)
@@ -400,22 +404,15 @@ class _MXFP8GroupedMM(torch.autograd.Function):
         scale_calculation_mode = ctx.scale_calculation_mode
         use_cuda_for_blocked_layout = ctx.use_cuda_for_blocked_layout
 
-        # Quantize grad_output along dim0
-        # grad_output_data shape: (M, N)
-        # grad_output_scales shape: (M, N//block_size)
-        grad_output_data, grad_output_scales = _extract_or_quantize_dim0(
-            grad_output, block_size, use_triton_for_dim0_cast, scale_calculation_mode
-        )
-
         # Compute gradient w.r.t. input activations
         grad_input = _compute_dgrad(
-            grad_output_data,
-            grad_output_scales,
+            grad_output,
             weight_t,
             group_offsets,
             block_size,
             out_dtype,
             scale_calculation_mode,
+            use_triton_for_dim0_cast,
             use_cuda_for_blocked_layout,
         )
 
@@ -433,13 +430,13 @@ class _MXFP8GroupedMM(torch.autograd.Function):
 
 
 def _compute_dgrad(
-    grad_output_data: torch.Tensor,
-    grad_output_scales: torch.Tensor,
+    grad_output: torch.Tensor,
     weight_t: torch.Tensor,
     group_offsets: torch.Tensor,
     block_size: int,
     out_dtype: torch.dtype,
     scale_calculation_mode: ScaleCalculationMode,
+    use_triton_for_dim0_cast: bool,
     use_cuda_for_blocked_layout: bool,
 ) -> torch.Tensor:
     """
@@ -453,11 +450,19 @@ def _compute_dgrad(
         block_size: Block size for quantization
         out_dtype: Output dtype
         scale_calculation_mode: Mode for scale calculation
+        use_triton_for_dim0_cast: Use Triton for dim0 quantization. If false, use torch.compile.
         use_cuda_for_blocked_layout: Use CUDA for blocked layout for groups along M
 
     Returns:
         grad_input, shape (M, K)
     """
+    # Quantize grad_output along dim0
+    # grad_output_data shape: (M, N)
+    # grad_output_scales shape: (M, N//block_size)
+    grad_output_data, grad_output_scales = _extract_or_quantize_dim0(
+        grad_output, block_size, use_triton_for_dim0_cast, scale_calculation_mode
+    )
+
     # Quantize weights along N dimension (contraction dim for this gemm)
     # weight shape: (E, K, N) -> (E, N, K)
     weight = weight_t.transpose(-2, -1)
@@ -495,7 +500,7 @@ def _compute_wgrad(
     block_size: int,
     out_dtype: torch.dtype,
     scale_calculation_mode: ScaleCalculationMode,
-    wgrad_with_hp: bool = False,
+    wgrad_with_hp: bool = True,
 ) -> torch.Tensor:
     """
     Compute gradient w.r.t. weights with quantization.
@@ -874,7 +879,7 @@ def _to_mxfp8_then_scaled_grouped_mm(
     out_dtype: Optional[torch.dtype] = torch.bfloat16,
     emulated: bool = False,  # Deprecated, kept for backwards compatibility
     use_triton_for_dim0_cast: bool = True,
-    wgrad_with_hp: bool = False,
+    wgrad_with_hp: bool = True,
     scale_calculation_mode: ScaleCalculationMode = ScaleCalculationMode.RCEIL,
     use_cuda_for_blocked_layout: bool = True,
 ) -> torch.Tensor:
