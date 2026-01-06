@@ -52,7 +52,7 @@
 
 ## 🌅 Overview
 
-TorchAO is an easy to use quantization library for native PyTorch. TorchAO works out-of-the-box with `torch.compile()` and `FSDP2` across most HuggingFace PyTorch models. 
+TorchAO is an easy to use quantization library for native PyTorch. TorchAO works out-of-the-box with `torch.compile()` and `FSDP2` across most HuggingFace PyTorch models.
 
 ### Stable Workflows
 
@@ -193,6 +193,24 @@ curl http://localhost:8000/v1/chat/completions -H "Content-Type: application/jso
 }'
 ```
 
+For diffusion models, you can quantize using Hugging Face diffusers
+
+```python
+import torch
+from diffusers import DiffusionPipeline, PipelineQuantizationConfig, TorchAoConfig
+from torchao.quantization import Int8WeightOnlyConfig
+
+pipeline_quant_config = PipelineQuantizationConfig(
+    quant_mapping={"transformer": TorchAoConfig(Int8WeightOnlyConfig(group_size=128))}
+)
+pipeline = DiffusionPipeline.from_pretrained(
+    "black-forest-labs/FLUX.1-dev",
+    quantization_config=pipeline_quant_config,
+    torch_dtype=torch.bfloat16,
+    device_map="cuda"
+)
+```
+
 We also support deployment to edge devices through ExecuTorch, for more detail, see [quantization and serving guide](https://docs.pytorch.org/ao/main/serving.html). We also release pre-quantized models [here](https://huggingface.co/pytorch).
 
 ## 🚅 Training
@@ -202,11 +220,15 @@ We also support deployment to edge devices through ExecuTorch, for more detail, 
 Post-training quantization can result in a fast and compact model, but may also lead to accuracy degradation. We recommend exploring Quantization-Aware Training (QAT) to overcome this limitation, especially for lower bit-width dtypes such as int4. In collaboration with [TorchTune](https://github.com/pytorch/torchtune/blob/main/recipes/quantization.md#quantization-aware-training-qat), we've developed a QAT recipe that demonstrates significant accuracy improvements over traditional PTQ, recovering **96% of the accuracy degradation on hellaswag and 68% of the perplexity degradation on wikitext** for Llama3 compared to post-training quantization (PTQ). For more details, please refer to the [QAT README](torchao/quantization/qat/README.md) and the [original blog](https://pytorch.org/blog/quantization-aware-training/):
 
 ```python
-from torchao.quantization import quantize_, Int8DynamicActivationInt4WeightConfig
+import torch
+from torchao.quantization import quantize_, Int8DynamicActivationIntxWeightConfig, PerGroup
 from torchao.quantization.qat import QATConfig
 
 # prepare
-base_config = Int8DynamicActivationInt4WeightConfig(group_size=32)
+base_config = Int8DynamicActivationIntxWeightConfig(
+    weight_dtype=torch.int4,
+    weight_granularity=PerGroup(32),
+)
 quantize_(my_model, QATConfig(base_config, step="prepare"))
 
 # train model (not shown)
@@ -280,15 +302,6 @@ The best example we have combining the composability of lower bit dtype with com
 
 Our framework makes it straightforward to add tensor parallel support to your custom quantized tensor subclass. Check out our [tensor parallel tutorial](tutorials/developer_api_guide/tensor_parallel.py) to see how a quantized tensor subclass can be extended to support column and row-wise tensor sharding while maintaining compatibility with `torch.compile`.
 
-### Custom Kernels
-
-We've added support for authoring and releasing [custom ops](./torchao/csrc/) that do not graph break with `torch.compile()`. We have a few examples you can follow
-
-1. [fp6](torchao/dtypes/floatx/README.md) for 2x faster inference over fp16 with an easy to use API `quantize_(model, fpx_weight_only(3, 2))`
-2. [2:4 Sparse Marlin GEMM](https://github.com/pytorch/ao/pull/733) 2x speedups for FP16xINT4 kernels even at batch sizes up to 256
-3. [int4 tinygemm unpacker](https://github.com/pytorch/ao/pull/415) which makes it easier to switch quantized backends for inference
-
-If you believe there's other CUDA kernels we should be taking a closer look at please leave a comment on [this issue](https://github.com/pytorch/ao/issues/697) or feel free to contribute directly to the repo.
 -->
 
 ## 🔗 Integrations
@@ -297,7 +310,7 @@ TorchAO is integrated into some of the leading open-source libraries including:
 
 * Unsloth now supports QAT: [Read blog](https://docs.unsloth.ai/new/quantization-aware-training-qat) and [guide](https://docs.unsloth.ai/new/quantization-aware-training-qat#qat--lora-finetuning).
 * HuggingFace transformers with a [builtin inference backend](https://huggingface.co/docs/transformers/main/quantization/torchao) and [low bit optimizers](https://github.com/huggingface/transformers/pull/31865)
-* HuggingFace diffusers best practices with `torch.compile` and TorchAO in a standalone repo [diffusers-torchao](https://github.com/huggingface/diffusers/blob/main/docs/source/en/quantization/torchao.md)
+* HuggingFace [diffusers](https://huggingface.co/docs/diffusers/main/en/quantization/torchao) best practices with `torch.compile` and TorchAO in a standalone repo [diffusers-torchao](https://github.com/huggingface/diffusers/blob/main/docs/source/en/quantization/torchao.md)
 * vLLM for LLM serving: [usage](https://docs.vllm.ai/en/latest/features/quantization/torchao.html), [detailed docs](https://docs.pytorch.org/ao/main/torchao_vllm_integration.html)
 * Integration with [FBGEMM](https://github.com/pytorch/FBGEMM/tree/main/fbgemm_gpu/experimental/gen_ai) for SOTA kernels on server GPUs
 * Integration with [ExecuTorch](https://github.com/pytorch/executorch/) for edge device deployment

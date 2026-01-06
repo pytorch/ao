@@ -10,7 +10,7 @@ from torch import Tensor
 from torch.serialization import add_safe_globals
 from torch.utils._python_dispatch import return_and_correct_aliasing
 
-from torchao.utils import TorchAOBaseTensor
+from torchao.utils import TorchAOBaseTensor, torch_version_at_least
 
 aten = torch.ops.aten
 c10d_functional = torch.ops.c10d_functional
@@ -132,17 +132,22 @@ def _(func, types, args, kwargs):
     return OptimStateFp8(x.codes.view(shape), x.scale)
 
 
-@OptimStateFp8.implements(
-    [
-        # required by DTensor.full_tensor()
-        c10d_functional.all_gather_into_tensor.default,
-        _c10d_functional.all_gather_into_tensor.default,
-        c10d_functional.wait_tensor.default,
-        _c10d_functional.wait_tensor.default,
-        # required by torch.distributed.checkpoint.save
-        aten.detach.default,
-    ]
-)
+# Build the list of c10d operations to implement
+_optim_state_fp8_c10d_ops = [
+    # required by DTensor.full_tensor()
+    c10d_functional.all_gather_into_tensor.default,
+    _c10d_functional.all_gather_into_tensor.default,
+    c10d_functional.wait_tensor.default,
+    _c10d_functional.wait_tensor.default,
+    # required by torch.distributed.checkpoint.save
+    aten.detach.default,
+]
+# _wrap_tensor_autograd was added in PyTorch 2.10
+if torch_version_at_least("2.10.0"):
+    _optim_state_fp8_c10d_ops.append(_c10d_functional._wrap_tensor_autograd.default)
+
+
+@OptimStateFp8.implements(_optim_state_fp8_c10d_ops)
 def _(func, types, args, kwargs):
     x = args[0]
     if not isinstance(x, OptimStateFp8):

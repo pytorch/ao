@@ -40,33 +40,23 @@ class HostEvent:
         return abs(other_event.event_time - self.event_time) * 1000
 
 
-def device_timer(device):
-    if "cuda" in device:
-        return torch.cuda.Event(enable_timing=True)
-    elif "xpu" in device:
-        return torch.xpu.Event(enable_timing=True)
+def device_timer(device: str):
+    if device in ["cuda", "xpu"]:
+        return torch.Event(enable_timing=True)
     elif ("cpu" in device) or ("mps" in device):
         return HostEvent()
     else:
         print(f"device={device} is not yet suppported")
 
 
-def device_sync(device):
-    if "cuda" in device:
-        torch.cuda.synchronize(device)
-    elif "xpu" in device:
-        torch.xpu.synchronize(device)
-    elif ("cpu" in device) or ("mps" in device):
-        pass
-    else:
-        print(f"device={device} is not yet suppported")
+def device_sync(device: str):
+    if torch.accelerator.is_available():
+        torch.accelerator.synchronize(device)
 
 
 default_device = (
-    "cuda"
-    if torch.cuda.is_available()
-    else "xpu"
-    if torch.xpu.is_available()
+    acc.type
+    if (acc := torch.accelerator.current_accelerator(check_available=True))
     else "cpu"
 )
 
@@ -160,10 +150,10 @@ def generate(
     kv_cache_quantization: bool = False,
     cache_size: Optional[int] = None,
     linear_causal_mask: bool = False,
-    prefill_start_event: Optional[torch.cuda.Event] = None,
-    prefill_end_event: Optional[torch.cuda.Event] = None,
-    decode_start_event: Optional[torch.cuda.Event] = None,
-    decode_end_event: Optional[torch.cuda.Event] = None,
+    prefill_start_event: Optional[torch.Event] = None,
+    prefill_end_event: Optional[torch.Event] = None,
+    decode_start_event: Optional[torch.Event] = None,
+    decode_end_event: Optional[torch.Event] = None,
     **sampling_kwargs,
 ) -> torch.Tensor:
     """
@@ -281,8 +271,8 @@ def main(
     compile_prefill: bool = False,
     profile: Optional[Path] = None,
     memory_profile: Optional[Path] = None,
-    device=default_device,
-    precision=torch.bfloat16,
+    device: str = default_device,
+    precision: torch.dtype = torch.bfloat16,
     write_result: Optional[Path] = None,
     output_json_path: Optional[Path] = None,
     output_json_local: bool = False,
@@ -342,7 +332,6 @@ def main(
             Float8DynamicActivationFloat8SemiSparseWeightConfig,
             Float8DynamicActivationFloat8WeightConfig,
             Float8WeightOnlyConfig,
-            FPXWeightOnlyConfig,
             GemliteUIntXWeightOnlyConfig,
             Int4DynamicActivationInt4WeightConfig,
             Int4WeightOnlyConfig,
@@ -479,9 +468,7 @@ def main(
                     Int4WeightOnlyConfig(layout=MarlinSparseLayout(), version=1),
                     filter_fn=ffn_or_attn_only,
                 )
-        if "fp6" in quantization:
-            quantize_(model, FPXWeightOnlyConfig(3, 2))
-        elif "embed-int8wo" in quantization:
+        if "embed-int8wo" in quantization:
             quantize_(
                 model,
                 Int8WeightOnlyConfig(group_size=64),
@@ -606,7 +593,7 @@ def main(
                     prepare_inputs_for_model,
                     False,  # pad_calibration_inputs
                     model.config.vocab_size,
-                    device="cuda",
+                    device=device,
                 )
                 .record_inputs(
                     ["wikitext"],
@@ -616,7 +603,7 @@ def main(
                 .values[0]
             )
             inputs = prepare_inputs_for_model(inputs)
-            with torch.device("cuda"):
+            with torch.device(device):
                 model.setup_caches(
                     max_batch_size=1, max_seq_length=calibration_seq_length
                 )
@@ -883,10 +870,7 @@ def main(
 
     for i in range(start, num_samples):
         if i == 0:
-            if device == "cuda":
-                torch.cuda.reset_peak_memory_stats()  # MKG
-            elif device == "xpu":
-                torch.xpu.reset_peak_memory_stats()  # MKG
+            torch.accelerator.reset_peak_memory_stats()  # MKG
         device_sync(device=device)  # MKG
         if i >= 0 and interactive:
             prompt = input("What is your prompt? ")
@@ -1016,14 +1000,10 @@ def main(
         torch.tensor(aggregate_metrics["decode_tokens_per_sec"])
     ).item()
     bandwidth = model_size * tokpersec
-    mem = torch.cuda.max_memory_reserved() / 1e9
     print(f"Average overall tokens/sec: {tokpersec:.2f}")
     print(f"Average decode tokens/sec: {decode_tokpersec:.04f} s")
     print(f"Average TTFT: {ttft:.04f} s")
-    if device == "cuda":
-        mem = torch.cuda.max_memory_reserved() / 1e9
-    elif device == "xpu":
-        mem = torch.xpu.max_memory_reserved() / 1e9
+    mem = torch.accelerator.max_memory_reserved() / 1e9
     print(f"Average tokens/sec: {tokpersec:.2f}")
     if batch_size > 1:
         print(f"Average tokens/sec including batches {batch_size * tokpersec:.2f}")
