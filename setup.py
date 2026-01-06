@@ -152,11 +152,15 @@ from torch.utils.cpp_extension import (
 def detect_hipify_v2():
     try:
         from torch.utils.hipify import __version__
+
         from packaging.version import Version
+
         if Version(__version__) >= Version("2.0.0"):
             return True
     except Exception as e:
-        print("failed to detect pytorch hipify version, defaulting to version 1.0.0 behavior")
+        print(
+            "failed to detect pytorch hipify version, defaulting to version 1.0.0 behavior"
+        )
         print(e)
     return False
 
@@ -454,12 +458,13 @@ def get_extensions():
         "-std=c++17",
     ]
     maybe_hipify_v2_flag = []
-    if detect_hipify_v2():
+    if use_rocm and detect_hipify_v2():
         maybe_hipify_v2_flag = ["-DHIPIFY_V2"]
 
     extra_link_args = []
     extra_compile_args = {
-        "cxx": [f"-DPy_LIMITED_API={min_supported_cpython_hexcode}"] + maybe_hipify_v2_flag,
+        "cxx": [f"-DPy_LIMITED_API={min_supported_cpython_hexcode}"]
+        + maybe_hipify_v2_flag,
         "nvcc": nvcc_args if use_cuda else rocm_args + maybe_hipify_v2_flag,
     }
 
