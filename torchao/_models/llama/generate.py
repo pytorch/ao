@@ -419,9 +419,16 @@ def main(
             ], (
                 f"int4wo group_size needs to be one of [32,64,128,256] but got {group_size}"
             )
+            int4_packing_format = (
+                "plain_int32" if device == "xpu" else "tile_packed_to_4d"
+            )
             quantize_(
                 model,
-                Int4WeightOnlyConfig(group_size=group_size, use_hqq=use_hqq, version=1),
+                Int4WeightOnlyConfig(
+                    group_size=group_size,
+                    use_hqq=use_hqq,
+                    int4_packing_format=int4_packing_format,
+                ),
             )
         elif "int4dq-" in quantization:
             from torchao.dtypes import CutlassInt4PackedLayout
