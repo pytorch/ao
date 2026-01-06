@@ -20,7 +20,7 @@ from torchao.utils import TorchAOBaseTensor
 from .int8 import quantize_int8_rowwise
 
 if has_triton():
-    from .int8_mm import scaled_int8_mm
+    from torchao.kernel.int8_scaled_mm_triton import scaled_int8_mm
 
 else:
     # This is less performant than the explicit hand-written Triton kernel, though things might
