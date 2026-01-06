@@ -889,7 +889,7 @@ class TestQuantizePT2EQAT_ConvBn2d(TestQuantizePT2EQAT_ConvBn_Base):
         """
         m = DoubleConvBnModel()
         example_inputs = (torch.randn(1, 3, 5, 5),)
-        m = torch.export.export_for_training(m, example_inputs, strict=True).module()
+        m = torch.export.export(m, example_inputs, strict=True).module()
         old_nodes = set(m.graph.nodes)
         m = prepare_qat_pt2e(m, DoubleConvBnQuantizer())
         new_nodes = set(m.graph.nodes)
