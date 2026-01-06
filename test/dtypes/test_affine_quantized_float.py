@@ -434,9 +434,9 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
                 expected_scale,
                 float8_dtype=float8_dtype,
             )
-            torch.testing.FileCheck().check(f"{quantize_affine_float8}.default").run(
-                code_q
-            )
+            # After lowering the op is not in the output code but the base name is
+            quant_op_base_name = f"{quantize_affine_float8}".split(".")[-1]
+            torch.testing.FileCheck().check(quant_op_base_name).run(code_q)
             test_dq, (code_dq,) = torch._inductor.utils.run_and_get_code(
                 torch.compile(dequantize_affine_float8),
                 test_q,
