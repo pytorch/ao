@@ -17,7 +17,6 @@ from torchao.utils import get_available_devices, is_sm_at_least_89
 
 _DEVICES = get_available_devices()
 _DEVICE = _DEVICES[-1]
-assert _DEVICE in ["cuda", "xpu"], "Test currently only supports CUDA & XPU"
 
 
 @unittest.skipIf(

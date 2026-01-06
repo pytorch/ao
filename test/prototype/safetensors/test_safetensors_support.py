@@ -29,11 +29,13 @@ from torchao.utils import get_available_devices, is_sm_at_least_89
 
 _DEVICES = get_available_devices()
 _DEVICE = _DEVICES[-1]
-assert _DEVICE in ["cuda", "xpu"], "Test currently only supports CUDA & XPU"
 
-
-_TEST_CONFIGS = [
+# All test configs
+_ALL_TEST_CONFIGS = [
     (Float8DynamicActivationFloat8WeightConfig(granularity=PerRow()), False),
+    (Int4WeightOnlyConfig(), False),
+    (Int4WeightOnlyConfig(), True),
+    (Int4WeightOnlyConfig(int4_packing_format="tile_packed_to_4d"), False),
     (Int4WeightOnlyConfig(int4_packing_format="plain_int32"), False),
     (IntxWeightOnlyConfig(), False),
     (Int8DynamicActivationIntxWeightConfig(), False),
@@ -41,14 +43,18 @@ _TEST_CONFIGS = [
     (Int8DynamicActivationInt8WeightConfig(version=2), False),
 ]
 
-# Build test configs - CUDA supports all Int4 packing formats, XPU only supports plain_int32.
-if _DEVICE == "cuda":
-    _TEST_CONFIGS.extend(
-        [
-            (Int4WeightOnlyConfig(), False),
-            (Int4WeightOnlyConfig(), True),
-        ]
-    )
+# XPU only supports plain_int32 for Int4WeightOnlyConfig, filter out other Int4 configs
+if _DEVICE == "xpu":
+    _TEST_CONFIGS = [
+        cfg
+        for cfg in _ALL_TEST_CONFIGS
+        if not (
+            isinstance(cfg[0], Int4WeightOnlyConfig)
+            and cfg[0].int4_packing_format != "plain_int32"
+        )
+    ]
+else:
+    _TEST_CONFIGS = _ALL_TEST_CONFIGS
 
 
 def load_data(file_path: str, device: str):
