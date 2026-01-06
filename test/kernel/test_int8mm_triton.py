@@ -9,7 +9,7 @@ import unittest
 import torch
 from torch.testing._internal import common_utils
 
-import torchao.kernel.int8_scaled_mm_triton  # noqa: F401
+import torchao.kernel.int8_mm  # noqa: F401
 from torchao.quantization.utils import compute_error
 from torchao.testing.utils import TorchAOIntegrationTestCase
 
