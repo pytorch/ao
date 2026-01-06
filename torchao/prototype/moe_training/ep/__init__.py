@@ -13,15 +13,17 @@ with selective MXFP8 quantization during forward and backward passes.
 The functions are designed to work together in the following pipeline:
 
 Forward (left to right):
-    bf16 -> mxfp8 a2a_dispatch -> mxfp8 permute -> mxfp8 grouped GEMM -> bf16 unpermute -> bf16 a2a_combine
+    mxfp8 a2a_dispatch -> mxfp8 permute -> mxfp8 grouped GEMM -> bf16 unpermute -> bf16 a2a_combine
 Backward (right to left):
-    bf16 <- bf16 a2a_dispatch <- bf16 permute <- mxfp8 grouped GEMMs <- mxfp8 unpermute <- mxfp8 a2a_combine
+    bf16 a2a_dispatch.bwd <- bf16 permute.bwd <- mxfp8 grouped GEMMs bwd <- mxfp8 unpermute.bwd <- mxfp8 a2a_combine.bwd
 """
 
 from .a2a_dispatch import a2a_dispatch_mxfp8_fwd_hp_bwd
 from .permute import permute_mxfp8_fwd_hp_bwd
+from .unpermute import unpermute_hp_fwd_mxfp8_bwd
 
 __all__ = [
     "a2a_dispatch_mxfp8_fwd_hp_bwd",
     "permute_mxfp8_fwd_hp_bwd",
+    "unpermute_hp_fwd_mxfp8_bwd",
 ]
