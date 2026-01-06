@@ -5,7 +5,6 @@
 # LICENSE file in the root directory of this source tree.
 
 
-from dataclasses import dataclass
 from typing import List, Optional
 
 import torch
@@ -35,51 +34,28 @@ from torchao.quantization.quant_primitives import (
 from torchao.quantization.quantize_.common import (
     KernelPreference,
     QuantizeTensorKwargs,
-    _choose_quant_func_and_quantize_tensor,
+)
+from torchao.quantization.quantize_.workflows import (
+    QuantizeTensorToFloat8Kwargs,
 )
 from torchao.quantization.utils import get_block_size
 from torchao.utils import (
     TorchAOBaseTensor,
     _is_fbgemm_gpu_genai_available,
-    _is_mslk_available,
     fill_defaults,
     is_sm_at_least_90,
     is_sm_at_least_100,
 )
 
-if _is_mslk_available():
-    import mslk.conv  # noqa: F401
-
 __all__ = [
-    "Float8Tensor",
-    "QuantizeTensorToFloat8Kwargs",
+    "PrototypeFloat8Tensor",
+    "_choose_quant_func_and_quantize_tensor",
 ]
 
 aten = torch.ops.aten
 
 
-@dataclass
-class QuantizeTensorToFloat8Kwargs(QuantizeTensorKwargs):
-    """Tensor kwargs for creating float8 tensor (either activation or weight)
-
-    Args:
-       dtype (torch.dtype): the dtype for float8 Tensor
-       granularity (FP8Granularity): the granularity for the Tensor, currently either PerRow() or PerTensor()
-       mm_config (Float8MMConfig): Configuration for the scaled_mm in the forward and backward pass.
-       hp_value_lb (Optional[float]): the lower bound for high precision floating point value for calculating scale
-       hp_value_ub (Optional[float]): the upper bound for high precision floating point value for calculating scale
-       kernel_preference (KernelPreference): kernel preference for ops like matmul, grouped matmul etc. by defalut (None) it will be chosen for user based on hardware or other information
-    """
-
-    float8_dtype: torch.dtype = torch.float8_e4m3fn
-    granularity: FP8Granularity = PerRow()
-    mm_config: Optional[Float8MMConfig] = None
-    hp_value_lb: Optional[float] = None
-    hp_value_ub: Optional[float] = None
-    kernel_preference: KernelPreference = KernelPreference.AUTO
-
-
-class Float8Tensor(TorchAOBaseTensor):
+class PrototypeFloat8Tensor(TorchAOBaseTensor):
     """
     Float8 Quantized (weight) Tensor, with float8 dynamic quantization for activation or bfloat16 activation.
 
@@ -89,18 +65,23 @@ class Float8Tensor(TorchAOBaseTensor):
         qdata: float8 raw data
         scale: the scale for float8 Tensor
 
+    Optional Tensor attributes:
+        act_quant_scale: the scale for activation, used for static quantization, used along with
+        act_quant_kwargs to quantize the activation statically
+
     Non-Tensor Attributes:
         block_size (List[int]): the block size for float8 quantization, meaning the shape of the elements
         sharing the same set of quantization parameters (scale), have the same rank as qdata or
         is an empty list (representing per tensor quantization)
         mm_config (Float8MMConfig): Configuration for the matrix multiplication. Default uses fast accumulation.
-        act_quant_kwargs (QuantizeTensorToFloat8Kwargs): the kwargs for Float8Tensor.from_hp
+        act_quant_kwargs (QuantizeTensorToFloat8Kwargs): the kwargs for PrototypeFloat8Tensor.from_hp
         kernel_preference (KernelPreference): the preference for quantize, mm etc. kernel to use,
         by default, this will be chosen for user based on hardware, library availabilities etc.
         dtype: Original Tensor dtype
     """
 
     tensor_data_names = ["qdata", "scale"]
+    optional_tensor_data_names = ["act_quant_scale"]
     tensor_attribute_names = []
     optional_tensor_attribute_names = [
         "block_size",
@@ -114,6 +95,7 @@ class Float8Tensor(TorchAOBaseTensor):
         cls,
         qdata: torch.Tensor,
         scale: torch.Tensor,
+        act_quant_scale: Optional[torch.Tensor] = None,
         block_size: Optional[List[int]] = None,
         mm_config: Optional[Float8MMConfig] = None,
         act_quant_kwargs: Optional[QuantizeTensorToFloat8Kwargs] = None,
@@ -131,6 +113,7 @@ class Float8Tensor(TorchAOBaseTensor):
         self,
         qdata: torch.Tensor,
         scale: torch.Tensor,
+        act_quant_scale: Optional[torch.Tensor] = None,
         block_size: Optional[List[int]] = None,
         mm_config: Optional[Float8MMConfig] = None,
         act_quant_kwargs: Optional[QuantizeTensorToFloat8Kwargs] = None,
@@ -140,6 +123,10 @@ class Float8Tensor(TorchAOBaseTensor):
         super().__init__()
         self.qdata = qdata
         self.scale = scale
+        # we need a separate `act_quant_scale` instead of merging this into `act_quant_kwargs`
+        # because inductor does not fakify tensors attached to `act_quant_kwargs` properly
+        # currently
+        self.act_quant_scale = act_quant_scale
         self.block_size = block_size
         self.mm_config = mm_config
         self.act_quant_kwargs = act_quant_kwargs
@@ -148,7 +135,7 @@ class Float8Tensor(TorchAOBaseTensor):
     def __repr__(self):
         return (
             f"{self.__class__.__name__}({self.act_quant_kwargs=}, {self.qdata=}, {self.scale=}, "
-            f"{self.block_size=}, {self.mm_config=}, {self.kernel_preference=} "
+            f"{self.act_quant_scale=}, {self.block_size=}, {self.mm_config=}, {self.kernel_preference=} "
             f"{self.shape=}, {self.device=}, {self.dtype=})"
         )
 
@@ -173,9 +160,32 @@ class Float8Tensor(TorchAOBaseTensor):
         hp_value_ub: Optional[float] = None,
         kernel_preference: KernelPreference = KernelPreference.AUTO,
         act_quant_kwargs: Optional[QuantizeTensorToFloat8Kwargs] = None,
+        scale: Optional[torch.Tensor] = None,
+        act_quant_scale: Optional[torch.Tensor] = None,
     ):
         block_size = get_block_size(hp_tensor.shape, granularity)
         block_size = list(block_size)
+
+        # If scale is provided (for static quantization), use it directly
+        if scale is not None:
+            # Verify scale dimensions match expected block structure
+            assert scale.ndim == hp_tensor.ndim
+            assert all(
+                (hp_tensor.shape[i] // block_size[i]) == scale.shape[i]
+                for i in range(hp_tensor.ndim)
+            )
+            data = _quantize_affine_float8(hp_tensor, scale, float8_dtype)
+            hp_dtype = hp_tensor.dtype
+            return PrototypeFloat8Tensor(
+                data,
+                scale,
+                block_size=block_size,
+                mm_config=mm_config,
+                act_quant_kwargs=act_quant_kwargs,
+                kernel_preference=kernel_preference,
+                dtype=hp_dtype,
+                act_quant_scale=act_quant_scale,
+            )
 
         kernel_choice = None
         if (
@@ -244,7 +254,7 @@ class Float8Tensor(TorchAOBaseTensor):
             data = _quantize_affine_float8(hp_tensor, scale, float8_dtype)
 
         hp_dtype = hp_tensor.dtype
-        return Float8Tensor(
+        return PrototypeFloat8Tensor(
             data,
             scale,
             block_size=block_size,
@@ -252,11 +262,12 @@ class Float8Tensor(TorchAOBaseTensor):
             act_quant_kwargs=act_quant_kwargs,
             kernel_preference=kernel_preference,
             dtype=hp_dtype,
+            act_quant_scale=act_quant_scale,
         )
 
 
-implements = Float8Tensor.implements
-implements_torch_function = Float8Tensor.implements_torch_function
+implements = PrototypeFloat8Tensor.implements
+implements_torch_function = PrototypeFloat8Tensor.implements_torch_function
 
 
 @implements(aten.linear.default)
@@ -267,7 +278,8 @@ def _(func, types, args, kwargs):
         args[1],
         args[2] if len(args) > 2 else None,
     )
-    return _float8_addmm_impl(input_tensor, weight_tensor.t(), bias)
+    result = _float8_addmm_impl(input_tensor, weight_tensor.t(), bias)
+    return result
 
 
 @implements(aten.matmul.default)
@@ -297,34 +309,12 @@ def _(func, types, args, kwargs):
     return bias_tensor.add_(out)
 
 
-@implements(aten.is_pinned.default)
-def _(func, types, args, kwargs):
-    is_pinned = args[0].qdata.is_pinned() and args[0].scale.is_pinned()
-    return is_pinned
-
-
-@implements(aten._pin_memory.default)
-def _(func, types, args, kwargs):
-    pinned_qdata = args[0].qdata.pin_memory()
-    pinned_scale = args[0].scale.pin_memory()
-
-    return Float8Tensor(
-        pinned_qdata,
-        pinned_scale,
-        args[0].block_size,
-        args[0].mm_config,
-        act_quant_kwargs=args[0].act_quant_kwargs,
-        kernel_preference=args[0].kernel_preference,
-        dtype=args[0].dtype,
-    )
-
-
 def _float8_addmm_impl(
-    input_tensor: Float8Tensor,
-    weight_tensor: Float8Tensor,
+    input_tensor: PrototypeFloat8Tensor,
+    weight_tensor: PrototypeFloat8Tensor,
     bias: Optional[torch.Tensor] = None,
 ) -> torch.Tensor:
-    assert isinstance(weight_tensor, Float8Tensor), (
+    assert isinstance(weight_tensor, PrototypeFloat8Tensor), (
         f"Don't expect to reach here with an override other than weight currently, {type(input_tensor)} {type(weight_tensor)}"
     )
 
@@ -335,7 +325,9 @@ def _float8_addmm_impl(
             "input tensor was already quantized"
         )
         input_tensor = _choose_quant_func_and_quantize_tensor(
-            input_tensor, act_quant_kwargs
+            input_tensor,
+            act_quant_kwargs,
+            act_quant_scale=weight_tensor.act_quant_scale,
         )
 
     # TODO: technically addmm and mm don't support broadcasting,
@@ -343,7 +335,7 @@ def _float8_addmm_impl(
     # move 3d support to matmul and linear
     out_shape = (*input_tensor.shape[:-1], weight_tensor.shape[1])
 
-    if isinstance(input_tensor, Float8Tensor):
+    if isinstance(input_tensor, PrototypeFloat8Tensor):
         kernel_choice = None
 
         if weight_tensor.kernel_preference == KernelPreference.AUTO:
@@ -450,7 +442,7 @@ def _float8_addmm_impl(
         assert not isinstance(input_tensor, TorchAOBaseTensor), (
             "Expecting input_tensor to be unquantized"
         )
-        # when input is not `Float8Tensor`, we expect that it is not quantized
+        # when input is not `PrototypeFloat8Tensor`, we expect that it is not quantized
         # so this is float8 weight only quantization
         out = torch.matmul(input_tensor, weight_tensor.dequantize())
         if bias is not None:
@@ -465,7 +457,7 @@ def _(func, types, args, kwargs):
         args[0],
         args[1],
     )
-    assert isinstance(weight_tensor, Float8Tensor), (
+    assert isinstance(weight_tensor, PrototypeFloat8Tensor), (
         f"Don't expect to reach here with an override other than weight currently, {type(input_tensor)} {type(weight_tensor)}"
     )
 
@@ -479,10 +471,12 @@ def _(func, types, args, kwargs):
     act_quant_kwargs = weight_tensor.act_quant_kwargs
     if act_quant_kwargs is not None:
         input_tensor = _choose_quant_func_and_quantize_tensor(
-            input_tensor, act_quant_kwargs
+            input_tensor,
+            act_quant_kwargs,
+            act_quant_scale=weight_tensor.act_quant_scale,
         )
 
-    if isinstance(input_tensor, Float8Tensor):
+    if isinstance(input_tensor, PrototypeFloat8Tensor):
         a_data = input_tensor.qdata
         a_scale = input_tensor.scale
 
@@ -525,26 +519,30 @@ def _quantize_and_scaled_conv3d(
     padding,
     dilation,
 ):
-    assert isinstance(weight_tensor, Float8Tensor), (
+    assert isinstance(weight_tensor, PrototypeFloat8Tensor), (
         f"Don't expect to reach here with an override other than weight currently, {type(input_tensor)} {type(weight_tensor)}"
     )
 
     assert input_tensor.dim() == 5 and weight_tensor.dim() == 5, (
         "Only support 3D conv currently"
     )
-    assert _is_mslk_available(), "quantized fp8 conv3d requires mslk to be available"
+    assert _is_fbgemm_gpu_genai_available(), (
+        "quantized fp8 conv3d requires fbgemm_gpu_genai to be available"
+    )
     act_quant_kwargs = weight_tensor.act_quant_kwargs
     # quantize activation, if `act_quant_kwargs` is specified
     if act_quant_kwargs is not None:
         input_tensor = _choose_quant_func_and_quantize_tensor(
-            input_tensor, act_quant_kwargs
+            input_tensor,
+            act_quant_kwargs,
+            act_quant_scale=weight_tensor.act_quant_scale,
         )
 
-    if isinstance(input_tensor, Float8Tensor):
+    if isinstance(input_tensor, PrototypeFloat8Tensor):
         kernel_choice = None
         if weight_tensor.kernel_preference == KernelPreference.AUTO:
-            if _is_mslk_available() and is_sm_at_least_100():
-                kernel_choice = "mslk"
+            if _is_fbgemm_gpu_genai_available() and is_sm_at_least_100():
+                kernel_choice = "fbgemm"
             else:
                 raise NotImplementedError(
                     f"No available kernel choice for {weight_tensor.kernel_preference}"
@@ -556,7 +554,7 @@ def _quantize_and_scaled_conv3d(
                 f"No available kernel choice for {weight_tensor.kernel_preference}"
             )
 
-    assert kernel_choice == "mslk", "Only mslk kernel choice is supported currently"
+    assert kernel_choice == "fbgemm", "Only fbgemm kernel choice is supported currently"
     input_qdata = input_tensor.qdata
     weight_qdata = weight_tensor.qdata
 
@@ -574,15 +572,17 @@ def _quantize_and_scaled_conv3d(
     input_qdata = input_qdata.contiguous(memory_format=torch.channels_last_3d)
     weight_qdata = weight_qdata.contiguous(memory_format=torch.channels_last_3d)
 
+    # move C_in to last dim
+    # after permute: (N, D, H, W, C_in)
+    input_qdata = input_qdata.permute([0, 2, 3, 4, 1])
+
+    # move C_in to last dim
+    # after permute: (C_out, K1, K2, K3, C_in)
+    weight_qdata = weight_qdata.permute([0, 2, 3, 4, 1])
+
     input_scale = input_tensor.scale
     weight_scale = weight_tensor.scale
-
-    # input: (N, C_in, D, H, W)
-    # weight: (C_out, C_in, K1, K2, K3)
-    # output: (N, C_out, D_out, H_out, W_out)
-    # all in channels_last_3d memory_format
-
-    output = torch.ops.mslk.f8f8bf16_conv(
+    output = torch.ops.fbgemm.f8f8bf16_conv(
         input_qdata,
         weight_qdata,
         input_scale * weight_scale,
@@ -590,6 +590,8 @@ def _quantize_and_scaled_conv3d(
         stride,
         dilation,
     )
+    # output shape after permute: N, C_out, D_out, H_out, W_out
+    output = output.permute([0, 4, 1, 2, 3])
 
     # aligning the semantics with bfloat16 conv ops, the
     # output should use contiguous_format if none of the input/weight
@@ -627,6 +629,9 @@ def _(func, types, args, kwargs):
         # (N, C, H, W) --> (N, C, 1, H, W)
         input_tensor = input_tensor.unsqueeze(2)
         weight_tensor = weight_tensor.unsqueeze(2)
+        if weight_tensor.act_quant_scale is not None:
+            weight_tensor.act_quant_scale = weight_tensor.act_quant_scale.unsqueeze(2)
+
         assert tuple(output_padding) == (0, 0), (
             f"Only (0, 0) is supported for `output_padding`, got: f{output_padding}"
         )
@@ -704,6 +709,8 @@ def _(func, types, args, kwargs):
     # (N, C, H, W) --> (N, C, 1, H, W)
     input_tensor = input_tensor.unsqueeze(2)
     weight_tensor = weight_tensor.unsqueeze(2)
+    if weight_tensor.act_quant_scale is not None:
+        weight_tensor.act_quant_scale = weight_tensor.act_quant_scale.unsqueeze(2)
 
     padding = [0, *padding]
     stride = [1, *stride]
@@ -767,9 +774,10 @@ def _(func, types, args, kwargs):
         func,
         args,
         kwargs,
-        Float8Tensor(
+        PrototypeFloat8Tensor(
             sliced_data,
             sliced_scale,
+            self.act_quant_scale,
             block_size,
             self.mm_config,
             self.act_quant_kwargs,
@@ -822,6 +830,7 @@ def _(func, types, args, kwargs):
     new = tensor_0.__class__(
         cat_qdata,
         cat_scale,
+        tensor_0.act_quant_scale,
         block_size,
         tensor_0.mm_config,
         tensor_0.act_quant_kwargs,
@@ -843,6 +852,7 @@ def _(func, types, args, kwargs):
     new = self.__class__(
         qdata,
         scale,
+        self.act_quant_scale,
         block_size,
         self.mm_config,
         self.act_quant_kwargs,
@@ -894,6 +904,7 @@ def _(func, types, args, kwargs):
     new = self.__class__(
         qdata,
         scale,
+        self.act_quant_scale,
         block_size,
         self.mm_config,
         self.act_quant_kwargs,
@@ -916,6 +927,7 @@ def _(func, types, args, kwargs):
     new = self.__class__(
         qdata,
         scale,
+        self.act_quant_scale,
         block_size,
         self.mm_config,
         self.act_quant_kwargs,
@@ -928,7 +940,9 @@ def _(func, types, args, kwargs):
 @implements(aten.select.int)
 def _(func, types, args, kwargs):
     old_float8_tensor, dim, index = args
-    assert dim == 0, f"Float8Tensor aten.select.int with {dim=} is not yet supported"
+    assert dim == 0, (
+        f"PrototypeFloat8Tensor aten.select.int with {dim=} is not yet supported"
+    )
     assert len(old_float8_tensor.qdata.shape) == len(old_float8_tensor.scale.shape), (
         "unsupported"
     )
@@ -938,6 +952,7 @@ def _(func, types, args, kwargs):
     new_float8_tensor = old_float8_tensor.__class__(
         old_float8_tensor.qdata[index],
         old_float8_tensor.scale[index],
+        old_float8_tensor.act_quant_scale,
         old_float8_tensor.block_size[1:],
         old_float8_tensor.mm_config,
         old_float8_tensor.act_quant_kwargs,
@@ -959,6 +974,7 @@ def _(func, types, args, kwargs):
     new = self.__class__(
         qdata,
         scale,
+        self.act_quant_scale,
         block_size,
         self.mm_config,
         self.act_quant_kwargs,
@@ -976,6 +992,7 @@ def _(func, types, args, kwargs):
     new_tensor = self.__class__(
         self.qdata.t(),
         self.scale.t(),
+        self.act_quant_scale,
         (self.block_size[1], self.block_size[0]),
         self.mm_config,
         self.act_quant_kwargs,
@@ -1038,6 +1055,7 @@ def _(func, types, args, kwargs):
         new_tensor = tensor.__class__(
             new_qdatas[idx],
             new_scales[idx],
+            tensor.act_quant_scale,
             new_block_sizes[idx],
             tensor.mm_config,
             tensor.act_quant_kwargs,
@@ -1051,7 +1069,26 @@ def _(func, types, args, kwargs):
     return new_tensors_tuple
 
 
-Float8Tensor.__module__ = "torchao.quantization"
+def _choose_quant_func_and_quantize_tensor(
+    tensor: torch.Tensor,
+    quant_kwargs: QuantizeTensorKwargs,
+    act_quant_scale: Optional[torch.Tensor] = None,
+) -> torch.Tensor:
+    if isinstance(quant_kwargs, QuantizeTensorToFloat8Kwargs):
+        return PrototypeFloat8Tensor.from_hp(
+            tensor,
+            quant_kwargs.float8_dtype,
+            quant_kwargs.granularity,
+            quant_kwargs.mm_config,
+            quant_kwargs.hp_value_lb,
+            quant_kwargs.hp_value_ub,
+            quant_kwargs.kernel_preference,
+            scale=act_quant_scale,
+        )
+    raise NotImplementedError(f"Quant kwargs not supported: {quant_kwargs}")
 
-# Allow a model with Float8Tensor weights to be loaded with `weights_only=True`
-torch.serialization.add_safe_globals([Float8Tensor, QuantizeTensorToFloat8Kwargs])
+
+PrototypeFloat8Tensor.__module__ = "torchao.quantization"
+
+# Allow a model with PrototypeFloat8Tensor weights to be loaded with `weights_only=True`
+torch.serialization.add_safe_globals([PrototypeFloat8Tensor])

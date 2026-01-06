@@ -3,7 +3,7 @@ Typically quantization algorithms will have different schemes for how the activa
 
 ## Accuracy benchmarks
 
-All the following benchmarks are for `meta-llama/Llama-3-8.1B` using `lm-eval` measured on an H100 GPU.
+All the following benchmarks are for `meta-llama/Llama-3-8.1B` using `lm-eval`.
 
 | weight | activation | wikitext-perplexity | winogrande | checkpoint size (GB) |
 | --------- | ------------------- | ---------- | -------------------- | -------- |
@@ -11,69 +11,55 @@ All the following benchmarks are for `meta-llama/Llama-3-8.1B` using `lm-eval` m
 | float8_rowwise | float8_rowwise | 7.4197 | 0.7388 | 9.1 |
 | int8_rowwise | bfloat16 | 7.3451 | 0.7340 | 9.1 |
 | int8_rowwise | int8_rowwise | 7.4535 | 0.7285 | 9.1 |
+| mxfp8 | mxfp8 | 7.6034 | 0.7316 | 9.32 |
+| nvfp4 | nvfp4 | 8.4459 | 0.7135 | 6.05 |
 
 To reproduce, run the following command:
 
 ```bash
-./benchmarks/quantization/eval_accuracy_for_readme.sh
+// on an H100
+SKIP_VLLM=1 ./benchmarks/quantization/measure_accuracy_and_performance.sh h100
+// on a B200
+SKIP_VLLM=1 ./benchmarks/quantization/measure_accuracy_and_performance.sh b200
 ```
 
 ## Performance benchmarks
 
-Benchmarks are gathered using the scripts for [generation](../_models/llama/generate.py).
-
-### CUDA backend |  NVIDIA-A100-80GB GPU
-| Model       | Technique               | Tokens/Second | Memory Bandwidth (GB/s) | Peak Memory (GB) |
-| ----------- | ----------------------- | ------------- | ----------------------- | ---------------- |
-| Llama-3-8B  | Base (bfloat16)         |   95.64       | 1435.54                 | 16.43            |
-|             | int8dq                  |    8.61       |   64.75                 |  9.24            |
-|             | int8wo                  |  153.03       | 1150.80                 | 10.42            |
-|             | fp6                     |  161.58       |  910.02                 |  7.72            |
-|             | int4wo-64               |  180.80       |  763.33                 |  6.88            |
-|             | int4wo-64-GPTQ          |  180.80       |  763.33                 |  6.88            |
-|             | autoquant-int4hqq       |  188.41       |  800.58                 |  7.14            |
-
-### CUDA backend | NVIDIA-H100 GPU
-| Model         | Technique               | Tokens/Second | Memory Bandwidth (GB/s) | Peak Memory (GB) |
-| -----------   | ----------------------- | ------------- | ----------------------- | ---------------- |
-| Llama-3.1-8B  | Base (bfloat16)         |  126.90       | 1904.75                 | 16.75            |
-|               | int8wo                  |  198.85       | 1495.41                 | 11.05            |
-|               | int4wo-64               |  241.39       | 1019.14                 |  7.08            |
-|               | float8wo                |  178.46       | 1339.93                 | 12.09            |
-|               | float8dq (PerTensor)    |  116.40       |  873.58                 | 11.14            |
-|               | float8dq (Per Row)      |  154.63       | 1161.47                 | 11.14            |
-
-### XPU backend | Intel-Max1100
-| Model         | Technique               | Tokens/Second | Memory Bandwidth (GB/s) | Peak Memory (GB) |
-| -----------   | ----------------------- | ------------- | ----------------------- | ---------------- |
-| Llama-3-8.1B  | Base (bfloat16)         |   40.36       | 605.77                 | 16.35            |
-|             | int8dq                  |    13.60       |   102.28                 |  18.69            |
-|             | int8wo                  |  59.49       | 447.27                 | 18.60            |
+All the following benchmarks are for `meta-llama/Llama-3-8.1B` using `torch==2.9.0` and `vllm==0.13.0`. 
 
 
-Benchmarks and evaluation for model meta-llama/Meta-Llama-3.1-8B are gathered using [generation](../_models/llama/generate.py) and [eval](../_models/llama/eval.py). Evaluation was done using the lm_eval library for tasks/data.
+### NVIDIA B200
 
-note: Int8 dynamic quantization works best on compute bound models like [SAM](https://github.com/pytorch-labs/segment-anything-fast) whereas Llama with batchsize=1 tends to be memory bound, thus the rather low performance.
+| weight | activation | prefill toks/s | decode toks/s | prefill_speedup | decode_speedup |
+| ------ | ---------- | -------------- | ------------- | --------------- | -------------- |
+| bfloat16 | bfloat16 | 59099.9 | 14380 | 1 | 1 |
+| mxfp8 | mxfp8 | TODO(https://github.com/pytorch/ao/issues/3549) | - | - | - |
+| nvfp4 | nvfp4 | 102786 | 15218.9 | 1.739 | 1.058 |
+| float8_rowwise | float8_rowwise | 69313.7 | 15984 | 1.173 | 1.112 |
 
-For int4 we make heavy use of [tinygemm](https://github.com/pytorch/ao/blob/cb3bd8c674f2123af232a0231b5e38ddafa756a8/torchao/dtypes/aqt.py#L526) of `torch.ops.aten._weight_int4pack_mm` to bitpack into a layout optimized for tensor cores
+### NVIDIA H100
 
-And a quick crash course on inference quantization to help parse the above table. Int4 quantization is an ambiguous term because there's the dtype in which a layer is represented and then the dtype in which the computation is done. For example, if you're using Weight-Only (wo) int4 quantization that means that the layer will be upcasted to a larger dtype like fp16 so an int4 matrix multiplication is defined as `F.linear(input, weight.to(input.dtype))`. Dynamic quantization (DQ) primarily targets activations, enabling on-the-fly quantization from higher precision formats like bf16 to lower precision formats such as int8. This process, when supported by hardware, allows for direct computation, such as performing `F.linear(input, weight)`. Naive quantization algorithms are also notoriously sensitive to outliers so we also typically set a group size that applies a scale factor per group of 64 elements in the case of `int4wo-64`.
+| weight | activation | prefill toks/s | decode toks/s | prefill_speedup | decode_speedup |
+| ------ | ---------- | -------------- | ------------- | --------------- | -------------- |
+| bfloat16 | bfloat16 | 30946.5 | 6612 | 1 | 1 |
+| float8_rowwise | float8_rowwise | 45312.5 | 8025.95 | 1.464 | 1.214 |
+| int8_rowwwise | bfloat16 | 28231.9 | 4309.8 | 0.912 | 0.652 |
+| int4 | float8_rowwise | TODO(https://github.com/pytorch/ao/issues/3550) | - | - | - |
 
-## Evaluation
-
-You can also use the EleutherAI [LM evaluation harness](https://github.com/EleutherAI/lm-evaluation-harness) to directly evaluate models
-quantized with post training quantization, by following these steps:
-
-1. Quantize your model with a [post training quantization strategy](#post-training-quantization).
-2. Save your model to disk or upload to huggingface hub ([instructions]( https://huggingface.co/docs/transformers/main/en/quantization/torchao?torchao=manual#serialization)).
-3. [Install](https://github.com/EleutherAI/lm-evaluation-harness?tab=readme-ov-file#install) lm-eval.
-4. Run an evaluation. Example:
+To reproduce these benchmarks, run 
 
 ```bash
-lm_eval --model hf --model_args pretrained=${HF_USER}/${MODEL_ID} --tasks hellaswag --device cuda:0 --batch_size 8
-```
+// on an h100
+SKIP_LM_EVAL=1 ./benchmarks/quantization/measure_accuracy_and_performance.sh h100
+// on a b200
+SKIP_LM_EVAL=1 ./benchmarks/quantization/measure_accuracy_and_performance.sh h100
 
-Check out the lm-eval [usage docs](https://github.com/EleutherAI/lm-evaluation-harness?tab=readme-ov-file#basic-usage) for more details.
+// under the hood, the actual vllm benchmark is doing the following:
+// 1. prefill
+vllm bench throughput --num_prompts 32 --input_len 4096 --output_len 32 --max_model_len 4128
+// 2. decode
+vllm bench throughput --num_prompts 128 --input_len 32 --output_len 2048 --max_model_len 2080
+```
 
 ## Quantization Techniques
 
@@ -373,18 +359,6 @@ for module, name in model.named_modules():
 We've added kv cache quantization and other features in order to enable long context length (and necessarily memory efficient) inference.
 
 In practice these features alongside int4 weight only quantization allow us to **reduce peak memory by ~55%**, meaning we can Llama3.1-8B inference with a **130k context length with only 18.9 GB of peak memory.** More details can be found [here](../../torchao/_models/llama/README.md#KV-Cache-Quantization-Memory-Efficient-Inference)
-
-#### A16W6 Floating Point WeightOnly Quantization
-
-```python
-# for torch 2.4+
-from torchao.quantization import quantize_, FPXWeightOnlyConfig
-quantize_(model, FPXWeightOnlyConfig(3, 2))
-```
-
-You can find more information [here](../dtypes/floatx/README.md). It should be noted where most other TorchAO apis and benchmarks have focused on applying techniques on top of a bf16 model, performance, fp6 works primarily with the fp16 dtype.
-
-```
 
 KleidiAI Int4 Kernels can be utilized on the Arm platform with PyTorch versions 2.6.0 or later by adjusting the quantization parameters as follows:
 

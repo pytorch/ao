@@ -17,9 +17,9 @@ from torchao.prototype.moe_training.kernels import (
     triton_fp8_rowwise_3d_transpose_rhs,
 )
 from torchao.prototype.moe_training.kernels.mxfp8 import (
+    mx_block_rearrange_2d_M_groups_cuda,
     mxfp8_quantize_cuda_3d,
     triton_mx_block_rearrange_2d_K_groups,
-    triton_mx_block_rearrange_2d_M_groups,
     triton_mx_block_rearrange_per_group_3d,
 )
 from torchao.prototype.moe_training.utils import (
@@ -293,14 +293,17 @@ class _MXFP8GroupedMM(torch.autograd.Function):
         block_size: int = 32,
         out_dtype: Optional[torch.dtype] = torch.bfloat16,
         emulated: bool = False,
-        use_triton_for_dim0_cast: bool = False,
+        use_triton_for_dim0_cast: bool = True,
+        wgrad_with_hp: bool = False,
         scale_calculation_mode: ScaleCalculationMode = ScaleCalculationMode.RCEIL,
     ) -> torch.Tensor:
-        # torchao _quantize_then_scaled_grouped_mm only supports A=2D and B=3D.
         assert A.ndim == 2, "A must be 2D"
         assert B_t.ndim == 3, "B must be 3D"
         assert block_size == 32, "Only block_size=32 is supported"
         assert offs is not None, "offs must be provided for 2d-2d and 2d-3d grouped mm"
+        assert out_dtype in (torch.bfloat16, torch.float32), (
+            "out_dtype must be bfloat16 or float32"
+        )
 
         # A_data shape: (M, K)
         # A_scale shape: (M, K//block_size)
@@ -330,7 +333,7 @@ class _MXFP8GroupedMM(torch.autograd.Function):
             )
 
         # Convert scales to blocked format for 2d-3d grouped mm
-        A_scales_blocked = triton_mx_block_rearrange_2d_M_groups(
+        A_scales_blocked = mx_block_rearrange_2d_M_groups_cuda(
             A_scale,
             offs,
         )
@@ -352,6 +355,7 @@ class _MXFP8GroupedMM(torch.autograd.Function):
         ctx.out_dtype = out_dtype
         ctx.emulated = emulated
         ctx.use_triton_for_dim0_cast = use_triton_for_dim0_cast
+        ctx.wgrad_with_hp = wgrad_with_hp
         ctx.scale_calculation_mode = scale_calculation_mode
         return out
 
@@ -361,6 +365,7 @@ class _MXFP8GroupedMM(torch.autograd.Function):
         block_size = ctx.block_size
         out_dtype = ctx.out_dtype
         use_triton_for_dim0_cast = ctx.use_triton_for_dim0_cast
+        wgrad_with_hp = ctx.wgrad_with_hp
         scale_calculation_mode = ctx.scale_calculation_mode
 
         # grad_out_data shape: (M, N)
@@ -389,7 +394,7 @@ class _MXFP8GroupedMM(torch.autograd.Function):
         B_scales = B_scales.transpose(-2, -1)
 
         # Convert scales to blocked format for 2d-3d grouped mm
-        grad_out_scales_blocked = triton_mx_block_rearrange_2d_M_groups(
+        grad_out_scales_blocked = mx_block_rearrange_2d_M_groups_cuda(
             grad_out_scale,
             offs,
         )
@@ -405,59 +410,68 @@ class _MXFP8GroupedMM(torch.autograd.Function):
             out_dtype=out_dtype,
         )
 
-        # grad_out_t_data shape: (M, N)
-        # grad_out_t_scales shape: (N, M//block_size)
-        grad_out_t_mx = _to_mxfp8_dim1_kernel_wrapper(
-            grad_out,
-            block_size,
-            elem_dtype=torch.float8_e4m3fn,
-            hp_dtype=grad_out.dtype,
-            kernel_preference=KernelPreference.AUTO,  # Not used
-            cast_kernel_choice=MXFP8Dim1CastKernelChoice.CUDA,
-            scale_calculation_mode=scale_calculation_mode,
-        )
-        grad_out_t_data = grad_out_t_mx.qdata
-        grad_out_t_scales = grad_out_t_mx.scale
+        # Optionally compute wgrad in high precision, if specified.
+        if wgrad_with_hp:
+            # TODO: migrate all grouped gemms in this file to new torch.nn.functional API
+            # grad_B_t = scaled grouped mm of (N,total_M) @ (total_M,K) = (E,N,K)
+            grad_B = torch._grouped_mm(
+                grad_out.transpose(-2, -1), A, offs=offs, out_dtype=out_dtype
+            )
+            grad_B_t = grad_B.transpose(-2, -1)
+        else:
+            # grad_out_t_data shape: (M, N)
+            # grad_out_t_scales shape: (N, M//block_size)
+            grad_out_t_mx = _to_mxfp8_dim1_kernel_wrapper(
+                grad_out,
+                block_size,
+                elem_dtype=torch.float8_e4m3fn,
+                hp_dtype=grad_out.dtype,
+                kernel_preference=KernelPreference.AUTO,  # Not used
+                cast_kernel_choice=MXFP8Dim1CastKernelChoice.CUDA,
+                scale_calculation_mode=scale_calculation_mode,
+            )
+            grad_out_t_data = grad_out_t_mx.qdata
+            grad_out_t_scales = grad_out_t_mx.scale
 
-        # Transpose A so we can scale along the M dimension, then un-transpose.
-        # A shape: (M, K)
-        # A_t_data shape: (K, M)
-        # A_t_scales shape: (K, M//block_size)
-        A_t_mx = _to_mxfp8_dim1_kernel_wrapper(
-            A,
-            block_size,
-            elem_dtype=torch.float8_e4m3fn,
-            hp_dtype=A.dtype,
-            kernel_preference=KernelPreference.AUTO,  # Not used
-            cast_kernel_choice=MXFP8Dim1CastKernelChoice.CUDA,
-            scale_calculation_mode=scale_calculation_mode,
-        )
-        A_t_data = A_t_mx.qdata
-        A_t_scales = A_t_mx.scale
+            # Transpose A so we can scale along the M dimension, then un-transpose.
+            # A shape: (M, K)
+            # A_t_data shape: (K, M)
+            # A_t_scales shape: (K, M//block_size)
+            A_t_mx = _to_mxfp8_dim1_kernel_wrapper(
+                A,
+                block_size,
+                elem_dtype=torch.float8_e4m3fn,
+                hp_dtype=A.dtype,
+                kernel_preference=KernelPreference.AUTO,  # Not used
+                cast_kernel_choice=MXFP8Dim1CastKernelChoice.CUDA,
+                scale_calculation_mode=scale_calculation_mode,
+            )
+            A_t_data = A_t_mx.qdata
+            A_t_scales = A_t_mx.scale
 
-        # Convert scales to blocked format for 2d-2d grouped mm
-        scale_group_offsets = offs // block_size
-        grad_out_t_scales_blocked = triton_mx_block_rearrange_2d_K_groups(
-            grad_out_t_scales,
-            scale_group_offsets,
-        )
-        A_t_scales_blocked = triton_mx_block_rearrange_2d_K_groups(
-            A_t_scales,
-            scale_group_offsets,
-        )
+            # Convert scales to blocked format for 2d-2d grouped mm
+            scale_group_offsets = offs // block_size
+            grad_out_t_scales_blocked = triton_mx_block_rearrange_2d_K_groups(
+                grad_out_t_scales,
+                scale_group_offsets,
+            )
+            A_t_scales_blocked = triton_mx_block_rearrange_2d_K_groups(
+                A_t_scales,
+                scale_group_offsets,
+            )
 
-        # grad_B_t = scaled grouped mm of (N,total_M) @ (total_M,K) = (E,N,K)
-        grad_B = torch._scaled_grouped_mm(
-            grad_out_t_data,
-            A_t_data.transpose(-2, -1),
-            grad_out_t_scales_blocked,
-            A_t_scales_blocked,
-            offs=offs,
-            out_dtype=out_dtype,
-        )
-        # grad_B_t shape =  (E,K,N)
-        grad_B_t = grad_B.transpose(-2, -1)
-        return grad_A, grad_B_t, None, None, None, None
+            # grad_B_t = scaled grouped mm of (N,total_M) @ (total_M,K) = (E,N,K)
+            grad_B = torch._scaled_grouped_mm(
+                grad_out_t_data,
+                A_t_data.transpose(-2, -1),
+                grad_out_t_scales_blocked,
+                A_t_scales_blocked,
+                offs=offs,
+                out_dtype=out_dtype,
+            )
+            # grad_B_t shape =  (E,K,N)
+            grad_B_t = grad_B.transpose(-2, -1)
+        return grad_A, grad_B_t, None, None, None, None, None, None, None
 
 
 def _to_mxfp8_dim1_3d(
@@ -670,5 +684,49 @@ def round_up(x, y):
 
 
 # Aliases for convenience/clarity
-_to_mxfp8_then_scaled_grouped_mm = _MXFP8GroupedMM.apply
+def _to_mxfp8_then_scaled_grouped_mm(
+    A: torch.Tensor,
+    B_t: torch.Tensor,
+    offs: Optional[torch.Tensor] = None,
+    block_size: int = 32,
+    out_dtype: Optional[torch.dtype] = torch.bfloat16,
+    emulated: bool = False,
+    use_triton_for_dim0_cast: bool = True,
+    wgrad_with_hp: bool = False,
+    scale_calculation_mode: ScaleCalculationMode = ScaleCalculationMode.RCEIL,
+) -> torch.Tensor:
+    """
+    Differentiable mxfp8 grouped gemm with dynamic mxfp8 quantization.
+
+    Args:
+        - A (bf16/float32 torch.Tensor): The first high-precision input tensor,
+            which must be a 2D tensor of shape (M * num_groups, K)
+            and in row-major memory layout.
+        - B_t (bf16/float32 torch.Tensor): The second high-precision input tensor
+            which must be 3D, which must be shape (G, K, N)
+            and in "per group column-major memory" layout (i.e., strides of (N*K, 1, N)).
+        - offs (int32 torch.Tensor): The offsets to use to mark the end index of each group along the dim0 of the A tensor.
+        - block_size (int): The block size to use for mxpf8 quantization. Currently only 32 is supported.
+        - out_dtype (Optional[torch.dtype]): The dtype of the output tensor. Default is torch.bfloat16.
+        - emulated (bool): Whether to use the emulated mxpf8 scaled grouped mm kernel (for testing).
+        - use_triton_for_dim0_cast (bool): Whether to use Triton for the dim0 cast. Default true. If false, use torch native implementation.
+        - wgrad_with_hp (bool): Whether to compute weight gradients in high precision.
+        - scale_calculation_mode (ScaleCalculationMode): The mode to use for scale calculation.
+
+    Returns:
+        - out (torch.Tensor): The result of the mxpf8 scaled grouped gemm.
+    """
+    return _MXFP8GroupedMM.apply(
+        A,
+        B_t,
+        offs,
+        block_size,
+        out_dtype,
+        emulated,
+        use_triton_for_dim0_cast,
+        wgrad_with_hp,
+        scale_calculation_mode,
+    )
+
+
 _to_fp8_rowwise_then_scaled_grouped_mm = _Float8GroupedMM.apply

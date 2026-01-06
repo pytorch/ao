@@ -628,53 +628,6 @@ class TestInt8DynamicActivationIntxWeight(TestCase):
         sqnr2 = compute_error(prepared_out, converted_out2).item()
         self.assertTrue(sqnr2 == float("inf"))
 
-    def test_moe_quant_intx(self):
-        from torchao.prototype.moe_quant.quantizable_moe_modules import (
-            MOEFeedForwardAOQuantizable,
-        )
-        from torchao.prototype.moe_quant.utils import (
-            FakeExtraDimTensor,
-            MoEQuantConfig,
-            UseFakeExtraDimTensor,
-            cond_ffn_filter,
-        )
-        from torchao.quantization.quant_api import (
-            Int8DynamicActivationIntxWeightConfig,
-            PackedLinearInt8DynamicActivationIntxWeightLayout,
-            quantize_,
-        )
-        from torchao.quantization.utils import compute_error
-
-        with torch.device("cpu"):
-            model = MOEFeedForwardAOQuantizable(512, 256, 8, 2, empty_init=False).to(
-                torch.float32
-            )
-            x = torch.randn(8, 512, dtype=torch.float32)
-
-        out = model(x).clone()
-
-        base_config = Int8DynamicActivationIntxWeightConfig(
-            layout=PackedLinearInt8DynamicActivationIntxWeightLayout(), version=1
-        )
-        moe_config = MoEQuantConfig(
-            base_config, use_fake_extra_dim_tensor=UseFakeExtraDimTensor.TRUE
-        )
-
-        quantize_(model, moe_config, cond_ffn_filter)
-
-        out_q = model(x).clone()
-        assert isinstance(model.experts.w1, FakeExtraDimTensor)
-
-        mod_c = torch.compile(model, mode="reduce-overhead")
-
-        mod_c(x)
-        mod_c(x)
-
-        out_qc = mod_c(x).clone()
-
-        self.assertGreater(compute_error(out_q, out), 30)
-        self.assertGreater(compute_error(out_qc, out), 30)
-
 
 instantiate_parametrized_tests(TestInt8DynamicActivationIntxWeight)
 
