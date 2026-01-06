@@ -25,7 +25,30 @@ from torchao.quantization.quant_api import (
     Int8WeightOnlyConfig,
     IntxWeightOnlyConfig,
 )
-from torchao.utils import is_sm_at_least_89
+from torchao.utils import get_available_devices, is_sm_at_least_89
+
+_DEVICES = get_available_devices()
+_DEVICE = _DEVICES[-1]
+assert _DEVICE in ["cuda", "xpu"], "Test currently only supports CUDA & XPU"
+
+
+_TEST_CONFIGS = [
+    (Float8DynamicActivationFloat8WeightConfig(granularity=PerRow()), False),
+    (Int4WeightOnlyConfig(int4_packing_format="plain_int32"), False),
+    (IntxWeightOnlyConfig(), False),
+    (Int8DynamicActivationIntxWeightConfig(), False),
+    (Int8WeightOnlyConfig(version=2), False),
+    (Int8DynamicActivationInt8WeightConfig(version=2), False),
+]
+
+# Build test configs - CUDA supports all Int4 packing formats, XPU only supports plain_int32.
+if _DEVICE == "cuda":
+    _TEST_CONFIGS.extend(
+        [
+            (Int4WeightOnlyConfig(), False),
+            (Int4WeightOnlyConfig(), True),
+        ]
+    )
 
 
 def load_data(file_path: str, device: str):
@@ -40,32 +63,25 @@ def load_data(file_path: str, device: str):
     return loaded_tensors, metadata
 
 
-@unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
-@unittest.skipIf(not is_sm_at_least_89(), "Need sm89+")
+@unittest.skipIf(
+    not torch.cuda.is_available() and not torch.xpu.is_available(),
+    "Need CUDA or XPU available",
+)
+@unittest.skipIf(
+    torch.cuda.is_available() and not is_sm_at_least_89(), "Need sm89+ for CUDA"
+)
 class TestSafeTensors(TestCase):
-    @parametrize(
-        "config, act_pre_scale",
-        [
-            (Float8DynamicActivationFloat8WeightConfig(granularity=PerRow()), False),
-            (Int4WeightOnlyConfig(), False),
-            (Int4WeightOnlyConfig(), True),
-            (Int4WeightOnlyConfig(int4_packing_format="tile_packed_to_4d"), False),
-            (IntxWeightOnlyConfig(), False),
-            (Int8DynamicActivationIntxWeightConfig(), False),
-            (Int8WeightOnlyConfig(version=2), False),
-            (Int8DynamicActivationInt8WeightConfig(version=2), False),
-        ],
-    )
+    @parametrize("config, act_pre_scale", _TEST_CONFIGS)
     def test_safetensors(self, config, act_pre_scale=False):
         model = torch.nn.Sequential(
-            torch.nn.Linear(128, 256, dtype=torch.bfloat16, device="cuda")
+            torch.nn.Linear(128, 256, dtype=torch.bfloat16, device=_DEVICE)
         )
         quantize_(model, config)
         if act_pre_scale:
             model[0].weight.act_pre_scale = torch.ones(
-                (1), dtype=torch.bfloat16, device="cuda"
+                (1), dtype=torch.bfloat16, device=_DEVICE
             )
-        example_inputs = (torch.randn(2, 128, dtype=torch.bfloat16, device="cuda"),)
+        example_inputs = (torch.randn(2, 128, dtype=torch.bfloat16, device=_DEVICE),)
         ref_output = model(*example_inputs)
 
         with tempfile.NamedTemporaryFile() as f:
@@ -77,46 +93,35 @@ class TestSafeTensors(TestCase):
                 )
 
             save_file(tensors_data_dict, f.name, metadata=metadata)
-            tensors_data_dict, metadata = load_data(file_path=f.name, device="cuda")
+            tensors_data_dict, metadata = load_data(file_path=f.name, device=_DEVICE)
             reconstructed_dict, leftover_tensor_data_dict = unflatten_tensor_state_dict(
                 tensors_data_dict, metadata
             )
             assert not leftover_tensor_data_dict
 
         model = torch.nn.Sequential(
-            torch.nn.Linear(128, 256, dtype=torch.bfloat16, device="cuda")
+            torch.nn.Linear(128, 256, dtype=torch.bfloat16, device=_DEVICE)
         )
         model.load_state_dict(reconstructed_dict, assign=True)
         output = model(*example_inputs)
         assert torch.equal(output, ref_output)
 
-    @parametrize(
-        "config, act_pre_scale",
-        [
-            (Float8DynamicActivationFloat8WeightConfig(granularity=PerRow()), False),
-            (Int4WeightOnlyConfig(), False),
-            (Int4WeightOnlyConfig(), True),
-            (Int4WeightOnlyConfig(int4_packing_format="tile_packed_to_4d"), False),
-            (IntxWeightOnlyConfig(), False),
-            (Int8DynamicActivationIntxWeightConfig(), False),
-            (Int8WeightOnlyConfig(version=2), False),
-            (Int8DynamicActivationInt8WeightConfig(version=2), False),
-        ],
-    )
+    @parametrize("config, act_pre_scale", _TEST_CONFIGS)
     def test_safetensors_sharded(self, config, act_pre_scale=False):
+        print("config is ", config)
         model = torch.nn.Sequential(
-            torch.nn.Linear(128, 256, dtype=torch.bfloat16, device="cuda")
+            torch.nn.Linear(128, 256, dtype=torch.bfloat16, device=_DEVICE)
         )
         quantize_(model, config)
         if act_pre_scale:
             model[0].weight.act_pre_scale = torch.ones(
-                (1), dtype=torch.bfloat16, device="cuda"
+                (1), dtype=torch.bfloat16, device=_DEVICE
             )
 
         with tempfile.NamedTemporaryFile() as f:
             tensors_data_dict, metadata = flatten_tensor_state_dict(model.state_dict())
             save_file(tensors_data_dict, f.name, metadata=metadata)
-            tensors_data_dict, metadata = load_data(file_path=f.name, device="cuda")
+            tensors_data_dict, metadata = load_data(file_path=f.name, device=_DEVICE)
 
             # simulate missing info on future file
             if act_pre_scale:
