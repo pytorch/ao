@@ -11,7 +11,6 @@ import gc
 import tempfile
 import unittest
 import warnings
-from pathlib import Path
 
 import torch
 from torch.testing._internal import common_utils
@@ -19,8 +18,6 @@ from torch.testing._internal.common_quantization import TestHelperModules
 from torch.testing._internal.common_utils import TestCase
 
 from torchao import quantize_
-from torchao._models.llama.model import Transformer, prepare_inputs_for_model
-from torchao._models.llama.tokenizer import get_tokenizer
 from torchao.dtypes import (
     AffineQuantizedTensor,
     Int4CPULayout,
@@ -298,114 +295,6 @@ class TestQuantFlow(TestCase):
         assert isinstance(m.linear1, Int8DynActInt4WeightLinear)
         assert isinstance(m.linear2, Int8DynActInt4WeightLinear)
         m(*example_inputs)
-
-    @unittest.skip("skipping until we get checkpoints for gpt-fast")
-    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
-    def test_quantizer_int4_weight_only(self):
-        from torchao._models._eval import TransformerEvalWrapper
-        from torchao.quantization.linear_quant_modules import Int4WeightOnlyQuantizer
-
-        precision = torch.bfloat16
-        device = _DEVICE
-        checkpoint_path = Path("../checkpoints/meta-llama/Llama-2-7b-chat-hf/model.pth")
-        model = Transformer.from_name(checkpoint_path.parent.name)
-        checkpoint = torch.load(str(checkpoint_path), mmap=True, weights_only=True)
-        model.load_state_dict(checkpoint, assign=True)
-        model = model.to(dtype=precision, device=device)
-        model.eval()
-        tokenizer_path = checkpoint_path.parent / "tokenizer.model"
-        assert tokenizer_path.is_file(), tokenizer_path
-        tokenizer = get_tokenizer(  # pyre-ignore[28]
-            tokenizer_path,
-            "Llama-2-7b-chat-hf",
-        )
-        groupsize = 64
-        quantizer = Int4WeightOnlyQuantizer(
-            groupsize,
-        )
-        model = quantizer.quantize(model).to(_DEVICE)
-        result = TransformerEvalWrapper(
-            model,
-            tokenizer,
-            model.config.block_size,
-            prepare_inputs_for_model,
-            device,
-        ).run_eval(
-            ["wikitext"],
-            1,
-        )
-        assert result["results"]["wikitext"]["word_perplexity,none"] < 8.24, (
-            f"accuracy regressed from 8.23 to {result['results']['wikitext']['word_perplexity,none']}"
-        )
-
-    @unittest.skip("skipping until we get checkpoints for gpt-fast")
-    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
-    def test_eval_wrapper(self):
-        from torchao._models._eval import TransformerEvalWrapper
-
-        precision = torch.bfloat16
-        device = _DEVICE
-        checkpoint_path = Path("../checkpoints/meta-llama/Llama-2-7b-chat-hf/model.pth")
-        model = Transformer.from_name(checkpoint_path.parent.name)
-        checkpoint = torch.load(str(checkpoint_path), mmap=True, weights_only=True)
-        model.load_state_dict(checkpoint, assign=True)
-        model = model.to(dtype=precision, device=device)
-        model.eval()
-        tokenizer_path = checkpoint_path.parent / "tokenizer.model"
-        assert tokenizer_path.is_file(), tokenizer_path
-        tokenizer = get_tokenizer(  # pyre-ignore[28]
-            tokenizer_path,
-            "Llama-2-7b-chat-hf",
-        )
-        result = TransformerEvalWrapper(
-            model,
-            tokenizer,
-            model.config.block_size,
-            prepare_inputs_for_model,
-            device,
-        ).run_eval(
-            ["wikitext"],
-            1,
-        )
-        assert result["results"]["wikitext"]["word_perplexity,none"] < 7.77, (
-            f"accuracy regressed from 7.76 to {result['results']['wikitext']['word_perplexity,none']}"
-        )
-
-    # EVAL IS CURRENTLY BROKEN FOR LLAMA 3, VERY LOW ACCURACY
-    @unittest.skip("skipping until we get checkpoints for gpt-fast")
-    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
-    def test_eval_wrapper_llama3(self):
-        from torchao._models._eval import TransformerEvalWrapper
-
-        precision = torch.bfloat16
-        device = _DEVICE
-        checkpoint_path = Path(
-            ".../gpt-fast/checkpoints/meta-llama/Meta-Llama-3-8B/model.pth"
-        )
-        model = Transformer.from_name(checkpoint_path.parent.name)
-        checkpoint = torch.load(str(checkpoint_path), mmap=True, weights_only=True)
-        model.load_state_dict(checkpoint, assign=True)
-        model = model.to(dtype=precision, device=device)
-        model.eval()
-        tokenizer_path = checkpoint_path.parent / "tokenizer.model"
-        assert tokenizer_path.is_file(), tokenizer_path
-        tokenizer = get_tokenizer(  # pyre-ignore[28]
-            tokenizer_path,
-            "Meta-Llama-3-8B",
-        )
-        result = TransformerEvalWrapper(
-            model,
-            tokenizer,
-            model.config.block_size,
-            prepare_inputs_for_model,
-            device,
-        ).run_eval(
-            ["wikitext"],
-            1,
-        )
-        assert result["results"]["wikitext"]["word_perplexity,none"] < 8.24, (
-            f"accuracy regressed from 8.23 to {result['results']['wikitext']['word_perplexity,none']}"
-        )
 
     # TODO: move to a separate test file
     @common_utils.parametrize(
