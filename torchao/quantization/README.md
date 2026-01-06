@@ -66,13 +66,21 @@ vllm bench throughput --num_prompts 128 --input_len 32 --output_len 2048 --max_m
 #### A16W4 WeightOnly Quantization
 
 ```python
-from torchao.quantization import quantize_, Int4WeightOnlyConfig
-group_size = 32
+import torch
+from torchao.quantization import Int4WeightOnlyConfig, quantize_
 
-# you can enable [hqq](https://github.com/mobiusml/hqq/tree/master) quantization which is expected to improves accuracy through
-# by setting int4_choose_qparams_algorithm to "hqq" for `Int4WeightOnlyConfig` quantization
-use_hqq = False
-quantize_(model, Int4WeightOnlyConfig(group_size=group_size, int4_packing_format="tile_packed_to_4d", int4_choose_qparams_algorithm="hqq"))
+# Note: int4_packing_format varies by backend
+if torch.cuda.is_available():
+    # CUDA: Optimized with tile packing and HQQ
+    config = Int4WeightOnlyConfig(group_size=32, int4_packing_format="tile_packed_to_4d", int4_choose_qparams_algorithm="hqq")
+elif torch.xpu.is_available():
+    # XPU: Use plain_int32 packing
+    config = Int4WeightOnlyConfig(group_size=32, int4_packing_format="plain_int32")
+else:
+    # CPU: Use opaque packing
+    config = Int4WeightOnlyConfig(group_size=32, int4_packing_format="opaque")
+
+quantize_(model, config)
 ```
 
 Note: 
