@@ -1068,7 +1068,7 @@ class Int8WeightOnlyConfig(AOBaseConfig):
     group_size: Optional[int] = None
     granularity: Optional[Granularity] = PerRow()
     set_inductor_config: bool = True
-    version: int = 1
+    version: int = 2
 
     def __post_init__(self):
         torch._C._log_api_usage_once("torchao.quantization.Int8WeightOnlyConfig")
@@ -1081,7 +1081,7 @@ class Int8WeightOnlyConfig(AOBaseConfig):
 def _int8_weight_only_quantize_tensor(weight, config):
     if config.version == 1:
         warnings.warn(
-            "Config Deprecation: version 1 of Int8WeightOnlyConfig is deprecated and will no longer be supported in a future release, please use version 2, see https://github.com/pytorch/ao/issues/2752 for more details"
+            "Config Deprecation: version 1 of Int8WeightOnlyConfig is deprecated and will no longer be supported in a future release, please use version 2, see https://github.com/pytorch/ao/issues/3596 for more details"
         )
         mapping_type = MappingType.SYMMETRIC
         target_dtype = torch.int8
@@ -1255,7 +1255,7 @@ class Int8DynamicActivationInt8WeightConfig(AOBaseConfig):
     weight_only_decode: bool = False
     granularity: Granularity = PerRow()
     set_inductor_config: bool = True
-    version: int = 1
+    version: int = 2
 
     def __post_init__(self):
         torch._C._log_api_usage_once(
@@ -1265,6 +1265,9 @@ class Int8DynamicActivationInt8WeightConfig(AOBaseConfig):
 
 def _int8_dynamic_activation_int8_weight_quantize_tensor(weight, config):
     if config.version == 1:
+        warnings.warn(
+            "Config Deprecation: version 1 of Int8DynamicActivationInt8WeightConfig is deprecated and will no longer be supported in a future release, please use version 2, see https://github.com/pytorch/ao/issues/3596 for more details"
+        )
         layout = config.layout
         act_mapping_type = config.act_mapping_type
         weight_only_decode = config.weight_only_decode
@@ -1382,7 +1385,7 @@ class Int8StaticActivationInt8WeightConfig(AOBaseConfig):
     granularity: Granularity = PerRow()
     act_mapping_type: Optional[MappingType] = MappingType.SYMMETRIC
     set_inductor_config: bool = True
-    version: int = 1
+    version: int = 2
 
     def __post_init__(self):
         torch._C._log_api_usage_once(
@@ -2027,7 +2030,7 @@ class FqnToConfig(AOBaseConfig):
     module_fqn_to_config: OrderedDictType[str, Optional[AOBaseConfig]] = field(
         default_factory=OrderedDict
     )
-    version: int = 1
+    version: int = 2
 
     def __post_init__(self):
         torch._C._log_api_usage_once("torchao.quantization.FqnToConfig")
