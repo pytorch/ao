@@ -771,6 +771,7 @@ class TestComm(FSDPTest):
 
     @skip_if_lt_x_gpu(2)
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
+    @skip_if_rocm("ROCm don`t support nvfp4")
     def test_comm(self):
         self.run_subtests(
             {"input_size": [512, 2048]},
@@ -778,10 +779,6 @@ class TestComm(FSDPTest):
         )
 
     def _test_comm(self, input_size: int):
-        from torchao.utils import is_ROCM
-        if is_ROCM():
-            self.skipTest("ROCm enablement in progress")
-
         from torch.distributed._composable.fsdp import fully_shard
         from torch.distributed._tensor import distribute_tensor
 

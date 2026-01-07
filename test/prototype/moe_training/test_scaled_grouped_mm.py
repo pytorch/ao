@@ -50,15 +50,6 @@ from torchao.utils import is_MI300, is_MI350, is_ROCM
 torch._dynamo.config.cache_size_limit = 1000
 
 
-def _get_float8_dtype():
-    if is_ROCM():
-        if is_MI300():
-            return torch.float8_e4m3fnuz
-        elif is_MI350():
-            return torch.float8_e4m3fn
-    return torch.float8_e4m3fn
-
-
 @pytest.mark.parametrize("m", [4096])
 @pytest.mark.parametrize("n", [8192])
 @pytest.mark.parametrize("k", [5120])
@@ -71,6 +62,7 @@ def test_valid_scaled_grouped_mm_2d_3d(m, n, k, n_groups):
         if not is_sm_version(9, 0):
             pytest.skip("CUDA test requires sm90")
     out_dtype = torch.bfloat16
+    float8_dtype = torch.float8_e4m3fn if not is_MI300() else torch.float8_e4m3fnuz
     device = "cuda"
     a = torch.randn(
         m * n_groups,
@@ -98,6 +90,7 @@ def test_valid_scaled_grouped_mm_2d_3d(m, n, k, n_groups):
         offs=offs,
         out_dtype=out_dtype,
         scaling_type=MoEScalingType.FP8_ROWWISE,
+        float8_dtype=float8_dtype,
     )
 
     # Validate result.
@@ -181,7 +174,7 @@ def compute_reference_forward(
 
     # Use official rowwise recipe as reference to ensure implementation is correct.
     float8_config = Float8LinearConfig.from_recipe_name(Float8LinearRecipeName.ROWWISE)
-    float8_dtype = _get_float8_dtype()
+    float8_dtype = torch.float8_e4m3fn if not is_MI300() else torch.float8_e4m3fnuz
 
     # Convert A to fp8.
     A_scales = tensor_to_scale(
