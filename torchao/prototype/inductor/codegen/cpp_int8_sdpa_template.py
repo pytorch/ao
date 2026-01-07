@@ -45,8 +45,26 @@ inline void store(scalar_t* dst, at::vec::Vectorized<scalar_t> src, int size=at:
   src.store(dst, size);
 }
 
+// A fast version for uint8_t conversion with SaturateU8 intrinsic
+at::vec::Vectorized<uint8_t> inline convert_float_to_uint8(
+    at::vec::Vectorized<float> src) {
+  auto v1 = _mm512_max_ps(src, _mm512_set1_ps(0.0f));
+  // fp32 to uint32
+  auto v2 = _mm512_cvtps_epu32(v1);
+  // uint32 to uint8
+  auto v3 = _mm512_cvtusepi32_epi8(v2);
+  return _mm512_castsi128_si512(v3);
+}
+
 template <typename scalar_t>
-inline typename std::enable_if_t<std::is_same_v<scalar_t, unsigned char> || std::is_same_v<scalar_t, signed char>, void>
+inline typename std::enable_if_t<std::is_same_v<scalar_t, unsigned char>, void>
+store(scalar_t* dst, at::vec::Vectorized<float> src, int size=at::vec::Vectorized<float>::size()) {
+  auto res = convert_float_to_uint8(src);
+  res.store(dst, size);
+}
+
+template <typename scalar_t>
+inline typename std::enable_if_t<std::is_same_v<scalar_t, signed char>, void>
 store(scalar_t* dst, at::vec::Vectorized<float> src, int size=at::vec::Vectorized<float>::size()) {
   auto res = at::vec::convert<scalar_t>(src);
   res.store(dst, size);
@@ -194,10 +212,6 @@ inline void sub_exp_sum_div_quant_sum_fusion_kernel(
     float* sfm_sum_ptr,
     int32_t* sum_a_ptr) {
   const int32_t vec_size = at::vec::Vectorized<float>::size();
-  float min_val = 0;
-  float max_val = 255;
-  auto vec_min_val = at::vec::Vectorized<float>(min_val);
-  auto vec_max_val = at::vec::Vectorized<float>(max_val);
   scalar_t zero = 0;
   auto vec_zero = at::vec::Vectorized<scalar_t>(zero);
   float beta1_float = (float) beta1;
@@ -246,22 +260,18 @@ inline void sub_exp_sum_div_quant_sum_fusion_kernel(
       for (; col < vec_size * (kvBlockSize / vec_size); col += vec_size) {
         auto tmp0 = at::vec::Vectorized<float>::loadu(tmp_in + col);
         auto tmp1 = at::vec::fmadd(tmp0, vec_sum_scale, vec_beta1);
-        auto tmp3 = tmp1.round();
-        auto tmp4 = at::vec::clamp(tmp3, vec_min_val, vec_max_val);
-        auto tmp6 = at::vec::convert<int32_t>(tmp4);
-        auto tmp7 = at::vec::convert<scalar_t>(tmp6);
-        tmp7.store(tmp_out + col, vec_size);
-        vec_tmp_sum += tmp6;
+        auto tmp2 = convert_float_to_uint8(tmp1);
+        tmp2.store(tmp_out + col, vec_size);
+        auto tmp3 = at::vec::convert<int32_t>(tmp2);
+        vec_tmp_sum += tmp3;
       }
       if (col < kvBlockSize) {
         auto tmp0 = at::vec::Vectorized<float>::loadu(tmp_in + col, kvBlockSize - col);
         auto tmp1 = at::vec::fmadd(tmp0, vec_sum_scale, vec_beta1);
-        auto tmp3 = tmp1.round();
-        auto tmp4 = at::vec::clamp(tmp3, vec_min_val, vec_max_val);
-        auto tmp6 = at::vec::convert<int32_t>(tmp4);
-        auto tmp7 = at::vec::convert<scalar_t>(tmp6);
-        tmp7.store(tmp_out + col, kvBlockSize - col);
-        vec_tmp_sum = at::vec::Vectorized<int32_t>::set(vec_tmp_sum, vec_tmp_sum + tmp6, kvBlockSize - col);
+        auto tmp2 = convert_float_to_uint8(tmp1);
+        tmp2.store(tmp_out + col, kvBlockSize - col);
+        auto tmp3 = at::vec::convert<int32_t>(tmp2);
+        vec_tmp_sum = at::vec::Vectorized<int32_t>::set(vec_tmp_sum, vec_tmp_sum + tmp3, kvBlockSize - col);
       }
       sum_a_ptr[row] += vec_tmp_sum.reduce_add() * beta2;
       // set zero
@@ -298,10 +308,6 @@ inline void sub_exp_sum_div_quant_fusion_kernel(
     float* sfm_max_ptr,
     float* sfm_sum_ptr) {
   const int32_t vec_size = at::vec::Vectorized<float>::size();
-  float min_val = 0;
-  float max_val = 255;
-  auto vec_min_val = at::vec::Vectorized<float>(min_val);
-  auto vec_max_val = at::vec::Vectorized<float>(max_val);
   scalar_t zero = 0;
   auto vec_zero = at::vec::Vectorized<scalar_t>(zero);
   float beta1_float = (float) beta1;
@@ -348,16 +354,12 @@ inline void sub_exp_sum_div_quant_fusion_kernel(
       for (; col < vec_size * (kvBlockSize / vec_size); col += vec_size) {
         auto tmp0 = at::vec::Vectorized<float>::loadu(tmp_in + col);
         auto tmp1 = at::vec::fmadd(tmp0, vec_sum_scale, vec_beta1);
-        auto tmp3 = tmp1.round();
-        auto tmp4 = at::vec::clamp(tmp3, vec_min_val, vec_max_val);
-        store(tmp_out + col, tmp4);
+        store(tmp_out + col, tmp1);
       }
       if (col < kvBlockSize) {
         auto tmp0 = at::vec::Vectorized<float>::loadu(tmp_in + col, kvBlockSize - col);
         auto tmp1 = at::vec::fmadd(tmp0, vec_sum_scale, vec_beta1);
-        auto tmp3 = tmp1.round();
-        auto tmp4 = at::vec::clamp(tmp3, vec_min_val, vec_max_val);
-        store(tmp_out + col, tmp4, kvBlockSize - col);
+        store(tmp_out + col, tmp1, kvBlockSize - col);
       }
       // set zero
       col = kvBlockSize;
@@ -389,10 +391,6 @@ inline void dequant_quant_fusion_kernel(
     const float& alpha, // scale_a*scale_b/scale_c
     scalar_t* out) {
   const int32_t vec_size = at::vec::Vectorized<float>::size();
-  float min_val = 0;
-  float max_val = 255;
-  auto vec_min_val = at::vec::Vectorized<float>(min_val);
-  auto vec_max_val = at::vec::Vectorized<float>(max_val);
   auto vec_beta1 = at::vec::Vectorized<int32_t>(beta1);
   auto vec_alpha = at::vec::Vectorized<float>(alpha);
   float beta2_float = (float) beta2;
@@ -411,9 +409,7 @@ inline void dequant_quant_fusion_kernel(
       auto tmp3 = tmp2 + vec_beta1;
       auto tmp4 = at::vec::convert<float>(tmp3);
       auto tmp5 = at::vec::fmadd(tmp4, vec_alpha, vec_beta2);
-      auto tmp7 = tmp5.round();
-      auto tmp8 = at::vec::clamp(tmp7, vec_min_val, vec_max_val);
-      store(tmp_out + col, tmp8);
+      store(tmp_out + col, tmp5);
     }
     if (col < N) {
       auto vec_sum_b = at::vec::Vectorized<int32_t>::loadu(sum_b_ptr + col, N - col);
@@ -423,9 +419,7 @@ inline void dequant_quant_fusion_kernel(
       auto tmp3 = tmp2 + vec_beta1;
       auto tmp4 = at::vec::convert<float>(tmp3);
       auto tmp5 = at::vec::fmadd(tmp4, vec_alpha, vec_beta2);
-      auto tmp7 = tmp5.round();
-      auto tmp8 = at::vec::clamp(tmp7, vec_min_val, vec_max_val);
-      store(tmp_out + col, tmp8, N - col);
+      store(tmp_out + col, tmp5, N - col);
     }
   }
 }
@@ -446,10 +440,6 @@ inline void dequant_quant_fusion_kernel(
     const float& alpha, // scale_a*scale_b/scale_c
     scalar_t* out) {
   const int32_t vec_size = at::vec::Vectorized<float>::size();
-  float min_val = 0;
-  float max_val = 255;
-  auto vec_min_val = at::vec::Vectorized<float>(min_val);
-  auto vec_max_val = at::vec::Vectorized<float>(max_val);
   // auto vec_beta1 = at::vec::Vectorized<int32_t>(beta1);
   auto vec_alpha = at::vec::Vectorized<float>(alpha);
   float beta2_float = (float) beta2;
@@ -466,18 +456,14 @@ inline void dequant_quant_fusion_kernel(
       // auto tmp3 = tmp2 + vec_beta1;
       auto tmp4 = at::vec::convert<float>(tmp3);
       auto tmp5 = at::vec::fmadd(tmp4, vec_alpha, vec_beta2);
-      auto tmp7 = tmp5.round();
-      auto tmp8 = at::vec::clamp(tmp7, vec_min_val, vec_max_val);
-      store(tmp_out + col, tmp8);
+      store(tmp_out + col, tmp5);
     }
     if (col < N) {
       auto tmp1 = at::vec::Vectorized<int32_t>::loadu(tmp_in + col, N - col);
       auto tmp3 = tmp1 - vec_sum_a;
       auto tmp4 = at::vec::convert<float>(tmp3);
       auto tmp5 = at::vec::fmadd(tmp4, vec_alpha, vec_beta2);
-      auto tmp7 = tmp5.round();
-      auto tmp8 = at::vec::clamp(tmp7, vec_min_val, vec_max_val);
-      store(tmp_out + col, tmp8, N - col);
+      store(tmp_out + col, tmp5, N - col);
     }
   }
 }
