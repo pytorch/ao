@@ -1385,7 +1385,7 @@ class Int8StaticActivationInt8WeightConfig(AOBaseConfig):
     granularity: Granularity = PerRow()
     act_mapping_type: Optional[MappingType] = MappingType.SYMMETRIC
     set_inductor_config: bool = True
-    version: int = 2
+    version: int = 1
 
     def __post_init__(self):
         torch._C._log_api_usage_once(
