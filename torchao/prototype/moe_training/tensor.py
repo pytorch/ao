@@ -17,6 +17,7 @@ from torch.distributed.fsdp import MixedPrecisionPolicy
 
 from torchao.prototype.moe_training import _quantize_then_scaled_grouped_mm
 from torchao.prototype.moe_training.conversion_utils import MoEScalingType
+from torchao.utils import is_MI300
 
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -94,6 +95,7 @@ class ScaledGroupedMMTensor(torch.Tensor):
                 "B should be a ScaledGroupedMMTensor"
             )
             scaling_type = B.scaling_type
+            float8_dtype = torch.float8_e4m3fnuz if is_MI300() else torch.float8_e4m3fn
             A_is_2d = A.ndim == 2
             B_is_2d_or_3d = B.ndim == 2 or B.ndim == 3
             has_offs = kwargs.get(cls.offs_arg_name) is not None
@@ -104,6 +106,7 @@ class ScaledGroupedMMTensor(torch.Tensor):
                     B,
                     *other_args,
                     scaling_type=scaling_type,
+                    float8_dtype=float8_dtype,
                     **kwargs,
                 )
 
