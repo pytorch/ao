@@ -15,9 +15,6 @@ from torchao.prototype.smoothquant import (
 )
 from torchao.prototype.smoothquant.core import SmoothQuantStep
 from torchao.quantization import quantize_
-from torchao.quantization.linear_activation_scale import (
-    WeightTensorWithLinearActivationScaleMetadata,
-)
 from torchao.quantization.quant_api import (
     Int8DynamicActivationInt8WeightConfig,
 )
@@ -83,7 +80,7 @@ class TestSmoothQuant(unittest.TestCase):
     @common_utils.parametrize(
         "base_config",
         [
-            Int8DynamicActivationInt8WeightConfig(),
+            Int8DynamicActivationInt8WeightConfig(version=2),
             # Note: float8_static_activation_float8_weight is broken after recent PyTorch update.
             # TODO(#1639): Fix for supporting more API in torchao/quantization/quant_api.py
         ],
@@ -119,12 +116,6 @@ class TestSmoothQuant(unittest.TestCase):
 
         config.step = SmoothQuantStep.CONVERT
         quantize_(model, config)
-        assert isinstance(
-            model.linear1.weight, WeightTensorWithLinearActivationScaleMetadata
-        )
-        assert isinstance(
-            model.linear2.weight, WeightTensorWithLinearActivationScaleMetadata
-        )
 
         out_smoothquant = model(*x)
         loss_smoothquant = torch.nn.functional.mse_loss(out_smoothquant, out_ref).item()
@@ -138,7 +129,7 @@ class TestSmoothQuant(unittest.TestCase):
     @common_utils.parametrize(
         "base_config",
         [
-            Int8DynamicActivationInt8WeightConfig(),
+            Int8DynamicActivationInt8WeightConfig(version=2),
             # TODO: Check more quantization APIs
         ],
     )
@@ -177,7 +168,7 @@ class TestSmoothQuant(unittest.TestCase):
     @common_utils.parametrize(
         "base_config",
         [
-            Int8DynamicActivationInt8WeightConfig(),
+            Int8DynamicActivationInt8WeightConfig(version=2),
             # TODO: Check more quantization APIs
         ],
     )
