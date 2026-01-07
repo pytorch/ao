@@ -763,14 +763,19 @@ def _(func, types, args, kwargs):
     for i in range(len(self.block_size)):
         block_size[i] = min(block_size[i], sliced_data.shape[i])
 
-    return Float8Tensor(
-        sliced_data,
-        sliced_scale,
-        block_size,
-        self.mm_config,
-        self.act_quant_kwargs,
-        self.kernel_preference,
-        dtype=self.dtype,
+    return return_and_correct_aliasing(
+        func,
+        args,
+        kwargs,
+        Float8Tensor(
+            sliced_data,
+            sliced_scale,
+            block_size,
+            self.mm_config,
+            self.act_quant_kwargs,
+            self.kernel_preference,
+            dtype=self.dtype,
+        ),
     )
 
 
