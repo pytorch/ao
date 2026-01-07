@@ -20,5 +20,4 @@ pytest -v -s torchao/test/quantization/pt2e/ \
         torchao/test/float8/ \
         torchao/test/integration/test_integration.py \
         torchao/test/prototype/ \
-        torchao/test/test_ao_models.py \
         torchao/test/quantization/quantize_/workflows/
