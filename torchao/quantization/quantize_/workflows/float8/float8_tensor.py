@@ -1002,6 +1002,32 @@ def _(func, types, args, kwargs):
     return new_tensor
 
 
+@implements_torch_function(torch.Tensor.__getitem__)
+def _(func, types, args, kwargs):
+    self = args[0]
+    indices = args[1] if len(args) > 1 else kwargs.get("indices")
+
+    # Slice qdata and scale directly
+    sliced_data = self.qdata[indices]
+    sliced_scale = self.scale[indices] if self.scale.numel() > 1 else self.scale
+
+    # Adjust block_size since the shape has changed
+    block_size = self.block_size.copy()
+    for i in range(len(block_size)):
+        if i < len(sliced_data.shape):
+            block_size[i] = min(block_size[i], sliced_data.shape[i])
+
+    return self.__class__(
+        sliced_data,
+        sliced_scale,
+        block_size,
+        self.mm_config,
+        self.act_quant_kwargs,
+        self.kernel_preference,
+        self.dtype,
+    )
+
+
 @implements(aten.split.Tensor)
 def _(func, types, args, kwargs):
     tensor, split_size_or_sections, dim = args
