@@ -1,3 +1,9 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
+
 import json
 import tempfile
 import unittest
@@ -52,8 +58,8 @@ class TestSafeTensors(TestCase):
             (Int4WeightOnlyConfig(int4_packing_format="tile_packed_to_4d"), False),
             (IntxWeightOnlyConfig(), False),
             (Int8DynamicActivationIntxWeightConfig(), False),
-            (Int8WeightOnlyConfig(version=2), False),
-            (Int8DynamicActivationInt8WeightConfig(version=2), False),
+            (Int8WeightOnlyConfig(), False),
+            (Int8DynamicActivationInt8WeightConfig(), False),
         ],
     )
     def test_safetensors(self, config, act_pre_scale=False):
@@ -99,8 +105,8 @@ class TestSafeTensors(TestCase):
             (Int4WeightOnlyConfig(int4_packing_format="tile_packed_to_4d"), False),
             (IntxWeightOnlyConfig(), False),
             (Int8DynamicActivationIntxWeightConfig(), False),
-            (Int8WeightOnlyConfig(version=2), False),
-            (Int8DynamicActivationInt8WeightConfig(version=2), False),
+            (Int8WeightOnlyConfig(), False),
+            (Int8DynamicActivationInt8WeightConfig(), False),
         ],
     )
     def test_safetensors_sharded(self, config, act_pre_scale=False):
