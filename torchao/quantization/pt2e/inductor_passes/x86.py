@@ -3049,9 +3049,8 @@ def _register_quantization_embeddingbag_pass():
                 )
 
 
-def _is_valid_dqq_pattern(dtype=torch.float32):
+def _is_valid_concat_dqq_pattern():
     def _inner(match):
-        assert dtype in [torch.float32, torch.bfloat16]
         q_pattern_node = match.output_node()
         dq_pattern_node = q_pattern_node.args[0]
         assert q_pattern_node.target is quantized_decomposed.quantize_per_tensor.default
@@ -3076,15 +3075,13 @@ def _is_valid_dqq_pattern(dtype=torch.float32):
     return _inner
 
 
-def _register_dequant_quant_pass(pattern, pass_number=3, dtype=torch.float32):
+def _register_concat_dequant_quant_pass(pattern, pass_number=3):
     @register_freezing_graph_pattern(
         pattern,
-        extra_check=_is_valid_dqq_pattern(dtype),
+        extra_check=_is_valid_concat_dqq_pattern(),
         pass_number=pass_number,
     )
-    def dqq_fusion(match: Match, *args, **kwargs):
-        assert dtype in [torch.float32, torch.bfloat16]
-
+    def concat_dqq_fusion(match: Match, *args, **kwargs):
         q_pattern_node = match.output_node()
         dq_pattern_node = q_pattern_node.args[0]
         cat_node = dq_pattern_node.args[0]
@@ -3099,7 +3096,33 @@ def _register_dequant_quant_pass(pattern, pass_number=3, dtype=torch.float32):
         counters["inductor"]["concat_dqq_matcher_nodes"] += len(match.nodes)
 
 
-def _register_dqq_pattern():
+def _register_concat_dqq_pattern():
+    r"""
+    match concat_dqq patterns:
+
+            int8_inputs
+                 |
+                concat
+                /    \
+            dequant   extra
+               |
+            quant
+               |
+            quant_users
+
+    fuse concat_dqq patterns into:
+
+            int8_inputs
+                 |
+                concat
+                /    \
+        quant_users   extra
+
+    This pattern exists in DLRMv2, and this fusion will improve performance, by removing redundant dq/q.
+
+    Due to exist extra concat users, it is difficult to directly match the entire pattern.
+    So we choose to match dq/q and check concat on extra_check.
+    """
     dequantize_per_tensor_activation_pattern = CallFunction(
         quantized_decomposed.dequantize_per_tensor.default,
         Arg(),
@@ -3118,8 +3141,7 @@ def _register_dqq_pattern():
         KeywordArg("o_qmax"),
         KeywordArg("o_dtype"),
     )
-    print(quantized_op_output_pattern_pt2e)
-    _register_dequant_quant_pass(quantized_op_output_pattern_pt2e)
+    _register_concat_dequant_quant_pass(quantized_op_output_pattern_pt2e)
 
 
 @functools.lru_cache(None)
@@ -3147,7 +3169,7 @@ def _register_quantization_weight_pack_pass():
         _register_quantization_embeddingbag_pass()
 
     # Setp 6: Fuse concat+dequant+quant
-    _register_dqq_pattern()
+    _register_concat_dqq_pattern()
 
 
 def quant_lift_up(module_graph: torch.fx.graph.Graph):
