@@ -1,3 +1,9 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
+
 #!/bin/bash
 
 # measure_accuracy_and_performance.sh - Evaluate quantization recipe accuracy
@@ -10,7 +16,8 @@
 #                  Valid recipes: None, float8_rowwise,
 #                                 int4_groupwise_weight_float8_rowwise_activation,
 #                                 int4_groupwise_hqq_weight_only,
-#                                 int8_rowwise_weight_only, int8_rowwise
+#                                 int8_rowwise_weight_only, int8_rowwise,
+#                                 awq_int4_weight_only, smoothquant_int8
 #   MODEL_ID       (optional) HuggingFace model ID (default: meta-llama/Llama-3.1-8B)
 #   LOG_FILE       (optional) Output log file path (default: benchmarks/data/measure_accuracy_and_performance_log.txt)
 #
@@ -37,6 +44,9 @@ QUANT_RECIPES_ALL=(
   "None"
   "float8_rowwise"
   "int4_groupwise_weight_float8_rowwise_activation"
+  # calibration-based quantization
+  "awq_int4_weight_only"
+  "smoothquant_int8"
   # note: below only works on A100
   "int4_groupwise_hqq_weight_only"
   "int8_rowwise_weight_only"
@@ -118,6 +128,7 @@ else
   fi
 fi
 
+mkdir -p "$(dirname "$LOG_FILE")"
 rm -rf $LOG_FILE
 touch $LOG_FILE
 
