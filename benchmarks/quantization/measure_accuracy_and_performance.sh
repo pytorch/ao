@@ -82,6 +82,12 @@ VLLM_BROKEN_RECIPES=(
   # TODO(future PR): fix this
   # error: https://gist.github.com/vkuzo/b15ec478ee0a04d274ddb46acfa6d209
   "mxfp8"
+  # TODO(future PR): fix this
+  # error: https://gist.github.com/namgyu-youn/dff3e22320b028b28f7d533727a88bb1
+  "awq_int4_weight_only"
+  # TODO(future PR): fix this (same issue in AWQ)
+  # error: https://gist.github.com/namgyu-youn/0dca97ff669cfebfcb3af522ae10ea83
+  "smoothquant_int8"
 )
 
 # TODO(future PR): add A100 and B200 tag groups
