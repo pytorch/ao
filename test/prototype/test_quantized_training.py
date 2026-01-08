@@ -393,18 +393,14 @@ class TestFSDP2(FSDPTest):
             )
 
     @skip_if_lt_x_gpu(_FSDP_WORLD_SIZE)
-    @pytest.mark.skipif(
-        not torch.accelerator.is_available(), reason="GPU not available"
-    )
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
     def test_precompute_bitnet_scale(self):
         from torchao.prototype.quantized_training.bitnet import (
             get_bitnet_scale,
             precompute_bitnet_scale_for_fsdp,
         )
 
-        model = nn.Sequential(nn.Linear(32, 64), nn.GELU(), nn.Linear(64, 32)).to(
-            _DEVICE
-        )
+        model = nn.Sequential(nn.Linear(32, 64), nn.GELU(), nn.Linear(64, 32)).cuda()
         model_fsdp = copy.deepcopy(model)
         quantize_(model_fsdp, bitnet_training())
         fully_shard(model_fsdp)
