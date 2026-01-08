@@ -34,13 +34,12 @@ from torchao.prototype.quantized_training import (
     quantize_int8_rowwise,
 )
 from torchao.quantization.quant_api import quantize_
-from torchao.utils import get_current_accelerator_device
+from torchao.utils import get_available_devices, get_current_accelerator_device
 
 if common_utils.SEED is None:
     common_utils.SEED = 1234
 
-_DEVICE = get_current_accelerator_device()
-_DEVICES = ["cpu"] + ([_DEVICE] if torch.accelerator.is_available() else [])
+_DEVICES = get_available_devices()
 
 
 def _reset():
@@ -191,7 +190,7 @@ class TestQuantizedTraining(TestCase):
         _reset()
         bsize = 64
         embed_dim = 64
-        device = _DEVICE
+        device = get_current_accelerator_device()
 
         linear = nn.Linear(embed_dim, embed_dim, device=device)
         linear_int8mp = copy.deepcopy(linear)
@@ -252,7 +251,7 @@ class TestQuantizedTraining(TestCase):
         _reset()
         bsize = 4
         embed_dim = 32
-        device = _DEVICE
+        device = get_current_accelerator_device()
 
         # only use 1 matmul shape to reduce triton autotune time
         model_ref = nn.Sequential(
@@ -348,7 +347,7 @@ class TestFSDP2(FSDPTest):
             dropout_p=0,
         )
         torch.manual_seed(42)
-        base_model = Transformer(model_args).to(_DEVICE)
+        base_model = Transformer(model_args).cuda()
         fsdp_model = copy.deepcopy(base_model)
 
         quantize_(base_model.layers, quantize_fn)
@@ -368,7 +367,7 @@ class TestFSDP2(FSDPTest):
 
         torch.manual_seed(42 + self.rank + 1)
         for iter_idx in range(5):
-            inp = torch.randint(0, vocab_size, (batch_size, seq_len), device=_DEVICE)
+            inp = torch.randint(0, vocab_size, (batch_size, seq_len), device="cuda")
             fsdp_optim.zero_grad(set_to_none=(iter_idx % 2 == 0))
             fsdp_loss = fsdp_model(inp).sum()
             fsdp_loss.backward()
@@ -393,18 +392,14 @@ class TestFSDP2(FSDPTest):
             )
 
     @skip_if_lt_x_gpu(_FSDP_WORLD_SIZE)
-    @pytest.mark.skipif(
-        not torch.accelerator.is_available(), reason="GPU not available"
-    )
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
     def test_precompute_bitnet_scale(self):
         from torchao.prototype.quantized_training.bitnet import (
             get_bitnet_scale,
             precompute_bitnet_scale_for_fsdp,
         )
 
-        model = nn.Sequential(nn.Linear(32, 64), nn.GELU(), nn.Linear(64, 32)).to(
-            _DEVICE
-        )
+        model = nn.Sequential(nn.Linear(32, 64), nn.GELU(), nn.Linear(64, 32)).cuda()
         model_fsdp = copy.deepcopy(model)
         quantize_(model_fsdp, bitnet_training())
         fully_shard(model_fsdp)
