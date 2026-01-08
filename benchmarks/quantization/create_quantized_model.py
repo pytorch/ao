@@ -9,25 +9,143 @@ import subprocess
 
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, TorchAoConfig
+from transformers.quantizers.auto import get_hf_quantizer
 from utils import string_to_config
 
+from torchao._models._eval import TransformerEvalWrapper
+from torchao.prototype.awq import AWQConfig
+from torchao.prototype.smoothquant import SmoothQuantConfig
+from torchao.quantization import (
+    Int4WeightOnlyConfig,
+    Int8DynamicActivationInt8WeightConfig,
+)
+from torchao.quantization.quant_api import _is_linear, quantize_
 
-def quantize_model_and_save(model_id, quant_config, output_dir):
+
+def quantize_model_and_save(
+    model_id,
+    quant_config,
+    output_dir,
+    calibration_tasks=None,
+    calibration_limit=10,
+    max_seq_length=2048,
+    safe_serialization=False,
+):
     """Quantize the model and save it to the output directory."""
     print("Quantizing model with config: ", quant_config)
-    if quant_config is None:
-        quantization_config = None
-    else:
-        quantization_config = TorchAoConfig(quant_type=quant_config)
-    quantized_model = AutoModelForCausalLM.from_pretrained(
-        model_id,
-        device_map="auto",
-        dtype=torch.bfloat16,
-        quantization_config=quantization_config,
-    )
     tokenizer = AutoTokenizer.from_pretrained(model_id)
-    quantized_model.save_pretrained(output_dir, safe_serialization=False)
-    tokenizer.save_pretrained(output_dir, safe_serialization=False)
+
+    if isinstance(quant_config, str) and "AWQ" in quant_config:
+        # AWQ workflow: prepare -> eval -> convert -> prepare_for_loading
+        assert quant_config == "AWQ-INT4", "Only support AWQ-INT4 for now"
+
+        model = AutoModelForCausalLM.from_pretrained(
+            model_id,
+            device_map="cuda:0",
+            torch_dtype=torch.bfloat16,
+        )
+
+        base_config = Int4WeightOnlyConfig(
+            group_size=128,
+            int4_packing_format="tile_packed_to_4d",
+            int4_choose_qparams_algorithm="hqq",
+        )
+
+        def filter_fn_skip_lmhead(module, fqn):
+            if fqn == "lm_head":
+                return False
+            return _is_linear(module, fqn)
+
+        awq_config = AWQConfig(base_config, step="prepare")
+        if safe_serialization:
+            quantize_(model, awq_config, filter_fn=filter_fn_skip_lmhead)
+        else:
+            quantize_(model, awq_config)
+
+        print(
+            f"Calibrating AWQ with tasks: {calibration_tasks}, limit: {calibration_limit}"
+        )
+        TransformerEvalWrapper(
+            model=model,
+            tokenizer=tokenizer,
+            max_seq_length=max_seq_length,
+        ).run_eval(
+            tasks=calibration_tasks,
+            limit=calibration_limit,
+        )
+
+        awq_config = AWQConfig(base_config, step="convert")
+        if safe_serialization:
+            quantize_(model, awq_config, filter_fn=filter_fn_skip_lmhead)
+        else:
+            quantize_(model, awq_config)
+
+        quantized_model = model
+        quant_config = AWQConfig(base_config, step="prepare_for_loading")
+        if safe_serialization:
+            quantization_config = TorchAoConfig(quant_config).to_dict()
+            quantized_model.config.quantization_config = quantization_config
+
+            hf_quantizer, _, _, _ = get_hf_quantizer(
+                config=quantized_model.config,
+                quantization_config=None,
+                dtype=torch.bfloat16,
+                device_map="cuda:0",
+                weights_only=True,
+                user_agent={
+                    "file_type": "model",
+                    "framework": "pytorch",
+                    "from_auto_class": False,
+                },
+            )
+            quantized_model.hf_quantizer = hf_quantizer
+        else:
+            quantized_model.config.quantization_config = TorchAoConfig(quant_config)
+    elif quant_config == "SmoothQuant-INT8-INT8":
+        # SmoothQuant workflow: prepare -> eval -> convert -> prepare_for_loading
+        model = AutoModelForCausalLM.from_pretrained(
+            model_id,
+            device_map="auto",
+            torch_dtype=torch.bfloat16,
+        )
+
+        base_config = Int8DynamicActivationInt8WeightConfig()
+        quant_config = SmoothQuantConfig(base_config, step="prepare")
+        quantize_(model, quant_config)
+
+        print(
+            f"Calibrating SmoothQuant with tasks: {calibration_tasks}, limit: {calibration_limit}"
+        )
+        TransformerEvalWrapper(
+            model=model,
+            tokenizer=tokenizer,
+            max_seq_length=max_seq_length,
+        ).run_eval(
+            tasks=calibration_tasks,
+            limit=calibration_limit,
+        )
+
+        quant_config = SmoothQuantConfig(base_config, step="convert")
+        quantize_(model, quant_config)
+
+        quantized_model = model
+
+        load_config = SmoothQuantConfig(base_config, step="prepare_for_loading")
+        quantized_model.config.quantization_config = TorchAoConfig(load_config)
+    else:
+        # Calibration-free
+        quantization_config = (
+            TorchAoConfig(quant_type=quant_config) if quant_config else None
+        )
+        quantized_model = AutoModelForCausalLM.from_pretrained(
+            model_id,
+            device_map="auto",
+            dtype=torch.bfloat16,
+            quantization_config=quantization_config,
+        )
+
+    quantized_model.save_pretrained(output_dir, safe_serialization=safe_serialization)
+    tokenizer.save_pretrained(output_dir, safe_serialization=safe_serialization)
     return quantized_model, tokenizer
 
 
@@ -45,11 +163,19 @@ def run(
     model_id: str,
     quant_recipe_name: str | None,
     model_output_dir,
+    calibration_tasks=None,
+    calibration_limit=10,
+    max_seq_length=2048,
 ):
     print(f"\nRunning {model_id=} with {quant_recipe_name=}\n")
     quant_config = string_to_config(quant_recipe_name)
     quantized_model, tokenizer = quantize_model_and_save(
-        model_id, quant_config=quant_config, output_dir=model_output_dir
+        model_id,
+        quant_config=quant_config,
+        output_dir=model_output_dir,
+        calibration_tasks=calibration_tasks,
+        calibration_limit=calibration_limit,
+        max_seq_length=max_seq_length,
     )
     print(quantized_model)
     print(f"saved {model_id=}, {quant_recipe_name=} to {model_output_dir=}")
@@ -79,6 +205,25 @@ if __name__ == "__main__":
         default="benchmarks/data/quantized_model/test",
         help="Output directory for quantized model.",
     )
+    parser.add_argument(
+        "--calibration_tasks",
+        nargs="+",
+        type=str,
+        default=["wikitext"],
+        help="Tasks to use for calibration (for AWQ/SmoothQuant).",
+    )
+    parser.add_argument(
+        "--calibration_limit",
+        type=int,
+        default=10,
+        help="Number of samples to use for calibration (for AWQ/SmoothQuant).",
+    )
+    parser.add_argument(
+        "--max_seq_length",
+        type=int,
+        default=2048,
+        help="Maximum sequence length for calibration.",
+    )
     args = parser.parse_args()
 
     # Use parsed arguments
@@ -86,4 +231,7 @@ if __name__ == "__main__":
         model_id=args.model_id,
         quant_recipe_name=args.quant_recipe_name,
         model_output_dir=args.output_dir,
+        calibration_tasks=args.calibration_tasks,
+        calibration_limit=args.calibration_limit,
+        max_seq_length=args.max_seq_length,
     )
