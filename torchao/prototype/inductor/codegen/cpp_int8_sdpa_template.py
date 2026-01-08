@@ -45,6 +45,7 @@ inline void store(scalar_t* dst, at::vec::Vectorized<scalar_t> src, int size=at:
   src.store(dst, size);
 }
 
+#ifdef CPU_CAPABILITY_AVX512
 // A fast version for uint8_t conversion with SaturateU8 intrinsic
 at::vec::Vectorized<uint8_t> inline convert_float_to_uint8(
     at::vec::Vectorized<float> src) {
@@ -55,6 +56,13 @@ at::vec::Vectorized<uint8_t> inline convert_float_to_uint8(
   auto v3 = _mm512_cvtusepi32_epi8(v2);
   return _mm512_castsi128_si512(v3);
 }
+#else
+// A generic version for uint8_t conversion
+at::vec::Vectorized<uint8_t> inline convert_float_to_uint8(
+    at::vec::Vectorized<float> src) {
+  return at::vec::convert<uint8_t>(src);
+}
+#endif // CPU_CAPABILITY_AVX512
 
 template <typename scalar_t>
 inline typename std::enable_if_t<std::is_same_v<scalar_t, unsigned char>, void>
