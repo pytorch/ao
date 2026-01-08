@@ -100,10 +100,14 @@ def torch_to_blocked_2d_K_groups(
     num_groups = group_offs.shape[0]
 
     # Each group will require a variable amount of padding, so to avoid d2h sync causing by iterating over each group,
-    # Triton kernel will use an upper bound of adding 4 padding cols to each group.
-    # (This torch impl is used as a reference for correctness, so we must match the triton kernel's impl).
     total_K_padded = total_K + num_groups * 4
     blocked_scales = x_scales.new_zeros(padded_M, total_K_padded)
+
+    # Flattened view for easier indexing when writing to subregions of memory
+    blocked_scales_flat = blocked_scales.view(-1)
+
+    BLOCK_ROWS, BLOCK_COLS = 128, 4
+    output_stride_per_block = BLOCK_ROWS * BLOCK_COLS  # 512
 
     start_col_after_padding_list = [0]
     group_start_idx = 0
@@ -119,14 +123,37 @@ def torch_to_blocked_2d_K_groups(
         group_scales_blocked = to_blocked(group_scales)
         cols_after_padding = ceil_div(group_size, 4) * 4
 
-        # Write output to subtensor
-        blocked_scales[
-            :,
-            prev_start_col_after_padding : prev_start_col_after_padding
-            + cols_after_padding,
-        ] = group_scales_blocked.reshape(-1, cols_after_padding)
+        num_row_blocks = ceil_div(M, 128)
+        num_col_blocks = cols_after_padding // 4
 
-        # Calculate the start row after padding
+        # Reshape blocked scales from flattened format to (num_row_blocks, num_col_blocks, ...)
+        # so we can write each SF tile to its output buffer individually.
+        group_scales_reshaped = group_scales_blocked.view(
+            num_row_blocks, num_col_blocks, -1
+        )
+        out_group_base_offset = prev_start_col_after_padding * padded_M
+
+        # For each SF tile, write to the output tensor
+        for row_block in range(num_row_blocks):
+            for col_block in range(num_col_blocks):
+                block_data = group_scales_reshaped[row_block, col_block]
+
+                stride_per_row_of_blocks_in_group = (
+                    num_col_blocks * output_stride_per_block
+                )
+                offset_in_group = (
+                    row_block * stride_per_row_of_blocks_in_group
+                    + col_block * output_stride_per_block
+                )
+                final_offset = out_group_base_offset + offset_in_group
+
+                # flattened (512,) for (128,4) sf tile
+                block_flat = block_data.reshape(-1)
+                blocked_scales_flat[
+                    final_offset : final_offset + output_stride_per_block
+                ] = block_flat
+
+        # Calculate the start col after padding
         new_start_col = prev_start_col_after_padding + cols_after_padding
         start_col_after_padding_list.append(new_start_col)
 
