@@ -271,16 +271,11 @@ def quantize_and_eval(
             model,
             quant_config,
         )
-        from torchao._models._eval import TransformerEvalWrapper
-
-        TransformerEvalWrapper(
-            model=model.to(device),
-            tokenizer=tokenizer,
-            max_seq_length=max_seq_length,
-            device=device,
-        ).run_eval(
+        evaluator.simple_evaluate(
+            HFLM(pretrained=model.to(device), tokenizer=tokenizer),
             tasks=tasks,
             limit=calibration_limit,
+            batch_size=1,
         )
 
         print(f"time for prepare and calibration: {time.time() - t0:.02f} seconds")

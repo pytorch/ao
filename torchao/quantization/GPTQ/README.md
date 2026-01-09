@@ -37,28 +37,12 @@ important notes:
 3) We currently only support int4 weight only quantization for GPTQ though this framework can be relatively easily extended to other techniques.
 
 
-In many cases users use lm_eval to get calibration data. We also have an input recorder that integrates directly with lm_eval. This is equivalent to using lm_eval but setting your model to be a MultiTensorInputRecorder.
+In many cases users want to get calibration data from standard benchmarks. You can manually collect inputs using `MultiTensorInputRecorder` as shown above, or use lm_eval to run evaluation and collect inputs from those tasks.
 
-```python
-from torchao._models._eval import LMEvalInputRecorder
-
-args = (
-    LMEvalInputRecorder(
-        get_tokenizer(), # tokenizer
-        calibration_seq_length,
-        prepare_inputs_for_model, # optional function that transforms the input, e.g. constructing the indices tensor
-        get_tokenizer_vocab_size(),
-        pad_calibration_inputs, # boolean to allow padding
-    )
-    .record_inputs(
-        calibration_tasks,
-        calibration_limit,
-    )
-    .get_recorded_inputs()
-)
-
-
-```
+For using lm_eval as a calibration data source, you would:
+1. Run lm_eval on your model with calibration tasks
+2. Collect the inputs during that run using `MultiTensorInputRecorder`
+3. Use those recorded inputs for GPTQ quantization
 
 ## Results
 
