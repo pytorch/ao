@@ -62,20 +62,29 @@ def _quantize_then_scaled_grouped_mm(
     """
     # TODO: Remove logging once prototype is more mature. This is currently very useful for development and debugging.
     if scaling_type == MoEScalingType.FP8_ROWWISE:
-        return _Float8GroupedMM.apply(
+        return _to_fp8_rowwise_then_scaled_grouped_mm(
             A,
             B_t,
             offs,
             out_dtype,
         )
-    elif scaling_type == MoEScalingType.MXFP8:
-        block_size = 32  # TODO: should we make this configurable? plumb it through in a config somehow?
-        return _MXFP8GroupedMM.apply(
+    elif (
+        scaling_type == MoEScalingType.MXFP8
+        or scaling_type == MoEScalingType.MXFP8_WGRAD_WITH_HP
+    ):
+        block_size = 32
+        wgrad_with_hp = scaling_type == MoEScalingType.MXFP8_WGRAD_WITH_HP
+        return _to_mxfp8_then_scaled_grouped_mm(
             A,
             B_t,
             offs,
             block_size,
             out_dtype,
+            emulated=False,  # TODO: support
+            use_triton_for_dim0_cast=True,  # TODO: configurable
+            wgrad_with_hp=wgrad_with_hp,
+            scale_calculation_mode=ScaleCalculationMode.RCEIL,
+            use_cuda_kernel_for_blocked_layout=True,  # TODO: configurable
         )
     else:
         raise ValueError(f"Unsupported scaling type {scaling_type}")
