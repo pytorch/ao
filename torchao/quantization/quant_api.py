@@ -958,14 +958,6 @@ def _int4_weight_only_quantize_tensor(weight, config):
         if config.preserve_zero is not None
         else LAYOUT_TO_PRESERVE_ZEROS[type(layout)]
     )
-    # Sparse Marlin only supports symmetric quantization.
-    # NOTE: If we start having lots of layouts that require different configurations,
-    # we should consider moving this logic somewhere else.
-    if isinstance(layout, MarlinSparseLayout):
-        mapping_type = MappingType.SYMMETRIC
-        assert group_size == 128 or group_size == weight.shape[-1], (
-            f"MarlinSparseLayout only supports 128 group size or per channel quantization, got {group_size}"
-        )
 
     new_weight = to_affine_quantized_intx(
         weight,

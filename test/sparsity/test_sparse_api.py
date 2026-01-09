@@ -17,7 +17,6 @@ from torchao.quantization import (
     Float8DynamicActivationFloat8WeightConfig,
 )
 from torchao.quantization.quant_api import (
-    Int4WeightOnlyConfig,
     Int8DynamicActivationInt8WeightConfig,
     quantize_,
 )

@@ -22,7 +22,6 @@ from torchao._models.utils import (
 from torchao.dtypes import SemiSparseLayout
 from torchao.prototype.quantization.autoquant_v2 import autoquant_v2
 from torchao.quantization import (
-    Int4WeightOnlyConfig,
     Int8DynamicActivationInt8WeightConfig,
     autoquant,
     quantize_,
