@@ -261,7 +261,6 @@ def triton_fp8_per_group_colwise_scales(
     """
     assert hp_tensor.ndim == 2, "input tensor must be 2D"
 
-    num_elements = hp_tensor.numel()
     tl_input_dtype = FP8_DTYPE_MAP[hp_tensor.dtype]
     tl_output_dtype = FP8_DTYPE_MAP[output_dtype]
 
@@ -296,7 +295,6 @@ def triton_fp8_per_group_colwise_scales(
         hp_tensor.stride(1),
         output_buffer.stride(0),
         output_buffer.stride(1),
-        num_elements,
         fp8_dtype_min,
         fp8_dtype_max,
         tl_input_dtype,
@@ -344,7 +342,6 @@ def _triton_fp8_per_group_colwise_scales_kernel(
     stride_input_col: int,
     stride_output_row: int,
     stride_output_col: int,
-    num_elements: int,
     fp8_dtype_min: tl.constexpr,
     fp8_dtype_max: tl.constexpr,
     input_dtype: tl.constexpr,
@@ -363,49 +360,47 @@ def _triton_fp8_per_group_colwise_scales_kernel(
         offsets_ptr + offset_idx - 1, mask=offset_idx > 0, other=0
     )
     group_row_end_idx = tl.load(offsets_ptr + offset_idx)
-    block_col_offs = block_col_id * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
+    # Force int64 math for pointer offsets (avoid i32 overflow on large problems)
+    block_col_offs = (block_col_id * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)).to(tl.int64)
+    stride_input_row_i64 = tl.full((), stride_input_row, tl.int64)
+    stride_input_col_i64 = tl.full((), stride_input_col, tl.int64)
+    stride_output_row_i64 = tl.full((), stride_output_row, tl.int64)
+    stride_output_col_i64 = tl.full((), stride_output_col, tl.int64)
 
     # compute colwise amaxes for this group
-    amax_buffer = tl.zeros((BLOCK_SIZE,), dtype=input_dtype)
+    # Use fp32 for amax accumulation to better match torch's scale computation
+    amax_buffer = tl.zeros((BLOCK_SIZE,), dtype=tl.float32)
     for row_start_idx in range(group_row_start_idx, group_row_end_idx, BLOCK_SIZE_ITER):
-        block_row_offs = row_start_idx + tl.arange(0, BLOCK_SIZE_ITER)
+        block_row_offs = (row_start_idx + tl.arange(0, BLOCK_SIZE_ITER)).to(tl.int64)
         block_offs = (
-            block_row_offs[:, None] * stride_input_row
-            + block_col_offs[None, :] * stride_input_col
+            block_row_offs[:, None] * stride_input_row_i64
+            + block_col_offs[None, :] * stride_input_col_i64
         )
         block_mask = (block_row_offs[:, None] < group_row_end_idx) & (
             block_col_offs[None, :] < N
         )
-        data = tl.load(input_ptr + block_offs, mask=block_mask, other=0.0).to(
-            input_dtype
-        )
-        # we need to cast back to input dtype since triton promotes bf16 to fp32:
-        # https://github.com/triton-lang/triton/blob/981e987eed9053b952f81153bc0779c99d8c642e/python/triton/language/standard.py#L173
-        amax_buffer = tl.maximum(amax_buffer, tl.max(tl.abs(data), axis=0)).to(
-            input_dtype
-        )
+        data = tl.load(input_ptr + block_offs, mask=block_mask, other=0.0).to(tl.float32)
+        amax_buffer = tl.maximum(amax_buffer, tl.max(tl.abs(data), axis=0))
 
     # compute rowwise scales for this group.
-    amax_buffer = amax_buffer.to(tl.float64)
-    scales = (fp8_dtype_max / tl.clamp(amax_buffer, min=EPS, max=float("inf"))).to(
-        tl.float32
-    )
+    scales = (fp8_dtype_max / tl.clamp(amax_buffer, min=EPS, max=float("inf"))).to(tl.float32)
     if round_scales_to_power_of_2:
         scales = tl.exp2(tl.floor(tl.log2(scales)))
 
     # store colwise scales for each group in contiguous memory:
     # [group0_col0, group_0_col1, ..., group2_col0, group2_col1]
     # note: input tensor is in col-major memory layout.
-    scales_offs = block_col_offs + (N * offset_idx)
+    N_i64 = tl.full((), N, tl.int64)
+    scales_offs = block_col_offs + (N_i64 * offset_idx.to(tl.int64))
     scales_mask = tl.arange(0, BLOCK_SIZE) < N
     tl.store(scales_ptr + scales_offs, scales, mask=scales_mask)
 
     # perform float8 conversion for this group
     for row_start_idx in range(group_row_start_idx, group_row_end_idx, BLOCK_SIZE_ITER):
-        block_row_offs = row_start_idx + tl.arange(0, BLOCK_SIZE_ITER)
+        block_row_offs = (row_start_idx + tl.arange(0, BLOCK_SIZE_ITER)).to(tl.int64)
         block_offs = (
-            block_row_offs[:, None] * stride_input_row
-            + block_col_offs[None, :] * stride_input_col
+            block_row_offs[:, None] * stride_input_row_i64
+            + block_col_offs[None, :] * stride_input_col_i64
         )
         block_mask = (block_row_offs[:, None] < group_row_end_idx) & (
             block_col_offs[None, :] < N
@@ -418,7 +413,7 @@ def _triton_fp8_per_group_colwise_scales_kernel(
             output_dtype
         )
         out_offs = (
-            block_row_offs[:, None] * stride_output_row
-            + block_col_offs[None, :] * stride_output_col
+            block_row_offs[:, None] * stride_output_row_i64
+            + block_col_offs[None, :] * stride_output_col_i64
         )
         tl.store(out_ptr + out_offs, fp8_data, mask=block_mask)
