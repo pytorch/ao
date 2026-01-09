@@ -23,9 +23,6 @@
 #include <cstdlib>
 
 #include <cuda.h>
-#include <cuda/barrier>
-#include <cuda/ptx>
-#include <cuda_fp8.h>
 #include <cuda_runtime.h>
 #include <cudaTypedefs.h>
 #include "ptx.cuh"
@@ -33,9 +30,7 @@
 // Overloaded error checking for both CUDA driver API (CUresult) and runtime API (cudaError_t)
 inline void cuda_check_impl(CUresult result, const char* file, int line) {
     if (result != CUDA_SUCCESS) {
-        const char* error_str;
-        cuGetErrorString(result, &error_str);
-        fprintf(stderr, "CUDA Driver Error at %s:%d - %s\n", file, line, error_str);
+        fprintf(stderr, "CUDA Driver Error at %s:%d - Error code: %d\n", file, line, (int)result);
         exit(EXIT_FAILURE);
     }
 }

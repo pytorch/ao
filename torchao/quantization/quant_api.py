@@ -1670,6 +1670,11 @@ class Float8DynamicActivationFloat8SemiSparseWeightConfig(AOBaseConfig):
 def _float8_dynamic_activation_float8_semi_sparse_weight_transform(
     module: torch.nn.Module, config: Float8DynamicActivationFloat8SemiSparseWeightConfig
 ):
+    warnings.warn(
+        "Config Deprecation: Float8DynamicActivationFloat8SemiSparseWeightConfig is deprecated and will no longer be supported in a future release. "
+        "Please use Float8DynamicActivationFloat8WeightConfig with packing_format=Float8PackingFormat.SPARSE_CUTLASS and granularity=PerRow() instead. "
+        "See https://github.com/pytorch/ao/issues/3594 for more details"
+    )
     assert is_sm_at_least_90(), "Float8 quantization is only supported on CUDA>=9.0"
 
     if isinstance(module, Float8Linear):
