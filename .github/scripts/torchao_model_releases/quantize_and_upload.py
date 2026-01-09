@@ -16,7 +16,9 @@ _transformers_version = str(transformers.__version__)
 if _transformers_version >= "5":
     from transformers.quantizers.auto import get_hf_quantizer
 
-from torchao._models._eval import TransformerEvalWrapper
+from lm_eval import evaluator
+from lm_eval.models.huggingface import HFLM
+
 from torchao.prototype.awq import (
     AWQConfig,
 )
@@ -286,8 +288,9 @@ tokenizer = AutoTokenizer.from_pretrained(model_id)
 _smoothquant_int8_int8_quant_code = """
 from torchao.quantization import Int8DynamicActivationInt8WeightConfig, quantize_
 from torchao.prototype.smoothquant import SmoothQuantConfig
+from lm_eval import evaluator
+from lm_eval.models.huggingface import HFLM
 
-from torchao._models._eval import TransformerEvalWrapper
 model = AutoModelForCausalLM.from_pretrained(
     model_to_quantize,
     device_map="auto",
@@ -301,13 +304,11 @@ quantize_(
     model,
     quant_config,
 )
-TransformerEvalWrapper(
-    model=model,
-    tokenizer=tokenizer,
-    max_seq_length=max_seq_length,
-).run_eval(
+evaluator.simple_evaluate(
+    HFLM(pretrained=model, tokenizer=tokenizer),
     tasks=tasks,
     limit=calibration_limit,
+    batch_size=1,
 )
 quant_config = SmoothQuantConfig(base_config, step="convert")
 quantize_(model, quant_config)
@@ -323,7 +324,9 @@ from torchao.quantization import Int4WeightOnlyConfig, quantize_
 from torchao.prototype.awq import (
     AWQConfig,
 )
-from torchao._models._eval import TransformerEvalWrapper
+from lm_eval import evaluator
+from lm_eval.models.huggingface import HFLM
+
 model = AutoModelForCausalLM.from_pretrained(
     model_to_quantize,
     device_map="cuda:0",
@@ -337,13 +340,11 @@ quantize_(
     model,
     quant_config,
 )
-TransformerEvalWrapper(
-    model=model,
-    tokenizer=tokenizer,
-    max_seq_length=max_seq_length,
-).run_eval(
+evaluator.simple_evaluate(
+    HFLM(pretrained=model, tokenizer=tokenizer),
     tasks=tasks,
     limit=calibration_limit,
+    batch_size=1,
 )
 quant_config = AWQConfig(base_config, step="convert")
 quantize_(model, quant_config)
@@ -767,13 +768,11 @@ def quantize_and_upload(
         else:
             quantize_(model, awq_config)
 
-        TransformerEvalWrapper(
-            model=model,
-            tokenizer=tokenizer,
-            max_seq_length=max_seq_length,
-        ).run_eval(
+        evaluator.simple_evaluate(
+            HFLM(pretrained=model, tokenizer=tokenizer),
             tasks=tasks,
             limit=calibration_limit,
+            batch_size=1,
         )
         awq_config = AWQConfig(base_config, step="convert")
         if safe_serialization:
@@ -816,13 +815,11 @@ def quantize_and_upload(
             model,
             quant_config,
         )
-        TransformerEvalWrapper(
-            model=model,
-            tokenizer=tokenizer,
-            max_seq_length=max_seq_length,
-        ).run_eval(
+        evaluator.simple_evaluate(
+            HFLM(pretrained=model, tokenizer=tokenizer),
             tasks=tasks,
             limit=calibration_limit,
+            batch_size=1,
         )
         quant_config = SmoothQuantConfig(base_config, step="convert")
         quantize_(model, quant_config)
