@@ -18,6 +18,7 @@ Backward (right to left):
     bf16 a2a_dispatch.bwd <- bf16 permute.bwd <- mxfp8 grouped GEMMs bwd <- mxfp8 unpermute.bwd <- mxfp8 a2a_combine.bwd
 """
 
+from .a2a_combine import a2a_combine_hp_fwd_mxfp8_bwd
 from .a2a_dispatch import a2a_dispatch_mxfp8_fwd_hp_bwd
 from .permute import permute_mxfp8_fwd_hp_bwd
 from .unpermute import unpermute_hp_fwd_mxfp8_bwd
@@ -26,4 +27,5 @@ __all__ = [
     "a2a_dispatch_mxfp8_fwd_hp_bwd",
     "permute_mxfp8_fwd_hp_bwd",
     "unpermute_hp_fwd_mxfp8_bwd",
+    "a2a_combine_hp_fwd_mxfp8_bwd",
 ]
