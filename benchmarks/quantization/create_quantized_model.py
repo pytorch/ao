@@ -15,10 +15,6 @@ from utils import string_to_config
 from torchao._models._eval import TransformerEvalWrapper
 from torchao.prototype.awq import AWQConfig
 from torchao.prototype.smoothquant import SmoothQuantConfig
-from torchao.quantization import (
-    Int4WeightOnlyConfig,
-    Int8DynamicActivationInt8WeightConfig,
-)
 from torchao.quantization.quant_api import _is_linear, quantize_
 
 
@@ -35,7 +31,7 @@ def quantize_model_and_save(
     print("Quantizing model with config: ", quant_config)
     tokenizer = AutoTokenizer.from_pretrained(model_id)
 
-    if isinstance(quant_config, str) and "AWQ" in quant_config:
+    if "AWQ" in quant_config[0]:
         # AWQ workflow: prepare -> eval -> convert -> prepare_for_loading
         assert quant_config == "AWQ-INT4", "Only support AWQ-INT4 for now"
 
@@ -45,17 +41,12 @@ def quantize_model_and_save(
             torch_dtype=torch.bfloat16,
         )
 
-        base_config = Int4WeightOnlyConfig(
-            group_size=128,
-            int4_packing_format="tile_packed_to_4d",
-            int4_choose_qparams_algorithm="hqq",
-        )
-
         def filter_fn_skip_lmhead(module, fqn):
             if fqn == "lm_head":
                 return False
             return _is_linear(module, fqn)
 
+        base_config = quant_config
         awq_config = AWQConfig(base_config, step="prepare")
         if safe_serialization:
             quantize_(model, awq_config, filter_fn=filter_fn_skip_lmhead)
@@ -81,9 +72,9 @@ def quantize_model_and_save(
             quantize_(model, awq_config)
 
         quantized_model = model
-        quant_config = AWQConfig(base_config, step="prepare_for_loading")
+        load_config = AWQConfig(base_config, step="prepare_for_loading")
         if safe_serialization:
-            quantization_config = TorchAoConfig(quant_config).to_dict()
+            quantization_config = TorchAoConfig(load_config).to_dict()
             quantized_model.config.quantization_config = quantization_config
 
             hf_quantizer, _, _, _ = get_hf_quantizer(
@@ -100,8 +91,8 @@ def quantize_model_and_save(
             )
             quantized_model.hf_quantizer = hf_quantizer
         else:
-            quantized_model.config.quantization_config = TorchAoConfig(quant_config)
-    elif quant_config == "SmoothQuant-INT8-INT8":
+            quantized_model.config.quantization_config = TorchAoConfig(load_config)
+    elif "SmoothQuant" in quant_config[0]:
         # SmoothQuant workflow: prepare -> eval -> convert -> prepare_for_loading
         model = AutoModelForCausalLM.from_pretrained(
             model_id,
@@ -109,9 +100,9 @@ def quantize_model_and_save(
             torch_dtype=torch.bfloat16,
         )
 
-        base_config = Int8DynamicActivationInt8WeightConfig()
-        quant_config = SmoothQuantConfig(base_config, step="prepare")
-        quantize_(model, quant_config)
+        base_config = quant_config
+        smoothquant_config = SmoothQuantConfig(base_config, step="prepare")
+        quantize_(model, smoothquant_config)
 
         print(
             f"Calibrating SmoothQuant with tasks: {calibration_tasks}, limit: {calibration_limit}"
@@ -125,8 +116,8 @@ def quantize_model_and_save(
             limit=calibration_limit,
         )
 
-        quant_config = SmoothQuantConfig(base_config, step="convert")
-        quantize_(model, quant_config)
+        smoothquant_config = SmoothQuantConfig(base_config, step="convert")
+        quantize_(model, smoothquant_config)
 
         quantized_model = model
 

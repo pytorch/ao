@@ -6,12 +6,10 @@
 
 import torch
 
-from torchao.prototype.awq import AWQConfig
 from torchao.prototype.mx_formats.inference_workflow import (
     MXDynamicActivationMXWeightConfig,
     NVFP4DynamicActivationNVFP4WeightConfig,
 )
-from torchao.prototype.smoothquant import SmoothQuantConfig
 from torchao.quantization import (
     Float8DynamicActivationFloat8WeightConfig,
     Float8DynamicActivationInt4WeightConfig,
@@ -50,14 +48,15 @@ def string_to_config(s):
             use_triton_kernel=True,
         )
     elif s == "awq_int4_weight_only":
-        base_config = Int4WeightOnlyConfig(
-            group_size=128,
-            int4_packing_format="tile_packed_to_4d",
-            int4_choose_qparams_algorithm="hqq",
-        )
-        return AWQConfig(base_config, step="prepare_for_loading")
+        return [
+            "AWQ",
+            Int4WeightOnlyConfig(
+                group_size=128,
+                int4_packing_format="tile_packed_to_4d",
+                int4_choose_qparams_algorithm="hqq",
+            ),
+        ]
     elif s == "smoothquant_int8":
-        base_config = Int8DynamicActivationInt8WeightConfig(version=2)
-        return SmoothQuantConfig(base_config, step="prepare_for_loading")
+        return ["SmoothQuant", Int8DynamicActivationInt8WeightConfig(version=2)]
     else:
         raise AssertionError(f"unsupported {s}")
