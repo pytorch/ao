@@ -28,7 +28,6 @@ from torchao.quantization.autoquant import (
     AQFloat8WeightOnlyQuantizedLinearWeight,
     AQGemliteInt4G64WeightOnlyQuantizedLinearWeight,
     AQInt4G32WeightOnlyQuantizedLinearWeight,
-    AQInt4G128WeightOnlyQuantizedMarlinSparseLinearWeight,
     AQInt8DynamicallyQuantizedLinearWeight,
     AQInt8WeightOnlyQuantizedLinearWeight,
     AQInt8WeightOnlyQuantizedLinearWeight2,
@@ -1314,7 +1313,6 @@ class TestAutoQuant(unittest.TestCase):
         for qclass in [
             AQGemliteInt4G64WeightOnlyQuantizedLinearWeight,
             AQInt4G32WeightOnlyQuantizedLinearWeight,
-            AQInt4G128WeightOnlyQuantizedMarlinSparseLinearWeight,
         ]:
             model = (
                 torch.nn.Sequential(
@@ -1348,7 +1346,6 @@ class TestAutoQuant(unittest.TestCase):
         if device == "cpu":
             self.skipTest(f"float8 is for cuda, not {device}")
 
-        # note: marlin sparse layout failed when scale_t has a dimension of 1d
         m, k, n = 128, 128, 128
         example_input = torch.randn(m, k, device=device, dtype=dtype)
 

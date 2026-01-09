@@ -25,7 +25,6 @@ from torchao.quantization.marlin_qqq import (
 from torchao.quantization.quant_primitives import (
     _choose_qparams_and_quantize_affine_qqq,
 )
-from torchao.sparsity.marlin import inject_24, marlin_24_workspace, pack_to_marlin_24
 from torchao.utils import (
     compute_max_diff,
     torch_version_at_least,
@@ -513,32 +512,6 @@ def test_dequantize_tensor_core_tiled_layout_op(shape, inner_k_tiles, group_size
     )
 
 
-MARLIN_24_BATCH_SIZE = [1, 4, 8, 16, 32, 64]
-MARLIN_24_K_CHUNKS = [128]
-MARLIN_24_N_CHUNKS = [512]
-MNK_FACTORS = [
-    (1, 1, 1),
-    (1, 4, 8),
-    (1, 7, 5),
-    (13, 17, 67),
-    (26, 37, 13),
-    (67, 13, 11),
-]
-MARLIN_24_SUPPORTED_NUM_BITS = [4, 8]
-MARLIN_24_SUPPORTED_GROUP_SIZES = [-1, 128]
-
-MARLIN_TEST_PARAMS = list(
-    itertools.product(
-        MARLIN_24_BATCH_SIZE,
-        MARLIN_24_K_CHUNKS,
-        MARLIN_24_N_CHUNKS,
-        MARLIN_24_SUPPORTED_NUM_BITS,
-        MARLIN_24_SUPPORTED_GROUP_SIZES,
-        MNK_FACTORS,
-    )
-)
-
-
 def _symmetric_quantize_with_ref(w: torch.Tensor, num_bits: int, group_size: int):
     orig_device = w.device
     size_k, size_n = w.shape
@@ -588,70 +561,6 @@ def _symmetric_quantize_with_ref(w: torch.Tensor, num_bits: int, group_size: int
         w_ref.to(device=orig_device),
         q_w.to(device=orig_device),
         s.to(device=orig_device),
-    )
-
-
-@pytest.mark.skipif(not IS_CUDA, reason="CUDA not available")
-@pytest.mark.parametrize(
-    "batch_size, k_chunk, n_chunk, num_bits, group_size, mnk_factors",
-    MARLIN_TEST_PARAMS,
-    ids=str,
-)
-def test_marlin_24(batch_size, k_chunk, n_chunk, num_bits, group_size, mnk_factors):
-    m_factor, n_factor, k_factor = mnk_factors
-
-    size_m = m_factor
-    size_k = k_chunk * k_factor
-    size_n = n_chunk * n_factor
-
-    a_input = torch.randn(
-        (batch_size, size_m, size_k), dtype=torch.float16, device="cuda"
-    )
-    b_weight = torch.rand((size_k, size_n), dtype=torch.float16, device="cuda")
-
-    # Inject 2:4 sparsity
-    w_24, _ = inject_24(b_weight, size_k, size_n)
-
-    # Symmetric quantize
-    w_24_ref, q_w_24, scale = _symmetric_quantize_with_ref(w_24, num_bits, group_size)
-
-    # Reshape input into 2D tensor
-    input_2d = a_input.view(-1, a_input.shape[-1])
-    a_input_in, a_input_out = input_2d.shape
-
-    # Obtains reference output
-    output_ref = torch.matmul(input_2d, w_24_ref)
-    output_ref = output_ref.reshape(a_input.shape[:-1] + (scale.shape[1],))
-
-    # Packs to marlin 2:4
-    marlin_24_q_w_comp, marlin_24_scale, meta = pack_to_marlin_24(
-        q_w_24, scale, num_bits, group_size
-    )
-    workspace_24 = marlin_24_workspace(size_n)
-
-    fn_inputs = (
-        input_2d,
-        marlin_24_q_w_comp,
-        meta,
-        marlin_24_scale,
-        workspace_24,
-        num_bits,
-        a_input_in,
-        marlin_24_scale.shape[1],
-        a_input_out,
-    )
-    output = torchao.ops.marlin_24_gemm(*fn_inputs)
-    output = output.reshape(a_input.shape[:-1] + (marlin_24_scale.shape[1],))
-
-    max_diff = compute_max_diff(output, output_ref)
-    assert max_diff < 0.04
-
-    # Performs opcheck
-    test_utils = ["test_schema", "test_autograd_registration", "test_faketensor"]
-    opcheck(
-        torch.ops.torchao.marlin_24_gemm,
-        fn_inputs,
-        test_utils=test_utils,
     )
 
 

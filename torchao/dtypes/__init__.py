@@ -15,7 +15,6 @@ from .nf4tensor import NF4Tensor, to_nf4
 from .uintx import (
     Int4CPULayout,
     Int4XPULayout,
-    MarlinSparseLayout,
     PackedLinearInt8DynamicActivationIntxWeightLayout,
     QDQLayout,
     SemiSparseLayout,
@@ -49,7 +48,6 @@ __all__ = [
     "SemiSparseLayout",
     "TensorCoreTiledLayout",
     "Float8Layout",
-    "MarlinSparseLayout",
     "affine_quantized_tensor_ops",
     "BlockSparseLayout",
     "UintxLayout",
