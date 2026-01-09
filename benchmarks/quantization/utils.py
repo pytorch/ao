@@ -48,15 +48,13 @@ def string_to_config(s):
             use_triton_kernel=True,
         )
     elif s == "awq_int4_weight_only":
-        return [
-            "AWQ",
-            Int4WeightOnlyConfig(
-                group_size=128,
-                int4_packing_format="tile_packed_to_4d",
-                int4_choose_qparams_algorithm="hqq",
-            ),
-        ]
+        return Int4WeightOnlyConfig(
+            group_size=128,
+            int4_packing_format="tile_packed_to_4d",
+            int4_choose_qparams_algorithm="hqq",
+            version=2,
+        )
     elif s == "smoothquant_int8":
-        return ["SmoothQuant", Int8DynamicActivationInt8WeightConfig(version=2)]
+        return Int8DynamicActivationInt8WeightConfig(version=2)
     else:
         raise AssertionError(f"unsupported {s}")
