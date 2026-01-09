@@ -875,6 +875,7 @@ def round_up(x, y):
 
 
 # Aliases for convenience/clarity
+@torch._dynamo.nonstrict_trace
 def _to_mxfp8_then_scaled_grouped_mm(
     A: torch.Tensor,
     B_t: torch.Tensor,

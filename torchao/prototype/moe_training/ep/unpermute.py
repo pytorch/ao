@@ -110,6 +110,7 @@ class _UnpermuteHPFwdMXFP8Bwd(torch.autograd.Function):
         return grad_input, None, None
 
 
+@torch._dynamo.nonstrict_trace
 def unpermute_hp_fwd_mxfp8_bwd(
     input: torch.Tensor,
     permuted_indices: torch.Tensor,

@@ -7,6 +7,7 @@
 import torch
 import torch.distributed as dist
 from torch.distributed._functional_collectives import all_to_all_single
+from torch.distributed.distributed_c10d import _resolve_process_group
 
 from torchao.prototype.mx_formats.config import ScaleCalculationMode
 from torchao.prototype.mx_formats.kernels import triton_to_mxfp8_dim0
@@ -137,11 +138,12 @@ class _A2ADispatchMXFP8FwdHPBwd(torch.autograd.Function):
         return grad_input, None, None, None, None, None
 
 
+@torch._dynamo.nonstrict_trace
 def a2a_dispatch_mxfp8_fwd_hp_bwd(
     input: torch.Tensor,
     output_splits: list[int],
     input_splits: list[int],
-    group: dist.ProcessGroup = None,
+    group_name: str = None,
     scaling_mode: ScaleCalculationMode = ScaleCalculationMode.RCEIL,
     block_size: int = 32,
 ) -> MXTensor:
@@ -152,13 +154,18 @@ def a2a_dispatch_mxfp8_fwd_hp_bwd(
         input: bf16 input tensor
         output_splits: output split sizes
         input_splits: input split sizes
-        group: process group
+        group_name: process group name
         scaling_mode: quantization scaling mode
         block_size: mxfp8 block size
 
     Returns:
         MXTensor with quantized output from all-to-all
     """
+    if group_name is None:
+        group = dist.group.WORLD
+    else:
+        group = _resolve_process_group(group_name)
+
     return _A2ADispatchMXFP8FwdHPBwd.apply(
         input,
         output_splits,
