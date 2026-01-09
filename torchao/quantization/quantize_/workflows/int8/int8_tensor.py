@@ -83,8 +83,8 @@ class Int8Tensor(TorchAOBaseTensor):
         block_size: List[int],
         dtype: torch.dtype,
         act_scale=None,
-        act_quant_kwargs: Optional[QuantizeTensorToInt8Kwargs] = None,
         act_pre_scale: Optional[torch.Tensor] = None,
+        act_quant_kwargs: Optional[QuantizeTensorToInt8Kwargs] = None,
     ):
         kwargs = {
             "device": qdata.device,
@@ -100,8 +100,8 @@ class Int8Tensor(TorchAOBaseTensor):
         block_size: List[int],
         dtype: torch.dtype,
         act_scale=None,
-        act_quant_kwargs: Optional[QuantizeTensorToInt8Kwargs] = None,
         act_pre_scale: Optional[torch.Tensor] = None,
+        act_quant_kwargs: Optional[QuantizeTensorToInt8Kwargs] = None,
     ):
         super().__init__()
         self.qdata = qdata
@@ -133,9 +133,9 @@ class Int8Tensor(TorchAOBaseTensor):
         granularity: Granularity,
         mapping_type=MappingType.SYMMETRIC,
         scale: Optional[torch.Tensor] = None,
-        act_quant_kwargs: Optional[QuantizeTensorToInt8Kwargs] = None,
         act_scale: Optional[torch.Tensor] = None,
         act_pre_scale: Optional[torch.Tensor] = None,
+        act_quant_kwargs: Optional[QuantizeTensorToInt8Kwargs] = None,
     ):
         """Create Int8Tensor from high-precision tensor"""
         block_size = get_block_size(hp_tensor.shape, granularity)
