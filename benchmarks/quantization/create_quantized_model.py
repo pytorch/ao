@@ -33,12 +33,10 @@ def quantize_model_and_save(
 
     if "AWQ" in quant_config[0]:
         # AWQ workflow: prepare -> eval -> convert -> prepare_for_loading
-        assert quant_config == "AWQ-INT4", "Only support AWQ-INT4 for now"
-
         model = AutoModelForCausalLM.from_pretrained(
             model_id,
             device_map="cuda:0",
-            torch_dtype=torch.bfloat16,
+            dtype=torch.bfloat16,
         )
 
         def filter_fn_skip_lmhead(module, fqn):
@@ -46,7 +44,7 @@ def quantize_model_and_save(
                 return False
             return _is_linear(module, fqn)
 
-        base_config = quant_config
+        base_config = quant_config[1]
         awq_config = AWQConfig(base_config, step="prepare")
         if safe_serialization:
             quantize_(model, awq_config, filter_fn=filter_fn_skip_lmhead)
@@ -97,10 +95,9 @@ def quantize_model_and_save(
         model = AutoModelForCausalLM.from_pretrained(
             model_id,
             device_map="auto",
-            torch_dtype=torch.bfloat16,
+            dtype=torch.bfloat16,
         )
-
-        base_config = quant_config
+        base_config = quant_config[1]
         smoothquant_config = SmoothQuantConfig(base_config, step="prepare")
         quantize_(model, smoothquant_config)
 
