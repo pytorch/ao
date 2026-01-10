@@ -779,10 +779,12 @@ class TestPatternMatcher(TestPatternMatcherBase):
              convert_element_type, quantize_per_tensor]
             [qconv2d_pointwise_default, convert_element_type, sigmoid, mul, convert_element_type]
         """
+        # SiLU decomposition changed in PyTorch 2.11.0.dev, resulting in more matched nodes
+        qconv_unary_matcher_nodes = 15 if torch_version_at_least("2.11.0.dev") else 11
         self._qconv2d_unary_test_helper(
             unary_op=torch.nn.SiLU(),
             mixed_bf16=True,
-            qconv_unary_matcher_nodes=11,
+            qconv_unary_matcher_nodes=qconv_unary_matcher_nodes,
         )
 
     @skipIfNoDynamoSupport
