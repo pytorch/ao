@@ -16,33 +16,27 @@ model = get_model() # user provided function
 
 # first gather inputs
 input_recorder = MultiTensorInputRecorder()
-for i in range(calibration_limit):
-    args = get_next_input() # user provided function
-    input_recorder(*args) # compare to model(*args)
-     # note: can do input_recorder(*args, **kwargs) if needed
 
-# then perform GPTQ
-quantizer = Int4WeightOnlyGPTQQuantizer() # quantization parameters like group_size can be set here
-args = input_recorder.get_recorded_inputs() # use get_recorded_args_and_kwargs if necessary
-quantizer.quantize(model, *args)
-# model is now quantized and can be saved, compiled or run
+# Use lm-eval for calibration
+from lm_eval.models.huggingface import HFLM
+from lm_eval import simple_evaluate
 
-args = get_next_input()
-out = model(*args)
+original_forward = model.forward
+model.forward = lambda *args, **kwargs: (input_recorder(*args, **kwargs), original_forward(*args, **kwargs))[1]
+lm_obj = HFLM(pretrained=model, tokenizer=tokenizer)
+simple_evaluate(model=lm_obj, tasks=["wikitext"], num_fewshot=0, limit=10)
+model.forward = original_forward
+
+# Perform GPTQ with collected inputs
+quantizer = Int4WeightOnlyGPTQQuantizer(groupsize=64)
+args, kwargs = input_recorder.get_recorded_args_and_kwargs()
+quantizer.quantize(model, *args, **kwargs)
 ```
 
-important notes:
-1) `input_recorder`, `quantizer.quantize` and `model` all take the same type of input. If you pass in kwargs to the model like `model(*args, **kwargs)` you'll need to do `input_recorder(*args, **kwargs)` and `quantizer.quantize(model, *args, **kwargs)`
+Important notes:
+1) `input_recorder`, `quantizer.quantize` and `model` all take the same type of input. If you pass kwargs to the model, use them consistently across all three.
 2) the GPTQ process can take a significant period of time depending on the size of the model and the size of the calibration set.
 3) We currently only support int4 weight only quantization for GPTQ though this framework can be relatively easily extended to other techniques.
-
-
-In many cases users want to get calibration data from standard benchmarks. You can manually collect inputs using `MultiTensorInputRecorder` as shown above, or use lm_eval to run evaluation and collect inputs from those tasks.
-
-For using lm_eval as a calibration data source, you would:
-1. Run lm_eval on your model with calibration tasks
-2. Collect the inputs during that run using `MultiTensorInputRecorder`
-3. Use those recorded inputs for GPTQ quantization
 
 ## Results
 
