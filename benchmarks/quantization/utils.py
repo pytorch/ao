@@ -47,7 +47,13 @@ def string_to_config(s):
             use_dynamic_per_tensor_scale=True,
             use_triton_kernel=True,
         )
-    elif s == "awq_int4_weight_only":
+    else:
+        raise AssertionError(f"unsupported config: {s}")
+
+
+def string_to_calibration_config(s):
+    """Convert string to calibration-based quantization config."""
+    if s == "awq_int4_weight_only":
         return Int4WeightOnlyConfig(
             group_size=128,
             int4_packing_format="tile_packed_to_4d",
@@ -57,4 +63,4 @@ def string_to_config(s):
     elif s == "smoothquant_int8":
         return Int8DynamicActivationInt8WeightConfig(version=2)
     else:
-        raise AssertionError(f"unsupported {s}")
+        raise AssertionError(f"unsupported config{s}")

@@ -152,7 +152,14 @@ for quant_recipe in "${QUANT_RECIPES[@]}"; do
   if [ "${SKIP_MODEL_CREATE:-0}" != "1" ]; then
     # Note: the -u flag is to prevent python from buffering stdout and stderr
     # and make the output log file be in chronological order
-    rm -rf $OUTPUT_DIR && python -u benchmarks/quantization/create_quantized_model.py --model_id $MODEL_ID --output_dir $OUTPUT_DIR --quant_recipe_name $quant_recipe 2>&1 | tee -a "$LOG_FILE"
+    rm -rf $OUTPUT_DIR
+
+    # Use calibration.py for calibration-based recipes, otherwise use create_quantized_model.py
+    if [ "$quant_recipe" = "awq_int4_weight_only" ] || [ "$quant_recipe" = "smoothquant_int8" ]; then
+      python -u benchmarks/quantization/calibration.py --model_id $MODEL_ID --output_dir $OUTPUT_DIR --quant_recipe_name $quant_recipe 2>&1 | tee -a "$LOG_FILE"
+    else
+      python -u benchmarks/quantization/create_quantized_model.py --model_id $MODEL_ID --output_dir $OUTPUT_DIR --quant_recipe_name $quant_recipe 2>&1 | tee -a "$LOG_FILE"
+    fi
   else
     echo "Skipping model creation (SKIP_MODEL_CREATE=1), using existing model at $OUTPUT_DIR" | tee -a "$LOG_FILE"
   fi
