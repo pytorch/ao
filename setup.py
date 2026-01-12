@@ -149,6 +149,22 @@ from torch.utils.cpp_extension import (
 )
 
 
+def detect_hipify_v2():
+    try:
+        from torch.utils.hipify import __version__
+
+        from packaging.version import Version
+
+        if Version(__version__) >= Version("2.0.0"):
+            return True
+    except Exception as e:
+        print(
+            "failed to detect pytorch hipify version, defaulting to version 1.0.0 behavior"
+        )
+        print(e)
+    return False
+
+
 class BuildOptions:
     def __init__(self):
         # TORCHAO_BUILD_CPU_AARCH64 is enabled by default on Arm-based Apple machines
@@ -441,11 +457,15 @@ def get_extensions():
         "-O3" if not debug_mode else "-O0",
         "-std=c++17",
     ]
+    maybe_hipify_v2_flag = []
+    if use_rocm and detect_hipify_v2():
+        maybe_hipify_v2_flag = ["-DHIPIFY_V2"]
 
     extra_link_args = []
     extra_compile_args = {
-        "cxx": [f"-DPy_LIMITED_API={min_supported_cpython_hexcode}"],
-        "nvcc": nvcc_args if use_cuda else rocm_args,
+        "cxx": [f"-DPy_LIMITED_API={min_supported_cpython_hexcode}"]
+        + maybe_hipify_v2_flag,
+        "nvcc": nvcc_args if use_cuda else rocm_args + maybe_hipify_v2_flag,
     }
 
     if not IS_WINDOWS:
@@ -709,6 +729,7 @@ def get_extensions():
         mxfp8_sources = [
             os.path.join(mxfp8_extension_dir, "mxfp8_extension.cpp"),
             os.path.join(mxfp8_extension_dir, "mxfp8_cuda.cu"),
+            os.path.join(mxfp8_extension_dir, "mx_block_rearrange_2d_M_groups.cu"),
         ]
 
         # Only add the extension if the source files exist AND we are building for sm100

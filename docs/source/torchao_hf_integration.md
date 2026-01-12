@@ -92,27 +92,35 @@ Please refer to [HF-TorchAO-Diffuser Docs](https://huggingface.co/docs/diffusers
 After we quantize the model, we can save it.
 
 ```python
-# Save quantized model (see below for safe_serialization enablement progress)
+# Save quantized model
 with tempfile.TemporaryDirectory() as tmp_dir:
-    model.save_pretrained(tmp_dir, safe_serialization=False)
+    model.save_pretrained(tmp_dir)
 
 # optional: push to hub (uncomment the following lines)
 # save_to = "your-username/Llama-3.2-1B-int4"
-# model.push_to_hub(save_to, safe_serialization=False)
+# model.push_to_hub(save_to)
 
 tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.2-1B")
 tokenizer.push_to_hub(save_to)
 ```
 
-**Current Status of Safetensors support**: TorchAO quantized models cannot yet be serialized with safetensors due to tensor subclass limitations. When saving quantized models, you must use `safe_serialization=False`.
+**Current Status of Safetensors support**
+
+We now support safetensors serialization for the following TorchAO quantization configs:
+* `Float8DynamicActivationFloat8WeightConfig`
+* `Int4WeightOnlyConfig`
+* `IntxWeightOnlyConfig`
+* `Int8DynamicActivationIntxWeightConfig`
+* `Int8WeightOnlyConfig`
+* `Int8DynamicActivationInt8WeightConfig`
+
+We will continue to add support for configs as they become stable. When saving quantized models not in this list, you must use `safe_serialization=False`.
 
 ```python
 # don't serialize model with Safetensors
 output_dir = "llama3-8b-int4wo-128"
 quantized_model.save_pretrained("llama3-8b-int4wo-128", safe_serialization=False)
 ```
-
-**Workaround**: For production use, save models with `safe_serialization=False` when pushing to Hugging Face Hub.
 
 **Future Work**: The TorchAO team is actively working on safetensors support for tensor subclasses. Track progress [here](https://github.com/pytorch/ao/issues/2338) and [here](https://github.com/pytorch/ao/pull/2881).
 

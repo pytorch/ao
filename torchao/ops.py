@@ -11,9 +11,6 @@ from torch import Tensor
 
 lib = torch.library.Library("torchao", "FRAGMENT")
 lib.define(
-    "quant_llm_linear(int EXPONENT, int MANTISSA, Tensor _in_feats, Tensor _weights, Tensor _scales, int splitK) -> Tensor"
-)
-lib.define(
     "unpack_tensor_core_tiled_layout(Tensor packed_w, int inner_k_tiles) -> Tensor"
 )
 lib.define(
@@ -98,81 +95,6 @@ def cached_compute_capability():
     device_props = torch.cuda.get_device_properties(torch.cuda.current_device())
     compute_capability = device_props.major * 10 + device_props.minor
     return compute_capability
-
-
-def quant_llm_linear(
-    EXPONENT: int,
-    MANTISSA: int,
-    _in_feats: Tensor,
-    _weights: Tensor,
-    _scales: Tensor,
-    splitK: int = 1,
-) -> Tensor:
-    """
-    Quant-LLM linear layer A @ W.T. See https://arxiv.org/abs/2401.14112 for more details.
-
-    Arguments
-        EXPONENT: number of exponent bits
-        MANTISSA: number of mantissa bits
-        _in_feats: input activations in FP16
-        _weights: packed Floatx weights
-        _scales: scale
-        splitK: split K
-
-    Returns
-        output of linear layer
-    """
-    # Check if we're on a supported architecture (sm7.5 or higher)
-    compute_capability = cached_compute_capability()
-    torch._check(
-        compute_capability >= 75,
-        lambda: f"quant_llm_linear requires sm7.5+ GPU architecture, but current device has sm{compute_capability}",
-    )
-    return torch.ops.torchao.quant_llm_linear.default(
-        EXPONENT, MANTISSA, _in_feats, _weights, _scales, splitK
-    )
-
-
-@register_custom_op("torchao::quant_llm_linear")
-def _(
-    EXPONENT: int,
-    MANTISSA: int,
-    _in_feats: Tensor,
-    _weights: Tensor,
-    _scales: Tensor,
-    splitK: int = 1,
-) -> Tensor:
-    torch._check(
-        _in_feats.dim() == 2,
-        lambda: f"input should be a 2d tensor, got {_in_feats.dim()}D",
-    )
-    torch._check(
-        _in_feats.dtype in (torch.float16, torch.bfloat16),
-        lambda: f"weight must be FP16 or BF16, got {_in_feats.dtype}",
-    )
-    torch._check(
-        _weights.dim() == 2,
-        lambda: f"weight should be a 2d tensor, got {_weights.dim()}D",
-    )
-    torch._check(
-        _weights.dtype is torch.uint8,
-        lambda: f"weight must be UINT8, got {_weights.dtype}",
-    )
-    torch._check(
-        _scales.dim() == 1, lambda: f"scale should be a 2d tensor, got {_scales.dim()}D"
-    )
-    torch._check(
-        _scales.dtype in (torch.float16, torch.bfloat16),
-        lambda: f"scale must be FP16 or BF16, got {_scales.dtype}",
-    )
-
-    BS, IC = _in_feats.shape
-    OC, _ = _weights.shape
-    N_BITS = 1 + EXPONENT + MANTISSA
-    torch._check(IC // 8 * N_BITS == _weights.shape[1], lambda: "Dimensions mismatched")
-    torch._check(OC == _scales.shape[0], lambda: "Dimensions mismatched")
-
-    return _in_feats.new_empty((BS, OC))
 
 
 def qscaled_dot_product(
