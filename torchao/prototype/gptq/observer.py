@@ -10,7 +10,7 @@ import torch.nn.functional as F
 from torchao.utils import TorchAOBaseTensor
 
 
-class ObserverTensor(TorchAOBaseTensor):
+class GPTQObserverTensor(TorchAOBaseTensor):
     tensor_data_names = ["hp_data"]
     optional_tensor_data_names = ["hessian"]
     tensor_attribute_names = ["total_batches"]
@@ -61,11 +61,11 @@ class ObserverTensor(TorchAOBaseTensor):
 
     @classmethod
     def from_hp(cls, hp_tensor):
-        return ObserverTensor(hp_tensor, 0, None)
+        return GPTQObserverTensor(hp_tensor, 0, None)
 
 
-implements = ObserverTensor.implements
-implements_torch_function = ObserverTensor.implements_torch_function
+implements = GPTQObserverTensor.implements
+implements_torch_function = GPTQObserverTensor.implements_torch_function
 aten = torch.ops.aten
 
 
@@ -77,12 +77,12 @@ def _(func, types, args, kwargs):
         args[1],
         args[2] if len(args) > 2 else None,
     )
-    if isinstance(weight_tensor, ObserverTensor):
+    if isinstance(weight_tensor, GPTQObserverTensor):
         weight_tensor.update(input_tensor.detach())
         return F.linear(input_tensor, weight_tensor.hp_data, bias)
     else:
         raise ValueError(
-            f"Expected weight_tensor to be ObserverTensor, got: {type(weight_tensor)}"
+            f"Expected weight_tensor to be GPTQObserverTensor, got: {type(weight_tensor)}"
         )
 
 

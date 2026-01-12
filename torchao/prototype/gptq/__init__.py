@@ -8,31 +8,53 @@ import math
 import types
 from dataclasses import dataclass
 from functools import partial
+from typing import Union
 
 import torch
 import torch.nn as nn
 from fbgemm_gpu.experimental.gen_ai.quantize import int4_row_quantize_zp, pack_int4
 
 from torchao.core.config import AOBaseConfig
-from torchao.quantization import Int4Tensor
-from torchao.quantization.quant_api import _module_extra_repr
+from torchao.quantization import Int4Tensor, Int8Tensor
+from torchao.quantization.quant_api import (
+    Int4WeightOnlyConfig,
+    Int8WeightOnlyConfig,
+    _module_extra_repr,
+)
 from torchao.quantization.transform_module import register_quantize_module_handler
+from torchao.quantization.utils import get_block_size
 
-from .observer import ObserverTensor
+from .observer import GPTQObserverTensor
+
+CONFIG_TO_TORCHAO_BASE_TENSOR = {
+    Int4WeightOnlyConfig: Int4Tensor,
+    Int8WeightOnlyConfig: Int8Tensor,
+}
 
 
 @dataclass
 class GPTQConfig(AOBaseConfig):
     """Unified config for GPTQ quantization with explicit step control.
 
-    step="observe": wraps weights as ObserverTensor for observation.
+    step="observe": wraps weights as GPTQObserverTensor for observation.
     step="convert": applies GPTQ quantization to observed tensors.
+
+    Args:
+        step: Either "observe" or "convert"
+        base_config: Base quantization configuration that determines the target dtype.
+            Use Int4WeightOnlyConfig() for int4 or Int8WeightOnlyConfig() for int8.
+        percdamp: Damping factor for Hessian
+        gptq_quantize_block_size: Block size for GPTQ algorithm
     """
 
     step: str = "observe"  # "observe" or "convert"
-    group_size: int = 128
+    base_config: Union[Int4WeightOnlyConfig, Int8WeightOnlyConfig] = None
     percdamp: float = 0.01
     gptq_quantize_block_size: int = 128
+
+    def __post_init__(self):
+        if self.base_config is None:
+            self.base_config = Int4WeightOnlyConfig(group_size=128)
 
 
 @register_quantize_module_handler(GPTQConfig)
@@ -43,8 +65,8 @@ def _gptq_config_transform(
     tensor = getattr(module, parameter_name)
 
     if config.step == "observe":
-        # Observation phase: wrap as ObserverTensor
-        new_tensor = ObserverTensor.from_hp(tensor)
+        # Observation phase: wrap as GPTQObserverTensor
+        new_tensor = GPTQObserverTensor.from_hp(tensor)
         setattr(module, parameter_name, nn.Parameter(new_tensor, requires_grad=False))
         module.extra_repr = types.MethodType(
             partial(
@@ -56,10 +78,10 @@ def _gptq_config_transform(
         )
         return module
     elif config.step == "convert":
-        # Quantization phase: tensor should be an ObserverTensor
-        if not isinstance(tensor, ObserverTensor):
+        # Quantization phase: tensor should be an GPTQObserverTensor
+        if not isinstance(tensor, GPTQObserverTensor):
             raise ValueError(
-                f"Expected {parameter_name} to be ObserverTensor in 'convert' step, "
+                f"Expected {parameter_name} to be GPTQObserverTensor in 'convert' step, "
                 f"but got {type(tensor)}. Did you run the 'observe' step first?"
             )
 
@@ -139,12 +161,31 @@ def _int4_row_dequantize_zp(
     return torch.cat(dequant_chunks, dim=-1)
 
 
-def gptq_quantize(H, W, config):
-    print("gptq quantizing weight of shape: ", W.shape)
-    block_size = [1, config.group_size]
+def gptq_quantize(H: torch.Tensor, W: torch.Tensor, config: GPTQConfig) -> Int4Tensor:
+    """
+    This function implements the GPTQ algorithm described in this paper: https://arxiv.org/abs/2210.17323
+    It is currently hardcoded to only support int4 per-group quantization.
+
+    Args:
+        H: Hessian matrix approximation
+        W: Weight matrix to quantize
+        config: GPTQ configuration
+
+    Returns:
+        Int4Tensor: Quantized weight matrix
+    """
     gptq_quantize_block_size = config.gptq_quantize_block_size
     percdamp = config.percdamp
-    group_size = config.group_size
+    base_config = config.base_config
+    base_tensor = CONFIG_TO_TORCHAO_BASE_TENSOR[base_config.__class__]
+
+    if isinstance(base_config, Int4WeightOnlyConfig):
+        group_size = config.base_config.group_size
+        block_size = [1, group_size]
+    elif isinstance(base_config, Int8WeightOnlyConfig):
+        block_size = get_block_size(W.shape, base_config.granularity)
+        block_size = list(block_size)
+        group_size = block_size[-1]
 
     assert W.dim() == 2
     assert group_size > 0
@@ -171,6 +212,14 @@ def gptq_quantize(H, W, config):
 
     all_qparams = []
 
+    # The general ideal of GPTQ is simple.
+    # If we have some linear layer W, we want to find a quantized version of W that minimizes some error metric, like MSE
+    # argmin W' ||WX − W'X ||
+
+    # We do this iteratively, row by row, which also allows us to update the remaining rows to better account for the quantization error
+    # This is the general idea of GPTQ, which seeks to do this update much faster on GPUs.
+
+    # We iterate through the weight matrix in blocks
     for W_quantize_block, block_start in zip(
         torch.split(W, gptq_quantize_block_size, dim=1),
         range(0, columns, gptq_quantize_block_size),
@@ -180,33 +229,44 @@ def gptq_quantize(H, W, config):
         Err1 = torch.zeros_like(W_quantize_block, dtype=H.dtype)
         Hinv_quantize_block = Hinv[block_start:block_end, block_start:block_end]
 
+        # If we are doing per-row quantization, the group_size is equal to the number of columns
+        # Otherwise, if we do per-group quantization, we need to iterate through the block one group at a time.
         for W_group, group_start in zip(
             torch.split(W_quantize_block, group_size, dim=1),
             range(block_start, block_end, group_size),
         ):
             group_end = min(group_start + group_size, columns)
 
+            # calculate qparams for the group only once
             if group_start % group_size == 0:
-                # calculate qparams once per group
-                _, scale, zero = int4_row_quantize_zp(W_group, group_size)
+                if isinstance(base_config, Int4WeightOnlyConfig):
+                    _, scale, zero = int4_row_quantize_zp(W_group, group_size)
+                elif isinstance(base_config, Int8WeightOnlyConfig):
+                    # p = base_tensor.from_hp(W_group, base_config.granularity)
+                    breakpoint()
                 all_qparams.append((scale, zero))
 
-            # within each group
+            # now we go row by row, updating the remaining rows to better account for the quantization error
             for i in range(group_start - block_start, group_end - block_start):
                 w = W_quantize_block[:, i].unsqueeze(1)
 
-                q = _int4_row_quantize_zp_precomputed_qparams(
-                    w, scale, zero, group_size
-                )
-                # Dequantize for error calculation
-                dq = _int4_row_dequantize_zp(q, scale, zero, group_size)
-
+                if isinstance(base_config, Int4WeightOnlyConfig):
+                    q = _int4_row_quantize_zp_precomputed_qparams(
+                        w, scale, zero, group_size
+                    )
+                    # Dequantize for error calculation
+                    dq = _int4_row_dequantize_zp(q, scale, zero, group_size)
+                elif isinstance(base_config, Int8WeightOnlyConfig):
+                    print(base_tensor)
+                    breakpoint()
+                    # q = Int8Tenor.from_hp(w, scale, zero_point)
                 err1 = (w - dq) / Hinv_quantize_block[i, i]
                 W_quantize_block[:, i:] -= err1.matmul(
                     Hinv_quantize_block[i, i:].unsqueeze(0)
                 )
                 Err1[:, i] = err1.flatten()
 
+        # Update the rest of the remaining rows outside of the block
         W[:, block_end:] -= Err1.matmul(Hinv[block_start:block_end, block_end:])
 
     if "cuda" in device.type:
@@ -236,8 +296,8 @@ def _calculate_hessian(inputs, device=None):
     """Calculate Hessian matrix from input activations for GPTQ.
 
     DEPRECATED: This function is kept for backward compatibility in tests only.
-    ObserverTensor now computes Hessian incrementally during observation.
-    Use ObserverTensor.hessian instead for production code.
+    GPTQObserverTensor now computes Hessian incrementally during observation.
+    Use GPTQObserverTensor.hessian instead for production code.
     """
     H = 0
     total_batches = 0
@@ -262,7 +322,7 @@ def _calculate_hessian(inputs, device=None):
 
 
 __all__ = [
-    "ObserverTensor",
+    "GPTQObserverTensor",
     "GPTQConfig",
     "gptq_quantize",
     "sequential_quantize_",

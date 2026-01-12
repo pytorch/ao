@@ -74,8 +74,8 @@ def prepare_dataset(
     tokenizer: AutoTokenizer,
     max_sequence_length: int,
     num_calibration_samples: Optional[int] = None,
-    dataset_id: str = "hellaswag",
-    dataset_split: str = "train",
+    dataset_id: str = "ultrachat200k",
+    dataset_split: str = "train_sft",
     seed: int = 42,
 ) -> List[torch.Tensor]:
     # Map dataset names to HuggingFace IDs
@@ -132,25 +132,25 @@ def parse_args():
     parser.add_argument(
         "--model-id",
         type=str,
-        default="unsloth/Llama-3.2-1B-Instruct",
+        default="unsloth/Llama-3.1-8B-Instruct",
         help="HuggingFace model ID to quantize",
     )
     parser.add_argument(
         "--num-calibration-samples",
         type=int,
-        default=5000,
+        default=128,
         help="Number of calibration samples to use",
     )
     parser.add_argument(
         "--max-sequence-length",
         type=int,
-        default=8192,
+        default=2048,
         help="Maximum sequence length (default: use model's max_length)",
     )
     parser.add_argument(
         "--dataset-id",
         type=str,
-        default="hellaswag",
+        default="ultrachat200k",
         choices=["hellaswag", "ultrachat200k"],
         help="Dataset for calibration (hellaswag or ultrachat200k)",
     )
@@ -233,11 +233,11 @@ def main():
         quantize_(model, config, filter_fn=None)
 
     elif args.quantization in ["int4-gptq-sequential", "int4-gptq-nonsequential"]:
-        # First application: wrap weights with ObserverTensor (observe step)
-        print("Wrapping weights with ObserverTensor for calibration...")
+        # First application: wrap weights with GPTQObserverTensor (observe step)
+        print("Wrapping weights with GPTQObserverTensor for calibration...")
         observe_config = GPTQConfig(
             step="observe",
-            group_size=args.group_size,
+            base_config=Int4WeightOnlyConfig(group_size=args.group_size),
             percdamp=args.percdamp,
             gptq_quantize_block_size=args.gptq_block_size,
         )
@@ -252,14 +252,14 @@ def main():
             max_seq_length,
             args.num_calibration_samples,
             dataset_id=args.dataset_id,
-            dataset_split="train",
+            dataset_split="train_sft",
             seed=42,
         )
 
         # Second application: apply GPTQ quantization (convert step)
         convert_config = GPTQConfig(
             step="convert",
-            group_size=args.group_size,
+            base_config=Int4WeightOnlyConfig(group_size=args.group_size),
             percdamp=args.percdamp,
             gptq_quantize_block_size=args.gptq_block_size,
         )
@@ -316,7 +316,9 @@ def main():
         "--model_args",
         f"pretrained={output_dir}",
         "--tasks",
-        "hellaswag",
+        "leaderboard_bbh",
+        "--num_fewshot",
+        "3",
         "--batch_size",
         "auto",
     ]
