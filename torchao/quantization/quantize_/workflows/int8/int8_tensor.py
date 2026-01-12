@@ -137,6 +137,8 @@ class Int8Tensor(TorchAOBaseTensor):
                 scale_dtype=hp_tensor.dtype,
                 zero_point_dtype=torch.int8,
                 keepdim=True,
+                # we need to use float32 eps for accuracy
+                eps=torch.finfo(torch.float32).eps,
             )
         else:
             # Scale can be provided in the case of static quant
