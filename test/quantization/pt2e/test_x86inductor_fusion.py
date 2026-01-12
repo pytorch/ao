@@ -1707,7 +1707,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
             )
 
         self._test_common(
-            mod,
+            copy.deepcopy(mod),
             inputs,
             matcher_check_fn=(
                 matcher_check_fn
@@ -1720,6 +1720,18 @@ class TestPatternMatcher(TestPatternMatcherBase):
             is_dynamic=is_dynamic,
             is_fp8=is_fp8,
         )
+        if is_fp8:
+            # ensure quantize_affine_float8_non_decomposed is lowered
+            self._test_code_common(
+                mod,
+                inputs,
+                include_ops=[],
+                exclude_ops=[
+                    "torch.ops.torchao.quantize_affine_float8_non_decomposed.default"
+                ],
+                check_quantization=True,
+                is_fp8=is_fp8,
+            )
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
