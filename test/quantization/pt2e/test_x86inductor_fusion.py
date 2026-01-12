@@ -775,14 +775,14 @@ class TestPatternMatcher(TestPatternMatcherBase):
         r"""
         This testcase will quantize Conv2d->SiLU pattern.
         Match.nodes:
-            [qconv2d_pointwise_default, convert_element_type, sigmoid, mul,
+            [qconv2d_pointwise_default, convert_element_type, neg, exp, add, div,
              convert_element_type, quantize_per_tensor]
-            [qconv2d_pointwise_default, convert_element_type, sigmoid, mul, convert_element_type]
+            [qconv2d_pointwise_default, convert_element_type, neg, exp, add, div, convert_element_type]
         """
         self._qconv2d_unary_test_helper(
             unary_op=torch.nn.SiLU(),
             mixed_bf16=True,
-            qconv_unary_matcher_nodes=11,
+            qconv_unary_matcher_nodes=15,
         )
 
     @skipIfNoDynamoSupport
@@ -793,14 +793,14 @@ class TestPatternMatcher(TestPatternMatcherBase):
         r"""
         This testcase will quantize Conv2d->SiLU pattern.
         Match.nodes:
-            [qconv2d_pointwise_default, convert_element_type, sigmoid, mul,
+            [qconv2d_pointwise_default, convert_element_type, neg, exp, add, div,
              convert_element_type, quantize_per_tensor]
-            [qconv2d_pointwise_default, convert_element_type, sigmoid, mul, convert_element_type]
+            [qconv2d_pointwise_default, convert_element_type, neg, exp, add, div, convert_element_type]
         """
         self._qconv2d_unary_test_helper(
             unary_op=torch.nn.SiLU(),
             mixed_bf16=True,
-            qconv_unary_matcher_nodes=11,
+            qconv_unary_matcher_nodes=15,
             is_fp8=True,
         )
 
