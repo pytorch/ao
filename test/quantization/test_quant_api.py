@@ -11,21 +11,13 @@ import gc
 import tempfile
 import unittest
 import warnings
-from pathlib import Path
 
 import torch
-from torch.ao.quantization.quantize_pt2e import convert_pt2e, prepare_pt2e
-from torch.ao.quantization.quantizer.xnnpack_quantizer import (
-    XNNPACKQuantizer,
-    get_symmetric_quantization_config,
-)
 from torch.testing._internal import common_utils
 from torch.testing._internal.common_quantization import TestHelperModules
 from torch.testing._internal.common_utils import TestCase
 
 from torchao import quantize_
-from torchao._models.llama.model import Transformer, prepare_inputs_for_model
-from torchao._models.llama.tokenizer import get_tokenizer
 from torchao.dtypes import (
     AffineQuantizedTensor,
     Int4CPULayout,
@@ -40,11 +32,15 @@ from torchao.quantization import (
     LinearActivationQuantizedTensor,
     PerGroup,
 )
+from torchao.quantization.pt2e.quantize_pt2e import convert_pt2e, prepare_pt2e
+from torchao.quantization.qat import (
+    FakeQuantizedLinear,
+    QATConfig,
+)
 from torchao.quantization.quant_api import (
     Float8DynamicActivationFloat8WeightConfig,
     Float8StaticActivationFloat8WeightConfig,
     Float8WeightOnlyConfig,
-    FPXWeightOnlyConfig,
     FqnToConfig,
     GemliteUIntXWeightOnlyConfig,
     Int4DynamicActivationInt4WeightConfig,
@@ -64,6 +60,10 @@ from torchao.quantization.quant_api import (
 )
 from torchao.quantization.quant_primitives import MappingType
 from torchao.quantization.utils import compute_error
+from torchao.testing.pt2e._xnnpack_quantizer import (
+    XNNPACKQuantizer,
+    get_symmetric_quantization_config,
+)
 from torchao.testing.utils import skip_if_rocm, skip_if_xpu
 from torchao.utils import (
     get_current_accelerator_device,
@@ -296,114 +296,6 @@ class TestQuantFlow(TestCase):
         assert isinstance(m.linear2, Int8DynActInt4WeightLinear)
         m(*example_inputs)
 
-    @unittest.skip("skipping until we get checkpoints for gpt-fast")
-    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
-    def test_quantizer_int4_weight_only(self):
-        from torchao._models._eval import TransformerEvalWrapper
-        from torchao.quantization.linear_quant_modules import Int4WeightOnlyQuantizer
-
-        precision = torch.bfloat16
-        device = _DEVICE
-        checkpoint_path = Path("../checkpoints/meta-llama/Llama-2-7b-chat-hf/model.pth")
-        model = Transformer.from_name(checkpoint_path.parent.name)
-        checkpoint = torch.load(str(checkpoint_path), mmap=True, weights_only=True)
-        model.load_state_dict(checkpoint, assign=True)
-        model = model.to(dtype=precision, device=device)
-        model.eval()
-        tokenizer_path = checkpoint_path.parent / "tokenizer.model"
-        assert tokenizer_path.is_file(), tokenizer_path
-        tokenizer = get_tokenizer(  # pyre-ignore[28]
-            tokenizer_path,
-            "Llama-2-7b-chat-hf",
-        )
-        groupsize = 64
-        quantizer = Int4WeightOnlyQuantizer(
-            groupsize,
-        )
-        model = quantizer.quantize(model).to(_DEVICE)
-        result = TransformerEvalWrapper(
-            model,
-            tokenizer,
-            model.config.block_size,
-            prepare_inputs_for_model,
-            device,
-        ).run_eval(
-            ["wikitext"],
-            1,
-        )
-        assert result["results"]["wikitext"]["word_perplexity,none"] < 8.24, (
-            f"accuracy regressed from 8.23 to {result['results']['wikitext']['word_perplexity,none']}"
-        )
-
-    @unittest.skip("skipping until we get checkpoints for gpt-fast")
-    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
-    def test_eval_wrapper(self):
-        from torchao._models._eval import TransformerEvalWrapper
-
-        precision = torch.bfloat16
-        device = _DEVICE
-        checkpoint_path = Path("../checkpoints/meta-llama/Llama-2-7b-chat-hf/model.pth")
-        model = Transformer.from_name(checkpoint_path.parent.name)
-        checkpoint = torch.load(str(checkpoint_path), mmap=True, weights_only=True)
-        model.load_state_dict(checkpoint, assign=True)
-        model = model.to(dtype=precision, device=device)
-        model.eval()
-        tokenizer_path = checkpoint_path.parent / "tokenizer.model"
-        assert tokenizer_path.is_file(), tokenizer_path
-        tokenizer = get_tokenizer(  # pyre-ignore[28]
-            tokenizer_path,
-            "Llama-2-7b-chat-hf",
-        )
-        result = TransformerEvalWrapper(
-            model,
-            tokenizer,
-            model.config.block_size,
-            prepare_inputs_for_model,
-            device,
-        ).run_eval(
-            ["wikitext"],
-            1,
-        )
-        assert result["results"]["wikitext"]["word_perplexity,none"] < 7.77, (
-            f"accuracy regressed from 7.76 to {result['results']['wikitext']['word_perplexity,none']}"
-        )
-
-    # EVAL IS CURRENTLY BROKEN FOR LLAMA 3, VERY LOW ACCURACY
-    @unittest.skip("skipping until we get checkpoints for gpt-fast")
-    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
-    def test_eval_wrapper_llama3(self):
-        from torchao._models._eval import TransformerEvalWrapper
-
-        precision = torch.bfloat16
-        device = _DEVICE
-        checkpoint_path = Path(
-            ".../gpt-fast/checkpoints/meta-llama/Meta-Llama-3-8B/model.pth"
-        )
-        model = Transformer.from_name(checkpoint_path.parent.name)
-        checkpoint = torch.load(str(checkpoint_path), mmap=True, weights_only=True)
-        model.load_state_dict(checkpoint, assign=True)
-        model = model.to(dtype=precision, device=device)
-        model.eval()
-        tokenizer_path = checkpoint_path.parent / "tokenizer.model"
-        assert tokenizer_path.is_file(), tokenizer_path
-        tokenizer = get_tokenizer(  # pyre-ignore[28]
-            tokenizer_path,
-            "Meta-Llama-3-8B",
-        )
-        result = TransformerEvalWrapper(
-            model,
-            tokenizer,
-            model.config.block_size,
-            prepare_inputs_for_model,
-            device,
-        ).run_eval(
-            ["wikitext"],
-            1,
-        )
-        assert result["results"]["wikitext"]["word_perplexity,none"] < 8.24, (
-            f"accuracy regressed from 8.23 to {result['results']['wikitext']['word_perplexity,none']}"
-        )
-
     # TODO: move to a separate test file
     @common_utils.parametrize(
         "mapping_type", [MappingType.SYMMETRIC, MappingType.SYMMETRIC_NO_CLIPPING_ERR]
@@ -558,7 +450,6 @@ class TestQuantFlow(TestCase):
             Int8DynamicActivationInt8WeightConfig(),
             Int8DynamicActivationInt4WeightConfig(),
             Int8WeightOnlyConfig(),
-            FPXWeightOnlyConfig(ebits=4, mbits=3),
             GemliteUIntXWeightOnlyConfig(),
             UIntXWeightOnlyConfig(dtype=torch.uint4),
         ],
@@ -801,20 +692,14 @@ class TestQuantFlow(TestCase):
 
     def test_config_deprecation(self):
         """
-        Test that old config functions like `int4_weight_only` trigger deprecation warnings.
+        Test that old config functions like `Int8DynamicActivationInt4WeightConfig` trigger deprecation warnings.
         """
         from torchao.quantization import (
-            float8_dynamic_activation_float8_weight,
-            float8_static_activation_float8_weight,
-            float8_weight_only,
-            fpx_weight_only,
-            gemlite_uintx_weight_only,
-            int4_dynamic_activation_int4_weight,
-            int4_weight_only,
-            int8_dynamic_activation_int4_weight,
-            int8_dynamic_activation_int8_weight,
-            int8_weight_only,
-            uintx_weight_only,
+            Float8StaticActivationFloat8WeightConfig,
+            GemliteUIntXWeightOnlyConfig,
+            Int4DynamicActivationInt4WeightConfig,
+            Int8DynamicActivationInt4WeightConfig,
+            UIntXWeightOnlyConfig,
         )
 
         # Reset deprecation warning state, otherwise we won't log warnings here
@@ -822,17 +707,11 @@ class TestQuantFlow(TestCase):
 
         # Map from deprecated API to the args needed to instantiate it
         deprecated_apis_to_args = {
-            float8_dynamic_activation_float8_weight: (),
-            float8_static_activation_float8_weight: (torch.randn(3)),
-            float8_weight_only: (),
-            fpx_weight_only: (3, 2),
-            gemlite_uintx_weight_only: (),
-            int4_dynamic_activation_int4_weight: (),
-            int4_weight_only: (),
-            int8_dynamic_activation_int4_weight: (),
-            int8_dynamic_activation_int8_weight: (),
-            int8_weight_only: (),
-            uintx_weight_only: (torch.uint4,),
+            Float8StaticActivationFloat8WeightConfig: (torch.randn(3),),
+            GemliteUIntXWeightOnlyConfig: (),
+            Int4DynamicActivationInt4WeightConfig: (),
+            Int8DynamicActivationInt4WeightConfig: (),
+            UIntXWeightOnlyConfig: (torch.uint4,),
         }
 
         # Call each deprecated API twice
@@ -841,19 +720,14 @@ class TestQuantFlow(TestCase):
                 cls(*args)
                 cls(*args)
 
-                # Each call should have at least one warning.
-                # Some of them can have two warnings - one for deprecation,
-                # one for moving to prototype
-                # 1 warning - just deprecation
-                # 2 warnings - deprecation and prototype warnings
-                self.assertTrue(len(_warnings) in (1, 2))
+                self.assertTrue(len(_warnings) == 1)
                 found_deprecated = False
                 for w in _warnings:
-                    if "is deprecated and will be removed in a future release" in str(
-                        w.message
-                    ):
+                    if "will be deleted in a future release" in str(w.message):
                         found_deprecated = True
-                    self.assertTrue(found_deprecated)
+                    self.assertTrue(
+                        found_deprecated, f"did not find deprecated warning for {cls}"
+                    )
 
 
 common_utils.instantiate_parametrized_tests(TestQuantFlow)
@@ -1211,6 +1085,32 @@ class TestFqnToConfig(TestCase):
 
         assert isinstance(m.nested.linear.weight, AffineQuantizedTensor)
         assert isinstance(m.linear1.weight, AffineQuantizedTensor)
+
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
+    def test_fqn_config_quantized_nested_module_module_swap(self):
+        class NestedModule(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.linear = torch.nn.Linear(16, 16)
+
+        class TopLevelModule(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.nested = NestedModule()
+                self.linear1 = torch.nn.Linear(16, 16)
+
+        m = TopLevelModule()
+        config = QATConfig(Int4WeightOnlyConfig(), step="prepare")
+        quant_config = FqnToConfig(
+            {
+                "nested.linear": config,
+                "linear1": config,
+            }
+        )
+        quantize_(m, quant_config, filter_fn=None)
+
+        assert isinstance(m.nested.linear, FakeQuantizedLinear)
+        assert isinstance(m.linear1, FakeQuantizedLinear)
 
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test_fqn_config_quantized_nested_module_param(self):

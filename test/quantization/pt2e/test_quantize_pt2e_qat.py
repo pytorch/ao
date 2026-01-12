@@ -28,8 +28,9 @@ from torch.testing._internal.common_quantization import (
     skipIfNoQNNPACK,
 )
 from torch.testing._internal.common_quantized import override_quantized_engine
-from torch.testing._internal.common_utils import run_tests
+from torch.testing._internal.common_utils import TEST_XPU, run_tests
 
+import torchao
 from torchao.quantization.pt2e import (
     FusedMovingAvgObsFakeQuantize,
     MovingAverageMinMaxObserver,
@@ -52,7 +53,9 @@ from torchao.testing.pt2e._xnnpack_quantizer import (
     XNNPACKQuantizer,
     get_symmetric_quantization_config,
 )
-from torchao.utils import torch_version_at_least
+from torchao.utils import get_current_accelerator_device, torch_version_at_least
+
+_DEVICE = get_current_accelerator_device()
 
 
 class PT2EQATTestCase(QuantizationTestCase):
@@ -176,12 +179,12 @@ class PT2EQATTestCase(QuantizationTestCase):
         self.assertEqual(after_prepare_result_pt2e, after_prepare_result_fx)
 
         if verify_convert:
-            from torch.ao.quantization.quantize_pt2e import (
+            from torch.ao.quantization.quantize_fx import (
                 _convert_to_reference_decomposed_fx,
             )
 
             # We don't want to impose any ordering requirements between move_exported_model_to_eval and convert_pt2e
-            torch.ao.quantization.move_exported_model_to_eval(model_pt2e)
+            torchao.quantization.pt2e.move_exported_model_to_eval(model_pt2e)
             model_pt2e = convert_pt2e(model_pt2e)
             quant_result_pt2e = model_pt2e(*example_inputs)
             model_fx.eval()
@@ -453,10 +456,10 @@ class TestQuantizePT2EQAT_ConvBn_Base(PT2EQATTestCase):
         self._verify_symmetric_xnnpack_qat_graph(m, self.example_inputs, has_relu=False)
         self._verify_symmetric_xnnpack_qat_numerics(m, self.example_inputs)
 
-    @unittest.skipIf(not TEST_CUDA, "CUDA unavailable")
+    @unittest.skipIf(not TEST_CUDA and not TEST_XPU, "GPU unavailable")
     def test_qat_conv_bn_fusion_cuda(self):
-        m = self._get_conv_bn_model().cuda()
-        example_inputs = (self.example_inputs[0].cuda(),)
+        m = self._get_conv_bn_model().to(_DEVICE)
+        example_inputs = (self.example_inputs[0].to(_DEVICE),)
         self._verify_symmetric_xnnpack_qat_graph(
             m,
             example_inputs,
@@ -540,10 +543,10 @@ class TestQuantizePT2EQAT_ConvBn_Base(PT2EQATTestCase):
         self._verify_symmetric_xnnpack_qat_graph(m, self.example_inputs, has_relu=True)
         self._verify_symmetric_xnnpack_qat_numerics(m, self.example_inputs)
 
-    @unittest.skipIf(not TEST_CUDA, "CUDA unavailable")
+    @unittest.skipIf(not TEST_CUDA and not TEST_XPU, "GPU unavailable")
     def test_qat_conv_bn_relu_fusion_cuda(self):
-        m = self._get_conv_bn_model(has_relu=True).cuda()
-        example_inputs = (self.example_inputs[0].cuda(),)
+        m = self._get_conv_bn_model(has_relu=True).to(_DEVICE)
+        example_inputs = (self.example_inputs[0].to(_DEVICE),)
         self._verify_symmetric_xnnpack_qat_graph(
             m,
             example_inputs,
@@ -886,7 +889,7 @@ class TestQuantizePT2EQAT_ConvBn2d(TestQuantizePT2EQAT_ConvBn_Base):
         """
         m = DoubleConvBnModel()
         example_inputs = (torch.randn(1, 3, 5, 5),)
-        m = torch.export.export_for_training(m, example_inputs, strict=True).module()
+        m = torch.export.export(m, example_inputs, strict=True).module()
         old_nodes = set(m.graph.nodes)
         m = prepare_qat_pt2e(m, DoubleConvBnQuantizer())
         new_nodes = set(m.graph.nodes)
@@ -1268,7 +1271,7 @@ class TestQuantizeMixQATAndPTQ(QuantizationTestCase):
     def _convert_qat_linears(self, model):
         for name, child in model.named_children():
             if isinstance(child, torch.fx.GraphModule):
-                torch.ao.quantization.move_exported_model_to_eval(child)
+                torchao.quantization.pt2e.move_exported_model_to_eval(child)
                 converted_child = convert_pt2e(child)
                 setattr(model, name, converted_child)
             else:

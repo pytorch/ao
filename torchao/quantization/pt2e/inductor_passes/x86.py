@@ -3,6 +3,7 @@
 import copy
 import functools
 import itertools
+import operator
 from typing import Any
 
 import torch
@@ -2902,6 +2903,151 @@ def _register_qlinear_binary_fusion():
             )
 
 
+def _register_scaled_embedding_bag_pass(pattern, pass_number, dtype=torch.float32):
+    @register_freezing_graph_pattern(
+        pattern,
+        pass_number=pass_number,
+    )
+    def scaled_embedding_bag(match: Match, *args, **kwargs):
+        assert dtype in [torch.float32, torch.bfloat16]
+
+        if "o_dtype" in kwargs:
+            quant_node = match.output_node()
+            getitem_node = quant_node.args[0]
+        else:
+            getitem_node = match.output_node()
+        embedding_bag_node = getitem_node.args[0]
+        assert embedding_bag_node.target is aten._embedding_bag_forward_only.default
+
+        embedding_bag_weight_index = 0
+        if dtype == torch.float32:
+            # pattern: embedding_bag -> dequant
+            dequant_node = embedding_bag_node.args[embedding_bag_weight_index]
+        else:
+            # pattern: embedding_bag -> to_bf16 -> dequant
+            weight_to_bf16_node = embedding_bag_node.args[embedding_bag_weight_index]
+            dequant_node = weight_to_bf16_node.args[0]
+
+        assert dequant_node.target in [
+            quantized_decomposed.dequantize_per_tensor.default,
+            quantized_decomposed.dequantize_per_tensor.tensor,
+            torch.ops.torchao.dequantize_affine_float8_non_decomposed.default,
+        ]
+
+        # Weight QParams
+        qw, w_scale = kwargs["x"], kwargs["x_scale"]
+
+        # Input Params
+        indices, offsets, mode, include_last_offset = (
+            kwargs["indices"],
+            kwargs["offsets"],
+            kwargs["mode"],
+            kwargs["include_last_offset"],
+        )
+        output_type = torch.float
+        o_scale = 1.0
+        if "o_dtype" in kwargs:
+            output_type = kwargs["o_dtype"]
+            o_scale = kwargs["o_inv_scale"]
+
+        graph = match.graph
+        with graph.inserting_before(getitem_node):
+            # float scale not supported on scaled_embedding_bag
+            # convert scale from float into tensor
+            if type(w_scale) is float:
+                w_scale = graph.call_function(
+                    torch.ops.aten.full.default,
+                    args=([1], w_scale),
+                    kwargs={"dtype": torch.float},
+                )
+            new_args: tuple[Any, ...] = (
+                qw,
+                indices,
+                offsets,
+                w_scale,
+                o_scale,
+                mode,
+                include_last_offset,
+                output_type,
+            )
+
+            new_embedding_bag_node = graph.call_function(
+                torch.ops.torchao._scaled_embedding_bag.default, args=new_args
+            )
+
+            # Erase quant pattern
+            if output_type == torch.int8:
+                quant_node.replace_all_uses_with(getitem_node)
+                getitem_node.meta.update(quant_node.meta)
+                graph.erase_node(quant_node)
+            getitem_node.replace_all_uses_with(new_embedding_bag_node)
+            new_embedding_bag_node.meta.update(embedding_bag_node.meta)
+
+            graph.erase_node(getitem_node)
+            graph.erase_node(embedding_bag_node)
+            if dtype == torch.bfloat16:
+                graph.erase_node(weight_to_bf16_node)  # type: ignore[possibly-undefined]
+            # Erase the dequant pattern
+            graph.erase_node(dequant_node)
+
+        counter_name = "scaled_embedding_bag"
+        if "o_dtype" in kwargs:
+            counter_name += "_with_output_quant"
+        counters["inductor"][f"{counter_name}_matcher_count"] += 1
+        counters["inductor"][f"{counter_name}_matcher_nodes"] += len(match.nodes)
+
+
+def _generate_scaled_embedding_bag_patterns(dq_pattern):
+    embedding_bag_pattern = CallFunction(
+        torch.ops.aten._embedding_bag_forward_only.default,
+        dq_pattern,
+        KeywordArg("indices"),
+        KeywordArg("offsets"),
+        Arg(),
+        KeywordArg("mode"),
+        KeywordArg("sparse"),
+        Arg(),
+        KeywordArg("include_last_offset"),
+    )
+    return CallFunction(
+        operator.getitem,
+        embedding_bag_pattern,
+        KeywordArg("item"),
+    )
+
+
+def _register_quantization_embeddingbag_pass():
+    for is_fp8 in [True, False]:
+        for dtype in [torch.float32, torch.bfloat16]:
+            embeddingbag_pattern = _generate_scaled_embedding_bag_patterns(
+                _may_generate_pattern_with_dtype_convert(
+                    get_dequantize_per_tensor_activation_pattern(
+                        is_tensor_overload=False, is_fp8=is_fp8
+                    ),
+                    KeywordArg("autocast_act_dtype"),
+                    dtype == torch.bfloat16,
+                ),
+            )
+
+            _register_scaled_embedding_bag_pass(
+                embeddingbag_pattern, pass_number=1, dtype=dtype
+            )
+
+            # will support fp8 output later
+            if not is_fp8:
+                embeddingbag_with_qoutput_pattern = generate_pattern_with_output_quant(
+                    embeddingbag_pattern,
+                    dtype == torch.bfloat16,
+                    is_fp8,
+                )
+
+                _register_scaled_embedding_bag_pass(
+                    embeddingbag_with_qoutput_pattern,
+                    pass_number=0,
+                    dtype=dtype,
+                )
+
+
 @functools.lru_cache(None)
 def _register_quantization_weight_pack_pass():
     # Step 1: Dequant promotion for int8-mixed-fp32/bf16
@@ -2924,6 +3070,7 @@ def _register_quantization_weight_pack_pass():
         _register_qconv_binary_fusion()
         _register_qlinear_unary_fusion()
         _register_qlinear_binary_fusion()
+        _register_quantization_embeddingbag_pass()
 
 
 def quant_lift_up(module_graph: torch.fx.graph.Graph):

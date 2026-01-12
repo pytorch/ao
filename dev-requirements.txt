@@ -7,6 +7,7 @@ transformers
 hypothesis # Avoid test derandomization warning
 sentencepiece # for gpt-fast tokenizer
 expecttest
+pyyaml
 
 # For prototype features and benchmarks
 bitsandbytes # needed for testing triton quant / dequant ops for 8-bit optimizers

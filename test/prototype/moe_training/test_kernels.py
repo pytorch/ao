@@ -21,6 +21,8 @@ from torchao.prototype.moe_training.kernels.jagged_float8_scales import (
     triton_fp8_per_group_rowwise_scales,
 )
 from torchao.prototype.moe_training.kernels.mxfp8 import (
+    mx_block_rearrange_2d_M_groups_cuda,
+    mxfp8_quantize_cuda_3d,
     torch_to_blocked_2d_K_groups,
     torch_to_blocked_2d_M_groups,
     torch_to_blocked_per_group_3d,
@@ -243,6 +245,50 @@ def test_triton_mx_block_rearrange_2d_M_groups(
     )
 
 
+@pytest.mark.skipif(
+    not is_sm_at_least_100(),
+    reason="MXFP8 requires CUDA capability 10.0 or greater",
+)
+@skip_if_rocm("ROCm enablement in progress")
+@pytest.mark.parametrize("m,k,n_groups", [(16640, 2048, 8), (131072, 8192, 32)])
+@pytest.mark.parametrize("chunk_width", [64, 128])
+@pytest.mark.parametrize("chunks_per_tb", [1, 4, 8, 16])
+def test_cuda_mx_block_rearrange_2d_M_groups(
+    m: int,
+    k: int,
+    n_groups: int,
+    chunk_width: int,
+    chunks_per_tb: int,
+):
+    device = "cuda"
+    block_size = 32
+    input_data = torch.randn(m, k, device=device)
+    e8m0_scales, _ = to_mx(
+        input_data, elem_dtype=torch.float8_e4m3fn, block_size=block_size
+    )
+    scale_rows, scale_cols = e8m0_scales.shape
+
+    input_group_offsets = generate_jagged_offs(
+        n_groups, m, multiple_of=block_size, device=device
+    )
+
+    # torch reference
+    ref_out_scales, _ = torch_to_blocked_2d_M_groups(
+        e8m0_scales, input_group_offsets, block_size=block_size
+    )
+
+    # cuda kernel
+    cuda_out_scales = mx_block_rearrange_2d_M_groups_cuda(
+        e8m0_scales,
+        input_group_offsets,
+        chunk_width=chunk_width,
+        chunks_per_tb=chunks_per_tb,
+    )
+    assert torch.allclose(ref_out_scales, cuda_out_scales, atol=0, rtol=0), (
+        "blocked scales not equal"
+    )
+
+
 @skip_if_rocm("ROCm enablement in progress")
 @pytest.mark.parametrize("e,n,k", [(1, 8192, 5120), (2, 8192, 5120), (8, 5120, 8192)])
 def test_mxfp8_per_group_blocked_scales_3d(
@@ -317,8 +363,6 @@ def test_triton_mx_block_rearrange_2d_K_groups(
 @pytest.mark.parametrize("input_dtype", (torch.bfloat16,))
 @pytest.mark.parametrize("scaling_mode", (ScaleCalculationMode.FLOOR,))
 def test_cuda_mx_dim1_3d_numerics(E, N, K, input_dtype, scaling_mode):
-    from torchao.prototype import mxfp8_cuda
-
     scaling_mode_str = (
         "floor" if scaling_mode == ScaleCalculationMode.FLOOR else "rceil"
     )
@@ -344,9 +388,8 @@ def test_cuda_mx_dim1_3d_numerics(E, N, K, input_dtype, scaling_mode):
     y_d1_ref = y_d1_ref.transpose(-2, -1)
     s_d1_ref = s_d1_ref.transpose(-2, -1)
 
-    # CUDA implementation (should work with any stride pattern)
-    y_d1, s_d1 = mxfp8_cuda.quantize_3d(
-        x, scale_dim_n=block_size, scaling_mode=scaling_mode_str
+    y_d1, s_d1 = mxfp8_quantize_cuda_3d(
+        x, block_size=block_size, scaling_mode=scaling_mode_str
     )
     # Check scales
     torch.testing.assert_close(s_d1, s_d1_ref, rtol=0, atol=0)

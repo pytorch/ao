@@ -14,11 +14,15 @@ from torch.testing._internal import common_utils
 
 from torchao.quantization import (
     Int8DynamicActivationInt8WeightConfig,
+    Int8StaticActivationInt8WeightConfig,
     Int8WeightOnlyConfig,
     quantize_,
 )
 from torchao.quantization.granularity import PerRow, PerTensor
 from torchao.quantization.quant_primitives import MappingType
+from torchao.quantization.quantize_.common import (
+    _choose_quant_func_and_quantize_tensor,
+)
 from torchao.quantization.utils import compute_error, get_block_size
 from torchao.testing.model_architectures import ToyTwoLinearModel
 from torchao.testing.utils import TorchAOIntegrationTestCase
@@ -219,6 +223,90 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
         FileCheck().check_count("triton_per_fused", 1).check_count(
             "extern_kernels._int_mm", 1
         ).check_count("triton_poi_fused", 1).run(code[0])
+
+    @common_utils.parametrize("config", INT8_TEST_CONFIGS)
+    def test_pin_memory(self, config):
+        linear = torch.nn.Linear(
+            256, 512, bias=False, dtype=torch.bfloat16, device="cuda"
+        )
+        quantize_(linear, config)
+        weight_cpu = linear.weight.cpu()
+        self.assertFalse(weight_cpu.is_pinned())
+
+        weight_pinned = weight_cpu.pin_memory()
+
+        self.assertTrue(weight_pinned.is_pinned())
+        self.assertFalse(weight_cpu.is_pinned())
+
+        self.assertTrue(weight_pinned.qdata.is_pinned())
+        self.assertTrue(weight_pinned.scale.is_pinned())
+        if weight_pinned.act_scale is not None:
+            self.assertTrue(weight_pinned.act_scale.is_pinned())
+
+        self.assertEqual(
+            weight_cpu.dequantize(), weight_pinned.dequantize(), atol=0, rtol=0
+        )
+
+
+@unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+@common_utils.instantiate_parametrized_tests
+class TestInt8StaticQuant(TorchAOIntegrationTestCase):
+    @common_utils.parametrize("granularity", [PerRow(), PerTensor()])
+    @common_utils.parametrize("dtype", [torch.bfloat16])
+    def test_static_activation_per_row_int8_weight(self, granularity, dtype):
+        torch.compiler.reset()
+
+        M, N, K = 32, 32, 32
+        input_tensor = torch.randn(M, K, dtype=dtype, device="cuda")
+
+        model = torch.nn.Linear(K, N, bias=False).eval().to(device="cuda", dtype=dtype)
+        model_static_quant = copy.deepcopy(model)
+        model_dynamic_quant = copy.deepcopy(model)
+
+        model_out_baseline = model(input_tensor)
+
+        dynamic_config = Int8DynamicActivationInt8WeightConfig(
+            version=2, granularity=granularity
+        )
+        quantize_(model_dynamic_quant, dynamic_config)
+
+        dynamic_out_eager = model_dynamic_quant(input_tensor)
+        sqnr_dynamic_eager = compute_error(model_out_baseline, dynamic_out_eager)
+
+        model_dynamic_quant = torch.compile(model_dynamic_quant, fullgraph=True)
+
+        dynamic_out_compile = model_dynamic_quant(input_tensor)
+        sqnr_dynamic_compile = compute_error(model_out_baseline, dynamic_out_compile)
+
+        # we use eager scales to calculate
+        int8_input = _choose_quant_func_and_quantize_tensor(
+            input_tensor, model_dynamic_quant.weight.act_quant_kwargs
+        )
+
+        static_config = Int8StaticActivationInt8WeightConfig(
+            scale=int8_input.scale.detach().clone(),
+            granularity=granularity,
+        )
+        quantize_(model_static_quant, static_config)
+
+        static_out_eager = model_static_quant(input_tensor)
+        sqnr_static_eager = compute_error(model_out_baseline, static_out_eager)
+
+        model_static_quant = torch.compile(model_static_quant, fullgraph=True)
+
+        static_out_compile = model_dynamic_quant(input_tensor)
+        sqnr_static_compile = compute_error(model_out_baseline, static_out_compile)
+
+        assert (
+            sqnr_static_compile
+            == sqnr_static_eager
+            == sqnr_dynamic_compile
+            == sqnr_dynamic_eager
+        ), "SQNR should be the same for all quantization methods and eager/compile"
+
+        # eager numerics should match exactly
+        # for compile, we can't compare dynamic vs static because we may get slightly different qparams when fused
+        torch.testing.assert_close(dynamic_out_eager, static_out_eager)
 
 
 if __name__ == "__main__":
