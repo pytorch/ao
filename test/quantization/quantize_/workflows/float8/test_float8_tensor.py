@@ -1406,6 +1406,28 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
 
         self.assertEqual(weight_cpu.dequantize(), weight_pinned.dequantize())
 
+    def test_create_tensor_out_of_inference_mode(self):
+        # Test https://github.com/pytorch/pytorch/issues/170419
+        linear = torch.nn.Linear(
+            32, 48, bias=True, device=_DEVICE, dtype=torch.bfloat16
+        )
+        linear.eval()
+        linear.requires_grad_(False)
+
+        quantize_(
+            linear,
+            Float8DynamicActivationFloat8WeightConfig(granularity=PerTensor()),
+            device=_DEVICE,
+        )
+
+        input_tensor = torch.randn(16, 32, dtype=torch.bfloat16, device=_DEVICE)
+
+        # Forward pass inside inference_mode should work
+        with torch.inference_mode():
+            output = linear(input_tensor)
+            self.assertEqual(output.shape, (16, 48))
+            self.assertEqual(output.dtype, torch.bfloat16)
+
 
 common_utils.instantiate_parametrized_tests(TestFloat8Tensor)
 
