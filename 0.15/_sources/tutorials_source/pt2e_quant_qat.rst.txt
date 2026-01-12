@@ -5,7 +5,7 @@ PyTorch 2 Export Quantization-Aware Training (QAT)
 This tutorial shows how to perform quantization-aware training (QAT) in
 graph mode based on `torch.export.export <https://pytorch.org/docs/main/export.html>`_.
 For more details about PyTorch 2 Export Quantization in general, refer
-to the `post training quantization tutorial <https://docs.pytorch.org/ao/stable/tutorial_source/pt2e_quant_ptq.html>`_
+to the `post training quantization tutorial <https://docs.pytorch.org/ao/stable/tutorials_source/pt2e_quant_ptq.html>`_
 
 The PyTorch 2 Export QAT flow looks like the following—it is similar
 to the post training quantization (PTQ) flow for the most part:
