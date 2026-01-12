@@ -5,102 +5,15 @@
 # LICENSE file in the root directory of this source tree.
 
 import unittest
-from pathlib import Path
 
 import torch
 from torch.testing._internal.common_utils import TestCase
 
-from torchao._models.llama.model import (
-    Transformer,
-    prepare_inputs_for_model,
-)
-from torchao._models.llama.tokenizer import get_tokenizer
 from torchao.utils import get_current_accelerator_device
 
 torch.manual_seed(0)
 
 _DEVICE = get_current_accelerator_device()
-
-
-class TestGPTQ(TestCase):
-    @unittest.skip("skipping until we get checkpoints for gpt-fast")
-    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
-    def test_gptq_quantizer_int4_weight_only(self):
-        from torchao._models._eval import (
-            LMEvalInputRecorder,
-            TransformerEvalWrapper,
-        )
-        from torchao.quantization.GPTQ import Int4WeightOnlyGPTQQuantizer
-
-        precision = torch.bfloat16
-        device = _DEVICE
-        checkpoint_path = Path(
-            "../../checkpoints/meta-llama/Llama-2-7b-chat-hf/model.pth"
-        )
-        model = Transformer.from_name(checkpoint_path.parent.name)
-        checkpoint = torch.load(str(checkpoint_path), mmap=True, weights_only=True)
-        model.load_state_dict(checkpoint, assign=True)
-        model = model.to(dtype=precision, device="cpu")
-        model.eval()
-
-        tokenizer_path = checkpoint_path.parent / "tokenizer.model"
-        assert tokenizer_path.is_file(), tokenizer_path
-        tokenizer = get_tokenizer(  # pyre-ignore[28]
-            tokenizer_path,
-            "Llama-2-7b-chat-hf",
-        )
-        groupsize = 64
-        blocksize = 128
-        percdamp = 0.01
-        calibration_tasks = ["wikitext"]
-        calibration_limit = 1
-        calibration_seq_length = 100
-        input_prep_func = prepare_inputs_for_model
-        pad_calibration_inputs = False
-        inputs = (
-            LMEvalInputRecorder(
-                tokenizer,
-                calibration_seq_length,
-                input_prep_func,
-                model.config.vocab_size,
-                pad_calibration_inputs,
-                device="cpu",
-            )
-            .record_inputs(
-                calibration_tasks,
-                calibration_limit,
-            )
-            .get_recorded_inputs()
-        )
-
-        quantizer = Int4WeightOnlyGPTQQuantizer(
-            groupsize,
-            blocksize,
-            percdamp,
-        )
-        model.setup_caches(max_batch_size=1, max_seq_length=calibration_seq_length)
-
-        model = quantizer.quantize(model, *inputs).to(_DEVICE)
-
-        model.reset_caches()
-        with torch.device(_DEVICE):
-            model.setup_caches(max_batch_size=1, max_seq_length=model.config.block_size)
-
-        limit = 1
-        result = TransformerEvalWrapper(
-            model.to(_DEVICE),
-            tokenizer,
-            model.config.block_size,
-            prepare_inputs_for_model,
-            device,
-        ).run_eval(
-            ["wikitext"],
-            limit,
-        )
-
-        assert result["results"]["wikitext"]["word_perplexity,none"] < 7.77, (
-            f"accuracy regressed from 7.76 to {result['results']['wikitext']['word_perplexity,none']}"
-        )
 
 
 class TestMultiTensorFlow(TestCase):

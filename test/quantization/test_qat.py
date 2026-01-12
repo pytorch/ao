@@ -2174,6 +2174,42 @@ class TestQAT(TestCase):
             self.assertNotEqual(torch.count_nonzero(new_weight.grad), 0)
             self.assertFalse(torch.equal(new_weight, prev_weight))
 
+    @unittest.skipIf(not is_sm_at_least_89(), "Need sm89+")
+    @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
+    def test_nvfp4_fake_quanitzed_linear_mixed_precision(self):
+        """
+        Test `NVFP4FakeQuantizedLinear` with bf16 input activations and fp32 weights.
+        """
+        from torchao.prototype.qat.nvfp4 import (
+            NVFP4FakeQuantizeConfig,
+            NVFP4FakeQuantizedLinear,
+        )
+
+        activation_dtype = torch.bfloat16
+        weight_dtype = torch.float32
+        linear = torch.nn.Linear(128, 512, dtype=weight_dtype).cuda()
+        activation_config = NVFP4FakeQuantizeConfig(use_per_tensor_scale=True)
+        weight_config = NVFP4FakeQuantizeConfig(use_per_tensor_scale=True)
+        linear = NVFP4FakeQuantizedLinear.from_linear(
+            linear, activation_config, weight_config
+        )
+
+        # simulate 1 step of training
+        optimizer = torch.optim.SGD(linear.parameters())
+        loss_fn = torch.nn.CrossEntropyLoss()
+        target = torch.randn(1, 512).float().cuda()
+        x = torch.randn(1, 128, dtype=activation_dtype).cuda()
+        with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+            out = linear(x)
+            self.assertEqual(linear.weight.dtype, weight_dtype)
+            self.assertEqual(x.dtype, activation_dtype)
+            self.assertEqual(out.dtype, activation_dtype)
+        loss = loss_fn(out, target)
+        loss.backward()
+        self.assertEqual(linear.weight.grad.dtype, weight_dtype)
+        optimizer.step()
+        optimizer.zero_grad()
+
     @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
     @unittest.skipIf(
         not _is_fbgemm_gpu_genai_available(), "Requires fbgemm-gpu-genai >= 1.2.0"

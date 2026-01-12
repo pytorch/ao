@@ -1146,6 +1146,13 @@ def _is_fbgemm_gpu_genai_available():
     return True
 
 
+def _is_mslk_available():
+    if is_fbcode():
+        return True
+
+    return importlib.util.find_spec("mslk") is not None
+
+
 class DummyModule(torch.nn.Module):
     """This is used because the TorchAO quantization functions tend to operate on modules so to apply the transform to a tensor, we can load a
     DummyModule with the target tensor and then apply the transformation to the module and then extract the transformed tensor.

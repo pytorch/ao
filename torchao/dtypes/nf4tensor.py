@@ -15,6 +15,8 @@ import torch.nn.functional as F
 from torch._prims_common import make_contiguous_strides_for
 from torch.distributed.device_mesh import DeviceMesh
 
+from torchao.utils import torch_version_at_least
+
 aten = torch.ops.aten
 
 c10d_functional = torch.ops.c10d_functional
@@ -528,6 +530,28 @@ def wait_tensor(func, *args, **kwargs):
         updated_attrs[attr] = func(getattr(nf4tensor, attr))
     updatedNF4Tensor = NF4Tensor(*construct_nf4_args(nf4tensor, updated_attrs))
     return updatedNF4Tensor
+
+
+# _wrap_tensor_autograd was added in PyTorch 2.10
+if torch_version_at_least("2.10.0"):
+
+    @implements(
+        [
+            torch.ops._c10d_functional._wrap_tensor_autograd.default,
+        ]
+    )
+    def wrap_tensor_autograd_nf4(func, *args, **kwargs):
+        """
+        Handle _wrap_tensor_autograd for NF4Tensor.
+        This wraps the underlying nf4 data in AsyncCollectiveTensor while
+        preserving the NF4Tensor wrapper with its metadata.
+        """
+        nf4tensor = args[0][0]
+        updated_attrs = {}
+        for attr in _INNER_TENSOR_NAMES_FOR_SHARDING:
+            updated_attrs[attr] = func(getattr(nf4tensor, attr), *args[0][1:], **kwargs)
+        updatedNF4Tensor = NF4Tensor(*construct_nf4_args(nf4tensor, updated_attrs))
+        return updatedNF4Tensor
 
 
 @dataclass(frozen=True)
