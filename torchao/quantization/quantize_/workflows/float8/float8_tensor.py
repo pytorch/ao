@@ -763,20 +763,77 @@ def _(func, types, args, kwargs):
     for i in range(len(self.block_size)):
         block_size[i] = min(block_size[i], sliced_data.shape[i])
 
-    return return_and_correct_aliasing(
-        func,
-        args,
-        kwargs,
-        Float8Tensor(
+    return Float8Tensor(
+        sliced_data,
+        sliced_scale,
+        block_size,
+        self.mm_config,
+        self.act_quant_kwargs,
+        self.kernel_preference,
+        dtype=self.dtype,
+    )
+
+
+@implements_torch_function(torch.Tensor.__getitem__)
+def _(func, types, args, kwargs):
+    """Handle __getitem__ via torch_function to avoid inference mode issues.
+
+    We directly slice qdata and scale (regular tensors) to bypass the
+    inference mode version counter issue that occurs when going through
+    the default __torch_function__ fallback.
+    """
+    self = args[0]
+    indices = args[1] if len(args) > 1 else kwargs.get("indices")
+
+    # Handle simple slice on first dimension: x[start:end]
+    if isinstance(indices, slice):
+        start = indices.start or 0
+        end = indices.stop if indices.stop is not None else self.shape[0]
+        step = indices.step or 1
+
+        # Slice qdata directly
+        sliced_data = aten.slice.Tensor(self.qdata, 0, start, end, step)
+
+        if self.scale.numel() == 1:
+            sliced_scale = self.scale
+        else:
+            sliced_scale = _slice_scale_for_dimension(
+                self.scale, self.qdata.shape, 0, start, end, step
+            )
+
+        block_size = self.block_size.copy()
+        for i in range(len(block_size)):
+            block_size[i] = min(block_size[i], sliced_data.shape[i])
+
+        return Float8Tensor(
             sliced_data,
             sliced_scale,
             block_size,
             self.mm_config,
             self.act_quant_kwargs,
             self.kernel_preference,
-            dtype=self.dtype,
-        ),
-    )
+            self.dtype,
+        )
+
+    # Handle integer index: x[i]
+    if isinstance(indices, int):
+        sliced_data = self.qdata[indices]
+        sliced_scale = self.scale[indices]
+        block_size = self.block_size[1:]
+
+        return Float8Tensor(
+            sliced_data,
+            sliced_scale,
+            block_size,
+            self.mm_config,
+            self.act_quant_kwargs,
+            self.kernel_preference,
+            self.dtype,
+        )
+
+    # For other cases, fall back to default behavior
+    with torch._C.DisableTorchFunctionSubclass():
+        return func(*args, **kwargs)
 
 
 @implements(aten.cat.default)
