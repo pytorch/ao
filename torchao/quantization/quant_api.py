@@ -133,9 +133,6 @@ from .linear_quant_modules import (
     Int4WeightOnlyQuantizer,
     Int8DynActInt4WeightQuantizer,
 )
-from .qat import (
-    intx_quantization_aware_training,
-)
 from .quant_primitives import (
     _DTYPE_TO_QVALUE_BOUNDS,
     MappingType,
@@ -157,7 +154,6 @@ __all__ = [
     "autoquant",
     "_get_subclass_inserter",
     "quantize_",
-    "intx_quantization_aware_training",
     "Int8DynActInt4WeightQuantizer",
     "Float8DynamicActivationFloat8SemiSparseWeightConfig",
     "ModuleFqnToConfig",

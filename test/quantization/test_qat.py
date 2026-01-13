@@ -9,7 +9,6 @@
 
 import copy
 import unittest
-import warnings
 from typing import List, Type
 
 import torch
@@ -39,8 +38,6 @@ from torchao.quantization.linear_quant_modules import (
 )
 from torchao.quantization.qat.api import (
     ComposableQATQuantizer,
-    FromIntXQuantizationAwareTrainingConfig,
-    IntXQuantizationAwareTrainingConfig,
     QATConfig,
     QATStep,
     initialize_fake_quantizers,
@@ -1720,95 +1717,6 @@ class TestQAT(TestCase):
         self.assertIsNotNone(new_weight.grad)
         self.assertNotEqual(torch.count_nonzero(new_weight.grad), 0)
         self.assertFalse(torch.equal(new_weight, prev_weight))
-
-    def test_legacy_quantize_api_e2e(self):
-        """
-        Test that the following two APIs are numerically equivalent:
-
-        New API:
-            quantize_(model, QATConfig(Int8DynamicActivationInt4WeightConfig(), step="prepare"))
-            quantize_(model, QATConfig(Int8DynamicActivationInt4WeightConfig(), step="convert"))
-
-        Old API:
-            quantize_(model, IntXQuantizationAwareTrainingConfig(...))
-            quantize_(model, FromIntXQuantizationAwareTrainingConfig())
-            quantize_(model, Int8DynamicActivationInt4WeightConfig())
-        """
-        group_size = 16
-        torch.manual_seed(self.SEED)
-        m = M()
-        baseline_model = copy.deepcopy(m)
-
-        # Baseline prepare
-        act_config = IntxFakeQuantizeConfig(torch.int8, "per_token", is_symmetric=False)
-        weight_config = IntxFakeQuantizeConfig(TorchAODType.INT4, group_size=group_size)
-        old_qat_config = IntXQuantizationAwareTrainingConfig(act_config, weight_config)
-        quantize_(baseline_model, old_qat_config)
-
-        # QATConfig prepare
-        base_config = Int8DynamicActivationInt4WeightConfig(group_size=group_size)
-        quantize_(m, QATConfig(base_config, step="prepare"))
-
-        # Compare prepared values
-        torch.manual_seed(self.SEED)
-        x = m.example_inputs()
-        x2 = copy.deepcopy(x)
-        out = m(*x)
-        baseline_out = baseline_model(*x2)
-        torch.testing.assert_close(out, baseline_out, atol=0, rtol=0)
-
-        # Baseline convert
-        quantize_(baseline_model, FromIntXQuantizationAwareTrainingConfig())
-        quantize_(baseline_model, base_config)
-
-        # quantize_ convert
-        quantize_(m, QATConfig(base_config, step="convert"))
-
-        # Compare converted values
-        torch.manual_seed(self.SEED)
-        x = m.example_inputs()
-        x2 = copy.deepcopy(x)
-        out = m(*x)
-        baseline_out = baseline_model(*x2)
-        torch.testing.assert_close(out, baseline_out, atol=0, rtol=0)
-
-    def test_qat_api_deprecation(self):
-        """
-        Test that the appropriate deprecation warning is logged exactly once per class.
-        """
-        from torchao.quantization.qat import (
-            FakeQuantizeConfig,
-            FakeQuantizer,
-            from_intx_quantization_aware_training,
-            intx_quantization_aware_training,
-        )
-
-        # Reset deprecation warning state, otherwise we won't log warnings here
-        warnings.resetwarnings()
-
-        # Map from deprecated API to the args needed to instantiate it
-        deprecated_apis_to_args = {
-            IntXQuantizationAwareTrainingConfig: (),
-            FromIntXQuantizationAwareTrainingConfig: (),
-            intx_quantization_aware_training: (),
-            from_intx_quantization_aware_training: (),
-            FakeQuantizeConfig: (torch.int8, "per_channel"),
-            FakeQuantizer: (IntxFakeQuantizeConfig(torch.int8, "per_channel"),),
-        }
-
-        with warnings.catch_warnings(record=True) as _warnings:
-            # Call each deprecated API twice
-            for cls, args in deprecated_apis_to_args.items():
-                cls(*args)
-                cls(*args)
-
-            # Each call should trigger the warning only once
-            self.assertEqual(len(_warnings), len(deprecated_apis_to_args))
-            for w in _warnings:
-                self.assertIn(
-                    "is deprecated and will be removed in a future release",
-                    str(w.message),
-                )
 
     def test_qat_api_convert_no_quantization(self):
         """
