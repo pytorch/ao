@@ -21,7 +21,6 @@ from torchao import quantize_
 from torchao.dtypes import (
     AffineQuantizedTensor,
     PlainLayout,
-    TensorCoreTiledLayout,
 )
 from torchao.quantization import (
     Float8Tensor,
@@ -450,30 +449,30 @@ class TestQuantFlow(TestCase):
         assert sqnr >= 16.5, f"SQNR {sqnr} is too low"
 
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
+    @unittest.skipIf(not is_sm_at_least_89(), "Need SM 8.9+")
     def test_module_fqn_to_config_default(self):
-        config1 = Int4WeightOnlyConfig(group_size=32)
+        config1 = Float8DynamicActivationFloat8WeightConfig()
         config2 = Int8WeightOnlyConfig()
         config = ModuleFqnToConfig({"_default": config1, "linear2": config2})
         model = ToyLinearModel().to(_DEVICE).to(dtype=torch.bfloat16)
         example_inputs = model.example_inputs(device=_DEVICE, dtype=torch.bfloat16)
         quantize_(model, config, filter_fn=None)
         model(*example_inputs)
-        assert isinstance(model.linear1.weight, AffineQuantizedTensor)
-        assert isinstance(model.linear1.weight._layout, TensorCoreTiledLayout)
+        assert isinstance(model.linear1.weight, Float8Tensor)
         assert isinstance(model.linear2.weight, AffineQuantizedTensor)
         assert isinstance(model.linear2.weight._layout, PlainLayout)
 
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
+    @unittest.skipIf(not is_sm_at_least_89(), "Need SM 8.9+")
     def test_module_fqn_to_config_module_name(self):
-        config1 = Int4WeightOnlyConfig(group_size=32)
+        config1 = Float8DynamicActivationFloat8WeightConfig()
         config2 = Int8WeightOnlyConfig()
         config = ModuleFqnToConfig({"linear1": config1, "linear2": config2})
         model = ToyLinearModel().to(_DEVICE).to(dtype=torch.bfloat16)
         example_inputs = model.example_inputs(device=_DEVICE, dtype=torch.bfloat16)
         quantize_(model, config, filter_fn=None)
         model(*example_inputs)
-        assert isinstance(model.linear1.weight, AffineQuantizedTensor)
-        assert isinstance(model.linear1.weight._layout, TensorCoreTiledLayout)
+        assert isinstance(model.linear1.weight, Float8Tensor)
         assert isinstance(model.linear2.weight, AffineQuantizedTensor)
         assert isinstance(model.linear2.weight._layout, PlainLayout)
 
@@ -603,16 +602,16 @@ class TestQuantFlow(TestCase):
         assert isinstance(model.linear.weight, IntxUnpackedToInt8Tensor)
 
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
+    @unittest.skipIf(not is_sm_at_least_89(), "Need SM 8.9+")
     def test_module_fqn_to_config_skip(self):
-        config1 = Int4WeightOnlyConfig(group_size=32)
+        config1 = Float8DynamicActivationFloat8WeightConfig()
         config = ModuleFqnToConfig({"_default": config1, "linear2": None})
         model = ToyLinearModel().to(_DEVICE).to(dtype=torch.bfloat16)
         example_inputs = model.example_inputs(device=_DEVICE, dtype=torch.bfloat16)
         quantize_(model, config, filter_fn=None)
         model(*example_inputs)
-        assert isinstance(model.linear1.weight, AffineQuantizedTensor)
-        assert isinstance(model.linear1.weight._layout, TensorCoreTiledLayout)
-        assert not isinstance(model.linear2.weight, AffineQuantizedTensor)
+        assert isinstance(model.linear1.weight, Float8Tensor)
+        assert not isinstance(model.linear2.weight, Float8Tensor)
 
     def test_config_deprecation(self):
         """
