@@ -40,7 +40,6 @@ from torchao.dtypes import (
     Int4XPULayout,
     PackedLinearInt8DynamicActivationIntxWeightLayout,
     PlainLayout,
-    QDQLayout,
     SemiSparseLayout,
     TensorCoreTiledLayout,
     to_affine_quantized_floatx,
@@ -49,7 +48,6 @@ from torchao.dtypes import (
 )
 from torchao.dtypes.uintx.packed_linear_int8_dynamic_activation_intx_weight_layout import (
     Target,
-    make_packed_linear_int8_dynamic_activation_intx_weight_tensor,
 )
 from torchao.dtypes.utils import Layout
 from torchao.float8.config import e4m3_dtype, e5m2_dtype
@@ -575,22 +573,11 @@ class Int8DynamicActivationIntxWeightConfig(AOBaseConfig):
         `weight_scale_dtype`: The dtype to use for the weight scale.
         `act_mapping_type`: The type of mapping to use for the activation quantization.
             Must be one of MappingType.ASYMMETRIC or MappingType.SYMMETRIC.
-        `layout`: The layout to use for the packed weight tensor:
-            - PackedLinearInt8DynamicActivationIntxWeightLayout: this layout is optimized for CPU performance.
-            - QDQLayout: this layout represents the quantization with Q/DQ quant primitives, and is intended for
-                export applications like ExecuTorch.
         `intx_packing_format`: The format to use for the packed weight tensor (version 2 only).
             - unpacked_to_int8: this format is the default and is intended for export applications like ExecuTorch.
             - opaque_torchao_auto: this format is optimized for CPU performance.
         `intx_choose_qparams_algorithm`: The algorithm to use for choosing the quantization parameters.
         `version`: version of the config to use, only subset of above args are valid based on version, see note for more details.
-
-        Note:
-
-        Current state for Int8DynamicActivationIntxWeightConfig is that it supports both v1 (legacy) and v2.
-
-        * `intx_packing_format` is used for version 2.
-        * `layout` is only used for version 1.
     """
 
     weight_dtype: torch.dtype = torch.int8
@@ -599,7 +586,6 @@ class Int8DynamicActivationIntxWeightConfig(AOBaseConfig):
     # TODO: add weight_scale_dtype to Int8DynamicActivationInt4WeightConfig
     weight_scale_dtype: Optional[torch.dtype] = None
     act_mapping_type: MappingType = MappingType.ASYMMETRIC
-    layout: Layout = QDQLayout()
     intx_packing_format: IntxPackingFormat = IntxPackingFormat.UNPACKED_TO_INT8
     intx_choose_qparams_algorithm: IntxChooseQParamsAlgorithm = (
         IntxChooseQParamsAlgorithm.AFFINE
@@ -634,23 +620,6 @@ class Int8DynamicActivationIntxWeightConfig(AOBaseConfig):
         ], (
             f"act_mapping_type must be MappingType.ASYMMETRIC or MappingType.SYMMETRIC, but got {self.act_mapping_type}"
         )
-        assert isinstance(
-            self.layout, (PackedLinearInt8DynamicActivationIntxWeightLayout, QDQLayout)
-        ), (
-            f"layout must be PackedLinearInt8DynamicActivationIntxWeightLayout or QDQLayout, but got {self.layout}"
-        )
-
-        if isinstance(self.layout, PackedLinearInt8DynamicActivationIntxWeightLayout):
-            if self.layout.target in [Target.AUTO, Target.KLEIDIAI, Target.ATEN]:
-                if (self.weight_scale_dtype) is None or (
-                    self.weight_scale_dtype != torch.bfloat16
-                ):
-                    logging.warning(
-                        f"When using layout PackedLinearInt8DynamicActivationIntxWeightLayout with target {self.layout.target}, "
-                        f"the weight scale may be cast to bfloat16 by the kernel, but weight_scale_dtype is set to {self.weight_scale_dtype}. "
-                        "Explicitly set weight_scale_dtype to torch.bfloat16 to suppress this warning. "
-                        "If you need weight_scale_dtype = torch.float32, use target=Target.UNIVERSAL instead."
-                    )
 
 
 def _int8_dynamic_activation_intx_weight_quantize_tensor(
@@ -666,7 +635,6 @@ def _int8_dynamic_activation_intx_weight_quantize_tensor(
     weight_mapping_type = config.weight_mapping_type
     weight_scale_dtype = config.weight_scale_dtype
     act_mapping_type = config.act_mapping_type
-    layout = config.layout
     intx_packing_format = config.intx_packing_format
     intx_choose_qparams_algorithm = config.intx_choose_qparams_algorithm
 
@@ -687,114 +655,45 @@ def _int8_dynamic_activation_intx_weight_quantize_tensor(
 
     block_size = (1, group_size)
 
-    if config.version == 2:
-        assert act_mapping_type == MappingType.ASYMMETRIC
-        opaque_formats = [
-            IntxPackingFormat.OPAQUE_ATEN_KLEIDIAI,
-            IntxPackingFormat.OPAQUE_TORCHAO_AUTO,
-            IntxPackingFormat.OPAQUE_TORCHAO_KLEIDIAI,
-            IntxPackingFormat.OPAQUE_TORCHAO_LOWBIT,
-        ]
-        assert (
-            intx_packing_format == IntxPackingFormat.UNPACKED_TO_INT8
-            or intx_packing_format in opaque_formats
-        ), f"Unsupported packing format: {intx_packing_format}"
-        if custom_zero_point is not None and custom_zero_point.dtype == torch.int32:
-            custom_zero_point = custom_zero_point.to(torch.int8)
-        new_weight = IntxUnpackedToInt8Tensor.from_hp(
-            weight,
-            block_size,
-            weight_dtype,
-            mapping_type=weight_mapping_type,
-            activation_quantization="int8_asym_per_token",
-            intx_choose_qparams_algorithm=intx_choose_qparams_algorithm,
-            custom_scale=custom_scale,
-            custom_zero_point=custom_zero_point,
-        )
-        if weight_scale_dtype is not None and weight_scale_dtype != weight.dtype:
-            _adjust_scale_dtype_in_intx_unpacked_tensor(
-                new_weight, weight, weight_scale_dtype
-            )
-
-        new_bias = bias
-
-        # Create packed tensor
-        if intx_packing_format in opaque_formats:
-            new_weight = IntxOpaqueTensor.from_intx_unpacked_to_int8_tensor(
-                new_weight, bias=new_bias, intx_packing_format=intx_packing_format
-            )
-            new_bias = None  # bias is packed with weights
-
-        return new_weight, new_bias
-
-    # Version 1
-    assert config.version == 1
-    assert intx_choose_qparams_algorithm == IntxChooseQParamsAlgorithm.AFFINE, (
-        "IntxChooseQParamsAlgorithm.AFFINE is the only supported algorithm for version 1"
-    )
-    warnings.warn(
-        "Config Deprecation: version 1 of Int8DynamicActivationIntxWeightConfig is deprecated and will no longer be supported in a future release, please use version 2, see https://github.com/pytorch/ao/issues/2967 for more details"
-    )
-    quant_min, quant_max = _DTYPE_TO_QVALUE_BOUNDS[weight_dtype]
-
-    # We quantize with QDQLayout, and then construct the packed weight tensor later
-    # set preserve_zero based on weight mapping type
-    preserve_zero = weight_mapping_type in [
-        MappingType.SYMMETRIC,
-        MappingType.SYMMETRIC_NO_CLIPPING_ERR,
+    assert config.version == 2
+    assert act_mapping_type == MappingType.ASYMMETRIC
+    opaque_formats = [
+        IntxPackingFormat.OPAQUE_ATEN_KLEIDIAI,
+        IntxPackingFormat.OPAQUE_TORCHAO_AUTO,
+        IntxPackingFormat.OPAQUE_TORCHAO_KLEIDIAI,
+        IntxPackingFormat.OPAQUE_TORCHAO_LOWBIT,
     ]
-
-    weight = to_affine_quantized_intx(
-        input_float=weight,
+    assert (
+        intx_packing_format == IntxPackingFormat.UNPACKED_TO_INT8
+        or intx_packing_format in opaque_formats
+    ), f"Unsupported packing format: {intx_packing_format}"
+    if custom_zero_point is not None and custom_zero_point.dtype == torch.int32:
+        custom_zero_point = custom_zero_point.to(torch.int8)
+    new_weight = IntxUnpackedToInt8Tensor.from_hp(
+        weight,
+        block_size,
+        weight_dtype,
         mapping_type=weight_mapping_type,
-        block_size=(1, group_size),
-        target_dtype=torch.int8,
-        quant_min=quant_min,
-        quant_max=quant_max,
-        scale_dtype=weight_scale_dtype,
-        zero_point_dtype=torch.int8,
-        preserve_zero=preserve_zero,
-        zero_point_domain=ZeroPointDomain.INT,
-        _layout=QDQLayout(),
+        activation_quantization="int8_asym_per_token",
+        intx_choose_qparams_algorithm=intx_choose_qparams_algorithm,
+        custom_scale=custom_scale,
+        custom_zero_point=custom_zero_point,
     )
-    if isinstance(layout, QDQLayout):
-        # TODO: _int8_asymm_per_token_quant uses scale_dtype=torch.float64, zero_point_dtype=torch.int64,
-        # which is not great for export with QDQLayout.  It is also not consistent with _int8_symm_per_token_quant,
-        # which uses scale_dtype=torch.float32, zero_point_dtype=torch.int32.
-        # Maybe introduce new fp32/int32 versions of _int8_asymm_per_token_quant?
-        if act_mapping_type == MappingType.ASYMMETRIC:
-            activation_quant_func = _int8_asymm_per_token_quant
-        elif act_mapping_type == MappingType.SYMMETRIC:
-            activation_quant_func = _int8_symm_per_token_quant
-        else:
-            assert False, f"Unsupported activation mapping type: {act_mapping_type}"
-        weight = to_linear_activation_quantized(weight, activation_quant_func)
-    elif isinstance(layout, PackedLinearInt8DynamicActivationIntxWeightLayout):
-        # PackedLinearInt8DynamicActivationIntxWeightLayout has dynamic activation quantization
-        # fused with the kernel and it should not be applied separately
-        assert act_mapping_type == MappingType.ASYMMETRIC, (
-            "PackedLinearInt8DynamicActivationIntxWeightLayout requires act_mapping_type=MappingType.ASYMMETRIC"
+    if weight_scale_dtype is not None and weight_scale_dtype != weight.dtype:
+        _adjust_scale_dtype_in_intx_unpacked_tensor(
+            new_weight, weight, weight_scale_dtype
         )
-        data, scale, zero_point = weight.tensor_impl.get_plain()
-        groups_per_row = weight.shape[-1] // group_size
-        scale = scale.reshape(-1, groups_per_row)
 
-        assert zero_point is not None
-        zero_point = zero_point.reshape(-1, groups_per_row)
-        has_weight_zeros = (zero_point != 0).any()
-        weight = make_packed_linear_int8_dynamic_activation_intx_weight_tensor(
-            data,
-            scale,
-            zero_point if has_weight_zeros else None,
-            bias,
-            weight_dtype,
-            layout.target,
-            validate_inputs=False,
+    new_bias = bias
+
+    # Create packed tensor
+    if intx_packing_format in opaque_formats:
+        new_weight = IntxOpaqueTensor.from_intx_unpacked_to_int8_tensor(
+            new_weight, bias=new_bias, intx_packing_format=intx_packing_format
         )
-        # bias is packed with weights if present
-        bias = None
+        new_bias = None  # bias is packed with weights
 
-    return weight, bias
+    return new_weight, new_bias
 
 
 @register_quantize_module_handler(Int8DynamicActivationIntxWeightConfig)
@@ -1809,26 +1708,15 @@ class IntxWeightOnlyConfig(AOBaseConfig):
         `mapping_type`: The type of mapping to use for the weight quantization.
             Must be one of MappingType.ASYMMETRIC or MappingType.SYMMETRIC.
         `scale_dtype`: The dtype to use for the weight scale.
-        `layout`: The layout to use for the packed weight tensor:
-            - QDQLayout: this layout is designed for export to ExecuTorch.this layout represents the quantization with Q/DQ quant primitives,
-                and is intended for export applications like ExecuTorch.
         `intx_packing_format`: The format to use for the packed weight tensor (version 2 only).
         `intx_choose_qparams_algorithm`: The algorithm to use for choosing the quantization parameters.
         `version`: version of the config to use, only subset of above args are valid based on version, see note for more details.
-
-        Note:
-
-        Current state for IntxWeightOnlyConfig is that it supports both v1 (legacy) and v2.
-
-        * `intx_packing_format` is used for version 2.
-        * `layout` is only used for version 1.
     """
 
     weight_dtype: torch.dtype = torch.int8
     granularity: Granularity = PerAxis(0)
     mapping_type: MappingType = MappingType.SYMMETRIC
     scale_dtype: Optional[torch.dtype] = None
-    layout: Layout = QDQLayout()
     intx_packing_format: IntxPackingFormat = IntxPackingFormat.UNPACKED_TO_INT8
     intx_choose_qparams_algorithm: IntxChooseQParamsAlgorithm = (
         IntxChooseQParamsAlgorithm.AFFINE
@@ -1867,7 +1755,6 @@ def _intx_weight_only_quantize_tensor(
     granularity = config.granularity
     mapping_type = config.mapping_type
     scale_dtype = config.scale_dtype
-    layout = config.layout
     intx_packing_format = config.intx_packing_format
     intx_choose_qparams_algorithm = config.intx_choose_qparams_algorithm
 
@@ -1898,51 +1785,25 @@ def _intx_weight_only_quantize_tensor(
         assert weight.dim() == 4
         block_size = (1, group_size, 1, 1)
 
-    if config.version == 2:
-        if config.intx_packing_format == IntxPackingFormat.UNPACKED_TO_INT8:
-            if custom_zero_point is not None and custom_zero_point.dtype == torch.int32:
-                custom_zero_point = custom_zero_point.to(torch.int8)
-            new_weight = IntxUnpackedToInt8Tensor.from_hp(
-                weight,
-                block_size,
-                weight_dtype,
-                mapping_type=mapping_type,
-                custom_scale=custom_scale,
-                custom_zero_point=custom_zero_point,
-                intx_choose_qparams_algorithm=intx_choose_qparams_algorithm,
-            )
-            if scale_dtype is not None and scale_dtype != weight.dtype:
-                _adjust_scale_dtype_in_intx_unpacked_tensor(
-                    new_weight, weight, scale_dtype
-                )
+    assert config.version == 2
+    if config.intx_packing_format == IntxPackingFormat.UNPACKED_TO_INT8:
+        if custom_zero_point is not None and custom_zero_point.dtype == torch.int32:
+            custom_zero_point = custom_zero_point.to(torch.int8)
+        new_weight = IntxUnpackedToInt8Tensor.from_hp(
+            weight,
+            block_size,
+            weight_dtype,
+            mapping_type=mapping_type,
+            custom_scale=custom_scale,
+            custom_zero_point=custom_zero_point,
+            intx_choose_qparams_algorithm=intx_choose_qparams_algorithm,
+        )
+        if scale_dtype is not None and scale_dtype != weight.dtype:
+            _adjust_scale_dtype_in_intx_unpacked_tensor(new_weight, weight, scale_dtype)
 
-            return new_weight
-        else:
-            raise ValueError(f"Unsupported packing format: {intx_packing_format}")
-
-    # Version 1
-    assert config.intx_choose_qparams_algorithm == IntxChooseQParamsAlgorithm.AFFINE, (
-        "version 1 only supports affine algorithm"
-    )
-    assert config.version == 1
-    warnings.warn(
-        "Config Deprecation: version 1 of IntxWeightOnlyConfig is deprecated and will no longer be supported in a future release, please use version 2, see https://github.com/pytorch/ao/issues/2967 for more details"
-    )
-    quant_min, quant_max = _DTYPE_TO_QVALUE_BOUNDS[weight_dtype]
-    weight = to_affine_quantized_intx(
-        input_float=weight,
-        mapping_type=mapping_type,
-        block_size=block_size,
-        target_dtype=torch.int8,
-        quant_min=quant_min,
-        quant_max=quant_max,
-        scale_dtype=scale_dtype,
-        zero_point_dtype=torch.int8,
-        preserve_zero=(mapping_type == MappingType.SYMMETRIC),
-        zero_point_domain=ZeroPointDomain.INT,
-        _layout=layout,
-    )
-    return weight
+        return new_weight
+    else:
+        raise ValueError(f"Unsupported packing format: {intx_packing_format}")
 
 
 @register_quantize_module_handler(IntxWeightOnlyConfig)

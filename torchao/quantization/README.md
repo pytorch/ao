@@ -3,7 +3,7 @@ Typically quantization algorithms will have different schemes for how the activa
 
 ## Accuracy benchmarks
 
-All the following benchmarks are for `meta-llama/Llama-3-8.1B` using `lm-eval`.
+All the following benchmarks are for `meta-llama/Llama-3.1-8B` using `lm-eval`.
 
 | weight | activation | wikitext-perplexity | winogrande | checkpoint size (GB) |
 | --------- | ------------------- | ---------- | -------------------- | -------- |
@@ -25,7 +25,7 @@ SKIP_VLLM=1 ./benchmarks/quantization/measure_accuracy_and_performance.sh b200
 
 ## Performance benchmarks
 
-All the following benchmarks are for `meta-llama/Llama-3-8.1B` using `torch==2.9.0` and `vllm==0.13.0`. 
+All the following benchmarks are for `meta-llama/Llama-3.1-8B` using `torch==2.9.0` and `vllm==0.13.0`.
 
 
 ### NVIDIA B200
@@ -345,32 +345,6 @@ for module, name in model.named_modules():
 We've added kv cache quantization and other features in order to enable long context length (and necessarily memory efficient) inference.
 
 In practice these features alongside int4 weight only quantization allow us to **reduce peak memory by ~55%**, meaning we can Llama3.1-8B inference with a **130k context length with only 18.9 GB of peak memory.** More details can be found [here](../../torchao/_models/llama/README.md#KV-Cache-Quantization-Memory-Efficient-Inference)
-
-KleidiAI Int4 Kernels can be utilized on the Arm platform with PyTorch versions 2.6.0 or later by adjusting the quantization parameters as follows:
-
-```python
-from torchao.quantization.quant_api import (
-    Int8DynamicActivationIntxWeightConfig,
-    quantize_,
-)
-from torchao.quantization.granularity import PerGroup, PerAxis
-from torchao.quantization.quant_primitives import MappingType
-from torch.profiler import profile, ProfilerActivity, tensorboard_trace_handler
-
-my_model = Model()
-
-quantize_(
-    my_model,
-    Int8DynamicActivationIntxWeightConfig(
-        weight_scale_dtype=torch.float32,
-        weight_granularity=PerGroup(32),  # PerAxis is also supported
-        weight_mapping_type=MappingType.SYMMETRIC_NO_CLIPPING_ERR, # MappingType.SYMMETRIC can also be used but increases error
-        layout=layout,
-        weight_dtype=torch.int4,
-        intx_packing_format="opaque_aten_kleidiai",
-    ),
-)
-```
 
 ### Gemlite Triton
 Int4 and Int8 quantization using the [Gemlite Triton](https://github.com/mobiusml/gemlite) kernels. You can try it out with the `quantize_` api as above alongside the constructor `GemliteUIntXWeightOnlyConfig`.  An example can be found in `torchao/_models/llama/generate.py`.

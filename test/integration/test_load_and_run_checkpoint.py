@@ -35,18 +35,6 @@ _DEPRECATED_SINGLE_LINEAR_MODEL_INFO = [
         1,
         "Int4WeightOnlyConfig",
     ),
-    # model card: https://huggingface.co/torchao-testing/single-linear-IntxWeightOnlyConfig-v1-0.14.dev
-    (
-        "torchao-testing/single-linear-IntxWeightOnlyConfig-v1-0.14.dev",
-        1,
-        "IntxWeightOnlyConfig",
-    ),
-    # model card: https://huggingface.co/torchao-testing/single-linear-Int8DynamicActivationIntxWeightConfig-v1-0.14.dev
-    (
-        "torchao-testing/single-linear-Int8DynamicActivationIntxWeightConfig-v1-0.14.dev",
-        1,
-        "Int8DynamicActivationIntxWeightConfig",
-    ),
 ]
 
 _DEPRECATED_MODEL_INFO = [
@@ -56,20 +44,6 @@ _DEPRECATED_MODEL_INFO = [
         1,
         "Int4WeightOnlyConfig",
     ),
-    # https://huggingface.co/torchao-testing/opt-125m-IntxWeightOnlyConfig-v1-0.14.0.dev
-    (
-        "torchao-testing/opt-125m-IntxWeightOnlyConfig-v1-0.14.0.dev",
-        1,
-        "IntxWeightOnlyConfig",
-    ),
-    # skipping for now, not sure why it fails, also we are removing this
-    # so probably don't need to fix anyways
-    # https://huggingface.co/torchao-testing/opt-125m-Int8DynamicActivationIntxWeightConfig-v1-0.14.0.dev
-    # (
-    #     "torchao-testing/opt-125m-Int8DynamicActivationIntxWeightConfig-v1-0.14.0.dev",
-    #     1,
-    #     "Int8DynamicActivationIntxWeightConfig",
-    # ),
 ]
 
 _SINGLE_LINEAR_MODEL_INFO = [
