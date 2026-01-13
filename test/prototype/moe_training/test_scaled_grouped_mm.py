@@ -246,11 +246,15 @@ def compute_reference_forward(
             LinearMMConfig(),
             float8_config,
         )
-        # FP8 matmul allows some error due to precision limits and accumulation order differences.
-        # Tested with M=131072, K=5120, N=8192, bfloat16 output:
-        # 99.9986% of points have error < 0.1, max error ~2 (-262 vs -260, relative error ~0.77%)
-        assert torch.allclose(result1, ref_group_result1, rtol=1e-2, atol=2.5)
-        assert torch.allclose(result2, ref_group_result2, rtol=1e-2, atol=2.5)
+        if is_ROCM:
+            # FP8 matmul allows some error due to precision limits and accumulation order differences.
+            # Tested with M=131072, K=5120, N=8192, bfloat16 output:
+            # 99.9986% of points have error < 0.1, max error ~2 (-262 vs -260, relative error ~0.77%)
+            assert torch.allclose(result1, ref_group_result1, rtol=1e-2, atol=2.5)
+            assert torch.allclose(result2, ref_group_result2, rtol=1e-2, atol=2.5)
+        else:
+            assert torch.equal(result1, ref_group_result1)
+            assert torch.equal(result2, ref_group_result2)
         outputs.append(ref_group_result2)
 
     # Concatenate the outputs and verify the full result is correct.
