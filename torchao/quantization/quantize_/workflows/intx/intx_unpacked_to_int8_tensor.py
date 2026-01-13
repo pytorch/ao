@@ -229,6 +229,7 @@ class IntxUnpackedToInt8Tensor(TorchAOBaseTensor):
                 quant_min=qmin,
                 quant_max=qmax,
                 zero_point_dtype=torch.int8,
+                keepdim=True,  # Use keepdim=True to get reshaped output matching block structure
             )
             qdata = quantize_affine(
                 hp_tensor,
@@ -244,14 +245,8 @@ class IntxUnpackedToInt8Tensor(TorchAOBaseTensor):
                 f"Unsupported IntxChooseQParamsAlgorithm: {intx_choose_qparams_algorithm}"
             )
 
-        # Reshape scale and zero_point to be compatible with block_size
-        # This is asserted in IntxUnpackedToInt8Tensor's __init__
-        n_blocks = []
-        for i in range(len(block_size)):
-            assert qdata.shape[i] % block_size[i] == 0
-            n_blocks.append(qdata.shape[i] // block_size[i])
-        scale = scale.reshape(*n_blocks)
-        zero_point = zero_point.reshape(*n_blocks)
+        # Note: scale and zero_point already have the correct shape from choose_qparams_affine
+        # which now uses keepdim=True and reshapes to match block_size expectations
 
         return IntxUnpackedToInt8Tensor(
             qdata=qdata,
