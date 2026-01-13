@@ -55,8 +55,7 @@ class Int8Tensor(TorchAOBaseTensor):
         scale: scale factors for dequantization
 
     Non-Tensor Attributes:
-        granularity: the granularity for quantization
-            (e.g., PerRow(), PerTensor())
+        granularity: the granularity for quantization (e.g., PerRow(), PerTensor())
         act_quant_kwargs: flags for dynamic activation quantization
 
     Optional Tensor Data Attributes:
