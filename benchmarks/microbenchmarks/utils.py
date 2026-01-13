@@ -202,17 +202,7 @@ def string_to_config(
             act_mapping_type=MappingType.SYMMETRIC,
             layout=CutlassInt4PackedLayout(),
         )
-    if "marlin" in quantization:
-        if "qqq" in quantization:
-            from torchao.prototype.dtypes import MarlinQQQLayout
-
-            return Int8DynamicActivationInt4WeightConfig(
-                group_size=128,
-                mapping_type=MappingType.SYMMETRIC,
-                act_mapping_type=MappingType.SYMMETRIC,
-                layout=MarlinQQQLayout(),
-            )
-    elif "uintx" in quantization:
+    if "uintx" in quantization:
         # uintx-nbits-group_size, e.g. "uintx-2-64"
         if "hqq" in quantization:
             # uintx-nbits-group_size-hqq
