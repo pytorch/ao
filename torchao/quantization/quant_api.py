@@ -38,7 +38,6 @@ from torchao.dtypes import (
     Float8Layout,
     Int4CPULayout,
     Int4XPULayout,
-    PackedLinearInt8DynamicActivationIntxWeightLayout,
     PlainLayout,
     SemiSparseLayout,
     TensorCoreTiledLayout,
