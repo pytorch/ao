@@ -40,7 +40,6 @@ from torchao.dtypes import (
     Int4XPULayout,
     MarlinSparseLayout,
     PlainLayout,
-    QDQLayout,
     SemiSparseLayout,
     TensorCoreTiledLayout,
     to_affine_quantized_floatx,
@@ -1726,26 +1725,15 @@ class IntxWeightOnlyConfig(AOBaseConfig):
         `mapping_type`: The type of mapping to use for the weight quantization.
             Must be one of MappingType.ASYMMETRIC or MappingType.SYMMETRIC.
         `scale_dtype`: The dtype to use for the weight scale.
-        `layout`: The layout to use for the packed weight tensor:
-            - QDQLayout: this layout is designed for export to ExecuTorch.this layout represents the quantization with Q/DQ quant primitives,
-                and is intended for export applications like ExecuTorch.
         `intx_packing_format`: The format to use for the packed weight tensor (version 2 only).
         `intx_choose_qparams_algorithm`: The algorithm to use for choosing the quantization parameters.
         `version`: version of the config to use, only subset of above args are valid based on version, see note for more details.
-
-        Note:
-
-        Current state for IntxWeightOnlyConfig is that it supports both v1 (legacy) and v2.
-
-        * `intx_packing_format` is used for version 2.
-        * `layout` is only used for version 1.
     """
 
     weight_dtype: torch.dtype = torch.int8
     granularity: Granularity = PerAxis(0)
     mapping_type: MappingType = MappingType.SYMMETRIC
     scale_dtype: Optional[torch.dtype] = None
-    layout: Layout = QDQLayout()
     intx_packing_format: IntxPackingFormat = IntxPackingFormat.UNPACKED_TO_INT8
     intx_choose_qparams_algorithm: IntxChooseQParamsAlgorithm = (
         IntxChooseQParamsAlgorithm.AFFINE
@@ -1784,7 +1772,6 @@ def _intx_weight_only_quantize_tensor(
     granularity = config.granularity
     mapping_type = config.mapping_type
     scale_dtype = config.scale_dtype
-    layout = config.layout
     intx_packing_format = config.intx_packing_format
     intx_choose_qparams_algorithm = config.intx_choose_qparams_algorithm
 
@@ -1815,51 +1802,25 @@ def _intx_weight_only_quantize_tensor(
         assert weight.dim() == 4
         block_size = (1, group_size, 1, 1)
 
-    if config.version == 2:
-        if config.intx_packing_format == IntxPackingFormat.UNPACKED_TO_INT8:
-            if custom_zero_point is not None and custom_zero_point.dtype == torch.int32:
-                custom_zero_point = custom_zero_point.to(torch.int8)
-            new_weight = IntxUnpackedToInt8Tensor.from_hp(
-                weight,
-                block_size,
-                weight_dtype,
-                mapping_type=mapping_type,
-                custom_scale=custom_scale,
-                custom_zero_point=custom_zero_point,
-                intx_choose_qparams_algorithm=intx_choose_qparams_algorithm,
-            )
-            if scale_dtype is not None and scale_dtype != weight.dtype:
-                _adjust_scale_dtype_in_intx_unpacked_tensor(
-                    new_weight, weight, scale_dtype
-                )
+    assert config.version == 2
+    if config.intx_packing_format == IntxPackingFormat.UNPACKED_TO_INT8:
+        if custom_zero_point is not None and custom_zero_point.dtype == torch.int32:
+            custom_zero_point = custom_zero_point.to(torch.int8)
+        new_weight = IntxUnpackedToInt8Tensor.from_hp(
+            weight,
+            block_size,
+            weight_dtype,
+            mapping_type=mapping_type,
+            custom_scale=custom_scale,
+            custom_zero_point=custom_zero_point,
+            intx_choose_qparams_algorithm=intx_choose_qparams_algorithm,
+        )
+        if scale_dtype is not None and scale_dtype != weight.dtype:
+            _adjust_scale_dtype_in_intx_unpacked_tensor(new_weight, weight, scale_dtype)
 
-            return new_weight
-        else:
-            raise ValueError(f"Unsupported packing format: {intx_packing_format}")
-
-    # Version 1
-    assert config.intx_choose_qparams_algorithm == IntxChooseQParamsAlgorithm.AFFINE, (
-        "version 1 only supports affine algorithm"
-    )
-    assert config.version == 1
-    warnings.warn(
-        "Config Deprecation: version 1 of IntxWeightOnlyConfig is deprecated and will no longer be supported in a future release, please use version 2, see https://github.com/pytorch/ao/issues/2967 for more details"
-    )
-    quant_min, quant_max = _DTYPE_TO_QVALUE_BOUNDS[weight_dtype]
-    weight = to_affine_quantized_intx(
-        input_float=weight,
-        mapping_type=mapping_type,
-        block_size=block_size,
-        target_dtype=torch.int8,
-        quant_min=quant_min,
-        quant_max=quant_max,
-        scale_dtype=scale_dtype,
-        zero_point_dtype=torch.int8,
-        preserve_zero=(mapping_type == MappingType.SYMMETRIC),
-        zero_point_domain=ZeroPointDomain.INT,
-        _layout=layout,
-    )
-    return weight
+        return new_weight
+    else:
+        raise ValueError(f"Unsupported packing format: {intx_packing_format}")
 
 
 @register_quantize_module_handler(IntxWeightOnlyConfig)
