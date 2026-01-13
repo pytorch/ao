@@ -19,7 +19,6 @@ from torch.testing._internal.optests import opcheck
 
 import torchao
 from torchao.utils import (
-    compute_max_diff,
     torch_version_at_least,
 )
 
