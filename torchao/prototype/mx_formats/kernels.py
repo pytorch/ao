@@ -20,6 +20,7 @@ from torchao.prototype.custom_fp_utils import (
 from torchao.prototype.mx_formats.config import ScaleCalculationMode
 from torchao.utils import (
     is_cuda_version_at_least,
+    is_ROCM,
     is_sm_at_least_100,
     torch_version_at_least,
 )
@@ -166,8 +167,12 @@ if torch_version_at_least("2.7.0") and has_triton():
     import triton.language as tl
     from torch.library import triton_op, wrap_triton
 
+    IS_ROCM = tl.constexpr(is_ROCM())
+
     @triton.jit
-    def _triton_calculate_scale(x, axis, SCALING_MODE: tl.constexpr):
+    def _triton_calculate_scale(
+        x, axis, SCALING_MODE: tl.constexpr, USE_PTX: tl.constexpr
+    ):
         # There is no good support for accessing globals from a jit'ed triton
         # function, so we redefine them here. Since this is prototype code which
         # we plan to remove after torch.compile catches up, this is fine.
@@ -182,24 +187,44 @@ if torch_version_at_least("2.7.0") and has_triton():
 
         # Compute e8m0 biased scale using either RCEIL or FLOOR rounding.
         if SCALING_MODE == "rceil":
-            # RCEIL scaling mode using PTX instruction supported on sm100.
-            # The input should be: amax / 448.0
-            # where 448.0 is the max representable value in FP8 E4M3 format.
-            F8E4M3_MAX_RCP: tl.constexpr = 1.0 / 448.0
-            scale_input = max_abs.to(tl.float32) * F8E4M3_MAX_RCP
+            tl.static_assert(SCALING_MODE == "rceil")
 
-            # The PTX instruction outputs a packed uint16 where:
-            # - high byte = E8M0 of first input (0.0 in our case)
-            # - low byte = E8M0 of second input (scale_input)
-            # Casting uint16 to uint8 naturally truncates to the low byte.
-            scale_e8m0_biased = tl.inline_asm_elementwise(
-                asm="cvt.rp.satfinite.ue8m0x2.f32 $0, 0.0, $1;",
-                constraints="=h,r",
-                args=[scale_input.to(tl.float32, bitcast=False)],
-                dtype=tl.uint16,
-                is_pure=True,
-                pack=1,
-            ).to(tl.uint8)
+            F8E4M3_MAX_RCP: tl.constexpr = 1.0 / 448.0
+
+            if USE_PTX:
+                # RCEIL scaling mode using PTX instruction supported on sm100.
+                # The input should be: amax / 448.0
+                # where 448.0 is the max representable value in FP8 E4M3 format.
+                scale_input = max_abs.to(tl.float32) * F8E4M3_MAX_RCP
+
+                # The PTX instruction outputs a packed uint16 where:
+                # - high byte = E8M0 of first input (0.0 in our case)
+                # - low byte = E8M0 of second input (scale_input)
+                # Casting uint16 to uint8 naturally truncates to the low byte.
+                scale_e8m0_biased = tl.inline_asm_elementwise(
+                    asm="cvt.rp.satfinite.ue8m0x2.f32 $0, 0.0, $1;",
+                    constraints="=h,r",
+                    args=[scale_input.to(tl.float32, bitcast=False)],
+                    dtype=tl.uint16,
+                    is_pure=True,
+                    pack=1,
+                ).to(tl.uint8)
+            else:
+                # Original recil implementation described in https://docs.nvidia.com/cuda/cublas/#d-block-quantization
+                descale = max_abs * F8E4M3_MAX_RCP
+
+                # Clamp to exponents that can be represented in e8m0
+                scale_e8m0_unbiased = tl.clamp(
+                    tl.ceil(tl.log2(descale)),
+                    min=-1 * e8m0_exponent_bias,
+                    max=e8m0_exponent_bias,
+                )
+
+                # Create the biased e8m0 representation and cast it to 8 bits
+                # Set NaN values to 0xFF
+                is_nan = descale != descale
+                scale_e8m0_biased = tl.where(is_nan, 0xFF, scale_e8m0_unbiased + 127)
+                scale_e8m0_biased = scale_e8m0_biased.to(tl.uint8)
         else:
             tl.static_assert(SCALING_MODE == "floor")
 
@@ -365,6 +390,7 @@ if torch_version_at_least("2.7.0") and has_triton():
             x_block_abs_t_r,
             axis=1,
             SCALING_MODE=SCALING_MODE,
+            USE_PTX=not IS_ROCM,
         )
 
         # Divide each column by scale
@@ -465,7 +491,7 @@ if torch_version_at_least("2.7.0") and has_triton():
         # Find the maximum absolute value for each row (across columns)
         # shape: (ROW_TILE_SIZE * BLOCKS_PER_COL_TILE,)
         scale_fp32_r, scale_e8m0_r = _triton_calculate_scale(
-            x_block_abs_r, axis=1, SCALING_MODE=SCALING_MODE
+            x_block_abs_r, axis=1, SCALING_MODE=SCALING_MODE, USE_PTX=not IS_ROCM
         )
 
         # Divide each row by scale
