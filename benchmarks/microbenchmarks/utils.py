@@ -215,14 +215,6 @@ def string_to_config(
             act_mapping_type=MappingType.SYMMETRIC,
             layout=CutlassInt4PackedLayout(),
         )
-    if (
-        "marlin" in quantization
-        and sparsity is not None
-        and ("semi" in sparsity or "2:4" in sparsity)
-    ):
-        from torchao.dtypes import MarlinSparseLayout
-
-        return Int4WeightOnlyConfig(layout=MarlinSparseLayout(), version=1)
     if "uintx" in quantization:
         # uintx-nbits-group_size, e.g. "uintx-2-64"
         if "hqq" in quantization:
