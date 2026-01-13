@@ -147,19 +147,6 @@ Note that the workaround is also required for `torch.compile` with `freezing` (`
 ## Other Available Quantization Techniques
 
 
-### Sparse-Marlin
-
-Sparse-Marlin 2:4 is an optimized GPU kernel that extends the Mixed Auto-Regressive Linear (Marlin) dense kernel to support 4-bit quantized weights and 2:4 sparsity for extremely high performance.
-
-| Model       | Technique               | Tokens/Second | Memory Bandwidth (GB/s) | Peak Memory (GB) | Model Size (GB) |
-| ----------- | ----------------------- | ------------- | ----------------------- | ---------------- | --------------- |
-| Llama-3-8B  | Base (bfloat16)         |   95.64       | 1435.54                 | 16.43            | 15.01           |
-|             | int8wo                  |  153.03       | 1150.80                 | 10.42            |  7.52           |
-|             | int4wo-64               |  180.80       |  763.33                 |  6.88            |  4.22           |
-|             | int4wo-64-sparse-marlin |  226.02       |  689.20                 |  5.32            |  3.05           |
-
-More details can be found [here](../sparsity/README.md)
-
 ### Marlin QQQ
 
 Marlin QQQ is an optimized GPU kernel that supports W4A8 mixed precision GEMM. For more details about Marlin QQQ, please refer to [paper](https://arxiv.org/pdf/2406.09904).
@@ -275,7 +262,6 @@ The following support matrix illustrates the relationship between layouts and ze
 |------|---------------|-----|---|
 |TensorCoreTiledLayout| Yes | Yes(Default) | No|
 |Int4CPULayout | Yes | Yes(Default) | No |
-|MarlinSparseLayout | No | No | Yes(Default) |
 
 
 ### Full Affine Quantization Flow Example

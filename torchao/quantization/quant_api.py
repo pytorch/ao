@@ -38,7 +38,6 @@ from torchao.dtypes import (
     Float8Layout,
     Int4CPULayout,
     Int4XPULayout,
-    MarlinSparseLayout,
     PackedLinearInt8DynamicActivationIntxWeightLayout,
     PlainLayout,
     QDQLayout,
@@ -83,7 +82,6 @@ from torchao.quantization.quantize_.workflows import (
     Float8PackingFormat,
     Float8Tensor,
     Int4ChooseQParamsAlgorithm,
-    Int4MarlinSparseTensor,
     Int4PackingFormat,
     Int4PlainInt32Tensor,
     Int4PreshuffledTensor,
@@ -165,14 +163,12 @@ __all__ = [
 
 LAYOUT_TO_ZERO_POINT_DOMAIN = {
     TensorCoreTiledLayout: [ZeroPointDomain.FLOAT],
-    MarlinSparseLayout: [ZeroPointDomain.INT],
     Int4CPULayout: [ZeroPointDomain.FLOAT],
     Int4XPULayout: [ZeroPointDomain.FLOAT, ZeroPointDomain.INT],
 }
 
 LAYOUT_TO_PRESERVE_ZEROS = {
     TensorCoreTiledLayout: False,
-    MarlinSparseLayout: True,
     Int4CPULayout: False,
     Int4XPULayout: False,
 }
@@ -918,12 +914,6 @@ def _int4_weight_only_quantize_tensor(weight, config):
                 block_size,
             )
             return new_weight
-        elif int4_packing_format == Int4PackingFormat.MARLIN_SPARSE:
-            new_weight = Int4MarlinSparseTensor.from_hp(
-                weight,
-                block_size,
-            )
-            return new_weight
         elif int4_packing_format == Int4PackingFormat.TILE_PACKED_TO_4D:
             new_weight = Int4TilePackedTo4dTensor.from_hp(
                 weight,
@@ -968,14 +958,6 @@ def _int4_weight_only_quantize_tensor(weight, config):
         if config.preserve_zero is not None
         else LAYOUT_TO_PRESERVE_ZEROS[type(layout)]
     )
-    # Sparse Marlin only supports symmetric quantization.
-    # NOTE: If we start having lots of layouts that require different configurations,
-    # we should consider moving this logic somewhere else.
-    if isinstance(layout, MarlinSparseLayout):
-        mapping_type = MappingType.SYMMETRIC
-        assert group_size == 128 or group_size == weight.shape[-1], (
-            f"MarlinSparseLayout only supports 128 group size or per channel quantization, got {group_size}"
-        )
 
     new_weight = to_affine_quantized_intx(
         weight,
