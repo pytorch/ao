@@ -20,7 +20,6 @@ from torch._inductor.utils import run_and_get_code
 from torch.testing import FileCheck
 
 import torchao
-from torchao.dtypes import Int4CPULayout, Int4XPULayout, TensorCoreTiledLayout
 from torchao.quantization import safe_int_mm
 from torchao.quantization.autoquant import (
     AQFloat8PerRowScalingDynamicallyQuantizedLinearWeight,
@@ -49,6 +48,9 @@ from torchao.quantization.quant_primitives import (
     MappingType,
     dequantize_affine,
 )
+from torchao.quantization.quantize_.workflows.int4.int4_packing_format import (
+    Int4PackingFormat,
+)
 from torchao.quantization.utils import (
     LoggingTensorMode,
     _apply_logging_hook,
@@ -65,8 +67,6 @@ from torchao.quantization.utils import (
 from torchao.testing.utils import skip_if_rocm, skip_if_xpu
 from torchao.utils import (
     benchmark_model,
-    check_cpu_version,
-    check_xpu_version,
     get_current_accelerator_device,
     is_fbcode,
     is_sm_at_least_89,
@@ -647,34 +647,27 @@ class TestSubclass(unittest.TestCase):
     def test_int4_weight_only_quant_subclass_api_grouped(self, device, dtype):
         if dtype != torch.bfloat16:
             self.skipTest(f"Fails for {dtype}")
-        layout_list = []
-        if check_cpu_version(device):
-            layout_list.append(Int4CPULayout())
-        elif check_xpu_version(device):
-            layout_list.append(Int4XPULayout())
-        else:
-            for inner_k_tiles in [4, 2]:
-                layout_list.append(TensorCoreTiledLayout(inner_k_tiles=inner_k_tiles))
-        for test_shape in [(256, 256, 16)] + (
-            [(256, 256, 8)] if device == _DEVICE else []
-        ):
+        if device == "cpu":
+            self.skipTest("Only CUDA is supported for int4 weight only quantization v2")
+        for test_shape in [(256, 256, 16), (256, 256, 8)]:
             for groupsize in [64, 32]:
-                for layout in layout_list:
-                    kwargs = {"groupsize": groupsize, "layout": layout, "version": 1}
 
-                    def api(mod):
-                        kwargs_copy = kwargs.copy()
-                        kwargs_copy["group_size"] = groupsize
-                        del kwargs_copy["groupsize"]
-                        quantize_(mod, Int4WeightOnlyConfig(**kwargs_copy))
-
-                    self._test_lin_weight_subclass_api_impl(
-                        api,
-                        device,
-                        15,
-                        test_shape=test_shape,
-                        test_dtype=dtype,
+                def api(mod):
+                    quantize_(
+                        mod,
+                        Int4WeightOnlyConfig(
+                            group_size=groupsize,
+                            int4_packing_format=Int4PackingFormat.TILE_PACKED_TO_4D,
+                        ),
                     )
+
+                self._test_lin_weight_subclass_api_impl(
+                    api,
+                    device,
+                    15,
+                    test_shape=test_shape,
+                    test_dtype=dtype,
+                )
 
 
 class TestDynamicQuant(unittest.TestCase):
