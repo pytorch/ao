@@ -532,8 +532,8 @@ def wait_tensor(func, *args, **kwargs):
     return updatedNF4Tensor
 
 
-# _wrap_tensor_autograd was added in PyTorch 2.10
-if torch_version_at_least("2.10.0"):
+# _wrap_tensor_autograd was added in PyTorch 2.11.0.dev and later
+if torch_version_at_least("2.11.0.dev"):
 
     @implements(
         [
