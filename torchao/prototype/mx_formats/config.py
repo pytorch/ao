@@ -166,6 +166,7 @@ class MXLinearConfig(AOBaseConfig):
         elif recipe_name is MXLinearRecipeName.MXFP8_CUBLAS:
             return MXLinearConfig(
                 kernel_preference=KernelPreference.AUTO,
+                # CUDA quantization kernels are not supported on ROCm. Fallback to triton.
                 mxfp8_cast_kernel_choice=MXFP8Dim1CastKernelChoice.TRITON
                 if is_ROCM()
                 else MXFP8Dim1CastKernelChoice.CUDA,
@@ -173,6 +174,7 @@ class MXLinearConfig(AOBaseConfig):
         elif recipe_name is MXLinearRecipeName.MXFP8_CUBLAS_RCEIL:
             return MXLinearConfig(
                 kernel_preference=KernelPreference.AUTO,
+                # Quantization kernels with RCEIL are not supported on ROCm. Fallback to torch.
                 mxfp8_cast_kernel_choice=MXFP8Dim1CastKernelChoice.TORCH
                 if is_ROCM()
                 else MXFP8Dim1CastKernelChoice.CUDA,
