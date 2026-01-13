@@ -39,7 +39,14 @@ def _apply_calibration(
     model.config.quantization_config = TorchAoConfig(load_config)
 
 
-def quantize_model_and_save(model, recipe, base_config, output_dir, tasks, limit):
+def quantize_model_and_save(
+    model: str,
+    recipe: str,
+    base_config_cls: dict,
+    output_dir: str,
+    tasks: list[str],
+    limit: int,
+):
     """Quantize model with calibration and save."""
     tokenizer = AutoTokenizer.from_pretrained(model)
     model = AutoModelForCausalLM.from_pretrained(
@@ -47,10 +54,10 @@ def quantize_model_and_save(model, recipe, base_config, output_dir, tasks, limit
     )
 
     if recipe == "awq_int4_weight_only":
-        _apply_calibration(model, AWQConfig, base_config, tasks, limit, tokenizer)
+        _apply_calibration(model, AWQConfig, base_config_cls, tasks, limit, tokenizer)
     elif recipe == "smoothquant_int8":
         _apply_calibration(
-            model, SmoothQuantConfig, base_config, tasks, limit, tokenizer
+            model, SmoothQuantConfig, base_config_cls, tasks, limit, tokenizer
         )
     else:
         raise AssertionError(f"unsupported recipe: {recipe}")
