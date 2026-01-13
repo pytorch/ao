@@ -3,7 +3,7 @@ Typically quantization algorithms will have different schemes for how the activa
 
 ## Accuracy benchmarks
 
-All the following benchmarks are for `meta-llama/Llama-3-8.1B` using `lm-eval`.
+All the following benchmarks are for `meta-llama/Llama-3.1-8B` using `lm-eval`.
 
 | weight | activation | wikitext-perplexity | winogrande | checkpoint size (GB) |
 | --------- | ------------------- | ---------- | -------------------- | -------- |
@@ -25,7 +25,7 @@ SKIP_VLLM=1 ./benchmarks/quantization/measure_accuracy_and_performance.sh b200
 
 ## Performance benchmarks
 
-All the following benchmarks are for `meta-llama/Llama-3-8.1B` using `torch==2.9.0` and `vllm==0.13.0`. 
+All the following benchmarks are for `meta-llama/Llama-3.1-8B` using `torch==2.9.0` and `vllm==0.13.0`.
 
 
 ### NVIDIA B200
