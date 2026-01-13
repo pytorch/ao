@@ -34,7 +34,6 @@ Quantization techniques
     to_affine_quantized_intx_static
     to_affine_quantized_floatx
     to_affine_quantized_floatx_static
-    to_marlinqqq_quantized_intx
     to_nf4
 
 Prototype
@@ -48,8 +47,6 @@ Prototype
     BlockSparseLayout
     CutlassInt4PackedLayout
     Int8DynamicActInt4WeightCPULayout
-    MarlinQQQTensor
-    MarlinQQQLayout
     UintxLayout
 
 ..

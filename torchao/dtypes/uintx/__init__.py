@@ -7,11 +7,6 @@ from .int4_cpu_layout import (
 from .int4_xpu_layout import (
     Int4XPULayout,
 )
-from .marlin_qqq_tensor import (
-    MarlinQQQLayout,
-    MarlinQQQTensor,
-    to_marlinqqq_quantized_intx,
-)
 from .marlin_sparse_layout import (
     MarlinSparseLayout,
 )
@@ -37,9 +32,6 @@ __all__ = [
     "SemiSparseLayout",
     "TensorCoreTiledLayout",
     "Int4CPULayout",
-    "MarlinQQQLayout",
-    "MarlinQQQTensor",
-    "to_marlinqqq_quantized_intx",
     "PackedLinearInt8DynamicActivationIntxWeightLayout",
     "QDQLayout",
     "Int4XPULayout",

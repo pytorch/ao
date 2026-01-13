@@ -184,7 +184,6 @@ def test_uintx_api_deprecation():
         ),
         ("CutlassInt4PackedLayout", "torchao.dtypes.uintx.cutlass_int4_packed_layout"),
         ("BlockSparseLayout", "torchao.dtypes.uintx.block_sparse_layout"),
-        ("MarlinQQQLayout", "torchao.dtypes.uintx.marlin_qqq_tensor"),
         ("UintxLayout", "torchao.dtypes.uintx.uintx_layout"),
     ]
 
