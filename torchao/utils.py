@@ -155,8 +155,6 @@ def get_available_devices():
 def get_current_accelerator_device():
     if torch.accelerator.is_available():
         return torch.accelerator.current_accelerator()
-    else:
-        return None
 
 
 def get_compute_capability():
