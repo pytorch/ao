@@ -7,15 +7,16 @@
 import argparse
 
 import torch
-from create_quantized_model import get_size_of_dir
 from lm_eval import evaluator
 from lm_eval.models.huggingface import HFLM
 from transformers import AutoModelForCausalLM, AutoTokenizer, TorchAoConfig
-from utils import string_to_calibration_config
 
 from torchao.prototype.awq import AWQConfig
 from torchao.prototype.smoothquant import SmoothQuantConfig
 from torchao.quantization.quant_api import quantize_
+
+from ..utils import get_size_of_dir
+from .utils import string_to_calibration_config
 
 
 def _apply_calibration(
