@@ -555,6 +555,7 @@ def _symmetric_quantize_with_ref(w: torch.Tensor, num_bits: int, group_size: int
         s.to(device=orig_device),
     )
 
+
 @pytest.mark.skipif(not IS_ROCM, reason="ROCm not available")
 def test_swizzle_mm():
     test_utils = [
