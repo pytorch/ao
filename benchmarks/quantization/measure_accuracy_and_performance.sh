@@ -16,8 +16,7 @@
 #                  Valid recipes: None, float8_rowwise,
 #                                 int4_groupwise_weight_float8_rowwise_activation,
 #                                 int4_groupwise_hqq_weight_only,
-#                                 int8_rowwise_weight_only, int8_rowwise,
-#                                 awq_int4_weight_only, smoothquant_int8
+#                                 int8_rowwise_weight_only, int8_rowwise
 #   MODEL_ID       (optional) HuggingFace model ID (default: meta-llama/Llama-3.1-8B)
 #   LOG_FILE       (optional) Output log file path (default: benchmarks/data/measure_accuracy_and_performance_log.txt)
 #
@@ -44,9 +43,6 @@ QUANT_RECIPES_ALL=(
   "None"
   "float8_rowwise"
   "int4_groupwise_weight_float8_rowwise_activation"
-  # calibration-based quantization
-  "awq_int4_weight_only"
-  "smoothquant_int8"
   # note: below only works on A100
   "int4_groupwise_hqq_weight_only"
   "int8_rowwise_weight_only"
@@ -82,12 +78,6 @@ VLLM_BROKEN_RECIPES=(
   # TODO(future PR): fix this
   # error: https://gist.github.com/vkuzo/b15ec478ee0a04d274ddb46acfa6d209
   "mxfp8"
-  # TODO(future PR): fix this
-  # error: https://gist.github.com/namgyu-youn/dff3e22320b028b28f7d533727a88bb1
-  "awq_int4_weight_only"
-  # TODO(future PR): fix this (same issue in AWQ)
-  # error: https://gist.github.com/namgyu-youn/0dca97ff669cfebfcb3af522ae10ea83
-  "smoothquant_int8"
 )
 
 # TODO(future PR): add A100 and B200 tag groups
@@ -152,14 +142,7 @@ for quant_recipe in "${QUANT_RECIPES[@]}"; do
   if [ "${SKIP_MODEL_CREATE:-0}" != "1" ]; then
     # Note: the -u flag is to prevent python from buffering stdout and stderr
     # and make the output log file be in chronological order
-    rm -rf $OUTPUT_DIR
-
-    # Use calibration.py for calibration-based recipes, otherwise use create_quantized_model.py
-    if [ "$quant_recipe" = "awq_int4_weight_only" ] || [ "$quant_recipe" = "smoothquant_int8" ]; then
-      python -u benchmarks/quantization/calibration.py --model_id $MODEL_ID --output_dir $OUTPUT_DIR --quant_recipe_name $quant_recipe 2>&1 | tee -a "$LOG_FILE"
-    else
-      python -u benchmarks/quantization/create_quantized_model.py --model_id $MODEL_ID --output_dir $OUTPUT_DIR --quant_recipe_name $quant_recipe 2>&1 | tee -a "$LOG_FILE"
-    fi
+    rm -rf $OUTPUT_DIR && python -u benchmarks/quantization/create_quantized_model.py --model_id $MODEL_ID --output_dir $OUTPUT_DIR --quant_recipe_name $quant_recipe 2>&1 | tee -a "$LOG_FILE"
   else
     echo "Skipping model creation (SKIP_MODEL_CREATE=1), using existing model at $OUTPUT_DIR" | tee -a "$LOG_FILE"
   fi

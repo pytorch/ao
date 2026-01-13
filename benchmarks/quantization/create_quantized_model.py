@@ -12,17 +12,13 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, TorchAoConfig
 from utils import string_to_config
 
 
-def quantize_model_and_save(
-    model_id,
-    quant_config,
-    output_dir,
-    safe_serialization=False,
-):
+def quantize_model_and_save(model_id, quant_config, output_dir):
     """Quantize the model and save it to the output directory."""
     print("Quantizing model with config: ", quant_config)
-    quantization_config = (
-        TorchAoConfig(quant_type=quant_config) if quant_config else None
-    )
+    if quant_config is None:
+        quantization_config = None
+    else:
+        quantization_config = TorchAoConfig(quant_type=quant_config)
     quantized_model = AutoModelForCausalLM.from_pretrained(
         model_id,
         device_map="auto",
@@ -30,8 +26,8 @@ def quantize_model_and_save(
         quantization_config=quantization_config,
     )
     tokenizer = AutoTokenizer.from_pretrained(model_id)
-    quantized_model.save_pretrained(output_dir, safe_serialization=safe_serialization)
-    tokenizer.save_pretrained(output_dir, safe_serialization=safe_serialization)
+    quantized_model.save_pretrained(output_dir, safe_serialization=False)
+    tokenizer.save_pretrained(output_dir, safe_serialization=False)
     return quantized_model, tokenizer
 
 
