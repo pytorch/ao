@@ -16,12 +16,11 @@
 #   MODEL_ID       (optional) HuggingFace model ID (default: meta-llama/Llama-3.1-8B)
 #   LOG_FILE       (optional) Output log file path (default: benchmarks/data/calibration_accuracy_and_performance_log.txt)
 #   CALIB_TASKS    (optional) Calibration tasks (default: wikitext)
-#   CALIB_LIMIT    (optional) Calibration limit (default: 10)
+#   CALIB_LIMIT    (optional) Calibration limit (default: 128)
 #
 # Environment Variables:
 #   SKIP_MODEL_CREATE  If set to 1, skip creating quantized models (assumes models already exist)
 #   SKIP_LM_EVAL       If set to 1, skip running lm_eval (only creates quantized models)
-#   SKIP_VLLM          If set to 1, skip running vllm performance benchmarking
 #
 # Examples:
 #   ./measure_accuracy_and_performance.sh                                # Run all calibration recipes with default model
@@ -30,23 +29,12 @@
 #   ./measure_accuracy_and_performance.sh awq_int4_weight_only meta-llama/Llama-3.2-8B my_log.txt  # All custom args
 #   SKIP_MODEL_CREATE=1 ./measure_accuracy_and_performance.sh all        # Skip model creation, only run eval
 #   SKIP_LM_EVAL=1 ./measure_accuracy_and_performance.sh all             # Skip lm_eval, only create models
-#   SKIP_VLLM=1 ./measure_accuracy_and_performance.sh all                # Skip vllm benchmarking
 
 set -e
 
 # Define all available calibration-based quantization recipes
 QUANT_RECIPES_ALL=(
   "awq_int4_weight_only"
-  "smoothquant_int8"
-)
-
-# Define recipes that are known to be broken in vllm
-VLLM_BROKEN_RECIPES=(
-  # TODO(future PR): fix this
-  # error: https://gist.github.com/vkuzo/b15ec478ee0a04d274ddb46acfa6d209
-  "awq_int4_weight_only"
-  # TODO(future PR): fix this (same issue in AWQ)
-  # error: https://gist.github.com/namgyu-youn/0dca97ff669cfebfcb3af522ae10ea83
   "smoothquant_int8"
 )
 
@@ -63,7 +51,7 @@ LOG_FILE="${3:-benchmarks/data/calibration_based/accuracy_and_performance_log.tx
 CALIB_TASKS="${4:-wikitext}"
 
 # Get calibration limit as fifth positional argument (optional)
-CALIB_LIMIT="${5:-10}"
+CALIB_LIMIT="${5:-128}"
 
 # Select recipes based on argument
 if [ "$RECIPE" = "all" ]; then
@@ -94,7 +82,7 @@ mkdir -p "$(dirname "$LOG_FILE")"
 rm -rf $LOG_FILE
 touch $LOG_FILE
 
-python -c "import torch; import torchao; import vllm; print(f'{torch.__version__=}\n{torch.cuda.get_device_name()=}\n{torchao.__version__=}\n{vllm.__version__=}')" | tee -a "$LOG_FILE"
+python -c "import torch; import torchao; print(f'{torch.__version__=}\n{torch.cuda.get_device_name()=}\n{torchao.__version__=}')" | tee -a "$LOG_FILE"
 
 for quant_recipe in "${QUANT_RECIPES[@]}"; do
 
@@ -126,37 +114,6 @@ for quant_recipe in "${QUANT_RECIPES[@]}"; do
     lm_eval --model hf --model_args "pretrained=$OUTPUT_DIR" --tasks "wikitext,winogrande" --device "cuda:0" --batch_size 1 --output_path "$OUTPUT_DIR/lm_eval_outputs/" 2>&1 | tee -a "$LOG_FILE"
   else
     echo "Skipping lm_eval (SKIP_LM_EVAL=1)" | tee -a "$LOG_FILE"
-  fi
-
-  # run vllm (unless skipped via environment variable)
-  if [ "${SKIP_VLLM:-0}" != "1" ]; then
-    RECIPE_BROKEN_IN_VLLM=false
-    for broken_recipe in "${VLLM_BROKEN_RECIPES[@]}"; do
-      if [ "$quant_recipe" = "$broken_recipe" ]; then
-        RECIPE_BROKEN_IN_VLLM=true
-        break
-      fi
-    done
-
-    if [ "$RECIPE_BROKEN_IN_VLLM" = true ]; then
-      echo "Skipping vllm benchmarking for $quant_recipe (known to be broken in vllm)" | tee -a "$LOG_FILE"
-    else
-      # prefill
-      PREFILL_ARGS="--num_prompts 32 --input_len 4096 --output_len 32 --max_model_len 4128"
-      echo | tee -a "$LOG_FILE"
-      echo "benchmarking vllm prefill performance with $PREFILL_ARGS" | tee -a "$LOG_FILE"
-      echo | tee -a "$LOG_FILE"
-      vllm bench throughput --model $OUTPUT_DIR --dtype bfloat16 $PREFILL_ARGS 2>&1 | tee -a "$LOG_FILE"
-
-      # decode
-      DECODE_ARGS="--num_prompts 128 --input_len 32 --output_len 2048 --max_model_len 2080"
-      echo | tee -a "$LOG_FILE"
-      echo "benchmarking vllm decode performance with $DECODE_ARGS"
-      echo | tee -a "$LOG_FILE"
-      vllm bench throughput --model $OUTPUT_DIR --dtype bfloat16 $DECODE_ARGS 2>&1 | tee -a "$LOG_FILE"
-    fi
-  else
-    echo "Skipping vllm benchmarking (SKIP_VLLM=1)" | tee -a "$LOG_FILE"
   fi
 
 done
