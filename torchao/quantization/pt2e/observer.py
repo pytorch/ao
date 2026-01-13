@@ -1958,7 +1958,7 @@ default_per_channel_weight_observer = PerChannelMinMaxObserver.with_args(
 )
 """
 Default per-channel weight observer, usually used on backends where per-channel
-weight quantization is supported, such as `fbgemm`.
+weight quantization is supported, such as `mslk`.
 """
 
 per_channel_weight_observer_range_neg_127_to_127 = PerChannelMinMaxObserver.with_args(

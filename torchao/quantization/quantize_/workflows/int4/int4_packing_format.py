@@ -27,7 +27,7 @@ class Int4PackingFormat(str, Enum):
     PLAIN = "plain"
 
     """
-    preshuffled is referring to the preshuffled format used by fbgemm kernels
+    preshuffled is referring to the preshuffled format used by mslk kernels
     """
     PRESHUFFLED = "preshuffled"
 

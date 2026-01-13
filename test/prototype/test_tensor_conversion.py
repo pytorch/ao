@@ -35,7 +35,7 @@ from torchao.quantization.quantize_.workflows.intx.intx_opaque_tensor import (
 )
 from torchao.quantization.utils import compute_error
 from torchao.utils import (
-    _is_fbgemm_gpu_genai_available,
+    _is_mslk_available,
     is_sm_at_least_90,
 )
 
@@ -193,9 +193,7 @@ def test_aarch64_conversion(dtype, granularity, bit_width, lead_dim):
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA")
-@pytest.mark.skipif(
-    not _is_fbgemm_gpu_genai_available(), reason="Requires fbgemm-gpu-genai >= 1.2.0"
-)
+@pytest.mark.skipif(not _is_mslk_available(), reason="Requires mslk >= 1.0.0")
 def test_int4_tensor_conversion():
     m = torch.nn.Sequential(
         torch.nn.Linear(256, 512, dtype=torch.bfloat16, device="cuda")

@@ -14,7 +14,7 @@ import argparse
 import random
 from pathlib import Path
 
-import fbgemm_gpu
+import mslk
 import numpy as np
 import torch
 import transformers
@@ -104,16 +104,16 @@ def main(args):
     assert t_v >= "4.58", (
         f"transformers version {t_v} too old, please upgrade to a transformers version with https://github.com/huggingface/transformers/pull/41894"
     )
-    f_v = str(fbgemm_gpu.__version__)
+    f_v = str(mslk.__version__)
     if f_v.startswith("202"):
         # nightly version, such as '2025.11.22+cu128'
         assert f_v >= "2025.11.22", (
-            f"fbgemm_gpu nightly version  {f_v} too old, please upgrade to a nightly from 2025-11-22 or later"
+            f"mslk nightly version  {f_v} too old, please upgrade to a nightly from 2025-11-22 or later"
         )
     else:
         # stable version, such as '1.4.1'
-        assert f_v >= "1.5", (
-            f"fbgemm_gpu stable version  {f_v} too old, please upgrade to 1.5 or later"
+        assert f_v >= "1.0.0", (
+            f"mslk stable version  {f_v} too old, please upgrade to 1.0.0 or later"
         )
 
     model_name = "meta-llama/Llama-4-Scout-17B-16E-Instruct"
