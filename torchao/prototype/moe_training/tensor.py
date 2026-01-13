@@ -18,7 +18,6 @@ from torch.distributed.fsdp import MixedPrecisionPolicy
 from torchao.prototype.moe_training import _quantize_then_scaled_grouped_mm
 from torchao.prototype.moe_training.conversion_utils import MoEScalingType
 from torchao.quantization.quantize_.common import KernelPreference
-from torchao.utils import is_MI300
 
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -46,6 +45,7 @@ class ScaledGroupedMMTensor(torch.Tensor):
 
     scaling_type: MoEScalingType = MoEScalingType.FP8_ROWWISE
     kernel_preference: KernelPreference = KernelPreference.AUTO
+    float8_dtype: torch.dtype = torch.float8_e4m3fn
     grouped_mm_func_name = "_grouped_mm"
     offs_arg_name = "offs"
 
@@ -54,6 +54,7 @@ class ScaledGroupedMMTensor(torch.Tensor):
         cls,
         tensor: torch.Tensor,
         scaling_type: MoEScalingType,
+        float8_dtype: torch.dtype = torch.float8_e4m3fn,
         kernel_preference: KernelPreference = KernelPreference.AUTO,
     ):
         self = torch.Tensor._make_wrapper_subclass(
@@ -69,6 +70,7 @@ class ScaledGroupedMMTensor(torch.Tensor):
             requires_grad=tensor.requires_grad,
         )
         self.scaling_type = scaling_type
+        self.float8_dtype = float8_dtype
         self.kernel_preference = kernel_preference
         return self
 
@@ -76,10 +78,12 @@ class ScaledGroupedMMTensor(torch.Tensor):
         self,
         tensor: torch.Tensor,
         scaling_type: MoEScalingType,
+        float8_dtype: torch.dtype = torch.float8_e4m3fn,
         kernel_preference: KernelPreference = KernelPreference.AUTO,
     ):
         self._data = tensor
         self.scaling_type = scaling_type
+        self.float8_dtype = float8_dtype
         self.kernel_preference = kernel_preference
 
     @classmethod
@@ -101,8 +105,8 @@ class ScaledGroupedMMTensor(torch.Tensor):
                 "B should be a ScaledGroupedMMTensor"
             )
             scaling_type = B.scaling_type
+            float8_dtype = B.float8_dtype
             kernel_preference = B.kernel_preference
-            float8_dtype = torch.float8_e4m3fnuz if is_MI300() else torch.float8_e4m3fn
             A_is_2d = A.ndim == 2
             B_is_2d_or_3d = B.ndim == 2 or B.ndim == 3
             has_offs = kwargs.get(cls.offs_arg_name) is not None
@@ -127,16 +131,21 @@ class ScaledGroupedMMTensor(torch.Tensor):
     def __torch_dispatch__(cls, func, types, args, kwargs={}):
         # unwrap args/kwargs and extract scaling_type and kernel_preference
         scaling_type = None
+        float8_dtype = None
         kernel_preference = None
 
         def unwrap(t):
-            nonlocal scaling_type, kernel_preference
+            nonlocal scaling_type, float8_dtype, kernel_preference
             if scaling_type is None:
                 scaling_type = t.scaling_type
                 kernel_preference = t.kernel_preference
             else:
                 assert t.scaling_type == scaling_type
                 assert t.kernel_preference == kernel_preference
+            if float8_dtype is None:
+                float8_dtype = t.float8_dtype
+            else:
+                assert t.float8_dtype == float8_dtype
             return t._data
 
         args_unwrapped, kwargs_unwrapped = pytree.tree_map_only(
@@ -145,11 +154,14 @@ class ScaledGroupedMMTensor(torch.Tensor):
         assert scaling_type is not None, (
             f"__torch_dispatch__ called on {func.__name__} without any ScaledGroupedMMTensor arguments"
         )
+        assert float8_dtype is not None, (
+            f"__torch_dispatch__ called on {func.__name__} without any ScaledGroupedMMTensor arguments"
+        )
 
         # detach is special case
         if func == torch.ops.aten.detach.default:
             return ScaledGroupedMMTensor(
-                args_unwrapped[0], scaling_type, kernel_preference
+                args_unwrapped[0], scaling_type, float8_dtype, kernel_preference
             )
 
         # perform op
@@ -162,7 +174,7 @@ class ScaledGroupedMMTensor(torch.Tensor):
         # wrap outputs back into ScaledGroupedMMTensor for ops that do preserve subclass
         return pytree.tree_map_only(
             torch.Tensor,
-            lambda x: ScaledGroupedMMTensor(x, scaling_type, kernel_preference),
+            lambda x: ScaledGroupedMMTensor(x, scaling_type, float8_dtype,kernel_preference),
             out,
         )
 
@@ -172,6 +184,7 @@ class ScaledGroupedMMTensor(torch.Tensor):
     def __tensor_flatten__(self):
         metadata = {
             "scaling_type": self.scaling_type,
+            "float8_dtype": self.float8_dtype,
             "kernel_preference": self.kernel_preference,
         }
         return ["_data"], metadata
@@ -181,6 +194,7 @@ class ScaledGroupedMMTensor(torch.Tensor):
         return ScaledGroupedMMTensor(
             inner_tensors["_data"],
             flatten_spec["scaling_type"],
+            flatten_spec["float8_dtype"],
             flatten_spec["kernel_preference"],
         )
 
@@ -213,12 +227,14 @@ class ScaledGroupedMMTensor(torch.Tensor):
             if isinstance(out, ScaledGroupedMMTensor):
                 out_data = out._data
                 out.scaling_type = self.scaling_type
+                out.float8_dtype = self.float8_dtype
                 out.emulated = self.emulated
             elif isinstance(out, DTensor) and isinstance(
                 out._local_tensor, ScaledGroupedMMTensor
             ):
                 out_data = out._local_tensor._data
                 out._local_tensor.scaling_type = self.scaling_type
+                out._local_tensor.float8_dtype = self.float8_dtype
                 out._local_tensor.emulated = self.emulated
             else:
                 raise RuntimeError(
@@ -242,6 +258,6 @@ class ScaledGroupedMMTensor(torch.Tensor):
             return
 
         # For training step 0, out=None, so we need to return a new ScaledGroupedMMTensor.
-        output = ScaledGroupedMMTensor(data, self.scaling_type, self.emulated)
+        output = ScaledGroupedMMTensor(data, self.scaling_type, self.float8_dtype, self.emulated)
         inner_tensors = (data,)
         return output, inner_tensors

@@ -379,11 +379,15 @@ def _triton_fp8_per_group_colwise_scales_kernel(
         block_mask = (block_row_offs[:, None] < group_row_end_idx) & (
             block_col_offs[None, :] < N
         )
-        data = tl.load(input_ptr + block_offs, mask=block_mask, other=0.0).to(tl.float32)
+        data = tl.load(input_ptr + block_offs, mask=block_mask, other=0.0).to(
+            tl.float32
+        )
         amax_buffer = tl.maximum(amax_buffer, tl.max(tl.abs(data), axis=0))
 
     # compute rowwise scales for this group.
-    scales = (fp8_dtype_max / tl.clamp(amax_buffer, min=EPS, max=float("inf"))).to(tl.float32)
+    scales = (fp8_dtype_max / tl.clamp(amax_buffer, min=EPS, max=float("inf"))).to(
+        tl.float32
+    )
     if round_scales_to_power_of_2:
         scales = tl.exp2(tl.floor(tl.log2(scales)))
 
