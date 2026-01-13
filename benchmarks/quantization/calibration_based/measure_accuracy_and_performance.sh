@@ -16,7 +16,7 @@
 #   MODEL_ID       (optional) HuggingFace model ID (default: meta-llama/Llama-3.1-8B)
 #   LOG_FILE       (optional) Output log file path (default: benchmarks/data/calibration_accuracy_and_performance_log.txt)
 #   CALIB_TASKS    (optional) Calibration tasks (default: wikitext)
-#   CALIB_LIMIT    (optional) Calibration limit (default: 128)
+#   CALIB_LIMIT    (optional) Calibration limit (default: 256)
 #
 # Environment Variables:
 #   SKIP_MODEL_CREATE  If set to 1, skip creating quantized models (assumes models already exist)
@@ -51,7 +51,7 @@ LOG_FILE="${3:-benchmarks/data/calibration_based/accuracy_and_performance_log.tx
 CALIB_TASKS="${4:-wikitext}"
 
 # Get calibration limit as fifth positional argument (optional)
-CALIB_LIMIT="${5:-128}"
+CALIB_LIMIT="${5:-256}"
 
 # Select recipes based on argument
 if [ "$RECIPE" = "all" ]; then
