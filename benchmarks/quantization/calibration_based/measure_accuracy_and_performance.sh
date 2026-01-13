@@ -26,7 +26,7 @@
 # Examples:
 #   ./measure_accuracy_and_performance.sh                                # Run all calibration recipes with default model
 #   ./measure_accuracy_and_performance.sh awq_int4_weight_only           # Run single recipe
-#   ./measure_accuracy_and_performance.sh all meta-llama/Llama-3.2-8B    # Custom model with all recipes
+#   ./measure_accuracy_and_performance.sh all meta-llama/Llama-3.2-1B    # Custom model with all recipes
 #   ./measure_accuracy_and_performance.sh awq_int4_weight_only meta-llama/Llama-3.2-8B my_log.txt  # All custom args
 #   SKIP_MODEL_CREATE=1 ./measure_accuracy_and_performance.sh all        # Skip model creation, only run eval
 #   SKIP_LM_EVAL=1 ./measure_accuracy_and_performance.sh all             # Skip lm_eval, only create models
@@ -57,7 +57,7 @@ RECIPE="${1:-all}"
 MODEL_ID="${2:-meta-llama/Llama-3.1-8B}"
 
 # Get log file as third positional argument (optional)
-LOG_FILE="${3:-benchmarks/data/calibration_accuracy_and_performance_log.txt}"
+LOG_FILE="${3:-benchmarks/data/calibration_based/accuracy_and_performance_log.txt}"
 
 # Get calibration tasks as fourth positional argument (optional)
 CALIB_TASKS="${4:-wikitext}"
@@ -110,11 +110,10 @@ for quant_recipe in "${QUANT_RECIPES[@]}"; do
     # and make the output log file be in chronological order
     rm -rf $OUTPUT_DIR
 
-    # Use calibration.py for calibration-based recipes
-    python -u -m benchmarks.quantization.calibration.calibration \
-      --model_id $MODEL_ID \
+    python -u -m benchmarks.quantization.calibration_based.create_quantized_model \
+      --model $MODEL_ID \
       --output_dir $OUTPUT_DIR \
-      --quant_recipe_name $quant_recipe \
+      --recipe $quant_recipe \
       --calibration_tasks $CALIB_TASKS \
       --calibration_limit $CALIB_LIMIT \
       2>&1 | tee -a "$LOG_FILE"
@@ -131,31 +130,35 @@ for quant_recipe in "${QUANT_RECIPES[@]}"; do
 
   # run vllm (unless skipped via environment variable)
   if [ "${SKIP_VLLM:-0}" != "1" ]; then
-    # check if recipe is in VLLM_BROKEN_RECIPES, skip vllm if so
-    skip_vllm_for_recipe=false
+    RECIPE_BROKEN_IN_VLLM=false
     for broken_recipe in "${VLLM_BROKEN_RECIPES[@]}"; do
       if [ "$quant_recipe" = "$broken_recipe" ]; then
-        skip_vllm_for_recipe=true
+        RECIPE_BROKEN_IN_VLLM=true
         break
       fi
     done
 
-    if [ "$skip_vllm_for_recipe" = true ]; then
-      echo "Skipping vllm for $quant_recipe (known to be broken)" | tee -a "$LOG_FILE"
+    if [ "$RECIPE_BROKEN_IN_VLLM" = true ]; then
+      echo "Skipping vllm benchmarking for $quant_recipe (known to be broken in vllm)" | tee -a "$LOG_FILE"
     else
-      python benchmarks/benchmark_vllm.py \
-        --model $OUTPUT_DIR \
-        --input-len 512 \
-        --output-len 128 \
-        --num-prompts 100 \
-        --enforce-eager 2>&1 | tee -a "$LOG_FILE"
+      # prefill
+      PREFILL_ARGS="--num_prompts 32 --input_len 4096 --output_len 32 --max_model_len 4128"
+      echo | tee -a "$LOG_FILE"
+      echo "benchmarking vllm prefill performance with $PREFILL_ARGS" | tee -a "$LOG_FILE"
+      echo | tee -a "$LOG_FILE"
+      vllm bench throughput --model $OUTPUT_DIR --dtype bfloat16 $PREFILL_ARGS 2>&1 | tee -a "$LOG_FILE"
+
+      # decode
+      DECODE_ARGS="--num_prompts 128 --input_len 32 --output_len 2048 --max_model_len 2080"
+      echo | tee -a "$LOG_FILE"
+      echo "benchmarking vllm decode performance with $DECODE_ARGS"
+      echo | tee -a "$LOG_FILE"
+      vllm bench throughput --model $OUTPUT_DIR --dtype bfloat16 $DECODE_ARGS 2>&1 | tee -a "$LOG_FILE"
     fi
   else
-    echo "Skipping vllm (SKIP_VLLM=1)" | tee -a "$LOG_FILE"
+    echo "Skipping vllm benchmarking (SKIP_VLLM=1)" | tee -a "$LOG_FILE"
   fi
 
 done
 
-echo | tee -a "$LOG_FILE"
-echo "All benchmarks complete!" | tee -a "$LOG_FILE"
-echo "Log file: $LOG_FILE" | tee -a "$LOG_FILE"
+benchmarks/quantization/parse_log.py $LOG_FILE

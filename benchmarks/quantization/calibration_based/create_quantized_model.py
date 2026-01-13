@@ -39,24 +39,21 @@ def _apply_calibration(
     model.config.quantization_config = TorchAoConfig(load_config)
 
 
-def quantize_model_and_save(model_id, quant_config, output_dir, tasks, limit):
+def quantize_model_and_save(model, recipe, base_config, output_dir, tasks, limit):
     """Quantize model with calibration and save."""
-    tokenizer = AutoTokenizer.from_pretrained(model_id)
+    tokenizer = AutoTokenizer.from_pretrained(model)
+    model = AutoModelForCausalLM.from_pretrained(
+        model, device_map="cuda:0", dtype=torch.bfloat16
+    )
 
-    if quant_config == "awq_int4_weight_only":
-        model = AutoModelForCausalLM.from_pretrained(
-            model_id, device_map="cuda:0", dtype=torch.bfloat16
-        )
-        _apply_calibration(model, AWQConfig, quant_config, tasks, limit, tokenizer)
-    elif quant_config == "smoothquant_int8":
-        model = AutoModelForCausalLM.from_pretrained(
-            model_id, device_map="auto", dtype=torch.bfloat16
-        )
+    if recipe == "awq_int4_weight_only":
+        _apply_calibration(model, AWQConfig, base_config, tasks, limit, tokenizer)
+    elif recipe == "smoothquant_int8":
         _apply_calibration(
-            model, SmoothQuantConfig, quant_config, tasks, limit, tokenizer
+            model, SmoothQuantConfig, base_config, tasks, limit, tokenizer
         )
     else:
-        raise AssertionError(f"unsupported calibration config: {quant_config}")
+        raise AssertionError(f"unsupported recipe: {recipe}")
 
     model.save_pretrained(output_dir)
     tokenizer.save_pretrained(output_dir)
@@ -67,9 +64,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Quantize model with calibration (AWQ/SmoothQuant)"
     )
-    parser.add_argument("--model_id", default="meta-llama/Llama-3.1-8B")
+    parser.add_argument("--model", default="meta-llama/Llama-3.1-8B")
     parser.add_argument(
-        "--quant_recipe_name",
+        "--recipe",
         required=True,
         help="awq_int4_weight_only or smoothquant_int8",
     )
@@ -78,11 +75,12 @@ if __name__ == "__main__":
     parser.add_argument("--calibration_limit", type=int, default=10)
     args = parser.parse_args()
 
-    print(f"\n{args.model_id} with {args.quant_recipe_name}\n")
-    config = string_to_calibration_config(args.quant_recipe_name)
+    print(f"\n{args.model} with {args.recipe}\n")
+    base_config = string_to_calibration_config(args.recipe)
     model, _ = quantize_model_and_save(
-        args.model_id,
-        config,
+        args.model,
+        args.recipe,
+        base_config,
         args.output_dir,
         args.calibration_tasks,
         args.calibration_limit,
