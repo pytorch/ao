@@ -313,9 +313,6 @@ def test_mxfp8_per_group_blocked_scales_3d(
     )
 
 
-@pytest.mark.skip(
-    "Temporarily disable and use e2e training numerical tests instead. See: https://github.com/pytorch/ao/pull/2990#discussion_r2354167396"
-)
 @skip_if_rocm("ROCm enablement in progress")
 @pytest.mark.parametrize("m", [256, 512, 1024, 5120])
 @pytest.mark.parametrize("total_k", [512, 1024, 2048, 4096, 8192, 16384])
