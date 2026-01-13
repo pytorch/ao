@@ -29,13 +29,13 @@ from torchao.testing.utils import TorchAOIntegrationTestCase
 from torchao.utils import torch_version_at_least
 
 INT8_TEST_CONFIGS = [
-    Int8WeightOnlyConfig(version=2, granularity=PerTensor()),
-    Int8WeightOnlyConfig(version=2, granularity=PerRow()),
+    Int8WeightOnlyConfig(granularity=PerTensor()),
+    Int8WeightOnlyConfig(granularity=PerRow()),
     Int8DynamicActivationInt8WeightConfig(
-        version=2, granularity=PerTensor(), act_mapping_type=MappingType.SYMMETRIC
+        granularity=PerTensor(), act_mapping_type=MappingType.SYMMETRIC
     ),
     Int8DynamicActivationInt8WeightConfig(
-        version=2, granularity=PerRow(), act_mapping_type=MappingType.SYMMETRIC
+        granularity=PerRow(), act_mapping_type=MappingType.SYMMETRIC
     ),
 ]
 
@@ -211,7 +211,7 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
             torch.nn.Linear(K, N, device="cuda", dtype=torch.bfloat16)
         )
 
-        config = Int8DynamicActivationInt8WeightConfig(version=2)
+        config = Int8DynamicActivationInt8WeightConfig()
         quantize_(m, config)
 
         m = torch.compile(m)
@@ -265,9 +265,7 @@ class TestInt8StaticQuant(TorchAOIntegrationTestCase):
 
         model_out_baseline = model(input_tensor)
 
-        dynamic_config = Int8DynamicActivationInt8WeightConfig(
-            version=2, granularity=granularity
-        )
+        dynamic_config = Int8DynamicActivationInt8WeightConfig(granularity=granularity)
         quantize_(model_dynamic_quant, dynamic_config)
 
         dynamic_out_eager = model_dynamic_quant(input_tensor)
