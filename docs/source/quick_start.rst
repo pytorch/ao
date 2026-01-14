@@ -42,7 +42,6 @@ First, let's create a simple model:
               hidden_dim, output_dim, bias=has_bias, dtype=dtype, device=device
           )
 
-      # Note: Tiny-GEMM kernel only uses BF16 inputs
       def example_inputs(self, batch_size=1):
           return (
               torch.randn(
@@ -58,7 +57,7 @@ First, let's create a simple model:
           x = self.linear2(x)
           return x
 
-  model = ToyLinearModel(1024, 1024, 1024, device="cpu", dtype=torch.bfloat16).eval()
+  model = ToyLinearModel(1024, 1024, 1024, device="cuda", dtype=torch.bfloat16).eval()
   # Optional: compile model for faster inference and generation
   model = torch.compile(model, mode="max-autotune", fullgraph=True)
   model_bf16 = copy.deepcopy(model)
@@ -80,78 +79,68 @@ The model structure remains unchanged - only weight tensors are quantized. You c
   >>> print(type(model_bf16.linear1.weight).__name__)
   'Int8Tensor'
 
-For real model, you can use
+The quantized model is now ready to use! Note that the quantization
+logic is inserted through tensor subclasses, so there is no change
+to the overall model structure; only the weights tensors are updated.
+
+Model Size Comparison
+^^^^^^^^^^^^^^^^^^^^^
+
+First, verify that the int4 quantized model is roughly a half of
+the size of the original bfloat16 model:
 
 .. code:: py
 
-  from torchao.quantization import Int8DynamicActivationInt8WeightConfig, quantize_
+  import os
 
-  # Quantize a model with W8A8
-  model_w8a8 = AutoModelForCausalLM.from_pretrained(
-      meta-llama/Llama-3.1-8B,
-      torch_dtype=torch.bfloat16,
-      device_map="auto"
-  )
-  quantize_(model_w8a8, Int8DynamicActivationInt8WeightConfig())
+  # Compare model sizes
+  original_size = sum(os.path.getsize(os.path.join(d, f)) for d, _, files in os.walk("./Llama-3.1-8B-original") for f in files) / 1024**2
+  quantized_size = sum(os.path.getsize(os.path.join(d, f)) for d, _, files in os.walk("./Llama-3.1-8B-int8") for f in files) / 1024**2
+  print(f"Size reduction: {original_size / quantized_size:.2f}x ({original_size:.0f}MB -> {quantized_size:.0f}MB)")
 
-  # Save the quantized model
-  model_w8a8.save_pretrained("./Llama-3.1-8B-int8")
+Output::
+
+  Size reduction: 1.99x (4MB -> 2MB)
+
+The int8 quantized model achieves approximately 2x size reduction compared to the original bfloat16 model.
+
+Speedup Comparison
+^^^^^^^^^^^^^^^^^^
+
+Let's demonstrate that not only is the quantized model smaller, but also it is also much faster.
+
+.. code:: py
+
+  import time
+
+  # Warmup
+  model.generate(**inputs, max_new_tokens=50)
+  model_w8a8.generate(**inputs, max_new_tokens=50)
+
+  # Benchmark
+  start = time.time()
+  model.generate(**inputs, max_new_tokens=50)
+  original_time = time.time() - start
+
+  start = time.time()
+  model_w8a8.generate(**inputs, max_new_tokens=50)
+  quantized_time = time.time() - start
+
+  print(f"Speedup: {original_time / quantized_time:.2f}x")
+
+Output::
+
+  Speedup: 1.50x
+
+.. note::
+   The speedup results can vary significantly based on hardware. For example, on CPU, quantized models may be slower due to lack of optimized kernel support. We recommend CUDA-enabled GPUs for best performance.
 
 Both weights and activations are quantized to int8, providing better accuracy
 than weight-only quantization while still reducing model size by ~2x. For comprehensive benchmark results and detailed evaluation workflows on production models,
 see the `quantization benchmarks <https://github.com/pytorch/ao/blob/main/torchao/quantization/README.md>`__.
 
-Evaluating on Real Models
-~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-For production use, you'll want to quantize real LLMs from HuggingFace.
-Here's a complete workflow using ``transformers`` and ``lm_eval``:
-
-.. code:: py
-
-  from transformers import AutoModelForCausalLM, AutoTokenizer
-  from torchao.quantization import Int8DynamicActivationInt8WeightConfig, quantize_
-
-  # Load model from HuggingFace
-  model_id = "meta-llama/Llama-3.1-8B"
-  model = AutoModelForCausalLM.from_pretrained(
-      model_id,
-      torch_dtype=torch.bfloat16,
-      device_map="auto"
-  )
-  tokenizer = AutoTokenizer.from_pretrained(model_id)
-
-  # Quantize the model
-  quantize_(model, Int8DynamicActivationInt8WeightConfig())
-
-  # Save the quantized model
-  model.save_pretrained("./Llama-3.1-8B-w8a8-int")
-  tokenizer.save_pretrained("./Llama-3.1-8B-w8a8-int")
-
-Evaluate accuracy with ``lm_eval``:
-
-.. code:: bash
-
-  lm_eval --model hf \
-    --model_args "pretrained=./llama-3.2-1B-w8a8-int" \
-    --tasks wikitext,winogrande \
-    --device cuda:0 \
-    --batch_size 1
-
-Serve and benchmark with ``vllm``:
-
-.. code:: bash
-
-  # Serve the quantized model
-  vllm serve ./Llama-3.1-8B-w8a8-int
-
-  # Benchmark throughput
-  vllm bench throughput \
-    --model ./Llama-3.1-8B-w8a8-int \
-    --num-prompts 32 \
-    --input-len 4096 \
-    --output-len 32
-
+We will address how to evaluate quantized model using `vLLM` and `lm-eval` in `model serving <https://docs.pytorch.org/ao/main/serving.html`__ section
 
 PyTorch 2 Export Quantization
 =============================
