@@ -44,7 +44,6 @@ from torchao.prototype.mx_formats.kernels import (
 from torchao.prototype.mx_formats.mx_tensor import MXTensor, to_mx
 from torchao.prototype.mx_formats.utils import _to_mxfp8_dim1_kernel_wrapper
 from torchao.quantization.quantize_.common import KernelPreference
-from torchao.utils import is_MI300, is_MI350, is_ROCM
 
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -457,7 +456,6 @@ class _MXFP8GroupedMM(torch.autograd.Function):
         # Retrieve saved tensors and config
         input_act, weight_t, group_offsets = ctx.saved_tensors
         block_size = ctx.block_size
-        float8_dtype = ctx.float8_dtype
         out_dtype = ctx.out_dtype
         kernel_preference = ctx.kernel_preference
         wgrad_with_hp = ctx.wgrad_with_hp
