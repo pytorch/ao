@@ -79,6 +79,17 @@ gpu_name_to_specs = {
         "fp4_peak_tops": 1676e12,
         "peak_mem_bw_bytes_sec": 1.792e15,
     },
+    "NVIDIA B300 SXM6 AC": {
+        # https://resources.nvidia.com/en-us-blackwell-architecture/blackwell-ultra-datasheet
+        "bf16_peak_tops": 2.25e15,
+        "fp8_peak_tops": 4.5e15,
+        "fp4_peak_tops": 14e15,
+        "peak_mem_bw_bytes_sec": 8e12,
+        # From measurement on hardware
+        "pct_achievable_gemm_tops": 0.82,
+        # From measurement on hardware
+        "pct_achievable_mem_bw": 0.84,
+    },
     # TODO(future): more GPU names
 }
 
