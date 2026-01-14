@@ -121,9 +121,9 @@ def test_valid_scaled_grouped_mm_2d_3d(m, n, k, n_groups):
         # - scaled_grouped_mm uses CK
         # These do not guarantee identical FP8 compute/accumulation behavior (e.g. accumulation order),
         # and this test is very large (deep accumulation), so rounding differences can accumulate.
-        assert torch.allclose(out, ref_out, rtol=1e-2, atol=2.5)
-        assert torch.allclose(a.grad, ref_a.grad, rtol=1e-2, atol=2.5)
-        assert torch.allclose(b_t.grad, ref_b_t.grad, rtol=1e-2, atol=2.5)
+        assert torch.allclose(out, ref_out, rtol=1e-2, atol=1e-2)
+        assert torch.allclose(a.grad, ref_a.grad, rtol=1e-2, atol=1e-2)
+        assert torch.allclose(b_t.grad, ref_b_t.grad, rtol=1e-2, atol=1e-2)
     else:
         assert torch.equal(out, ref_out)
         assert torch.equal(a.grad, ref_a.grad)
@@ -254,8 +254,8 @@ def compute_reference_forward(
             # FP8 matmul allows some error due to precision limits and accumulation order differences.
             # Tested with M=131072, K=5120, N=8192, bfloat16 output:
             # 99.9986% of points have error < 0.1, max error ~2 (-262 vs -260, relative error ~0.77%)
-            assert torch.allclose(result1, ref_group_result1, rtol=1e-2, atol=2.5)
-            assert torch.allclose(result2, ref_group_result2, rtol=1e-2, atol=2.5)
+            assert torch.allclose(result1, ref_group_result1, rtol=1e-2, atol=1e-2)
+            assert torch.allclose(result2, ref_group_result2, rtol=1e-2, atol=1e-2)
         else:
             assert torch.equal(result1, ref_group_result1)
             assert torch.equal(result2, ref_group_result2)
