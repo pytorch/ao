@@ -58,9 +58,8 @@ First, let's create a simple model:
     model = ToyLinearModel(
         1024, 1024, 1024, device="cuda", dtype=torch.bfloat16
     ).eval()
-    # Optional: compile model for faster inference and generation
-    model_w16a16 = torch.compile(model, mode="max-autotune", fullgraph=True))
-    model_w8a8 = copy.deepcopy(model_w16a16)  # We will quantize in next chapter!
+    model_w16a16 = model
+    model_w8a8 = copy.deepcopy(model)  # We will quantize in next chapter!
 
 W8A8-INT: 8-bit Dynamic Activation and Weight Quantization
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -92,6 +91,10 @@ You can verify this by saving both models to disk and comparing file sizes:
 .. code:: py
 
     import os
+
+    # Optional: compile model for faster inference and generation
+    model_w16a16 = torch.compile(model, mode="max-autotune", fullgraph=True)
+    model_w8a8 = torch.compile(model_w8a8, mode="max-autotune", fullgraph=True)
 
     # Save models
     torch.save(model_w16a16.state_dict(), "model_w16a16.pth")
@@ -146,7 +149,7 @@ Let's demonstrate that not only is the quantized model smaller, but it is also f
 
 Output::
 
-    Speedup: 1.08x
+    Speedup: 1.03x
 
 .. note::
    The speedup results can vary significantly based on hardware and model. We recommend CUDA-enabled GPUs and models larger than 8B for best performance.
