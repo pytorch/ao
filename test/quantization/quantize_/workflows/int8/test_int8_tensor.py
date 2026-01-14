@@ -57,7 +57,6 @@ INT8_TEST_CONFIGS = [
         version=2, granularity=PerRow(), act_mapping_type=MappingType.ASYMMETRIC
     ),
 ]
-_DEVICE = get_current_accelerator_device()
 
 
 @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
@@ -69,6 +68,7 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
         self.test_shape = (32, 20)
         self.dtype = torch.bfloat16
         self.batch_size = 32
+        self._DEVICE = get_current_accelerator_device()
 
         torch.manual_seed(42)
 
@@ -80,7 +80,7 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
             self.test_shape[0],
             bias=False,
             dtype=self.dtype,
-            device=_DEVICE,
+            device=self._DEVICE,
         )
         quantize_(linear, config)
 
@@ -119,8 +119,8 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
         torch.compiler.reset()
 
         M, N, K = sizes
-        input_tensor = torch.randn(*M, K, dtype=dtype, device=_DEVICE)
-        model = ToyTwoLinearModel(K, N, K, dtype=dtype, device=_DEVICE).eval()
+        input_tensor = torch.randn(*M, K, dtype=dtype, device=self._DEVICE)
+        model = ToyTwoLinearModel(K, N, K, dtype=dtype, device=self._DEVICE).eval()
         model_q = copy.deepcopy(model)
 
         quantize_(model_q, config)
@@ -146,6 +146,8 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
         assert compute_error(output_fp, output_quantized) > 20, (
             f"Quantization error is too high got a SQNR of {compute_error(output_fp, output_quantized)}"
         )
+
+    _DEVICE = get_current_accelerator_device()
 
     @common_utils.parametrize("config", INT8_TEST_CONFIGS)
     @common_utils.parametrize("device", ["cpu", _DEVICE])
@@ -179,8 +181,10 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
     def test_index_select(self, config):
         """test that `x_0 = x[0]` works when `x` is a 2D quantized tensor."""
         N, K = 256, 512
-        x = torch.randn(N, K, device=_DEVICE, dtype=torch.bfloat16)
-        linear = torch.nn.Linear(K, N, bias=False, dtype=torch.bfloat16, device=_DEVICE)
+        x = torch.randn(N, K, device=self._DEVICE, dtype=torch.bfloat16)
+        linear = torch.nn.Linear(
+            K, N, bias=False, dtype=torch.bfloat16, device=self._DEVICE
+        )
         linear.weight.data = x
 
         quantize_(linear, config)
@@ -207,7 +211,7 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
     def test_dequantization_accuracy(self, config):
         """Test dequantization accuracy separately"""
         linear = torch.nn.Linear(
-            256, 512, bias=False, dtype=torch.bfloat16, device=_DEVICE
+            256, 512, bias=False, dtype=torch.bfloat16, device=self._DEVICE
         )
         weight_fp = copy.deepcopy(linear.weight)
         quantize_(linear, config)
@@ -228,14 +232,14 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
 
         M, K, N = 128, 256, 512
         m = torch.nn.Sequential(
-            torch.nn.Linear(K, N, device=_DEVICE, dtype=torch.bfloat16)
+            torch.nn.Linear(K, N, device=self._DEVICE, dtype=torch.bfloat16)
         )
 
         config = Int8DynamicActivationInt8WeightConfig(version=2)
         quantize_(m, config)
 
         m = torch.compile(m)
-        x = torch.randn(M, K, device=_DEVICE, dtype=torch.bfloat16)
+        x = torch.randn(M, K, device=self._DEVICE, dtype=torch.bfloat16)
 
         out, code = run_and_get_code(m, x)
 
@@ -282,8 +286,15 @@ class TestInt8StaticQuant(TorchAOIntegrationTestCase):
     ):
         torch.compiler.reset()
 
+<<<<<<< HEAD
         M, N, K = 128, 128, 128
         input_tensor = torch.randn(M, K, dtype=dtype, device="cuda")
+=======
+        M, N, K = 32, 32, 32
+
+        _DEVICE = get_current_accelerator_device()
+        input_tensor = torch.randn(M, K, dtype=dtype, device=_DEVICE)
+>>>>>>> f07387cd2 (refine the device)
 
         model = torch.nn.Linear(K, N, bias=False).eval().to(device=_DEVICE, dtype=dtype)
         model_static_quant = copy.deepcopy(model)
