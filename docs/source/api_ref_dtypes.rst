@@ -20,7 +20,6 @@ Layouts and Tensor Subclasses
     TensorCoreTiledLayout
     Float8Layout
     FloatxTensor
-    MarlinSparseLayout
     Int4CPULayout
     CutlassSemiSparseLayout
 
