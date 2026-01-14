@@ -153,8 +153,15 @@ def get_available_devices():
 
 
 def get_current_accelerator_device():
+<<<<<<< HEAD
     assert torch.accelerator.is_available()
     return torch.accelerator.current_accelerator()
+=======
+    if torch.accelerator.is_available():
+        return torch.accelerator.current_accelerator()
+    else:
+        return None
+>>>>>>> 4f945b96c (refine the device)
 
 
 def get_compute_capability():
