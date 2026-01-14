@@ -26,10 +26,11 @@ from torchao.utils import (
 )
 
 
-def get_config(group_size):
+def get_config(group_size, use_hqq=False):
     return Int4WeightOnlyConfig(
         group_size=group_size,
         int4_packing_format="plain_int32",
+        int4_choose_qparams_algorithm="hqq" if use_hqq else "tinygemm",
     )
 
 
@@ -56,8 +57,9 @@ class Int4PlainInt32Tensor(TestCase):
     )
     @parametrize("dtype", [torch.bfloat16, torch.half])
     @parametrize("group_size", [32, 64, 128])
+    @parametrize("use_hqq", [False, True])
     @parametrize("thresholds", [{"xpu": 20, "npu": 10}])
-    def test_linear(self, device, sizes, dtype, group_size, thresholds):
+    def test_linear(self, device, sizes, dtype, group_size, use_hqq, thresholds):
         M, N, K = sizes
         if "npu" in device and group_size == K:
             pytest.skip(
@@ -68,7 +70,7 @@ class Int4PlainInt32Tensor(TestCase):
         input = torch.randn(*M, K, dtype=dtype, device=device)
         linear = torch.nn.Linear(K, N, dtype=dtype, device=device)
         original = linear(input)
-        quantize_(linear, get_config(group_size))
+        quantize_(linear, get_config(group_size, use_hqq))
         quantized = linear(input)
         self.assertTrue(compute_error(original, quantized) > threshold)
 
@@ -78,13 +80,14 @@ class Int4PlainInt32Tensor(TestCase):
             self.assertTrue(compute_error(original, quantized_and_compiled) > threshold)
 
     @parametrize("dtype", [torch.bfloat16, torch.half])
-    def test_module_path(self, device, dtype):
+    @parametrize("use_hqq", [False, True])
+    def test_module_path(self, device, dtype, use_hqq):
         K, N, group_size = 128, 256, 128
         if "npu" in device:
             group_size = 64
 
         linear = torch.nn.Linear(K, N, dtype=dtype, device=device)
-        quantize_(linear, get_config(group_size))
+        quantize_(linear, get_config(group_size, use_hqq))
         self.assertEqual(
             str(type(linear.weight)),
             "<class 'torchao.quantization.Int4PlainInt32Tensor'>",
@@ -100,8 +103,9 @@ class Int4PlainInt32Tensor(TestCase):
             )
 
     @parametrize("dtype", [torch.float16, torch.bfloat16])
+    @parametrize("use_hqq", [False, True])
     @parametrize("thresholds", [{"xpu": 20, "npu": 10}])
-    def test_activation_prescaling(self, device, dtype, thresholds):
+    def test_activation_prescaling(self, device, dtype, use_hqq, thresholds):
         if "xpu" in device and dtype == torch.float16:
             pytest.skip(f"{device} test_activation_prescaling don't test {dtype}")
 
@@ -113,7 +117,7 @@ class Int4PlainInt32Tensor(TestCase):
         input = torch.randn(1, K, dtype=dtype, device=device)
         linear = torch.nn.Linear(K, N, bias=False, dtype=dtype, device=device)
         original = linear(input)
-        quantize_(linear, get_config(group_size))
+        quantize_(linear, get_config(group_size, use_hqq))
         qw = linear.weight
         assert isinstance(qw, SupportsActivationPreScaling), (
             "Expected int4 tensor supports activation prescaling"
