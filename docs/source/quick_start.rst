@@ -19,7 +19,6 @@ First, let's create a simple model:
 
 .. code:: py
 
-    @torch.compile(mode="max-autotune", fullgraph=True)
     class ToyLinearModel(torch.nn.Module):
         def __init__(
             self,
@@ -56,9 +55,11 @@ First, let's create a simple model:
             return x
 
 
-    model_w16a16 = ToyLinearModel(
+    model = ToyLinearModel(
         1024, 1024, 1024, device="cuda", dtype=torch.bfloat16
     ).eval()
+    # Optional: compile model for faster inference and generation
+    model_w16a16 = torch.compile(model, mode="max-autotune", fullgraph=True))
     model_w8a8 = copy.deepcopy(model_w16a16)  # We will quantize in next chapter!
 
 W8A8-INT: 8-bit Dynamic Activation and Weight Quantization

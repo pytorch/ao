@@ -12,7 +12,6 @@ import torch
 # ================
 
 
-@torch.compile(mode="max-autotune", fullgraph=True)
 class ToyLinearModel(torch.nn.Module):
     def __init__(
         self,
@@ -49,9 +48,9 @@ class ToyLinearModel(torch.nn.Module):
         return x
 
 
-model_w16a16 = ToyLinearModel(
-    1024, 1024, 1024, device="cuda", dtype=torch.bfloat16
-).eval()
+model = ToyLinearModel(1024, 1024, 1024, device="cuda", dtype=torch.bfloat16).eval()
+# Optional: compile model for faster inference and generation
+model_w16a16 = torch.compile(model, mode="max-autotune", fullgraph=True)
 model_w8a8 = copy.deepcopy(model_w16a16)  # We will quantize in next chapter!
 
 # ========================
