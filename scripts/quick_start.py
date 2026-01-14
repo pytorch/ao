@@ -7,19 +7,41 @@ import copy
 
 import torch
 
-from torchao.quantization import Int4WeightOnlyConfig, quantize_
-from torchao.utils import benchmark_model
-
 # ================
 # | Set up model |
 # ================
 
 
+@torch.compile(mode="max-autotune", fullgraph=True)
 class ToyLinearModel(torch.nn.Module):
-    def __init__(self, m: int, n: int, k: int):
+    def __init__(
+        self,
+        input_dim,
+        hidden_dim,
+        output_dim,
+        dtype,
+        device,
+        has_bias=False,
+    ):
         super().__init__()
-        self.linear1 = torch.nn.Linear(m, n, bias=False)
-        self.linear2 = torch.nn.Linear(n, k, bias=False)
+        self.dtype = dtype
+        self.device = device
+        self.linear1 = torch.nn.Linear(
+            input_dim, hidden_dim, bias=has_bias, dtype=dtype, device=device
+        )
+        self.linear2 = torch.nn.Linear(
+            hidden_dim, output_dim, bias=has_bias, dtype=dtype, device=device
+        )
+
+    def example_inputs(self, batch_size=1):
+        return (
+            torch.randn(
+                batch_size,
+                self.linear1.in_features,
+                dtype=self.dtype,
+                device=self.device,
+            ),
+        )
 
     def forward(self, x):
         x = self.linear1(x)
@@ -27,31 +49,66 @@ class ToyLinearModel(torch.nn.Module):
         return x
 
 
-model = ToyLinearModel(1024, 1024, 1024).eval().to(torch.bfloat16).to("cuda")
-
-# Optional: compile model for faster inference and generation
-model = torch.compile(model, mode="max-autotune", fullgraph=True)
-model_bf16 = copy.deepcopy(model)
-
+model_w16a16 = ToyLinearModel(
+    1024, 1024, 1024, device="cuda", dtype=torch.bfloat16
+).eval()
+model_w8a8 = copy.deepcopy(model_w16a16)  # We will quantize in next chapter!
 
 # ========================
 # | torchao quantization |
 # ========================
 
-# torch 2.4+ only
-quantize_(model, Int4WeightOnlyConfig(group_size=32, version=1))
+from torchao.quantization import Int8DynamicActivationInt8WeightConfig, quantize_
 
+quantize_(model_w8a8, Int8DynamicActivationInt8WeightConfig())
+print(type(model_w8a8.linear1.weight).__name__)
 
-# =============
-# | Benchmark |
-# =============
+# ========================
+# | Model Size Comparison |
+# ========================
 
-num_runs = 100
-torch._dynamo.reset()
-example_inputs = (torch.randn(1, 1024, dtype=torch.bfloat16, device="cuda"),)
-bf16_time = benchmark_model(model_bf16, num_runs, example_inputs)
-int4_time = benchmark_model(model, num_runs, example_inputs)
+import os
 
-print("bf16 mean time: %0.3f ms" % bf16_time)
-print("int4 mean time: %0.3f ms" % int4_time)
-print("speedup: %0.1fx" % (bf16_time / int4_time))
+# Save models
+torch.save(model_w16a16.state_dict(), "model_w16a16.pth")
+torch.save(model_w8a8.state_dict(), "model_w8a8.pth")
+
+# Compare file sizes
+original_size = os.path.getsize("model_w16a16.pth") / 1024**2
+quantized_size = os.path.getsize("model_w8a8.pth") / 1024**2
+print(
+    f"Size reduction: {original_size / quantized_size:.2f}x ({original_size:.2f}MB -> {quantized_size:.2f}MB)"
+)
+
+# ========================
+# | Throughput (Speedup) |
+# ========================
+
+import time
+
+# Get example inputs
+example_inputs = model_w8a8.example_inputs(batch_size=128)
+
+# Warmup
+for _ in range(10):
+    _ = model_w8a8(*example_inputs)
+    _ = model_w16a16(*example_inputs)
+torch.cuda.synchronize()
+
+# Throughput: original model
+torch.cuda.synchronize()
+start = time.time()
+for _ in range(100):
+    _ = model_w16a16(*example_inputs)
+torch.cuda.synchronize()
+original_time = time.time() - start
+
+# Throughput: Quantized (W8A8-INT) model
+torch.cuda.synchronize()
+start = time.time()
+for _ in range(100):
+    _ = model_w8a8(*example_inputs)
+torch.cuda.synchronize()
+quantized_time = time.time() - start
+
+print(f"Speedup: {original_time / quantized_time:.2f}x")
