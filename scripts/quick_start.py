@@ -49,6 +49,7 @@ class ToyLinearModel(torch.nn.Module):
 
 
 model = ToyLinearModel(1024, 1024, 1024, device="cuda", dtype=torch.bfloat16).eval()
+model_w16a16 = copy.deepcopy(model)
 model_w8a8 = copy.deepcopy(model)  # We will quantize in next chapter!
 
 # ========================
@@ -66,10 +67,6 @@ print(type(model_w8a8.linear1.weight).__name__)
 
 import os
 
-# Optional: compile model for faster inference and generation
-model_w16a16 = torch.compile(model, mode="max-autotune", fullgraph=True)
-model_w8a8 = torch.compile(model_w8a8, mode="max-autotune", fullgraph=True)
-
 # Save models
 torch.save(model_w16a16.state_dict(), "model_w16a16.pth")
 torch.save(model_w8a8.state_dict(), "model_w8a8.pth")
@@ -86,6 +83,10 @@ print(
 # ========================
 
 import time
+
+# Optional: compile model for faster inference and generation
+model_w16a16 = torch.compile(model_w16a16, mode="max-autotune", fullgraph=True)
+model_w8a8 = torch.compile(model_w8a8, mode="max-autotune", fullgraph=True)
 
 # Get example inputs
 example_inputs = model_w8a8.example_inputs(batch_size=128)

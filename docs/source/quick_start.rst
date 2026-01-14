@@ -58,7 +58,7 @@ First, let's create a simple model:
     model = ToyLinearModel(
         1024, 1024, 1024, device="cuda", dtype=torch.bfloat16
     ).eval()
-    model_w16a16 = model
+    model_w16a16 = copy.deepcopy(model)
     model_w8a8 = copy.deepcopy(model)  # We will quantize in next chapter!
 
 W8A8-INT: 8-bit Dynamic Activation and Weight Quantization
@@ -92,10 +92,6 @@ You can verify this by saving both models to disk and comparing file sizes:
 
     import os
 
-    # Optional: compile model for faster inference and generation
-    model_w16a16 = torch.compile(model, mode="max-autotune", fullgraph=True)
-    model_w8a8 = torch.compile(model_w8a8, mode="max-autotune", fullgraph=True)
-
     # Save models
     torch.save(model_w16a16.state_dict(), "model_w16a16.pth")
     torch.save(model_w8a8.state_dict(), "model_w8a8.pth")
@@ -119,6 +115,10 @@ Let's demonstrate that not only is the quantized model smaller, but it is also f
 .. code:: py
 
     import time
+
+    # Optional: compile model for faster inference and generation
+    model_w16a16 = torch.compile(model, mode="max-autotune", fullgraph=True)
+    model_w8a8 = torch.compile(model_w8a8, mode="max-autotune", fullgraph=True)
 
     # Get example inputs
     example_inputs = model_w8a8.example_inputs(batch_size=128)
