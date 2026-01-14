@@ -23,12 +23,10 @@ from torchao.dtypes import (
     CutlassInt4PackedLayout,
     Float8Layout,
     Int8DynamicActInt4WeightCPULayout,
-    MarlinQQQLayout,
     PlainLayout,
     UintxLayout,
     to_affine_quantized_floatx,
     to_affine_quantized_intx,
-    to_marlinqqq_quantized_intx,
 )
 from torchao.dtypes.utils import Layout
 from torchao.float8.config import e4m3_dtype
@@ -84,7 +82,7 @@ class Int8DynamicActivationInt4WeightConfig(AOBaseConfig):
     Args:
         `group_size`: parameter for quantization, controls the granularity of quantization, smaller
          size is more fine grained
-        `layout`: layout type for quantized weight tensor, only supports `MarlinQQQLayout()` and `CutlassInt4PackedLayout()` for now
+        `layout`: layout type for quantized weight tensor, only supports `CutlassInt4PackedLayout()` for now
         `mapping_type`: quantization type for weight, controls the weight quantization is symmetric or asymmetric
         `act_mapping_type`: quantization type for activation, controls the activation quantization is symmetric or asymmetric
         `set_inductor_config`: if True, adjusts `torchinductor` settings to recommended values.
@@ -149,20 +147,14 @@ def _int8_dynamic_activation_int4_weight_transform(
         else:
             input_quant_func = _int8_asymm_per_token_quant
     elif act_mapping_type == MappingType.SYMMETRIC:
-        if isinstance(layout, MarlinQQQLayout):
-            input_quant_func = _int8_symm_per_token_quant
-        elif isinstance(layout, CutlassInt4PackedLayout):
+        if isinstance(layout, CutlassInt4PackedLayout):
             input_quant_func = _int8_symm_cutlass_quant
         else:
             input_quant_func = _int8_symm_per_token_quant
     else:
         assert False, f"Unsupported activation mapping type: {act_mapping_type}"
 
-    if isinstance(layout, MarlinQQQLayout):
-        weight = to_marlinqqq_quantized_intx(
-            weight, block_size, quant_min, quant_max, _layout=layout
-        )
-    elif isinstance(layout, CutlassInt4PackedLayout):
+    if isinstance(layout, CutlassInt4PackedLayout):
         weight = _int4_symm_cutlass_quant(weight)
     elif isinstance(layout, Int8DynamicActInt4WeightCPULayout):
         weight = to_affine_quantized_intx(
@@ -199,7 +191,7 @@ class Int4DynamicActivationInt4WeightConfig(AOBaseConfig):
     """Applies int4 dynamic per token symmetric activation quantization and int4 per row weight symmetric quantization to linear
 
     Args:
-        `layout`: layout type for quantized weight tensor, only supports `MarlinQQQLayout()` and `CutlassInt4PackedLayout()` for now
+        `layout`: layout type for quantized weight tensor, only supports `CutlassInt4PackedLayout()` for now
         `mapping_type`: quantization type for weight, controls the weight quantization is symmetric or asymmetric
         `act_mapping_type`: quantization type for activation, controls the activation quantization is symmetric or asymmetric
         `set_inductor_config`: if True, adjusts `torchinductor` settings to recommended values.
@@ -578,10 +570,6 @@ def _uintx_weight_only_transform(
     block_size = (1, group_size)
 
     if use_hqq:
-        if dtype == torch.uint4:
-            logger.warning(
-                "Recommended to use `Int4WeightOnlyConfig(group_size, use_hqq=True, version=1)` for the best performance"
-            )
         quant_min, quant_max = _DTYPE_TO_QVALUE_BOUNDS[dtype]
         dtype = torch.uint8
         eps = None

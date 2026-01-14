@@ -38,7 +38,6 @@ from torchao.dtypes import (
     Float8Layout,
     Int4CPULayout,
     Int4XPULayout,
-    MarlinSparseLayout,
     PlainLayout,
     SemiSparseLayout,
     TensorCoreTiledLayout,
@@ -80,7 +79,6 @@ from torchao.quantization.quantize_.workflows import (
     Float8PackingFormat,
     Float8Tensor,
     Int4ChooseQParamsAlgorithm,
-    Int4MarlinSparseTensor,
     Int4PackingFormat,
     Int4PlainInt32Tensor,
     Int4PreshuffledTensor,
@@ -162,14 +160,12 @@ __all__ = [
 
 LAYOUT_TO_ZERO_POINT_DOMAIN = {
     TensorCoreTiledLayout: [ZeroPointDomain.FLOAT],
-    MarlinSparseLayout: [ZeroPointDomain.INT],
     Int4CPULayout: [ZeroPointDomain.FLOAT],
     Int4XPULayout: [ZeroPointDomain.FLOAT, ZeroPointDomain.INT],
 }
 
 LAYOUT_TO_PRESERVE_ZEROS = {
     TensorCoreTiledLayout: False,
-    MarlinSparseLayout: True,
     Int4CPULayout: False,
     Int4XPULayout: False,
 }
@@ -456,7 +452,7 @@ def quantize_(
         from torchao.quantization.quant_api import Int4WeightOnlyConfig
 
         m = nn.Sequential(nn.Linear(32, 1024), nn.Linear(1024, 32))
-        quantize_(m, Int4WeightOnlyConfig(group_size=32, version=1))
+        quantize_(m, Int4WeightOnlyConfig(group_size=32))
 
     """
     torch._C._log_api_usage_once("torchao.quantization.quantize_")
@@ -735,27 +731,12 @@ class Int4WeightOnlyConfig(AOBaseConfig):
         `int4_packing_format`: the packing format for int4 tensor, used in version 2 only
          `int4_choose_qparams_algorithm`: variants of choose qparams algorithm to use for int4,
          currently support TINYGEMM ("tinygemm") and HQQ ("hqq"), used in version 2 only
-        `layout`: layout type for quantized tensor, default is `TensorCoreTiledLayout(inner_k_tiles=8)`, used in version 1 only
-        `use_hqq`: whether to use hqq or default quantization mode, default is False, used in version 1 only
-        `zero_point_domain`: data type of zeros points, choices are [ZeroPointDomain.FLOAT, ZeroPointDomain.INT, ZeroPointDomain.NONE], used in version 1 only
         `set_inductor_config`: if True, adjusts `torchinductor` settings to recommended values. used in both version 1 and 2
-        `preserve_zero`: whether to preserve zero, default is None. Will be set to True if zero_point_domain is ZeroPointDomain.INT, used in version 1 only
-        `version`: version of the config to use, only subset of above args are valid for version 1, and subset of above args are valid for version 2, default is 2, see note for more details
-
-    Note:
-        Current state for Int4WeightOnlyConfig is that it supports both v1 (legacy) and v2
-
-        For v2 (version = 2), only `group_size`, `int4_packing_format`, `int4_choose_qparams_algorithm` and `set_inductor_config` are valid, all other args will be ignored
-        For v1 (version = 1), only `group_size`, `layout`, `use_hqq`, `zero_point_domain`, `preserve_zero` and `set_inductor_config` are valid, we plan to deprecate v1 in torchao 0.15 to make this config
-        less confusing
+        `version`: version of the config to use, default is 2
     """
 
     group_size: int = 128
-    layout: Optional[TensorCoreTiledLayout] = TensorCoreTiledLayout(inner_k_tiles=8)
-    use_hqq: bool = False
-    zero_point_domain: Optional[ZeroPointDomain] = ZeroPointDomain.NONE
     set_inductor_config: bool = True
-    preserve_zero: Optional[bool] = None
     # only used in version >= 2
     int4_packing_format: Int4PackingFormat = Int4PackingFormat.PLAIN
     int4_choose_qparams_algorithm: Int4ChooseQParamsAlgorithm = (
@@ -774,10 +755,7 @@ def _int4_weight_only_quantize_tensor(weight, config):
     # for now, make these local variables to allow the rest of the function
     # to be a direct copy-paste
     group_size = config.group_size
-    layout = config.layout
-    use_hqq = config.use_hqq
     int4_choose_qparams_algorithm = config.int4_choose_qparams_algorithm
-    zero_point_domain = config.zero_point_domain
     int4_packing_format = config.int4_packing_format
 
     if weight.shape[-1] % group_size != 0:
@@ -788,108 +766,43 @@ def _int4_weight_only_quantize_tensor(weight, config):
 
     block_size = tuple([1 for _ in range(weight.ndim - 1)] + [group_size])
 
-    if config.version == 2:
-        block_size = list(block_size)
+    assert config.version == 2
+    block_size = list(block_size)
 
-        if int4_choose_qparams_algorithm == Int4ChooseQParamsAlgorithm.HQQ:
-            assert int4_packing_format == Int4PackingFormat.TILE_PACKED_TO_4D, (
-                f"Int4ChooseQParamsAlgorithm.HQQ is not supported by packing format {int4_packing_format}, "
-                f"it's only supported by Int4PackingFormat.TILE_PACKED_TO_4D currently"
-            )
+    if int4_choose_qparams_algorithm == Int4ChooseQParamsAlgorithm.HQQ:
+        assert int4_packing_format == Int4PackingFormat.TILE_PACKED_TO_4D, (
+            f"Int4ChooseQParamsAlgorithm.HQQ is not supported by packing format {int4_packing_format}, "
+            f"it's only supported by Int4PackingFormat.TILE_PACKED_TO_4D currently"
+        )
 
-        if int4_packing_format == Int4PackingFormat.PRESHUFFLED:
-            new_weight = Int4PreshuffledTensor.from_hp(
-                weight,
-                block_size,
-                activation_dtype=torch.bfloat16,
-            )
-            return new_weight
-        elif int4_packing_format == Int4PackingFormat.PLAIN:
-            new_weight = Int4Tensor.from_hp(
-                weight,
-                block_size,
-            )
-            return new_weight
-        elif int4_packing_format == Int4PackingFormat.PLAIN_INT32:
-            new_weight = Int4PlainInt32Tensor.from_hp(
-                weight,
-                block_size,
-            )
-            return new_weight
-        elif int4_packing_format == Int4PackingFormat.MARLIN_SPARSE:
-            new_weight = Int4MarlinSparseTensor.from_hp(
-                weight,
-                block_size,
-            )
-            return new_weight
-        elif int4_packing_format == Int4PackingFormat.TILE_PACKED_TO_4D:
-            new_weight = Int4TilePackedTo4dTensor.from_hp(
-                weight,
-                block_size,
-                int4_choose_qparams_algorithm=int4_choose_qparams_algorithm,
-            )
-            return new_weight
-        else:
-            raise ValueError(f"Unsupported int4 packing format: {int4_packing_format}")
-
-    assert config.version == 1
-
-    warnings.warn(
-        "Config Deprecation: version 1 of Int4WeightOnlyConfig is deprecated and will no longer be supported in a future release, please use version 2, see https://github.com/pytorch/ao/issues/2948 for more details"
-    )
-    mapping_type = MappingType.ASYMMETRIC
-    target_dtype = torch.int32
-    quant_min = 0
-    quant_max = 15
-    eps = 1e-6
-    zero_point_dtype = (
-        weight.dtype if isinstance(layout, Int4CPULayout) else torch.bfloat16
-    )
-
-    # nonlocal zero_point_domain
-    assert type(layout) in LAYOUT_TO_ZERO_POINT_DOMAIN.keys(), (
-        f"Only support layout: {LAYOUT_TO_ZERO_POINT_DOMAIN.keys()}"
-    )
-    if zero_point_domain == ZeroPointDomain.NONE:
-        # the first value is the default one
-        zero_point_domain = LAYOUT_TO_ZERO_POINT_DOMAIN[type(layout)][0]
+    if int4_packing_format == Int4PackingFormat.PRESHUFFLED:
+        new_weight = Int4PreshuffledTensor.from_hp(
+            weight,
+            block_size,
+            activation_dtype=torch.bfloat16,
+        )
+        return new_weight
+    elif int4_packing_format == Int4PackingFormat.PLAIN:
+        new_weight = Int4Tensor.from_hp(
+            weight,
+            block_size,
+        )
+        return new_weight
+    elif int4_packing_format == Int4PackingFormat.PLAIN_INT32:
+        new_weight = Int4PlainInt32Tensor.from_hp(
+            weight,
+            block_size,
+        )
+        return new_weight
+    elif int4_packing_format == Int4PackingFormat.TILE_PACKED_TO_4D:
+        new_weight = Int4TilePackedTo4dTensor.from_hp(
+            weight,
+            block_size,
+            int4_choose_qparams_algorithm=int4_choose_qparams_algorithm,
+        )
+        return new_weight
     else:
-        assert zero_point_domain in LAYOUT_TO_ZERO_POINT_DOMAIN[type(layout)], (
-            f"Layout only support {LAYOUT_TO_ZERO_POINT_DOMAIN[layout]}"
-        )
-
-    if zero_point_domain == ZeroPointDomain.INT and isinstance(layout, Int4XPULayout):
-        zero_point_dtype = torch.int32
-
-    preserve_zero = (
-        config.preserve_zero
-        if config.preserve_zero is not None
-        else LAYOUT_TO_PRESERVE_ZEROS[type(layout)]
-    )
-    # Sparse Marlin only supports symmetric quantization.
-    # NOTE: If we start having lots of layouts that require different configurations,
-    # we should consider moving this logic somewhere else.
-    if isinstance(layout, MarlinSparseLayout):
-        mapping_type = MappingType.SYMMETRIC
-        assert group_size == 128 or group_size == weight.shape[-1], (
-            f"MarlinSparseLayout only supports 128 group size or per channel quantization, got {group_size}"
-        )
-
-    new_weight = to_affine_quantized_intx(
-        weight,
-        mapping_type,
-        block_size,
-        target_dtype,
-        quant_min,
-        quant_max,
-        eps,
-        zero_point_dtype=zero_point_dtype,
-        preserve_zero=preserve_zero,
-        zero_point_domain=zero_point_domain,
-        _layout=layout,
-        use_hqq=use_hqq,
-    )
-    return new_weight
+        raise ValueError(f"Unsupported int4 packing format: {int4_packing_format}")
 
 
 @register_quantize_module_handler(Int4WeightOnlyConfig)

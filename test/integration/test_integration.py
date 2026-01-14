@@ -20,7 +20,6 @@ from torch._inductor.utils import run_and_get_code
 from torch.testing import FileCheck
 
 import torchao
-from torchao.dtypes import Int4CPULayout, Int4XPULayout, TensorCoreTiledLayout
 from torchao.quantization import safe_int_mm
 from torchao.quantization.autoquant import (
     AQFloat8PerRowScalingDynamicallyQuantizedLinearWeight,
@@ -28,7 +27,6 @@ from torchao.quantization.autoquant import (
     AQFloat8WeightOnlyQuantizedLinearWeight,
     AQGemliteInt4G64WeightOnlyQuantizedLinearWeight,
     AQInt4G32WeightOnlyQuantizedLinearWeight,
-    AQInt4G128WeightOnlyQuantizedMarlinSparseLinearWeight,
     AQInt8DynamicallyQuantizedLinearWeight,
     AQInt8WeightOnlyQuantizedLinearWeight,
     AQInt8WeightOnlyQuantizedLinearWeight2,
@@ -49,6 +47,9 @@ from torchao.quantization.quant_primitives import (
     MappingType,
     dequantize_affine,
 )
+from torchao.quantization.quantize_.workflows.int4.int4_packing_format import (
+    Int4PackingFormat,
+)
 from torchao.quantization.utils import (
     LoggingTensorMode,
     _apply_logging_hook,
@@ -65,8 +66,6 @@ from torchao.quantization.utils import (
 from torchao.testing.utils import skip_if_rocm, skip_if_xpu
 from torchao.utils import (
     benchmark_model,
-    check_cpu_version,
-    check_xpu_version,
     get_current_accelerator_device,
     is_fbcode,
     is_sm_at_least_89,
@@ -122,30 +121,6 @@ def _int8da_int8w_api(
     )
 
 
-def _int4wo_api(mod, use_hqq=False):
-    if check_cpu_version(next(mod.parameters()).device):
-        quantize_(
-            mod,
-            Int4WeightOnlyConfig(
-                layout=Int4CPULayout(),
-                use_hqq=use_hqq,
-                set_inductor_config=False,
-                version=1,
-            ),
-        )
-        unwrap_tensor_subclass(mod)
-    elif check_xpu_version(next(mod.parameters()).device):
-        quantize_(
-            mod,
-            Int4WeightOnlyConfig(
-                layout=Int4XPULayout(), set_inductor_config=False, version=1
-            ),
-        )
-        unwrap_tensor_subclass(mod)
-    else:
-        quantize_(mod, Int4WeightOnlyConfig(set_inductor_config=False, version=1))
-
-
 def _int8da_int4w_api(mod):
     quantize_(mod, Int8DynamicActivationInt4WeightConfig(set_inductor_config=False))
 
@@ -154,7 +129,6 @@ def _int8da_int4w_api(mod):
 TENSOR_SUBCLASS_APIS = [
     _int8wo_api,
     _int8da_int8w_api,
-    _int4wo_api,
 ]
 
 
@@ -623,32 +597,6 @@ class TestSubclass(unittest.TestCase):
         )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
-    @skip_if_xpu("XPU enablement in progress")
-    def test_int4_weight_only_quant_subclass_api(self, device, dtype):
-        if dtype != torch.bfloat16:
-            self.skipTest(f"Fails for {dtype}")
-        for test_shape in [(16, 1024, 16)] + (
-            [(1, 1024, 256)] if device == _DEVICE else []
-        ):
-            self._test_lin_weight_subclass_api_impl(
-                _int4wo_api, device, 15, test_shape=test_shape, test_dtype=dtype
-            )
-
-    @parameterized.expand(COMMON_DEVICE_DTYPE)
-    @skip_if_xpu("XPU enablement in progress")
-    def test_int4_weight_only_hqq_quant_subclass_api(self, device, dtype):
-        if dtype != torch.bfloat16:
-            self.skipTest(f"Fails for {dtype}")
-        for test_shape in [(16, 1024, 16), (1, 1024, 256)]:
-            api = partial(
-                _int4wo_api,
-                use_hqq=True,
-            )
-            self._test_lin_weight_subclass_api_impl(
-                api, device, 15, test_shape=test_shape, test_dtype=dtype
-            )
-
-    @parameterized.expand(COMMON_DEVICE_DTYPE)
     @unittest.skipIf(not has_gemlite, "gemlite not available")
     def test_gemlite_layout(self, device, dtype):
         from torchao.quantization import GemliteUIntXWeightOnlyConfig
@@ -698,34 +646,27 @@ class TestSubclass(unittest.TestCase):
     def test_int4_weight_only_quant_subclass_api_grouped(self, device, dtype):
         if dtype != torch.bfloat16:
             self.skipTest(f"Fails for {dtype}")
-        layout_list = []
-        if check_cpu_version(device):
-            layout_list.append(Int4CPULayout())
-        elif check_xpu_version(device):
-            layout_list.append(Int4XPULayout())
-        else:
-            for inner_k_tiles in [4, 2]:
-                layout_list.append(TensorCoreTiledLayout(inner_k_tiles=inner_k_tiles))
-        for test_shape in [(256, 256, 16)] + (
-            [(256, 256, 8)] if device == _DEVICE else []
-        ):
+        if device == "cpu":
+            self.skipTest("Only CUDA is supported for int4 weight only quantization v2")
+        for test_shape in [(256, 256, 16), (256, 256, 8)]:
             for groupsize in [64, 32]:
-                for layout in layout_list:
-                    kwargs = {"groupsize": groupsize, "layout": layout, "version": 1}
 
-                    def api(mod):
-                        kwargs_copy = kwargs.copy()
-                        kwargs_copy["group_size"] = groupsize
-                        del kwargs_copy["groupsize"]
-                        quantize_(mod, Int4WeightOnlyConfig(**kwargs_copy))
-
-                    self._test_lin_weight_subclass_api_impl(
-                        api,
-                        device,
-                        15,
-                        test_shape=test_shape,
-                        test_dtype=dtype,
+                def api(mod):
+                    quantize_(
+                        mod,
+                        Int4WeightOnlyConfig(
+                            group_size=groupsize,
+                            int4_packing_format=Int4PackingFormat.TILE_PACKED_TO_4D,
+                        ),
                     )
+
+                self._test_lin_weight_subclass_api_impl(
+                    api,
+                    device,
+                    15,
+                    test_shape=test_shape,
+                    test_dtype=dtype,
+                )
 
 
 class TestDynamicQuant(unittest.TestCase):
@@ -942,13 +883,6 @@ class TestSaveLoadMeta(unittest.TestCase):
     def test_save_load_int8woqtensors(self, device, dtype):
         undo_recommended_configs()
         self._test_handle_save_load_meta_impl(_int8wo_api, device, test_dtype=dtype)
-
-    @parameterized.expand(COMMON_DEVICE_DTYPE)
-    @torch.no_grad()
-    def test_save_load_int4woqtensors(self, device, dtype):
-        if dtype != torch.bfloat16:
-            self.skipTest(f"Fails for {dtype}")
-        self._test_handle_save_load_meta_impl(_int4wo_api, device, 20, test_dtype=dtype)
 
 
 class UtilsUnitTest(unittest.TestCase):
@@ -1314,7 +1248,6 @@ class TestAutoQuant(unittest.TestCase):
         for qclass in [
             AQGemliteInt4G64WeightOnlyQuantizedLinearWeight,
             AQInt4G32WeightOnlyQuantizedLinearWeight,
-            AQInt4G128WeightOnlyQuantizedMarlinSparseLinearWeight,
         ]:
             model = (
                 torch.nn.Sequential(
@@ -1348,7 +1281,6 @@ class TestAutoQuant(unittest.TestCase):
         if device == "cpu":
             self.skipTest(f"float8 is for cuda, not {device}")
 
-        # note: marlin sparse layout failed when scale_t has a dimension of 1d
         m, k, n = 128, 128, 128
         example_input = torch.randn(m, k, device=device, dtype=dtype)
 
