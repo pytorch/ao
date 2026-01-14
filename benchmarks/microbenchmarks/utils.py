@@ -18,7 +18,6 @@ from torchao.quantization import (
     Float8DynamicActivationFloat8WeightConfig,
     Float8WeightOnlyConfig,
     GemliteUIntXWeightOnlyConfig,
-    Int4WeightOnlyConfig,
     Int8DynamicActivationInt4WeightConfig,
     Int8DynamicActivationInt8WeightConfig,
     Int8WeightOnlyConfig,
@@ -194,18 +193,6 @@ def string_to_config(
             return Int8DynamicActivationInt8WeightConfig(weight_only_decode=True)
         else:
             return Int8DynamicActivationInt8WeightConfig()
-    if "int4wo" in quantization:
-        use_hqq = False
-        if "hqq" in quantization:
-            use_hqq = True
-        group_size = int(quantization.split("-")[1])
-        assert group_size in [
-            32,
-            64,
-            128,
-            256,
-        ], f"int4wo group_size needs to be one of [32,64,128,256] but got {group_size}"
-        return Int4WeightOnlyConfig(group_size=group_size, use_hqq=use_hqq, version=1)
     elif "int8adq-int4w-symm" in quantization:
         from torchao.dtypes import CutlassInt4PackedLayout
 

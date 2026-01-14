@@ -3,9 +3,7 @@
 #
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
-import re
 import unittest
-import warnings
 
 import torch
 from torch.testing._internal import common_utils
@@ -20,7 +18,7 @@ if is_fbcode():
     # don't import from transformer internally, since some imports might be missing
     pass
 else:
-    from transformers import AutoModelForCausalLM, AutoTokenizer, TorchAoConfig
+    pass
 
 
 # please check model card for how to generate these models
@@ -28,23 +26,7 @@ else:
 # high precision model, used for testing config deprecation warning
 _HIGH_PRECISION_MODEL = "facebook/opt-125m"
 
-_DEPRECATED_SINGLE_LINEAR_MODEL_INFO = [
-    # model card: https://huggingface.co/torchao-testing/single-linear-Int4WeightOnlyConfig-v1-0.14.dev
-    (
-        "torchao-testing/single-linear-Int4WeightOnlyConfig-v1-0.14.dev",
-        1,
-        "Int4WeightOnlyConfig",
-    ),
-]
-
-_DEPRECATED_MODEL_INFO = [
-    # model card: https://huggingface.co/torchao-testing/opt-125m-Int4WeightOnlyConfig-v1-0.14.dev
-    (
-        "torchao-testing/opt-125m-Int4WeightOnlyConfig-v1-0.14.dev",
-        1,
-        "Int4WeightOnlyConfig",
-    ),
-]
+_DEPRECATED_MODEL_INFO = []
 
 _SINGLE_LINEAR_MODEL_INFO = [
     # model card: https://huggingface.co/torchao-testing/single-linear-Float8DynamicActivationFloat8WeightConfig-v2-0.13.dev
@@ -88,7 +70,10 @@ _SINGLE_LINEAR_MODEL_INFO = [
 )
 class TestLoadAndRunCheckpoint(TestCase):
     def _test_single_linear_helper(
-        self, model_name, version, config_name, is_deprecated
+        self,
+        model_name,
+        version,
+        config_name,
     ):
         from huggingface_hub import hf_hub_download
 
@@ -104,18 +89,8 @@ class TestLoadAndRunCheckpoint(TestCase):
                 torch.nn.Linear(32, 256, dtype=torch.bfloat16)  # , device="cuda")
             )
 
-        with (
-            open(downloaded_model, "rb") as f,
-            warnings.catch_warnings(record=True) as caught_warnings,
-        ):
+        with open(downloaded_model, "rb") as f:
             model.load_state_dict(torch.load(f), assign=True)
-            if is_deprecated:
-                pattern = re.compile(
-                    rf"Models quantized with version {version} of .*{re.escape(config_name)}.* (is|are) deprecated"
-                )
-                assert any(pattern.search(str(w.message)) for w in caught_warnings), (
-                    f"Didn't get expected warning message for deprecation for model: {model_name}"
-                )
 
         downloaded_example_inputs = hf_hub_download(
             model_name, filename="model_inputs.pt"
@@ -129,13 +104,6 @@ class TestLoadAndRunCheckpoint(TestCase):
         output = model(*example_inputs)
         self.assertTrue(torch.equal(output, ref_output))
 
-    @common_utils.parametrize("model_info", _DEPRECATED_SINGLE_LINEAR_MODEL_INFO)
-    def test_deprecated_single_linear(self, model_info):
-        model_name, version, config_name = model_info
-        self._test_single_linear_helper(
-            model_name, version, config_name, is_deprecated=True
-        )
-
     @common_utils.parametrize("model_info", _SINGLE_LINEAR_MODEL_INFO)
     def test_single_linear(self, model_info):
         """Test that we can load and run the quantized linear checkpoint with saved sample input
@@ -144,88 +112,10 @@ class TestLoadAndRunCheckpoint(TestCase):
         """
         model_name, version, config_name = model_info
         self._test_single_linear_helper(
-            model_name, version, config_name, is_deprecated=False
+            model_name,
+            version,
+            config_name,
         )
-
-    @common_utils.parametrize("model_info", _DEPRECATED_MODEL_INFO)
-    def test_deprecated_hf_models(self, model_info):
-        """Test that we print correct warning message when loading a deprecated checkpoint
-        and making sure the deprecated checkpoints can still be loaded
-        """
-        # Load and quantize model
-        model_name, version, config_name = model_info
-        with warnings.catch_warnings(record=True) as caught_warnings:
-            quantized_model = AutoModelForCausalLM.from_pretrained(
-                model_name,
-                dtype="bfloat16",
-                device_map="cuda:0",
-            )
-            # version mismatch check in config.py
-            assert any(
-                "Stored version is not the same as current default version of the config"
-                in str(w.message)
-                for w in caught_warnings
-            ), (
-                f"Didn't get expected warning message for version mismatch for config {config_name}, model {model_name}"
-            )
-
-            # checkpoint deprecation
-            pattern = re.compile(
-                rf"Models quantized with version {version} of .*{re.escape(config_name)}.* (is|are) deprecated"
-            )
-            assert any(pattern.search(str(w.message)) for w in caught_warnings), (
-                f"Didn't get expected warning message for deprecation for model {model_name}"
-            )
-            assert isinstance(quantized_model.config.quantization_config, TorchAoConfig)
-            assert (
-                quantized_model.config.quantization_config.quant_type.version == version
-            )
-
-        tokenizer = AutoTokenizer.from_pretrained(model_name)
-        from huggingface_hub import hf_hub_download
-
-        downloaded_example_inputs = hf_hub_download(
-            model_name, filename="model_prompt.pt"
-        )
-        with open(downloaded_example_inputs, "rb") as f:
-            prompt = torch.load(f)
-
-        inputs = tokenizer(
-            prompt,
-            return_tensors="pt",
-        ).to("cuda")
-        generated_ids = quantized_model.generate(
-            **inputs,
-            max_new_tokens=128,
-        )
-
-        downloaded_output = hf_hub_download(model_name, filename="model_output.pt")
-        with open(downloaded_output, "rb") as f:
-            ref_generated_ids = torch.load(f)
-
-        self.assertTrue(torch.equal(generated_ids, ref_generated_ids))
-
-        # make sure can successfully decode
-        _ = tokenizer.batch_decode(
-            generated_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False
-        )
-
-        # make sure we throw warning for config deprecation
-        with warnings.catch_warnings(record=True) as caught_warnings:
-            _ = AutoModelForCausalLM.from_pretrained(
-                _HIGH_PRECISION_MODEL,
-                dtype="bfloat16",
-                device_map="cuda:0",
-                quantization_config=quantized_model.config.quantization_config,
-            )
-            # config version deprecation in quant_api.py
-            assert any(
-                f"Config Deprecation: version {version} of {config_name} is deprecated and will no longer be supported in a future release"
-                in str(w.message)
-                for w in caught_warnings
-            ), (
-                f"Didn't get expected warning message for version deprecation for config {config_name}, model {model_name}"
-            )
 
 
 common_utils.instantiate_parametrized_tests(TestLoadAndRunCheckpoint)
