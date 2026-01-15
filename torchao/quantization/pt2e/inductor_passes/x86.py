@@ -3049,7 +3049,7 @@ def _register_quantization_embeddingbag_pass():
                 )
 
 
-def _is_valid_concat_dqq_pattern():
+def _is_valid_concat_dq_q_pattern():
     def _inner(match):
         q_pattern_node = match.output_node()
         dq_pattern_node = q_pattern_node.args[0]
@@ -3057,13 +3057,14 @@ def _is_valid_concat_dqq_pattern():
         assert (
             dq_pattern_node.target is quantized_decomposed.dequantize_per_tensor.default
         )
+        # dq/q pattern_node args: (node, scale, zp, min, max, dtype)
         for i in range(2, len(q_pattern_node.args)):
             if not q_pattern_node.args[i] == dq_pattern_node.args[i]:
                 return False
 
-        if not math.isclose(
-            q_pattern_node.args[1], dq_pattern_node.args[1], rel_tol=1e-5, abs_tol=1e-5
-        ):
+        q_scale = q_pattern_node.args[1]
+        dq_scale = dq_pattern_node.args[1]
+        if not math.isclose(q_scale, dq_scale, rel_tol=1e-5, abs_tol=1e-5):
             return False
 
         cat_node = dq_pattern_node.args[0]
@@ -3078,10 +3079,10 @@ def _is_valid_concat_dqq_pattern():
 def _register_concat_dequant_quant_pass(pattern, pass_number=3):
     @register_freezing_graph_pattern(
         pattern,
-        extra_check=_is_valid_concat_dqq_pattern(),
+        extra_check=_is_valid_concat_dq_q_pattern(),
         pass_number=pass_number,
     )
-    def concat_dqq_fusion(match: Match, *args, **kwargs):
+    def concat_dq_q_fusion(match: Match, *args, **kwargs):
         q_pattern_node = match.output_node()
         dq_pattern_node = q_pattern_node.args[0]
         cat_node = dq_pattern_node.args[0]
@@ -3092,13 +3093,13 @@ def _register_concat_dequant_quant_pass(pattern, pass_number=3):
         match.graph.erase_node(q_pattern_node)
         match.graph.erase_node(dq_pattern_node)
 
-        counters["inductor"]["concat_dqq_matcher_count"] += 1
-        counters["inductor"]["concat_dqq_matcher_nodes"] += len(match.nodes)
+        counters["inductor"]["concat_dq_q_matcher_count"] += 1
+        counters["inductor"]["concat_dq_q_matcher_nodes"] += len(match.nodes)
 
 
-def _register_concat_dqq_pattern():
+def _register_concat_dq_q_pattern():
     r"""
-    match concat_dqq patterns:
+    match concat_dq_q patterns:
 
             int8_inputs
                  |
@@ -3110,7 +3111,7 @@ def _register_concat_dqq_pattern():
                |
             quant_users
 
-    fuse concat_dqq patterns into:
+    fuse concat_dq_q patterns into:
 
             int8_inputs
                  |
@@ -3169,7 +3170,7 @@ def _register_quantization_weight_pack_pass():
         _register_quantization_embeddingbag_pass()
 
     # Setp 6: Fuse concat+dequant+quant
-    _register_concat_dqq_pattern()
+    _register_concat_dq_q_pattern()
 
 
 def quant_lift_up(module_graph: torch.fx.graph.Graph):

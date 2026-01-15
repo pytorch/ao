@@ -3447,7 +3447,7 @@ class TestDynamicPatternMatcher(TestPatternMatcherBase):
             return x
 
         def matcher_check_fn():
-            self.assertEqual(counters["inductor"]["concat_dqq_matcher_count"], 1)
+            self.assertEqual(counters["inductor"]["concat_dq_q_matcher_count"], 1)
 
         input_len_list = [2, 3]
         shape = (128, 3)
