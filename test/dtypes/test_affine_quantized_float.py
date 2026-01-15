@@ -45,7 +45,6 @@ from torchao.utils import (
 
 random.seed(0)
 torch.manual_seed(0)
-_DEVICE = get_current_accelerator_device()
 
 
 class ToyLinearModel(torch.nn.Module):
@@ -81,6 +80,7 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
         self, dtype: torch.dtype, mode: str, compile: bool, sizes: Tuple, granularity
     ):
         error_message = None
+        _DEVICE = get_current_accelerator_device()
         if isinstance(granularity, PerRow):
             if mode == "dynamic" and dtype != torch.bfloat16:
                 error_message = "PerRow quantization only works for bfloat16 precision"
@@ -134,7 +134,7 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
             )
 
     @unittest.skipIf(
-        _DEVICE == "cuda" and not is_sm_at_least_89(),
+        torch.cuda.is_available() and not is_sm_at_least_89(),
         "Requires GPU with compute capability >= 8.9",
     )
     def test_invalid_granularity(self):
@@ -142,7 +142,7 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
             Float8DynamicActivationFloat8WeightConfig(granularity="invalid")
 
     @unittest.skipIf(
-        _DEVICE == "cuda" and not is_sm_at_least_89(),
+        torch.cuda.is_available() and not is_sm_at_least_89(),
         "Requires GPU with compute capability >= 8.9",
     )
     def test_mismatched_granularity(self):
@@ -155,7 +155,7 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
             )
 
     @unittest.skipIf(
-        _DEVICE == "cuda" and not is_sm_at_least_89(),
+        torch.cuda.is_available() and not is_sm_at_least_89(),
         "Requires GPU with compute capability >= 8.9",
     )
     def test_unsupported_granularity(self):
@@ -176,7 +176,7 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
             AssertionError,
             match="PerRow quantization only works for bfloat16 precision",
         ):
-            model = ToyLinearModel(64, 64).eval().to(torch.float32).to(_DEVICE)
+            model = ToyLinearModel(64, 64).eval().to(torch.float32).to("cuda")
             quantize_(
                 model,
                 Float8DynamicActivationFloat8WeightConfig(granularity=PerRow()),
@@ -189,12 +189,12 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
     @common_utils.parametrize("mode", ["static"])
     def test_serialization(self, mode: str):
         # Create and quantize the model
-        model = ToyLinearModel(16, 32).to(device=_DEVICE)
+        model = ToyLinearModel(16, 32).to(device="cuda")
 
         mode_map = {
             "static": partial(
                 Float8StaticActivationFloat8WeightConfig,
-                scale=torch.tensor(1.0, dtype=torch.float32, device=_DEVICE),
+                scale=torch.tensor(1.0, dtype=torch.float32, device="cuda"),
                 granularity=PerTensor(),
             ),
         }
@@ -253,12 +253,13 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
 
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     @unittest.skipIf(
-        _DEVICE == "cuda" and not is_sm_at_least_89(),
+        torch.cuda.is_available() and not is_sm_at_least_89(),
         "Requires GPU with compute capability >= 8.9",
     )
     @common_utils.parametrize("float8_dtype", [torch.float8_e4m3fn, torch.float8_e5m2])
     @common_utils.parametrize("output_dtype", [torch.float32, torch.bfloat16])
     def test_choose_scale_float8_bounds(self, float8_dtype, output_dtype):
+        _DEVICE = get_current_accelerator_device()
         block_size = ()
         device = _DEVICE
         input_tensor = torch.randn(8, 64, device=device, dtype=torch.float32)
@@ -297,7 +298,7 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
 
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     @unittest.skipIf(
-        _DEVICE == "cuda" and not is_sm_at_least_89(),
+        torch.cuda.is_available() == "cuda" and not is_sm_at_least_89(),
         "Requires GPU with compute capability >= 8.9",
     )
     @common_utils.parametrize("float8_dtype", [torch.float8_e4m3fn, torch.float8_e5m2])
@@ -305,7 +306,7 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
     @common_utils.parametrize("block_size", [(), (1, 32), (2, 16), (4, 8)])
     def test_dequantize_affine_float8(self, float8_dtype, output_dtype, block_size):
         """Test _dequantize_affine_float8 with various configurations"""
-
+        _DEVICE = get_current_accelerator_device()
         device = _DEVICE
         input_tensor = torch.randn(8, 64, device=device, dtype=torch.float32)
 
@@ -331,12 +332,12 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
 
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     @unittest.skipIf(
-        _DEVICE == "cuda" and not is_sm_at_least_89(),
+        torch.cuda.is_available() and not is_sm_at_least_89(),
         "Requires GPU with compute capability >= 8.9",
     )
     def test_dequantize_affine_float8_scale_broadcasting(self):
         """Test that scale broadcasting works correctly for block-wise quantization"""
-        device = _DEVICE
+        device = get_current_accelerator_device()
         # Create input tensor with known block structure
         input_tensor = torch.randn(4, 32, device=device, dtype=torch.float32)
         block_size = (2, 16)  # 2x2 blocks in first dim, 2x16 blocks in second dim
@@ -464,7 +465,7 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
 
         M, K, N = 128, 256, 512
         m = torch.nn.Sequential(
-            torch.nn.Linear(K, N, device=_DEVICE, dtype=torch.bfloat16)
+            torch.nn.Linear(K, N, device="cuda", dtype=torch.bfloat16)
         )
         config = Float8DynamicActivationFloat8WeightConfig(
             granularity=granularity,
@@ -477,7 +478,7 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
         )
 
         m = torch.compile(m)
-        x = torch.randn(M, K, device=_DEVICE, dtype=torch.bfloat16)
+        x = torch.randn(M, K, device="cuda", dtype=torch.bfloat16)
         out, code = run_and_get_code(m, x)
 
         # triton kernel call looks like:

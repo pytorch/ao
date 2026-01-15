@@ -9,11 +9,7 @@ import unittest
 import torch
 from torch.testing._internal.common_utils import TestCase
 
-from torchao.utils import get_current_accelerator_device
-
 torch.manual_seed(0)
-
-_DEVICE = get_current_accelerator_device()
 
 
 class TestMultiTensorFlow(TestCase):

@@ -73,8 +73,6 @@ from torchao.utils import (
     unwrap_tensor_subclass,
 )
 
-_DEVICE = get_current_accelerator_device()
-
 try:
     import gemlite  # noqa: F401
 
@@ -264,6 +262,7 @@ class TestQuantFlow(TestCase):
         api(m2)
 
         m2.load_state_dict(state_dict)
+        _DEVICE = get_current_accelerator_device()
         m2 = m2.to(_DEVICE)
         example_inputs = map(lambda x: x.to(_DEVICE), example_inputs)
         res = m2(*example_inputs)
@@ -362,6 +361,7 @@ class TestQuantFlow(TestCase):
         quantize_(m, Int8WeightOnlyConfig())
         ref = m(*example_inputs)
 
+        _DEVICE = get_current_accelerator_device()
         example_inputs_cuda = (example_inputs[0].to(_DEVICE),)
         m.to(_DEVICE)
         cuda_res = m(*example_inputs_cuda)
@@ -369,6 +369,7 @@ class TestQuantFlow(TestCase):
 
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test_quantized_tensor_subclass_save_load_map_location(self):
+        _DEVICE = get_current_accelerator_device()
         m = ToyLinearModel().eval().to(dtype=torch.bfloat16, device=_DEVICE)
         example_inputs = m.example_inputs(dtype=torch.bfloat16, device=_DEVICE)
 
@@ -390,6 +391,7 @@ class TestQuantFlow(TestCase):
 
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test_quantized_model_streaming(self):
+        _DEVICE = get_current_accelerator_device()
         device_module = torch.get_device_module(_DEVICE)
 
         def reset_memory():
@@ -480,6 +482,8 @@ class TestQuantFlow(TestCase):
         elif isinstance(config, GemliteUIntXWeightOnlyConfig) and not has_gemlite:
             return unittest.skip("gemlite not available")
 
+        _DEVICE = get_current_accelerator_device()
+
         # scale has to be moved to cuda here because the parametrization init
         # code happens before gating for cuda availability
         if isinstance(config, Float8StaticActivationFloat8WeightConfig):
@@ -511,6 +515,7 @@ class TestQuantFlow(TestCase):
         config1 = Int4WeightOnlyConfig(group_size=32, version=1)
         config2 = Int8WeightOnlyConfig()
         config = ModuleFqnToConfig({"_default": config1, "linear2": config2})
+        _DEVICE = get_current_accelerator_device()
         model = ToyLinearModel().to(_DEVICE).to(dtype=torch.bfloat16)
         example_inputs = model.example_inputs(device=_DEVICE, dtype=torch.bfloat16)
         quantize_(model, config, filter_fn=None)
@@ -525,6 +530,7 @@ class TestQuantFlow(TestCase):
         config1 = Int4WeightOnlyConfig(group_size=32, version=1)
         config2 = Int8WeightOnlyConfig()
         config = ModuleFqnToConfig({"linear1": config1, "linear2": config2})
+        _DEVICE = get_current_accelerator_device()
         model = ToyLinearModel().to(_DEVICE).to(dtype=torch.bfloat16)
         example_inputs = model.example_inputs(device=_DEVICE, dtype=torch.bfloat16)
         quantize_(model, config, filter_fn=None)
@@ -663,6 +669,7 @@ class TestQuantFlow(TestCase):
     def test_module_fqn_to_config_skip(self):
         config1 = Int4WeightOnlyConfig(group_size=32, version=1)
         config = ModuleFqnToConfig({"_default": config1, "linear2": None})
+        _DEVICE = get_current_accelerator_device()
         model = ToyLinearModel().to(_DEVICE).to(dtype=torch.bfloat16)
         example_inputs = model.example_inputs(device=_DEVICE, dtype=torch.bfloat16)
         quantize_(model, config, filter_fn=None)
@@ -674,6 +681,7 @@ class TestQuantFlow(TestCase):
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test_int4wo_cuda_serialization(self):
         config = Int4WeightOnlyConfig(group_size=32, version=1)
+        _DEVICE = get_current_accelerator_device()
         model = ToyLinearModel().to(_DEVICE).to(dtype=torch.bfloat16)
         # quantize in cuda
         quantize_(model, config)
@@ -791,6 +799,7 @@ class TestFqnToConfig(TestCase):
         config = AutoConfig.from_pretrained(
             "unsloth/Llama-4-Scout-17B-16E-Instruct"
         ).text_config
+        _DEVICE = get_current_accelerator_device()
         model = Llama4TextMoe(config).to(torch.bfloat16).to(_DEVICE)
 
         quant_config = FqnToConfig(
@@ -1038,6 +1047,7 @@ class TestFqnToConfig(TestCase):
 
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test_quantized_model_streaming_fqn_config(self):
+        _DEVICE = get_current_accelerator_device()
         device_module = torch.get_device_module(_DEVICE)
 
         def reset_memory():

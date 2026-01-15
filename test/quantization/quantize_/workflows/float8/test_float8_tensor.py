@@ -42,8 +42,6 @@ from torchao.utils import (
 # Needed since changing args to function causes recompiles
 torch._dynamo.config.cache_size_limit = 128
 
-_DEVICE = get_current_accelerator_device()
-
 
 class ToyLinearModel(torch.nn.Module):
     def __init__(self, in_features, out_features, bias):
@@ -183,6 +181,7 @@ class ToyLoRAModel(torch.nn.Module):
 @unittest.skipIf(torch.cuda.is_available() and not is_sm_at_least_89(), "Need sm89+")
 class TestFloat8Tensor(TorchAOIntegrationTestCase):
     def setUp(self):
+        _DEVICE = get_current_accelerator_device()
         self.GPU_DEVICES = [_DEVICE] if torch.accelerator.is_available() else []
         torch.set_grad_enabled(False)
 
@@ -266,6 +265,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
     ):
         _, N, K = sizes
         model = ToyLoRAModel(K, N, lora_rank=8, device=torch.device("cpu"))
+        _DEVICE = get_current_accelerator_device()
         self._test_fp8_matmul_model(
             dtype,
             mode,
@@ -297,7 +297,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
                 return unittest.skip("unimplemented")
 
         elif granularity == (PerBlock([1, 128]), PerBlock([128, 128])):
-            if _DEVICE.type == "xpu":
+            if torch.xpu.is_available():
                 return unittest.skip("PerBlock granularity not supported on XPU")
             if dtype is not torch.bfloat16:
                 return unittest.skip("unimplemented")
@@ -345,6 +345,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
 
         with error_context:
             M, N, K = sizes
+            _DEVICE = get_current_accelerator_device()
             input_tensor = torch.randn(*M, K, dtype=dtype, device=_DEVICE)
             model = model.eval().to(dtype).to(_DEVICE)
 
@@ -438,7 +439,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
             bias=False,
             padding=0,
             dtype=dtype,
-            device=_DEVICE,
+            device="cuda",
         ).eval()
 
         channels_last_memory_format = (
@@ -655,6 +656,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
 
         kernel_size = 3
 
+        _DEVICE = get_current_accelerator_device()
         input_tensor = torch.randn(N, C_in, *spatial_dims, dtype=dtype, device=_DEVICE)
         model = ToyConvModel(
             dim,
@@ -699,7 +701,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
     def test_slice(self, granularity):
         config = Float8DynamicActivationFloat8WeightConfig(granularity=granularity)
         dtype = torch.bfloat16
-        device = _DEVICE
+        device = get_current_accelerator_device()
         dummy = torch.nn.Linear(256, 256, bias=False, dtype=dtype, device=device)
         dummy1 = torch.nn.Linear(256, 64, bias=False, dtype=dtype, device=device)
         dummy1.weight = torch.nn.Parameter(
@@ -771,6 +773,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         """
         M, N, K = sizes
         dtype = torch.bfloat16
+        _DEVICE = get_current_accelerator_device()
         input_tensor = torch.randn(*M, K, dtype=dtype, device=_DEVICE)
         # Create a linear layer with bfloat16 dtype
         model = ToyLinearModel(K, N, bias=False).eval().to(dtype).to(_DEVICE)
@@ -819,6 +822,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
     @common_utils.parametrize("granularity", [PerTensor(), PerRow()])
     def test_slice_preserves_aliasing(self, granularity):
         config = Float8DynamicActivationFloat8WeightConfig(granularity=granularity)
+        _DEVICE = get_current_accelerator_device()
         l = torch.nn.Linear(1024, 1024).to(_DEVICE).to(torch.bfloat16)
         l.weight = torch.nn.Parameter(
             torch.zeros(1024, 1024, dtype=torch.bfloat16, device=_DEVICE)
@@ -853,7 +857,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
                 return torch.bmm(x, self.weight.transpose(-2, -1))
 
         dtype = torch.bfloat16
-        device = _DEVICE
+        device = get_current_accelerator_device()
 
         B, M, K, N = 10, 32, 128, 256
 
@@ -888,7 +892,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
                 return torch.bmm(x, self.weight)
 
         dtype = torch.bfloat16
-        device = _DEVICE
+        device = get_current_accelerator_device()
 
         B, M, K, N = 10, 32, 128, 256
 
@@ -948,7 +952,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
     def test_cat(self, granularity, sizes):
         config = Float8DynamicActivationFloat8WeightConfig(granularity=granularity)
         dtype = torch.bfloat16
-        device = _DEVICE
+        device = get_current_accelerator_device()
         M, N, K = sizes
         linear1 = torch.nn.Linear(K, N, dtype=dtype, device=device)
         linear2 = torch.nn.Linear(K, N, dtype=dtype, device=device)
@@ -1021,6 +1025,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         torch.compiler.reset()
 
         M, K, N = 128, 256, 512
+        _DEVICE = get_current_accelerator_device()
         m = torch.nn.Sequential(
             torch.nn.Linear(K, N, device=_DEVICE, dtype=torch.bfloat16)
         )
@@ -1055,6 +1060,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         """
 
         E, K, N = 128, 256, 512
+        _DEVICE = get_current_accelerator_device()
         x = torch.randn(E, N, K, device=_DEVICE, dtype=torch.bfloat16)
         x_fp8 = Float8Tensor.from_hp(x)
         x_fp8_1 = x_fp8[1]
@@ -1073,7 +1079,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
     def test_unsqueeze_operation(self, granularity, sizes):
         config = Float8DynamicActivationFloat8WeightConfig(granularity=granularity)
         dtype = torch.bfloat16
-        device = _DEVICE
+        device = get_current_accelerator_device()
         M, N, K = sizes
 
         # Create a linear layer and quantize it
@@ -1129,7 +1135,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         granularity = PerTensor()
         config = Float8DynamicActivationFloat8WeightConfig(granularity=granularity)
         dtype = torch.bfloat16
-        device = _DEVICE
+        device = get_current_accelerator_device()
         N, C_in, C_out, spatial_dims = 4, 16, 64, (32, 32)
         dim = len(spatial_dims)
         kernel_size = 3
@@ -1219,7 +1225,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         """Test slicing operations on 3D Float8Tensor across all dimensions"""
         config = Float8DynamicActivationFloat8WeightConfig(granularity=granularity)
         dtype = torch.bfloat16
-        device = _DEVICE
+        device = get_current_accelerator_device()
 
         B, S, H = tensor_shape
 
@@ -1317,6 +1323,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         self.assertEqual(sliced_dequantized, sliced_original)
 
     def test_to_dtype_layout(self):
+        _DEVICE = get_current_accelerator_device()
         x = torch.randn(128, 512, device=_DEVICE, dtype=torch.bfloat16)
         x_fp8 = Float8Tensor.from_hp(x)
         y_fp8 = torch.ops.aten.to.dtype_layout(
@@ -1327,6 +1334,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         self.assertEqual(y_fp8.device, torch.device("cpu"))
 
     def test_has_compatible_shallow_copy_type(self):
+        _DEVICE = get_current_accelerator_device()
         x1 = torch.randn(128, 512, device=_DEVICE, dtype=torch.bfloat16)
         x2 = torch.randn(128, 512, device=_DEVICE, dtype=torch.bfloat16)
         x3 = torch.randn(128, 256, device=_DEVICE, dtype=torch.bfloat16)
@@ -1340,6 +1348,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         self.assertFalse(torch._has_compatible_shallow_copy_type(x1_fp8, x3_fp8))
 
     def test_transpose(self):
+        _DEVICE = get_current_accelerator_device()
         x = torch.randn(128, 512, device=_DEVICE, dtype=torch.bfloat16)
         x_fp8 = Float8Tensor.from_hp(x)
         x_fp8_t = x_fp8.t()
@@ -1376,6 +1385,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
 
     @common_utils.parametrize("dim", [-2, -1])
     def test_chunk(self, dim):
+        _DEVICE = get_current_accelerator_device()
         x = torch.randn(16, 5120, 16384, device=_DEVICE, dtype=torch.bfloat16)
         x_fp8 = Float8Tensor.from_hp(x)
         self._test_chunk_similar_to_vllm_llama4(x_fp8, dim)
@@ -1389,6 +1399,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         ],
     )
     def test_pin_memory(self, config):
+        _DEVICE = get_current_accelerator_device()
         linear = torch.nn.Linear(
             256, 512, bias=False, dtype=torch.bfloat16, device=_DEVICE
         )
@@ -1408,6 +1419,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
 
     def test_create_tensor_out_of_inference_mode(self):
         # Test https://github.com/pytorch/pytorch/issues/170419
+        _DEVICE = get_current_accelerator_device()
         linear = torch.nn.Linear(
             32, 48, bias=True, device=_DEVICE, dtype=torch.bfloat16
         )
