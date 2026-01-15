@@ -46,18 +46,18 @@ from torchao.testing.utils import skip_if_rocm
 from torchao.utils import is_MI300, is_MI350, is_ROCM
 
 
-@pytest.mark.parametrize("m", [4096, 131072])
-@pytest.mark.parametrize("n", [8192])
-@pytest.mark.parametrize("k", [5120])
+@pytest.mark.parametrize("m", [256, 1024, 4096, 131072])
+@pytest.mark.parametrize("n", [256, 1024, 8192])
+@pytest.mark.parametrize("k", [256, 1024, 5120])
 @pytest.mark.parametrize("n_groups", [1, 2, 4, 8])
 def test_valid_scaled_grouped_mm_2d_3d(m, n, k, n_groups):
     if is_ROCM():
         if not (is_MI300() or is_MI350()):
             pytest.skip("ROCm test requires MI300 or MI350")
         # ROCm known bad-case: weight-grad mismatch for this exact large shape.
-        if (m, n, k, n_groups) == (131072, 8192, 5120, 8):
+        if (m, k, n_groups) == (131072, 5120, 8):
             pytest.skip(
-                "ROCm: known weight-grad mismatch for (m,n,k,n_groups)=(131072,8192,5120,8)"
+                "ROCm: known weight-grad mismatch for (m,k,n_groups)=(131072,5120,8)"
             )
     else:
         if not is_sm_version(9, 0):
@@ -110,7 +110,7 @@ def test_valid_scaled_grouped_mm_2d_3d(m, n, k, n_groups):
     ref_out.sum().backward()
 
     # Validate gradients.
-    if is_ROCM:
+    if is_ROCM():
         # FP8 matmul allows some error due to precision limits and accumulation order differences.
         # On ROCm, small numeric diffs are expected because different libraries/kernels are used:
         # - scaled_mm is implemented via hipBLASLt
