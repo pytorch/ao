@@ -19,7 +19,7 @@ Exponent E8M0 encoding details (OCP spec section 5.4.1):
 
 import math
 from dataclasses import dataclass
-from typing import Any, Optional, Union
+from typing import Optional, Union
 
 import torch
 from torch.distributed._tensor import DTensor
@@ -544,10 +544,35 @@ class MXTensor(TorchAOBaseTensor):
         kernel_preference: KernelPreference = KernelPreference.EMULATED,
         act_quant_kwargs: Optional[QuantizeTensorToMXKwargs] = None,
         is_swizzled_scales: bool = False,
+        mxfp8_dim0_cast_kernel_choice: MXFP8Dim0CastKernelChoice = MXFP8Dim0CastKernelChoice.TORCH,
     ):
-        scale_e8m0_biased, data_lp = to_mx(
-            data_hp, elem_dtype, block_size, scaling_mode, is_swizzled_scales
+        assert mxfp8_dim0_cast_kernel_choice in (
+            MXFP8Dim0CastKernelChoice.TRITON,
+            MXFP8Dim0CastKernelChoice.TORCH,
+        ), (
+            f"unsupported kernel choice for mxfp8_dim0_cast_kernel_choice: {mxfp8_dim0_cast_kernel_choice}"
         )
+
+        triton_kernel_supported = (
+            mxfp8_dim0_cast_kernel_choice == MXFP8Dim0CastKernelChoice.TRITON
+            and data_hp.dtype == torch.bfloat16
+            and elem_dtype == torch.float8_e4m3fn
+            and scaling_mode in (ScaleCalculationMode.FLOOR, ScaleCalculationMode.RCEIL)
+            and not is_swizzled_scales
+        )
+        if mxfp8_dim0_cast_kernel_choice == MXFP8Dim0CastKernelChoice.TRITON:
+            assert triton_kernel_supported, (
+                f"triton kernel unsupported for {data_hp.dtype=}, {elem_dtype=}, {scaling_mode=}, {is_swizzled_scales=}"
+            )
+            data_lp, scale_e8m0_biased = triton_to_mxfp8_dim0(
+                data_hp,
+                inner_block_size=block_size,
+                scaling_mode=scaling_mode.value,
+            )
+        else:
+            scale_e8m0_biased, data_lp = to_mx(
+                data_hp, elem_dtype, block_size, scaling_mode, is_swizzled_scales
+            )
         if isinstance(scale_e8m0_biased, DTensor):
             assert isinstance(data_lp, DTensor), "unsupported"
             local_scale_e8m0_biased = scale_e8m0_biased.to_local()
@@ -925,43 +950,3 @@ def mx_wait_tensor(func, types, args, kwargs):
         mx_tensor.act_quant_kwargs,
         mx_tensor._is_swizzled_scales,
     )
-
-
-def _to_mxfp8_dim0(
-    tensor: torch.Tensor,
-    elem_dtype: Any,
-    block_size: int,
-    kernel_preference: KernelPreference,
-    scale_calculation_mode: ScaleCalculationMode,
-    mxfp8_dim0_cast_kernel_choice: MXFP8Dim0CastKernelChoice,
-) -> MXTensor:
-    """
-    Quantize a tensor to MXFP8 along dimension 0.
-
-    Uses Triton kernel or falls back to MXTensor.to_mx() based on the
-    mxfp8_dim0_cast_kernel_choice parameter.
-    """
-    if mxfp8_dim0_cast_kernel_choice == MXFP8Dim0CastKernelChoice.TRITON:
-        data, scales = triton_to_mxfp8_dim0(
-            tensor,
-            inner_block_size=block_size,
-            scaling_mode=scale_calculation_mode.value,
-        )
-        return MXTensor(
-            data,
-            scales,
-            elem_dtype=data.dtype,
-            block_size=block_size,
-            orig_dtype=tensor.dtype,
-            kernel_preference=kernel_preference,
-            act_quant_kwargs=None,
-            is_swizzled_scales=False,
-        )
-    else:
-        return MXTensor.to_mx(
-            tensor,
-            elem_dtype,
-            block_size,
-            kernel_preference=kernel_preference,
-            scaling_mode=scale_calculation_mode,
-        )

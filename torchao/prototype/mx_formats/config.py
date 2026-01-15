@@ -199,19 +199,23 @@ class MXLinearConfig(AOBaseConfig):
         elif recipe_name is MXLinearRecipeName.MXFP8_CUBLAS:
             return MXLinearConfig(
                 kernel_preference=KernelPreference.AUTO,
-                mxfp8_dim0_cast_kernel_choice=MXFP8Dim1CastKernelChoice.TORCH,
-                mxfp8_dim1_cast_kernel_choice=MXFP8Dim1CastKernelChoice.TRITON
-                if is_ROCM()
-                else MXFP8Dim1CastKernelChoice.CUDA,
+                mxfp8_dim0_cast_kernel_choice=MXFP8Dim0CastKernelChoice.TORCH,
+                mxfp8_dim1_cast_kernel_choice=(
+                    MXFP8Dim1CastKernelChoice.TRITON
+                    if is_ROCM()
+                    else MXFP8Dim1CastKernelChoice.CUDA
+                ),
             )
         elif recipe_name is MXLinearRecipeName.MXFP8_CUBLAS_RCEIL:
             return MXLinearConfig(
                 kernel_preference=KernelPreference.AUTO,
-                mxfp8_dim0_cast_kernel_choice=MXFP8Dim0CastKernelChoice.TRITON,
+                mxfp8_dim0_cast_kernel_choice=MXFP8Dim0CastKernelChoice.TORCH,
                 # Quantization kernels with RCEIL are not supported on ROCm. Fallback to torch.
-                mxfp8_dim1_cast_kernel_choice=MXFP8Dim1CastKernelChoice.TORCH
-                if is_ROCM()
-                else MXFP8Dim1CastKernelChoice.CUDA,
+                mxfp8_dim1_cast_kernel_choice=(
+                    MXFP8Dim1CastKernelChoice.TORCH
+                    if is_ROCM()
+                    else MXFP8Dim1CastKernelChoice.CUDA
+                ),
                 scale_calculation_mode=ScaleCalculationMode.RCEIL,
             )
         elif recipe_name is MXLinearRecipeName.MXFP4_EMULATED:

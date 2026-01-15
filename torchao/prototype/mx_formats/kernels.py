@@ -518,7 +518,9 @@ if torch_version_at_least("2.7.0") and has_triton():
         """
         assert x.is_contiguous(), "`x` must be contiguous"
         assert inner_block_size <= 32, "inner_block_size must be <= 32"
-        assert x.dtype == torch.bfloat16, "only bfloat16 inputs are supported"
+        assert x.dtype == torch.bfloat16, (
+            f"only bfloat16 inputs are supported, got {x.dtype}"
+        )
 
         # Reshape tensor to 2d if necessary and get shape
         x_orig_shape = x.shape
@@ -555,7 +557,7 @@ if torch_version_at_least("2.7.0") and has_triton():
             n_rows=n_rows,
             n_cols=n_cols,
             SCALE_BLOCK_SIZE=inner_block_size,
-            SCALING_MODE=scaling_mode,
+            SCALING_MODE=scaling_mode.lower(),
         )
 
         # Reshape output back to original shape
