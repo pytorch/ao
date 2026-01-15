@@ -1,27 +1,37 @@
-// MXFP8 extension using TORCH_LIBRARY (CPython ABI agnostic)
-#include <torch/library.h>
-#include <ATen/ATen.h>
-#include <ATen/cuda/CUDAContext.h>
-#include <c10/cuda/CUDAGuard.h>
+// MXFP8 extension using STABLE_TORCH_LIBRARY (ABI stable)
+#include <torch/csrc/stable/tensor.h>
+#include <torch/csrc/stable/library.h>
+#include <torch/csrc/stable/ops.h>
+#include <torch/csrc/stable/accelerator.h>
+#include <torch/csrc/inductor/aoti_torch/c/shim.h>
+
+#include <torch/headeronly/core/ScalarType.h>
+#include <torch/headeronly/util/Exception.h>
+#include <torch/headeronly/util/shim_utils.h>
+
+#include <cuda_runtime.h>
 #include <cstdint>
 #include <string>
+
+using torch::stable::Tensor;
+namespace tsa = torch::stable::accelerator;
 
 namespace mxfp8 {
 
 // Forward declarations
-void mxfp8_quantize_cuda(const at::Tensor &input,
-                         at::Tensor &output_rowwise,
-                         at::Tensor &output_columnwise,
-                         at::Tensor &scales_rowwise,
-                         at::Tensor &scales_colwise, 
+void mxfp8_quantize_cuda(const Tensor &input,
+                         Tensor &output_rowwise,
+                         Tensor &output_columnwise,
+                         Tensor &scales_rowwise,
+                         Tensor &scales_colwise,
                          int64_t scale_dim_x,
-                         int64_t scale_dim_y, 
+                         int64_t scale_dim_y,
                          const std::string &fp8_format,
                          const std::string &scaling_mode);
 
-void mxfp8_quantize_3d_cuda(const at::Tensor &input,
-                             at::Tensor &output_colwise,
-                             at::Tensor &scales_colwise,
+void mxfp8_quantize_3d_cuda(const Tensor &input,
+                             Tensor &output_colwise,
+                             Tensor &scales_colwise,
                              int64_t scale_dim_n,
                              const std::string &fp8_format,
                              const std::string &scaling_mode);
@@ -50,42 +60,42 @@ void launch_mx_block_rearrange_2d_simple_cuda(
     cudaStream_t stream);
 
 // Helper for tensor validation
-void check_cuda_tensor(const at::Tensor &t, const char *name) {
-  TORCH_CHECK(t.is_cuda(), name, " must be a CUDA tensor");
-  TORCH_CHECK(t.is_contiguous(), name, " must be contiguous");
+void check_cuda_tensor(const Tensor &t, const char *name) {
+  STD_TORCH_CHECK(t.is_cuda(), name, " must be a CUDA tensor");
+  STD_TORCH_CHECK(t.is_contiguous(), name, " must be contiguous");
 }
 
 // Helper to validate FP8 format
 void validate_fp8_format(const std::string &fp8_format) {
-  TORCH_CHECK(fp8_format.compare("e4m3") == 0,
+  STD_TORCH_CHECK(fp8_format.compare("e4m3") == 0,
               "fp8_format must be 'e4m3', got: ", fp8_format);
 }
 
 // Helper to validate scale dimensions
 void validate_scale_dimensions(int64_t scale_dim_x, int64_t scale_dim_y) {
-  TORCH_CHECK(scale_dim_x == 1 || scale_dim_x == 32,
+  STD_TORCH_CHECK(scale_dim_x == 1 || scale_dim_x == 32,
               "scale_dim_x must be 1 or 32, got: ", scale_dim_x);
-  TORCH_CHECK(scale_dim_y == 1 || scale_dim_y == 32,
+  STD_TORCH_CHECK(scale_dim_y == 1 || scale_dim_y == 32,
               "scale_dim_y must be 1 or 32, got: ", scale_dim_y);
 }
 
 // Main quantization function
-std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor>
-mxfp8_quantize(const at::Tensor& input, bool rowwise, bool colwise,
+std::tuple<Tensor, Tensor, Tensor, Tensor>
+mxfp8_quantize(const Tensor& input, bool rowwise, bool colwise,
                int64_t scale_dim_x, int64_t scale_dim_y,
                const std::string &fp8_format,
                const std::string &scaling_mode) {
 
   // Validate inputs
-  TORCH_CHECK(!rowwise, "rowwise scaling is not supported yet");
-  TORCH_CHECK(input.is_cuda(), "input must be a CUDA tensor");
-  TORCH_CHECK(input.is_contiguous(), "input must be contiguous");
-  TORCH_CHECK(input.dim() == 2, "input must be 2D");
-  TORCH_CHECK(input.scalar_type() == at::kFloat ||
-                  input.scalar_type() == at::kHalf ||
-                  input.scalar_type() == at::kBFloat16,
+  STD_TORCH_CHECK(!rowwise, "rowwise scaling is not supported yet");
+  STD_TORCH_CHECK(input.is_cuda(), "input must be a CUDA tensor");
+  STD_TORCH_CHECK(input.is_contiguous(), "input must be contiguous");
+  STD_TORCH_CHECK(input.dim() == 2, "input must be 2D");
+  STD_TORCH_CHECK(input.scalar_type() == torch::headeronly::ScalarType::Float ||
+                  input.scalar_type() == torch::headeronly::ScalarType::Half ||
+                  input.scalar_type() == torch::headeronly::ScalarType::BFloat16,
               "Input must be float32, float16, or bfloat16");
-  TORCH_CHECK(rowwise || colwise,
+  STD_TORCH_CHECK(rowwise || colwise,
               "At least one of rowwise or colwise must be true");
 
   validate_scale_dimensions(scale_dim_x, scale_dim_y);
@@ -93,46 +103,37 @@ mxfp8_quantize(const at::Tensor& input, bool rowwise, bool colwise,
 
   const int64_t rows = input.size(0);
   const int64_t cols = input.size(1);
-  TORCH_CHECK((rows >= 32) && (rows % 32 == 0), "rows must be a multiple of 32");
-  TORCH_CHECK((cols >= 32) && (cols % 32 == 0), "cols must be a multiple of 32");
+  STD_TORCH_CHECK((rows >= 32) && (rows % 32 == 0), "rows must be a multiple of 32");
+  STD_TORCH_CHECK((cols >= 32) && (cols % 32 == 0), "cols must be a multiple of 32");
 
-  c10::cuda::CUDAGuard device_guard(input.device());
-
-  // Create tensor options
-  const auto options_fp8 = at::TensorOptions()
-                               .dtype(at::kFloat8_e4m3fn)
-                               .device(input.device());
-
-  const auto options_scale = at::TensorOptions()
-                                 .dtype(at::kFloat8_e8m0fnu)
-                                 .device(input.device());
+  tsa::DeviceGuard device_guard(input.get_device_index());
 
   // Allocate output tensors
-  at::Tensor output_rowwise, output_colwise;
-  at::Tensor scales_rowwise, scales_colwise;
+  Tensor output_rowwise, output_colwise;
+  Tensor scales_rowwise, scales_colwise;
 
   if (rowwise) {
     const int64_t num_col_blocks = (cols + scale_dim_x - 1) / scale_dim_x;
-    output_rowwise = at::empty({rows, cols}, options_fp8);
-    scales_rowwise = at::empty({rows, num_col_blocks}, options_scale);
+    output_rowwise = torch::stable::new_empty(input, {rows, cols}, torch::headeronly::ScalarType::Float8_e4m3fn);
+    scales_rowwise = torch::stable::new_empty(input, {rows, num_col_blocks}, torch::headeronly::ScalarType::Float8_e8m0fnu);
   } else {
-    output_rowwise = at::empty({0}, options_fp8);
-    scales_rowwise = at::empty({0}, options_scale);
+    output_rowwise = torch::stable::new_empty(input, {0}, torch::headeronly::ScalarType::Float8_e4m3fn);
+    scales_rowwise = torch::stable::new_empty(input, {0}, torch::headeronly::ScalarType::Float8_e8m0fnu);
   }
 
   if (colwise) {
     const int64_t num_row_blocks = (rows + scale_dim_y - 1) / scale_dim_y;
-    output_colwise = at::empty_strided({rows, cols}, {1, rows}, options_fp8);
-    // Need scales_colwise to be this shape so the 'col' dim stride is 1, 
-    // for colwise scaling, we can avoid uncoalesced writes to global memory.
-    // This is because each of the 32 threads in a warp will be computing
-    // a scale for a different column of 32 input data values, then each writing
-    // that scale to global memory - so the stride along this `col` dim should be 1
-    // so writes can be coalesced into a single transaction.
-    scales_colwise = at::empty_strided({cols, num_row_blocks}, {1, cols}, options_scale);
+    // Create column-major tensor by creating transposed shape and transposing
+    // We need shape {rows, cols} with strides {1, rows}, so create {cols, rows} and transpose
+    Tensor output_colwise_tmp = torch::stable::new_empty(input, {cols, rows}, torch::headeronly::ScalarType::Float8_e4m3fn);
+    output_colwise = torch::stable::transpose(output_colwise_tmp, 0, 1);
+    // For scales_colwise: need shape {cols, num_row_blocks} with strides {1, cols}
+    // Create {num_row_blocks, cols} and transpose
+    Tensor scales_colwise_tmp = torch::stable::new_empty(input, {num_row_blocks, cols}, torch::headeronly::ScalarType::Float8_e8m0fnu);
+    scales_colwise = torch::stable::transpose(scales_colwise_tmp, 0, 1);
   } else {
-    output_colwise = at::empty({0}, options_fp8);
-    scales_colwise = at::empty({0}, options_scale);
+    output_colwise = torch::stable::new_empty(input, {0}, torch::headeronly::ScalarType::Float8_e4m3fn);
+    scales_colwise = torch::stable::new_empty(input, {0}, torch::headeronly::ScalarType::Float8_e8m0fnu);
   }
 
   // Call CUDA kernels
@@ -148,21 +149,21 @@ mxfp8_quantize(const at::Tensor& input, bool rowwise, bool colwise,
 }
 
 // 3D tensor quantization function
-std::tuple<at::Tensor, at::Tensor>
-mxfp8_quantize_3d(const at::Tensor& input, int64_t scale_dim_n,
+std::tuple<Tensor, Tensor>
+mxfp8_quantize_3d(const Tensor& input, int64_t scale_dim_n,
                   const std::string &fp8_format,
                   const std::string &scaling_mode) {
 
   // Validate inputs
-  TORCH_CHECK(input.is_cuda(), "input must be a CUDA tensor");
-  TORCH_CHECK(input.is_contiguous(), "input must be contiguous");
+  STD_TORCH_CHECK(input.is_cuda(), "input must be a CUDA tensor");
+  STD_TORCH_CHECK(input.is_contiguous(), "input must be contiguous");
   // Note: We don't check contiguous for 3D as it may have column major strides
-  TORCH_CHECK(input.dim() == 3, "input must be 3D");
-  TORCH_CHECK(input.scalar_type() == at::kFloat ||
-                  input.scalar_type() == at::kHalf ||
-                  input.scalar_type() == at::kBFloat16,
+  STD_TORCH_CHECK(input.dim() == 3, "input must be 3D");
+  STD_TORCH_CHECK(input.scalar_type() == torch::headeronly::ScalarType::Float ||
+                  input.scalar_type() == torch::headeronly::ScalarType::Half ||
+                  input.scalar_type() == torch::headeronly::ScalarType::BFloat16,
               "Input must be float32, float16, or bfloat16");
-  TORCH_CHECK(scale_dim_n == 32, "scale_dim_n must be 32 for now");
+  STD_TORCH_CHECK(scale_dim_n == 32, "scale_dim_n must be 32 for now");
 
   validate_fp8_format(fp8_format);
 
@@ -171,28 +172,21 @@ mxfp8_quantize_3d(const at::Tensor& input, int64_t scale_dim_n,
   const int64_t K = input.size(2);
 
   // Check dimensions are valid for 3D kernel
-  TORCH_CHECK((N >= 32) && (N % 32 == 0), "N must be a multiple of 32");
-  TORCH_CHECK((K >= 32) && (K % 32 == 0), "K must be a multiple of 32");
+  STD_TORCH_CHECK((N >= 32) && (N % 32 == 0), "N must be a multiple of 32");
+  STD_TORCH_CHECK((K >= 32) && (K % 32 == 0), "K must be a multiple of 32");
 
 
-  c10::cuda::CUDAGuard device_guard(input.device());
-
-  // Create tensor options
-  const auto options_fp8 = at::TensorOptions()
-                               .dtype(at::kFloat8_e4m3fn)
-                               .device(input.device());
-
-  const auto options_scale = at::TensorOptions()
-                                 .dtype(at::kFloat8_e8m0fnu)
-                                 .device(input.device());
+  tsa::DeviceGuard device_guard(input.get_device_index());
 
   // Create output tensor with column major layout (required for downstream ops)
-  at::Tensor output_colwise = at::empty_strided(
-      {E, N, K}, {N * K, 1, N}, options_fp8);
+  // We need shape {E, N, K} with strides {N * K, 1, N}
+  // Create {E, K, N} contiguous tensor (strides {K*N, N, 1}) then transpose dims 1 and 2
+  Tensor output_colwise_tmp = torch::stable::new_empty(input, {E, K, N}, torch::headeronly::ScalarType::Float8_e4m3fn);
+  Tensor output_colwise = torch::stable::transpose(output_colwise_tmp, 1, 2);
 
   // Create scales tensor with shape (E, num_n_blocks, K)
   const int64_t num_n_blocks = (N + scale_dim_n - 1) / scale_dim_n;
-  at::Tensor scales_colwise = at::empty({E, num_n_blocks, K}, options_scale);
+  Tensor scales_colwise = torch::stable::new_empty(input, {E, num_n_blocks, K}, torch::headeronly::ScalarType::Float8_e8m0fnu);
 
   // Call CUDA kernel
   mxfp8_quantize_3d_cuda(input, output_colwise, scales_colwise,
@@ -201,32 +195,32 @@ mxfp8_quantize_3d(const at::Tensor& input, int64_t scale_dim_n,
   return std::make_tuple(output_colwise, scales_colwise);
 }
 
-at::Tensor mx_block_rearrange_2d_M_groups(
-    at::Tensor scales_tensor,
-    at::Tensor input_group_end_offsets,
+Tensor mx_block_rearrange_2d_M_groups(
+    Tensor scales_tensor,
+    Tensor input_group_end_offsets,
     int64_t chunks_per_tb) {
 
   // Validate inputs
   check_cuda_tensor(scales_tensor, "scales_tensor");
   check_cuda_tensor(input_group_end_offsets, "input_group_end_offsets");
 
-  TORCH_CHECK(scales_tensor.dim() == 2, "scales_tensor must be 2D");
-  TORCH_CHECK(scales_tensor.is_contiguous(), "scales_tensor must be contiguous (row-major)");
-  TORCH_CHECK(scales_tensor.scalar_type() == at::kByte || // uint8
-              scales_tensor.scalar_type() == at::kFloat8_e8m0fnu,
+  STD_TORCH_CHECK(scales_tensor.dim() == 2, "scales_tensor must be 2D");
+  STD_TORCH_CHECK(scales_tensor.is_contiguous(), "scales_tensor must be contiguous (row-major)");
+  STD_TORCH_CHECK(scales_tensor.scalar_type() == torch::headeronly::ScalarType::Byte || // uint8
+              scales_tensor.scalar_type() == torch::headeronly::ScalarType::Float8_e8m0fnu,
               "scales_tensor must be uint8 or e8m0");
-  TORCH_CHECK(input_group_end_offsets.scalar_type() == at::kInt,
+  STD_TORCH_CHECK(input_group_end_offsets.scalar_type() == torch::headeronly::ScalarType::Int,
               "input_group_end_offsets must be int32");
-  TORCH_CHECK(input_group_end_offsets.dim() == 1,
+  STD_TORCH_CHECK(input_group_end_offsets.dim() == 1,
               "input_group_end_offsets must be 1D");
-  TORCH_CHECK(chunks_per_tb == 1 || chunks_per_tb == 4 || chunks_per_tb == 8 || chunks_per_tb == 16,
+  STD_TORCH_CHECK(chunks_per_tb == 1 || chunks_per_tb == 4 || chunks_per_tb == 8 || chunks_per_tb == 16,
               "chunks_per_tb must be 1, 4, 8, or 16, got: ", chunks_per_tb);
-  c10::cuda::CUDAGuard device_guard(scales_tensor.device());
+  tsa::DeviceGuard device_guard(scales_tensor.get_device_index());
 
   const int rows = scales_tensor.size(0);
   const int cols = scales_tensor.size(1);
   const int num_groups = input_group_end_offsets.size(0);
-  TORCH_CHECK(num_groups <= 32, "num_groups must be <= 32");
+  STD_TORCH_CHECK(num_groups <= 32, "num_groups must be <= 32");
 
   // Automatically select chunk_width based on scale_cols
   int chunk_width;
@@ -251,15 +245,17 @@ at::Tensor mx_block_rearrange_2d_M_groups(
   const int padded_cols = num_col_blocks * BLOCK_COLS;
 
   // Create output tensor
-  auto output = at::zeros({padded_rows, padded_cols},
-                            at::TensorOptions()
-                                .dtype(scales_tensor.scalar_type())
-                                .device(scales_tensor.device()));
+  auto output = torch::stable::new_zeros(scales_tensor, {padded_rows, padded_cols}, scales_tensor.scalar_type());
 
   // Get raw pointers
   const uint8_t* scales_ptr = reinterpret_cast<const uint8_t*>(scales_tensor.data_ptr());
-  const int32_t* offsets_ptr = input_group_end_offsets.data_ptr<int32_t>();
+  const int32_t* offsets_ptr = input_group_end_offsets.const_data_ptr<int32_t>();
   uint8_t* output_ptr = reinterpret_cast<uint8_t*>(output.data_ptr());
+
+  // Get CUDA stream using stable ABI
+  void* stream_ptr = nullptr;
+  TORCH_ERROR_CODE_CHECK(aoti_torch_get_current_cuda_stream(scales_tensor.get_device_index(), &stream_ptr));
+  cudaStream_t stream = static_cast<cudaStream_t>(stream_ptr);
 
   // pipelined kernel will be used if input meets 2d TMA constraint (cols >= 16 and cols % 16 bytes == 0)
   // Otherwise, a fallback kernel will be used (slightly slower but supports any column count)  
@@ -278,7 +274,7 @@ at::Tensor mx_block_rearrange_2d_M_groups(
         num_groups,
         static_cast<int>(chunk_width),
         static_cast<int>(chunks_per_tb),
-        at::cuda::getCurrentCUDAStream());
+        stream);
   }
   else 
   {
@@ -291,7 +287,7 @@ at::Tensor mx_block_rearrange_2d_M_groups(
         output_ptr,
         num_groups,
         static_cast<int>(chunk_width),
-        at::cuda::getCurrentCUDAStream());
+        stream);
   }
   return output;
 }
@@ -300,9 +296,9 @@ at::Tensor mx_block_rearrange_2d_M_groups(
 } // namespace mxfp8
 
 
-// Register CUDA implementations
-TORCH_LIBRARY_IMPL(torchao, CUDA, m) {
-  m.impl("mxfp8_quantize", &mxfp8::mxfp8_quantize);
-  m.impl("mxfp8_quantize_3d", &mxfp8::mxfp8_quantize_3d);
-  m.impl("mx_block_rearrange_2d_M_groups", &mxfp8::mx_block_rearrange_2d_M_groups);
+// Register CUDA implementations using stable ABI
+STABLE_TORCH_LIBRARY_IMPL(torchao, CUDA, m) {
+  m.impl("mxfp8_quantize", TORCH_BOX(&mxfp8::mxfp8_quantize));
+  m.impl("mxfp8_quantize_3d", TORCH_BOX(&mxfp8::mxfp8_quantize_3d));
+  m.impl("mx_block_rearrange_2d_M_groups", TORCH_BOX(&mxfp8::mx_block_rearrange_2d_M_groups));
 }
