@@ -98,10 +98,10 @@ class Float8FakeQuantizer(FakeQuantizerBase):
 class Int4WeightFakeQuantizer(FakeQuantizerBase):
     """
     Generic module for applying int4 fake quantization to a weight tensor,
-    targeting the following FBGEMM kernels:
-        torch.ops.fbgemm.f8i4bf16_shuffled
-        torch.ops.fbgemm.bf16i4bf16_shuffled
-        torch.ops.fbgemm.bf16i4bf16_rowwise
+    targeting the following MSLK kernels:
+        torch.ops.mslk.f8i4bf16_shuffled
+        torch.ops.mslk.bf16i4bf16_shuffled
+        torch.ops.mslk.bf16i4bf16_rowwise
     """
 
     def __init__(self, config: Int4WeightFakeQuantizeConfig):
@@ -121,13 +121,13 @@ class Int4WeightFakeQuantizer(FakeQuantizerBase):
         """
         Apply int4 fake quantization to the weight tensor where the input activations
         are expected to be rowwise fp8, using the following as a reference:
-        https://github.com/pytorch/FBGEMM/blob/80cc48c4b2b7fcc579e53211fc8715a8592cbd2c/fbgemm_gpu/experimental/gen_ai/gen_ai/quantize.py#L136
+        https://github.com/meta-pytorch/MSLK/blob/main/mslk/quantize/shuffle.py
         """
         assert w.dim() == 2
         assert self.config.activation_dtype == torch.float8_e4m3fn
 
         # First quantize weights to fp8 per row
-        # This simulates the numerics of fbgemm_gpu.experimental.gen_ai.quantize.quantize_fp8_row
+        # This simulates the numerics of mslk.quantize.triton.fp8_quantize.quantize_fp8_row
         per_row_block_size = get_block_size(w.shape, PerRow())
         fp8_scale = _choose_scale_float8(
             w,
@@ -139,12 +139,12 @@ class Int4WeightFakeQuantizer(FakeQuantizerBase):
         w_fp8 = _dequantize_affine_float8(w_fp8, fp8_scale, w.dtype)
 
         # Now quantize to int4 per group
-        # This simulates the numerics of fbgemm_gpu.experimental.gen_ai.quantize.int4_row_quantize
+        # This simulates the numerics of mslk.quantize.shuffle.int4_row_quantize
         eps = 1e-6
-        fbgemm_scale_quant_max = 8
+        mslk_scale_quant_max = 8
         w_fp8_grouped = w_fp8.view(w_fp8.shape[0], -1, self.config.group_size)
         max_abs = torch.amax(torch.abs(w_fp8_grouped), dim=-1, keepdim=False)
-        scale = torch.clamp(max_abs / fbgemm_scale_quant_max, min=eps)
+        scale = torch.clamp(max_abs / mslk_scale_quant_max, min=eps)
         zero_point = torch.zeros_like(scale)
         per_group_block_size = (1, self.config.group_size)
         fq = _fake_quantize_affine(
@@ -162,21 +162,21 @@ class Int4WeightFakeQuantizer(FakeQuantizerBase):
         """
         Apply int4 fake quantization to the weight tensor where the input activations
         are expected to be bf16, using the following as a reference:
-        https://github.com/pytorch/FBGEMM/blob/80cc48c4b2b7fcc579e53211fc8715a8592cbd2c/fbgemm_gpu/experimental/gen_ai/gen_ai/quantize.py#L152
+        https://github.com/meta-pytorch/MSLK/blob/main/mslk/quantize/shuffle.py
         """
         assert w.dim() == 2
         assert self.config.activation_dtype == torch.bfloat16
 
         eps = 1e-6
         qmin, qmax = 0, 15
-        fbgemm_symmetric_qmax = 8
+        mslk_symmetric_qmax = 8
         w_grouped = w.to(torch.float32).view(w.shape[0], -1, self.config.group_size)
         max_val = torch.amax(w_grouped, dim=-1, keepdim=True)
         min_val = torch.amin(w_grouped, dim=-1, keepdim=True)
         scale = torch.clamp(max_val - min_val, min=eps) / qmax
-        zero_point = min_val + scale * fbgemm_symmetric_qmax
+        zero_point = min_val + scale * mslk_symmetric_qmax
         fq = _Round.apply((w_grouped - min_val) / scale).clamp(qmin, qmax)
-        fq = fq - fbgemm_symmetric_qmax
+        fq = fq - mslk_symmetric_qmax
         fq = fq * scale + zero_point
         return fq.view(w.shape).to(w.dtype)
 
