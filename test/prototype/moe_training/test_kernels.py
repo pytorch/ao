@@ -43,6 +43,8 @@ from torchao.utils import (
     is_sm_at_least_100,
 )
 
+
+@skip_if_rocm("ROCm enablement in progress")
 @pytest.mark.parametrize("round_scales_to_power_of_2", [True, False])
 def test_row_major_with_jagged_rowwise_scales(round_scales_to_power_of_2: bool):
     # Tests case where rowwise scales are computed for multiple distinct subtensors,
@@ -73,6 +75,7 @@ def test_row_major_with_jagged_rowwise_scales(round_scales_to_power_of_2: bool):
     assert not _is_column_major(kernel_fp8_data), "fp8 data is not row major"
 
 
+@skip_if_rocm("ROCm enablement in progress")
 @pytest.mark.parametrize("round_scales_to_power_of_2", [True, False])
 def test_row_major_with_jagged_rowwise_scales_transpose_method(
     round_scales_to_power_of_2: bool,
@@ -110,6 +113,7 @@ def test_row_major_with_jagged_rowwise_scales_transpose_method(
     assert not _is_column_major(kernel_fp8_data), "fp8 data is not row major"
 
 
+@skip_if_rocm("ROCm enablement in progress")
 @pytest.mark.parametrize("round_scales_to_power_of_2", [True, False])
 def test_column_major_with_jagged_colwise_scales(round_scales_to_power_of_2: bool):
     # tests case where colwise scales are computed for multiple distinct subtensors,
@@ -137,6 +141,7 @@ def test_column_major_with_jagged_colwise_scales(round_scales_to_power_of_2: boo
     assert _is_column_major(kernel_fp8_data), "fp8 data is not column major"
 
 
+@skip_if_rocm("ROCm not supported")
 @pytest.mark.parametrize("round_scales_to_power_of_2", [True, False])
 def test_fp8_rowwise_3d_transpose_rhs_atomic(round_scales_to_power_of_2: bool):
     device = "cuda"
@@ -171,6 +176,7 @@ def test_fp8_rowwise_3d_transpose_rhs_atomic(round_scales_to_power_of_2: bool):
     assert torch.allclose(ref_fp8, triton_fp8, rtol=0, atol=0), "fp8 data not equal"
 
 
+@skip_if_rocm("ROCm not supported")
 @pytest.mark.parametrize("round_scales_to_power_of_2", [True, False])
 def test_fp8_rowwise_3d_transpose_rhs_reduction(round_scales_to_power_of_2: bool):
     device = "cuda"
@@ -205,6 +211,7 @@ def test_fp8_rowwise_3d_transpose_rhs_reduction(round_scales_to_power_of_2: bool
     assert torch.allclose(ref_fp8, triton_fp8, rtol=0, atol=0), "fp8 data not equal"
 
 
+@skip_if_rocm("ROCm enablement in progress")
 @pytest.mark.parametrize(
     "m,k,n_groups", [(256, 256, 4), (16640, 5120, 16), (16640, 8192, 16)]
 )
@@ -281,6 +288,8 @@ def test_cuda_mx_block_rearrange_2d_M_groups(
         "blocked scales not equal"
     )
 
+
+@skip_if_rocm("ROCm enablement in progress")
 @pytest.mark.parametrize("e,n,k", [(1, 8192, 5120), (2, 8192, 5120), (8, 5120, 8192)])
 def test_mxfp8_per_group_blocked_scales_3d(
     e: int,
@@ -303,6 +312,8 @@ def test_mxfp8_per_group_blocked_scales_3d(
         "blocked scales not equal"
     )
 
+
+@skip_if_rocm("ROCm enablement in progress")
 @pytest.mark.parametrize("m", [256, 512, 1024, 5120])
 @pytest.mark.parametrize("total_k", [512, 1024, 2048, 4096, 8192, 16384])
 @pytest.mark.parametrize("n_groups", [1, 4, 8, 16])
