@@ -3169,7 +3169,7 @@ def _register_quantization_weight_pack_pass():
         _register_qlinear_binary_fusion()
         _register_quantization_embeddingbag_pass()
 
-    # Setp 6: Fuse concat+dequant+quant
+    # Step 6: Fuse concat+dequant+quant
     _register_concat_dq_q_pattern()
 
 
