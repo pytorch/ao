@@ -55,8 +55,6 @@ from torchao.testing.pt2e._xnnpack_quantizer import (
 )
 from torchao.utils import get_current_accelerator_device, torch_version_at_least
 
-_DEVICE = get_current_accelerator_device()
-
 
 class PT2EQATTestCase(QuantizationTestCase):
     """
@@ -458,6 +456,7 @@ class TestQuantizePT2EQAT_ConvBn_Base(PT2EQATTestCase):
 
     @unittest.skipIf(not TEST_CUDA and not TEST_XPU, "GPU unavailable")
     def test_qat_conv_bn_fusion_cuda(self):
+        _DEVICE = get_current_accelerator_device()
         m = self._get_conv_bn_model().to(_DEVICE)
         example_inputs = (self.example_inputs[0].to(_DEVICE),)
         self._verify_symmetric_xnnpack_qat_graph(
@@ -545,6 +544,7 @@ class TestQuantizePT2EQAT_ConvBn_Base(PT2EQATTestCase):
 
     @unittest.skipIf(not TEST_CUDA and not TEST_XPU, "GPU unavailable")
     def test_qat_conv_bn_relu_fusion_cuda(self):
+        _DEVICE = get_current_accelerator_device()
         m = self._get_conv_bn_model(has_relu=True).to(_DEVICE)
         example_inputs = (self.example_inputs[0].to(_DEVICE),)
         self._verify_symmetric_xnnpack_qat_graph(

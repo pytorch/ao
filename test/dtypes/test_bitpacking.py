@@ -12,7 +12,6 @@ from torchao.utils import get_current_accelerator_device
 
 bit_widths = (1, 2, 3, 4, 5, 6, 7)
 dimensions = (0, -1, 1)
-_DEVICE = get_current_accelerator_device()
 
 
 @pytest.fixture(autouse=True)
@@ -36,6 +35,7 @@ def test_CPU(bit_width, dim):
 @pytest.mark.parametrize("bit_width", bit_widths)
 @pytest.mark.parametrize("dim", dimensions)
 def test_GPU(bit_width, dim):
+    _DEVICE = get_current_accelerator_device()
     test_tensor = torch.randint(0, 2**bit_width, (32, 32, 32), dtype=torch.uint8).to(
         _DEVICE
     )
@@ -49,6 +49,7 @@ def test_GPU(bit_width, dim):
 @pytest.mark.parametrize("bit_width", bit_widths)
 @pytest.mark.parametrize("dim", dimensions)
 def test_compile(bit_width, dim):
+    _DEVICE = get_current_accelerator_device()
     torch._dynamo.config.specialize_int = True
     torch.compile(pack, fullgraph=True)
     torch.compile(unpack, fullgraph=True)
@@ -63,6 +64,7 @@ def test_compile(bit_width, dim):
 # these test cases are for the example pack walk through in the bitpacking.py file
 @pytest.mark.skipif(not torch.accelerator.is_available(), reason="GPU not available")
 def test_pack_example():
+    _DEVICE = get_current_accelerator_device()
     test_tensor = torch.tensor(
         [0x30, 0x29, 0x17, 0x5, 0x20, 0x16, 0x9, 0x22], dtype=torch.uint8
     ).to(_DEVICE)

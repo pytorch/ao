@@ -106,7 +106,6 @@ from torchao.utils import (
 
 # TODO: put this in a common test utils file
 _CUDA_IS_AVAILABLE = torch.cuda.is_available()
-_DEVICE = get_current_accelerator_device()
 
 
 class Sub(torch.nn.Module):
@@ -349,6 +348,7 @@ class TestQAT(TestCase):
                 n_bit,
                 group_size,
             )
+            _DEVICE = get_current_accelerator_device()
             q_weight = torch.ops.aten._convert_weight_to_int4pack(
                 q_weight.to(_DEVICE),
                 qat_linear.inner_k_tiles,
@@ -605,12 +605,13 @@ class TestQAT(TestCase):
         print(mean_err)
         self.assertTrue(mean_err < 0.05)
 
-    @unittest.skipIf(_DEVICE is None, "skipping when gpu is not available")
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test_qat_4w_primitives(self):
         n_bit = 4
         group_size = 32
         inner_k_tiles = 8
         scales_precision = torch.bfloat16
+        _DEVICE = get_current_accelerator_device()
         device = torch.device(_DEVICE)
         dtype = torch.bfloat16
         torch.manual_seed(self.SEED)
@@ -656,12 +657,13 @@ class TestQAT(TestCase):
 
         self._assert_close_4w(qat_out, ptq_out)
 
-    @unittest.skipIf(_DEVICE is None, "skipping when GPU is not available")
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test_qat_4w_linear(self):
         from torchao.quantization.linear_quant_modules import WeightOnlyInt4Linear
         from torchao.quantization.qat.linear import Int4WeightOnlyQATLinear
 
         group_size = 128
+        _DEVICE = get_current_accelerator_device()
         device = torch.device(_DEVICE)
         dtype = torch.bfloat16
         torch.manual_seed(self.SEED)
@@ -697,7 +699,7 @@ class TestQAT(TestCase):
         quantizer = Int4WeightOnlyQATQuantizer(groupsize=32, inner_k_tiles=8)
         self._test_qat_quantized_gradients(quantizer)
 
-    @unittest.skipIf(_DEVICE is None, "skipping when GPU is not available")
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     @skip_if_xpu("skipped due to https://github.com/intel/torch-xpu-ops/issues/1770")
     def test_qat_4w_quantizer(self):
         from torchao.quantization.linear_quant_modules import Int4WeightOnlyQuantizer
@@ -705,6 +707,7 @@ class TestQAT(TestCase):
 
         group_size = 32
         inner_k_tiles = 8
+        _DEVICE = get_current_accelerator_device()
         device = torch.device(_DEVICE)
         dtype = torch.bfloat16
         torch.manual_seed(self.SEED)
@@ -1894,6 +1897,7 @@ class TestQAT(TestCase):
             quantize_(model, base_config)
         """
         torch.manual_seed(self.SEED)
+        _DEVICE = get_current_accelerator_device()
 
         if module_type == "linear":
             m = M().to(dtype).to(_DEVICE)
@@ -1972,7 +1976,7 @@ class TestQAT(TestCase):
             target_convert_sqnr=float("inf"),
         )
 
-    @unittest.skipIf(_DEVICE is None, "skipping when GPU is not available")
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test_quantize_api_int8_int4(self):
         """
         Test the following:
@@ -1985,7 +1989,7 @@ class TestQAT(TestCase):
             target_convert_sqnr=float("inf"),
         )
 
-    @unittest.skipIf(_DEVICE is None, "skipping when GPU is not available")
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     @parametrize(
         "weight_dtype, weight_granularity, dtype",
         [
@@ -2010,7 +2014,7 @@ class TestQAT(TestCase):
             dtype=dtype,
         )
 
-    @unittest.skipIf(_DEVICE is None, "skipping when GPU is not available")
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     @skip_if_xpu("XPU enablement in progress")
     @parametrize(
         "weight_dtype, granularity, dtype, module_type",

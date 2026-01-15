@@ -42,11 +42,10 @@ from torchao.utils import (
 is_cusparselt_available = (
     hasattr(torch.backends, "cusparselt") and torch.backends.cusparselt.is_available()
 )
-_DEVICE = get_current_accelerator_device()
 
 
 def get_quantization_functions(
-    do_sparse: bool, do_int4: bool, device: str = _DEVICE, int4_zp_int: bool = False
+    do_sparse: bool, do_int4: bool, device: str = "cuda", int4_zp_int: bool = False
 ):
     base_functions = [
         Int8WeightOnlyConfig(),
@@ -71,10 +70,12 @@ def get_quantization_functions(
     return base_functions
 
 
+@unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
 class TestAffineQuantized(TestCase):
     GPU_DEVICES = (["cuda"] if torch.cuda.is_available() else []) + (
         ["xpu"] if torch.xpu.is_available() else []
     )
+    _DEVICE = get_current_accelerator_device()
 
     @unittest.skipIf(len(GPU_DEVICES) == 0, "Need GPU available")
     def test_weights_only(self):
@@ -96,7 +97,9 @@ class TestAffineQuantized(TestCase):
                     _ = torch.load(f, weights_only=True)
 
     @unittest.skipIf(len(GPU_DEVICES) == 0, "Need GPU available")
-    @common_utils.parametrize("apply_quant", get_quantization_functions(False, False))
+    @common_utils.parametrize(
+        "apply_quant", get_quantization_functions(False, False, _DEVICE)
+    )
     def test_to_device(self, apply_quant):
         for device in self.GPU_DEVICES:
 
@@ -157,6 +160,7 @@ class TestAffineQuantized(TestCase):
             )
             return linear
 
+        _DEVICE = get_current_accelerator_device()
         linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16, device=_DEVICE)
         apply_uint6_weight_only_quant(linear)
 
@@ -188,6 +192,7 @@ class TestAffineQuantized(TestCase):
         "apply_quant", get_quantization_functions(False, True, _DEVICE, False)
     )
     def test_test_copy__apply(self, apply_quant):
+        _DEVICE = get_current_accelerator_device()
         linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16, device=_DEVICE)
         linear2 = torch.nn.Linear(128, 256, dtype=torch.bfloat16, device=_DEVICE)
 
@@ -212,6 +217,7 @@ class TestAffineQuantized(TestCase):
         "apply_quant", get_quantization_functions(False, True, _DEVICE, False)
     )
     def test_copy__mismatch_metadata(self, apply_quant):
+        _DEVICE = get_current_accelerator_device()
         linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16, device=_DEVICE)
         linear2 = torch.nn.Linear(128, 512, dtype=torch.bfloat16, device=_DEVICE)
 
@@ -287,9 +293,8 @@ class TestAffineQuantizedBasic(TestCase):
         quantize_(dummy, Int8DynamicActivationInt8WeightConfig())
         _ = dummy.weight[...]
 
-    @common_utils.parametrize("device", [_DEVICE])
+    @common_utils.parametrize("device", ["cuda"])
     @common_utils.parametrize("dtype", [torch.float16, torch.bfloat16])
-    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     @skip_if_no_gemlite()
     def test_slice_gemlite(self, device, dtype):
         # in_feature not divisible by 1024
@@ -370,7 +375,7 @@ class TestAffineQuantizedBasic(TestCase):
             )
             self.assertEqual((W_slice_ref - W_slice).abs().mean().item(), 0)
 
-    @common_utils.parametrize("device", [_DEVICE])
+    @common_utils.parametrize("device", ["cuda"])
     @common_utils.parametrize("dtype", [torch.bfloat16])
     def test_matmul(self, device, dtype):
         x = torch.randn(53, 2048)

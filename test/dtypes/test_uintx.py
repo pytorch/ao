@@ -17,7 +17,7 @@ from torchao.quantization.quant_primitives import (
     dequantize_affine,
     quantize_affine,
 )
-from torchao.utils import get_current_accelerator_device
+from torchao.utils import get_available_devices, get_current_accelerator_device
 
 dtypes = (
     torch.uint1,
@@ -30,8 +30,7 @@ dtypes = (
 )
 
 group_sizes = [32, 64, 128]
-_DEVICE = get_current_accelerator_device()
-devices = ["cpu", _DEVICE]
+devices = get_available_devices()
 
 
 @pytest.fixture(autouse=True)
@@ -65,6 +64,7 @@ class Linear16(torch.nn.Module):
 def test_uintx_quant_on_cpu_then_move_to_cuda(dtype, group_size):
     scale = 512
     fp16_mod_on_cpu = Linear16(scale, "cpu")
+    _DEVICE = get_current_accelerator_device()
     quantize_(fp16_mod_on_cpu, UIntXWeightOnlyConfig(dtype, group_size=group_size))
     test_input_on_cpu = torch.randn(scale * 2, dtype=torch.float16, device="cpu")
     output_on_cpu = fp16_mod_on_cpu(test_input_on_cpu)
@@ -129,6 +129,7 @@ def test_uintx_weight_only_quant(dtype, group_size, device):
 @pytest.mark.parametrize("dtype", dtypes)
 @pytest.mark.skipif(not torch.accelerator.is_available(), reason="Need GPU available")
 def test_uintx_target_dtype(dtype):
+    _DEVICE = get_current_accelerator_device()
     linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16, device=_DEVICE)
     # make sure it runs
     quantize_(linear, UIntXWeightOnlyConfig(dtype))
@@ -138,6 +139,7 @@ def test_uintx_target_dtype(dtype):
 @pytest.mark.parametrize("dtype", dtypes)
 @pytest.mark.skipif(not torch.accelerator.is_available(), reason="Need GPU available")
 def test_uintx_target_dtype_compile(dtype):
+    _DEVICE = get_current_accelerator_device()
     linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16, device=_DEVICE)
     # make sure it runs
     quantize_(linear, UIntXWeightOnlyConfig(dtype))
@@ -162,6 +164,7 @@ def test_uintx_model_size(dtype):
         torch.uint6: (6 / 8 + 1 / 16 + 1 / 32) / 2,
         torch.uint7: (7 / 8 + 1 / 16 + 1 / 32) / 2,
     }
+    _DEVICE = get_current_accelerator_device()
     linear = torch.nn.Sequential(
         torch.nn.Linear(128, 256, bias=False, dtype=torch.bfloat16, device=_DEVICE)
     )
