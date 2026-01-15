@@ -338,10 +338,10 @@ def _triton_fp8_per_group_colwise_scales_kernel(
     scales_ptr,
     K: int,
     N: int,
-    stride_input_row: int,
-    stride_input_col: int,
-    stride_output_row: int,
-    stride_output_col: int,
+    stride_input_row: tl.int64,
+    stride_input_col: tl.int64,
+    stride_output_row: tl.int64,
+    stride_output_col: tl.int64,
     fp8_dtype_min: tl.constexpr,
     fp8_dtype_max: tl.constexpr,
     input_dtype: tl.constexpr,
@@ -362,10 +362,6 @@ def _triton_fp8_per_group_colwise_scales_kernel(
     group_row_end_idx = tl.load(offsets_ptr + offset_idx)
     # Force int64 math for pointer offsets (avoid i32 overflow on large problems)
     block_col_offs = (block_col_id * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)).to(tl.int64)
-    stride_input_row_i64 = tl.full((), stride_input_row, tl.int64)
-    stride_input_col_i64 = tl.full((), stride_input_col, tl.int64)
-    stride_output_row_i64 = tl.full((), stride_output_row, tl.int64)
-    stride_output_col_i64 = tl.full((), stride_output_col, tl.int64)
 
     # compute colwise amaxes for this group
     # Use fp32 for amax accumulation to better match torch's scale computation
@@ -373,8 +369,8 @@ def _triton_fp8_per_group_colwise_scales_kernel(
     for row_start_idx in range(group_row_start_idx, group_row_end_idx, BLOCK_SIZE_ITER):
         block_row_offs = (row_start_idx + tl.arange(0, BLOCK_SIZE_ITER)).to(tl.int64)
         block_offs = (
-            block_row_offs[:, None] * stride_input_row_i64
-            + block_col_offs[None, :] * stride_input_col_i64
+            block_row_offs[:, None] * stride_input_row
+            + block_col_offs[None, :] * stride_input_col
         )
         block_mask = (block_row_offs[:, None] < group_row_end_idx) & (
             block_col_offs[None, :] < N
@@ -403,8 +399,8 @@ def _triton_fp8_per_group_colwise_scales_kernel(
     for row_start_idx in range(group_row_start_idx, group_row_end_idx, BLOCK_SIZE_ITER):
         block_row_offs = (row_start_idx + tl.arange(0, BLOCK_SIZE_ITER)).to(tl.int64)
         block_offs = (
-            block_row_offs[:, None] * stride_input_row_i64
-            + block_col_offs[None, :] * stride_input_col_i64
+            block_row_offs[:, None] * stride_input_row
+            + block_col_offs[None, :] * stride_input_col
         )
         block_mask = (block_row_offs[:, None] < group_row_end_idx) & (
             block_col_offs[None, :] < N
@@ -417,7 +413,7 @@ def _triton_fp8_per_group_colwise_scales_kernel(
             output_dtype
         )
         out_offs = (
-            block_row_offs[:, None] * stride_output_row_i64
-            + block_col_offs[None, :] * stride_output_col_i64
+            block_row_offs[:, None] * stride_output_row
+            + block_col_offs[None, :] * stride_output_col
         )
         tl.store(out_ptr + out_offs, fp8_data, mask=block_mask)
