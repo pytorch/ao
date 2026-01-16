@@ -307,7 +307,7 @@ def _is_row_major(x: torch.Tensor) -> bool:
     return x.stride(-1) == 1
 
 
-def generate_jagged_offs(E, M, multiple_of=16, dtype=torch.int32, device="cuda"):
+def generate_jagged_offs(E, M, multiple_of=32, dtype=torch.int32, device="cuda"):
     """
     Utility function for tests and benchmarks.
 
