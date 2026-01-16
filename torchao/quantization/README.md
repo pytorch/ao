@@ -3,7 +3,7 @@ Typically quantization algorithms will have different schemes for how the activa
 
 ## Accuracy benchmarks
 
-All the following benchmarks are for `meta-llama/Llama-3-8.1B` using `lm-eval`.
+All the following benchmarks are for `meta-llama/Llama-3.1-8B` using `lm-eval`.
 
 | weight | activation | wikitext-perplexity | winogrande | checkpoint size (GB) |
 | --------- | ------------------- | ---------- | -------------------- | -------- |
@@ -25,7 +25,7 @@ SKIP_VLLM=1 ./benchmarks/quantization/measure_accuracy_and_performance.sh b200
 
 ## Performance benchmarks
 
-All the following benchmarks are for `meta-llama/Llama-3-8.1B` using `torch==2.9.0` and `vllm==0.13.0`. 
+All the following benchmarks are for `meta-llama/Llama-3.1-8B` using `torch==2.9.0` and `vllm==0.13.0`.
 
 
 ### NVIDIA B200
@@ -146,30 +146,6 @@ Note that the workaround is also required for `torch.compile` with `freezing` (`
 
 ## Other Available Quantization Techniques
 
-
-### Sparse-Marlin
-
-Sparse-Marlin 2:4 is an optimized GPU kernel that extends the Mixed Auto-Regressive Linear (Marlin) dense kernel to support 4-bit quantized weights and 2:4 sparsity for extremely high performance.
-
-| Model       | Technique               | Tokens/Second | Memory Bandwidth (GB/s) | Peak Memory (GB) | Model Size (GB) |
-| ----------- | ----------------------- | ------------- | ----------------------- | ---------------- | --------------- |
-| Llama-3-8B  | Base (bfloat16)         |   95.64       | 1435.54                 | 16.43            | 15.01           |
-|             | int8wo                  |  153.03       | 1150.80                 | 10.42            |  7.52           |
-|             | int4wo-64               |  180.80       |  763.33                 |  6.88            |  4.22           |
-|             | int4wo-64-sparse-marlin |  226.02       |  689.20                 |  5.32            |  3.05           |
-
-More details can be found [here](../sparsity/README.md)
-
-### Marlin QQQ
-
-Marlin QQQ is an optimized GPU kernel that supports W4A8 mixed precision GEMM. For more details about Marlin QQQ, please refer to [paper](https://arxiv.org/pdf/2406.09904).
-
-| Model       | Technique               | Tokens/Second | Memory Bandwidth (GB/s) | Peak Memory (GB) | Model Size (GB) |
-| ----------- | ----------------------- | ------------- | ----------------------- | ---------------- | --------------- |
-| Llama-2-7B  | Base (float16)          |  112.45       |  1486.00                | 13.93            | 13.21           |
-|             | w4a8                    |  197.45       |  653.50                 | 4.79            |  3.31           |
-|             | w4a8-g128               |  187.62       |  640.32                 | 4.82            |  3.41           |
-
 ### Int8DynamicActivationIntxWeightConfig Quantization
 We have kernels that do 8-bit dynamic quantization of activations and uintx groupwise quantization of weights.  These kernels are experimental and can only be run on a device with an ARM CPU (e.g., a Mac computers with Apple silicon).  The benchmarks below were run on an M1 Mac Pro, with 8 perf cores, and 2 efficiency cores, and 32GB of RAM.  In all cases, torch.compile was used.
 
@@ -275,7 +251,6 @@ The following support matrix illustrates the relationship between layouts and ze
 |------|---------------|-----|---|
 |TensorCoreTiledLayout| Yes | Yes(Default) | No|
 |Int4CPULayout | Yes | Yes(Default) | No |
-|MarlinSparseLayout | No | No | Yes(Default) |
 
 
 ### Full Affine Quantization Flow Example
@@ -359,32 +334,6 @@ for module, name in model.named_modules():
 We've added kv cache quantization and other features in order to enable long context length (and necessarily memory efficient) inference.
 
 In practice these features alongside int4 weight only quantization allow us to **reduce peak memory by ~55%**, meaning we can Llama3.1-8B inference with a **130k context length with only 18.9 GB of peak memory.** More details can be found [here](../../torchao/_models/llama/README.md#KV-Cache-Quantization-Memory-Efficient-Inference)
-
-KleidiAI Int4 Kernels can be utilized on the Arm platform with PyTorch versions 2.6.0 or later by adjusting the quantization parameters as follows:
-
-```python
-from torchao.quantization.quant_api import (
-    Int8DynamicActivationIntxWeightConfig,
-    quantize_,
-)
-from torchao.quantization.granularity import PerGroup, PerAxis
-from torchao.quantization.quant_primitives import MappingType
-from torch.profiler import profile, ProfilerActivity, tensorboard_trace_handler
-
-my_model = Model()
-
-quantize_(
-    my_model,
-    Int8DynamicActivationIntxWeightConfig(
-        weight_scale_dtype=torch.float32,
-        weight_granularity=PerGroup(32),  # PerAxis is also supported
-        weight_mapping_type=MappingType.SYMMETRIC_NO_CLIPPING_ERR, # MappingType.SYMMETRIC can also be used but increases error
-        layout=layout,
-        weight_dtype=torch.int4,
-        intx_packing_format="opaque_aten_kleidiai",
-    ),
-)
-```
 
 ### Gemlite Triton
 Int4 and Int8 quantization using the [Gemlite Triton](https://github.com/mobiusml/gemlite) kernels. You can try it out with the `quantize_` api as above alongside the constructor `GemliteUIntXWeightOnlyConfig`.  An example can be found in `torchao/_models/llama/generate.py`.

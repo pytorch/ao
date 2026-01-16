@@ -508,8 +508,8 @@ def wait_tensor_fp8(aten_op, args, kwargs=None):
     )
 
 
-# _wrap_tensor_autograd was added in PyTorch 2.10
-if torch_version_at_least("2.10.0"):
+# _wrap_tensor_autograd was added in PyTorch 2.11.0.dev
+if torch_version_at_least("2.11.0.dev"):
 
     @implements([_c10d_functional._wrap_tensor_autograd.default])
     def wrap_tensor_autograd_fp8(aten_op, args, kwargs=None):

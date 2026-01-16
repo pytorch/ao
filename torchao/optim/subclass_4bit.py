@@ -183,8 +183,8 @@ _optim_state_4bit_c10d_ops = [
     # required by torch.distributed.checkpoint.save
     aten.detach.default,
 ]
-# _wrap_tensor_autograd was added in PyTorch 2.10
-if torch_version_at_least("2.10.0"):
+# _wrap_tensor_autograd was added in PyTorch 2.11.0.dev
+if torch_version_at_least("2.11.0.dev"):
     _optim_state_4bit_c10d_ops.append(_c10d_functional._wrap_tensor_autograd.default)
 
 
