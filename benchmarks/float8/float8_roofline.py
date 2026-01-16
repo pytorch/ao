@@ -166,10 +166,16 @@ def get_gemm_times(
         if torch.version.hip and torch.cuda.is_available() and is_MI300():
             e4m3_dtype = torch.float8_e4m3fnuz
         d1, d2, d3 = e4m3_dtype, e4m3_dtype, torch.bfloat16
-        # TODO(future PR): create more realistic tensors here for more accurate
-        # gemm benchmarking
-        A = torch.zeros(M, K, device=device, dtype=d1)
-        B = torch.zeros(K, N, device=device, dtype=d2).t().contiguous().t()
+        finfo = torch.finfo(e4m3_dtype)
+        A = torch.empty(M, K, device=device).uniform_(finfo.min, finfo.max).to(d1)
+        B = (
+            torch.empty(K, N, device=device)
+            .uniform_(finfo.min, finfo.max)
+            .to(d2)
+            .t()
+            .contiguous()
+            .t()
+        )
         if float8_recipe_name == "tensorwise":
             scale_a = torch.tensor([1.0], device=device)
             scale_b = torch.tensor([1.0], device=device)
