@@ -9,7 +9,6 @@ import pytest
 import torch
 
 from torchao.float8.float8_utils import _round_scale_down_to_power_of_2
-from torchao.testing.utils import skip_if_rocm
 from torchao.utils import is_ROCM
 
 
