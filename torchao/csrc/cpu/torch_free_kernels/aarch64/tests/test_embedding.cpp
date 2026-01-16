@@ -28,7 +28,7 @@ void test_embedding(
   auto output = std::vector<float>(num_embeddings * embedding_dim, 0.0);
 
   for (int i = 0; i < num_embeddings; i++) {
-    torchao::kernels::cpu::aarch64::embedding::pack_embedding_weight_qvals<
+    torchao::cpu::aarch64::embedding::pack_embedding_weight_qvals<
         weight_nbit>(
         packed.data(), embedding_dim, test_case.weight_qvals.data(), i);
   }
@@ -39,7 +39,7 @@ void test_embedding(
   }
 
   for (int i = 0; i < num_embeddings; i++) {
-    torchao::kernels::cpu::aarch64::embedding::embedding<weight_nbit>(
+    torchao::cpu::aarch64::embedding::embedding<weight_nbit>(
         output.data() + i * embedding_dim,
         embedding_dim,
         group_size,
@@ -69,7 +69,7 @@ void test_shared_embedding(
   bool has_bias = false;
   float* bias = nullptr;
   std::vector<char> packed_weights(
-      torchao::kernels::cpu::aarch64::linear::
+      torchao::cpu::aarch64::linear::
           channelwise_8bit_activation_groupwise_lowbit_weight::weight_packing::
               packed_weights_size(
                   n,
@@ -79,7 +79,7 @@ void test_shared_embedding(
                   has_weight_zeros,
                   has_bias,
                   nr));
-  torchao::kernels::cpu::aarch64::linear::
+  torchao::cpu::aarch64::linear::
       channelwise_8bit_activation_groupwise_lowbit_weight::weight_packing::
           pack_weights<weight_nbit, nr, kr, sr>(
               packed_weights.data(),
@@ -94,7 +94,7 @@ void test_shared_embedding(
   // Call shared_embedding
   auto output = std::vector<float>(num_embeddings * embedding_dim, 0.0);
   for (int i = 0; i < num_embeddings; i++) {
-    torchao::kernels::cpu::aarch64::embedding::
+    torchao::cpu::aarch64::embedding::
         shared_embedding<weight_nbit, nr, kr, sr>(
             output.data() + i * embedding_dim,
             packed_weights.data(),

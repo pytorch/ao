@@ -14,7 +14,7 @@
 #include <torchao/experimental/kernels/mps/src/metal_shader_lib.h> // metal_lowbit_quantized_lib
 #include <torchao/experimental/kernels/mps/src/packing.h>
 
-namespace torchao::kernels::mps::lowbit {
+namespace torchao::mps::lowbit {
 namespace {
 
 template <int nbit>
@@ -175,4 +175,4 @@ struct LowBitQuantWeights {
   static constexpr auto pack = LowBitConfig<nbit>::packing_fn;
 };
 
-} // namespace torchao::kernels::mps::lowbit
+} // namespace torchao::mps::lowbit

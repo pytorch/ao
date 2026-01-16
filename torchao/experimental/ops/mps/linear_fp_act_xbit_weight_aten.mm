@@ -12,7 +12,7 @@
 #include <torchao/experimental/kernels/mps/src/lowbit.h>
 // clang-format on
 
-namespace torchao::kernels::mps::lowbit::aten {
+namespace torchao::mps::lowbit::aten {
 
 using Tensor = at::Tensor;
 using namespace at::native::mps;
@@ -240,7 +240,7 @@ TORCH_LIBRARY_IMPL(torchao, Meta, m) {
   m.impl("_linear_fp_act_7bit_weight", &linear_mps_kernel_meta<7>);
 }
 
-} // namespace torchao::kernels::mps::lowbit::aten
+} // namespace torchao::mps::lowbit::aten
 
 
 // c-shim wrappers for AOTInductor

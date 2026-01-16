@@ -19,7 +19,7 @@ using namespace torchao::ops::groupwise_lowbit_weight_lut;
 template <int weight_nbit, bool has_scales>
 UKernelConfig get_ukernel_config(bool has_bias) {
   namespace kernel =
-      torchao::kernels::cpu::aarch64::linear::groupwise_lowbit_weight_lut;
+      torchao::cpu::aarch64::linear::groupwise_lowbit_weight_lut;
 
   int preferred_alignment = 16;
   int n_step = 8;

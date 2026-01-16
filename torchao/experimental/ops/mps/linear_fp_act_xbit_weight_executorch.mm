@@ -94,7 +94,7 @@ Tensor& linear_mps_kernel_et_ctx_out(
   auto N = B.size(0);
   auto K = A.size(1);
 
-  torchao::kernels::mps::lowbit::LowBitQuantWeights<nbit>::linear(
+  torchao::mps::lowbit::LowBitQuantWeights<nbit>::linear(
       {getMTLBufferStorage(A), A.storage_offset() * A.element_size()},
       {getMTLBufferStorage(B), B.storage_offset() * B.element_size()},
       group_size,

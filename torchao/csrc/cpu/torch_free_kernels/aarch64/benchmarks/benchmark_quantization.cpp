@@ -21,7 +21,7 @@ static void benchmark_quantize(benchmark::State& state) {
   float vmin, vmax, scale;
 
   for (auto _ : state) {
-    torchao::kernels::cpu::aarch64::reduction::find_min_and_max(
+    torchao::cpu::aarch64::reduction::find_min_and_max(
         vmin, vmax, vals.data(), vals.size());
 
     torchao::quantization::get_qvals_range(
@@ -30,7 +30,7 @@ static void benchmark_quantize(benchmark::State& state) {
     torchao::quantization::get_scale_and_zero(
         scale, zero, vmin, vmax, qmin, qmax);
 
-    torchao::kernels::cpu::aarch64::quantization::quantize(
+    torchao::cpu::aarch64::quantization::quantize(
         qvals.data(), vals.data(), vals.size(), scale, zero, qmin, qmax);
   }
 }

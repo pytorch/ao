@@ -8,8 +8,7 @@
 
 #include <cassert>
 
-// TODO: Remove all ::kernels. No need for extra namespace.
-namespace torchao::kernels::cpu::fallback::quantized_matmul {
+namespace torchao::cpu::fallback::quantized_matmul {
 namespace fp32_a_input_channelwise_8bit_b_fp32 {
 template <bool b_has_zeros, bool a_transposed, bool b_transposed>
 void kernel(
@@ -47,4 +46,4 @@ void kernel(
   }
 }
 } // namespace fp32_a_input_channelwise_8bit_b_fp32
-} // namespace torchao::kernels::cpu::fallback::quantized_matmul
+} // namespace torchao::cpu::fallback::quantized_matmul

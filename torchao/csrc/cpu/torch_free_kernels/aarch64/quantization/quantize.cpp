@@ -55,7 +55,7 @@ _vec_clip_inplace(int32x4_t& vec, int32x4_t vec_min, int32x4_t vec_max) {
 }
 } // namespace
 
-void torchao::kernels::cpu::aarch64::quantization::quantize(
+void torchao::cpu::aarch64::quantization::quantize(
     // Output
     int8_t* qvals,
     // Inputs
