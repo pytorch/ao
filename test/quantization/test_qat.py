@@ -2598,7 +2598,9 @@ class TestQAT(TestCase):
             weight_config=weight_config,
         )
 
-        x_ref = torch.randn(M, K, device="cuda", dtype=torch.bfloat16, requires_grad=True)
+        x_ref = torch.randn(
+            M, K, device="cuda", dtype=torch.bfloat16, requires_grad=True
+        )
         x = x_ref.clone().detach().requires_grad_(True)
         grad_output = torch.randn(M, N, device="cuda", dtype=torch.bfloat16)
 
