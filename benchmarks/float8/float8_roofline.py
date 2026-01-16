@@ -174,24 +174,24 @@ def get_gemm_times(
             scale_a = torch.tensor([1.0], device=device)
             scale_b = torch.tensor([1.0], device=device)
         elif float8_recipe_name in ("rowwise", "rowwise_with_gw_hp"):
-            scale_a = torch.ones(M, 1, device=device)
-            scale_b = torch.ones(1, N, device=device)
+            scale_a = torch.randn(M, 1, device=device)
+            scale_b = torch.randn(1, N, device=device)
         elif mx_recipe_name in ("mxfp8_cublas", "mxfp8_cublas_rceil"):
             M_rounded = round_up(M, 128)
             K_rounded = round_up(K // 32, 4)
             N_rounded = round_up(N, 128)
-            scale_a = torch.ones(
-                M_rounded,
-                K_rounded,
+            scale_a = torch.randint(
+                0,
+                255,
+                (M_rounded, K_rounded),
                 device=device,
-                dtype=torch.float8_e8m0fnu,
-            )
-            scale_b = torch.ones(
-                N_rounded,
-                K_rounded,
+            ).to(torch.float8_e8m0fnu)
+            scale_b = torch.randint(
+                0,
+                255,
+                (N_rounded, K_rounded),
                 device=device,
-                dtype=torch.float8_e8m0fnu,
-            )
+            ).to(torch.float8_e8m0fnu)
         else:
             assert False, f"unsupported {float8_recipe_name=} {mx_recipe_name=}"
 
