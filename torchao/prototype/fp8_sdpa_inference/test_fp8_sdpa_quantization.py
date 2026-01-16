@@ -9,27 +9,15 @@ Test FP8 SDPA with Stable Diffusion model from diffusers.
 """
 
 import torch
-from diffusers import DiffusionPipeline, StableDiffusionPipeline
-from torch.nn.attention import activate_flash_attention_impl
-
-from torchao.prototype.fp8_sdpa_inference.fp8_sdpa_utils import (
-    fp8_sdpa_context,
+from diffusers import StableDiffusionPipeline
+from torch.nn.attention import (
+    activate_flash_attention_impl,
+    restore_flash_attention_impl,
 )
 
-
-def wrap_module_with_fp8_sdpa(module):
-    """
-    Wrap a module so its forward pass uses FP8 SDPA.
-    Only the wrapped module's forward uses FP8; other modules are unaffected.
-    """
-    original_forward = module.forward
-
-    def wrapped_forward(*args, **kwargs):
-        with fp8_sdpa_context():
-            return original_forward(*args, **kwargs)
-
-    module.forward = wrapped_forward
-    return module
+from torchao.prototype.fp8_sdpa_inference.fp8_sdpa_utils import (
+    wrap_module_with_fp8_sdpa,
+)
 
 
 def test_stable_diffusion_regular_sdpa():
@@ -38,8 +26,6 @@ def test_stable_diffusion_regular_sdpa():
     """
     Load Stable Diffusion and run regular SDPA.
     """
-    # Activate FA3 backend (required for FP8 SDPA)
-    activate_flash_attention_impl("FA3")
 
     # Load Stable Diffusion pipeline
     # Using SD 2.1 as an example - uses SDPA internally
@@ -100,8 +86,6 @@ def test_stable_diffusion_fp8_sdpa():
     """
     Load Stable Diffusion and convert attention to FP8 SDPA.
     """
-    # Activate FA3 backend (required for FP8 SDPA)
-    activate_flash_attention_impl("FA3")
 
     # Load Stable Diffusion pipeline
     # Using SD 2.1 as an example - uses SDPA internally
@@ -160,44 +144,6 @@ def test_stable_diffusion_fp8_sdpa():
     return image
 
 
-def test_sdxl_fp8_sdpa():
-    """
-    Load SDXL and convert attention to FP8 SDPA.
-    """
-    activate_flash_attention_impl("FA3")
-
-    model_id = "stabilityai/stable-diffusion-xl-base-1.0"
-
-    pipe = DiffusionPipeline.from_pretrained(
-        model_id,
-        torch_dtype=torch.bfloat16,
-        use_safetensors=True,
-        variant="fp16",
-    )
-    pipe = pipe.to("cuda")
-
-    # Wrap UNet to use FP8 SDPA only during its forward pass
-    pipe.unet = wrap_module_with_fp8_sdpa(pipe.unet)
-
-    prompt = "A majestic lion in a savanna at sunset, photorealistic, 8k"
-
-    with torch.no_grad():
-        image = pipe(
-            prompt,
-            num_inference_steps=20,
-            guidance_scale=7.5,
-        ).images[0]
-
-    image.save(
-        "./torchao/prototype/fp8_sdpa_inference/outputs/fp8_sdpa_sdxl_output.png"
-    )
-    print(
-        "Image saved to ./torchao/prototype/fp8_sdpa_inference/outputs/fp8_sdpa_sdxl_output.png"
-    )
-
-    return image
-
-
 def test_fp8_sdpa_numerical_accuracy():
     """
     Compare FP8 SDPA output with regular SDPA for numerical accuracy.
@@ -207,8 +153,6 @@ def test_fp8_sdpa_numerical_accuracy():
     from torchao.prototype.fp8_sdpa_inference.fp8_sdpa_attention import (
         fp8_sdpa_parallel,
     )
-
-    activate_flash_attention_impl("FA3")
 
     # Create test inputs matching typical SD attention shapes
     # UNet attention: (B, H, S, D) where S can be large (e.g., 4096 for 64x64 latents)
@@ -223,7 +167,9 @@ def test_fp8_sdpa_numerical_accuracy():
         out_regular = F.scaled_dot_product_attention(q, k, v, is_causal=False)
 
         # FP8 SDPA
+        activate_flash_attention_impl("FA3")
         out_fp8 = fp8_sdpa_parallel(q, k, v, is_causal=False)
+        restore_flash_attention_impl()
 
     # Test SQNR
     sqnr = 10 * torch.log10(
@@ -246,8 +192,6 @@ def test_fp8_sdpa_benchmark():
     from torchao.prototype.fp8_sdpa_inference.fp8_sdpa_attention import (
         fp8_sdpa_parallel,
     )
-
-    activate_flash_attention_impl("FA3")
 
     # Test various sizes
     configs = [
@@ -289,16 +233,20 @@ def test_fp8_sdpa_benchmark():
         # Warmup FP8
         with torch.no_grad():
             for _ in range(warmup_iters):
+                activate_flash_attention_impl("FA3")
                 _ = fp8_sdpa_parallel(q, k, v)
+                restore_flash_attention_impl()
         torch.cuda.synchronize()
 
         # Benchmark FP8
+        activate_flash_attention_impl("FA3")
         start = time.perf_counter()
         with torch.no_grad():
             for _ in range(bench_iters):
                 _ = fp8_sdpa_parallel(q, k, v)
         torch.cuda.synchronize()
         fp8_time = (time.perf_counter() - start) / bench_iters * 1000
+        restore_flash_attention_impl()
 
         speedup = regular_time / fp8_time
         config_str = f"({B}, {H}, {S}, {D})"
@@ -323,6 +271,7 @@ def test_fp8_sdpa_profiler():
     q = torch.randn(1, 8, 1024, 64, device="cuda", dtype=torch.bfloat16)
     k = torch.randn(1, 8, 1024, 64, device="cuda", dtype=torch.bfloat16)
     v = torch.randn(1, 8, 1024, 64, device="cuda", dtype=torch.bfloat16)
+    activate_flash_attention_impl("FA3")
 
     # warmup
     with torch.no_grad():
@@ -342,6 +291,8 @@ def test_fp8_sdpa_profiler():
         "./torchao/prototype/fp8_sdpa_inference/outputs/fp8_sdpa_profiler.txt", "w"
     ) as f:
         f.write(prof.key_averages().table(sort_by="self_cuda_time_total", row_limit=15))
+
+    restore_flash_attention_impl()
 
     # Now do the same for regular SDPA
 
@@ -374,16 +325,16 @@ if __name__ == "__main__":
     # test_fp8_sdpa_numerical_accuracy()
     # print()
 
-    # # Run benchmark
-    # test_fp8_sdpa_benchmark()
-    # print()
+    # Run benchmark
+    test_fp8_sdpa_benchmark()
+    print()
 
-    # # Run profiler
-    # test_fp8_sdpa_profiler()
+    # Run profiler
+    test_fp8_sdpa_profiler()
 
-    # Run Stable Diffusion test
-    print("Testing with Stable Diffusion...")
-    test_stable_diffusion_fp8_sdpa()
+    # # Run Stable Diffusion test
+    # print("Testing with Stable Diffusion...")
+    # test_stable_diffusion_fp8_sdpa()
 
-    print("Testing with Regular SDPA...")
-    test_stable_diffusion_regular_sdpa()
+    # print("Testing with Regular SDPA...")
+    # test_stable_diffusion_regular_sdpa()

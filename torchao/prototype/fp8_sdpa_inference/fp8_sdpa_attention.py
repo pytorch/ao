@@ -57,7 +57,7 @@ def fp8_sdpa_parallel(
 
     # Call PyTorch's fp8 SDPA
     with sdpa_kernel(SDPBackend.FLASH_ATTENTION):
-        out = F.scaled_dot_product_attention_fp8(
+        out = F._scaled_dot_product_attention_fp8(
             q_fp8,
             k_fp8,
             v_fp8,

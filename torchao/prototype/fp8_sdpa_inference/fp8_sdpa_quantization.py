@@ -15,7 +15,6 @@ import torch
 import triton
 import triton.language as tl
 
-
 # =============================================================================
 # Parallelized version: Better SM utilization by splitting work across chunks
 # =============================================================================
@@ -261,7 +260,7 @@ def qkv_quantize_func(
 ]:
     """
     Fused FP8 quantization for Q, K, V tensors when all have the same shape.
-    Internal function - use fp8_per_head_quant_qkv_parallel as the entry point.
+    Internal function - use fp8_sdpa_quantize_func as the entry point.
     """
     B, H, S, D = q.shape
 
