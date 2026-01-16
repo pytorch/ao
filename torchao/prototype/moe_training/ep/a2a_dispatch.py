@@ -9,6 +9,7 @@ import torch.distributed as dist
 from torch.distributed._functional_collectives import all_to_all_single
 from torch.distributed.distributed_c10d import _resolve_process_group
 
+from torchao.prototype.moe_training.utils import conditional_nostrict_trace
 from torchao.prototype.mx_formats.config import ScaleCalculationMode
 from torchao.prototype.mx_formats.kernels import triton_to_mxfp8_dim0
 from torchao.prototype.mx_formats.mx_tensor import MXTensor
@@ -138,7 +139,7 @@ class _A2ADispatchMXFP8FwdHPBwd(torch.autograd.Function):
         return grad_input, None, None, None, None, None
 
 
-@torch._dynamo.nonstrict_trace
+@conditional_nostrict_trace
 def a2a_dispatch_mxfp8_fwd_hp_bwd(
     input: torch.Tensor,
     output_splits: list[int],

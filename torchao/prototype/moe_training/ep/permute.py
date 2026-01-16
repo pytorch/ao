@@ -9,6 +9,7 @@ import triton
 import triton.language as tl
 from torch.library import triton_op, wrap_triton
 
+from torchao.prototype.moe_training.utils import conditional_nostrict_trace
 from torchao.prototype.mx_formats.mx_tensor import MXTensor
 
 from .kernels import generate_permute_indices
@@ -207,7 +208,7 @@ def _permute_bf16(
     return input_shape, x, permuted_indices, num_tokens_per_expert_padded, group_offsets
 
 
-@torch._dynamo.nonstrict_trace
+@conditional_nostrict_trace
 def permute_mxfp8_fwd_hp_bwd(
     mx_tensor: MXTensor,
     num_tokens_per_expert: torch.Tensor,

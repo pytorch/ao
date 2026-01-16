@@ -25,6 +25,7 @@ from torchao.prototype.moe_training.kernels.mxfp8 import (
 )
 from torchao.prototype.moe_training.utils import (
     _is_column_major,
+    conditional_nostrict_trace,
 )
 from torchao.prototype.mx_formats.config import (
     MXFP8Dim1CastKernelChoice,
@@ -875,7 +876,7 @@ def round_up(x, y):
 
 
 # Aliases for convenience/clarity
-@torch._dynamo.nonstrict_trace
+@conditional_nostrict_trace
 def _to_mxfp8_then_scaled_grouped_mm(
     A: torch.Tensor,
     B_t: torch.Tensor,

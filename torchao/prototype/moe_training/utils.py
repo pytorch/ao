@@ -1,4 +1,5 @@
 import random
+import warnings
 from typing import Tuple
 
 import torch
@@ -6,6 +7,7 @@ import torch
 from torchao.float8.config import ScalingGranularity
 from torchao.float8.float8_utils import tensor_to_scale, to_fp8_saturated
 from torchao.prototype.mx_formats.mx_tensor import to_mx
+from torchao.utils import torch_version_at_least
 
 
 # --- float8 rowwise scaling ---
@@ -340,3 +342,16 @@ def generate_jagged_offs(E, M, multiple_of=32, dtype=torch.int32, device="cuda")
     selected_values, _ = torch.sort(selected_values)
 
     return selected_values.to(dtype).to(device)
+
+
+def conditional_nostrict_trace(fn):
+    """
+    Applies @torch._dynamo.nonstrict_trace if exists, otherwise no-op.
+    """
+    if torch_version_at_least("2.7.0"):
+        return torch._dynamo.nonstrict_trace(fn)
+    warnings.warn(
+        f"torch._dynamo.nonstrict_trace is not available in torch version {torch.__version__}."
+        "please use torch 2.7.0+ for torch.compile support on mxfp8 expert parallel autograd functions."
+    )
+    return fn
