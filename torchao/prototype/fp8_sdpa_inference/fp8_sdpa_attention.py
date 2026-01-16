@@ -16,49 +16,8 @@ import torch.nn.functional as F
 from torch.nn.attention import SDPBackend, sdpa_kernel
 
 from torchao.prototype.fp8_sdpa_inference.fp8_sdpa_quantization import (
-    fp8_per_head_quant_qkv,
-    fp8_per_head_quant_qkv_parallel,
+    fp8_sdpa_quantize_func,
 )
-
-
-def fp8_sdpa(
-    query: torch.Tensor,
-    key: torch.Tensor,
-    value: torch.Tensor,
-    attn_mask=None,
-    dropout_p: float = 0.0,
-    is_causal: bool = False,
-    scale: float = None,
-) -> torch.Tensor:
-    """
-    Functional interface for FP8 SDPA.
-
-    Uses a fused kernel to quantize Q, K, V in a single launch.
-    """
-    if attn_mask is not None:
-        raise ValueError("attn_mask is not supported for FP8 SDPA")
-    if dropout_p != 0.0:
-        raise ValueError("dropout_p must be 0.0 for FP8 SDPA")
-
-    # Fused quantization of Q, K, V in single kernel launch
-    q_fp8, k_fp8, v_fp8, descale_q, descale_k, descale_v = fp8_per_head_quant_qkv(
-        query, key, value
-    )
-
-    # Call PyTorch's fp8 SDPA
-    with sdpa_kernel(SDPBackend.FLASH_ATTENTION):
-        out = F.scaled_dot_product_attention_fp8(
-            q_fp8,
-            k_fp8,
-            v_fp8,
-            is_causal=is_causal,
-            scale=scale,
-            q_descale=descale_q,
-            k_descale=descale_k,
-            v_descale=descale_v,
-        )
-
-    return out
 
 
 def fp8_sdpa_parallel(
@@ -92,8 +51,8 @@ def fp8_sdpa_parallel(
         raise ValueError("dropout_p must be 0.0 for FP8 SDPA")
 
     # Parallelized quantization of Q, K, V
-    q_fp8, k_fp8, v_fp8, descale_q, descale_k, descale_v = (
-        fp8_per_head_quant_qkv_parallel(query, key, value, num_chunks=num_chunks)
+    q_fp8, k_fp8, v_fp8, descale_q, descale_k, descale_v = fp8_sdpa_quantize_func(
+        query, key, value, num_chunks=num_chunks
     )
 
     # Call PyTorch's fp8 SDPA
