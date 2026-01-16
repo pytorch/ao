@@ -25,6 +25,9 @@ from torchao.utils import is_ROCM
         ("nan", float("nan"), float("nan")),
         ("smallest positive subnormal number", 2**-126 * 2**-23, 2**-126 * 2**-23),
         ("largest normal number", 2**127 * (2 - 2**-23), 2**127 if is_ROCM() else float("inf")),
+        # ROCm's torch.log2 implementation has higher numerical precision than NVIDIA's,
+        # causing the largest normal fp32 number test case to floor to 2^127 instead of 
+        # overflowing to inf
         ("smallest positive normal number", 2**-126, 2**-126),
         ("largest number less than one", 1.0 - 2**-24, 0.5),
         ("smallest number larger than one", 1.0 + 2**-23, 1.0),
