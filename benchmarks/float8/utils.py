@@ -209,6 +209,31 @@ def get_name_to_shapes_iter(
         }
         return name_to_shapes.items()
 
+    elif shape_gen_name == "dsv3-671b":
+        # DeepSeek-V3 671B model shapes
+        assert K == N == None, (
+            f"K, N arguments not supported for shape_gen_name {shape_gen_name}"
+        )
+
+        M = (
+            M if M is not None else 81920
+        )  # default to local_bs=10, seq_len=8192 -> 81920
+
+        name_to_shapes = {
+            "attn.wq_a": (M, 7168, 1536),
+            "attn.wq_b": (M, 1536, 24576),
+            "attn.wo": (M, 16384, 7168),
+            "attn.wkv_a": (M, 7168, 576),
+            "attn.wkv_b": (M, 512, 32768),
+            "ffn.w1": (M, 7168, 18432),
+            "ffn.w2": (M, 18432, 7168),
+            "ffn.w3": (M, 7168, 18432),
+            "moe.shared_experts.w1": (M, 7168, 2048),
+            "moe.shared_experts.w2": (M, 2048, 7168),
+            "moe.shared_experts.w3": (M, 7168, 2048),
+        }
+        return name_to_shapes.items()
+
     raise AssertionError(f"unknown shape_gen_name {shape_gen_name}")
 
 

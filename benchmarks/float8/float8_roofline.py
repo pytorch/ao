@@ -67,7 +67,7 @@ from torchao.testing.training.roofline_utils import (
     get_float8_mem_sympy,
     get_gemm_time_sympy,
 )
-from torchao.utils import is_MI300
+from torchao.utils import is_MI300, round_up
 
 
 class LNLinearSigmoid(torch.nn.Module):
@@ -177,8 +177,21 @@ def get_gemm_times(
             scale_a = torch.ones(M, 1, device=device)
             scale_b = torch.ones(1, N, device=device)
         elif mx_recipe_name in ("mxfp8_cublas", "mxfp8_cublas_rceil"):
-            scale_a = torch.ones(M, K // 32, device=device, dtype=torch.float8_e8m0fnu)
-            scale_b = torch.ones(N, K // 32, device=device, dtype=torch.float8_e8m0fnu)
+            M_rounded = round_up(M, 128)
+            K_rounded = round_up(K // 32, 4)
+            N_rounded = round_up(N, 128)
+            scale_a = torch.ones(
+                M_rounded,
+                K_rounded,
+                device=device,
+                dtype=torch.float8_e8m0fnu,
+            )
+            scale_b = torch.ones(
+                N_rounded,
+                K_rounded,
+                device=device,
+                dtype=torch.float8_e8m0fnu,
+            )
         else:
             assert False, f"unsupported {float8_recipe_name=} {mx_recipe_name=}"
 
