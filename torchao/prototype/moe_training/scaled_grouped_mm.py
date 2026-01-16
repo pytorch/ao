@@ -11,7 +11,7 @@ import torch
 
 from torchao.float8.config import ScalingGranularity
 from torchao.float8.float8_utils import tensor_to_scale, to_fp8_saturated
-from torchao.prototype.moe_training.conversion_utils import MoEScalingType
+from torchao.prototype.moe_training.conversion_utils import ScaledGroupedMMRecipe
 from torchao.prototype.moe_training.kernels import (
     triton_fp8_per_group_colwise_scales,
     triton_fp8_rowwise_3d_transpose_rhs,
@@ -47,7 +47,7 @@ def _quantize_then_scaled_grouped_mm(
     B_t: torch.Tensor,
     offs: Optional[torch.Tensor] = None,
     out_dtype: Optional[torch.dtype] = torch.bfloat16,
-    scaling_type: MoEScalingType = MoEScalingType.FP8_ROWWISE,
+    scaling_type: ScaledGroupedMMRecipe = ScaledGroupedMMRecipe.FP8_ROWWISE,
 ) -> torch.Tensor:
     """
     This function performs dynamic quantization with the given recipe
@@ -62,7 +62,8 @@ def _quantize_then_scaled_grouped_mm(
         out_dtype (Optional[torch.dtype]): The dtype of the output tensor. Currently only torch.bfloat16 is supported.
     """
     # TODO: Remove logging once prototype is more mature. This is currently very useful for development and debugging.
-    if scaling_type == MoEScalingType.FP8_ROWWISE:
+    recipe = scaling_type
+    if recipe == ScaledGroupedMMRecipe.FP8_ROWWISE:
         return _to_fp8_rowwise_then_scaled_grouped_mm(
             A,
             B_t,
@@ -70,11 +71,11 @@ def _quantize_then_scaled_grouped_mm(
             out_dtype,
         )
     elif (
-        scaling_type == MoEScalingType.MXFP8
-        or scaling_type == MoEScalingType.MXFP8_WGRAD_WITH_HP
+        recipe == ScaledGroupedMMRecipe.MXFP8
+        or recipe == ScaledGroupedMMRecipe.MXFP8_WGRAD_WITH_HP
     ):
         block_size = 32
-        wgrad_with_hp = scaling_type == MoEScalingType.MXFP8_WGRAD_WITH_HP
+        wgrad_with_hp = recipe == ScaledGroupedMMRecipe.MXFP8_WGRAD_WITH_HP
         return _to_mxfp8_then_scaled_grouped_mm(
             A,
             B_t,
@@ -88,7 +89,7 @@ def _quantize_then_scaled_grouped_mm(
             use_cuda_kernel_for_blocked_layout=True,  # TODO: configurable
         )
     else:
-        raise ValueError(f"Unsupported scaling type {scaling_type}")
+        raise ValueError(f"Unsupported scaling type {recipe}")
 
 
 class _Float8GroupedMM(torch.autograd.Function):

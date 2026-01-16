@@ -20,7 +20,7 @@ from benchmarks.utils import (
     profile_fwd_bwd,
 )
 from torchao.prototype.moe_training import _quantize_then_scaled_grouped_mm
-from torchao.prototype.moe_training.conversion_utils import MoEScalingType
+from torchao.prototype.moe_training.conversion_utils import ScaledGroupedMMRecipe
 from torchao.prototype.moe_training.utils import generate_jagged_offs
 
 device = torch.device("cuda")
@@ -36,7 +36,7 @@ torch._dynamo.config.automatic_dynamic_shapes = False
 class ExperimentConfig:
     high_precision_dtype: torch.dtype
     MNKG: tuple[int]
-    recipe: MoEScalingType
+    recipe: ScaledGroupedMMRecipe
 
 
 @dataclass(frozen=True)
@@ -86,9 +86,9 @@ def get_configs() -> List[ExperimentConfig]:
         (128000, 2048, 7168, 8),
     ]
     recipes = [
-        MoEScalingType.FP8_ROWWISE,
-        MoEScalingType.MXFP8,
-        MoEScalingType.MXFP8_WGRAD_WITH_HP,
+        ScaledGroupedMMRecipe.FP8_ROWWISE,
+        ScaledGroupedMMRecipe.MXFP8,
+        ScaledGroupedMMRecipe.MXFP8_WGRAD_WITH_HP,
     ]
     high_precision_dtypes = [torch.bfloat16]
     configs = []
@@ -131,7 +131,9 @@ def run_experiment(
     #   that occurs in the backward pass of the differentiable scaled grouped mm.
     # - the transposed tensor in col-major format with groups along the row dimension,
     #    which represents the right operand.
-    token_group_alignment_size = 32 if config.recipe == MoEScalingType.MXFP8 else 16
+    token_group_alignment_size = (
+        32 if config.recipe == ScaledGroupedMMRecipe.MXFP8 else 16
+    )
     offs = generate_jagged_offs(G, total_M, multiple_of=token_group_alignment_size)
 
     labels = torch.ones(
@@ -247,7 +249,7 @@ def main(args: argparse.Namespace):
     results = []
     for config in tqdm(configs):
         if (
-            config.recipe == MoEScalingType.FP8_ROWWISE
+            config.recipe == ScaledGroupedMMRecipe.FP8_ROWWISE
             and torch.cuda.get_device_capability() != (9, 0)
         ):
             logging.warning(
@@ -256,7 +258,7 @@ def main(args: argparse.Namespace):
             continue
 
         elif (
-            config.recipe == MoEScalingType.MXFP8
+            config.recipe == ScaledGroupedMMRecipe.MXFP8
             and torch.cuda.get_device_capability() != (10, 0)
         ):
             logging.warning(
