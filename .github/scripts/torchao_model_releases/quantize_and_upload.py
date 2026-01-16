@@ -912,6 +912,9 @@ def quantize_and_upload(
 
     # Manual Testing
     prompt = "Hey, are you conscious? Can you talk to me?"
+    tokenizer.chat_template = (
+        "{% for message in messages %}{{ message['content'] }}{% endfor %}"
+    )
     messages = [
         {
             "role": "system",
