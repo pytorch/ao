@@ -28,7 +28,7 @@ from torchao.float8.config import (
 from torchao.float8.float8_linear import matmul_with_hp_or_float8_args
 from torchao.float8.float8_training_tensor import LinearMMConfig
 from torchao.float8.float8_utils import compute_error, tensor_to_scale, to_fp8_saturated
-from torchao.prototype.moe_training.conversion_utils import MoEScalingType
+from torchao.prototype.moe_training.conversion_utils import ScaledGroupedMMRecipe
 from torchao.prototype.moe_training.scaled_grouped_mm import (
     _emulated_mxfp8_scaled_grouped_mm_2d_2d,
     _emulated_mxfp8_scaled_grouped_mm_2d_3d,
@@ -79,7 +79,7 @@ def test_valid_scaled_grouped_mm_2d_3d(m, n, k, n_groups):
         b_t,
         offs=offs,
         out_dtype=out_dtype,
-        scaling_type=MoEScalingType.FP8_ROWWISE,
+        scaling_type=ScaledGroupedMMRecipe.FP8_ROWWISE,
     )
 
     # Validate result.
