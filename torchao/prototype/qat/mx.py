@@ -20,7 +20,7 @@ Key differences between MX and NVFP4:
 """
 
 from dataclasses import dataclass, field
-from typing import Any, Optional, Union
+from typing import Any, Optional
 
 import torch
 
@@ -28,7 +28,6 @@ from torchao.prototype.mx_formats.config import (
     ScaleCalculationMode,
     _validate_elem_dtype,
 )
-from torchao.prototype.mx_formats.constants import SUPPORTED_ELEM_DTYPES
 from torchao.prototype.mx_formats.mx_tensor import (
     MXTensor,
     _addmm_mx_dispatch,
@@ -259,4 +258,3 @@ class MXFakeQuantizedLinear(torch.nn.Linear):
 # Backwards compatibility aliases
 MXFP4FakeQuantizeConfig = MXFakeQuantizeConfig
 MXFP4FakeQuantizedLinear = MXFakeQuantizedLinear
-

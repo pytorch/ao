@@ -1,7 +1,9 @@
 # Temporary location for prototype QAT features that will
 # eventually live in torchao/quantization/qat
 
-from .mxfp4 import (
+from .mx import (
+    MXFakeQuantizeConfig,
+    MXFakeQuantizedLinear,
     MXFP4FakeQuantizeConfig,
     MXFP4FakeQuantizedLinear,
 )
@@ -11,6 +13,8 @@ from .nvfp4 import (
 )
 
 __all__ = [
+    "MXFakeQuantizeConfig",
+    "MXFakeQuantizedLinear",
     "MXFP4FakeQuantizeConfig",
     "MXFP4FakeQuantizedLinear",
     "NVFP4FakeQuantizeConfig",

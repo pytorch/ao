@@ -361,7 +361,7 @@ def _infer_fake_quantize_configs(
         NVFP4DynamicActivationNVFP4WeightConfig,
     )
     from torchao.prototype.qat import (
-        MXFP4FakeQuantizeConfig,
+        MXFakeQuantizeConfig,
         NVFP4FakeQuantizeConfig,
     )
     from torchao.quantization import (
@@ -459,27 +459,22 @@ def _infer_fake_quantize_configs(
             KernelPreference,
         )
 
-        if (
-            base_config.activation_dtype == torch.float4_e2m1fn_x2
-            and base_config.weight_dtype == torch.float4_e2m1fn_x2
-        ):
-            act_config = MXFP4FakeQuantizeConfig(
-                block_size=base_config.block_size,
-                scaling_mode=ScaleCalculationMode.FLOOR,
-                kernel_preference=KernelPreference.EMULATED,
-                is_swizzled_scales=False,
-            )
-            weight_config = MXFP4FakeQuantizeConfig(
-                block_size=base_config.block_size,
-                scaling_mode=ScaleCalculationMode.FLOOR,
-                kernel_preference=base_config.kernel_preference,
-                is_swizzled_scales=False,
-            )
-        else:
-            raise ValueError(
-                f"MXFP4 QAT only supports float4_e2m1fn_x2 for both activation and weight, "
-                f"got activation_dtype={base_config.activation_dtype}, weight_dtype={base_config.weight_dtype}"
-            )
+        # MXFakeQuantizeConfig supports all MX element dtypes (MXFP4, MXFP8, MXFP6)
+        # via the elem_dtype parameter
+        act_config = MXFakeQuantizeConfig(
+            elem_dtype=base_config.activation_dtype,
+            block_size=base_config.block_size,
+            scaling_mode=ScaleCalculationMode.FLOOR,
+            kernel_preference=KernelPreference.EMULATED,
+            is_swizzled_scales=False,
+        )
+        weight_config = MXFakeQuantizeConfig(
+            elem_dtype=base_config.weight_dtype,
+            block_size=base_config.block_size,
+            scaling_mode=ScaleCalculationMode.FLOOR,
+            kernel_preference=base_config.kernel_preference,
+            is_swizzled_scales=False,
+        )
     elif isinstance(base_config, Int8DynamicActivationIntxWeightConfig):
         assert base_config.version >= 2, "Only version 2+ is supported"
         assert base_config.intx_packing_format == "unpacked_to_int8", (
