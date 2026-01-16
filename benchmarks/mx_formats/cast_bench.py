@@ -118,6 +118,7 @@ def run(
         "dim1_mxfp8_floor",
         "dim1_mxfp8_rceil",
         "dim1_mxfp8_triton_floor",
+        "dim1_mxfp8_triton_rceil",
         "dim1_mxfp8_cuda_floor",
         "dim1_mxfp8_cuda_rceil",
     )
@@ -363,7 +364,28 @@ def run(
         bytes_r = x.numel() * bytes_per_el_bf16
         bytes_w = (y_d1.numel() + s_d1.numel()) * bytes_per_el_fp8
         bps = (bytes_r + bytes_w) / (time_us / 1e6)
+    elif mode == "dim1_mxfp8_triton_rceil":
+        y_d1, s_d1 = triton_to_mxfp8_dim1(
+            x, inner_block_size=BLOCK_SIZE, scaling_mode="rceil"
+        )
 
+        for _ in range(2):
+            __ = triton_to_mxfp8_dim1(
+                x, inner_block_size=BLOCK_SIZE, scaling_mode="rceil"
+            )
+        time_us = benchmark_cuda_function_in_microseconds(
+            lambda x, b: triton_to_mxfp8_dim1(
+                x, inner_block_size=BLOCK_SIZE, scaling_mode="rceil"
+            ),
+            x,
+            BLOCK_SIZE,
+        )
+
+        assert y_d1.dtype == torch.float8_e4m3fn
+        assert s_d1.dtype == torch.float8_e8m0fnu
+        bytes_r = x.numel() * bytes_per_el_bf16
+        bytes_w = (y_d1.numel() + s_d1.numel()) * bytes_per_el_fp8
+        bps = (bytes_r + bytes_w) / (time_us / 1e6)
     elif mode == "dim1_mxfp8_cuda_floor":
         from torchao.prototype.mx_formats.kernels import mxfp8_quantize_cuda
 

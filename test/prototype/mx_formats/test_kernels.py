@@ -45,6 +45,7 @@ from torchao.prototype.mx_formats.mx_tensor import ScaleCalculationMode, to_dtyp
 from torchao.prototype.mx_formats.utils import to_blocked
 from torchao.utils import (
     is_cuda_version_at_least,
+    is_MI350,
     is_sm_at_least_100,
     torch_version_at_least,
 )
@@ -444,8 +445,8 @@ def triton_to_mxfp8_dim0_reference(
 
 @pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
 @pytest.mark.skipif(
-    not is_sm_at_least_100(),
-    reason="mxfp8 in triton requires CUDA capability 10.0 or greater",
+    not is_sm_at_least_100() and not is_MI350(),
+    reason="mxfp8 requires CUDA capability 10.0 or greater or ROCm gfx950 or greater.",
 )
 @pytest.mark.parametrize("M", (128, 256))
 @pytest.mark.parametrize("K", (128, 256))
@@ -466,8 +467,8 @@ def test_triton_mxfp8_dim1_randn(M, K, scaling_mode):
 
 @pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
 @pytest.mark.skipif(
-    not is_sm_at_least_100(),
-    reason="mxfp8 requires CUDA capability 10.0 or greater",
+    not is_sm_at_least_100() and not is_MI350(),
+    reason="mxfp8 requires CUDA capability 10.0 or greater or ROCm gfx950 or greater.",
 )
 @pytest.mark.parametrize("M", (128, 256))
 @pytest.mark.parametrize("K", (128, 256))
@@ -490,8 +491,8 @@ def test_triton_mxfp8_dim0_randn(M, K, scaling_mode):
 
 @pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
 @pytest.mark.skipif(
-    not is_sm_at_least_100(),
-    reason="mxfp8 requires CUDA capability 10.0 or greater",
+    not is_sm_at_least_100() and not is_MI350(),
+    reason="mxfp8 requires CUDA capability 10.0 or greater or ROCm gfx950 or greater.",
 )
 @pytest.mark.parametrize(
     "scaling_mode", (ScaleCalculationMode.FLOOR, ScaleCalculationMode.RCEIL)
@@ -513,8 +514,8 @@ def test_triton_mxfp8_dim0_zeros(scaling_mode):
 
 @pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
 @pytest.mark.skipif(
-    not is_sm_at_least_100(),
-    reason="mxfp8 requires CUDA capability 10.0 or greater",
+    not is_sm_at_least_100() and not is_MI350(),
+    reason="mxfp8 requires CUDA capability 10.0 or greater or ROCm gfx950 or greater.",
 )
 @pytest.mark.parametrize("M", (128, 256))
 @pytest.mark.parametrize("K", (128, 256))
