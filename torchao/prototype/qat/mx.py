@@ -5,22 +5,30 @@
 # LICENSE file in the root directory of this source tree.
 
 """
-MXFP4 Quantization-Aware Training (QAT) support.
+MX (Microscaling) Quantization-Aware Training (QAT) support.
 
-This module provides QAT support for the OCP Microscaling MXFP4 format.
+This module provides QAT support for the OCP Microscaling MX formats (MXFP4, MXFP8, MXFP6).
 
-Key differences between MXFP4 and NVFP4:
-- Block size: MXFP4 uses 32 (default), NVFP4 uses 16 (fixed)
-- Scale type: MXFP4 uses E8M0 (float8_e8m0fnu), NVFP4 uses float8_e4m3fn
-- Scale calculation: MXFP4 supports FLOOR, RCEIL, CEIL, EVEN modes
+Key differences between MX and NVFP4:
+- Block size: MX uses 32 (default), NVFP4 uses 16 (fixed)
+- Scale type: MX uses E8M0 (float8_e8m0fnu), NVFP4 uses float8_e4m3fn
+- Scale calculation: MX supports FLOOR, RCEIL, CEIL, EVEN modes
+- MX supports multiple element dtypes (see SUPPORTED_ELEM_DTYPES in mx_formats/constants.py):
+  - MXFP4: torch.float4_e2m1fn_x2 (requires PyTorch 2.8+)
+  - MXFP8: torch.float8_e4m3fn, torch.float8_e5m2
+  - MXFP6: "fp6_e2m3", "fp6_e3m2" (string constants)
 """
 
-from dataclasses import dataclass
-from typing import Optional
+from dataclasses import dataclass, field
+from typing import Any, Optional, Union
 
 import torch
 
-from torchao.prototype.mx_formats.config import ScaleCalculationMode
+from torchao.prototype.mx_formats.config import (
+    ScaleCalculationMode,
+    _validate_elem_dtype,
+)
+from torchao.prototype.mx_formats.constants import SUPPORTED_ELEM_DTYPES
 from torchao.prototype.mx_formats.mx_tensor import (
     MXTensor,
     _addmm_mx_dispatch,
@@ -30,13 +38,18 @@ from torchao.quantization.quantize_.common.kernel_preference import KernelPrefer
 
 
 @dataclass
-class MXFP4FakeQuantizeConfig(FakeQuantizeConfigBase):
+class MXFakeQuantizeConfig(FakeQuantizeConfigBase):
     """
-    Config for fake quantizing weights or activations to the OCP Microscaling MXFP4 format
+    Config for fake quantizing weights or activations to the OCP Microscaling MX format
     according to https://www.opencompute.org/documents/ocp-microscaling-formats-mx-v1-0-spec-final-pdf.
 
     Fake quantization numerics follow `MXTensor` closely:
     https://github.com/pytorch/ao/blob/main/torchao/prototype/mx_formats/mx_tensor.py.
+
+    Supported element dtypes (see SUPPORTED_ELEM_DTYPES in mx_formats/constants.py):
+    - MXFP4: torch.float4_e2m1fn_x2 (requires PyTorch 2.8+)
+    - MXFP8: torch.float8_e4m3fn, torch.float8_e5m2
+    - MXFP6: "fp6_e2m3", "fp6_e3m2" (string constants)
 
     Key differences from NVFP4:
     - Block size: 32 (default) vs NVFP4's fixed 16
@@ -44,24 +57,32 @@ class MXFP4FakeQuantizeConfig(FakeQuantizeConfigBase):
     - Supports multiple scale calculation modes (FLOOR, RCEIL, CEIL, EVEN)
 
     Args:
+        elem_dtype (torch.dtype or str): The element dtype for quantization.
+            Supported values: torch.float4_e2m1fn_x2 (default), torch.float8_e4m3fn,
+            torch.float8_e5m2, "fp6_e2m3", "fp6_e3m2"
         block_size (int): The block size for quantization (default 32, the OCP MX standard)
         scaling_mode (ScaleCalculationMode): How to calculate the block scales (default FLOOR)
         kernel_preference (KernelPreference): Which kernel to use for matmul (default EMULATED)
         is_swizzled_scales (bool): Whether scales are stored in swizzled (blocked) format
     """
 
+    # Use Any type hint since elem_dtype can be torch.dtype or str (for fp6 formats)
+    elem_dtype: Any = field(default_factory=lambda: torch.float4_e2m1fn_x2)
     block_size: int = 32
     scaling_mode: ScaleCalculationMode = ScaleCalculationMode.FLOOR
     kernel_preference: KernelPreference = KernelPreference.EMULATED
     is_swizzled_scales: bool = False
 
+    def __post_init__(self):
+        _validate_elem_dtype(self.elem_dtype)
 
-class _MXFP4QuantizedForwardFakeQuantizedBackward(torch.autograd.Function):
+
+class _MXQuantizedForwardFakeQuantizedBackward(torch.autograd.Function):
     """
-    Autograd function for MXFP4 quantization + addmm in low precision during forward,
+    Autograd function for MX quantization + addmm in low precision during forward,
     and fake quantization in high precision during backward.
 
-    This is the OCP Microscaling MXFP4 variant which differs from NVFP4 in:
+    This is the OCP Microscaling MX variant which differs from NVFP4 in:
     - Block size: 32 (default) vs 16
     - Scale format: E8M0 vs float8_e4m3fn
     """
@@ -73,23 +94,22 @@ class _MXFP4QuantizedForwardFakeQuantizedBackward(torch.autograd.Function):
         _input: torch.Tensor,
         weight: torch.Tensor,
         bias: Optional[torch.Tensor],
-        activation_config: MXFP4FakeQuantizeConfig,
-        weight_config: MXFP4FakeQuantizeConfig,
+        activation_config: MXFakeQuantizeConfig,
+        weight_config: MXFakeQuantizeConfig,
     ) -> torch.Tensor:
         # quantize input activations
         _input = MXTensor.to_mx(
             _input,
-            elem_dtype=torch.float4_e2m1fn_x2,
+            elem_dtype=activation_config.elem_dtype,  # supports fp4, fp6, fp8
             block_size=activation_config.block_size,
             scaling_mode=activation_config.scaling_mode,
             kernel_preference=activation_config.kernel_preference,
             is_swizzled_scales=activation_config.is_swizzled_scales,
         )
 
-        # quantize weights
         weight = MXTensor.to_mx(
             weight,
-            elem_dtype=torch.float4_e2m1fn_x2,
+            elem_dtype=weight_config.elem_dtype,  # supports fp4, fp6, fp8
             block_size=weight_config.block_size,
             scaling_mode=weight_config.scaling_mode,
             kernel_preference=weight_config.kernel_preference,
@@ -124,18 +144,19 @@ class _MXFP4QuantizedForwardFakeQuantizedBackward(torch.autograd.Function):
         return grad_input, grad_weight, None, None, None
 
 
-class MXFP4FakeQuantizedLinear(torch.nn.Linear):
+class MXFakeQuantizedLinear(torch.nn.Linear):
     """
-    Linear module for fake quantized MXFP4 weights and/or activations.
+    Linear module for fake quantized MX weights and/or activations.
 
     The forward pass follows quantization and addmm numerics in `MXTensor`
     in lower precision exactly, while the backward pass uses dequantized
     (fake quantized) values in high precision.
 
-    This uses the OCP Microscaling MXFP4 format which differs from NVFP4:
+    This uses the OCP Microscaling MX format which differs from NVFP4:
     - Block size: 32 (default, OCP standard) vs NVFP4's fixed 16
     - Scale format: E8M0 (float8_e8m0fnu) vs NVFP4's float8_e4m3fn
     - Supports multiple scale calculation modes
+    - Supports multiple element dtypes (MXFP4, MXFP8)
 
     Example usage::
 
@@ -148,7 +169,7 @@ class MXFP4FakeQuantizedLinear(torch.nn.Linear):
             weight_dtype=torch.float4_e2m1fn_x2,
         )
         quantize_(model, QATConfig(base_config, step="prepare"))
-        # Model contains `MXFP4FakeQuantizedLinear` now
+        # Model contains `MXFakeQuantizedLinear` now
 
         train_loop(model)
         quantize_(model, QATConfig(base_config, step="convert"))
@@ -160,8 +181,8 @@ class MXFP4FakeQuantizedLinear(torch.nn.Linear):
         in_features: int,
         out_features: int,
         bias: bool = False,
-        activation_config: Optional[MXFP4FakeQuantizeConfig] = None,
-        weight_config: Optional[MXFP4FakeQuantizeConfig] = None,
+        activation_config: Optional[MXFakeQuantizeConfig] = None,
+        weight_config: Optional[MXFakeQuantizeConfig] = None,
         *args,
         **kwargs,
     ):
@@ -175,7 +196,7 @@ class MXFP4FakeQuantizedLinear(torch.nn.Linear):
         if weight_config is None:
             raise ValueError("Must specify `weight_config`")
         if activation_config is None:
-            raise ValueError("Weight only MXFP4 QAT not supported yet")
+            raise ValueError("Weight only MX QAT not supported yet")
         self.activation_config = activation_config
         self.weight_config = weight_config
 
@@ -185,7 +206,7 @@ class MXFP4FakeQuantizedLinear(torch.nn.Linear):
             x = x.view(-1, x.shape[-1])
         else:
             batch_size = None
-        fq = _MXFP4QuantizedForwardFakeQuantizedBackward.apply(
+        fq = _MXQuantizedForwardFakeQuantizedBackward.apply(
             x, self.weight, self.bias, self.activation_config, self.weight_config
         )
         assert fq.dtype == x.dtype
@@ -214,10 +235,10 @@ class MXFP4FakeQuantizedLinear(torch.nn.Linear):
     def from_linear(
         cls,
         mod: torch.nn.Linear,
-        activation_config: Optional[MXFP4FakeQuantizeConfig] = None,
-        weight_config: Optional[MXFP4FakeQuantizeConfig] = None,
+        activation_config: Optional[MXFakeQuantizeConfig] = None,
+        weight_config: Optional[MXFakeQuantizeConfig] = None,
     ):
-        new_linear = MXFP4FakeQuantizedLinear(
+        new_linear = MXFakeQuantizedLinear(
             mod.in_features,
             mod.out_features,
             mod.bias is not None,
@@ -233,3 +254,9 @@ class MXFP4FakeQuantizedLinear(torch.nn.Linear):
             new_linear.weight = mod.weight
             new_linear.bias = mod.bias
         return new_linear
+
+
+# Backwards compatibility aliases
+MXFP4FakeQuantizeConfig = MXFakeQuantizeConfig
+MXFP4FakeQuantizedLinear = MXFakeQuantizedLinear
+
