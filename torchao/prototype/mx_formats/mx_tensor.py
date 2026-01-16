@@ -554,11 +554,7 @@ class MXTensor(TorchAOBaseTensor):
         )
 
         triton_kernel_supported = (
-            mxfp8_dim0_cast_kernel_choice == MXFP8Dim0CastKernelChoice.TRITON
-            and data_hp.dtype == torch.bfloat16
-            and elem_dtype == torch.float8_e4m3fn
-            and scaling_mode in (ScaleCalculationMode.FLOOR, ScaleCalculationMode.RCEIL)
-            and not is_swizzled_scales
+            elem_dtype == torch.float8_e4m3fn and not is_swizzled_scales
         )
         if mxfp8_dim0_cast_kernel_choice == MXFP8Dim0CastKernelChoice.TRITON:
             assert triton_kernel_supported, (

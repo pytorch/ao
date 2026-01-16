@@ -521,6 +521,9 @@ if torch_version_at_least("2.7.0") and has_triton():
         assert x.dtype == torch.bfloat16, (
             f"only bfloat16 inputs are supported, got {x.dtype}"
         )
+        assert scaling_mode in ("floor", "rceil"), (
+            "only floor and rceil scaling modes are supported"
+        )
 
         # Reshape tensor to 2d if necessary and get shape
         x_orig_shape = x.shape
