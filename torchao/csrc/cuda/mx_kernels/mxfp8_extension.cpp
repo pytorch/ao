@@ -37,7 +37,9 @@ void launch_mx_block_rearrange_2d_M_groups_cuda(
     int num_groups,
     int chunk_width,      // Template selector: 64 or 128
     int chunks_per_tb,
-    cudaStream_t stream);
+    cudaStream_t stream,
+    int64_t* profiler_ptr = nullptr,
+    int num_profile_entries = 0);
 
 // Helper for tensor validation
 void check_cuda_tensor(const at::Tensor &t, const char *name) {
@@ -195,7 +197,9 @@ at::Tensor mx_block_rearrange_2d_M_groups(
     at::Tensor scales_tensor,
     at::Tensor input_group_end_offsets,
     int64_t chunk_width,
-    int64_t chunks_per_tb) {
+    int64_t chunks_per_tb,
+    c10::optional<at::Tensor> profiler_tensor,
+    int64_t num_profile_entries) {
 
   // Validate inputs
   check_cuda_tensor(scales_tensor, "scales_tensor");
@@ -215,6 +219,16 @@ at::Tensor mx_block_rearrange_2d_M_groups(
   TORCH_CHECK(chunks_per_tb == 1 || chunks_per_tb == 4 || chunks_per_tb == 8 || chunks_per_tb == 16,
               "chunks_per_tb must be 4, 8, or 16, got: ", chunks_per_tb);
   c10::cuda::CUDAGuard device_guard(scales_tensor.device());
+
+  // Validate profiler tensor if provided
+  int64_t* profiler_ptr = nullptr;
+  if (profiler_tensor.has_value()) {
+    TORCH_CHECK(profiler_tensor->is_cuda(), "profiler_tensor must be a CUDA tensor");
+    TORCH_CHECK(profiler_tensor->scalar_type() == at::kLong,
+                "profiler_tensor must be int64");
+    TORCH_CHECK(profiler_tensor->is_contiguous(), "profiler_tensor must be contiguous");
+    profiler_ptr = profiler_tensor->data_ptr<int64_t>();
+  }
 
   const int rows = scales_tensor.size(0);
   const int cols = scales_tensor.size(1);
@@ -256,7 +270,9 @@ at::Tensor mx_block_rearrange_2d_M_groups(
       num_groups,
       static_cast<int>(chunk_width),
       static_cast<int>(chunks_per_tb),
-      at::cuda::getCurrentCUDAStream());
+      at::cuda::getCurrentCUDAStream(),
+      profiler_ptr,
+      static_cast<int>(num_profile_entries));
 
   return output;
 }
