@@ -9,6 +9,10 @@ from typing import Optional
 import torch
 import torch.nn.functional as F
 
+from torchao.quantization.quantize_.common import (
+    _choose_quant_func_and_quantize_tensor,
+)
+
 
 class SmoothQuantStep(str, Enum):
     PREPARE = "prepare"
@@ -41,13 +45,14 @@ class SmoothQuantObserver(torch.nn.Module):
         self.inputs.append(input.to("cpu"))
         return input
 
-    def calculate_qparams(self):
+    def calculate_qparams(self, weight_quant_kwargs=None):
         assert self.inputs and len(self.inputs) > 0, (
             "calibrate observer first by running model on exemplar data"
         )
         inputs = [inp.to(self.device) for inp in self.inputs]
         acc = torch.cat(inputs, dim=0)
         # Reshape if needed: [batch, seq, features] -> [batch*seq, features]
+        example_input_for_quantization = acc
         if acc.ndim > 2:
             acc = acc.view(-1, acc.shape[-1])
 
@@ -57,12 +62,20 @@ class SmoothQuantObserver(torch.nn.Module):
 
         # Calculate smoothing factor
         if self.alpha is None:
-            return torch.ones_like(x_abs_max)
+            smoothing_factor = torch.ones_like(x_abs_max)
+        else:
+            eps = torch.finfo(torch.float32).eps
+            smoothing_factor = torch.pow(x_abs_max + eps, self.alpha) / torch.pow(
+                w_abs_max + eps, 1 - self.alpha
+            )
 
-        eps = torch.finfo(torch.float32).eps
-        return torch.pow(x_abs_max + eps, self.alpha) / torch.pow(
-            w_abs_max + eps, 1 - self.alpha
-        )
+        if weight_quant_kwargs is not None:
+            quant_smooth_activation = _choose_quant_func_and_quantize_tensor(
+                example_input_for_quantization / smoothing_factor, weight_quant_kwargs
+            )
+            return smoothing_factor, quant_smooth_activation.scale
+        else:
+            return smoothing_factor, None
 
 
 class SmoothQuantObservedLinear(torch.nn.Linear):
