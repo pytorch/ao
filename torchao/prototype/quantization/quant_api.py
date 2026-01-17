@@ -9,13 +9,17 @@ Quantization workflow APIs moved from `torch/quantization/quant_api.py`
 to prototype.
 """
 
+import copy
 import logging
 import types
 import warnings
 from dataclasses import dataclass
+from enum import Enum
 from typing import Optional
 
 import torch
+import torch.nn.functional as F
+from torch import Tensor
 
 import torchao
 from torchao.core.config import AOBaseConfig
@@ -298,16 +302,51 @@ class Float8StaticActivationFloat8WeightConfig(AOBaseConfig):
     """
     Configuration for applying float8 static symmetric quantization to both activation and weight.
 
+    This supports two workflows:
+
+    1. AWQ-style observer flow (recommended):
+        - Use step="prepare" to insert observers
+        - Calibrate with representative data
+        - Use step="convert" to convert to quantized model
+
+    2. Direct quantization with known scale:
+        - Provide act_quant_scale directly (step is not required)
+
     Args:
-        act_quant_scale (torch.Tensor): The scale tensor for activation quantization.
+        step (Optional[Float8StaticStep]): Specifies the step for the observer-based quantization process.
+            PREPARE: insert observers to linear
+            CONVERT: convert the observed linear modules to linear modules with quantized weights
+            Can use the corresponding string "prepare", "convert" for simplicity
+            If not provided, act_quant_scale must be provided for direct quantization.
+        act_quant_scale (Optional[torch.Tensor]): The scale tensor for activation quantization.
+            Required when step is not provided.
         activation_dtype (torch.dtype): The target data type for activation quantization. Default is torch.float8_e4m3fn
         weight_dtype (torch.dtype): The target data type for weight quantization. Default is torch.float8_e4m3fn
-        granularity (FP8Granularity): The granularity of quantization. PerRow() and PerTensor() are supported currently.
+        granularity (FP8Granularity): The granularity of quantization. PerTensor() is used for static activation quantization.
         mm_config (Float8MMConfig): Configuration for the matrix multiplication. Default uses fast accumulation.
         kernel_preference (KernelPreference): Kernel preference for quantization and matmul operations.
         set_inductor_config (bool): if True, adjusts `torchinductor` settings to recommended values.
+
+    Example (Observer flow):
+        # Step 1: Prepare model by inserting observers
+        quantize_(model, Float8StaticActivationFloat8WeightConfig(step="prepare"))
+
+        # Step 2: Calibrate with representative data
+        for batch in calibration_data:
+            model(batch)
+
+        # Step 3: Convert observed model to quantized model
+        quantize_(model, Float8StaticActivationFloat8WeightConfig(step="convert"))
+
+    Example (Direct quantization):
+        config = Float8StaticActivationFloat8WeightConfig(
+            act_quant_scale=my_scale,
+            granularity=PerTensor(),
+        )
+        quantize_(model, config)
     """
 
+    step: Optional["Float8StaticStep"] = None
     act_quant_scale: Optional[torch.Tensor] = None
     activation_dtype: torch.dtype = e4m3_dtype
     weight_dtype: torch.dtype = e4m3_dtype
@@ -323,66 +362,187 @@ class Float8StaticActivationFloat8WeightConfig(AOBaseConfig):
         if self.mm_config is None:
             self.mm_config = Float8MMConfig(use_fast_accum=True)
 
+        # Allow string step values for convenience
+        if self.step is not None:
+            if isinstance(self.step, str):
+                self.step = self.step.lower()
+            all_step_values = [s.value for s in Float8StaticStep]
+            if self.step not in all_step_values and self.step not in list(Float8StaticStep):
+                raise ValueError(f"{self.step} is not one of {all_step_values}")
+
+
+# Float8 static quantization step enum (similar to AWQStep)
+class Float8StaticStep(str, Enum):
+    PREPARE = "prepare"
+    CONVERT = "convert"
+
+
+class Float8ObservedLinear(torch.nn.Linear):
+    """
+    A linear module with an observer for float8 static quantization.
+
+    This module wraps a linear layer and adds an AffineQuantizedMinMaxObserver
+    that collects statistics during calibration. After calibration, use
+    `quantize_` with `Float8StaticActivationFloat8WeightConfig(step="convert")`
+    to convert to a quantized module.
+    """
+
+    def __init__(
+        self,
+        in_features: int,
+        out_features: int,
+        act_obs: "AffineQuantizedMinMaxObserver",
+        bias: bool = True,
+        device=None,
+        dtype=None,
+    ):
+        super().__init__(in_features, out_features, bias, device, dtype)
+        self.act_obs = act_obs
+
+    def forward(self, input: Tensor) -> Tensor:
+        self.act_obs(input)
+        output = F.linear(input, self.weight, self.bias)
+        return output
+
+    @classmethod
+    def from_float(
+        cls,
+        float_linear: torch.nn.Linear,
+        act_obs: "AffineQuantizedMinMaxObserver",
+    ) -> "Float8ObservedLinear":
+        """Create an observed linear from a float linear module."""
+        observed_linear = cls(
+            float_linear.in_features,
+            float_linear.out_features,
+            act_obs,
+            bias=float_linear.bias is not None,
+            device=float_linear.weight.device,
+            dtype=float_linear.weight.dtype,
+        )
+        observed_linear.weight = float_linear.weight
+        observed_linear.bias = float_linear.bias
+        return observed_linear
+
 
 @register_quantize_module_handler(Float8StaticActivationFloat8WeightConfig)
 def _float8_static_activation_float8_weight_transform(
     module: torch.nn.Module,
     config: Float8StaticActivationFloat8WeightConfig,
-    *,
-    parameter_name="weight",
-):
+) -> torch.nn.Module:
+    """
+    Transform handler for Float8StaticActivationFloat8WeightConfig.
+
+    Behavior depends on the step:
+    - PREPARE: Insert observer into linear module
+    - CONVERT: Convert observed linear to quantized linear
+    """
     from torchao.prototype.quantization.float8_static_quant.prototype_float8_tensor import (
         PrototypeFloat8Tensor,
     )
+    from torchao.quantization.observer import AffineQuantizedMinMaxObserver
 
-    assert config.act_quant_scale is not None, "act_quant_scale is required"
-    activation_dtype = config.activation_dtype
-    weight_dtype = config.activation_dtype
+    step = config.step
+    granularity = config.granularity if config.granularity is not None else PerTensor()
 
-    granularity = config.granularity
-    if granularity is None:
-        granularity = PerRow()
-    elif isinstance(granularity, tuple):
-        raise ValueError(
-            "Tuple granularity is not supported. Please specify a single granularity value."
+    if step == Float8StaticStep.PREPARE or step == "prepare":
+        # Create observer and wrap linear
+        observer = AffineQuantizedMinMaxObserver(
+            mapping_type=MappingType.SYMMETRIC,
+            target_dtype=config.activation_dtype,
+            granularity=granularity,
+            eps=torch.finfo(torch.float32).eps,
+            scale_dtype=torch.float32,
+            zero_point_dtype=torch.float32,
         )
+        return Float8ObservedLinear.from_float(module, observer)
 
-    assert granularity in {PerRow(), PerTensor()}, (
-        "Only PerRow and PerTensor is supported currently"
-    )
-    assert hasattr(module, parameter_name), (
-        f"Expected module to have attribute `{parameter_name}` but not found"
-    )
+    elif step == Float8StaticStep.CONVERT or step == "convert":
+        if not isinstance(module, Float8ObservedLinear):
+            logger.info(
+                f"convert: module is not Float8ObservedLinear, skipping: {type(module)}"
+            )
+            return module
 
-    if config.set_inductor_config:
-        torchao.quantization.utils.recommended_inductor_config_setter()
+        # Extract activation scale from observer
+        # Scale needs to be 2D for 2D activation tensors
+        act_quant_scale, _ = module.act_obs.calculate_qparams()
+        if act_quant_scale.ndim == 0:
+            # TODO: add keep_dim arg for `choose_qparams_affine_with_min_max`
+            # to avoid this workaround
+            act_quant_scale = act_quant_scale.view(1, 1)
 
-    activation_granularity = granularity
-    weight_granularity = granularity
+        if config.set_inductor_config:
+            torchao.quantization.utils.recommended_inductor_config_setter()
 
-    quantized_tensor = PrototypeFloat8Tensor.from_hp(
-        getattr(module, parameter_name),
-        float8_dtype=weight_dtype,
-        granularity=weight_granularity,
-        mm_config=config.mm_config,
-        kernel_preference=config.kernel_preference,
-        act_quant_kwargs=QuantizeTensorToFloat8Kwargs(
-            float8_dtype=activation_dtype,
-            granularity=activation_granularity,
+        activation_dtype = config.activation_dtype
+        weight_dtype = config.weight_dtype
+
+        # Create quantized weight tensor
+        quantized_tensor = PrototypeFloat8Tensor.from_hp(
+            module.weight,
+            float8_dtype=weight_dtype,
+            granularity=granularity,
             mm_config=config.mm_config,
             kernel_preference=config.kernel_preference,
-        ),
-        act_quant_scale=config.act_quant_scale.detach(),
-    )
+            act_quant_kwargs=QuantizeTensorToFloat8Kwargs(
+                float8_dtype=activation_dtype,
+                granularity=granularity,
+                mm_config=config.mm_config,
+                kernel_preference=config.kernel_preference,
+            ),
+            act_quant_scale=act_quant_scale.detach(),
+        )
 
-    setattr(
-        module,
-        parameter_name,
-        torch.nn.Parameter(quantized_tensor, requires_grad=False),
-    )
-    # Note: we don't set module.extra_repr like in the main quant_api.py
-    # to keep prototype version simple
-    return module
+        # Create new Linear module with quantized weight
+        linear = torch.nn.Linear(
+            module.in_features,
+            module.out_features,
+            bias=module.bias is not None,
+            device=module.weight.device,
+            dtype=module.weight.dtype,
+        )
+        linear.weight = torch.nn.Parameter(quantized_tensor, requires_grad=False)
+        linear.bias = module.bias
+        return linear
+
+    elif step is None:
+        # Direct quantization path - use provided act_quant_scale
+        if config.act_quant_scale is None:
+            raise ValueError(
+                "When step is None, act_quant_scale must be provided for direct quantization. "
+                "Alternatively, use step='prepare' followed by step='convert' for observer-based flow."
+            )
+
+        if config.set_inductor_config:
+            torchao.quantization.utils.recommended_inductor_config_setter()
+
+        activation_dtype = config.activation_dtype
+        weight_dtype = config.weight_dtype
+        act_quant_scale = config.act_quant_scale
+
+        # Create quantized weight tensor
+        quantized_tensor = PrototypeFloat8Tensor.from_hp(
+            module.weight,
+            float8_dtype=weight_dtype,
+            granularity=granularity,
+            mm_config=config.mm_config,
+            kernel_preference=config.kernel_preference,
+            act_quant_kwargs=QuantizeTensorToFloat8Kwargs(
+                float8_dtype=activation_dtype,
+                granularity=granularity,
+                mm_config=config.mm_config,
+                kernel_preference=config.kernel_preference,
+            ),
+            act_quant_scale=act_quant_scale.detach(),
+        )
+
+        module.weight = torch.nn.Parameter(quantized_tensor, requires_grad=False)
+        return module
+
+    else:
+        raise ValueError(
+            f"Unexpected step: {step}. Expected one of {[s.value for s in Float8StaticStep]} or None."
+        )
 
 
 @dataclass

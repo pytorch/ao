@@ -17,6 +17,7 @@ from torchao.prototype.quantization.float8_static_quant.prototype_float8_tensor 
     _choose_quant_func_and_quantize_tensor,
 )
 from torchao.prototype.quantization.quant_api import (
+    Float8ObservedLinear,
     Float8StaticActivationFloat8WeightConfig,
 )
 from torchao.quantization import (
@@ -50,6 +51,27 @@ class ToyConvModel(torch.nn.Module):
 
     def forward(self, x):
         return self.conv(x)
+
+
+class ToyLinearModel(torch.nn.Module):
+    """Simple model with two linear layers for testing static quantization flow."""
+
+    def __init__(self, m=64, n=32, k=64, dtype=torch.float32, device="cpu"):
+        super().__init__()
+        self.linear1 = torch.nn.Linear(m, k, bias=False, dtype=dtype, device=device)
+        self.linear2 = torch.nn.Linear(k, n, bias=False, dtype=dtype, device=device)
+
+    def example_inputs(self, batch_size=1, dtype=None, device=None):
+        if dtype is None:
+            dtype = self.linear1.weight.dtype
+        if device is None:
+            device = self.linear1.weight.device
+        return (torch.randn(batch_size, self.linear1.in_features, dtype=dtype, device=device),)
+
+    def forward(self, x):
+        x = self.linear1(x)
+        x = self.linear2(x)
+        return x
 
 
 @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
@@ -242,6 +264,70 @@ class TestFloat8StaticActivation(TorchAOIntegrationTestCase):
         error = compute_error(output_original, output_quantized)
         assert compute_error(output_original, output_quantized) > 20, (
             f"Quantization error is too high got a SQNR of {error}"
+        )
+
+    def test_static_quant_flow_with_observers(self):
+        """
+        Test the full static quantization flow following the AWQ-style API.
+
+        This follows the AWQ pattern:
+        1. Prepare model by inserting observers (step="prepare")
+        2. Calibrate with representative data
+        3. Convert observed model to quantized model (step="convert")
+        """
+        torch.compiler.reset()
+        torch.manual_seed(42)
+
+        dtype = torch.bfloat16
+
+        # Create model
+        model = ToyLinearModel(m=64, n=32, k=64, dtype=dtype, device="cuda").eval()
+        model_ref = copy.deepcopy(model)
+        example_inputs = model.example_inputs(batch_size=4)
+
+        # Get reference output before quantization
+        before_quant = model(*example_inputs)
+
+        # Step 1: Prepare model by inserting observers
+        quantize_(model, Float8StaticActivationFloat8WeightConfig(step="prepare"))
+
+        # Verify observers were inserted
+        self.assertIsInstance(model.linear1, Float8ObservedLinear)
+        self.assertIsInstance(model.linear2, Float8ObservedLinear)
+
+        # Step 2: Calibrate with representative data
+        for _ in range(10):
+            model(*example_inputs)
+
+        # Step 3: Convert observed model to quantized model
+        quantize_(model, Float8StaticActivationFloat8WeightConfig(step="convert"))
+
+        # Verify quantization was applied
+        self.assertIsInstance(model.linear1.weight, PrototypeFloat8Tensor)
+        self.assertIsInstance(model.linear2.weight, PrototypeFloat8Tensor)
+        self.assertIsNotNone(model.linear1.weight.act_quant_scale)
+        self.assertIsNotNone(model.linear2.weight.act_quant_scale)
+
+        # Test inference
+        after_quant = model(*example_inputs)
+
+        # Verify quantization quality
+        error = compute_error(before_quant, after_quant)
+        self.assertGreater(
+            error,
+            20,
+            f"SQNR of quantized vs original should be > 20 dB, got {error}",
+        )
+
+        # Test with torch.compile
+        model_compiled = torch.compile(model, fullgraph=True)
+        after_quant_compiled = model_compiled(*example_inputs)
+
+        error_compiled = compute_error(before_quant, after_quant_compiled)
+        self.assertGreater(
+            error_compiled,
+            20,
+            f"SQNR of compiled quantized vs original should be > 20 dB, got {error_compiled}",
         )
 
 
