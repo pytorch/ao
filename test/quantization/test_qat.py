@@ -2742,6 +2742,9 @@ class TestQAT(TestCase):
 
         optimizer = torch.optim.SGD(mx_model.parameters(), lr=0.01)
 
+        # Store initial weight for comparison (must be before training loop)
+        initial_weight = mx_model[0].weight.clone()
+
         # Training loop
         for _ in range(num_steps):
             x = torch.randn(M, K, device="cuda", dtype=torch.bfloat16)
@@ -2754,7 +2757,6 @@ class TestQAT(TestCase):
             optimizer.step()
 
         # Check that weights have been updated
-        initial_weight = model[0].weight.clone()
         self.assertFalse(torch.allclose(mx_model[0].weight, initial_weight))
 
 

@@ -528,7 +528,7 @@ def test_to_mx_inductor_single_kernel():
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.skipIf(not is_sm_at_least_90(), "Need sm90+")
+@pytest.mark.skipif(not is_sm_at_least_90(), reason="Need sm90+")
 def test_index_select():
     """
     test that `x_0 = x[0]` works when `x` is a 3D `MXTensor`. This is
