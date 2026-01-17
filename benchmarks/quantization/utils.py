@@ -4,6 +4,8 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
+import subprocess
+
 import torch
 
 from torchao.prototype.mx_formats.inference_workflow import (
@@ -49,3 +51,12 @@ def string_to_config(s):
         )
     else:
         raise AssertionError(f"unsupported {s}")
+
+
+def get_size_of_dir(model_output_dir):
+    """get dir size from shell, to skip complexity of dealing with tensor"""
+    result = subprocess.run(
+        ["du", "-sb", model_output_dir], capture_output=True, text=True
+    )
+    size = int(result.stdout.split()[0])
+    return size
