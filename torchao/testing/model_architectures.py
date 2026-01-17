@@ -82,11 +82,20 @@ class ToyTwoLinearModel(torch.nn.Module):
 
 class ConvWithSharedWeightInExportedModel(nn.Module):
     def __init__(
-        self, n_chunks, in_channels, out_channels, kernel_size=3, stride=1, padding=1
+        self,
+        n_chunks,
+        in_channels,
+        out_channels,
+        kernel_size=3,
+        stride=1,
+        padding=1,
+        bias=True,
     ) -> None:
         super().__init__()
         self.n_chunks = n_chunks
-        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding)
+        self.conv = nn.Conv2d(
+            in_channels, out_channels, kernel_size, stride, padding, bias=bias
+        )
         self.bn = nn.BatchNorm2d(out_channels)
         self.relu = nn.ReLU(inplace=True)
 
