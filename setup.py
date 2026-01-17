@@ -745,11 +745,13 @@ def get_extensions():
                             f"-DPy_LIMITED_API={min_supported_cpython_hexcode}",
                             "-std=c++17",
                             "-O3",
+                            "-DUSE_CUDA",
                         ],
                         "nvcc": nvcc_args
                         + [
                             "-gencode=arch=compute_100,code=sm_100",
                             "-gencode=arch=compute_120,code=compute_120",
+                            "-DUSE_CUDA",
                         ],
                     },
                 ),
