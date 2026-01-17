@@ -308,6 +308,58 @@ class TestInt8StaticQuant(TorchAOIntegrationTestCase):
         # for compile, we can't compare dynamic vs static because we may get slightly different qparams when fused
         torch.testing.assert_close(dynamic_out_eager, static_out_eager)
 
+    @common_utils.parametrize("dtype", [torch.bfloat16])
+    def test_int8_weight_only_v1_vs_v2_comparison(self, dtype):
+        """Test that v1 and v2 of Int8WeightOnlyConfig produce similar but not identical results"""
+        torch.manual_seed(42)
+
+        # Create test model
+        model_v1 = ToyTwoLinearModel(256, 128, 256, dtype=dtype, device="cuda").eval()
+        model_v2 = copy.deepcopy(model_v1)
+        model_baseline = copy.deepcopy(model_v1)
+
+        # Create input
+        input_tensor = torch.randn(32, 256, dtype=dtype, device="cuda")
+
+        # Get baseline output
+        output_baseline = model_baseline(input_tensor)
+
+        # Apply v1 quantization (uses AffineQuantizedTensor)
+        config_v1 = Int8WeightOnlyConfig(version=1)  # per-channel
+
+        quantize_(model_v1, config_v1)
+        output_v1 = model_v1(input_tensor)
+
+        # Apply v2 quantization (uses Int8Tensor)
+        config_v2 = Int8WeightOnlyConfig(version=2, granularity=PerRow())
+        quantize_(model_v2, config_v2)
+        output_v2 = model_v2(input_tensor)
+
+        # Compute SQNR for both versions
+        sqnr_v1 = compute_error(output_baseline, output_v1)
+        sqnr_v2 = compute_error(output_baseline, output_v2)
+
+        # Both should have good SQNR (>20)
+        self.assertGreater(sqnr_v1, 20, f"V1 SQNR too low: {sqnr_v1}")
+        self.assertGreater(sqnr_v2, 20, f"V2 SQNR too low: {sqnr_v2}")
+
+        weight_v1_dequant = model_v1.linear1.weight.dequantize()
+        weight_v2_dequant = model_v2.linear1.weight.dequantize()
+
+        torch.testing.assert_close(weight_v1_dequant, weight_v2_dequant, atol=0, rtol=0)
+
+        from torchao.dtypes import AffineQuantizedTensor
+        from torchao.quantization import Int8Tensor
+
+        self.assertIsInstance(
+            model_v1.linear1.weight,
+            AffineQuantizedTensor,
+            "V1 should use AffineQuantizedTensor",
+        )
+        self.assertIsInstance(
+            model_v2.linear1.weight, Int8Tensor, "V2 should use Int8Tensor"
+        )
+
 
 if __name__ == "__main__":
     common_utils.run_tests()
