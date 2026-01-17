@@ -46,10 +46,8 @@ class SmoothQuantObserver(torch.nn.Module):
             "calibrate observer first by running model on exemplar data"
         )
         inputs = [inp.to(self.device) for inp in self.inputs]
-        acc = torch.cat(inputs, dim=0)
-        # Reshape if needed: [batch, seq, features] -> [batch*seq, features]
-        if acc.ndim > 2:
-            acc = acc.view(-1, acc.shape[-1])
+        reshaped_inputs = [inp.view(-1, inp.shape[-1]) for inp in inputs]
+        acc = torch.cat(reshaped_inputs, dim=0)
 
         # Calculate per-channel max values
         x_abs_max = torch.max(torch.abs(acc), dim=0)[0]

@@ -57,10 +57,19 @@ class Int8Tensor(TorchAOBaseTensor):
     Non-Tensor Attributes:
         granularity: the granularity for quantization (e.g., PerRow(), PerTensor())
         act_quant_kwargs: flags for dynamic activation quantization
+
+    Optional Tensor Data Attributes:
+        act_pre_scale (Optional[Tensor]): Optional scale for activation
+            Tensor, if present, we'll multiply activation Tensor with
+            act_pre_scale before applying dynamic quantization to
+            activation or running quantized mm op
+            (used for SmoothQuant, AWQ, etc.)
+        act_scale (Optional[Tensor]): Optional scale for static
+            activation quantization
     """
 
     tensor_data_names = ["qdata", "scale"]
-    optional_tensor_data_names = ["act_scale"]
+    optional_tensor_data_names = ["act_scale", "act_pre_scale"]
     tensor_attribute_names = ["block_size", "dtype"]
     optional_tensor_attribute_names = [
         "act_quant_kwargs",
@@ -73,6 +82,7 @@ class Int8Tensor(TorchAOBaseTensor):
         block_size: List[int],
         dtype: torch.dtype,
         act_scale=None,
+        act_pre_scale: Optional[torch.Tensor] = None,
         act_quant_kwargs: Optional[QuantizeTensorToInt8Kwargs] = None,
     ):
         kwargs = {
@@ -89,6 +99,7 @@ class Int8Tensor(TorchAOBaseTensor):
         block_size: List[int],
         dtype: torch.dtype,
         act_scale=None,
+        act_pre_scale: Optional[torch.Tensor] = None,
         act_quant_kwargs: Optional[QuantizeTensorToInt8Kwargs] = None,
     ):
         super().__init__()
@@ -98,6 +109,7 @@ class Int8Tensor(TorchAOBaseTensor):
         # don't set dtype because this gets done in __new__
         self.act_quant_kwargs = act_quant_kwargs
         self.act_scale = act_scale
+        self.act_pre_scale = act_pre_scale
 
     def __repr__(self):
         return (
@@ -106,6 +118,7 @@ class Int8Tensor(TorchAOBaseTensor):
             f"qdata={self.qdata}, "
             f"scale={self.scale}, "
             f"act_scale={self.act_scale}, "
+            f"act_pre_scale={self.act_pre_scale}, "
             f"block_size={self.block_size}, "
             f"shape={self.shape}, "
             f"device={self.device}, "
@@ -119,8 +132,9 @@ class Int8Tensor(TorchAOBaseTensor):
         granularity: Granularity,
         mapping_type=MappingType.SYMMETRIC,
         scale: Optional[torch.Tensor] = None,
-        act_quant_kwargs: Optional[QuantizeTensorToInt8Kwargs] = None,
         act_scale: Optional[torch.Tensor] = None,
+        act_pre_scale: Optional[torch.Tensor] = None,
+        act_quant_kwargs: Optional[QuantizeTensorToInt8Kwargs] = None,
     ):
         """Create Int8Tensor from high-precision tensor"""
         block_size = get_block_size(hp_tensor.shape, granularity)
@@ -162,6 +176,7 @@ class Int8Tensor(TorchAOBaseTensor):
             hp_tensor.dtype,
             act_scale=act_scale,
             act_quant_kwargs=act_quant_kwargs,
+            act_pre_scale=act_pre_scale,
         )
 
     def dequantize(self, output_dtype: Optional[torch.dtype] = None) -> torch.Tensor:
@@ -197,6 +212,10 @@ def _(func, types, args, kwargs):
     )
 
     output_dtype = activation_tensor.dtype
+
+    # Apply act_pre_scale if present (for SmoothQuant, AWQ, etc.)
+    if weight_tensor.act_pre_scale is not None:
+        activation_tensor = activation_tensor * weight_tensor.act_pre_scale
 
     if weight_tensor.act_quant_kwargs is not None:
         activation_tensor = _choose_quant_func_and_quantize_tensor(
@@ -291,7 +310,9 @@ def _(func, types, args, kwargs):
             sliced_scale,
             block_size,
             self.dtype,
+            act_scale=self.act_scale,
             act_quant_kwargs=self.act_quant_kwargs,
+            act_pre_scale=self.act_pre_scale,
         ),
     )
 
@@ -311,6 +332,8 @@ def _(func, types, args, kwargs):
     is_pinned = args[0].qdata.is_pinned() and args[0].scale.is_pinned()
     if args[0].act_scale is not None:
         is_pinned = is_pinned and args[0].act_scale.is_pinned()
+    if args[0].act_pre_scale is not None:
+        is_pinned = is_pinned and args[0].act_pre_scale.is_pinned()
     return is_pinned
 
 
@@ -323,6 +346,10 @@ def _(func, types, args, kwargs):
     if args[0].act_scale is not None:
         pinned_act_scale = args[0].act_scale.pin_memory()
 
+    pinned_act_pre_scale = None
+    if args[0].act_pre_scale is not None:
+        pinned_act_pre_scale = args[0].act_pre_scale.pin_memory()
+
     return Int8Tensor(
         pinned_qdata,
         pinned_scale,
@@ -330,6 +357,7 @@ def _(func, types, args, kwargs):
         args[0].dtype,
         act_scale=pinned_act_scale,
         act_quant_kwargs=args[0].act_quant_kwargs,
+        act_pre_scale=pinned_act_pre_scale,
     )
 
 
@@ -349,7 +377,9 @@ def _(func, types, args, kwargs):
         old_int8_tensor.scale[index],
         old_int8_tensor.block_size[1:],
         old_int8_tensor.dtype,
-        old_int8_tensor.act_quant_kwargs,
+        act_scale=old_int8_tensor.act_scale,
+        act_quant_kwargs=old_int8_tensor.act_quant_kwargs,
+        act_pre_scale=old_int8_tensor.act_pre_scale,
     )
     return return_and_correct_aliasing(func, args, kwargs, new_int8_tensor)
 
