@@ -37,7 +37,8 @@ def _parse_version(version_string):
     Examples: "2.5.0.dev20240708+cu121" -> [2, 5, -1], "2.5.0" -> [2, 5, 0]
     """
     # Check for pre-release indicators
-    is_prerelease = bool(re.search(r"(git|dev)", version_string))
+    # Exclude rocm git hashes from being treated as pre-release
+    is_prerelease = bool(re.search(r"(git|dev)", version_string)) and not bool(re.search(r"\+rocm.*\.git", version_string))
     match = re.match(r"(\d+)\.(\d+)\.(\d+)", version_string)
     if match:
         major, minor, patch = map(int, match.groups())
