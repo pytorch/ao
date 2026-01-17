@@ -357,9 +357,11 @@ def _infer_fake_quantize_configs(
     # TODO: rewrite using registration API so we don't need to import here
     # avoid circular imports
     from torchao.prototype.mx_formats import (
+        MXDynamicActivationMXWeightConfig,
         NVFP4DynamicActivationNVFP4WeightConfig,
     )
     from torchao.prototype.qat import (
+        MXFakeQuantizeConfig,
         NVFP4FakeQuantizeConfig,
     )
     from torchao.quantization import (
@@ -450,6 +452,28 @@ def _infer_fake_quantize_configs(
             use_per_tensor_scale=base_config.use_dynamic_per_tensor_scale,
             use_swizzled_scales=True,
             use_triton_kernel=base_config.use_triton_kernel,
+        )
+    elif isinstance(base_config, MXDynamicActivationMXWeightConfig):
+        from torchao.prototype.mx_formats.config import ScaleCalculationMode
+        from torchao.quantization.quantize_.common.kernel_preference import (
+            KernelPreference,
+        )
+
+        # MXFakeQuantizeConfig supports all MX element dtypes (MXFP4, MXFP8, MXFP6)
+        # via the elem_dtype parameter
+        act_config = MXFakeQuantizeConfig(
+            elem_dtype=base_config.activation_dtype,
+            block_size=base_config.block_size,
+            scaling_mode=ScaleCalculationMode.FLOOR,
+            kernel_preference=KernelPreference.EMULATED,
+            is_swizzled_scales=False,
+        )
+        weight_config = MXFakeQuantizeConfig(
+            elem_dtype=base_config.weight_dtype,
+            block_size=base_config.block_size,
+            scaling_mode=ScaleCalculationMode.FLOOR,
+            kernel_preference=base_config.kernel_preference,
+            is_swizzled_scales=False,
         )
     elif isinstance(base_config, Int8DynamicActivationIntxWeightConfig):
         assert base_config.version >= 2, "Only version 2+ is supported"
