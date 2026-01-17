@@ -9,7 +9,6 @@ Quantization workflow APIs moved from `torch/quantization/quant_api.py`
 to prototype.
 """
 
-import copy
 import logging
 import types
 import warnings
@@ -37,7 +36,6 @@ from torchao.float8.inference import (
     FP8Granularity,
 )
 from torchao.quantization.granularity import (
-    PerRow,
     PerTensor,
 )
 from torchao.quantization.linear_activation_quantized_tensor import (
@@ -367,7 +365,9 @@ class Float8StaticActivationFloat8WeightConfig(AOBaseConfig):
             if isinstance(self.step, str):
                 self.step = self.step.lower()
             all_step_values = [s.value for s in Float8StaticStep]
-            if self.step not in all_step_values and self.step not in list(Float8StaticStep):
+            if self.step not in all_step_values and self.step not in list(
+                Float8StaticStep
+            ):
                 raise ValueError(f"{self.step} is not one of {all_step_values}")
 
 
@@ -391,7 +391,7 @@ class Float8ObservedLinear(torch.nn.Linear):
         self,
         in_features: int,
         out_features: int,
-        act_obs: "AffineQuantizedMinMaxObserver",
+        act_obs: "AffineQuantizedMinMaxObserver",  # noqa: F821
         bias: bool = True,
         device=None,
         dtype=None,
@@ -408,7 +408,7 @@ class Float8ObservedLinear(torch.nn.Linear):
     def from_float(
         cls,
         float_linear: torch.nn.Linear,
-        act_obs: "AffineQuantizedMinMaxObserver",
+        act_obs: "AffineQuantizedMinMaxObserver",  # noqa: F821
     ) -> "Float8ObservedLinear":
         """Create an observed linear from a float linear module."""
         observed_linear = cls(
