@@ -461,7 +461,7 @@ void launch_mx_block_rearrange_2d_M_groups_cuda(
     const int32_t* input_group_end_offsets,
     uint8_t* output_scales_ptr,
     int num_groups,
-    int chunk_width,    // Chunk width: 64 or 128
+    int chunk_width,
     int chunks_per_tb,  // Chunks per superblock: 4, 8, or 16
     cudaStream_t stream
 ) {
