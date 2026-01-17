@@ -89,11 +89,9 @@ class TestFloat8StaticActivation(TorchAOIntegrationTestCase):
         float8_input = _choose_quant_func_and_quantize_tensor(
             input_tensor, model_dynamic_quant.weight.act_quant_kwargs
         )
-        # Apply static quantization with the same scale using version 2
         static_config = Float8StaticActivationFloat8WeightConfig(
             act_quant_scale=float8_input.scale.detach().clone(),
             granularity=granularity,
-            version=2,
         )
         quantize_(model_static_quant, static_config)
 
@@ -143,11 +141,9 @@ class TestFloat8StaticActivation(TorchAOIntegrationTestCase):
             input_tensor, model_dynamic.weight.act_quant_kwargs
         )
 
-        # Now apply static quantization using version 2
         static_config = Float8StaticActivationFloat8WeightConfig(
             act_quant_scale=quantized_input.scale.detach().clone(),
             granularity=granularity,
-            version=2,
         )
         quantize_(linear, static_config)
 
@@ -232,7 +228,6 @@ class TestFloat8StaticActivation(TorchAOIntegrationTestCase):
         config = Float8StaticActivationFloat8WeightConfig(
             act_quant_scale=tmp_input_tensor.scale.detach().clone(),
             granularity=granularity,
-            version=2,
         )
         quantize_(quantized_model, config, filter_fn=_is_conv)
 
