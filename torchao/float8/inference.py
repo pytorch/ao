@@ -225,7 +225,13 @@ def _granularity_is_a_1_128_w_128_128(
         list[FP8Granularity],
     ],
 ) -> bool:
-    return len(g) == 2 and g[0] == PerBlock([1, 128]) and g[1] == PerBlock([128, 128])
+    # NOTE: PerBlock is a frozen dataclass that does not coerce the input type for
+    # `block_size`, so `PerBlock([1, 128]) != PerBlock((1, 128))`.
+    if not len(g) == 2:
+        return False
+    if not (isinstance(g[0], PerBlock) and isinstance(g[1], PerBlock)):
+        return False
+    return tuple(g[0].block_size) == (1, 128) and tuple(g[1].block_size) == (128, 128)
 
 
 def _normalize_granularity(
