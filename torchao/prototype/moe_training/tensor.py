@@ -16,7 +16,7 @@ from torch.distributed.device_mesh import DeviceMesh
 from torch.distributed.fsdp import MixedPrecisionPolicy
 
 from torchao.prototype.moe_training import _quantize_then_scaled_grouped_mm
-from torchao.prototype.moe_training.conversion_utils import MoEScalingType
+from torchao.prototype.moe_training.conversion_utils import ScaledGroupedMMRecipe
 
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -42,7 +42,7 @@ class ScaledGroupedMMTensor(torch.Tensor):
     differentiable _quantize_then_scaled_grouped_mm autograd function.
     """
 
-    scaling_type: MoEScalingType = MoEScalingType.FP8_ROWWISE
+    scaling_type: ScaledGroupedMMRecipe = ScaledGroupedMMRecipe.FP8_ROWWISE
     grouped_mm_func_name = "_grouped_mm"
     offs_arg_name = "offs"
 
@@ -50,7 +50,7 @@ class ScaledGroupedMMTensor(torch.Tensor):
     def __new__(
         cls,
         tensor: torch.Tensor,
-        scaling_type: MoEScalingType,
+        scaling_type: ScaledGroupedMMRecipe,
     ):
         self = torch.Tensor._make_wrapper_subclass(
             cls,
@@ -70,7 +70,7 @@ class ScaledGroupedMMTensor(torch.Tensor):
     def __init__(
         self,
         tensor: torch.Tensor,
-        scaling_type: MoEScalingType,
+        scaling_type: ScaledGroupedMMRecipe,
     ):
         self._data = tensor
         self.scaling_type = scaling_type
