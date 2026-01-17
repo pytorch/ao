@@ -86,7 +86,7 @@ def _test_mxfp8_mlp_tensor_parallelism(mesh: DeviceMesh, size=128):
 def _test_mxfp8_mlp_tensor_parallelism_dim1_triton(mesh: DeviceMesh, size=128):
     config = MXLinearConfig.from_recipe_name("mxfp8_emulated")
     config.block_size = 32
-    config.mxfp8_cast_kernel_choice = MXFP8Dim1CastKernelChoice.TRITON
+    config.mxfp8_dim1_cast_kernel_choice = MXFP8Dim1CastKernelChoice.TRITON
     _test_lowp_mlp_tensor_parallelism_base(
         mesh, config, size, compile=False, allgather_in_lowp=False
     )
@@ -100,7 +100,7 @@ def _test_mxfp8_mlp_tensor_parallelism_dim1_triton(mesh: DeviceMesh, size=128):
 def _test_mxfp8_mlp_tensor_parallelism_dim1_cuda(mesh: DeviceMesh, size=128):
     config = MXLinearConfig.from_recipe_name("mxfp8_emulated")
     config.block_size = 32
-    config.mxfp8_cast_kernel_choice = MXFP8Dim1CastKernelChoice.CUDA
+    config.mxfp8_dim1_cast_kernel_choice = MXFP8Dim1CastKernelChoice.CUDA
     _test_lowp_mlp_tensor_parallelism_base(
         mesh, config, size, compile=False, allgather_in_lowp=False
     )

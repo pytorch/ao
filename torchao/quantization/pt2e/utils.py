@@ -710,10 +710,13 @@ def fold_bn_weights_into_conv_node(
         conv_args.append(None)
 
     if fake_fuse:
-        fused_weight, fused_bias = (
-            torch.nn.Parameter(conv_w, conv_w.requires_grad),
-            torch.nn.Parameter(conv_b, conv_b.requires_grad),
-        )
+        fused_weight = torch.nn.Parameter(conv_w, conv_w.requires_grad)
+        if conv_b is not None:
+            fused_bias = torch.nn.Parameter(conv_b, conv_b.requires_grad)
+        else:
+            fused_bias = torch.nn.Parameter(
+                torch.zeros_like(bn_rm), requires_grad=conv_w.requires_grad
+            )
     else:
         fused_weight, fused_bias = fuse_conv_bn_weights(
             conv_w, conv_b, bn_rm, bn_rv, bn_eps, bn_w, bn_b, transpose=transpose
