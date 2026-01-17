@@ -29,7 +29,10 @@ from torch.utils._python_dispatch import (
 from torch.utils._pytree import tree_map
 
 import torchao.ops
-from torchao.prototype.mx_formats.config import ScaleCalculationMode
+from torchao.prototype.mx_formats.config import (
+    MXFP8Dim0CastKernelChoice,
+    ScaleCalculationMode,
+)
 from torchao.prototype.mx_formats.constants import (
     BLOCK_SIZE_DEFAULT,
     DTYPE_FP6_E2M3,
@@ -58,6 +61,7 @@ from torchao.prototype.mx_formats.kernels import (
     f32_to_f6_e2m3_unpacked,
     f32_to_f6_e3m2_unpacked,
     pack_uint4,
+    triton_to_mxfp8_dim0,
     unpack_uint4,
 )
 from torchao.prototype.mx_formats.utils import (
@@ -540,10 +544,31 @@ class MXTensor(TorchAOBaseTensor):
         kernel_preference: KernelPreference = KernelPreference.EMULATED,
         act_quant_kwargs: Optional[QuantizeTensorToMXKwargs] = None,
         is_swizzled_scales: bool = False,
+        mxfp8_dim0_cast_kernel_choice: MXFP8Dim0CastKernelChoice = MXFP8Dim0CastKernelChoice.TORCH,
     ):
-        scale_e8m0_biased, data_lp = to_mx(
-            data_hp, elem_dtype, block_size, scaling_mode, is_swizzled_scales
+        assert mxfp8_dim0_cast_kernel_choice in (
+            MXFP8Dim0CastKernelChoice.TRITON,
+            MXFP8Dim0CastKernelChoice.TORCH,
+        ), (
+            f"unsupported kernel choice for mxfp8_dim0_cast_kernel_choice: {mxfp8_dim0_cast_kernel_choice}"
         )
+
+        triton_kernel_supported = (
+            elem_dtype == torch.float8_e4m3fn and not is_swizzled_scales
+        )
+        if mxfp8_dim0_cast_kernel_choice == MXFP8Dim0CastKernelChoice.TRITON:
+            assert triton_kernel_supported, (
+                f"triton kernel unsupported for {data_hp.dtype=}, {elem_dtype=}, {scaling_mode=}, {is_swizzled_scales=}"
+            )
+            data_lp, scale_e8m0_biased = triton_to_mxfp8_dim0(
+                data_hp,
+                inner_block_size=block_size,
+                scaling_mode=scaling_mode.value,
+            )
+        else:
+            scale_e8m0_biased, data_lp = to_mx(
+                data_hp, elem_dtype, block_size, scaling_mode, is_swizzled_scales
+            )
         if isinstance(scale_e8m0_biased, DTensor):
             assert isinstance(data_lp, DTensor), "unsupported"
             local_scale_e8m0_biased = scale_e8m0_biased.to_local()

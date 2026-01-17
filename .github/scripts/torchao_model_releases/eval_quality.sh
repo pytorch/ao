@@ -1,12 +1,13 @@
+#!/bin/bash
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # All rights reserved.
 #
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
-#!/bin/bash
 set -e
-source eval_env_checks.sh
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/eval_env_checks.sh"
 check_lm_eval
 
 MODEL_ID_ARRAY=()
