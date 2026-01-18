@@ -4,7 +4,7 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import Callable, List, Optional
 
 import torch
 from torch.utils._python_dispatch import return_and_correct_aliasing
@@ -43,6 +43,7 @@ class QuantizeTensorToInt8Kwargs(QuantizeTensorKwargs):
     mapping_type: MappingType = MappingType.SYMMETRIC
 
 
+# TODO: scaled_int8_mm (Triton) to support PerTensor granularity
 class Int8Tensor(TorchAOBaseTensor):
     """
     int8 quantized tensor with plain layout.
@@ -56,6 +57,7 @@ class Int8Tensor(TorchAOBaseTensor):
     Non-Tensor Attributes:
         granularity: the granularity for quantization (e.g., PerRow(), PerTensor())
         act_quant_kwargs: flags for dynamic activation quantization
+        mm_config: Custom matmul kernel
     """
 
     tensor_data_names = ["qdata", "scale"]
@@ -63,6 +65,7 @@ class Int8Tensor(TorchAOBaseTensor):
     tensor_attribute_names = ["block_size", "dtype"]
     optional_tensor_attribute_names = [
         "act_quant_kwargs",
+        "mm_config",
     ]
 
     def __new__(
@@ -74,6 +77,7 @@ class Int8Tensor(TorchAOBaseTensor):
         act_quant_scale: Optional[torch.Tensor] = None,
         act_pre_scale: Optional[torch.Tensor] = None,
         act_quant_kwargs: Optional[QuantizeTensorToInt8Kwargs] = None,
+        mm_config: Optional[Callable] = None,
     ):
         kwargs = {
             "device": qdata.device,
@@ -91,6 +95,7 @@ class Int8Tensor(TorchAOBaseTensor):
         act_quant_scale: Optional[torch.Tensor] = None,
         act_pre_scale: Optional[torch.Tensor] = None,
         act_quant_kwargs: Optional[QuantizeTensorToInt8Kwargs] = None,
+        mm_config: Optional[Callable] = None,
     ):
         super().__init__()
         self.qdata = qdata
@@ -100,6 +105,7 @@ class Int8Tensor(TorchAOBaseTensor):
         self.act_quant_kwargs = act_quant_kwargs
         self.act_quant_scale = act_quant_scale
         self.act_pre_scale = act_pre_scale
+        self.mm_config = mm_config
 
     def __repr__(self):
         return (
@@ -110,6 +116,7 @@ class Int8Tensor(TorchAOBaseTensor):
             f"act_quant_scale={self.act_quant_scale}, "
             f"act_pre_scale={self.act_pre_scale}, "
             f"block_size={self.block_size}, "
+            f"mm_config={self.mm_config}, "
             f"shape={self.shape}, "
             f"device={self.device}, "
             f"dtype={self.dtype})"
@@ -125,6 +132,7 @@ class Int8Tensor(TorchAOBaseTensor):
         act_quant_kwargs: Optional[QuantizeTensorToInt8Kwargs] = None,
         act_quant_scale: Optional[torch.Tensor] = None,
         act_pre_scale: Optional[torch.Tensor] = None,
+        mm_config: Optional[Callable] = None,
     ):
         """Create Int8Tensor from high-precision tensor"""
         block_size = get_block_size(hp_tensor.shape, granularity)
@@ -169,6 +177,7 @@ class Int8Tensor(TorchAOBaseTensor):
             act_quant_scale=act_quant_scale,
             act_pre_scale=act_pre_scale,
             act_quant_kwargs=act_quant_kwargs,
+            mm_config=mm_config,
         )
 
     def dequantize(self, output_dtype: Optional[torch.dtype] = None) -> torch.Tensor:
@@ -233,16 +242,30 @@ def _(func, types, args, kwargs):
         w_scales = weight_tensor.scale
 
         tmp = x_vals_int8.reshape(-1, x_vals_int8.shape[-1])
-        # Cast FP16 scale to float to avoid overflow in int_scaled_matmul
-        intermediate_dtype = (
-            torch.float if x_scales.dtype == torch.half else x_scales.dtype
-        )
-        y_dot_scaled = int_scaled_matmul(
-            tmp, w_vals_int8_t, x_scales.reshape(-1, 1).to(intermediate_dtype)
-        ).to(output_dtype)
-        y = (y_dot_scaled * w_scales.flatten()).reshape(
-            *x_vals_int8.shape[:-1], y_dot_scaled.shape[-1]
-        )
+
+        if weight_tensor.mm_config == "pytorch":
+            # Cast FP16 scale to float to avoid overflow in int_scaled_matmul
+            intermediate_dtype = (
+                torch.float if x_scales.dtype == torch.half else x_scales.dtype
+            )
+            y_dot_scaled = int_scaled_matmul(
+                tmp, w_vals_int8_t, x_scales.reshape(-1, 1).to(intermediate_dtype)
+            ).to(output_dtype)
+            y = y_dot_scaled * w_scales.flatten()
+        elif weight_tensor.mm_config == "triton":
+            # Handles scaling directly
+            y = weight_tensor.mm_config(
+                tmp,
+                w_vals_int8_t,
+                x_scales.reshape(-1, 1),
+                w_scales.reshape(-1, 1) if w_scales.numel() > 1 else w_scales,
+            )
+        else:
+            raise ValueError(
+                f"Only pytorch and triton kernel supported, got {weight_tensor.mm_config}"
+            )
+
+        y = y.reshape(*x_vals_int8.shape[:-1], y.shape[-1])
 
     else:
         # FP × INT8 (weight-only)
@@ -304,8 +327,7 @@ def _(func, types, args, kwargs):
             block_size,
             self.dtype,
             act_quant_kwargs=self.act_quant_kwargs,
-            act_quant_scale=self.act_quant_scale,
-            act_pre_scale=self.act_pre_scale,
+            mm_config=self.mm_config,
         ),
     )
 
@@ -344,6 +366,7 @@ def _(func, types, args, kwargs):
         args[0].dtype,
         act_quant_scale=pinned_act_quant_scale,
         act_quant_kwargs=args[0].act_quant_kwargs,
+        mm_config=args[0].mm_config,
     )
 
 
@@ -363,9 +386,6 @@ def _(func, types, args, kwargs):
         old_int8_tensor.scale[index],
         old_int8_tensor.block_size[1:],
         old_int8_tensor.dtype,
-        old_int8_tensor.act_quant_scale,
-        old_int8_tensor.act_pre_scale,
-        old_int8_tensor.act_quant_kwargs,
     )
     return return_and_correct_aliasing(func, args, kwargs, new_int8_tensor)
 

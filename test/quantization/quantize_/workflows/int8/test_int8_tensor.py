@@ -250,6 +250,35 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
             weight_cpu.dequantize(), weight_pinned.dequantize(), atol=0, rtol=0
         )
 
+    @common_utils.parametrize("mm_config", ["pytorch", "triton"])
+    def test_mm_config(self, mm_config):
+        """Test that mm_config routing works correctly"""
+        M, K, N = 32, 64, 128
+
+        # Create model
+        model = torch.nn.Linear(K, N, bias=False, dtype=torch.bfloat16, device="cuda")
+        weight_ref = model.weight.clone()
+
+        # Quantize with mm_config
+        config = Int8DynamicActivationInt8WeightConfig(
+            version=2,
+            mm_config=mm_config,
+        )
+        quantize_(model, config)
+
+        # Run linear operation
+        input_tensor = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
+        output = model(input_tensor)
+
+        # Verify output shape and dtype
+        self.assertEqual(output.shape, (M, N))
+        self.assertEqual(output.dtype, torch.bfloat16)
+
+        # Verify correctness by comparing with reference
+        output_ref = torch.nn.functional.linear(input_tensor, weight_ref)
+        sqnr = compute_error(output_ref, output)
+        self.assertGreater(sqnr, 20, f"SQNR is too low: {sqnr} dB (expected > 20 dB)")
+
 
 @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
 @common_utils.instantiate_parametrized_tests
