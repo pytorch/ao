@@ -4,7 +4,7 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 from dataclasses import dataclass
-from typing import Callable, List, Optional
+from typing import List, Optional
 
 import torch
 from torch.utils._python_dispatch import return_and_correct_aliasing
@@ -57,7 +57,7 @@ class Int8Tensor(TorchAOBaseTensor):
     Non-Tensor Attributes:
         granularity: the granularity for quantization (e.g., PerRow(), PerTensor())
         act_quant_kwargs: flags for dynamic activation quantization
-        mm_config: Custom matmul kernel
+        mm_config: Matmul kernel to use - "pytorch" (default) or "triton"
     """
 
     tensor_data_names = ["qdata", "scale"]
@@ -77,7 +77,7 @@ class Int8Tensor(TorchAOBaseTensor):
         act_quant_scale: Optional[torch.Tensor] = None,
         act_pre_scale: Optional[torch.Tensor] = None,
         act_quant_kwargs: Optional[QuantizeTensorToInt8Kwargs] = None,
-        mm_config: Optional[Callable] = None,
+        mm_config: str = "pytorch",
     ):
         kwargs = {
             "device": qdata.device,
@@ -95,7 +95,7 @@ class Int8Tensor(TorchAOBaseTensor):
         act_quant_scale: Optional[torch.Tensor] = None,
         act_pre_scale: Optional[torch.Tensor] = None,
         act_quant_kwargs: Optional[QuantizeTensorToInt8Kwargs] = None,
-        mm_config: Optional[Callable] = None,
+        mm_config: str = "pytorch",
     ):
         super().__init__()
         self.qdata = qdata
@@ -132,7 +132,7 @@ class Int8Tensor(TorchAOBaseTensor):
         act_quant_kwargs: Optional[QuantizeTensorToInt8Kwargs] = None,
         act_quant_scale: Optional[torch.Tensor] = None,
         act_pre_scale: Optional[torch.Tensor] = None,
-        mm_config: Optional[Callable] = None,
+        mm_config: str = "pytorch",
     ):
         """Create Int8Tensor from high-precision tensor"""
         block_size = get_block_size(hp_tensor.shape, granularity)
@@ -243,8 +243,16 @@ def _(func, types, args, kwargs):
 
         tmp = x_vals_int8.reshape(-1, x_vals_int8.shape[-1])
 
-        if weight_tensor.mm_config == "pytorch":
-            # Cast FP16 scale to float to avoid overflow in int_scaled_matmul
+        if weight_tensor.mm_config == "triton":
+            # Triton kernel handles both row and col scaling directly
+            y = torch.ops.torchao.scaled_int8_mm(
+                tmp,
+                w_vals_int8_t,
+                x_scales.reshape(-1, 1),
+                w_scales.reshape(-1, 1) if w_scales.numel() > 1 else w_scales,
+            )
+        elif weight_tensor.mm_config == "pytorch":
+            # PyTorch kernel only applies row scaling, apply col scaling separately
             intermediate_dtype = (
                 torch.float if x_scales.dtype == torch.half else x_scales.dtype
             )
@@ -252,17 +260,9 @@ def _(func, types, args, kwargs):
                 tmp, w_vals_int8_t, x_scales.reshape(-1, 1).to(intermediate_dtype)
             ).to(output_dtype)
             y = y_dot_scaled * w_scales.flatten()
-        elif weight_tensor.mm_config == "triton":
-            # Handles scaling directly
-            y = weight_tensor.mm_config(
-                tmp,
-                w_vals_int8_t,
-                x_scales.reshape(-1, 1),
-                w_scales.reshape(-1, 1) if w_scales.numel() > 1 else w_scales,
-            )
         else:
             raise ValueError(
-                f"Only pytorch and triton kernel supported, got {weight_tensor.mm_config}"
+                f"Only 'pytorch' and 'triton' are supported for mm_config, got {weight_tensor.mm_config}"
             )
 
         y = y.reshape(*x_vals_int8.shape[:-1], y.shape[-1])
