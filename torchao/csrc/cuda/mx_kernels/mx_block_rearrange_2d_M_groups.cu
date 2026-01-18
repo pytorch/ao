@@ -26,6 +26,7 @@
 #include <cuda_runtime.h>
 #include <cudaTypedefs.h>
 #include "ptx.cuh"
+#include "profiler.h"
 
 // Overloaded error checking for both CUDA driver API (CUresult) and runtime API (cudaError_t)
 inline void cuda_check_impl(CUresult result, const char* file, int line) {
@@ -154,7 +155,7 @@ __device__ __forceinline__ int compute_output_group_start_row(
  * - 512 threads for CHUNK_WIDTH=64 (128 rows × 4 threads/row)
  * - 1024 threads for CHUNK_WIDTH=128 (128 rows × 8 threads/row)
  */
-template <int CHUNK_WIDTH, int CHUNKS_PER_TB>
+template <int CHUNK_WIDTH, int CHUNKS_PER_TB, bool DO_PROFILE = false>
 __global__ void mx_blocked_layout_2d_M_groups_kernel(
     const uint8_t* __restrict__ input_scales,
     const int input_scale_stride_dim0,
@@ -165,7 +166,9 @@ __global__ void mx_blocked_layout_2d_M_groups_kernel(
     uint8_t* __restrict__ output_scales,
     const int output_stride_per_row_of_sf_tiles,
     const int num_groups,
-    const __grid_constant__ CUtensorMap input_tensor_map
+    const __grid_constant__ CUtensorMap input_tensor_map,
+    int64_t* profiler_ptr = nullptr,
+    int num_profile_entries = 0
 ) {
     constexpr int output_stride_per_sf_tile = SF_ROWS * SF_COLS;  // 512 bytes per SF tile
     const int row_superblock_pid = blockIdx.y;
@@ -180,6 +183,15 @@ __global__ void mx_blocked_layout_2d_M_groups_kernel(
 
     __shared__ int smem_group_data[64]; // Max 32 groups: [0..31] = superblocks per group, [32..63] = cumsum
     __shared__ __align__(128) uint8_t smem_buffers[NUM_BUFFERS][CHUNK_SIZE_BYTES];
+
+    // Initialize profiler (per thread block)
+    Profiler profiler;
+    if constexpr (DO_PROFILE) {
+        if (is_master_thread) {
+            int bid = blockIdx.y * gridDim.x + blockIdx.x;
+            profiler.init(num_profile_entries, profiler_ptr, bid);
+        }
+    }
 
     // Find which group this superblock belongs to and compute offsets
     int group_idx;
@@ -251,6 +263,18 @@ __global__ void mx_blocked_layout_2d_M_groups_kernel(
             // Wait for pending TMA stores to finish reading the SMEM buffer we're about to re-use
             ptx::cp_async_bulk_wait_group_read<0>();
             __syncthreads();
+
+            // End ProcessAndStore profiling for the chunk that just finished
+            if constexpr (DO_PROFILE) {
+                if (is_master_thread) {
+                    profiler.stop(ProfilerTag::ProcessAndIssueTMAStore, chunk_idx - NUM_BUFFERS);
+                }
+            }
+        }
+
+        // Start profiling TMALoad (will span until wait completes)
+        if constexpr (DO_PROFILE) {
+            if (is_master_thread) profiler.start(ProfilerTag::TMALoad, chunk_idx);
         }
 
         uint64_t* mbar_ptr = &mbar[buf_idx];
@@ -284,6 +308,16 @@ __global__ void mx_blocked_layout_2d_M_groups_kernel(
         uint64_t* mbar_ptr = &mbar[buf_idx];
         ptx::mbarrier_wait_parity(mbar_ptr, buf_parity[buf_idx]);
         buf_parity[buf_idx] ^= 1;
+
+        // End TMALoad profiling (started in load_chunk, ends after wait completes)
+        if constexpr (DO_PROFILE) {
+            if (is_master_thread) profiler.stop(ProfilerTag::TMALoad, chunk_idx);
+        }
+
+        // Start profiling ProcessAndIssueTMAStore
+        if constexpr (DO_PROFILE) {
+            if (is_master_thread) profiler.start(ProfilerTag::ProcessAndIssueTMAStore, chunk_idx);
+        }
 
         // Fence to ensure TMA-written data is visible to all threads
         ptx::fence_proxy_async_shared_cta();
@@ -355,6 +389,7 @@ __global__ void mx_blocked_layout_2d_M_groups_kernel(
             }
             ptx::cp_async_bulk_commit_group();
         }
+        // Note: ProcessAndStore profiling is ended in load_chunk after the stores complete
     };
 
     // --- Main processing loop for superblock ---
@@ -386,9 +421,28 @@ __global__ void mx_blocked_layout_2d_M_groups_kernel(
 
     // Wait for all pending TMA stores to complete before exiting
     ptx::cp_async_bulk_wait_group();
+    
+    // End ProcessAndStore profiling for all remaining chunks
+    // The last NUM_BUFFERS chunks have ProcessAndStore events that haven't been stopped yet
+    if constexpr (DO_PROFILE) {
+        if (is_master_thread) {
+            // Stop ProcessAndStore for the last NUM_BUFFERS chunks
+            for (int i = 0; i < NUM_BUFFERS; i++) {
+                int chunk_to_stop = chunks_to_process - NUM_BUFFERS + i;
+                if (chunk_to_stop >= 0) {
+                    profiler.stop(ProfilerTag::ProcessAndIssueTMAStore, chunk_to_stop);
+                }
+            }
+        }
+    }
 
     // Clean up barriers
     destroy_barriers<NUM_BUFFERS>(mbar, is_master_thread);
+
+    // Flush profiler data
+    if constexpr (DO_PROFILE) {
+        if (is_master_thread) profiler.flush();
+    }
 }
 
 // Reference: https://docs.nvidia.com/cuda/cuda-c-programming-guide/#using-tma-to-transfer-multi-dimensional-arrays
@@ -440,7 +494,9 @@ void launch_mx_block_rearrange_2d_M_groups_cuda(
     int num_groups,
     int chunk_width,    // Chunk width: 64 or 128
     int chunks_per_tb,  // Chunks per superblock: 4, 8, or 16
-    cudaStream_t stream
+    cudaStream_t stream,
+    int64_t* profiler_ptr = nullptr,
+    int num_profile_entries = 0
 ) {
     // Calculate grid dimensions
     int rows_per_superblock = SF_ROWS * chunks_per_tb;
@@ -468,38 +524,30 @@ void launch_mx_block_rearrange_2d_M_groups_cuda(
     );
 
     dim3 grid(num_col_chunks, num_row_superblocks);
+    bool do_profile = (profiler_ptr != nullptr);
+
+#define LAUNCH_KERNEL(CHUNK_WIDTH, CHUNKS_PER_TB) \
+    if (do_profile) { \
+        mx_blocked_layout_2d_M_groups_kernel<CHUNK_WIDTH, CHUNKS_PER_TB, true><<<grid, block, 0, stream>>>( \
+            scales_ptr, scale_stride_dim0, scale_rows, scale_cols, padded_rows, \
+            input_group_end_offsets, output_scales_ptr, \
+            output_stride_per_row_of_sf_tiles, \
+            num_groups, input_tensor_map, profiler_ptr, num_profile_entries); \
+    } else { \
+        mx_blocked_layout_2d_M_groups_kernel<CHUNK_WIDTH, CHUNKS_PER_TB, false><<<grid, block, 0, stream>>>( \
+            scales_ptr, scale_stride_dim0, scale_rows, scale_cols, padded_rows, \
+            input_group_end_offsets, output_scales_ptr, \
+            output_stride_per_row_of_sf_tiles, \
+            num_groups, input_tensor_map); \
+    }
 
     if (chunk_width == 64) {
         dim3 block(512);  // 128 rows × 4 threads/row
         switch (chunks_per_tb) {
-            case 1:
-                mx_blocked_layout_2d_M_groups_kernel<64, 1><<<grid, block, 0, stream>>>(
-                    scales_ptr, scale_stride_dim0, scale_rows, scale_cols, padded_rows,
-                    input_group_end_offsets, output_scales_ptr,
-                    output_stride_per_row_of_sf_tiles,
-                    num_groups, input_tensor_map);
-                break;
-            case 4:
-                mx_blocked_layout_2d_M_groups_kernel<64, 4><<<grid, block, 0, stream>>>(
-                    scales_ptr, scale_stride_dim0, scale_rows, scale_cols, padded_rows,
-                    input_group_end_offsets, output_scales_ptr,
-                    output_stride_per_row_of_sf_tiles,
-                    num_groups, input_tensor_map);
-                break;
-            case 8:
-                mx_blocked_layout_2d_M_groups_kernel<64, 8><<<grid, block, 0, stream>>>(
-                    scales_ptr, scale_stride_dim0, scale_rows, scale_cols, padded_rows,
-                    input_group_end_offsets, output_scales_ptr,
-                    output_stride_per_row_of_sf_tiles,
-                    num_groups, input_tensor_map);
-                break;
-            case 16:
-                mx_blocked_layout_2d_M_groups_kernel<64, 16><<<grid, block, 0, stream>>>(
-                    scales_ptr, scale_stride_dim0, scale_rows, scale_cols, padded_rows,
-                    input_group_end_offsets, output_scales_ptr,
-                    output_stride_per_row_of_sf_tiles,
-                    num_groups, input_tensor_map);
-                break;
+            case 1:  LAUNCH_KERNEL(64, 1);  break;
+            case 4:  LAUNCH_KERNEL(64, 4);  break;
+            case 8:  LAUNCH_KERNEL(64, 8);  break;
+            case 16: LAUNCH_KERNEL(64, 16); break;
             default:
                 printf("CUDA Error: chunks_per_tb must be 1, 4, 8, or 16, got %d\n", chunks_per_tb);
                 return;
@@ -507,34 +555,10 @@ void launch_mx_block_rearrange_2d_M_groups_cuda(
     } else if (chunk_width == 128) {
         dim3 block(1024);  // 128 rows × 8 threads/row
         switch (chunks_per_tb) {
-            case 1:
-                mx_blocked_layout_2d_M_groups_kernel<128, 1><<<grid, block, 0, stream>>>(
-                    scales_ptr, scale_stride_dim0, scale_rows, scale_cols, padded_rows,
-                    input_group_end_offsets, output_scales_ptr,
-                    output_stride_per_row_of_sf_tiles,
-                    num_groups, input_tensor_map);
-                break;
-            case 4:
-                mx_blocked_layout_2d_M_groups_kernel<128, 4><<<grid, block, 0, stream>>>(
-                    scales_ptr, scale_stride_dim0, scale_rows, scale_cols, padded_rows,
-                    input_group_end_offsets, output_scales_ptr,
-                    output_stride_per_row_of_sf_tiles,
-                    num_groups, input_tensor_map);
-                break;
-            case 8:
-                mx_blocked_layout_2d_M_groups_kernel<128, 8><<<grid, block, 0, stream>>>(
-                    scales_ptr, scale_stride_dim0, scale_rows, scale_cols, padded_rows,
-                    input_group_end_offsets, output_scales_ptr,
-                    output_stride_per_row_of_sf_tiles,
-                    num_groups, input_tensor_map);
-                break;
-            case 16:
-                mx_blocked_layout_2d_M_groups_kernel<128, 16><<<grid, block, 0, stream>>>(
-                    scales_ptr, scale_stride_dim0, scale_rows, scale_cols, padded_rows,
-                    input_group_end_offsets, output_scales_ptr,
-                    output_stride_per_row_of_sf_tiles,
-                    num_groups, input_tensor_map);
-                break;
+            case 1:  LAUNCH_KERNEL(128, 1);  break;
+            case 4:  LAUNCH_KERNEL(128, 4);  break;
+            case 8:  LAUNCH_KERNEL(128, 8);  break;
+            case 16: LAUNCH_KERNEL(128, 16); break;
             default:
                 printf("CUDA Error: chunks_per_tb must be 1, 4, 8, or 16, got %d\n", chunks_per_tb);
                 return;
@@ -543,6 +567,8 @@ void launch_mx_block_rearrange_2d_M_groups_cuda(
         printf("CUDA Error: chunk_width must be 64 or 128, got %d\n", chunk_width);
         return;
     }
+
+#undef LAUNCH_KERNEL
 }
 
 } // namespace mxfp8
