@@ -76,9 +76,6 @@ if torch.cuda.is_available():
 elif torch.xpu.is_available():
     # XPU: Use plain_int32 packing
     config = Int4WeightOnlyConfig(group_size=32, int4_packing_format="plain_int32")
-else:
-    # CPU: Use opaque packing
-    config = Int4WeightOnlyConfig(group_size=32, int4_packing_format="opaque")
 
 quantize_(model, config)
 ```
