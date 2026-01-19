@@ -107,9 +107,6 @@ if torch.cuda.is_available():
 elif torch.xpu.is_available():
   # quantize on XPU
   quantize_(model, Int4WeightOnlyConfig(group_size=32, int4_packing_format="plain_int32"))
-else:
-  # quantize on CPU
-  quantize_(model, Int4WeightOnlyConfig(group_size=32, int4_packing_format="opaque"))
 
 ```
 See our [quick start guide](https://docs.pytorch.org/ao/stable/quick_start.html) for more details.
