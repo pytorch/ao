@@ -7,6 +7,7 @@
 
 # mypy: allow-untyped-defs
 import copy
+from collections.abc import Sequence
 from dataclasses import asdict
 from typing import Any, Optional, Union
 
@@ -542,12 +543,18 @@ def _maybe_insert_input_observers_for_node(
         new_args.append(new_arg)
 
     # Check that no kwargs are Tensors. Otherwise they silently go unquantized.
-    disallowed_kwarg_types = (torch.fx.Node,)
-    for kwarg in node.kwargs:
-        if isinstance(node.kwargs[kwarg], disallowed_kwarg_types):
+    def _validate_kwarg(name: str, val):
+        disallowed_kwarg_types = (torch.fx.Node,)
+        if isinstance(val, disallowed_kwarg_types):
             raise AssertionError(
-                f"Quantizing kwarg '{kwarg}' with type {type(node.kwargs[kwarg])} is not supported."
+                f"Kwarg '{name}' contained type {type(val)} which is not supported for annotation."
             )
+        if isinstance(val, Sequence):
+            for contained in val:
+                _validate_kwarg(name, contained)
+
+    for kwarg in node.kwargs:
+        _validate_kwarg(kwarg, node.kwargs[kwarg])
 
     # assign the new args to the node, inplace
     node.args = tuple(new_args)
