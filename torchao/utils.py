@@ -8,11 +8,10 @@ import importlib
 import itertools
 import re
 import time
-import warnings
 from functools import reduce
 from importlib.metadata import version
 from math import gcd
-from typing import Any, Callable, Optional, Type
+from typing import Any, Callable, Optional
 
 import torch
 import torch.nn.utils.parametrize as parametrize
@@ -112,6 +111,21 @@ def benchmark_model(model, num_runs, args=(), kwargs=None, device_type=None):
         torch.cpu.synchronize()
         average_time_per_run = (end_time - start_time) / num_runs
         return average_time_per_run
+
+    elif device_type == "xpu":
+        torch.xpu.synchronize()
+        start_event = torch.xpu.Event(enable_timing=True)
+        end_event = torch.xpu.Event(enable_timing=True)
+        start_event.record()
+
+        # benchmark
+        for _ in range(num_runs):
+            with torch.autograd.profiler.record_function("timed region"):
+                model(*args, **kwargs)
+
+        end_event.record()
+        torch.xpu.synchronize()
+        return start_event.elapsed_time(end_event) / num_runs
 
 
 def profiler_runner(path, fn, *args, **kwargs):
@@ -374,25 +388,6 @@ def torch_version_at_least(min_version):
 
     # Parser for local identifiers
     return parse_version(torch.__version__) >= parse_version(min_version)
-
-
-class _ConfigDeprecationWrapper:
-    """
-    A deprecation wrapper that directs users from a deprecated "config function"
-    (e.g. `int4_weight_only`) to the replacement config class.
-    """
-
-    def __init__(self, deprecated_name: str, config_cls: Type):
-        self.deprecated_name = deprecated_name
-        self.config_cls = config_cls
-
-    def __call__(self, *args, **kwargs):
-        warnings.warn(
-            f"`{self.deprecated_name}` is deprecated and will be removed in a future release. "
-            f"Please use `{self.config_cls.__name__}` instead. Example usage:\n"
-            f"    quantize_(model, {self.config_cls.__name__}(...))"
-        )
-        return self.config_cls(*args, **kwargs)
 
 
 """
@@ -1126,6 +1121,10 @@ def ceil_div(a, b):
     return (a + b - 1) // b
 
 
+def round_up(a: int, b: int) -> int:
+    return ceil_div(a, b) * b
+
+
 def is_package_at_least(package_name: str, min_version: str):
     package_exists = importlib.util.find_spec(package_name) is not None
     if not package_exists:
@@ -1149,6 +1148,13 @@ def _is_fbgemm_gpu_genai_available():
         return False
 
     return True
+
+
+def _is_mslk_available():
+    if is_fbcode():
+        return True
+
+    return importlib.util.find_spec("mslk") is not None
 
 
 class DummyModule(torch.nn.Module):

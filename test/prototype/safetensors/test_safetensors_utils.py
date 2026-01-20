@@ -13,13 +13,19 @@ from torchao.prototype.safetensors.safetensors_support import flatten_tensor_sta
 from torchao.prototype.safetensors.safetensors_utils import is_metadata_torchao
 from torchao.quantization.granularity import PerRow
 from torchao.quantization.quant_api import Float8DynamicActivationFloat8WeightConfig
-from torchao.utils import (
-    is_sm_at_least_89,
+from torchao.utils import get_available_devices, is_sm_at_least_89
+
+_DEVICES = get_available_devices()
+_DEVICE = _DEVICES[-1]
+
+
+@unittest.skipIf(
+    not torch.cuda.is_available() and not torch.xpu.is_available(),
+    "Need CUDA or XPU available",
 )
-
-
-@unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
-@unittest.skipIf(not is_sm_at_least_89(), "Need sm89+")
+@unittest.skipIf(
+    torch.cuda.is_available() and not is_sm_at_least_89(), "Need sm89+ for CUDA"
+)
 class TestSafeTensorsUtils(TestCase):
     @parametrize(
         "metadata",
@@ -58,7 +64,7 @@ class TestSafeTensorsUtils(TestCase):
     def test_metadata_torchao(self):
         config = Float8DynamicActivationFloat8WeightConfig(granularity=PerRow())
         model = torch.nn.Sequential(
-            torch.nn.Linear(32, 256, dtype=torch.bfloat16, device="cuda")
+            torch.nn.Linear(32, 256, dtype=torch.bfloat16, device=_DEVICE)
         )
         quantize_(model, config)
         _, metadata = flatten_tensor_state_dict(model.state_dict())

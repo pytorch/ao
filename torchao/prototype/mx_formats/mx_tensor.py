@@ -29,7 +29,10 @@ from torch.utils._python_dispatch import (
 from torch.utils._pytree import tree_map
 
 import torchao.ops
-from torchao.prototype.mx_formats.config import ScaleCalculationMode
+from torchao.prototype.mx_formats.config import (
+    MXFP8Dim0CastKernelChoice,
+    ScaleCalculationMode,
+)
 from torchao.prototype.mx_formats.constants import (
     BLOCK_SIZE_DEFAULT,
     DTYPE_FP6_E2M3,
@@ -58,6 +61,7 @@ from torchao.prototype.mx_formats.kernels import (
     f32_to_f6_e2m3_unpacked,
     f32_to_f6_e3m2_unpacked,
     pack_uint4,
+    triton_to_mxfp8_dim0,
     unpack_uint4,
 )
 from torchao.prototype.mx_formats.utils import (
@@ -540,10 +544,31 @@ class MXTensor(TorchAOBaseTensor):
         kernel_preference: KernelPreference = KernelPreference.EMULATED,
         act_quant_kwargs: Optional[QuantizeTensorToMXKwargs] = None,
         is_swizzled_scales: bool = False,
+        mxfp8_dim0_cast_kernel_choice: MXFP8Dim0CastKernelChoice = MXFP8Dim0CastKernelChoice.TORCH,
     ):
-        scale_e8m0_biased, data_lp = to_mx(
-            data_hp, elem_dtype, block_size, scaling_mode, is_swizzled_scales
+        assert mxfp8_dim0_cast_kernel_choice in (
+            MXFP8Dim0CastKernelChoice.TRITON,
+            MXFP8Dim0CastKernelChoice.TORCH,
+        ), (
+            f"unsupported kernel choice for mxfp8_dim0_cast_kernel_choice: {mxfp8_dim0_cast_kernel_choice}"
         )
+
+        triton_kernel_supported = (
+            elem_dtype == torch.float8_e4m3fn and not is_swizzled_scales
+        )
+        if mxfp8_dim0_cast_kernel_choice == MXFP8Dim0CastKernelChoice.TRITON:
+            assert triton_kernel_supported, (
+                f"triton kernel unsupported for {data_hp.dtype=}, {elem_dtype=}, {scaling_mode=}, {is_swizzled_scales=}"
+            )
+            data_lp, scale_e8m0_biased = triton_to_mxfp8_dim0(
+                data_hp,
+                inner_block_size=block_size,
+                scaling_mode=scaling_mode.value,
+            )
+        else:
+            scale_e8m0_biased, data_lp = to_mx(
+                data_hp, elem_dtype, block_size, scaling_mode, is_swizzled_scales
+            )
         if isinstance(scale_e8m0_biased, DTensor):
             assert isinstance(data_lp, DTensor), "unsupported"
             local_scale_e8m0_biased = scale_e8m0_biased.to_local()
@@ -842,3 +867,82 @@ def mx_select(func, types, args, kwargs):
         old_mx_tensor._is_swizzled_scales,
     )
     return return_and_correct_aliasing(func, args, kwargs, new_mx_tensor)
+
+
+@implements([torch.ops._c10d_functional.all_gather_into_tensor.default])
+def mx_all_gather(func, types, args, kwargs):
+    """
+    All-gather for MXTensor
+
+    Args:
+        func: The operation (all_gather_into_tensor)
+        types: Tensor types involved
+        args: (mx_tensor, group_tag, ...)
+        kwargs: Additional arguments
+    """
+    mx_tensor = args[0]
+    group_tag = args[1] if len(args) > 1 else "default"
+
+    # TODO: Add support for concat CC as a future optimization
+
+    # Gather both data and scale
+    gathered_qdata = torch.ops._c10d_functional.all_gather_into_tensor.default(
+        mx_tensor.qdata,  # The quantized data
+        group_tag,
+        *args[2:],
+        **kwargs,
+    )
+
+    gathered_scale = torch.ops._c10d_functional.all_gather_into_tensor.default(
+        mx_tensor.scale.view(
+            torch.uint8
+        ),  # The scale factors, Need to cast to uint8 as float8_e8m0fnu is not support for all gather.
+        group_tag,
+        *args[2:],
+        **kwargs,
+    )
+
+    gathered_scale = gathered_scale.view(torch.float8_e8m0fnu)
+
+    # Return new MXTensor with gathered data
+    return MXTensor(
+        gathered_qdata,
+        gathered_scale,
+        mx_tensor._elem_dtype,
+        mx_tensor.block_size,
+        mx_tensor._orig_dtype,
+        mx_tensor.kernel_preference,
+        mx_tensor.act_quant_kwargs,
+        mx_tensor._is_swizzled_scales,
+    )
+
+
+@implements([torch.ops._c10d_functional.wait_tensor.default])
+def mx_wait_tensor(func, types, args, kwargs):
+    """
+    Wait for async collective to complete on MXTensor
+
+    This is called after collectives like all_gather to ensure
+    the operation has completed before using the tensor.
+    """
+    mx_tensor = args[0]
+
+    # Wait on both components
+    waited_qdata = torch.ops._c10d_functional.wait_tensor.default(
+        mx_tensor.qdata, *args[1:], **kwargs
+    )
+
+    waited_scale = torch.ops._c10d_functional.wait_tensor.default(
+        mx_tensor.scale, *args[1:], **kwargs
+    )
+
+    return MXTensor(
+        waited_qdata,
+        waited_scale,
+        mx_tensor._elem_dtype,
+        mx_tensor.block_size,
+        mx_tensor._orig_dtype,
+        mx_tensor.kernel_preference,
+        mx_tensor.act_quant_kwargs,
+        mx_tensor._is_swizzled_scales,
+    )

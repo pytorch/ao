@@ -227,6 +227,29 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
             "extern_kernels._int_mm", 1
         ).check_count("triton_poi_fused", 1).run(code[0])
 
+    @common_utils.parametrize("config", INT8_TEST_CONFIGS)
+    def test_pin_memory(self, config):
+        linear = torch.nn.Linear(
+            256, 512, bias=False, dtype=torch.bfloat16, device="cuda"
+        )
+        quantize_(linear, config)
+        weight_cpu = linear.weight.cpu()
+        self.assertFalse(weight_cpu.is_pinned())
+
+        weight_pinned = weight_cpu.pin_memory()
+
+        self.assertTrue(weight_pinned.is_pinned())
+        self.assertFalse(weight_cpu.is_pinned())
+
+        self.assertTrue(weight_pinned.qdata.is_pinned())
+        self.assertTrue(weight_pinned.scale.is_pinned())
+        if weight_pinned.act_scale is not None:
+            self.assertTrue(weight_pinned.act_scale.is_pinned())
+
+        self.assertEqual(
+            weight_cpu.dequantize(), weight_pinned.dequantize(), atol=0, rtol=0
+        )
+
 
 @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
 @common_utils.instantiate_parametrized_tests
@@ -366,6 +389,33 @@ class TestInt8StaticQuant(TorchAOIntegrationTestCase):
         # Verify reasonable quantization error
         error = compute_error(output_ref, output_quantized)
         self.assertGreater(error, 15, f"Quantization SQNR too low: {error}")
+    
+    @common_utils.parametrize("dtype", [torch.bfloat16])
+    def test_int8_weight_only_v2_correct_eps(self, dtype):
+        """
+        Ensure that v2 of Int8WeightOnlyConfig uses the correct eps value.
+        This test will fail if we use bfloat16 eps
+        """
+        torch.manual_seed(42)
+
+        # Create test model
+        model = ToyTwoLinearModel(256, 128, 256, dtype=dtype, device="cuda").eval()
+        model_baseline = copy.deepcopy(model)
+
+        # Create input
+        input_tensor = torch.randn(32, 256, dtype=dtype, device="cuda")
+
+        # Get baseline output
+        output_baseline = model_baseline(input_tensor)
+
+        # Apply Int8WeightOnlyConfig quantization (uses Int8Tensor)
+        config = Int8WeightOnlyConfig(version=2, granularity=PerRow())
+        quantize_(model, config)
+        output = model(input_tensor)
+
+        # Compute SQNR and make sure it's above 40
+        sqnr = compute_error(output_baseline, output)
+        self.assertGreater(sqnr, 40, f"SQNR too low: {sqnr}")
 
 
 if __name__ == "__main__":

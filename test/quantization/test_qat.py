@@ -96,6 +96,7 @@ from torchao.quantization.utils import (
     get_groupwise_affine_qparams,
     groupwise_affine_quantize_tensor,
 )
+from torchao.testing.utils import skip_if_xpu
 from torchao.utils import (
     _is_fbgemm_gpu_genai_available,
     get_current_accelerator_device,
@@ -695,10 +696,7 @@ class TestQAT(TestCase):
         self._test_qat_quantized_gradients(quantizer)
 
     @unittest.skipIf(_DEVICE is None, "skipping when GPU is not available")
-    @unittest.skipIf(
-        _DEVICE is torch.device("xpu"),
-        "skipped due to https://github.com/intel/torch-xpu-ops/issues/1770",
-    )
+    @skip_if_xpu("skipped due to https://github.com/intel/torch-xpu-ops/issues/1770")
     def test_qat_4w_quantizer(self):
         from torchao.quantization.GPTQ import Int4WeightOnlyQuantizer
         from torchao.quantization.qat import Int4WeightOnlyQATQuantizer
@@ -2015,6 +2013,7 @@ class TestQAT(TestCase):
         )
 
     @unittest.skipIf(_DEVICE is None, "skipping when GPU is not available")
+    @skip_if_xpu("XPU enablement in progress")
     @parametrize(
         "weight_dtype, granularity, dtype, module_type",
         [
@@ -2064,14 +2063,6 @@ class TestQAT(TestCase):
         from torchao.quantization.qat.fake_quantize_config import (
             _infer_fake_quantize_configs,
         )
-
-        base_config = Int4WeightOnlyConfig(version=1)
-        (act_config, weight_config) = _infer_fake_quantize_configs(base_config)
-        self.assertIsNone(act_config)
-        self.assertIsInstance(weight_config, IntxFakeQuantizeConfig)
-        self.assertEqual(weight_config.dtype, torch.uint4)
-        self.assertEqual(weight_config.group_size, 128)
-        self.assertFalse(weight_config.is_symmetric)
 
         base_config = Int4WeightOnlyConfig(version=2)
         (act_config, weight_config) = _infer_fake_quantize_configs(base_config)
@@ -2148,6 +2139,76 @@ class TestQAT(TestCase):
         out = m(*x)
         sqnr = compute_error(out, baseline_out).item()
         self.assertGreaterEqual(sqnr, float("inf"))
+
+    @unittest.skipIf(not is_sm_at_least_89(), "Need sm89+")
+    @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
+    @parametrize("use_per_tensor_scale", [True, False])
+    def test_qat_nvfp4_training(self, use_per_tensor_scale: bool):
+        from torchao.prototype.mx_formats import NVFP4DynamicActivationNVFP4WeightConfig
+
+        torch.manual_seed(self.SEED)
+        m = M().cuda()
+        base_config = NVFP4DynamicActivationNVFP4WeightConfig(
+            use_dynamic_per_tensor_scale=use_per_tensor_scale
+        )
+        quantize_(m, QATConfig(base_config, step="prepare"))
+
+        # Simulate training
+        num_steps = 10
+        optimizer = torch.optim.SGD(
+            m.parameters(), lr=0.001, momentum=0.9, weight_decay=1e-5
+        )
+        loss_fn = torch.nn.CrossEntropyLoss()
+        for i in range(num_steps):
+            example_inputs = m.example_inputs("cuda")
+            prev_weight = copy.deepcopy(m.linear1.weight)
+            optimizer.zero_grad()
+            target = torch.randn(1, 512).float().cuda()
+            out = m(*example_inputs)
+            loss = loss_fn(out, target)
+            loss.backward()
+            optimizer.step()
+            # Assert that weights have valid gradients and are being updated
+            new_weight = m.linear1.weight
+            self.assertIsNotNone(new_weight.grad)
+            self.assertNotEqual(torch.count_nonzero(new_weight.grad), 0)
+            self.assertFalse(torch.equal(new_weight, prev_weight))
+
+    @unittest.skipIf(not is_sm_at_least_89(), "Need sm89+")
+    @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
+    def test_nvfp4_fake_quanitzed_linear_mixed_precision(self):
+        """
+        Test `NVFP4FakeQuantizedLinear` with bf16 input activations and fp32 weights.
+        """
+        from torchao.prototype.qat.nvfp4 import (
+            NVFP4FakeQuantizeConfig,
+            NVFP4FakeQuantizedLinear,
+        )
+
+        activation_dtype = torch.bfloat16
+        weight_dtype = torch.float32
+        linear = torch.nn.Linear(128, 512, dtype=weight_dtype).cuda()
+        activation_config = NVFP4FakeQuantizeConfig(use_per_tensor_scale=True)
+        weight_config = NVFP4FakeQuantizeConfig(use_per_tensor_scale=True)
+        linear = NVFP4FakeQuantizedLinear.from_linear(
+            linear, activation_config, weight_config
+        )
+
+        # simulate 1 step of training
+        optimizer = torch.optim.SGD(linear.parameters())
+        loss_fn = torch.nn.CrossEntropyLoss()
+        target = torch.randn(1, 512).float().cuda()
+        x = torch.randn(1, 128, dtype=activation_dtype).cuda()
+        with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+            out = linear(x)
+            self.assertEqual(linear.weight.dtype, weight_dtype)
+            self.assertEqual(x.dtype, activation_dtype)
+            self.assertEqual(out.dtype, activation_dtype)
+        loss = loss_fn(out, target)
+        loss.backward()
+        self.assertEqual(linear.weight.grad.dtype, weight_dtype)
+        optimizer.step()
+        optimizer.zero_grad()
 
     @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
     @unittest.skipIf(
