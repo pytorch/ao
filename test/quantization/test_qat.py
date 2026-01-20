@@ -102,6 +102,7 @@ from torchao.utils import (
     get_current_accelerator_device,
     is_fbcode,
     is_sm_at_least_89,
+    torch_version_at_least,
 )
 
 # TODO: put this in a common test utils file
@@ -2448,14 +2449,11 @@ class TestQAT(TestCase):
             torch.testing.assert_close(m.linear2.weight.scale, scale2)
             torch.testing.assert_close(m.sub.linear.weight.scale, sub_scale)
 
+    @unittest.skipIf(not torch_version_at_least("2.8.0"), "Need pytorch 2.8+")
     @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
     def test_mx_fake_quantize_config(self):
         """Test MXFakeQuantizeConfig dataclass with various element dtypes."""
         from torchao.prototype.mx_formats.config import ScaleCalculationMode
-        from torchao.prototype.mx_formats.constants import (
-            DTYPE_FP6_E2M3,
-            DTYPE_FP6_E3M2,
-        )
         from torchao.prototype.qat import MXFakeQuantizeConfig
         from torchao.quantization.quantize_.common.kernel_preference import (
             KernelPreference,
@@ -2467,11 +2465,11 @@ class TestQAT(TestCase):
         self.assertEqual(config.scaling_mode, ScaleCalculationMode.FLOOR)
         self.assertEqual(config.kernel_preference, KernelPreference.EMULATED)
         self.assertFalse(config.is_swizzled_scales)
-        self.assertEqual(config.elem_dtype, torch.float4_e2m1fn_x2)
+        self.assertEqual(config.dtype, torch.float4_e2m1fn_x2)
 
         # Test MXFP8 config (e4m3)
         config_fp8_e4m3 = MXFakeQuantizeConfig(
-            elem_dtype=torch.float8_e4m3fn,
+            dtype=torch.float8_e4m3fn,
             block_size=32,
             scaling_mode=ScaleCalculationMode.RCEIL,
             kernel_preference=KernelPreference.EMULATED,
@@ -2480,50 +2478,36 @@ class TestQAT(TestCase):
         self.assertEqual(config_fp8_e4m3.block_size, 32)
         self.assertEqual(config_fp8_e4m3.scaling_mode, ScaleCalculationMode.RCEIL)
         self.assertTrue(config_fp8_e4m3.is_swizzled_scales)
-        self.assertEqual(config_fp8_e4m3.elem_dtype, torch.float8_e4m3fn)
+        self.assertEqual(config_fp8_e4m3.dtype, torch.float8_e4m3fn)
 
         # Test MXFP8 config (e5m2)
         config_fp8_e5m2 = MXFakeQuantizeConfig(
-            elem_dtype=torch.float8_e5m2,
+            dtype=torch.float8_e5m2,
             block_size=32,
         )
-        self.assertEqual(config_fp8_e5m2.elem_dtype, torch.float8_e5m2)
+        self.assertEqual(config_fp8_e5m2.dtype, torch.float8_e5m2)
 
-        # Test MXFP6 configs (string dtypes)
-        config_fp6_e2m3 = MXFakeQuantizeConfig(
-            elem_dtype=DTYPE_FP6_E2M3,
-            block_size=32,
-        )
-        self.assertEqual(config_fp6_e2m3.elem_dtype, DTYPE_FP6_E2M3)
-
-        config_fp6_e3m2 = MXFakeQuantizeConfig(
-            elem_dtype=DTYPE_FP6_E3M2,
-            block_size=32,
-        )
-        self.assertEqual(config_fp6_e3m2.elem_dtype, DTYPE_FP6_E3M2)
-
+    @unittest.skipIf(not torch_version_at_least("2.8.0"), "Need pytorch 2.8+")
     @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
     @parametrize("bias", [True, False])
-    @parametrize("input_shape", [(128, 256), (1, 128, 256)])
+    @parametrize("input_shape", [(128, 256), (1, 128, 256), (2, 4, 128, 256)])
     @parametrize(
-        "scaling_mode",
-        ["FLOOR", "RCEIL"],
+        "dtype",
+        [torch.float4_e2m1fn_x2, torch.float8_e4m3fn, torch.float8_e5m2],
     )
-    def test_mx_fake_quantized_linear_forward(self, bias, input_shape, scaling_mode):
-        """Test MXFakeQuantizedLinear forward pass with MXFP4."""
-        from torchao.prototype.mx_formats.config import ScaleCalculationMode
+    def test_mx_fake_quantized_linear_forward(self, bias, input_shape, dtype):
+        """Test MXFakeQuantizedLinear forward pass with various dtypes and input ranks."""
         from torchao.prototype.qat import MXFakeQuantizeConfig, MXFakeQuantizedLinear
 
         K, N = 256, 128
-        scaling_mode_enum = getattr(ScaleCalculationMode, scaling_mode)
 
         activation_config = MXFakeQuantizeConfig(
+            dtype=dtype,
             block_size=32,
-            scaling_mode=scaling_mode_enum,
         )
         weight_config = MXFakeQuantizeConfig(
+            dtype=dtype,
             block_size=32,
-            scaling_mode=scaling_mode_enum,
         )
 
         linear = torch.nn.Linear(K, N, bias=bias, device="cuda", dtype=torch.bfloat16)
@@ -2541,44 +2525,14 @@ class TestQAT(TestCase):
         self.assertEqual(y_mx.dtype, y_ref.dtype)
 
         # Check SQNR - MXFP4 has lower precision so use lower threshold
+        # MXFP8 has higher precision
         sqnr = compute_error(y_ref, y_mx)
-        self.assertGreaterEqual(sqnr, 5.0)
+        if dtype == torch.float4_e2m1fn_x2:
+            self.assertGreaterEqual(sqnr, 5.0)
+        else:
+            self.assertGreaterEqual(sqnr, 10.0)
 
-    @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
-    @parametrize("elem_dtype", [torch.float8_e4m3fn, torch.float8_e5m2])
-    def test_mx_fake_quantized_linear_forward_fp8(self, elem_dtype):
-        """Test MXFakeQuantizedLinear forward pass with MXFP8."""
-        from torchao.prototype.qat import MXFakeQuantizeConfig, MXFakeQuantizedLinear
-
-        K, N = 256, 128
-
-        activation_config = MXFakeQuantizeConfig(
-            elem_dtype=elem_dtype,
-            block_size=32,
-        )
-        weight_config = MXFakeQuantizeConfig(
-            elem_dtype=elem_dtype,
-            block_size=32,
-        )
-
-        linear = torch.nn.Linear(K, N, bias=True, device="cuda", dtype=torch.bfloat16)
-        mx_linear = MXFakeQuantizedLinear.from_linear(
-            linear,
-            activation_config=activation_config,
-            weight_config=weight_config,
-        )
-
-        x = torch.randn(128, K, device="cuda", dtype=torch.bfloat16)
-        y_ref = linear(x)
-        y_mx = mx_linear(x)
-
-        self.assertEqual(y_mx.shape, y_ref.shape)
-        self.assertEqual(y_mx.dtype, y_ref.dtype)
-
-        # Check SQNR - MXFP8 has higher precision than MXFP4
-        sqnr = compute_error(y_ref, y_mx)
-        self.assertGreaterEqual(sqnr, 10.0)  # Higher threshold for FP8
-
+    @unittest.skipIf(not torch_version_at_least("2.8.0"), "Need pytorch 2.8+")
     @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
     @parametrize("bias", [True, False])
     def test_mx_fake_quantized_linear_backward(self, bias):
@@ -2628,6 +2582,7 @@ class TestQAT(TestCase):
         self.assertGreaterEqual(x_grad_sqnr, 3.0)
         self.assertGreaterEqual(w_grad_sqnr, 3.0)
 
+    @unittest.skipIf(not torch_version_at_least("2.8.0"), "Need pytorch 2.8+")
     @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
     def test_mx_fake_quantized_linear_to_linear(self):
         """Test converting MXFakeQuantizedLinear back to nn.Linear."""
@@ -2659,6 +2614,7 @@ class TestQAT(TestCase):
         torch.testing.assert_close(converted_linear.weight, mx_linear.weight)
         torch.testing.assert_close(converted_linear.bias, mx_linear.bias)
 
+    @unittest.skipIf(not torch_version_at_least("2.8.0"), "Need pytorch 2.8+")
     @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
     def test_mx_config_error_handling(self):
         """Test error handling for MX config."""
@@ -2682,6 +2638,7 @@ class TestQAT(TestCase):
                 weight_config=MXFakeQuantizeConfig(),
             )
 
+    @unittest.skipIf(not torch_version_at_least("2.8.0"), "Need pytorch 2.8+")
     @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
     @parametrize(
         "shapes",
@@ -2716,6 +2673,7 @@ class TestQAT(TestCase):
 
         self.assertGreaterEqual(sqnr, SQNR_THRESHOLD)
 
+    @unittest.skipIf(not torch_version_at_least("2.8.0"), "Need pytorch 2.8+")
     @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
     def test_mx_training_simulation(self):
         """Simulate a simple training loop with MX QAT."""
@@ -2758,6 +2716,31 @@ class TestQAT(TestCase):
 
         # Check that weights have been updated
         self.assertFalse(torch.allclose(mx_model[0].weight, initial_weight))
+
+    @unittest.skipIf(not torch_version_at_least("2.8.0"), "Need pytorch 2.8+")
+    @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
+    @parametrize(
+        "dtype",
+        [torch.float4_e2m1fn_x2, torch.float8_e4m3fn],
+    )
+    def test_quantize_api_mx(self, dtype):
+        """
+        Test the following:
+            quantize_(model, QATConfig(MXDynamicActivationMXWeightConfig(), step="prepare"))
+            quantize_(model, QATConfig(MXDynamicActivationMXWeightConfig(), step="convert"))
+
+        Compare QAT forward against PTQ forward to ensure they match.
+        """
+        from torchao.prototype.mx_formats import MXDynamicActivationMXWeightConfig
+
+        self._test_quantize_api_against_ptq(
+            MXDynamicActivationMXWeightConfig(
+                activation_dtype=dtype,
+                weight_dtype=dtype,
+            ),
+            target_prepare_sqnr=float("inf"),
+            target_convert_sqnr=float("inf"),
+        )
 
 
 instantiate_parametrized_tests(TestQAT)

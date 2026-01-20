@@ -7,20 +7,20 @@
 """
 MX (Microscaling) Quantization-Aware Training (QAT) support.
 
-This module provides QAT support for the OCP Microscaling MX formats (MXFP4, MXFP8, MXFP6).
+This module provides QAT support for the OCP Microscaling MX formats (MXFP4, MXFP8).
 
 Key differences between MX and NVFP4:
 - Block size: MX uses 32 (default), NVFP4 uses 16 (fixed)
 - Scale type: MX uses E8M0 (float8_e8m0fnu), NVFP4 uses float8_e4m3fn
+- NVFP4 performs an extra per-tensor scaling, while MX does not
 - Scale calculation: MX supports FLOOR, RCEIL, CEIL, EVEN modes
-- MX supports multiple element dtypes (see SUPPORTED_ELEM_DTYPES in mx_formats/constants.py):
+- MX supports multiple element dtypes:
   - MXFP4: torch.float4_e2m1fn_x2 (requires PyTorch 2.8+)
   - MXFP8: torch.float8_e4m3fn, torch.float8_e5m2
-  - MXFP6: "fp6_e2m3", "fp6_e3m2" (string constants)
 """
 
-from dataclasses import dataclass, field
-from typing import Any, Optional
+from dataclasses import dataclass
+from typing import Optional
 
 import torch
 
@@ -45,35 +45,34 @@ class MXFakeQuantizeConfig(FakeQuantizeConfigBase):
     Fake quantization numerics follow `MXTensor` closely:
     https://github.com/pytorch/ao/blob/main/torchao/prototype/mx_formats/mx_tensor.py.
 
-    Supported element dtypes (see SUPPORTED_ELEM_DTYPES in mx_formats/constants.py):
+    Supported element dtypes:
     - MXFP4: torch.float4_e2m1fn_x2 (requires PyTorch 2.8+)
     - MXFP8: torch.float8_e4m3fn, torch.float8_e5m2
-    - MXFP6: "fp6_e2m3", "fp6_e3m2" (string constants)
 
     Key differences from NVFP4:
     - Block size: 32 (default) vs NVFP4's fixed 16
     - Scale type: E8M0 (float8_e8m0fnu) vs NVFP4's float8_e4m3fn
+    - NVFP4 performs an extra per-tensor scaling, while MX does not
     - Supports multiple scale calculation modes (FLOOR, RCEIL, CEIL, EVEN)
 
     Args:
-        elem_dtype (torch.dtype or str): The element dtype for quantization.
+        dtype (torch.dtype): The element dtype for quantization.
             Supported values: torch.float4_e2m1fn_x2 (default), torch.float8_e4m3fn,
-            torch.float8_e5m2, "fp6_e2m3", "fp6_e3m2"
+            torch.float8_e5m2
         block_size (int): The block size for quantization (default 32, the OCP MX standard)
         scaling_mode (ScaleCalculationMode): How to calculate the block scales (default FLOOR)
         kernel_preference (KernelPreference): Which kernel to use for matmul (default EMULATED)
         is_swizzled_scales (bool): Whether scales are stored in swizzled (blocked) format
     """
 
-    # Use Any type hint since elem_dtype can be torch.dtype or str (for fp6 formats)
-    elem_dtype: Any = field(default_factory=lambda: torch.float4_e2m1fn_x2)
+    dtype: torch.dtype = torch.float4_e2m1fn_x2
     block_size: int = 32
     scaling_mode: ScaleCalculationMode = ScaleCalculationMode.FLOOR
     kernel_preference: KernelPreference = KernelPreference.EMULATED
     is_swizzled_scales: bool = False
 
     def __post_init__(self):
-        _validate_elem_dtype(self.elem_dtype)
+        _validate_elem_dtype(self.dtype)
 
 
 class _MXQuantizedForwardFakeQuantizedBackward(torch.autograd.Function):
@@ -96,10 +95,14 @@ class _MXQuantizedForwardFakeQuantizedBackward(torch.autograd.Function):
         activation_config: MXFakeQuantizeConfig,
         weight_config: MXFakeQuantizeConfig,
     ) -> torch.Tensor:
+        # Handle inputs of any rank by reshaping to 2D
+        orig_shape = _input.shape
+        _input_2d = _input.view(-1, orig_shape[-1])
+
         # quantize input activations
-        _input = MXTensor.to_mx(
-            _input,
-            elem_dtype=activation_config.elem_dtype,  # supports fp4, fp6, fp8
+        _input_2d = MXTensor.to_mx(
+            _input_2d,
+            elem_dtype=activation_config.dtype,
             block_size=activation_config.block_size,
             scaling_mode=activation_config.scaling_mode,
             kernel_preference=activation_config.kernel_preference,
@@ -108,14 +111,15 @@ class _MXQuantizedForwardFakeQuantizedBackward(torch.autograd.Function):
 
         weight = MXTensor.to_mx(
             weight,
-            elem_dtype=weight_config.elem_dtype,  # supports fp4, fp6, fp8
+            elem_dtype=weight_config.dtype,
             block_size=weight_config.block_size,
             scaling_mode=weight_config.scaling_mode,
             kernel_preference=weight_config.kernel_preference,
             is_swizzled_scales=weight_config.is_swizzled_scales,
         )
 
-        ctx.save_for_backward(_input, weight)
+        ctx.save_for_backward(_input_2d, weight)
+        ctx.orig_shape = orig_shape
 
         # Use addmm when bias is present, mm otherwise
         if bias is not None:
@@ -123,23 +127,33 @@ class _MXQuantizedForwardFakeQuantizedBackward(torch.autograd.Function):
         else:
             aten_op = torch.ops.aten.mm.default
 
-        return _addmm_mx_dispatch(
-            _input,
+        out = _addmm_mx_dispatch(
+            _input_2d,
             weight.t(),
             aten_op,
             bias,
         )
 
+        # Reshape output back to original shape (with last dim changed)
+        out_shape = (*orig_shape[:-1], out.shape[-1])
+        return out.view(*out_shape)
+
     @staticmethod
     @torch.amp.custom_bwd(device_type="cuda")
     def backward(ctx, grad_output: torch.Tensor) -> torch.Tensor:
-        _input, weight = ctx.saved_tensors
-        assert isinstance(_input, MXTensor)
+        _input_2d, weight = ctx.saved_tensors
+        orig_shape = ctx.orig_shape
+        assert isinstance(_input_2d, MXTensor)
         assert isinstance(weight, MXTensor)
-        _input = _input.dequantize(_input._orig_dtype)
+        _input_2d = _input_2d.dequantize(_input_2d._orig_dtype)
         weight = weight.dequantize(weight._orig_dtype)
-        grad_input = torch.mm(grad_output, weight)
-        grad_weight = torch.mm(grad_output.t(), _input)
+
+        grad_output_2d = grad_output.view(-1, grad_output.shape[-1])
+
+        grad_input_2d = torch.mm(grad_output_2d, weight)
+        grad_weight = torch.mm(grad_output_2d.t(), _input_2d)
+
+        grad_input = grad_input_2d.view(*orig_shape)
         return grad_input, grad_weight, None, None, None
 
 
@@ -200,19 +214,11 @@ class MXFakeQuantizedLinear(torch.nn.Linear):
         self.weight_config = weight_config
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        if x.dim() == 3:
-            batch_size = x.shape[0]
-            x = x.view(-1, x.shape[-1])
-        else:
-            batch_size = None
         fq = _MXQuantizedForwardFakeQuantizedBackward.apply(
             x, self.weight, self.bias, self.activation_config, self.weight_config
         )
         assert fq.dtype == x.dtype
-        if batch_size is not None:
-            return fq.view(batch_size, -1, fq.shape[-1])
-        else:
-            return fq
+        return fq
 
     def to_linear(self) -> torch.nn.Linear:
         new_linear = torch.nn.Linear(
@@ -253,8 +259,3 @@ class MXFakeQuantizedLinear(torch.nn.Linear):
             new_linear.weight = mod.weight
             new_linear.bias = mod.bias
         return new_linear
-
-
-# Backwards compatibility aliases
-MXFP4FakeQuantizeConfig = MXFakeQuantizeConfig
-MXFP4FakeQuantizedLinear = MXFakeQuantizedLinear
