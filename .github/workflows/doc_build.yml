@@ -71,7 +71,7 @@ jobs:
           path: docs
       - name: Upload docs preview
         uses: seemethere/upload-artifact-s3@v5
-        if: ${{ github.event_name == 'pull_request' }}
+        if: ${{ github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' }}
         with:
           retention-days: 14
           s3-bucket: doc-previews
