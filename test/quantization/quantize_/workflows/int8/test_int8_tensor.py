@@ -23,6 +23,9 @@ from torchao.quantization.quant_primitives import MappingType
 from torchao.quantization.quantize_.common import (
     _choose_quant_func_and_quantize_tensor,
 )
+from torchao.quantization.quantize_.workflows.int8.int8_tensor import (
+    QuantizeTensorToInt8Kwargs,
+)
 from torchao.quantization.utils import compute_error, get_block_size
 from torchao.testing.model_architectures import ToyTwoLinearModel
 from torchao.testing.utils import TorchAOIntegrationTestCase
@@ -261,7 +264,7 @@ class TestInt8StaticQuant(TorchAOIntegrationTestCase):
         )
 
         static_config = Int8StaticActivationInt8WeightConfig(
-            scale=int8_input.scale.detach().clone(),
+            static_scale=int8_input.scale.detach().clone(),
             granularity=granularity,
         )
         quantize_(model_static_quant, static_config)
@@ -274,16 +277,95 @@ class TestInt8StaticQuant(TorchAOIntegrationTestCase):
         static_out_compile = model_dynamic_quant(input_tensor)
         sqnr_static_compile = compute_error(model_out_baseline, static_out_compile)
 
-        assert (
-            sqnr_static_compile
-            == sqnr_static_eager
-            == sqnr_dynamic_compile
-            == sqnr_dynamic_eager
-        ), "SQNR should be the same for all quantization methods and eager/compile"
+        assert sqnr_static_compile == sqnr_static_eager, (
+            f"Static SQNR mismatch: compile={sqnr_static_compile} vs eager={sqnr_static_eager}"
+        )
+        assert sqnr_static_eager == sqnr_dynamic_compile, (
+            f"Static eager vs dynamic compile SQNR mismatch: {sqnr_static_eager} vs {sqnr_dynamic_compile}"
+        )
+        assert sqnr_dynamic_compile == sqnr_dynamic_eager, (
+            f"Dynamic SQNR mismatch: compile={sqnr_dynamic_compile} vs eager={sqnr_dynamic_eager}"
+        )
 
         # eager numerics should match exactly
         # for compile, we can't compare dynamic vs static because we may get slightly different qparams when fused
         torch.testing.assert_close(dynamic_out_eager, static_out_eager)
+
+    @common_utils.parametrize("granularity", [PerRow(), PerTensor()])
+    def test_static_act_quant_granularity_slice_and_select(self, granularity):
+        """Test static activation quantization with different granularities and slicing.
+
+        This test validates:
+        1. PerRow(dim != -1) activation quantization raises an error (per-feature not supported)
+        2. PerRow(dim=-1) and PerTensor() work correctly with weight slicing
+
+        Per-feature activation quantization (PerRow(dim=0)) would require slicing
+        act_quant_scale when weight is sliced, which is not currently supported.
+        Per-token activation quantization (PerRow(dim=-1)) should work correctly
+        with weight slicing since act_quant_scale doesn't need to be sliced.
+        """
+
+        with self.assertRaises(ValueError) as cm:
+            Int8StaticActivationInt8WeightConfig(
+                granularity=PerRow(dim=0),  # This should fail
+            )
+
+        self.assertIn("PerRow(dim=-1)", str(cm.exception))
+
+        N, K = 256, 512
+        M = 32  # batch size
+        dtype = torch.bfloat16
+        device = "cuda"
+
+        linear = torch.nn.Linear(K, N, bias=False, dtype=dtype, device=device)
+        input_tensor = torch.randn(M, K, dtype=dtype, device=device)
+        int8_input = _choose_quant_func_and_quantize_tensor(
+            input_tensor,
+            QuantizeTensorToInt8Kwargs(
+                granularity=granularity,
+                mapping_type=MappingType.SYMMETRIC,
+            ),
+        )
+
+        act_scale = int8_input.scale.detach().clone()
+        static_config = Int8StaticActivationInt8WeightConfig(
+            static_scale=act_scale,
+            granularity=granularity,
+            act_mapping_type=MappingType.SYMMETRIC,
+        )
+        quantize_(linear, static_config)
+
+        # Verify the weight has the correct act_quant_scale
+        original_weight = linear.weight
+        original_act_scale = original_weight.act_quant_scale
+        assert original_act_scale is not None
+
+        # Slice the weight on dim=1 (input features)
+        K_sliced = 256
+        sliced_weight = linear.weight.narrow(1, 0, K_sliced)
+
+        # Verify that unsupported indexing operations raise NotImplementedError
+        with self.assertRaises(NotImplementedError):
+            _ = linear.weight[::2]  # Strided indexing not supported
+
+        # Test functional correctness: sliced weight should work with appropriate input
+        input_full = torch.randn(M, K, dtype=dtype, device=device)
+        input_sliced = input_full[:, :K_sliced]
+
+        # Create a reference linear with the sliced weight
+        linear_ref = torch.nn.Linear(
+            K_sliced, N, bias=False, dtype=dtype, device=device
+        )
+        linear_ref.weight.data = original_weight.dequantize()[:, :K_sliced]
+
+        # Both should produce similar outputs
+        with torch.no_grad():
+            output_ref = linear_ref(input_sliced)
+            output_quantized = torch.nn.functional.linear(input_sliced, sliced_weight)
+
+        # Verify reasonable quantization error
+        error = compute_error(output_ref, output_quantized)
+        self.assertGreater(error, 15, f"Quantization SQNR too low: {error}")
 
 
 if __name__ == "__main__":

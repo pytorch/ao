@@ -10,14 +10,12 @@ from typing import Optional
 import torch
 
 from torchao.core.config import AOBaseConfig
-from torchao.quantization.linear_activation_scale import (
-    to_weight_tensor_with_linear_activation_scale_metadata,
-)
 from torchao.quantization.quant_api import (
     _QUANTIZE_CONFIG_HANDLER,
     Int8StaticActivationInt8WeightConfig,
     _linear_extra_repr,
 )
+from torchao.quantization.quantize_.common import SupportsActivationPreScaling
 from torchao.quantization.quantize_.workflows.int8.int8_tensor import (
     QuantizeTensorToInt8Kwargs,
 )
@@ -126,17 +124,19 @@ def _smooth_quant_transform(
 
     # Quantize weights
     if isinstance(base_config, Int8StaticActivationInt8WeightConfig):
-        base_config.scale = activation_scale
+        base_config.static_scale = activation_scale
 
     base_config_handler = _QUANTIZE_CONFIG_HANDLER[type(base_config)]
     dummy_mod = DummyModule(weight)
     quant_mod = base_config_handler(dummy_mod, base_config)
     qw = quant_mod.weight
 
-    # Add smoothing factor metadata
-    qw = to_weight_tensor_with_linear_activation_scale_metadata(
-        qw, smoothing_factor.to(qw.dtype)
+    # Add smoothing factor as activation pre-scale
+    assert isinstance(qw, SupportsActivationPreScaling), (
+        "weight must support activation scaling through implementing `SupportsActivationPreScaling`"
     )
+    # Store reciprocal for runtime efficiency: act * act_pre_scale
+    qw.act_pre_scale = 1.0 / smoothing_factor
 
     linear.weight = torch.nn.Parameter(qw, requires_grad=False)
     linear.extra_repr = types.MethodType(_linear_extra_repr, linear)

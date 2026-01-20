@@ -16,13 +16,11 @@ from torchao.prototype.smoothquant import (
 from torchao.prototype.smoothquant.core import SmoothQuantStep
 from torchao.quantization import quantize_
 from torchao.quantization.granularity import PerRow, PerTensor
-from torchao.quantization.linear_activation_scale import (
-    WeightTensorWithLinearActivationScaleMetadata,
-)
 from torchao.quantization.quant_api import (
     Int8DynamicActivationInt8WeightConfig,
     Int8StaticActivationInt8WeightConfig,
 )
+from torchao.quantization.quantize_.common import SupportsActivationPreScaling
 from torchao.quantization.utils import (
     compute_error as SQNR,
 )
@@ -86,7 +84,6 @@ class TestSmoothQuant(unittest.TestCase):
         "base_config",
         [
             Int8DynamicActivationInt8WeightConfig(version=2),
-            # TODO: not sure if we should allow not passing scales as part of static config?
             Int8StaticActivationInt8WeightConfig(granularity=PerRow()),
             Int8StaticActivationInt8WeightConfig(granularity=PerTensor()),
             # Note: float8_static_activation_float8_weight is broken after recent PyTorch update.
@@ -132,12 +129,10 @@ class TestSmoothQuant(unittest.TestCase):
 
         config.step = SmoothQuantStep.CONVERT
         quantize_(model, config)
-        assert isinstance(
-            model.linear1.weight, WeightTensorWithLinearActivationScaleMetadata
-        )
-        assert isinstance(
-            model.linear2.weight, WeightTensorWithLinearActivationScaleMetadata
-        )
+        assert isinstance(model.linear1.weight, SupportsActivationPreScaling)
+        assert isinstance(model.linear2.weight, SupportsActivationPreScaling)
+        assert model.linear1.weight.act_pre_scale is not None
+        assert model.linear2.weight.act_pre_scale is not None
 
         out_smoothquant = model(*x)
         loss_smoothquant = torch.nn.functional.mse_loss(out_smoothquant, out_ref).item()
@@ -151,7 +146,7 @@ class TestSmoothQuant(unittest.TestCase):
     @common_utils.parametrize(
         "base_config",
         [
-            Int8DynamicActivationInt8WeightConfig(),
+            Int8DynamicActivationInt8WeightConfig(version=2),
             # TODO: Check more quantization APIs
         ],
     )
@@ -190,7 +185,7 @@ class TestSmoothQuant(unittest.TestCase):
     @common_utils.parametrize(
         "base_config",
         [
-            Int8DynamicActivationInt8WeightConfig(),
+            Int8DynamicActivationInt8WeightConfig(version=2),
             # TODO: Check more quantization APIs
         ],
     )

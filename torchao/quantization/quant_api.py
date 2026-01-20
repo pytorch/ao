@@ -1651,14 +1651,14 @@ class Int8StaticActivationInt8WeightConfig(AOBaseConfig):
     Configuration for applying int8 static symmetric quantization to both activation and weight
 
     Args:
-        scale (torch.Tensor): The scale tensor for activation quantization.
+        static_scale (torch.Tensor): The scale tensor for activation quantization.
         granularity (Granularity): The granularity of quantization. PerRow() and PerTensor() are supported currently
         act_mapping_type (MappingType): The mapping type for activation quantization. only SYMMETRIC is supported currently
         set_inductor_config (bool): if True, adjusts `torchinductor` settings to recommended values.
         version (int): the version of the config
     """
 
-    scale: torch.Tensor = None
+    static_scale: Optional[torch.Tensor] = None
     granularity: Granularity = PerRow()
     act_mapping_type: Optional[MappingType] = MappingType.SYMMETRIC
     set_inductor_config: bool = True
@@ -1668,6 +1668,14 @@ class Int8StaticActivationInt8WeightConfig(AOBaseConfig):
         torch._C._log_api_usage_once(
             "torchao.quantization.Int8StaticActivationInt8WeightConfig"
         )
+
+        # Validate activation granularity for static quantization
+        if isinstance(self.granularity, PerRow) and self.granularity.dim != -1:
+            raise ValueError(
+                f"Int8StaticActivationInt8WeightConfig only supports PerRow(dim=-1) "
+                f"for activation quantization, got PerRow(dim={self.granularity.dim}). "
+                f"Per-feature activation quantization is not supported due to slicing limitations."
+            )
 
 
 @register_quantize_module_handler(Int8StaticActivationInt8WeightConfig)
@@ -1700,7 +1708,7 @@ def _int8_static_activation_int8_weight_transform(
             granularity=activation_granularity,
             mapping_type=config.act_mapping_type,
         ),
-        act_scale=config.scale.detach(),
+        act_quant_scale=config.static_scale.detach(),
     )
 
     setattr(

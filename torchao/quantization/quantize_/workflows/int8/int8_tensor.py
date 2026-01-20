@@ -3,7 +3,6 @@
 #
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
-import math
 from dataclasses import dataclass
 from typing import List, Optional
 
@@ -60,7 +59,7 @@ class Int8Tensor(TorchAOBaseTensor):
     """
 
     tensor_data_names = ["qdata", "scale"]
-    optional_tensor_data_names = ["act_scale"]
+    optional_tensor_data_names = ["act_quant_scale", "act_pre_scale"]
     tensor_attribute_names = ["block_size", "dtype"]
     optional_tensor_attribute_names = [
         "act_quant_kwargs",
@@ -72,7 +71,8 @@ class Int8Tensor(TorchAOBaseTensor):
         scale: torch.Tensor,
         block_size: List[int],
         dtype: torch.dtype,
-        act_scale=None,
+        act_quant_scale: Optional[torch.Tensor] = None,
+        act_pre_scale: Optional[torch.Tensor] = None,
         act_quant_kwargs: Optional[QuantizeTensorToInt8Kwargs] = None,
     ):
         kwargs = {
@@ -88,7 +88,8 @@ class Int8Tensor(TorchAOBaseTensor):
         scale: torch.Tensor,
         block_size: List[int],
         dtype: torch.dtype,
-        act_scale=None,
+        act_quant_scale: Optional[torch.Tensor] = None,
+        act_pre_scale: Optional[torch.Tensor] = None,
         act_quant_kwargs: Optional[QuantizeTensorToInt8Kwargs] = None,
     ):
         super().__init__()
@@ -97,7 +98,8 @@ class Int8Tensor(TorchAOBaseTensor):
         self.block_size = block_size
         # don't set dtype because this gets done in __new__
         self.act_quant_kwargs = act_quant_kwargs
-        self.act_scale = act_scale
+        self.act_quant_scale = act_quant_scale
+        self.act_pre_scale = act_pre_scale
 
     def __repr__(self):
         return (
@@ -105,7 +107,8 @@ class Int8Tensor(TorchAOBaseTensor):
             f"act_quant_kwargs={self.act_quant_kwargs}, "
             f"qdata={self.qdata}, "
             f"scale={self.scale}, "
-            f"act_scale={self.act_scale}, "
+            f"act_quant_scale={self.act_quant_scale}, "
+            f"act_pre_scale={self.act_pre_scale}, "
             f"block_size={self.block_size}, "
             f"shape={self.shape}, "
             f"device={self.device}, "
@@ -120,7 +123,8 @@ class Int8Tensor(TorchAOBaseTensor):
         mapping_type=MappingType.SYMMETRIC,
         scale: Optional[torch.Tensor] = None,
         act_quant_kwargs: Optional[QuantizeTensorToInt8Kwargs] = None,
-        act_scale: Optional[torch.Tensor] = None,
+        act_quant_scale: Optional[torch.Tensor] = None,
+        act_pre_scale: Optional[torch.Tensor] = None,
     ):
         """Create Int8Tensor from high-precision tensor"""
         block_size = get_block_size(hp_tensor.shape, granularity)
@@ -160,7 +164,8 @@ class Int8Tensor(TorchAOBaseTensor):
             scale,
             block_size,
             hp_tensor.dtype,
-            act_scale=act_scale,
+            act_quant_scale=act_quant_scale,
+            act_pre_scale=act_pre_scale,
             act_quant_kwargs=act_quant_kwargs,
         )
 
@@ -198,13 +203,17 @@ def _(func, types, args, kwargs):
 
     output_dtype = activation_tensor.dtype
 
+    # Apply activation pre-scaling if present (for AWQ, SmoothQuant, etc.)
+    if weight_tensor.act_pre_scale is not None:
+        activation_tensor = activation_tensor * weight_tensor.act_pre_scale
+
     if weight_tensor.act_quant_kwargs is not None:
         # for int8 dynamic + static quantization path
 
         activation_tensor = _choose_quant_func_and_quantize_tensor(
             activation_tensor,
             weight_tensor.act_quant_kwargs,
-            scale=weight_tensor.act_scale,
+            scale=weight_tensor.act_quant_scale,
         )
 
         # 1. do the matrix form of dot(X_i, W_j)
@@ -293,6 +302,8 @@ def _(func, types, args, kwargs):
             block_size,
             self.dtype,
             act_quant_kwargs=self.act_quant_kwargs,
+            act_quant_scale=self.act_quant_scale,
+            act_pre_scale=self.act_pre_scale,
         ),
     )
 
@@ -323,6 +334,8 @@ def _(func, types, args, kwargs):
         old_int8_tensor.scale[index],
         old_int8_tensor.block_size[1:],
         old_int8_tensor.dtype,
+        old_int8_tensor.act_quant_scale,
+        old_int8_tensor.act_pre_scale,
         old_int8_tensor.act_quant_kwargs,
     )
     return return_and_correct_aliasing(func, args, kwargs, new_int8_tensor)
