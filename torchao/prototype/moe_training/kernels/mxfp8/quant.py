@@ -760,15 +760,14 @@ if mxfp8_cuda_extension_available:
 
     # CUDA kernel for per group blocked layout transform with groups along M
     lib.define(
-        "mx_block_rearrange_2d_M_groups(Tensor scales_tensor, Tensor input_group_end_offsets, int chunk_width, int chunks_per_tb) -> Tensor",
+        "mx_block_rearrange_2d_M_groups(Tensor scales_tensor, Tensor input_group_end_offsets, int chunks_per_tb) -> Tensor",
         tags=[torch._C.Tag.needs_fixed_stride_order],
     )
 
     def mx_block_rearrange_2d_M_groups_cuda(
         scales_tensor: torch.Tensor,
         input_group_end_offsets: torch.Tensor,
-        chunk_width: int = 64,
-        chunks_per_tb: int = 8,
+        chunks_per_tb: int = 4,
     ) -> torch.Tensor:
         """
         Rearranges an E8M0 tensor scale to block-scaled swizzle format using CUDA,
@@ -784,8 +783,7 @@ if mxfp8_cuda_extension_available:
             scales_tensor: Input tensor containing e8m0 scales for each logical group of a target tensor.
                 Must be 2D with dtype uint8 or float8_e8m0fnu.
             input_group_end_offsets: tensor of int32 values representing group end indexes for the input scales.
-            chunk_width: Chunk width (64 or 128)
-            chunks_per_tb: Number of 128-row chunks per threadblock (4, 8, or 16)
+            chunks_per_tb: Number of 128-row chunks per threadblock (1, 4, 8, or 16)
 
         Returns:
             Rearranged tensor in block-scaled swizzle format with shape (padded_rows, padded_cols).
@@ -797,9 +795,6 @@ if mxfp8_cuda_extension_available:
         ), "scales_tensor must be uint8 or float8_e8m0fnu"
         assert input_group_end_offsets.dtype == torch.int32, (
             "input_group_end_offsets must be int32"
-        )
-        assert chunk_width in (16, 32, 64, 128), (
-            "chunk_width must be 16, 32, 64, or 128"
         )
         assert chunks_per_tb in (1, 4, 8, 16), "chunks_per_tb must be 1, 4, 8, or 16"
 
@@ -818,7 +813,6 @@ if mxfp8_cuda_extension_available:
         return torch.ops.torchao.mx_block_rearrange_2d_M_groups.default(
             scales_tensor,
             input_group_end_offsets,
-            chunk_width,
             chunks_per_tb,
         )
 
@@ -826,7 +820,6 @@ if mxfp8_cuda_extension_available:
     def _fake_mx_block_rearrange_2d_M_groups_cuda(
         scales_tensor: torch.Tensor,
         input_group_end_offsets: torch.Tensor,
-        chunk_width: int,
         chunks_per_tb: int,
     ) -> torch.Tensor:
         """Fake/meta implementation for mx_block_rearrange_2d_M_groups."""
@@ -859,7 +852,6 @@ else:
     def mx_block_rearrange_2d_M_groups_cuda(
         scales_tensor: torch.Tensor,
         input_group_end_offsets: torch.Tensor,
-        chunk_width: int = 64,
         chunks_per_tb: int = 8,
     ) -> torch.Tensor:
         raise NotImplementedError(

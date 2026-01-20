@@ -251,22 +251,21 @@ def test_triton_mx_block_rearrange_2d_M_groups(
 )
 @skip_if_rocm("ROCm enablement in progress")
 @pytest.mark.parametrize(
-    "m,k,n_groups,chunk_width,chunks_per_tb",
+    "m,k,n_groups,chunks_per_tb",
     [
-        (16640, 2048, 8, 64, 4),
-        (16640, 2048, 8, 128, 8),
-        (131072, 8192, 32, 128, 16),
-        (512, 512, 4, 16, 4),
-        (512, 1024, 4, 32, 4),
-        (512, 2048, 4, 64, 4),
-        (1024, 512, 8, 16, 4),
+        (16640, 2048, 8, 4),
+        (16640, 2048, 8, 8),
+        (131072, 8192, 32, 16),
+        (512, 512, 4, 4),
+        (512, 1024, 4, 4),
+        (512, 2048, 4, 4),
+        (1024, 512, 8, 4),
     ],
 )
 def test_cuda_mx_block_rearrange_2d_M_groups(
     m: int,
     k: int,
     n_groups: int,
-    chunk_width: int,
     chunks_per_tb: int,
 ):
     device = "cuda"
@@ -290,11 +289,10 @@ def test_cuda_mx_block_rearrange_2d_M_groups(
     cuda_out_scales = mx_block_rearrange_2d_M_groups_cuda(
         e8m0_scales,
         input_group_offsets,
-        chunk_width=chunk_width,
         chunks_per_tb=chunks_per_tb,
     )
     assert torch.allclose(ref_out_scales, cuda_out_scales, atol=0, rtol=0), (
-        f"blocked scales not equal for scale_cols={scale_cols}, chunk_width={chunk_width}"
+        f"blocked scales not equal for scale_cols={scale_cols}"
     )
 
 
@@ -324,7 +322,6 @@ def test_cuda_mx_block_rearrange_2d_M_groups_invalid_cols():
         mx_block_rearrange_2d_M_groups_cuda(
             e8m0_scales,
             input_group_offsets,
-            chunk_width=64,
             chunks_per_tb=4,
         )
 
