@@ -308,6 +308,33 @@ class TestInt8StaticQuant(TorchAOIntegrationTestCase):
         # for compile, we can't compare dynamic vs static because we may get slightly different qparams when fused
         torch.testing.assert_close(dynamic_out_eager, static_out_eager)
 
+    @common_utils.parametrize("dtype", [torch.bfloat16])
+    def test_int8_weight_only_v2_correct_eps(self, dtype):
+        """
+        Ensure that v2 of Int8WeightOnlyConfig uses the correct eps value.
+        This test will fail if we use bfloat16 eps
+        """
+        torch.manual_seed(42)
+
+        # Create test model
+        model = ToyTwoLinearModel(256, 128, 256, dtype=dtype, device="cuda").eval()
+        model_baseline = copy.deepcopy(model)
+
+        # Create input
+        input_tensor = torch.randn(32, 256, dtype=dtype, device="cuda")
+
+        # Get baseline output
+        output_baseline = model_baseline(input_tensor)
+
+        # Apply Int8WeightOnlyConfig quantization (uses Int8Tensor)
+        config = Int8WeightOnlyConfig(version=2, granularity=PerRow())
+        quantize_(model, config)
+        output = model(input_tensor)
+
+        # Compute SQNR and make sure it's above 40
+        sqnr = compute_error(output_baseline, output)
+        self.assertGreater(sqnr, 40, f"SQNR too low: {sqnr}")
+
 
 if __name__ == "__main__":
     common_utils.run_tests()
