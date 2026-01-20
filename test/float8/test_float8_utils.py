@@ -35,7 +35,6 @@ from torchao.utils import is_ROCM
         # ("largest subnormal number", [2**-126 * (1 - 2**-23), 1.1754943508222875e-38]),
     ],
 )
-# @skip_if_rocm("ROCm enablement in progress")
 def test_round_scale_down_to_power_of_2_valid_inputs(
     test_case: dict,
 ):
