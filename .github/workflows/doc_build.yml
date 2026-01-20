@@ -60,7 +60,7 @@ jobs:
   doc-preview:
     runs-on: [self-hosted, linux.2xlarge]
     needs: build_docs
-    if: ${{ github.event_name == 'pull_request' }}
+    if: ${{ github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -71,7 +71,7 @@ jobs:
           path: docs
       - name: Upload docs preview
         uses: seemethere/upload-artifact-s3@v5
-        if: ${{ github.event_name == 'pull_request' }}
+        if: ${{ github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' }}
         with:
           retention-days: 14
           s3-bucket: doc-previews
@@ -85,7 +85,7 @@ jobs:
       # Grant write permission here so that the doc can be pushed to gh-pages branch
       contents: write
     needs: build_docs
-    if: github.repository == 'pytorch/ao' && ((github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))) || github.event_name == 'workflow_dispatch')
+    if: github.repository == 'pytorch/ao' && github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch')
     steps:
       - name: Checkout
         uses: actions/checkout@v4
