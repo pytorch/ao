@@ -13,6 +13,7 @@ from typing import Any, Optional
 import torch
 
 from torchao.prototype.mx_formats.config import (
+    MXFP8Dim0CastKernelChoice,
     MXFP8Dim1CastKernelChoice,
     MXLinearConfig,
     ScaleCalculationMode,
@@ -45,7 +46,8 @@ class mx_mm(torch.autograd.Function):
         grad_elem_dtype: Any,
         block_size: int,
         kernel_preference: KernelPreference,
-        mxfp8_cast_kernel_choice: MXFP8Dim1CastKernelChoice,
+        mxfp8_dim0_cast_kernel_choice: MXFP8Dim0CastKernelChoice,
+        mxfp8_dim1_cast_kernel_choice: MXFP8Dim1CastKernelChoice,
         scale_calculation_mode: ScaleCalculationMode,
     ):
         ctx.save_for_backward(input_hp, weight_hp)
@@ -54,7 +56,8 @@ class mx_mm(torch.autograd.Function):
         ctx.grad_elem_dtype = grad_elem_dtype
         ctx.block_size = block_size
         ctx.kernel_preference = kernel_preference
-        ctx.mxfp8_cast_kernel_choice = mxfp8_cast_kernel_choice
+        ctx.mxfp8_dim0_cast_kernel_choice = mxfp8_dim0_cast_kernel_choice
+        ctx.mxfp8_dim1_cast_kernel_choice = mxfp8_dim1_cast_kernel_choice
         ctx.scale_calculation_mode = scale_calculation_mode
 
         # input @ weight_t = output
@@ -65,15 +68,17 @@ class mx_mm(torch.autograd.Function):
             input_hp_r,
             in_elem_dtype,
             block_size,
-            kernel_preference=kernel_preference,
-            scaling_mode=scale_calculation_mode,
+            scale_calculation_mode,
+            kernel_preference,
+            mxfp8_dim0_cast_kernel_choice=mxfp8_dim0_cast_kernel_choice,
         )
         weight_mx_dim0 = MXTensor.to_mx(
             weight_hp,
             w_elem_dtype,
             block_size,
-            kernel_preference=kernel_preference,
-            scaling_mode=scale_calculation_mode,
+            scale_calculation_mode,
+            kernel_preference,
+            mxfp8_dim0_cast_kernel_choice=mxfp8_dim0_cast_kernel_choice,
         )
         output = torch.mm(input_mx_r_dim0, weight_mx_dim0.t())
         output = output.reshape(*input_orig_shape[:-1], output.shape[-1])
@@ -88,7 +93,8 @@ class mx_mm(torch.autograd.Function):
         grad_elem_dtype = ctx.grad_elem_dtype
         block_size = ctx.block_size
         kernel_preference = ctx.kernel_preference
-        mxfp8_cast_kernel_choice = ctx.mxfp8_cast_kernel_choice
+        mxfp8_dim0_cast_kernel_choice = ctx.mxfp8_dim0_cast_kernel_choice
+        mxfp8_dim1_cast_kernel_choice = ctx.mxfp8_dim1_cast_kernel_choice
         scale_calculation_mode = ctx.scale_calculation_mode
 
         grad_output_orig_shape = grad_output_hp.shape
@@ -102,18 +108,19 @@ class mx_mm(torch.autograd.Function):
             grad_output_hp_r,
             grad_elem_dtype,
             block_size,
-            kernel_preference=kernel_preference,
-            scaling_mode=scale_calculation_mode,
+            scale_calculation_mode,
+            kernel_preference,
+            mxfp8_dim0_cast_kernel_choice=mxfp8_dim0_cast_kernel_choice,
         )
 
-        if mxfp8_cast_kernel_choice != MXFP8Dim1CastKernelChoice.TORCH:
+        if mxfp8_dim1_cast_kernel_choice != MXFP8Dim1CastKernelChoice.TORCH:
             weight_mx_dim1 = _to_mxfp8_dim1_kernel_wrapper(
                 weight_hp,
                 block_size,
                 w_elem_dtype,
                 weight_hp.dtype,
                 kernel_preference,
-                mxfp8_cast_kernel_choice,
+                mxfp8_dim1_cast_kernel_choice,
                 scale_calculation_mode,
             )
         else:
@@ -124,6 +131,7 @@ class mx_mm(torch.autograd.Function):
                 block_size,
                 kernel_preference=kernel_preference,
                 scaling_mode=scale_calculation_mode,
+                mxfp8_dim0_cast_kernel_choice=mxfp8_dim0_cast_kernel_choice,
             )
         grad_input = torch.mm(grad_output_mx_dim0, weight_mx_dim1.t())
         grad_input = grad_input.reshape(
@@ -131,14 +139,14 @@ class mx_mm(torch.autograd.Function):
         )
 
         # input_t @ grad_output = grad_weight
-        if mxfp8_cast_kernel_choice != MXFP8Dim1CastKernelChoice.TORCH:
+        if mxfp8_dim1_cast_kernel_choice != MXFP8Dim1CastKernelChoice.TORCH:
             grad_output_mx_dim1 = _to_mxfp8_dim1_kernel_wrapper(
                 grad_output_hp_r,
                 block_size,
                 grad_elem_dtype,
                 grad_output_hp_r.dtype,
                 kernel_preference,
-                mxfp8_cast_kernel_choice,
+                mxfp8_dim1_cast_kernel_choice,
                 scale_calculation_mode,
             )
         else:
@@ -148,16 +156,17 @@ class mx_mm(torch.autograd.Function):
                 block_size,
                 kernel_preference=kernel_preference,
                 scaling_mode=scale_calculation_mode,
+                mxfp8_dim0_cast_kernel_choice=mxfp8_dim0_cast_kernel_choice,
             )
 
-        if mxfp8_cast_kernel_choice != MXFP8Dim1CastKernelChoice.TORCH:
+        if mxfp8_dim1_cast_kernel_choice != MXFP8Dim1CastKernelChoice.TORCH:
             input_t_mx_dim0_tmp = _to_mxfp8_dim1_kernel_wrapper(
                 input_hp_r,
                 block_size,
                 in_elem_dtype,
                 input_hp_r.dtype,
                 kernel_preference,
-                mxfp8_cast_kernel_choice,
+                mxfp8_dim1_cast_kernel_choice,
                 scale_calculation_mode,
             )
             input_t_mx_dim0 = input_t_mx_dim0_tmp.t()
@@ -168,11 +177,12 @@ class mx_mm(torch.autograd.Function):
                 block_size,
                 kernel_preference=kernel_preference,
                 scaling_mode=scale_calculation_mode,
+                mxfp8_dim0_cast_kernel_choice=mxfp8_dim0_cast_kernel_choice,
             )
             input_t_mx_dim0 = input_t_mx_dim0_tmp.t()
         grad_weight = torch.mm(grad_output_mx_dim1, input_t_mx_dim0)
 
-        return grad_input, grad_weight, None, None, None, None, None, None, None
+        return grad_input, grad_weight, None, None, None, None, None, None, None, None
 
 
 class MXLinear(torch.nn.Linear):
@@ -216,7 +226,8 @@ class MXLinear(torch.nn.Linear):
             config.elem_dtype_grad_output_override or config.elem_dtype,
             config.block_size,
             config.kernel_preference,
-            config.mxfp8_cast_kernel_choice,
+            config.mxfp8_dim0_cast_kernel_choice,
+            config.mxfp8_dim1_cast_kernel_choice,
             config.scale_calculation_mode,
         )
         if self.bias is not None:

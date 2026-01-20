@@ -9,9 +9,6 @@ from .float8.sparse_2x4_cutlass_float8_tensor import (
     Sparse2x4CUTLASSFloat8Tensor,
 )
 from .int4.int4_choose_qparams_algorithm import Int4ChooseQParamsAlgorithm
-from .int4.int4_marlin_sparse_tensor import (
-    Int4MarlinSparseTensor,
-)
 from .int4.int4_packing_format import Int4PackingFormat
 from .int4.int4_plain_int32_tensor import (
     Int4PlainInt32Tensor,
@@ -41,7 +38,6 @@ from .intx.intx_unpacked_to_int8_tensor import (
 __all__ = [
     "Int4Tensor",
     "Int4PreshuffledTensor",
-    "Int4MarlinSparseTensor",
     "Int4PlainInt32Tensor",
     "Int4TilePackedTo4dTensor",
     "Int8Tensor",

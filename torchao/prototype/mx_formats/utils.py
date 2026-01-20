@@ -160,7 +160,10 @@ def _to_mxfp8_dim1_kernel_wrapper(
     from torchao.prototype.mx_formats.mx_tensor import MXTensor
 
     if cast_kernel_choice == MXFP8Dim1CastKernelChoice.TRITON:
-        assert scale_calculation_mode == ScaleCalculationMode.FLOOR
+        assert scale_calculation_mode in (
+            ScaleCalculationMode.FLOOR,
+            ScaleCalculationMode.RCEIL,
+        )
         a_data, a_scale = triton_to_mxfp8_dim1(a, block_size)
     elif cast_kernel_choice == MXFP8Dim1CastKernelChoice.CUDA:
         assert scale_calculation_mode in (

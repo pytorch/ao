@@ -7,7 +7,9 @@
 import torch
 import torch.distributed as dist
 from torch.distributed._functional_collectives import all_to_all_single
+from torch.distributed.distributed_c10d import _resolve_process_group
 
+from torchao.prototype.moe_training.utils import conditional_nostrict_trace
 from torchao.prototype.mx_formats.config import ScaleCalculationMode
 from torchao.prototype.mx_formats.kernels import triton_to_mxfp8_dim0
 from torchao.prototype.mx_formats.mx_tensor import MXTensor
@@ -155,11 +157,12 @@ class _A2ACombineHPFwdMXFP8Bwd(torch.autograd.Function):
         return grad_input, None, None, None, None, None, None
 
 
+@conditional_nostrict_trace
 def a2a_combine_hp_fwd_mxfp8_bwd(
     input: torch.Tensor,
     output_splits: list[int],
     input_splits: list[int],
-    group: dist.ProcessGroup,
+    group_name: str = None,
     scaling_mode: ScaleCalculationMode = ScaleCalculationMode.RCEIL,
     block_size: int = 32,
     mxfp8_bwd: bool = True,
@@ -171,7 +174,7 @@ def a2a_combine_hp_fwd_mxfp8_bwd(
         input: bf16 input tensor
         output_splits: output split sizes
         input_splits: input split sizes
-        group: process group
+        group_name: process group name
         scaling_mode: quantization scaling mode (for backward, if mxfp8_bwd=True)
         block_size: mxfp8 block size (for backward, if mxfp8_bwd=True)
         mxfp8_bwd: if True, use mxfp8 quantization in backward; if False, use bf16
@@ -179,6 +182,11 @@ def a2a_combine_hp_fwd_mxfp8_bwd(
     Returns:
         bf16 output from all-to-all
     """
+    if group_name is None:
+        group = dist.group.WORLD
+    else:
+        group = _resolve_process_group(group_name)
+
     return _A2ACombineHPFwdMXFP8Bwd.apply(
         input,
         output_splits,
