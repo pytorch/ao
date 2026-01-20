@@ -65,7 +65,8 @@ TorchAO is an easy to use quantization library for native PyTorch. TorchAO works
 | A100 GPUs | int4 | bfloat16 | ⚪ | 🟢 [(link)](torchao/quantization/qat) | 🟡: [HQQ](torchao/prototype/hqq/README.md), [AWQ](torchao/prototype/awq), [GPTQ](torchao/quantization/GPTQ) | 🟢 [(link)](torchao/quantization#a16w4-weightonly-quantization) |
 | Intel® BMG GPUs | int4 | float16/bfloat16 | ⚪ | 🟢 [(link)](torchao/quantization/qat) | 🟡: [AWQ](torchao/prototype/awq), [GPTQ](torchao/quantization/GPTQ) | 🟢 [(link)](torchao/quantization#a16w4-weightonly-quantization) |
 | A100 GPUs | int8 | bfloat16 | ⚪ | 🟢 [(link)](torchao/quantization/qat) | ⚪ | 🟢 [(link)](torchao/quantization#a16w8-int8-weightonly-quantization) |
-| A100 GPUs, Intel® BMG GPUs | int8 | int8 | 🟡 [(link)](torchao/prototype/quantized_training) | 🟢 [(link)](torchao/quantization/qat) | ⚪ | 🟢 [(link)](https://github.com/pytorch/ao/tree/main/torchao/quantization#a8w8-int8-dynamic-quantization) |
+| A100 GPUs | int8 | int8 | 🟡 [(link)](torchao/prototype/quantized_training) | 🟢 [(link)](torchao/quantization/qat) | ⚪ | 🟢 [(link)](https://github.com/pytorch/ao/tree/main/torchao/quantization#a8w8-int8-dynamic-quantization) |
+| Intel® BMG GPUs | int8 | int8 | 🟠 | 🟢 [(link)](torchao/quantization/qat) | ⚪ | 🟢 [(link)](https://github.com/pytorch/ao/tree/main/torchao/quantization#a8w8-int8-dynamic-quantization) |
 | edge | intx (1..7) | bfloat16 | ⚪ | 🟢 [(link)](torchao/quantization/qat) | ⚪ | 🟢 [(link)](https://github.com/pytorch/ao/blob/257d18ae1b41e8bd8d85849dd2bd43ad3885678e/torchao/quantization/quant_api.py#L2267) | 
 
 ### Prototype Workflows
