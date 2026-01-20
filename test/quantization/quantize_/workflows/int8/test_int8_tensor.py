@@ -21,6 +21,7 @@ from torchao.quantization import (
 from torchao.quantization.granularity import PerRow, PerTensor
 from torchao.quantization.quant_primitives import MappingType
 from torchao.quantization.quantize_.common import (
+    KernelPreference,
     _choose_quant_func_and_quantize_tensor,
 )
 from torchao.quantization.quantize_.workflows.int8.int8_tensor import (
@@ -250,19 +251,18 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
             weight_cpu.dequantize(), weight_pinned.dequantize(), atol=0, rtol=0
         )
 
-    @common_utils.parametrize("mm_config", ["pytorch", "triton"])
-    def test_mm_config(self, mm_config):
-        """Test that mm_config routing works correctly"""
+    @common_utils.parametrize("kernel_preference", ["TORCH", "TRITON"])
+    def test_kernel_preference(self, kernel_preference):
+        """Test that kernel routing works correctly"""
         M, K, N = 32, 64, 128
 
         # Create model
         model = torch.nn.Linear(K, N, bias=False, dtype=torch.bfloat16, device="cuda")
         weight_ref = model.weight.clone()
 
-        # Quantize with mm_config
         config = Int8DynamicActivationInt8WeightConfig(
             version=2,
-            mm_config=mm_config,
+            kernel_preference=KernelPreference[kernel_preference],
         )
         quantize_(model, config)
 

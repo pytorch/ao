@@ -19,6 +19,7 @@ from torchao.quantization.quant_primitives import (
     quantize_affine,
 )
 from torchao.quantization.quantize_.common import (
+    KernelPreference,
     QuantizeTensorKwargs,
     _choose_quant_func_and_quantize_tensor,
 )
@@ -57,7 +58,7 @@ class Int8Tensor(TorchAOBaseTensor):
     Non-Tensor Attributes:
         granularity: the granularity for quantization (e.g., PerRow(), PerTensor())
         act_quant_kwargs: flags for dynamic activation quantization
-        mm_config: Matmul kernel to use - "pytorch" (default) or "triton"
+        kernel_preference: Kernel preference for matmul - TORCH, TRITON, or AUTO
     """
 
     tensor_data_names = ["qdata", "scale"]
@@ -65,7 +66,7 @@ class Int8Tensor(TorchAOBaseTensor):
     tensor_attribute_names = ["block_size", "dtype"]
     optional_tensor_attribute_names = [
         "act_quant_kwargs",
-        "mm_config",
+        "kernel_preference",
     ]
 
     def __new__(
@@ -77,7 +78,7 @@ class Int8Tensor(TorchAOBaseTensor):
         act_quant_scale: Optional[torch.Tensor] = None,
         act_pre_scale: Optional[torch.Tensor] = None,
         act_quant_kwargs: Optional[QuantizeTensorToInt8Kwargs] = None,
-        mm_config: str = "pytorch",
+        kernel_preference: KernelPreference = KernelPreference.TORCH,
     ):
         kwargs = {
             "device": qdata.device,
@@ -95,7 +96,7 @@ class Int8Tensor(TorchAOBaseTensor):
         act_quant_scale: Optional[torch.Tensor] = None,
         act_pre_scale: Optional[torch.Tensor] = None,
         act_quant_kwargs: Optional[QuantizeTensorToInt8Kwargs] = None,
-        mm_config: str = "pytorch",
+        kernel_preference: KernelPreference = KernelPreference.TORCH,
     ):
         super().__init__()
         self.qdata = qdata
@@ -105,7 +106,7 @@ class Int8Tensor(TorchAOBaseTensor):
         self.act_quant_kwargs = act_quant_kwargs
         self.act_quant_scale = act_quant_scale
         self.act_pre_scale = act_pre_scale
-        self.mm_config = mm_config
+        self.kernel_preference = kernel_preference
 
     def __repr__(self):
         return (
@@ -116,7 +117,7 @@ class Int8Tensor(TorchAOBaseTensor):
             f"act_quant_scale={self.act_quant_scale}, "
             f"act_pre_scale={self.act_pre_scale}, "
             f"block_size={self.block_size}, "
-            f"mm_config={self.mm_config}, "
+            f"kernel_preference={self.kernel_preference}, "
             f"shape={self.shape}, "
             f"device={self.device}, "
             f"dtype={self.dtype})"
@@ -132,7 +133,7 @@ class Int8Tensor(TorchAOBaseTensor):
         act_quant_kwargs: Optional[QuantizeTensorToInt8Kwargs] = None,
         act_quant_scale: Optional[torch.Tensor] = None,
         act_pre_scale: Optional[torch.Tensor] = None,
-        mm_config: str = "pytorch",
+        kernel_preference: KernelPreference = KernelPreference.TORCH,
     ):
         """Create Int8Tensor from high-precision tensor"""
         block_size = get_block_size(hp_tensor.shape, granularity)
@@ -177,7 +178,7 @@ class Int8Tensor(TorchAOBaseTensor):
             act_quant_scale=act_quant_scale,
             act_pre_scale=act_pre_scale,
             act_quant_kwargs=act_quant_kwargs,
-            mm_config=mm_config,
+            kernel_preference=kernel_preference,
         )
 
     def dequantize(self, output_dtype: Optional[torch.dtype] = None) -> torch.Tensor:
@@ -243,7 +244,7 @@ def _(func, types, args, kwargs):
 
         tmp = x_vals_int8.reshape(-1, x_vals_int8.shape[-1])
 
-        if weight_tensor.mm_config == "triton":
+        if weight_tensor.kernel_preference == KernelPreference.TRITON:
             # Triton kernel handles both row and col scaling directly
             y = torch.ops.torchao.scaled_int8_mm(
                 tmp,
@@ -251,7 +252,7 @@ def _(func, types, args, kwargs):
                 x_scales.reshape(-1, 1),
                 w_scales.reshape(-1, 1) if w_scales.numel() > 1 else w_scales,
             )
-        elif weight_tensor.mm_config == "pytorch":
+        elif weight_tensor.kernel_preference == KernelPreference.TORCH:
             # PyTorch kernel only applies row scaling, apply col scaling separately
             intermediate_dtype = (
                 torch.float if x_scales.dtype == torch.half else x_scales.dtype
@@ -327,7 +328,7 @@ def _(func, types, args, kwargs):
             block_size,
             self.dtype,
             act_quant_kwargs=self.act_quant_kwargs,
-            mm_config=self.mm_config,
+            kernel_preference=self.kernel_preference,
         ),
     )
 
@@ -366,7 +367,7 @@ def _(func, types, args, kwargs):
         args[0].dtype,
         act_quant_scale=pinned_act_quant_scale,
         act_quant_kwargs=args[0].act_quant_kwargs,
-        mm_config=args[0].mm_config,
+        kernel_preference=args[0].kernel_preference,
     )
 
 
@@ -386,6 +387,10 @@ def _(func, types, args, kwargs):
         old_int8_tensor.scale[index],
         old_int8_tensor.block_size[1:],
         old_int8_tensor.dtype,
+        act_quant_scale=old_int8_tensor.act_quant_scale,
+        act_pre_scale=old_int8_tensor.act_pre_scale,
+        act_quant_kwargs=old_int8_tensor.act_quant_kwargs,
+        kernel_preference=old_int8_tensor.kernel_preference,
     )
     return return_and_correct_aliasing(func, args, kwargs, new_int8_tensor)
 

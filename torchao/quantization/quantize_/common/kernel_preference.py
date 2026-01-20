@@ -30,9 +30,13 @@ class KernelPreference(str, Enum):
     """
     FBGEMM = "fbgemm"
 
+    """Use Triton kernels for quantization and matrix multiplication
+    """
+    TRITON = "triton"
+
     """Emulates gemm_lowp(A, B) with gemm_fp32(A.dequantize(), B.dequantize()).
     Intended use cases are:
-    1. Running CI for product logic on hardware which does not support the 
+    1. Running CI for product logic on hardware which does not support the
        actual lowp gemm.
     2. Debugging kernel numerics issues.
     """
