@@ -323,8 +323,8 @@ def _(func, types, args, kwargs):
 @implements(aten.is_pinned.default)
 def _(func, types, args, kwargs):
     is_pinned = args[0].qdata.is_pinned() and args[0].scale.is_pinned()
-    if args[0].act_scale is not None:
-        is_pinned = is_pinned and args[0].act_scale.is_pinned()
+    if args[0].act_quant_scale is not None:
+        is_pinned = is_pinned and args[0].act_quant_scale.is_pinned()
     return is_pinned
 
 
@@ -333,16 +333,16 @@ def _(func, types, args, kwargs):
     pinned_qdata = args[0].qdata.pin_memory()
     pinned_scale = args[0].scale.pin_memory()
 
-    pinned_act_scale = None
-    if args[0].act_scale is not None:
-        pinned_act_scale = args[0].act_scale.pin_memory()
+    pinned_act_quant_scale = None
+    if args[0].act_quant_scale is not None:
+        pinned_act_quant_scale = args[0].act_quant_scale.pin_memory()
 
     return Int8Tensor(
         pinned_qdata,
         pinned_scale,
         args[0].block_size,
         args[0].dtype,
-        act_scale=pinned_act_scale,
+        act_quant_scale=pinned_act_quant_scale,
         act_quant_kwargs=args[0].act_quant_kwargs,
     )
 

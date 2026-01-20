@@ -12,12 +12,11 @@ import torch
 from torchao.core.config import AOBaseConfig
 from torchao.quantization.quant_api import (
     _QUANTIZE_CONFIG_HANDLER,
-    Int8StaticActivationInt8WeightConfig,
     _linear_extra_repr,
 )
-from torchao.quantization.quantize_.common import SupportsActivationPreScaling
-from torchao.quantization.quantize_.workflows.int8.int8_tensor import (
-    QuantizeTensorToInt8Kwargs,
+from torchao.quantization.quantize_.common import (
+    IsStaticQuantizationConfig,
+    SupportsActivationPreScaling,
 )
 from torchao.quantization.transform_module import (
     register_quantize_module_handler,
@@ -97,13 +96,11 @@ def _smooth_quant_transform(
     else:
         raise ValueError(f"Unexpected step: {step}")
 
-    if isinstance(base_config, Int8StaticActivationInt8WeightConfig):
-        quant_kwargs = QuantizeTensorToInt8Kwargs(
-            granularity=base_config.granularity,
-            mapping_type=base_config.act_mapping_type,
-        )
-    else:
-        quant_kwargs = None
+    quant_kwargs = (
+        base_config.get_act_quant_kwargs()
+        if isinstance(base_config, IsStaticQuantizationConfig)
+        else None
+    )
 
     # Compute smoothed weight parameters
     smoothing_factor, activation_scale = observed_linear.obs.calculate_qparams(
@@ -123,8 +120,8 @@ def _smooth_quant_transform(
     linear.bias = observed_linear.bias
 
     # Quantize weights
-    if isinstance(base_config, Int8StaticActivationInt8WeightConfig):
-        base_config.static_scale = activation_scale
+    if isinstance(base_config, IsStaticQuantizationConfig):
+        base_config.act_quant_scale = activation_scale
 
     base_config_handler = _QUANTIZE_CONFIG_HANDLER[type(base_config)]
     dummy_mod = DummyModule(weight)

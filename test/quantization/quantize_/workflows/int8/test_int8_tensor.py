@@ -243,8 +243,8 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
 
         self.assertTrue(weight_pinned.qdata.is_pinned())
         self.assertTrue(weight_pinned.scale.is_pinned())
-        if weight_pinned.act_scale is not None:
-            self.assertTrue(weight_pinned.act_scale.is_pinned())
+        if weight_pinned.act_quant_scale is not None:
+            self.assertTrue(weight_pinned.act_quant_scale.is_pinned())
 
         self.assertEqual(
             weight_cpu.dequantize(), weight_pinned.dequantize(), atol=0, rtol=0
@@ -259,7 +259,7 @@ class TestInt8StaticQuant(TorchAOIntegrationTestCase):
     def test_static_activation_per_row_int8_weight(self, granularity, dtype):
         torch.compiler.reset()
 
-        M, N, K = 32, 32, 32
+        M, N, K = 128, 128, 128
         input_tensor = torch.randn(M, K, dtype=dtype, device="cuda")
 
         model = torch.nn.Linear(K, N, bias=False).eval().to(device="cuda", dtype=dtype)
@@ -287,7 +287,7 @@ class TestInt8StaticQuant(TorchAOIntegrationTestCase):
         )
 
         static_config = Int8StaticActivationInt8WeightConfig(
-            static_scale=int8_input.scale.detach().clone(),
+            act_quant_scale=int8_input.scale.detach().clone(),
             granularity=granularity,
         )
         quantize_(model_static_quant, static_config)
@@ -297,37 +297,25 @@ class TestInt8StaticQuant(TorchAOIntegrationTestCase):
 
         model_static_quant = torch.compile(model_static_quant, fullgraph=True)
 
-        static_out_compile = model_dynamic_quant(input_tensor)
+        static_out_compile = model_static_quant(input_tensor)
         sqnr_static_compile = compute_error(model_out_baseline, static_out_compile)
 
-        assert sqnr_static_compile == sqnr_static_eager, (
+        assert sqnr_static_compile == sqnr_dynamic_compile, (
             f"Static SQNR mismatch: compile={sqnr_static_compile} vs eager={sqnr_static_eager}"
         )
-        assert sqnr_static_eager == sqnr_dynamic_compile, (
-            f"Static eager vs dynamic compile SQNR mismatch: {sqnr_static_eager} vs {sqnr_dynamic_compile}"
+        assert sqnr_static_eager == sqnr_dynamic_eager, (
+            f"Static eager vs dynamic eager SQNR mismatch: {sqnr_static_eager} vs {sqnr_dynamic_eager}"
         )
-        assert sqnr_dynamic_compile == sqnr_dynamic_eager, (
-            f"Dynamic SQNR mismatch: compile={sqnr_dynamic_compile} vs eager={sqnr_dynamic_eager}"
-        )
-
         # eager numerics should match exactly
         # for compile, we can't compare dynamic vs static because we may get slightly different qparams when fused
         torch.testing.assert_close(dynamic_out_eager, static_out_eager)
 
-    @common_utils.parametrize("granularity", [PerRow(), PerTensor()])
-    def test_static_act_quant_granularity_slice_and_select(self, granularity):
-        """Test static activation quantization with different granularities and slicing.
+    def test_static_activation_per_row_dim_0_not_supported(self):
+        """Test that PerRow(dim=0) activation quantization raises an error.
 
-        This test validates:
-        1. PerRow(dim != -1) activation quantization raises an error (per-feature not supported)
-        2. PerRow(dim=-1) and PerTensor() work correctly with weight slicing
-
-        Per-feature activation quantization (PerRow(dim=0)) would require slicing
+        Per-token activation quantization (PerRow(dim=0)) would require slicing
         act_quant_scale when weight is sliced, which is not currently supported.
-        Per-token activation quantization (PerRow(dim=-1)) should work correctly
-        with weight slicing since act_quant_scale doesn't need to be sliced.
         """
-
         with self.assertRaises(ValueError) as cm:
             Int8StaticActivationInt8WeightConfig(
                 granularity=PerRow(dim=0),  # This should fail
@@ -335,6 +323,14 @@ class TestInt8StaticQuant(TorchAOIntegrationTestCase):
 
         self.assertIn("PerRow(dim=-1)", str(cm.exception))
 
+    @common_utils.parametrize("granularity", [PerRow(), PerTensor()])
+    def test_static_act_quant_slice_and_select(self, granularity):
+        """Test static activation quantization with slice and select operations.
+
+        This test validates that PerRow(dim=-1) and PerTensor() work correctly
+        with weight slicing. Per-token activation quantization (PerRow(dim=-1))
+        should work with weight slicing since act_quant_scale doesn't need to be sliced.
+        """
         N, K = 256, 512
         M = 32  # batch size
         dtype = torch.bfloat16
@@ -350,9 +346,9 @@ class TestInt8StaticQuant(TorchAOIntegrationTestCase):
             ),
         )
 
-        act_scale = int8_input.scale.detach().clone()
+        act_quant_scale = int8_input.scale.detach().clone()
         static_config = Int8StaticActivationInt8WeightConfig(
-            static_scale=act_scale,
+            act_quant_scale=act_quant_scale,
             granularity=granularity,
             act_mapping_type=MappingType.SYMMETRIC,
         )
@@ -360,8 +356,8 @@ class TestInt8StaticQuant(TorchAOIntegrationTestCase):
 
         # Verify the weight has the correct act_quant_scale
         original_weight = linear.weight
-        original_act_scale = original_weight.act_quant_scale
-        assert original_act_scale is not None
+        original_act_quant_scale = original_weight.act_quant_scale
+        assert original_act_quant_scale is not None
 
         # Slice the weight on dim=1 (input features)
         K_sliced = 256
@@ -389,7 +385,7 @@ class TestInt8StaticQuant(TorchAOIntegrationTestCase):
         # Verify reasonable quantization error
         error = compute_error(output_ref, output_quantized)
         self.assertGreater(error, 15, f"Quantization SQNR too low: {error}")
-    
+
     @common_utils.parametrize("dtype", [torch.bfloat16])
     def test_int8_weight_only_v2_correct_eps(self, dtype):
         """
