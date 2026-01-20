@@ -17,9 +17,7 @@ from torchao.quantization import (
     Float8DynamicActivationFloat8SemiSparseWeightConfig,
     Float8DynamicActivationFloat8WeightConfig,
     Float8WeightOnlyConfig,
-    FPXWeightOnlyConfig,
     GemliteUIntXWeightOnlyConfig,
-    Int4WeightOnlyConfig,
     Int8DynamicActivationInt4WeightConfig,
     Int8DynamicActivationInt8WeightConfig,
     Int8WeightOnlyConfig,
@@ -195,18 +193,6 @@ def string_to_config(
             return Int8DynamicActivationInt8WeightConfig(weight_only_decode=True)
         else:
             return Int8DynamicActivationInt8WeightConfig()
-    if "int4wo" in quantization:
-        use_hqq = False
-        if "hqq" in quantization:
-            use_hqq = True
-        group_size = int(quantization.split("-")[1])
-        assert group_size in [
-            32,
-            64,
-            128,
-            256,
-        ], f"int4wo group_size needs to be one of [32,64,128,256] but got {group_size}"
-        return Int4WeightOnlyConfig(group_size=group_size, use_hqq=use_hqq, version=1)
     elif "int8adq-int4w-symm" in quantization:
         from torchao.dtypes import CutlassInt4PackedLayout
 
@@ -216,23 +202,7 @@ def string_to_config(
             act_mapping_type=MappingType.SYMMETRIC,
             layout=CutlassInt4PackedLayout(),
         )
-    if "marlin" in quantization:
-        if "qqq" in quantization:
-            from torchao.prototype.dtypes import MarlinQQQLayout
-
-            return Int8DynamicActivationInt4WeightConfig(
-                group_size=128,
-                mapping_type=MappingType.SYMMETRIC,
-                act_mapping_type=MappingType.SYMMETRIC,
-                layout=MarlinQQQLayout(),
-            )
-        elif sparsity is not None and ("semi" in sparsity or "2:4" in sparsity):
-            from torchao.dtypes import MarlinSparseLayout
-
-            return Int4WeightOnlyConfig(layout=MarlinSparseLayout(), version=1)
-    if "fp6" in quantization:
-        return FPXWeightOnlyConfig(3, 2)
-    elif "uintx" in quantization:
+    if "uintx" in quantization:
         # uintx-nbits-group_size, e.g. "uintx-2-64"
         if "hqq" in quantization:
             # uintx-nbits-group_size-hqq

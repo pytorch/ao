@@ -224,6 +224,29 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
             "extern_kernels._int_mm", 1
         ).check_count("triton_poi_fused", 1).run(code[0])
 
+    @common_utils.parametrize("config", INT8_TEST_CONFIGS)
+    def test_pin_memory(self, config):
+        linear = torch.nn.Linear(
+            256, 512, bias=False, dtype=torch.bfloat16, device="cuda"
+        )
+        quantize_(linear, config)
+        weight_cpu = linear.weight.cpu()
+        self.assertFalse(weight_cpu.is_pinned())
+
+        weight_pinned = weight_cpu.pin_memory()
+
+        self.assertTrue(weight_pinned.is_pinned())
+        self.assertFalse(weight_cpu.is_pinned())
+
+        self.assertTrue(weight_pinned.qdata.is_pinned())
+        self.assertTrue(weight_pinned.scale.is_pinned())
+        if weight_pinned.act_scale is not None:
+            self.assertTrue(weight_pinned.act_scale.is_pinned())
+
+        self.assertEqual(
+            weight_cpu.dequantize(), weight_pinned.dequantize(), atol=0, rtol=0
+        )
+
 
 @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
 @common_utils.instantiate_parametrized_tests

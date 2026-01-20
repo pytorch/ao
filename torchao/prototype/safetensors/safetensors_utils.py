@@ -8,6 +8,7 @@ import torch
 import torchao
 from torchao.quantization import (
     Float8Tensor,
+    Int4PlainInt32Tensor,
     Int4Tensor,
     Int4TilePackedTo4dTensor,
     Int8Tensor,
@@ -33,6 +34,7 @@ ALLOWED_CLASSES = {
     "PerTensor": torchao.quantization.PerTensor,
     "KernelPreference": KernelPreference,
     "MappingType": MappingType,
+    "Int4PlainInt32Tensor": Int4PlainInt32Tensor,
 }
 
 ALLOWED_TENSORS_SUBCLASSES = [
@@ -41,6 +43,7 @@ ALLOWED_TENSORS_SUBCLASSES = [
     "Int4TilePackedTo4dTensor",
     "IntxUnpackedToInt8Tensor",
     "Int8Tensor",
+    "Int4PlainInt32Tensor",
 ]
 
 __all__ = [

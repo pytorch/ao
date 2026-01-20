@@ -51,7 +51,6 @@ jobs:
       - name: Run python tests
         run: |
           conda activate venv
-          pytest -s test/quantization/test_int8_dynamic_activation_intx_weight_config_v1.py
           pytest -s test/quantization/quantize_/workflows/intx/test_intx_opaque_tensor.py
           pytest -s test/prototype/test_embedding.py
           pytest -s test/prototype/test_int8_lut_tensor.py

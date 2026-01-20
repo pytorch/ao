@@ -41,10 +41,14 @@ from torchao.quantization.utils import get_block_size
 from torchao.utils import (
     TorchAOBaseTensor,
     _is_fbgemm_gpu_genai_available,
+    _is_mslk_available,
     fill_defaults,
     is_sm_at_least_90,
     is_sm_at_least_100,
 )
+
+if _is_mslk_available():
+    import mslk.conv  # noqa: F401
 
 __all__ = [
     "Float8Tensor",
@@ -293,6 +297,28 @@ def _(func, types, args, kwargs):
     return bias_tensor.add_(out)
 
 
+@implements(aten.is_pinned.default)
+def _(func, types, args, kwargs):
+    is_pinned = args[0].qdata.is_pinned() and args[0].scale.is_pinned()
+    return is_pinned
+
+
+@implements(aten._pin_memory.default)
+def _(func, types, args, kwargs):
+    pinned_qdata = args[0].qdata.pin_memory()
+    pinned_scale = args[0].scale.pin_memory()
+
+    return Float8Tensor(
+        pinned_qdata,
+        pinned_scale,
+        args[0].block_size,
+        args[0].mm_config,
+        act_quant_kwargs=args[0].act_quant_kwargs,
+        kernel_preference=args[0].kernel_preference,
+        dtype=args[0].dtype,
+    )
+
+
 def _float8_addmm_impl(
     input_tensor: Float8Tensor,
     weight_tensor: Float8Tensor,
@@ -506,9 +532,7 @@ def _quantize_and_scaled_conv3d(
     assert input_tensor.dim() == 5 and weight_tensor.dim() == 5, (
         "Only support 3D conv currently"
     )
-    assert _is_fbgemm_gpu_genai_available(), (
-        "quantized fp8 conv3d requires fbgemm_gpu_genai to be available"
-    )
+    assert _is_mslk_available(), "quantized fp8 conv3d requires mslk to be available"
     act_quant_kwargs = weight_tensor.act_quant_kwargs
     # quantize activation, if `act_quant_kwargs` is specified
     if act_quant_kwargs is not None:
@@ -519,8 +543,8 @@ def _quantize_and_scaled_conv3d(
     if isinstance(input_tensor, Float8Tensor):
         kernel_choice = None
         if weight_tensor.kernel_preference == KernelPreference.AUTO:
-            if _is_fbgemm_gpu_genai_available() and is_sm_at_least_100():
-                kernel_choice = "fbgemm"
+            if _is_mslk_available() and is_sm_at_least_100():
+                kernel_choice = "mslk"
             else:
                 raise NotImplementedError(
                     f"No available kernel choice for {weight_tensor.kernel_preference}"
@@ -532,7 +556,7 @@ def _quantize_and_scaled_conv3d(
                 f"No available kernel choice for {weight_tensor.kernel_preference}"
             )
 
-    assert kernel_choice == "fbgemm", "Only fbgemm kernel choice is supported currently"
+    assert kernel_choice == "mslk", "Only mslk kernel choice is supported currently"
     input_qdata = input_tensor.qdata
     weight_qdata = weight_tensor.qdata
 
@@ -550,17 +574,15 @@ def _quantize_and_scaled_conv3d(
     input_qdata = input_qdata.contiguous(memory_format=torch.channels_last_3d)
     weight_qdata = weight_qdata.contiguous(memory_format=torch.channels_last_3d)
 
-    # move C_in to last dim
-    # after permute: (N, D, H, W, C_in)
-    input_qdata = input_qdata.permute([0, 2, 3, 4, 1])
-
-    # move C_in to last dim
-    # after permute: (C_out, K1, K2, K3, C_in)
-    weight_qdata = weight_qdata.permute([0, 2, 3, 4, 1])
-
     input_scale = input_tensor.scale
     weight_scale = weight_tensor.scale
-    output = torch.ops.fbgemm.f8f8bf16_conv(
+
+    # input: (N, C_in, D, H, W)
+    # weight: (C_out, C_in, K1, K2, K3)
+    # output: (N, C_out, D_out, H_out, W_out)
+    # all in channels_last_3d memory_format
+
+    output = torch.ops.mslk.f8f8bf16_conv(
         input_qdata,
         weight_qdata,
         input_scale * weight_scale,
@@ -568,8 +590,6 @@ def _quantize_and_scaled_conv3d(
         stride,
         dilation,
     )
-    # output shape after permute: N, C_out, D_out, H_out, W_out
-    output = output.permute([0, 4, 1, 2, 3])
 
     # aligning the semantics with bfloat16 conv ops, the
     # output should use contiguous_format if none of the input/weight
@@ -963,6 +983,23 @@ def _(func, types, args, kwargs):
         self.dtype,
     )
     return return_and_correct_aliasing(func, args, kwargs, new_tensor)
+
+
+@implements_torch_function(torch.Tensor.t)
+def _(func, types, args, kwargs):
+    assert len(args) == 1
+    self = args[0]
+    assert len(self.block_size) == 2
+    new_tensor = self.__class__(
+        self.qdata.t(),
+        self.scale.t(),
+        (self.block_size[1], self.block_size[0]),
+        self.mm_config,
+        self.act_quant_kwargs,
+        self.kernel_preference,
+        self.dtype,
+    )
+    return new_tensor
 
 
 @implements(aten.split.Tensor)

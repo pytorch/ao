@@ -209,6 +209,31 @@ def get_name_to_shapes_iter(
         }
         return name_to_shapes.items()
 
+    elif shape_gen_name == "dsv3-671b":
+        # DeepSeek-V3 671B model shapes
+        assert K == N == None, (
+            f"K, N arguments not supported for shape_gen_name {shape_gen_name}"
+        )
+
+        M = (
+            M if M is not None else 81920
+        )  # default to local_bs=10, seq_len=8192 -> 81920
+
+        name_to_shapes = {
+            "attn.wq_a": (M, 7168, 1536),
+            "attn.wq_b": (M, 1536, 24576),
+            "attn.wo": (M, 16384, 7168),
+            "attn.wkv_a": (M, 7168, 576),
+            "attn.wkv_b": (M, 512, 32768),
+            "ffn.w1": (M, 7168, 18432),
+            "ffn.w2": (M, 18432, 7168),
+            "ffn.w3": (M, 7168, 18432),
+            "moe.shared_experts.w1": (M, 7168, 2048),
+            "moe.shared_experts.w2": (M, 2048, 7168),
+            "moe.shared_experts.w3": (M, 7168, 2048),
+        }
+        return name_to_shapes.items()
+
     raise AssertionError(f"unknown shape_gen_name {shape_gen_name}")
 
 
@@ -397,6 +422,41 @@ def get_gpu_kernel_gemm_time_s(f, *args, **kwargs):
         "aten::_grouped_mm",
         "aten::_scaled_grouped_mm",
     )
+    return value / 1e6 / n_iter
+
+
+def get_gpu_kernel_conv_time_s(f, *args, **kwargs):
+    # warmup
+    f(*args, **kwargs)
+    n_iter = 5
+    with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA]) as prof:
+        for idx in range(n_iter):
+            f(*args, **kwargs)
+    data = profiler_output_to_filtered_time_by_kernel_name(
+        prof, n_iter, num_leaf_tensors=0
+    )
+
+    # Filter to only conv-related kernels and remove aten::fill_
+    expected_conv_kernels = {
+        "aten::conv2d",
+        "aten::conv3d",
+        "aten::convolution",
+        "aten::cudnn_convolution",
+        "aten::slow_conv_dilated2d",
+        "aten::slow_conv_dilated3d",
+        "mslk::f8f8bf16_conv",
+    }
+
+    # Filter out aten::fill_ and other non-conv operations
+    filtered_data = {k: v for k, v in data.items() if k in expected_conv_kernels}
+
+    assert len(filtered_data) >= 1, (
+        f"No expected conv kernels found. This likely means the kernel list is incomplete. Found kernels: {data}"
+    )
+
+    # If there are multiple conv kernels, take the one with the highest time (the actual conv)
+    key, value = max(filtered_data.items(), key=lambda x: x[1])
+
     return value / 1e6 / n_iter
 
 
