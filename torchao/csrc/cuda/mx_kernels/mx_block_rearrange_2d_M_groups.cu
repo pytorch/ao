@@ -7,15 +7,15 @@
  *   - SF_COLS = 4 columns
  *   - Each SF tile is stored contiguously in the output blocked layout
  *
- * - Chunk: A 128xCHUNK_WIDTH region (128 rows × 64 or 128 columns)
+ * - Chunk: A 128xCHUNK_WIDTH region (128 rows × 16, 32, 64, or 128 columns)
  *   - One TMA load brings one chunk from GMEM to SMEM
- *   - Contains multiple SF tiles horizontally (CHUNK_WIDTH/SF_COLS = 16 or 32)
+ *   - Contains multiple SF tiles horizontally (CHUNK_WIDTH/SF_COLS = 4, 8, 16, or 32)
  *   - Each chunk is processed independently in the pipeline
  *
  * - Superblock: CHUNKS_PER_TB chunks stacked vertically
  *   - Processed by one thread block
- *   - Height = SF_ROWS * CHUNKS_PER_TB (512, 1024, or 2048 rows)
- *   - Width = CHUNK_WIDTH (64 or 128 columns)
+ *   - Height = SF_ROWS * CHUNKS_PER_TB (128, 512, 1024, or 2048 rows)
+ *   - Width = CHUNK_WIDTH (16, 32, 64, or 128 columns)
  *   - Grid is organized as (num_col_chunks, num_row_superblocks)
  */
 #include <cstdint>
@@ -143,14 +143,16 @@ __device__ __forceinline__ int compute_output_group_start_row(
  * Main kernel for rearranging row-major scale data to blocked layout.
  *
  * Template parameters:
- * - CHUNK_WIDTH: Width of each chunk (64 or 128 columns)
- * - CHUNKS_PER_TB: Number of chunks per superblock (4, 8, or 16)
+ * - CHUNK_WIDTH: Width of each chunk (16, 32, 64, or 128 columns)
+ * - CHUNKS_PER_TB: Number of chunks per superblock (1, 4, 8, or 16)
  *
  * Grid dimensions:
  * - blockIdx.x = column chunk index
  * - blockIdx.y = row superblock index
  *
  * Thread block dimensions:
+ * - 128 threads for CHUNK_WIDTH=16 (128 rows × 1 thread/row)
+ * - 256 threads for CHUNK_WIDTH=32 (128 rows × 2 threads/row)
  * - 512 threads for CHUNK_WIDTH=64 (128 rows × 4 threads/row)
  * - 1024 threads for CHUNK_WIDTH=128 (128 rows × 8 threads/row)
  */
@@ -400,11 +402,32 @@ void create_tensor_map(
     const uint32_t smem_width,
     const uint32_t smem_height
 ) {
+    // Validate tensor pointer
+    if (tensor_ptr == nullptr) {
+        fprintf(stderr, "ERROR: tensor_ptr is NULL!\n");
+        exit(EXIT_FAILURE);
+    }
+
     constexpr uint32_t rank = 2;
     uint64_t size[rank] = {gmem_width, gmem_height};
     uint64_t stride[rank - 1] = {gmem_width}; // Row major, 1 byte per e8m0
     uint32_t box_size[rank] = {smem_width, smem_height};
     uint32_t elem_stride[rank] = {1, 1};
+
+    // Validate TMA requirements for 2D transfers
+    // Reference: https://docs.nvidia.com/cuda/archive/12.6.3/cuda-driver-api/group__CUDA__TENSOR__MEMORY.html
+    // For 2D TMA transfers, the stride must be a multiple of 16 bytes.
+    // Since we use row-major layout with stride[0] = gmem_width (in bytes), gmem_width must be divisible by 16.
+    if (gmem_width % 16 != 0) {
+        fprintf(stderr, "ERROR: TMA requirement for 2D transfers: stride must be a multiple of 16 bytes.\n");
+        fprintf(stderr, "       Current stride (gmem_width): %lu bytes (remainder: %lu)\n",
+                gmem_width, gmem_width % 16);
+        fprintf(stderr, "       Requested: gmem_width=%lu, gmem_height=%lu, smem_width=%u, smem_height=%u\n",
+                gmem_width, gmem_height, smem_width, smem_height);
+        fprintf(stderr, "       For row-major layout, stride[0] = gmem_width must be divisible by 16.\n");
+        fprintf(stderr, "       Consider using Triton kernel instead with use_cuda_kernel_for_blocked_layout=False.\n");
+        exit(EXIT_FAILURE);
+    }
 
     void *driver_ptr = get_driver_ptr();
     auto cuTensorMapEncodeTiled = reinterpret_cast<PFN_cuTensorMapEncodeTiled_v12000>(driver_ptr);
@@ -469,7 +492,77 @@ void launch_mx_block_rearrange_2d_M_groups_cuda(
 
     dim3 grid(num_col_chunks, num_row_superblocks);
 
-    if (chunk_width == 64) {
+    if (chunk_width == 16) {
+        dim3 block(128);  // 128 rows × 1 thread/row
+        switch (chunks_per_tb) {
+            case 1:
+                mx_blocked_layout_2d_M_groups_kernel<16, 1><<<grid, block, 0, stream>>>(
+                    scales_ptr, scale_stride_dim0, scale_rows, scale_cols, padded_rows,
+                    input_group_end_offsets, output_scales_ptr,
+                    output_stride_per_row_of_sf_tiles,
+                    num_groups, input_tensor_map);
+                break;
+            case 4:
+                mx_blocked_layout_2d_M_groups_kernel<16, 4><<<grid, block, 0, stream>>>(
+                    scales_ptr, scale_stride_dim0, scale_rows, scale_cols, padded_rows,
+                    input_group_end_offsets, output_scales_ptr,
+                    output_stride_per_row_of_sf_tiles,
+                    num_groups, input_tensor_map);
+                break;
+            case 8:
+                mx_blocked_layout_2d_M_groups_kernel<16, 8><<<grid, block, 0, stream>>>(
+                    scales_ptr, scale_stride_dim0, scale_rows, scale_cols, padded_rows,
+                    input_group_end_offsets, output_scales_ptr,
+                    output_stride_per_row_of_sf_tiles,
+                    num_groups, input_tensor_map);
+                break;
+            case 16:
+                mx_blocked_layout_2d_M_groups_kernel<16, 16><<<grid, block, 0, stream>>>(
+                    scales_ptr, scale_stride_dim0, scale_rows, scale_cols, padded_rows,
+                    input_group_end_offsets, output_scales_ptr,
+                    output_stride_per_row_of_sf_tiles,
+                    num_groups, input_tensor_map);
+                break;
+            default:
+                printf("CUDA Error: chunks_per_tb must be 1, 4, 8, or 16, got %d\n", chunks_per_tb);
+                return;
+        }
+    } else if (chunk_width == 32) {
+        dim3 block(256);  // 128 rows × 2 threads/row
+        switch (chunks_per_tb) {
+            case 1:
+                mx_blocked_layout_2d_M_groups_kernel<32, 1><<<grid, block, 0, stream>>>(
+                    scales_ptr, scale_stride_dim0, scale_rows, scale_cols, padded_rows,
+                    input_group_end_offsets, output_scales_ptr,
+                    output_stride_per_row_of_sf_tiles,
+                    num_groups, input_tensor_map);
+                break;
+            case 4:
+                mx_blocked_layout_2d_M_groups_kernel<32, 4><<<grid, block, 0, stream>>>(
+                    scales_ptr, scale_stride_dim0, scale_rows, scale_cols, padded_rows,
+                    input_group_end_offsets, output_scales_ptr,
+                    output_stride_per_row_of_sf_tiles,
+                    num_groups, input_tensor_map);
+                break;
+            case 8:
+                mx_blocked_layout_2d_M_groups_kernel<32, 8><<<grid, block, 0, stream>>>(
+                    scales_ptr, scale_stride_dim0, scale_rows, scale_cols, padded_rows,
+                    input_group_end_offsets, output_scales_ptr,
+                    output_stride_per_row_of_sf_tiles,
+                    num_groups, input_tensor_map);
+                break;
+            case 16:
+                mx_blocked_layout_2d_M_groups_kernel<32, 16><<<grid, block, 0, stream>>>(
+                    scales_ptr, scale_stride_dim0, scale_rows, scale_cols, padded_rows,
+                    input_group_end_offsets, output_scales_ptr,
+                    output_stride_per_row_of_sf_tiles,
+                    num_groups, input_tensor_map);
+                break;
+            default:
+                printf("CUDA Error: chunks_per_tb must be 1, 4, 8, or 16, got %d\n", chunks_per_tb);
+                return;
+        }
+    } else if (chunk_width == 64) {
         dim3 block(512);  // 128 rows × 4 threads/row
         switch (chunks_per_tb) {
             case 1:
@@ -540,7 +633,7 @@ void launch_mx_block_rearrange_2d_M_groups_cuda(
                 return;
         }
     } else {
-        printf("CUDA Error: chunk_width must be 64 or 128, got %d\n", chunk_width);
+        printf("CUDA Error: chunk_width must be 16, 32, 64, or 128, got %d\n", chunk_width);
         return;
     }
 }
