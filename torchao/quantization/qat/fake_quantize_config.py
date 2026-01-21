@@ -464,14 +464,14 @@ def _infer_fake_quantize_configs(
         act_config = MXFakeQuantizeConfig(
             elem_dtype=base_config.activation_dtype,
             block_size=base_config.block_size,
-            scaling_mode=ScaleCalculationMode.FLOOR,
+            scaling_mode=ScaleCalculationMode.RCEIL,
             kernel_preference=KernelPreference.EMULATED,
             is_swizzled_scales=False,
         )
         weight_config = MXFakeQuantizeConfig(
             elem_dtype=base_config.weight_dtype,
             block_size=base_config.block_size,
-            scaling_mode=ScaleCalculationMode.FLOOR,
+            scaling_mode=ScaleCalculationMode.RCEIL,
             kernel_preference=base_config.kernel_preference,
             is_swizzled_scales=False,
         )

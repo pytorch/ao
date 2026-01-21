@@ -62,14 +62,12 @@ class MXFakeQuantizeConfig(FakeQuantizeConfigBase):
         block_size (int): The block size for quantization (default 32, the OCP MX standard)
         scaling_mode (ScaleCalculationMode): How to calculate the block scales (default FLOOR)
         kernel_preference (KernelPreference): Which kernel to use for matmul (default EMULATED)
-        is_swizzled_scales (bool): Whether scales are stored in swizzled (blocked) format
     """
 
     dtype: torch.dtype = torch.float4_e2m1fn_x2
     block_size: int = 32
     scaling_mode: ScaleCalculationMode = ScaleCalculationMode.FLOOR
     kernel_preference: KernelPreference = KernelPreference.EMULATED
-    is_swizzled_scales: bool = False
 
     def __post_init__(self):
         _validate_elem_dtype(self.dtype)
@@ -106,7 +104,6 @@ class _MXQuantizedForwardFakeQuantizedBackward(torch.autograd.Function):
             block_size=activation_config.block_size,
             scaling_mode=activation_config.scaling_mode,
             kernel_preference=activation_config.kernel_preference,
-            is_swizzled_scales=activation_config.is_swizzled_scales,
         )
 
         weight = MXTensor.to_mx(
@@ -115,7 +112,6 @@ class _MXQuantizedForwardFakeQuantizedBackward(torch.autograd.Function):
             block_size=weight_config.block_size,
             scaling_mode=weight_config.scaling_mode,
             kernel_preference=weight_config.kernel_preference,
-            is_swizzled_scales=weight_config.is_swizzled_scales,
         )
 
         ctx.save_for_backward(_input_2d, weight)
