@@ -352,8 +352,8 @@ class SAM2Base(torch.nn.Module):
             object_score_logits,
         ) = self.sam_mask_decoder(
             image_embeddings=backbone_features,
-            image_pe=self.sam_prompt_encoder.get_dense_pe(),
-            sparse_prompt_embeddings=sparse_embeddings,
+            image_pe=self.sam_prompt_encoder.get_dense_pe().to(torch.bfloat16),
+            sparse_prompt_embeddings=sparse_embeddings.to(torch.bfloat16),
             dense_prompt_embeddings=dense_embeddings,
             multimask_output=multimask_output,
             repeat_image=False,  # the image is already batched
@@ -469,7 +469,8 @@ class SAM2Base(torch.nn.Module):
 
     def forward_image(self, img_batch: torch.Tensor):
         """Get the image feature on the input batch."""
-        backbone_out = self.image_encoder(img_batch)
+        backbone_out = self.image_encoder(img_batch.clone())
+        backbone_out = {k: [c.clone() for c in backbone_out[k]] if type(backbone_out[k]) == list else backbone_out[k].clone() for k in backbone_out}
         if self.use_high_res_features_in_sam:
             # precompute projected level 0 and level 1 features in SAM decoder
             # to avoid running it again on every SAM click
@@ -638,7 +639,7 @@ class SAM2Base(torch.nn.Module):
                             .to(device=device, non_blocking=True)
                         )
                         obj_pos = get_1d_sine_pe(obj_pos / t_diff_max, dim=tpos_dim)
-                        obj_pos = self.obj_ptr_tpos_proj(obj_pos)
+                        obj_pos = self.obj_ptr_tpos_proj(obj_pos.to(torch.bfloat16))
                         obj_pos = obj_pos.unsqueeze(1).expand(-1, B, self.mem_dim)
                     else:
                         obj_pos = obj_ptrs.new_zeros(len(pos_list), B, self.mem_dim)
@@ -670,18 +671,20 @@ class SAM2Base(torch.nn.Module):
         memory = torch.cat(to_cat_memory, dim=0)
         memory_pos_embed = torch.cat(to_cat_memory_pos_embed, dim=0)
 
-        current_vision_feats = [c.clone() for c in current_vision_feats]
-        current_vision_pos_embeds = [c.clone() for c in current_vision_pos_embeds]
-        memory = memory.clone()
-        memory_pos_embed = memory_pos_embed.clone()
-        pix_feat_with_mem = self.memory_attention(
-            curr=current_vision_feats,
-            curr_pos=current_vision_pos_embeds,
-            memory=memory,
-            memory_pos=memory_pos_embed,
-            num_obj_ptr_tokens=num_obj_ptr_tokens,
-        )
-        pix_feat_with_mem = pix_feat_with_mem.clone()
+        with torch.autograd.profiler.record_function("self.memory_attention"):
+            current_vision_feats = [c.clone().to(torch.bfloat16) for c in current_vision_feats]
+            current_vision_pos_embeds = [c.clone().to(torch.bfloat16) for c in current_vision_pos_embeds]
+            memory = memory.clone().to(torch.bfloat16)
+            memory_pos_embed = memory_pos_embed.clone().to(torch.bfloat16)
+            pix_feat_with_mem = self.memory_attention(
+                curr=current_vision_feats,
+                curr_pos=current_vision_pos_embeds,
+                memory=memory,
+                memory_pos=memory_pos_embed,
+                num_obj_ptr_tokens=num_obj_ptr_tokens,
+            )
+            pix_feat_with_mem = pix_feat_with_mem.clone()
+
         # reshape the output (HW)BC => BCHW
         pix_feat_with_mem = pix_feat_with_mem.permute(1, 2, 0).view(B, C, H, W)
         return pix_feat_with_mem
@@ -719,11 +722,14 @@ class SAM2Base(torch.nn.Module):
             mask_for_mem = mask_for_mem * self.sigmoid_scale_for_mem_enc
         if self.sigmoid_bias_for_mem_enc != 0.0:
             mask_for_mem = mask_for_mem + self.sigmoid_bias_for_mem_enc
-        maskmem_out = self.memory_encoder(
-            pix_feat,
-            mask_for_mem,
-            skip_mask_sigmoid=True,  # sigmoid already applied
-        )
+        with torch.autograd.profiler.record_function("self.memory_encoder"):
+            # pix_feat = pix_feat.clone()
+            # mask_for_mem = mask_for_mem.clone()
+            maskmem_out = self.memory_encoder(
+                pix_feat.to(torch.bfloat16),
+                mask_for_mem.to(torch.bfloat16),
+                skip_mask_sigmoid=True,  # sigmoid already applied
+            )
         maskmem_features = maskmem_out["vision_features"].clone()
         maskmem_pos_enc = [m.clone() for m in maskmem_out["vision_pos_enc"]]
         # add a no-object embedding to the spatial memory to indicate that the frame
@@ -795,13 +801,14 @@ class SAM2Base(torch.nn.Module):
             assert multimask_output
             if point_inputs is not None:
                 point_inputs = {k: point_inputs[k].contiguous() for k in point_inputs}
-            sam_outputs = self._forward_sam_heads(
-                backbone_features=pix_feat.contiguous(),
-                point_inputs=point_inputs,
-                mask_inputs=mask_inputs,
-                high_res_features=[h.contiguous() for h in high_res_features],
-                multimask_output=multimask_output,
-            )
+            with torch.autograd.profiler.record_function("self._forward_sam_heads"):
+                sam_outputs = self._forward_sam_heads(
+                    backbone_features=pix_feat.contiguous().to(torch.bfloat16),
+                    point_inputs=point_inputs,
+                    mask_inputs=mask_inputs,
+                    high_res_features=[h.contiguous() for h in high_res_features],
+                    multimask_output=multimask_output,
+                )
 
         return current_out, sam_outputs, high_res_features, pix_feat
 
@@ -855,7 +862,7 @@ class SAM2Base(torch.nn.Module):
         current_out, sam_outputs, _, _ = self._track_step(
             frame_idx,
             is_init_cond_frame,
-            current_vision_feats,
+            [c.clone() for c in current_vision_feats],
             current_vision_pos_embeds,
             feat_sizes,
             point_inputs,
@@ -887,7 +894,7 @@ class SAM2Base(torch.nn.Module):
         # Finally run the memory encoder on the predicted mask to encode
         # it into a new memory feature (that can be used in future frames)
         self._encode_memory_in_output(
-            current_vision_feats,
+            [c.clone() for c in current_vision_feats],
             feat_sizes,
             point_inputs,
             run_mem_encoder,
