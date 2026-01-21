@@ -454,22 +454,17 @@ def _infer_fake_quantize_configs(
             use_triton_kernel=base_config.use_triton_kernel,
         )
     elif isinstance(base_config, MXDynamicActivationMXWeightConfig):
-        from torchao.prototype.mx_formats.config import ScaleCalculationMode
-        from torchao.quantization.quantize_.common.kernel_preference import (
-            KernelPreference,
-        )
-
         act_config = MXFakeQuantizeConfig(
             dtype=base_config.activation_dtype,
             block_size=base_config.block_size,
-            scaling_mode=ScaleCalculationMode.RCEIL,
-            kernel_preference=KernelPreference.EMULATED,
+            scaling_mode=base_config.scaling_mode,
+            kernel_preference=base_config.kernel_preference,
         )
         weight_config = MXFakeQuantizeConfig(
             dtype=base_config.weight_dtype,
             block_size=base_config.block_size,
-            scaling_mode=ScaleCalculationMode.RCEIL,
-            kernel_preference=KernelPreference.EMULATED,
+            scaling_mode=base_config.scaling_mode,
+            kernel_preference=base_config.kernel_preference,
         )
     elif isinstance(base_config, Int8DynamicActivationIntxWeightConfig):
         assert base_config.version >= 2, "Only version 2+ is supported"
