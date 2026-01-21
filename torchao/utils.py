@@ -651,6 +651,7 @@ def _dispatch__torch_dispatch__(cls, func, types, args, kwargs):
 
     arg_types = tuple(type(arg) for arg in args)
     kwarg_types = {k: type(arg) for k, arg in kwargs.items()}
+    torch.distributed.breakpoint()
     raise NotImplementedError(
         f"{cls.__name__} dispatch: attempting to run unimplemented operator/function: {func=}, {types=}, {arg_types=}, {kwarg_types=}"
     )

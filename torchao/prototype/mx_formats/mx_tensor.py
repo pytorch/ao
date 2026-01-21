@@ -437,6 +437,7 @@ def tensor_size_fp4x2_to_hp(orig_size, is_contiguous):
             new_size = [new_size[0], new_size[2] * 2, new_size[1]]
     return new_size
 
+ctr = 0
 
 class MXTensor(TorchAOBaseTensor):
     tensor_data_names = ["qdata", "scale"]
@@ -460,6 +461,12 @@ class MXTensor(TorchAOBaseTensor):
         act_quant_kwargs,
         is_swizzled_scales,
     ):
+        global ctr
+        ctr += 1
+        if torch.distributed.get_rank() == 0:
+            print("CONSTRUCTOR @@@@. iter=" + str(ctr))
+        if ctr == 194:
+            torch.distributed.breakpoint()
         new_size = qdata.size()
         if elem_dtype == torch.float4_e2m1fn_x2:
             # set the tensor size to what it would be without 2x4 packing
