@@ -238,7 +238,7 @@ def mxfp8_pipeline(
 
         # Step 3: MXFP8 Grouped MM - outputs BF16
         scale_cols = expert_weights_t.shape[-1] // 32
-        can_use_cuda_for_blocked_layout = scale_col >= 64 and scale_cols % 16 == 0
+        can_use_cuda_for_blocked_layout = scale_cols >= 64 and scale_cols % 16 == 0
         gemm_output = _to_mxfp8_then_scaled_grouped_mm(
             mx_permuted,
             expert_weights_t,
@@ -292,12 +292,14 @@ def mxfp8_pipeline(
         )
 
         # Step 3: MXFP8 Grouped MM
+        scale_cols = expert_weights_t.shape[-1] // 32
+        can_use_cuda_for_blocked_layout = scale_cols >= 64 and scale_cols % 16 == 0
         gemm_output = _to_mxfp8_then_scaled_grouped_mm(
             permuted,
             expert_weights_t,
             offs=offsets,
             out_dtype=torch.bfloat16,
-            use_cuda_kernel_for_blocked_layout=False,  # TODO: re-enable when it supports scale_cols < 64
+            use_cuda_kernel_for_blocked_layout=can_use_cuda_for_blocked_layout,
             wgrad_with_hp=wgrad_with_hp,
         )
 
