@@ -12,6 +12,10 @@ from torch.testing._internal.common_utils import (
 )
 
 from torchao import quantize_
+from torchao.prototype.mx_formats.inference_workflow import (
+    MXDynamicActivationMXWeightConfig,
+    NVFP4DynamicActivationNVFP4WeightConfig,
+)
 from torchao.prototype.safetensors.safetensors_support import (
     flatten_tensor_state_dict,
     unflatten_tensor_state_dict,
@@ -41,6 +45,8 @@ _ALL_TEST_CONFIGS = [
     (Int8DynamicActivationIntxWeightConfig(), False),
     (Int8WeightOnlyConfig(version=2), False),
     (Int8DynamicActivationInt8WeightConfig(version=2), False),
+    (MXDynamicActivationMXWeightConfig(), False),
+    (NVFP4DynamicActivationNVFP4WeightConfig(), False),
 ]
 
 # XPU only supports plain_int32 for Int4WeightOnlyConfig, filter out other Int4 configs
