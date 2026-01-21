@@ -17,6 +17,7 @@ from torchao.prototype.quantization.float8_static_quant.prototype_float8_tensor 
     _choose_quant_func_and_quantize_tensor,
 )
 from torchao.prototype.quantization.quant_api import (
+    Float8ObservedLinear,
     Float8StaticActivationFloat8WeightConfig,
 )
 from torchao.quantization import (
@@ -24,7 +25,9 @@ from torchao.quantization import (
     quantize_,
 )
 from torchao.quantization.granularity import PerRow, PerTensor
+from torchao.quantization.quantize_.common import IsStaticQuantizationConfig
 from torchao.quantization.utils import compute_error
+from torchao.testing.model_architectures import ToyTwoLinearModel
 from torchao.testing.utils import TorchAOIntegrationTestCase
 from torchao.utils import (
     is_sm_at_least_90,
@@ -66,7 +69,7 @@ class TestFloat8StaticActivation(TorchAOIntegrationTestCase):
         """Test that static quantization matches dynamic quantization when using the same scale"""
         torch.compiler.reset()
 
-        dtype = torch.bfloat16
+        dtype = self.dtype
 
         M, N, K = 32, 32, 32
         input_tensor = torch.randn(M, K, dtype=dtype, device="cuda")
@@ -125,7 +128,7 @@ class TestFloat8StaticActivation(TorchAOIntegrationTestCase):
     def test_creation_and_attributes(self, granularity):
         """Test tensor creation, dtypes, and attributes"""
         M, N, K = 32, 32, 32
-        dtype = torch.bfloat16
+        dtype = self.dtype
 
         input_tensor = torch.randn(M, K, dtype=dtype, device="cuda")
         linear = torch.nn.Linear(K, N, bias=False, dtype=dtype, device="cuda")
@@ -243,6 +246,84 @@ class TestFloat8StaticActivation(TorchAOIntegrationTestCase):
         assert compute_error(output_original, output_quantized) > 20, (
             f"Quantization error is too high got a SQNR of {error}"
         )
+
+    def test_static_quant_flow_with_observers(self):
+        """
+        Test the full static quantization flow following the AWQ-style API.
+
+        This follows the AWQ pattern:
+        1. Prepare model by inserting observers (step="prepare")
+        2. Calibrate with representative data
+        3. Convert observed model to quantized model (step="convert")
+        """
+        torch.compiler.reset()
+        torch.manual_seed(42)
+
+        dtype = self.dtype
+
+        # Create model
+        model = ToyTwoLinearModel(
+            input_dim=64, hidden_dim=64, output_dim=32, dtype=dtype, device="cuda"
+        ).eval()
+        example_inputs = model.example_inputs(batch_size=4)
+
+        # Get reference output before quantization
+        before_quant = model(*example_inputs)
+
+        # Step 1: Prepare model by inserting observers
+        quantize_(model, Float8StaticActivationFloat8WeightConfig(step="prepare"))
+
+        # Verify observers were inserted
+        self.assertIsInstance(model.linear1, Float8ObservedLinear)
+        self.assertIsInstance(model.linear2, Float8ObservedLinear)
+
+        # Step 2: Calibrate with representative data
+        for _ in range(10):
+            model(*example_inputs)
+
+        # Step 3: Convert observed model to quantized model
+        quantize_(model, Float8StaticActivationFloat8WeightConfig(step="convert"))
+
+        # Verify quantization was applied
+        self.assertIsInstance(model.linear1.weight, PrototypeFloat8Tensor)
+        self.assertIsInstance(model.linear2.weight, PrototypeFloat8Tensor)
+        self.assertIsNotNone(model.linear1.weight.act_quant_scale)
+        self.assertIsNotNone(model.linear2.weight.act_quant_scale)
+
+        # Test inference
+        after_quant = model(*example_inputs)
+
+        # Verify quantization quality
+        error = compute_error(before_quant, after_quant)
+        self.assertGreater(
+            error,
+            20,
+            f"SQNR of quantized vs original should be > 20 dB, got {error}",
+        )
+
+        # Test with torch.compile
+        model_compiled = torch.compile(model, fullgraph=True)
+        after_quant_compiled = model_compiled(*example_inputs)
+
+        error_compiled = compute_error(before_quant, after_quant_compiled)
+        self.assertGreater(
+            error_compiled,
+            20,
+            f"SQNR of compiled quantized vs original should be > 20 dB, got {error_compiled}",
+        )
+
+    def test_config_implements_static_quant_protocol(self):
+        """Test that Float8StaticActivationFloat8WeightConfig implements IsStaticQuantizationConfig protocol"""
+        config = Float8StaticActivationFloat8WeightConfig(act_quant_scale=None)
+
+        # Check protocol implementation
+        self.assertTrue(isinstance(config, IsStaticQuantizationConfig))
+        self.assertTrue(hasattr(config, "act_quant_scale"))
+        self.assertTrue(hasattr(config, "get_act_quant_kwargs"))
+
+        # Verify get_act_quant_kwargs returns correct type
+        act_quant_kwargs = config.get_act_quant_kwargs()
+        self.assertIsNotNone(act_quant_kwargs)
 
 
 if __name__ == "__main__":
