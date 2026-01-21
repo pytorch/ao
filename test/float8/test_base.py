@@ -231,7 +231,7 @@ class TestFloat8TrainingTensor:
         ],
     )
     @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
-    @unittest.skipIf(not is_ROCM and not is_sm_at_least_90(), "Requires CUDA capability >= 9.0")
+    @unittest.skipIf(not is_ROCM() and not is_sm_at_least_90(), "Requires CUDA capability >= 9.0")
     def test_axiswise_gemm(self, a_shape, a_granularity, b_granularity):
         a = torch.randn(*a_shape, dtype=torch.bfloat16, device="cuda")
         b = torch.randn(64, 32, dtype=torch.bfloat16, device="cuda")
@@ -375,7 +375,7 @@ class TestFloat8Linear:
     )
     @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
     @unittest.skipIf(
-       not is_ROCM and torch.cuda.is_available() and not is_sm_at_least_90(), "CUDA capability < 9.0"
+       not is_ROCM() and torch.cuda.is_available() and not is_sm_at_least_90(), "CUDA capability < 9.0"
     )
     def test_linear_from_recipe(
         self,
@@ -452,7 +452,7 @@ class TestFloat8Linear:
         s = m.__repr__()
         assert "i:dyn_ten_e4m3,w:dyn_ten_e4m3,go:dyn_ten_e5m2" in s
 
-    @unittest.skipIf(not is_ROCM and not is_sm_at_least_89(), "CUDA 8.9 not available")
+    @unittest.skipIf(not is_ROCM() and not is_sm_at_least_89(), "CUDA 8.9 not available")
     def test_inference_mode(self):
         x = torch.randn(32, 32, device="cuda")
         m = nn.Sequential(nn.Linear(32, 32)).cuda()
@@ -460,7 +460,7 @@ class TestFloat8Linear:
         with torch.inference_mode(mode=True):
             m(x)
 
-    @unittest.skipIf(not is_ROCM and not is_sm_at_least_89(), "CUDA arch 8.9 not available")
+    @unittest.skipIf(not is_ROCM() and not is_sm_at_least_89(), "CUDA arch 8.9 not available")
     def test_quantize(self):
         x = torch.randn(32, 32, device="cuda")
         m = nn.Sequential(nn.Linear(32, 32)).cuda()
@@ -470,7 +470,7 @@ class TestFloat8Linear:
 
         quantize_(m, Float8WeightOnlyConfig())
 
-        if is_ROCM and is_MI300:
+        if is_ROCM() and is_MI300():
             assert m[0].weight.qdata.dtype == torch.float8_e4m3fnuz, (
                 "Post quantization dtype should be torch.float8_e4m3fnuz"
             )
@@ -484,7 +484,7 @@ class TestFloat8Linear:
 
 class TestScaledMM:
     @unittest.skipIf(
-        not is_ROCM and not is_sm_at_least_89(),
+        not is_ROCM() and not is_sm_at_least_89(),
         "CUDA not available",
     )
     @pytest.mark.parametrize(
@@ -529,7 +529,7 @@ class TestScaledMM:
             atol, rtol = 3e-3, 3e-3
         torch.testing.assert_close(out_scaled_mm, out_emulated, atol=atol, rtol=rtol)
 
-    @unittest.skipIf(not is_ROCM and not is_sm_at_least_89(), "CUDA not available")
+    @unittest.skipIf(not is_ROCM() and not is_sm_at_least_89(), "CUDA not available")
     def test_different_configs_error(self):
         x_fp32 = torch.randn(16, 16, device="cuda")
         x_scale = torch.tensor(1.0, device="cuda")
@@ -565,7 +565,7 @@ class TestScaledMM:
             a @ b
 
     @unittest.skipIf(
-        not is_ROCM and not is_sm_at_least_89(),
+        not is_ROCM() and not is_sm_at_least_89(),
         "CUDA not available",
     )
     @pytest.mark.parametrize(
@@ -656,7 +656,7 @@ class TestNumerics:
             torch.float8_e5m2fnuz,
         ],
     )
-    @unittest.skipIf(not is_ROCM and not torch.cuda.is_available(), "CUDA not available")
+    @unittest.skipIf(not is_ROCM() and not torch.cuda.is_available(), "CUDA not available")
     def test_small_amax_float16(self, float8_dtype):
         # If we calculate scale naively with FP8_MAX_POS / amax,
         # the result may not be representable in fp16. Verify that
