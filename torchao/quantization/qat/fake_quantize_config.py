@@ -466,14 +466,12 @@ def _infer_fake_quantize_configs(
             block_size=base_config.block_size,
             scaling_mode=ScaleCalculationMode.RCEIL,
             kernel_preference=KernelPreference.EMULATED,
-            is_swizzled_scales=False,
         )
         weight_config = MXFakeQuantizeConfig(
             elem_dtype=base_config.weight_dtype,
             block_size=base_config.block_size,
             scaling_mode=ScaleCalculationMode.RCEIL,
             kernel_preference=base_config.kernel_preference,
-            is_swizzled_scales=False,
         )
     elif isinstance(base_config, Int8DynamicActivationIntxWeightConfig):
         assert base_config.version >= 2, "Only version 2+ is supported"

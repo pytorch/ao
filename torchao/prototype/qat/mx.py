@@ -56,21 +56,21 @@ class MXFakeQuantizeConfig(FakeQuantizeConfigBase):
     - Supports multiple scale calculation modes (FLOOR, RCEIL, CEIL, EVEN)
 
     Args:
-        dtype (torch.dtype): The element dtype for quantization.
+        elem_dtype (torch.dtype): The element dtype for quantization.
             Supported values: torch.float4_e2m1fn_x2 (default), torch.float8_e4m3fn,
             torch.float8_e5m2
         block_size (int): The block size for quantization (default 32, the OCP MX standard)
-        scaling_mode (ScaleCalculationMode): How to calculate the block scales (default FLOOR)
+        scaling_mode (ScaleCalculationMode): How to calculate the block scales (default RCEIL)
         kernel_preference (KernelPreference): Which kernel to use for matmul (default EMULATED)
     """
 
-    dtype: torch.dtype = torch.float4_e2m1fn_x2
+    elem_dtype: torch.dtype = torch.float4_e2m1fn_x2
     block_size: int = 32
-    scaling_mode: ScaleCalculationMode = ScaleCalculationMode.FLOOR
+    scaling_mode: ScaleCalculationMode = ScaleCalculationMode.RCEIL
     kernel_preference: KernelPreference = KernelPreference.EMULATED
 
     def __post_init__(self):
-        _validate_elem_dtype(self.dtype)
+        _validate_elem_dtype(self.elem_dtype)
 
 
 class _MXQuantizedForwardFakeQuantizedBackward(torch.autograd.Function):
@@ -100,7 +100,7 @@ class _MXQuantizedForwardFakeQuantizedBackward(torch.autograd.Function):
         # quantize input activations
         _input_2d = MXTensor.to_mx(
             _input_2d,
-            elem_dtype=activation_config.dtype,
+            elem_dtype=activation_config.elem_dtype,
             block_size=activation_config.block_size,
             scaling_mode=activation_config.scaling_mode,
             kernel_preference=activation_config.kernel_preference,
@@ -108,7 +108,7 @@ class _MXQuantizedForwardFakeQuantizedBackward(torch.autograd.Function):
 
         weight = MXTensor.to_mx(
             weight,
-            elem_dtype=weight_config.dtype,
+            elem_dtype=weight_config.elem_dtype,
             block_size=weight_config.block_size,
             scaling_mode=weight_config.scaling_mode,
             kernel_preference=weight_config.kernel_preference,

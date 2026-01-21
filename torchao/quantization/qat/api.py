@@ -201,6 +201,8 @@ def _qat_config_transform(
     # TODO: rewrite this using a registration API so
     # specific quantization schemes do not leak here
     from torchao.prototype.qat import (
+        MXFakeQuantizeConfig,
+        MXFakeQuantizedLinear,
         NVFP4FakeQuantizeConfig,
         NVFP4FakeQuantizedLinear,
     )
@@ -222,6 +224,13 @@ def _qat_config_transform(
                     act_config, NVFP4FakeQuantizeConfig
                 )
                 return NVFP4FakeQuantizedLinear.from_linear(
+                    module, act_config, weight_config
+                )
+            elif isinstance(weight_config, MXFakeQuantizeConfig):
+                assert act_config is None or isinstance(
+                    act_config, MXFakeQuantizeConfig
+                )
+                return MXFakeQuantizedLinear.from_linear(
                     module, act_config, weight_config
                 )
             else:
@@ -247,7 +256,7 @@ def _qat_config_transform(
         # Ignore unrelated modules
         if not isinstance(
             module,
-            (FakeQuantizedLinear, FakeQuantizedEmbedding, NVFP4FakeQuantizedLinear),
+            (FakeQuantizedLinear, FakeQuantizedEmbedding, MXFakeQuantizedLinear, NVFP4FakeQuantizedLinear),
         ):
             return module
 
@@ -268,7 +277,7 @@ def _qat_config_transform(
         # Swap FakeQuantizedEmbedding -> nn.Embedding
         # Then apply the base config's transform function to quantize the model
         # If there is no base config, then simply perform the module swap
-        if isinstance(module, (FakeQuantizedLinear, NVFP4FakeQuantizedLinear)):
+        if isinstance(module, (FakeQuantizedLinear, MXFakeQuantizedLinear, NVFP4FakeQuantizedLinear)):
             module = module.to_linear()
         elif isinstance(module, FakeQuantizedEmbedding):
             module = module.to_embedding()
