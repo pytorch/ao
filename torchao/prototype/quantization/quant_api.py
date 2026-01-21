@@ -33,11 +33,8 @@ from torchao.dtypes.utils import Layout
 from torchao.float8.config import e4m3_dtype
 from torchao.float8.inference import (
     Float8MMConfig,
-    FP8Granularity,
 )
-from torchao.quantization.granularity import (
-    PerTensor,
-)
+from torchao.quantization.granularity import Granularity, PerTensor
 from torchao.quantization.linear_activation_quantized_tensor import (
     to_linear_activation_quantized,
 )
@@ -48,6 +45,7 @@ from torchao.quantization.quant_primitives import (
 )
 from torchao.quantization.quantize_.common import (
     KernelPreference,
+    QuantizeTensorKwargs,
 )
 from torchao.quantization.quantize_.workflows import (
     QuantizeTensorToFloat8Kwargs,
@@ -302,7 +300,7 @@ class Float8StaticActivationFloat8WeightConfig(AOBaseConfig):
 
     This supports two workflows:
 
-    1. AWQ-style observer flow (recommended):
+    1. Observer based flow (recommended):
         - Use step="prepare" to insert observers
         - Calibrate with representative data
         - Use step="convert" to convert to quantized model
@@ -320,7 +318,7 @@ class Float8StaticActivationFloat8WeightConfig(AOBaseConfig):
             Required when step is not provided.
         activation_dtype (torch.dtype): The target data type for activation quantization. Default is torch.float8_e4m3fn
         weight_dtype (torch.dtype): The target data type for weight quantization. Default is torch.float8_e4m3fn
-        granularity (FP8Granularity): The granularity of quantization. Only PerTensor() is supported for static activation quantization because the scale must be fixed at calibration time and work for any batch size at inference.
+        granularity (Granularity): The granularity of quantization. Only PerTensor() is supported for static activation quantization because the scale must be fixed at calibration time and work for any batch size at inference.
         mm_config (Float8MMConfig): Configuration for the matrix multiplication. Default uses fast accumulation.
         kernel_preference (KernelPreference): Kernel preference for quantization and matmul operations.
         set_inductor_config (bool): if True, adjusts `torchinductor` settings to recommended values.
@@ -348,7 +346,7 @@ class Float8StaticActivationFloat8WeightConfig(AOBaseConfig):
     act_quant_scale: Optional[torch.Tensor] = None
     activation_dtype: torch.dtype = e4m3_dtype
     weight_dtype: torch.dtype = e4m3_dtype
-    granularity: Optional[FP8Granularity] = None
+    granularity: Optional[Granularity] = None
     mm_config: Optional[Float8MMConfig] = None
     kernel_preference: KernelPreference = KernelPreference.AUTO
     set_inductor_config: bool = True
@@ -370,8 +368,21 @@ class Float8StaticActivationFloat8WeightConfig(AOBaseConfig):
             ):
                 raise ValueError(f"{self.step} is not one of {all_step_values}")
 
+    def get_act_quant_kwargs(self) -> QuantizeTensorKwargs:
+        """Return the activation quantization kwargs.
 
-# Float8 static quantization step enum (similar to AWQStep)
+        This method is required by the IsStaticQuantizationConfig protocol.
+        """
+        granularity = self.granularity if self.granularity is not None else PerTensor()
+        return QuantizeTensorToFloat8Kwargs(
+            float8_dtype=self.activation_dtype,
+            granularity=granularity,
+            mm_config=self.mm_config,
+            kernel_preference=self.kernel_preference,
+        )
+
+
+# Float8 static quantization step enum
 class Float8StaticStep(str, Enum):
     PREPARE = "prepare"
     CONVERT = "convert"

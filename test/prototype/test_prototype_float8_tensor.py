@@ -25,6 +25,7 @@ from torchao.quantization import (
     quantize_,
 )
 from torchao.quantization.granularity import PerRow, PerTensor
+from torchao.quantization.quantize_.common import IsStaticQuantizationConfig
 from torchao.quantization.utils import compute_error
 from torchao.testing.model_architectures import ToyTwoLinearModel
 from torchao.testing.utils import TorchAOIntegrationTestCase
@@ -310,6 +311,19 @@ class TestFloat8StaticActivation(TorchAOIntegrationTestCase):
             20,
             f"SQNR of compiled quantized vs original should be > 20 dB, got {error_compiled}",
         )
+
+    def test_config_implements_static_quant_protocol(self):
+        """Test that Float8StaticActivationFloat8WeightConfig implements IsStaticQuantizationConfig protocol"""
+        config = Float8StaticActivationFloat8WeightConfig(act_quant_scale=None)
+
+        # Check protocol implementation
+        self.assertTrue(isinstance(config, IsStaticQuantizationConfig))
+        self.assertTrue(hasattr(config, "act_quant_scale"))
+        self.assertTrue(hasattr(config, "get_act_quant_kwargs"))
+
+        # Verify get_act_quant_kwargs returns correct type
+        act_quant_kwargs = config.get_act_quant_kwargs()
+        self.assertIsNotNone(act_quant_kwargs)
 
 
 if __name__ == "__main__":

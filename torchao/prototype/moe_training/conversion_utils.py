@@ -20,6 +20,7 @@ logger: logging.Logger = logging.getLogger(__name__)
 class MoEScalingType(Enum):
     FP8_ROWWISE = "fp8_rowwise"
     MXFP8 = "mxfp8"
+    MXFP8_WGRAD_WITH_HP = "mxfp8_wgrad_with_hp"
 
 
 class MoETrainingConfig(AOBaseConfig):

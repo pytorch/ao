@@ -13,7 +13,7 @@
 #include <ATen/native/Resize.h>
 #include <c10/core/ScalarType.h>
 #ifdef HIPIFY_V2
-#include <c10/cuda/CUDACachingAllocator.h>
+#include <c10/hip/HIPCachingAllocator.h>
 #define GET_CURRENT_HIP_STREAM at::cuda::getCurrentCUDAStream()
 #define GET_CACHING_ALLOCATOR *::c10::cuda::CUDACachingAllocator::get()
 #else
