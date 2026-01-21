@@ -3,6 +3,42 @@ Quick Start Guide
 
 In this quick start guide, we will explore how to perform basic quantization using torchao.
 
+.. note::
+
+   On Windows CPU-only builds (e.g. ``torch==2.9.0+cpu`` with ``torchao==0.14.0``),
+   TorchAO skips C++ extensions and advanced CUDA features. The following Int8
+   example compiles and runs successfully on CPU.
+
+.. code-block:: python
+
+   import torch
+   import torch.nn as nn
+   from torchao.quantization import Int8WeightOnlyConfig, quantize_
+
+   class TinyMLP(nn.Module):
+       def __init__(self):
+           super().__init__()
+           self.fc1 = nn.Linear(16, 32)
+           self.relu = nn.ReLU()
+           self.fc2 = nn.Linear(32, 8)
+
+       def forward(self, x):
+           return self.fc2(self.relu(self.fc1(x)))
+
+   model = TinyMLP().eval()
+   example_inputs = (torch.randn(1, 16),)
+
+   quantize_(model, Int8WeightOnlyConfig())
+
+   with torch.no_grad():
+       print("Output:", model(*example_inputs))
+
+This is a very basic, small example which is runnable on CPU-only builds. 
+We have a tiny MLP model which is two linear layers with a ReLU in between, and we have small input/output sizes which can be quickly run on CPU. 
+This toy model demonstrates int8 quantization which is supported on CPU, unlike int4 or bfloat16 which is better suited for GPU.
+Many new users may install PyTorch with +cpu by default or there may be a case where GPU is not available. 
+In this case, it may be helpful to run an example which is safe for CPUs, and it effectively shows that TorchAO works in a basic example.
+
 Follow `torchao installation and compatibility guide <https://github.com/pytorch/ao#-installation>`__ to install torchao and compatible pytorch.
 
 First Quantization Example
