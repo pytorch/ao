@@ -30,14 +30,14 @@ python example.py --model <MODEL_ID> --model_save_path ./model_smoothquant.pt
 
 ```python
 from torchao.prototype.smoothquant import SmoothQuantConfig
-from torchao.prototype.smoothquant.core import SmoothQuantStep
 from torchao.quantization import quantize_
+from torchao.quantization.observer import ObserverStep
 from torchao.quantization.quant_api import Int8DynamicActivationInt8WeightConfig
 
 # Step 1: Prepare - insert observers
 quant_config = SmoothQuantConfig(
     base_config=Int8DynamicActivationInt8WeightConfig(),
-    step=SmoothQuantStep.PREPARE,
+    step=ObserverStep.PREPARE,
     alpha=0.5,
 )
 quantize_(model, quant_config)
@@ -47,7 +47,7 @@ for data in calibration_dataset:
     model(data)
 
 # Step 3: Convert
-quant_config.step = SmoothQuantStep.CONVERT
+quant_config.step = ObserverStep.CONVERT
 quantize_(model, quant_config)
 ```
 

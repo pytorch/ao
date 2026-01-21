@@ -10,6 +10,7 @@ from dataclasses import dataclass
 import torch
 
 from torchao.core.config import AOBaseConfig
+from torchao.quantization.observer import ObserverStep
 from torchao.quantization.quant_api import (
     _linear_extra_repr,
 )
@@ -23,7 +24,6 @@ from torchao.utils import DummyModule
 from .core import (
     AWQObservedLinear,
     AWQObserver,
-    AWQStep,
 )
 
 logger = logging.getLogger(__name__)
@@ -36,7 +36,7 @@ class AWQConfig(AOBaseConfig):
 
     Args:
         base_config (AOBaseConfig): The quantization config that we can apply awq on top of, e.g. 8da4w, int4 weight only
-        step (AWQStep): specifies the step for AWQ, one of PREPARE, CONVERT and PREPARE_FOR_LOADING indicating the step of AWQ process
+        step (ObserverStep): specifies the step for AWQ, one of PREPARE, CONVERT and PREPARE_FOR_LOADING indicating the step of AWQ process
             PREPARE: insert AWQ Observers to linear
             CONVERT: convert the observed linear modules to linear modules with awq quantized weights
             PREPARE_FOR_LOADING: convert the floating point model to a dummy awq quantized model, so we can
@@ -46,12 +46,12 @@ class AWQConfig(AOBaseConfig):
     """
 
     base_config: AOBaseConfig
-    step: AWQStep
+    step: ObserverStep
     scale_search_space_size: int = 20
 
     def __post_init__(self):
         self.step = self.step.lower()
-        all_step_values = [s.value for s in AWQStep]
+        all_step_values = [s.value for s in ObserverStep]
         if self.step not in all_step_values:
             raise ValueError(f"{self.step} is not one of {all_step_values}")
 
@@ -66,7 +66,7 @@ def _awq_transform(
     observed_linear = None
     base_config = config.base_config
 
-    if step == AWQStep.PREPARE:
+    if step == ObserverStep.PREPARE:
         observer = AWQObserver(
             module.weight,
             module.bias,
@@ -74,7 +74,7 @@ def _awq_transform(
             scale_search_space_size,
         )
         return AWQObservedLinear.from_float(module, observer)
-    elif step == AWQStep.PREPARE_FOR_LOADING:
+    elif step == ObserverStep.PREPARE_FOR_LOADING:
         # loading from pre-quantized checkpoint
         observer = AWQObserver(
             module.weight,
@@ -90,7 +90,7 @@ def _awq_transform(
         )
         observed_linear(example_input)
     else:
-        assert step == AWQStep.CONVERT, f"Unexpected step: {step}"
+        assert step == ObserverStep.CONVERT, f"Unexpected step: {step}"
         if not isinstance(module, AWQObservedLinear):
             logger.info(
                 f"convert: module is not AWQObservedLinear, skipping: {type(module)}"

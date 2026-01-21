@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 import logging
 from abc import ABCMeta, abstractmethod
+from enum import Enum
 from functools import partial
 from typing import Any, Optional, Tuple
 
@@ -346,3 +347,31 @@ class AffineQuantizedMSEObserver(AffineQuantizedObserverBase):
             self.preserve_zero,
             self.zero_point_domain,
         )
+
+
+# can switch to StrEnum (https://docs.python.org/3/library/enum.html#enum.StrEnum)
+# after python 3.10 is end of life (https://devguide.python.org/versions/)
+class ObserverStep(str, Enum):
+    """
+    The step enum backend for observer based algorithms process like AWQ/SmoothQuant/GPTQ
+        PREPARE: insert observers to linear layers
+        CONVERT: convert the observed linear modules to quantized modules
+        PREPARE_FOR_LOADING: convert the floating point model to a dummy quantized model,
+        so we can load the quantized weights through copy_ later
+
+    Example:
+        # Stage 1: PREPARE - insert observers
+        quantize_(model, Float8StaticActivationFloat8WeightConfig(step="prepare"))
+
+        # Stage 2: CALIBRATE - collect statistics
+        for batch in calibration_data:
+            model(batch)
+
+        # Stage 3: CONVERT - apply quantization and remove observers
+        quantize_(model, Float8StaticActivationFloat8WeightConfig(step="convert"))
+
+    """
+
+    PREPARE = "prepare"
+    CONVERT = "convert"
+    PREPARE_FOR_LOADING = "prepare_for_loading"

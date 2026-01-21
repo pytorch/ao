@@ -22,13 +22,13 @@ from torchao.core.config import (
 )
 from torchao.prototype.awq import (
     AWQConfig,
-    AWQStep,
 )
 from torchao.quantization import (
     PerBlock,
     PerRow,
     PerTensor,
 )
+from torchao.quantization.observer import ObserverStep
 from torchao.quantization.quant_api import (
     Float8DynamicActivationFloat8WeightConfig,
     Float8DynamicActivationInt4WeightConfig,
@@ -97,7 +97,9 @@ configs = [
             "linear2": Int8DynamicActivationInt4WeightConfig(),
         }
     ),
-    AWQConfig(Int4WeightOnlyConfig(group_size=128), step=AWQStep.PREPARE_FOR_LOADING),
+    AWQConfig(
+        Int4WeightOnlyConfig(group_size=128), step=ObserverStep.PREPARE_FOR_LOADING
+    ),
     AWQConfig(Int4WeightOnlyConfig(group_size=128), step="prepare_for_loading"),
 ]
 

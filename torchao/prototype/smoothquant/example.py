@@ -14,8 +14,8 @@ from torchao.prototype.awq.example import get_calib_dataset
 from torchao.prototype.smoothquant import (
     SmoothQuantConfig,
 )
-from torchao.prototype.smoothquant.core import SmoothQuantStep
 from torchao.quantization import quantize_
+from torchao.quantization.observer import ObserverStep
 from torchao.quantization.quant_api import Int8DynamicActivationInt8WeightConfig
 
 
@@ -99,7 +99,7 @@ def quantize_and_eval(
     t0 = time.time()
     quant_config = SmoothQuantConfig(
         base_config=Int8DynamicActivationInt8WeightConfig(),
-        step=SmoothQuantStep.PREPARE,
+        step=ObserverStep.PREPARE,
         alpha=alpha,
     )
     quantize_(model, quant_config)
@@ -117,12 +117,12 @@ def quantize_and_eval(
     # Step 3: Convert to quantized model
     print("running SmoothQuant convert")
     t0 = time.time()
-    quant_config.step = SmoothQuantStep.CONVERT
+    quant_config.step = ObserverStep.CONVERT
     quantize_(model, quant_config)
     print(f"time for convert: {time.time() - t0:.02f} seconds")
 
     # Set up config for loading
-    quant_config.step = SmoothQuantStep.PREPARE_FOR_LOADING
+    quant_config.step = ObserverStep.PREPARE_FOR_LOADING
     model.config.quantization_config = TorchAoConfig(quant_config)
 
     if model_save_path is not None:
