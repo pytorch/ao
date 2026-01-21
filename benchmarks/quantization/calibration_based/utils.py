@@ -11,7 +11,9 @@ from torchao.quantization import (
 
 def string_to_calibration_config(s):
     """Convert string to calibration-based quantization config."""
-    if s == "awq_int4_weight_only":
+    if s == "None":
+        return None
+    elif s == "awq_int4_weight_only":
         return Int4WeightOnlyConfig(
             group_size=128,
             int4_packing_format="tile_packed_to_4d",

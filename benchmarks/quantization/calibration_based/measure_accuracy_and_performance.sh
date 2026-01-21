@@ -12,7 +12,7 @@
 #
 # Arguments:
 #   RECIPE         (optional) Recipe name or "all" (default: all)
-#                  Valid recipes: awq_int4_weight_only, smoothquant_int8
+#                  Valid recipes: None, awq_int4_weight_only, smoothquant_int8
 #   MODEL_ID       (optional) HuggingFace model ID (default: meta-llama/Llama-3.1-8B)
 #   LOG_FILE       (optional) Output log file path (default: benchmarks/data/calibration_accuracy_and_performance_log.txt)
 #   CALIB_TASKS    (optional) Calibration tasks (default: wikitext)
@@ -34,6 +34,7 @@ set -e
 
 # Define all available calibration-based quantization recipes
 QUANT_RECIPES_ALL=(
+  "None"
   "awq_int4_weight_only"
   "smoothquant_int8"
 )
