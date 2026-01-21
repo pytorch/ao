@@ -27,7 +27,7 @@ from torchao.quantization import (
 from torchao.quantization.granularity import PerRow, PerTensor
 from torchao.quantization.quantize_.common import IsStaticQuantizationConfig
 from torchao.quantization.utils import compute_error
-from torchao.testing.model_architectures import ToyTwoLinearModel
+from torchao.testing.model_architectures import ToySingleLinearModel, ToyTwoLinearModel
 from torchao.testing.utils import TorchAOIntegrationTestCase
 from torchao.utils import (
     is_sm_at_least_90,
@@ -324,6 +324,82 @@ class TestFloat8StaticActivation(TorchAOIntegrationTestCase):
         # Verify get_act_quant_kwargs returns correct type
         act_quant_kwargs = config.get_act_quant_kwargs()
         self.assertIsNotNone(act_quant_kwargs)
+
+    def test_static_quant_with_output_quantization(self):
+        """
+        Test static quantization with output quantization enabled.
+
+        When quantize_and_dequantize_output=True:
+        1. An output observer is created during prepare step
+        2. The output of the linear layer is quantized to float8 after scaled_mm
+        3. The output is then dequantized back to original dtype
+        """
+        torch.compiler.reset()
+        torch.manual_seed(42)
+
+        dtype = self.dtype
+
+        # Create model
+        model = ToySingleLinearModel(
+            input_dim=64, output_dim=32, dtype=dtype, device="cuda"
+        ).eval()
+        example_inputs = model.example_inputs(batch_size=4)
+
+        # Get reference output before quantization
+        before_quant = model(*example_inputs)
+
+        # Step 1: Prepare model by inserting observers with output quantization
+        quantize_(
+            model,
+            Float8StaticActivationFloat8WeightConfig(
+                step="prepare", quantize_and_dequantize_output=True
+            ),
+        )
+
+        # Verify observers were inserted including output observers
+        self.assertIsInstance(model.linear1, Float8ObservedLinear)
+        self.assertIsNotNone(model.linear1.output_act_obs)
+
+        # Step 2: Calibrate with representative data
+        for _ in range(10):
+            model(*example_inputs)
+
+        # Step 3: Convert observed model to quantized model
+        quantize_(model, Float8StaticActivationFloat8WeightConfig(step="convert"))
+
+        # Verify quantization was applied including output quantization params
+        self.assertIsInstance(model.linear1.weight, PrototypeFloat8Tensor)
+        self.assertIsNotNone(model.linear1.weight.act_quant_scale)
+        self.assertIsNotNone(model.linear1.weight.output_act_quant_scale)
+        self.assertIsNotNone(model.linear1.weight.output_act_quant_kwargs)
+
+        # Test inference - output should be a regular tensor (dequantized)
+        after_quant = model(*example_inputs)
+
+        # The output should be a regular tensor since we dequantize after quantizing
+        self.assertNotIsInstance(after_quant, PrototypeFloat8Tensor)
+        self.assertEqual(after_quant.dtype, dtype)
+
+        # Verify quantization quality
+        error = compute_error(before_quant, after_quant)
+        self.assertGreater(
+            error,
+            15,
+            f"SQNR of quantized vs original should be > 15 dB, got {error}",
+        )
+
+        # Test with torch.compile
+        model_compiled = torch.compile(model, fullgraph=True)
+        after_quant_compiled = model_compiled(*example_inputs)
+
+        self.assertNotIsInstance(after_quant_compiled, PrototypeFloat8Tensor)
+        self.assertEqual(after_quant_compiled.dtype, dtype)
+        error_compiled = compute_error(before_quant, after_quant_compiled)
+        self.assertGreater(
+            error_compiled,
+            15,
+            f"SQNR of compiled quantized vs original should be > 15 dB, got {error_compiled}",
+        )
 
 
 if __name__ == "__main__":
