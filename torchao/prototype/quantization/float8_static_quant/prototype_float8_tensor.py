@@ -68,6 +68,8 @@ class PrototypeFloat8Tensor(TorchAOBaseTensor):
     Optional Tensor attributes:
         act_quant_scale: the scale for activation, used for static quantization, used along with
         act_quant_kwargs to quantize the activation statically
+        output_act_quant_scale: the scale for output activation, used when quantize_output=True
+        to quantize the output statically
 
     Non-Tensor Attributes:
         block_size (List[int]): the block size for float8 quantization, meaning the shape of the elements
@@ -78,10 +80,11 @@ class PrototypeFloat8Tensor(TorchAOBaseTensor):
         kernel_preference (KernelPreference): the preference for quantize, mm etc. kernel to use,
         by default, this will be chosen for user based on hardware, library availabilities etc.
         dtype: Original Tensor dtype
+        output_act_quant_kwargs (QuantizeTensorToFloat8Kwargs): the kwargs for output quantization
     """
 
     tensor_data_names = ["qdata", "scale"]
-    optional_tensor_data_names = ["act_quant_scale"]
+    optional_tensor_data_names = ["act_quant_scale", "output_act_quant_scale"]
     tensor_attribute_names = []
     optional_tensor_attribute_names = [
         "block_size",
@@ -89,6 +92,7 @@ class PrototypeFloat8Tensor(TorchAOBaseTensor):
         "act_quant_kwargs",
         "kernel_preference",
         "dtype",
+        "output_act_quant_kwargs",
     ]
 
     def __new__(
@@ -96,11 +100,13 @@ class PrototypeFloat8Tensor(TorchAOBaseTensor):
         qdata: torch.Tensor,
         scale: torch.Tensor,
         act_quant_scale: Optional[torch.Tensor] = None,
+        output_act_quant_scale: Optional[torch.Tensor] = None,
         block_size: Optional[List[int]] = None,
         mm_config: Optional[Float8MMConfig] = None,
         act_quant_kwargs: Optional[QuantizeTensorToFloat8Kwargs] = None,
         kernel_preference: KernelPreference = KernelPreference.AUTO,
         dtype: Optional[torch.dtype] = None,
+        output_act_quant_kwargs: Optional[QuantizeTensorToFloat8Kwargs] = None,
     ):
         shape = qdata.shape
         kwargs = {}
@@ -114,11 +120,13 @@ class PrototypeFloat8Tensor(TorchAOBaseTensor):
         qdata: torch.Tensor,
         scale: torch.Tensor,
         act_quant_scale: Optional[torch.Tensor] = None,
+        output_act_quant_scale: Optional[torch.Tensor] = None,
         block_size: Optional[List[int]] = None,
         mm_config: Optional[Float8MMConfig] = None,
         act_quant_kwargs: Optional[QuantizeTensorToFloat8Kwargs] = None,
         kernel_preference: KernelPreference = KernelPreference.AUTO,
         dtype: Optional[torch.dtype] = None,
+        output_act_quant_kwargs: Optional[QuantizeTensorToFloat8Kwargs] = None,
     ):
         super().__init__()
         self.qdata = qdata
@@ -131,11 +139,14 @@ class PrototypeFloat8Tensor(TorchAOBaseTensor):
         self.mm_config = mm_config
         self.act_quant_kwargs = act_quant_kwargs
         self.kernel_preference = kernel_preference
+        # output quantization attributes
+        self.output_act_quant_scale = output_act_quant_scale
+        self.output_act_quant_kwargs = output_act_quant_kwargs
 
     def __repr__(self):
         return (
             f"{self.__class__.__name__}({self.act_quant_kwargs=}, {self.qdata=}, {self.scale=}, "
-            f"{self.act_quant_scale=}, {self.block_size=}, {self.mm_config=}, {self.kernel_preference=} "
+            f"{self.act_quant_scale=}, {self.output_act_quant_scale=}, {self.block_size=}, {self.mm_config=}, {self.kernel_preference=} "
             f"{self.shape=}, {self.device=}, {self.dtype=})"
         )
 
@@ -162,6 +173,8 @@ class PrototypeFloat8Tensor(TorchAOBaseTensor):
         act_quant_kwargs: Optional[QuantizeTensorToFloat8Kwargs] = None,
         scale: Optional[torch.Tensor] = None,
         act_quant_scale: Optional[torch.Tensor] = None,
+        output_act_quant_scale: Optional[torch.Tensor] = None,
+        output_act_quant_kwargs: Optional[QuantizeTensorToFloat8Kwargs] = None,
     ):
         block_size = get_block_size(hp_tensor.shape, granularity)
         block_size = list(block_size)
@@ -185,6 +198,8 @@ class PrototypeFloat8Tensor(TorchAOBaseTensor):
                 kernel_preference=kernel_preference,
                 dtype=hp_dtype,
                 act_quant_scale=act_quant_scale,
+                output_act_quant_scale=output_act_quant_scale,
+                output_act_quant_kwargs=output_act_quant_kwargs,
             )
 
         kernel_choice = None
@@ -263,6 +278,8 @@ class PrototypeFloat8Tensor(TorchAOBaseTensor):
             kernel_preference=kernel_preference,
             dtype=hp_dtype,
             act_quant_scale=act_quant_scale,
+            output_act_quant_scale=output_act_quant_scale,
+            output_act_quant_kwargs=output_act_quant_kwargs,
         )
 
 
@@ -388,7 +405,6 @@ def _float8_addmm_impl(
                 ).reshape(out_shape)
                 if bias is not None:
                     res = res + bias
-            return res
         else:
             assert kernel_choice == "torch"
             scaled_mm_config = weight_tensor.mm_config
@@ -437,18 +453,31 @@ def _float8_addmm_impl(
                     bias=bias,
                     use_fast_accum=scaled_mm_config.use_fast_accum,
                 )
-            return res.reshape(out_shape)
+            res = res.reshape(out_shape)
     else:
         assert not isinstance(input_tensor, TorchAOBaseTensor), (
             "Expecting input_tensor to be unquantized"
         )
         # when input is not `PrototypeFloat8Tensor`, we expect that it is not quantized
         # so this is float8 weight only quantization
-        out = torch.matmul(input_tensor, weight_tensor.dequantize())
+        res = torch.matmul(input_tensor, weight_tensor.dequantize())
         if bias is not None:
-            return out + bias
-        else:
-            return out
+            res = res + bias
+
+    # Handle output quantization if output_act_quant_kwargs is set
+    output_act_quant_kwargs = weight_tensor.output_act_quant_kwargs
+    if output_act_quant_kwargs is not None:
+        res = _choose_quant_func_and_quantize_tensor(
+            res,
+            output_act_quant_kwargs,
+            act_quant_scale=weight_tensor.output_act_quant_scale,
+        )
+        # Dequantize the output to return a regular tensor
+        # This simulates the quantization error while keeping the output
+        # in a format that downstream ops can easily consume
+        res = res.dequantize()
+
+    return res
 
 
 @implements_torch_function(torch.bmm)
@@ -777,12 +806,14 @@ def _(func, types, args, kwargs):
         PrototypeFloat8Tensor(
             sliced_data,
             sliced_scale,
-            self.act_quant_scale,
-            block_size,
-            self.mm_config,
-            self.act_quant_kwargs,
-            self.kernel_preference,
+            act_quant_scale=self.act_quant_scale,
+            output_act_quant_scale=self.output_act_quant_scale,
+            block_size=block_size,
+            mm_config=self.mm_config,
+            act_quant_kwargs=self.act_quant_kwargs,
+            kernel_preference=self.kernel_preference,
             dtype=self.dtype,
+            output_act_quant_kwargs=self.output_act_quant_kwargs,
         ),
     )
 
@@ -830,12 +861,14 @@ def _(func, types, args, kwargs):
     new = tensor_0.__class__(
         cat_qdata,
         cat_scale,
-        tensor_0.act_quant_scale,
-        block_size,
-        tensor_0.mm_config,
-        tensor_0.act_quant_kwargs,
-        tensor_0.kernel_preference,
-        tensor_0.dtype,
+        act_quant_scale=tensor_0.act_quant_scale,
+        output_act_quant_scale=tensor_0.output_act_quant_scale,
+        block_size=block_size,
+        mm_config=tensor_0.mm_config,
+        act_quant_kwargs=tensor_0.act_quant_kwargs,
+        kernel_preference=tensor_0.kernel_preference,
+        dtype=tensor_0.dtype,
+        output_act_quant_kwargs=tensor_0.output_act_quant_kwargs,
     )
     return return_and_correct_aliasing(func, args, kwargs, new)
 
@@ -852,12 +885,14 @@ def _(func, types, args, kwargs):
     new = self.__class__(
         qdata,
         scale,
-        self.act_quant_scale,
-        block_size,
-        self.mm_config,
-        self.act_quant_kwargs,
-        self.kernel_preference,
-        self.dtype,
+        act_quant_scale=self.act_quant_scale,
+        output_act_quant_scale=self.output_act_quant_scale,
+        block_size=block_size,
+        mm_config=self.mm_config,
+        act_quant_kwargs=self.act_quant_kwargs,
+        kernel_preference=self.kernel_preference,
+        dtype=self.dtype,
+        output_act_quant_kwargs=self.output_act_quant_kwargs,
     )
     return return_and_correct_aliasing(func, args, kwargs, new)
 
@@ -904,12 +939,14 @@ def _(func, types, args, kwargs):
     new = self.__class__(
         qdata,
         scale,
-        self.act_quant_scale,
-        block_size,
-        self.mm_config,
-        self.act_quant_kwargs,
-        self.kernel_preference,
-        self.dtype,
+        act_quant_scale=self.act_quant_scale,
+        output_act_quant_scale=self.output_act_quant_scale,
+        block_size=block_size,
+        mm_config=self.mm_config,
+        act_quant_kwargs=self.act_quant_kwargs,
+        kernel_preference=self.kernel_preference,
+        dtype=self.dtype,
+        output_act_quant_kwargs=self.output_act_quant_kwargs,
     )
     return return_and_correct_aliasing(func, args, kwargs, new)
 
@@ -927,12 +964,14 @@ def _(func, types, args, kwargs):
     new = self.__class__(
         qdata,
         scale,
-        self.act_quant_scale,
-        block_size,
-        self.mm_config,
-        self.act_quant_kwargs,
-        self.kernel_preference,
-        self.dtype,
+        act_quant_scale=self.act_quant_scale,
+        output_act_quant_scale=self.output_act_quant_scale,
+        block_size=block_size,
+        mm_config=self.mm_config,
+        act_quant_kwargs=self.act_quant_kwargs,
+        kernel_preference=self.kernel_preference,
+        dtype=self.dtype,
+        output_act_quant_kwargs=self.output_act_quant_kwargs,
     )
     return return_and_correct_aliasing(func, args, kwargs, new)
 
@@ -952,12 +991,14 @@ def _(func, types, args, kwargs):
     new_float8_tensor = old_float8_tensor.__class__(
         old_float8_tensor.qdata[index],
         old_float8_tensor.scale[index],
-        old_float8_tensor.act_quant_scale,
-        old_float8_tensor.block_size[1:],
-        old_float8_tensor.mm_config,
-        old_float8_tensor.act_quant_kwargs,
-        old_float8_tensor.kernel_preference,
-        old_float8_tensor.dtype,
+        act_quant_scale=old_float8_tensor.act_quant_scale,
+        output_act_quant_scale=old_float8_tensor.output_act_quant_scale,
+        block_size=old_float8_tensor.block_size[1:],
+        mm_config=old_float8_tensor.mm_config,
+        act_quant_kwargs=old_float8_tensor.act_quant_kwargs,
+        kernel_preference=old_float8_tensor.kernel_preference,
+        dtype=old_float8_tensor.dtype,
+        output_act_quant_kwargs=old_float8_tensor.output_act_quant_kwargs,
     )
     return return_and_correct_aliasing(func, args, kwargs, new_float8_tensor)
 
@@ -974,12 +1015,14 @@ def _(func, types, args, kwargs):
     new = self.__class__(
         qdata,
         scale,
-        self.act_quant_scale,
-        block_size,
-        self.mm_config,
-        self.act_quant_kwargs,
-        self.kernel_preference,
-        self.dtype,
+        act_quant_scale=self.act_quant_scale,
+        output_act_quant_scale=self.output_act_quant_scale,
+        block_size=block_size,
+        mm_config=self.mm_config,
+        act_quant_kwargs=self.act_quant_kwargs,
+        kernel_preference=self.kernel_preference,
+        dtype=self.dtype,
+        output_act_quant_kwargs=self.output_act_quant_kwargs,
     )
     return return_and_correct_aliasing(func, args, kwargs, new)
 
@@ -992,12 +1035,14 @@ def _(func, types, args, kwargs):
     new_tensor = self.__class__(
         self.qdata.t(),
         self.scale.t(),
-        self.act_quant_scale,
-        (self.block_size[1], self.block_size[0]),
-        self.mm_config,
-        self.act_quant_kwargs,
-        self.kernel_preference,
-        self.dtype,
+        act_quant_scale=self.act_quant_scale,
+        output_act_quant_scale=self.output_act_quant_scale,
+        block_size=(self.block_size[1], self.block_size[0]),
+        mm_config=self.mm_config,
+        act_quant_kwargs=self.act_quant_kwargs,
+        kernel_preference=self.kernel_preference,
+        dtype=self.dtype,
+        output_act_quant_kwargs=self.output_act_quant_kwargs,
     )
     return return_and_correct_aliasing(func, args, kwargs, new_tensor)
 
@@ -1055,12 +1100,14 @@ def _(func, types, args, kwargs):
         new_tensor = tensor.__class__(
             new_qdatas[idx],
             new_scales[idx],
-            tensor.act_quant_scale,
-            new_block_sizes[idx],
-            tensor.mm_config,
-            tensor.act_quant_kwargs,
-            tensor.kernel_preference,
-            tensor.dtype,
+            act_quant_scale=tensor.act_quant_scale,
+            output_act_quant_scale=tensor.output_act_quant_scale,
+            block_size=new_block_sizes[idx],
+            mm_config=tensor.mm_config,
+            act_quant_kwargs=tensor.act_quant_kwargs,
+            kernel_preference=tensor.kernel_preference,
+            dtype=tensor.dtype,
+            output_act_quant_kwargs=tensor.output_act_quant_kwargs,
         )
         new_tensor = return_and_correct_aliasing(func, args, kwargs, new_tensor)
         new_tensors_list.append(new_tensor)

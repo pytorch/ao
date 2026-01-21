@@ -322,6 +322,10 @@ class Float8StaticActivationFloat8WeightConfig(AOBaseConfig):
         mm_config (Float8MMConfig): Configuration for the matrix multiplication. Default uses fast accumulation.
         kernel_preference (KernelPreference): Kernel preference for quantization and matmul operations.
         set_inductor_config (bool): if True, adjusts `torchinductor` settings to recommended values.
+        quantize_and_dequantize_output (bool): If True, the output of the linear layer will also be statically
+            quantized to float8 and then dequantized back to the original dtype. This is useful for simulating
+            the quantization error of the output while keeping the output as a regular tensor for downstream ops.
+            This requires an additional output observer during the prepare step. Default is False.
 
     Example (Observer flow):
         # Step 1: Prepare model by inserting observers
@@ -350,6 +354,8 @@ class Float8StaticActivationFloat8WeightConfig(AOBaseConfig):
     mm_config: Optional[Float8MMConfig] = None
     kernel_preference: KernelPreference = KernelPreference.AUTO
     set_inductor_config: bool = True
+    quantize_and_dequantize_output: bool = False
+    output_act_quant_scale: Optional[torch.Tensor] = None
 
     def __post_init__(self):
         torch._C._log_api_usage_once(
@@ -396,39 +402,48 @@ class Float8ObservedLinear(torch.nn.Linear):
     that collects statistics during calibration. After calibration, use
     `quantize_` with `Float8StaticActivationFloat8WeightConfig(step="convert")`
     to convert to a quantized module.
+
+    Optionally, an output observer can be provided to collect statistics for
+    output quantization when `quantize_and_dequantize_output=True` is used.
     """
 
     def __init__(
         self,
         in_features: int,
         out_features: int,
-        act_obs: "AffineQuantizedMinMaxObserver",  # noqa: F821
+        input_act_obs: "AffineQuantizedMinMaxObserver",  # noqa: F821
         bias: bool = True,
         device=None,
         dtype=None,
+        output_act_obs: Optional["AffineQuantizedMinMaxObserver"] = None,  # noqa: F821
     ):
         super().__init__(in_features, out_features, bias, device, dtype)
-        self.act_obs = act_obs
+        self.input_act_obs = input_act_obs
+        self.output_act_obs = output_act_obs
 
     def forward(self, input: Tensor) -> Tensor:
-        self.act_obs(input)
+        self.input_act_obs(input)
         output = F.linear(input, self.weight, self.bias)
+        if self.output_act_obs is not None:
+            self.output_act_obs(output)
         return output
 
     @classmethod
     def from_float(
         cls,
         float_linear: torch.nn.Linear,
-        act_obs: "AffineQuantizedMinMaxObserver",  # noqa: F821
+        input_act_obs: "AffineQuantizedMinMaxObserver",  # noqa: F821
+        output_act_obs: Optional["AffineQuantizedMinMaxObserver"] = None,  # noqa: F821
     ) -> "Float8ObservedLinear":
         """Create an observed linear from a float linear module."""
         observed_linear = cls(
             float_linear.in_features,
             float_linear.out_features,
-            act_obs,
+            input_act_obs,
             bias=float_linear.bias is not None,
             device=float_linear.weight.device,
             dtype=float_linear.weight.dtype,
+            output_act_obs=output_act_obs,
         )
         observed_linear.weight = float_linear.weight
         observed_linear.bias = float_linear.bias
@@ -456,8 +471,8 @@ def _float8_static_activation_float8_weight_transform(
     granularity = config.granularity if config.granularity is not None else PerTensor()
 
     if step == Float8StaticStep.PREPARE or step == "prepare":
-        # Create observer and wrap linear
-        observer = AffineQuantizedMinMaxObserver(
+        # Create input observer and wrap linear
+        input_observer = AffineQuantizedMinMaxObserver(
             mapping_type=MappingType.SYMMETRIC,
             target_dtype=config.activation_dtype,
             granularity=granularity,
@@ -465,7 +480,18 @@ def _float8_static_activation_float8_weight_transform(
             scale_dtype=torch.float32,
             zero_point_dtype=torch.float32,
         )
-        return Float8ObservedLinear.from_float(module, observer)
+        # Create output observer if quantize_and_dequantize_output is True
+        output_observer = None
+        if config.quantize_and_dequantize_output:
+            output_observer = AffineQuantizedMinMaxObserver(
+                mapping_type=MappingType.SYMMETRIC,
+                target_dtype=config.activation_dtype,
+                granularity=granularity,
+                eps=torch.finfo(torch.float32).eps,
+                scale_dtype=torch.float32,
+                zero_point_dtype=torch.float32,
+            )
+        return Float8ObservedLinear.from_float(module, input_observer, output_observer)
 
     elif step == Float8StaticStep.CONVERT or step == "convert":
         if not isinstance(module, Float8ObservedLinear):
@@ -476,7 +502,7 @@ def _float8_static_activation_float8_weight_transform(
 
         # Extract activation scale from observer
         # Scale needs to be 2D for 2D activation tensors
-        act_quant_scale, _ = module.act_obs.calculate_qparams()
+        act_quant_scale, _ = module.input_act_obs.calculate_qparams()
         if act_quant_scale.ndim == 0:
             # TODO: add keep_dim arg for `choose_qparams_affine_with_min_max`
             # to avoid this workaround
@@ -487,6 +513,20 @@ def _float8_static_activation_float8_weight_transform(
 
         activation_dtype = config.activation_dtype
         weight_dtype = config.weight_dtype
+
+        # Extract output activation scale from observer if available
+        output_act_quant_scale = None
+        output_act_quant_kwargs = None
+        if module.output_act_obs is not None:
+            output_act_quant_scale, _ = module.output_act_obs.calculate_qparams()
+            if output_act_quant_scale.ndim == 0:
+                output_act_quant_scale = output_act_quant_scale.view(1, 1)
+            output_act_quant_kwargs = QuantizeTensorToFloat8Kwargs(
+                float8_dtype=activation_dtype,
+                granularity=granularity,
+                mm_config=config.mm_config,
+                kernel_preference=config.kernel_preference,
+            )
 
         # Create quantized weight tensor
         quantized_tensor = PrototypeFloat8Tensor.from_hp(
@@ -502,6 +542,10 @@ def _float8_static_activation_float8_weight_transform(
                 kernel_preference=config.kernel_preference,
             ),
             act_quant_scale=act_quant_scale.detach(),
+            output_act_quant_scale=output_act_quant_scale.detach()
+            if output_act_quant_scale is not None
+            else None,
+            output_act_quant_kwargs=output_act_quant_kwargs,
         )
 
         # Create new Linear module with quantized weight
@@ -531,6 +575,17 @@ def _float8_static_activation_float8_weight_transform(
         weight_dtype = config.weight_dtype
         act_quant_scale = config.act_quant_scale
 
+        # Handle output quantization kwargs if output_act_quant_scale is provided
+        output_act_quant_scale = config.output_act_quant_scale
+        output_act_quant_kwargs = None
+        if output_act_quant_scale is not None:
+            output_act_quant_kwargs = QuantizeTensorToFloat8Kwargs(
+                float8_dtype=activation_dtype,
+                granularity=granularity,
+                mm_config=config.mm_config,
+                kernel_preference=config.kernel_preference,
+            )
+
         # Create quantized weight tensor
         quantized_tensor = PrototypeFloat8Tensor.from_hp(
             module.weight,
@@ -545,6 +600,10 @@ def _float8_static_activation_float8_weight_transform(
                 kernel_preference=config.kernel_preference,
             ),
             act_quant_scale=act_quant_scale.detach(),
+            output_act_quant_scale=output_act_quant_scale.detach()
+            if output_act_quant_scale is not None
+            else None,
+            output_act_quant_kwargs=output_act_quant_kwargs,
         )
 
         module.weight = torch.nn.Parameter(quantized_tensor, requires_grad=False)
