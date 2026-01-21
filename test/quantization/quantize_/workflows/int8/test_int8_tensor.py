@@ -29,7 +29,11 @@ from torchao.quantization.quantize_.workflows.int8.int8_tensor import (
 from torchao.quantization.utils import compute_error, get_block_size
 from torchao.testing.model_architectures import ToyTwoLinearModel
 from torchao.testing.utils import TorchAOIntegrationTestCase
-from torchao.utils import get_current_accelerator_device, torch_version_at_least
+from torchao.utils import (
+    get_current_accelerator_device,
+    torch_version_at_least,
+    get_available_devices,
+)
 
 INT8_TEST_CONFIGS = [
     Int8WeightOnlyConfig(version=2, granularity=PerTensor()),
@@ -131,10 +135,8 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
             f"Quantization error is too high got a SQNR of {compute_error(output_fp, output_quantized)}"
         )
 
-    _DEVICE = get_current_accelerator_device()
-
     @common_utils.parametrize("config", INT8_TEST_CONFIGS)
-    @common_utils.parametrize("device", ["cpu", _DEVICE])
+    @common_utils.parametrize("device", get_available_devices())
     @common_utils.parametrize("dtype", [torch.bfloat16, torch.float16])
     def test_slice(self, config, device, dtype):
         """Test tensor slicing with per-row quantization"""
