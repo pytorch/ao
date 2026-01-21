@@ -28,6 +28,7 @@ import pandas as pd
 import sympy
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import tqdm
 from tabulate import tabulate
 from torch.profiler import ProfilerActivity, profile
@@ -39,6 +40,11 @@ from utils import (
 )
 
 import torchao
+from torchao.utils import torch_version_at_least
+
+# ScalingType and SwizzleType are only available in PyTorch 2.10+
+if torch_version_at_least("2.10.0"):
+    from torch.nn.functional import ScalingType, SwizzleType
 from torchao.prototype.mx_formats.inference_workflow import (
     MXDynamicActivationMXWeightConfig,
     NVFP4DynamicActivationNVFP4WeightConfig,
@@ -155,7 +161,21 @@ def get_gemm_times(
 
     def do_matmul(A, B):
         if recipe_name == "mxfp4_cutlass":
-            return torchao.ops.mx_fp4_bf16(A, B, scale_a, scale_b)
+            if not torch_version_at_least("2.10.0"):
+                raise RuntimeError(
+                    "MXFP4 matmul requires PyTorch 2.10.0 or later for F.scaled_mm support"
+                )
+            return F.scaled_mm(
+                A,
+                B,
+                scale_a=scale_a,
+                scale_recipe_a=ScalingType.BlockWise1x32,
+                scale_b=scale_b,
+                scale_recipe_b=ScalingType.BlockWise1x32,
+                swizzle_a=SwizzleType.SWIZZLE_32_4_4,
+                swizzle_b=SwizzleType.SWIZZLE_32_4_4,
+                output_dtype=d3,
+            )
         if recipe_name == "nvfp4":
             return torch._scaled_mm(
                 A, B, scale_a, scale_b, out_dtype=d3, use_fast_accum=False
