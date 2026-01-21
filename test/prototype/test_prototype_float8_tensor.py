@@ -68,7 +68,7 @@ class TestFloat8StaticActivation(TorchAOIntegrationTestCase):
         """Test that static quantization matches dynamic quantization when using the same scale"""
         torch.compiler.reset()
 
-        dtype = torch.bfloat16
+        dtype = self.dtype
 
         M, N, K = 32, 32, 32
         input_tensor = torch.randn(M, K, dtype=dtype, device="cuda")
@@ -127,7 +127,7 @@ class TestFloat8StaticActivation(TorchAOIntegrationTestCase):
     def test_creation_and_attributes(self, granularity):
         """Test tensor creation, dtypes, and attributes"""
         M, N, K = 32, 32, 32
-        dtype = torch.bfloat16
+        dtype = self.dtype
 
         input_tensor = torch.randn(M, K, dtype=dtype, device="cuda")
         linear = torch.nn.Linear(K, N, bias=False, dtype=dtype, device="cuda")
@@ -258,7 +258,7 @@ class TestFloat8StaticActivation(TorchAOIntegrationTestCase):
         torch.compiler.reset()
         torch.manual_seed(42)
 
-        dtype = torch.bfloat16
+        dtype = self.dtype
 
         # Create model
         model = ToyTwoLinearModel(
