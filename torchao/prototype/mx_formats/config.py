@@ -74,6 +74,19 @@ class ScaleCalculationMode(Enum):
     CEIL = "ceil"
     EVEN = "even"
 
+    def __eq__(self, other):
+        if isinstance(other, ScaleCalculationMode):
+            return self.value == other.value
+        return NotImplemented
+
+    def __hash__(self):
+        return hash(self.value)
+
+
+# Register ScaleCalculationMode with pytree so torch.compile can handle it
+# as a function argument in @torch._dynamo.nonstrict_trace functions.
+torch.utils._pytree.register_constant(ScaleCalculationMode)
+
 
 def _validate_elem_dtype(elem_dtype):
     assert elem_dtype in SUPPORTED_ELEM_DTYPES, (

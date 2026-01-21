@@ -1182,14 +1182,14 @@ class Int8StaticActivationInt8WeightConfig(AOBaseConfig):
     Configuration for applying int8 static symmetric quantization to both activation and weight
 
     Args:
-        scale (torch.Tensor): The scale tensor for activation quantization.
+        act_quant_scale (torch.Tensor): The scale tensor for activation quantization.
         granularity (Granularity): The granularity of quantization. PerRow() and PerTensor() are supported currently
         act_mapping_type (MappingType): The mapping type for activation quantization. only SYMMETRIC is supported currently
         set_inductor_config (bool): if True, adjusts `torchinductor` settings to recommended values.
         version (int): the version of the config
     """
 
-    scale: torch.Tensor
+    act_quant_scale: Optional[torch.Tensor] = None
     granularity: Granularity = PerRow()
     act_mapping_type: Optional[MappingType] = MappingType.SYMMETRIC
     set_inductor_config: bool = True
@@ -1198,6 +1198,25 @@ class Int8StaticActivationInt8WeightConfig(AOBaseConfig):
     def __post_init__(self):
         torch._C._log_api_usage_once(
             "torchao.quantization.Int8StaticActivationInt8WeightConfig"
+        )
+
+        # Validate activation granularity for static quantization
+        if isinstance(self.granularity, PerRow) and self.granularity.dim != -1:
+            raise ValueError(
+                f"Int8StaticActivationInt8WeightConfig only supports PerRow(dim=-1) "
+                f"for activation quantization, got PerRow(dim={self.granularity.dim}). "
+                f"Per-feature activation quantization is not supported due to slicing limitations."
+            )
+
+    def get_act_quant_kwargs(self) -> QuantizeTensorToInt8Kwargs:
+        """Get the activation quantization kwargs for static quantization.
+
+        Returns:
+            QuantizeTensorToInt8Kwargs with the configured granularity and mapping type.
+        """
+        return QuantizeTensorToInt8Kwargs(
+            granularity=self.granularity,
+            mapping_type=self.act_mapping_type,
         )
 
 
@@ -1231,7 +1250,7 @@ def _int8_static_activation_int8_weight_transform(
             granularity=activation_granularity,
             mapping_type=config.act_mapping_type,
         ),
-        act_scale=config.scale.detach(),
+        act_quant_scale=config.act_quant_scale.detach(),
     )
 
     setattr(
