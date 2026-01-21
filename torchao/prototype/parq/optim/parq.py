@@ -47,7 +47,7 @@ class ProxPARQ(ProxMap):
         steepness: float = 10,
         anneal_center: float = 0.5,
     ) -> None:
-        assert anneal_start < anneal_end, "PARQ annealing: start before end."
+        assert anneal_start <= anneal_end, "PARQ annealing: start before end."
         assert steepness > 0, "PARQ annealing steepness should be positive."
         self.anneal_start = anneal_start
         self.anneal_end = anneal_end
