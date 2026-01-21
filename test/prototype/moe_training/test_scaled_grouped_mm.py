@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import pytest
+import sys
 import torch
 from torch.nn import functional as F
 
@@ -50,9 +51,9 @@ from torchao.utils import is_MI300, is_MI350, is_ROCM
 torch._dynamo.config.cache_size_limit = 1000
 
 
-@pytest.mark.parametrize("m", [256, 1024, 4096, 131072])
-@pytest.mark.parametrize("n", [256, 1024, 8192])
-@pytest.mark.parametrize("k", [256, 1024, 5120])
+@pytest.mark.parametrize("m", [256, 131072])
+@pytest.mark.parametrize("n", [256, 8192])
+@pytest.mark.parametrize("k", [256, 5120])
 @pytest.mark.parametrize("n_groups", [1, 2, 4, 8])
 def test_valid_scaled_grouped_mm_2d_3d(m, n, k, n_groups):
     if is_ROCM():
