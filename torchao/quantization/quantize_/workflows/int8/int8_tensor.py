@@ -24,7 +24,7 @@ from torchao.quantization.quantize_.common import (
     _choose_quant_func_and_quantize_tensor,
 )
 from torchao.quantization.utils import get_block_size
-from torchao.utils import TorchAOBaseTensor, fill_defaults
+from torchao.utils import TorchAOBaseTensor, fill_defaults, torch_version_at_least
 
 __all__ = ["Int8Tensor", "QuantizeTensorToInt8Kwargs"]
 
@@ -236,12 +236,23 @@ def _(func, types, args, kwargs):
 
     else:
         # FP × INT8 (weight-only)
-        w_vals_int8_t = weight_tensor.qdata.t()
-        m = torch.mm(
-            activation_tensor.reshape(-1, activation_tensor.shape[-1]),
-            w_vals_int8_t.to(output_dtype),
-        )
-        y = m * weight_tensor.scale.to(m.dtype).flatten()
+        w_vals_int8 = weight_tensor.qdata
+        try:
+            if torch_version_at_least("2.9.0"):
+                y = torch.ops.aten._weight_int8pack_mm(
+                    activation_tensor.reshape(-1, activation_tensor.shape[-1]),
+                    w_vals_int8,
+                    weight_tensor.scale.to(activation_tensor.dtype).flatten(),
+                )
+            else:
+                raise RuntimeError("Requires torch 2.9+")
+        except Exception:
+            w_vals_int8_t = w_vals_int8.t()
+            m = torch.mm(
+                activation_tensor.reshape(-1, activation_tensor.shape[-1]),
+                w_vals_int8_t.to(output_dtype),
+            )
+            y = m * weight_tensor.scale.to(m.dtype).flatten()
         y = y.reshape(*activation_tensor.shape[:-1], weight_tensor.qdata.shape[0])
 
     if bias is not None:
