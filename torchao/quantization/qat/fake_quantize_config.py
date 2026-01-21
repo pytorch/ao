@@ -459,19 +459,17 @@ def _infer_fake_quantize_configs(
             KernelPreference,
         )
 
-        # MXFakeQuantizeConfig supports all MX element dtypes (MXFP4, MXFP8, MXFP6)
-        # via the elem_dtype parameter
         act_config = MXFakeQuantizeConfig(
-            elem_dtype=base_config.activation_dtype,
+            dtype=base_config.activation_dtype,
             block_size=base_config.block_size,
             scaling_mode=ScaleCalculationMode.RCEIL,
             kernel_preference=KernelPreference.EMULATED,
         )
         weight_config = MXFakeQuantizeConfig(
-            elem_dtype=base_config.weight_dtype,
+            dtype=base_config.weight_dtype,
             block_size=base_config.block_size,
             scaling_mode=ScaleCalculationMode.RCEIL,
-            kernel_preference=base_config.kernel_preference,
+            kernel_preference=KernelPreference.EMULATED,
         )
     elif isinstance(base_config, Int8DynamicActivationIntxWeightConfig):
         assert base_config.version >= 2, "Only version 2+ is supported"

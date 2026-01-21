@@ -2464,46 +2464,46 @@ class TestQAT(TestCase):
         self.assertEqual(config.block_size, 32)
         self.assertEqual(config.scaling_mode, ScaleCalculationMode.RCEIL)
         self.assertEqual(config.kernel_preference, KernelPreference.EMULATED)
-        self.assertEqual(config.elem_dtype, torch.float4_e2m1fn_x2)
+        self.assertEqual(config.dtype, torch.float4_e2m1fn_x2)
 
         # Test MXFP8 config (e4m3)
         config_fp8_e4m3 = MXFakeQuantizeConfig(
-            elem_dtype=torch.float8_e4m3fn,
+            dtype=torch.float8_e4m3fn,
             block_size=32,
             scaling_mode=ScaleCalculationMode.RCEIL,
             kernel_preference=KernelPreference.EMULATED,
         )
         self.assertEqual(config_fp8_e4m3.block_size, 32)
         self.assertEqual(config_fp8_e4m3.scaling_mode, ScaleCalculationMode.RCEIL)
-        self.assertEqual(config_fp8_e4m3.elem_dtype, torch.float8_e4m3fn)
+        self.assertEqual(config_fp8_e4m3.dtype, torch.float8_e4m3fn)
 
         # Test MXFP8 config (e5m2)
         config_fp8_e5m2 = MXFakeQuantizeConfig(
-            elem_dtype=torch.float8_e5m2,
+            dtype=torch.float8_e5m2,
             block_size=32,
         )
-        self.assertEqual(config_fp8_e5m2.elem_dtype, torch.float8_e5m2)
+        self.assertEqual(config_fp8_e5m2.dtype, torch.float8_e5m2)
 
     @unittest.skipIf(not torch_version_at_least("2.8.0"), "Need pytorch 2.8+")
     @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
     @parametrize("bias", [True, False])
     @parametrize("input_shape", [(128, 256), (1, 128, 256), (2, 4, 128, 256)])
     @parametrize(
-        "elem_dtype",
+        "dtype",
         [torch.float4_e2m1fn_x2, torch.float8_e4m3fn, torch.float8_e5m2],
     )
-    def test_mx_fake_quantized_linear_forward(self, bias, input_shape, elem_dtype):
+    def test_mx_fake_quantized_linear_forward(self, bias, input_shape, dtype):
         """Test MXFakeQuantizedLinear forward pass with various dtypes and input ranks."""
         from torchao.prototype.qat import MXFakeQuantizeConfig, MXFakeQuantizedLinear
 
         K, N = 256, 128
 
         activation_config = MXFakeQuantizeConfig(
-            elem_dtype=elem_dtype,
+            dtype=dtype,
             block_size=32,
         )
         weight_config = MXFakeQuantizeConfig(
-            elem_dtype=elem_dtype,
+            dtype=dtype,
             block_size=32,
         )
 
@@ -2524,7 +2524,7 @@ class TestQAT(TestCase):
         # Check SQNR - MXFP4 has lower precision so use lower threshold
         # MXFP8 has higher precision
         sqnr = compute_error(y_ref, y_mx)
-        if elem_dtype == torch.float4_e2m1fn_x2:
+        if dtype == torch.float4_e2m1fn_x2:
             self.assertGreaterEqual(sqnr, 5.0)
         else:
             self.assertGreaterEqual(sqnr, 10.0)
