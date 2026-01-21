@@ -320,7 +320,7 @@ class Float8StaticActivationFloat8WeightConfig(AOBaseConfig):
             Required when step is not provided.
         activation_dtype (torch.dtype): The target data type for activation quantization. Default is torch.float8_e4m3fn
         weight_dtype (torch.dtype): The target data type for weight quantization. Default is torch.float8_e4m3fn
-        granularity (FP8Granularity): The granularity of quantization. PerTensor() is used for static activation quantization.
+        granularity (FP8Granularity): The granularity of quantization. Only PerTensor() is supported for static activation quantization because the scale must be fixed at calibration time and work for any batch size at inference.
         mm_config (Float8MMConfig): Configuration for the matrix multiplication. Default uses fast accumulation.
         kernel_preference (KernelPreference): Kernel preference for quantization and matmul operations.
         set_inductor_config (bool): if True, adjusts `torchinductor` settings to recommended values.
