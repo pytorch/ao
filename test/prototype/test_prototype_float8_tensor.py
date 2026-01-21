@@ -26,6 +26,7 @@ from torchao.quantization import (
 )
 from torchao.quantization.granularity import PerRow, PerTensor
 from torchao.quantization.utils import compute_error
+from torchao.testing.model_architectures import ToyTwoLinearModel
 from torchao.testing.utils import TorchAOIntegrationTestCase
 from torchao.utils import (
     is_sm_at_least_90,
@@ -51,27 +52,6 @@ class ToyConvModel(torch.nn.Module):
 
     def forward(self, x):
         return self.conv(x)
-
-
-class ToyLinearModel(torch.nn.Module):
-    """Simple model with two linear layers for testing static quantization flow."""
-
-    def __init__(self, m=64, n=32, k=64, dtype=torch.float32, device="cpu"):
-        super().__init__()
-        self.linear1 = torch.nn.Linear(m, k, bias=False, dtype=dtype, device=device)
-        self.linear2 = torch.nn.Linear(k, n, bias=False, dtype=dtype, device=device)
-
-    def example_inputs(self, batch_size=1, dtype=None, device=None):
-        if dtype is None:
-            dtype = self.linear1.weight.dtype
-        if device is None:
-            device = self.linear1.weight.device
-        return (torch.randn(batch_size, self.linear1.in_features, dtype=dtype, device=device),)
-
-    def forward(self, x):
-        x = self.linear1(x)
-        x = self.linear2(x)
-        return x
 
 
 @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
@@ -281,8 +261,9 @@ class TestFloat8StaticActivation(TorchAOIntegrationTestCase):
         dtype = torch.bfloat16
 
         # Create model
-        model = ToyLinearModel(m=64, n=32, k=64, dtype=dtype, device="cuda").eval()
-        model_ref = copy.deepcopy(model)
+        model = ToyTwoLinearModel(
+            input_dim=64, hidden_dim=64, output_dim=32, dtype=dtype, device="cuda"
+        ).eval()
         example_inputs = model.example_inputs(batch_size=4)
 
         # Get reference output before quantization
