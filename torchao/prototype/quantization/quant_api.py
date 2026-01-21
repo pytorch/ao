@@ -13,7 +13,7 @@ import logging
 import types
 import warnings
 from dataclasses import dataclass
-from typing import Optional, Tuple, Union
+from typing import Optional
 
 import torch
 
@@ -21,20 +21,16 @@ import torchao
 from torchao.core.config import AOBaseConfig
 from torchao.dtypes import (
     CutlassInt4PackedLayout,
-    Float8Layout,
     Int8DynamicActInt4WeightCPULayout,
     PlainLayout,
     UintxLayout,
-    to_affine_quantized_floatx,
     to_affine_quantized_intx,
 )
 from torchao.dtypes.utils import Layout
 from torchao.float8.config import e4m3_dtype
-from torchao.float8.float8_linear import Float8Linear
 from torchao.float8.inference import (
     Float8MMConfig,
     FP8Granularity,
-    _normalize_granularity,
 )
 from torchao.quantization.granularity import (
     PerRow,
@@ -58,16 +54,7 @@ from torchao.quantization.transform_module import (
     register_quantize_module_handler,
 )
 from torchao.quantization.utils import (
-    _fp8_mm_compat,
     _linear_extra_repr,
-    get_block_size,
-)
-from torchao.quantization.weight_tensor_linear_activation_quantization import (
-    to_weight_tensor_with_linear_activation_quantization_metadata,
-)
-from torchao.utils import (
-    is_MI300,
-    is_sm_at_least_89,
 )
 
 logger = logging.getLogger(__name__)
@@ -311,19 +298,7 @@ class Float8StaticActivationFloat8WeightConfig(AOBaseConfig):
     """
     Configuration for applying float8 static symmetric quantization to both activation and weight.
 
-    - Version 1 (default): Uses AffineQuantizedTensor with Float8Layout
-    - Version 2: Uses Float8Tensor (similar to Int8StaticActivationInt8WeightConfig) from prototype folder
-
-    Version 1 Args (deprecated, will be removed):
-        scale (torch.Tensor): The scale tensor for activation quantization.
-        activation_dtype (torch.dtype): The target data type for activation quantization. Default is torch.float8_e4m3fn
-        weight_dtype (torch.dtype): The target data type for weight quantization. Default is torch.float8_e4m3fn
-        granularity (Optional[Union[FP8Granularity, Tuple[FP8Granularity, FP8Granularity]]]): Granularity for quantization
-        mm_config (Float8MMConfig): Configuration for the matrix multiplication. Default uses fast accumulation.
-        set_inductor_config (bool): if True, adjusts `torchinductor` settings to recommended values.
-        version (int): Must be 1 for version 1
-
-    Version 2 Args (recommended):
+    Args:
         act_quant_scale (torch.Tensor): The scale tensor for activation quantization.
         activation_dtype (torch.dtype): The target data type for activation quantization. Default is torch.float8_e4m3fn
         weight_dtype (torch.dtype): The target data type for weight quantization. Default is torch.float8_e4m3fn
@@ -331,23 +306,15 @@ class Float8StaticActivationFloat8WeightConfig(AOBaseConfig):
         mm_config (Float8MMConfig): Configuration for the matrix multiplication. Default uses fast accumulation.
         kernel_preference (KernelPreference): Kernel preference for quantization and matmul operations.
         set_inductor_config (bool): if True, adjusts `torchinductor` settings to recommended values.
-        version (int): Must be 2 for version 2
     """
 
-    scale: Optional[torch.Tensor] = None
     act_quant_scale: Optional[torch.Tensor] = None
-    # Version 1 and 2 parameters
     activation_dtype: torch.dtype = e4m3_dtype
     weight_dtype: torch.dtype = e4m3_dtype
-    # Granularity - type depends on version
-    granularity: Optional[
-        Union[FP8Granularity, Tuple[FP8Granularity, FP8Granularity]]
-    ] = None
+    granularity: Optional[FP8Granularity] = None
     mm_config: Optional[Float8MMConfig] = None
-    # Version 2 only parameter
     kernel_preference: KernelPreference = KernelPreference.AUTO
     set_inductor_config: bool = True
-    version: int = 1  # Default to version 1 for backward compatibility
 
     def __post_init__(self):
         torch._C._log_api_usage_once(
@@ -355,12 +322,6 @@ class Float8StaticActivationFloat8WeightConfig(AOBaseConfig):
         )
         if self.mm_config is None:
             self.mm_config = Float8MMConfig(use_fast_accum=True)
-
-        if self.version == 1:
-            warnings.warn(
-                "`Float8StaticActivationFloat8WeightConfig` version 1 will be deleted in a future release of torchao. "
-                "Please migrate to version 2 by setting version=2. Please see https://github.com/pytorch/ao/issues/2752 for more details."
-            )
 
 
 @register_quantize_module_handler(Float8StaticActivationFloat8WeightConfig)
@@ -370,109 +331,20 @@ def _float8_static_activation_float8_weight_transform(
     *,
     parameter_name="weight",
 ):
-    if config.version == 1:
-        assert config.scale is not None
-        return _float8_static_activation_float8_weight_transform_v1(
-            module, config, parameter_name=parameter_name
-        )
-    elif config.version == 2:
-        assert config.act_quant_scale is not None
-        return _float8_static_activation_float8_weight_transform_v2(
-            module, config, parameter_name=parameter_name
-        )
-    else:
-        raise ValueError(
-            f"Unsupported version {config.version}. Only version 1 and 2 are supported."
-        )
-
-
-def _float8_static_activation_float8_weight_transform_v1(
-    module: torch.nn.Module,
-    config: Float8StaticActivationFloat8WeightConfig,
-    *,
-    parameter_name="weight",
-):
-    """Version 1 implementation using AffineQuantizedTensor with Float8Layout"""
-    assert is_sm_at_least_89() or is_MI300(), (
-        "Float8 static activation quantization is only supported on CUDA 8.9 and above"
-    )
-
-    if isinstance(module, Float8Linear):
-        # avoid circular import
-        from torchao.quantization.quant_api import _unwrap_float8_linear
-
-        module = _unwrap_float8_linear(module)
-
-    scale = config.scale
-    activation_dtype = config.activation_dtype
-    weight_dtype = config.weight_dtype
-    granularity = config.granularity
-    mm_config = config.mm_config
-    if config.set_inductor_config:
-        torchao.quantization.utils.recommended_inductor_config_setter()
-
-    weight = module.weight
-    activation_granularity, weight_granularity = _normalize_granularity(granularity)
-    assert isinstance(activation_granularity, PerTensor), (
-        "Static quantization only supports PerTensor granularity"
-    )
-
-    if not _fp8_mm_compat(weight):
-        # TODO(future PR): this should really throw an exception instead of silently
-        # not doing what the user asked
-        return module
-    block_size = get_block_size(weight.shape, weight_granularity)
-    quantized_weight = to_affine_quantized_floatx(
-        input_float=weight,
-        block_size=block_size,
-        target_dtype=weight_dtype,
-        scale_dtype=torch.float32,
-        _layout=Float8Layout(mm_config=mm_config),
-    )
-
-    # prevent circular import
-    from torchao.quantization.quant_api import _input_activation_quant_func_fp8
-
-    input_quant_func = _input_activation_quant_func_fp8
-    input_quant_kwargs = {
-        "activation_granularity": activation_granularity,
-        "activation_dtype": activation_dtype,
-    }
-
-    quantized_weight = to_weight_tensor_with_linear_activation_quantization_metadata(
-        quantized_weight,
-        input_quant_func,
-        scale=scale,
-        zero_point=None,
-        quant_kwargs=input_quant_kwargs,
-    )
-
-    module.weight = torch.nn.Parameter(quantized_weight, requires_grad=False)
-    module.extra_repr = types.MethodType(_linear_extra_repr, module)
-    return module
-
-
-def _float8_static_activation_float8_weight_transform_v2(
-    module: torch.nn.Module,
-    config: Float8StaticActivationFloat8WeightConfig,
-    *,
-    parameter_name="weight",
-):
     from torchao.prototype.quantization.float8_static_quant.prototype_float8_tensor import (
         PrototypeFloat8Tensor,
     )
 
-    """Version 2 implementation using PrototypeFloat8Tensor"""
+    assert config.act_quant_scale is not None, "act_quant_scale is required"
     activation_dtype = config.activation_dtype
     weight_dtype = config.activation_dtype
 
-    # Granularity should be a single value for version 2
     granularity = config.granularity
     if granularity is None:
         granularity = PerRow()
     elif isinstance(granularity, tuple):
         raise ValueError(
-            "Version 2 does not support tuple granularity. Please specify a single granularity value."
+            "Tuple granularity is not supported. Please specify a single granularity value."
         )
 
     assert granularity in {PerRow(), PerTensor()}, (
