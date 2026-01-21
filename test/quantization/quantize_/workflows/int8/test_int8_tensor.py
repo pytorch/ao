@@ -30,9 +30,9 @@ from torchao.quantization.utils import compute_error, get_block_size
 from torchao.testing.model_architectures import ToyTwoLinearModel
 from torchao.testing.utils import TorchAOIntegrationTestCase
 from torchao.utils import (
+    get_available_devices,
     get_current_accelerator_device,
     torch_version_at_least,
-    get_available_devices,
 )
 
 INT8_TEST_CONFIGS = [
@@ -267,15 +267,10 @@ class TestInt8StaticQuant(TorchAOIntegrationTestCase):
     def test_static_activation_per_row_int8_weight(self, granularity, dtype):
         torch.compiler.reset()
 
-<<<<<<< HEAD
         M, N, K = 128, 128, 128
-        input_tensor = torch.randn(M, K, dtype=dtype, device="cuda")
-=======
-        M, N, K = 32, 32, 32
 
         _DEVICE = get_current_accelerator_device()
         input_tensor = torch.randn(M, K, dtype=dtype, device=_DEVICE)
->>>>>>> f07387cd2 (refine the device)
 
         model = torch.nn.Linear(K, N, bias=False).eval().to(device=_DEVICE, dtype=dtype)
         model_static_quant = copy.deepcopy(model)
@@ -353,7 +348,7 @@ class TestInt8StaticQuant(TorchAOIntegrationTestCase):
         N, K = 256, 512
         M = 32  # batch size
         dtype = torch.bfloat16
-        device = "cuda"
+        device = get_current_accelerator_device()
 
         linear = torch.nn.Linear(K, N, bias=False, dtype=dtype, device=device)
         input_tensor = torch.randn(M, K, dtype=dtype, device=device)
@@ -414,11 +409,12 @@ class TestInt8StaticQuant(TorchAOIntegrationTestCase):
         torch.manual_seed(42)
 
         # Create test model
-        model = ToyTwoLinearModel(256, 128, 256, dtype=dtype, device="cuda").eval()
+        _DEVICE = get_current_accelerator_device()
+        model = ToyTwoLinearModel(256, 128, 256, dtype=dtype, device=_DEVICE).eval()
         model_baseline = copy.deepcopy(model)
 
         # Create input
-        input_tensor = torch.randn(32, 256, dtype=dtype, device="cuda")
+        input_tensor = torch.randn(32, 256, dtype=dtype, device=_DEVICE)
 
         # Get baseline output
         output_baseline = model_baseline(input_tensor)
