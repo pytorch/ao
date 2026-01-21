@@ -549,8 +549,12 @@ def _maybe_insert_input_observers_for_node(
             raise AssertionError(
                 f"Kwarg '{name}' contained type {type(val)} which is not supported for annotation."
             )
-        if isinstance(val, Sequence):
+        if isinstance(val, (tuple, list)):
             for contained in val:
+                print(f"\t {contained}, {type(contained)}")
+                _validate_kwarg(name, contained)
+        if isinstance(val, dict):
+            for contained in val.values():
                 _validate_kwarg(name, contained)
 
     for kwarg in node.kwargs:
