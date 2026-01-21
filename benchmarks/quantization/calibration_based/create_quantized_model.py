@@ -53,7 +53,9 @@ def quantize_model_and_save(
         model, device_map="cuda:0", dtype=torch.bfloat16
     )
 
-    if recipe == "awq_int4_weight_only":
+    if base_config_cls is None:
+        pass
+    elif recipe == "awq_int4_weight_only":
         _apply_calibration(model, AWQConfig, base_config_cls, tasks, limit, tokenizer)
     elif recipe == "smoothquant_int8":
         _apply_calibration(
@@ -75,7 +77,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--recipe",
         required=True,
-        help="awq_int4_weight_only or smoothquant_int8",
+        help="awq_int4_weight_only, smoothquant_int8, or None (no quantization)",
     )
     parser.add_argument("--output_dir", default="benchmarks/data/quantized_model/test")
     parser.add_argument("--calibration_tasks", nargs="+", default=["wikitext"])
