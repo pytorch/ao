@@ -1330,121 +1330,113 @@ document.write(`
 <h1>TorchAOBaseTensor<a class="headerlink" href="#torchaobasetensor" title="Permalink to this heading">#</a></h1>
 <dl class="py class">
 <dt class="sig sig-object py" id="torchao.utils.TorchAOBaseTensor">
-<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">torchao.utils.</span></span><span class="sig-name descname"><span class="pre">TorchAOBaseTensor</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/torchao/utils.html#TorchAOBaseTensor"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="reference external" href="https://github.com/pytorch/ao/blob/main/torchao/utils.py#L732"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#torchao.utils.TorchAOBaseTensor" title="Permalink to this definition">#</a></dt>
-<dd><dl>
-<dt>A util tensor subclass that provides commonly used functions</dt><dd><p>new tensor subclass can inherit it to get all the utility functions</p>
-<dl class="simple">
-<dt>class MyTensor(TorchAOBaseTensor):</dt><dd><p>pass</p>
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">torchao.utils.</span></span><span class="sig-name descname"><span class="pre">TorchAOBaseTensor</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/torchao/utils.html#TorchAOBaseTensor"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="reference external" href="https://github.com/pytorch/ao/blob/main/torchao/utils.py#L778"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#torchao.utils.TorchAOBaseTensor" title="Permalink to this definition">#</a></dt>
+<dd><p>A util tensor subclass that provides commonly used functions
+new tensor subclass can inherit to get all the utility functions</p>
+<p>Attributes (defined by subclass of <code class="docutils literal notranslate"><span class="pre">TorchAOBaseTensor</span></code>):</p>
+<ul class="simple">
+<li><dl class="simple">
+<dt><code class="xref py py-attr docutils literal notranslate"><span class="pre">tensor_data_names</span></code> (List[str]): list of names of all required tensor_data, order should match</dt><dd><p>the <cite>__init__</cite> list of tensor subclass (optional to define to use <code class="docutils literal notranslate"><span class="pre">TorchAOBaseTensor</span></code>,
+required for getting the util functions been defined (see Note section))</p>
 </dd>
 </dl>
-</dd>
-<dt>This includes:</dt><dd><dl>
-<dt><cite>_get_to_kwargs</cite> that can get the kwargs for <cite>to</cite></dt><dd><blockquote>
-<div><dl class="simple">
-<dt>class MyTensor(TorchAOBaseTensor):</dt><dd><dl class="simple">
-<dt>def to(self, <a href="#id1"><span class="problematic" id="id2">*</span></a>args, <a href="#id3"><span class="problematic" id="id4">**</span></a>kwargs):</dt><dd><p>kwargs = _get_to_kwargs(<a href="#id5"><span class="problematic" id="id6">*</span></a>args, <a href="#id7"><span class="problematic" id="id8">**</span></a>kwargs)
-…</p>
+</li>
+<li><dl class="simple">
+<dt><code class="xref py py-attr docutils literal notranslate"><span class="pre">tensor_attribute_names</span></code> (List[str]): list of names of non-<code class="docutils literal notranslate"><span class="pre">Tensor</span></code> attributes,</dt><dd><p>order should match the <code class="docutils literal notranslate"><span class="pre">__init__</span></code> list of tensor subclass, following all the <code class="docutils literal notranslate"><span class="pre">tensor_data_names</span></code> arguments (optional to define to use <code class="docutils literal notranslate"><span class="pre">TorchAOBaseTensor</span></code>, required for getting the
+util functions been defined (see Note section))</p>
 </dd>
 </dl>
+</li>
+<li><dl class="simple">
+<dt><code class="xref py py-attr docutils literal notranslate"><span class="pre">optional_tensor_data_names</span></code> (List[str]): it’s not required to get the</dt><dd><p>additional util functions been implemented, but this will be need if there are
+some optional <code class="docutils literal notranslate"><span class="pre">Tensor</span></code> data attributes, when defined, this will be a list of names of <a href="#id1"><span class="problematic" id="id2">``</span></a>Tensor``s that
+can be optional</p>
 </dd>
 </dl>
-</div></blockquote>
-<dl>
-<dt><cite>implements</cite>:</dt><dd><p>implements = MyTensor.implements</p>
-<p>&#64;implements(torch.nn.functional.linear):
-def _(func, types, args, kwargs):</p>
-<blockquote>
-<div><p>…</p>
-</div></blockquote>
-</dd>
-<dt><cite>register_layout</cite>:</dt><dd><blockquote>
-<div><p>register_layout = MyTensor.register_layout</p>
-<p>&#64;register_layout(PlainLayout)
-class PlainAQTTensorImpl(…):</p>
-<blockquote>
-<div><p>…</p>
-</div></blockquote>
-</div></blockquote>
-<dl class="simple">
-<dt><cite>get_tensor_impl_constructor</cite>:</dt><dd><p>get_tensor_impl_constructor = MyTensor.get_tensor_impl_constructor
-# in constructor of MyTensor:
-tensor_impl_ctr = get_tensor_impl_constructor(type(_layout))
-tensor_impl = tensor_impl_ctr(data, scale, zero_point, _layout)</p>
+</li>
+<li><dl class="simple">
+<dt><code class="xref py py-attr docutils literal notranslate"><span class="pre">optional_tensor_attribute_names</span></code> (List[str]): it’s not required to get the</dt><dd><p>additional util functions been implemented, but this will be need if there are
+some optional non-<code class="docutils literal notranslate"><span class="pre">Tensor</span></code> attributes, when defined, this will be a list of names of attributes
+that can be optional</p>
 </dd>
 </dl>
-</dd>
-</dl>
-</dd>
-</dl>
-</dd>
-<dt>class variables to define to simplify implmentation of tensor subclasses:</dt><dd><dl class="simple">
-<dt><cite>tensor_data_names</cite> (List[str]): list of names of all requires tensor_data, order should match</dt><dd><p>the <cite>__init__</cite> list of tensor subclass</p>
-</dd>
-<dt><cite>tensor_attribute_names</cite> (List[str]): list of names of non-Tensor attributes,</dt><dd><p>order should match the <cite>__init__</cite> list of tensor subclass, following all the <cite>tensor_data_names</cite> arguments</p>
-</dd>
-</dl>
-<p><cite>optional_tensor_data_names</cite> (List[str]): it’s optional to define this field to have the additional boilerplate functions been implemented for you, but this will be need if there are some optional Tensor data attributes, when defined, this will be a list of names of Tensors that can be optional
-<cite>optional_tensor_attribute_names</cite> (List[str]): it’s optional to define this field to have the additional boilerplate functions been implemented for you, but this will be need if there are some optional non-Tensor attributes, when defined, this will be a list of names of attributes that can be optional
-Note: Argument order in __init__ and __new__ should match exaclty with tensor_data_names + tensor_attribute_names + optional_tensor_data_names (if present) + optional_tensor_attribute_names (if present)</p>
-</dd>
-</dl>
-<p>If <cite>tensor_data_names</cite> (torch.Tensor data attribute names) and <cite>tensor_attribute_names</cite> (non-torch.Tensor attribute names) are defined, there are some additional
-functions that will be added, this includes:
-<cite>__tensor_flatten__</cite>: flattens a subclassed tensor instance, returns a tuple, first element is tensor data names for valid tensor data,</p>
-<blockquote>
-<div><p>second element is a dict from attribute_name to non-Tensor attributes</p>
-</div></blockquote>
-<p><cite>__tensor_unflatten__</cite>: takes a tensor_data_dict (a map from tensor name to Tensor), and list of non-tensor attributes, returns a new instance of the subclassed tensor
-<cite>_apply_fn_to_data</cite>: takes a function (Tensor -&gt; Tensor),  applies function to all tensor data and</p>
-<blockquote>
-<div><p>recreate a new subclassed Tensor with the transformed tensor data</p>
-</div></blockquote>
-<p><cite>__repr__</cite>: the string representation of the subclassed tensor instance
-<cite>_same_metadata</cite>: returns whether the metadata is the same between two instances of cls
-<cite>__setstate__</cite>: when loading a serialized tensor subclass checkpoints, it sets the new
-optional tensor and tensor attribute that is saved in the old checkpoint to None,
-to maintain BC of old checkpoints when we add new optional tensor data or attributes to
-the tensor subclass
-torch ops: torch.Tensor.contiguous
-aten ops: aten.detach.default, aten.clone.default, aten.alias,default, aten.contiguous.default, <a href="#id9"><span class="problematic" id="id10">aten.copy_</span></a>.default, aten._to_copy.default (enables t.to)</p>
-<p class="rubric">Example</p>
-<dl>
-<dt>class MyTensor(torch.Tensor):</dt><dd><p>tensor_data_names = [“a”, “b”]
-tensor_attribute_names = [“c”, “d”]
-optional_tensor_data_names = [“e”, “f”]
-optional_tensor_attribute_names = [“g”, “h”]</p>
-<dl class="simple">
-<dt>def __new__(</dt><dd><p>cls,
-a: Tensor,
-b: Tensor,
-c: int,
-d: str,
-e: Optional[Tensor] = None,
-f: Optional[Tensor] = None,
-g: Optional[int] = None,
-h: Optional[int] = None,</p>
-</dd>
-<dt>):</dt><dd><p>pass</p>
-</dd>
-<dt>def __init__(</dt><dd><p>self,
-a: Tensor,
-b: Tensor,
-c: int,
-d: str
-e: Optional[Tensor] = None,
-f: Optional[Tensor] = None,
-g: Optional[int] = None,
-h: Optional[int] = None,</p>
-</dd>
-<dt>):</dt><dd><p>pass</p>
-</dd>
-</dl>
-</dd>
-</dl>
+</li>
+</ul>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Argument order in <code class="docutils literal notranslate"><span class="pre">__init__</span></code> and <code class="docutils literal notranslate"><span class="pre">__new__</span></code> of subclass of <code class="docutils literal notranslate"><span class="pre">TorchAOBaseTensor</span></code> should match exaclty with <code class="docutils literal notranslate"><span class="pre">tensor_data_names</span></code> + <code class="docutils literal notranslate"><span class="pre">tensor_attribute_names</span></code> + <code class="docutils literal notranslate"><span class="pre">optional_tensor_data_names</span></code> (if present) + <code class="docutils literal notranslate"><span class="pre">optional_tensor_attribute_names</span></code> (if present)</p>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>If <code class="docutils literal notranslate"><span class="pre">tensor_data_names</span></code> (torch.Tensor data attribute names) and <code class="docutils literal notranslate"><span class="pre">tensor_attribute_names</span></code> (non-torch.Tensor attribute names) are defined, there are some additional util
+functions that will be added, this includes:</p>
+<p><code class="docutils literal notranslate"><span class="pre">__tensor_flatten__</span></code>: flattens a subclassed tensor instance, returns a <code class="docutils literal notranslate"><span class="pre">tuple</span></code>, first element is tensor data names for valid tensor data, second element is a dict from attribute_name to non-<code class="docutils literal notranslate"><span class="pre">Tensor</span></code> attributes</p>
+<p><code class="docutils literal notranslate"><span class="pre">__tensor_unflatten__</span></code>: takes a <code class="docutils literal notranslate"><span class="pre">tensor_data_dict</span></code> (a map from tensor name to <code class="docutils literal notranslate"><span class="pre">Tensor</span></code>), and list of non-<code class="docutils literal notranslate"><span class="pre">Tensor</span></code> attributes, returns a new instance of the subclassed tensor</p>
+<p><code class="docutils literal notranslate"><span class="pre">_apply_fn_to_data</span></code>: takes a function (<code class="docutils literal notranslate"><span class="pre">Tensor</span> <span class="pre">-&gt;</span> <span class="pre">Tensor</span></code>),  applies function to all tensor data and recreate a new subclassed Tensor with the transformed tensor data</p>
+<p><code class="docutils literal notranslate"><span class="pre">__repr__</span></code>: the string representation of the subclassed tensor instance</p>
+<p><code class="docutils literal notranslate"><span class="pre">_same_metadata</span></code>: returns whether the metadata is the same between two instances of cls</p>
+<p><code class="docutils literal notranslate"><span class="pre">__setstate__</span></code>: when loading a serialized tensor subclass checkpoints, it sets the new optional tensor and tensor attribute that is saved in the old checkpoint to None, to maintain BC of old checkpoints when we add new optional tensor data or attributes to the tensor subclass</p>
+<p>torch function supported (<code class="docutils literal notranslate"><span class="pre">__torch_function__</span></code>): <code class="docutils literal notranslate"><span class="pre">torch.Tensor.contiguous</span></code></p>
+<p>aten ops supported (<code class="docutils literal notranslate"><span class="pre">__torch_dispatch__</span></code>): <code class="docutils literal notranslate"><span class="pre">aten.detach.default</span></code>, <code class="docutils literal notranslate"><span class="pre">aten.clone.default</span></code>, <code class="docutils literal notranslate"><span class="pre">aten.alias,default</span></code>, <code class="docutils literal notranslate"><span class="pre">aten.contiguous.default</span></code>, <code class="docutils literal notranslate"><span class="pre">aten.copy_.default</span></code>, <code class="docutils literal notranslate"><span class="pre">aten._to_copy.default</span></code> (enables <code class="docutils literal notranslate"><span class="pre">t.to</span></code>)</p>
+</div>
+<p>Examples:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="k">class</span><span class="w"> </span><span class="nc">MyTensor</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">):</span>
+    <span class="n">tensor_data_names</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;a&quot;</span><span class="p">,</span> <span class="s2">&quot;b&quot;</span><span class="p">]</span>
+    <span class="n">tensor_attribute_names</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;c&quot;</span><span class="p">,</span> <span class="s2">&quot;d&quot;</span><span class="p">]</span>
+    <span class="n">optional_tensor_data_names</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;e&quot;</span><span class="p">,</span> <span class="s2">&quot;f&quot;</span><span class="p">]</span>
+    <span class="n">optional_tensor_attribute_names</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;g&quot;</span><span class="p">,</span> <span class="s2">&quot;h&quot;</span><span class="p">]</span>
+
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__new__</span><span class="p">(</span>
+        <span class="bp">cls</span><span class="p">,</span>
+        <span class="n">a</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
+        <span class="n">b</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
+        <span class="n">c</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">d</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">e</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Tensor</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">f</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Tensor</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">g</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">h</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">):</span>
+        <span class="k">pass</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">a</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
+        <span class="n">b</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
+        <span class="n">c</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">d</span><span class="p">:</span> <span class="nb">str</span>
+        <span class="n">e</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Tensor</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">f</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Tensor</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">g</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">h</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">):</span>
+        <span class="k">pass</span>
+</pre></div>
+</div>
+<dl class="py method">
+<dt class="sig sig-object py" id="torchao.utils.TorchAOBaseTensor.get_layout">
+<span class="sig-name descname"><span class="pre">get_layout</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../_modules/torchao/utils.html#TorchAOBaseTensor.get_layout"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="reference external" href="https://github.com/pytorch/ao/blob/main/torchao/utils.py#L1035"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#torchao.utils.TorchAOBaseTensor.get_layout" title="Permalink to this definition">#</a></dt>
+<dd><div class="deprecated">
+<p><span class="versionmodified deprecated">Deprecated since version 0.15.1: </span>This method is deprecated as of version 0.15.1 since it’s
+part of the older tensor subclass development stack,
+for information about new dev stack, please check
+<a class="reference external" href="https://docs.pytorch.org/ao/main/quantization_overview.html">https://docs.pytorch.org/ao/main/quantization_overview.html</a>
+and <a class="reference external" href="https://docs.pytorch.org/ao/main/contributor_guide.html">https://docs.pytorch.org/ao/main/contributor_guide.html</a></p>
+</div>
+</dd></dl>
+
 <dl class="py method">
 <dt class="sig sig-object py" id="torchao.utils.TorchAOBaseTensor.get_tensor_impl_constructor">
-<em class="property"><span class="pre">classmethod</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">get_tensor_impl_constructor</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">layout_class</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Callable" title="(in Python v3.14)"><span class="pre">Callable</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Callable" title="(in Python v3.14)"><span class="pre">Callable</span></a></span></span><a class="reference external" href="https://github.com/pytorch/ao/blob/main/torchao/utils.py#L688"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#torchao.utils.TorchAOBaseTensor.get_tensor_impl_constructor" title="Permalink to this definition">#</a></dt>
-<dd><p>Get TensorImpl class constructor (TensorImplClass.from_plain) for <cite>tensor_class</cite> based on <cite>layout_class</cite>
+<em class="property"><span class="pre">classmethod</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">get_tensor_impl_constructor</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">layout_class</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Callable" title="(in Python v3.14)"><span class="pre">Callable</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Callable" title="(in Python v3.14)"><span class="pre">Callable</span></a></span></span><a class="reference external" href="https://github.com/pytorch/ao/blob/main/torchao/utils.py#L721"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#torchao.utils.TorchAOBaseTensor.get_tensor_impl_constructor" title="Permalink to this definition">#</a></dt>
+<dd><div class="deprecated">
+<p><span class="versionmodified deprecated">Deprecated since version 0.15.1: </span>This method is deprecated as of version 0.15.1 since it’s
+part of the older tensor subclass development stack,
+for information about new dev stack, please check
+<a class="reference external" href="https://docs.pytorch.org/ao/main/quantization_overview.html">https://docs.pytorch.org/ao/main/quantization_overview.html</a>
+and <a class="reference external" href="https://docs.pytorch.org/ao/main/contributor_guide.html">https://docs.pytorch.org/ao/main/contributor_guide.html</a></p>
+</div>
+<p>Get TensorImpl class constructor (TensorImplClass.from_plain) for <cite>tensor_class</cite> based on <cite>layout_class</cite>
 <cite>layout_class</cite> means the class type of subclass of <cite>Layout</cite>, e.g. <cite>PlainLayout</cite></p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters</dt>
@@ -1462,19 +1454,47 @@ h: Optional[int] = None,</p>
 <dl class="py method">
 <dt class="sig sig-object py" id="torchao.utils.TorchAOBaseTensor.implements">
 <em class="property"><span class="pre">classmethod</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">implements</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">aten_ops</span></span></em><span class="sig-paren">)</span><a class="reference external" href="https://github.com/pytorch/ao/blob/main/torchao/utils.py#L399"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#torchao.utils.TorchAOBaseTensor.implements" title="Permalink to this definition">#</a></dt>
-<dd><p>Decorator to implement aten ops for __torch_dispatch__.</p>
+<dd><p>Decorator for implementing aten ops like <cite>torch.ops.aten.linear.default</cite> for
+tensor subclass, the implemented functions are called in <code class="docutils literal notranslate"><span class="pre">__torch_dispatch__</span></code> callback
+for <code class="docutils literal notranslate"><span class="pre">torch.Tensor</span></code> subclasses</p>
+<p>Examples:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">implements</span> <span class="o">=</span> <span class="n">MyTensor</span><span class="o">.</span><span class="n">implements</span>
+
+<span class="nd">@implements</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">aten</span><span class="o">.</span><span class="n">linear</span><span class="o">.</span><span class="n">default</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_</span><span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="n">types</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">):</span>
+    <span class="o">...</span>
+</pre></div>
+</div>
 </dd></dl>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="torchao.utils.TorchAOBaseTensor.implements_torch_function">
-<em class="property"><span class="pre">classmethod</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">implements_torch_function</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">torch_fns</span></span></em><span class="sig-paren">)</span><a class="reference external" href="https://github.com/pytorch/ao/blob/main/torchao/utils.py#L421"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#torchao.utils.TorchAOBaseTensor.implements_torch_function" title="Permalink to this definition">#</a></dt>
-<dd><p>Decorator to implement __torch_function__.</p>
+<em class="property"><span class="pre">classmethod</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">implements_torch_function</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">torch_fns</span></span></em><span class="sig-paren">)</span><a class="reference external" href="https://github.com/pytorch/ao/blob/main/torchao/utils.py#L433"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#torchao.utils.TorchAOBaseTensor.implements_torch_function" title="Permalink to this definition">#</a></dt>
+<dd><p>Decorator for implementing torch functions / ops
+like <code class="docutils literal notranslate"><span class="pre">torch.nn.functional.linear</span></code>, <code class="docutils literal notranslate"><span class="pre">torch.Tensor.t</span></code> for the tensor subclass
+the implemented functions are called in <code class="docutils literal notranslate"><span class="pre">__torch_function__</span></code> callback
+for <code class="docutils literal notranslate"><span class="pre">torch.Tensor</span></code> subclasses</p>
+<p>Examples:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">implements_torch_function</span> <span class="o">=</span> <span class="n">MyTensor</span><span class="o">.</span><span class="n">implements_torch_function</span>
+
+<span class="nd">@implements_torch_function</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">functional</span><span class="o">.</span><span class="n">linear</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_</span><span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="n">types</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">):</span>
+    <span class="o">...</span>
+</pre></div>
+</div>
 </dd></dl>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="torchao.utils.TorchAOBaseTensor.register_layout">
-<em class="property"><span class="pre">classmethod</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">register_layout</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">layout_class</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Callable" title="(in Python v3.14)"><span class="pre">Callable</span></a></span></em><span class="sig-paren">)</span><a class="reference external" href="https://github.com/pytorch/ao/blob/main/torchao/utils.py#L659"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#torchao.utils.TorchAOBaseTensor.register_layout" title="Permalink to this definition">#</a></dt>
-<dd><p>Helper function for layout registrations, this is used to implement
+<em class="property"><span class="pre">classmethod</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">register_layout</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">layout_class</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Callable" title="(in Python v3.14)"><span class="pre">Callable</span></a></span></em><span class="sig-paren">)</span><a class="reference external" href="https://github.com/pytorch/ao/blob/main/torchao/utils.py#L684"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#torchao.utils.TorchAOBaseTensor.register_layout" title="Permalink to this definition">#</a></dt>
+<dd><div class="deprecated">
+<p><span class="versionmodified deprecated">Deprecated since version 0.15.1: </span>This method is deprecated as of version 0.15.1 since it’s
+part of the older tensor subclass development stack,
+for information about new dev stack, please check
+<a class="reference external" href="https://docs.pytorch.org/ao/main/quantization_overview.html">https://docs.pytorch.org/ao/main/quantization_overview.html</a>
+and <a class="reference external" href="https://docs.pytorch.org/ao/main/contributor_guide.html">https://docs.pytorch.org/ao/main/contributor_guide.html</a></p>
+</div>
+<p>Helper function for layout registrations, this is used to implement
 register_layout decorator for each tensor subclass, see aqt.py for example usage</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters</dt>
@@ -1611,6 +1631,7 @@ register_layout decorator for each tensor subclass, see aqt.py for example usage
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#torchao.utils.TorchAOBaseTensor"><code class="docutils literal notranslate"><span class="pre">TorchAOBaseTensor</span></code></a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#torchao.utils.TorchAOBaseTensor.get_layout"><code class="docutils literal notranslate"><span class="pre">TorchAOBaseTensor.get_layout()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#torchao.utils.TorchAOBaseTensor.get_tensor_impl_constructor"><code class="docutils literal notranslate"><span class="pre">TorchAOBaseTensor.get_tensor_impl_constructor()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#torchao.utils.TorchAOBaseTensor.implements"><code class="docutils literal notranslate"><span class="pre">TorchAOBaseTensor.implements()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#torchao.utils.TorchAOBaseTensor.implements_torch_function"><code class="docutils literal notranslate"><span class="pre">TorchAOBaseTensor.implements_torch_function()</span></code></a></li>
@@ -1842,7 +1863,7 @@ register_layout decorator for each tensor subclass, see aqt.py for example usage
        "headline": "TorchAOBaseTensor",
        "description": "PyTorch Documentation. Explore PyTorch, an open-source machine learning library that accelerates the path from research prototyping to production deployment. Discover tutorials, API references, and guides to help you build and deploy deep learning models efficiently.",
        "url": "/generated/torchao.utils.TorchAOBaseTensor.html",
-       "articleBody": "TorchAOBaseTensor# class torchao.utils.TorchAOBaseTensor(*args, **kwargs)[source][source]# A util tensor subclass that provides commonly used functionsnew tensor subclass can inherit it to get all the utility functions class MyTensor(TorchAOBaseTensor):pass This includes: _get_to_kwargs that can get the kwargs for to class MyTensor(TorchAOBaseTensor): def to(self, *args, **kwargs):kwargs = _get_to_kwargs(*args, **kwargs) \u2026 implements:implements = MyTensor.implements @implements(torch.nn.functional.linear): def _(func, types, args, kwargs): \u2026 register_layout: register_layout = MyTensor.register_layout @register_layout(PlainLayout) class PlainAQTTensorImpl(\u2026): \u2026 get_tensor_impl_constructor:get_tensor_impl_constructor = MyTensor.get_tensor_impl_constructor # in constructor of MyTensor: tensor_impl_ctr = get_tensor_impl_constructor(type(_layout)) tensor_impl = tensor_impl_ctr(data, scale, zero_point, _layout) class variables to define to simplify implmentation of tensor subclasses: tensor_data_names (List[str]): list of names of all requires tensor_data, order should matchthe __init__ list of tensor subclass tensor_attribute_names (List[str]): list of names of non-Tensor attributes,order should match the __init__ list of tensor subclass, following all the tensor_data_names arguments optional_tensor_data_names (List[str]): it\u2019s optional to define this field to have the additional boilerplate functions been implemented for you, but this will be need if there are some optional Tensor data attributes, when defined, this will be a list of names of Tensors that can be optional optional_tensor_attribute_names (List[str]): it\u2019s optional to define this field to have the additional boilerplate functions been implemented for you, but this will be need if there are some optional non-Tensor attributes, when defined, this will be a list of names of attributes that can be optional Note: Argument order in __init__ and __new__ should match exaclty with tensor_data_names + tensor_attribute_names + optional_tensor_data_names (if present) + optional_tensor_attribute_names (if present) If tensor_data_names (torch.Tensor data attribute names) and tensor_attribute_names (non-torch.Tensor attribute names) are defined, there are some additional functions that will be added, this includes: __tensor_flatten__: flattens a subclassed tensor instance, returns a tuple, first element is tensor data names for valid tensor data, second element is a dict from attribute_name to non-Tensor attributes __tensor_unflatten__: takes a tensor_data_dict (a map from tensor name to Tensor), and list of non-tensor attributes, returns a new instance of the subclassed tensor _apply_fn_to_data: takes a function (Tensor -\u003e Tensor), applies function to all tensor data and recreate a new subclassed Tensor with the transformed tensor data __repr__: the string representation of the subclassed tensor instance _same_metadata: returns whether the metadata is the same between two instances of cls __setstate__: when loading a serialized tensor subclass checkpoints, it sets the new optional tensor and tensor attribute that is saved in the old checkpoint to None, to maintain BC of old checkpoints when we add new optional tensor data or attributes to the tensor subclass torch ops: torch.Tensor.contiguous aten ops: aten.detach.default, aten.clone.default, aten.alias,default, aten.contiguous.default, aten.copy_.default, aten._to_copy.default (enables t.to) Example class MyTensor(torch.Tensor):tensor_data_names = [\u201ca\u201d, \u201cb\u201d] tensor_attribute_names = [\u201cc\u201d, \u201cd\u201d] optional_tensor_data_names = [\u201ce\u201d, \u201cf\u201d] optional_tensor_attribute_names = [\u201cg\u201d, \u201ch\u201d] def __new__(cls, a: Tensor, b: Tensor, c: int, d: str, e: Optional[Tensor] = None, f: Optional[Tensor] = None, g: Optional[int] = None, h: Optional[int] = None, ):pass def __init__(self, a: Tensor, b: Tensor, c: int, d: str e: Optional[Tensor] = None, f: Optional[Tensor] = None, g: Optional[int] = None, h: Optional[int] = None, ):pass classmethod get_tensor_impl_constructor(layout_class: Callable) \u2192 Callable[source]# Get TensorImpl class constructor (TensorImplClass.from_plain) for tensor_class based on layout_class layout_class means the class type of subclass of Layout, e.g. PlainLayout Parameters tensor_class \u2013 Tensor subclass type layout_class \u2013 the class type of subclass of Layout, e.g. PlainLayout Returns tensor impl subclass constructor for the layout_class classmethod implements(aten_ops)[source]# Decorator to implement aten ops for __torch_dispatch__. classmethod implements_torch_function(torch_fns)[source]# Decorator to implement __torch_function__. classmethod register_layout(layout_class: Callable)[source]# Helper function for layout registrations, this is used to implement register_layout decorator for each tensor subclass, see aqt.py for example usage Parameters tensor_class \u2013 Tensor subclass type layout_class \u2013 the class type of subclass of Layout, e.g. PlainLayout Returns a decorator that registers the tensor impl constructor in the table",
+       "articleBody": "TorchAOBaseTensor# class torchao.utils.TorchAOBaseTensor(*args, **kwargs)[source][source]# A util tensor subclass that provides commonly used functions new tensor subclass can inherit to get all the utility functions Attributes (defined by subclass of TorchAOBaseTensor): tensor_data_names (List[str]): list of names of all required tensor_data, order should matchthe __init__ list of tensor subclass (optional to define to use TorchAOBaseTensor, required for getting the util functions been defined (see Note section)) tensor_attribute_names (List[str]): list of names of non-Tensor attributes,order should match the __init__ list of tensor subclass, following all the tensor_data_names arguments (optional to define to use TorchAOBaseTensor, required for getting the util functions been defined (see Note section)) optional_tensor_data_names (List[str]): it\u2019s not required to get theadditional util functions been implemented, but this will be need if there are some optional Tensor data attributes, when defined, this will be a list of names of ``Tensor``s that can be optional optional_tensor_attribute_names (List[str]): it\u2019s not required to get theadditional util functions been implemented, but this will be need if there are some optional non-Tensor attributes, when defined, this will be a list of names of attributes that can be optional Note Argument order in __init__ and __new__ of subclass of TorchAOBaseTensor should match exaclty with tensor_data_names + tensor_attribute_names + optional_tensor_data_names (if present) + optional_tensor_attribute_names (if present) Note If tensor_data_names (torch.Tensor data attribute names) and tensor_attribute_names (non-torch.Tensor attribute names) are defined, there are some additional util functions that will be added, this includes: __tensor_flatten__: flattens a subclassed tensor instance, returns a tuple, first element is tensor data names for valid tensor data, second element is a dict from attribute_name to non-Tensor attributes __tensor_unflatten__: takes a tensor_data_dict (a map from tensor name to Tensor), and list of non-Tensor attributes, returns a new instance of the subclassed tensor _apply_fn_to_data: takes a function (Tensor -\u003e Tensor), applies function to all tensor data and recreate a new subclassed Tensor with the transformed tensor data __repr__: the string representation of the subclassed tensor instance _same_metadata: returns whether the metadata is the same between two instances of cls __setstate__: when loading a serialized tensor subclass checkpoints, it sets the new optional tensor and tensor attribute that is saved in the old checkpoint to None, to maintain BC of old checkpoints when we add new optional tensor data or attributes to the tensor subclass torch function supported (__torch_function__): torch.Tensor.contiguous aten ops supported (__torch_dispatch__): aten.detach.default, aten.clone.default, aten.alias,default, aten.contiguous.default, aten.copy_.default, aten._to_copy.default (enables t.to) Examples: class MyTensor(torch.Tensor): tensor_data_names = [\"a\", \"b\"] tensor_attribute_names = [\"c\", \"d\"] optional_tensor_data_names = [\"e\", \"f\"] optional_tensor_attribute_names = [\"g\", \"h\"] def __new__( cls, a: Tensor, b: Tensor, c: int, d: str, e: Optional[Tensor] = None, f: Optional[Tensor] = None, g: Optional[int] = None, h: Optional[int] = None, ): pass def __init__( self, a: Tensor, b: Tensor, c: int, d: str e: Optional[Tensor] = None, f: Optional[Tensor] = None, g: Optional[int] = None, h: Optional[int] = None, ): pass get_layout()[source][source]# Deprecated since version 0.15.1: This method is deprecated as of version 0.15.1 since it\u2019s part of the older tensor subclass development stack, for information about new dev stack, please check https://docs.pytorch.org/ao/main/quantization_overview.html and https://docs.pytorch.org/ao/main/contributor_guide.html classmethod get_tensor_impl_constructor(layout_class: Callable) \u2192 Callable[source]# Deprecated since version 0.15.1: This method is deprecated as of version 0.15.1 since it\u2019s part of the older tensor subclass development stack, for information about new dev stack, please check https://docs.pytorch.org/ao/main/quantization_overview.html and https://docs.pytorch.org/ao/main/contributor_guide.html Get TensorImpl class constructor (TensorImplClass.from_plain) for tensor_class based on layout_class layout_class means the class type of subclass of Layout, e.g. PlainLayout Parameters tensor_class \u2013 Tensor subclass type layout_class \u2013 the class type of subclass of Layout, e.g. PlainLayout Returns tensor impl subclass constructor for the layout_class classmethod implements(aten_ops)[source]# Decorator for implementing aten ops like torch.ops.aten.linear.default for tensor subclass, the implemented functions are called in __torch_dispatch__ callback for torch.Tensor subclasses Examples: implements = MyTensor.implements @implements(torch.ops.aten.linear.default): def _(func, types, args, kwargs): ... classmethod implements_torch_function(torch_fns)[source]# Decorator for implementing torch functions / ops like torch.nn.functional.linear, torch.Tensor.t for the tensor subclass the implemented functions are called in __torch_function__ callback for torch.Tensor subclasses Examples: implements_torch_function = MyTensor.implements_torch_function @implements_torch_function(torch.nn.functional.linear): def _(func, types, args, kwargs): ... classmethod register_layout(layout_class: Callable)[source]# Deprecated since version 0.15.1: This method is deprecated as of version 0.15.1 since it\u2019s part of the older tensor subclass development stack, for information about new dev stack, please check https://docs.pytorch.org/ao/main/quantization_overview.html and https://docs.pytorch.org/ao/main/contributor_guide.html Helper function for layout registrations, this is used to implement register_layout decorator for each tensor subclass, see aqt.py for example usage Parameters tensor_class \u2013 Tensor subclass type layout_class \u2013 the class type of subclass of Layout, e.g. PlainLayout Returns a decorator that registers the tensor impl constructor in the table",
        "author": {
          "@type": "Organization",
          "name": "PyTorch Contributors",
