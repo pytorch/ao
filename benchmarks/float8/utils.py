@@ -112,8 +112,8 @@ def kernel_name_to_category(k):
         "aten::mm",
         "aten::addmm",
         "aten::_scaled_mm",
+        "aten::_scaled_mm_v2",
         "torchao::mx_fp8_bf16",
-        "torchao::mx_fp4_bf16",
     ):
         return "0_gemm"
     else:
@@ -418,7 +418,7 @@ def get_gpu_kernel_gemm_time_s(f, *args, **kwargs):
     assert key in (
         "aten::mm",
         "aten::_scaled_mm",
-        "torchao::mx_fp4_bf16",
+        "aten::_scaled_mm_v2",
         "aten::_grouped_mm",
         "aten::_scaled_grouped_mm",
     )

@@ -61,12 +61,14 @@ TorchAO is an easy to use quantization library for native PyTorch. TorchAO works
 | recommended hardware | weight | activation | quantized training | QAT | PTQ data algorithms | quantized inference |
 | -------- | ------ | ---------- | ------------------ | --- | ------------------- | ------------------- |
 | H100, B200 GPUs | float8 rowwise | float8 rowwise | 🟢 [(link)](torchao/float8) | 🟢 [(link)](torchao/quantization/qat) | ⚪ | 🟢 [(link)](torchao/quantization#a8w8-float8-dynamic-quantization-with-rowwise-scaling) |
+| Intel® BMG GPUs | float8 tensor/rowwise | float8 tensor/rowwise |🟠 | 🟢 [(link)](torchao/quantization/qat) | ⚪ | 🟢 [(link)](torchao/quantization#a8w8-float8-dynamic-quantization-with-rowwise-scaling) |
 | H100 GPUs | int4 | float8 rowwise | ⚪ | 🟢 [(link)](torchao/quantization/qat) | 🟠 | 🟢 [(link)](https://github.com/pytorch/ao/blob/257d18ae1b41e8bd8d85849dd2bd43ad3885678e/torchao/quantization/quant_api.py#L1296) |
 | A100 GPUs | int4 | bfloat16 | ⚪ | 🟢 [(link)](torchao/quantization/qat) | 🟡: [HQQ](torchao/prototype/hqq/README.md), [AWQ](torchao/prototype/awq), [GPTQ](torchao/quantization/GPTQ) | 🟢 [(link)](torchao/quantization#a16w4-weightonly-quantization) |
+| Intel® BMG GPUs | int4 | float16/bfloat16 | ⚪ | 🟢 [(link)](torchao/quantization/qat) | 🟡: [AWQ](torchao/prototype/awq), [GPTQ](torchao/quantization/GPTQ) | 🟢 [(link)](torchao/quantization#a16w4-weightonly-quantization) |
 | A100 GPUs | int8 | bfloat16 | ⚪ | 🟢 [(link)](torchao/quantization/qat) | ⚪ | 🟢 [(link)](torchao/quantization#a16w8-int8-weightonly-quantization) |
 | A100 GPUs | int8 | int8 | 🟡 [(link)](torchao/prototype/quantized_training) | 🟢 [(link)](torchao/quantization/qat) | ⚪ | 🟢 [(link)](https://github.com/pytorch/ao/tree/main/torchao/quantization#a8w8-int8-dynamic-quantization) |
-| edge | intx (1..7) | bfloat16 | ⚪ | 🟢 [(link)](torchao/quantization/qat) | ⚪ | 🟢 [(link)](https://github.com/pytorch/ao/blob/257d18ae1b41e8bd8d85849dd2bd43ad3885678e/torchao/quantization/quant_api.py#L2267) |
-| edge | intx (1..7) | bfloat16 | ⚪ | 🟢 [(link)](torchao/quantization/qat) | ⚪ | 🟢 [(link)](https://github.com/pytorch/ao/blob/257d18ae1b41e8bd8d85849dd2bd43ad3885678e/torchao/quantization/quant_api.py#L702) |
+| Intel® BMG GPUs | int8 | int8 | 🟠 | 🟢 [(link)](torchao/quantization/qat) | ⚪ | 🟢 [(link)](https://github.com/pytorch/ao/tree/main/torchao/quantization#a8w8-int8-dynamic-quantization) |
+| edge | intx (1..7) | bfloat16 | ⚪ | 🟢 [(link)](torchao/quantization/qat) | ⚪ | 🟢 [(link)](https://github.com/pytorch/ao/blob/257d18ae1b41e8bd8d85849dd2bd43ad3885678e/torchao/quantization/quant_api.py#L2267) | 
 
 ### Prototype Workflows
 
@@ -97,8 +99,15 @@ pip install torchao
 
 Quantize your model weights to int4!
 ```python
+import torch
 from torchao.quantization import Int4WeightOnlyConfig, quantize_
-quantize_(model, Int4WeightOnlyConfig(group_size=32, int4_packing_format="tile_packed_to_4d", int4_choose_qparams_algorithm="hqq"))
+if torch.cuda.is_available():
+  # quantize on CUDA
+  quantize_(model, Int4WeightOnlyConfig(group_size=32, int4_packing_format="tile_packed_to_4d", int4_choose_qparams_algorithm="hqq"))
+elif torch.xpu.is_available():
+  # quantize on XPU
+  quantize_(model, Int4WeightOnlyConfig(group_size=32, int4_packing_format="plain_int32"))
+
 ```
 See our [quick start guide](https://docs.pytorch.org/ao/stable/quick_start.html) for more details.
 
@@ -119,11 +128,13 @@ pip install torchao
   # Different CUDA versions
   pip install torchao --index-url https://download.pytorch.org/whl/cu126  # CUDA 12.6
   pip install torchao --index-url https://download.pytorch.org/whl/cu129  # CUDA 12.9
+  pip install torchao --index-url https://download.pytorch.org/whl/xpu    # XPU
   pip install torchao --index-url https://download.pytorch.org/whl/cpu    # CPU only
 
   # For developers
   # Note: the `--no-build-isolation` flag is required.
   USE_CUDA=1 pip install -e . --no-build-isolation
+  USE_XPU=1 pip install -e . --no-build-isolation
   USE_CPP=0 pip install -e . --no-build-isolation
   ```
 
