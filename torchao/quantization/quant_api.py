@@ -1098,9 +1098,7 @@ class Int8DynamicActivationInt8WeightConfig(AOBaseConfig):
             "torchao.quantization.Int8DynamicActivationInt8WeightConfig"
         )
 
-        act_granularity, weight_granularity = _process_granularity(
-            self.granularity
-        )
+        act_granularity, weight_granularity = _process_granularity(self.granularity)
         self.granularity = [act_granularity, weight_granularity]
 
 
@@ -1155,8 +1153,7 @@ def _int8_dynamic_activation_int8_weight_quantize_tensor(weight, config):
         assert isinstance(config.granularity, list) and len(config.granularity) == 2, (
             "granularity should be a tuple or list of length 2"
         )
-        granularity = config.granularity
-        act_granularity, weight_granularity = granularity
+        act_granularity, weight_granularity = config.granularity
         assert act_granularity in {PerRow(), PerTensor()}, (
             "Activation granularity only supports PerRow and PerTensor currently"
         )
@@ -1238,9 +1235,7 @@ class Int8StaticActivationInt8WeightConfig(AOBaseConfig):
         torch._C._log_api_usage_once(
             "torchao.quantization.Int8StaticActivationInt8WeightConfig"
         )
-        act_granularity, weight_granularity = _process_granularity(
-            self.granularity
-        )
+        act_granularity, weight_granularity = _process_granularity(self.granularity)
         self.granularity = [act_granularity, weight_granularity]
 
         # Validate activation granularity for static quantization
@@ -1273,8 +1268,7 @@ def _int8_static_activation_int8_weight_transform(
     assert isinstance(config.granularity, list) and len(config.granularity) == 2, (
         "granularity should be a tuple or list of length 2"
     )
-    granularity = config.granularity
-    activation_granularity, weight_granularity = granularity
+    activation_granularity, weight_granularity = config.granularity
     assert activation_granularity in {PerRow(), PerTensor()}, (
         "Activation granularity only supports PerRow and PerTensor currently"
     )
