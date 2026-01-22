@@ -112,8 +112,8 @@ def kernel_name_to_category(k):
         "aten::mm",
         "aten::addmm",
         "aten::_scaled_mm",
+        "aten::_scaled_mm_v2",
         "torchao::mx_fp8_bf16",
-        "torchao::mx_fp4_bf16",
     ):
         return "0_gemm"
     else:
@@ -206,6 +206,31 @@ def get_name_to_shapes_iter(
         )
         name_to_shapes = {
             1: (M, K, N),
+        }
+        return name_to_shapes.items()
+
+    elif shape_gen_name == "dsv3-671b":
+        # DeepSeek-V3 671B model shapes
+        assert K == N == None, (
+            f"K, N arguments not supported for shape_gen_name {shape_gen_name}"
+        )
+
+        M = (
+            M if M is not None else 81920
+        )  # default to local_bs=10, seq_len=8192 -> 81920
+
+        name_to_shapes = {
+            "attn.wq_a": (M, 7168, 1536),
+            "attn.wq_b": (M, 1536, 24576),
+            "attn.wo": (M, 16384, 7168),
+            "attn.wkv_a": (M, 7168, 576),
+            "attn.wkv_b": (M, 512, 32768),
+            "ffn.w1": (M, 7168, 18432),
+            "ffn.w2": (M, 18432, 7168),
+            "ffn.w3": (M, 7168, 18432),
+            "moe.shared_experts.w1": (M, 7168, 2048),
+            "moe.shared_experts.w2": (M, 2048, 7168),
+            "moe.shared_experts.w3": (M, 7168, 2048),
         }
         return name_to_shapes.items()
 
@@ -393,7 +418,7 @@ def get_gpu_kernel_gemm_time_s(f, *args, **kwargs):
     assert key in (
         "aten::mm",
         "aten::_scaled_mm",
-        "torchao::mx_fp4_bf16",
+        "aten::_scaled_mm_v2",
         "aten::_grouped_mm",
         "aten::_scaled_grouped_mm",
     )

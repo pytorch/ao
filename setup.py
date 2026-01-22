@@ -621,7 +621,6 @@ def get_extensions():
 
     use_cutlass = False
     cutlass_90a_sources = None
-    cutlass_100a_sources = None
     build_for_sm90a = False
     build_for_sm100a = False
     if use_cuda and not IS_WINDOWS:
@@ -679,19 +678,6 @@ def get_extensions():
         # Always remove sm90a sources from main sources
         sources = [s for s in sources if s not in cutlass_90a_sources]
 
-        # Always compile mx_fp_cutlass_kernels.cu ONLY with sm100a architecture
-        cutlass_100a_sources = [
-            os.path.join(
-                extensions_cuda_dir,
-                "mx_kernels",
-                "mx_fp_cutlass_kernels.cu",
-            ),
-        ]
-        # Remove from main sources to prevent compilation with other architectures
-        sources = [
-            s for s in sources if os.path.basename(s) != "mx_fp_cutlass_kernels.cu"
-        ]
-
     else:
         # Remove CUTLASS-based kernels from the sources list.  An
         # assumption is that these files will have "cutlass" in its
@@ -706,10 +692,6 @@ def get_extensions():
     ext_modules = []
     if len(sources) > 0:
         print("SOURCES", sources)
-        # Double-check to ensure mx_fp_cutlass_kernels.cu is not in sources
-        sources = [
-            s for s in sources if os.path.basename(s) != "mx_fp_cutlass_kernels.cu"
-        ]
 
         ext_modules.append(
             extension(
@@ -772,27 +754,6 @@ def get_extensions():
                 cutlass_90a_sources,
                 py_limited_api=True,
                 extra_compile_args=cutlass_90a_extra_compile_args,
-                extra_link_args=extra_link_args,
-            )
-        )
-
-    # Only build the cutlass_100a extension if sm100a is in the architecture flags
-    if (
-        cutlass_100a_sources is not None
-        and len(cutlass_100a_sources) > 0
-        and build_for_sm100a
-    ):
-        cutlass_100a_extra_compile_args = copy.deepcopy(extra_compile_args)
-        # Only use sm100a architecture for these sources, ignoring cuda_arch_flags
-        cutlass_100a_extra_compile_args["nvcc"].append(
-            "-gencode=arch=compute_100a,code=sm_100a"
-        )
-        ext_modules.append(
-            extension(
-                "torchao._C_cutlass_100a",
-                cutlass_100a_sources,
-                py_limited_api=True,
-                extra_compile_args=cutlass_100a_extra_compile_args,
                 extra_link_args=extra_link_args,
             )
         )
