@@ -519,7 +519,6 @@ class TestGPTQFlow:
     )
     def test_gptq_sqnr(self, base_config):
         torch.manual_seed(43)
-        torch.set_default_dtype(torch.bfloat16)
 
         model = ToyLinearModel(m=512, n=2048, k=1024).cuda()
 
