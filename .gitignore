@@ -383,3 +383,5 @@ torchao/experimental/deps
 # local claude code files
 CLAUDE.local.md
 .claude
+*.priv
+*.priv.*

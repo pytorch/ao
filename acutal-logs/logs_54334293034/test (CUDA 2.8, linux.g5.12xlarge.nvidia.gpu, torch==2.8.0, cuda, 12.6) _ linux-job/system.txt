@@ -1,0 +1,13 @@
+2026-01-14T08:10:08.1020000Z Evaluating test.if
+2026-01-14T08:10:08.1020000Z Evaluating: success()
+2026-01-14T08:10:08.1020000Z Result: true
+2026-01-14T08:10:08.1020000Z Evaluating test.CUDA_2_8_linux_g5_12xlarg.job.if
+2026-01-14T08:10:08.1020000Z Evaluating: success()
+2026-01-14T08:10:08.1020000Z Result: true
+2026-01-14T08:10:08.1040000Z Requested labels: linux.g5.12xlarge.nvidia.gpu
+2026-01-14T08:10:08.1040000Z Job defined at: pytorch/test-infra/.github/workflows/linux_job_v2.yml@refs/heads/main
+2026-01-14T08:10:08.1040000Z Reusable workflow chain:
+2026-01-14T08:10:08.1040000Z pytorch/ao/.github/workflows/regression_test.yml@refs/pull/3500/merge (b34f89824bef6a4573349bfbefa82a7db14ede35)
+2026-01-14T08:10:08.1040000Z -> pytorch/test-infra/.github/workflows/linux_job_v2.yml@refs/heads/main (479ee761cd164688ad6fe63fbc0f27d255b35fe1)
+2026-01-14T08:10:08.1040000Z Waiting for a runner to pick up this job...
+2026-01-14T08:15:31.0940000Z Job is about to start running on the runner: i-04e9aa7f2165d46e3
