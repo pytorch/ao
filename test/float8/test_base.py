@@ -46,7 +46,7 @@ from torchao.testing.utils import skip_if_rocm
 from torchao.utils import (
     is_MI300,
     is_ROCM,
-    platform_supports_float8,
+    platform_supports_float8_tensorwise,
     platform_supports_float8_axiswise,
 )
 
@@ -311,7 +311,7 @@ class TestFloat8Linear:
             torch.testing.assert_close(m_ref.bias.grad, m_fp8.bias.grad)
 
     @pytest.mark.parametrize(
-        "emulate", [True, False] if platform_supports_float8() else [True]
+        "emulate", [True, False] if platform_supports_float8_tensorwise() else [True]
     )
     @pytest.mark.parametrize("x_shape", [(16, 16), (2, 16, 16), (3, 2, 16, 16)])
     @pytest.mark.parametrize(
@@ -396,7 +396,7 @@ class TestFloat8Linear:
         )
 
     @pytest.mark.parametrize(
-        "emulate", [True, False] if platform_supports_float8() else [True]
+        "emulate", [True, False] if platform_supports_float8_tensorwise() else [True]
     )
     @pytest.mark.parametrize(
         "linear_dtype", [torch.float16, torch.bfloat16, torch.float32]
@@ -454,7 +454,7 @@ class TestFloat8Linear:
         s = m.__repr__()
         assert "i:dyn_ten_e4m3,w:dyn_ten_e4m3,go:dyn_ten_e5m2" in s
 
-    @unittest.skipIf(not platform_supports_float8(), "Requires NVIDIA SM >= 8.9 or AMD arch >= CDNA3")
+    @unittest.skipIf(not platform_supports_float8_tensorwise(), "Requires NVIDIA SM >= 8.9 or AMD arch >= CDNA3")
     def test_inference_mode(self):
         x = torch.randn(32, 32, device="cuda")
         m = nn.Sequential(nn.Linear(32, 32)).cuda()
@@ -462,7 +462,7 @@ class TestFloat8Linear:
         with torch.inference_mode(mode=True):
             m(x)
 
-    @unittest.skipIf(not platform_supports_float8(), "Requires NVIDIA SM >= 8.9 or AMD arch >= CDNA3")
+    @unittest.skipIf(not platform_supports_float8_tensorwise(), "Requires NVIDIA SM >= 8.9 or AMD arch >= CDNA3")
     def test_quantize(self):
         x = torch.randn(32, 32, device="cuda")
         m = nn.Sequential(nn.Linear(32, 32)).cuda()
@@ -488,7 +488,7 @@ class TestFloat8Linear:
 
 class TestScaledMM:
     @unittest.skipIf(
-        not platform_supports_float8(),
+        not platform_supports_float8_tensorwise(),
         "Requires NVIDIA SM >= 8.9 or AMD arch >= CDNA3",
     )
     @pytest.mark.parametrize(
@@ -533,7 +533,7 @@ class TestScaledMM:
             atol, rtol = 3e-3, 3e-3
         torch.testing.assert_close(out_scaled_mm, out_emulated, atol=atol, rtol=rtol)
 
-    @unittest.skipIf(not platform_supports_float8(), "Requires NVIDIA SM >= 8.9 or AMD arch >= CDNA3")
+    @unittest.skipIf(not platform_supports_float8_tensorwise(), "Requires NVIDIA SM >= 8.9 or AMD arch >= CDNA3")
     def test_different_configs_error(self):
         x_fp32 = torch.randn(16, 16, device="cuda")
         x_scale = torch.tensor(1.0, device="cuda")
@@ -569,7 +569,7 @@ class TestScaledMM:
             a @ b
 
     @unittest.skipIf(
-        not platform_supports_float8(),
+        not platform_supports_float8_tensorwise(),
         "Requires NVIDIA SM >= 8.9 or AMD arch >= CDNA3",
     )
     @pytest.mark.parametrize(
