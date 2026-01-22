@@ -450,6 +450,106 @@ class Float8ObservedLinear(torch.nn.Linear):
         return observed_linear
 
 
+class Float8ObservedSoftmax(torch.nn.Softmax):
+    """
+    A softmax module with an observer for float8 static quantization.
+
+    This module wraps a softmax layer and adds an AffineQuantizedMinMaxObserver
+    that collects statistics on the output during calibration. After calibration,
+    use `quantize_` with `Float8StaticActivationFloat8WeightConfig(step="convert")`
+    to convert to a quantized softmax module that applies quantize-and-dequantize
+    to simulate quantization error.
+    """
+
+    def __init__(
+        self,
+        dim: Optional[int] = None,
+        output_act_obs: Optional["AffineQuantizedMinMaxObserver"] = None,  # noqa: F821
+    ):
+        super().__init__(dim=dim)
+        self.output_act_obs = output_act_obs
+
+    def forward(self, input: Tensor) -> Tensor:
+        output = F.softmax(input, self.dim, _stacklevel=5)
+        if self.output_act_obs is not None:
+            self.output_act_obs(output)
+        return output
+
+    @classmethod
+    def from_float(
+        cls,
+        float_softmax: torch.nn.Softmax,
+        output_act_obs: "AffineQuantizedMinMaxObserver",  # noqa: F821
+    ) -> "Float8ObservedSoftmax":
+        """Create an observed softmax from a float softmax module."""
+        observed_softmax = cls(
+            dim=float_softmax.dim,
+            output_act_obs=output_act_obs,
+        )
+        return observed_softmax
+
+
+class Float8QuantizedSoftmax(torch.nn.Module):
+    """
+    A softmax module that applies quantize-and-dequantize to its output.
+
+    This module computes softmax and then quantizes the output to float8,
+    immediately dequantizing it back to the original dtype. This simulates
+    the quantization error while returning a regular tensor.
+    """
+
+    def __init__(
+        self,
+        dim: Optional[int] = None,
+        output_act_quant_scale: Optional[torch.Tensor] = None,
+        output_act_quant_kwargs: Optional[QuantizeTensorToFloat8Kwargs] = None,
+    ):
+        super().__init__()
+        self._dim = dim
+        # Register scale as a buffer so it moves with the module
+        if output_act_quant_scale is not None:
+            self.register_buffer("output_act_quant_scale", output_act_quant_scale)
+        else:
+            self.output_act_quant_scale = None
+        self.output_act_quant_kwargs = output_act_quant_kwargs
+
+    @property
+    def dim(self) -> Optional[int]:
+        return self._dim
+
+    def forward(self, input: Tensor) -> Tensor:
+        from torchao.prototype.quantization.float8_static_quant.prototype_float8_tensor import (
+            _choose_quant_func_and_quantize_tensor,
+        )
+
+        output = F.softmax(input, self._dim, _stacklevel=5)
+
+        # Apply quantize-and-dequantize if configured
+        if self.output_act_quant_kwargs is not None:
+            quantized_output = _choose_quant_func_and_quantize_tensor(
+                output,
+                self.output_act_quant_kwargs,
+                act_quant_scale=self.output_act_quant_scale,
+            )
+            output = quantized_output.dequantize()
+
+        return output
+
+    @classmethod
+    def from_observed(
+        cls,
+        observed_softmax: "Float8ObservedSoftmax",
+        output_act_quant_scale: torch.Tensor,
+        output_act_quant_kwargs: QuantizeTensorToFloat8Kwargs,
+    ) -> "Float8QuantizedSoftmax":
+        """Create a quantized softmax from an observed softmax module."""
+        return cls(
+            dim=observed_softmax.dim,
+            output_act_quant_scale=output_act_quant_scale,
+            output_act_quant_kwargs=output_act_quant_kwargs,
+        )
+
+
 @register_quantize_module_handler(Float8StaticActivationFloat8WeightConfig)
 def _float8_static_activation_float8_weight_transform(
     module: torch.nn.Module,
@@ -459,8 +559,12 @@ def _float8_static_activation_float8_weight_transform(
     Transform handler for Float8StaticActivationFloat8WeightConfig.
 
     Behavior depends on the step:
-    - PREPARE: Insert observer into linear module
-    - CONVERT: Convert observed linear to quantized linear
+    - PREPARE: Insert observer into linear or softmax module
+    - CONVERT: Convert observed modules to quantized modules
+
+    Supported modules:
+    - torch.nn.Linear: Static activation quantization with float8 weights
+    - torch.nn.Softmax: Output quantization simulation (quantize-and-dequantize)
     """
     from torchao.prototype.quantization.float8_static_quant.prototype_float8_tensor import (
         PrototypeFloat8Tensor,
@@ -471,6 +575,19 @@ def _float8_static_activation_float8_weight_transform(
     granularity = config.granularity if config.granularity is not None else PerTensor()
 
     if step == Float8StaticStep.PREPARE or step == "prepare":
+        # Handle Softmax modules
+        if isinstance(module, torch.nn.Softmax):
+            output_observer = AffineQuantizedMinMaxObserver(
+                mapping_type=MappingType.SYMMETRIC,
+                target_dtype=config.activation_dtype,
+                granularity=granularity,
+                eps=torch.finfo(torch.float32).eps,
+                scale_dtype=torch.float32,
+                zero_point_dtype=torch.float32,
+            )
+            return Float8ObservedSoftmax.from_float(module, output_observer)
+
+        # Handle Linear modules
         # Create input observer and wrap linear
         input_observer = AffineQuantizedMinMaxObserver(
             mapping_type=MappingType.SYMMETRIC,
@@ -494,9 +611,36 @@ def _float8_static_activation_float8_weight_transform(
         return Float8ObservedLinear.from_float(module, input_observer, output_observer)
 
     elif step == Float8StaticStep.CONVERT or step == "convert":
+        # Handle observed Softmax modules
+        if isinstance(module, Float8ObservedSoftmax):
+            if module.output_act_obs is None:
+                logger.warning(
+                    "Float8ObservedSoftmax has no output observer, returning as-is"
+                )
+                return module
+
+            # Extract output scale from observer
+            output_act_quant_scale, _ = module.output_act_obs.calculate_qparams()
+            if output_act_quant_scale.ndim == 0:
+                output_act_quant_scale = output_act_quant_scale.view(1, 1)
+
+            output_act_quant_kwargs = QuantizeTensorToFloat8Kwargs(
+                float8_dtype=config.activation_dtype,
+                granularity=granularity,
+                mm_config=config.mm_config,
+                kernel_preference=config.kernel_preference,
+            )
+
+            return Float8QuantizedSoftmax.from_observed(
+                module,
+                output_act_quant_scale=output_act_quant_scale.detach(),
+                output_act_quant_kwargs=output_act_quant_kwargs,
+            )
+
+        # Handle observed Linear modules
         if not isinstance(module, Float8ObservedLinear):
             logger.info(
-                f"convert: module is not Float8ObservedLinear, skipping: {type(module)}"
+                f"convert: module is not Float8ObservedLinear or Float8ObservedSoftmax, skipping: {type(module)}"
             )
             return module
 

@@ -18,6 +18,8 @@ from torchao.prototype.quantization.float8_static_quant.prototype_float8_tensor 
 )
 from torchao.prototype.quantization.quant_api import (
     Float8ObservedLinear,
+    Float8ObservedSoftmax,
+    Float8QuantizedSoftmax,
     Float8StaticActivationFloat8WeightConfig,
 )
 from torchao.quantization import (
@@ -53,6 +55,32 @@ class ToyConvModel(torch.nn.Module):
 
     def forward(self, x):
         return self.conv(x)
+
+
+class ToyLinearSoftmaxModel(torch.nn.Module):
+    """A simple model with Linear followed by Softmax for testing Softmax quantization."""
+
+    def __init__(self, input_dim, output_dim, dtype, device):
+        super().__init__()
+        self.linear = torch.nn.Linear(
+            input_dim, output_dim, bias=False, dtype=dtype, device=device
+        )
+        self.softmax = torch.nn.Softmax(dim=-1)
+
+    def forward(self, x):
+        x = self.linear(x)
+        x = self.softmax(x)
+        return x
+
+    def example_inputs(self, batch_size=4):
+        return (
+            torch.randn(
+                batch_size,
+                self.linear.in_features,
+                dtype=self.linear.weight.dtype,
+                device=self.linear.weight.device,
+            ),
+        )
 
 
 @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
@@ -372,6 +400,95 @@ class TestFloat8StaticActivation(TorchAOIntegrationTestCase):
         self.assertIsNotNone(model.linear1.weight.act_quant_scale)
         self.assertIsNotNone(model.linear1.weight.output_act_quant_scale)
         self.assertIsNotNone(model.linear1.weight.output_act_quant_kwargs)
+
+        # Test inference - output should be a regular tensor (dequantized)
+        after_quant = model(*example_inputs)
+
+        # The output should be a regular tensor since we dequantize after quantizing
+        self.assertNotIsInstance(after_quant, PrototypeFloat8Tensor)
+        self.assertEqual(after_quant.dtype, dtype)
+
+        # Verify quantization quality
+        error = compute_error(before_quant, after_quant)
+        self.assertGreater(
+            error,
+            15,
+            f"SQNR of quantized vs original should be > 15 dB, got {error}",
+        )
+
+        # Test with torch.compile
+        model_compiled = torch.compile(model, fullgraph=True)
+        after_quant_compiled = model_compiled(*example_inputs)
+
+        self.assertNotIsInstance(after_quant_compiled, PrototypeFloat8Tensor)
+        self.assertEqual(after_quant_compiled.dtype, dtype)
+        error_compiled = compute_error(before_quant, after_quant_compiled)
+        self.assertGreater(
+            error_compiled,
+            15,
+            f"SQNR of compiled quantized vs original should be > 15 dB, got {error_compiled}",
+        )
+
+    def test_static_quant_softmax(self):
+        """
+        Test static quantization of Softmax output.
+
+        This tests the flow:
+        1. Prepare model by inserting observers on Softmax (step="prepare")
+        2. Calibrate with representative data
+        3. Convert observed model to quantized model (step="convert")
+        4. Verify the Softmax output is quantized and dequantized
+        """
+        torch.compiler.reset()
+        torch.manual_seed(42)
+
+        dtype = self.dtype
+
+        # Create model with Linear + Softmax
+        model = ToyLinearSoftmaxModel(
+            input_dim=64, output_dim=32, dtype=dtype, device="cuda"
+        ).eval()
+        example_inputs = model.example_inputs(batch_size=4)
+
+        # Get reference output before quantization
+        before_quant = model(*example_inputs)
+
+        # Filter function that matches both Linear and Softmax
+        def linear_or_softmax_filter(module, fqn):
+            return isinstance(module, (torch.nn.Linear, torch.nn.Softmax))
+
+        # Step 1: Prepare model by inserting observers
+        quantize_(
+            model,
+            Float8StaticActivationFloat8WeightConfig(step="prepare"),
+            filter_fn=linear_or_softmax_filter,
+        )
+
+        # Verify observers were inserted
+        self.assertIsInstance(model.linear, Float8ObservedLinear)
+        self.assertIsInstance(model.softmax, Float8ObservedSoftmax)
+        self.assertIsNotNone(model.softmax.output_act_obs)
+
+        # Step 2: Calibrate with representative data
+        for _ in range(10):
+            model(*example_inputs)
+
+        # Filter function for convert step (matches observed modules)
+        def observed_filter(module, fqn):
+            return isinstance(module, (Float8ObservedLinear, Float8ObservedSoftmax))
+
+        # Step 3: Convert observed model to quantized model
+        quantize_(
+            model,
+            Float8StaticActivationFloat8WeightConfig(step="convert"),
+            filter_fn=observed_filter,
+        )
+
+        # Verify quantization was applied
+        self.assertIsInstance(model.linear.weight, PrototypeFloat8Tensor)
+        self.assertIsInstance(model.softmax, Float8QuantizedSoftmax)
+        self.assertIsNotNone(model.softmax.output_act_quant_scale)
+        self.assertIsNotNone(model.softmax.output_act_quant_kwargs)
 
         # Test inference - output should be a regular tensor (dequantized)
         after_quant = model(*example_inputs)
