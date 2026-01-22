@@ -112,12 +112,12 @@ def test_valid_scaled_grouped_mm_2d_3d(m, n, k, n_groups):
 
     # Validate gradients.
     if is_ROCM():
-        # FP8 matmul allows some error due to precision limits and accumulation order differences.
-        # On ROCm, small numeric diffs are expected because different libraries/kernels are used:
-        # - scaled_mm is implemented via hipBLASLt
-        # - scaled_grouped_mm uses CK
-        # These do not guarantee identical FP8 compute/accumulation behavior (e.g. accumulation order),
-        # and this test is very large (deep accumulation), so rounding differences can accumulate.
+        # ROCm: reference vs tested path use different backends:
+        # - `torch._scaled_mm` uses hipBLASLt
+        # - `_quantize_then_scaled_grouped_mm` uses CK
+        # Different backends can use different kernel implementations / accumulation order, so the
+        # outputs can differ slightly and we need tolerance.
+        # On MI300/MI325 we need rtol=atol=1e-2 for this FP8 test to pass.
         assert torch.allclose(out, ref_out, rtol=1e-2, atol=1e-2)
         assert torch.allclose(a.grad, ref_a.grad, rtol=1e-2, atol=1e-2)
         assert torch.allclose(b_t.grad, ref_b_t.grad, rtol=1e-2, atol=1e-2)
@@ -247,10 +247,10 @@ def compute_reference_forward(
             LinearMMConfig(),
             float8_config,
         )
-        if is_ROCM:
-            # FP8 matmul allows some error due to precision limits and accumulation order differences.
-            # Tested with M=131072, K=5120, N=8192, bfloat16 output:
-            # 99.9986% of points have error < 0.1, max error ~2 (-262 vs -260, relative error ~0.77%)
+        if is_ROCM():
+            # ROCm: this compares different backends (hipBLASLt vs CK). Different kernel
+            # implementations / accumulation order can cause slight output diffs, so we use
+            # rtol=atol=1e-2 (see the note in `test_valid_scaled_grouped_mm_2d_3d`).
             assert torch.allclose(result1, ref_group_result1, rtol=1e-2, atol=1e-2)
             assert torch.allclose(result2, ref_group_result2, rtol=1e-2, atol=1e-2)
         else:
