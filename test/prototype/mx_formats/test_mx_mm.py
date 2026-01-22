@@ -7,9 +7,9 @@ from functools import partial
 
 import pytest
 import torch
+import torch.nn.functional as F
 
 from torchao.float8.float8_utils import compute_error
-from torchao.ops import mx_fp4_bf16
 from torchao.prototype.mx_formats.mx_tensor import MXTensor
 from torchao.prototype.mx_formats.utils import to_blocked
 from torchao.utils import (
@@ -19,6 +19,29 @@ from torchao.utils import (
 
 if not torch_version_at_least("2.8.0"):
     pytest.skip("Unsupported PyTorch version", allow_module_level=True)
+
+# ScalingType and SwizzleType are only available in PyTorch 2.10+
+if torch_version_at_least("2.10.0"):
+    from torch.nn.functional import ScalingType, SwizzleType
+
+
+def _mxfp4_scaled_mm(a_data, b_data, a_scale_block, b_scale_block):
+    """Wrapper for F.scaled_mm with MXFP4 configuration."""
+    if not torch_version_at_least("2.10.0"):
+        raise RuntimeError(
+            "MXFP4 matmul requires PyTorch 2.10.0 or later for F.scaled_mm support"
+        )
+    return F.scaled_mm(
+        a_data.view(torch.float4_e2m1fn_x2),
+        b_data.view(torch.float4_e2m1fn_x2),
+        scale_a=a_scale_block,
+        scale_recipe_a=ScalingType.BlockWise1x32,
+        scale_b=b_scale_block,
+        scale_recipe_b=ScalingType.BlockWise1x32,
+        swizzle_a=SwizzleType.SWIZZLE_32_4_4,
+        swizzle_b=SwizzleType.SWIZZLE_32_4_4,
+        output_dtype=torch.bfloat16,
+    )
 
 
 def run_matrix_test(M: int, K: int, N: int, format) -> float:
@@ -32,7 +55,7 @@ def run_matrix_test(M: int, K: int, N: int, format) -> float:
     mx_func = (
         partial(torch._scaled_mm, out_dtype=torch.bfloat16)
         if format == "fp8"
-        else mx_fp4_bf16
+        else _mxfp4_scaled_mm
     )
 
     a_mx = MXTensor.to_mx(a, fmt, 32)
@@ -79,7 +102,7 @@ def run_matrix_test(M: int, K: int, N: int, format) -> float:
     ids=lambda x: f"{x[0]}x{x[1]}x{x[2]}",
 )
 @pytest.mark.parametrize(
-    "format", ["fp8", "fp4"] if torch_version_at_least("2.8.0") else ["fp8"]
+    "format", ["fp8", "fp4"] if torch_version_at_least("2.10.0") else ["fp8"]
 )
 def test_matrix_multiplication(size, format):
     M, K, N = size
