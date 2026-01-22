@@ -73,9 +73,9 @@ For some tensor subclasses, there could be multiple kernel choices for quantize 
 
 ``Float8Tensor`` for example, has:
 
-* ``KernelPreference.AUTO`` that will choose the most performant quantize and mm kernel based on hardware (H100 SM89 or SM90+), availability of libraries (whether ``fbgemm_gpu_genai`` is installed), granularity (per row or per tensor)
+* ``KernelPreference.AUTO`` that will choose the most performant quantize and mm kernel based on hardware (H100 SM89 or SM90+), availability of libraries (whether ``mslk`` is installed), granularity (per row or per tensor)
 * ``KernelPreference.TORCH`` will use torchao quantize op (``_choose_scale_float8`` and ``_quantize_affine_float8``) and ``_scaled_mm``
-* ``Kerenel.FBGEMM`` uses fbgemm quantize and mm op (``torch.ops.fbgemm.f8f8bf16_rowwise``)
+* ``Kerenel.MSLK`` uses MSLK quantize and mm op (``torch.ops.mslk.f8f8bf16_rowwise``)
 
 
 Flow

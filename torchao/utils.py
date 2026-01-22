@@ -1133,28 +1133,14 @@ def is_package_at_least(package_name: str, min_version: str):
     return version(package_name) >= min_version
 
 
-def _is_fbgemm_gpu_genai_available():
-    # TODO: use is_package_at_least("fbgemm_gpu", "1.2.0") when
-    # https://github.com/pytorch/FBGEMM/issues/4198 is fixed
-    if (
-        importlib.util.find_spec("fbgemm_gpu") is None
-        or importlib.util.find_spec("fbgemm_gpu.experimental") is None
-    ):
+def _is_mslk_available():
+    has_mslk = importlib.util.find_spec("mslk") is not None or is_fbcode()
+    if not has_mslk:
         return False
 
-    import fbgemm_gpu.experimental.gen_ai  # noqa: F401
-
-    if not is_fbcode() and fbgemm_gpu.__version__ < "1.2.0":
-        return False
+    import mslk  # noqa: F401
 
     return True
-
-
-def _is_mslk_available():
-    if is_fbcode():
-        return True
-
-    return importlib.util.find_spec("mslk") is not None
 
 
 class DummyModule(torch.nn.Module):
