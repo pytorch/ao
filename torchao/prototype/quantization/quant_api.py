@@ -17,8 +17,6 @@ from enum import Enum
 from typing import Optional
 
 import torch
-import torch.nn.functional as F
-from torch import Tensor
 
 import torchao
 from torchao.core.config import AOBaseConfig
@@ -388,53 +386,6 @@ class Float8StaticStep(str, Enum):
     CONVERT = "convert"
 
 
-class Float8ObservedLinear(torch.nn.Linear):
-    """
-    A linear module with an observer for float8 static quantization.
-
-    This module wraps a linear layer and adds an AffineQuantizedMinMaxObserver
-    that collects statistics during calibration. After calibration, use
-    `quantize_` with `Float8StaticActivationFloat8WeightConfig(step="convert")`
-    to convert to a quantized module.
-    """
-
-    def __init__(
-        self,
-        in_features: int,
-        out_features: int,
-        act_obs: "AffineQuantizedMinMaxObserver",  # noqa: F821
-        bias: bool = True,
-        device=None,
-        dtype=None,
-    ):
-        super().__init__(in_features, out_features, bias, device, dtype)
-        self.act_obs = act_obs
-
-    def forward(self, input: Tensor) -> Tensor:
-        self.act_obs(input)
-        output = F.linear(input, self.weight, self.bias)
-        return output
-
-    @classmethod
-    def from_float(
-        cls,
-        float_linear: torch.nn.Linear,
-        act_obs: "AffineQuantizedMinMaxObserver",  # noqa: F821
-    ) -> "Float8ObservedLinear":
-        """Create an observed linear from a float linear module."""
-        observed_linear = cls(
-            float_linear.in_features,
-            float_linear.out_features,
-            act_obs,
-            bias=float_linear.bias is not None,
-            device=float_linear.weight.device,
-            dtype=float_linear.weight.dtype,
-        )
-        observed_linear.weight = float_linear.weight
-        observed_linear.bias = float_linear.bias
-        return observed_linear
-
-
 @register_quantize_module_handler(Float8StaticActivationFloat8WeightConfig)
 def _float8_static_activation_float8_weight_transform(
     module: torch.nn.Module,
@@ -450,7 +401,10 @@ def _float8_static_activation_float8_weight_transform(
     from torchao.prototype.quantization.float8_static_quant.prototype_float8_tensor import (
         PrototypeFloat8Tensor,
     )
-    from torchao.quantization.observer import AffineQuantizedMinMaxObserver
+    from torchao.quantization.observer import (
+        AffineQuantizedMinMaxObserver,
+        ObservedLinear,
+    )
 
     step = config.step
     granularity = config.granularity if config.granularity is not None else PerTensor()
@@ -465,12 +419,12 @@ def _float8_static_activation_float8_weight_transform(
             scale_dtype=torch.float32,
             zero_point_dtype=torch.float32,
         )
-        return Float8ObservedLinear.from_float(module, observer)
+        return ObservedLinear.from_float(module, observer)
 
     elif step == Float8StaticStep.CONVERT or step == "convert":
-        if not isinstance(module, Float8ObservedLinear):
+        if not isinstance(module, ObservedLinear):
             logger.info(
-                f"convert: module is not Float8ObservedLinear, skipping: {type(module)}"
+                f"convert: module is not ObservedLinear, skipping: {type(module)}"
             )
             return module
 

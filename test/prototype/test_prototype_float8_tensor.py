@@ -17,7 +17,6 @@ from torchao.prototype.quantization.float8_static_quant.prototype_float8_tensor 
     _choose_quant_func_and_quantize_tensor,
 )
 from torchao.prototype.quantization.quant_api import (
-    Float8ObservedLinear,
     Float8StaticActivationFloat8WeightConfig,
 )
 from torchao.quantization import (
@@ -25,6 +24,7 @@ from torchao.quantization import (
     quantize_,
 )
 from torchao.quantization.granularity import PerRow, PerTensor
+from torchao.quantization.observer import ObservedLinear
 from torchao.quantization.quantize_.common import IsStaticQuantizationConfig
 from torchao.quantization.utils import compute_error
 from torchao.testing.model_architectures import ToyTwoLinearModel
@@ -274,8 +274,8 @@ class TestFloat8StaticActivation(TorchAOIntegrationTestCase):
         quantize_(model, Float8StaticActivationFloat8WeightConfig(step="prepare"))
 
         # Verify observers were inserted
-        self.assertIsInstance(model.linear1, Float8ObservedLinear)
-        self.assertIsInstance(model.linear2, Float8ObservedLinear)
+        self.assertIsInstance(model.linear1, ObservedLinear)
+        self.assertIsInstance(model.linear2, ObservedLinear)
 
         # Step 2: Calibrate with representative data
         for _ in range(10):
