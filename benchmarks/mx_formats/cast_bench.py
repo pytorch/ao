@@ -284,12 +284,12 @@ def run(
 
     elif mode == "dim0_nvfp4":
         to_nvfp4_reference_c = torch.compile(to_nvfp4_reference)
-        y_d0, s_d0 = to_nvfp4_reference_c(x, use_triton_kernel=False)
+        y_d0, s_d0 = to_nvfp4_reference_c(x)
 
         for _ in range(2):
-            __ = to_nvfp4_reference_c(x, use_triton_kernel=False)
+            __ = to_nvfp4_reference_c(x)
         time_us = benchmark_cuda_function_in_microseconds(
-            lambda x: to_nvfp4_reference_c(x, use_triton_kernel=False),
+            lambda x: to_nvfp4_reference_c(x),
             x,
         )
         assert y_d0.dtype == torch.uint8
