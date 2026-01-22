@@ -82,6 +82,8 @@ The `workflow_dispatch` trigger allows you to manually build and preview documen
 4. Select your branch from the dropdown.
 5. Click "Run workflow".
 
+**Important:** You need to trigger the workflow manually after every change you push. Unlike PR-triggered builds, `workflow_dispatch` does not automatically rebuild when new commits are added to your branch.
+
 ### Preview URL Behavior
 
 | Trigger | Preview URL Format | How to Access |
