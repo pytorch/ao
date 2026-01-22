@@ -13,7 +13,6 @@ import logging
 import types
 import warnings
 from dataclasses import dataclass
-from enum import Enum
 from typing import Optional
 
 import torch
@@ -38,6 +37,7 @@ from torchao.quantization.granularity import Granularity, PerTensor
 from torchao.quantization.linear_activation_quantized_tensor import (
     to_linear_activation_quantized,
 )
+from torchao.quantization.observer import ObserverStep
 from torchao.quantization.quant_primitives import (
     _DTYPE_TO_QVALUE_BOUNDS,
     MappingType,
@@ -309,7 +309,7 @@ class Float8StaticActivationFloat8WeightConfig(AOBaseConfig):
         - Provide act_quant_scale directly (step is not required)
 
     Args:
-        step (Optional[Float8StaticStep]): Specifies the step for the observer-based quantization process.
+        step (Optional[ObserverStep]): Specifies the step for the observer-based quantization process.
             PREPARE: insert observers to linear
             CONVERT: convert the observed linear modules to linear modules with quantized weights
             Can use the corresponding string "prepare", "convert" for simplicity
@@ -346,7 +346,7 @@ class Float8StaticActivationFloat8WeightConfig(AOBaseConfig):
         quantize_(model, config)
     """
 
-    step: Optional["Float8StaticStep"] = None
+    step: Optional["ObserverStep"] = None
     act_quant_scale: Optional[torch.Tensor] = None
     activation_dtype: torch.dtype = e4m3_dtype
     weight_dtype: torch.dtype = e4m3_dtype
@@ -368,10 +368,8 @@ class Float8StaticActivationFloat8WeightConfig(AOBaseConfig):
         if self.step is not None:
             if isinstance(self.step, str):
                 self.step = self.step.lower()
-            all_step_values = [s.value for s in Float8StaticStep]
-            if self.step not in all_step_values and self.step not in list(
-                Float8StaticStep
-            ):
+            all_step_values = [s.value for s in ObserverStep]
+            if self.step not in all_step_values and self.step not in list(ObserverStep):
                 raise ValueError(f"{self.step} is not one of {all_step_values}")
 
     def get_act_quant_kwargs(self) -> QuantizeTensorKwargs:
@@ -386,12 +384,6 @@ class Float8StaticActivationFloat8WeightConfig(AOBaseConfig):
             mm_config=self.mm_config,
             kernel_preference=self.kernel_preference,
         )
-
-
-# Float8 static quantization step enum
-class Float8StaticStep(str, Enum):
-    PREPARE = "prepare"
-    CONVERT = "convert"
 
 
 class Float8ObservedLinear(torch.nn.Linear):
@@ -574,7 +566,7 @@ def _float8_static_activation_float8_weight_transform(
     step = config.step
     granularity = config.granularity if config.granularity is not None else PerTensor()
 
-    if step == Float8StaticStep.PREPARE or step == "prepare":
+    if step == ObserverStep.PREPARE or step == "prepare":
         # Handle Softmax modules
         if isinstance(module, torch.nn.Softmax):
             output_observer = AffineQuantizedMinMaxObserver(
@@ -610,34 +602,7 @@ def _float8_static_activation_float8_weight_transform(
             )
         return Float8ObservedLinear.from_float(module, input_observer, output_observer)
 
-    elif step == Float8StaticStep.CONVERT or step == "convert":
-        # Handle observed Softmax modules
-        if isinstance(module, Float8ObservedSoftmax):
-            if module.output_act_obs is None:
-                logger.warning(
-                    "Float8ObservedSoftmax has no output observer, returning as-is"
-                )
-                return module
-
-            # Extract output scale from observer
-            output_act_quant_scale, _ = module.output_act_obs.calculate_qparams()
-            if output_act_quant_scale.ndim == 0:
-                output_act_quant_scale = output_act_quant_scale.view(1, 1)
-
-            output_act_quant_kwargs = QuantizeTensorToFloat8Kwargs(
-                float8_dtype=config.activation_dtype,
-                granularity=granularity,
-                mm_config=config.mm_config,
-                kernel_preference=config.kernel_preference,
-            )
-
-            return Float8QuantizedSoftmax.from_observed(
-                module,
-                output_act_quant_scale=output_act_quant_scale.detach(),
-                output_act_quant_kwargs=output_act_quant_kwargs,
-            )
-
-        # Handle observed Linear modules
+    elif step == ObserverStep.CONVERT or step == "convert":
         if not isinstance(module, Float8ObservedLinear):
             logger.info(
                 f"convert: module is not Float8ObservedLinear or Float8ObservedSoftmax, skipping: {type(module)}"
@@ -755,7 +720,7 @@ def _float8_static_activation_float8_weight_transform(
 
     else:
         raise ValueError(
-            f"Unexpected step: {step}. Expected one of {[s.value for s in Float8StaticStep]} or None."
+            f"Unexpected step: {step}. Expected one of {[s.value for s in ObserverStep]} or None."
         )
 
 
