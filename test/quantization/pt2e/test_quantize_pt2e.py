@@ -1463,9 +1463,9 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
     def test_quantize_kwargs(self):
         """Ensure non-tensor kwargs pass quantization, tensor kwargs don't"""
 
-        class EmptyLikeModule(torch.nn.Module):
+        class OnesLikeModule(torch.nn.Module):
             def forward(self, t: torch.Tensor):
-                return torch.empty_like(t, device="cpu", pin_memory=False)
+                return torch.ones_like(t, device="cpu", pin_memory=False)
 
         class ClampModule(torch.nn.Module):
             def __init__(self, max: float | torch.Tensor, use_out: bool):
@@ -1521,8 +1521,8 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
         example_inputs = torch.randn(1, 2, 3, 3)
         quantizer = BackendAQuantizer()
 
-        # Example 1: empty_like with device and pin_memory passes.
-        m = self._quantize(EmptyLikeModule(), quantizer, (example_inputs,))
+        # Example 1: ones_like with device and pin_memory passes.
+        m = self._quantize(OnesLikeModule(), quantizer, (example_inputs,))
         validate_quantization(m)
         m(example_inputs)
 
