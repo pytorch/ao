@@ -774,15 +774,19 @@ class TestPatternMatcher(TestPatternMatcherBase):
     def test_qconv2d_silu_int8_mixed_bf16_cpu(self):
         r"""
         This testcase will quantize Conv2d->SiLU pattern.
+        silu_pattern = [sigmoid, mul] for torch < 2.11
+                     = [neg, exp, add, div] for torch >= 2.11
         Match.nodes:
-            [qconv2d_pointwise_default, convert_element_type, sigmoid, mul,
+            [qconv2d_pointwise_default, convert_element_type, silu_pattern,
              convert_element_type, quantize_per_tensor]
-            [qconv2d_pointwise_default, convert_element_type, sigmoid, mul, convert_element_type]
+            [qconv2d_pointwise_default, convert_element_type, silu_pattern, convert_element_type]
         """
         self._qconv2d_unary_test_helper(
             unary_op=torch.nn.SiLU(),
             mixed_bf16=True,
-            qconv_unary_matcher_nodes=11,
+            qconv_unary_matcher_nodes=15
+            if torch_version_at_least("2.11.0.dev")
+            else 11,
         )
 
     @skipIfNoDynamoSupport
@@ -792,15 +796,19 @@ class TestPatternMatcher(TestPatternMatcherBase):
     def test_qconv2d_silu_fp8_mixed_bf16_cpu(self):
         r"""
         This testcase will quantize Conv2d->SiLU pattern.
+        silu_pattern = [sigmoid, mul] for torch < 2.11
+                     = [neg, exp, add, div] for torch >= 2.11
         Match.nodes:
-            [qconv2d_pointwise_default, convert_element_type, sigmoid, mul,
+            [qconv2d_pointwise_default, convert_element_type, silu_pattern,
              convert_element_type, quantize_per_tensor]
-            [qconv2d_pointwise_default, convert_element_type, sigmoid, mul, convert_element_type]
+            [qconv2d_pointwise_default, convert_element_type, silu_pattern, convert_element_type]
         """
         self._qconv2d_unary_test_helper(
             unary_op=torch.nn.SiLU(),
             mixed_bf16=True,
-            qconv_unary_matcher_nodes=11,
+            qconv_unary_matcher_nodes=15
+            if torch_version_at_least("2.11.0.dev")
+            else 11,
             is_fp8=True,
         )
 
@@ -1707,7 +1715,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
             )
 
         self._test_common(
-            mod,
+            copy.deepcopy(mod),
             inputs,
             matcher_check_fn=(
                 matcher_check_fn
@@ -1720,6 +1728,18 @@ class TestPatternMatcher(TestPatternMatcherBase):
             is_dynamic=is_dynamic,
             is_fp8=is_fp8,
         )
+        if is_fp8:
+            # ensure quantize_affine_float8_non_decomposed is lowered
+            self._test_code_common(
+                mod,
+                inputs,
+                include_ops=[],
+                exclude_ops=[
+                    "torch.ops.torchao.quantize_affine_float8_non_decomposed.default"
+                ],
+                check_quantization=True,
+                is_fp8=is_fp8,
+            )
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN

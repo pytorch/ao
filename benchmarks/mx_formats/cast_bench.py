@@ -227,9 +227,11 @@ def run(
         y_d0, s_d0 = to_mx_dim0_reference_c(x, BLOCK_SIZE, ScaleCalculationMode.RCEIL)
 
         for _ in range(2):
-            __ = to_mx_dim0_reference_c(x, BLOCK_SIZE)
+            __ = to_mx_dim0_reference_c(x, BLOCK_SIZE, ScaleCalculationMode.RCEIL)
         time_us = benchmark_cuda_function_in_microseconds(
-            lambda x, b: to_mx_dim0_reference_c(x, BLOCK_SIZE),
+            lambda x, b: to_mx_dim0_reference_c(
+                x, BLOCK_SIZE, ScaleCalculationMode.RCEIL
+            ),
             x,
             BLOCK_SIZE,
         )
@@ -365,19 +367,19 @@ def run(
         bps = (bytes_r + bytes_w) / (time_us / 1e6)
 
     elif mode == "dim1_mxfp8_cuda_floor":
-        from torchao.prototype import mxfp8_cuda
+        from torchao.prototype.mx_formats.kernels import mxfp8_quantize_cuda
 
-        _, y_d1, _, s_d1 = mxfp8_cuda.quantize(
+        _, y_d1, _, s_d1 = mxfp8_quantize_cuda(
             x, rowwise=False, colwise=True, scaling_mode="floor"
         )
 
         for _ in range(2):
-            __ = mxfp8_cuda.quantize(
+            __ = mxfp8_quantize_cuda(
                 x, rowwise=False, colwise=True, scaling_mode="floor"
             )
 
         time_us = benchmark_cuda_function_in_microseconds(
-            lambda x: mxfp8_cuda.quantize(
+            lambda x: mxfp8_quantize_cuda(
                 x, rowwise=False, colwise=True, scaling_mode="floor"
             ),
             x,

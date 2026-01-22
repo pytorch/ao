@@ -51,7 +51,6 @@ from .quant_api import (
     Float8MMConfig,
     Float8StaticActivationFloat8WeightConfig,
     Float8WeightOnlyConfig,
-    FPXWeightOnlyConfig,
     FqnToConfig,
     GemliteUIntXWeightOnlyConfig,
     Int4DynamicActivationInt4WeightConfig,
@@ -82,7 +81,6 @@ from .quant_primitives import (
 )
 from .quantize_.workflows import (
     Float8Tensor,
-    Int4MarlinSparseTensor,
     Int4PlainInt32Tensor,
     Int4PreshuffledTensor,
     Int4Tensor,
@@ -129,7 +127,6 @@ __all__ = [
     "Float8DynamicActivationFloat8SemiSparseWeightConfig",
     "UIntXWeightOnlyConfig",
     "IntxWeightOnlyConfig",
-    "FPXWeightOnlyConfig",
     "GemliteUIntXWeightOnlyConfig",
     "AOPerModuleConfig",
     "FqnToConfig",
@@ -139,7 +136,6 @@ __all__ = [
     "Int4Tensor",
     "Int4PlainInt32Tensor",
     "Int4PreshuffledTensor",
-    "Int4MarlinSparseTensor",
     "IntxOpaqueTensor",
     "IntxUnpackedToInt8Tensor",
     "Int4TilePackedTo4dTensor",

@@ -26,6 +26,19 @@ void mxfp8_quantize_3d_cuda(const at::Tensor &input,
                              const std::string &fp8_format,
                              const std::string &scaling_mode);
 
+void launch_mx_block_rearrange_2d_M_groups_cuda(
+    const uint8_t* scales_ptr,
+    int scale_stride_dim0,
+    int scale_rows,
+    int scale_cols,
+    int padded_rows,
+    const int32_t* input_group_end_offsets,
+    uint8_t* output_scales_ptr,
+    int num_groups,
+    int chunk_width,      // Template selector: 64 or 128
+    int chunks_per_tb,
+    cudaStream_t stream);
+
 // Helper for tensor validation
 void check_cuda_tensor(const at::Tensor &t, const char *name) {
   TORCH_CHECK(t.is_cuda(), name, " must be a CUDA tensor");
@@ -178,6 +191,93 @@ mxfp8_quantize_3d(const at::Tensor& input, int64_t scale_dim_n,
   return std::make_tuple(output_colwise, scales_colwise);
 }
 
+at::Tensor mx_block_rearrange_2d_M_groups(
+    at::Tensor scales_tensor,
+    at::Tensor input_group_end_offsets,
+    int64_t chunks_per_tb) {
+
+  // Validate inputs
+  check_cuda_tensor(scales_tensor, "scales_tensor");
+  check_cuda_tensor(input_group_end_offsets, "input_group_end_offsets");
+
+  TORCH_CHECK(scales_tensor.dim() == 2, "scales_tensor must be 2D");
+  TORCH_CHECK(scales_tensor.is_contiguous(), "scales_tensor must be contiguous (row-major)");
+  TORCH_CHECK(scales_tensor.scalar_type() == at::kByte || // uint8
+              scales_tensor.scalar_type() == at::kFloat8_e8m0fnu,
+              "scales_tensor must be uint8 or e8m0");
+  TORCH_CHECK(input_group_end_offsets.scalar_type() == at::kInt,
+              "input_group_end_offsets must be int32");
+  TORCH_CHECK(input_group_end_offsets.dim() == 1,
+              "input_group_end_offsets must be 1D");
+  TORCH_CHECK(chunks_per_tb == 1 || chunks_per_tb == 4 || chunks_per_tb == 8 || chunks_per_tb == 16,
+              "chunks_per_tb must be 1, 4, 8, or 16, got: ", chunks_per_tb);
+  c10::cuda::CUDAGuard device_guard(scales_tensor.device());
+
+  const int rows = scales_tensor.size(0);
+  const int cols = scales_tensor.size(1);
+  const int num_groups = input_group_end_offsets.size(0);
+  TORCH_CHECK(num_groups <= 32, "num_groups must be <= 32");
+
+  // Validate TMA alignment requirements: scale_cols must be divisible by 16
+  // Reference: https://docs.nvidia.com/cuda/archive/12.6.3/cuda-driver-api/group__CUDA__TENSOR__MEMORY.html
+  // For 2D TMA transfers, the stride must be a multiple of 16 bytes.
+  // Since we use row-major layout with stride = scale_cols (in bytes), scale_cols must be divisible by 16.
+  TORCH_CHECK(cols >= 16 && cols % 16 == 0,
+              "TMA requirement for 2D transfers: stride must be a multiple of 16 bytes. Got scale_cols=",
+              cols, " (stride in row-major layout). ",
+              "Consider using Triton kernel instead with use_cuda_kernel_for_blocked_layout=False.");
+
+  // Automatically select chunk_width based on scale_cols
+  int chunk_width;
+  if (cols >= 64) {
+    chunk_width = 64;
+  } else if (cols >= 32) {
+    chunk_width = 32;
+  } else {
+    chunk_width = 16;
+  }
+
+  // Calculate blocks needed - uses 128-row blocks
+  // For M groups, groups are along rows, so we pad each group to 128 rows
+  const int BLOCK_ROWS = 128;
+  const int BLOCK_COLS = 4;
+
+  // Each group is padded to 128 rows upper bound
+  const int padded_rows = rows + num_groups * BLOCK_ROWS;
+
+  // Columns are padded to multiple of BLOCK_COLS
+  const int num_col_blocks = (cols + BLOCK_COLS - 1) / BLOCK_COLS;
+  const int padded_cols = num_col_blocks * BLOCK_COLS;
+
+  // Create output tensor
+  auto output = at::zeros({padded_rows, padded_cols},
+                            at::TensorOptions()
+                                .dtype(scales_tensor.scalar_type())
+                                .device(scales_tensor.device()));
+
+  // Get raw pointers
+  const uint8_t* scales_ptr = reinterpret_cast<const uint8_t*>(scales_tensor.data_ptr());
+  const int32_t* offsets_ptr = input_group_end_offsets.data_ptr<int32_t>();
+  uint8_t* output_ptr = reinterpret_cast<uint8_t*>(output.data_ptr());
+
+  // Launch pipelined M groups kernel with specified chunk_width and chunks_per_tb
+  launch_mx_block_rearrange_2d_M_groups_cuda(
+      scales_ptr,
+      scales_tensor.stride(0),
+      rows,
+      cols,
+      padded_rows,
+      offsets_ptr,
+      output_ptr,
+      num_groups,
+      static_cast<int>(chunk_width),
+      static_cast<int>(chunks_per_tb),
+      at::cuda::getCurrentCUDAStream());
+
+  return output;
+}
+
+
 } // namespace mxfp8
 
 
@@ -185,4 +285,5 @@ mxfp8_quantize_3d(const at::Tensor& input, int64_t scale_dim_n,
 TORCH_LIBRARY_IMPL(torchao, CUDA, m) {
   m.impl("mxfp8_quantize", &mxfp8::mxfp8_quantize);
   m.impl("mxfp8_quantize_3d", &mxfp8::mxfp8_quantize_3d);
+  m.impl("mx_block_rearrange_2d_M_groups", &mxfp8::mx_block_rearrange_2d_M_groups);
 }

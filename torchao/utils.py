@@ -1121,6 +1121,10 @@ def ceil_div(a, b):
     return (a + b - 1) // b
 
 
+def round_up(a: int, b: int) -> int:
+    return ceil_div(a, b) * b
+
+
 def is_package_at_least(package_name: str, min_version: str):
     package_exists = importlib.util.find_spec(package_name) is not None
     if not package_exists:
@@ -1144,6 +1148,13 @@ def _is_fbgemm_gpu_genai_available():
         return False
 
     return True
+
+
+def _is_mslk_available():
+    if is_fbcode():
+        return True
+
+    return importlib.util.find_spec("mslk") is not None
 
 
 class DummyModule(torch.nn.Module):

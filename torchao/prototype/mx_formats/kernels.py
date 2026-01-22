@@ -17,6 +17,7 @@ from torchao.prototype.custom_fp_utils import (
     _f32_to_floatx_unpacked,
     _floatx_unpacked_to_f32,
 )
+from torchao.prototype.mx_formats.config import ScaleCalculationMode
 from torchao.utils import (
     is_cuda_version_at_least,
     is_sm_at_least_100,
@@ -464,7 +465,7 @@ if torch_version_at_least("2.7.0") and has_triton():
         # Find the maximum absolute value for each row (across columns)
         # shape: (ROW_TILE_SIZE * BLOCKS_PER_COL_TILE,)
         scale_fp32_r, scale_e8m0_r = _triton_calculate_scale(
-            x_block_abs_r, axis=1, mode=SCALING_MODE
+            x_block_abs_r, axis=1, SCALING_MODE=SCALING_MODE
         )
 
         # Divide each row by scale
@@ -517,7 +518,12 @@ if torch_version_at_least("2.7.0") and has_triton():
         """
         assert x.is_contiguous(), "`x` must be contiguous"
         assert inner_block_size <= 32, "inner_block_size must be <= 32"
-        assert x.dtype == torch.bfloat16, "only bfloat16 inputs are supported"
+        assert x.dtype == torch.bfloat16, (
+            f"only bfloat16 inputs are supported, got {x.dtype}"
+        )
+        assert scaling_mode in ("floor", "rceil"), (
+            "only floor and rceil scaling modes are supported"
+        )
 
         # Reshape tensor to 2d if necessary and get shape
         x_orig_shape = x.shape
@@ -554,7 +560,7 @@ if torch_version_at_least("2.7.0") and has_triton():
             n_rows=n_rows,
             n_cols=n_cols,
             SCALE_BLOCK_SIZE=inner_block_size,
-            SCALING_MODE=scaling_mode,
+            SCALING_MODE=scaling_mode.lower(),
         )
 
         # Reshape output back to original shape
@@ -639,7 +645,9 @@ if torch_version_at_least("2.7.0") and has_triton():
         return acceptable_shardings
 
     def triton_to_mxfp8_dim1_reference(
-        x_hp: torch.Tensor, block_size
+        x_hp: torch.Tensor,
+        block_size: int = 32,
+        scaling_mode: ScaleCalculationMode = ScaleCalculationMode.RCEIL,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         A reference version of `to_mxfp8_dim1`.
@@ -649,7 +657,10 @@ if torch_version_at_least("2.7.0") and has_triton():
         # cast across dim1
         x_hp_d1 = x_hp.t().contiguous()
         scale_e8m0_dim1, x_hp_d1_normalized = to_mx(
-            x_hp_d1, torch.float8_e4m3fn, block_size
+            x_hp_d1,
+            torch.float8_e4m3fn,
+            block_size,
+            scaling_mode=scaling_mode,
         )
         scale_e8m0_dim1 = scale_e8m0_dim1.view(torch.float8_e8m0fnu)
         return (
@@ -1173,14 +1184,17 @@ if mxfp8_cuda_extension_available:
         assert rows % block_size == 0, "rows must be a multiple of 32"
         assert cols % block_size == 0, "cols must be a multiple of 32"
 
+        scale_dim_x = 1
+        scale_dim_y = block_size
+        fp8_format = "e4m3"
         output_rowwise, output_colwise, scales_rowwise, scales_colwise = (
             torch.ops.torchao.mxfp8_quantize.default(
                 x,
                 rowwise,
                 colwise,
-                1,  # scale_dim_x
-                block_size,  # scale_dim_y
-                "e4m3",  # fp8_format
+                scale_dim_x,
+                scale_dim_y,
+                fp8_format,
                 scaling_mode,
             )
         )
@@ -1235,9 +1249,12 @@ if mxfp8_cuda_extension_available:
     @register_sharding(torch.ops.torchao.mxfp8_quantize.default)
     def custom_mxfp8_quantize_cuda_dim1_sharding(
         x: torch.Tensor,
-        rowwise: bool = False,
-        colwise: bool = True,
-        scaling_mode: str = "floor",
+        rowwise: bool,
+        colwise: bool,
+        scale_dim_x: int,
+        scale_dim_y: int,
+        fp8_format: str,
+        scaling_mode: str,
     ):
         # This function signature can be used to understand the shardings:
         # _, colwise_data, _, colwise_scales = mxfp8_quantize_cuda(x, rowwise=False, colwise=True)

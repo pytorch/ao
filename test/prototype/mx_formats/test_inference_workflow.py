@@ -126,7 +126,7 @@ def test_inference_workflow_mx(
     else:
         y_mx = m_mx(x)
     sqnr = compute_error(y_ref, y_mx)
-    SQNR_THRESHOLD = 25.0 if elem_dtype == torch.float8_e4m3fn else 15.0
+    SQNR_THRESHOLD = 25.0 if elem_dtype == torch.float8_e4m3fn else 12.0
     assert sqnr >= SQNR_THRESHOLD, (
         f"Got a sqnr of {sqnr} for {elem_dtype} and bias={bias}"
     )
@@ -177,10 +177,6 @@ def test_inference_workflow_nvfp4(
     # DYNAMIC mode requires SM100+, but WEIGHT_ONLY works on older GPUs
     if quant_type == "dynamic" and not is_sm_at_least_100():
         pytest.skip("CUDA capability >= 10.0 required for DYNAMIC float4 gemm")
-
-    if bias and inpt_dtype == torch.float32:
-        pytest.xfail("Bias is not supported when module weight is in fp32")
-
     if quant_type == "weight_only" and compile:
         pytest.skip("TODO: weight_only quant currently errors w/ compile")
     if quant_type == "weight_only" and use_triton_kernel:

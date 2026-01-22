@@ -148,12 +148,6 @@ def _nvfp4_inference_linear_transform(
             f"NVFP4 only supports weight shape with last 2 dims divisible by 16, got {weight.shape}"
         )
 
-    if module.bias is not None and weight.dtype == torch.float32:
-        raise RuntimeError(
-            "Bias is not supported when module weight is in fp32 (out_dtype=Float32). "
-            "Please use bfloat16 or float16 weights, or remove the bias from the linear layer."
-        )
-
     per_tensor_scale = None
     if config.use_dynamic_per_tensor_scale:
         tensor_amax = torch.max(torch.abs(weight))
