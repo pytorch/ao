@@ -9,10 +9,12 @@ Test FP8 SDPA with Stable Diffusion model from diffusers.
 """
 
 import torch
-from diffusers import StableDiffusionPipeline
+from diffusers import StableDiffusion3Pipeline
 from torch.nn.attention import (
     activate_flash_attention_impl,
     restore_flash_attention_impl,
+    sdpa_kernel,
+    SDPBackend,
 )
 
 from torchao.prototype.fp8_sdpa_inference.fp8_sdpa_utils import (
@@ -24,17 +26,15 @@ def test_stable_diffusion_regular_sdpa():
     from torch.profiler import ProfilerActivity, profile
 
     """
-    Load Stable Diffusion and run regular SDPA.
+    Load Stable Diffusion 3.5 and run regular SDPA.
     """
 
-    # Load Stable Diffusion pipeline
-    # Using SD 2.1 as an example - uses SDPA internally
-    model_id = "Manojb/stable-diffusion-2-1-base"
+    # Load Stable Diffusion 3.5 pipeline
+    model_id = "stabilityai/stable-diffusion-3.5-large"
 
-    pipe = StableDiffusionPipeline.from_pretrained(
+    pipe = StableDiffusion3Pipeline.from_pretrained(
         model_id,
         torch_dtype=torch.bfloat16,
-        use_safetensors=True,
     )
     pipe = pipe.to("cuda")
 
@@ -84,23 +84,21 @@ def test_stable_diffusion_fp8_sdpa():
     from torch.profiler import ProfilerActivity, profile
 
     """
-    Load Stable Diffusion and convert attention to FP8 SDPA.
+    Load Stable Diffusion 3.5 and convert attention to FP8 SDPA.
     """
 
-    # Load Stable Diffusion pipeline
-    # Using SD 2.1 as an example - uses SDPA internally
-    model_id = "Manojb/stable-diffusion-2-1-base"
+    # Load Stable Diffusion 3.5 pipeline
+    model_id = "stabilityai/stable-diffusion-3.5-large"
 
-    pipe = StableDiffusionPipeline.from_pretrained(
+    pipe = StableDiffusion3Pipeline.from_pretrained(
         model_id,
         torch_dtype=torch.bfloat16,
-        use_safetensors=True,
     )
     pipe = pipe.to("cuda")
 
-    # Wrap UNet to use FP8 SDPA only during its forward pass
+    # Wrap transformer to use FP8 SDPA only during its forward pass
     # VAE and text encoder will use regular SDPA
-    pipe.unet = wrap_module_with_fp8_sdpa(pipe.unet)
+    pipe.transformer = wrap_module_with_fp8_sdpa(pipe.transformer)
 
     # Run inference
     prompt = "A photo of an astronaut riding a unicorn on Mars"
@@ -325,16 +323,16 @@ if __name__ == "__main__":
     # test_fp8_sdpa_numerical_accuracy()
     # print()
 
-    # Run benchmark
-    test_fp8_sdpa_benchmark()
-    print()
+    # # Run benchmark
+    # test_fp8_sdpa_benchmark()
+    # print()
 
-    # Run profiler
-    test_fp8_sdpa_profiler()
+    # # Run profiler
+    # test_fp8_sdpa_profiler()
 
-    # # Run Stable Diffusion test
-    # print("Testing with Stable Diffusion...")
-    # test_stable_diffusion_fp8_sdpa()
+    # Run Stable Diffusion test
+    print("Testing with Stable Diffusion...")
+    test_stable_diffusion_fp8_sdpa()
 
-    # print("Testing with Regular SDPA...")
-    # test_stable_diffusion_regular_sdpa()
+    print("Testing with Regular SDPA...")
+    test_stable_diffusion_regular_sdpa()

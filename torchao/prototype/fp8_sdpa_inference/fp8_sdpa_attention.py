@@ -12,7 +12,9 @@ Uses PyTorch's FA3 backend for fp8 attention computation.
 from typing import Optional
 
 import torch
-import torch.nn.functional as F
+from torch.nn.attention.experimental._scaled_dot_product_attention_quantized import (
+    _scaled_dot_product_attention_quantized,
+)
 from torch.nn.attention import SDPBackend, sdpa_kernel
 
 from torchao.prototype.fp8_sdpa_inference.fp8_sdpa_quantization import (
@@ -27,7 +29,7 @@ def fp8_sdpa_parallel(
     attn_mask=None,
     dropout_p: float = 0.0,
     is_causal: bool = False,
-    scale: float = None,
+    scale: Optional[float] = None,
     num_chunks: Optional[int] = None,
 ) -> torch.Tensor:
     """
@@ -57,7 +59,7 @@ def fp8_sdpa_parallel(
 
     # Call PyTorch's fp8 SDPA
     with sdpa_kernel(SDPBackend.FLASH_ATTENTION):
-        out = F._scaled_dot_product_attention_fp8(
+        out = _scaled_dot_product_attention_quantized(
             q_fp8,
             k_fp8,
             v_fp8,

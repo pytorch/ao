@@ -194,7 +194,6 @@ mxfp8_quantize_3d(const at::Tensor& input, int64_t scale_dim_n,
 at::Tensor mx_block_rearrange_2d_M_groups(
     at::Tensor scales_tensor,
     at::Tensor input_group_end_offsets,
-    int64_t chunk_width,
     int64_t chunks_per_tb) {
 
   // Validate inputs
@@ -210,16 +209,33 @@ at::Tensor mx_block_rearrange_2d_M_groups(
               "input_group_end_offsets must be int32");
   TORCH_CHECK(input_group_end_offsets.dim() == 1,
               "input_group_end_offsets must be 1D");
-  TORCH_CHECK(chunk_width == 64 || chunk_width == 128,
-              "chunk_width must be 64 or 128, got: ", chunk_width);
   TORCH_CHECK(chunks_per_tb == 1 || chunks_per_tb == 4 || chunks_per_tb == 8 || chunks_per_tb == 16,
-              "chunks_per_tb must be 4, 8, or 16, got: ", chunks_per_tb);
+              "chunks_per_tb must be 1, 4, 8, or 16, got: ", chunks_per_tb);
   c10::cuda::CUDAGuard device_guard(scales_tensor.device());
 
   const int rows = scales_tensor.size(0);
   const int cols = scales_tensor.size(1);
   const int num_groups = input_group_end_offsets.size(0);
   TORCH_CHECK(num_groups <= 32, "num_groups must be <= 32");
+
+  // Validate TMA alignment requirements: scale_cols must be divisible by 16
+  // Reference: https://docs.nvidia.com/cuda/archive/12.6.3/cuda-driver-api/group__CUDA__TENSOR__MEMORY.html
+  // For 2D TMA transfers, the stride must be a multiple of 16 bytes.
+  // Since we use row-major layout with stride = scale_cols (in bytes), scale_cols must be divisible by 16.
+  TORCH_CHECK(cols >= 16 && cols % 16 == 0,
+              "TMA requirement for 2D transfers: stride must be a multiple of 16 bytes. Got scale_cols=",
+              cols, " (stride in row-major layout). ",
+              "Consider using Triton kernel instead with use_cuda_kernel_for_blocked_layout=False.");
+
+  // Automatically select chunk_width based on scale_cols
+  int chunk_width;
+  if (cols >= 64) {
+    chunk_width = 64;
+  } else if (cols >= 32) {
+    chunk_width = 32;
+  } else {
+    chunk_width = 16;
+  }
 
   // Calculate blocks needed - uses 128-row blocks
   // For M groups, groups are along rows, so we pad each group to 128 rows

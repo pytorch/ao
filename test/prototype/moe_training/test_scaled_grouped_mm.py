@@ -8,6 +8,7 @@ import pytest
 import torch
 from torch.nn import functional as F
 
+from torchao.prototype.mx_formats.config import ScaleCalculationMode
 from torchao.utils import is_sm_version, torch_version_at_least
 
 # We need to skip before doing any imports which would use triton, since
@@ -320,6 +321,10 @@ def test_emulate_mxfp8_grouped_gemm_2d_2d(M, N, num_experts):
 @pytest.mark.parametrize("num_experts", (2, 4, 8, 16))
 @pytest.mark.parametrize("use_triton_for_dim0_cast", (True, False))
 @pytest.mark.parametrize("wgrad_with_hp", (True, False))
+@pytest.mark.parametrize("use_compile", (True, False))
+@pytest.mark.parametrize(
+    "scale_mode", (ScaleCalculationMode.FLOOR, ScaleCalculationMode.RCEIL)
+)
 def test_mxfp8_grouped_gemm_with_dq_fwd_bwd(
     M,
     K,
@@ -327,6 +332,8 @@ def test_mxfp8_grouped_gemm_with_dq_fwd_bwd(
     num_experts,
     use_triton_for_dim0_cast,
     wgrad_with_hp,
+    use_compile,
+    scale_mode,
 ):
     block_size = 32
     x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda", requires_grad=True)
@@ -346,17 +353,19 @@ def test_mxfp8_grouped_gemm_with_dq_fwd_bwd(
     )
 
     # Forward
-    out_dtype = torch.bfloat16
-    emulated = False
-    out = _to_mxfp8_then_scaled_grouped_mm(
+    mxfp8_gmm = (
+        torch.compile(_to_mxfp8_then_scaled_grouped_mm, fullgraph=True)
+        if use_compile
+        else _to_mxfp8_then_scaled_grouped_mm
+    )
+    out = mxfp8_gmm(
         x,
         w_t,
-        offs,
-        block_size,
-        out_dtype,
-        emulated,
-        use_triton_for_dim0_cast,
-        wgrad_with_hp,
+        offs=offs,
+        block_size=block_size,
+        use_triton_for_dim0_cast=use_triton_for_dim0_cast,
+        wgrad_with_hp=wgrad_with_hp,
+        scale_calculation_mode=scale_mode,
     )
     ref_out = torch._grouped_mm(x_ref, w_t_ref, offs=offs_ref, out_dtype=torch.bfloat16)
     sqnr = compute_error(ref_out, out)

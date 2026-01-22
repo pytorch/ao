@@ -9,6 +9,7 @@
 import torch
 import triton
 import triton.language as tl
+from torch.library import triton_op, wrap_triton
 
 __all__ = ["generate_permute_indices", "fill_indices_wrapper"]
 
@@ -67,6 +68,7 @@ def _fill_indices_kernel(
 # ==============
 
 
+@triton_op("torchao::_fill_indices_wrapper", mutates_args={})
 def fill_indices_wrapper(
     tokens_per_expert_group: torch.Tensor,
     start_index_values: torch.Tensor,
@@ -76,7 +78,7 @@ def fill_indices_wrapper(
     max_len: int,
     block_size: int = 128,
     max_blocks: int = 1024,  # cap on total number of blocks to launch
-):
+) -> torch.Tensor:
     # preallocate output
     permuted_indices = torch.full(
         (max_len,), -1, dtype=torch.int32, device=tokens_per_expert_group.device
@@ -88,7 +90,7 @@ def fill_indices_wrapper(
     grid = (num_blocks,)
 
     # launch kernel
-    _fill_indices_kernel[grid](
+    wrap_triton(_fill_indices_kernel)[grid](
         tokens_per_expert_group,
         start_index_values,
         write_offsets,

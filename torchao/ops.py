@@ -47,10 +47,6 @@ lib.define(
     tags=[torch._C.Tag.needs_fixed_stride_order],
 )
 lib.define(
-    "mx_fp4_bf16(Tensor a, Tensor b, Tensor a_scale, Tensor b_scale) -> Tensor",
-    tags=[torch._C.Tag.needs_fixed_stride_order],
-)
-lib.define(
     "qscaled_dot_product(Tensor query, Tensor key, Tensor value, Tensor? attn_mask=None, float dropout_p=0.0, bool is_causal=False, float? scale=None, float q_scale=1.0, int q_zp=0, float k_scale=1.0, int k_zp=0, float v_scale=1.0, int v_zp=0, float a_scale=1.0, int a_zp=0, float o_scale=1.0, int o_zp=0) -> Tensor"
 )
 lib.define(
@@ -626,38 +622,6 @@ def _check_scale_dtypes(A_scale, B_scale):
 @register_custom_op("torchao::mx_fp8_bf16")
 def meta_mx_fp8_bf16(A: Tensor, B: Tensor, A_scale: Tensor, B_scale: Tensor):
     """Meta impl for mx_fp8_bf16"""
-    return torch.empty((A.size(0), B.size(1)), dtype=torch.bfloat16, device=A.device)
-
-
-def mx_fp4_bf16(A: Tensor, B: Tensor, A_scale: Tensor, B_scale: Tensor):
-    """Defines a matmul between two fp4 tensors w/ MX scales in E8MO and returns a bf16 tensor.
-
-    The expected format is fp4_e2m1 specified:
-    https://www.opencompute.org/documents/ocp-microscaling-formats-mx-v1-0-spec-final.pdf (Section 5.3.3)
-
-    Note: The mx scales are E8MO tensors stored in uint8 tensors (for now).
-        The layout of the scales is very particular, see:
-        https://docs.nvidia.com/cuda/cublas/index.html#d-block-scaling-factors-layout
-
-
-    Args:
-        A: fp4 tensor (2 fp4 elements are packed into 1 byte -> elem0|elem1)
-        B: fp4 tensor (2 fp4 elements are packed into 1 byte -> elem0|elem1)
-        A_scale: E8M0 scale tensor for A with groupsize=32 in swizzled layout
-        B_scale: E8M0 scale tensor for B with groupsize=32 in swizzled layout
-
-    Returns:
-        MXN bf16 Tensor
-
-    """
-    _check_scale_dtypes(A_scale, B_scale)
-    return torch.ops.torchao.mx_fp4_bf16.default(A, B, A_scale, B_scale)
-
-
-@register_custom_op("torchao::mx_fp4_bf16")
-def meta_mx_fp4_bf16(A: Tensor, B: Tensor, A_scale: Tensor, B_scale: Tensor):
-    """Meta impl for mx_fp4_bf16"""
-    # Assume that the contraction happens in the K dim thus M,N are perserved post bit pack
     return torch.empty((A.size(0), B.size(1)), dtype=torch.bfloat16, device=A.device)
 
 

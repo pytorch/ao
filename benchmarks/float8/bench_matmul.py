@@ -10,16 +10,20 @@ import fire
 import pandas as pd
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from utils import (
     do_benchmarks,
     get_name_to_shapes_iter,
 )
 
-from torchao.ops import mx_fp4_bf16
 from torchao.prototype.mx_formats.mx_tensor import to_mx
 from torchao.prototype.mx_formats.utils import to_blocked
 from torchao.testing.training.roofline_utils import get_specs
-from torchao.utils import is_MI300
+from torchao.utils import is_MI300, torch_version_at_least
+
+# ScalingType and SwizzleType are only available in PyTorch 2.10+
+if torch_version_at_least("2.10.0"):
+    from torch.nn.functional import ScalingType, SwizzleType
 
 
 @torch.inference_mode()
@@ -59,6 +63,8 @@ def run(
         "M",
         "K",
         "N",
+        "ref_pct_top_peak",
+        "pct_top_peak",
         "ref_time_s",
         "time_s",
         "fp8_speedup",
@@ -94,9 +100,10 @@ def run(
         B_hp_t = torch.randn(N, K, device=device)
 
         if recipe == "mxfp4_cutlass":
-            _, A = to_mx(A_hp, torch.float4_e2m1fn_x2, 32)
-            _, Bt = to_mx(B_hp_t, torch.float4_e2m1fn_x2, 32)
-            B = Bt.contiguous().T
+            A_scales, A_data = to_mx(A_hp, torch.float4_e2m1fn_x2, 32)
+            B_scales, Bt_data = to_mx(B_hp_t, torch.float4_e2m1fn_x2, 32)
+            A = A_data.view(torch.float4_e2m1fn_x2)
+            B = Bt_data.view(torch.float4_e2m1fn_x2).contiguous().T
             peak_tops = fp4_peak_tops
         elif recipe == "nvfp4":
             from torchao.prototype.mx_formats.nvfp4_tensor import nvfp4_quantize
@@ -123,12 +130,16 @@ def run(
         elif recipe == "rowwise":
             scale_a = torch.ones(M, 1, device=device)
             scale_b = torch.ones(1, N, device=device)
-        elif recipe in ("mxfp8_cublas", "mxfp4_cutlass"):
+        elif recipe == "mxfp8_cublas":
             scale_a = torch.ones(M, K // 32, device=device, dtype=torch.float8_e8m0fnu)
             scale_b = torch.ones(N, K // 32, device=device, dtype=torch.float8_e8m0fnu)
             # pad if needed
             scale_a = to_blocked(scale_a)
             scale_b = to_blocked(scale_b)
+        elif recipe == "mxfp4_cutlass":
+            # Use the blockwise scales from to_mx
+            scale_a = to_blocked(A_scales)
+            scale_b = to_blocked(B_scales)
         elif recipe == "nvfp4":
             # Use the blockwise scales from nvfp4_quantize
             scale_a = A_scales.view(torch.float8_e4m3fn)
@@ -149,7 +160,21 @@ def run(
         def do_matmul_mxfp4(A, B):
             nonlocal scale_a
             nonlocal scale_b
-            return mx_fp4_bf16(A, B, scale_a, scale_b)
+            if not torch_version_at_least("2.10.0"):
+                raise RuntimeError(
+                    "MXFP4 matmul requires PyTorch 2.10.0 or later for F.scaled_mm support"
+                )
+            return F.scaled_mm(
+                A,
+                B,
+                scale_a=scale_a,
+                scale_recipe_a=ScalingType.BlockWise1x32,
+                scale_b=scale_b,
+                scale_recipe_b=ScalingType.BlockWise1x32,
+                swizzle_a=SwizzleType.SWIZZLE_32_4_4,
+                swizzle_b=SwizzleType.SWIZZLE_32_4_4,
+                output_dtype=dtype,
+            )
 
         def do_matmul_nvfp4(A, B):
             nonlocal scale_a
@@ -193,6 +218,8 @@ def run(
                 M,
                 K,
                 N,
+                ref_pct_top_peak,
+                pct_top_peak,
                 ref_time_sec,
                 time_sec,
                 ref_time_sec / time_sec,
