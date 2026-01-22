@@ -7,7 +7,6 @@
 
 # mypy: allow-untyped-defs
 import copy
-from collections.abc import Sequence
 from dataclasses import asdict
 from typing import Any, Optional, Union
 
