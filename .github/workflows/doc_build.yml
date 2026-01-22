@@ -77,7 +77,7 @@ jobs:
           s3-bucket: doc-previews
           if-no-files-found: error
           path: docs
-          s3-prefix: pytorch/ao/${{ github.event.pull_request.number }}
+          s3-prefix: pytorch/ao/${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}
 
   upload:
     runs-on: ubuntu-latest
