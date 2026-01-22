@@ -370,6 +370,16 @@ class ObserverStep(str, Enum):
         # Stage 3: CONVERT - apply quantization and remove observers
         quantize_(model, Float8StaticActivationFloat8WeightConfig(step="convert"))
 
+        # Stage 4 (optional): PREPARE_FOR_LOADING - for saving/loading quantized models
+        # This creates a dummy quantized model structure so weights can be loaded via copy_
+        from torchao.prototype.smoothquant import SmoothQuantConfig
+
+        config = SmoothQuantConfig(base_config, step="prepare_for_loading")
+        quantize_(model, config)
+
+        # Now the model can load pre-quantized weights
+        model.load_state_dict(quantized_state_dict)
+
     """
 
     PREPARE = "prepare"
