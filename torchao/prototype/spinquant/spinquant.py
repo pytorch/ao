@@ -15,13 +15,13 @@ from pathlib import Path
 import torch
 from torch import nn
 
-from torchao._models.llama.model import RMSNorm, Transformer
 from torchao.prototype.spinquant.hadamard_utils import (
     apply_exact_had_to_linear,
     get_hadK,
     matmul_hadU,
     random_hadamard_matrix,
 )
+from torchao.testing.model_architectures import RMSNorm
 
 
 class HadamardMultiplier(nn.Module):
@@ -43,7 +43,7 @@ class HadamardMultiplier(nn.Module):
 
 
 def apply_spinquant(
-    model: Transformer,
+    model: nn.Module,
     use_r1=False,
     use_r2=False,
     use_r4=True,
