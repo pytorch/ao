@@ -2491,7 +2491,9 @@ class TestQAT(TestCase):
     @parametrize("input_shape", [(128, 256), (1, 128, 256), (2, 4, 128, 256)])
     @parametrize(
         "dtype",
-        [torch.float4_e2m1fn_x2, torch.float8_e4m3fn, torch.float8_e5m2],
+        [torch.float4_e2m1fn_x2, torch.float8_e4m3fn, torch.float8_e5m2]
+        if _MXFP4_TORCH_AVAILABLE
+        else [None],
     )
     def test_mx_fake_quantized_linear_forward(self, bias, input_shape, dtype):
         """Test MXFakeQuantizedLinear forward pass with various dtypes and input ranks."""
@@ -2719,7 +2721,9 @@ class TestQAT(TestCase):
     @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
     @parametrize(
         "dtype",
-        [torch.float4_e2m1fn_x2, torch.float8_e4m3fn],
+        [torch.float4_e2m1fn_x2, torch.float8_e4m3fn]
+        if _MXFP4_TORCH_AVAILABLE
+        else [None],
     )
     def test_quantize_api_mx(self, dtype):
         """
