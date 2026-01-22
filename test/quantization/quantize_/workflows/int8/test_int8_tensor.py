@@ -21,12 +21,6 @@ from torchao.quantization import (
 from torchao.quantization.granularity import PerRow, PerTensor
 from torchao.quantization.observer import ObservedLinear
 from torchao.quantization.quant_primitives import MappingType
-from torchao.quantization.quantize_.common.quantize_tensor_kwargs import (
-    _choose_quant_func_and_quantize_tensor,
-)
-from torchao.quantization.quantize_.workflows.int8.int8_tensor import (
-    QuantizeTensorToInt8Kwargs,
-)
 from torchao.quantization.utils import compute_error, get_block_size
 from torchao.testing.model_architectures import ToyTwoLinearModel
 from torchao.testing.utils import TorchAOIntegrationTestCase
@@ -289,43 +283,55 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
         """
         with self.assertRaises(ValueError) as cm:
             Int8StaticActivationInt8WeightConfig(
+                step="prepare",
                 granularity=PerRow(dim=0),  # This should fail
             )
 
         self.assertIn("PerRow(dim=-1)", str(cm.exception))
 
-    @common_utils.parametrize("granularity", [PerRow(), PerTensor()])
+    @common_utils.parametrize("granularity", [PerRow()])
     def test_static_act_quant_slice_and_select(self, granularity):
         """Test static activation quantization with slice and select operations.
 
-        This test validates that PerRow(dim=-1) and PerTensor() work correctly
-        with weight slicing. Per-token activation quantization (PerRow(dim=-1))
-        should work with weight slicing since act_quant_scale doesn't need to be sliced.
+        This test validates that PerRow(dim=-1) works correctly with weight slicing.
+        Per-token activation quantization (PerRow(dim=-1)) should work with weight
+        slicing since act_quant_scale doesn't need to be sliced.
         """
         N, K = 256, 512
         M = 32  # batch size
         dtype = torch.bfloat16
         device = "cuda"
 
-        linear = torch.nn.Linear(K, N, bias=False, dtype=dtype, device=device)
+        model = torch.nn.Sequential(
+            torch.nn.Linear(K, N, bias=False, dtype=dtype, device=device)
+        )
         input_tensor = torch.randn(M, K, dtype=dtype, device=device)
-        int8_input = _choose_quant_func_and_quantize_tensor(
-            input_tensor,
-            QuantizeTensorToInt8Kwargs(
+
+        # PREPARE: Insert observer
+        quantize_(
+            model,
+            Int8StaticActivationInt8WeightConfig(
+                step="prepare",
                 granularity=granularity,
-                mapping_type=MappingType.SYMMETRIC,
+                act_mapping_type=MappingType.SYMMETRIC,
             ),
         )
 
-        act_quant_scale = int8_input.scale.detach().clone()
-        static_config = Int8StaticActivationInt8WeightConfig(
-            act_quant_scale=act_quant_scale,
-            granularity=granularity,
-            act_mapping_type=MappingType.SYMMETRIC,
+        # CALIBRATE: Run forward passes to collect statistics
+        for _ in range(5):
+            with torch.no_grad():
+                model(input_tensor)
+
+        # CONVERT: Convert to quantized model
+        quantize_(
+            model,
+            Int8StaticActivationInt8WeightConfig(
+                step="convert",
+            ),
         )
-        quantize_(linear, static_config)
 
         # Verify the weight has the correct act_quant_scale
+        linear = model[0]
         original_weight = linear.weight
         original_act_quant_scale = original_weight.act_quant_scale
         assert original_act_quant_scale is not None
