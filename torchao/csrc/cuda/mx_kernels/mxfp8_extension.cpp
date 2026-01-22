@@ -39,6 +39,17 @@ void launch_mx_block_rearrange_2d_M_groups_cuda(
     int chunks_per_tb,
     cudaStream_t stream);
 
+void launch_mx_block_rearrange_2d_simple_cuda(
+    const uint8_t* scales_ptr,
+    int scale_stride_dim0,
+    int scale_rows,
+    int scale_cols,
+    const int32_t* input_group_end_offsets,
+    uint8_t* output_scales_ptr,
+    int num_groups,
+    int chunk_width,
+    cudaStream_t stream);
+
 // Helper for tensor validation
 void check_cuda_tensor(const at::Tensor &t, const char *name) {
   TORCH_CHECK(t.is_cuda(), name, " must be a CUDA tensor");
@@ -217,15 +228,10 @@ at::Tensor mx_block_rearrange_2d_M_groups(
   const int cols = scales_tensor.size(1);
   const int num_groups = input_group_end_offsets.size(0);
   TORCH_CHECK(num_groups <= 32, "num_groups must be <= 32");
+  TORCH_CHECK(cols > 0, "scale_cols must be positive");
 
-  // Validate TMA alignment requirements: scale_cols must be divisible by 16
-  // Reference: https://docs.nvidia.com/cuda/archive/12.6.3/cuda-driver-api/group__CUDA__TENSOR__MEMORY.html
-  // For 2D TMA transfers, the stride must be a multiple of 16 bytes.
-  // Since we use row-major layout with stride = scale_cols (in bytes), scale_cols must be divisible by 16.
-  TORCH_CHECK(cols >= 16 && cols % 16 == 0,
-              "TMA requirement for 2D transfers: stride must be a multiple of 16 bytes. Got scale_cols=",
-              cols, " (stride in row-major layout). ",
-              "Consider using Triton kernel instead with use_cuda_kernel_for_blocked_layout=False.");
+  // Note: TMA will be used if cols >= 16 and cols % 16 == 0
+  // Otherwise, a non-TMA fallback kernel will be used (slightly slower but supports any column count)
 
   // Automatically select chunk_width based on scale_cols
   int chunk_width;
@@ -260,20 +266,34 @@ at::Tensor mx_block_rearrange_2d_M_groups(
   const int32_t* offsets_ptr = input_group_end_offsets.data_ptr<int32_t>();
   uint8_t* output_ptr = reinterpret_cast<uint8_t*>(output.data_ptr());
 
-  // Launch pipelined M groups kernel with specified chunk_width and chunks_per_tb
-  launch_mx_block_rearrange_2d_M_groups_cuda(
+  // Prefer double buffered kernel with pipelining/overlap if TMA constraints are met.
+  // Otherwise fallback to simple kernel.
+  const bool can_use_pipelined_kernel = cols >= 16 && cols % 16 == 0
+  if (can_use_pipelined_kernel) 
+  {
+    launch_mx_block_rearrange_2d_M_groups_cuda(
+        scales_ptr,
+        scales_tensor.stride(0),
+        rows,
+        cols,
+        padded_rows,
+        offsets_ptr,
+        output_ptr,
+        num_groups,
+        static_cast<int>(chunk_width),
+        static_cast<int>(chunks_per_tb),
+        at::cuda::getCurrentCUDAStream());
+  }
+  else {
+    launch_mx_block_rearrange_2d_simple_cuda(
       scales_ptr,
-      scales_tensor.stride(0),
       rows,
       cols,
-      padded_rows,
-      offsets_ptr,
       output_ptr,
-      num_groups,
-      static_cast<int>(chunk_width),
-      static_cast<int>(chunks_per_tb),
-      at::cuda::getCurrentCUDAStream());
-
+      chunk_width,
+      at::cuda::getCurrentCUDAStream()
+    );
+  }
   return output;
 }
 

@@ -798,18 +798,6 @@ if mxfp8_cuda_extension_available:
         )
         assert chunks_per_tb in (1, 4, 8, 16), "chunks_per_tb must be 1, 4, 8, or 16"
 
-        # Validate that scale_cols meets TMA alignment requirements
-        # Reference: https://docs.nvidia.com/cuda/archive/12.6.3/cuda-driver-api/group__CUDA__TENSOR__MEMORY.html
-        # For 2D TMA transfers, the stride must be a multiple of 16 bytes.
-        # Since we use row-major layout with stride = scale_cols (in bytes), scale_cols must be divisible by 16.
-        rows, cols = scales_tensor.shape
-        if cols % 16 != 0:
-            raise ValueError(
-                f"TMA requirement for 2D transfers: stride must be a multiple of 16 bytes. "
-                f"Got scale_cols={cols} (stride in row-major layout). "
-                f"Consider using Triton kernel instead with use_cuda_kernel_for_blocked_layout=False."
-            )
-
         return torch.ops.torchao.mx_block_rearrange_2d_M_groups.default(
             scales_tensor,
             input_group_end_offsets,
