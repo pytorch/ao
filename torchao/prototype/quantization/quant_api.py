@@ -17,6 +17,8 @@ from enum import Enum
 from typing import Optional
 
 import torch
+import torch.nn.functional as F
+from torch import Tensor
 
 import torchao
 from torchao.core.config import AOBaseConfig
@@ -392,7 +394,6 @@ class Float8StaticStep(str, Enum):
     CONVERT = "convert"
 
 
-
 class Float8ObservedSoftmax(torch.nn.Softmax):
     """
     A softmax module with an observer for float8 static quantization.
@@ -512,10 +513,8 @@ def _float8_static_activation_float8_weight_transform(
     from torchao.prototype.quantization.float8_static_quant.prototype_float8_tensor import (
         PrototypeFloat8Tensor,
     )
-    from torchao.quantization.observer import (
-        AffineQuantizedMinMaxObserver,
-        ObservedLinear,
-    )
+    from torchao.quantization.observer import AffineQuantizedMinMaxObserver
+    from torchao.quantization.quantize_.common import ObservedLinear
 
     step = config.step
     granularity = config.granularity if config.granularity is not None else PerTensor()
