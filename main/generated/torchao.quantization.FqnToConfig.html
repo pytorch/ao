@@ -9,14 +9,14 @@
   <meta name="robots" content="noindex">
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
-<meta property="og:title" content="Int8DynamicActivationInt4WeightConfig" />
+<meta property="og:title" content="FqnToConfig" />
 <meta property="og:type" content="website" />
-<meta property="og:url" content="http://pytorch.org/generated/torchao.quantization.Int8DynamicActivationInt4WeightConfig.html" />
+<meta property="og:url" content="http://pytorch.org/generated/torchao.quantization.FqnToConfig.html" />
 <meta property="og:site_name" content="torchao" />
 <meta property="og:image" content="https://pytorch.org/assets/images/social-share.jpg" />
 <meta property="og:image:alt" content="torchao" />
 
-    <title>Int8DynamicActivationInt4WeightConfig &#8212; torchao main documentation</title>
+    <title>FqnToConfig &#8212; torchao main documentation</title>
   
   
   
@@ -61,11 +61,11 @@
     <script src="../_static/clipboard.min.js"></script>
     <script src="../_static/copybutton.js"></script>
     <script src="../_static/design-tabs.js"></script>
-    <link rel="canonical" href="https://pytorch.org/ao/generated/torchao.quantization.Int8DynamicActivationInt4WeightConfig.html" />
+    <link rel="canonical" href="https://pytorch.org/ao/generated/torchao.quantization.FqnToConfig.html" />
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Int8WeightOnlyConfig" href="torchao.quantization.Int8WeightOnlyConfig.html" />
-    <link rel="prev" title="Float8WeightOnlyConfig" href="torchao.quantization.Float8WeightOnlyConfig.html" />
+    <link rel="next" title="choose_qparams_affine" href="torchao.quantization.choose_qparams_affine.html" />
+    <link rel="prev" title="Int8DynamicActivationInt8WeightConfig" href="torchao.quantization.Int8DynamicActivationInt8WeightConfig.html" />
 
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
@@ -1224,10 +1224,10 @@ document.write(`
 <li class="toctree-l1"><a class="reference internal" href="torchao.quantization.Float8DynamicActivationInt4WeightConfig.html">Float8DynamicActivationInt4WeightConfig</a></li>
 <li class="toctree-l1"><a class="reference internal" href="torchao.quantization.Float8DynamicActivationFloat8WeightConfig.html">Float8DynamicActivationFloat8WeightConfig</a></li>
 <li class="toctree-l1"><a class="reference internal" href="torchao.quantization.Float8WeightOnlyConfig.html">Float8WeightOnlyConfig</a></li>
-<li class="toctree-l1 current active"><a class="current reference internal" href="#">Int8DynamicActivationInt4WeightConfig</a></li>
+<li class="toctree-l1"><a class="reference internal" href="torchao.quantization.Int8DynamicActivationInt4WeightConfig.html">Int8DynamicActivationInt4WeightConfig</a></li>
 <li class="toctree-l1"><a class="reference internal" href="torchao.quantization.Int8WeightOnlyConfig.html">Int8WeightOnlyConfig</a></li>
 <li class="toctree-l1"><a class="reference internal" href="torchao.quantization.Int8DynamicActivationInt8WeightConfig.html">Int8DynamicActivationInt8WeightConfig</a></li>
-<li class="toctree-l1"><a class="reference internal" href="torchao.quantization.FqnToConfig.html">FqnToConfig</a></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">FqnToConfig</a></li>
 </ul>
 <ul class="nav bd-sidenav">
 <li class="toctree-l1"><a class="reference internal" href="torchao.quantization.choose_qparams_affine.html">choose_qparams_affine</a></li>
@@ -1278,7 +1278,7 @@ document.write(`
     
     <li class="breadcrumb-item"><a href="../api_ref_quantization.html" class="nav-link">torchao.quantization</a></li>
     
-    <li class="breadcrumb-item active" aria-current="page">Int8DynamicA...</li>
+    <li class="breadcrumb-item active" aria-current="page">FqnToConfig</li>
   </ul>
 </nav>
 </div>
@@ -1326,7 +1326,7 @@ document.write(`
       </div>
       
       <div itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
-        <meta itemprop="name" content="Int8DynamicActivationInt4WeightConfig">
+        <meta itemprop="name" content="FqnToConfig">
         <meta itemprop="position" content="2">
       </div>
     </div>
@@ -1340,26 +1340,59 @@ document.write(`
 <div id="searchbox"></div>
                 <article class="bd-article">
                   
-  <section id="int8dynamicactivationint4weightconfig">
-<h1>Int8DynamicActivationInt4WeightConfig<a class="headerlink" href="#int8dynamicactivationint4weightconfig" title="Permalink to this heading">#</a></h1>
+  <section id="fqntoconfig">
+<h1>FqnToConfig<a class="headerlink" href="#fqntoconfig" title="Permalink to this heading">#</a></h1>
 <dl class="py class">
-<dt class="sig sig-object py" id="torchao.quantization.Int8DynamicActivationInt4WeightConfig">
-<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">torchao.quantization.</span></span><span class="sig-name descname"><span class="pre">Int8DynamicActivationInt4WeightConfig</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">group_size</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">32</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">layout</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Layout</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">PlainLayout()</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mapping_type</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="torchao.quantization.MappingType.html#torchao.quantization.MappingType" title="torchao.quantization.quant_primitives.MappingType"><span class="pre">MappingType</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">MappingType.SYMMETRIC</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">act_mapping_type</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="torchao.quantization.MappingType.html#torchao.quantization.MappingType" title="torchao.quantization.quant_primitives.MappingType"><span class="pre">MappingType</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">MappingType.ASYMMETRIC</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">set_inductor_config</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/torchao/prototype/quantization/quant_api.html#Int8DynamicActivationInt4WeightConfig"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="reference external" href="https://github.com/pytorch/ao/blob/main/torchao/prototype/quantization/quant_api.py#L63"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#torchao.quantization.Int8DynamicActivationInt4WeightConfig" title="Permalink to this definition">#</a></dt>
-<dd><p>Configuration for applying int8 dynamic per token asymmetric activation quantization and int4 per group weight symmetric quantization to linear
-This is used to produce a model for executorch backend, but currently executorch did not
-support lowering for the quantized model from this flow yet</p>
+<dt class="sig sig-object py" id="torchao.quantization.FqnToConfig">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">torchao.quantization.</span></span><span class="sig-name descname"><span class="pre">FqnToConfig</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">fqn_to_config:</span> <span class="pre">~typing.OrderedDict[str</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">~typing.Optional[~torchao.core.config.AOBaseConfig]]</span> <span class="pre">=</span> <span class="pre">&lt;factory&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">module_fqn_to_config:</span> <span class="pre">~typing.OrderedDict[str</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">~typing.Optional[~torchao.core.config.AOBaseConfig]]</span> <span class="pre">=</span> <span class="pre">&lt;factory&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">version:</span> <span class="pre">int</span> <span class="pre">=</span> <span class="pre">1</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/torchao/quantization/quant_api.html#FqnToConfig"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="reference external" href="https://github.com/pytorch/ao/blob/main/torchao/quantization/quant_api.py#L1786"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#torchao.quantization.FqnToConfig" title="Permalink to this definition">#</a></dt>
+<dd><p>Configuration class for applying different quantization configs to modules or parameters based on their fully qualified names (FQNs).</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters</dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>group_size</strong> – parameter for quantization, controls the granularity of quantization, smaller
-size is more fine grained</p></li>
-<li><p><strong>layout</strong> – layout type for quantized weight tensor, only supports <cite>CutlassInt4PackedLayout()</cite> for now</p></li>
-<li><p><strong>mapping_type</strong> – quantization type for weight, controls the weight quantization is symmetric or asymmetric</p></li>
-<li><p><strong>act_mapping_type</strong> – quantization type for activation, controls the activation quantization is symmetric or asymmetric</p></li>
-<li><p><strong>set_inductor_config</strong> – if True, adjusts <cite>torchinductor</cite> settings to recommended values.</p></li>
+<li><p><strong>fqn_to_config</strong> – <p>typing.OrderedDict[str, Optional[AOBaseConfig]]: an
+ordered dictionary from</p>
+<blockquote>
+<div><p>(1). fully qualified name (fqn) of module or parameter
+(2). regex of fully qualified name (in python <cite>re</cite> module regex format), should</p>
+<blockquote>
+<div><p>start with prefix “re:” or</p>
+</div></blockquote>
+<p>(3). “_default”</p>
+</div></blockquote>
+<p>to the config that we want to apply to the module/param or None</p>
+<dl>
+<dt>Config key ordered by precedence:</dt><dd><ul>
+<li><p>fully qualified parameter name, e.g. <cite>language.layers.0.q_proj.weight</cite></p></li>
+<li><p>fully qualified module name, e.g. <cite>language.layers.0.q_proj</cite></p></li>
+<li><p>regex for parameter names, must start with <cite>re:</cite>, e.g. <cite>re:language.layers..+.q_proj.weight</cite>.
+The first regex that matches will be applied.</p></li>
+<li><p>regex for module names, must start with <cite>re:</cite>, e.g. <cite>re:language.layers..+.q_proj</cite>,
+whichever regex fully matches the module fqn first will be applied
+(order of keys for dictionary are kept consistent since we are using OrderedDict)</p></li>
+<li><p>”_default”, fallback if no match for all previous keys
+(Note, when using <cite>_default</cite>, the config is applied to all modules, to apply</p>
+<blockquote>
+<div><p>it to only a subset of modules, e.g. with some types, it’s better to filter
+the modules that we don’t want to quantize before hand and configure them to
+None, e.g. <cite>{“re:.+norm.+”: None, “_default”: linear_config}</cite>) “_default” is not supported when filter_fn is not specified.</p>
+</div></blockquote>
+</li>
 </ul>
 </dd>
 </dl>
+</p></li>
+<li><p><strong>module_fqn_to_config</strong> – typing.OrderedDict[str, Optional[AOBaseConfig]]: To maintain BC with ModuleFqnToConfig, to be deprecated later</p></li>
+<li><p><strong>version</strong> – int: Version of config to use.</p></li>
+</ul>
+</dd>
+</dl>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<ul class="simple">
+<li><p>The order of patterns in the OrderedDict may matter as only the first matching pattern is applied</p></li>
+<li><p>“_default” is ignored for parameter replacement.</p></li>
+</ul>
+</div>
 </dd></dl>
 
 </section>
@@ -1407,20 +1440,20 @@ size is more fine grained</p></li>
 
 <div class="prev-next-area">
     <a class="left-prev"
-       href="torchao.quantization.Float8WeightOnlyConfig.html"
+       href="torchao.quantization.Int8DynamicActivationInt8WeightConfig.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">Float8WeightOnlyConfig</p>
+        <p class="prev-next-title">Int8DynamicActivationInt8WeightConfig</p>
       </div>
     </a>
     <a class="right-next"
-       href="torchao.quantization.Int8WeightOnlyConfig.html"
+       href="torchao.quantization.choose_qparams_affine.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Int8WeightOnlyConfig</p>
+        <p class="prev-next-title">choose_qparams_affine</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -1446,20 +1479,20 @@ size is more fine grained</p></li>
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="torchao.quantization.Float8WeightOnlyConfig.html"
+       href="torchao.quantization.Int8DynamicActivationInt8WeightConfig.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">Float8WeightOnlyConfig</p>
+        <p class="prev-next-title">Int8DynamicActivationInt8WeightConfig</p>
       </div>
     </a>
     <a class="right-next"
-       href="torchao.quantization.Int8WeightOnlyConfig.html"
+       href="torchao.quantization.choose_qparams_affine.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Int8WeightOnlyConfig</p>
+        <p class="prev-next-title">choose_qparams_affine</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -1481,7 +1514,7 @@ size is more fine grained</p></li>
   </div>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#torchao.quantization.Int8DynamicActivationInt4WeightConfig"><code class="docutils literal notranslate"><span class="pre">Int8DynamicActivationInt4WeightConfig</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#torchao.quantization.FqnToConfig"><code class="docutils literal notranslate"><span class="pre">FqnToConfig</span></code></a></li>
 </ul>
   </nav></div>
     
@@ -1489,7 +1522,7 @@ size is more fine grained</p></li>
 
   
   <div class="tocsection editthispage">
-    <a href="https://github.com/pytorch/ao/edit/main/docs/source/generated/torchao.quantization.Int8DynamicActivationInt4WeightConfig.rst">
+    <a href="https://github.com/pytorch/ao/edit/main/docs/source/generated/torchao.quantization.FqnToConfig.rst">
       <i class="fa-solid fa-pencil"></i>
       
       
@@ -1503,7 +1536,7 @@ size is more fine grained</p></li>
     
        <div class="sidebar-secondary-item">
     <div class="tocsection sourcelink">
-      <a href="../_sources/generated/torchao.quantization.Int8DynamicActivationInt4WeightConfig.rst.txt">
+      <a href="../_sources/generated/torchao.quantization.FqnToConfig.rst.txt">
         <i class="fa-solid fa-file-lines"></i> Show Source
       </a>
     </div>
@@ -1703,11 +1736,11 @@ size is more fine grained</p></li>
     {
        "@context": "https://schema.org",
        "@type": "Article",
-       "name": "Int8DynamicActivationInt4WeightConfig",
-       "headline": "Int8DynamicActivationInt4WeightConfig",
+       "name": "FqnToConfig",
+       "headline": "FqnToConfig",
        "description": "PyTorch Documentation. Explore PyTorch, an open-source machine learning library that accelerates the path from research prototyping to production deployment. Discover tutorials, API references, and guides to help you build and deploy deep learning models efficiently.",
-       "url": "/generated/torchao.quantization.Int8DynamicActivationInt4WeightConfig.html",
-       "articleBody": "Int8DynamicActivationInt4WeightConfig# class torchao.quantization.Int8DynamicActivationInt4WeightConfig(group_size: int = 32, layout: Layout = PlainLayout(), mapping_type: MappingType = MappingType.SYMMETRIC, act_mapping_type: MappingType = MappingType.ASYMMETRIC, set_inductor_config: bool = True)[source][source]# Configuration for applying int8 dynamic per token asymmetric activation quantization and int4 per group weight symmetric quantization to linear This is used to produce a model for executorch backend, but currently executorch did not support lowering for the quantized model from this flow yet Parameters group_size \u2013 parameter for quantization, controls the granularity of quantization, smaller size is more fine grained layout \u2013 layout type for quantized weight tensor, only supports CutlassInt4PackedLayout() for now mapping_type \u2013 quantization type for weight, controls the weight quantization is symmetric or asymmetric act_mapping_type \u2013 quantization type for activation, controls the activation quantization is symmetric or asymmetric set_inductor_config \u2013 if True, adjusts torchinductor settings to recommended values.",
+       "url": "/generated/torchao.quantization.FqnToConfig.html",
+       "articleBody": "FqnToConfig# class torchao.quantization.FqnToConfig(fqn_to_config: ~typing.OrderedDict[str, ~typing.Optional[~torchao.core.config.AOBaseConfig]] = \u003cfactory\u003e, module_fqn_to_config: ~typing.OrderedDict[str, ~typing.Optional[~torchao.core.config.AOBaseConfig]] = \u003cfactory\u003e, version: int = 1)[source][source]# Configuration class for applying different quantization configs to modules or parameters based on their fully qualified names (FQNs). Parameters fqn_to_config \u2013 typing.OrderedDict[str, Optional[AOBaseConfig]]: an ordered dictionary from (1). fully qualified name (fqn) of module or parameter (2). regex of fully qualified name (in python re module regex format), should start with prefix \u201cre:\u201d or (3). \u201c_default\u201d to the config that we want to apply to the module/param or None Config key ordered by precedence: fully qualified parameter name, e.g. language.layers.0.q_proj.weight fully qualified module name, e.g. language.layers.0.q_proj regex for parameter names, must start with re:, e.g. re:language.layers..+.q_proj.weight. The first regex that matches will be applied. regex for module names, must start with re:, e.g. re:language.layers..+.q_proj, whichever regex fully matches the module fqn first will be applied (order of keys for dictionary are kept consistent since we are using OrderedDict) \u201d_default\u201d, fallback if no match for all previous keys (Note, when using _default, the config is applied to all modules, to apply it to only a subset of modules, e.g. with some types, it\u2019s better to filter the modules that we don\u2019t want to quantize before hand and configure them to None, e.g. {\u201cre:.+norm.+\u201d: None, \u201c_default\u201d: linear_config}) \u201c_default\u201d is not supported when filter_fn is not specified. module_fqn_to_config \u2013 typing.OrderedDict[str, Optional[AOBaseConfig]]: To maintain BC with ModuleFqnToConfig, to be deprecated later version \u2013 int: Version of config to use. Note The order of patterns in the OrderedDict may matter as only the first matching pattern is applied \u201c_default\u201d is ignored for parameter replacement.",
        "author": {
          "@type": "Organization",
          "name": "PyTorch Contributors",
@@ -1716,7 +1749,7 @@ size is more fine grained</p></li>
        "image": "https://pytorch.org/docs/stable/_static/img/pytorch_seo.png",
        "mainEntityOfPage": {
          "@type": "WebPage",
-         "@id": "/generated/torchao.quantization.Int8DynamicActivationInt4WeightConfig.html"
+         "@id": "/generated/torchao.quantization.FqnToConfig.html"
        },
        "datePublished": "UnknownT00:00:00Z",
        "dateModified": "UnknownT00:00:00Z"
