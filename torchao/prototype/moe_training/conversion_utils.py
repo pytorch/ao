@@ -23,6 +23,19 @@ class MoEScalingType(Enum):
     MXFP8 = "mxfp8"
     MXFP8_WGRAD_WITH_HP = "mxfp8_wgrad_with_hp"
 
+    def __eq__(self, other):
+        if isinstance(other, MoEScalingType):
+            return self.value == other.value
+        return NotImplemented
+
+    def __hash__(self):
+        return hash(self.value)
+
+
+# Register MoEScalingType with pytree so torch.compile can handle it
+# as a function argument in @torch._dynamo.nonstrict_trace functions.
+torch.utils._pytree.register_constant(MoEScalingType)
+
 
 class MoETrainingConfig(AOBaseConfig):
     """
