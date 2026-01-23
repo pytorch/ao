@@ -108,7 +108,7 @@ from torchao.utils import (
 # TODO: put this in a common test utils file
 _CUDA_IS_AVAILABLE = torch.cuda.is_available()
 _DEVICE = get_current_accelerator_device()
-_MXFP4_TORCH_AVAILABLE = torch_version_at_least("2.10.0")
+_MXFP4_TORCH_AVAILABLE = torch_version_at_least("2.8.0")
 
 
 class Sub(torch.nn.Module):
@@ -2450,7 +2450,7 @@ class TestQAT(TestCase):
             torch.testing.assert_close(m.linear2.weight.scale, scale2)
             torch.testing.assert_close(m.sub.linear.weight.scale, sub_scale)
 
-    @unittest.skipIf(not _MXFP4_TORCH_AVAILABLE, "Need pytorch 2.10+ for MXFP4")
+    @unittest.skipIf(not _MXFP4_TORCH_AVAILABLE, "Need pytorch 2.8+ for MXFP4")
     @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
     def test_mx_fake_quantize_config(self):
         """Test MXFakeQuantizeConfig dataclass with various element dtypes."""
@@ -2485,7 +2485,7 @@ class TestQAT(TestCase):
         )
         self.assertEqual(config_fp8_e5m2.dtype, torch.float8_e5m2)
 
-    @unittest.skipIf(not _MXFP4_TORCH_AVAILABLE, "Need pytorch 2.10+ for MXFP4")
+    @unittest.skipIf(not _MXFP4_TORCH_AVAILABLE, "Need pytorch 2.8+ for MXFP4")
     @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
     @parametrize("bias", [True, False])
     @parametrize("input_shape", [(128, 256), (1, 128, 256), (2, 4, 128, 256)])
@@ -2717,7 +2717,7 @@ class TestQAT(TestCase):
         # Check that weights have been updated
         self.assertFalse(torch.allclose(mx_model[0].weight, initial_weight))
 
-    @unittest.skipIf(not _MXFP4_TORCH_AVAILABLE, "Need pytorch 2.10+ for MXFP4")
+    @unittest.skipIf(not _MXFP4_TORCH_AVAILABLE, "Need pytorch 2.8+ for MXFP4")
     @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
     @parametrize(
         "dtype",

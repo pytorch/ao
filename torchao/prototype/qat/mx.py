@@ -27,6 +27,7 @@ import torch
 from torchao.prototype.mx_formats.config import (
     ScaleCalculationMode,
     _validate_elem_dtype,
+    _validate_kernel_preference,
 )
 from torchao.prototype.mx_formats.mx_tensor import (
     MXTensor,
@@ -71,16 +72,13 @@ class MXFakeQuantizeConfig(FakeQuantizeConfigBase):
 
     def __post_init__(self):
         _validate_elem_dtype(self.dtype)
+        _validate_kernel_preference(self.kernel_preference)
 
 
 class _MXQuantizedForwardFakeQuantizedBackward(torch.autograd.Function):
     """
     Autograd function for MX quantization + addmm in low precision during forward,
     and fake quantization in high precision during backward.
-
-    This is the OCP Microscaling MX variant which differs from NVFP4 in:
-    - Block size: 32 (default) vs 16
-    - Scale format: E8M0 vs float8_e4m3fn
     """
 
     @staticmethod
@@ -161,11 +159,6 @@ class MXFakeQuantizedLinear(torch.nn.Linear):
     in lower precision exactly, while the backward pass uses dequantized
     (fake quantized) values in high precision.
 
-    This uses the OCP Microscaling MX format which differs from NVFP4:
-    - Block size: 32 (default, OCP standard) vs NVFP4's fixed 16
-    - Scale format: E8M0 (float8_e8m0fnu) vs NVFP4's float8_e4m3fn
-    - Supports multiple scale calculation modes
-    - Supports multiple element dtypes (MXFP4, MXFP8)
 
     Example usage::
 
