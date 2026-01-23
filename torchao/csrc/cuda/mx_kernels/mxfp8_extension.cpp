@@ -41,7 +41,6 @@ void launch_mx_block_rearrange_2d_M_groups_cuda(
 
 void launch_mx_block_rearrange_2d_simple_cuda(
     const uint8_t* scales_ptr,
-    int scale_stride_dim0,
     int scale_rows,
     int scale_cols,
     const int32_t* input_group_end_offsets,
@@ -230,9 +229,6 @@ at::Tensor mx_block_rearrange_2d_M_groups(
   TORCH_CHECK(num_groups <= 32, "num_groups must be <= 32");
   TORCH_CHECK(cols > 0, "scale_cols must be positive");
 
-  // Note: TMA will be used if cols >= 16 and cols % 16 == 0
-  // Otherwise, a non-TMA fallback kernel will be used (slightly slower but supports any column count)
-
   // Automatically select chunk_width based on scale_cols
   int chunk_width;
   if (cols >= 64) {
@@ -266,11 +262,12 @@ at::Tensor mx_block_rearrange_2d_M_groups(
   const int32_t* offsets_ptr = input_group_end_offsets.data_ptr<int32_t>();
   uint8_t* output_ptr = reinterpret_cast<uint8_t*>(output.data_ptr());
 
-  // Prefer double buffered kernel with pipelining/overlap if TMA constraints are met.
-  // Otherwise fallback to simple kernel.
-  const bool can_use_pipelined_kernel = cols >= 16 && cols % 16 == 0
-  if (can_use_pipelined_kernel) 
+  // pipelined kernel will be used if input meets 2d TMA constraint (cols >= 16 and cols % 16 bytes == 0)
+  // Otherwise, a fallback kernel will be used (slightly slower but supports any column count)  
+  const bool can_use_pipelined_kernel = cols >= 16 && cols % 16 == 0;
+  if (can_use_pipelined_kernel)
   {
+    // Launch pipelined TMA kernel
     launch_mx_block_rearrange_2d_M_groups_cuda(
         scales_ptr,
         scales_tensor.stride(0),
@@ -284,15 +281,18 @@ at::Tensor mx_block_rearrange_2d_M_groups(
         static_cast<int>(chunks_per_tb),
         at::cuda::getCurrentCUDAStream());
   }
-  else {
+  else 
+  {
+    // Launch simplified kernel (no TMA, works with any column dimension)
     launch_mx_block_rearrange_2d_simple_cuda(
-      scales_ptr,
-      rows,
-      cols,
-      output_ptr,
-      chunk_width,
-      at::cuda::getCurrentCUDAStream()
-    );
+        scales_ptr,
+        rows,
+        cols,
+        offsets_ptr,
+        output_ptr,
+        num_groups,
+        static_cast<int>(chunk_width),
+        at::cuda::getCurrentCUDAStream());
   }
   return output;
 }

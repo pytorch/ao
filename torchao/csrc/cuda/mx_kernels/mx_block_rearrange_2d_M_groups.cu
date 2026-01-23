@@ -140,7 +140,7 @@ __device__ __forceinline__ int compute_output_group_start_row(
 }
 
 /**
- * Main kernel for rearranging row-major scale data to blocked layout.
+ *  Pipelined kernel for rearranging row-major scale data to blocked layout.
  *
  * Template parameters:
  * - CHUNK_WIDTH: Width of each chunk (16, 32, 64, or 128 columns)
@@ -639,12 +639,12 @@ void launch_mx_block_rearrange_2d_M_groups_cuda(
 }
 
 
-// Non-pipelined kernel without TMA, slower but no stride constraints
+// Non-pipelined kernel without TMA for loads, but uses TMA for stores
 // Handles M-groups with one chunk per threadblock (equivalent to CHUNKS_PER_TB=1)
+// Assumes input tensor is contiguous/row-major (stride = scale_cols)
 template <int CHUNK_WIDTH>
 __global__ void mx_blocked_layout_2d_simple_kernel(
     const uint8_t* __restrict__ input_scales,
-    const int input_scale_stride_dim0,
     const int scale_rows,
     const int scale_cols,
     const int32_t* __restrict__ input_group_end_offsets,
@@ -656,21 +656,24 @@ __global__ void mx_blocked_layout_2d_simple_kernel(
     constexpr int SF_TILES_PER_THREAD = BYTES_PER_THREAD / SF_COLS;  // 4 tiles per thread
     constexpr int SF_TILES_PER_CHUNK = CHUNK_WIDTH / SF_COLS;
     constexpr int OUTPUT_STRIDE_PER_SF_TILE = SF_ROWS * SF_COLS;  // 512 bytes
+    constexpr int CHUNK_SIZE_BYTES = SF_ROWS * CHUNK_WIDTH;
 
     const int row_chunk_pid = blockIdx.y;  // Each chunk is one superblock with CHUNKS_PER_TB=1
     const int col_chunk_pid = blockIdx.x;
     const int tid = threadIdx.x;
     const int row_idx = tid / THREADS_PER_ROW;
     const int col_idx = tid % THREADS_PER_ROW;
+    const bool is_master_thread = tid == 0;
 
-    // Shared memory for group offset computation
+    // Shared memory: group offset computation + data buffer for blocked layout
     __shared__ int smem_group_data[64]; // Max 32 groups: [0..31] = chunks per group, [32..63] = cumsum
+    __shared__ __align__(128) uint8_t smem_chunk_buffer[CHUNK_SIZE_BYTES];
 
     // Find which group this chunk belongs to (using CHUNKS_PER_TB=1)
     int group_idx;
     int chunk_idx_in_group;
     int chunks_until_end;
-    find_group_and_local_offset_for_superblock<1>(
+    find_group_and_local_offset_for_superblock<1>( // 1 chunk per superblock (i.e., 1 chunk per threadblock) since we aren't pipelining
         row_chunk_pid,
         input_group_end_offsets,
         num_groups,
@@ -705,42 +708,46 @@ __global__ void mx_blocked_layout_2d_simple_kernel(
     const int global_row = chunk_start_row + row_idx;
     const int global_col_base = col_chunk_pid * CHUNK_WIDTH + col_idx * BYTES_PER_THREAD;
 
-    // Early exit if row is out of bounds for this group
-    if (global_row >= input_group_end_row) {
-        return;
-    }
+    // Check if this is a valid row (not a padding row)
+    const bool row_valid = global_row < input_group_end_row && global_row < scale_rows;
 
     // Load data with vectorized loads, falling back to smaller loads at boundaries
+    // For padding rows, row_data stays zero (important for correct padding in output)
     uint4 row_data = make_uint4(0, 0, 0, 0);
+    const uint8_t* read_ptr = input_scales + global_row * scale_cols + global_col_base;
 
-    if (global_col_base + 16 <= scale_cols) {
-        // Can safely load 16 bytes (int4)
-        row_data = *reinterpret_cast<const uint4*>(
-            &input_scales[global_row * scale_cols + global_col_base]);
-    } else if (global_col_base + 8 <= scale_cols) {
-        // Can safely load 8 bytes (int2)
-        int2 data = *reinterpret_cast<const int2*>(
-            &input_scales[global_row * scale_cols + global_col_base]);
-        row_data.x = data.x;
-        row_data.y = data.y;
-        // Load remaining bytes individually if needed
-        const int remaining = scale_cols - (global_col_base + 8);
-        #pragma unroll
-        for (int i = 0; i < remaining && i < 8; i++) {
-            reinterpret_cast<uint8_t*>(&row_data)[8 + i] =
-                input_scales[global_row * scale_cols + global_col_base + 8 + i];
+    // TODO: the efficiency of loads can be improved but the kernel is already several times faster
+    // than Triton and we are going to port these to CuteDSL anyway so don't want to sink more time into this.
+    // Problem: this code will often result in single byte loads when stride is not a multiple of 16/8, 
+    // because many reads will not meet alignment requirements for vectorized loads.
+    // We also can't use 2d TMA to read 128xCHUNK_SIZE chunks because 2d tma also requires global stride by multiple of 16 bytes.
+    if (row_valid) {
+        // Check alignment and bounds for vectorized loads
+        const bool is_aligned_16 = (reinterpret_cast<uintptr_t>(read_ptr) % 16) == 0;
+        const bool is_aligned_8 = (reinterpret_cast<uintptr_t>(read_ptr) % 8) == 0;
+
+        if (global_col_base + 16 <= scale_cols && is_aligned_16) {
+            // Can safely load 16 bytes (int4) with proper alignment
+            row_data = *reinterpret_cast<const uint4*>(read_ptr);
+        } else if (global_col_base + 8 <= scale_cols && is_aligned_8) {
+            // Can safely load 8 bytes (int2) with proper alignment
+            int2 data = *reinterpret_cast<const int2*>(read_ptr);
+            row_data.x = data.x;
+            row_data.y = data.y;
+            // Load remaining bytes individually if needed
+            const int remaining = scale_cols - (global_col_base + 8);
+            #pragma unroll
+            for (int i = 0; i < remaining && i < 8; i++) {
+                reinterpret_cast<uint8_t*>(&row_data)[8 + i] = read_ptr[8 + i];
+            }
+        } else if (global_col_base < scale_cols) {
+            // Load remaining bytes individually (unaligned or small)
+            const int remaining = min(16, scale_cols - global_col_base);
+            #pragma unroll
+            for (int i = 0; i < remaining; i++) {
+                reinterpret_cast<uint8_t*>(&row_data)[i] = read_ptr[i];
+            }
         }
-    } else if (global_col_base < scale_cols) {
-        // Load remaining bytes individually (< 8 bytes)
-        const int remaining = scale_cols - global_col_base;
-        #pragma unroll
-        for (int i = 0; i < remaining; i++) {
-            reinterpret_cast<uint8_t*>(&row_data)[i] =
-                input_scales[global_row * scale_cols + global_col_base + i];
-        }
-    } else {
-        // Completely out of bounds - data remains zero
-        return;
     }
 
     // Compute blocked layout position within SF tile
@@ -758,31 +765,61 @@ __global__ void mx_blocked_layout_2d_simple_kernel(
     const int chunk_sf_tile_row = (output_group_start_row / SF_ROWS) + chunk_idx_in_group;
     const int sf_tiles_per_row = output_stride_per_row_of_sf_tiles / OUTPUT_STRIDE_PER_SF_TILE;
 
-    // Compute columns in this chunk (may be less than CHUNK_WIDTH for partial chunks)
-    const int remaining_cols = scale_cols - global_col_base;
-    const int cols_in_chunk = (remaining_cols < CHUNK_WIDTH) ? remaining_cols : CHUNK_WIDTH;
+    // Compute columns in this chunk (based on chunk start, not thread start)
+    const int chunk_col_base = col_chunk_pid * CHUNK_WIDTH;
+    const int remaining_cols_in_chunk = scale_cols - chunk_col_base;
+    const int cols_in_chunk = (remaining_cols_in_chunk < CHUNK_WIDTH) ? remaining_cols_in_chunk : CHUNK_WIDTH;
 
-    // Scatter 16 bytes to blocked layout (4 bytes per SF tile)
-    // Each thread writes to 4 different SF tiles
+    // Scatter 16 bytes to SMEM in blocked layout (4 bytes per SF tile)
+    // Each thread writes 4 separate 4-byte chunks to different SF tiles in SMEM
+    // NOTE: this will cause bank conflicts but resolving them would prevent us
+    // from doing direct TMA stores for 128x4=512b contiguous bytes, which is worse in my prev experiments
     #pragma unroll
     for (int i = 0; i < SF_TILES_PER_THREAD; i++) {
-        const int sf_tile_col = chunk_sf_tile_col_base + first_sf_tile_idx + i;
-
         // Check if this SF tile column is within bounds
         if ((first_sf_tile_idx + i) * SF_COLS < cols_in_chunk) {
-            const int linear_sf_tile_idx = chunk_sf_tile_row * sf_tiles_per_row + sf_tile_col;
             const uint32_t data = reinterpret_cast<const uint32_t*>(&row_data)[i];
-
-            uint8_t* sf_tile_base = output_scales + linear_sf_tile_idx * OUTPUT_STRIDE_PER_SF_TILE;
-            *reinterpret_cast<uint32_t*>(sf_tile_base + blocked_layout_row_offset) = data;
+            // Offset within the SMEM chunk buffer for this SF tile
+            const int sf_tile_offset_in_chunk = (first_sf_tile_idx + i) * OUTPUT_STRIDE_PER_SF_TILE;
+            *reinterpret_cast<uint32_t*>(&smem_chunk_buffer[sf_tile_offset_in_chunk + blocked_layout_row_offset]) = data;
         }
     }
+
+    // Ensure threads finish their smem writes and use explicit fence to ensure visibility to async proxy for TMA
+    __syncthreads();
+    ptx::fence_proxy_async_shared_cta();
+
+    if (is_master_thread) {
+        // Issue separate 1D TMA stores for each valid SF tile
+        // Each store moves one 512-byte SF tile from SMEM to GMEM
+        constexpr int SF_TILE_SIZE_BYTES = SF_ROWS * SF_COLS;  // 512 bytes
+        const int num_valid_sf_tiles = (cols_in_chunk + SF_COLS - 1) / SF_COLS;
+
+        // Loop over each SF tile and do a separate TMA transfer
+        for (int tile = 0; tile < num_valid_sf_tiles; tile++) {
+            const int col_sf_tile = chunk_sf_tile_col_base + tile;
+            const int linear_sf_tile_idx = chunk_sf_tile_row * sf_tiles_per_row + col_sf_tile;
+
+            uint64_t* dst_gmem = reinterpret_cast<uint64_t*>(
+                output_scales + linear_sf_tile_idx * SF_TILE_SIZE_BYTES);
+            const int smem_sf_tile_offset = tile * SF_TILE_SIZE_BYTES;
+
+            ptx::cp_async_bulk_tensor_1d_shared_to_global(
+                dst_gmem,
+                reinterpret_cast<const uint64_t*>(&smem_chunk_buffer[smem_sf_tile_offset]),
+                SF_TILE_SIZE_BYTES
+            );
+        }
+        ptx::cp_async_bulk_commit_group();
+    }
+
+    // Wait for TMA transfer to complete
+    ptx::cp_async_bulk_wait_group();
 }
 
 
 void launch_mx_block_rearrange_2d_simple_cuda(
     const uint8_t* scales_ptr,
-    int scale_stride_dim0,
     int scale_rows,
     int scale_cols,
     const int32_t* input_group_end_offsets,
@@ -806,25 +843,25 @@ void launch_mx_block_rearrange_2d_simple_cuda(
     if (chunk_width == 16) {
         dim3 block(128);  // 128 rows × 1 thread/row
         mx_blocked_layout_2d_simple_kernel<16><<<grid, block, 0, stream>>>(
-            scales_ptr, scale_stride_dim0, scale_rows, scale_cols,
+            scales_ptr, scale_rows, scale_cols,
             input_group_end_offsets, output_scales_ptr,
             output_stride_per_row_of_sf_tiles, num_groups);
     } else if (chunk_width == 32) {
         dim3 block(256);  // 128 rows × 2 threads/row
         mx_blocked_layout_2d_simple_kernel<32><<<grid, block, 0, stream>>>(
-            scales_ptr, scale_stride_dim0, scale_rows, scale_cols,
+            scales_ptr, scale_rows, scale_cols,
             input_group_end_offsets, output_scales_ptr,
             output_stride_per_row_of_sf_tiles, num_groups);
     } else if (chunk_width == 64) {
         dim3 block(512);  // 128 rows × 4 threads/row
         mx_blocked_layout_2d_simple_kernel<64><<<grid, block, 0, stream>>>(
-            scales_ptr, scale_stride_dim0, scale_rows, scale_cols,
+            scales_ptr, scale_rows, scale_cols,
             input_group_end_offsets, output_scales_ptr,
             output_stride_per_row_of_sf_tiles, num_groups);
     } else if (chunk_width == 128) {
         dim3 block(1024);  // 128 rows × 8 threads/row
         mx_blocked_layout_2d_simple_kernel<128><<<grid, block, 0, stream>>>(
-            scales_ptr, scale_stride_dim0, scale_rows, scale_cols,
+            scales_ptr, scale_rows, scale_cols,
             input_group_end_offsets, output_scales_ptr,
             output_stride_per_row_of_sf_tiles, num_groups);
     } else {
