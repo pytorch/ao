@@ -31,7 +31,7 @@ python example.py --model <MODEL_ID> --model_save_path ./model_smoothquant.pt
 ```python
 from torchao.prototype.smoothquant import SmoothQuantConfig
 from torchao.quantization import quantize_
-from torchao.quantization.quantize_.observer import QuantizationStep
+from torchao.quantization.quantize_.common.quantization_step import QuantizationStep
 from torchao.quantization.quant_api import Int8DynamicActivationInt8WeightConfig
 
 # Step 1: Prepare - insert observers

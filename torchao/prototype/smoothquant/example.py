@@ -16,7 +16,7 @@ from torchao.prototype.smoothquant import (
 )
 from torchao.quantization import quantize_
 from torchao.quantization.quant_api import Int8DynamicActivationInt8WeightConfig
-from torchao.quantization.quantize_.observer import QuantizationStep
+from torchao.quantization.quantize_.common.quantization_step import QuantizationStep
 
 
 # TODO: Build benchmark within vLLM ecosystem with more quantization APIs

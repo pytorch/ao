@@ -42,7 +42,7 @@ from torchao.quantization.quant_api import (
     UIntXWeightOnlyConfig,
     quantize_,
 )
-from torchao.quantization.quantize_.observer import QuantizationStep
+from torchao.quantization.quantize_.common.quantization_step import QuantizationStep
 from torchao.sparsity.sparse_api import BlockSparseWeightConfig, SemiSparseWeightConfig
 from torchao.utils import is_sm_at_least_89
 

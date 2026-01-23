@@ -14,7 +14,7 @@ from torchao.quantization.quant_api import (
     _linear_extra_repr,
 )
 from torchao.quantization.quantize_.common import SupportsActivationPreScaling
-from torchao.quantization.quantize_.observer import QuantizationStep
+from torchao.quantization.quantize_.common.quantization_step import QuantizationStep
 from torchao.quantization.transform_module import (
     _QUANTIZE_CONFIG_HANDLER,
     register_quantize_module_handler,

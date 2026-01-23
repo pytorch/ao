@@ -20,7 +20,7 @@ from torchao.quantization.quant_api import (
     Int8StaticActivationInt8WeightConfig,
 )
 from torchao.quantization.quantize_.common import SupportsActivationPreScaling
-from torchao.quantization.quantize_.observer import QuantizationStep
+from torchao.quantization.quantize_.common.quantization_step import QuantizationStep
 from torchao.quantization.utils import (
     compute_error as SQNR,
 )

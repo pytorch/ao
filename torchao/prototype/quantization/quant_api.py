@@ -46,7 +46,7 @@ from torchao.quantization.quantize_.common import (
     KernelPreference,
     QuantizeTensorKwargs,
 )
-from torchao.quantization.quantize_.observer import QuantizationStep
+from torchao.quantization.quantize_.common.quantization_step import QuantizationStep
 from torchao.quantization.quantize_.workflows import (
     QuantizeTensorToFloat8Kwargs,
 )
@@ -605,6 +605,33 @@ def _float8_static_activation_float8_weight_transform(
         return Float8ObservedLinear.from_float(module, input_observer, output_observer)
 
     elif step == QuantizationStep.CONVERT or step == "convert":
+        # Handle observed Softmax modules
+        if isinstance(module, Float8ObservedSoftmax):
+            if module.output_act_obs is None:
+                logger.warning(
+                    "Float8ObservedSoftmax has no output observer, returning as-is"
+                )
+                return module
+
+            # Extract output scale from observer
+            output_act_quant_scale, _ = module.output_act_obs.calculate_qparams()
+            if output_act_quant_scale.ndim == 0:
+                output_act_quant_scale = output_act_quant_scale.view(1, 1)
+
+            output_act_quant_kwargs = QuantizeTensorToFloat8Kwargs(
+                float8_dtype=config.activation_dtype,
+                granularity=granularity,
+                mm_config=config.mm_config,
+                kernel_preference=config.kernel_preference,
+            )
+
+            return Float8QuantizedSoftmax.from_observed(
+                module,
+                output_act_quant_scale=output_act_quant_scale.detach(),
+                output_act_quant_kwargs=output_act_quant_kwargs,
+            )
+
+        # Handle observed Linear modules
         if not isinstance(module, Float8ObservedLinear):
             logger.info(
                 f"convert: module is not Float8ObservedLinear or Float8ObservedSoftmax, skipping: {type(module)}"
