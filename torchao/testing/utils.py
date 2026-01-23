@@ -77,7 +77,6 @@ def skip_if_rocm(message=None):
     Args:
         message (str, optional): Additional information about why the test is skipped.
     """
-    import pytest
 
     def decorator(func):
         @functools.wraps(func)
@@ -86,7 +85,7 @@ def skip_if_rocm(message=None):
                 skip_message = "Skipping the test in ROCm"
                 if message:
                     skip_message += f": {message}"
-                pytest.skip(skip_message)
+                raise unittest.SkipTest(skip_message)
             return func(*args, **kwargs)
 
         return wrapper
