@@ -148,34 +148,49 @@ _SUB_BYTE_INT_BOUNDS: Dict[Union[torch.dtype, TorchAODType], Tuple[int, int]] = 
     TorchAODType.INT7: (-(2**6), 2**6 - 1),
 }
 
-_SUB_BYTE_UINT_BOUNDS = {}
-
-
-def _maybe_register_dtype(mapping, dtypename: str, bounds: Tuple[int, int], bitwidth: int):
-    if hasattr(torch, dtypename):
-        dtype = getattr(torch, dtypename)
-        mapping[dtype] = bounds
-        _DTYPE_TO_BIT_WIDTH[dtype] = bitwidth
-
-
-for bits in range(1, 8):
-    _maybe_register_dtype(_SUB_BYTE_UINT_BOUNDS, f"uint{bits}", (0, 2**bits - 1), bits)
+_SUB_BYTE_UINT_BOUNDS = {
+    torch.uint1: (0, 2**1 - 1),
+    torch.uint2: (0, 2**2 - 1),
+    torch.uint3: (0, 2**3 - 1),
+    torch.uint4: (0, 2**4 - 1),
+    torch.uint5: (0, 2**5 - 1),
+    torch.uint6: (0, 2**6 - 1),
+    torch.uint7: (0, 2**7 - 1),
+}
+_DTYPE_TO_BIT_WIDTH.update(
+    {
+        torch.uint1: 1,
+        torch.uint2: 2,
+        torch.uint3: 3,
+        torch.uint4: 4,
+        torch.uint5: 5,
+        torch.uint6: 6,
+        torch.uint7: 7,
+    }
+)
 
 _SUB_BYTE_INT_BOUNDS.update(
     {
-        TorchAODType.INT1: (-(2**0), 2**0 - 1),
-        TorchAODType.INT2: (-(2**1), 2**1 - 1),
-        TorchAODType.INT3: (-(2**2), 2**2 - 1),
-        TorchAODType.INT4: (-(2**3), 2**3 - 1),
-        TorchAODType.INT5: (-(2**4), 2**4 - 1),
-        TorchAODType.INT6: (-(2**5), 2**5 - 1),
-        TorchAODType.INT7: (-(2**6), 2**6 - 1),
+        torch.int1: (-(2**0), 2**0 - 1),
+        torch.int2: (-(2**1), 2**1 - 1),
+        torch.int3: (-(2**2), 2**2 - 1),
+        torch.int4: (-(2**3), 2**3 - 1),
+        torch.int5: (-(2**4), 2**4 - 1),
+        torch.int6: (-(2**5), 2**5 - 1),
+        torch.int7: (-(2**6), 2**6 - 1),
     }
 )
-for bits in range(1, 8):
-    lower = -(2 ** (bits - 1))
-    upper = 2 ** (bits - 1) - 1
-    _maybe_register_dtype(_SUB_BYTE_INT_BOUNDS, f"int{bits}", (lower, upper), bits)
+_DTYPE_TO_BIT_WIDTH.update(
+    {
+        torch.int1: 1,
+        torch.int2: 2,
+        torch.int3: 3,
+        torch.int4: 4,
+        torch.int5: 5,
+        torch.int6: 6,
+        torch.int7: 7,
+    }
+)
 
 _DTYPE_TO_QVALUE_BOUNDS.update(_SUB_BYTE_UINT_BOUNDS)
 _DTYPE_TO_QVALUE_BOUNDS.update(_SUB_BYTE_INT_BOUNDS)
