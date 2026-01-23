@@ -10,7 +10,6 @@ from typing import Optional
 import torch
 
 from torchao.core.config import AOBaseConfig
-from torchao.quantization.observer import ObserverStep
 from torchao.quantization.quant_api import (
     _QUANTIZE_CONFIG_HANDLER,
     _linear_extra_repr,
@@ -19,6 +18,7 @@ from torchao.quantization.quantize_.common import (
     IsStaticQuantizationConfig,
     SupportsActivationPreScaling,
 )
+from torchao.quantization.quantize_.observer import QuantizationStep
 from torchao.quantization.transform_module import (
     register_quantize_module_handler,
 )
@@ -37,7 +37,7 @@ class SmoothQuantConfig(AOBaseConfig):
 
     Args:
         base_config: Base quantization configuration that SmoothQuant is applied on top of
-        step (ObserverStep): The step for SmoothQuant process
+        step (QuantizationStep): The step for SmoothQuant process
             PREPARE: insert SmoothQuant Observers to linear layers
             CONVERT: convert the observed linear modules to quantized modules
             PREPARE_FOR_LOADING: convert the floating point model to a dummy smoothquant quantized model, so we can
@@ -47,12 +47,12 @@ class SmoothQuantConfig(AOBaseConfig):
     """
 
     base_config: AOBaseConfig
-    step: ObserverStep
+    step: QuantizationStep
     alpha: Optional[float] = 0.5
 
     def __post_init__(self):
         self.step = self.step.lower() if isinstance(self.step, str) else self.step.value
-        all_step_values = [s.value for s in ObserverStep]
+        all_step_values = [s.value for s in QuantizationStep]
         if self.step not in all_step_values:
             raise ValueError(f"{self.step} is not one of {all_step_values}")
 
@@ -65,14 +65,14 @@ def _smooth_quant_transform(
     step = config.step
     base_config = config.base_config
 
-    if step == ObserverStep.PREPARE:
+    if step == QuantizationStep.PREPARE:
         observer = SmoothQuantObserver(
             weight=module.weight,
             alpha=config.alpha,
         )
         return SmoothQuantObservedLinear.from_float(module, observer)
 
-    if step == ObserverStep.PREPARE_FOR_LOADING:
+    if step == QuantizationStep.PREPARE_FOR_LOADING:
         # loading from pre-quantized checkpoint
         observer = SmoothQuantObserver(
             weight=module.weight,
@@ -86,7 +86,7 @@ def _smooth_quant_transform(
         )
         observed_linear(example_input)
 
-    elif step == ObserverStep.CONVERT:
+    elif step == QuantizationStep.CONVERT:
         if not isinstance(module, SmoothQuantObservedLinear):
             print(
                 f"convert: module is not SmoothQuantObservedLinear, skipping: {type(module)}"

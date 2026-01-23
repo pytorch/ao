@@ -15,8 +15,8 @@ from torchao.prototype.smoothquant import (
     SmoothQuantConfig,
 )
 from torchao.quantization import quantize_
-from torchao.quantization.observer import ObserverStep
 from torchao.quantization.quant_api import Int8DynamicActivationInt8WeightConfig
+from torchao.quantization.quantize_.observer import QuantizationStep
 
 
 # TODO: Build benchmark within vLLM ecosystem with more quantization APIs
@@ -99,7 +99,7 @@ def quantize_and_eval(
     t0 = time.time()
     quant_config = SmoothQuantConfig(
         base_config=Int8DynamicActivationInt8WeightConfig(),
-        step=ObserverStep.PREPARE,
+        step=QuantizationStep.PREPARE,
         alpha=alpha,
     )
     quantize_(model, quant_config)
@@ -117,12 +117,12 @@ def quantize_and_eval(
     # Step 3: Convert to quantized model
     print("running SmoothQuant convert")
     t0 = time.time()
-    quant_config.step = ObserverStep.CONVERT
+    quant_config.step = QuantizationStep.CONVERT
     quantize_(model, quant_config)
     print(f"time for convert: {time.time() - t0:.02f} seconds")
 
     # Set up config for loading
-    quant_config.step = ObserverStep.PREPARE_FOR_LOADING
+    quant_config.step = QuantizationStep.PREPARE_FOR_LOADING
     model.config.quantization_config = TorchAoConfig(quant_config)
 
     if model_save_path is not None:

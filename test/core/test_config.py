@@ -28,7 +28,6 @@ from torchao.quantization import (
     PerRow,
     PerTensor,
 )
-from torchao.quantization.observer import ObserverStep
 from torchao.quantization.quant_api import (
     Float8DynamicActivationFloat8WeightConfig,
     Float8DynamicActivationInt4WeightConfig,
@@ -43,6 +42,7 @@ from torchao.quantization.quant_api import (
     UIntXWeightOnlyConfig,
     quantize_,
 )
+from torchao.quantization.quantize_.observer import QuantizationStep
 from torchao.sparsity.sparse_api import BlockSparseWeightConfig, SemiSparseWeightConfig
 from torchao.utils import is_sm_at_least_89
 
@@ -98,7 +98,7 @@ configs = [
         }
     ),
     AWQConfig(
-        Int4WeightOnlyConfig(group_size=128), step=ObserverStep.PREPARE_FOR_LOADING
+        Int4WeightOnlyConfig(group_size=128), step=QuantizationStep.PREPARE_FOR_LOADING
     ),
     AWQConfig(Int4WeightOnlyConfig(group_size=128), step="prepare_for_loading"),
 ]
