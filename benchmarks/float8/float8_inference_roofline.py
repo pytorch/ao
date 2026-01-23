@@ -756,7 +756,7 @@ def run(
                     config = Float8DynamicActivationFloat8WeightConfig(
                         granularity=PerRow(),
                         # for now, use TORCH. In the future might be interesting
-                        # to benchmark AUTO and FBGEMM.
+                        # to benchmark AUTO and MSLK.
                         kernel_preference=KernelPreference.TORCH,
                     )
                 elif recipe_name == "mxfp8_cublas":
