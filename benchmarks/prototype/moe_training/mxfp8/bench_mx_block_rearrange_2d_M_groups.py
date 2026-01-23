@@ -57,10 +57,6 @@ def get_configs() -> List[ExperimentConfig]:
         (131072, 5120 // block_size),
         (131072, 2048 // block_size),
         (131072, 7168 // block_size),
-        (
-            131072,
-            1408 // block_size,
-        ),  # case for dsv3-16b where scale cols not multiple of 16
     ]
     num_groups = [8]
     chunks_per_tb_list = [1, 4, 8]
