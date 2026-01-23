@@ -7,7 +7,6 @@ import logging
 from enum import Enum
 from typing import Callable, Optional
 
-import torch
 from torch import nn
 
 from torchao.core.config import AOBaseConfig
@@ -43,15 +42,9 @@ class MoETrainingConfig(AOBaseConfig):
     For all other ops, ScaledGroupedMMTensor behaves like a regular torch.Tensor.
     """
 
-    def __init__(
-        self,
-        scaling_type: MoEScalingType = MoEScalingType.FP8_ROWWISE,
-        *,
-        float8_dtype: torch.dtype = torch.float8_e4m3fn,
-    ):
+    def __init__(self, scaling_type: MoEScalingType = MoEScalingType.FP8_ROWWISE):
         super().__init__()
         self.scaling_type = scaling_type
-        self.float8_dtype = float8_dtype
 
 
 @register_quantize_module_handler(MoETrainingConfig)
@@ -103,9 +96,7 @@ def _swap_params(
                 f"Does not support a root nn.Parameter with children: {module}"
             )
         if not isinstance(module.data, ScaledGroupedMMTensor):
-            new_data = ScaledGroupedMMTensor(
-                module.data, config.scaling_type, config.float8_dtype
-            )
+            new_data = ScaledGroupedMMTensor(module.data, config.scaling_type)
             return nn.Parameter(new_data, requires_grad=module.requires_grad)
         return module
 
@@ -131,9 +122,7 @@ def _swap_params(
             for param_name, param in module.named_parameters(recurse=False):
                 if not isinstance(param.data, ScaledGroupedMMTensor):
                     new_param = nn.Parameter(
-                        ScaledGroupedMMTensor(
-                            param.data, config.scaling_type, config.float8_dtype
-                        ),
+                        ScaledGroupedMMTensor(param.data, config.scaling_type),
                         requires_grad=param.requires_grad,
                     )
                     setattr(module, param_name, new_param)

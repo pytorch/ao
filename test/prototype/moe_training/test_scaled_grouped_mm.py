@@ -4,7 +4,6 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
-
 import pytest
 import torch
 from torch.nn import functional as F
@@ -44,27 +43,17 @@ from torchao.prototype.moe_training.utils import (
 )
 from torchao.prototype.mx_formats.mx_tensor import to_mx
 from torchao.testing.utils import skip_if_rocm
-from torchao.utils import is_MI300, is_MI350, is_ROCM
 
 
-@pytest.mark.parametrize("m", [256, 131072])
-@pytest.mark.parametrize("n", [256, 8192])
-@pytest.mark.parametrize("k", [256, 5120])
+@skip_if_rocm("ROCm not supported")
+@pytest.mark.parametrize("m", [131072])
+@pytest.mark.parametrize("n", [8192])
+@pytest.mark.parametrize("k", [5120])
 @pytest.mark.parametrize("n_groups", [1, 2, 4, 8])
 def test_valid_scaled_grouped_mm_2d_3d(m, n, k, n_groups):
-    if is_ROCM():
-        if not (is_MI300() or is_MI350()):
-            pytest.skip("ROCm test requires MI300 or MI350")
-        # ROCm known bad-case: weight-grad mismatch for this exact large shape.
-        if (m, k, n_groups) == (131072, 5120, 8):
-            pytest.skip(
-                "ROCm: known weight-grad mismatch for (m,k,n_groups)=(131072,5120,8)"
-            )
-    else:
-        if not is_sm_version(9, 0):
-            pytest.skip("CUDA test requires sm90")
+    if not is_sm_version(9, 0):
+        pytest.skip("Skipping FP8 rowwise test, requires sm90")
     out_dtype = torch.bfloat16
-    float8_dtype = torch.float8_e4m3fn if not is_MI300() else torch.float8_e4m3fnuz
     device = "cuda"
     a = torch.randn(
         m * n_groups,
@@ -92,7 +81,6 @@ def test_valid_scaled_grouped_mm_2d_3d(m, n, k, n_groups):
         offs=offs,
         out_dtype=out_dtype,
         scaling_type=MoEScalingType.FP8_ROWWISE,
-        float8_dtype=float8_dtype,
     )
 
     # Validate result.
@@ -106,27 +94,18 @@ def test_valid_scaled_grouped_mm_2d_3d(m, n, k, n_groups):
         out_dtype,
         offs,
     )
+    assert torch.equal(out, ref_out)
+
     # Run backward pass.
     out.sum().backward()
     ref_out.sum().backward()
 
     # Validate gradients.
-    if is_ROCM():
-        # ROCm: reference vs tested path use different backends:
-        # - `torch._scaled_mm` uses hipBLASLt
-        # - `_quantize_then_scaled_grouped_mm` uses CK
-        # Different backends can use different kernel implementations / accumulation order, so the
-        # outputs can differ slightly and we need tolerance.
-        # On MI300/MI325 we need rtol=atol=1e-2 for this FP8 test to pass.
-        assert torch.allclose(out, ref_out, rtol=1e-2, atol=1e-2)
-        assert torch.allclose(a.grad, ref_a.grad, rtol=1e-2, atol=1e-2)
-        assert torch.allclose(b_t.grad, ref_b_t.grad, rtol=1e-2, atol=1e-2)
-    else:
-        assert torch.equal(out, ref_out)
-        assert torch.equal(a.grad, ref_a.grad)
-        assert torch.equal(b_t.grad, ref_b_t.grad)
+    assert torch.equal(a.grad, ref_a.grad)
+    assert torch.equal(b_t.grad, ref_b_t.grad)
 
 
+@skip_if_rocm("ROCm not supported")
 @pytest.mark.parametrize("m", [16, 17])
 @pytest.mark.parametrize("k", [16, 18])
 @pytest.mark.parametrize("n", [32, 33])
@@ -185,7 +164,6 @@ def compute_reference_forward(
 
     # Use official rowwise recipe as reference to ensure implementation is correct.
     float8_config = Float8LinearConfig.from_recipe_name(Float8LinearRecipeName.ROWWISE)
-    float8_dtype = torch.float8_e4m3fn if not is_MI300() else torch.float8_e4m3fnuz
 
     # Convert A to fp8.
     A_scales = tensor_to_scale(
@@ -196,7 +174,7 @@ def compute_reference_forward(
         round_scales_to_power_of_2=float8_config.round_scales_to_power_of_2,
     )
     A_scaled = A.to(torch.float32) * A_scales
-    A_fp8 = to_fp8_saturated(A_scaled, float8_dtype)
+    A_fp8 = to_fp8_saturated(A_scaled, torch.float8_e4m3fn)
 
     # Convert B^t to fp8.
     B_t_scales = tensor_to_scale(
@@ -209,7 +187,7 @@ def compute_reference_forward(
     B_t_scaled = B_t.to(torch.float32) * B_t_scales
     B_t_fp8 = to_fp8_saturated(
         B_t_scaled,
-        float8_dtype,
+        torch.float8_e4m3fn,
     )
 
     # Split A and result into chunks, one for each group.
@@ -247,15 +225,8 @@ def compute_reference_forward(
             LinearMMConfig(),
             float8_config,
         )
-        if is_ROCM():
-            # ROCm: this compares different backends (hipBLASLt vs CK). Different kernel
-            # implementations / accumulation order can cause slight output diffs, so we use
-            # rtol=atol=1e-2 (see the note in `test_valid_scaled_grouped_mm_2d_3d`).
-            assert torch.allclose(result1, ref_group_result1, rtol=1e-2, atol=1e-2)
-            assert torch.allclose(result2, ref_group_result2, rtol=1e-2, atol=1e-2)
-        else:
-            assert torch.equal(result1, ref_group_result1)
-            assert torch.equal(result2, ref_group_result2)
+        assert torch.equal(result1, ref_group_result1)
+        assert torch.equal(result2, ref_group_result2)
         outputs.append(ref_group_result2)
 
     # Concatenate the outputs and verify the full result is correct.

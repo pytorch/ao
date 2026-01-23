@@ -43,7 +43,6 @@ class ScaledGroupedMMTensor(torch.Tensor):
     """
 
     scaling_type: MoEScalingType = MoEScalingType.FP8_ROWWISE
-    float8_dtype: torch.dtype = torch.float8_e4m3fn
     grouped_mm_func_name = "_grouped_mm"
     offs_arg_name = "offs"
 
@@ -52,7 +51,6 @@ class ScaledGroupedMMTensor(torch.Tensor):
         cls,
         tensor: torch.Tensor,
         scaling_type: MoEScalingType,
-        float8_dtype: torch.dtype = torch.float8_e4m3fn,
     ):
         self = torch.Tensor._make_wrapper_subclass(
             cls,
@@ -67,18 +65,15 @@ class ScaledGroupedMMTensor(torch.Tensor):
             requires_grad=tensor.requires_grad,
         )
         self.scaling_type = scaling_type
-        self.float8_dtype = float8_dtype
         return self
 
     def __init__(
         self,
         tensor: torch.Tensor,
         scaling_type: MoEScalingType,
-        float8_dtype: torch.dtype = torch.float8_e4m3fn,
     ):
         self._data = tensor
         self.scaling_type = scaling_type
-        self.float8_dtype = float8_dtype
 
     @classmethod
     def __torch_function__(cls, func, types, args, kwargs={}):
@@ -99,7 +94,6 @@ class ScaledGroupedMMTensor(torch.Tensor):
                 "B should be a ScaledGroupedMMTensor"
             )
             scaling_type = B.scaling_type
-            float8_dtype = B.float8_dtype
             A_is_2d = A.ndim == 2
             B_is_2d_or_3d = B.ndim == 2 or B.ndim == 3
             has_offs = kwargs.get(cls.offs_arg_name) is not None
@@ -110,7 +104,6 @@ class ScaledGroupedMMTensor(torch.Tensor):
                     B,
                     *other_args,
                     scaling_type=scaling_type,
-                    float8_dtype=float8_dtype,
                     **kwargs,
                 )
 
@@ -123,18 +116,13 @@ class ScaledGroupedMMTensor(torch.Tensor):
     def __torch_dispatch__(cls, func, types, args, kwargs={}):
         # unwrap args/kwargs and extract scaling_type
         scaling_type = None
-        float8_dtype = None
 
         def unwrap(t):
-            nonlocal scaling_type, float8_dtype
+            nonlocal scaling_type
             if scaling_type is None:
                 scaling_type = t.scaling_type
             else:
                 assert t.scaling_type == scaling_type
-            if float8_dtype is None:
-                float8_dtype = t.float8_dtype
-            else:
-                assert t.float8_dtype == float8_dtype
             return t._data
 
         args_unwrapped, kwargs_unwrapped = pytree.tree_map_only(
@@ -143,13 +131,10 @@ class ScaledGroupedMMTensor(torch.Tensor):
         assert scaling_type is not None, (
             f"__torch_dispatch__ called on {func.__name__} without any ScaledGroupedMMTensor arguments"
         )
-        assert float8_dtype is not None, (
-            f"__torch_dispatch__ called on {func.__name__} without any ScaledGroupedMMTensor arguments"
-        )
 
         # detach is special case
         if func == torch.ops.aten.detach.default:
-            return ScaledGroupedMMTensor(args_unwrapped[0], scaling_type, float8_dtype)
+            return ScaledGroupedMMTensor(args_unwrapped[0], scaling_type)
 
         # perform op
         out = func(*args_unwrapped, **kwargs_unwrapped)
@@ -161,7 +146,7 @@ class ScaledGroupedMMTensor(torch.Tensor):
         # wrap outputs back into ScaledGroupedMMTensor for ops that do preserve subclass
         return pytree.tree_map_only(
             torch.Tensor,
-            lambda x: ScaledGroupedMMTensor(x, scaling_type, float8_dtype),
+            lambda x: ScaledGroupedMMTensor(x, scaling_type),
             out,
         )
 
@@ -169,10 +154,7 @@ class ScaledGroupedMMTensor(torch.Tensor):
         return f"ScaledGroupedMMTensor(data={self._data}, scaling_type={self.scaling_type})"
 
     def __tensor_flatten__(self):
-        metadata = {
-            "scaling_type": self.scaling_type,
-            "float8_dtype": self.float8_dtype,
-        }
+        metadata = {"scaling_type": self.scaling_type}
         return ["_data"], metadata
 
     @staticmethod
@@ -180,7 +162,6 @@ class ScaledGroupedMMTensor(torch.Tensor):
         return ScaledGroupedMMTensor(
             inner_tensors["_data"],
             flatten_spec["scaling_type"],
-            flatten_spec["float8_dtype"],
         )
 
     # fsdp hooks based on https://github.com/pytorch/pytorch/blob/20e40492b046b9287726d3ec656117e4dc38f0e2/test/distributed/_composable/fsdp/test_fully_shard_extensions.py#L81
@@ -212,13 +193,11 @@ class ScaledGroupedMMTensor(torch.Tensor):
             if isinstance(out, ScaledGroupedMMTensor):
                 out_data = out._data
                 out.scaling_type = self.scaling_type
-                out.float8_dtype = self.float8_dtype
             elif isinstance(out, DTensor) and isinstance(
                 out._local_tensor, ScaledGroupedMMTensor
             ):
                 out_data = out._local_tensor._data
                 out._local_tensor.scaling_type = self.scaling_type
-                out._local_tensor.float8_dtype = self.float8_dtype
             else:
                 raise RuntimeError(
                     f"expect out to be ScaledGroupedMMTensor or DTensor with local_tensor=ScaledGroupedMM, but got {type(out)}"
@@ -241,6 +220,6 @@ class ScaledGroupedMMTensor(torch.Tensor):
             return
 
         # For training step 0, out=None, so we need to return a new ScaledGroupedMMTensor.
-        output = ScaledGroupedMMTensor(data, self.scaling_type, self.float8_dtype)
+        output = ScaledGroupedMMTensor(data, self.scaling_type)
         inner_tensors = (data,)
         return output, inner_tensors
