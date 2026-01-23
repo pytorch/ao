@@ -875,5 +875,4 @@ void launch_mx_block_rearrange_2d_simple_cuda(
     }
 }
 
->>>>>>> Stashed changes
 } // namespace mxfp8
