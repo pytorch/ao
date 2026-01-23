@@ -19,8 +19,8 @@ from torchao.quantization import (
     quantize_,
 )
 from torchao.quantization.granularity import PerRow, PerTensor
-from torchao.quantization.observer import ObservedLinear
 from torchao.quantization.quant_primitives import MappingType
+from torchao.quantization.quantize_.common import ObservedLinear
 from torchao.quantization.utils import compute_error, get_block_size
 from torchao.testing.model_architectures import ToyTwoLinearModel
 from torchao.testing.utils import TorchAOIntegrationTestCase

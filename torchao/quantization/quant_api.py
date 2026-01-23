@@ -73,10 +73,10 @@ from torchao.quantization.linear_activation_weight_observed_tensor import (
 )
 from torchao.quantization.observer import (
     AffineQuantizedObserverBase,
-    ObservedLinear,
 )
 from torchao.quantization.quantize_.common import (
     KernelPreference,
+    ObservedLinear,
 )
 from torchao.quantization.quantize_.workflows import (
     Float8PackingFormat,
