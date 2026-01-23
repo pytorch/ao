@@ -12,10 +12,10 @@ Uses PyTorch's FA3 backend for fp8 attention computation.
 from typing import Optional
 
 import torch
+from torch.nn.attention import SDPBackend, sdpa_kernel
 from torch.nn.attention.experimental._scaled_dot_product_attention_quantized import (
     _scaled_dot_product_attention_quantized,
 )
-from torch.nn.attention import SDPBackend, sdpa_kernel
 
 from torchao.prototype.fp8_sdpa_inference.fp8_sdpa_quantization import (
     fp8_sdpa_quantize_func,

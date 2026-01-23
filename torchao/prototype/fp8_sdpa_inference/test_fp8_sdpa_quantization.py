@@ -13,8 +13,6 @@ from diffusers import StableDiffusion3Pipeline
 from torch.nn.attention import (
     activate_flash_attention_impl,
     restore_flash_attention_impl,
-    sdpa_kernel,
-    SDPBackend,
 )
 
 from torchao.prototype.fp8_sdpa_inference.fp8_sdpa_utils import (
