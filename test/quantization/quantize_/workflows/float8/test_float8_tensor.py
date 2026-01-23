@@ -30,7 +30,6 @@ from torchao.quantization.quantize_.common import KernelPreference
 from torchao.quantization.utils import compute_error
 from torchao.testing.utils import TorchAOIntegrationTestCase
 from torchao.utils import (
-    _is_fbgemm_gpu_genai_available,
     _is_mslk_available,
     get_current_accelerator_device,
     is_sm_at_least_89,
@@ -200,7 +199,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
     )
     @common_utils.parametrize(
         "kernel_preference",
-        [KernelPreference.AUTO, KernelPreference.TORCH, KernelPreference.FBGEMM],
+        [KernelPreference.AUTO, KernelPreference.TORCH, KernelPreference.MSLK],
     )
     # Inputs are (M,..), K, N
     @common_utils.parametrize(
@@ -245,7 +244,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
     @common_utils.parametrize("granularity", [PerTensor(), PerRow()])
     @common_utils.parametrize(
         "kernel_preference",
-        [KernelPreference.AUTO, KernelPreference.TORCH, KernelPreference.FBGEMM],
+        [KernelPreference.AUTO, KernelPreference.TORCH, KernelPreference.MSLK],
     )
     # Inputs are (M,..), K, N
     @common_utils.parametrize(
@@ -289,9 +288,9 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         model: torch.nn.Module,
     ):
         if isinstance(granularity, PerTensor):
-            if kernel_preference is KernelPreference.FBGEMM:
+            if kernel_preference is KernelPreference.MSLK:
                 return unittest.skip(
-                    "per tensor with fbgemm kernel preference does not work yet"
+                    "per tensor with mslk kernel preference does not work yet"
                 )
             elif mode == "weight-only":
                 return unittest.skip("unimplemented")
@@ -329,13 +328,11 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
                 "weight only quant only uses AUTO kernel preference right now"
             )
 
-        if kernel_preference == KernelPreference.FBGEMM and (
-            (not _is_fbgemm_gpu_genai_available())
+        if kernel_preference == KernelPreference.MSLK and (
+            (not _is_mslk_available())
             or (not torch.cuda.is_available() and not is_sm_at_least_90())
         ):
-            return unittest.skip(
-                "Requires fbgemm_gpu_genai to run fbgemm kernel preference test"
-            )
+            return unittest.skip("Requires mslk to run mslk kernel preference test")
 
         error_context = (
             self.assertRaisesRegex(AssertionError, error_message)
@@ -619,8 +616,8 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         "Requires GPU with compute capability >= 10.0",
     )
     @unittest.skipIf(
-        not _is_fbgemm_gpu_genai_available(),
-        "Requires fbgemm_gpu_genai to be installed",
+        not _is_mslk_available(),
+        "Requires mslk to be installed",
     )
     @common_utils.parametrize("dtype", [torch.bfloat16, torch.float32])
     # test for 2D/3D conv
@@ -789,12 +786,12 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
             KernelPreference.AUTO,
         ]
         if (
-            _is_fbgemm_gpu_genai_available()
+            _is_mslk_available()
             and torch.cuda.is_available()
             and is_sm_at_least_90()
             and not isinstance(granularity, PerTensor)
         ):
-            other_kernel_preferences.append(KernelPreference.FBGEMM)
+            other_kernel_preferences.append(KernelPreference.MSLK)
 
         quantized_outputs = {}
         for kp in other_kernel_preferences:
@@ -839,7 +836,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
     @unittest.skipIf(
         torch.cuda.is_available() and not is_sm_at_least_90(), "Need sm90+"
     )
-    @unittest.skipIf(not _is_fbgemm_gpu_genai_available(), "Need fbgemm_gpu_genai")
+    @unittest.skipIf(not _is_mslk_available(), "Need mslk")
     def test_bmm(self):
         # only support per row quantization
         config = Float8DynamicActivationFloat8WeightConfig(granularity=PerRow())
@@ -869,7 +866,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
     @unittest.skipIf(
         torch.cuda.is_available() and not is_sm_at_least_90(), "Need sm90+"
     )
-    @unittest.skipIf(not _is_fbgemm_gpu_genai_available(), "Need fbgemm_gpu_genai")
+    @unittest.skipIf(not _is_mslk_available(), "Need mslk")
     def test_bmm_weight_in_bkn_layout(self):
         # Tests rowwise quantization of a 3d weight stored with shape (B, K, N)
         # and contigous with that shape. Since the `K` dimension is not last, we
@@ -1000,7 +997,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
     @unittest.skipIf(
         torch.cuda.is_available() and not is_sm_at_least_90(), "Need sm90+"
     )
-    @unittest.skipIf(not _is_fbgemm_gpu_genai_available(), "Need fbgemm_gpu_genai")
+    @unittest.skipIf(not _is_mslk_available(), "Need mslk")
     def test_moe_weight_reshape_ops(self):
         # only per row quantization is supported for bmm
         granularity = PerRow()
@@ -1013,9 +1010,9 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
     @unittest.skipIf(
         torch.cuda.is_available() and not is_sm_at_least_90(), "Need sm90+"
     )
-    @unittest.skipIf(not _is_fbgemm_gpu_genai_available(), "Need fbgemm_gpu_genai")
-    def test_expected_gpu_kernel_fbgemm(self):
-        """Making sure KernelPreference.FBGEMM calls correct quantize and gemm kernels
+    @unittest.skipIf(not _is_mslk_available(), "Need mslk")
+    def test_expected_gpu_kernel_mslk(self):
+        """Making sure KernelPreference.MSLK calls correct quantize and gemm kernels
         and the bias add happens in the gemm kernel for per row quantization
         """
         torch.compiler.reset()
@@ -1026,7 +1023,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         )
         config = Float8DynamicActivationFloat8WeightConfig(
             granularity=PerRow(),
-            kernel_preference=KernelPreference.FBGEMM,
+            kernel_preference=KernelPreference.MSLK,
         )
         quantize_(m, config)
         m = torch.compile(m)
@@ -1039,7 +1036,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         # op instead of separately
         FileCheck().check_count(
             "torch.ops.triton.quantize_fp8_row.default(", 1
-        ).check_count("torch.ops.fbgemm.f8f8bf16_rowwise.default(", 1).check_not(
+        ).check_count("torch.ops.mslk.f8f8bf16_rowwise.default(", 1).check_not(
             ".run("
         ).run(code[0])
 
