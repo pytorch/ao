@@ -71,9 +71,7 @@ from torchao.prototype.quantization.quant_api import (
 from torchao.quantization.linear_activation_weight_observed_tensor import (
     LinearActivationWeightObservedTensor,
 )
-from torchao.quantization.observer import (
-    AffineQuantizedObserverBase,
-)
+from torchao.quantization.observer import AffineQuantizedObserverBase
 from torchao.quantization.quantize_.common import (
     KernelPreference,
     ObservedLinear,
