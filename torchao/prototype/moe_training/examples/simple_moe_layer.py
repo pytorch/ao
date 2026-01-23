@@ -7,11 +7,11 @@ assert torch.cuda.is_available() and torch.cuda.get_device_capability() >= (8, 9
 
 from torchao.prototype.moe_training.conversion_utils import MoETrainingConfig
 from torchao.quantization.quant_api import quantize_
-from torchao.utils import is_MI300
 
 # this example uses torchtitan llama4 MoE, see
 try:
-    from torchtitan.models.moe import MoE, MoEArgs
+    from torchtitan.experiments.llama4.model.args import TransformerModelArgs
+    from torchtitan.experiments.llama4.model.moe import MoE
 except ImportError as e:
     raise ImportError(
         "torchtitan not installed, see installation instructions at https://github.com/pytorch/torchtitan"
@@ -20,8 +20,12 @@ except ImportError as e:
 
 # initialize model
 device = torch.device("cuda")
-moe_args = MoEArgs(num_experts=8)
-model = MoE(moe_args, dim=256, hidden_dim=256).to(torch.bfloat16).to(device)
+model_args = TransformerModelArgs(
+    moe_enabled=True,
+    num_experts=8,
+    dim=256,
+)
+model = MoE(model_args).to(torch.bfloat16).to(device)
 init_std = 0.02
 model.init_weights(init_std, device)
 
@@ -37,8 +41,7 @@ def moe_module_filter_fn(mod: nn.Module, cur_fqn: str) -> bool:
 
 
 # quantize the model
-float8_dtype = torch.float8_e4m3fnuz if is_MI300() else torch.float8_e4m3fn
-config = MoETrainingConfig(float8_dtype=float8_dtype)
+config = MoETrainingConfig()
 quantize_(model, config=config, filter_fn=moe_module_filter_fn)
 
 # training loop
