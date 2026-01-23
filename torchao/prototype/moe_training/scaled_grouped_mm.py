@@ -82,10 +82,10 @@ def _quantize_then_scaled_grouped_mm(
         return _to_mxfp8_then_scaled_grouped_mm(
             A,
             B_t,
-            offs,
-            block_size,
-            float8_dtype,
-            out_dtype,
+            offs=offs,
+            block_size=block_size,
+            float8_dtype=float8_dtype,
+            out_dtype=out_dtype,
             emulated=False,  # TODO: support
             use_triton_for_dim0_cast=True,  # TODO: configurable
             wgrad_with_hp=wgrad_with_hp,
@@ -444,7 +444,7 @@ class _MXFP8GroupedMM(torch.autograd.Function):
             scale_calculation_mode,
             wgrad_with_hp,
         )
-        return grad_input, grad_weight_t, None, None, None, None, None, None, None
+        return grad_input, grad_weight_t, None, None, None, None, None, None, None, None
 
 
 def _compute_dgrad(
@@ -900,6 +900,7 @@ def _to_mxfp8_then_scaled_grouped_mm(
     B_t: torch.Tensor,
     offs: Optional[torch.Tensor] = None,
     block_size: int = 32,
+    float8_dtype: Optional[torch.dtype] = torch.float8_e4m3fn,
     out_dtype: Optional[torch.dtype] = torch.bfloat16,
     emulated: bool = False,
     use_triton_for_dim0_cast: bool = True,
@@ -934,6 +935,7 @@ def _to_mxfp8_then_scaled_grouped_mm(
         B_t,
         offs,
         block_size,
+        float8_dtype,
         out_dtype,
         use_triton_for_dim0_cast,
         wgrad_with_hp,
