@@ -13,7 +13,7 @@ import torch
 import torch.nn as nn
 
 try:
-    from fbgemm_gpu.experimental.gen_ai.quantize import int4_row_quantize_zp, pack_int4
+    from mslk.quantize import int4_row_quantize_zp, pack_int4
 except:
     int4_row_quantize_zp = None
     pack_int4 = None

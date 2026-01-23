@@ -17,7 +17,7 @@ from torchao.prototype.gptq import (
 from torchao.prototype.gptq.observer import GPTQObserverTensor
 from torchao.quantization import Int4WeightOnlyConfig, Int8WeightOnlyConfig, quantize_
 from torchao.quantization.granularity import PerRow
-from torchao.utils import _is_fbgemm_gpu_genai_available
+from torchao.utils import _is_mslk_available
 
 
 def _calculate_hessian(inputs, device=None):
@@ -216,7 +216,7 @@ class TestGPTQObserverTensor:
                 Int4WeightOnlyConfig(group_size=128),
                 id="int4",
                 marks=pytest.mark.skipif(
-                    not _is_fbgemm_gpu_genai_available(),
+                    not _is_mslk_available(),
                     reason="fbgemm_gpu not available",
                 ),
             ),
@@ -297,7 +297,7 @@ class TestGPTQFlow:
                 Int4WeightOnlyConfig(group_size=128),
                 id="int4",
                 marks=pytest.mark.skipif(
-                    not _is_fbgemm_gpu_genai_available(),
+                    not _is_mslk_available(),
                     reason="fbgemm_gpu not available",
                 ),
             ),
@@ -360,7 +360,7 @@ class TestGPTQFlow:
                 Int4WeightOnlyConfig(group_size=128),
                 id="int4",
                 marks=pytest.mark.skipif(
-                    not _is_fbgemm_gpu_genai_available(),
+                    not _is_mslk_available(),
                     reason="fbgemm_gpu not available",
                 ),
             ),
@@ -437,7 +437,7 @@ class TestGPTQFlow:
                 Int4WeightOnlyConfig(group_size=128),
                 id="int4",
                 marks=pytest.mark.skipif(
-                    not _is_fbgemm_gpu_genai_available(),
+                    not _is_mslk_available(),
                     reason="fbgemm_gpu not available",
                 ),
             ),
@@ -508,7 +508,7 @@ class TestGPTQFlow:
                 Int4WeightOnlyConfig(version=2),
                 id="int4",
                 marks=pytest.mark.skipif(
-                    not _is_fbgemm_gpu_genai_available(),
+                    not _is_mslk_available(),
                     reason="fbgemm_gpu not available",
                 ),
             ),
