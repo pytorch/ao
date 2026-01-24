@@ -18,18 +18,19 @@ class QuantizationStep(str, Enum):
         so we can load the quantized weights through copy_ later
 
     Example:
-        # Stage 1: PREPARE - insert observers
+        # Flow 1: Quantization flow (quantize a model from original high precision model)
+        # Step 1: PREPARE - insert observers
         quantize_(model, Float8StaticActivationFloat8WeightConfig(step="prepare"))
 
-        # Stage 2: CALIBRATE - collect statistics
+        # Step 2: CALIBRATE - collect statistics
         for batch in calibration_data:
             model(batch)
 
-        # Stage 3: CONVERT - apply quantization and remove observers
+        # Step 3: CONVERT - apply quantization and remove observers
         quantize_(model, Float8StaticActivationFloat8WeightConfig(step="convert"))
 
-        # Stage 4 (optional): PREPARE_FOR_LOADING - for saving/loading quantized models
-        # This creates a dummy quantized model structure so weights can be loaded via copy_
+        # Flow 2: Inference flow (load pre-quantized weights into a model)
+        # PREPARE_FOR_LOADING creates a dummy quantized model structure for loading weights
         from torchao.prototype.smoothquant import SmoothQuantConfig
 
         config = SmoothQuantConfig(base_config, step="prepare_for_loading")
