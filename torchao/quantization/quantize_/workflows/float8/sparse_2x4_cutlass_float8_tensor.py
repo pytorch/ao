@@ -193,11 +193,14 @@ implements_torch_function = Sparse2x4CUTLASSFloat8Tensor.implements_torch_functi
 @implements(aten.linear.default)
 @implements_torch_function(torch.nn.functional.linear)
 def _(func, types, args, kwargs):
-    input_tensor, weight_tensor, bias = (
-        args[0],
-        args[1],
-        args[2] if len(args) > 2 else None,
-    )
+
+    input_tensor = kwargs.get("input", args[0] if len(args) > 0 else None)
+    weight_tensor = kwargs.get("weight", args[1] if len(args) > 1 else None)
+    bias = kwargs.get("bias", args[2] if len(args) > 2 else None)
+
+    assert input_tensor is not None, "input tensor must not be None"
+    assert weight_tensor is not None, "weight tensor must not be None"
+
     act_quant_kwargs = weight_tensor.act_quant_kwargs
     # quantize activation, if `act_quant_kwargs` is specified
     if act_quant_kwargs is not None:
@@ -229,6 +232,22 @@ def _(func, types, args, kwargs):
             *args[1:],
             dtype=kwargs.get("dtype", args[0].dtype),
             device=kwargs.get("device", args[0].device),
+        )
+    )
+
+
+# implement to.dtype for cases where dtype specified in args[1]
+@implements(aten.to.dtype)
+def _(func, types, args, kwargs):
+
+    dtype = kwargs.get("dtype", args[1] if len(args) > 1 else None)
+    assert dtype is not None, "dtype must not be None"
+
+    return (
+        args[0]
+        .dequantize()
+        .to(
+            dtype = dtype,
         )
     )
 

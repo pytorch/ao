@@ -112,12 +112,18 @@ class TestSparse2x4Float8Tensor(common_utils.TestCase):
                 ),
             )
 
-            original = torch.ops.aten.to.dtype_layout(
+            original_by_to_dtype_layout = torch.ops.aten.to.dtype_layout(
                 model.weight,
                 dtype=torch.float,
                 layout=torch.strided,
             )
-            torch.testing.assert_close(expected, original, atol=1e-1, rtol=1e-1)
+            torch.testing.assert_close(expected, original_by_to_dtype_layout, atol=1e-1, rtol=1e-1)
+
+            original_by_to_dtype = torch.ops.aten.to.dtype(
+                model.weight,
+                torch.float,
+            )
+            torch.testing.assert_close(expected, original_by_to_dtype, atol=1e-1, rtol=1e-1)
 
 
 common_utils.instantiate_parametrized_tests(TestSparse2x4Float8Tensor)
