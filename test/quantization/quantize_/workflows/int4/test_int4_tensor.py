@@ -24,6 +24,7 @@ from torchao.testing.utils import TorchAOIntegrationTestCase
 from torchao.utils import (
     _is_mslk_available,
     is_sm_at_least_90,
+    is_sm_at_least_100,
     torch_version_at_least,
 )
 
@@ -41,16 +42,14 @@ FP8_ACT_CONFIG = Float8DynamicActivationInt4WeightConfig(
 @unittest.skipIf(not torch_version_at_least("2.8.0"), "Need pytorch 2.8+")
 @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
 @unittest.skipIf(not is_sm_at_least_90(), "Need sm90+")
+@unittest.skipIf(is_sm_at_least_100(), "MSLK kernel not compatible with sm100+")
 @unittest.skipIf(not _is_mslk_available(), "Requires mslk >= 1.0.0")
 class TestInt4Tensor(TorchAOIntegrationTestCase):
     GPU_DEVICES = ["cuda"] if torch.cuda.is_available() else []
 
     # ==================== Tests for both configs ====================
 
-    @parametrize(
-        "config",
-        [WEIGHT_ONLY_CONFIG, FP8_ACT_CONFIG],
-    )
+    @parametrize("config", [WEIGHT_ONLY_CONFIG, FP8_ACT_CONFIG])
     # sizes format: (M_shape, N, K) where input is (*M_shape, K) and linear is (K, N)
     @parametrize(
         "sizes",
@@ -60,7 +59,6 @@ class TestInt4Tensor(TorchAOIntegrationTestCase):
         ],
     )
     def test_linear(self, config, sizes):
-        """Test linear with various input shapes."""
         M, N, K = sizes
         dtype = torch.bfloat16
         device = "cuda"
@@ -71,10 +69,7 @@ class TestInt4Tensor(TorchAOIntegrationTestCase):
         quantized = linear(input)
         self.assertTrue(compute_error(original, quantized) > 18)
 
-    @parametrize(
-        "config",
-        [WEIGHT_ONLY_CONFIG, FP8_ACT_CONFIG],
-    )
+    @parametrize("config", [WEIGHT_ONLY_CONFIG, FP8_ACT_CONFIG])
     def test_slice(self, config):
         dtype = torch.bfloat16
         device = "cuda"
@@ -112,10 +107,7 @@ class TestInt4Tensor(TorchAOIntegrationTestCase):
         res = dummy(input)
         assert compute_error(res, res_ref) > 15
 
-    @parametrize(
-        "config",
-        [WEIGHT_ONLY_CONFIG, FP8_ACT_CONFIG],
-    )
+    @parametrize("config", [WEIGHT_ONLY_CONFIG, FP8_ACT_CONFIG])
     def test_slice_preserves_aliasing(self, config):
         l = torch.nn.Linear(1024, 1024).to("cuda").to(torch.bfloat16)
         l.weight = torch.nn.Parameter(
@@ -130,22 +122,17 @@ class TestInt4Tensor(TorchAOIntegrationTestCase):
         assert param.data.scale.data_ptr() == param_data.scale.data_ptr()
         assert param.data.zero_point.data_ptr() == param_data.zero_point.data_ptr()
 
-    @parametrize(
-        "config",
-        [WEIGHT_ONLY_CONFIG, FP8_ACT_CONFIG],
-    )
+    @parametrize("config", [WEIGHT_ONLY_CONFIG, FP8_ACT_CONFIG])
     def test_slice_and_copy_similar_to_vllm(self, config):
         self._test_slice_and_copy_similar_to_vllm(config)
 
+    @parametrize("config", [WEIGHT_ONLY_CONFIG, FP8_ACT_CONFIG])
     @parametrize(
-        "config,sizes",
+        "sizes",
         [
-            (WEIGHT_ONLY_CONFIG, ((128,), 256, 128)),
-            (WEIGHT_ONLY_CONFIG, ((32, 128), 64, 256)),
-            (WEIGHT_ONLY_CONFIG, ((2, 32, 128), 64, 256)),
-            (FP8_ACT_CONFIG, ((128,), 256, 128)),
-            (FP8_ACT_CONFIG, ((32, 128), 64, 256)),
-            (FP8_ACT_CONFIG, ((2, 32, 128), 64, 256)),
+            ((128,), 256, 128),
+            ((32, 128), 64, 256),
+            ((2, 32, 128), 64, 256),
         ],
     )
     def test_to_device(self, config, sizes):
@@ -168,12 +155,8 @@ class TestInt4Tensor(TorchAOIntegrationTestCase):
             linear.to(device)
             linear(input_tensor)
 
-    @parametrize(
-        "config",
-        [WEIGHT_ONLY_CONFIG, FP8_ACT_CONFIG],
-    )
+    @parametrize("config", [WEIGHT_ONLY_CONFIG, FP8_ACT_CONFIG])
     def test_module_path(self, config):
-        """Test that the weight type is correct."""
         linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16)
         quantize_(linear, config)
         self.assertEqual(
@@ -184,8 +167,6 @@ class TestInt4Tensor(TorchAOIntegrationTestCase):
     # ==================== Tests for bf16 activation only ====================
 
     def test_bmm(self):
-        """Test batched matrix multiplication (bf16 activation only)."""
-
         class M(torch.nn.Module):
             def __init__(self, weight):
                 super().__init__()
@@ -215,7 +196,6 @@ class TestInt4Tensor(TorchAOIntegrationTestCase):
         ],
     )
     def test_cat(self, sizes):
-        """Test cat operation (bf16 activation only)."""
         config = WEIGHT_ONLY_CONFIG
         dtype = torch.bfloat16
         device = "cuda"
@@ -271,11 +251,9 @@ class TestInt4Tensor(TorchAOIntegrationTestCase):
         self.assertEqual(cat_qweight2.zero_point, ref_zero_point)
 
     def test_moe_weight_reshape_ops(self):
-        """Test MOE weight reshape ops (bf16 activation only)."""
         self._test_moe_weight_reshape_ops(WEIGHT_ONLY_CONFIG)
 
     def test_activation_prescaling(self):
-        """Test activation prescaling (bf16 activation only)."""
         dtype = torch.bfloat16
         device = "cuda"
         input = torch.randn(1, 128, dtype=dtype, device=device)
@@ -284,7 +262,7 @@ class TestInt4Tensor(TorchAOIntegrationTestCase):
         quantize_(linear, WEIGHT_ONLY_CONFIG)
         qw = linear.weight
         assert isinstance(qw, SupportsActivationPreScaling), (
-            "Expected int4 tensor to support activation prescaling"
+            "Expected int4 tensor supports activation prescaling"
         )
         assert qw.act_pre_scale is None, "Default `act_pre_scale` is None"
         _ACT_PRE_SCALE = 2
@@ -292,12 +270,9 @@ class TestInt4Tensor(TorchAOIntegrationTestCase):
         quantized = linear(input)
 
         # making sure activation pre scaling is successfully applied to the activation
-        print(original, quantized)
-        print("error:", compute_error(original * _ACT_PRE_SCALE, quantized))
         self.assertTrue(compute_error(original * _ACT_PRE_SCALE, quantized) > 20)
 
     def test_weight_attributes_bf16(self):
-        """Test that Int4Tensor has correct attributes for bf16 activation."""
         dtype = torch.bfloat16
         device = "cuda"
         linear = torch.nn.Linear(128, 256, dtype=dtype, device=device)
@@ -309,7 +284,6 @@ class TestInt4Tensor(TorchAOIntegrationTestCase):
     # ==================== Tests for fp8 activation only ====================
 
     def test_weight_attributes_fp8(self):
-        """Test that Int4Tensor has correct attributes for fp8 activation."""
         dtype = torch.bfloat16
         device = "cuda"
         linear = torch.nn.Linear(128, 256, dtype=dtype, device=device)
