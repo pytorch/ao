@@ -47,8 +47,6 @@ FP8_ACT_CONFIG = Float8DynamicActivationInt4WeightConfig(
 class TestInt4Tensor(TorchAOIntegrationTestCase):
     GPU_DEVICES = ["cuda"] if torch.cuda.is_available() else []
 
-    # ==================== Tests for both configs ====================
-
     @parametrize("config", [WEIGHT_ONLY_CONFIG, FP8_ACT_CONFIG])
     # sizes format: (M_shape, N, K) where input is (*M_shape, K) and linear is (K, N)
     @parametrize(
@@ -126,6 +124,27 @@ class TestInt4Tensor(TorchAOIntegrationTestCase):
     def test_slice_and_copy_similar_to_vllm(self, config):
         self._test_slice_and_copy_similar_to_vllm(config)
 
+    def test_bmm(self):
+        class M(torch.nn.Module):
+            def __init__(self, weight):
+                super().__init__()
+                self.weight = torch.nn.Parameter(weight, requires_grad=False)
+
+            def forward(self, x):
+                return torch.bmm(x, self.weight)
+
+        dtype = torch.bfloat16
+        device = "cuda"
+        input = torch.randn(10, 32, 128, dtype=dtype, device=device)
+        weight = torch.randn(10, 128, 256, dtype=dtype, device=device)
+        m = M(weight).eval()
+        original = m(input)
+        # we need to transpose the weight first for bmm
+        m.weight = torch.nn.Parameter(m.weight.data.transpose(1, 2).contiguous())
+        quantize_(m, WEIGHT_ONLY_CONFIG, filter_fn=lambda x, fqn: True)
+        quantized = m(input)
+        self.assertTrue(compute_error(original, quantized) > 18)
+
     @parametrize("config", [WEIGHT_ONLY_CONFIG, FP8_ACT_CONFIG])
     @parametrize(
         "sizes",
@@ -163,29 +182,6 @@ class TestInt4Tensor(TorchAOIntegrationTestCase):
             str(type(linear.weight)),
             "<class 'torchao.quantization.Int4Tensor'>",
         )
-
-    # ==================== Tests for bf16 activation only ====================
-
-    def test_bmm(self):
-        class M(torch.nn.Module):
-            def __init__(self, weight):
-                super().__init__()
-                self.weight = torch.nn.Parameter(weight, requires_grad=False)
-
-            def forward(self, x):
-                return torch.bmm(x, self.weight)
-
-        dtype = torch.bfloat16
-        device = "cuda"
-        input = torch.randn(10, 32, 128, dtype=dtype, device=device)
-        weight = torch.randn(10, 128, 256, dtype=dtype, device=device)
-        m = M(weight).eval()
-        original = m(input)
-        # we need to transpose the weight first for bmm
-        m.weight = torch.nn.Parameter(m.weight.data.transpose(1, 2).contiguous())
-        quantize_(m, WEIGHT_ONLY_CONFIG, filter_fn=lambda x, fqn: True)
-        quantized = m(input)
-        self.assertTrue(compute_error(original, quantized) > 18)
 
     @parametrize(
         "sizes",
@@ -272,25 +268,22 @@ class TestInt4Tensor(TorchAOIntegrationTestCase):
         # making sure activation pre scaling is successfully applied to the activation
         self.assertTrue(compute_error(original * _ACT_PRE_SCALE, quantized) > 20)
 
-    def test_weight_attributes_bf16(self):
+    @parametrize(
+        "config_and_activation_dtype",
+        [
+            (WEIGHT_ONLY_CONFIG, torch.bfloat16),
+            (FP8_ACT_CONFIG, torch.float8_e4m3fn),
+        ],
+    )
+    def test_weight_attributes(self, config_and_activation_dtype):
+        config, expected_activation_dtype = config_and_activation_dtype
         dtype = torch.bfloat16
         device = "cuda"
         linear = torch.nn.Linear(128, 256, dtype=dtype, device=device)
-        quantize_(linear, WEIGHT_ONLY_CONFIG)
+        quantize_(linear, config)
 
         weight = linear.weight
-        self.assertEqual(weight.activation_dtype, torch.bfloat16)
-
-    # ==================== Tests for fp8 activation only ====================
-
-    def test_weight_attributes_fp8(self):
-        dtype = torch.bfloat16
-        device = "cuda"
-        linear = torch.nn.Linear(128, 256, dtype=dtype, device=device)
-        quantize_(linear, FP8_ACT_CONFIG)
-
-        weight = linear.weight
-        self.assertEqual(weight.activation_dtype, torch.float8_e4m3fn)
+        self.assertEqual(weight.activation_dtype, expected_activation_dtype)
 
 
 instantiate_parametrized_tests(TestInt4Tensor)
