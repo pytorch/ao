@@ -109,9 +109,9 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
     @common_utils.parametrize("float8_dtype", [torch.float8_e4m3fn, torch.float8_e5m2])
     @common_utils.parametrize("output_dtype", [torch.float32, torch.bfloat16])
     def test_choose_scale_float8_bounds(self, float8_dtype, output_dtype):
-        block_size = ()
         device = _DEVICE
         input_tensor = torch.randn(8, 64, device=device, dtype=torch.float32)
+        block_size = input_tensor.shape
 
         # testing upper bounds
         input_tensor[0][0] = 2000
@@ -152,7 +152,7 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
     )
     @common_utils.parametrize("float8_dtype", [torch.float8_e4m3fn, torch.float8_e5m2])
     @common_utils.parametrize("output_dtype", [torch.float32, torch.bfloat16])
-    @common_utils.parametrize("block_size", [(), (1, 32), (2, 16), (4, 8)])
+    @common_utils.parametrize("block_size", [(8, 64), (1, 32), (2, 16), (4, 8)])
     def test_dequantize_affine_float8(self, float8_dtype, output_dtype, block_size):
         """Test _dequantize_affine_float8 with various configurations"""
 
