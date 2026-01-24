@@ -288,11 +288,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         model: torch.nn.Module,
     ):
         if isinstance(granularity, PerTensor):
-            if kernel_preference is KernelPreference.MSLK:
-                return unittest.skip(
-                    "per tensor with mslk kernel preference does not work yet"
-                )
-            elif mode == "weight-only":
+            if mode == "weight-only":
                 return unittest.skip("unimplemented")
 
         elif granularity == (PerBlock([1, 128]), PerBlock([128, 128])):
@@ -785,12 +781,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         other_kernel_preferences = [
             KernelPreference.AUTO,
         ]
-        if (
-            _is_mslk_available()
-            and torch.cuda.is_available()
-            and is_sm_at_least_90()
-            and not isinstance(granularity, PerTensor)
-        ):
+        if _is_mslk_available() and torch.cuda.is_available() and is_sm_at_least_90():
             other_kernel_preferences.append(KernelPreference.MSLK)
 
         quantized_outputs = {}
