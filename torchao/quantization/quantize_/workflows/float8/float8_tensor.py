@@ -215,15 +215,18 @@ class Float8Tensor(TorchAOBaseTensor):
                 data, scale = torch.ops.triton.quantize_fp8_row(
                     hp_tensor, scale_ub=maybe_hp_value_ub_tensor
                 )
-                scale_shape = []
-                for i in range(hp_tensor.ndim):
-                    scale_shape.append(hp_tensor.shape[i] // block_size[i])
-                scale = scale.reshape(*scale_shape)
             else:
                 assert isinstance(granularity, PerTensor), (
                     f"Expected per tensor, got {granularity}"
                 )
                 data, scale = torch.ops.triton.quantize_fp8_tensor(hp_tensor)
+
+            # Reshape scale to match expected shape for quantization
+            scale_shape = []
+            for i in range(hp_tensor.ndim):
+                scale_shape.append(hp_tensor.shape[i] // block_size[i])
+            scale = scale.reshape(*scale_shape)
+
         else:
             assert kernel_choice == "torch", f"Expected torch, got {kernel_choice}"
             scale = _choose_scale_float8(
