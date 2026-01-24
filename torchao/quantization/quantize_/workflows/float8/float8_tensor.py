@@ -215,22 +215,18 @@ class Float8Tensor(TorchAOBaseTensor):
                 data, scale = torch.ops.triton.quantize_fp8_row(
                     hp_tensor, scale_ub=maybe_hp_value_ub_tensor
                 )
-                scale_shape = []
-                for i in range(hp_tensor.ndim):
-                    scale_shape.append(hp_tensor.shape[i] // block_size[i])
-                scale = scale.reshape(*scale_shape)
             else:
                 assert isinstance(granularity, PerTensor), (
                     f"Expected per tensor, got {granularity}"
                 )
-                # current error: torch.AcceleratorError: CUDA error: an illegal memory access was encountered
-                # TODO: enable after this is working
-                # data, scale = torch.ops.mslk.quantize_fp8_per_tensor(
-                #     hp_tensor, num_tokens, scale_ub=maybe_hp_value_ub_tensor
-                # )
-                raise NotImplementedError(
-                    "Currently KernelPreference.MSLK does not work for per tensor float8 quant"
-                )
+                data, scale = torch.ops.triton.quantize_fp8_tensor(hp_tensor)
+
+            # Reshape scale to match expected shape for quantization
+            scale_shape = []
+            for i in range(hp_tensor.ndim):
+                scale_shape.append(hp_tensor.shape[i] // block_size[i])
+            scale = scale.reshape(*scale_shape)
+
         else:
             assert kernel_choice == "torch", f"Expected torch, got {kernel_choice}"
             scale = _choose_scale_float8(
