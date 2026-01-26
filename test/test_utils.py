@@ -343,28 +343,43 @@ class TestTorchAOBaseTensor(unittest.TestCase):
         )
 
     def test_subclassing(self):
+        counters = {"parent": 0}
         class Parent(TorchAOBaseTensor):
             tensor_data_names = ["qdata"]
             tensor_attribute_names = ["attr"]
 
-        Parent._ATEN_OP_TABLE[Parent]["op_parent"] = "parent_impl"
-        Parent._TORCH_FN_TABLE[Parent]["fn_parent"] = "parent_fn_impl"
+            def __new__(cls, qdata, attr):
+                r = torch.Tensor._make_wrapper_subclass(cls, qdata.shape)
+                r.qdata = qdata
+                r.attr = attr
+                return r
+
+            def __init__(self, qdata, attr):
+                pass
+
+        @Parent.implements([torch.ops.aten.cat.default])
+        def parent_cat(func, types, args, kwargs):
+            counters["parent"] += 1
 
         class Child(Parent):
             tensor_data_names = ["qdata"]
             tensor_attribute_names = ["attr"]
 
-        # ensure child has copied parent ops
-        self.assertEqual(Child._ATEN_OP_TABLE[Child]["op_parent"], "parent_impl")
-        self.assertEqual(Child._TORCH_FN_TABLE[Child]["fn_parent"], "parent_fn_impl")
+        # Call via Child
+        t1 = Child(torch.randn(2, 3), "a")
+        t2 = Child(torch.randn(2, 3), "b")
+        torch.ops.aten.cat.default([t1, t2], 0)
 
-        # ensure the top-level dicts are distinct (not inherited)
-        self.assertIsNot(Parent._ATEN_OP_TABLE, Child._ATEN_OP_TABLE)
-        self.assertIsNot(Parent._TORCH_FN_TABLE, Child._TORCH_FN_TABLE)
+        self.assertEqual(counters["parent"], 1)
 
-        # change the parent's op after subclass creation — should not leak
-        Parent._ATEN_OP_TABLE[Parent]["new_op"] = "added_later"
-        self.assertNotIn("new_op", Child._ATEN_OP_TABLE[Child])
+        # Add new op to Parent after Child exists
+        @Parent.implements([torch.ops.aten.relu.default])
+        def parent_relu(func, types, args, kwargs):
+            pass
+
+        # Child should not see it
+        with self.assertRaises(RuntimeError):
+            torch.ops.aten.relu.default(t1)
 
     def test_subclassing_with_real_op(self):
         counter = {"calls": 0}
@@ -382,50 +397,68 @@ class TestTorchAOBaseTensor(unittest.TestCase):
             def __init__(self, qdata, attr):
                 pass
 
-        # Real op implementation
         @Parent.implements([torch.ops.aten.cat.default])
-        def _cat_op(func, types, args, kwargs):
+        def parent_cat(func, types, args, kwargs):
             counter["calls"] += 1
 
         class Child(Parent):
             tensor_data_names = ["qdata"]
             tensor_attribute_names = ["attr"]
 
-        # Table checks
-        self.assertIn(torch.ops.aten.cat.default, Parent._ATEN_OP_TABLE[Parent])
-        self.assertIn(torch.ops.aten.cat.default, Child._ATEN_OP_TABLE[Child])
+        t1 = Child(torch.randn(2, 3), "a")
+        t2 = Child(torch.randn(2, 3), "b")
 
-        # Ensure child table is distinct
-        self.assertIsNot(Parent._ATEN_OP_TABLE, Child._ATEN_OP_TABLE)
-
-        # calling the op through the child tensor
-        t1 = torch.randn(2, 3)
-        t2 = torch.randn(2, 3)
-        child_tensor1 = Child(t1, "a")
-        child_tensor2 = Child(t2, "b")
-
-        torch.ops.aten.cat.default([child_tensor1, child_tensor2], 0)
+        torch.ops.aten.cat.default([t1, t2], 0)
 
         self.assertEqual(counter["calls"], 1)
-
+    
     def test_multiple_inheritance(self):
+        counters = {"A": 0, "B": 0}
+
         class A(TorchAOBaseTensor):
             tensor_data_names = ["a"]
             tensor_attribute_names = ["b"]
+
+            def __new__(cls, a, b):
+                r = torch.Tensor._make_wrapper_subclass(cls, a.shape)
+                r.a = a
+                r.b = b
+                return r
+
+            def __init__(self, a, b):
+                pass
+
+        @A.implements([torch.ops.aten.neg.default])
+        def a_neg(func, types, args, kwargs):
+            counters["A"] += 1
 
         class B(TorchAOBaseTensor):
             tensor_data_names = ["a"]
             tensor_attribute_names = ["b"]
 
-        A._ATEN_OP_TABLE[A]["shared"] = "from_a"
-        B._ATEN_OP_TABLE[B]["shared"] = "from_b"
+            def __new__(cls, a, b):
+                r = torch.Tensor._make_wrapper_subclass(cls, a.shape)
+                r.a = a
+                r.b = b
+                return r
+
+            def __init__(self, a, b):
+                pass
+
+        @B.implements([torch.ops.aten.neg.default])
+        def b_neg(func, types, args, kwargs):
+            counters["B"] += 1
 
         class C(A, B):
             tensor_data_names = ["a"]
             tensor_attribute_names = ["b"]
 
-        # C(A, B) should inherit from A then B, so B wins
-        self.assertEqual(C._ATEN_OP_TABLE[C]["shared"], "from_b")
+        t = C(torch.randn(3), "x")
+        torch.ops.aten.neg.default(t)
+
+        self.assertEqual(counters["A"], 0)
+        self.assertEqual(counters["B"], 1)
+
 
 
 if __name__ == "__main__":
