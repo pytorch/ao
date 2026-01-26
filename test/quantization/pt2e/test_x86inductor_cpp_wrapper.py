@@ -28,6 +28,8 @@ from torch.testing._internal.common_utils import (
 )
 from torch.testing._internal.inductor_utils import HAS_CPU
 
+from torchao.utils import torch_version_at_least
+
 try:
     try:
         from . import (
@@ -82,11 +84,11 @@ def make_test_case(
     assert callable(func), "not a callable"
     func = slowTest(func) if slow else func
     new_test_name = f"{test_name}_separate" if test_build_separate else test_name
+    patches = {"cpp_wrapper": True}
+    if torch_version_at_least("2.8.0"):
+        patches.update({"cpp_wrapper_build_separate": test_build_separate})
 
-    @config.patch(
-        cpp_wrapper=True,
-        cpp_wrapper_build_separate=test_build_separate,
-    )
+    @config.patch(**patches)
     def fn(self):
         tests.setUpClass()
         tests.setUp()
