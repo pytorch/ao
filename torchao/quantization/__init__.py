@@ -13,11 +13,6 @@ from .autoquant import (
     OTHER_AUTOQUANT_CLASS_LIST,
     autoquant,
 )
-from .GPTQ import (
-    Int4WeightOnlyGPTQQuantizer,
-    MultiTensor,
-    MultiTensorInputRecorder,
-)
 from .granularity import (
     Granularity,
     PerAxis,
@@ -178,8 +173,4 @@ __all__ = [
     "TensorCoreTiledLayout",
     "CutlassInt4PackedLayout",
     "Float8MMConfig",
-    # GPTQ
-    "Int4WeightOnlyGPTQQuantizer",
-    "MultiTensor",
-    "MultiTensorInputRecorder",
 ]
