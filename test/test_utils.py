@@ -344,6 +344,7 @@ class TestTorchAOBaseTensor(unittest.TestCase):
 
     def test_subclassing(self):
         counters = {"parent": 0}
+
         class Parent(TorchAOBaseTensor):
             tensor_data_names = ["qdata"]
             tensor_attribute_names = ["attr"]
@@ -411,7 +412,7 @@ class TestTorchAOBaseTensor(unittest.TestCase):
         torch.ops.aten.cat.default([t1, t2], 0)
 
         self.assertEqual(counter["calls"], 1)
-    
+
     def test_multiple_inheritance(self):
         counters = {"A": 0, "B": 0}
 
@@ -458,7 +459,6 @@ class TestTorchAOBaseTensor(unittest.TestCase):
 
         self.assertEqual(counters["A"], 0)
         self.assertEqual(counters["B"], 1)
-
 
 
 if __name__ == "__main__":
