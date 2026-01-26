@@ -70,7 +70,7 @@ class AOBaseConfig(abc.ABC):
 class ConfigJSONEncoder(json.JSONEncoder):
     """Custom JSON encoder for AOBaseConfig objects"""
 
-    def default(self, o):
+    def default(self, o: Any) -> Any:
         # Handle AOBaseConfig subclasses first (most specific case)
         if isinstance(o, AOBaseConfig):
             data_dict = {}
@@ -155,7 +155,7 @@ class ConfigJSONEncoder(json.JSONEncoder):
         # Default case - let the parent class handle it
         return super().default(o)
 
-    def encode_value(self, value):
+    def encode_value(self, value: Any) -> Any:
         """Helper method to recursively encode a value"""
         # Try to use default for custom type
         try:
