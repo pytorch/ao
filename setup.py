@@ -748,6 +748,9 @@ def get_extensions():
         cutlass_90a_extra_compile_args["nvcc"].append(
             "-gencode=arch=compute_90a,code=sm_90a"
         )
+        # Add -DUSE_CUDA flag for ABI stable headers that need it
+        cutlass_90a_extra_compile_args["cxx"].append("-DUSE_CUDA")
+        cutlass_90a_extra_compile_args["nvcc"].append("-DUSE_CUDA")
         ext_modules.append(
             extension(
                 "torchao._C_cutlass_90a",
