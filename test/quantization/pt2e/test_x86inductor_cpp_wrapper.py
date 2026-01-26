@@ -84,11 +84,11 @@ def make_test_case(
     assert callable(func), "not a callable"
     func = slowTest(func) if slow else func
     new_test_name = f"{test_name}_separate" if test_build_separate else test_name
-    patches = {"cpp_wrapper": True}
-    if torch_version_at_least("2.8.0"):
-        patches.update({"cpp_wrapper_build_separate": test_build_separate})
 
-    @config.patch(**patches)
+    @config.patch(
+        cpp_wrapper=True,
+        cpp_wrapper_build_separate=test_build_separate,
+    )
     def fn(self):
         tests.setUpClass()
         tests.setUp()
@@ -174,7 +174,7 @@ def make_dynamic_cls(cls, xfail_prop="_expected_failure_dynamic"):
     )
 
 
-if RUN_CPU:
+if RUN_CPU and torch_version_at_least("2.8.0"):
 
     class BaseTest(NamedTuple):
         name: str
