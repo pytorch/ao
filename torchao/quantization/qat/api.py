@@ -256,7 +256,12 @@ def _qat_config_transform(
         # Ignore unrelated modules
         if not isinstance(
             module,
-            (FakeQuantizedLinear, FakeQuantizedEmbedding, MXFakeQuantizedLinear, NVFP4FakeQuantizedLinear),
+            (
+                FakeQuantizedLinear,
+                FakeQuantizedEmbedding,
+                MXFakeQuantizedLinear,
+                NVFP4FakeQuantizedLinear,
+            ),
         ):
             return module
 
@@ -277,7 +282,10 @@ def _qat_config_transform(
         # Swap FakeQuantizedEmbedding -> nn.Embedding
         # Then apply the base config's transform function to quantize the model
         # If there is no base config, then simply perform the module swap
-        if isinstance(module, (FakeQuantizedLinear, MXFakeQuantizedLinear, NVFP4FakeQuantizedLinear)):
+        if isinstance(
+            module,
+            (FakeQuantizedLinear, MXFakeQuantizedLinear, NVFP4FakeQuantizedLinear),
+        ):
             module = module.to_linear()
         elif isinstance(module, FakeQuantizedEmbedding):
             module = module.to_embedding()
