@@ -1,3 +1,9 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
+
 import itertools
 import unittest
 
@@ -15,22 +21,8 @@ from torchao.prototype.inductor.fx_passes.qsdpa_fusion import (
     _qsdpa_init,
     custom_pass,
 )
+from torchao.testing.pt2e.utils import qdq
 from torchao.utils import torch_version_at_least
-
-
-def qdq(input, scale):
-    dtype = input.dtype
-    q_input = torch.ops.torchao.quantize_affine_float8_non_decomposed.default(
-        input,
-        torch.tensor([scale]),
-        torch.float8_e4m3fn,
-    )
-    dq_input = torch.ops.torchao.dequantize_affine_float8_non_decomposed.default(
-        q_input,
-        torch.tensor([scale]),
-        dtype,
-    )
-    return dq_input
 
 
 def fp8_convert_(model):
