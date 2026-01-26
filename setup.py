@@ -151,8 +151,9 @@ from torch.utils.cpp_extension import (
 
 def detect_hipify_v2():
     try:
-        from packaging.version import Version
         from torch.utils.hipify import __version__
+
+        from packaging.version import Version
 
         if Version(__version__) >= Version("2.0.0"):
             return True
