@@ -2275,32 +2275,25 @@ def _choose_scale_float8(
         tensor (torch.Tensor): Input tensor to be quantized.
         float8_dtype (torch.dtype): Data type of the quantized tensor (e.g., torch.float8_e4m3fn, torch.float8_e5m2).
         scale_dtype (torch.dtype): Data type of the scaling factor (e.g., torch.float32).
-        block_size (Optional[Tuple[int, ...]]): Block size for block-wise quantization. If None, tensorwise quantization is used.
+        block_size (Tuple[int, ...]): Block size for block-wise quantization. For per-tensor scaling, use block_size == tensor.shape.
         hp_value_lb (Optional[float]): the lower bound for high precision floating point value for calculating scale
         hp_value_ub (Optional[float]): the upper bound for high precision floating point value for calculating scale
     """
     quant_max = torch.finfo(float8_dtype).max
-    if len(block_size) == 0:
-        # tensorwise
-        max_abs = tensor.abs().max()
-        if hp_value_lb is not None or hp_value_ub is not None:
-            max_abs = torch.clamp(max_abs, min=hp_value_lb, max=hp_value_ub)
-        scale = max_abs / quant_max
-    else:
-        shape_for_reduction, reduction_dims = _get_reduction_params(
-            block_size, tensor.shape
-        )
-        tensor_reshaped = tensor.view(shape_for_reduction)
-        max_abs = tensor_reshaped.abs().amax(dim=reduction_dims, keepdim=True)
-        if hp_value_lb is not None or hp_value_ub is not None:
-            max_abs = torch.clamp(max_abs, min=hp_value_lb, max=hp_value_ub)
-        scale = max_abs / quant_max
-        # Reshape scale back to match the expected output shape
-        # The scale tensor should have the same shape as the input divided by block_size
-        output_shape = [
-            input_size // block_size[i] for i, input_size in enumerate(tensor.shape)
-        ]
-        scale = scale.reshape(output_shape)
+    shape_for_reduction, reduction_dims = _get_reduction_params(
+        block_size, tensor.shape
+    )
+    tensor_reshaped = tensor.view(shape_for_reduction)
+    max_abs = tensor_reshaped.abs().amax(dim=reduction_dims, keepdim=True)
+    if hp_value_lb is not None or hp_value_ub is not None:
+        max_abs = torch.clamp(max_abs, min=hp_value_lb, max=hp_value_ub)
+    scale = max_abs / quant_max
+    # Reshape scale back to match the expected output shape
+    # The scale tensor should have the same shape as the input divided by block_size
+    output_shape = [
+        input_size // block_size[i] for i, input_size in enumerate(tensor.shape)
+    ]
+    scale = scale.reshape(output_shape)
 
     if scale_dtype is not torch.float32:
         # Shielding for Version > 2.8

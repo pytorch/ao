@@ -29,6 +29,7 @@ Inference APIs for quantize\_
     Int8DynamicActivationInt4WeightConfig
     Int8WeightOnlyConfig
     Int8DynamicActivationInt8WeightConfig
+    FqnToConfig
 
 .. currentmodule:: torchao.quantization
 

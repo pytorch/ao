@@ -3217,6 +3217,54 @@ class TestDynamicPatternMatcher(TestPatternMatcherBase):
     def test_int8_scaled_embedding_bag_with_output_quant(self):
         self._test_scaled_embedding_bag_helper(torch.int8, True)
 
+    @skipIfNoDynamoSupport
+    @skipIfNoONEDNN
+    @skipIfNoFloat8Support
+    @unittest.skipIf(
+        "CPU" not in torch._C._dispatch_dump("torchao::_scaled_embedding_bag"),
+        reason="cpp kernels not built",
+    )
+    def test_int8_concat_dequant_quant(self):
+        class Mod(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.scale = 2.0
+
+            def forward(
+                self,
+                int8_inputs,
+            ):
+                res = torch.cat(int8_inputs, dim=1)
+                res = torch.ops.quantized_decomposed.dequantize_per_tensor.default(
+                    res, self.scale, 0, -128, 127, torch.int8
+                )
+                res = torch.ops.quantized_decomposed.quantize_per_tensor.default(
+                    res, self.scale, 0, -128, 127, torch.int8
+                )
+                return res
+
+        def quant_input(x):
+            scale = 127 / x.max()
+            x = x * scale
+            x = x.to(torch.int8)
+            return x
+
+        def matcher_check_fn():
+            self.assertEqual(counters["inductor"]["concat_dq_q_matcher_count"], 1)
+
+        input_len_list = [2, 3]
+        shape = (128, 3)
+
+        mod = Mod()
+        for len in input_len_list:
+            inputs = [torch.randn(shape) for _ in range(len)]
+            int8_inputs = [quant_input(x) for x in inputs]
+            self._test_common(
+                mod,
+                (int8_inputs,),
+                matcher_check_fn,
+            )
+
 
 instantiate_parametrized_tests(TestPatternMatcher)
 if __name__ == "__main__":
