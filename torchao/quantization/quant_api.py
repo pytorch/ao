@@ -109,7 +109,6 @@ from torchao.utils import (
     is_sm_at_least_90,
 )
 
-from .autoquant import AutoQuantizableLinearWeight, autoquant
 from .GPTQ import (
     Int4WeightOnlyGPTQQuantizer,
 )
@@ -149,7 +148,7 @@ __all__ = [
     "TwoStepQuantizer",
     "Int4WeightOnlyGPTQQuantizer",
     "Int4WeightOnlyQuantizer",
-    "autoquant",
+    "autoquant",  # noqa: F822
     "_get_subclass_inserter",
     "quantize_",
     "intx_quantization_aware_training",
@@ -157,6 +156,22 @@ __all__ = [
     "Float8DynamicActivationFloat8SemiSparseWeightConfig",
     "ModuleFqnToConfig",
 ]
+
+# Lazy imports to avoid CUDA initialization at import time
+_lazy_imports = {
+    "autoquant": ".autoquant",
+}
+
+
+def __getattr__(name):
+    if name in _lazy_imports:
+        import importlib
+
+        module_path = _lazy_imports[name]
+        module = importlib.import_module(module_path, __package__)
+        return getattr(module, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 LAYOUT_TO_ZERO_POINT_DOMAIN = {
     TensorCoreTiledLayout: [ZeroPointDomain.FLOAT],
@@ -222,6 +237,8 @@ def _is_linear(mod, *args):
     from torchao.quantization.qat.affine_fake_quantized_tensor import (
         _AffineFakeQuantizedTensor,
     )
+
+    from .autoquant import AutoQuantizableLinearWeight
 
     # adding weight tensor subclass isinstance check to make sure the weight is only quantized once
     # when it is shared by multiple linear modules

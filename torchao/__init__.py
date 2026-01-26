@@ -127,7 +127,6 @@ else:
         logger.debug(f"Skipping import of cpp extensions: {e}")
 
 from torchao.quantization import (
-    autoquant,
     quantize_,
 )
 
@@ -135,7 +134,7 @@ from . import dtypes, optim, quantization, swizzle, testing
 
 __all__ = [
     "dtypes",
-    "autoquant",
+    "autoquant",  # noqa: F405
     "optim",
     "quantize_",
     "swizzle",
@@ -143,3 +142,18 @@ __all__ = [
     "ops",
     "quantization",
 ]
+
+# Lazy imports to avoid CUDA initialization at import time
+_lazy_imports = {
+    "autoquant": "torchao.quantization.autoquant",
+}
+
+
+def __getattr__(name):
+    if name in _lazy_imports:
+        import importlib
+
+        module_path = _lazy_imports[name]
+        module = importlib.import_module(module_path)
+        return getattr(module, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
