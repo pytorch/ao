@@ -72,7 +72,7 @@ class MXFakeQuantizeConfig(FakeQuantizeConfigBase):
 
     def __post_init__(self):
         _validate_elem_dtype(self.dtype)
-        _validate_kernel_preference(self.kernel_preference)
+        _validate_kernel_preference(self.kernel_preference, self.block_size , self.dtype)
 
 
 class _MXQuantizedForwardFakeQuantizedBackward(torch.autograd.Function):
