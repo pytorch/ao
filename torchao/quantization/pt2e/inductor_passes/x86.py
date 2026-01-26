@@ -1,3 +1,9 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
+
 # mypy: allow-untyped-decorators
 # mypy: allow-untyped-defs
 import copy
@@ -1772,38 +1778,78 @@ def _register_smooth_quant_int_mm_pattern():
 
     # When torch.compile'ing with dynamic=True, the expand node and the two tailing reshape nodes exist
     # When torch.compile'ing with dynamic=False, they don't exist
-    def get_pattern_no_bias(expand_a_scale: bool, reshape_a: bool = True):
-        return CallFunction(
-            aten.mul.Tensor,
-            CallFunction(
+    def get_pattern_no_bias(
+        expand_a_scale: bool, reshape_a: bool = True, convert_a: bool = False
+    ):
+        if convert_a:
+            # Pattern with extra convert_element_type nodes
+            return CallFunction(
                 aten.mul.Tensor,
                 CallFunction(
                     prims.convert_element_type.default,
                     CallFunction(
-                        aten._int_mm.default,
+                        aten.mul.Tensor,
                         CallFunction(
-                            aten.reshape.default,
-                            KeywordArg("a"),
-                            KeywordArg("in_shape"),
-                        )
-                        if reshape_a
-                        else KeywordArg("a"),
-                        KeywordArg("b"),
+                            prims.convert_element_type.default,
+                            CallFunction(
+                                aten._int_mm.default,
+                                CallFunction(
+                                    aten.reshape.default,
+                                    KeywordArg("a"),
+                                    KeywordArg("in_shape"),
+                                )
+                                if reshape_a
+                                else KeywordArg("a"),
+                                KeywordArg("b"),
+                            ),
+                            KeywordArg("x_scale_dtype"),
+                        ),
+                        (
+                            CallFunction(
+                                aten.expand.default,
+                                KeywordArg("x_scale"),
+                                Arg(),
+                            )
+                            if expand_a_scale
+                            else KeywordArg("x_scale")
+                        ),
                     ),
                     KeywordArg("dtype"),
                 ),
-                (
+                KeywordArg("w_scale"),
+            )
+        else:
+            return CallFunction(
+                aten.mul.Tensor,
+                CallFunction(
+                    aten.mul.Tensor,
                     CallFunction(
-                        aten.expand.default,
-                        KeywordArg("x_scale"),
-                        Arg(),
-                    )
-                    if expand_a_scale
-                    else KeywordArg("x_scale")
+                        prims.convert_element_type.default,
+                        CallFunction(
+                            aten._int_mm.default,
+                            CallFunction(
+                                aten.reshape.default,
+                                KeywordArg("a"),
+                                KeywordArg("in_shape"),
+                            )
+                            if reshape_a
+                            else KeywordArg("a"),
+                            KeywordArg("b"),
+                        ),
+                        KeywordArg("x_scale_dtype"),
+                    ),
+                    (
+                        CallFunction(
+                            aten.expand.default,
+                            KeywordArg("x_scale"),
+                            Arg(),
+                        )
+                        if expand_a_scale
+                        else KeywordArg("x_scale")
+                    ),
                 ),
-            ),
-            KeywordArg("w_scale"),
-        )
+                KeywordArg("w_scale"),
+            )
 
     def _with_outer_reshape(pattern):
         return CallFunction(
@@ -1812,13 +1858,39 @@ def _register_smooth_quant_int_mm_pattern():
 
     # for torch.compile(dynamic=False)
     pattern_no_bias_1 = _with_outer_reshape(get_pattern_no_bias(expand_a_scale=False))
+    pattern_no_bias_1_c1 = _with_outer_reshape(
+        get_pattern_no_bias(expand_a_scale=False, convert_a=True)
+    )
+    pattern_no_bias_1_c2 = CallFunction(
+        prims.convert_element_type.default,
+        pattern_no_bias_1_c1,
+        KeywordArg("dtype"),
+    )
     pattern_with_bias_1 = CallFunction(
         aten.add.Tensor,
         pattern_no_bias_1,
         KeywordArg("bias"),
     )
+    pattern_with_bias_1_c1 = CallFunction(
+        aten.add.Tensor,
+        pattern_no_bias_1_c1,
+        KeywordArg("bias"),
+    )
+    pattern_with_bias_1_c2 = CallFunction(
+        prims.convert_element_type.default,
+        pattern_with_bias_1_c1,
+        KeywordArg("dtype"),
+    )
     # for torch.compile(dynamic=True)
     pattern_no_bias_2 = _with_outer_reshape(get_pattern_no_bias(expand_a_scale=True))
+    pattern_no_bias_2_c1 = _with_outer_reshape(
+        get_pattern_no_bias(expand_a_scale=True, convert_a=True)
+    )
+    pattern_no_bias_2_c2 = CallFunction(
+        prims.convert_element_type.default,
+        pattern_no_bias_2_c1,
+        KeywordArg("dtype"),
+    )
     pattern_with_bias_2 = CallFunction(
         aten.reshape.default,
         CallFunction(
@@ -1831,6 +1903,24 @@ def _register_smooth_quant_int_mm_pattern():
             Arg(),
         ),
         KeywordArg("out_shape_with_bias"),
+    )
+    pattern_with_bias_2_c1 = CallFunction(
+        aten.reshape.default,
+        CallFunction(
+            aten.reshape.default,
+            CallFunction(
+                aten.add.Tensor,
+                pattern_no_bias_2_c1,
+                KeywordArg("bias"),
+            ),
+            Arg(),
+        ),
+        KeywordArg("out_shape_with_bias"),
+    )
+    pattern_with_bias_2_c2 = CallFunction(
+        prims.convert_element_type.default,
+        pattern_with_bias_2_c1,
+        KeywordArg("dtype"),
     )
 
     # The following patterns are for torchao Int8DynamicActivationInt8WeightConfig linear,
@@ -1846,7 +1936,7 @@ def _register_smooth_quant_int_mm_pattern():
     )
 
     def _validate_pattern(match: Match):
-        if len(match.nodes) not in [4, 5, 6, 7, 10]:
+        if len(match.nodes) not in [4, 5, 6, 7, 8, 9, 10, 12]:
             return False
         # Make sure weight is a constant
         aten_int_mm_node = filter_nodes(match.nodes, aten._int_mm.default)[0]
@@ -1872,9 +1962,13 @@ def _register_smooth_quant_int_mm_pattern():
         return True
 
     pattern_to_pass_number = {
+        pattern_no_bias_2_c2: 0,
         pattern_no_bias_2: 0,
+        pattern_with_bias_2_c2: 0,
         pattern_with_bias_2: 0,
+        pattern_no_bias_1_c2: 1,
         pattern_no_bias_1: 1,
+        pattern_with_bias_1_c2: 1,
         pattern_with_bias_1: 1,
         pattern1_with_no_outer_or_act_reshape: 2,
         pattern2_with_no_outer_or_act_reshape: 2,
@@ -1890,10 +1984,13 @@ def _register_smooth_quant_int_mm_pattern():
             bias = kwargs.get("bias", None)
             x = kwargs["a"]
             weight = kwargs["b"]
-            dtype = kwargs["dtype"]
+            x_scale_dtype = kwargs["x_scale_dtype"]
             x_scale = kwargs["x_scale"]
             w_scale = kwargs["w_scale"]
             x_shape = x.meta.get("tensor_meta").shape
+            dtype = kwargs.get("dtype")
+            if dtype is None:
+                dtype = x_scale_dtype
             if has_free_symbols(x_shape):
                 # For dynamic shape case, we can't get activation shape ahead of runtime.
                 x_shape = None
