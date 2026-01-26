@@ -24,11 +24,6 @@ from torchao.utils import (
 IS_CUDA = torch.cuda.is_available() and torch.version.cuda
 IS_ROCM = torch.cuda.is_available() and torch.version.hip
 
-try:
-    pass
-except RuntimeError:
-    pytest.skip("torchao.ops not available")
-
 from torchao.quantization import PerGroup, PerRow, PerTensor
 from torchao.quantization.quant_primitives import (
     _choose_scale_float8,
