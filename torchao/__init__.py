@@ -70,18 +70,20 @@ elif not ("+git" in __version__) and not ("unknown" in __version__):
     torchao_pytorch_compatible_versions = [
         # Built against torch 2.8.0
         (_parse_version("0.13.0"), _parse_version("2.8.0")),
-        (_parse_version("0.13.0"), _parse_version("2.9.0.dev")),
         (_parse_version("0.14.0"), _parse_version("2.8.0")),
-        (_parse_version("0.14.0"), _parse_version("2.9.0.dev")),
         # Built against torch 2.9.0
         (_parse_version("0.14.1"), _parse_version("2.9.0")),
         (_parse_version("0.14.1"), _parse_version("2.10.0.dev")),
         # Built against torch 2.9.1
         (_parse_version("0.15.0"), _parse_version("2.9.1")),
         (_parse_version("0.15.0"), _parse_version("2.10.0.dev")),
+        # Built against torch 2.10.0
+        (_parse_version("0.15.1"), _parse_version("2.10.0")),
+        (_parse_version("0.15.1"), _parse_version("2.11.0.dev")),
         # Current torchao version
         (_parse_version("0.16.0.dev"), _parse_version("2.9.1")),
         (_parse_version("0.16.0.dev"), _parse_version("2.10.0.dev")),
+        (_parse_version("0.16.0.dev"), _parse_version("2.11.0.dev")),
     ]
 
     current_torch_version = _parse_version(torch.__version__)
@@ -108,10 +110,15 @@ else:
     try:
         from pathlib import Path
 
+        # Load .so files
         so_files = list(Path(__file__).parent.glob("_C*.so"))
         if len(so_files) > 0:
             for file in so_files:
-                torch.ops.load_library(str(file))
+                logger.debug(f"Loading {file}")
+                try:
+                    torch.ops.load_library(str(file))
+                except Exception as e:
+                    logger.warning(f"Failed to load {file}: {e}")
             from . import ops
 
         # The following registers meta kernels for some CPU kernels

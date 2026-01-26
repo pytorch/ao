@@ -27,14 +27,9 @@ class Int4PackingFormat(str, Enum):
     PLAIN = "plain"
 
     """
-    preshuffled is referring to the preshuffled format used by fbgemm kernels
+    preshuffled is referring to the preshuffled format used by mslk kernels
     """
     PRESHUFFLED = "preshuffled"
-
-    """
-    marlin_sparse is referring to the format used by marlin kernels, requires symmetric quantization
-    """
-    MARLIN_SPARSE = "marlin_sparse"
 
     """
     plain_int32 is a format that 2 adjacent int4 values are packed in a byte and 4 such packed bytes are stored in a int32 value.

@@ -149,6 +149,22 @@ from torch.utils.cpp_extension import (
 )
 
 
+def detect_hipify_v2():
+    try:
+        from torch.utils.hipify import __version__
+
+        from packaging.version import Version
+
+        if Version(__version__) >= Version("2.0.0"):
+            return True
+    except Exception as e:
+        print(
+            "failed to detect pytorch hipify version, defaulting to version 1.0.0 behavior"
+        )
+        print(e)
+    return False
+
+
 class BuildOptions:
     def __init__(self):
         # TORCHAO_BUILD_CPU_AARCH64 is enabled by default on Arm-based Apple machines
@@ -441,11 +457,15 @@ def get_extensions():
         "-O3" if not debug_mode else "-O0",
         "-std=c++17",
     ]
+    maybe_hipify_v2_flag = []
+    if use_rocm and detect_hipify_v2():
+        maybe_hipify_v2_flag = ["-DHIPIFY_V2"]
 
     extra_link_args = []
     extra_compile_args = {
-        "cxx": [f"-DPy_LIMITED_API={min_supported_cpython_hexcode}"],
-        "nvcc": nvcc_args if use_cuda else rocm_args,
+        "cxx": [f"-DPy_LIMITED_API={min_supported_cpython_hexcode}"]
+        + maybe_hipify_v2_flag,
+        "nvcc": nvcc_args if use_cuda else rocm_args + maybe_hipify_v2_flag,
     }
 
     if not IS_WINDOWS:
@@ -491,7 +511,6 @@ def get_extensions():
             extra_compile_args["nvcc"].append("-g")
             extra_link_args.append("/DEBUG")
 
-    rocm_sparse_marlin_supported = False
     rocm_tiled_layout_supported = False
     if use_rocm:
         # naive search for hipblalst.h, if any found contain HIPBLASLT_ORDER_COL16 and VEC_EXT
@@ -568,8 +587,6 @@ def get_extensions():
         rocm_source_dirs.append(
             os.path.join(extensions_dir, "cuda", "tensor_core_tiled_layout")
         )
-    if rocm_sparse_marlin_supported:
-        rocm_source_dirs.extend([os.path.join(extensions_dir, "cuda", "sparse_marlin")])
 
     # Collect all ROCm sources from the defined directories
     rocm_sources = []
@@ -604,7 +621,6 @@ def get_extensions():
 
     use_cutlass = False
     cutlass_90a_sources = None
-    cutlass_100a_sources = None
     build_for_sm90a = False
     build_for_sm100a = False
     if use_cuda and not IS_WINDOWS:
@@ -662,19 +678,6 @@ def get_extensions():
         # Always remove sm90a sources from main sources
         sources = [s for s in sources if s not in cutlass_90a_sources]
 
-        # Always compile mx_fp_cutlass_kernels.cu ONLY with sm100a architecture
-        cutlass_100a_sources = [
-            os.path.join(
-                extensions_cuda_dir,
-                "mx_kernels",
-                "mx_fp_cutlass_kernels.cu",
-            ),
-        ]
-        # Remove from main sources to prevent compilation with other architectures
-        sources = [
-            s for s in sources if os.path.basename(s) != "mx_fp_cutlass_kernels.cu"
-        ]
-
     else:
         # Remove CUTLASS-based kernels from the sources list.  An
         # assumption is that these files will have "cutlass" in its
@@ -689,10 +692,6 @@ def get_extensions():
     ext_modules = []
     if len(sources) > 0:
         print("SOURCES", sources)
-        # Double-check to ensure mx_fp_cutlass_kernels.cu is not in sources
-        sources = [
-            s for s in sources if os.path.basename(s) != "mx_fp_cutlass_kernels.cu"
-        ]
 
         ext_modules.append(
             extension(
@@ -709,6 +708,7 @@ def get_extensions():
         mxfp8_sources = [
             os.path.join(mxfp8_extension_dir, "mxfp8_extension.cpp"),
             os.path.join(mxfp8_extension_dir, "mxfp8_cuda.cu"),
+            os.path.join(mxfp8_extension_dir, "mx_block_rearrange_2d_M_groups.cu"),
         ]
 
         # Only add the extension if the source files exist AND we are building for sm100
@@ -717,13 +717,17 @@ def get_extensions():
             print("Building mxfp8_cuda extension")
             ext_modules.append(
                 CUDAExtension(
-                    name="torchao.prototype.mxfp8_cuda",
+                    name="torchao._C_mxfp8",
                     sources=mxfp8_sources,
                     include_dirs=[
                         mxfp8_extension_dir,  # For mxfp8_quantize.cuh, mxfp8_extension.cpp, and mxfp8_cuda.cu
                     ],
                     extra_compile_args={
-                        "cxx": ["-std=c++17", "-O3"],
+                        "cxx": [
+                            f"-DPy_LIMITED_API={min_supported_cpython_hexcode}",
+                            "-std=c++17",
+                            "-O3",
+                        ],
                         "nvcc": nvcc_args
                         + [
                             "-gencode=arch=compute_100,code=sm_100",
@@ -750,27 +754,6 @@ def get_extensions():
                 cutlass_90a_sources,
                 py_limited_api=True,
                 extra_compile_args=cutlass_90a_extra_compile_args,
-                extra_link_args=extra_link_args,
-            )
-        )
-
-    # Only build the cutlass_100a extension if sm100a is in the architecture flags
-    if (
-        cutlass_100a_sources is not None
-        and len(cutlass_100a_sources) > 0
-        and build_for_sm100a
-    ):
-        cutlass_100a_extra_compile_args = copy.deepcopy(extra_compile_args)
-        # Only use sm100a architecture for these sources, ignoring cuda_arch_flags
-        cutlass_100a_extra_compile_args["nvcc"].append(
-            "-gencode=arch=compute_100a,code=sm_100a"
-        )
-        ext_modules.append(
-            extension(
-                "torchao._C_cutlass_100a",
-                cutlass_100a_sources,
-                py_limited_api=True,
-                extra_compile_args=cutlass_100a_extra_compile_args,
                 extra_link_args=extra_link_args,
             )
         )

@@ -11,6 +11,7 @@ import torch
 import torch.nn as nn
 
 from torchao.prototype.mx_formats.config import (
+    MXFP8Dim0CastKernelChoice,
     MXFP8Dim1CastKernelChoice,
     MXLinearConfig,
     MXLinearRecipeName,
@@ -86,7 +87,14 @@ elem_dtypes = (
 @pytest.mark.parametrize("bias", [True, False])
 @pytest.mark.parametrize("input_shape", [(128, 256), (1, 128, 256), (1, 1, 128, 256)])
 @pytest.mark.parametrize(
-    "mxfp8_cast_kernel_choice",
+    "mxfp8_dim0_cast_kernel_choice",
+    [
+        MXFP8Dim0CastKernelChoice.TORCH,
+        MXFP8Dim0CastKernelChoice.TRITON,
+    ],
+)
+@pytest.mark.parametrize(
+    "mxfp8_dim1_cast_kernel_choice",
     [
         MXFP8Dim1CastKernelChoice.TORCH,
         MXFP8Dim1CastKernelChoice.TRITON,
@@ -103,14 +111,22 @@ elem_dtypes = (
     ],
 )
 def test_linear_eager_vs_hp(
-    elem_dtype, bias, input_shape, mxfp8_cast_kernel_choice, scale_calculation_mode
+    elem_dtype,
+    bias,
+    input_shape,
+    mxfp8_dim0_cast_kernel_choice,
+    mxfp8_dim1_cast_kernel_choice,
+    scale_calculation_mode,
 ):
     """
     Smoke test for training linear module with mx weight, compares the following:
     * baseline: float32
     * experiment: emulated MX
     """
-    if mxfp8_cast_kernel_choice != MXFP8Dim1CastKernelChoice.TORCH:
+    if (
+        mxfp8_dim0_cast_kernel_choice != MXFP8Dim0CastKernelChoice.TORCH
+        or mxfp8_dim1_cast_kernel_choice != MXFP8Dim1CastKernelChoice.TORCH
+    ):
         if elem_dtype != (
             torch.float8_e4m3fn,
             torch.float8_e4m3fn,
@@ -120,10 +136,28 @@ def test_linear_eager_vs_hp(
         elif not is_sm_at_least_89():
             pytest.skip("CUDA capability >= 8.9 required for float8 in triton")
 
-    if mxfp8_cast_kernel_choice == MXFP8Dim1CastKernelChoice.TRITON:
-        if scale_calculation_mode != ScaleCalculationMode.FLOOR:
-            pytest.skip("unsupported configuration")
-    elif mxfp8_cast_kernel_choice == MXFP8Dim1CastKernelChoice.CUDA:
+    if mxfp8_dim0_cast_kernel_choice == MXFP8Dim0CastKernelChoice.TRITON:
+        if scale_calculation_mode not in (
+            ScaleCalculationMode.FLOOR,
+            ScaleCalculationMode.RCEIL,
+        ):
+            pytest.skip(
+                "triton mxfp8 dim0 quantization kernels only support FLOOR and RCEIL"
+            )
+        if not is_sm_at_least_100():
+            pytest.skip("triton mxfp8 dim0 quantization kernels require sm100")
+
+    if mxfp8_dim1_cast_kernel_choice == MXFP8Dim1CastKernelChoice.TRITON:
+        if scale_calculation_mode not in (
+            ScaleCalculationMode.FLOOR,
+            ScaleCalculationMode.RCEIL,
+        ):
+            pytest.skip(
+                "triton mxfp8 dim1 quantization kernels only support FLOOR and RCEIL"
+            )
+        if not is_sm_at_least_100():
+            pytest.skip("triton mxfp8 dim1 quantization kernels require sm100")
+    elif mxfp8_dim1_cast_kernel_choice == MXFP8Dim1CastKernelChoice.CUDA:
         if scale_calculation_mode not in (
             ScaleCalculationMode.FLOOR,
             ScaleCalculationMode.RCEIL,
@@ -147,7 +181,8 @@ def test_linear_eager_vs_hp(
         elem_dtype=elem_dtype[0],
         elem_dtype_weight_override=elem_dtype[1],
         elem_dtype_grad_output_override=elem_dtype[2],
-        mxfp8_cast_kernel_choice=mxfp8_cast_kernel_choice,
+        mxfp8_dim0_cast_kernel_choice=mxfp8_dim0_cast_kernel_choice,
+        mxfp8_dim1_cast_kernel_choice=mxfp8_dim1_cast_kernel_choice,
         scale_calculation_mode=scale_calculation_mode,
     )
     quantize_(m_mx, config)
@@ -270,7 +305,14 @@ def test_activation_checkpointing():
 # TODO(future PR): figure out why torch.compile does not match eager when
 # autocast is on
 @pytest.mark.parametrize(
-    "mxfp8_cast_kernel_choice",
+    "mxfp8_dim0_cast_kernel_choice",
+    [
+        MXFP8Dim0CastKernelChoice.TORCH,
+        MXFP8Dim0CastKernelChoice.TRITON,
+    ],
+)
+@pytest.mark.parametrize(
+    "mxfp8_dim1_cast_kernel_choice",
     [
         MXFP8Dim1CastKernelChoice.TORCH,
         MXFP8Dim1CastKernelChoice.TRITON,
@@ -288,7 +330,12 @@ def test_activation_checkpointing():
     ],
 )
 def test_linear_compile(
-    hp_dtype, recipe_name, bias, mxfp8_cast_kernel_choice, scale_calculation_mode
+    hp_dtype,
+    recipe_name,
+    bias,
+    mxfp8_dim0_cast_kernel_choice,
+    mxfp8_dim1_cast_kernel_choice,
+    scale_calculation_mode,
 ):
     """
     Verify that compile does not change numerics of MX linear fw + bw
@@ -307,7 +354,10 @@ def test_linear_compile(
         # TODO(future PR): fix this, things are clearly broken with bias=True
         pytest.skip("this test is broken for non-emulated recipes with bias=True")
 
-    if mxfp8_cast_kernel_choice != MXFP8Dim1CastKernelChoice.TORCH:
+    if (
+        mxfp8_dim0_cast_kernel_choice != MXFP8Dim0CastKernelChoice.TORCH
+        or mxfp8_dim1_cast_kernel_choice != MXFP8Dim1CastKernelChoice.TORCH
+    ):
         if recipe_name not in ("mxfp8_emulated", "mxfp8_cublas"):
             pytest.skip("unsupported configuration")
         if not is_sm_at_least_89():
@@ -315,10 +365,28 @@ def test_linear_compile(
         if hp_dtype != torch.bfloat16:
             pytest.skip("unsupported configuration")
 
-    if mxfp8_cast_kernel_choice == MXFP8Dim1CastKernelChoice.TRITON:
-        if scale_calculation_mode != ScaleCalculationMode.FLOOR:
-            pytest.skip("unsupported configuration")
-    elif mxfp8_cast_kernel_choice == MXFP8Dim1CastKernelChoice.CUDA:
+    if mxfp8_dim0_cast_kernel_choice == MXFP8Dim0CastKernelChoice.TRITON:
+        if scale_calculation_mode not in (
+            ScaleCalculationMode.FLOOR,
+            ScaleCalculationMode.RCEIL,
+        ):
+            pytest.skip(
+                "triton mxfp8 dim0 quantization kernels only support FLOOR and RCEIL scaling modes"
+            )
+        if not is_sm_at_least_100():
+            pytest.skip("triton mxfp8 dim0 quantization kernels require sm100")
+
+    if mxfp8_dim1_cast_kernel_choice == MXFP8Dim1CastKernelChoice.TRITON:
+        if scale_calculation_mode not in (
+            ScaleCalculationMode.FLOOR,
+            ScaleCalculationMode.RCEIL,
+        ):
+            pytest.skip(
+                "triton mxfp8 dim1 quantization kernels only support FLOOR and RCEIL scaling modes"
+            )
+        if not is_sm_at_least_100():
+            pytest.skip("triton mxfp8 dim1 quantization kernels require sm100")
+    elif mxfp8_dim1_cast_kernel_choice == MXFP8Dim1CastKernelChoice.CUDA:
         if scale_calculation_mode not in (
             ScaleCalculationMode.FLOOR,
             ScaleCalculationMode.RCEIL,
@@ -338,7 +406,8 @@ def test_linear_compile(
     if (
         hp_dtype == torch.float32
         and recipe_name == "mxfp8_emulated"
-        and mxfp8_cast_kernel_choice == MXFP8Dim1CastKernelChoice.TORCH
+        and mxfp8_dim0_cast_kernel_choice == MXFP8Dim0CastKernelChoice.TORCH
+        and mxfp8_dim1_cast_kernel_choice == MXFP8Dim1CastKernelChoice.TORCH
         and not is_sm_at_least_100()
     ):
         # TODO(future): debug this
@@ -354,7 +423,8 @@ def test_linear_compile(
         nn.Linear(K, N, bias=bias, device="cuda", dtype=hp_dtype),
     )
     config = MXLinearConfig.from_recipe_name(recipe_name)
-    config.mxfp8_cast_kernel_choice = mxfp8_cast_kernel_choice
+    config.mxfp8_dim0_cast_kernel_choice = mxfp8_dim0_cast_kernel_choice
+    config.mxfp8_dim1_cast_kernel_choice = mxfp8_dim1_cast_kernel_choice
     config.scale_calculation_mode = scale_calculation_mode
 
     quantize_(m_mx, config=config)

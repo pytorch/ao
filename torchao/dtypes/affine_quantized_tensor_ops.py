@@ -31,10 +31,6 @@ from torchao.dtypes.uintx.int4_xpu_layout import (
     _linear_fp_act_uint4_weight_int8_zero_check,
     _linear_fp_act_uint4_weight_int8_zero_impl,
 )
-from torchao.dtypes.uintx.marlin_sparse_layout import (
-    _linear_fp_act_int4_weight_sparse_marlin_check,
-    _linear_fp_act_int4_weight_sparse_marlin_impl,
-)
 from torchao.dtypes.uintx.packed_linear_int8_dynamic_activation_intx_weight_layout import (
     _linear_check as _linear_int8_act_intx_weight_packed_check,
 )
@@ -68,10 +64,6 @@ from torchao.dtypes.uintx.tensor_core_tiled_layout import (
     _linear_bf16_act_uint4_weight_check,
     _linear_bf16_act_uint4_weight_impl,
 )
-from torchao.prototype.dtypes.floatx.floatx_tensor_core_layout import (
-    _linear_f16_bf16_act_floatx_weight_check,
-    _linear_f16_bf16_act_floatx_weight_impl,
-)
 from torchao.prototype.dtypes.uintx.block_sparse_layout import (
     _linear_int8_act_int8_weight_block_sparse_check,
     _linear_int8_act_int8_weight_block_sparse_impl,
@@ -89,10 +81,6 @@ from torchao.prototype.dtypes.uintx.dyn_int8_act_int4_wei_cpu_layout import (
 from torchao.prototype.dtypes.uintx.gemlite_layout import (
     _linear_fp_act_int4_weight_gemlite_check,
     _linear_fp_act_int4_weight_gemlite_impl,
-)
-from torchao.prototype.dtypes.uintx.marlin_qqq_tensor import (
-    _linear_int8_act_int4_weight_marlin_qqq_check,
-    _linear_int8_act_int4_weight_marlin_qqq_impl,
 )
 from torchao.quantization.quant_primitives import (
     ZeroPointDomain,
@@ -203,18 +191,6 @@ def _register_aqt_quantized_linear_dispatches():
         (_linear_fp_act_fp8_weight_check, _linear_fp_act_fp8_weight_impl),
         (_linear_bf16_act_uint4_weight_check, _linear_bf16_act_uint4_weight_impl),
         (_linear_fp_act_int8_weight_check, _linear_fp_act_int8_weight_impl),
-        (
-            _linear_f16_bf16_act_floatx_weight_check,
-            _linear_f16_bf16_act_floatx_weight_impl,
-        ),
-        (
-            _linear_fp_act_int4_weight_sparse_marlin_check,
-            _linear_fp_act_int4_weight_sparse_marlin_impl,
-        ),
-        (
-            _linear_int8_act_int4_weight_marlin_qqq_check,
-            _linear_int8_act_int4_weight_marlin_qqq_impl,
-        ),
         (
             _linear_fp_act_int4_weight_gemlite_check,
             _linear_fp_act_int4_weight_gemlite_impl,

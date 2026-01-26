@@ -397,7 +397,19 @@ and dispatching to these implementations.
 
 
 def _implements(cls, aten_ops):
-    """Decorator to implement aten ops for __torch_dispatch__."""
+    """Decorator for implementing aten ops like `torch.ops.aten.linear.default` for
+    tensor subclass, the implemented functions are called in ``__torch_dispatch__`` callback
+    for ``torch.Tensor`` subclasses
+
+    Examples::
+
+        implements = MyTensor.implements
+
+        @implements(torch.ops.aten.linear.default):
+        def _(func, types, args, kwargs):
+            ...
+
+    """
     if not hasattr(cls, "_ATEN_OP_TABLE"):
         cls._ATEN_OP_TABLE = {}
     if cls not in cls._ATEN_OP_TABLE:
@@ -419,7 +431,20 @@ def _implements(cls, aten_ops):
 
 
 def _implements_torch_function(cls, torch_fns):
-    """Decorator to implement __torch_function__."""
+    """Decorator for implementing torch functions / ops
+    like ``torch.nn.functional.linear``, ``torch.Tensor.t`` for the tensor subclass
+    the implemented functions are called in ``__torch_function__`` callback
+    for ``torch.Tensor`` subclasses
+
+    Examples::
+
+        implements_torch_function = MyTensor.implements_torch_function
+
+        @implements_torch_function(torch.nn.functional.linear):
+        def _(func, types, args, kwargs):
+            ...
+
+    """
     if not hasattr(cls, "_TORCH_FN_TABLE"):
         cls._TORCH_FN_TABLE = {}
     if cls not in cls._TORCH_FN_TABLE:
@@ -657,7 +682,15 @@ def _dispatch__torch_dispatch__(cls, func, types, args, kwargs):
 
 
 def _register_layout(tensor_class: Callable, layout_class: Callable):
-    """Helper function for layout registrations, this is used to implement
+    """
+    .. deprecated:: 0.15.1
+       This method is deprecated as of version 0.15.1 since it's
+       part of the older tensor subclass development stack,
+       for information about new dev stack, please check
+       https://docs.pytorch.org/ao/main/quantization_overview.html
+       and https://docs.pytorch.org/ao/main/contributor_guide.html
+
+    Helper function for layout registrations, this is used to implement
     register_layout decorator for each tensor subclass, see aqt.py for example usage
 
     Args:
@@ -688,7 +721,15 @@ def _register_layout(tensor_class: Callable, layout_class: Callable):
 def _get_tensor_impl_constructor(
     tensor_class: Callable, layout_class: Callable
 ) -> Callable:
-    """Get TensorImpl class constructor (TensorImplClass.from_plain) for `tensor_class` based on `layout_class`
+    """
+    .. deprecated:: 0.15.1
+       This method is deprecated as of version 0.15.1 since it's
+       part of the older tensor subclass development stack,
+       for information about new dev stack, please check
+       https://docs.pytorch.org/ao/main/quantization_overview.html
+       and https://docs.pytorch.org/ao/main/contributor_guide.html
+
+    Get TensorImpl class constructor (TensorImplClass.from_plain) for `tensor_class` based on `layout_class`
     `layout_class` means the class type of subclass of `Layout`, e.g. `PlainLayout`
 
     Args:
@@ -711,6 +752,11 @@ def _get_tensor_impl_constructor(
 
 
 def _get_to_kwargs(self, *args, **kwargs):
+    """Helper function to get the device and dtype keyword args for `aten._to_copy.default` op
+    only device and dtype are kept
+
+    Returns: {"device": device, "dtype": dtype}
+    """
     # `torch._C._nn._parse_to` can't handle `layout` argument
     args = tuple(arg for arg in args if not isinstance(arg, torch.layout))
     if "layout" in kwargs:
@@ -730,65 +776,55 @@ def _get_to_kwargs(self, *args, **kwargs):
 
 
 class TorchAOBaseTensor(torch.Tensor):
-    """A util tensor subclass that provides commonly used functions
-       new tensor subclass can inherit it to get all the utility functions
+    r"""A util tensor subclass that provides commonly used functions
+    new tensor subclass can inherit to get all the utility functions
 
-       class MyTensor(TorchAOBaseTensor):
-           pass
+    Attributes (defined by subclass of ``TorchAOBaseTensor``):
 
-    This includes:
-       `_get_to_kwargs` that can get the kwargs for `to`
-            class MyTensor(TorchAOBaseTensor):
-                def to(self, *args, **kwargs):
-                    kwargs = _get_to_kwargs(*args, **kwargs)
-                    ...
-        `implements`:
-            implements = MyTensor.implements
+    * :attr:`tensor_data_names` (List[str]): list of names of all required tensor_data, order should match
+        the `__init__` list of tensor subclass (optional to define to use ``TorchAOBaseTensor``,
+        required for getting the util functions been defined (see Note section))
 
-            @implements(torch.nn.functional.linear):
-            def _(func, types, args, kwargs):
-                ...
+    * :attr:`tensor_attribute_names` (List[str]): list of names of non-``Tensor`` attributes,
+        order should match the ``__init__`` list of tensor subclass, following all the ``tensor_data_names`` arguments (optional to define to use ``TorchAOBaseTensor``, required for getting the
+        util functions been defined (see Note section))
 
-        `register_layout`:
-            register_layout = MyTensor.register_layout
+    * :attr:`optional_tensor_data_names` (List[str]): it's not required to get the
+        additional util functions been implemented, but this will be need if there are
+        some optional ``Tensor`` data attributes, when defined, this will be a list of names of ``Tensor``s that
+        can be optional
 
-            @register_layout(PlainLayout)
-            class PlainAQTTensorImpl(...):
-                ...
+    * :attr:`optional_tensor_attribute_names` (List[str]): it's not required to get the
+        additional util functions been implemented, but this will be need if there are
+        some optional non-``Tensor`` attributes, when defined, this will be a list of names of attributes
+        that can be optional
 
-         `get_tensor_impl_constructor`:
-            get_tensor_impl_constructor = MyTensor.get_tensor_impl_constructor
-            # in constructor of MyTensor:
-            tensor_impl_ctr = get_tensor_impl_constructor(type(_layout))
-            tensor_impl = tensor_impl_ctr(data, scale, zero_point, _layout)
-
-    class variables to define to simplify implmentation of tensor subclasses:
-       `tensor_data_names` (List[str]): list of names of all requires tensor_data, order should match
-          the `__init__` list of tensor subclass
-       `tensor_attribute_names` (List[str]): list of names of non-Tensor attributes,
-            order should match the `__init__` list of tensor subclass, following all the `tensor_data_names` arguments
-       `optional_tensor_data_names` (List[str]): it's optional to define this field to have the additional boilerplate functions been implemented for you, but this will be need if there are some optional Tensor data attributes, when defined, this will be a list of names of Tensors that can be optional
-       `optional_tensor_attribute_names` (List[str]): it's optional to define this field to have the additional boilerplate functions been implemented for you, but this will be need if there are some optional non-Tensor attributes, when defined, this will be a list of names of attributes that can be optional
-       Note: Argument order in __init__ and __new__ should match exaclty with tensor_data_names + tensor_attribute_names + optional_tensor_data_names (if present) + optional_tensor_attribute_names (if present)
+    Note:
+        Argument order in ``__init__`` and ``__new__`` of subclass of ``TorchAOBaseTensor`` should match exaclty with ``tensor_data_names`` + ``tensor_attribute_names`` + ``optional_tensor_data_names`` (if present) + ``optional_tensor_attribute_names`` (if present)
 
 
-    If `tensor_data_names` (torch.Tensor data attribute names) and `tensor_attribute_names` (non-torch.Tensor attribute names) are defined, there are some additional
-    functions that will be added, this includes:
-    `__tensor_flatten__`: flattens a subclassed tensor instance, returns a tuple, first element is tensor data names for valid tensor data,
-        second element is a dict from attribute_name to non-Tensor attributes
-    `__tensor_unflatten__`: takes a tensor_data_dict (a map from tensor name to Tensor), and list of non-tensor attributes, returns a new instance of the subclassed tensor
-    `_apply_fn_to_data`: takes a function (Tensor -> Tensor),  applies function to all tensor data and
-        recreate a new subclassed Tensor with the transformed tensor data
-    `__repr__`: the string representation of the subclassed tensor instance
-    `_same_metadata`: returns whether the metadata is the same between two instances of cls
-    `__setstate__`: when loading a serialized tensor subclass checkpoints, it sets the new
-    optional tensor and tensor attribute that is saved in the old checkpoint to None,
-    to maintain BC of old checkpoints when we add new optional tensor data or attributes to
-    the tensor subclass
-    torch ops: torch.Tensor.contiguous
-    aten ops: aten.detach.default, aten.clone.default, aten.alias,default, aten.contiguous.default, aten.copy_.default, aten._to_copy.default (enables t.to)
+    Note:
+        If ``tensor_data_names`` (torch.Tensor data attribute names) and ``tensor_attribute_names`` (non-torch.Tensor attribute names) are defined, there are some additional util
+        functions that will be added, this includes:
 
-    Example:
+        ``__tensor_flatten__``: flattens a subclassed tensor instance, returns a ``tuple``, first element is tensor data names for valid tensor data, second element is a dict from attribute_name to non-``Tensor`` attributes
+
+        ``__tensor_unflatten__``: takes a ``tensor_data_dict`` (a map from tensor name to ``Tensor``), and list of non-``Tensor`` attributes, returns a new instance of the subclassed tensor
+
+        ``_apply_fn_to_data``: takes a function (``Tensor -> Tensor``),  applies function to all tensor data and recreate a new subclassed Tensor with the transformed tensor data
+
+        ``__repr__``: the string representation of the subclassed tensor instance
+
+        ``_same_metadata``: returns whether the metadata is the same between two instances of cls
+
+        ``__setstate__``: when loading a serialized tensor subclass checkpoints, it sets the new optional tensor and tensor attribute that is saved in the old checkpoint to None, to maintain BC of old checkpoints when we add new optional tensor data or attributes to the tensor subclass
+
+        torch function supported (``__torch_function__``): ``torch.Tensor.contiguous``
+
+        aten ops supported (``__torch_dispatch__``): ``aten.detach.default``, ``aten.clone.default``, ``aten.alias,default``, ``aten.contiguous.default``, ``aten.copy_.default``, ``aten._to_copy.default`` (enables ``t.to``)
+
+    Examples::
+
         class MyTensor(torch.Tensor):
             tensor_data_names = ["a", "b"]
             tensor_attribute_names = ["c", "d"]
@@ -854,9 +890,11 @@ class TorchAOBaseTensor(torch.Tensor):
     _implements_common_tensor_ops = classmethod(_implements_common_tensor_ops)
     __torch_dispatch__ = classmethod(_dispatch__torch_dispatch__)
     __torch_function__ = classmethod(_dispatch__torch_function__)
+    _get_to_kwargs = _get_to_kwargs
+
+    # deprecated, will be removed later
     register_layout = classmethod(_register_layout)
     get_tensor_impl_constructor = classmethod(_get_tensor_impl_constructor)
-    _get_to_kwargs = _get_to_kwargs
 
     def __init__(self, *args, **kwargs):
         torch._C._log_api_usage_once(str(type(self)))
@@ -995,6 +1033,14 @@ class TorchAOBaseTensor(torch.Tensor):
         )
 
     def get_layout(self):
+        """
+        .. deprecated:: 0.15.1
+           This method is deprecated as of version 0.15.1 since it's
+           part of the older tensor subclass development stack,
+           for information about new dev stack, please check
+           https://docs.pytorch.org/ao/main/quantization_overview.html
+           and https://docs.pytorch.org/ao/main/contributor_guide.html
+        """
         if not hasattr(self, "_layout"):
             return None
         return self._layout
@@ -1121,6 +1167,10 @@ def ceil_div(a, b):
     return (a + b - 1) // b
 
 
+def round_up(a: int, b: int) -> int:
+    return ceil_div(a, b) * b
+
+
 def is_package_at_least(package_name: str, min_version: str):
     package_exists = importlib.util.find_spec(package_name) is not None
     if not package_exists:
@@ -1129,19 +1179,12 @@ def is_package_at_least(package_name: str, min_version: str):
     return version(package_name) >= min_version
 
 
-def _is_fbgemm_gpu_genai_available():
-    # TODO: use is_package_at_least("fbgemm_gpu", "1.2.0") when
-    # https://github.com/pytorch/FBGEMM/issues/4198 is fixed
-    if (
-        importlib.util.find_spec("fbgemm_gpu") is None
-        or importlib.util.find_spec("fbgemm_gpu.experimental") is None
-    ):
+def _is_mslk_available():
+    has_mslk = importlib.util.find_spec("mslk") is not None or is_fbcode()
+    if not has_mslk:
         return False
 
-    import fbgemm_gpu.experimental.gen_ai  # noqa: F401
-
-    if not is_fbcode() and fbgemm_gpu.__version__ < "1.2.0":
-        return False
+    import mslk  # noqa: F401
 
     return True
 

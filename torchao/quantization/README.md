@@ -3,7 +3,7 @@ Typically quantization algorithms will have different schemes for how the activa
 
 ## Accuracy benchmarks
 
-All the following benchmarks are for `meta-llama/Llama-3-8.1B` using `lm-eval` measured on an H100 GPU.
+All the following benchmarks are for `meta-llama/Llama-3.1-8B` using `lm-eval`.
 
 | weight | activation | wikitext-perplexity | winogrande | checkpoint size (GB) |
 | --------- | ------------------- | ---------- | -------------------- | -------- |
@@ -11,82 +11,73 @@ All the following benchmarks are for `meta-llama/Llama-3-8.1B` using `lm-eval` m
 | float8_rowwise | float8_rowwise | 7.4197 | 0.7388 | 9.1 |
 | int8_rowwise | bfloat16 | 7.3451 | 0.7340 | 9.1 |
 | int8_rowwise | int8_rowwise | 7.4535 | 0.7285 | 9.1 |
+| mxfp8 | mxfp8 | 7.6034 | 0.7316 | 9.32 |
+| nvfp4 | nvfp4 | 8.4459 | 0.7135 | 6.05 |
 
 To reproduce, run the following command:
 
 ```bash
-./benchmarks/quantization/eval_accuracy_for_readme.sh
+// on an H100
+SKIP_VLLM=1 ./benchmarks/quantization/measure_accuracy_and_performance.sh h100
+// on a B200
+SKIP_VLLM=1 ./benchmarks/quantization/measure_accuracy_and_performance.sh b200
 ```
 
 ## Performance benchmarks
 
-Benchmarks are gathered using the scripts for [generation](../_models/llama/generate.py).
-
-### CUDA backend |  NVIDIA-A100-80GB GPU
-| Model       | Technique               | Tokens/Second | Memory Bandwidth (GB/s) | Peak Memory (GB) |
-| ----------- | ----------------------- | ------------- | ----------------------- | ---------------- |
-| Llama-3-8B  | Base (bfloat16)         |   95.64       | 1435.54                 | 16.43            |
-|             | int8dq                  |    8.61       |   64.75                 |  9.24            |
-|             | int8wo                  |  153.03       | 1150.80                 | 10.42            |
-|             | fp6                     |  161.58       |  910.02                 |  7.72            |
-|             | int4wo-64               |  180.80       |  763.33                 |  6.88            |
-|             | int4wo-64-GPTQ          |  180.80       |  763.33                 |  6.88            |
-|             | autoquant-int4hqq       |  188.41       |  800.58                 |  7.14            |
-
-### CUDA backend | NVIDIA-H100 GPU
-| Model         | Technique               | Tokens/Second | Memory Bandwidth (GB/s) | Peak Memory (GB) |
-| -----------   | ----------------------- | ------------- | ----------------------- | ---------------- |
-| Llama-3.1-8B  | Base (bfloat16)         |  126.90       | 1904.75                 | 16.75            |
-|               | int8wo                  |  198.85       | 1495.41                 | 11.05            |
-|               | int4wo-64               |  241.39       | 1019.14                 |  7.08            |
-|               | float8wo                |  178.46       | 1339.93                 | 12.09            |
-|               | float8dq (PerTensor)    |  116.40       |  873.58                 | 11.14            |
-|               | float8dq (Per Row)      |  154.63       | 1161.47                 | 11.14            |
-
-### XPU backend | Intel-Max1100
-| Model         | Technique               | Tokens/Second | Memory Bandwidth (GB/s) | Peak Memory (GB) |
-| -----------   | ----------------------- | ------------- | ----------------------- | ---------------- |
-| Llama-3-8.1B  | Base (bfloat16)         |   40.36       | 605.77                 | 16.35            |
-|             | int8dq                  |    13.60       |   102.28                 |  18.69            |
-|             | int8wo                  |  59.49       | 447.27                 | 18.60            |
+All the following benchmarks are for `meta-llama/Llama-3.1-8B` using `torch==2.9.0` and `vllm==0.13.0`.
 
 
-Benchmarks and evaluation for model meta-llama/Meta-Llama-3.1-8B are gathered using [generation](../_models/llama/generate.py) and [eval](../_models/llama/eval.py). Evaluation was done using the lm_eval library for tasks/data.
+### NVIDIA B200
 
-note: Int8 dynamic quantization works best on compute bound models like [SAM](https://github.com/pytorch-labs/segment-anything-fast) whereas Llama with batchsize=1 tends to be memory bound, thus the rather low performance.
+| weight | activation | prefill toks/s | decode toks/s | prefill_speedup | decode_speedup |
+| ------ | ---------- | -------------- | ------------- | --------------- | -------------- |
+| bfloat16 | bfloat16 | 59099.9 | 14380 | 1 | 1 |
+| mxfp8 | mxfp8 | TODO(https://github.com/pytorch/ao/issues/3549) | - | - | - |
+| nvfp4 | nvfp4 | 102786 | 15218.9 | 1.739 | 1.058 |
+| float8_rowwise | float8_rowwise | 69313.7 | 15984 | 1.173 | 1.112 |
 
-For int4 we make heavy use of [tinygemm](https://github.com/pytorch/ao/blob/cb3bd8c674f2123af232a0231b5e38ddafa756a8/torchao/dtypes/aqt.py#L526) of `torch.ops.aten._weight_int4pack_mm` to bitpack into a layout optimized for tensor cores
+### NVIDIA H100
 
-And a quick crash course on inference quantization to help parse the above table. Int4 quantization is an ambiguous term because there's the dtype in which a layer is represented and then the dtype in which the computation is done. For example, if you're using Weight-Only (wo) int4 quantization that means that the layer will be upcasted to a larger dtype like fp16 so an int4 matrix multiplication is defined as `F.linear(input, weight.to(input.dtype))`. Dynamic quantization (DQ) primarily targets activations, enabling on-the-fly quantization from higher precision formats like bf16 to lower precision formats such as int8. This process, when supported by hardware, allows for direct computation, such as performing `F.linear(input, weight)`. Naive quantization algorithms are also notoriously sensitive to outliers so we also typically set a group size that applies a scale factor per group of 64 elements in the case of `int4wo-64`.
+| weight | activation | prefill toks/s | decode toks/s | prefill_speedup | decode_speedup |
+| ------ | ---------- | -------------- | ------------- | --------------- | -------------- |
+| bfloat16 | bfloat16 | 30946.5 | 6612 | 1 | 1 |
+| float8_rowwise | float8_rowwise | 45312.5 | 8025.95 | 1.464 | 1.214 |
+| int8_rowwwise | bfloat16 | 28231.9 | 4309.8 | 0.912 | 0.652 |
+| int4 | float8_rowwise | TODO(https://github.com/pytorch/ao/issues/3550) | - | - | - |
 
-## Evaluation
-
-You can also use the EleutherAI [LM evaluation harness](https://github.com/EleutherAI/lm-evaluation-harness) to directly evaluate models
-quantized with post training quantization, by following these steps:
-
-1. Quantize your model with a [post training quantization strategy](#post-training-quantization).
-2. Save your model to disk or upload to huggingface hub ([instructions]( https://huggingface.co/docs/transformers/main/en/quantization/torchao?torchao=manual#serialization)).
-3. [Install](https://github.com/EleutherAI/lm-evaluation-harness?tab=readme-ov-file#install) lm-eval.
-4. Run an evaluation. Example:
+To reproduce these benchmarks, run 
 
 ```bash
-lm_eval --model hf --model_args pretrained=${HF_USER}/${MODEL_ID} --tasks hellaswag --device cuda:0 --batch_size 8
-```
+// on an h100
+SKIP_LM_EVAL=1 ./benchmarks/quantization/measure_accuracy_and_performance.sh h100
+// on a b200
+SKIP_LM_EVAL=1 ./benchmarks/quantization/measure_accuracy_and_performance.sh h100
 
-Check out the lm-eval [usage docs](https://github.com/EleutherAI/lm-evaluation-harness?tab=readme-ov-file#basic-usage) for more details.
+// under the hood, the actual vllm benchmark is doing the following:
+// 1. prefill
+vllm bench throughput --num_prompts 32 --input_len 4096 --output_len 32 --max_model_len 4128
+// 2. decode
+vllm bench throughput --num_prompts 128 --input_len 32 --output_len 2048 --max_model_len 2080
+```
 
 ## Quantization Techniques
 
 #### A16W4 WeightOnly Quantization
 
 ```python
-from torchao.quantization import quantize_, Int4WeightOnlyConfig
-group_size = 32
+import torch
+from torchao.quantization import Int4WeightOnlyConfig, quantize_
 
-# you can enable [hqq](https://github.com/mobiusml/hqq/tree/master) quantization which is expected to improves accuracy through
-# by setting int4_choose_qparams_algorithm to "hqq" for `Int4WeightOnlyConfig` quantization
-use_hqq = False
-quantize_(model, Int4WeightOnlyConfig(group_size=group_size, int4_packing_format="tile_packed_to_4d", int4_choose_qparams_algorithm="hqq"))
+# Note: int4_packing_format varies by backend
+if torch.cuda.is_available():
+    # CUDA: Optimized with tile packing and HQQ
+    config = Int4WeightOnlyConfig(group_size=32, int4_packing_format="tile_packed_to_4d", int4_choose_qparams_algorithm="hqq")
+elif torch.xpu.is_available():
+    # XPU: Use plain_int32 packing
+    config = Int4WeightOnlyConfig(group_size=32, int4_packing_format="plain_int32")
+
+quantize_(model, config)
 ```
 
 Note: 
@@ -139,44 +130,6 @@ quantize_(model, Float8DynamicActivationFloat8WeightConfig(granularity=PerRow())
 
 Per-row scaling is only supported for bfloat16 weight and activation. This API is only tested on H100. Hardware with CUDA compute capability 8.9 or greater is required.
 
-#### A16W6 Floating Point WeightOnly Quantization
-
-```python
-# for torch 2.4+
-from torchao.quantization import quantize_, FPXWeightOnlyConfig
-quantize_(model, FPXWeightOnlyConfig(3, 2))
-```
-
-You can find more information [here](../dtypes/floatx/README.md). It should be noted where most other TorchAO apis and benchmarks have focused on applying techniques on top of a bf16 model, performance, fp6 works primarily with the fp16 dtype.
-
-```
-
-KleidiAI Int4 Kernels can be utilized on the Arm platform with PyTorch versions 2.6.0 or later by adjusting the quantization parameters as follows:
-
-```python
-from torchao.quantization.quant_api import (
-    Int8DynamicActivationIntxWeightConfig,
-    quantize_,
-)
-from torchao.quantization.granularity import PerGroup, PerAxis
-from torchao.quantization.quant_primitives import MappingType
-from torch.profiler import profile, ProfilerActivity, tensorboard_trace_handler
-
-my_model = Model()
-
-quantize_(
-    my_model,
-    Int8DynamicActivationIntxWeightConfig(
-        weight_scale_dtype=torch.float32,
-        weight_granularity=PerGroup(32),  # PerAxis is also supported
-        weight_mapping_type=MappingType.SYMMETRIC_NO_CLIPPING_ERR, # MappingType.SYMMETRIC can also be used but increases error
-        layout=layout,
-        weight_dtype=torch.int4,
-        intx_packing_format="opaque_aten_kleidiai",
-    ),
-)
-```
-
 #### Workaround with `unwrap_tensor_subclass` for `export`, `AOTI` and `torch.compile`
 
 If you are using pytorch 2.6 or before, you need to call `unwrap_tensor_subclass` before `torch.export.export` and `aot_compile`:
@@ -197,49 +150,6 @@ If you are using pytorch 2.4 or before, you'll also need `unwrap_tensor_subclass
 Note that the workaround is also required for `torch.compile` with `freezing` (`torch._inductor.config.freezing=True`) until https://github.com/pytorch/pytorch/pull/136265 is fixed.
 
 ## Other Available Quantization Techniques
-
-
-### Sparse-Marlin
-
-Sparse-Marlin 2:4 is an optimized GPU kernel that extends the Mixed Auto-Regressive Linear (Marlin) dense kernel to support 4-bit quantized weights and 2:4 sparsity for extremely high performance.
-
-| Model       | Technique               | Tokens/Second | Memory Bandwidth (GB/s) | Peak Memory (GB) | Model Size (GB) |
-| ----------- | ----------------------- | ------------- | ----------------------- | ---------------- | --------------- |
-| Llama-3-8B  | Base (bfloat16)         |   95.64       | 1435.54                 | 16.43            | 15.01           |
-|             | int8wo                  |  153.03       | 1150.80                 | 10.42            |  7.52           |
-|             | int4wo-64               |  180.80       |  763.33                 |  6.88            |  4.22           |
-|             | int4wo-64-sparse-marlin |  226.02       |  689.20                 |  5.32            |  3.05           |
-
-More details can be found [here](../sparsity/README.md)
-
-### Marlin QQQ
-
-Marlin QQQ is an optimized GPU kernel that supports W4A8 mixed precision GEMM. For more details about Marlin QQQ, please refer to [paper](https://arxiv.org/pdf/2406.09904).
-
-| Model       | Technique               | Tokens/Second | Memory Bandwidth (GB/s) | Peak Memory (GB) | Model Size (GB) |
-| ----------- | ----------------------- | ------------- | ----------------------- | ---------------- | --------------- |
-| Llama-2-7B  | Base (float16)          |  112.45       |  1486.00                | 13.93            | 13.21           |
-|             | w4a8                    |  197.45       |  653.50                 | 4.79            |  3.31           |
-|             | w4a8-g128               |  187.62       |  640.32                 | 4.82            |  3.41           |
-
-### Gemlite Triton
-Int4 and Int8 quantization using the [Gemlite Triton](https://github.com/mobiusml/gemlite) kernels. You can try it out with the `quantize_` api as above alongside the constructor `GemliteUIntXWeightOnlyConfig`.  An example can be found in `torchao/_models/llama/generate.py`.
-
-Note: we test on gemlite 0.4.1, but should be able to use any version after that, we'd recommend to use the latest release to get the most recent performance improvements.
-
-### UINTx Quantization
-We're trying to develop kernels for low bit quantization for intx quantization formats. While the current performance is not ideal, we're hoping to continue to iterate on these kernels to improve their performance.
-
-| Model       | Technique               | wikitext-perplexity | Tokens/Second | Memory Bandwidth (GB/s) | Peak Memory (GB) | Model Size (GB) |
-| ----------- | ----------------------- | ------------------- | ------------- | ----------------------- | ---------------- | --------------- |
-| Llama-2-7B  | Base (bfloat16)         | 12.212              | 107.38        | 1418.93                 | 13.88            | 13.21           |
-|             | uintx-4-64-hqq          | 12.775              |  50.99        |  200.08                 |  6.29            |  3.92           |
-|             | uintx-2-8-hqq           | 24.500              |  40.25        |  265.95                 |  9.24            |  6.61           |
-| Llama-3-8B  | Base (bfloat16)         |  7.441              |  95.64        | 1435.54                 | 16.43            | 15.01           |
-|             | uintx-4-64-hqq          |  8.124              |  47.85        |  213.24                 | 11.85            |  4.46           |
-|             | uintx-2-8-hqq           | 39.605              |  34.83        |  261.42                 | 14.99            |  7.51           |
-
-You try can out these apis with the `quantize_` api as above alongside the config `UIntXWeightOnlyConfig`. An example can be found in  in `torchao/_models/llama/generate.py`.
 
 ### Int8DynamicActivationIntxWeightConfig Quantization
 We have kernels that do 8-bit dynamic quantization of activations and uintx groupwise quantization of weights.  These kernels are experimental and can only be run on a device with an ARM CPU (e.g., a Mac computers with Apple silicon).  The benchmarks below were run on an M1 Mac Pro, with 8 perf cores, and 2 efficiency cores, and 32GB of RAM.  In all cases, torch.compile was used.
@@ -346,7 +256,6 @@ The following support matrix illustrates the relationship between layouts and ze
 |------|---------------|-----|---|
 |TensorCoreTiledLayout| Yes | Yes(Default) | No|
 |Int4CPULayout | Yes | Yes(Default) | No |
-|MarlinSparseLayout | No | No | Yes(Default) |
 
 
 ### Full Affine Quantization Flow Example
@@ -431,6 +340,24 @@ We've added kv cache quantization and other features in order to enable long con
 
 In practice these features alongside int4 weight only quantization allow us to **reduce peak memory by ~55%**, meaning we can Llama3.1-8B inference with a **130k context length with only 18.9 GB of peak memory.** More details can be found [here](../../torchao/_models/llama/README.md#KV-Cache-Quantization-Memory-Efficient-Inference)
 
+### Gemlite Triton
+Int4 and Int8 quantization using the [Gemlite Triton](https://github.com/mobiusml/gemlite) kernels. You can try it out with the `quantize_` api as above alongside the constructor `GemliteUIntXWeightOnlyConfig`.  An example can be found in `torchao/_models/llama/generate.py`.
+
+Note: we test on gemlite 0.4.1, but should be able to use any version after that, we'd recommend to use the latest release to get the most recent performance improvements.
+
+### UINTx Quantization
+We're trying to develop kernels for low bit quantization for intx quantization formats. While the current performance is not ideal, we're hoping to continue to iterate on these kernels to improve their performance.
+
+| Model       | Technique               | wikitext-perplexity | Tokens/Second | Memory Bandwidth (GB/s) | Peak Memory (GB) | Model Size (GB) |
+| ----------- | ----------------------- | ------------------- | ------------- | ----------------------- | ---------------- | --------------- |
+| Llama-2-7B  | Base (bfloat16)         | 12.212              | 107.38        | 1418.93                 | 13.88            | 13.21           |
+|             | uintx-4-64-hqq          | 12.775              |  50.99        |  200.08                 |  6.29            |  3.92           |
+|             | uintx-2-8-hqq           | 24.500              |  40.25        |  265.95                 |  9.24            |  6.61           |
+| Llama-3-8B  | Base (bfloat16)         |  7.441              |  95.64        | 1435.54                 | 16.43            | 15.01           |
+|             | uintx-4-64-hqq          |  8.124              |  47.85        |  213.24                 | 11.85            |  4.46           |
+|             | uintx-2-8-hqq           | 39.605              |  34.83        |  261.42                 | 14.99            |  7.51           |
+
+You try can out these apis with the `quantize_` api as above alongside the config `UIntXWeightOnlyConfig`. An example can be found in  in `torchao/_models/llama/generate.py`.
     
 </details>
 

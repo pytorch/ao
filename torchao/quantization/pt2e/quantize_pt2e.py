@@ -11,8 +11,6 @@ from torchao.utils import torch_version_at_least
 if torch_version_at_least("2.7.0"):
     from .constant_fold import constant_fold
 
-from typing import Union
-
 from torch.fx import GraphModule, Node
 from torch.fx.passes.infra.pass_manager import PassManager
 
@@ -41,7 +39,7 @@ __all__ = [
 
 def prepare_pt2e(
     model: GraphModule,
-    quantizer: Union[Quantizer, torch.ao.quantization.quantizer.quantizer.Quantizer],
+    quantizer: Quantizer,
 ) -> GraphModule:
     """Prepare a model for post training quantization
 
@@ -97,15 +95,6 @@ def prepare_pt2e(
         # run calibration
         # calibrate(m, sample_inference_data)
     """
-    # We will temporarily make prepare_pt2e backward compatible with quantizers that configs, observers,
-    # and fake quantizers from torch.ao instead of torchao
-    if isinstance(quantizer, torch.ao.quantization.quantizer.quantizer.Quantizer):
-        from torch.ao.quantization.quantize_pt2e import (
-            prepare_pt2e as torch_prepare_pt2e,
-        )
-
-        return torch_prepare_pt2e(model, quantizer)
-
     torch._C._log_api_usage_once("torchao.quantization.pt2e.prepare_pt2e")
     original_graph_meta = model.meta
     node_name_to_scope = _get_node_name_to_scope(model)
@@ -129,7 +118,7 @@ def prepare_pt2e(
 
 def prepare_qat_pt2e(
     model: GraphModule,
-    quantizer: Union[Quantizer, torch.ao.quantization.quantizer.quantizer.Quantizer],
+    quantizer: Quantizer,
 ) -> GraphModule:
     """Prepare a model for quantization aware training
 
@@ -183,15 +172,6 @@ def prepare_qat_pt2e(
         train_loop(prepared_model, train_loop)
 
     """
-    # We will temporarily make prepare_qat_pt2e backward compatible with quantizers that configs, observers,
-    # and fake quantizers from torch.ao instead of torchao
-    if isinstance(quantizer, torch.ao.quantization.quantizer.quantizer.Quantizer):
-        from torch.ao.quantization.quantize_pt2e import (
-            prepare_qat_pt2e as torch_prepare_qat_pt2e,
-        )
-
-        return torch_prepare_qat_pt2e(model, quantizer)
-
     torch._C._log_api_usage_once("torchao.quantization.pt2e.prepare_qat_pt2e")
     original_graph_meta = model.meta
     node_name_to_scope = _get_node_name_to_scope(model)
@@ -295,15 +275,6 @@ def convert_pt2e(
         quantized_model = convert_pt2e(prepared_model)
 
     """
-    # We will temporarily make convert_pt2e backward compatible with quantizers that configs, observers,
-    # and fake quantizers from torch.ao instead of torchao
-    if not _is_torchao_prepared_do_not_use_outside_this_file(model):
-        from torch.ao.quantization.quantize_pt2e import (
-            convert_pt2e as torch_convert_pt2e,
-        )
-
-        return torch_convert_pt2e(model, use_reference_representation, fold_quantize)
-
     torch._C._log_api_usage_once("torchao.quantization.pt2e.convert_pt2e")
     if not isinstance(use_reference_representation, bool):
         raise ValueError(

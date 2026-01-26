@@ -14,8 +14,19 @@ The microbenchmarking system works as follows:
 
 - **benchmark_runner.py**: Main entry point that orchestrates the benchmarking process
 - **benchmark_inference.py**: Handles model creation and inference benchmarking
+- **profiler.py**: Handles profiling functionality including memory and performance profiling
 - **utils.py**: Contains utility functions and configuration classes
 - **test\/**: Test files and sample configurations
+
+### CI Integration
+
+For running benchmarks in CI environments, use the dedicated CI runner:
+
+```bash
+python benchmarks/dashboard/ci_microbenchmark_runner.py --config benchmarks/dashboard/microbenchmark_quantization_config.yml
+```
+
+The CI runner (`benchmarks/dashboard/ci_microbenchmark_runner.py`) reuses functionality from `benchmark_runner.py` and outputs results in the PyTorch OSS benchmark database format. See `benchmarks/dashboard/microbenchmark_quantization_config.yml` for the CI configuration example.
 
 ## Usage
 
@@ -69,8 +80,12 @@ model_params:
 Currently, quantization string is in same format as the one being passed in llama/generate.py.
 - `baseline`: No quantization
 - `int8wo`: 8-bit weight-only quantization
+- `int8dq`: 8-bit dynamic quantization (both weights and activations)
 - `int4wo-{group_size}`: 4-bit weight-only quantization with specified group size
 - `int4wo-{group_size}-hqq`: 4-bit weight-only quantization with HQQ
+- `float8wo`: FP8 weight-only quantization
+- `float8dq-tensor`: FP8 dynamic quantization with tensor-wise scaling
+- `float8dq-row`: FP8 dynamic quantization with row-wise scaling
 - `gemlitewo-{bit_width}-{group_size}`: 4 or 8 bit integer quantization and utilizes the gemlite triton kernel
 
 ### Model Types
@@ -107,6 +122,36 @@ Currently, quantization string is in same format as the one being passed in llam
   ```yaml
   matrix_shapes:
     - name: "llama"
+  ```
+
+- `llama4`: Use LLaMa 4 405B model weight shapes
+  ```yaml
+  matrix_shapes:
+    - name: "llama4"
+  ```
+
+- `deepseek_v3_236b`: Use DeepSeek V3 236B model weight shapes
+  ```yaml
+  matrix_shapes:
+    - name: "deepseek_v3_236b"
+  ```
+
+- `deepseek_v3_671b`: Use DeepSeek V3 671B model weight shapes
+  ```yaml
+  matrix_shapes:
+    - name: "deepseek_v3_671b"
+  ```
+
+- `qwen3_32b`: Use Qwen3 32B model weight shapes
+  ```yaml
+  matrix_shapes:
+    - name: "qwen3_32b"
+  ```
+
+- `gemma3_27b`: Use Gemma3 27B model weight shapes
+  ```yaml
+  matrix_shapes:
+    - name: "gemma3_27b"
   ```
 
 - `pow2`: Generate shapes with dimensions that are powers of 2

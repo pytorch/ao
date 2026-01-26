@@ -1,4 +1,3 @@
-import logging
 from typing import Tuple
 
 import torch
@@ -10,6 +9,7 @@ from torch.library import triton_op, wrap_triton
 from torchao.prototype.mx_formats.utils import to_blocked
 from torchao.utils import (
     ceil_div,
+    is_cuda_version_at_least,
     is_sm_at_least_100,
 )
 
@@ -93,6 +93,7 @@ def torch_to_blocked_2d_K_groups(
         blocked_scales: Tensor
         start_row_after_padding: Tensor of shape (num_groups,) which contains the start row after padding for each group.
     """
+    # TODO: add diagram of this transformation to the docs, and link in the docstring
     assert x_scales.ndim == 2, "x_scales must be 2D"
     assert block_size == 32, "Only block_size=32 is supported for now"
     M, total_K = x_scales.shape
@@ -100,10 +101,14 @@ def torch_to_blocked_2d_K_groups(
     num_groups = group_offs.shape[0]
 
     # Each group will require a variable amount of padding, so to avoid d2h sync causing by iterating over each group,
-    # Triton kernel will use an upper bound of adding 4 padding cols to each group.
-    # (This torch impl is used as a reference for correctness, so we must match the triton kernel's impl).
     total_K_padded = total_K + num_groups * 4
     blocked_scales = x_scales.new_zeros(padded_M, total_K_padded)
+
+    # Flattened view for easier indexing when writing to subregions of memory
+    blocked_scales_flat = blocked_scales.view(-1)
+
+    BLOCK_ROWS, BLOCK_COLS = 128, 4
+    output_stride_per_block = BLOCK_ROWS * BLOCK_COLS  # 512
 
     start_col_after_padding_list = [0]
     group_start_idx = 0
@@ -119,14 +124,37 @@ def torch_to_blocked_2d_K_groups(
         group_scales_blocked = to_blocked(group_scales)
         cols_after_padding = ceil_div(group_size, 4) * 4
 
-        # Write output to subtensor
-        blocked_scales[
-            :,
-            prev_start_col_after_padding : prev_start_col_after_padding
-            + cols_after_padding,
-        ] = group_scales_blocked.reshape(-1, cols_after_padding)
+        num_row_blocks = ceil_div(M, 128)
+        num_col_blocks = cols_after_padding // 4
 
-        # Calculate the start row after padding
+        # Reshape blocked scales from flattened format to (num_row_blocks, num_col_blocks, ...)
+        # so we can write each SF tile to its output buffer individually.
+        group_scales_reshaped = group_scales_blocked.view(
+            num_row_blocks, num_col_blocks, -1
+        )
+        out_group_base_offset = prev_start_col_after_padding * padded_M
+
+        # For each SF tile, write to the output tensor
+        for row_block in range(num_row_blocks):
+            for col_block in range(num_col_blocks):
+                block_data = group_scales_reshaped[row_block, col_block]
+
+                stride_per_row_of_blocks_in_group = (
+                    num_col_blocks * output_stride_per_block
+                )
+                offset_in_group = (
+                    row_block * stride_per_row_of_blocks_in_group
+                    + col_block * output_stride_per_block
+                )
+                final_offset = out_group_base_offset + offset_in_group
+
+                # flattened (512,) for (128,4) sf tile
+                block_flat = block_data.reshape(-1)
+                blocked_scales_flat[
+                    final_offset : final_offset + output_stride_per_block
+                ] = block_flat
+
+        # Calculate the start col after padding
         new_start_col = prev_start_col_after_padding + cols_after_padding
         start_col_after_padding_list.append(new_start_col)
 
@@ -673,24 +701,17 @@ def _blocked_group_start_idx(
     return group_start_idx
 
 
-mxfp8_cuda_extension_available = False
-if is_sm_at_least_100():
-    try:
-        # MXFP8 CUDA kernel is only built on SM100+. Furthermore,
-        # currently our CI runners are not SM100+, so the user needs to build
-        # from source.
-        # TODO(#2932): improve this
-        from torchao.prototype import mxfp8_cuda
-
-        mxfp8_cuda_extension_available = True
-    except ImportError:
-        logging.debug("Skipping import of torchao.prototype.mxfp8_cuda")
+mxfp8_cuda_extension_available = is_sm_at_least_100() and is_cuda_version_at_least(
+    12, 8
+)
 
 if mxfp8_cuda_extension_available:
-    # TODO: Make `scaling_mode` a choice (enum-like) rather than arbitrary string.
-    # Currently we have to use an arbitrary string because custom ops don't support enum
-    # params.
-    @torch.library.custom_op("torchao::mxfp8_quantize_cuda_3d", mutates_args=())
+    lib = torch.library.Library("torchao", "FRAGMENT")
+    lib.define(
+        "mxfp8_quantize_3d(Tensor input, int scale_dim_n, str fp8_format, str scaling_mode) -> (Tensor, Tensor)",
+        tags=[torch._C.Tag.needs_fixed_stride_order],
+    )
+
     def mxfp8_quantize_cuda_3d(
         x: torch.Tensor,
         block_size: int = 32,
@@ -699,41 +720,111 @@ if mxfp8_cuda_extension_available:
         """
         Quantizes a 3D tensor of shape (E,N,K) to MXFP8 format, scaling along N.
 
+        This is a high-level wrapper that calls the underlying CUDA kernel via
+        torch.ops.torchao.mxfp8_quantize_3d.
+
         Args:
             x (torch.Tensor): Input tensor to be quantized.
             block_size (int, optional): Block size for quantization. Defaults to 32.
             scaling_mode (str, optional): Scaling mode for quantization. Defaults to "floor".
 
         Returns:
-            torch.Tensor: quantized tensor
+            torch.Tensor: quantized tensor in column-major layout
             torch.Tensor: scales tensor
         """
         assert x.ndim == 3, "Input tensor must be 3D"
-        assert x.dtype in (torch.float32, torch.bfloat16), (
-            "Input tensor must be float32 or bfloat16"
+        assert x.dtype in (
+            torch.float32,
+            torch.bfloat16,
+        ), "Input tensor must be float32 or bfloat16"
+        return torch.ops.torchao.mxfp8_quantize_3d.default(
+            x, block_size, "e4m3", scaling_mode
         )
-        q_data, scales = mxfp8_cuda.quantize_3d(
-            x, scale_dim_n=block_size, scaling_mode=scaling_mode
-        )
-        return q_data, scales
 
-    @mxfp8_quantize_cuda_3d.register_fake
-    def _fake_mxfp8_quantize_cuda_3d(
+    @torch.library.register_fake("torchao::mxfp8_quantize_3d")
+    def _fake_mxfp8_quantize_3d(
         x: torch.Tensor,
-        block_size: int = 32,
-        scaling_mode: str = "floor",
+        scale_dim_n: int,
+        fp8_format: str,
+        scaling_mode: str,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Fake/meta implementation for mxfp8_quantize_3d."""
         assert x.ndim == 3, "Input tensor must be 3D"
-        assert x.dtype in (torch.float32, torch.bfloat16), (
-            "Input tensor must be float32 or bfloat16"
-        )
         E, N, K = x.shape
-        # Quantized tensor is in column major layouts
+        # Quantized tensor is in column major layout
         q_data = x.new_empty(x.shape, dtype=torch.float8_e4m3fn).as_strided(
             x.shape, (N * K, 1, N)
         )
-        scales = x.new_empty((E, N // block_size, K), dtype=torch.float8_e8m0fnu)
+        scales = x.new_empty((E, N // scale_dim_n, K), dtype=torch.float8_e8m0fnu)
         return q_data, scales
+
+    # CUDA kernel for per group blocked layout transform with groups along M
+    lib.define(
+        "mx_block_rearrange_2d_M_groups(Tensor scales_tensor, Tensor input_group_end_offsets, int chunks_per_tb) -> Tensor",
+        tags=[torch._C.Tag.needs_fixed_stride_order],
+    )
+
+    def mx_block_rearrange_2d_M_groups_cuda(
+        scales_tensor: torch.Tensor,
+        input_group_end_offsets: torch.Tensor,
+        chunks_per_tb: int = 4,
+    ) -> torch.Tensor:
+        """
+        Rearranges an E8M0 tensor scale to block-scaled swizzle format using CUDA,
+        where groups are along the total_M dimension (rows).
+
+        This is a high-level wrapper that calls the underlying CUDA kernel via
+        torch.ops.torchao.mx_block_rearrange_2d_M_groups.
+
+        This format is suitable for Tmem as described in NVIDIA documentation:
+        https://docs.nvidia.com/cuda/cublas/index.html#d-block-scaling-factors-layout
+
+        Args:
+            scales_tensor: Input tensor containing e8m0 scales for each logical group of a target tensor.
+                Must be 2D with dtype uint8 or float8_e8m0fnu.
+            input_group_end_offsets: tensor of int32 values representing group end indexes for the input scales.
+            chunks_per_tb: Number of 128-row chunks per threadblock (1, 4, 8, or 16)
+
+        Returns:
+            Rearranged tensor in block-scaled swizzle format with shape (padded_rows, padded_cols).
+        """
+        assert scales_tensor.ndim == 2, "scales_tensor must be 2D"
+        assert scales_tensor.dtype in (
+            torch.uint8,
+            torch.float8_e8m0fnu,
+        ), "scales_tensor must be uint8 or float8_e8m0fnu"
+        assert input_group_end_offsets.dtype == torch.int32, (
+            "input_group_end_offsets must be int32"
+        )
+        assert chunks_per_tb in (1, 4, 8, 16), "chunks_per_tb must be 1, 4, 8, or 16"
+
+        return torch.ops.torchao.mx_block_rearrange_2d_M_groups.default(
+            scales_tensor,
+            input_group_end_offsets,
+            chunks_per_tb,
+        )
+
+    @torch.library.register_fake("torchao::mx_block_rearrange_2d_M_groups")
+    def _fake_mx_block_rearrange_2d_M_groups_cuda(
+        scales_tensor: torch.Tensor,
+        input_group_end_offsets: torch.Tensor,
+        chunks_per_tb: int,
+    ) -> torch.Tensor:
+        """Fake/meta implementation for mx_block_rearrange_2d_M_groups."""
+        assert scales_tensor.ndim == 2, "scales_tensor must be 2D"
+        rows, cols = scales_tensor.shape
+        num_groups = input_group_end_offsets.shape[0]
+
+        # Each group is padded to 128 rows upper bound
+        BLOCK_ROWS = 128
+        BLOCK_COLS = 4
+        padded_rows = rows + num_groups * BLOCK_ROWS
+
+        # Columns are padded to multiple of BLOCK_COLS
+        num_col_blocks = ceil_div(cols, BLOCK_COLS)
+        padded_cols = num_col_blocks * BLOCK_COLS
+
+        return scales_tensor.new_empty((padded_rows, padded_cols))
 
 else:
 
@@ -744,4 +835,13 @@ else:
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         raise NotImplementedError(
             "mxfp8_quantize_cuda_3d is not implemented on this device"
+        )
+
+    def mx_block_rearrange_2d_M_groups_cuda(
+        scales_tensor: torch.Tensor,
+        input_group_end_offsets: torch.Tensor,
+        chunks_per_tb: int = 8,
+    ) -> torch.Tensor:
+        raise NotImplementedError(
+            "mx_block_rearrange_2d_M_groups_cuda is not implemented on this device"
         )

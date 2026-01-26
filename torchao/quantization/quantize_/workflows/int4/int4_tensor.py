@@ -20,7 +20,7 @@ aten = torch.ops.aten
 
 
 try:
-    from fbgemm_gpu.experimental.gen_ai.quantize import int4_row_quantize_zp, pack_int4
+    from mslk.quantize.shuffle import int4_row_quantize_zp, pack_int4
 except:
     int4_row_quantize_zp = None
     pack_int4 = None
@@ -98,7 +98,7 @@ class Int4Tensor(TorchAOBaseTensor):
             f"Expecting the length of block_size to be equal to the dimension of the weight, got {block_size=} and {w.ndim=}"
         )
         if int4_row_quantize_zp is None:
-            raise ImportError("Requires fbgemm-gpu-genai >= 1.2.0")
+            raise ImportError("Requires mslk >= 1.0.0")
 
         assert all(x == 1 for x in block_size[:-1]) and block_size[-1] != 1, (
             "Only groupwise quant is supported right now"
@@ -158,7 +158,7 @@ def _(func, types, args, kwargs):
     orig_out_features = weight_tensor.shape[-2]
 
     input_tensor = input_tensor.reshape(-1, input_tensor.shape[-1])
-    res = torch.ops.fbgemm.bf16i4bf16_rowwise(
+    res = torch.ops.mslk.bf16i4bf16_rowwise(
         input_tensor,
         weight_tensor.qdata,
         weight_tensor.scale,
@@ -184,7 +184,7 @@ def _(func, types, args, kwargs):
 
     orig_act_size = input_tensor.size()
     orig_out_features = weight_tensor.shape[-2]
-    res = torch.ops.fbgemm.bf16i4bf16_rowwise_batched(
+    res = torch.ops.mslk.bf16i4bf16_rowwise_batched(
         input_tensor,
         weight_tensor.qdata,
         weight_tensor.scale,

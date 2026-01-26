@@ -54,6 +54,13 @@ except ImportError:
             "min_input_grad_sqnr": 29.0,
             "min_param_grad_sqnr": 21.0,
         },
+        {
+            "recipe": MoEScalingType.MXFP8_WGRAD_WITH_HP,
+            "group_alignment_size": 32,
+            "min_out_sqnr": 28.0,
+            "min_input_grad_sqnr": 29.0,
+            "min_param_grad_sqnr": 25.0,
+        },
     ],
 )
 def test_moe_training(target_fqns: list[str], compile: bool, recipe_config: dict):
@@ -79,7 +86,10 @@ def test_moe_training(target_fqns: list[str], compile: bool, recipe_config: dict
             f"Skipping FP8 rowwise tests, only supported on compute capability 9.0 and found {torch.cuda.get_device_capability()}"
         )
 
-    elif recipe == MoEScalingType.MXFP8 and torch.cuda.get_device_capability() != (
+    elif recipe in (
+        MoEScalingType.MXFP8,
+        MoEScalingType.MXFP8_WGRAD_WITH_HP,
+    ) and torch.cuda.get_device_capability() != (
         10,
         0,
     ):
