@@ -228,9 +228,9 @@ class TestQuantFlow(TestCase):
         api(m2)
 
         m2.load_state_dict(state_dict)
-        _DEVICE = get_current_accelerator_device()
-        m2 = m2.to(_DEVICE)
-        example_inputs = map(lambda x: x.to(_DEVICE), example_inputs)
+        device = get_current_accelerator_device()
+        m2 = m2.to(device)
+        example_inputs = map(lambda x: x.to(device), example_inputs)
         res = m2(*example_inputs)
 
         # TODO: figure out why ROCm has a larger error
@@ -327,17 +327,17 @@ class TestQuantFlow(TestCase):
         quantize_(m, Int8WeightOnlyConfig())
         ref = m(*example_inputs)
 
-        _DEVICE = get_current_accelerator_device()
-        example_inputs_cuda = (example_inputs[0].to(_DEVICE),)
-        m.to(_DEVICE)
+        device = get_current_accelerator_device()
+        example_inputs_cuda = (example_inputs[0].to(device),)
+        m.to(device)
         cuda_res = m(*example_inputs_cuda)
         self.assertEqual(cuda_res.cpu(), ref)
 
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test_quantized_tensor_subclass_save_load_map_location(self):
-        _DEVICE = get_current_accelerator_device()
-        m = ToyLinearModel().eval().to(dtype=torch.bfloat16, device=_DEVICE)
-        example_inputs = m.example_inputs(dtype=torch.bfloat16, device=_DEVICE)
+        device = get_current_accelerator_device()
+        m = ToyLinearModel().eval().to(dtype=torch.bfloat16, device=device)
+        example_inputs = m.example_inputs(dtype=torch.bfloat16, device=device)
 
         quantize_(m, Int8WeightOnlyConfig())
         ref = m(*example_inputs)
@@ -350,15 +350,15 @@ class TestQuantFlow(TestCase):
             m_copy = ToyLinearModel().eval()
 
         m_copy.load_state_dict(state_dict, assign=True)
-        m_copy.to(dtype=torch.bfloat16, device=_DEVICE)
+        m_copy.to(dtype=torch.bfloat16, device=device)
 
         res = m_copy(*example_inputs)
         self.assertEqual(res, ref)
 
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test_quantized_model_streaming(self):
-        _DEVICE = get_current_accelerator_device()
-        device_module = torch.get_device_module(_DEVICE)
+        device = get_current_accelerator_device()
+        device_module = torch.get_device_module(device)
 
         def reset_memory():
             gc.collect()
@@ -367,17 +367,17 @@ class TestQuantFlow(TestCase):
 
         reset_memory()
         m = ToyLinearModel()
-        quantize_(m.to(device=_DEVICE), Int8WeightOnlyConfig())
+        quantize_(m.to(device=device), Int8WeightOnlyConfig())
         memory_baseline = device_module.max_memory_allocated()
 
         del m
         reset_memory()
         m = ToyLinearModel()
-        quantize_(m, Int8WeightOnlyConfig(), device=_DEVICE)
+        quantize_(m, Int8WeightOnlyConfig(), device=device)
         memory_streaming = device_module.max_memory_allocated()
 
         for param in m.parameters():
-            assert param.device.type == _DEVICE.type
+            assert param.device.type == device.type
         self.assertLess(memory_streaming, memory_baseline)
 
     # TODO(#1690): move to new config names
@@ -417,11 +417,11 @@ class TestQuantFlow(TestCase):
             dtype = torch.float16
 
         # set up inputs
-        _DEVICE = get_current_accelerator_device()
-        x = torch.randn(128, 128, device=_DEVICE, dtype=dtype)
+        device = get_current_accelerator_device()
+        x = torch.randn(128, 128, device=device, dtype=dtype)
         # TODO(future): model in float32 leads to error: https://gist.github.com/vkuzo/63b3bcd7818393021a6e3fb4ccf3c469
         # is that expected?
-        m_ref = torch.nn.Sequential(torch.nn.Linear(128, 128)).to(_DEVICE).to(dtype)
+        m_ref = torch.nn.Sequential(torch.nn.Linear(128, 128)).to(device).to(dtype)
         m_q = copy.deepcopy(m_ref)
 
         # quantize
@@ -440,9 +440,9 @@ class TestQuantFlow(TestCase):
         config1 = Float8DynamicActivationFloat8WeightConfig()
         config2 = Int8WeightOnlyConfig()
         config = ModuleFqnToConfig({"_default": config1, "linear2": config2})
-        _DEVICE = get_current_accelerator_device()
-        model = ToyLinearModel().to(_DEVICE).to(dtype=torch.bfloat16)
-        example_inputs = model.example_inputs(device=_DEVICE, dtype=torch.bfloat16)
+        device = get_current_accelerator_device()
+        model = ToyLinearModel().to(device).to(dtype=torch.bfloat16)
+        example_inputs = model.example_inputs(device=device, dtype=torch.bfloat16)
         quantize_(model, config, filter_fn=None)
         model(*example_inputs)
         assert isinstance(model.linear1.weight, Float8Tensor)
@@ -455,9 +455,9 @@ class TestQuantFlow(TestCase):
         config1 = Float8DynamicActivationFloat8WeightConfig()
         config2 = Int8WeightOnlyConfig()
         config = ModuleFqnToConfig({"linear1": config1, "linear2": config2})
-        _DEVICE = get_current_accelerator_device()
-        model = ToyLinearModel().to(_DEVICE).to(dtype=torch.bfloat16)
-        example_inputs = model.example_inputs(device=_DEVICE, dtype=torch.bfloat16)
+        device = get_current_accelerator_device()
+        model = ToyLinearModel().to(device).to(dtype=torch.bfloat16)
+        example_inputs = model.example_inputs(device=device, dtype=torch.bfloat16)
         quantize_(model, config, filter_fn=None)
         model(*example_inputs)
         assert isinstance(model.linear1.weight, Float8Tensor)
@@ -594,9 +594,9 @@ class TestQuantFlow(TestCase):
     def test_module_fqn_to_config_skip(self):
         config1 = Float8DynamicActivationFloat8WeightConfig()
         config = ModuleFqnToConfig({"_default": config1, "linear2": None})
-        _DEVICE = get_current_accelerator_device()
-        model = ToyLinearModel().to(_DEVICE).to(dtype=torch.bfloat16)
-        example_inputs = model.example_inputs(device=_DEVICE, dtype=torch.bfloat16)
+        device = get_current_accelerator_device()
+        model = ToyLinearModel().to(device).to(dtype=torch.bfloat16)
+        example_inputs = model.example_inputs(device=device, dtype=torch.bfloat16)
         quantize_(model, config, filter_fn=None)
         model(*example_inputs)
         assert isinstance(model.linear1.weight, Float8Tensor)
@@ -699,8 +699,8 @@ class TestFqnToConfig(TestCase):
         config = AutoConfig.from_pretrained(
             "unsloth/Llama-4-Scout-17B-16E-Instruct"
         ).text_config
-        _DEVICE = get_current_accelerator_device()
-        model = Llama4TextMoe(config).to(torch.bfloat16).to(_DEVICE)
+        device = get_current_accelerator_device()
+        model = Llama4TextMoe(config).to(torch.bfloat16).to(device)
 
         quant_config = FqnToConfig(
             {
@@ -947,8 +947,8 @@ class TestFqnToConfig(TestCase):
 
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test_quantized_model_streaming_fqn_config(self):
-        _DEVICE = get_current_accelerator_device()
-        device_module = torch.get_device_module(_DEVICE)
+        device = get_current_accelerator_device()
+        device_module = torch.get_device_module(device)
 
         def reset_memory():
             gc.collect()
@@ -958,17 +958,17 @@ class TestFqnToConfig(TestCase):
         quant_config = FqnToConfig({"_default": Int8WeightOnlyConfig()})
         reset_memory()
         m = ToyLinearModel()
-        quantize_(m.to(device=_DEVICE), quant_config, filter_fn=None)
+        quantize_(m.to(device=device), quant_config, filter_fn=None)
         memory_baseline = device_module.max_memory_allocated()
 
         del m
         reset_memory()
         m = ToyLinearModel()
-        quantize_(m, quant_config, device=_DEVICE, filter_fn=None)
+        quantize_(m, quant_config, device=device, filter_fn=None)
         memory_streaming = device_module.max_memory_allocated()
 
         for param in m.parameters():
-            assert param.device.type == _DEVICE.type
+            assert param.device.type == device.type
         self.assertLess(memory_streaming, memory_baseline)
 
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")

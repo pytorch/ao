@@ -598,9 +598,9 @@ class TestQuantPrimitives(unittest.TestCase):
     )
     def test_get_group_qparams_symmetric_memory(self):
         """Check the memory usage of the op"""
-        _DEVICE = get_current_accelerator_device()
-        weight = torch.randn(1024, 1024).to(device=_DEVICE)
-        device_module = torch.get_device_module(_DEVICE)
+        device = get_current_accelerator_device()
+        weight = torch.randn(1024, 1024).to(device=device)
+        device_module = torch.get_device_module(device)
         original_mem_use = device_module.memory_allocated()
         n_bit = 4
         groupsize = 128

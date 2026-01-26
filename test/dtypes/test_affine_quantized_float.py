@@ -154,8 +154,7 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
     @common_utils.parametrize("block_size", [(8, 64), (1, 32), (2, 16), (4, 8)])
     def test_dequantize_affine_float8(self, float8_dtype, output_dtype, block_size):
         """Test _dequantize_affine_float8 with various configurations"""
-        _DEVICE = get_current_accelerator_device()
-        device = _DEVICE
+        device = get_current_accelerator_device()
         input_tensor = torch.randn(8, 64, device=device, dtype=torch.float32)
 
         # Choose quantization parameters

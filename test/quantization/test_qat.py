@@ -348,9 +348,9 @@ class TestQAT(TestCase):
                 n_bit,
                 group_size,
             )
-            _DEVICE = get_current_accelerator_device()
+            device = get_current_accelerator_device()
             q_weight = torch.ops.aten._convert_weight_to_int4pack(
-                q_weight.to(_DEVICE),
+                q_weight.to(device),
                 qat_linear.inner_k_tiles,
             )
             ptq_linear.weight = q_weight
@@ -1897,15 +1897,15 @@ class TestQAT(TestCase):
             quantize_(model, base_config)
         """
         torch.manual_seed(self.SEED)
-        _DEVICE = get_current_accelerator_device()
+        device = get_current_accelerator_device()
 
         if module_type == "linear":
-            m = M().to(dtype).to(_DEVICE)
-            example_inputs = (m.example_inputs()[0].to(dtype).to(_DEVICE),)
+            m = M().to(dtype).to(device)
+            example_inputs = (m.example_inputs()[0].to(dtype).to(device),)
             filter_fn = lambda m, fqn: isinstance(m, torch.nn.Linear)
         elif module_type == "embedding":
-            m = M3().to(dtype).to(_DEVICE)
-            example_inputs = (m.example_inputs()[0].to(_DEVICE),)
+            m = M3().to(dtype).to(device)
+            example_inputs = (m.example_inputs()[0].to(device),)
             filter_fn = lambda m, fqn: isinstance(m, torch.nn.Embedding)
         else:
             raise ValueError(f"Unknown module type {module_type}")
