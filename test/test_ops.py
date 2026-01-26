@@ -17,7 +17,6 @@ from torch.testing._internal.common_utils import (
 )
 from torch.testing._internal.optests import opcheck
 
-import torchao
 from torchao.utils import (
     torch_version_at_least,
 )
@@ -26,7 +25,7 @@ IS_CUDA = torch.cuda.is_available() and torch.version.cuda
 IS_ROCM = torch.cuda.is_available() and torch.version.hip
 
 try:
-    import torchao.ops
+    pass
 except RuntimeError:
     pytest.skip("torchao.ops not available")
 
@@ -38,10 +37,6 @@ from torchao.quantization.quant_primitives import (
 )
 from torchao.quantization.utils import (
     get_block_size,
-    get_groupwise_affine_qparams,
-    groupwise_affine_dequantize_tensor_from_qparams,
-    groupwise_affine_quantize_tensor_from_qparams,
-    pack_tinygemm_scales_and_zeros,
 )
 
 
