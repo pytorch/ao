@@ -55,12 +55,11 @@ _DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 class M(nn.Module):
-    _tied_weights_keys: list[str] = []
-
     def __init__(
         self, m=256, n=128, k=16, bias=False, embedding=True, tied_weights=False
     ):
         nn.Module.__init__(self)
+        self._tied_weights_keys: dict[str, str] = {}
         self.embed_tokens = nn.Embedding(k, m) if embedding else nn.Identity()
         self.linear1 = nn.Linear(m, n, bias=bias)
         self.linear2 = nn.Linear(n, k, bias=bias)
@@ -70,10 +69,11 @@ class M(nn.Module):
         if embedding and tied_weights:
             assert self.embed_tokens.weight.shape == self.linear2.weight.shape
             self.tie_weights()
-            self._tied_weights_keys.append("linear2.weight")
+            self._tied_weights_keys["linear2.weight"] = "embed_tokens.weight"
 
-    def tie_weights(self):
-        self.linear2.weight = self.embed_tokens.weight
+    def tie_weights(self, **kwargs):
+        if isinstance(self.embed_tokens, nn.Embedding):
+            self.linear2.weight = self.embed_tokens.weight
 
     def example_inputs(self, device=None):
         if isinstance(self.embed_tokens, nn.Identity):
@@ -127,6 +127,8 @@ if TRANSFORMERS_AVAIL:
                 embedding=config.embedding,
                 tied_weights=config.tied_weights,
             )
+            # post_init sets up all_tied_weights_keys from _tied_weights_keys
+            self.post_init()
 
         def get_input_embeddings(self) -> nn.Module:
             return self.embed_tokens
