@@ -25,8 +25,8 @@ from torch.nn import functional as F
 
 from benchmarks.utils import bench_fwd_bwd_microseconds, profile_fwd_bwd
 from torchao.prototype.moe_training.conversion_utils import (
-    MoEScalingType,
     MoETrainingConfig,
+    ScaledGroupedMMRecipe,
 )
 from torchao.quantization.quant_api import quantize_
 
@@ -45,19 +45,27 @@ except ImportError:
 def bench_moe_training_fsdp(recipe_name: str, enable_profile: bool, use_compile: bool):
     assert torch.cuda.is_available()
     assert recipe_name in ["fp8_rowwise", "mxfp8"]
-    recipe = MoEScalingType[recipe_name.upper()]
-    if recipe == MoEScalingType.FP8_ROWWISE and torch.cuda.get_device_capability() != (
-        9,
-        0,
+    recipe = ScaledGroupedMMRecipe[recipe_name.upper()]
+    if (
+        recipe == ScaledGroupedMMRecipe.FP8_ROWWISE
+        and torch.cuda.get_device_capability()
+        != (
+            9,
+            0,
+        )
     ):
         logging.warning(
             f"Skipping FP8 rowwise benchmarks, only supported on compute capability 9.0 and found {torch.cuda.get_device_capability()}"
         )
         return
 
-    elif recipe == MoEScalingType.MXFP8 and torch.cuda.get_device_capability() != (
-        10,
-        0,
+    elif (
+        recipe == ScaledGroupedMMRecipe.MXFP8
+        and torch.cuda.get_device_capability()
+        != (
+            10,
+            0,
+        )
     ):
         logging.warning(
             f"Skipping MXFP8 benchmarks, only supported on compute capability 10.0 and found {torch.cuda.get_device_capability()}"
@@ -87,7 +95,7 @@ def bench_moe_training_fsdp(recipe_name: str, enable_profile: bool, use_compile:
     model = copy.deepcopy(ref_model)
 
     # Token group alignment size must be 16 for fp8 rowwise training
-    alignment_size = 32 if recipe == MoEScalingType.MXFP8 else 16
+    alignment_size = 32 if recipe == ScaledGroupedMMRecipe.MXFP8 else 16
     set_token_group_alignment_size_m(alignment_size)
 
     # assert starting params are identical for both models
@@ -102,7 +110,7 @@ def bench_moe_training_fsdp(recipe_name: str, enable_profile: bool, use_compile:
         return False
 
     # quantize test model
-    config = MoETrainingConfig(scaling_type=recipe)
+    config = MoETrainingConfig(recipe=recipe)
     quantize_(model, config=config, filter_fn=moe_module_filter_fn)
 
     # FSDP2

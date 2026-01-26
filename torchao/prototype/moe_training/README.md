@@ -66,7 +66,7 @@ from torch.nn import functional as F
 from torchao.prototype.moe_training import (
     _to_mxfp8_then_scaled_grouped_mm,
 )
-from torchao.prototype.moe_training.conversion_utils import MoEScalingType
+from torchao.prototype.moe_training.conversion_utils import ScaledGroupedMMRecipe
 from torchao.prototype.moe_training.utils import generate_jagged_offs
 
 num_groups, total_M, N, K = 8, 131072, 8192, 5120

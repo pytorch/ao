@@ -13,8 +13,8 @@ if not torch.cuda.is_available() or torch.cuda.get_device_capability() < (8, 9):
 
 from torchao.float8.float8_utils import compute_error
 from torchao.prototype.moe_training.conversion_utils import (
-    MoEScalingType,
     MoETrainingConfig,
+    ScaledGroupedMMRecipe,
 )
 from torchao.quantization.quant_api import quantize_
 
@@ -41,21 +41,21 @@ except ImportError:
     "recipe_config",
     [
         {
-            "recipe": MoEScalingType.FP8_ROWWISE,
+            "recipe": ScaledGroupedMMRecipe.FP8_ROWWISE,
             "group_alignment_size": 16,
             "min_out_sqnr": 29.0,
             "min_input_grad_sqnr": 29.0,
             "min_param_grad_sqnr": 23.0,
         },
         {
-            "recipe": MoEScalingType.MXFP8,
+            "recipe": ScaledGroupedMMRecipe.MXFP8,
             "group_alignment_size": 32,
             "min_out_sqnr": 28.0,
             "min_input_grad_sqnr": 29.0,
             "min_param_grad_sqnr": 21.0,
         },
         {
-            "recipe": MoEScalingType.MXFP8_WGRAD_WITH_HP,
+            "recipe": ScaledGroupedMMRecipe.MXFP8_WGRAD_WITH_HP,
             "group_alignment_size": 32,
             "min_out_sqnr": 28.0,
             "min_input_grad_sqnr": 29.0,
@@ -78,17 +78,21 @@ def test_moe_training(target_fqns: list[str], compile: bool, recipe_config: dict
         recipe_config["min_param_grad_sqnr"],
     )
     assert torch.cuda.is_available()
-    if recipe == MoEScalingType.FP8_ROWWISE and torch.cuda.get_device_capability() != (
-        9,
-        0,
+    if (
+        recipe == ScaledGroupedMMRecipe.FP8_ROWWISE
+        and torch.cuda.get_device_capability()
+        != (
+            9,
+            0,
+        )
     ):
         pytest.skip(
             f"Skipping FP8 rowwise tests, only supported on compute capability 9.0 and found {torch.cuda.get_device_capability()}"
         )
 
     elif recipe in (
-        MoEScalingType.MXFP8,
-        MoEScalingType.MXFP8_WGRAD_WITH_HP,
+        ScaledGroupedMMRecipe.MXFP8,
+        ScaledGroupedMMRecipe.MXFP8_WGRAD_WITH_HP,
     ) and torch.cuda.get_device_capability() != (
         10,
         0,
@@ -129,7 +133,7 @@ def test_moe_training(target_fqns: list[str], compile: bool, recipe_config: dict
         return False
 
     # quantize test model
-    config = MoETrainingConfig(scaling_type=recipe)
+    config = MoETrainingConfig(recipe=recipe)
     quantize_(model, config=config, filter_fn=moe_module_filter_fn)
 
     # validate that only the experts were converted
