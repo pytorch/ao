@@ -31,6 +31,9 @@ except ImportError:
         "torchtitan not installed, skipping MoE tests.", allow_module_level=True
     )
 
+# Needed since changing args to function causes recompiles
+torch._dynamo.config.cache_size_limit = 1000
+
 
 @pytest.mark.parametrize(
     "target_fqns",
