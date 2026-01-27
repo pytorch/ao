@@ -16,7 +16,6 @@ from torch.testing._internal.common_utils import (
 
 from torchao.core.config import AOBaseConfig
 from torchao.dtypes import (
-    CutlassInt4PackedLayout,
     PlainLayout,
     SemiSparseLayout,
     to_affine_quantized_intx,
@@ -25,7 +24,6 @@ from torchao.dtypes import (
 from torchao.quantization import (
     Float8WeightOnlyConfig,
     GemliteUIntXWeightOnlyConfig,
-    Int4DynamicActivationInt4WeightConfig,
     Int8DynamicActivationInt4WeightConfig,
     Int8DynamicActivationInt8WeightConfig,
     Int8WeightOnlyConfig,
@@ -38,7 +36,6 @@ from torchao.utils import (
     check_xpu_version,
     get_current_accelerator_device,
     is_fbcode,
-    is_ROCM,
     is_sm_at_least_89,
 )
 
@@ -62,17 +59,6 @@ def get_quantization_functions(
             pass
         elif check_xpu_version(device):
             pass
-        else:
-            if device == "cuda" and not is_ROCM():
-                base_functions.append(
-                    Int8DynamicActivationInt4WeightConfig(
-                        group_size=None,
-                        mapping_type=MappingType.SYMMETRIC,
-                        act_mapping_type=MappingType.SYMMETRIC,
-                        layout=CutlassInt4PackedLayout(),
-                    )
-                )
-                base_functions.append(Int4DynamicActivationInt4WeightConfig())
 
     if do_sparse and device != "xpu":
         base_functions.append(

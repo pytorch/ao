@@ -18,7 +18,7 @@ from torchao.quantization.quantize_.common import SupportsActivationPreScaling
 from torchao.quantization.utils import compute_error
 from torchao.testing.utils import TorchAOIntegrationTestCase
 from torchao.utils import (
-    _is_fbgemm_gpu_genai_available,
+    _is_mslk_available,
     is_sm_at_least_90,
     torch_version_at_least,
 )
@@ -27,9 +27,7 @@ from torchao.utils import (
 @unittest.skipIf(not torch_version_at_least("2.8.0"), "Need pytorch 2.8+")
 @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
 @unittest.skipIf(not is_sm_at_least_90(), "Nedd sm90+")
-@unittest.skipIf(
-    not _is_fbgemm_gpu_genai_available(), "Requires fbgemm-gpu-genai >= 1.2.0"
-)
+@unittest.skipIf(not _is_mslk_available(), "Requires mslk >= 1.0.0")
 class TestInt4Tensor(TorchAOIntegrationTestCase):
     def setUp(self):
         self.config = Int4WeightOnlyConfig(
