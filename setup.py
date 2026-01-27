@@ -621,6 +621,7 @@ def get_extensions():
 
     use_cutlass = False
     cutlass_90a_sources = None
+    cutlass_90a_stable_sources = None
     build_for_sm90a = False
     build_for_sm100a = False
     if use_cuda and not IS_WINDOWS:
@@ -659,11 +660,6 @@ def get_extensions():
                 "rowwise_scaled_linear_sparse_cutlass",
                 "rowwise_scaled_linear_sparse_cutlass_f8f8.cu",
             ),
-            os.path.join(
-                extensions_cuda_dir,
-                "to_sparse_semi_structured_cutlass_sm9x",
-                "to_sparse_semi_structured_cutlass_sm9x_f8.cu",
-            ),
             os.path.join(extensions_cuda_dir, "activation24", "sparsify24.cu"),
             os.path.join(extensions_cuda_dir, "activation24", "sparse_gemm.cu"),
         ]
@@ -675,8 +671,19 @@ def get_extensions():
                     "rowwise_scaled_linear_sparse_cutlass_" + dtypes + ".cu",
                 )
             )
+
+        # Define sm90a sources that use stable ABI
+        cutlass_90a_stable_sources = [
+            os.path.join(
+                extensions_cuda_dir,
+                "to_sparse_semi_structured_cutlass_sm9x",
+                "to_sparse_semi_structured_cutlass_sm9x_f8.cu",
+            ),
+        ]
+
         # Always remove sm90a sources from main sources
         sources = [s for s in sources if s not in cutlass_90a_sources]
+        sources = [s for s in sources if s not in cutlass_90a_stable_sources]
 
     else:
         # Remove CUTLASS-based kernels from the sources list.  An
@@ -745,7 +752,28 @@ def get_extensions():
     ):
         cutlass_90a_extra_compile_args = copy.deepcopy(extra_compile_args)
         # Only use sm90a architecture for these sources, ignoring other flags
-        cutlass_90a_extra_compile_args["nvcc"].extend(
+        cutlass_90a_extra_compile_args["nvcc"].append(
+            "-gencode=arch=compute_90a,code=sm_90a"
+        )
+        ext_modules.append(
+            extension(
+                "torchao._C_cutlass_90a",
+                cutlass_90a_sources,
+                py_limited_api=True,
+                extra_compile_args=cutlass_90a_extra_compile_args,
+                extra_link_args=extra_link_args,
+            )
+        )
+
+    # Build stable ABI sm90a sources separately with stable ABI flags
+    if (
+        cutlass_90a_stable_sources is not None
+        and len(cutlass_90a_stable_sources) > 0
+        and build_for_sm90a
+    ):
+        cutlass_90a_stable_extra_compile_args = copy.deepcopy(extra_compile_args)
+        # Only use sm90a architecture for these sources, ignoring other flags
+        cutlass_90a_stable_extra_compile_args["nvcc"].extend(
             [
                 "-gencode=arch=compute_90a,code=sm_90a",
                 "-DUSE_CUDA",
@@ -755,7 +783,7 @@ def get_extensions():
             ]
         )
         # Add -DUSE_CUDA flag for ABI stable headers that need it
-        cutlass_90a_extra_compile_args["cxx"].extend(
+        cutlass_90a_stable_extra_compile_args["cxx"].extend(
             [
                 "-DUSE_CUDA",
                 # define TORCH_TARGET_VERSION with min version 2.10 to expose only the
@@ -765,10 +793,10 @@ def get_extensions():
         )
         ext_modules.append(
             extension(
-                "torchao._C_cutlass_90a",
-                cutlass_90a_sources,
+                "torchao._C_cutlass_90a_stable",
+                cutlass_90a_stable_sources,
                 py_limited_api=True,
-                extra_compile_args=cutlass_90a_extra_compile_args,
+                extra_compile_args=cutlass_90a_stable_extra_compile_args,
                 extra_link_args=extra_link_args,
             )
         )
