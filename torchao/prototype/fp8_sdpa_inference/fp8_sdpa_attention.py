@@ -30,6 +30,7 @@ def fp8_sdpa_parallel(
     dropout_p: float = 0.0,
     is_causal: bool = False,
     scale: Optional[float] = None,
+    enable_gqa: bool = False,
     num_chunks: Optional[int] = None,
 ) -> torch.Tensor:
     """
@@ -44,6 +45,7 @@ def fp8_sdpa_parallel(
         dropout_p: Must be 0.0
         is_causal: Whether to apply causal masking
         scale: Optional scale factor for attention
+        enable_gqa: Whether to enable Grouped Query Attention (GQA)
         num_chunks: Number of chunks to split the S dimension into.
                     If None, automatically selects based on GPU SM count.
     """
@@ -51,6 +53,8 @@ def fp8_sdpa_parallel(
         raise ValueError("attn_mask is not supported for FP8 SDPA")
     if dropout_p != 0.0:
         raise ValueError("dropout_p must be 0.0 for FP8 SDPA")
+    if enable_gqa:
+        raise ValueError("enable_gqa is not supported for FP8 SDPA")
 
     # Parallelized quantization of Q, K, V
     q_fp8, k_fp8, v_fp8, descale_q, descale_k, descale_v = fp8_sdpa_quantize_func(
