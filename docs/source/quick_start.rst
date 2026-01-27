@@ -9,98 +9,156 @@ First Quantization Example
 ==========================
 
 The main entry point for quantization in torchao is the `quantize_ <https://pytorch.org/ao/stable/generated/torchao.quantization.quantize_.html#torchao.quantization.quantize_>`__ API.
-This function mutates your model inplace to insert the custom quantization logic based
-on what the user configures. All code in this guide can be found in this `example script <https://github.com/pytorch/ao/blob/main/scripts/quick_start.py>`__.
-First, let's set up our toy model:
+This function mutates your model inplace based on the quantization config you provide.
+All code in this guide can be found in this `example script <https://github.com/pytorch/ao/blob/main/scripts/quick_start.py>`__.
+
+Setting Up the Model
+~~~~~~~~~~~~~~~~~~~~~
+
+First, let's create a simple model:
 
 .. code:: py
 
-  import copy
-  import torch
+    class ToyLinearModel(torch.nn.Module):
+        def __init__(
+            self,
+            input_dim,
+            hidden_dim,
+            output_dim,
+            dtype,
+            device,
+            has_bias=False,
+        ):
+            super().__init__()
+            self.dtype = dtype
+            self.device = device
+            self.linear1 = torch.nn.Linear(
+                input_dim, hidden_dim, bias=has_bias, dtype=dtype, device=device
+            )
+            self.linear2 = torch.nn.Linear(
+                hidden_dim, output_dim, bias=has_bias, dtype=dtype, device=device
+            )
 
-  class ToyLinearModel(torch.nn.Module):
-      def __init__(self, m: int, n: int, k: int):
-          super().__init__()
-          self.linear1 = torch.nn.Linear(m, n, bias=False)
-          self.linear2 = torch.nn.Linear(n, k, bias=False)
+        def example_inputs(self, batch_size=1):
+            return (
+                torch.randn(
+                    batch_size,
+                    self.linear1.in_features,
+                    dtype=self.dtype,
+                    device=self.device,
+                ),
+            )
 
-      def forward(self, x):
-          x = self.linear1(x)
-          x = self.linear2(x)
-          return x
+        def forward(self, x):
+            x = self.linear1(x)
+            x = self.linear2(x)
+            return x
 
-  model = ToyLinearModel(1024, 1024, 1024).eval().to(torch.bfloat16).to("cuda")
 
-  # Optional: compile model for faster inference and generation
-  model = torch.compile(model, mode="max-autotune", fullgraph=True)
-  model_bf16 = copy.deepcopy(model)
+    model = ToyLinearModel(
+        1024, 1024, 1024, device="cuda", dtype=torch.bfloat16
+    ).eval()
+    model_w16a16 = copy.deepcopy(model)
+    model_w8a8 = copy.deepcopy(model)  # We will quantize in next chapter!
 
-Now we call our main quantization API to quantize the linear weights
-in the model to int4 inplace. More specifically, this applies uint4
-weight-only asymmetric per-group quantization, leveraging the
-`tinygemm int4mm CUDA kernel <https://github.com/pytorch/pytorch/blob/a8d6afb511a69687bbb2b7e88a3cf67917e1697e/aten/src/ATen/native/cuda/int4mm.cu#L1097>`__
-for efficient mixed dtype matrix multiplication:
+W8A8-INT: 8-bit Dynamic Activation and Weight Quantization
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Dynamic quantization quantizes both weights and activations at runtime.
+This provides better accuracy than weight-only while still offering speedup:
 
 .. code:: py
 
-  from torchao.quantization import Int4WeightOnlyConfig, quantize_
-  quantize_(model, Int4WeightOnlyConfig(group_size=32, int4_packing_format="tile_packed_to_4d", int4_choose_qparams_algorithm="hqq"))
+    from torchao.quantization import Int8DynamicActivationInt8WeightConfig, quantize_
+
+    quantize_(model_w8a8, Int8DynamicActivationInt8WeightConfig())
+
+The model structure remains unchanged - only weight tensors are quantized. You can verify quantization by checking the weight tensor type:
+
+  >>> print(type(model_w8a8.linear1.weight).__name__)
+  'Int8Tensor'
 
 The quantized model is now ready to use! Note that the quantization
 logic is inserted through tensor subclasses, so there is no change
-to the overall model structure; only the weights tensors are updated,
-but `nn.Linear` modules stay as `nn.Linear` modules:
+to the overall model structure; only the weights tensors are updated.
+
+Model Size Comparison
+^^^^^^^^^^^^^^^^^^^^^
+
+The int8 quantized model achieves approximately 2x size reduction compared to the original bfloat16 model.
+You can verify this by saving both models to disk and comparing file sizes:
 
 .. code:: py
 
-  >>> model.linear1
-  Linear(in_features=1024, out_features=1024, weight=AffineQuantizedTensor(shape=torch.Size([1024, 1024]), block_size=(1, 32), device=cuda:0, _layout=TensorCoreTiledLayout(inner_k_tiles=8), tensor_impl_dtype=torch.int32, quant_min=0, quant_max=15))
+    import os
 
-  >>> model.linear2
-  Linear(in_features=1024, out_features=1024, weight=AffineQuantizedTensor(shape=torch.Size([1024, 1024]), block_size=(1, 32), device=cuda:0, _layout=TensorCoreTiledLayout(inner_k_tiles=8), tensor_impl_dtype=torch.int32, quant_min=0, quant_max=15))
+    # Save models
+    torch.save(model_w16a16.state_dict(), "model_w16a16.pth")
+    torch.save(model_w8a8.state_dict(), "model_w8a8.pth")
 
-First, verify that the int4 quantized model is roughly a quarter of
-the size of the original bfloat16 model:
+    # Compare file sizes
+    original_size = os.path.getsize("model_w16a16.pth") / 1024**2
+    quantized_size = os.path.getsize("model_w8a8.pth") / 1024**2
+    print(
+        f"Size reduction: {original_size / quantized_size:.2f}x ({original_size:.2f}MB -> {quantized_size:.2f}MB)"
+    )
 
-.. code:: py
+Output::
 
-  >>> import os
-  >>> torch.save(model, "/tmp/int4_model.pt")
-  >>> torch.save(model_bf16, "/tmp/bfloat16_model.pt")
-  >>> int4_model_size_mb = os.path.getsize("/tmp/int4_model.pt") / 1024 / 1024
-  >>> bfloat16_model_size_mb = os.path.getsize("/tmp/bfloat16_model.pt") / 1024 / 1024
+  Size reduction: 2.00x (4.00MB -> 2.00MB)
 
-  >>> print("int4 model size: %.2f MB" % int4_model_size_mb)
-  int4 model size: 1.25 MB
+Speedup Comparison
+^^^^^^^^^^^^^^^^^^
 
-  >>> print("bfloat16 model size: %.2f MB" % bfloat16_model_size_mb)
-  bfloat16 model size: 4.00 MB
-
-Next, we demonstrate that not only is the quantized model smaller,
-it is also much faster!
+Let's demonstrate that not only is the quantized model smaller, but it is also faster.
 
 .. code:: py
 
-  from torchao.utils import (
-      benchmark_model,
-      unwrap_tensor_subclass,
-  )
+    import time
 
-  num_runs = 100
-  torch._dynamo.reset()
-  example_inputs = (torch.randn(1, 1024, dtype=torch.bfloat16, device="cuda"),)
-  bf16_time = benchmark_model(model_bf16, num_runs, example_inputs)
-  int4_time = benchmark_model(model, num_runs, example_inputs)
+    # Optional: compile model for faster inference and generation
+    model_w16a16 = torch.compile(model, mode="max-autotune", fullgraph=True)
+    model_w8a8 = torch.compile(model_w8a8, mode="max-autotune", fullgraph=True)
 
-  print("bf16 mean time: %0.3f ms" % bf16_time)
-  print("int4 mean time: %0.3f ms" % int4_time)
-  print("speedup: %0.1fx" % (bf16_time / int4_time))
+    # Get example inputs
+    example_inputs = model_w8a8.example_inputs(batch_size=128)
 
-On a single A100 GPU with 80GB memory, this prints::
+    # Warmup
+    for _ in range(10):
+        _ = model_w8a8(*example_inputs)
+        _ = model_w16a16(*example_inputs)
+    torch.cuda.synchronize()
 
-  bf16 mean time: 30.393 ms
-  int4 mean time: 4.410 ms
-  speedup: 6.9x
+    # Throughput: original model
+    torch.cuda.synchronize()
+    start = time.time()
+    for _ in range(100):
+        _ = model_w16a16(*example_inputs)
+    torch.cuda.synchronize()
+    original_time = time.time() - start
+
+    # Throughput: Quantized (W8A8-INT) model
+    torch.cuda.synchronize()
+    start = time.time()
+    for _ in range(100):
+        _ = model_w8a8(*example_inputs)
+    torch.cuda.synchronize()
+    quantized_time = time.time() - start
+
+    print(f"Speedup: {original_time / quantized_time:.2f}x")
+
+Output::
+
+    Speedup: 1.03x
+
+.. note::
+   The speedup results can vary significantly based on hardware and model. We recommend CUDA-enabled GPUs and models larger than 8B for best performance.
+
+Both weights and activations are quantized to int8, reducing model size by ~2x. Speedup is not enough in small toy model because it requires dynamic overhead. For comprehensive benchmark results and detailed evaluation workflows on production models,
+see the `quantization benchmarks <https://github.com/pytorch/ao/blob/main/torchao/quantization/README.md>`__.
+
+
+We will address how to evaluate quantized model using `vLLM` and `lm-eval` in `model serving <https://docs.pytorch.org/ao/main/serving.html>`__ post.
 
 PyTorch 2 Export Quantization
 =============================

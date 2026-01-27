@@ -33,7 +33,7 @@ __all__ = [
     "_choose_qparams_affine_floatx",
     "_choose_qparams_and_quantize_affine_hqq",
     "_choose_qparams_and_quantize_scale_only_hqq",
-    "_choose_qparams_and_quantize_affine_qqq",
+    "_choose_qparams_and_quantize_scale_only_sinq",
     "_choose_scale_float8",
     "_choose_qparams_gguf",
     "_quantize_affine_no_zero_point",
@@ -44,7 +44,6 @@ __all__ = [
     "_dequantize_affine_no_zero_point",
     "_dequantize_affine_tinygemm",
     "_dequantize_affine_floatx",
-    "_dequantize_affine_qqq",
     "_dequantize_affine_float8",
     "_dequantize_gguf",
     "_fake_quantize_affine",
@@ -1216,6 +1215,7 @@ def choose_qparams_affine(
     eps: Optional[float] = None,
     scale_dtype: Optional[torch.dtype] = None,
     zero_point_dtype: Optional[torch.dtype] = torch.int32,
+    keepdim: bool = False,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Args:
@@ -1229,6 +1229,7 @@ def choose_qparams_affine(
         eps (Optional[float]): minimum scale, if not provided, default to eps of input.dtype
         scale_dtype (torch.dtype): dtype for scale Tensor
         zero_point_dtype (torch.dtype): dtype for zero_point Tensor, defaults to torch.int32
+        keepdim (bool): whether to keep dimensions with size 1 in output (aligned with _choose_scale_float8)
         Now removed params:
             zero_point_domain (ZeroPointDomain): the domain that zero_point is in, defaults to Integer or None
             preserve_zero (bool): whether to preserve zero in the quantized Tensor, defaults to True
@@ -1246,6 +1247,7 @@ def choose_qparams_affine(
         eps,
         scale_dtype,
         zero_point_dtype,
+        keepdim,
     )
 
 
@@ -1520,6 +1522,7 @@ def _choose_qparams_affine(
     eps: Optional[float] = None,
     scale_dtype: Optional[torch.dtype] = None,
     zero_point_dtype: Optional[torch.dtype] = None,
+    keepdim: bool = False,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """op definition that has compatible signatures with custom op library
 
@@ -1528,6 +1531,10 @@ def _choose_qparams_affine(
     2. find min_val/max_val based on the dimension for reduction
     3. calculate quantization parameters based on min_val/max_val based on args like `preserve_zero`
        and `zero_point_domain`
+
+    Note:
+        Set keepdim=True to align with _choose_scale_float8 behavior. This ensures
+        scale/zero_point maintain the same rank as input, making it easier to handle downstream.
     """
     quant_min, quant_max = _get_and_check_qmin_qmax(target_dtype, quant_min, quant_max)
     assert mapping_type in [
@@ -1544,13 +1551,15 @@ def _choose_qparams_affine(
     assert len(block_size) == input.dim(), (
         f"Got input dim:{input.dim()}, block_size: {block_size}"
     )
+    # Save original input size before reshaping for later use
+    original_input_size = input.size()
     shape_for_reduction, reduction_dims = _get_reduction_params(
         block_size, input.size()
     )
     input = input.view(shape_for_reduction)
 
-    min_val = torch.amin(input, dim=reduction_dims, keepdim=False)
-    max_val = torch.amax(input, dim=reduction_dims, keepdim=False)
+    min_val = torch.amin(input, dim=reduction_dims, keepdim=keepdim)
+    max_val = torch.amax(input, dim=reduction_dims, keepdim=keepdim)
 
     min_val_neg = torch.min(min_val, torch.zeros_like(min_val))
     max_val_pos = torch.max(max_val, torch.zeros_like(max_val))
@@ -1587,79 +1596,18 @@ def _choose_qparams_affine(
         if zero_point_dtype is None:
             zero_point_dtype = torch.int32
 
+    # Reshape scale and zero_point to match expected output shape
+    # This aligns with _choose_scale_float8 behavior
+    if keepdim:
+        output_shape = [
+            original_input_size[i] // block_size[i] for i in range(len(block_size))
+        ]
+        scale = scale.reshape(output_shape)
+        zero_point = zero_point.reshape(output_shape)
+
     return scale.to(dtype=scale_dtype, device=input.device), zero_point.to(
         dtype=zero_point_dtype
     )
-
-
-def _choose_qparams_and_quantize_affine_qqq(
-    w: torch.Tensor,
-    num_bits: int,
-    group_size: int,
-) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    assert num_bits == 4, f"Unsupported num_bits = {num_bits}"
-    size_n, size_k = w.shape
-    assert group_size in [-1, 128, size_k], f"Unsupported groupsize = {group_size}"
-    orig_device = w.device
-    if group_size == -1:
-        group_size = size_k
-
-    if group_size < size_k:
-        # Reshape to [-1, group_size]
-        w = w.reshape((-1, group_size))
-
-        max_q_val = 2**num_bits - 1
-        half_q_val = (max_q_val + 1) // 2
-
-        # Compute scale for each group
-        s_group = torch.amax(torch.abs(w), -1, keepdim=True)
-        s_group *= 2 / max_q_val  # 2 => symmetric
-
-        # Quantize
-        q_w = _Round.apply(w / s_group).int()
-        q_w += half_q_val
-        q_w = torch.clamp(q_w, 0, max_q_val)
-        # Compute ref (dequantized)
-        w_ref = (q_w - half_q_val).half() * s_group
-
-        # Restore original shapes
-        def reshape_w(w):
-            w = w.reshape((size_n, size_k)).contiguous()
-            return w
-
-        q_w = reshape_w(q_w)
-        w_ref = reshape_w(w_ref)
-
-        # Compute int8 quantization scale for each channel
-        s_channel = torch.amax(torch.abs(w_ref), -1, keepdim=True)
-        s_channel /= 127.0
-        t_int8 = (w_ref / s_channel).round().clamp(-128, 127).to(torch.int8)
-        w_ref = t_int8.half() * s_channel
-        s_channel = s_channel.reshape(-1, 1).to(dtype=torch.float)
-
-        # Fuse scales
-        s_group = (s_group.reshape(size_n, -1).contiguous() / s_channel).to(
-            dtype=torch.half
-        )
-    else:
-        max_q_val = 2 ** (num_bits - 1) - 1
-
-        # Compute scale for each channel
-        s_channel = torch.amax(torch.abs(w), -1, keepdim=True)
-        s_channel /= max_q_val
-
-        # Quantize
-        q_w = _Round.apply(w / s_channel).int()
-        q_w = torch.clamp(q_w, -max_q_val, max_q_val)
-        # Compute ref (dequantized)
-        w_ref = q_w.half() * s_channel
-
-        s_group = torch.tensor([], dtype=torch.half, device=orig_device)
-        # div 2 ** (8 - self.bits)) to offset right shift in unpacking
-        s_channel /= 2 ** (8 - num_bits)
-        s_channel = s_channel.reshape(size_n, -1).contiguous().to(torch.float)
-
-    return q_w, s_group, s_channel, w_ref
 
 
 def _choose_qparams_gguf(
@@ -1868,49 +1816,6 @@ def _dequantize_gguf(
         dequant = dequant.to(output_dtype)
 
     return dequant
-
-
-def _dequantize_affine_qqq(
-    w: torch.Tensor,
-    s_group: torch.Tensor,
-    s_channel: torch.Tensor,
-    num_bits: int,
-    group_size: int,
-    output_dtype: Optional[torch.dtype] = None,
-):
-    assert num_bits == 4, f"Unsupported num_bits = {num_bits}"
-    size_n, size_k = w.shape
-    assert group_size in [-1, 128, size_k], f"Unsupported groupsize = {group_size}"
-    if group_size == -1:
-        group_size = size_k
-
-    if group_size < size_k:
-        # Reshape to [-1, group_size]
-        w = w.reshape((-1, group_size))
-
-        max_q_val = 2**num_bits - 1
-        half_q_val = (max_q_val + 1) // 2
-
-        s_group = s_group * s_channel.half()
-        w_dq = (w - half_q_val).half() * s_group.reshape(-1, 1)
-
-        # Restore original shapes
-        def reshape_w(w):
-            w = w.reshape((size_n, size_k)).contiguous()
-            return w
-
-        w_dq = reshape_w(w_dq)
-
-    else:
-        s_channel = s_channel * (2 ** (8 - num_bits))
-        w_dq = w.half() * s_channel
-
-    if output_dtype is None:
-        w_dq = w_dq.to(torch.float16)
-    else:
-        w_dq = w_dq.to(output_dtype)
-
-    return w_dq
 
 
 # HQQ
@@ -2219,6 +2124,81 @@ def _choose_qparams_and_quantize_scale_only_hqq(
     return qdata, scale
 
 
+def _choose_qparams_and_quantize_scale_only_sinq(
+    tensor: torch.Tensor,
+    qmin: int = -(2 ** (4 - 1)),
+    qmax: int = 2 ** (4 - 1) - 1,
+    group_size: int = 64,
+    niter: int = 20,
+    compute_dtype: torch.dtype = torch.float16,
+) -> tuple:
+    """
+    SINQ: Sinkhorn-Normalized Quantization (https://www.arxiv.org/abs/2509.22944)
+
+    Iteratively normalizes row and column standard deviations to minimize
+    matrix imbalance before quantization with dual scales.
+
+    Args:
+        tensor: Input weight tensor
+        group_size: Quantization group size (default: 64)
+        niter: Number of Sinkhorn iterations (default: 20)
+        compute_dtype: Target compute dtype (default: torch.float16)
+
+    Returns:
+        Tuple of (qdata, scale_row, scale_col)
+    """
+    if group_size is not None:
+        assert _is_divisible(tensor.numel(), group_size), (
+            f"group_size must divide tensor elements. shape: {tensor.shape}, group_size: {group_size}"
+        )
+
+    W = tensor.to(dtype=compute_dtype)
+    shape = W.shape
+
+    # Reshape for 1D tiling
+    W = W.reshape(-1, group_size)  # [N*num_groups, group_size]
+
+    # Algorithm 1: Sinkhorn Normalization
+    q_min = min(W.std(dim=0).min().item(), W.std(dim=1).min().item())
+    q_min = max(q_min, 1e-8)
+
+    W_hat = W.clone()
+    scale_col_sinkhorn = torch.ones(W.shape[1], device=W.device, dtype=compute_dtype)
+    scale_row_sinkhorn = torch.ones(W.shape[0], device=W.device, dtype=compute_dtype)
+
+    for _ in range(niter):
+        # Normalize columns (dim=0)
+        q_col = W_hat.std(dim=0) / q_min
+        q_col = torch.clamp(q_col, min=1e-8)
+        W_hat = W_hat / q_col.unsqueeze(0)
+        scale_col_sinkhorn = scale_col_sinkhorn * q_col
+
+        # Normalize rows (dim=1)
+        q_row = W_hat.std(dim=1) / q_min
+        q_row = torch.clamp(q_row, min=1e-8)
+        W_hat = W_hat / q_row.unsqueeze(1)
+        scale_row_sinkhorn = scale_row_sinkhorn * q_row
+
+    # INT8 symmetric quantization
+    # TODO: Consider custom bitwidth for SIMD acceleration like vadd4
+    scale_s = (W_hat.abs().amax(dim=1, keepdim=True) / float(qmax)).clamp_min(1e-8)
+    # TODO: Find better rounding strategy like stochastic rounding
+    Q = _Round.apply(W_hat / scale_s).clamp(qmin, qmax)
+    # TODO: PERF test for scale factor dtype (FP16 vs. INT8)
+    # Although FP16 has high accuracy, FP16×INT8 can't be computed
+    # in Tensor Core directly, requiring INT8 to FP16 ops.
+    qdata = Q.view(shape).contiguous().to(torch.int8)
+
+    # Combine RTN scale with row Sinkhorn factor
+    scale_row = (
+        (scale_s.view(-1) * scale_row_sinkhorn).view(shape[0], -1).to(compute_dtype)
+    )
+    num_groups = shape[1] // group_size
+    scale_col = scale_col_sinkhorn.repeat(num_groups)[: shape[1]].to(compute_dtype)
+
+    return qdata, scale_row, scale_col
+
+
 def _choose_qparams_affine_floatx(
     tensor: torch.Tensor, ebits: int, mbits: int
 ) -> torch.Tensor:
@@ -2295,32 +2275,25 @@ def _choose_scale_float8(
         tensor (torch.Tensor): Input tensor to be quantized.
         float8_dtype (torch.dtype): Data type of the quantized tensor (e.g., torch.float8_e4m3fn, torch.float8_e5m2).
         scale_dtype (torch.dtype): Data type of the scaling factor (e.g., torch.float32).
-        block_size (Optional[Tuple[int, ...]]): Block size for block-wise quantization. If None, tensorwise quantization is used.
+        block_size (Tuple[int, ...]): Block size for block-wise quantization. For per-tensor scaling, use block_size == tensor.shape.
         hp_value_lb (Optional[float]): the lower bound for high precision floating point value for calculating scale
         hp_value_ub (Optional[float]): the upper bound for high precision floating point value for calculating scale
     """
     quant_max = torch.finfo(float8_dtype).max
-    if len(block_size) == 0:
-        # tensorwise
-        max_abs = tensor.abs().max()
-        if hp_value_lb is not None or hp_value_ub is not None:
-            max_abs = torch.clamp(max_abs, min=hp_value_lb, max=hp_value_ub)
-        scale = max_abs / quant_max
-    else:
-        shape_for_reduction, reduction_dims = _get_reduction_params(
-            block_size, tensor.shape
-        )
-        tensor_reshaped = tensor.view(shape_for_reduction)
-        max_abs = tensor_reshaped.abs().amax(dim=reduction_dims, keepdim=True)
-        if hp_value_lb is not None or hp_value_ub is not None:
-            max_abs = torch.clamp(max_abs, min=hp_value_lb, max=hp_value_ub)
-        scale = max_abs / quant_max
-        # Reshape scale back to match the expected output shape
-        # The scale tensor should have the same shape as the input divided by block_size
-        output_shape = [
-            input_size // block_size[i] for i, input_size in enumerate(tensor.shape)
-        ]
-        scale = scale.reshape(output_shape)
+    shape_for_reduction, reduction_dims = _get_reduction_params(
+        block_size, tensor.shape
+    )
+    tensor_reshaped = tensor.view(shape_for_reduction)
+    max_abs = tensor_reshaped.abs().amax(dim=reduction_dims, keepdim=True)
+    if hp_value_lb is not None or hp_value_ub is not None:
+        max_abs = torch.clamp(max_abs, min=hp_value_lb, max=hp_value_ub)
+    scale = max_abs / quant_max
+    # Reshape scale back to match the expected output shape
+    # The scale tensor should have the same shape as the input divided by block_size
+    output_shape = [
+        input_size // block_size[i] for i, input_size in enumerate(tensor.shape)
+    ]
+    scale = scale.reshape(output_shape)
 
     if scale_dtype is not torch.float32:
         # Shielding for Version > 2.8

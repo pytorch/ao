@@ -1,7 +1,7 @@
 # Benchmark configuration for microbenchmarks
 benchmark_mode: "inference"
 quantization_config_recipe_names: # Will run a baseline inference for model by default, without quantization for comparison
-  - "int8wo"
+  # - "int8wo"
   - "int8dq"
   - "float8dq-tensor"
   - "float8dq-row"
@@ -10,9 +10,18 @@ output_dir: "benchmarks/microbenchmarks/results"
 model_params:
   - name: "small_bf16_linear"
     matrix_shapes:
-      - name: "small_sweep"
-        min_power: 10
-        max_power: 15
+      - name: "llama4"
+      - name: "deepseek_v3_236b"
+      - name: "deepseek_v3_671b"
+      - name: "qwen3_32b"
+      - name: "gemma3_27b"
+      - name: "custom"
+        shapes: [
+          [1920, 3072, 3072],
+          [1920, 3072, 9216],
+          [1920, 3072, 14336],
+          [1920, 14336, 3072]
+        ]
     high_precision_dtype: "torch.bfloat16"
     torch_compile_mode: "max-autotune"
     device: "cuda"

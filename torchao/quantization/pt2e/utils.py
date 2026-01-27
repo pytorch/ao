@@ -710,10 +710,13 @@ def fold_bn_weights_into_conv_node(
         conv_args.append(None)
 
     if fake_fuse:
-        fused_weight, fused_bias = (
-            torch.nn.Parameter(conv_w, conv_w.requires_grad),
-            torch.nn.Parameter(conv_b, conv_b.requires_grad),
-        )
+        fused_weight = torch.nn.Parameter(conv_w, conv_w.requires_grad)
+        if conv_b is not None:
+            fused_bias = torch.nn.Parameter(conv_b, conv_b.requires_grad)
+        else:
+            fused_bias = torch.nn.Parameter(
+                torch.zeros_like(bn_rm), requires_grad=conv_w.requires_grad
+            )
     else:
         fused_weight, fused_bias = fuse_conv_bn_weights(
             conv_w, conv_b, bn_rm, bn_rv, bn_eps, bn_w, bn_b, transpose=transpose
@@ -858,6 +861,16 @@ def _get_aten_graph_module_for_pattern(
             and len(node.users) == 0
         ):
             aten_pattern.graph.erase_node(node)  # type: ignore[operator, union-attr]
+
+    if torch.__version__.startswith("2.9"):
+        # PyTorch 2.9 adds _guards_fn nodes to exported graphs.
+        # These have errors only on torch 2.9.0 and 2.9.1
+        for node in list(aten_pattern.graph.nodes):  # type: ignore[union-attr]
+            if node.op == "call_module" and node.name == "_guards_fn":
+                aten_pattern.graph.erase_node(node)  # type: ignore[operator, union-attr]
+                # Also remove the _guards_fn module from the graph module if it exists
+                if hasattr(aten_pattern, "_guards_fn"):
+                    delattr(aten_pattern, "_guards_fn")
 
     aten_pattern.graph.eliminate_dead_code()  # type: ignore[operator, union-attr]
     aten_pattern.recompile()  # type: ignore[operator]

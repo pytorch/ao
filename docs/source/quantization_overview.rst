@@ -5,7 +5,7 @@ First we want to lay out the torchao stack::
 
   Quantization Algorithms/Flows: weight only/dynamic/static quantization, hqq, awq, gptq etc.
   ---------------------------------------------------------------------------------------------
-      Quantized Tensors (derived dtypes): Int4Tensor, Int4PreshuffledTensor, Float8Tensor
+      Quantized Tensors (derived dtypes): Int4Tensor, Int4PreshuffledTensor, Int8Tensor, Float8Tensor
   ---------------------------------------------------------------------------------------------
     Quantization Primitive Ops/Efficient Kernels: matmul, quantize, dequantize
   ---------------------------------------------------------------------------------------------
@@ -16,7 +16,7 @@ Any quantization algorithm will be using some components from the above stack, f
 
 * dynamic quantization flow
 * `Float8Tensor <https://github.com/pytorch/ao/blob/main/torchao/quantization/quantize_/workflows/float8/float8_tensor.py>`__
-* `float8 activation + float8 weight fbgemm kernel <https://github.com/pytorch/ao/blob/6cfa47705f60ea614695b52b4b120ac5fd84d1cb/torchao/quantization/quantize_/workflows/float8/float8_tensor.py#L280>`__ and `triton quant primitive ops from fbgemm library <https://github.com/pytorch/ao/blob/6cfa47705f60ea614695b52b4b120ac5fd84d1cb/torchao/quantization/quantize_/workflows/float8/float8_tensor.py#L198>`__
+* `float8 activation + float8 weight mslk kernel <https://github.com/pytorch/ao/blob/6cfa47705f60ea614695b52b4b120ac5fd84d1cb/torchao/quantization/quantize_/workflows/float8/float8_tensor.py#L280>`__ and `triton quant primitive ops from mslk library <https://github.com/pytorch/ao/blob/6cfa47705f60ea614695b52b4b120ac5fd84d1cb/torchao/quantization/quantize_/workflows/float8/float8_tensor.py#L198>`__
 * ``torch.float8_e4m3fn`` dtype
 
 Basic DTypes
@@ -46,13 +46,13 @@ Quantization primitive ops means the operators used to convert between low preic
 
 There could be variations of the above to accommodate specific use cases, for example for static quantization we may have ``choose_qparams_affine_with_min_max`` that will choose quantization parameters based on min/max values derived from the observation process.
 
-There could be multiple versions of the op that is different by different kernel libraries that we can use in torchao, for example, for quantizing a bfloat16 Tensor to a raw float8 Tensor and scale: `_choose_scale_float8 <https://github.com/pytorch/ao/blob/6cfa47705f60ea614695b52b4b120ac5fd84d1cb/torchao/quantization/quant_primitives.py#L2183>`__ and `_quantize_affine_float8 <https://github.com/pytorch/ao/blob/6cfa47705f60ea614695b52b4b120ac5fd84d1cb/torchao/quantization/quant_primitives.py#L2282>`__ for torchao implementation, and `torch.ops.triton.quantize_fp8_row <https://github.com/pytorch/ao/blob/6cfa47705f60ea614695b52b4b120ac5fd84d1cb/torchao/quantization/quantize_/workflows/float8/float8_tensor.py#L198C27-L198C60>`__ from fbgemm library.
+There could be multiple versions of the op that is different by different kernel libraries that we can use in torchao, for example, for quantizing a bfloat16 Tensor to a raw float8 Tensor and scale: `_choose_scale_float8 <https://github.com/pytorch/ao/blob/6cfa47705f60ea614695b52b4b120ac5fd84d1cb/torchao/quantization/quant_primitives.py#L2183>`__ and `_quantize_affine_float8 <https://github.com/pytorch/ao/blob/6cfa47705f60ea614695b52b4b120ac5fd84d1cb/torchao/quantization/quant_primitives.py#L2282>`__ for torchao implementation, and `torch.ops.triton.quantize_fp8_row <https://github.com/pytorch/ao/blob/6cfa47705f60ea614695b52b4b120ac5fd84d1cb/torchao/quantization/quantize_/workflows/float8/float8_tensor.py#L198C27-L198C60>`__ from mslk library.
 
 Efficient kernels
 ~~~~~~~~~~~~~~~~~
 We'll also have efficient kernels that works with the low precision tensors, for example:
 
-* `torch.ops.fbgemm.f8f8bf16_rowwise <https://github.com/pytorch/ao/blob/6cfa47705f60ea614695b52b4b120ac5fd84d1cb/torchao/quantization/quantize_/workflows/float8/float8_tensor.py#L280>`__ (rowwise float8 activation and float8 weight matrix multiplication kernel in fbgemm library)
+* `torch.ops.mslk.f8f8bf16_rowwise <https://github.com/pytorch/ao/blob/6cfa47705f60ea614695b52b4b120ac5fd84d1cb/torchao/quantization/quantize_/workflows/float8/float8_tensor.py#L280>`__ (rowwise float8 activation and float8 weight matrix multiplication kernel in MSLK library)
 * `torch._scaled_mm <https://github.com/pytorch/ao/blob/6cfa47705f60ea614695b52b4b120ac5fd84d1cb/torchao/float8/inference.py#L116>`__ (float8 activation and float8 weight matrix multiplication kernel in PyTorch for both rowwise and tensorwise)
 * `int_matmul <https://github.com/pytorch/ao/blob/3e9746cf636e39e3c1ec0de6e0ef2e31f75c4c02/torchao/kernel/intmm.py#L90>`__ that takes two int8 tensors and outputs an int32 tensor
 * `int_scaled_matmul <https://github.com/pytorch/ao/blob/3e9746cf636e39e3c1ec0de6e0ef2e31f75c4c02/torchao/kernel/intmm.py#L107>`__ that does matmul and also applies a scale to the result.
@@ -88,6 +88,8 @@ So in general we structure Tensor subclasses by dervied dtpype and packing forma
      - scaled int4
      - preshuffled (special format to optimize for loading)
      - float8 act + int4 weight dynamic quantization and int4 weight only quantization
+   * - Int8Tensor
+     - plain (no packing needed)
 
 .. note::
    We don't have granularity specific tensor subclasses, i.e. no Float8RowwiseTensor or Float8BlockwiseTensor, all granularities are implemented in the same Tensor, we typically use a general `block_size` attribute to distinguish between different granularities, and each Tensor is allowed to support only a subset of all possible granularity options.
@@ -166,7 +168,7 @@ You can also checkout the tutorial for `Quantized Training <https://github.com/p
 
 Case Study: How float8 dynamic activation and float8 weight quantization works in torchao?
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-To connect everything together, here is a more detailed walk through for float8 dynamic activation and float8 weight quantization in torchao (DEFAULT kernel preference, in H100, when fbgemm_gpu_genai library is installed):
+To connect everything together, here is a more detailed walk through for float8 dynamic activation and float8 weight quantization in torchao (DEFAULT kernel preference, in H100, when mslk library is installed):
 
 Quantization Flow: ``quantize_(model, Float8DynamicActivationFloat8WeightConfig())``
     * What happens: ``linear.weight = torch.nn.Parameter(Float8Tensor.from_hp(linear.weight), requires_grad=False)``
@@ -174,7 +176,7 @@ Quantization Flow: ``quantize_(model, Float8DynamicActivationFloat8WeightConfig(
     * quantized Tensor will be ``Float8Tensor``, a quantized tensor with derived dtype of scaled float8
 
 During Model Execution: model(input)
-    * ``torch.ops.fbgemm.f8f8bf16_rowwise`` is called on input, raw float8 weight and scale
+    * ``torch.ops.mslk.f8f8bf16_rowwise`` is called on input, raw float8 weight and scale
 
 During Quantization
 ###################
@@ -214,7 +216,7 @@ where input is a ``bfloat16`` Tensor, weight is a ``Float8Tensor``, it calls int
       wq = weight_tensor.qdata.contiguous()
       x_scale = input_tensor.scale
       w_scale = weight_tensor.scale
-      res = torch.ops.fbgemm.f8f8bf16_rowwise(
+      res = torch.ops.mslk.f8f8bf16_rowwise(
          xq,
          wq,
          x_scale,
@@ -222,7 +224,7 @@ where input is a ``bfloat16`` Tensor, weight is a ``Float8Tensor``, it calls int
       ).reshape(out_shape)
       return res
 
-The function first quantizes the input to be ``Float8Tensor``, then get the raw float Tensor and scale from both the input and weight Tensor: ``t.qdata``, ``t.scale``, and calls the fbgemm kernel to do the matrix multiplication for float8 dynamic quantization: ``torch.ops.fbgemm.f8f8bf16_rowwise``.
+The function first quantizes the input to be ``Float8Tensor``, then get the raw float Tensor and scale from both the input and weight Tensor: ``t.qdata``, ``t.scale``, and calls the mslk kernel to do the matrix multiplication for float8 dynamic quantization: ``torch.ops.mslk.f8f8bf16_rowwise``.
 
 During Save/Load
 ################

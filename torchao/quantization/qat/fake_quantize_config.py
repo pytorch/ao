@@ -82,9 +82,9 @@ class Float8FakeQuantizeConfig(FakeQuantizeConfigBase):
 class Int4WeightFakeQuantizeConfig(FakeQuantizeConfigBase):
     """
     Config for pint4 weight fake quantization that targets the numerics in the following preshuffled kernel:
-        torch.ops.fbgemm.f8i4bf16_shuffled
-        torch.ops.fbgemm.bf16i4bf16_shuffled
-        torch.ops.fbgemm.bf16i4bf16_rowwise
+        torch.ops.mslk.f8i4bf16_shuffled
+        torch.ops.mslk.bf16i4bf16_shuffled
+        torch.ops.mslk.bf16i4bf16_rowwise
 
     Currently this only supports float8 input activations. It is expected to be used in conjunction with
     :class:`~torchao.quantization.Float8DynamicActivationInt4WeightConfig`. In the future, we may extend
@@ -357,8 +357,7 @@ def _infer_fake_quantize_configs(
     # TODO: rewrite using registration API so we don't need to import here
     # avoid circular imports
     from torchao.prototype.mx_formats import (
-        NVFP4InferenceConfig,
-        NVFP4MMConfig,
+        NVFP4DynamicActivationNVFP4WeightConfig,
     )
     from torchao.prototype.qat import (
         NVFP4FakeQuantizeConfig,
@@ -441,15 +440,12 @@ def _infer_fake_quantize_configs(
             group_size=128,
             activation_dtype=e4m3_dtype,
         )
-    elif isinstance(base_config, NVFP4InferenceConfig):
-        if NVFP4MMConfig.DYNAMIC:
-            act_config = NVFP4FakeQuantizeConfig(
-                use_per_tensor_scale=base_config.use_dynamic_per_tensor_scale,
-                use_swizzled_scales=False,
-                use_triton_kernel=False,
-            )
-        else:
-            act_config = None
+    elif isinstance(base_config, NVFP4DynamicActivationNVFP4WeightConfig):
+        act_config = NVFP4FakeQuantizeConfig(
+            use_per_tensor_scale=base_config.use_dynamic_per_tensor_scale,
+            use_swizzled_scales=False,
+            use_triton_kernel=False,
+        )
         weight_config = NVFP4FakeQuantizeConfig(
             use_per_tensor_scale=base_config.use_dynamic_per_tensor_scale,
             use_swizzled_scales=True,

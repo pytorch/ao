@@ -45,7 +45,7 @@ jobs:
       gpu-arch-version: ${{ matrix.gpu-arch-version }}
       submodules: recursive
       script: |
-        conda create -n venv python=3.10 -y
+        conda create -n venv python=3.10 libgcc-ng=11.2.0 libstdcxx-ng=11.2.0 -y
         conda activate venv
         python -m pip install --upgrade pip
         pip install ${{ matrix.torch-spec }}
@@ -59,15 +59,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: CUDA 2.6
-            runs-on: linux.g5.12xlarge.nvidia.gpu
-            torch-spec: 'torch==2.6.0'
-            gpu-arch-type: "cuda"
-            gpu-arch-version: "12.6"
-            dev-requirements-overrides: ""
           - name: CUDA 2.7
             runs-on: linux.g5.12xlarge.nvidia.gpu
-            torch-spec: 'torch==2.7.0'
+            torch-spec: 'torch==2.7.1'
             gpu-arch-type: "cuda"
             gpu-arch-version: "12.6"
             dev-requirements-overrides: ""
@@ -77,22 +71,28 @@ jobs:
             gpu-arch-type: "cuda"
             gpu-arch-version: "12.6"
             dev-requirements-overrides: ""
-
-          - name: CPU 2.6
-            runs-on: linux.4xlarge
-            torch-spec: 'torch==2.6.0 --index-url https://download.pytorch.org/whl/cpu'
-            gpu-arch-type: "cpu"
-            gpu-arch-version: ""
+          - name: CUDA 2.9
+            runs-on: linux.g5.12xlarge.nvidia.gpu
+            torch-spec: 'torch==2.9.1'
+            gpu-arch-type: "cuda"
+            gpu-arch-version: "12.6"
             dev-requirements-overrides: ""
+
           - name: CPU 2.7
             runs-on: linux.4xlarge
-            torch-spec: 'torch==2.7.0 --index-url https://download.pytorch.org/whl/cpu'
+            torch-spec: 'torch==2.7.1 --index-url https://download.pytorch.org/whl/cpu'
             gpu-arch-type: "cpu"
             gpu-arch-version: ""
             dev-requirements-overrides: ""
           - name: CPU 2.8
             runs-on: linux.4xlarge
             torch-spec: 'torch==2.8.0 --index-url https://download.pytorch.org/whl/cpu'
+            gpu-arch-type: "cpu"
+            gpu-arch-version: ""
+            dev-requirements-overrides: ""
+          - name: CPU 2.9
+            runs-on: linux.4xlarge
+            torch-spec: 'torch==2.9.1 --index-url https://download.pytorch.org/whl/cpu'
             gpu-arch-type: "cpu"
             gpu-arch-version: ""
             dev-requirements-overrides: ""
@@ -105,7 +105,7 @@ jobs:
       gpu-arch-version: ${{ matrix.gpu-arch-version }}
       submodules: recursive
       script: |
-        conda create -n venv python=3.10 libgcc-ng=11.2.0 libstdcxx-ng=11.2.0  -y 
+        conda create -n venv python=3.10 libgcc-ng=11.2.0 libstdcxx-ng=11.2.0 -y
         conda activate venv
         python -m pip install --upgrade pip
         pip install ${{ matrix.torch-spec }}

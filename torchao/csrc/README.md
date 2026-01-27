@@ -22,8 +22,6 @@ And that's it! Once CI passes and your code merged you'll be able to point peopl
 
 If you'd like to learn more please check out [torch.library](https://pytorch.org/docs/main/library.html)
 
-Note: All CUTLASS-based kernels should have `cutlass` in the name of their `.cu` files e.g. `rowwise_scaled_linear_cutlass_s4s4.cu`
-
 ## Required dependencies
 
 The important dependencies are already taken care of in our CI so feel free to test in CI directly

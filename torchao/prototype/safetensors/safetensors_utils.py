@@ -8,23 +8,33 @@ import torch
 import torchao
 from torchao.quantization import (
     Float8Tensor,
+    Int4PlainInt32Tensor,
     Int4Tensor,
     Int4TilePackedTo4dTensor,
+    Int8Tensor,
     IntxUnpackedToInt8Tensor,
+    MappingType,
 )
 from torchao.quantization.quantize_.common import KernelPreference
-from torchao.quantization.quantize_.workflows import QuantizeTensorToFloat8Kwargs
+from torchao.quantization.quantize_.workflows import (
+    QuantizeTensorToFloat8Kwargs,
+    QuantizeTensorToInt8Kwargs,
+)
 
 ALLOWED_CLASSES = {
     "Float8Tensor": Float8Tensor,
     "Int4Tensor": Int4Tensor,
     "Int4TilePackedTo4dTensor": Int4TilePackedTo4dTensor,
     "IntxUnpackedToInt8Tensor": IntxUnpackedToInt8Tensor,
+    "Int8Tensor": Int8Tensor,
     "Float8MMConfig": torchao.float8.inference.Float8MMConfig,
     "QuantizeTensorToFloat8Kwargs": QuantizeTensorToFloat8Kwargs,
+    "QuantizeTensorToInt8Kwargs": QuantizeTensorToInt8Kwargs,
     "PerRow": torchao.quantization.PerRow,
     "PerTensor": torchao.quantization.PerTensor,
     "KernelPreference": KernelPreference,
+    "MappingType": MappingType,
+    "Int4PlainInt32Tensor": Int4PlainInt32Tensor,
 }
 
 ALLOWED_TENSORS_SUBCLASSES = [
@@ -32,6 +42,8 @@ ALLOWED_TENSORS_SUBCLASSES = [
     "Int4Tensor",
     "Int4TilePackedTo4dTensor",
     "IntxUnpackedToInt8Tensor",
+    "Int8Tensor",
+    "Int4PlainInt32Tensor",
 ]
 
 __all__ = [
@@ -60,7 +72,23 @@ class TensorSubclassAttributeJSONEncoder(json.JSONEncoder):
                 encoded_attribute = self.encode_value(attribute)
                 tensor_attr_dict[tensor_attribute_name] = encoded_attribute
 
-            return {"_type": o.__class__.__name__, "_data": tensor_attr_dict}
+            optional_tensor_data_names = (
+                o.optional_tensor_data_names
+                if hasattr(o, "optional_tensor_data_names")
+                else []
+            )
+            all_tensor_data_names = optional_tensor_data_names + o.tensor_data_names
+
+            _tensor_data_names = []
+            for tensor_data_name in all_tensor_data_names:
+                if getattr(o, tensor_data_name) is not None:
+                    _tensor_data_names.append(tensor_data_name)
+
+            return {
+                "_type": o.__class__.__name__,
+                "_data": tensor_attr_dict,
+                "_tensor_data_names": _tensor_data_names,
+            }
 
         if hasattr(o, "_fields") and hasattr(
             o, "_asdict"

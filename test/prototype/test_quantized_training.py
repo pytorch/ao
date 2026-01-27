@@ -296,6 +296,7 @@ class TestFSDP2(FSDPTest):
         return _FSDP_WORLD_SIZE
 
     @skip_if_lt_x_gpu(_FSDP_WORLD_SIZE)
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
     def test_fsdp2_correctness(self):
         mp_policy = MixedPrecisionPolicy()
 
@@ -386,6 +387,7 @@ class TestFSDP2(FSDPTest):
             )
 
     @skip_if_lt_x_gpu(_FSDP_WORLD_SIZE)
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
     def test_precompute_bitnet_scale(self):
         from torchao.prototype.quantized_training.bitnet import (
             get_bitnet_scale,

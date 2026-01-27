@@ -26,9 +26,17 @@ class KernelPreference(str, Enum):
     """
     TORCH = "torch"
 
-    """Use quantize and quantized mm kernels from fbgemm_gpu_genai library, requires fbgemm_gpu_genai library
+    """Use quantize and quantized mm kernels from mslk library, requires mslk library
     """
-    FBGEMM = "fbgemm"
+    MSLK = "mslk"
+
+    """Emulates gemm_lowp(A, B) with gemm_fp32(A.dequantize(), B.dequantize()).
+    Intended use cases are:
+    1. Running CI for product logic on hardware which does not support the 
+       actual lowp gemm.
+    2. Debugging kernel numerics issues.
+    """
+    EMULATED = "emulated"
 
 
 torch.serialization.add_safe_globals([KernelPreference])

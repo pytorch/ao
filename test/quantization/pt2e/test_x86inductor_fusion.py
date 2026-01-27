@@ -44,7 +44,6 @@ from torchao.quantization.pt2e.quantize_pt2e import (
 from torchao.quantization.pt2e.quantizer.x86_inductor_quantizer import (
     X86InductorQuantizer,
 )
-from torchao.testing.utils import skip_if_rocm
 from torchao.utils import torch_version_at_least
 
 # The dict value is match_nodes(computation_op+unary_op)
@@ -93,6 +92,9 @@ quantization_inplace_add_fn_list = [
 skipIfNoFloat8Support = unittest.skipIf(
     not torch_version_at_least("2.9.0"), "Float8 requires torch 2.9+"
 )
+skipIfNoQConvFp8Support = unittest.skipIf(
+    not torch_version_at_least("2.10.0.dev"), "QConv fp8 requires torch 2.10+"
+)
 
 
 def get_default_quantizer(is_qat, is_dynamic):
@@ -138,6 +140,61 @@ class FP8QDQLinear(torch.nn.Module):
         return out
 
 
+class FP8QDQConv2d(torch.nn.Module):
+    def __init__(
+        self,
+        in_channels,
+        out_channels,
+        kernel_size,
+        stride=1,
+        padding=0,
+        dilation=1,
+        groups=1,
+        bias=True,
+    ):
+        super().__init__()
+        self.qtype = torch.float8_e4m3fn
+        self.weight = torch.randn(
+            (out_channels, in_channels // groups, *kernel_size)
+        ).to(self.qtype)
+        self.weight_scale = 2.0
+        self.scale = 2.0
+        self.bias = None
+        if bias:
+            self.bias = torch.randn((out_channels,))
+        self.stride = stride
+        self.padding = padding
+        self.dilation = dilation
+        self.groups = groups
+
+    def forward(self, input):
+        weight = torch.ops.torchao.dequantize_affine_float8_non_decomposed.default(
+            tensor=self.weight.data,
+            scale=torch.tensor([self.weight_scale]),
+            output_dtype=torch.float,
+        )
+        q_input = torch.ops.torchao.quantize_affine_float8_non_decomposed.default(
+            tensor=input,
+            scale=torch.tensor([self.scale]),
+            float8_dtype=self.qtype,
+        )
+        dq_input = torch.ops.torchao.dequantize_affine_float8_non_decomposed.default(
+            tensor=q_input,
+            scale=torch.tensor([self.scale]),
+            output_dtype=torch.float,
+        )
+
+        return torch.nn.functional.conv2d(
+            dq_input,
+            weight,
+            self.bias,
+            self.stride,
+            self.padding,
+            self.dilation,
+            self.groups,
+        )
+
+
 def qdq(input, scale):
     dtype = input.dtype
     q_input = torch.ops.torchao.quantize_affine_float8_non_decomposed.default(
@@ -171,9 +228,7 @@ def fp8_convert_(model):
     parent_child_mod_dict = generate_model_info(model)
     for name, mod in model.named_modules():
         mod_type_str = mod.__class__.__name__
-        if mod_type_str not in [
-            "Linear",
-        ]:
+        if mod_type_str not in ["Linear", "Conv2d"]:
             continue
         param = mod.weight
         xmax = torch.max(param)
@@ -187,6 +242,20 @@ def fp8_convert_(model):
         mod.weight.data = q_param
         if mod_type_str in ["Linear"]:
             patched_mod = FP8QDQLinear(mod.in_features, mod.out_features, False)
+            patched_mod.bias = mod.bias
+            patched_mod.weight_scale = weight_scale.item()
+            patched_mod.weight.data = q_param
+        elif mod_type_str in ["Conv2d"]:
+            patched_mod = FP8QDQConv2d(
+                mod.in_channels,
+                mod.out_channels,
+                mod.kernel_size,
+                mod.stride,
+                mod.padding,
+                mod.dilation,
+                mod.groups,
+                False,
+            )
             patched_mod.bias = mod.bias
             patched_mod.weight_scale = weight_scale.item()
             patched_mod.weight.data = q_param
@@ -381,8 +450,9 @@ class TestPatternMatcherBase(TestCase):
 
 
 @unittest.skipIf(not torch_version_at_least("2.8.0"), "Requires torch 2.8+")
+@unittest.skipIf(torch.version.hip is not None, "Not applicable to ROCm")
 class TestPatternMatcher(TestPatternMatcherBase):
-    def _qconv2d_test_helper(self, device="cpu", int8_mixed_bf16=False):
+    def _qconv2d_test_helper(self, device="cpu", mixed_bf16=False, is_fp8=False):
         class M(torch.nn.Module):
             def __init__(
                 self,
@@ -408,14 +478,14 @@ class TestPatternMatcher(TestPatternMatcherBase):
         def matcher_check_fn():
             # 1. Dequant-Conv2D pattern matched in QConv2D weight prepack * 1
             #    int8_mixed_fp32: [dequant_node, dequantize_per_channel, clone, convolution]
-            #    int8_mixed_bf16: [dequant_node, optional(convert_element_type_4),
+            #    mixed_bf16: [dequant_node, optional(convert_element_type_4),
             #     dequantize_per_channel, optional(convert_element_type_3), clone, convolution]
             self.assertEqual(
                 counters["inductor"]["qconv_weight_prepack_matcher_count"], 3
             )
             self.assertEqual(
                 counters["inductor"]["qconv_weight_prepack_matcher_nodes"],
-                18 if int8_mixed_bf16 else 12,
+                18 if mixed_bf16 else 12,
             )
             self.assertEqual(
                 counters["inductor"]["qconv_unary_lower_count"], 0 if TEST_ACL else 3
@@ -426,12 +496,12 @@ class TestPatternMatcher(TestPatternMatcherBase):
             (v,),
             matcher_check_fn,
             check_quantization=True,
-            check_autocast=torch.bfloat16 if int8_mixed_bf16 else torch.float32,
+            check_autocast=torch.bfloat16 if mixed_bf16 else torch.float32,
+            is_fp8=is_fp8,
         )
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
-    @skip_if_rocm("Not applicable to ROCm")
     def test_qconv2d_cpu(self):
         r"""
         This testcase will quantize a single Conv2d module.
@@ -439,21 +509,40 @@ class TestPatternMatcher(TestPatternMatcherBase):
         self._qconv2d_test_helper("cpu")
 
     @skipIfNoDynamoSupport
+    @skipIfNoONEDNN
+    @skipIfNoQConvFp8Support
+    def test_qconv2d_fp8_cpu(self):
+        r"""
+        This testcase will quantize a single Conv2d module.
+        """
+        self._qconv2d_test_helper("cpu", is_fp8=True)
+
+    @skipIfNoDynamoSupport
     @skipIfNoONEDNNBF16
     @skipIfNoONEDNN
-    @skip_if_rocm("Not applicable to ROCm")
     def test_qconv2d_int8_mixed_bf16(self):
         r"""
         This testcase will quantize a single Conv2d module with int8_mixed_bf16 quantization.
         """
-        self._qconv2d_test_helper(int8_mixed_bf16=True)
+        self._qconv2d_test_helper(mixed_bf16=True)
+
+    @skipIfNoDynamoSupport
+    @skipIfNoONEDNNBF16
+    @skipIfNoONEDNN
+    @skipIfNoQConvFp8Support
+    def test_qconv2d_fp8_mixed_bf16(self):
+        r"""
+        This testcase will quantize a single Conv2d module with int8_mixed_bf16 quantization.
+        """
+        self._qconv2d_test_helper(mixed_bf16=True, is_fp8=True)
 
     def _qconv2d_unary_test_helper(
         self,
         device="cpu",
-        int8_mixed_bf16=False,
+        mixed_bf16=False,
         unary_op=torch.nn.ReLU(),
         qconv_unary_matcher_nodes=None,
+        is_fp8=False,
     ):
         class M(torch.nn.Module):
             def __init__(
@@ -502,8 +591,9 @@ class TestPatternMatcher(TestPatternMatcherBase):
             mod,
             (v,),
             check_quantization=True,
-            check_autocast=torch.bfloat16 if int8_mixed_bf16 else torch.float32,
+            check_autocast=torch.bfloat16 if mixed_bf16 else torch.float32,
             matcher_check_fn=matcher_check_fn,
+            is_fp8=is_fp8,
         )
 
     @skipIfNoDynamoSupport
@@ -515,13 +605,22 @@ class TestPatternMatcher(TestPatternMatcherBase):
         self._qconv2d_unary_test_helper(device="cpu")
 
     @skipIfNoDynamoSupport
+    @skipIfNoONEDNN
+    @skipIfNoQConvFp8Support
+    def test_qconv2d_relu_fp8_cpu(self):
+        r"""
+        This testcase will quantize Conv2d->ReLU pattern.
+        """
+        self._qconv2d_unary_test_helper(device="cpu", is_fp8=True)
+
+    @skipIfNoDynamoSupport
     @skipIfNoONEDNNBF16
     @skipIfNoONEDNN
     def test_qconv2d_relu_int8_mixed_bf16_xpu(self):
         r"""
         This testcase will quantize Conv2d->ReLU pattern with int8_mixed_bf16 quantization.
         """
-        self._qconv2d_unary_test_helper(int8_mixed_bf16=True)
+        self._qconv2d_unary_test_helper(mixed_bf16=True)
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
@@ -533,11 +632,33 @@ class TestPatternMatcher(TestPatternMatcherBase):
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
+    @skipIfNoQConvFp8Support
+    def test_qconv2d_relu6_fp8_cpu(self):
+        r"""
+        This testcase will quantize Conv2d->ReLU6 pattern.
+        """
+        self._qconv2d_unary_test_helper(
+            device="cpu", unary_op=torch.nn.ReLU6(), is_fp8=True
+        )
+
+    @skipIfNoDynamoSupport
+    @skipIfNoONEDNN
     def test_qconv2d_hardtanh_cpu(self):
         r"""
         This testcase will quantize Conv2d->Hardtanh pattern.
         """
         self._qconv2d_unary_test_helper(device="cpu", unary_op=torch.nn.Hardtanh())
+
+    @skipIfNoDynamoSupport
+    @skipIfNoONEDNN
+    @skipIfNoQConvFp8Support
+    def test_qconv2d_hardtanh_fp8_cpu(self):
+        r"""
+        This testcase will quantize Conv2d->Hardtanh pattern.
+        """
+        self._qconv2d_unary_test_helper(
+            device="cpu", unary_op=torch.nn.Hardtanh(), is_fp8=True
+        )
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNNBF16
@@ -551,8 +672,26 @@ class TestPatternMatcher(TestPatternMatcherBase):
         """
         self._qconv2d_unary_test_helper(
             unary_op=torch.nn.Hardtanh(),
-            int8_mixed_bf16=True,
+            mixed_bf16=True,
             qconv_unary_matcher_nodes=11,
+        )
+
+    @skipIfNoDynamoSupport
+    @skipIfNoONEDNNBF16
+    @skipIfNoONEDNN
+    @skipIfNoQConvFp8Support
+    def test_qconv2d_hardtanh_fp8_mixed_bf16_cpu(self):
+        r"""
+        This testcase will quantize Conv2d->Hardtanh pattern.
+        Match.nodes:
+            [qconv2d_pointwise_default, convert_element_type, clamp_min, clamp_max, convert_element_type, quantize_per_tensor]
+            [qconv2d_pointwise_default, convert_element_type, clamp_min, clamp_max, convert_element_type]
+        """
+        self._qconv2d_unary_test_helper(
+            unary_op=torch.nn.Hardtanh(),
+            mixed_bf16=True,
+            qconv_unary_matcher_nodes=11,
+            is_fp8=True,
         )
 
     @skipIfNoDynamoSupport
@@ -562,6 +701,17 @@ class TestPatternMatcher(TestPatternMatcherBase):
         This testcase will quantize Conv2d->Hardswish pattern.
         """
         self._qconv2d_unary_test_helper(device="cpu", unary_op=torch.nn.Hardswish())
+
+    @skipIfNoDynamoSupport
+    @skipIfNoONEDNN
+    @skipIfNoQConvFp8Support
+    def test_qconv2d_hardswish_fp8_cpu(self):
+        r"""
+        This testcase will quantize Conv2d->Hardswish pattern.
+        """
+        self._qconv2d_unary_test_helper(
+            device="cpu", unary_op=torch.nn.Hardswish(), is_fp8=True
+        )
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNNBF16
@@ -576,8 +726,27 @@ class TestPatternMatcher(TestPatternMatcherBase):
         """
         self._qconv2d_unary_test_helper(
             unary_op=torch.nn.Hardswish(),
-            int8_mixed_bf16=True,
+            mixed_bf16=True,
             qconv_unary_matcher_nodes=17,
+        )
+
+    @skipIfNoDynamoSupport
+    @skipIfNoONEDNNBF16
+    @skipIfNoONEDNN
+    @skipIfNoQConvFp8Support
+    def test_qconv2d_hardswish_fp8_mixed_bf16_cpu(self):
+        r"""
+        This testcase will quantize Conv2d->Hardswish pattern.
+        Match.nodes:
+            [qconv2d_pointwise_default, convert_element_type, add, clamp_min,
+             clamp_max, mul, div, convert_element_type, quantize_per_tensor]
+            [qconv2d_pointwise_default, convert_element_type, add, clamp_min, clamp_max, mul, div, convert_element_type]
+        """
+        self._qconv2d_unary_test_helper(
+            unary_op=torch.nn.Hardswish(),
+            mixed_bf16=True,
+            qconv_unary_matcher_nodes=17,
+            is_fp8=True,
         )
 
     @skipIfNoDynamoSupport
@@ -589,24 +758,62 @@ class TestPatternMatcher(TestPatternMatcherBase):
         self._qconv2d_unary_test_helper(device="cpu", unary_op=torch.nn.SiLU())
 
     @skipIfNoDynamoSupport
+    @skipIfNoONEDNN
+    @skipIfNoQConvFp8Support
+    def test_qconv2d_silu_fp8_cpu(self):
+        r"""
+        This testcase will quantize Conv2d->SiLU pattern.
+        """
+        self._qconv2d_unary_test_helper(
+            device="cpu", unary_op=torch.nn.SiLU(), is_fp8=True
+        )
+
+    @skipIfNoDynamoSupport
     @skipIfNoONEDNNBF16
     @skipIfNoONEDNN
     def test_qconv2d_silu_int8_mixed_bf16_cpu(self):
         r"""
         This testcase will quantize Conv2d->SiLU pattern.
+        silu_pattern = [sigmoid, mul] for torch < 2.11
+                     = [neg, exp, add, div] for torch >= 2.11
         Match.nodes:
-            [qconv2d_pointwise_default, convert_element_type, sigmoid, mul,
+            [qconv2d_pointwise_default, convert_element_type, silu_pattern,
              convert_element_type, quantize_per_tensor]
-            [qconv2d_pointwise_default, convert_element_type, sigmoid, mul, convert_element_type]
+            [qconv2d_pointwise_default, convert_element_type, silu_pattern, convert_element_type]
         """
         self._qconv2d_unary_test_helper(
             unary_op=torch.nn.SiLU(),
-            int8_mixed_bf16=True,
-            qconv_unary_matcher_nodes=11,
+            mixed_bf16=True,
+            qconv_unary_matcher_nodes=15
+            if torch_version_at_least("2.11.0.dev")
+            else 11,
+        )
+
+    @skipIfNoDynamoSupport
+    @skipIfNoONEDNNBF16
+    @skipIfNoONEDNN
+    @skipIfNoQConvFp8Support
+    def test_qconv2d_silu_fp8_mixed_bf16_cpu(self):
+        r"""
+        This testcase will quantize Conv2d->SiLU pattern.
+        silu_pattern = [sigmoid, mul] for torch < 2.11
+                     = [neg, exp, add, div] for torch >= 2.11
+        Match.nodes:
+            [qconv2d_pointwise_default, convert_element_type, silu_pattern,
+             convert_element_type, quantize_per_tensor]
+            [qconv2d_pointwise_default, convert_element_type, silu_pattern, convert_element_type]
+        """
+        self._qconv2d_unary_test_helper(
+            unary_op=torch.nn.SiLU(),
+            mixed_bf16=True,
+            qconv_unary_matcher_nodes=15
+            if torch_version_at_least("2.11.0.dev")
+            else 11,
+            is_fp8=True,
         )
 
     def _qconv2d_add_test_helper(
-        self, device="cpu", use_relu=False, int8_mixed_bf16=False
+        self, device="cpu", use_relu=False, mixed_bf16=False, is_fp8=False
     ):
         r"""
         This testcase will quantize a Conv2d->Add pattern as:
@@ -680,11 +887,12 @@ class TestPatternMatcher(TestPatternMatcherBase):
                 (v,),
                 matcher_check_fn,
                 check_quantization=True,
-                check_autocast=torch.bfloat16 if int8_mixed_bf16 else torch.float32,
+                check_autocast=torch.bfloat16 if mixed_bf16 else torch.float32,
+                is_fp8=is_fp8,
             )
 
     def _qconv2d_add_test_helper2(
-        self, device="cpu", use_relu=False, int8_mixed_bf16=False
+        self, device="cpu", use_relu=False, mixed_bf16=False, is_fp8=False
     ):
         r"""
         This testcase will quantize two Conv2d->Add patterns as:
@@ -743,9 +951,10 @@ class TestPatternMatcher(TestPatternMatcherBase):
                     res = self.relu2(res)
                 return res
 
-        for add_fn, swap_inputs in itertools.product(
-            quantization_add_fn_list + quantization_inplace_add_fn_list, [False, True]
-        ):
+        add_fn_list = quantization_add_fn_list
+        if not is_fp8:
+            add_fn_list = add_fn_list + quantization_inplace_add_fn_list
+        for add_fn, swap_inputs in itertools.product(add_fn_list, [False, True]):
             mod = M(add_fn, use_relu, swap_inputs).eval().to(device=device)
             x = torch.randn(
                 (1, 3, 8, 8), dtype=torch.float32, requires_grad=False, device=device
@@ -777,7 +986,8 @@ class TestPatternMatcher(TestPatternMatcherBase):
                 (x, x2, x3),
                 matcher_check_fn,
                 check_quantization=True,
-                check_autocast=torch.bfloat16 if int8_mixed_bf16 else torch.float32,
+                check_autocast=torch.bfloat16 if mixed_bf16 else torch.float32,
+                is_fp8=is_fp8,
             )
 
     @skipIfNoDynamoSupport
@@ -787,11 +997,26 @@ class TestPatternMatcher(TestPatternMatcherBase):
         self._qconv2d_add_test_helper2()
 
     @skipIfNoDynamoSupport
+    @skipIfNoONEDNN
+    @skipIfNoQConvFp8Support
+    def test_qconv2d_add_fp8_cpu(self):
+        self._qconv2d_add_test_helper(is_fp8=True)
+        self._qconv2d_add_test_helper2(is_fp8=True)
+
+    @skipIfNoDynamoSupport
     @skipIfNoONEDNNBF16
     @skipIfNoONEDNN
     def test_qconv2d_add_int8_mixed_bf16(self):
-        self._qconv2d_add_test_helper(int8_mixed_bf16=True)
-        self._qconv2d_add_test_helper2(int8_mixed_bf16=True)
+        self._qconv2d_add_test_helper(mixed_bf16=True)
+        self._qconv2d_add_test_helper2(mixed_bf16=True)
+
+    @skipIfNoDynamoSupport
+    @skipIfNoONEDNNBF16
+    @skipIfNoONEDNN
+    @skipIfNoQConvFp8Support
+    def test_qconv2d_add_fp8_mixed_bf16(self):
+        self._qconv2d_add_test_helper(mixed_bf16=True, is_fp8=True)
+        self._qconv2d_add_test_helper2(mixed_bf16=True, is_fp8=True)
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
@@ -800,11 +1025,26 @@ class TestPatternMatcher(TestPatternMatcherBase):
         self._qconv2d_add_test_helper2(use_relu=True)
 
     @skipIfNoDynamoSupport
+    @skipIfNoONEDNN
+    @skipIfNoQConvFp8Support
+    def test_qconv2d_add_relu_fp8_cpu(self):
+        self._qconv2d_add_test_helper(use_relu=True, is_fp8=True)
+        self._qconv2d_add_test_helper2(use_relu=True, is_fp8=True)
+
+    @skipIfNoDynamoSupport
     @skipIfNoONEDNNBF16
     @skipIfNoONEDNN
     def test_qconv2d_add_relu_int8_mixed_bf16(self):
-        self._qconv2d_add_test_helper(use_relu=True, int8_mixed_bf16=True)
-        self._qconv2d_add_test_helper2(use_relu=True, int8_mixed_bf16=True)
+        self._qconv2d_add_test_helper(use_relu=True, mixed_bf16=True)
+        self._qconv2d_add_test_helper2(use_relu=True, mixed_bf16=True)
+
+    @skipIfNoDynamoSupport
+    @skipIfNoONEDNNBF16
+    @skipIfNoONEDNN
+    @skipIfNoQConvFp8Support
+    def test_qconv2d_add_relu_fp8_mixed_bf16(self):
+        self._qconv2d_add_test_helper(use_relu=True, mixed_bf16=True, is_fp8=True)
+        self._qconv2d_add_test_helper2(use_relu=True, mixed_bf16=True, is_fp8=True)
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
@@ -1035,7 +1275,6 @@ class TestPatternMatcher(TestPatternMatcherBase):
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
-    @skip_if_rocm("Not applicable to ROCm")
     def test_qat_qconv2d(self):
         r"""
         This testcase will quantize a single Conv2d module with qat flow.
@@ -1178,7 +1417,6 @@ class TestPatternMatcher(TestPatternMatcherBase):
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
-    @skip_if_rocm("Not applicable to ROCm")
     def test_qat_qconv2d_add(self):
         r"""
         This testcase will quantize a Conv2d->Add pattern as:
@@ -1244,7 +1482,6 @@ class TestPatternMatcher(TestPatternMatcherBase):
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
-    @skip_if_rocm("Not applicable to ROCm")
     def test_qat_qconv2d_add_relu(self):
         r"""
         This testcase will quantize a Conv2d->Add->ReLU pattern as:
@@ -1384,7 +1621,6 @@ class TestPatternMatcher(TestPatternMatcherBase):
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
-    @skip_if_rocm("Not applicable to ROCm")
     def test_qconv2d_dequant_promotion_cpu(self):
         self._test_qconv2d_dequant_promotion_helper()
 
@@ -1479,7 +1715,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
             )
 
         self._test_common(
-            mod,
+            copy.deepcopy(mod),
             inputs,
             matcher_check_fn=(
                 matcher_check_fn
@@ -1492,6 +1728,18 @@ class TestPatternMatcher(TestPatternMatcherBase):
             is_dynamic=is_dynamic,
             is_fp8=is_fp8,
         )
+        if is_fp8:
+            # ensure quantize_affine_float8_non_decomposed is lowered
+            self._test_code_common(
+                mod,
+                inputs,
+                include_ops=[],
+                exclude_ops=[
+                    "torch.ops.torchao.quantize_affine_float8_non_decomposed.default"
+                ],
+                check_quantization=True,
+                is_fp8=is_fp8,
+            )
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
@@ -3045,6 +3293,181 @@ class TestDynamicPatternMatcher(TestPatternMatcherBase):
         for annotate_matmul in [True, False]:
             self._test_q_attention_block_helper(
                 annotate_matmul=annotate_matmul, is_fp8=True
+            )
+
+    def _test_scaled_embedding_bag_helper(self, dtype, with_output_quant=False):
+        class FP8QDQEmbeddingBag(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.weight_scale = 2.0
+                self.output_scale = 3.0
+
+            def _dequantize(self, weight):
+                if dtype == torch.float8_e4m3fn:
+                    res = torch.ops.torchao.dequantize_affine_float8_non_decomposed.default(
+                        tensor=weight.data,
+                        scale=torch.tensor([self.weight_scale]),
+                        output_dtype=torch.float,
+                    )
+                else:
+                    res = torch.ops.quantized_decomposed.dequantize_per_tensor.default(
+                        weight.data,
+                        self.weight_scale,
+                        0,
+                        -128,
+                        127,
+                        torch.int8,
+                    )
+                return res
+
+            def _quantize(self, x):
+                if dtype == torch.float8_e4m3fn:
+                    qx = (
+                        torch.ops.torchao.quantize_affine_float8_non_decomposed.default(
+                            tensor=x,
+                            scale=torch.tensor([self.output_scale]),
+                            float8_dtype=dtype,
+                        )
+                    )
+                else:
+                    qx = torch.ops.quantized_decomposed.quantize_per_tensor.default(
+                        x, self.output_scale, 0, -128, 127, torch.int8
+                    )
+                return qx
+
+            def forward(
+                self,
+                weight,
+                input,
+                offsets=None,
+            ):
+                weight = self._dequantize(weight)
+
+                res = torch.nn.functional.embedding_bag(
+                    input,
+                    weight,
+                    offsets,
+                    mode="sum",
+                    include_last_offset=True,
+                )
+                if with_output_quant:
+                    res = self._quantize(res)
+                return res
+
+        EMBEDINGBAG_MULTIHOT_SIZES = [1, 2, 3, 10]
+        EMBEDINGBAG_BAG_SIZES = [1, 2, 128, 1024]
+        EMBEDINGBAG_VECTOR_SIZES = [1, 128, 512]
+        EMBEDINGBAG_INDEX_DTYPES = [torch.int64, torch.int32]
+
+        EMBEDINGBAG_TEST_PARAMS = list(
+            itertools.product(
+                EMBEDINGBAG_MULTIHOT_SIZES,
+                EMBEDINGBAG_BAG_SIZES,
+                EMBEDINGBAG_VECTOR_SIZES,
+                EMBEDINGBAG_INDEX_DTYPES,
+            )
+        )
+
+        for multi_hot, batch_size, vector_size, index_type in EMBEDINGBAG_TEST_PARAMS:
+            with torch.no_grad():
+                mod = FP8QDQEmbeddingBag()
+
+                weight = torch.randn((1000, vector_size)).to(dtype)
+                indices = torch.randint(1000, (batch_size * multi_hot,)).to(index_type)
+                offsets = torch.arange(0, (batch_size + 1) * multi_hot, multi_hot).to(
+                    index_type
+                )
+
+                def matcher_check_fn():
+                    counter_name = "scaled_embedding_bag"
+                    if with_output_quant:
+                        counter_name += "_with_output_quant"
+                    self.assertEqual(
+                        counters["inductor"][f"{counter_name}_matcher_count"], 1
+                    )
+
+                self._test_common(
+                    mod,
+                    (weight, indices, offsets),
+                    matcher_check_fn,
+                )
+
+    @skipIfNoDynamoSupport
+    @skipIfNoONEDNN
+    @skipIfNoFloat8Support
+    @unittest.skipIf(
+        "CPU" not in torch._C._dispatch_dump("torchao::_scaled_embedding_bag"),
+        reason="cpp kernels not built",
+    )
+    def test_fp8_scaled_embedding_bag(self):
+        self._test_scaled_embedding_bag_helper(torch.float8_e4m3fn)
+
+    @skipIfNoDynamoSupport
+    @skipIfNoONEDNN
+    @skipIfNoFloat8Support
+    @unittest.skipIf(
+        "CPU" not in torch._C._dispatch_dump("torchao::_scaled_embedding_bag"),
+        reason="cpp kernels not built",
+    )
+    def test_int8_scaled_embedding_bag(self):
+        self._test_scaled_embedding_bag_helper(torch.int8)
+
+    @skipIfNoDynamoSupport
+    @skipIfNoONEDNN
+    @skipIfNoFloat8Support
+    @unittest.skipIf(
+        "CPU" not in torch._C._dispatch_dump("torchao::_scaled_embedding_bag"),
+        reason="cpp kernels not built",
+    )
+    def test_int8_scaled_embedding_bag_with_output_quant(self):
+        self._test_scaled_embedding_bag_helper(torch.int8, True)
+
+    @skipIfNoDynamoSupport
+    @skipIfNoONEDNN
+    @skipIfNoFloat8Support
+    @unittest.skipIf(
+        "CPU" not in torch._C._dispatch_dump("torchao::_scaled_embedding_bag"),
+        reason="cpp kernels not built",
+    )
+    def test_int8_concat_dequant_quant(self):
+        class Mod(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.scale = 2.0
+
+            def forward(
+                self,
+                int8_inputs,
+            ):
+                res = torch.cat(int8_inputs, dim=1)
+                res = torch.ops.quantized_decomposed.dequantize_per_tensor.default(
+                    res, self.scale, 0, -128, 127, torch.int8
+                )
+                res = torch.ops.quantized_decomposed.quantize_per_tensor.default(
+                    res, self.scale, 0, -128, 127, torch.int8
+                )
+                return res
+
+        def quant_input(x):
+            scale = 127 / x.max()
+            x = x * scale
+            x = x.to(torch.int8)
+            return x
+
+        def matcher_check_fn():
+            self.assertEqual(counters["inductor"]["concat_dq_q_matcher_count"], 1)
+
+        input_len_list = [2, 3]
+        shape = (128, 3)
+
+        mod = Mod()
+        for len in input_len_list:
+            inputs = [torch.randn(shape) for _ in range(len)]
+            int8_inputs = [quant_input(x) for x in inputs]
+            self._test_common(
+                mod,
+                (int8_inputs,),
+                matcher_check_fn,
             )
 
 

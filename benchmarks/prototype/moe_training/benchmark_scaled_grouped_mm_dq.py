@@ -85,7 +85,11 @@ def get_configs() -> List[ExperimentConfig]:
         (128000, 2048, 7168, 4),
         (128000, 2048, 7168, 8),
     ]
-    recipes = [MoEScalingType.FP8_ROWWISE, MoEScalingType.MXFP8]
+    recipes = [
+        MoEScalingType.FP8_ROWWISE,
+        MoEScalingType.MXFP8,
+        MoEScalingType.MXFP8_WGRAD_WITH_HP,
+    ]
     high_precision_dtypes = [torch.bfloat16]
     configs = []
     for MNKG, recipe, high_precision_dtype in itertools.product(

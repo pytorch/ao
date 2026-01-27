@@ -12,7 +12,15 @@
 #include <ATen/hip/HIPBlas.h>
 #include <ATen/native/Resize.h>
 #include <c10/core/ScalarType.h>
+#ifdef HIPIFY_V2
+#include <c10/hip/HIPCachingAllocator.h>
+#define GET_CURRENT_HIP_STREAM at::cuda::getCurrentCUDAStream()
+#define GET_CACHING_ALLOCATOR *::c10::cuda::CUDACachingAllocator::get()
+#else
 #include <ATen/hip/impl/HIPCachingAllocatorMasqueradingAsCUDA.h>
+#define GET_CURRENT_HIP_STREAM at::hip::getCurrentHIPStreamMasqueradingAsCUDA()
+#define GET_CACHING_ALLOCATOR *::c10::hip::HIPCachingAllocatorMasqueradingAsCUDA::get()
+#endif
 #include <c10/util/ArrayRef.h>
 #include <torch/library.h>
 
@@ -174,10 +182,10 @@ static size_t _parseChosenWorkspaceSize() {
   if (val.has_value()) {
     try {
       workspace_size = std::stoi(val.value());
-    } catch(std::invalid_argument const& e) {
+    } catch(std::invalid_argument const&) {
       TORCH_WARN("invalid CUBLASLT_WORKSPACE_SIZE,",
                  " using default workspace size of ", workspace_size, " KiB.");
-    } catch(std::out_of_range const& e) {
+    } catch(std::out_of_range const&) {
       TORCH_WARN("CUBLASLT_WORKSPACE_SIZE out of range,",
                  " using default workspace size of ", workspace_size, " KiB.");
     }
@@ -497,7 +505,7 @@ inline void bgemm_hipblaslt(CUDABLAS_BGEMM_ARGTYPES(Dtype), bool mat1_is_swizzle
       &heuristicResult.algo,
       workspace.mutable_data_ptr(),
       workspaceSize,
-      at::hip::getCurrentHIPStreamMasqueradingAsCUDA());
+      GET_CURRENT_HIP_STREAM);
   TORCH_CHECK(
       cublasStatus == HIPBLAS_STATUS_SUCCESS,
       "CUDA error: ",
@@ -661,9 +669,9 @@ void _scaled_gemm(
   }
 #endif
 
-  auto stream = c10::hip::getCurrentHIPStreamMasqueradingAsCUDA();
+  auto stream = GET_CURRENT_HIP_STREAM;
   size_t workspaceSize = _getWorkspaceSize();
-  auto& allocator = *::c10::hip::HIPCachingAllocatorMasqueradingAsCUDA::get();
+  auto& allocator = GET_CACHING_ALLOCATOR;
   auto workspace = allocator.allocate(workspaceSize);
   auto workspace_ptr = workspace.mutable_get();
   TORCH_CHECK(workspace_ptr != nullptr, "OOM trying to allocate workspace for cublaslt");

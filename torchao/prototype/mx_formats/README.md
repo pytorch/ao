@@ -74,13 +74,13 @@ Below is a toy training loop. For an example real training loop, see our torchti
 import torch
 from torchao.quantization import quantize_
 import torchao.prototype.mx_formats
-from torchao.prototype.mx_formats import MXLinearConfig, MXGemmKernelChoice, ScaleCalculationMode
+from torchao.prototype.mx_formats import MXLinearConfig, ScaleCalculationMode
+from torchao.quantization.quantize_.common import KernelPreference
 
-# on NVIDIA Blackwell GPUs, you can use cuBLAS or CUTLASS mxfp8 kernels
-gemm_kernel_choice = MXGemmKernelChoice.CUBLAS
-# gemm_kernel_choice = MXGemmKernelChoice.CUTLASS
-# on older NVIDIA gpus, you can run training with emulated MX gemm
-# gemm_kernel_choice = MXGemmKernelChoice.EMULATED
+# low precision gemm, requires CUDA capability 10.0+
+kernel_preference = KernelPreference.AUTO
+# or, emulated gemm
+# kernel_preference = KernelPreference.EMULATED
 
 scale_calculation_mode = ScaleCalculationMode.FLOOR
 # other supported modes: RCEIL, CEIL, EVEN
@@ -89,7 +89,7 @@ m = torch.nn.Sequential(torch.nn.Linear(32, 32)).cuda()
 config = MXLinearConfig(
     elem_dtype=torch.float8_e4m3fn,
     block_size=32,
-    gemm_kernel_choice=gemm_kernel_choice,
+    kernel_preference=kernel_preference,
     scale_calculation_mode=scale_calculation_mode,
 )
 quantize_(m, config)
@@ -107,14 +107,12 @@ import torch
 import torch.nn as nn
 from torchao.quantization import quantize_
 import torchao.prototype.mx_formats
-from torchao.prototype.mx_formats.config import (
-    MXGemmKernelChoice,
-)
 from torchao.prototype.mx_formats.inference_workflow import (
-    MXFPInferenceConfig,
-    NVFP4InferenceConfig,
-    NVFP4MMConfig,
+    MXDynamicActivationMXWeightConfig,
+    NVFP4DynamicActivationNVFP4WeightConfig,
+    NVFP4WeightOnlyConfig,
 )
+from torchao.quantization.quantize_.common import KernelPreference
 
 m = nn.Linear(32, 128, bias=False, dtype=torch.bfloat16, device="cuda")
 x = torch.randn(128, 32, device="cuda", dtype=torch.bfloat16)
@@ -122,37 +120,47 @@ x = torch.randn(128, 32, device="cuda", dtype=torch.bfloat16)
 # mxfp8
 
 m_mxfp8 = copy.deepcopy(m)
-config = MXFPInferenceConfig(
+config = MXDynamicActivationMXWeightConfig(
     activation_dtype=torch.float8_e4m3fn,
     weight_dtype=torch.float8_e4m3fn,
-    gemm_kernel_choice=MXGemmKernelChoice.CUBLAS,
+    kernel_preference=KernelPreference.AUTO,
 )
 quantize_(m_mxfp8, config=config)
 m_mxfp8 = torch.compile(m_mxfp8, fullgraph=True)
 y_mxfp8 = m_mxfp8(x)
 
-# mxfp4
-
-m_mxfp4 = copy.deepcopy(m)
-config = MXFPInferenceConfig(
-    activation_dtype=torch.float4_e2m1fn_x2,
-    weight_dtype=torch.float4_e2m1fn_x2,
-    gemm_kernel_choice=MXGemmKernelChoice.CUTLASS,
-)
-quantize_(m_mxfp4, config=config)
-m_mxfp4 = torch.compile(m_mxfp4, fullgraph=True)
-y_mxfp4 = m_mxfp4(x)
-
-# nvfp4
+# nvfp4 dynamic quant
 
 m_nvfp4 = copy.deepcopy(m)
-config = NVFP4InferenceConfig(
-    mm_config=NVFP4MMConfig.DYNAMIC,
+config = NVFP4DynamicActivationNVFP4WeightConfig(
     use_dynamic_per_tensor_scale=True,
+    use_triton_kernel=True,
 )
 quantize_(m_nvfp4, config=config)
 m_nvfp4 = torch.compile(m_nvfp4, fullgraph=True)
 y_nvfp4 = m_nvfp4(x)
+
+# nvfp4 weight-only quant
+
+m_nvfp4_wo = copy.deepcopy(m)
+config = NVFP4WeightOnlyConfig(
+    use_dynamic_per_tensor_scale=True,
+)
+quantize_(m_nvfp4_wo, config=config)
+m_nvfp4_wo = torch.compile(m_nvfp4_wo, fullgraph=True)
+y_nvfp4 = m_nvfp4_wo(x)
+
+# mxfp4
+
+m_mxfp4 = copy.deepcopy(m)
+config = MXDynamicActivationMXWeightConfig(
+    activation_dtype=torch.float4_e2m1fn_x2,
+    weight_dtype=torch.float4_e2m1fn_x2,
+    kernel_preference=KernelPreference.AUTO,
+)
+quantize_(m_mxfp4, config=config)
+m_mxfp4 = torch.compile(m_mxfp4, fullgraph=True)
+y_mxfp4 = m_mxfp4(x)
 ```
 
 ## MXTensor
@@ -189,23 +197,25 @@ on supported hardware, you can run the following command:
 // example output: https://gist.github.com/vkuzo/a1ddb782e6e1c2aef0c726b3df99efbc
 ```
 
-## to_mx cast across dim0 and dim1
+## quantization kernel microbenchmarks
 
-On NVIDIA B200 machines, our to_mx kernels for mxfp8 achieve **up to 6.3 TB/s** for the dim0 cast (with torch.compile),
-and **up to 3.9 TB/s** for the dim1 cast (with a triton kernel). We are actively working on improving
-the performance of this cast ([details](https://github.com/pytorch/ao/issues/1768)).
+Results for shape 16384x16384 on NVIDIA B200 with 1000W power supply:
 
-To reproduce this on supported hardware, you can run the following command:
+| Mode | Time (μs) | Memory Bandwidth (GB/s) | Notes
+| --- | --- | --- | --- |
+| dim0_mxfp8_floor | 125.92 | 6462.00 | `to_mx` + `torch.compile`
+| dim0_mxfp8_rceil | 220.10 | 3697.00 | `to_mx` + `torch.compile` (not used: https://github.com/pytorch/pytorch/issues/170635)
+| dim0_mxfp8_triton_floor | 139.23 | 5844.17 | Triton kernel
+| dim0_mxfp8_triton_rceil | 138.18 | 5888.83 | Triton kernel
+| dim1_mxfp8_cuda_floor | 150.56 | 5404.46 | CUDA kernel
+| dim1_mxfp8_cuda_rceil | 142.34 | 5716.72 | CUDA kernel
 
+To reproduce these benchmarks:
 ```bash
-// dim0 cast with torch.compile
-> python benchmarks/mx_formats/cast_bench.py --mode dim0_mx --M 16384 --K 16384
-// example output: https://gist.github.com/vkuzo/06aae58de9b8aae02c82adb00eb33197
-
-// dim1 cast with a handwritten triton kernel
-> python benchmarks/mx_formats/cast_bench.py --mode dim1_mx_triton --M 16384 --K 16384
-// example output: https://gist.github.com/vkuzo/7ac5fce44c9b90bfb9eae2a07b721cda
+conda run -n torch python benchmarks/mx_formats/cast_bench.py --M 16384 --K 16384 --mode <mode>
 ```
+
+
 
 # accuracy
 
@@ -215,7 +225,28 @@ To reproduce this on supported hardware, you can run the following command:
 
 ## inference
 
-Coming soon!
+Eval results on LLaMa 3.1 8B on common tasks. `mxfp8` and `nvfp4` recipes quantize all linears except `lm_head`. 
+
+Note: the accuracy results below are WIP and are not optimized yet.
+
+| recipe | wikitext word_perplexity | winogrande |
+| ------ | -------- | ---------- |
+| bfloat16 (baseline) | 7.5472105433748435 | 0.7426992896606156 |
+| mxfp8 | 7.605192917647689 | 0.7355958958168903 |
+| nvfp4 | 8.44478255417328 | 0.7182320441988951 |
+
+To reproduce:
+
+```bash
+# baseline
+python torchao/_models/llama/eval.py --checkpoint_path checkpoints/meta-llama/Meta-Llama-3.1-8B/model.pth --print_model --tasks wikitext winogrande
+
+# mxfp8
+python torchao/_models/llama/eval.py --checkpoint_path checkpoints/meta-llama/Meta-Llama-3.1-8B/model.pth --print_model --tasks wikitext winogrande --quantization mxfp8
+
+# nvfp4
+python torchao/_models/llama/eval.py --checkpoint_path checkpoints/meta-llama/Meta-Llama-3.1-8B/model.pth --print_model --tasks wikitext winogrande --quantization nvfp4
+```
 
 # testing
 

@@ -26,6 +26,10 @@ except PackageNotFoundError:
 logger = logging.getLogger(__name__)
 
 
+def is_fbcode():
+    return not hasattr(torch.version, "git_version")
+
+
 def _parse_version(version_string):
     """
     Parse version string representing pre-release with -1
@@ -53,6 +57,8 @@ if force_skip_loading_so_files:
     # users can set env var TORCHAO_FORCE_SKIP_LOADING_SO_FILES=1 to skip loading .so files
     # this way, if they are using an incompatbile torch version, they can still use the API by setting the env var
     skip_loading_so_files = True
+elif is_fbcode():
+    skip_loading_so_files = False
 # if torchao version has "+git", assume it's locally built and we don't know
 #   anything about the PyTorch version used to build it unless user provides override flag
 # otherwise, assume it's prebuilt by torchao's build scripts and we can make
@@ -64,15 +70,20 @@ elif not ("+git" in __version__) and not ("unknown" in __version__):
     torchao_pytorch_compatible_versions = [
         # Built against torch 2.8.0
         (_parse_version("0.13.0"), _parse_version("2.8.0")),
-        (_parse_version("0.13.0"), _parse_version("2.9.0.dev")),
         (_parse_version("0.14.0"), _parse_version("2.8.0")),
-        (_parse_version("0.14.0"), _parse_version("2.9.0.dev")),
         # Built against torch 2.9.0
         (_parse_version("0.14.1"), _parse_version("2.9.0")),
         (_parse_version("0.14.1"), _parse_version("2.10.0.dev")),
+        # Built against torch 2.9.1
+        (_parse_version("0.15.0"), _parse_version("2.9.1")),
+        (_parse_version("0.15.0"), _parse_version("2.10.0.dev")),
+        # Built against torch 2.10.0
+        (_parse_version("0.15.1"), _parse_version("2.10.0")),
+        (_parse_version("0.15.1"), _parse_version("2.11.0.dev")),
         # Current torchao version
-        (_parse_version("0.15.0.dev"), _parse_version("2.9.0")),
-        (_parse_version("0.15.0.dev"), _parse_version("2.10.0.dev")),
+        (_parse_version("0.16.0.dev"), _parse_version("2.9.1")),
+        (_parse_version("0.16.0.dev"), _parse_version("2.10.0.dev")),
+        (_parse_version("0.16.0.dev"), _parse_version("2.11.0.dev")),
     ]
 
     current_torch_version = _parse_version(torch.__version__)
@@ -99,10 +110,15 @@ else:
     try:
         from pathlib import Path
 
+        # Load .so files
         so_files = list(Path(__file__).parent.glob("_C*.so"))
         if len(so_files) > 0:
             for file in so_files:
-                torch.ops.load_library(str(file))
+                logger.debug(f"Loading {file}")
+                try:
+                    torch.ops.load_library(str(file))
+                except Exception as e:
+                    logger.warning(f"Failed to load {file}: {e}")
             from . import ops
 
         # The following registers meta kernels for some CPU kernels
@@ -111,7 +127,6 @@ else:
         logger.debug(f"Skipping import of cpp extensions: {e}")
 
 from torchao.quantization import (
-    autoquant,
     quantize_,
 )
 
@@ -119,7 +134,7 @@ from . import dtypes, optim, quantization, swizzle, testing
 
 __all__ = [
     "dtypes",
-    "autoquant",
+    "autoquant",  # noqa: F405
     "optim",
     "quantize_",
     "swizzle",
@@ -127,3 +142,18 @@ __all__ = [
     "ops",
     "quantization",
 ]
+
+# Lazy imports to avoid CUDA initialization at import time
+_lazy_imports = {
+    "autoquant": "torchao.quantization.autoquant",
+}
+
+
+def __getattr__(name):
+    if name in _lazy_imports:
+        import importlib
+
+        module_path = _lazy_imports[name]
+        module = importlib.import_module(module_path)
+        return getattr(module, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
