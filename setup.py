@@ -745,12 +745,24 @@ def get_extensions():
     ):
         cutlass_90a_extra_compile_args = copy.deepcopy(extra_compile_args)
         # Only use sm90a architecture for these sources, ignoring other flags
-        cutlass_90a_extra_compile_args["nvcc"].append(
-            "-gencode=arch=compute_90a,code=sm_90a"
+        cutlass_90a_extra_compile_args["nvcc"].extend(
+            [
+                "-gencode=arch=compute_90a,code=sm_90a",
+                "-DUSE_CUDA",
+                # define TORCH_TARGET_VERSION with min version 2.10 to expose only the
+                # stable API subset from torch
+                "-DTORCH_TARGET_VERSION=0x020a000000000000",
+            ]
         )
         # Add -DUSE_CUDA flag for ABI stable headers that need it
-        cutlass_90a_extra_compile_args["cxx"].append("-DUSE_CUDA")
-        cutlass_90a_extra_compile_args["nvcc"].append("-DUSE_CUDA")
+        cutlass_90a_extra_compile_args["cxx"].extend(
+            [
+                "-DUSE_CUDA",
+                # define TORCH_TARGET_VERSION with min version 2.10 to expose only the
+                # stable API subset from torch
+                "-DTORCH_TARGET_VERSION=0x020a000000000000",
+            ]
+        )
         ext_modules.append(
             extension(
                 "torchao._C_cutlass_90a",
