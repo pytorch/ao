@@ -16,7 +16,7 @@ The fused kernel reduces memory traffic by applying RoPE and quantization
 in a single pass before calling FP8 SDPA.
 """
 
-from typing import Optional, Tuple, Union
+from typing import Optional, Tuple
 
 import torch
 from torch.nn.attention import SDPBackend, sdpa_kernel
@@ -27,7 +27,6 @@ from torch.nn.attention.experimental._scaled_dot_product_attention_quantized imp
 from torchao.prototype.fp8_rope_sdpa_inference.fp8_rope_sdpa_quantization import (
     fp8_rope_quantize_func,
 )
-
 
 # =============================================================================
 # Variant for FLUX-style inputs (sequence_dim=1)
