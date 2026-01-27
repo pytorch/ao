@@ -148,6 +148,12 @@ from torch.utils.cpp_extension import (
     _get_cuda_arch_flags,
 )
 
+from packaging.version import Version
+
+# Check if torch version is at least 2.10.0 (for stable ABI support)
+_torch_version_str = torch.__version__.split("+")[0].split("a")[0].split("b")[0]
+torch_version_at_least_2_10 = Version(_torch_version_str) >= Version("2.10.0")
+
 
 def detect_hipify_v2():
     try:
@@ -672,14 +678,16 @@ def get_extensions():
                 )
             )
 
-        # Define sm90a sources that use stable ABI
-        cutlass_90a_stable_sources = [
-            os.path.join(
-                extensions_cuda_dir,
-                "to_sparse_semi_structured_cutlass_sm9x",
-                "to_sparse_semi_structured_cutlass_sm9x_f8.cu",
-            ),
-        ]
+        # Define sm90a sources that use stable ABI (requires torch >= 2.10.0)
+        cutlass_90a_stable_sources = []
+        if torch_version_at_least_2_10:
+            cutlass_90a_stable_sources = [
+                os.path.join(
+                    extensions_cuda_dir,
+                    "to_sparse_semi_structured_cutlass_sm9x",
+                    "to_sparse_semi_structured_cutlass_sm9x_f8.cu",
+                ),
+            ]
 
         # Always remove sm90a sources from main sources
         sources = [s for s in sources if s not in cutlass_90a_sources]
