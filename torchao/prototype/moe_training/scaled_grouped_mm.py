@@ -85,7 +85,7 @@ def _quantize_then_scaled_grouped_mm(
             use_triton_for_dim0_cast=True,  # TODO: configurable
             wgrad_with_hp=wgrad_with_hp,
             scale_calculation_mode=ScaleCalculationMode.RCEIL,
-            use_cuda_kernel_for_blocked_layout=True,  # TODO: configurable
+            use_cuda_kernel_for_blocked_layout=True,
         )
     else:
         raise ValueError(f"Unsupported scaling type {scaling_type}")
@@ -645,7 +645,9 @@ def _block_rearrange_M_groups(
     Returns:
         Blocked scales tensor
     """
-    if use_cuda:
+    scale_cols = scales.shape[-1]
+    can_use_cuda = scale_cols >= 64 and scale_cols % 16 == 0
+    if can_use_cuda:
         return mx_block_rearrange_2d_M_groups_cuda(scales, offsets)
     else:
         return triton_mx_block_rearrange_2d_M_groups(scales, offsets)
