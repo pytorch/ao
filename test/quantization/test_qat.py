@@ -2717,7 +2717,8 @@ class TestQAT(TestCase):
         # Check that weights have been updated
         self.assertFalse(torch.allclose(mx_model[0].weight, initial_weight))
 
-    @unittest.skipIf(not _MXFP4_TORCH_AVAILABLE, "Need pytorch 2.8+ for MXFP4")
+    @unittest.skipIf(not torch_version_at_least("2.10.0"), "Need pytorch 2.10+")
+    @unittest.skipIf(not _MXFP4_TORCH_AVAILABLE, "Need pytorch 2.10+ for MXFP4")
     @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
     @parametrize(
         "dtype",
