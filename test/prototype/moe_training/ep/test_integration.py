@@ -30,6 +30,10 @@ from torch.testing._internal.common_utils import run_tests
 
 from test.prototype.moe_training.testing_utils import generate_split_sizes
 from torchao.float8.float8_utils import compute_error
+from torchao.prototype.moe_training.conversion_utils import (
+    GroupedMMConfig,
+    GroupedMMPrecision,
+)
 from torchao.prototype.moe_training.ep import (
     a2a_combine_hp_fwd_mxfp8_bwd,
     a2a_dispatch_mxfp8_fwd_hp_bwd,
@@ -226,13 +230,18 @@ class TestIntegration(MultiProcessTestCase):
             )
 
             # MXFP8: Grouped MM with quantization
+            # High precision wgrad must be used if inputs are pre-quantized (MXTensor)
+            grouped_mm_config = GroupedMMConfig(
+                fwd_out=GroupedMMPrecision.MXFP8,
+                bwd_dgrad=GroupedMMPrecision.MXFP8,
+                bwd_wgrad=GroupedMMPrecision.BF16,
+            )
             mx_gemm_output = _to_mxfp8_then_scaled_grouped_mm(
                 mx_permuted,
                 expert_weights.transpose(-2, -1),
                 offs=mx_group_offsets,
                 block_size=block_size,
-                # wgrad_with_hp must be true if inputs are pre-quantized (MXTensor)
-                wgrad_with_hp=True,
+                grouped_mm_config=grouped_mm_config,
             )
             assert mx_gemm_output.dtype == torch.bfloat16
 

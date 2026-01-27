@@ -31,6 +31,10 @@ from torch.testing._internal.common_utils import run_tests
 
 from test.prototype.moe_training.testing_utils import generate_split_sizes
 from torchao.float8.float8_utils import compute_error
+from torchao.prototype.moe_training.conversion_utils import (
+    GroupedMMConfig,
+    GroupedMMPrecision,
+)
 from torchao.prototype.moe_training.ep import (
     a2a_combine_hp_fwd_mxfp8_bwd,
     a2a_dispatch_mxfp8_fwd_hp_bwd,
@@ -82,12 +86,17 @@ def standard_pipeline(
     )
 
     # Step 3: Grouped MM
+    grouped_mm_config = GroupedMMConfig(
+        fwd_out=GroupedMMPrecision.MXFP8,
+        bwd_dgrad=GroupedMMPrecision.MXFP8,
+        bwd_wgrad=GroupedMMPrecision.BF16,
+    )
     gemm_output = _to_mxfp8_then_scaled_grouped_mm(
         permuted,
         expert_weights_t,
         offs=offsets,
         block_size=block_size,
-        wgrad_with_hp=True,
+        grouped_mm_config=grouped_mm_config,
     )
 
     # Step 4: Unpermute (BF16)
@@ -150,12 +159,17 @@ def mxfp8_pipeline(
     )
 
     # Step 3: MXFP8 Grouped MM - outputs BF16
+    grouped_mm_config = GroupedMMConfig(
+        fwd_out=GroupedMMPrecision.MXFP8,
+        bwd_dgrad=GroupedMMPrecision.MXFP8,
+        bwd_wgrad=GroupedMMPrecision.BF16,
+    )
     gemm_output = _to_mxfp8_then_scaled_grouped_mm(
         mx_permuted,
         expert_weights_t,
         offs=mx_group_offsets,
         block_size=block_size,
-        wgrad_with_hp=True,
+        grouped_mm_config=grouped_mm_config,
     )
 
     # Step 4: Unpermute - maintains BF16

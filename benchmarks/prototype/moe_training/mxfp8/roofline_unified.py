@@ -18,6 +18,9 @@ import pandas as pd
 import torch
 from triton.testing import do_bench
 
+from torchao.prototype.moe_training.conversion_utils import (
+    GroupedMMConfig,
+)
 from torchao.prototype.moe_training.kernels.mxfp8 import (
     mx_block_rearrange_2d_M_groups_cuda,
     torch_to_blocked_2d_M_groups,
@@ -450,7 +453,7 @@ def benchmark_mxfp8_grouped_mm_fwd_bwd(x, w_t, offs, labels, block_size=32):
     block_size_arg = block_size
     out_dtype = torch.bfloat16
     kernel_preference = KernelPreference.AUTO
-    wgrad_with_hp = False
+    grouped_mm_config = GroupedMMConfig()
     scale_calculation_mode = MoEScaleCalculationMode.RCEIL
 
     def wrapper():
@@ -461,7 +464,7 @@ def benchmark_mxfp8_grouped_mm_fwd_bwd(x, w_t, offs, labels, block_size=32):
             block_size_arg,
             out_dtype,
             kernel_preference,
-            wgrad_with_hp,
+            grouped_mm_config,
             scale_calculation_mode,
         )
         loss = torch.nn.functional.mse_loss(out, labels)

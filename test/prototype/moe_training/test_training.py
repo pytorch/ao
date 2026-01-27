@@ -13,6 +13,8 @@ if not torch.cuda.is_available() or torch.cuda.get_device_capability() < (8, 9):
 
 from torchao.float8.float8_utils import compute_error
 from torchao.prototype.moe_training.conversion_utils import (
+    GroupedMMConfig,
+    GroupedMMPrecision,
     MoEScalingType,
     MoETrainingConfig,
 )
@@ -56,13 +58,19 @@ torch._dynamo.config.cache_size_limit = 1000
         },
         {
             "recipe": MoEScalingType.MXFP8,
+            "grouped_mm_config": GroupedMMConfig(),
             "group_alignment_size": 32,
             "min_out_sqnr": 28.0,
             "min_input_grad_sqnr": 29.0,
             "min_param_grad_sqnr": 21.0,
         },
         {
-            "recipe": MoEScalingType.MXFP8_WGRAD_WITH_HP,
+            "recipe": MoEScalingType.MXFP8,
+            "grouped_mm_config": GroupedMMConfig(
+                fwd_out=GroupedMMPrecision.MXFP8,
+                bwd_dgrad=GroupedMMPrecision.MXFP8,
+                bwd_wgrad=GroupedMMPrecision.BF16,
+            ),
             "group_alignment_size": 32,
             "min_out_sqnr": 28.0,
             "min_input_grad_sqnr": 29.0,
@@ -78,12 +86,14 @@ def test_moe_training(
 ):
     (
         recipe,
+        grouped_mm_config,
         group_alignment_size,
         min_out_sqnr,
         min_input_grad_sqnr,
         min_param_grad_sqnr,
     ) = (
         recipe_config["recipe"],
+        recipe_config.get("grouped_mm_config", None),
         recipe_config["group_alignment_size"],
         recipe_config["min_out_sqnr"],
         recipe_config["min_input_grad_sqnr"],
@@ -115,11 +125,7 @@ def test_moe_training(
 
     # MXFP8 hardware path requires SM100
     if (
-        recipe
-        in (
-            MoEScalingType.MXFP8,
-            MoEScalingType.MXFP8_WGRAD_WITH_HP,
-        )
+        recipe == MoEScalingType.MXFP8
         and kernel_preference != KernelPreference.EMULATED
         and torch.cuda.get_device_capability()
         != (
@@ -163,7 +169,11 @@ def test_moe_training(
         return False
 
     # quantize test model
-    config = MoETrainingConfig(scaling_type=recipe, kernel_preference=kernel_preference)
+    config = MoETrainingConfig(
+        scaling_type=recipe,
+        kernel_preference=kernel_preference,
+        grouped_mm_config=grouped_mm_config,
+    )
     quantize_(model, config=config, filter_fn=moe_module_filter_fn)
 
     # validate that only the experts were converted

@@ -29,7 +29,11 @@ from torchao.float8.config import (
 from torchao.float8.float8_linear import matmul_with_hp_or_float8_args
 from torchao.float8.float8_training_tensor import LinearMMConfig
 from torchao.float8.float8_utils import compute_error, tensor_to_scale, to_fp8_saturated
-from torchao.prototype.moe_training.conversion_utils import MoEScalingType
+from torchao.prototype.moe_training.conversion_utils import (
+    GroupedMMConfig,
+    GroupedMMPrecision,
+    MoEScalingType,
+)
 from torchao.prototype.moe_training.scaled_grouped_mm import (
     _emulated_mxfp8_scaled_grouped_mm_2d_2d,
     _emulated_mxfp8_scaled_grouped_mm_2d_3d,
@@ -321,7 +325,10 @@ def test_emulate_mxfp8_grouped_gemm_2d_2d(M, N, num_experts):
 @skip_if_rocm("ROCm not supported")
 @pytest.mark.parametrize("M,K,N", [(32768, 5120, 8192), (16640, 7168, 2048)])
 @pytest.mark.parametrize("num_experts", (2, 4, 8, 16))
-@pytest.mark.parametrize("wgrad_with_hp", (True, False))
+@pytest.mark.parametrize(
+    "bwd_wgrad_kernel",
+    (GroupedMMPrecision.BF16, GroupedMMPrecision.MXFP8),
+)
 @pytest.mark.parametrize("use_compile", (True, False))
 @pytest.mark.parametrize(
     "kernel_preference", (KernelPreference.AUTO, KernelPreference.EMULATED)
@@ -334,7 +341,7 @@ def test_mxfp8_grouped_gemm_with_dq_fwd_bwd(
     K,
     N,
     num_experts,
-    wgrad_with_hp,
+    bwd_wgrad_kernel,
     use_compile,
     kernel_preference,
     scale_mode,
@@ -374,13 +381,18 @@ def test_mxfp8_grouped_gemm_with_dq_fwd_bwd(
         if use_compile
         else _to_mxfp8_then_scaled_grouped_mm
     )
+    grouped_mm_config = GroupedMMConfig(
+        fwd_out=GroupedMMPrecision.MXFP8,
+        bwd_dgrad=GroupedMMPrecision.MXFP8,
+        bwd_wgrad=bwd_wgrad_kernel,
+    )
     out = mxfp8_gmm(
         x,
         w_t,
         offs=offs,
         block_size=block_size,
         kernel_preference=kernel_preference,
-        wgrad_with_hp=wgrad_with_hp,
+        grouped_mm_config=grouped_mm_config,
         scale_calculation_mode=scale_mode,
     )
     ref_out = torch._grouped_mm(x_ref, w_t_ref, offs=offs_ref, out_dtype=torch.bfloat16)

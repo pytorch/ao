@@ -11,7 +11,11 @@ import torch
 
 from torchao.float8.config import ScalingGranularity
 from torchao.float8.float8_utils import tensor_to_scale, to_fp8_saturated
-from torchao.prototype.moe_training.conversion_utils import MoEScalingType
+from torchao.prototype.moe_training.conversion_utils import (
+    GroupedMMConfig,
+    GroupedMMPrecision,
+    MoEScalingType,
+)
 from torchao.prototype.moe_training.kernels import (
     triton_fp8_per_group_colwise_scales,
     triton_fp8_rowwise_3d_transpose_rhs,
@@ -63,6 +67,7 @@ def _quantize_then_scaled_grouped_mm(
     out_dtype: Optional[torch.dtype] = torch.bfloat16,
     scaling_type: MoEScalingType = MoEScalingType.FP8_ROWWISE,
     kernel_preference: KernelPreference = KernelPreference.AUTO,
+    grouped_mm_config: GroupedMMConfig = None,
 ) -> torch.Tensor:
     """
     This function performs dynamic quantization with the given recipe
@@ -77,6 +82,7 @@ def _quantize_then_scaled_grouped_mm(
         out_dtype (Optional[torch.dtype]): The dtype of the output tensor. Currently only torch.bfloat16 is supported.
         scaling_type (MoEScalingType): The scaling type to use for quantization.
         kernel_preference (KernelPreference): Kernel preference for quantization and compute. Only applies to MXFP8 scaling types.
+        grouped_mm_config (GroupedMMConfig): Configuration for grouped GEMM kernel selection. Only applies to MXFP8 scaling types.
     """
     # TODO: Remove logging once prototype is more mature. This is currently very useful for development and debugging.
     if scaling_type == MoEScalingType.FP8_ROWWISE:
@@ -86,12 +92,10 @@ def _quantize_then_scaled_grouped_mm(
             offs,
             out_dtype,
         )
-    elif (
-        scaling_type == MoEScalingType.MXFP8
-        or scaling_type == MoEScalingType.MXFP8_WGRAD_WITH_HP
-    ):
+    elif scaling_type == MoEScalingType.MXFP8:
         block_size = 32
-        wgrad_with_hp = scaling_type == MoEScalingType.MXFP8_WGRAD_WITH_HP
+        if grouped_mm_config is None:
+            grouped_mm_config = GroupedMMConfig()
         return _to_mxfp8_then_scaled_grouped_mm(
             A,
             B_t,
@@ -99,7 +103,7 @@ def _quantize_then_scaled_grouped_mm(
             block_size,
             out_dtype,
             kernel_preference=kernel_preference,
-            wgrad_with_hp=wgrad_with_hp,
+            grouped_mm_config=grouped_mm_config,
             scale_calculation_mode=ScaleCalculationMode.RCEIL,
         )
     else:
@@ -328,7 +332,7 @@ class _MXFP8GroupedMM(torch.autograd.Function):
         block_size: int = 32,
         out_dtype: Optional[torch.dtype] = torch.bfloat16,
         kernel_preference: KernelPreference = KernelPreference.AUTO,
-        wgrad_with_hp: bool = False,
+        grouped_mm_config: GroupedMMConfig = None,
         scale_calculation_mode: ScaleCalculationMode = ScaleCalculationMode.RCEIL,
     ) -> torch.Tensor:
         """
@@ -341,12 +345,14 @@ class _MXFP8GroupedMM(torch.autograd.Function):
             block_size: Block size for MXFP8 quantization (must be 32)
             out_dtype: Output dtype (bfloat16 or float32)
             kernel_preference: Kernel preference (AUTO uses CUDA/Triton, EMULATED uses to_mx)
-            wgrad_with_hp: Compute weight gradient in high precision
+            grouped_mm_config: Configuration for grouped GEMM kernel selection
             scale_calculation_mode: Mode for scale calculation (RCEIL, FLOOR, etc.)
 
         Returns:
             Output tensor, shape (M, N)
         """
+        if grouped_mm_config is None:
+            grouped_mm_config = GroupedMMConfig()
         assert kernel_preference in (
             KernelPreference.AUTO,
             KernelPreference.EMULATED,
@@ -370,8 +376,8 @@ class _MXFP8GroupedMM(torch.autograd.Function):
             "out_dtype must be bfloat16 or float32"
         )
         if isinstance(input_act, MXTensor):
-            assert wgrad_with_hp, (
-                "only `wgrad_with_hp` recipe is supported for pre-quantized inputs, support for other recipes is still in progress"
+            assert grouped_mm_config.bwd_wgrad == GroupedMMPrecision.BF16, (
+                "only high-precision weight gradient (GroupedMMPrecision.BF16) is supported for pre-quantized inputs, support for other recipes is still in progress"
             )
 
         # Quantize input activations along dim0
@@ -429,7 +435,7 @@ class _MXFP8GroupedMM(torch.autograd.Function):
         ctx.block_size = block_size
         ctx.out_dtype = out_dtype
         ctx.kernel_preference = kernel_preference
-        ctx.wgrad_with_hp = wgrad_with_hp
+        ctx.grouped_mm_config = grouped_mm_config
         ctx.scale_calculation_mode = scale_calculation_mode
 
         return output
@@ -450,7 +456,7 @@ class _MXFP8GroupedMM(torch.autograd.Function):
         block_size = ctx.block_size
         out_dtype = ctx.out_dtype
         kernel_preference = ctx.kernel_preference
-        wgrad_with_hp = ctx.wgrad_with_hp
+        grouped_mm_config = ctx.grouped_mm_config
         scale_calculation_mode = ctx.scale_calculation_mode
 
         # Check SM100 kernel availability when not using emulated mode
@@ -479,7 +485,7 @@ class _MXFP8GroupedMM(torch.autograd.Function):
             block_size,
             out_dtype,
             scale_calculation_mode,
-            wgrad_with_hp,
+            grouped_mm_config,
             kernel_preference,
         )
         return grad_input, grad_weight_t, None, None, None, None, None, None
@@ -571,7 +577,7 @@ def _compute_wgrad(
     block_size: int,
     out_dtype: torch.dtype,
     scale_calculation_mode: ScaleCalculationMode,
-    wgrad_with_hp: bool = False,
+    grouped_mm_config: GroupedMMConfig,
     kernel_preference: KernelPreference = KernelPreference.AUTO,
 ) -> torch.Tensor:
     """
@@ -584,7 +590,7 @@ def _compute_wgrad(
         block_size: Block size for quantization
         out_dtype: Output dtype
         scale_calculation_mode: Mode for scale calculation
-        wgrad_with_hp: Whether to compute weight gradient in high precision
+        grouped_mm_config: Configuration for grouped GEMM kernel selection
         kernel_preference: Kernel preference for quantization and compute
 
     Returns:
@@ -594,7 +600,7 @@ def _compute_wgrad(
     grad_output = _dequantize_if_mxtensor(grad_output, block_size)
     input_act = _dequantize_if_mxtensor(input_act, block_size)
 
-    if wgrad_with_hp:
+    if grouped_mm_config.bwd_wgrad == GroupedMMPrecision.BF16:
         grad_weight = torch._grouped_mm(
             grad_output.transpose(-2, -1),
             input_act,
@@ -1010,7 +1016,7 @@ def _to_mxfp8_then_scaled_grouped_mm(
     block_size: int = 32,
     out_dtype: Optional[torch.dtype] = torch.bfloat16,
     kernel_preference: KernelPreference = KernelPreference.AUTO,
-    wgrad_with_hp: bool = False,
+    grouped_mm_config: GroupedMMConfig = None,
     scale_calculation_mode: ScaleCalculationMode = ScaleCalculationMode.RCEIL,
 ) -> torch.Tensor:
     """
@@ -1027,12 +1033,14 @@ def _to_mxfp8_then_scaled_grouped_mm(
         - block_size (int): The block size to use for mxpf8 quantization. Currently only 32 is supported.
         - out_dtype (Optional[torch.dtype]): The dtype of the output tensor. Default is torch.bfloat16.
         - kernel_preference (KernelPreference): Kernel preference (AUTO uses CUDA/Triton, EMULATED uses to_mx).
-        - wgrad_with_hp (bool): Whether to compute weight gradients in high precision.
+        - grouped_mm_config (GroupedMMConfig): Configuration for grouped GEMM kernel selection.
         - scale_calculation_mode (ScaleCalculationMode): The mode to use for scale calculation.
 
     Returns:
         - out (torch.Tensor): The result of the mxpf8 scaled grouped gemm.
     """
+    if grouped_mm_config is None:
+        grouped_mm_config = GroupedMMConfig()
     return _MXFP8GroupedMM.apply(
         A,
         B_t,
@@ -1040,7 +1048,7 @@ def _to_mxfp8_then_scaled_grouped_mm(
         block_size,
         out_dtype,
         kernel_preference,
-        wgrad_with_hp,
+        grouped_mm_config,
         scale_calculation_mode,
     )
 

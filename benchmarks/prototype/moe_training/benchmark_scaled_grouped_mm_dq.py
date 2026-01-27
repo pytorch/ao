@@ -20,7 +20,11 @@ from benchmarks.utils import (
     profile_fwd_bwd,
 )
 from torchao.prototype.moe_training import _quantize_then_scaled_grouped_mm
-from torchao.prototype.moe_training.conversion_utils import MoEScalingType
+from torchao.prototype.moe_training.conversion_utils import (
+    GroupedMMConfig,
+    GroupedMMPrecision,
+    MoEScalingType,
+)
 from torchao.prototype.moe_training.utils import generate_jagged_offs
 
 device = torch.device("cuda")
@@ -37,6 +41,7 @@ class ExperimentConfig:
     high_precision_dtype: torch.dtype
     MNKG: tuple[int]
     recipe: MoEScalingType
+    grouped_mm_config: GroupedMMConfig = None
 
 
 @dataclass(frozen=True)
@@ -86,13 +91,20 @@ def get_configs() -> List[ExperimentConfig]:
         (128000, 2048, 7168, 8),
     ]
     recipes = [
-        MoEScalingType.FP8_ROWWISE,
-        MoEScalingType.MXFP8,
-        MoEScalingType.MXFP8_WGRAD_WITH_HP,
+        (MoEScalingType.FP8_ROWWISE, None),
+        (MoEScalingType.MXFP8, GroupedMMConfig()),
+        (
+            MoEScalingType.MXFP8,
+            GroupedMMConfig(
+                fwd_out=GroupedMMPrecision.MXFP8,
+                bwd_dgrad=GroupedMMPrecision.MXFP8,
+                bwd_wgrad=GroupedMMPrecision.BF16,
+            ),
+        ),
     ]
     high_precision_dtypes = [torch.bfloat16]
     configs = []
-    for MNKG, recipe, high_precision_dtype in itertools.product(
+    for MNKG, (recipe, grouped_mm_config), high_precision_dtype in itertools.product(
         MNKG_list,
         recipes,
         high_precision_dtypes,
@@ -102,6 +114,7 @@ def get_configs() -> List[ExperimentConfig]:
                 MNKG=MNKG,
                 recipe=recipe,
                 high_precision_dtype=high_precision_dtype,
+                grouped_mm_config=grouped_mm_config,
             )
         )
     return configs
@@ -167,6 +180,7 @@ def run_experiment(
         B_t,
         offs,
         scaling_type=config.recipe,
+        grouped_mm_config=config.grouped_mm_config,
         labels=labels,
         use_compile=args.compile,
         fullgraph=False,
@@ -178,6 +192,7 @@ def run_experiment(
             B_t,
             offs,
             scaling_type=config.recipe,
+            grouped_mm_config=config.grouped_mm_config,
             labels=labels,
             use_compile=args.compile,
             profile_name="scaled_profile",
@@ -199,6 +214,7 @@ def run_experiment(
         B_t,
         offs,
         scaling_type=config.recipe,
+        grouped_mm_config=config.grouped_mm_config,
         use_compile=args.compile,
         fullgraph=True,
     )

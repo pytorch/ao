@@ -4,9 +4,11 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 import logging
+from dataclasses import dataclass
 from enum import Enum
 from typing import Callable, Optional
 
+import torch
 from torch import nn
 
 from torchao.core.config import AOBaseConfig
@@ -21,7 +23,74 @@ logger: logging.Logger = logging.getLogger(__name__)
 class MoEScalingType(Enum):
     FP8_ROWWISE = "fp8_rowwise"
     MXFP8 = "mxfp8"
-    MXFP8_WGRAD_WITH_HP = "mxfp8_wgrad_with_hp"
+
+
+class GroupedMMPrecision(Enum):
+    """
+    Precision used for a given grouped GEMM.
+
+    * BF16:  bf16 torch._grouped_mm with bf16 output
+    * MXFP8: dynamically quantize inputs then run mxfp8 torch._scaled_grouped_mm with bf16 output
+    """
+
+    BF16 = "bf16"
+    MXFP8 = "mxfp8"
+
+
+@dataclass
+class GroupedMMConfig:
+    """
+    GroupedMMConfig configures the precision used for each grouped GEMM in the
+    forward and backward pass.
+    """
+
+    fwd_out: GroupedMMPrecision = GroupedMMPrecision.MXFP8
+    bwd_dgrad: GroupedMMPrecision = GroupedMMPrecision.MXFP8
+    bwd_wgrad: GroupedMMPrecision = GroupedMMPrecision.MXFP8
+
+    def __post_init__(self):
+        assert self.fwd_out == GroupedMMPrecision.MXFP8, (
+            "only MXFP8 supported for forward output grouped mm"
+        )
+        assert self.bwd_dgrad == GroupedMMPrecision.MXFP8, (
+            "only MXFP8 supported for backward dgrad grouped mm"
+        )
+
+    # needed for torch.compile / pytree support in @torch._dynamo.nonstrict_trace
+    def __hash__(self):
+        return hash((self.fwd_out, self.bwd_dgrad, self.bwd_wgrad))
+
+    # needed for torch.compile / pytree support in @torch._dynamo.nonstrict_trace
+    def __eq__(self, other):
+        if not isinstance(other, GroupedMMConfig):
+            return False
+        return (
+            self.fwd_out == other.fwd_out
+            and self.bwd_dgrad == other.bwd_dgrad
+            and self.bwd_wgrad == other.bwd_wgrad
+        )
+
+
+# Register GroupedMMConfig with pytree so torch.compile can handle it
+# as a function argument in @torch._dynamo.nonstrict_trace functions.
+# TODO: remove once torch.compile supports dataclass pytree leaf nodes
+#       in @torch._dynamo.nonstrict_trace by default
+def _grouped_mm_config_flatten(config):
+    """Flatten GroupedMMConfig for pytree."""
+    return [], (config.fwd_out, config.bwd_dgrad, config.bwd_wgrad)
+
+
+def _grouped_mm_config_unflatten(values, context):
+    """Unflatten GroupedMMConfig for pytree."""
+    fwd_out, bwd_dgrad, bwd_wgrad = context
+    return GroupedMMConfig(fwd_out=fwd_out, bwd_dgrad=bwd_dgrad, bwd_wgrad=bwd_wgrad)
+
+
+torch.utils._pytree.register_pytree_node(
+    GroupedMMConfig,
+    _grouped_mm_config_flatten,
+    _grouped_mm_config_unflatten,
+)
 
 
 class MoETrainingConfig(AOBaseConfig):
@@ -37,7 +106,7 @@ class MoETrainingConfig(AOBaseConfig):
 
     The ScaledGroupedMMTensor is a tensor subclass which overrides the
     `torch._grouped_mm` op by dispatching to a differentiable scaled grouped mm,
-    which performs dynamic float8 rowwise quantization on scaled grouped GEMM
+    which performs dynamic quantization on scaled grouped GEMM
     operands in both the forward and backward pass.
 
     For all other ops, ScaledGroupedMMTensor behaves like a regular torch.Tensor.
@@ -47,10 +116,14 @@ class MoETrainingConfig(AOBaseConfig):
         self,
         scaling_type: MoEScalingType = MoEScalingType.FP8_ROWWISE,
         kernel_preference: KernelPreference = KernelPreference.AUTO,
+        grouped_mm_config: GroupedMMConfig = None,
     ):
         super().__init__()
         self.scaling_type = scaling_type
         self.kernel_preference = kernel_preference
+        self.grouped_mm_config = (
+            grouped_mm_config if grouped_mm_config is not None else GroupedMMConfig()
+        )
 
 
 @register_quantize_module_handler(MoETrainingConfig)
@@ -103,7 +176,10 @@ def _swap_params(
             )
         if not isinstance(module.data, ScaledGroupedMMTensor):
             new_data = ScaledGroupedMMTensor(
-                module.data, config.scaling_type, config.kernel_preference
+                module.data,
+                config.scaling_type,
+                config.grouped_mm_config,
+                kernel_preference=config.kernel_preference,
             )
             return nn.Parameter(new_data, requires_grad=module.requires_grad)
         return module
@@ -131,7 +207,10 @@ def _swap_params(
                 if not isinstance(param.data, ScaledGroupedMMTensor):
                     new_param = nn.Parameter(
                         ScaledGroupedMMTensor(
-                            param.data, config.scaling_type, config.kernel_preference
+                            param.data,
+                            config.scaling_type,
+                            config.grouped_mm_config,
+                            kernel_preference=config.kernel_preference,
                         ),
                         requires_grad=param.requires_grad,
                     )
