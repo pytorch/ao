@@ -44,6 +44,9 @@ from torchao.prototype.moe_training.utils import (
 from torchao.prototype.mx_formats.mx_tensor import to_mx
 from torchao.testing.utils import skip_if_rocm
 
+# Needed since changing args to function causes recompiles
+torch._dynamo.config.cache_size_limit = 1000
+
 
 @skip_if_rocm("ROCm not supported")
 @pytest.mark.parametrize("m", [131072])
