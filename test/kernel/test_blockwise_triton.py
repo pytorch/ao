@@ -17,7 +17,7 @@ from torchao.kernel.blockwise_quantization import (
     fp8_blockwise_weight_dequant,
     fp8_blockwise_weight_quant,
 )
-from torchao.utils import is_sm_at_least_89
+from torchao.utils import is_sm_at_least_90
 
 BLOCKWISE_SIZE_MNK = [
     (2, 512, 128),
@@ -30,13 +30,9 @@ BLOCKWISE_SIZE_MNK = [
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(not is_sm_at_least_90(), reason="Requires CUDA capability >= 9.0")
 @pytest.mark.parametrize("_, N, K", BLOCKWISE_SIZE_MNK)
-@pytest.mark.parametrize(
-    "dtype",
-    [torch.float8_e4m3fn, torch.float8_e5m2]
-    if is_sm_at_least_89()
-    else [torch.float8_e5m2],
-)
+@pytest.mark.parametrize("dtype", [torch.float8_e4m3fn, torch.float8_e5m2])
 def test_blockwise_quant_dequant(_, N, K, dtype):
     x = torch.randn(N, K).cuda()
     qx, s = fp8_blockwise_weight_quant(x, dtype=dtype)
@@ -52,13 +48,9 @@ def test_blockwise_quant_dequant(_, N, K, dtype):
     version.parse(triton.__version__) < version.parse("3.3.0"),
     reason="Triton version < 3.3.0, test skipped",
 )
+@pytest.mark.skipif(not is_sm_at_least_90(), reason="Requires CUDA capability >= 9.0")
 @pytest.mark.parametrize("M, N, K", BLOCKWISE_SIZE_MNK)
-@pytest.mark.parametrize(
-    "dtype",
-    [torch.float8_e4m3fn, torch.float8_e5m2]
-    if is_sm_at_least_89()
-    else [torch.float8_e5m2],
-)
+@pytest.mark.parametrize("dtype", [torch.float8_e4m3fn, torch.float8_e5m2])
 def test_blockwise_fp8_gemm(M, N, K, dtype):
     A = torch.randn(M, K).cuda()
     B = torch.randn(N, K).cuda()
