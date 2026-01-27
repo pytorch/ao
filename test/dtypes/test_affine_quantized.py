@@ -375,7 +375,8 @@ class TestAffineQuantizedBasic(TestCase):
             )
             self.assertEqual((W_slice_ref - W_slice).abs().mean().item(), 0)
 
-    @common_utils.parametrize("device", ["cuda"])
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
+    @common_utils.parametrize("device", COMMON_DEVICES)
     @common_utils.parametrize("dtype", [torch.bfloat16])
     def test_matmul(self, device, dtype):
         x = torch.randn(53, 2048)

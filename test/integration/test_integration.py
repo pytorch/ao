@@ -736,6 +736,10 @@ class TestWeightOnlyInt8Quant(unittest.TestCase):
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test_weight_only_quant_force_mixed_mm(self, device, dtype):
         undo_recommended_configs()
+        if device != get_current_accelerator_device():
+            self.skipTest(
+                f"weight_only_quant_force_mixed_mm can't be constructed on {device}"
+            )
         if (
             torch.cuda.is_available()
             and dtype == torch.bfloat16
@@ -768,6 +772,10 @@ class TestWeightOnlyInt8Quant(unittest.TestCase):
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test_weight_only_quant_use_mixed_mm(self, device, dtype):
         undo_recommended_configs()
+        if device != get_current_accelerator_device():
+            self.skipTest(
+                f"weight_only_quant_force_mixed_mm can't be constructed on {device}"
+            )
         if (
             torch.cuda.is_available()
             and dtype == torch.bfloat16
@@ -926,6 +934,9 @@ class TestAutoQuant(unittest.TestCase):
     def test_autoquant_one_input(self, device, dtype, m, k, n):
         undo_recommended_configs()
         print("(m, k, n): ", (m, k, n))
+        _DEVICE = get_current_accelerator_device()
+        if device != _DEVICE or not torch.accelerator.is_available():
+            self.skipTest(f"autoquant currently does not support {device}")
         if torch.cuda.is_available() and torch.cuda.get_device_capability() < (8, 0):
             if dtype == torch.bfloat16:
                 self.skipTest("bfloat16 requires sm80+")
@@ -952,6 +963,7 @@ class TestAutoQuant(unittest.TestCase):
         sqnr = SQNR(out, out2)
         self.assertTrue(sqnr >= 30)
 
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     @parameterized.expand(
         combine_parameters(
             COMMON_DEVICE_DTYPE,
@@ -1015,6 +1027,10 @@ class TestAutoQuant(unittest.TestCase):
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     def test_autoquant_mha(self, device, dtype):
+        _DEVICE = get_current_accelerator_device()
+        if device != _DEVICE or not torch.accelerator.is_available():
+            self.skipTest(f"autoquant currently does not support {device}")
+
         class MHAModel(torch.nn.Module):
             def __init__(self):
                 super().__init__()
@@ -1041,6 +1057,9 @@ class TestAutoQuant(unittest.TestCase):
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     def test_autoquant_manual(self, device, dtype):
         undo_recommended_configs()
+        _DEVICE = get_current_accelerator_device()
+        if device != _DEVICE or not torch.accelerator.is_available():
+            self.skipTest(f"autoquant currently does not support {device}")
         if torch.cuda.is_available() and torch.cuda.get_device_capability() < (8, 0):
             if dtype == torch.bfloat16:
                 self.skipTest("bfloat16 requires sm80+")
@@ -1089,6 +1108,9 @@ class TestAutoQuant(unittest.TestCase):
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test_autoquant_kwargs(self, device, dtype, m1, m2, k, n):
         undo_recommended_configs()
+        _DEVICE = get_current_accelerator_device()
+        if device != _DEVICE or not torch.accelerator.is_available():
+            self.skipTest(f"autoquant currently does not support {device}")
         if torch.cuda.is_available() and torch.cuda.get_device_capability() < (8, 0):
             if dtype == torch.bfloat16:
                 self.skipTest("bfloat16 requires sm80+")
@@ -1152,6 +1174,9 @@ class TestAutoQuant(unittest.TestCase):
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test_autoquant_double_access(self, device, dtype, m, k, n):
         undo_recommended_configs()
+        _DEVICE = get_current_accelerator_device()
+        if device != _DEVICE or not torch.accelerator.is_available():
+            self.skipTest(f"autoquant currently does not support {device}")
         if torch.cuda.is_available() and torch.cuda.get_device_capability() < (8, 0):
             if dtype == torch.bfloat16:
                 self.skipTest("bfloat16 requires sm80+")
@@ -1462,6 +1487,9 @@ class TestUtils(unittest.TestCase):
     def test_get_model_size_aqt(self, api, test_device, test_dtype):
         if test_dtype != torch.bfloat16:
             self.skipTest(f"{api} in {test_dtype} is not supported yet")
+        _DEVICE = get_current_accelerator_device()
+        if test_device != _DEVICE or not torch.accelerator.is_available():
+            self.skipTest(f"{api} currently does not support {test_device}")
         k, n = 1024, 1024
         model = (
             torch.nn.Sequential(
