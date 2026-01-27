@@ -1,6 +1,6 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # All rights reserved.
-# Copyright 2025 Arm Limited and/or its affiliates.
+# Copyright 2025-2026 Arm Limited and/or its affiliates.
 #
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
@@ -541,15 +541,23 @@ def _maybe_insert_input_observers_for_node(
         )
         new_args.append(new_arg)
 
-    # Clone has a memory_format kwarg, zeros_like has a pin_memory kwarg, and
-    # gelu has a has an approximate kwarg that persist in exported graph.
-    # This is just a work around for these.
-    assert (
-        node.target == torch.ops.aten.clone.default
-        or node.target == torch.ops.aten.zeros_like.default
-        or node.target == torch.ops.aten.gelu.default
-        or len(node.kwargs) == 0
-    ), " expecting kwargs for aten op IR to be empty"
+    # Check that no kwargs are Tensors. Otherwise they silently go unquantized.
+    def _validate_kwarg(name: str, val):
+        disallowed_kwarg_types = (torch.fx.Node,)
+        if isinstance(val, disallowed_kwarg_types):
+            raise AssertionError(
+                f"Kwarg '{name}' contained type {type(val)} which is not supported for annotation."
+            )
+        if isinstance(val, (tuple, list)):
+            for contained in val:
+                print(f"\t {contained}, {type(contained)}")
+                _validate_kwarg(name, contained)
+        if isinstance(val, dict):
+            for contained in val.values():
+                _validate_kwarg(name, contained)
+
+    for kwarg in node.kwargs:
+        _validate_kwarg(kwarg, node.kwargs[kwarg])
 
     # assign the new args to the node, inplace
     node.args = tuple(new_args)

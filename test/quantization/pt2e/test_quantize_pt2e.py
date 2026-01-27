@@ -1,6 +1,6 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # All rights reserved.
-# Copyright 2025 Arm Limited and/or its affiliates.
+# Copyright 2025-2026 Arm Limited and/or its affiliates.
 #
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
@@ -21,7 +21,7 @@ from torch.ao.quantization.qconfig import (
     per_channel_weight_observer_range_neg_127_to_127,
     weight_observer_range_neg_127_to_127,
 )
-from torch.fx import Node
+from torch.fx import Node, symbolic_trace
 from torch.testing import FileCheck
 from torch.testing._internal.common_quantization import (
     NodeSpec as ns,
@@ -161,26 +161,21 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
         n_chunks = 3
         in_channels = 1
         out_channels = 32
-        m = ConvWithSharedWeightInExportedModel(n_chunks, in_channels, out_channels)
-        m.bn.running_var = torch.nn.Parameter(
-            torch.rand(out_channels) * 1e-2, requires_grad=False
-        )
+        for bias in [True, False]:
+            m = ConvWithSharedWeightInExportedModel(
+                n_chunks, in_channels, out_channels, bias=bias
+            )
+            m.bn.running_var = torch.nn.Parameter(
+                torch.rand(out_channels) * 1e-2, requires_grad=False
+            )
 
-        m.eval()
-        example_inputs = (torch.rand(batch_size, n_chunks, 32, 32),)
-        ref_outputs = m(*example_inputs)
-        traced_model = torch.export.export(m, example_inputs, strict=True).module()
-        traced_outputs = traced_model(*example_inputs)
-        prepared_model = prepare_pt2e(traced_model, XNNPACKQuantizer())
-        prepared_outputs = prepared_model(*example_inputs)
-
-        if isinstance(ref_outputs, (tuple, list)):
-            for ref, prepared, traced in zip(
-                ref_outputs, prepared_outputs, traced_outputs
-            ):
-                torch.testing.assert_close(ref, traced)
-                torch.testing.assert_close(traced, prepared)
-        else:
+            m.eval()
+            example_inputs = (torch.rand(batch_size, n_chunks, 32, 32),)
+            ref_outputs = m(*example_inputs)
+            traced_model = torch.export.export(m, example_inputs, strict=True).module()
+            traced_outputs = traced_model(*example_inputs)
+            prepared_model = prepare_pt2e(traced_model, XNNPACKQuantizer())
+            prepared_outputs = prepared_model(*example_inputs)
             torch.testing.assert_close(ref_outputs, traced_outputs)
             torch.testing.assert_close(traced_outputs, prepared_outputs)
 
@@ -1459,6 +1454,98 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
         m = torch.export.export(m, (example_inputs,), strict=True).module()
         with self.assertRaises(Exception):
             m = prepare_pt2e(m, BackendAQuantizer())
+
+    def test_quantize_kwargs(self):
+        """Ensure non-tensor kwargs pass quantization, tensor kwargs don't"""
+
+        class OnesLikeModule(torch.nn.Module):
+            def forward(self, t: torch.Tensor):
+                return torch.ones_like(t, device="cpu", pin_memory=False)
+
+        class ClampModule(torch.nn.Module):
+            def __init__(self, max: float | torch.Tensor, use_out: bool):
+                super().__init__()
+                self.max = max
+                self.use_out = use_out
+
+            def forward(self, t: torch.Tensor):
+                if self.use_out:
+                    torch.clamp(t, max=self.max, out=t)
+                    return t
+                return torch.clamp(t, max=self.max)
+
+        class BackendAQuantizer(Quantizer):
+            def annotate(self, model: torch.fx.GraphModule) -> torch.fx.GraphModule:
+                qspec = QuantizationSpec(
+                    torch.int8,
+                    observer.default_observer,
+                    qscheme=torch.per_tensor_symmetric,
+                )
+                for node in model.graph.nodes:
+                    if node.op != "call_function":
+                        continue
+                    input_qspec_map = {
+                        in_node: qspec for in_node in node.all_input_nodes
+                    }
+                    node.meta["quantization_annotation"] = QuantizationAnnotation(
+                        input_qspec_map=input_qspec_map, output_qspec=qspec
+                    )
+                return model
+
+            def validate(self, model: torch.fx.GraphModule) -> None:
+                pass
+
+        def validate_quantization(m: torch.fx.GraphModule):
+            num_dq = 0
+            num_q = 0
+            for node in m.graph.nodes:
+                if (
+                    node.target
+                    == torch.ops.quantized_decomposed.dequantize_per_tensor.default
+                ):
+                    num_dq += 1
+                if (
+                    node.target
+                    == torch.ops.quantized_decomposed.quantize_per_tensor.default
+                ):
+                    num_q += 1
+            # Just check that at least one q/dq node was inserted by quantization.
+            assert num_dq > 0
+            assert num_q > 0
+
+        example_inputs = torch.randn(1, 2, 3, 3)
+        quantizer = BackendAQuantizer()
+
+        # Example 1: ones_like with device and pin_memory passes.
+        m = self._quantize(OnesLikeModule(), quantizer, (example_inputs,))
+        validate_quantization(m)
+        m(example_inputs)
+
+        # Example 2: Clamp with tensor kwarg 'max' is normalized to arg when exported and passes.
+        m = self._quantize(
+            ClampModule(example_inputs - 0.2, False),
+            quantizer,
+            (example_inputs,),
+        )
+        validate_quantization(m)
+        m(example_inputs)
+
+        # Example 3: Clamp with kwarg 'out' doesn't pass, out is a Tensor.
+        with self.assertRaises(AssertionError):
+            m = self._quantize(ClampModule(0.5, True), quantizer, (example_inputs,))
+
+        # Example 4: Contrived, but when traced using symbolic_trace clamp keeps max as kwarg. Scalars pass...
+        m = symbolic_trace(ClampModule(0.5, False))
+        m = prepare_pt2e(m, quantizer)
+        m(example_inputs)
+        convert_pt2e(m)
+        validate_quantization(m)
+        m(example_inputs)
+
+        # Example 5: ... but Tensors don't.
+        with self.assertRaises(AssertionError):
+            m = symbolic_trace(ClampModule(example_inputs - 0.2, False))
+            m = prepare_pt2e(m, quantizer)
 
     def _quantize(self, m, quantizer, example_inputs, is_qat: bool = False):
         # resetting dynamo cache

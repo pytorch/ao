@@ -6,6 +6,7 @@
 
 import torch
 
+from torchao.prototype.moe_training.utils import conditional_nostrict_trace
 from torchao.prototype.mx_formats.mx_tensor import MXTensor
 
 
@@ -110,6 +111,7 @@ class _UnpermuteHPFwdMXFP8Bwd(torch.autograd.Function):
         return grad_input, None, None
 
 
+@conditional_nostrict_trace
 def unpermute_hp_fwd_mxfp8_bwd(
     input: torch.Tensor,
     permuted_indices: torch.Tensor,

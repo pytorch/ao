@@ -82,9 +82,9 @@ class Float8FakeQuantizeConfig(FakeQuantizeConfigBase):
 class Int4WeightFakeQuantizeConfig(FakeQuantizeConfigBase):
     """
     Config for pint4 weight fake quantization that targets the numerics in the following preshuffled kernel:
-        torch.ops.fbgemm.f8i4bf16_shuffled
-        torch.ops.fbgemm.bf16i4bf16_shuffled
-        torch.ops.fbgemm.bf16i4bf16_rowwise
+        torch.ops.mslk.f8i4bf16_shuffled
+        torch.ops.mslk.bf16i4bf16_shuffled
+        torch.ops.mslk.bf16i4bf16_rowwise
 
     Currently this only supports float8 input activations. It is expected to be used in conjunction with
     :class:`~torchao.quantization.Float8DynamicActivationInt4WeightConfig`. In the future, we may extend

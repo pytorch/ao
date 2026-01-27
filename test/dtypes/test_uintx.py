@@ -182,7 +182,6 @@ def test_uintx_api_deprecation():
             "Int8DynamicActInt4WeightCPULayout",
             "torchao.dtypes.uintx.dyn_int8_act_int4_wei_cpu_layout",
         ),
-        ("CutlassInt4PackedLayout", "torchao.dtypes.uintx.cutlass_int4_packed_layout"),
         ("BlockSparseLayout", "torchao.dtypes.uintx.block_sparse_layout"),
         ("UintxLayout", "torchao.dtypes.uintx.uintx_layout"),
     ]
