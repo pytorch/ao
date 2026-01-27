@@ -25,15 +25,15 @@ import numpy as np
 import torch
 import wandb
 from torch.utils.checkpoint import checkpoint
+from tqdm import tqdm
+
+from torchao import optim, quantize_
 from torchao._models.llama.model import (
     ModelArgs,
     RMSNorm,
     Transformer,
     transformer_configs,
 )
-from tqdm import tqdm
-
-from torchao import optim, quantize_
 from torchao.prototype.quantized_training import (
     bitnet_training,
     int8_mixed_precision_training,

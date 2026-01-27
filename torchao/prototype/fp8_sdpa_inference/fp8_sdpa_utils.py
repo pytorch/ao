@@ -8,8 +8,8 @@
 Utilities to convert models to use FP8 SDPA.
 """
 
-from contextlib import contextmanager
 import warnings
+from contextlib import contextmanager
 
 import torch.nn.functional as F
 from torch.nn.attention import (
