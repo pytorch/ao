@@ -55,7 +55,7 @@ _DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 class M(nn.Module):
-    _tied_weights_keys: list[str] = []
+    _tied_weights_keys: dict[str, str] = {}
 
     def __init__(
         self, m=256, n=128, k=16, bias=False, embedding=True, tied_weights=False
@@ -70,7 +70,7 @@ class M(nn.Module):
         if embedding and tied_weights:
             assert self.embed_tokens.weight.shape == self.linear2.weight.shape
             self.tie_weights()
-            self._tied_weights_keys.append("linear2.weight")
+            self._tied_weights_keys = {"linear2.weight": "embed_tokens.weight"}
 
     def tie_weights(self):
         self.linear2.weight = self.embed_tokens.weight
