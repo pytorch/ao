@@ -681,6 +681,7 @@ def get_extensions():
         # Define sm90a sources that use stable ABI (requires torch >= 2.10.0)
         cutlass_90a_stable_sources = []
         if torch_version_at_least_2_10:
+            print("_torch_version_str:", _torch_version_str)
             cutlass_90a_stable_sources = [
                 os.path.join(
                     extensions_cuda_dir,
@@ -773,6 +774,7 @@ def get_extensions():
             )
         )
 
+    print("stable source:", cutlass_90a_stable_sources)
     # Build stable ABI sm90a sources separately with stable ABI flags
     if (
         cutlass_90a_stable_sources is not None
