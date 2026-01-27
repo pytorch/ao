@@ -71,7 +71,7 @@ class M(nn.Module):
         if embedding and tied_weights:
             assert self.embed_tokens.weight.shape == self.linear2.weight.shape
             self.tie_weights()
-            self._tied_weights_keys = {"linear2.weight": "embed_tokens.weight"}
+            self._tied_weights_keys["linear2.weight"] = "embed_tokens.weight"
 
     def tie_weights(self, **kwargs):
         if isinstance(self.embed_tokens, nn.Embedding):
