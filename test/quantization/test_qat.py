@@ -98,7 +98,7 @@ from torchao.quantization.utils import (
 )
 from torchao.testing.utils import skip_if_xpu
 from torchao.utils import (
-    _is_fbgemm_gpu_genai_available,
+    _is_mslk_available,
     get_current_accelerator_device,
     is_fbcode,
     is_sm_at_least_89,
@@ -1940,9 +1940,7 @@ class TestQAT(TestCase):
 
     @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
     @unittest.skipIf(not is_sm_at_least_89(), "Need sm89+")
-    @unittest.skipIf(
-        not _is_fbgemm_gpu_genai_available(), "Requires fbgemm-gpu-genai >= 1.2.0"
-    )
+    @unittest.skipIf(not _is_mslk_available(), "Requires mslk >= 1.0.0")
     def test_quantize_api_fp8_int4(self):
         """
         Test the following:
@@ -1956,9 +1954,7 @@ class TestQAT(TestCase):
         )
 
     @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
-    @unittest.skipIf(
-        not _is_fbgemm_gpu_genai_available(), "Requires fbgemm-gpu-genai >= 1.2.0"
-    )
+    @unittest.skipIf(not _is_mslk_available(), "Requires mslk >= 1.0.0")
     @unittest.skipIf(is_fbcode(), "cutlass cannot initialize")
     @parametrize("version", [1, 2])
     @parametrize(
@@ -2213,17 +2209,15 @@ class TestQAT(TestCase):
         optimizer.zero_grad()
 
     @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
-    @unittest.skipIf(
-        not _is_fbgemm_gpu_genai_available(), "Requires fbgemm-gpu-genai >= 1.2.0"
-    )
+    @unittest.skipIf(not _is_mslk_available(), "Requires mslk >= 1.0.0")
     @unittest.skipIf(is_fbcode(), "triton compilation error")
-    def test_fbgemm_fp8_primitives(self):
+    def test_mslk_fp8_primitives(self):
         """
         Compare numerics between:
-            (1) fbgemm_gpu.experimental.gen_ai.quantize.quantize_fp8_row
+            (1) mslk.quantize.triton.fp8_quantize.quantize_fp8_row
             (2) Our reference QAT version in `Float8FakeQuantizer`
         """
-        from fbgemm_gpu.experimental.gen_ai.quantize import quantize_fp8_row
+        from mslk.quantize.triton.fp8_quantize import quantize_fp8_row
 
         from torchao.quantization.quant_primitives import (
             _choose_scale_float8,
@@ -2253,22 +2247,20 @@ class TestQAT(TestCase):
         self.assertGreater(scale_sqnr, 50)
 
     @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
-    @unittest.skipIf(
-        not _is_fbgemm_gpu_genai_available(), "Requires fbgemm-gpu-genai >= 1.2.0"
-    )
+    @unittest.skipIf(not _is_mslk_available(), "Requires mslk >= 1.0.0")
     @unittest.skipIf(is_fbcode(), "triton compilation error")
-    def test_fbgemm_fp8_int4_preshuffled_primitives(self):
+    def test_mslk_fp8_int4_preshuffled_primitives(self):
         """
         Compare numerics between:
-            (1) fbgemm_gpu.experimental.gen_ai.quantize.quantize_int4_preshuffle
+            (1) mslk.quantize.shuffle.quantize_int4_preshuffle
             (2) Our reference QAT version in `Int4WeightFakeQuantizer`
         """
-        from fbgemm_gpu.experimental.gen_ai.quantize import (
+        from mslk.quantize.shuffle import (
             int4_row_quantize,
             pack_int4,
-            quantize_fp8_row,
             quantize_int4_preshuffle,
         )
+        from mslk.quantize.triton.fp8_quantize import quantize_fp8_row
 
         from torchao.quantization.quant_primitives import (
             _choose_scale_float8,
@@ -2313,7 +2305,7 @@ class TestQAT(TestCase):
 
         def shuffle_and_pack(t: torch.Tensor, scale: torch.Tensor) -> torch.Tensor:
             t = pack_int4(t.to(torch.int8))
-            return torch.ops.fbgemm.preshuffle_i4(t, scale.to(torch.float8_e4m3fn))[0]
+            return torch.ops.mslk.preshuffle_i4(t, scale.to(torch.float8_e4m3fn))[0]
 
         # First, sanity check that shuffle_and_pack(q2) == q1
         torch.testing.assert_close(q1, shuffle_and_pack(q2, scale2), atol=0, rtol=0)
@@ -2335,17 +2327,15 @@ class TestQAT(TestCase):
         self.assertGreater(sqnr_q1_q3_preshuffle, 32)
 
     @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
-    @unittest.skipIf(
-        not _is_fbgemm_gpu_genai_available(), "Requires fbgemm-gpu-genai >= 1.2.0"
-    )
+    @unittest.skipIf(not _is_mslk_available(), "Requires mslk >= 1.0.0")
     @unittest.skipIf(is_fbcode(), "triton compilation error")
-    def test_fbgemm_int4_weight_only_primitives(self):
+    def test_mslk_int4_weight_only_primitives(self):
         """
         Compare numerics between:
-            (1) fbgemm_gpu.experimental.gen_ai.quantize.int4_row_quantize_zp
+            (1) mslk.quantize.shuffle.int4_row_quantize_zp
             (2) Our reference QAT version in `Int4WeightFakeQuantizer`
         """
-        from fbgemm_gpu.experimental.gen_ai.quantize import (
+        from mslk.quantize.shuffle import (
             int4_row_quantize_zp,
             pack_int4,
             quantize_int4_preshuffle,
@@ -2366,18 +2356,18 @@ class TestQAT(TestCase):
         # (3) Reference implementation for QAT without the dequantize
         eps = 1e-6
         qmin, qmax = 0, 15
-        fbgemm_symmetric_qmax = 8
+        mslk_symmetric_qmax = 8
         w_grouped = x3.to(torch.float32).view(x3.shape[0], -1, group_size)
         max_val = torch.amax(w_grouped, dim=-1, keepdim=True)
         min_val = torch.amin(w_grouped, dim=-1, keepdim=True)
         scale3 = torch.clamp(max_val - min_val, min=eps) / qmax
         q3 = (w_grouped.sub(min_val).div(scale3)).round().clamp_(qmin, qmax)
-        q3 = q3 - fbgemm_symmetric_qmax
+        q3 = q3 - mslk_symmetric_qmax
         q3 = q3.view(x3.shape)
 
         def shuffle_and_pack(t: torch.Tensor, scale: torch.Tensor) -> torch.Tensor:
             t = pack_int4(t.to(torch.int8))
-            return torch.ops.fbgemm.preshuffle_i4(t, scale.to(torch.bfloat16))[0]
+            return torch.ops.mslk.preshuffle_i4(t, scale.to(torch.bfloat16))[0]
 
         # First, sanity check that shuffle_and_pack(q2) == q1
         torch.testing.assert_close(q1, shuffle_and_pack(q2, scale2), atol=0, rtol=0)

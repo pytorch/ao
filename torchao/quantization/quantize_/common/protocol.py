@@ -10,6 +10,10 @@ from typing import Optional, Protocol, runtime_checkable
 
 import torch
 
+from torchao.quantization.quantize_.common.quantize_tensor_kwargs import (
+    QuantizeTensorKwargs,
+)
+
 
 @runtime_checkable
 class SupportsActivationPreScaling(Protocol):
@@ -20,3 +24,16 @@ class SupportsActivationPreScaling(Protocol):
     """
 
     act_pre_scale: Optional[torch.Tensor]
+
+
+@runtime_checkable
+class IsStaticQuantizationConfig(Protocol):
+    """Protocol for static quantization configuration.
+
+    A class that has `act_quant_scale: Optional[torch.Tensor]` attribute and
+    `get_act_quant_kwargs() -> QuantizeTensorKwargs` method implements the Protocol
+    """
+
+    act_quant_scale: Optional[torch.Tensor]
+
+    def get_act_quant_kwargs(self) -> QuantizeTensorKwargs: ...

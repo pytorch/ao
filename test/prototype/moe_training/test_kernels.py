@@ -250,14 +250,26 @@ def test_triton_mx_block_rearrange_2d_M_groups(
     reason="MXFP8 requires CUDA capability 10.0 or greater",
 )
 @skip_if_rocm("ROCm enablement in progress")
-@pytest.mark.parametrize("m,k,n_groups", [(16640, 2048, 8), (131072, 8192, 32)])
-@pytest.mark.parametrize("chunk_width", [64, 128])
-@pytest.mark.parametrize("chunks_per_tb", [1, 4, 8, 16])
+@pytest.mark.parametrize(
+    "m,k,n_groups,chunks_per_tb",
+    [
+        (16640, 2048, 8, 4),
+        (16640, 2048, 8, 8),
+        (131072, 8192, 32, 16),
+        (512, 512, 4, 4),
+        (512, 1024, 4, 4),
+        (512, 2048, 4, 4),
+        (1024, 512, 8, 4),
+        (128, 1408, 2, 1),  # dsv3-16b moe intermediate dim
+        (256, 1408, 2, 1),
+        (32768, 1408, 4, 1),
+        (8192, 1536, 4, 1),  # dsv3-236b moe intermediate dim
+    ],
+)
 def test_cuda_mx_block_rearrange_2d_M_groups(
     m: int,
     k: int,
     n_groups: int,
-    chunk_width: int,
     chunks_per_tb: int,
 ):
     device = "cuda"
@@ -281,11 +293,10 @@ def test_cuda_mx_block_rearrange_2d_M_groups(
     cuda_out_scales = mx_block_rearrange_2d_M_groups_cuda(
         e8m0_scales,
         input_group_offsets,
-        chunk_width=chunk_width,
         chunks_per_tb=chunks_per_tb,
     )
     assert torch.allclose(ref_out_scales, cuda_out_scales, atol=0, rtol=0), (
-        "blocked scales not equal"
+        f"blocked scales not equal for scale_cols={scale_cols}"
     )
 
 

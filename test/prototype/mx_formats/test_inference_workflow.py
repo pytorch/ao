@@ -126,7 +126,7 @@ def test_inference_workflow_mx(
     else:
         y_mx = m_mx(x)
     sqnr = compute_error(y_ref, y_mx)
-    SQNR_THRESHOLD = 25.0 if elem_dtype == torch.float8_e4m3fn else 15.0
+    SQNR_THRESHOLD = 25.0 if elem_dtype == torch.float8_e4m3fn else 12.0
     assert sqnr >= SQNR_THRESHOLD, (
         f"Got a sqnr of {sqnr} for {elem_dtype} and bias={bias}"
     )

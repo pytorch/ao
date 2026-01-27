@@ -8,7 +8,6 @@ from typing import List, Optional, Tuple
 import torch
 from torch.utils._python_dispatch import return_and_correct_aliasing
 
-from torchao.kernel.bsr_triton_ops import broadcast_batch_dims, bsr_dense_addmm
 from torchao.ops import register_custom_op, register_custom_op_impl
 from torchao.utils import TorchAOBaseTensor
 
@@ -49,6 +48,10 @@ def blocksparse_int_addmm(
     left_alpha: torch.Tensor,
     right_alpha: torch.Tensor,
 ) -> torch.Tensor:
+    from torch.sparse._triton_ops import broadcast_batch_dims
+
+    from torchao.kernel.bsr_triton_ops import bsr_dense_addmm
+
     assert values.dtype == torch.int8
     M = left_alpha.shape[-1]
     K = A.shape[-2]
@@ -95,6 +98,8 @@ def blocksparse_addmm(
     K: int,
     bias: torch.Tensor,
 ) -> torch.Tensor:
+    from torchao.kernel.bsr_triton_ops import bsr_dense_addmm
+
     assert bias is None
     bsr = torch.sparse_bsr_tensor(crow_indices, col_indices, values, size=(M, K))
     N_padded = x_padded.shape[1]

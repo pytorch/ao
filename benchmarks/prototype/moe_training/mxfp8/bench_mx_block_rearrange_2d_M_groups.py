@@ -31,7 +31,6 @@ torch._dynamo.config.cache_size_limit = 1000
 class ExperimentConfig:
     input_shape: tuple[int]
     num_groups: int
-    chunk_width: int
     chunks_per_tb: int
 
 
@@ -58,23 +57,24 @@ def get_configs() -> List[ExperimentConfig]:
         (131072, 5120 // block_size),
         (131072, 2048 // block_size),
         (131072, 7168 // block_size),
+        (
+            131072,
+            1408 // block_size,
+        ),  # case for dsv3-16b where scale cols not multiple of 16
     ]
     num_groups = [8]
-    chunk_width_list = [64]
     chunks_per_tb_list = [1, 4, 8]
 
     configs = []
-    for shape, groups, chunk_width, chunks_per_tb in itertools.product(
+    for shape, groups, chunks_per_tb in itertools.product(
         input_shapes,
         num_groups,
-        chunk_width_list,
         chunks_per_tb_list,
     ):
         configs.append(
             ExperimentConfig(
                 input_shape=shape,
                 num_groups=groups,
-                chunk_width=chunk_width,
                 chunks_per_tb=chunks_per_tb,
             )
         )
@@ -82,8 +82,11 @@ def get_configs() -> List[ExperimentConfig]:
 
 
 def run_experiment(config: ExperimentConfig) -> ExperimentResult:
-    input_shape, num_groups = config.input_shape, config.num_groups
-    chunk_width, chunks_per_tb = config.chunk_width, config.chunks_per_tb
+    input_shape, num_groups, chunks_per_tb = (
+        config.input_shape,
+        config.num_groups,
+        config.chunks_per_tb,
+    )
 
     input_tensor = torch.randint(
         low=0,
@@ -126,14 +129,12 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
     _ = mx_block_rearrange_2d_M_groups_cuda(
         input_tensor.view(torch.uint8),
         input_group_offsets.to(torch.int32),
-        chunk_width,
         chunks_per_tb,
     )
     cuda_time_us = benchmark_cuda_function_in_microseconds(
         mx_block_rearrange_2d_M_groups_cuda,
         input_tensor.view(torch.uint8),
         input_group_offsets.to(torch.int32),
-        chunk_width,
         chunks_per_tb,
     )
 
@@ -161,7 +162,6 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
 def print_results(experiments: List[Experiment]):
     headers = [
         "input_shape",
-        "chunk_width",
         "chunks_per_tb",
         "torch_time_us",
         "triton_time_us",
@@ -177,7 +177,6 @@ def print_results(experiments: List[Experiment]):
         rows.append(
             [
                 input_shape,
-                experiment.config.chunk_width,
                 experiment.config.chunks_per_tb,
                 f"{experiment.result.torch_time_us:.2f}",
                 f"{experiment.result.triton_time_us:.2f}",
