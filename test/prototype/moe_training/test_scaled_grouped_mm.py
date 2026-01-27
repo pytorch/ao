@@ -321,7 +321,6 @@ def test_emulate_mxfp8_grouped_gemm_2d_2d(M, N, num_experts):
 @skip_if_rocm("ROCm not supported")
 @pytest.mark.parametrize("M,K,N", [(32768, 5120, 8192), (16640, 7168, 2048)])
 @pytest.mark.parametrize("num_experts", (2, 4, 8, 16))
-@pytest.mark.parametrize("use_triton_for_dim0_cast", (True, False))
 @pytest.mark.parametrize("wgrad_with_hp", (True, False))
 @pytest.mark.parametrize("use_compile", (True, False))
 @pytest.mark.parametrize(
@@ -336,7 +335,6 @@ def test_mxfp8_grouped_gemm_with_dq_fwd_bwd(
     K,
     N,
     num_experts,
-    use_triton_for_dim0_cast,
     wgrad_with_hp,
     use_compile,
     kernel_preference,
@@ -348,9 +346,6 @@ def test_mxfp8_grouped_gemm_with_dq_fwd_bwd(
         pytest.skip(
             "Skipping use_compile=True with kernel_preference=EMULATED, not currently supported"
         )
-
-    if kernel_preference == KernelPreference.EMULATED and use_triton_for_dim0_cast:
-        pytest.skip("Triton kernel not supported in emulated mode.")
 
     if (
         kernel_preference == KernelPreference.EMULATED
@@ -395,7 +390,6 @@ def test_mxfp8_grouped_gemm_with_dq_fwd_bwd(
         offs=offs,
         block_size=block_size,
         kernel_preference=kernel_preference,
-        use_triton_for_dim0_cast=use_triton_for_dim0_cast,
         wgrad_with_hp=wgrad_with_hp,
         scale_calculation_mode=scale_mode,
         use_cuda_kernel_for_blocked_layout=use_cuda_kernel_for_blocked_layout,
