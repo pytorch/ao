@@ -30,7 +30,6 @@ import torch
 import triton
 import triton.language as tl
 
-
 # =============================================================================
 # Helper functions
 # =============================================================================
@@ -86,7 +85,7 @@ def _hadamard_butterfly_stage(
     """
     stride = 1 << stage
     partner_d = d_idx ^ stride
-    is_left = ((d_idx & stride) == 0)
+    is_left = (d_idx & stride) == 0
 
     # Store current value to temp buffer
     tl.store(temp_ptr + temp_base + d_idx, x)
@@ -155,7 +154,6 @@ def hadamard_rope_qkv_phase1_kernel(
 
     # Compute the S range for this chunk
     s_start = pid_chunk * chunk_size
-    s_end = tl.minimum(s_start + chunk_size, S)
 
     # Base pointer for this (batch, head)
     base_b = pid_b * stride_b
@@ -408,7 +406,6 @@ def hadamard_rope_qkv_phase2_kernel(
 
     # Compute the S range for this chunk
     s_start = pid_chunk * chunk_size
-    s_end = tl.minimum(s_start + chunk_size, S)
 
     # Base pointers
     in_base_b = pid_b * stride_in_b
@@ -427,7 +424,9 @@ def hadamard_rope_qkv_phase2_kernel(
         # Input offset (B, S, H, D layout)
         in_offset = in_base_b + s_idx * stride_in_s + in_base_h + d_idx * stride_in_d
         # Output offset (B, H, S, D layout)
-        out_offset = out_base_b + out_base_h + s_idx * stride_out_s + d_idx * stride_out_d
+        out_offset = (
+            out_base_b + out_base_h + s_idx * stride_out_s + d_idx * stride_out_d
+        )
 
         # Load Q, K, V values
         q_vals = tl.load(q_ptr + in_offset).to(tl.float32)
@@ -441,7 +440,9 @@ def hadamard_rope_qkv_phase2_kernel(
 
         # RoPE rotation
         pair_d = d_idx ^ 1
-        pair_in_offset = in_base_b + s_idx * stride_in_s + in_base_h + pair_d * stride_in_d
+        pair_in_offset = (
+            in_base_b + s_idx * stride_in_s + in_base_h + pair_d * stride_in_d
+        )
 
         q_pair = tl.load(q_ptr + pair_in_offset).to(tl.float32)
         k_pair = tl.load(k_ptr + pair_in_offset).to(tl.float32)
