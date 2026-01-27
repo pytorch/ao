@@ -33,7 +33,6 @@ import torchao
 from torchao.core.config import AOBaseConfig
 from torchao.dtypes import (
     AffineQuantizedTensor,
-    CutlassInt4PackedLayout,
     CutlassSemiSparseLayout,
     Float8Layout,
     Int4CPULayout,
@@ -64,7 +63,6 @@ from torchao.float8.inference import (
 from torchao.prototype.quantization.quant_api import (
     Float8StaticActivationFloat8WeightConfig,  # noqa: F401
     GemliteUIntXWeightOnlyConfig,  # noqa: F401
-    Int4DynamicActivationInt4WeightConfig,  # noqa: F401
     Int8DynamicActivationInt4WeightConfig,  # noqa: F401
     UIntXWeightOnlyConfig,  # noqa: F401
 )
@@ -109,10 +107,6 @@ from torchao.utils import (
     is_sm_at_least_90,
 )
 
-from .autoquant import AutoQuantizableLinearWeight, autoquant
-from .GPTQ import (
-    Int4WeightOnlyGPTQQuantizer,
-)
 from .granularity import (
     Granularity,
     PerAxis,
@@ -147,9 +141,8 @@ __all__ = [
     "swap_conv2d_1x1_to_linear",
     "Quantizer",
     "TwoStepQuantizer",
-    "Int4WeightOnlyGPTQQuantizer",
     "Int4WeightOnlyQuantizer",
-    "autoquant",
+    "autoquant",  # noqa: F822
     "_get_subclass_inserter",
     "quantize_",
     "intx_quantization_aware_training",
@@ -157,6 +150,22 @@ __all__ = [
     "Float8DynamicActivationFloat8SemiSparseWeightConfig",
     "ModuleFqnToConfig",
 ]
+
+# Lazy imports to avoid CUDA initialization at import time
+_lazy_imports = {
+    "autoquant": ".autoquant",
+}
+
+
+def __getattr__(name):
+    if name in _lazy_imports:
+        import importlib
+
+        module_path = _lazy_imports[name]
+        module = importlib.import_module(module_path, __package__)
+        return getattr(module, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 LAYOUT_TO_ZERO_POINT_DOMAIN = {
     TensorCoreTiledLayout: [ZeroPointDomain.FLOAT],
@@ -222,6 +231,8 @@ def _is_linear(mod, *args):
     from torchao.quantization.qat.affine_fake_quantized_tensor import (
         _AffineFakeQuantizedTensor,
     )
+
+    from .autoquant import AutoQuantizableLinearWeight
 
     # adding weight tensor subclass isinstance check to make sure the weight is only quantized once
     # when it is shared by multiple linear modules
@@ -988,33 +999,6 @@ def _int8_symm_per_token_reduced_range_quant_noop_decode(
             quant_max=quant_max,
             scale_dtype=torch.float32 if x.dtype == torch.float16 else None,
         )
-
-
-def _int8_symm_cutlass_quant(x: torch.Tensor) -> torch.Tensor:
-    return to_affine_quantized_intx(
-        x,
-        mapping_type=MappingType.SYMMETRIC,
-        block_size=_get_per_token_block_size(x),
-        target_dtype=torch.int8,
-        scale_dtype=torch.float32,
-        eps=torch.finfo(torch.float32).eps,
-        zero_point_domain=ZeroPointDomain.NONE,
-    )
-
-
-def _int4_symm_cutlass_quant(x: torch.Tensor) -> torch.Tensor:
-    return to_affine_quantized_intx(
-        x,
-        mapping_type=MappingType.SYMMETRIC,
-        block_size=_get_per_token_block_size(x),
-        target_dtype=torch.int8,
-        quant_min=-8,
-        quant_max=7,
-        scale_dtype=torch.float32,
-        eps=torch.finfo(torch.float32).eps,
-        zero_point_domain=ZeroPointDomain.NONE,
-        _layout=CutlassInt4PackedLayout(),
-    )
 
 
 def _float8_cutlass_quant(
@@ -2040,8 +2024,6 @@ torch.serialization.add_safe_globals(
         _int8_asymm_per_token_quant,
         _int8_symm_per_token_reduced_range_quant,
         _input_activation_quant_func_fp8,
-        _int4_symm_cutlass_quant,
-        _int8_symm_cutlass_quant,
         _float8_cutlass_quant,
         _float8_cutlass_quant_sparse,
         Target,
