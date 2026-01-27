@@ -457,6 +457,17 @@ def _(
     )
 
 
+def swizzle_mm(
+    mat1: Tensor, mat2: Tensor, mat1_is_swizzled: bool, mat2_is_swizzled: bool
+) -> Tensor:
+    """
+    Similar to torch.mm but Tensor inputs can be SwizzleTensor instances.
+    """
+    return torch.ops.torchao.swizzle_mm.default(
+        mat1, mat2, mat1_is_swizzled, mat2_is_swizzled
+    )
+
+
 @register_custom_op("torchao::swizzle_mm")
 def _(
     mat1: Tensor, mat2: Tensor, mat1_is_swizzled: bool, mat2_is_swizzled: bool
