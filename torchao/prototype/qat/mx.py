@@ -35,6 +35,11 @@ from torchao.prototype.mx_formats.mx_tensor import (
 )
 from torchao.quantization.qat import FakeQuantizeConfigBase
 from torchao.quantization.quantize_.common.kernel_preference import KernelPreference
+from torchao.utils import torch_version_at_least
+
+_DEFAULT_MX_DTYPE = (
+    torch.float4_e2m1fn_x2 if torch_version_at_least("2.8.0") else torch.float8_e4m3fn
+)
 
 
 @dataclass
@@ -58,21 +63,22 @@ class MXFakeQuantizeConfig(FakeQuantizeConfigBase):
 
     Args:
         dtype (torch.dtype): The element dtype for quantization.
-            Supported values: torch.float4_e2m1fn_x2 (default), torch.float8_e4m3fn,
-            torch.float8_e5m2
+            Supported values: torch.float4_e2m1fn_x2 (requires PyTorch 2.8+),
+            torch.float8_e4m3fn, torch.float8_e5m2.
+            Default is float4_e2m1fn_x2 on PyTorch 2.8+, float8_e4m3fn otherwise.
         block_size (int): The block size for quantization (default 32, the OCP MX standard)
         scaling_mode (ScaleCalculationMode): How to calculate the block scales (default RCEIL)
         kernel_preference (KernelPreference): Which kernel to use for matmul (default EMULATED)
     """
 
-    dtype: torch.dtype = torch.float4_e2m1fn_x2
+    dtype: torch.dtype = _DEFAULT_MX_DTYPE
     block_size: int = 32
     scaling_mode: ScaleCalculationMode = ScaleCalculationMode.RCEIL
     kernel_preference: KernelPreference = KernelPreference.EMULATED
 
     def __post_init__(self):
         _validate_elem_dtype(self.dtype)
-        _validate_kernel_preference(self.kernel_preference, self.block_size , self.dtype)
+        _validate_kernel_preference(self.kernel_preference, self.block_size, self.dtype)
 
 
 class _MXQuantizedForwardFakeQuantizedBackward(torch.autograd.Function):
