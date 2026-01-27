@@ -12,23 +12,27 @@ Uses DrawBench dataset for standardized prompt evaluation.
 
 Modes:
     - fp8_sdpa: Replace SDPA with FP8 SDPA (quantize Q/K/V before attention)
+    - fp8_rope_sdpa: Replace SDPA with FP8 RoPE + SDPA (fused RoPE + quantization + attention)
     - fp8_linear: Replace linear layers with FP8 dynamic activation + FP8 weight
 
 Usage:
     # FP8 SDPA with 50 prompts
-    python eval_sd35_fp8_sdpa.py --mode fp8_sdpa --num_prompts 50
+    python eval_flux_fp8_sdpa.py --mode fp8_sdpa --num_prompts 50
+
+    # FP8 RoPE + SDPA with 50 prompts
+    python eval_flux_fp8_sdpa.py --mode fp8_rope_sdpa --num_prompts 50
 
     # FP8 Linear with 50 prompts
-    python eval_sd35_fp8_sdpa.py --mode fp8_linear --num_prompts 50
+    python eval_flux_fp8_sdpa.py --mode fp8_linear --num_prompts 50
 
     # FP8 SDPA with torch.compile
-    python eval_sd35_fp8_sdpa.py --mode fp8_sdpa --compile
+    python eval_flux_fp8_sdpa.py --mode fp8_sdpa --compile
 
     # Full benchmark with 200 prompts
-    python eval_sd35_fp8_sdpa.py --mode fp8_sdpa --num_prompts 200
+    python eval_flux_fp8_sdpa.py --mode fp8_sdpa --num_prompts 200
 
     # Debug with single prompt
-    python eval_sd35_fp8_sdpa.py --debug_prompt "A photo of an astronaut riding a horse"
+    python eval_flux_fp8_sdpa.py --debug_prompt "A photo of an astronaut riding a horse"
 """
 
 import argparse
@@ -43,6 +47,7 @@ from datasets import load_dataset
 from diffusers import FluxPipeline
 from PIL import Image
 
+from torchao.prototype.fp8_rope_sdpa_inference import wrap_module_with_fp8_rope_sdpa
 from torchao.prototype.fp8_sdpa_inference import wrap_module_with_fp8_sdpa
 from torchao.quantization import (
     Float8DynamicActivationFloat8WeightConfig,
@@ -129,7 +134,11 @@ def run_benchmark(
         warmup_iters: Number of warmup iterations before benchmarking
         compile: If True, wrap the model with torch.compile
     """
-    mode_display = "FP8 SDPA" if mode == "fp8_sdpa" else "FP8 Linear"
+    mode_display = {
+        "fp8_sdpa": "FP8 SDPA",
+        "fp8_rope_sdpa": "FP8 RoPE SDPA",
+        "fp8_linear": "FP8 Linear",
+    }[mode]
     compile_str = " + torch.compile" if compile else ""
     print("=" * 80)
     print(f"{mode_display}{compile_str} Accuracy Benchmark for FLUX.1-schnell")
@@ -237,6 +246,10 @@ def run_benchmark(
         # Wrap the transformer to use FP8 SDPA
         print("Wrapping transformer with FP8 SDPA...")
         pipe.transformer = wrap_module_with_fp8_sdpa(pipe.transformer)
+    elif mode == "fp8_rope_sdpa":
+        # Wrap the transformer to use FP8 RoPE + SDPA (fused)
+        print("Wrapping transformer with FP8 RoPE + SDPA...")
+        pipe.transformer = wrap_module_with_fp8_rope_sdpa(pipe.transformer)
     elif mode == "fp8_linear":
         # Quantize linear layers with FP8 dynamic activation + FP8 weight
         print("Quantizing transformer linear layers with FP8...")
@@ -332,8 +345,8 @@ def main():
         "--mode",
         type=str,
         default="fp8_sdpa",
-        choices=["fp8_sdpa", "fp8_linear"],
-        help="Quantization mode: fp8_sdpa (FP8 SDPA) or fp8_linear (FP8 linear layers)",
+        choices=["fp8_sdpa", "fp8_rope_sdpa", "fp8_linear"],
+        help="Quantization mode: fp8_sdpa (FP8 SDPA), fp8_rope_sdpa (FP8 RoPE + SDPA fused), or fp8_linear (FP8 linear layers)",
     )
     parser.add_argument(
         "--num_prompts",
