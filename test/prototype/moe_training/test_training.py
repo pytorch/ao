@@ -98,11 +98,11 @@ def test_moe_training(
                 "Skipping FP8 rowwise tests with kernel_preference=EMULATED, emulated mode only applies to MXFP8"
             )
 
-    # Emulated mode with compile is not supported
-    if compile and kernel_preference == KernelPreference.EMULATED:
-        pytest.skip(
-            "Skipping compile=True with kernel_preference=EMULATED, not currently supported"
-        )
+        # Emulated mode with compile is not supported
+        if compile:
+            pytest.skip(
+                "Skipping compile=True with kernel_preference=EMULATED, not currently supported"
+            )
 
     # FP8_ROWWISE hardware path requires SM90
     if recipe == MoEScalingType.FP8_ROWWISE and torch.cuda.get_device_capability() != (
