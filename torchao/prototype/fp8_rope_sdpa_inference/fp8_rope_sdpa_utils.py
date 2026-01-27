@@ -33,7 +33,6 @@ from torchao.prototype.fp8_sdpa_inference.fp8_sdpa_attention import (
     fp8_sdpa_parallel,
 )
 
-
 # =============================================================================
 # Context manager for FP8 RoPE + SDPA
 # =============================================================================
