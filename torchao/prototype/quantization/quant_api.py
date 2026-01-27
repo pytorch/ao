@@ -23,7 +23,6 @@ from torch import Tensor
 import torchao
 from torchao.core.config import AOBaseConfig
 from torchao.dtypes import (
-    CutlassInt4PackedLayout,
     Int8DynamicActInt4WeightCPULayout,
     PlainLayout,
     UintxLayout,
@@ -69,7 +68,7 @@ class Int8DynamicActivationInt4WeightConfig(AOBaseConfig):
     Args:
         `group_size`: parameter for quantization, controls the granularity of quantization, smaller
          size is more fine grained
-        `layout`: layout type for quantized weight tensor, only supports `CutlassInt4PackedLayout()` for now
+        `layout`: layout type for quantized weight tensor
         `mapping_type`: quantization type for weight, controls the weight quantization is symmetric or asymmetric
         `act_mapping_type`: quantization type for activation, controls the activation quantization is symmetric or asymmetric
         `set_inductor_config`: if True, adjusts `torchinductor` settings to recommended values.
@@ -120,9 +119,7 @@ def _int8_dynamic_activation_int4_weight_transform(
 
     # avoid circular import
     from torchao.quantization.quant_api import (
-        _int4_symm_cutlass_quant,
         _int8_asymm_per_token_quant,
-        _int8_symm_cutlass_quant,
         _int8_symm_per_token_quant,
         _uint8_asymm_per_token_quant,
     )
@@ -134,16 +131,11 @@ def _int8_dynamic_activation_int4_weight_transform(
         else:
             input_quant_func = _int8_asymm_per_token_quant
     elif act_mapping_type == MappingType.SYMMETRIC:
-        if isinstance(layout, CutlassInt4PackedLayout):
-            input_quant_func = _int8_symm_cutlass_quant
-        else:
-            input_quant_func = _int8_symm_per_token_quant
+        input_quant_func = _int8_symm_per_token_quant
     else:
         assert False, f"Unsupported activation mapping type: {act_mapping_type}"
 
-    if isinstance(layout, CutlassInt4PackedLayout):
-        weight = _int4_symm_cutlass_quant(weight)
-    elif isinstance(layout, Int8DynamicActInt4WeightCPULayout):
+    if isinstance(layout, Int8DynamicActInt4WeightCPULayout):
         weight = to_affine_quantized_intx(
             weight,
             mapping_type,
@@ -168,64 +160,6 @@ def _int8_dynamic_activation_int4_weight_transform(
             custom_zero_point=custom_zero_point,
         )
     weight = to_linear_activation_quantized(weight, input_quant_func)
-    module.weight = torch.nn.Parameter(weight, requires_grad=False)
-    module.extra_repr = types.MethodType(_linear_extra_repr, module)
-    return module
-
-
-@dataclass
-class Int4DynamicActivationInt4WeightConfig(AOBaseConfig):
-    """Applies int4 dynamic per token symmetric activation quantization and int4 per row weight symmetric quantization to linear
-
-    Args:
-        `layout`: layout type for quantized weight tensor, only supports `CutlassInt4PackedLayout()` for now
-        `mapping_type`: quantization type for weight, controls the weight quantization is symmetric or asymmetric
-        `act_mapping_type`: quantization type for activation, controls the activation quantization is symmetric or asymmetric
-        `set_inductor_config`: if True, adjusts `torchinductor` settings to recommended values.
-    """
-
-    layout: Layout = CutlassInt4PackedLayout()
-    mapping_type: MappingType = MappingType.SYMMETRIC
-    act_mapping_type: MappingType = MappingType.SYMMETRIC
-    set_inductor_config: bool = True
-
-    def __post_init__(self):
-        torch._C._log_api_usage_once(
-            "torchao.quantization.Int4DynamicActivationInt4WeightConfig"
-        )
-        warnings.warn(
-            "`Int4DynamicActivationInt4WeightConfig` will be deleted in a future release of torchao. Please see https://github.com/pytorch/ao/issues/2752 for more details."
-        )
-
-
-@register_quantize_module_handler(Int4DynamicActivationInt4WeightConfig)
-def _int4_dynamic_activation_int4_weight_transform(
-    module: torch.nn.Module, config: Int4DynamicActivationInt4WeightConfig
-) -> torch.nn.Module:
-    weight = module.weight
-    layout = config.layout
-    mapping_type = config.mapping_type
-    act_mapping_type = config.act_mapping_type
-    if config.set_inductor_config:
-        torchao.quantization.utils.recommended_inductor_config_setter()
-
-    if not isinstance(layout, CutlassInt4PackedLayout):
-        raise NotImplementedError(
-            f"Only CutlassInt4PackedLayout layout is supported. Received {layout}."
-        )
-    if mapping_type != MappingType.SYMMETRIC:
-        raise NotImplementedError("Only mapping_type=SYMMETRIC is supported.")
-    if act_mapping_type != MappingType.SYMMETRIC:
-        raise NotImplementedError("Only act_mapping_type=SYMMETRIC is supported.")
-
-    # avoid circular import
-    from torchao.quantization.quant_api import _int4_symm_cutlass_quant
-
-    weight = _int4_symm_cutlass_quant(weight)
-    weight = to_linear_activation_quantized(
-        weight,
-        _int4_symm_cutlass_quant,
-    )
     module.weight = torch.nn.Parameter(weight, requires_grad=False)
     module.extra_repr = types.MethodType(_linear_extra_repr, module)
     return module

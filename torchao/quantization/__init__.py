@@ -57,7 +57,6 @@ from .observer import (
     AffineQuantizedObserverBase,
 )
 from .quant_api import (
-    CutlassInt4PackedLayout,
     Float8DynamicActivationFloat8SemiSparseWeightConfig,
     Float8DynamicActivationFloat8WeightConfig,
     Float8DynamicActivationInt4WeightConfig,
@@ -66,7 +65,6 @@ from .quant_api import (
     Float8WeightOnlyConfig,
     FqnToConfig,
     GemliteUIntXWeightOnlyConfig,
-    Int4DynamicActivationInt4WeightConfig,
     Int4WeightOnlyConfig,
     Int8DynamicActivationInt4WeightConfig,
     Int8DynamicActivationInt8WeightConfig,
@@ -126,7 +124,6 @@ __all__ = [
     "intx_quantization_aware_training",
     "fqn_matches_fqn_config",
     "swap_conv2d_1x1_to_linear",
-    "Int4DynamicActivationInt4WeightConfig",
     "Int8DynamicActivationInt4WeightConfig",
     "Int8DynamicActivationInt8WeightConfig",
     "Int8DynamicActivationIntxWeightConfig",
@@ -189,7 +186,6 @@ __all__ = [
     # Layouts for quant_api
     "PlainLayout",
     "TensorCoreTiledLayout",
-    "CutlassInt4PackedLayout",
     "Float8MMConfig",
     # GPTQ
     "Int4WeightOnlyGPTQQuantizer",

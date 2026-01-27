@@ -34,7 +34,6 @@ from torchao.quantization.quant_api import (
     Float8DynamicActivationInt4WeightConfig,
     Float8WeightOnlyConfig,
     GemliteUIntXWeightOnlyConfig,
-    Int4DynamicActivationInt4WeightConfig,
     Int4WeightOnlyConfig,
     Int8DynamicActivationInt4WeightConfig,
     Int8DynamicActivationInt8WeightConfig,
@@ -59,7 +58,6 @@ configs = [
     ),
     UIntXWeightOnlyConfig(dtype=torch.uint1),
     Float8DynamicActivationInt4WeightConfig(),
-    Int4DynamicActivationInt4WeightConfig(),
     Int4WeightOnlyConfig(
         group_size=32,
     ),
