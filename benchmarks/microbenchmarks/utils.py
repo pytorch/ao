@@ -18,7 +18,6 @@ from torchao.quantization import (
     Float8DynamicActivationFloat8WeightConfig,
     Float8WeightOnlyConfig,
     GemliteUIntXWeightOnlyConfig,
-    Int8DynamicActivationInt4WeightConfig,
     Int8DynamicActivationInt8WeightConfig,
     Int8WeightOnlyConfig,
     MappingType,
@@ -193,15 +192,6 @@ def string_to_config(
             return Int8DynamicActivationInt8WeightConfig(weight_only_decode=True)
         else:
             return Int8DynamicActivationInt8WeightConfig()
-    elif "int8adq-int4w-symm" in quantization:
-        from torchao.dtypes import CutlassInt4PackedLayout
-
-        return Int8DynamicActivationInt4WeightConfig(
-            group_size=None,
-            mapping_type=MappingType.SYMMETRIC,
-            act_mapping_type=MappingType.SYMMETRIC,
-            layout=CutlassInt4PackedLayout(),
-        )
     if "uintx" in quantization:
         # uintx-nbits-group_size, e.g. "uintx-2-64"
         if "hqq" in quantization:

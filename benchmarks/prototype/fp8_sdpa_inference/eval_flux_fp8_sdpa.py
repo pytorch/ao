@@ -5,7 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 """
-Benchmark script for evaluating FP8 quantization accuracy on Stable Diffusion 3.5.
+Benchmark script for evaluating FP8 quantization accuracy on FLUX.1-schnell.
 
 Compares regular inference with FP8 variants using LPIPS (perceptual similarity).
 Uses DrawBench dataset for standardized prompt evaluation.
@@ -20,6 +20,9 @@ Usage:
 
     # FP8 Linear with 50 prompts
     python eval_sd35_fp8_sdpa.py --mode fp8_linear --num_prompts 50
+
+    # FP8 SDPA with torch.compile
+    python eval_sd35_fp8_sdpa.py --mode fp8_sdpa --compile
 
     # Full benchmark with 200 prompts
     python eval_sd35_fp8_sdpa.py --mode fp8_sdpa --num_prompts 200
@@ -37,7 +40,7 @@ import lpips
 import numpy as np
 import torch
 from datasets import load_dataset
-from diffusers import StableDiffusion3Pipeline
+from diffusers import FluxPipeline
 from PIL import Image
 
 from torchao.prototype.fp8_sdpa_inference import wrap_module_with_fp8_sdpa
@@ -52,7 +55,7 @@ from torchao.quantization import (
 # -----------------------------
 IMAGE_SIZE = (512, 512)  # (width, height) - resize for consistent LPIPS
 RANDOM_SEED = 42
-MODEL_ID = "stabilityai/stable-diffusion-3.5-large"
+MODEL_ID = "black-forest-labs/FLUX.1-schnell"
 
 
 def pil_to_lpips_tensor(img: Image.Image, device: str) -> torch.Tensor:
@@ -95,7 +98,7 @@ def generate_image(
     image = pipe(
         prompt=prompt,
         num_inference_steps=num_inference_steps,
-        guidance_scale=7.5,
+        guidance_scale=3.5,
         generator=generator,
     ).images[0]
 
@@ -113,9 +116,10 @@ def run_benchmark(
     num_inference_steps: int = 20,
     debug_prompt: Optional[str] = None,
     warmup_iters: int = 2,
+    compile: bool = False,
 ):
     """
-    Run the FP8 accuracy benchmark on Stable Diffusion 3.5.
+    Run the FP8 accuracy benchmark on FLUX.1-schnell.
 
     Args:
         mode: Quantization mode - "fp8_sdpa" or "fp8_linear"
@@ -123,10 +127,12 @@ def run_benchmark(
         num_inference_steps: Number of diffusion steps per image
         debug_prompt: If specified, use only this prompt (for debugging)
         warmup_iters: Number of warmup iterations before benchmarking
+        compile: If True, wrap the model with torch.compile
     """
     mode_display = "FP8 SDPA" if mode == "fp8_sdpa" else "FP8 Linear"
+    compile_str = " + torch.compile" if compile else ""
     print("=" * 80)
-    print(f"{mode_display} Accuracy Benchmark for Stable Diffusion 3.5")
+    print(f"{mode_display}{compile_str} Accuracy Benchmark for FLUX.1-schnell")
     print("=" * 80)
 
     # Set seeds for reproducibility
@@ -155,8 +161,8 @@ def run_benchmark(
     # -----------------------------
     # 2. Load model and LPIPS
     # -----------------------------
-    print(f"\nLoading Stable Diffusion 3.5 from {MODEL_ID}...")
-    pipe = StableDiffusion3Pipeline.from_pretrained(
+    print(f"\nLoading FLUX.1-dev from {MODEL_ID}...")
+    pipe = FluxPipeline.from_pretrained(
         MODEL_ID,
         torch_dtype=torch.bfloat16,
     )
@@ -166,8 +172,19 @@ def run_benchmark(
     print("Loading LPIPS model (VGG)...")
     loss_fn = lpips.LPIPS(net="vgg").to(device)
 
+    # Store original transformer for restoration before FP8 modifications
+    orig_transformer = pipe.transformer
+
     # -----------------------------
-    # 3. Warmup
+    # 3. Optionally compile the model for baseline
+    # -----------------------------
+    if compile:
+        print("\nCompiling transformer and vae.decode with torch.compile...")
+        pipe.transformer = torch.compile(orig_transformer)
+        pipe.vae.decode = torch.compile(pipe.vae.decode)
+
+    # -----------------------------
+    # 4. Warmup
     # -----------------------------
     print(f"\nWarming up with {warmup_iters} iterations...")
     warmup_prompt = prompts[0]
@@ -178,7 +195,7 @@ def run_benchmark(
         print(f"  Warmup {i + 1}/{warmup_iters} complete")
 
     # -----------------------------
-    # 4. Generate baseline images (regular SDPA)
+    # 5. Generate baseline images (regular SDPA)
     # -----------------------------
     print("\n" + "-" * 80)
     print("Phase 1: Generating baseline images (regular SDPA)")
@@ -205,11 +222,16 @@ def run_benchmark(
     )
 
     # -----------------------------
-    # 5. Apply FP8 quantization based on mode
+    # 6. Apply FP8 quantization based on mode
     # -----------------------------
     print("\n" + "-" * 80)
     print(f"Phase 2: Generating {mode_display} images")
     print("-" * 80)
+
+    # Restore original (uncompiled) transformer before applying FP8 modifications
+    if compile:
+        print("Restoring original (uncompiled) transformer before FP8 modifications...")
+        pipe.transformer = orig_transformer
 
     if mode == "fp8_sdpa":
         # Wrap the transformer to use FP8 SDPA
@@ -224,6 +246,11 @@ def run_benchmark(
         )
     else:
         raise ValueError(f"Unknown mode: {mode}")
+
+    # Optionally compile the FP8 model
+    if compile:
+        print(f"\nCompiling {mode_display} transformer with torch.compile...")
+        pipe.transformer = torch.compile(pipe.transformer)
 
     # Warmup FP8 path
     print(f"Warming up {mode_display} with {warmup_iters} iterations...")
@@ -279,6 +306,7 @@ def run_benchmark(
 
     print("\nBenchmark Configuration:")
     print(f"  Mode:              {mode_display}")
+    print(f"  torch.compile:     {compile}")
     print(f"  Model:             {MODEL_ID}")
     print(f"  Prompts tested:    {len(prompts)}")
     print(f"  Inference steps:   {num_inference_steps}")
@@ -298,7 +326,7 @@ def run_benchmark(
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Benchmark FP8 quantization accuracy on Stable Diffusion 3.5"
+        description="Benchmark FP8 quantization accuracy on FLUX.1-schnell"
     )
     parser.add_argument(
         "--mode",
@@ -310,13 +338,13 @@ def main():
     parser.add_argument(
         "--num_prompts",
         type=int,
-        default=50,
+        default=200,
         help="Number of prompts to use (50 for quick, 200 for full benchmark)",
     )
     parser.add_argument(
         "--num_inference_steps",
         type=int,
-        default=20,
+        default=4,
         help="Number of diffusion inference steps",
     )
     parser.add_argument(
@@ -331,6 +359,11 @@ def main():
         default=2,
         help="Number of warmup iterations",
     )
+    parser.add_argument(
+        "--compile",
+        action="store_true",
+        help="Wrap the model with torch.compile for both baseline and FP8 modes",
+    )
 
     args = parser.parse_args()
 
@@ -340,6 +373,7 @@ def main():
         num_inference_steps=args.num_inference_steps,
         debug_prompt=args.debug_prompt,
         warmup_iters=args.warmup_iters,
+        compile=args.compile,
     )
 
 
