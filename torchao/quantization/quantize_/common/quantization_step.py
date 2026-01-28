@@ -11,36 +11,36 @@ from enum import Enum
 # after python 3.10 is end of life (https://devguide.python.org/versions/)
 class QuantizationStep(str, Enum):
     """
-    The step enum backend for observer based algorithms process like AWQ/SmoothQuant/GPTQ
-        PREPARE: insert observers to linear layers
-        CONVERT: convert the observed linear modules to quantized modules
-        PREPARE_FOR_LOADING: convert the floating point model to a dummy quantized model,
-        so we can load the quantized weights through copy_ later
+    The step enum for observer-based quantization algorithms like AWQ/SmoothQuant/GPTQ.
 
     Example:
-        # Flow 1: Quantization flow (quantize a model from original high precision model)
-        # Step 1: PREPARE - insert observers
-        quantize_(model, Float8StaticActivationFloat8WeightConfig(step="prepare"))
+        # Step 1: Prepare model for calibration
+        quantize_(model, SmoothQuantConfig(step="prepare"))
 
-        # Step 2: CALIBRATE - collect statistics
+        # Step 2: Run calibration data
         for batch in calibration_data:
             model(batch)
 
-        # Step 3: CONVERT - apply quantization and remove observers
-        quantize_(model, Float8StaticActivationFloat8WeightConfig(step="convert"))
+        # Step 3: Convert to quantized model
+        quantize_(model, SmoothQuantConfig(step="convert"))
 
-        # Flow 2: Inference flow (load pre-quantized weights into a model)
-        # PREPARE_FOR_LOADING creates a dummy quantized model structure for loading weights
-        from torchao.prototype.smoothquant import SmoothQuantConfig
+        # Prepare model to load pre-quantized weights
+        config = SmoothQuantConfig(step="prepare_for_loading")
 
-        config = SmoothQuantConfig(base_config, step="prepare_for_loading")
         quantize_(model, config)
 
         # Now the model can load pre-quantized weights
         model.load_state_dict(quantized_state_dict)
-
     """
 
+    """Insert observers before running calibration flow.
+    """
     PREPARE = "prepare"
+
+    """Convert the observed linear modules to quantized modules using activation scale factors computed during calibration.
+    """
     CONVERT = "convert"
+
+    """Convert the floating point model to a dummy quantized model to load pre-quantized weights at inference stage.
+    """
     PREPARE_FOR_LOADING = "prepare_for_loading"
