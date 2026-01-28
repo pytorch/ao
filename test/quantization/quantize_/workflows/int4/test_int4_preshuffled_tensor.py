@@ -26,6 +26,7 @@ from torchao.quantization.utils import compute_error
 from torchao.utils import (
     _is_mslk_available,
     is_sm_at_least_90,
+    is_sm_at_least_100,
     torch_version_at_least,
 )
 
@@ -42,7 +43,8 @@ FP8_ACT_CONFIG = Float8DynamicActivationInt4WeightConfig(
 
 @unittest.skipIf(not torch_version_at_least("2.8.0"), "Need pytorch 2.8+")
 @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
-@unittest.skipIf(not is_sm_at_least_90(), "Nedd sm90+")
+@unittest.skipIf(not is_sm_at_least_90(), "Need sm90+")
+@unittest.skipIf(is_sm_at_least_100(), "MSLK kernel not compatible with sm100+")
 @unittest.skipIf(not _is_mslk_available(), "Requires mslk >= 1.0.0")
 class TestInt4PreshuffledTensor(TestCase):
     def setUp(self):
