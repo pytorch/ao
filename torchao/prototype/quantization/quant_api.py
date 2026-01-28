@@ -328,62 +328,6 @@ class Float8StaticStep(str, Enum):
     CONVERT = "convert"
 
 
-class Float8ObservedLinear(torch.nn.Linear):
-    """
-    A linear module with an observer for float8 static quantization.
-
-    This module wraps a linear layer and adds an AffineQuantizedMinMaxObserver
-    that collects statistics during calibration. After calibration, use
-    `quantize_` with `Float8StaticActivationFloat8WeightConfig(step="convert")`
-    to convert to a quantized module.
-
-    Optionally, an output observer can be provided to collect statistics for
-    output quantization when `quantize_and_dequantize_output=True` is used.
-    """
-
-    def __init__(
-        self,
-        in_features: int,
-        out_features: int,
-        input_act_obs: "AffineQuantizedMinMaxObserver",  # noqa: F821
-        bias: bool = True,
-        device=None,
-        dtype=None,
-        output_act_obs: Optional["AffineQuantizedMinMaxObserver"] = None,  # noqa: F821
-    ):
-        super().__init__(in_features, out_features, bias, device, dtype)
-        self.input_act_obs = input_act_obs
-        self.output_act_obs = output_act_obs
-
-    def forward(self, input: Tensor) -> Tensor:
-        self.input_act_obs(input)
-        output = F.linear(input, self.weight, self.bias)
-        if self.output_act_obs is not None:
-            self.output_act_obs(output)
-        return output
-
-    @classmethod
-    def from_float(
-        cls,
-        float_linear: torch.nn.Linear,
-        input_act_obs: "AffineQuantizedMinMaxObserver",  # noqa: F821
-        output_act_obs: Optional["AffineQuantizedMinMaxObserver"] = None,  # noqa: F821
-    ) -> "Float8ObservedLinear":
-        """Create an observed linear from a float linear module."""
-        observed_linear = cls(
-            float_linear.in_features,
-            float_linear.out_features,
-            input_act_obs,
-            bias=float_linear.bias is not None,
-            device=float_linear.weight.device,
-            dtype=float_linear.weight.dtype,
-            output_act_obs=output_act_obs,
-        )
-        observed_linear.weight = float_linear.weight
-        observed_linear.bias = float_linear.bias
-        return observed_linear
-
-
 class Float8ObservedSoftmax(torch.nn.Softmax):
     """
     A softmax module with an observer for float8 static quantization.
@@ -504,6 +448,7 @@ def _float8_static_activation_float8_weight_transform(
         PrototypeFloat8Tensor,
     )
     from torchao.quantization.observer import AffineQuantizedMinMaxObserver
+    from torchao.quantization.quantize_.common import ObservedLinear
 
     step = config.step
     granularity = config.granularity if config.granularity is not None else PerTensor()
@@ -542,7 +487,7 @@ def _float8_static_activation_float8_weight_transform(
                 scale_dtype=torch.float32,
                 zero_point_dtype=torch.float32,
             )
-        return Float8ObservedLinear.from_float(module, input_observer, output_observer)
+        return ObservedLinear.from_float(module, input_observer, output_observer)
 
     elif step == Float8StaticStep.CONVERT or step == "convert":
         # Handle observed Softmax modules
@@ -572,9 +517,9 @@ def _float8_static_activation_float8_weight_transform(
             )
 
         # Handle observed Linear modules
-        if not isinstance(module, Float8ObservedLinear):
+        if not isinstance(module, ObservedLinear):
             logger.info(
-                f"convert: module is not Float8ObservedLinear or Float8ObservedSoftmax, skipping: {type(module)}"
+                f"convert: module is not ObservedLinear or Float8ObservedSoftmax, skipping: {type(module)}"
             )
             return module
 
