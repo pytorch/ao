@@ -8,6 +8,7 @@ import glob
 import json
 import os
 import pickle
+import re
 import subprocess
 import sys
 import time
@@ -148,11 +149,37 @@ from torch.utils.cpp_extension import (
     _get_cuda_arch_flags,
 )
 
-from packaging.version import Version
 
 # Check if torch version is at least 2.10.0 (for stable ABI support)
-_torch_version_str = torch.__version__.split("+")[0].split("a")[0].split("b")[0]
-torch_version_at_least_2_10 = Version(_torch_version_str) >= Version("2.10.0")
+# util copied from torchao/utils.py
+def _parse_version(version_string):
+    """
+    Parse version string representing pre-release with -1
+
+    Examples: "2.5.0.dev20240708+cu121" -> [2, 5, -1], "2.5.0" -> [2, 5, 0]
+    """
+    # Check for pre-release indicators
+    is_prerelease = bool(re.search(r"(git|dev)", version_string))
+    match = re.match(r"(\d+)\.(\d+)\.(\d+)", version_string)
+    if match:
+        major, minor, patch = map(int, match.groups())
+        if is_prerelease:
+            patch = -1
+        return [major, minor, patch]
+    else:
+        raise ValueError(f"Invalid version string format: {version_string}")
+
+
+def _is_fbcode():
+    return not hasattr(torch.version, "git_version")
+
+
+def _torch_version_at_least(min_version):
+    if _is_fbcode():
+        return True
+
+    # Parser for local identifiers
+    return _parse_version(torch.__version__) >= _parse_version(min_version)
 
 
 def detect_hipify_v2():
@@ -782,9 +809,9 @@ def get_extensions():
     print(f"torch.version.cuda: {torch.version.cuda}")
     print(f"build_for_sm90a: {build_for_sm90a}")
     print("cutlass_90a_stable_sources:", cutlass_90a_stable_sources)
-    print("torch_version_at_least_2_10:", torch_version_at_least_2_10)
+    print("torch_version_at_least_2_10:", _torch_version_at_least("2.10.0"))
     if (
-        torch_version_at_least_2_10
+        _torch_version_at_least("2.10.0")
         and cutlass_90a_stable_sources is not None
         and len(cutlass_90a_stable_sources) > 0
         and build_for_sm90a
@@ -799,6 +826,10 @@ def get_extensions():
                 # define TORCH_TARGET_VERSION with min version 2.10 to expose only the
                 # stable API subset from torch
                 "-DTORCH_TARGET_VERSION=0x020a000000000000",
+                # Explicitly enable the cutlass sm9x implementation for stable ABI builds
+                # This is needed because CUDA_VERSION may not be visible to the preprocessor
+                # in stable ABI mode despite cuda_runtime.h being included
+                "-DBUILD_TO_SPARSE_SEMI_STRUCTURED_CUTLASS_SM9X",
             ]
         )
         print(
