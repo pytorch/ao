@@ -17,12 +17,6 @@ lib.define(
     "to_sparse_semi_structured_cutlass_sm9x_f8(Tensor weight) -> (Tensor, Tensor)"
 )
 lib.define(
-    "sparse24_sm90_sparsify(Tensor input, str metadata_fmt, str activation, str sp_selection_algo, *, ScalarType? dtype = None, Tensor? scale=None) -> (Tensor, Tensor)"
-)
-lib.define(
-    "sparse24_fp8_sm90_cutlass_gemm(Tensor a, Tensor a_mdata, Tensor b, *, Tensor? a_scale = None, Tensor? b_scale = None, int swizzle_size=8, str swizzle_axis='n', int sm_count=128) -> Tensor"
-)
-lib.define(
     "swizzle_mm(Tensor mat1, Tensor mat2, bool mat1_is_swizzled, bool mat2_is_swizzled) -> Tensor"
 )
 lib.define(
@@ -235,85 +229,11 @@ def _(
     )
 
 
-def sparse24_sm90_sparsify(
-    input_tensor: Tensor,
-    metadata_format: str,
-    activation: str,
-    algorithm: str,
-    dtype=None,
-    scale=None,
-) -> (Tensor, Tensor):
-    return torch.ops.torchao.sparse24_sm90_sparsify(
-        input_tensor, metadata_format, activation, algorithm, dtype=dtype, scale=scale
-    )
-
-
-@register_custom_op("torchao::sparse24_sm90_sparsify")
-def _(
-    input_tensor: Tensor,
-    metadata_format: str,
-    activation: str,
-    algorithm: str,
-    dtype=None,
-    scale=None,
-):
-    out_dtype = dtype if dtype is not None else input_tensor.dtype
-    return (
-        torch.empty(
-            (input_tensor.shape[0], input_tensor.shape[1] // 2),
-            dtype=out_dtype,
-            device=input_tensor.device,
-        ),
-        torch.empty(
-            (input_tensor.shape[0], input_tensor.shape[1] // 8),
-            dtype=torch.uint8,
-            device=input_tensor.device,
-        ),
-    )
-
-
-def sparse24_fp8_sm90_cutlass_gemm(
-    a: Tensor,
-    meta: Tensor,
-    b: Tensor,
-    a_scale: Optional[Tensor] = None,
-    b_scale: Optional[Tensor] = None,
-    swizzle_size: int = 8,
-    swizzle_axis: str = "n",
-    sm_count: int = 128,
-) -> Tensor:
-    return torch.ops.torchao.sparse24_fp8_sm90_cutlass_gemm(
-        a,
-        meta,
-        b,
-        a_scale=a_scale,
-        b_scale=b_scale,
-        swizzle_size=swizzle_size,
-        swizzle_axis=swizzle_axis,
-        sm_count=sm_count,
-    )
-
-
-@register_custom_op("torchao::sparse24_fp8_sm90_cutlass_gemm")
-def _(
-    a: Tensor,
-    meta: Tensor,
-    b: Tensor,
-    a_scale: Optional[Tensor] = None,
-    b_scale: Optional[Tensor] = None,
-    swizzle_size: int = 8,
-    swizzle_axis: str = "n",
-    sm_count: int = 128,
-):
-    return torch.empty((a.shape[0], b.shape[1]), dtype=torch.bfloat16, device=a.device)
-
-
 def swizzle_mm(
     mat1: Tensor, mat2: Tensor, mat1_is_swizzled: bool, mat2_is_swizzled: bool
 ) -> Tensor:
     """
     Similar to torch.mm but Tensor inputs can be SwizzleTensor instances.
-
     """
     return torch.ops.torchao.swizzle_mm.default(
         mat1, mat2, mat1_is_swizzled, mat2_is_swizzled
