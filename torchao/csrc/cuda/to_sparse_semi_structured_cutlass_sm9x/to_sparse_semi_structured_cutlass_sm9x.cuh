@@ -33,6 +33,14 @@
 #include <cutlass/util/packed_stride.hpp>
 
 #include "cutlass_extensions/common.h"
+
+// Redefine CUTLASS_STATUS_CHECK to use STD_TORCH_CHECK for ABI stability
+#undef CUTLASS_STATUS_CHECK
+#define CUTLASS_STATUS_CHECK(status, message_prefix)                           \
+  {                                                                            \
+    STD_TORCH_CHECK(status == cutlass::Status::kSuccess, message_prefix,       \
+                    " : Got CUTLASS error: ", cutlassGetStatusString(status)); \
+  }
 #endif
 
 #define OPERATOR_NAME "to_sparse_semi_structured_cutlass_sm9x"
