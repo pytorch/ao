@@ -816,8 +816,8 @@ def get_extensions():
         )
 
         print(
-            "cutlass_90a_stable_extra_compile_args cpp:",
-            cutlass_90a_stable_extra_compile_args["cpp"],
+            "cutlass_90a_stable_extra_compile_args cxx:",
+            cutlass_90a_stable_extra_compile_args["cxx"],
         )
         ext_modules.append(
             extension(
