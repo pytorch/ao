@@ -16,6 +16,7 @@
 #include <torch/headeronly/core/ScalarType.h>
 #include <torch/headeronly/util/Exception.h>
 
+#include <cuda.h>  // For CUDA_VERSION
 #include <cuda_runtime.h>
 
 #if defined(TORCHAO_USE_CUTLASS) && !defined(_WIN32) &&                   \
@@ -159,9 +160,8 @@ to_sparse_semi_structured_cutlass_sm9x_check_inputs(const Tensor& W) {
               " : Expected W argument to be 2D tensor,  got ", W.dim(),
               " dims");
 
-  STD_TORCH_CHECK(
-      W.layout() == at::Layout::Strided, OPERATOR_NAME,
-      " : Expected W argument to be strided, got layout ",W.layout());
+  // Note: layout() check removed as torch::stable::Tensor doesn't support it.
+  // The stride check below implicitly validates the tensor is strided.
 
   // Validate the input tensor shape.
   STD_TORCH_CHECK(W.size(1) % 8 == 0, OPERATOR_NAME,

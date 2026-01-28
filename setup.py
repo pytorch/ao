@@ -826,10 +826,6 @@ def get_extensions():
                 # define TORCH_TARGET_VERSION with min version 2.10 to expose only the
                 # stable API subset from torch
                 "-DTORCH_TARGET_VERSION=0x020a000000000000",
-                # Explicitly enable the cutlass sm9x implementation for stable ABI builds
-                # This is needed because CUDA_VERSION may not be visible to the preprocessor
-                # in stable ABI mode despite cuda_runtime.h being included
-                "-DBUILD_TO_SPARSE_SEMI_STRUCTURED_CUTLASS_SM9X",
             ]
         )
         print(
