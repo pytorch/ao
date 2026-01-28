@@ -21,6 +21,7 @@ from torchao.quantization import (
 from torchao.quantization.granularity import PerRow, PerTensor
 from torchao.quantization.quant_primitives import MappingType
 from torchao.quantization.quantize_.common import (
+    KernelPreference,
     _choose_quant_func_and_quantize_tensor,
 )
 from torchao.quantization.quantize_.workflows.int8.int8_tensor import (
@@ -249,6 +250,34 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
         self.assertEqual(
             weight_cpu.dequantize(), weight_pinned.dequantize(), atol=0, rtol=0
         )
+
+    @common_utils.parametrize("kernel_preference", ["TORCH", "TRITON"])
+    def test_kernel_preference(self, kernel_preference):
+        """Test that kernel routing works correctly"""
+        M, K, N = 32, 64, 128
+
+        # Create model
+        model = torch.nn.Linear(K, N, bias=False, dtype=torch.bfloat16, device="cuda")
+        weight_ref = model.weight.clone()
+
+        config = Int8DynamicActivationInt8WeightConfig(
+            version=2,
+            kernel_preference=KernelPreference[kernel_preference],
+        )
+        quantize_(model, config)
+
+        # Run linear operation
+        input_tensor = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
+        output = model(input_tensor)
+
+        # Verify output shape and dtype
+        self.assertEqual(output.shape, (M, N))
+        self.assertEqual(output.dtype, torch.bfloat16)
+
+        # Verify correctness by comparing with reference
+        output_ref = torch.nn.functional.linear(input_tensor, weight_ref)
+        sqnr = compute_error(output_ref, output)
+        self.assertGreater(sqnr, 20, f"SQNR is too low: {sqnr} dB (expected > 20 dB)")
 
 
 @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
