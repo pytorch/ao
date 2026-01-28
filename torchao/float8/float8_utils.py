@@ -12,8 +12,8 @@ from torch.distributed._functional_collectives import AsyncCollectiveTensor, all
 
 from torchao.float8.config import ScalingGranularity
 from torchao.utils import (
-    round_up,
     ceil_div,
+    round_up,
 )
 
 # Helpful visualizer for debugging (only supports fp32):
@@ -34,11 +34,13 @@ FP8_TYPES = {
 infer_scale_swizzle = None
 try:
     from torch._inductor.utils import infer_scale_swizzle as _infer_scale_swizzle
+
     infer_scale_swizzle = _infer_scale_swizzle
 except ImportError:
     from collections.abc import (
         Callable,
     )
+
     def _infer_scale_swizzle_impl(
         mat_size: tuple[Any, Any],
         scale_size: tuple[Any, ...],
@@ -90,7 +92,9 @@ except ImportError:
             expected_numel_b = round_up(mat_size[1], 128) * round_up(
                 ceil_div(K_multiplier * mat_size[0], 16), 4
             )
-            if eq_fn(scale_numel, expected_numel_a) or eq_fn(scale_numel, expected_numel_b):
+            if eq_fn(scale_numel, expected_numel_a) or eq_fn(
+                scale_numel, expected_numel_b
+            ):
                 return ScalingType.BlockWise1x16, SwizzleType.SWIZZLE_32_4_4
 
         # MXFP8: BlockWise1x32 with float8_e8m0fnu scales
@@ -109,8 +113,12 @@ except ImportError:
                     return ScalingType.BlockWise1x32, SwizzleType.SWIZZLE_32_4_4
             else:
                 # AMD: no swizzle
-                expected_numel_a = ceil_div(mat_size[0], 32) * K_multiplier * mat_size[1]
-                expected_numel_b = ceil_div(K_multiplier * mat_size[1], 32) * mat_size[0]
+                expected_numel_a = (
+                    ceil_div(mat_size[0], 32) * K_multiplier * mat_size[1]
+                )
+                expected_numel_b = (
+                    ceil_div(K_multiplier * mat_size[1], 32) * mat_size[0]
+                )
                 if eq_fn(scale_numel, expected_numel_a) or eq_fn(
                     scale_numel, expected_numel_b
                 ):
@@ -146,8 +154,8 @@ except ImportError:
             scale_dtype=scale.dtype,
             eq_fn=lambda a, b: a == b,
         )
-    infer_scale_swizzle = _infer_scale_swizzle
 
+    infer_scale_swizzle = _infer_scale_swizzle
 
 
 @torch.no_grad()
