@@ -23,7 +23,6 @@ from torchao.prototype.moe_training.kernels.mxfp8 import (
     mx_block_rearrange_2d_M_groups_cuda,
     mxfp8_quantize_cuda_3d,
     triton_mx_block_rearrange_2d_K_groups,
-    triton_mx_block_rearrange_2d_M_groups,
     triton_mx_block_rearrange_per_group_3d,
 )
 from torchao.prototype.moe_training.utils import (
@@ -102,7 +101,6 @@ def _quantize_then_scaled_grouped_mm(
             kernel_preference=kernel_preference,
             wgrad_with_hp=wgrad_with_hp,
             scale_calculation_mode=ScaleCalculationMode.RCEIL,
-            use_cuda_kernel_for_blocked_layout=True,  # TODO: configurable
         )
     else:
         raise ValueError(f"Unsupported scaling type {scaling_type}")
@@ -332,7 +330,6 @@ class _MXFP8GroupedMM(torch.autograd.Function):
         kernel_preference: KernelPreference = KernelPreference.AUTO,
         wgrad_with_hp: bool = False,
         scale_calculation_mode: ScaleCalculationMode = ScaleCalculationMode.RCEIL,
-        use_cuda_kernel_for_blocked_layout: bool = True,
     ) -> torch.Tensor:
         """
         Forward pass: Quantize inputs and perform grouped GEMM.
@@ -343,10 +340,9 @@ class _MXFP8GroupedMM(torch.autograd.Function):
             group_offsets: Cumulative token counts per expert, shape (E,)
             block_size: Block size for MXFP8 quantization (must be 32)
             out_dtype: Output dtype (bfloat16 or float32)
-            kernel_preference: Kernel preference (AUTO uses Triton if available, EMULATED uses to_mx)
+            kernel_preference: Kernel preference (AUTO uses CUDA/Triton, EMULATED uses to_mx)
             wgrad_with_hp: Compute weight gradient in high precision
             scale_calculation_mode: Mode for scale calculation (RCEIL, FLOOR, etc.)
-            use_cuda_kernel_for_blocked_layout: Use CUDA kernel for blocked layout conversion
 
         Returns:
             Output tensor, shape (M, N)
@@ -362,11 +358,6 @@ class _MXFP8GroupedMM(torch.autograd.Function):
             "SM100 kernels not available. Please use use torchao CUDA 12.8+ build on SM100/100a device(s). "
             "Otherwise, set kernel_preference=KernelPreference.EMULATED (emulated mode implements basic functionality without efficient kernels)."
         )
-        if emulated:
-            assert not use_cuda_kernel_for_blocked_layout, (
-                "CUDA kernel for blocked layout for grouped along M is not supported in emulated mode. "
-                "Set `use_cuda_kernel_for_blocked_layout=False` to use more flexible but slower Triton kernel."
-            )
 
         # Input validation
         assert input_act.ndim == 2, "input_act must be 2D"
@@ -418,8 +409,8 @@ class _MXFP8GroupedMM(torch.autograd.Function):
         else:
             # Path using SM100 kernels.
             # Convert scales to blocked layout on a per-group basis required for tcgen05.mma for 2d-3d grouped mm.
-            input_act_scales_blocked = _block_rearrange_M_groups(
-                input_act_scales, group_offsets, use_cuda_kernel_for_blocked_layout
+            input_act_scales_blocked = mx_block_rearrange_2d_M_groups_cuda(
+                input_act_scales, group_offsets
             )
             weight_scales_blocked = triton_mx_block_rearrange_per_group_3d(
                 weight_scales
@@ -440,7 +431,6 @@ class _MXFP8GroupedMM(torch.autograd.Function):
         ctx.kernel_preference = kernel_preference
         ctx.wgrad_with_hp = wgrad_with_hp
         ctx.scale_calculation_mode = scale_calculation_mode
-        ctx.use_cuda_kernel_for_blocked_layout = use_cuda_kernel_for_blocked_layout
 
         return output
 
@@ -462,7 +452,6 @@ class _MXFP8GroupedMM(torch.autograd.Function):
         kernel_preference = ctx.kernel_preference
         wgrad_with_hp = ctx.wgrad_with_hp
         scale_calculation_mode = ctx.scale_calculation_mode
-        use_cuda_kernel_for_blocked_layout = ctx.use_cuda_kernel_for_blocked_layout
 
         # Check SM100 kernel availability when not using emulated mode
         emulated = kernel_preference == KernelPreference.EMULATED
@@ -479,7 +468,6 @@ class _MXFP8GroupedMM(torch.autograd.Function):
             block_size,
             out_dtype,
             scale_calculation_mode,
-            use_cuda_kernel_for_blocked_layout,
             kernel_preference,
         )
 
@@ -494,7 +482,7 @@ class _MXFP8GroupedMM(torch.autograd.Function):
             wgrad_with_hp,
             kernel_preference,
         )
-        return grad_input, grad_weight_t, None, None, None, None, None, None, None
+        return grad_input, grad_weight_t, None, None, None, None, None, None
 
 
 def _compute_dgrad(
@@ -504,7 +492,6 @@ def _compute_dgrad(
     block_size: int,
     out_dtype: torch.dtype,
     scale_calculation_mode: ScaleCalculationMode,
-    use_cuda_kernel_for_blocked_layout: bool,
     kernel_preference: KernelPreference = KernelPreference.AUTO,
 ) -> torch.Tensor:
     """
@@ -517,8 +504,7 @@ def _compute_dgrad(
         block_size: Block size for quantization
         out_dtype: Output dtype
         scale_calculation_mode: Mode for scale calculation
-        use_cuda_kernel_for_blocked_layout: Use CUDA for blocked layout for groups along M
-        kernel_preference: Kernel preference (AUTO uses Triton if available, EMULATED uses to_mx)
+        kernel_preference: Kernel preference (AUTO uses CUDA/Triton, EMULATED uses to_mx)
 
     Returns:
         grad_input, shape (M, K)
@@ -561,8 +547,8 @@ def _compute_dgrad(
     weight_scales = weight_scales.transpose(-2, -1)
 
     # Convert scales to blocked format
-    grad_output_scales_blocked = _block_rearrange_M_groups(
-        grad_output_scales, group_offsets, use_cuda_kernel_for_blocked_layout
+    grad_output_scales_blocked = mx_block_rearrange_2d_M_groups_cuda(
+        grad_output_scales, group_offsets
     )
     weight_scales_blocked = triton_mx_block_rearrange_per_group_3d(weight_scales)
 
@@ -779,28 +765,6 @@ def _extract_or_quantize_dim0(
             scaling_mode=scale_calculation_mode,
         )
     return qdata, scale
-
-
-def _block_rearrange_M_groups(
-    scales: torch.Tensor,
-    offsets: torch.Tensor,
-    use_cuda: bool,
-) -> torch.Tensor:
-    """
-    Rearrange scales tensor into blocked format for M-groups.
-
-    Args:
-        scales: Input scales tensor
-        offsets: Group offsets
-        use_cuda: Whether to use CUDA kernel (else Triton)
-
-    Returns:
-        Blocked scales tensor
-    """
-    if use_cuda:
-        return mx_block_rearrange_2d_M_groups_cuda(scales, offsets)
-    else:
-        return triton_mx_block_rearrange_2d_M_groups(scales, offsets)
 
 
 def _dequantize_if_mxtensor(
@@ -1048,7 +1012,6 @@ def _to_mxfp8_then_scaled_grouped_mm(
     kernel_preference: KernelPreference = KernelPreference.AUTO,
     wgrad_with_hp: bool = False,
     scale_calculation_mode: ScaleCalculationMode = ScaleCalculationMode.RCEIL,
-    use_cuda_kernel_for_blocked_layout: bool = True,
 ) -> torch.Tensor:
     """
     Differentiable mxfp8 grouped gemm with dynamic mxfp8 quantization.
@@ -1063,10 +1026,9 @@ def _to_mxfp8_then_scaled_grouped_mm(
         - offs (int32 torch.Tensor): The offsets to use to mark the end index of each group along the dim0 of the A tensor.
         - block_size (int): The block size to use for mxpf8 quantization. Currently only 32 is supported.
         - out_dtype (Optional[torch.dtype]): The dtype of the output tensor. Default is torch.bfloat16.
-        - kernel_preference (KernelPreference): Kernel preference (AUTO uses Triton if available, EMULATED uses to_mx).
+        - kernel_preference (KernelPreference): Kernel preference (AUTO uses CUDA/Triton, EMULATED uses to_mx).
         - wgrad_with_hp (bool): Whether to compute weight gradients in high precision.
         - scale_calculation_mode (ScaleCalculationMode): The mode to use for scale calculation.
-        - use_cuda_kernel_for_blocked_layout (bool): Whether to use CUDA kernel for per-group scale factor blocked layout conversion.
 
     Returns:
         - out (torch.Tensor): The result of the mxpf8 scaled grouped gemm.
@@ -1080,7 +1042,6 @@ def _to_mxfp8_then_scaled_grouped_mm(
         kernel_preference,
         wgrad_with_hp,
         scale_calculation_mode,
-        use_cuda_kernel_for_blocked_layout,
     )
 
 

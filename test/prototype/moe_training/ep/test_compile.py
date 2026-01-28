@@ -87,7 +87,6 @@ def standard_pipeline(
         expert_weights_t,
         offs=offsets,
         block_size=block_size,
-        use_cuda_kernel_for_blocked_layout=False,
         wgrad_with_hp=True,
     )
 
@@ -156,7 +155,6 @@ def mxfp8_pipeline(
         expert_weights_t,
         offs=mx_group_offsets,
         block_size=block_size,
-        use_cuda_kernel_for_blocked_layout=False,
         wgrad_with_hp=True,
     )
 

@@ -231,8 +231,6 @@ class TestIntegration(MultiProcessTestCase):
                 expert_weights.transpose(-2, -1),
                 offs=mx_group_offsets,
                 block_size=block_size,
-                # TODO: why does CUDA blocked layout throw an error in this test, but works in e2e torchtitan runs?
-                use_cuda_kernel_for_blocked_layout=False,
                 # wgrad_with_hp must be true if inputs are pre-quantized (MXTensor)
                 wgrad_with_hp=True,
             )

@@ -326,7 +326,6 @@ def test_emulate_mxfp8_grouped_gemm_2d_2d(M, N, num_experts):
 @pytest.mark.parametrize(
     "kernel_preference", (KernelPreference.AUTO, KernelPreference.EMULATED)
 )
-@pytest.mark.parametrize("use_cuda_kernel_for_blocked_layout", (True, False))
 @pytest.mark.parametrize(
     "scale_mode", (ScaleCalculationMode.FLOOR, ScaleCalculationMode.RCEIL)
 )
@@ -338,21 +337,12 @@ def test_mxfp8_grouped_gemm_with_dq_fwd_bwd(
     wgrad_with_hp,
     use_compile,
     kernel_preference,
-    use_cuda_kernel_for_blocked_layout,
     scale_mode,
 ):
     # Emulated mode with compile is not supported
     if kernel_preference == KernelPreference.EMULATED and use_compile:
         pytest.skip(
             "Skipping use_compile=True with kernel_preference=EMULATED, not currently supported"
-        )
-
-    if (
-        kernel_preference == KernelPreference.EMULATED
-        and use_cuda_kernel_for_blocked_layout
-    ):
-        pytest.skip(
-            "CUDA blocked layout per group along M kernel not supported in emulated mode."
         )
 
     # MXFP8 hardware path requires SM100
@@ -392,7 +382,6 @@ def test_mxfp8_grouped_gemm_with_dq_fwd_bwd(
         kernel_preference=kernel_preference,
         wgrad_with_hp=wgrad_with_hp,
         scale_calculation_mode=scale_mode,
-        use_cuda_kernel_for_blocked_layout=use_cuda_kernel_for_blocked_layout,
     )
     ref_out = torch._grouped_mm(x_ref, w_t_ref, offs=offs_ref, out_dtype=torch.bfloat16)
     sqnr = compute_error(ref_out, out)
