@@ -642,6 +642,7 @@ def get_extensions():
         )
         cutlass_extensions_include_dir = os.path.join(cwd, extensions_cuda_dir)
     if use_cutlass:
+        print("use_cutlass, adding extra compile args")
         extra_compile_args["nvcc"].extend(
             [
                 "-DTORCHAO_USE_CUTLASS",
@@ -800,6 +801,10 @@ def get_extensions():
                 "-DTORCH_TARGET_VERSION=0x020a000000000000",
             ]
         )
+        print(
+            "cutlass_90a_stable_extra_compile_args nvcc:",
+            cutlass_90a_stable_extra_compile_args["nvcc"],
+        )
         # Add -DUSE_CUDA flag for ABI stable headers that need it
         cutlass_90a_stable_extra_compile_args["cxx"].extend(
             [
@@ -808,6 +813,11 @@ def get_extensions():
                 # stable API subset from torch
                 "-DTORCH_TARGET_VERSION=0x020a000000000000",
             ]
+        )
+
+        print(
+            "cutlass_90a_stable_extra_compile_args cpp:",
+            cutlass_90a_stable_extra_compile_args["cpp"],
         )
         ext_modules.append(
             extension(
