@@ -46,7 +46,7 @@ jobs:
         pip install uv
         pip install ${{ matrix.torch-spec }}
         uv pip install -r dev-requirements.txt
-        pip install . --no-build-isolation
+        pip install . --no-build-isolation -vv
         pytest test/integration --verbose -s
         pytest test/dtypes/test_affine_quantized_float.py --verbose -s
         pytest test/quantization/quantize_/workflows/float8 -v

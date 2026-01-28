@@ -327,12 +327,14 @@ def get_cutlass_build_flags():
     """
     # Try nvcc then torch version
     cuda_version = get_cuda_version_from_nvcc() or torch.version.cuda
+    print("cuda version:", cuda_version)
 
     try:
         if not cuda_version:
             raise ValueError("No CUDA version found")
 
         major, minor = map(int, cuda_version.split(".")[:2])
+        print("major, minor", major, minor)
         build_sm90a = major > 12 or (major == 12 and minor >= 6)
         build_sm100a = major > 12 or (major == 12 and minor >= 8)
 
@@ -449,6 +451,7 @@ def get_extensions():
         print("If you'd like to compile ROCm extensions locally please install ROCm")
 
     use_cuda = torch.version.cuda and CUDA_HOME is not None
+    print("use cuda:", use_cuda)
     use_rocm = torch.version.hip and ROCM_HOME is not None
     extension = CUDAExtension if (use_cuda or use_rocm) else CppExtension
 
