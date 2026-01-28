@@ -21,6 +21,8 @@ from torchao.quantization.quant_primitives import (
     _fake_quantize_affine_cachemask,
     _maybe_expand_scale_to_tensor_shape,
     _quantize_affine_float8,
+    _Round,
+    _StochasticRound,
     choose_qparams_affine,
     dequantize_affine,
     quantize_affine,
@@ -911,6 +913,22 @@ class TestQuantPrimitives(unittest.TestCase):
 
         assert scale.shape == (B, 1, N)
         assert data.shape == (B, K, N)
+
+    def test_round_functions(self):
+        for round_fn in [_Round, _StochasticRound]:
+            with self.subTest(round_fn=round_fn.__name__):
+                x = torch.tensor([1.3, 2.7, -1.6, -2.2], dtype=torch.float32)
+                x_samples = x.view(1, -1).repeat(10000, 1)
+                rounded_samples = round_fn.apply(x_samples)
+
+                assert rounded_samples.dtype == x.dtype
+                torch.testing.assert_close(
+                    rounded_samples, rounded_samples.round(), atol=0, rtol=0
+                )
+
+                # Unbiased property only holds for stochastic rounding
+                if round_fn == _StochasticRound:
+                    torch.testing.assert_close(rounded_samples.mean(0), x, atol=5e-2, rtol=5e-2)
 
 
 if __name__ == "__main__":
