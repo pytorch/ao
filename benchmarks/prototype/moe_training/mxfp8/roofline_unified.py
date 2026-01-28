@@ -450,7 +450,6 @@ def benchmark_mxfp8_grouped_mm_fwd_bwd(x, w_t, offs, labels, block_size=32):
     block_size_arg = block_size
     out_dtype = torch.bfloat16
     kernel_preference = KernelPreference.AUTO
-    use_triton_for_dim0_cast = True
     wgrad_with_hp = False
     scale_calculation_mode = MoEScaleCalculationMode.RCEIL
 
@@ -462,7 +461,6 @@ def benchmark_mxfp8_grouped_mm_fwd_bwd(x, w_t, offs, labels, block_size=32):
             block_size_arg,
             out_dtype,
             kernel_preference,
-            use_triton_for_dim0_cast,
             wgrad_with_hp,
             scale_calculation_mode,
         )
