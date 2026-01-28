@@ -6,6 +6,8 @@ Quantize and sparsify weights, gradients, optimizers, and activations for infere
 using native PyTorch. Please checkout torchao `README <https://github.com/pytorch/ao#torchao-pytorch-architecture-optimization>`__
 for an overall introduction to the library and recent highlight and updates.
 
+foobar
+
 .. toctree::
    :glob:
    :maxdepth: 1
