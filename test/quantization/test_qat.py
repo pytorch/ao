@@ -314,7 +314,7 @@ class TestQAT(TestCase):
         Set the weight to the quantized version of the given fp32 weights,
         for making linear outputs comparable with QAT.
         """
-        from torchao.quantization.GPTQ import (
+        from torchao.quantization.linear_quant_modules import (
             Int8DynActInt4WeightLinear,
             WeightOnlyInt4Linear,
         )
@@ -359,7 +359,7 @@ class TestQAT(TestCase):
             raise ValueError("Unknown ptq_linear type: %s" % type(ptq_linear))
 
     def test_qat_8da4w_linear(self):
-        from torchao.quantization.GPTQ import Int8DynActInt4WeightLinear
+        from torchao.quantization.linear_quant_modules import Int8DynActInt4WeightLinear
         from torchao.quantization.qat.linear import Int8DynActInt4WeightQATLinear
 
         group_size = 128
@@ -389,7 +389,9 @@ class TestQAT(TestCase):
         torch.testing.assert_close(ptq_out, qat_out, atol=0, rtol=0)
 
     def test_qat_8da4w_quantizer(self):
-        from torchao.quantization.GPTQ import Int8DynActInt4WeightQuantizer
+        from torchao.quantization.linear_quant_modules import (
+            Int8DynActInt4WeightQuantizer,
+        )
         from torchao.quantization.qat import Int8DynActInt4WeightQATQuantizer
 
         group_size = 16
@@ -656,7 +658,7 @@ class TestQAT(TestCase):
 
     @unittest.skipIf(_DEVICE is None, "skipping when GPU is not available")
     def test_qat_4w_linear(self):
-        from torchao.quantization.GPTQ import WeightOnlyInt4Linear
+        from torchao.quantization.linear_quant_modules import WeightOnlyInt4Linear
         from torchao.quantization.qat.linear import Int4WeightOnlyQATLinear
 
         group_size = 128
@@ -698,7 +700,7 @@ class TestQAT(TestCase):
     @unittest.skipIf(_DEVICE is None, "skipping when GPU is not available")
     @skip_if_xpu("skipped due to https://github.com/intel/torch-xpu-ops/issues/1770")
     def test_qat_4w_quantizer(self):
-        from torchao.quantization.GPTQ import Int4WeightOnlyQuantizer
+        from torchao.quantization.linear_quant_modules import Int4WeightOnlyQuantizer
         from torchao.quantization.qat import Int4WeightOnlyQATQuantizer
 
         group_size = 32
