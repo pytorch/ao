@@ -164,7 +164,9 @@ def _to_mxfp8_dim1_kernel_wrapper(
             ScaleCalculationMode.FLOOR,
             ScaleCalculationMode.RCEIL,
         )
-        a_data, a_scale = triton_to_mxfp8_dim1(a, block_size)
+        a_data, a_scale = triton_to_mxfp8_dim1(
+            a, block_size, scale_calculation_mode.value
+        )
     elif cast_kernel_choice == MXFP8Dim1CastKernelChoice.CUDA:
         assert scale_calculation_mode in (
             ScaleCalculationMode.FLOOR,
