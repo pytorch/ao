@@ -780,12 +780,15 @@ def get_extensions():
     print(f"nvcc version: {get_cuda_version_from_nvcc()}")
     print(f"torch.version.cuda: {torch.version.cuda}")
     print(f"build_for_sm90a: {build_for_sm90a}")
+    print("cutlass_90a_stable_sources:", cutlass_90a_stable_sources)
+    print("torch_version_at_least_2_10:", torch_version_at_least_2_10)
     if (
         torch_version_at_least_2_10
         and cutlass_90a_stable_sources is not None
         and len(cutlass_90a_stable_sources) > 0
         and build_for_sm90a
     ):
+        print("building cutlass 90a stable ABI extension")
         cutlass_90a_stable_extra_compile_args = copy.deepcopy(extra_compile_args)
         # Only use sm90a architecture for these sources, ignoring other flags
         cutlass_90a_stable_extra_compile_args["nvcc"].extend(
