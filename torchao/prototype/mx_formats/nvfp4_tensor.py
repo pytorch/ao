@@ -9,6 +9,11 @@ from dataclasses import dataclass
 from typing import Optional
 
 import torch
+from torch.nn.functional import (
+    ScalingType,
+    SwizzleType,
+    scaled_mm,
+)
 from torch.utils._python_dispatch import return_and_correct_aliasing
 
 from torchao.prototype.mx_formats.constants import F4_E2M1_MAX, F8E4M3_MAX
@@ -462,56 +467,49 @@ def _addmm_nvfp4_dispatch(
         b_scale = b.scale.t().view(N, K // b.block_size)
         b_scale_blocked = to_blocked(b_scale)
 
+    scale_recipes = [
+        ScalingType.BlockWise1x16,
+    ]
+    swizzles = [
+        SwizzleType.SWIZZLE_32_4_4,
+    ]
+
+    scale_a = [
+        a_scale_blocked.view(torch.float8_e4m3fn),
+    ]
+    scale_b = [
+        b_scale_blocked.view(torch.float8_e4m3fn),
+    ]
     # Merge double quant scales into 1 scale for Scale_In^D
     if a.per_tensor_scale is not None:
         assert b.per_tensor_scale is not None
-        scale_result = a.per_tensor_scale * b.per_tensor_scale
+        scale_recipes.append(ScalingType.TensorWise)
+        swizzles.append(SwizzleType.NO_SWIZZLE)
+
+        scale_a.append(a.per_tensor_scale)
+        scale_b.append(b.per_tensor_scale)
     else:
         assert b.per_tensor_scale is None and a.per_tensor_scale is None
-        scale_result = None
 
-    # THIS IS A WORKAROUND FOR TWO ERRORS:
-    #
-    # (1) RuntimeError: CUDA error: CUBLAS_STATUS_INVALID_VALUE when calling
-    # When we have per-tensor scaling, we need to apply it before bias
-    # since bias is not quantized
-    #
-    # (2) RuntimeError: Bias is not supported when out_dtype is set to Float32
-    # This is not supported by _scaled_mm
-    should_add_bias_separately = (
-        scale_result is not None or a._orig_dtype == torch.float32
-    ) and (bias is not None)
-    # should_add_bias_separately = bias is not None
+    # Bias is not supported when output dtype == Float32, so note that, and add separately,
+    # post-scaled_mm call.
+    # Note: scaled_mm _does_ support bias w/per-tensor scales, which was previously
+    #       not supported.
+    should_add_bias_separately = (a._orig_dtype == torch.float32) and (bias is not None)
 
-    # For gemm(A, B) with original high precision inputs A and B:
-    #
-    # 1. A and B are always cast to fp32 before being quantized and packed
-    #    into uint8 (2 fp4 values per byte)
-    # 2. _scaled_mm (cublas) always accumulates in fp32 since use_fast_accum=False
-    # 3. Outputs are cast to A.dtype before returning
-    # 4. Bias is added outside _scaled_mm if per_tensor_scale exists
-    #    or output dtype is fp32
-    #
-    # -----------------------------------------------------------------------------
-    # | A.dtype | B.dtype | Accum dtype | Out dtype | Bias added in _scaled_mm?   |
-    # -----------------------------------------------------------------------------
-    # | fp32    | fp32    | fp32        | fp32      | No                          |
-    # | fp32    | bf16    | fp32        | fp32      | No                          |
-    # | bf16    | fp32    | fp32        | bf16      | Only if no per_tensor_scale |
-    # | bf16    | bf16    | fp32        | bf16      | Only if no per_tensor_scale |
-    # -----------------------------------------------------------------------------
-    result = torch._scaled_mm(
+    result = scaled_mm(
         a.qdata.view(torch.float4_e2m1fn_x2),
         b.qdata.view(torch.float4_e2m1fn_x2),
-        a_scale_blocked.view(torch.float8_e4m3fn),
-        b_scale_blocked.view(torch.float8_e4m3fn),
+        scale_a=scale_a,
+        scale_recipe_a=scale_recipes,
+        scale_b=scale_b,
+        scale_recipe_b=scale_recipes,
+        swizzle_a=swizzles,
+        swizzle_b=swizzles,
         bias=None if should_add_bias_separately else bias,
-        out_dtype=a._orig_dtype,
-        # scale_result=scale_result,  # Not supported yet
+        # bias=bias,
+        output_dtype=a._orig_dtype,
     )
-
-    if scale_result is not None:
-        result = result * scale_result.to(a._orig_dtype)
 
     # Add bias after scaling if needed
     if should_add_bias_separately:

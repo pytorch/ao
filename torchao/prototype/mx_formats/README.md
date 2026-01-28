@@ -188,7 +188,7 @@ x_hp = x_mx.to_dtype(torch.float)
 
 ## mxfp8 gemm
 
-On NVIDIA B200 machines, we use the cuBLAS mxfp8 gemm exposed via the `torch._scaled_mm` op.
+On NVIDIA B200 machines, we use the cuBLAS mxfp8 gemm exposed via the `F.scaled_mm` op.
 We observe a speedup of **up to ~2x** vs the bf16 baseline on common shapes.  To reproduce this
 on supported hardware, you can run the following command:
 
