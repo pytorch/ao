@@ -17,7 +17,7 @@ from torchao.quantization.quant_primitives import (
     dequantize_affine,
     quantize_affine,
 )
-from torchao.utils import get_available_devices, get_current_accelerator_device
+from torchao.utils import get_current_accelerator_device
 
 dtypes = (
     torch.uint1,
@@ -30,7 +30,9 @@ dtypes = (
 )
 
 group_sizes = [32, 64, 128]
-devices = get_available_devices()
+devices = ["cpu"] + (
+    [get_current_accelerator_device()] if torch.accelerator.is_available() else []
+)
 
 
 @pytest.fixture(autouse=True)

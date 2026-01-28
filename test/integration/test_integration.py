@@ -66,7 +66,6 @@ from torchao.quantization.utils import (
 from torchao.testing.utils import skip_if_rocm, skip_if_xpu
 from torchao.utils import (
     benchmark_model,
-    get_available_devices,
     get_current_accelerator_device,
     is_fbcode,
     is_sm_at_least_89,
@@ -88,7 +87,9 @@ logger = logging.getLogger("INFO")
 torch.manual_seed(0)
 config.cache_size_limit = 100
 
-COMMON_DEVICES = get_available_devices()
+COMMON_DEVICES = ["cpu"] + (
+    [get_current_accelerator_device()] if torch.accelerator.is_available() else []
+)
 
 COMMON_DTYPES = [torch.float32, torch.float16, torch.bfloat16]
 
@@ -963,7 +964,6 @@ class TestAutoQuant(unittest.TestCase):
         sqnr = SQNR(out, out2)
         self.assertTrue(sqnr >= 30)
 
-    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     @parameterized.expand(
         combine_parameters(
             COMMON_DEVICE_DTYPE,
@@ -974,6 +974,7 @@ class TestAutoQuant(unittest.TestCase):
             ],
         )
     )
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test_autoquant_compile(self, device, dtype, m1, m2, k, n):
         undo_recommended_configs()
 
@@ -1024,8 +1025,8 @@ class TestAutoQuant(unittest.TestCase):
         sqnr = SQNR(out, out2)
         self.assertTrue(sqnr >= 30)
 
-    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     @parameterized.expand(COMMON_DEVICE_DTYPE)
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test_autoquant_mha(self, device, dtype):
         _DEVICE = get_current_accelerator_device()
         if device != _DEVICE or not torch.accelerator.is_available():
@@ -1053,8 +1054,8 @@ class TestAutoQuant(unittest.TestCase):
 
         assert len(_AUTOQUANT_CACHE) > 0
 
-    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     @parameterized.expand(COMMON_DEVICE_DTYPE)
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test_autoquant_manual(self, device, dtype):
         undo_recommended_configs()
         _DEVICE = get_current_accelerator_device()
@@ -1480,10 +1481,10 @@ class TestExport(unittest.TestCase):
 
 
 class TestUtils(unittest.TestCase):
-    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     @parameterized.expand(
         list(itertools.product(TENSOR_SUBCLASS_APIS, COMMON_DEVICES, COMMON_DTYPES)),
     )
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test_get_model_size_aqt(self, api, test_device, test_dtype):
         if test_dtype != torch.bfloat16:
             self.skipTest(f"{api} in {test_dtype} is not supported yet")
