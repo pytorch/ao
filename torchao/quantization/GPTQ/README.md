@@ -28,13 +28,17 @@ simple_evaluate(model=lm_obj, tasks=["wikitext"], num_fewshot=0, limit=10)
 model.forward = original_forward
 
 # Perform GPTQ with collected inputs
-quantizer = Int4WeightOnlyGPTQQuantizer(groupsize=64)
-args, kwargs = input_recorder.get_recorded_args_and_kwargs()
-quantizer.quantize(model, *args, **kwargs)
+quantizer = Int4WeightOnlyGPTQQuantizer() # quantization parameters like group_size can be set here
+args = input_recorder.get_recorded_inputs() # use get_recorded_args_and_kwargs if necessary
+quantizer.quantize(model, *args)
+# model is now quantized and can be saved, compiled or run
+
+args = get_next_input()
+out = model(*args)
 ```
 
-Important notes:
-1) `input_recorder`, `quantizer.quantize` and `model` all take the same type of input. If you pass kwargs to the model, use them consistently across all three.
+important notes:
+1) `input_recorder`, `quantizer.quantize` and `model` all take the same type of input. If you pass in kwargs to the model like `model(*args, **kwargs)` you'll need to do `input_recorder(*args, **kwargs)` and `quantizer.quantize(model, *args, **kwargs)`
 2) the GPTQ process can take a significant period of time depending on the size of the model and the size of the calibration set.
 3) We currently only support int4 weight only quantization for GPTQ though this framework can be relatively easily extended to other techniques.
 
