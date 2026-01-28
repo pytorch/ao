@@ -427,7 +427,7 @@ def _float8_addmm_impl(
             inpt_data, w_data = preprocess_data(inpt_data, w_data, scaled_mm_config)
 
             if _is_128_128_scaled(weight_tensor):
-                # TODO(future PR): add testing for torch._scaled_mm with
+                # TODO(future PR): add testing for F.scaled_mm with
                 # blockwise scaling on CUDA 12.9
                 # TODO(future PR): add mslk path if available
                 # TODO(future PR): proper out_dtype handling

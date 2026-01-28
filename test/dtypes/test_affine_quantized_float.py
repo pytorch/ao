@@ -341,7 +341,7 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
             )
             # one scaled_mm call
             FileCheck().check("def call(").check_count(
-                "._scaled_mm(", 1, exactly=True
+                "._scaled_mm_v2.default(", 1, exactly=True
             ).run(code[0])
         else:
             assert granularity == PerTensor(), "unsupported"
@@ -354,7 +354,7 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
             )
             # one scaled_mm call
             FileCheck().check("def call(").check_count(
-                "._scaled_mm(", 1, exactly=True
+                "._scaled_mm_v2.default(", 1, exactly=True
             ).run(code[0])
 
 

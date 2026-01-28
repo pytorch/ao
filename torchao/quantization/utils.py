@@ -786,7 +786,7 @@ def _fp8_mm_compat(weight: torch.Tensor) -> bool:
 
     if not is_compatible:
         logger.info(
-            f"Skipping float8 quantization: weight shape {weight.shape} is not compatible with _scaled_mm. "
+            f"Skipping float8 quantization: weight shape {weight.shape} is not compatible with scaled_mm. "
             f"Both input dimension ({in_dim}) and output dimension ({out_dim}) must be multiples of 16. "
         )
 
