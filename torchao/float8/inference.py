@@ -13,7 +13,11 @@ from typing import List, NamedTuple, Optional, Tuple, Union
 import torch
 import torch.nn.functional as F
 
-from torchao.float8.float8_utils import is_row_major, pad_tensor_for_matmul, infer_scale_swizzle
+from torchao.float8.float8_utils import (
+    infer_scale_swizzle,
+    is_row_major,
+    pad_tensor_for_matmul,
+)
 from torchao.float8.types import FP8Granularity
 from torchao.quantization.granularity import (
     PerBlock,

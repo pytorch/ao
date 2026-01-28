@@ -5,10 +5,11 @@
 # LICENSE file in the root directory of this source tree.
 
 import torch
-from torch import nn
 import torch.nn.functional as F
+from torch import nn
 
 from torchao.core.config import AOBaseConfig
+from torchao.float8.float8_utils import infer_scale_swizzle
 from torchao.prototype.blockwise_fp8_training.kernels import (
     triton_fp8_blockwise_act_quant_lhs,
     triton_fp8_blockwise_act_quant_rhs,
@@ -22,7 +23,7 @@ from torchao.quantization.transform_module import (
     register_quantize_module_handler,
 )
 from torchao.utils import is_sm_at_least_90
-from torchao.float8.float8_utils import infer_scale_swizzle
+
 
 def torch_scaled_mm_wrap(
     a: torch.Tensor,

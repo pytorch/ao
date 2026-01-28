@@ -10,9 +10,9 @@ from typing import Optional
 
 import torch
 from torch.nn.functional import (
-    scaled_mm,
     ScalingType,
     SwizzleType,
+    scaled_mm,
 )
 from torch.utils._python_dispatch import return_and_correct_aliasing
 
@@ -467,11 +467,19 @@ def _addmm_nvfp4_dispatch(
         b_scale = b.scale.t().view(N, K // b.block_size)
         b_scale_blocked = to_blocked(b_scale)
 
-    scale_recipes = [ScalingType.BlockWise1x16, ]
-    swizzles = [SwizzleType.SWIZZLE_32_4_4, ]
+    scale_recipes = [
+        ScalingType.BlockWise1x16,
+    ]
+    swizzles = [
+        SwizzleType.SWIZZLE_32_4_4,
+    ]
 
-    scale_a = [a_scale_blocked.view(torch.float8_e4m3fn), ]
-    scale_b = [b_scale_blocked.view(torch.float8_e4m3fn), ]
+    scale_a = [
+        a_scale_blocked.view(torch.float8_e4m3fn),
+    ]
+    scale_b = [
+        b_scale_blocked.view(torch.float8_e4m3fn),
+    ]
     # Merge double quant scales into 1 scale for Scale_In^D
     if a.per_tensor_scale is not None:
         assert b.per_tensor_scale is not None
@@ -482,7 +490,6 @@ def _addmm_nvfp4_dispatch(
         scale_b.append(b.per_tensor_scale)
     else:
         assert b.per_tensor_scale is None and a.per_tensor_scale is None
-        scale_result = None
 
     # Bias is not supported when output dtype == Float32, so note that, and add separately,
     # post-scaled_mm call.

@@ -6,14 +6,18 @@
 from typing import Any, Dict, Optional, Tuple
 
 import torch
-from torch.utils._pytree import tree_map
 import torch.nn.functional as F
+from torch.utils._pytree import tree_map
 
 from torchao.float8.float8_training_tensor import (
     Float8TrainingTensor,
     choose_scaled_mm_config,
 )
-from torchao.float8.float8_utils import is_row_major, pad_tensor_for_matmul, infer_scale_swizzle
+from torchao.float8.float8_utils import (
+    infer_scale_swizzle,
+    is_row_major,
+    pad_tensor_for_matmul,
+)
 from torchao.utils import torch_version_at_least
 
 aten = torch.ops.aten
