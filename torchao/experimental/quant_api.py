@@ -77,10 +77,15 @@ class UIntxWeightOnlyQuantizedLinear(nn.Module):
         self,
         pack_weight_op,
         linear_op,
+        bias: Optional[torch.Tensor] = None,
     ):
         super().__init__()
         self._pack_weights_op = pack_weight_op
         self._linear_op = linear_op
+        if bias is not None:
+            self.bias = nn.Parameter(bias, requires_grad=False)
+        else:
+            self.register_parameter("bias", None)
 
     def quantize_and_pack_weights(self, weights, nbit, group_size):
         self.nbit = nbit
@@ -100,24 +105,30 @@ class UIntxWeightOnlyQuantizedLinear(nn.Module):
     def forward(self, x):
         assert x.dim() >= 2
         if x.dim() == 2:
-            return self._linear_op(
+            output = self._linear_op(
                 x,
                 self.packed_weights,
                 self.group_size,
                 self.weight_scales,
                 self.weight_zeros,
             )
+            if self.bias is not None:
+                output = output + self.bias
+            return output
 
         lead_shape = x.shape[0:-1]
         k = x.shape[-1]
         n = self.weight_scales.shape[0]
-        return self._linear_op(
+        output = self._linear_op(
             x.reshape(-1, k),
             self.packed_weights,
             self.group_size,
             self.weight_scales,
             self.weight_zeros,
         ).reshape(*lead_shape, n)
+        if self.bias is not None:
+            output = output + self.bias
+        return output
 
 
 # TODO(mcandales): Consolidate with _replace_linear_with_quantized_linear
@@ -132,12 +143,17 @@ def _replace_linear_with_quantized_linear_mps(module: nn.Module, kwargs={}):
         if not isinstance(child, nn.Linear):
             _replace_linear_with_quantized_linear_mps(child, kwargs)
         else:
-            assert child.bias is None
+            if not child.weight.is_contiguous():
+                raise ValueError(
+                    f"UIntxWeightOnlyQuantizedLinear requires contiguous weights for layer '{name}'. "
+                    "Please call .contiguous() on the weight tensor before quantization."
+                )
             qlinear = UIntxWeightOnlyQuantizedLinear(
                 pack_weight_op=getattr(torch.ops.torchao, f"_pack_weight_{nbit}bit"),
                 linear_op=getattr(
                     torch.ops.torchao, f"_linear_fp_act_{nbit}bit_weight"
                 ),
+                bias=child.bias,
             )
             setattr(module, name, qlinear)
             qlinear.quantize_and_pack_weights(child.weight, nbit, group_size)
@@ -232,10 +248,6 @@ class UIntxWeightOnlyConfig(AOBaseConfig):
             )
 
 
-def _linear_int_weight_mps_check(module: nn.Module, fqn: str) -> bool:
-    return isinstance(module, nn.Linear) and module.bias is None
-
-
 @register_quantize_module_handler(UIntxWeightOnlyConfig)
 def _uintx_weight_only_mps_transform(
     module: torch.nn.Module, config: UIntxWeightOnlyConfig
@@ -243,9 +255,16 @@ def _uintx_weight_only_mps_transform(
     nbit = config.bitwidth
     group_size = config.group_size
 
+    if not module.weight.is_contiguous():
+        raise ValueError(
+            "UIntxWeightOnlyQuantizedLinear requires contiguous weights. "
+            "Please call .contiguous() on the weight tensor before quantization."
+        )
+
     qlinear = UIntxWeightOnlyQuantizedLinear(
         pack_weight_op=getattr(torch.ops.torchao, f"_pack_weight_{nbit}bit"),
         linear_op=getattr(torch.ops.torchao, f"_linear_fp_act_{nbit}bit_weight"),
+        bias=module.bias,
     )
     qlinear.quantize_and_pack_weights(module.weight, nbit, group_size)
     return qlinear
