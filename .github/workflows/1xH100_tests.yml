@@ -49,7 +49,7 @@ jobs:
         pip install . --no-build-isolation
         pytest test/integration --verbose -s
         pytest test/dtypes/test_affine_quantized_float.py --verbose -s
-        python test/quantization/quantize_/workflows/float8/test_float8_tensor.py
+        pytest test/quantization/quantize_/workflows/float8 -v
         python test/quantization/quantize_/workflows/int4/test_int4_tensor.py
         python test/quantization/quantize_/workflows/int4/test_int4_preshuffled_tensor.py
         ./test/float8/test_everything_single_gpu.sh

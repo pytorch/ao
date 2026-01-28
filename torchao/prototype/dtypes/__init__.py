@@ -6,7 +6,6 @@
 
 from .uintx import (
     BlockSparseLayout,
-    CutlassInt4PackedLayout,
     GemlitePackedLayout,
     Int8DynamicActInt4WeightCPULayout,
     UintxAQTTensorImpl,
@@ -17,7 +16,6 @@ from .uintx import (
 
 __all__ = [
     "BlockSparseLayout",
-    "CutlassInt4PackedLayout",
     "Int8DynamicActInt4WeightCPULayout",
     "GemlitePackedLayout",
     "UintxLayout",
