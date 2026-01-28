@@ -6,15 +6,16 @@
 #pragma once
 
 #include <optional>
-#include <ATen/core/Tensor.h>
+#include <torch/csrc/stable/tensor.h>
+#include <torch/headeronly/core/ScalarType.h>
 
 namespace torchao {
 
-at::Tensor
+torch::stable::Tensor
 rowwise_scaled_linear_sparse_cutlass_e4m3e5m2(
-    const at::Tensor& Xq, const at::Tensor& X_scale, const at::Tensor& Wq,
-    const at::Tensor& W_meta, const at::Tensor& W_scale,
-    const std::optional<at::Tensor>& bias_opt,
-    const std::optional<at::ScalarType> out_dtype_opt);
+    const torch::stable::Tensor& Xq, const torch::stable::Tensor& X_scale, const torch::stable::Tensor& Wq,
+    const torch::stable::Tensor& W_meta, const torch::stable::Tensor& W_scale,
+    const std::optional<torch::stable::Tensor>& bias_opt,
+    const std::optional<torch::headeronly::ScalarType> out_dtype_opt);
 
 }  // namespace torchao
