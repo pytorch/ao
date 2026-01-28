@@ -773,6 +773,10 @@ def get_extensions():
 
     # Build stable ABI sm90a sources separately with stable ABI flags
     # only after torch 2.10 so ABI related API are available
+
+    print(f"nvcc version: {get_cuda_version_from_nvcc()}")
+    print(f"torch.version.cuda: {torch.version.cuda}")
+    print(f"build_for_sm90a: {build_for_sm90a}")
     if (
         torch_version_at_least_2_10
         and cutlass_90a_stable_sources is not None
