@@ -38,7 +38,7 @@ import torchao.quantization.pt2e.quantizer.x86_inductor_quantizer as xiq
 from torchao.quantization.pt2e.quantizer.x86_inductor_quantizer import (
     X86InductorQuantizer,
 )
-from torchao.testing.pt2e.utils import _generate_qdq_quantized_model, qdq
+from torchao.testing.pt2e.utils import _generate_qdq_quantized_model, qdq_fp8
 from torchao.utils import torch_version_at_least
 
 # The dict value is match_nodes(computation_op+unary_op)
@@ -3028,13 +3028,13 @@ class TestDynamicPatternMatcher(TestPatternMatcherBase):
                 v = self.transpose_for_scores(v)
                 k = k.transpose(-1, -2)
                 if self.annotate_matmul:
-                    q = qdq(q, self.q_out_scale)
-                    k = qdq(k, self.k_out_scale)
+                    q = qdq_fp8(q, self.q_out_scale)
+                    k = qdq_fp8(k, self.k_out_scale)
                 scores = torch.matmul(q, k) / (self.input_dim**0.5)
                 attention = self.softmax(scores)
                 if self.annotate_matmul:
-                    attention = qdq(attention, self.attn_weights_scale)
-                    v = qdq(v, self.v_out_scale)
+                    attention = qdq_fp8(attention, self.attn_weights_scale)
+                    v = qdq_fp8(v, self.v_out_scale)
                 weighted = torch.matmul(attention, v)
                 weighted = weighted.permute(0, 2, 1, 3).contiguous()
                 weighted = weighted.reshape(

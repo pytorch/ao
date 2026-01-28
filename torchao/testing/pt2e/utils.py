@@ -223,6 +223,9 @@ class PT2ENumericDebuggerTestCase(TestCase):
 
 
 def get_default_quantizer(is_qat, is_dynamic):
+    """
+    Create a default X86InductorQuantizer configured for the given mode (QAT and dynamic quant).
+    """
     quantizer = X86InductorQuantizer()
     quantizer.set_global(
         xiq.get_default_x86_inductor_quantization_config(
@@ -233,6 +236,10 @@ def get_default_quantizer(is_qat, is_dynamic):
 
 
 class FP8QDQLinear(torch.nn.Module):
+    """
+    Float8 quantize-dequantize (QDQ, a.k.a., fake quant) linear layer used for testing.
+    """
+
     def __init__(self, in_features, out_features, has_bias):
         super().__init__()
         self.qtype = torch.float8_e4m3fn
@@ -266,6 +273,10 @@ class FP8QDQLinear(torch.nn.Module):
 
 
 class FP8QDQConv2d(torch.nn.Module):
+    """
+    Float8 quantize-dequantize (QDQ, a.k.a., fake quant) conv2d layer used for testing.
+    """
+
     def __init__(
         self,
         in_channels,
@@ -320,7 +331,10 @@ class FP8QDQConv2d(torch.nn.Module):
         )
 
 
-def qdq(input, scale):
+def qdq_fp8(input, scale):
+    """
+    Quantize-dequantize (QDQ, a.k.a., fake quant) pattern for FP8 quantization.
+    """
     dtype = input.dtype
     q_input = torch.ops.torchao.quantize_affine_float8_non_decomposed.default(
         input,
@@ -336,6 +350,10 @@ def qdq(input, scale):
 
 
 def fp8_convert_(model):
+    """
+    In-place convert a model to fake-quantized FP8 model by replacing Linear and Conv2d layers
+    """
+
     def generate_model_info(model):
         from collections import namedtuple
 
@@ -398,6 +416,11 @@ def _generate_qdq_quantized_model(
     quantizer=None,
     is_fp8=False,
 ):
+    """
+    Generate a quantized model with QDQ (fake quant) pattern
+    For INT8: using the PT2E quantization flow.
+    For FP8: using `fp8_convert_`.
+    """
     maybe_no_grad = contextlib.nullcontext() if is_qat else torch.no_grad()
     with maybe_no_grad:
         if is_fp8:
