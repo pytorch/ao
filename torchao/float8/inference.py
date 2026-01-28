@@ -11,8 +11,9 @@ import math
 from typing import List, NamedTuple, Optional, Tuple, Union
 
 import torch
+import torch.nn.functional as F
 
-from torchao.float8.float8_utils import is_row_major, pad_tensor_for_matmul
+from torchao.float8.float8_utils import is_row_major, pad_tensor_for_matmul, infer_scale_swizzle
 from torchao.float8.types import FP8Granularity
 from torchao.quantization.granularity import (
     PerBlock,
@@ -52,9 +53,9 @@ def preprocess_data(
     Args:
         a_data: Input tensor A.
         b_data: Input tensor B.
-        scaled_mm_config: Configuration for _scaled_mm.
+        scaled_mm_config: Configuration for scaled_mm.
     Returns:
-        Preprocessed tensors A and B in the format for _scaled_mm.
+        Preprocessed tensors A and B in the format for scaled_mm.
     """
     if scaled_mm_config.pad_inner_dim:
         assert a_data.size(1) == b_data.size(0), (
@@ -70,11 +71,11 @@ def preprocess_data(
 
 
 def preprocess_scale(input_scale: torch.Tensor, input_shape: Tuple[int, ...]):
-    """Ensures input tensor is correctly formatted for _scaled_mm"""
+    """Ensures input tensor is correctly formatted for scaled_mm"""
 
     # For PerTensor quantization, scale should be a scalar or have shape [1]
     if input_scale.numel() == 1:
-        # Already a scalar, ensure it has the right shape for _scaled_mm
+        # Already a scalar, ensure it has the right shape for scaled_mm
         return input_scale.reshape(1, 1)
 
     # For per-row/block quantization, we need to handle the reshaping
@@ -103,26 +104,35 @@ def addmm_float8_unwrapped_inference(
     versions of the linear module.
     """
 
+    scale_recipe_a, swizzle_a = infer_scale_swizzle(a_data, a_scale)
+    scale_recipe_b, swizzle_b = infer_scale_swizzle(b_data, b_scale)
+
     if output_dtype == torch.float32 and bias is not None:
-        # Bias is not supported by _scaled_mm when output is fp32
-        output = torch._scaled_mm(
+        # Bias is not supported by scaled_mm when output is fp32
+        output = F.scaled_mm(
             a_data,
             b_data,
             scale_a=a_scale,
+            scale_recipe_a=scale_recipe_a,
             scale_b=b_scale,
-            scale_result=output_scale,
-            out_dtype=output_dtype,
+            scale_recipe_b=scale_recipe_b,
+            swizzle_a=swizzle_a,
+            swizzle_b=swizzle_b,
+            output_dtype=output_dtype,
             use_fast_accum=use_fast_accum,
         )
         return output + bias
-    return torch._scaled_mm(
+    return F.scaled_mm(
         a_data,
         b_data,
         scale_a=a_scale,
+        scale_recipe_a=scale_recipe_a,
         scale_b=b_scale,
+        scale_recipe_b=scale_recipe_b,
+        swizzle_a=swizzle_a,
+        swizzle_b=swizzle_b,
         bias=bias,
-        scale_result=output_scale,
-        out_dtype=output_dtype,
+        output_dtype=output_dtype,
         use_fast_accum=use_fast_accum,
     )
 

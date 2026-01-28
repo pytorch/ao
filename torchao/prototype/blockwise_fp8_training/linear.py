@@ -6,6 +6,7 @@
 
 import torch
 from torch import nn
+import torch.nn.functional as F
 
 from torchao.core.config import AOBaseConfig
 from torchao.prototype.blockwise_fp8_training.kernels import (
@@ -21,6 +22,29 @@ from torchao.quantization.transform_module import (
     register_quantize_module_handler,
 )
 from torchao.utils import is_sm_at_least_90
+from torchao.float8.float8_utils import infer_scale_swizzle
+
+def torch_scaled_mm_wrap(
+    a: torch.Tensor,
+    b: torch.Tensor,
+    scale_a: torch.Tensor,
+    scale_b: torch.Tensor,
+    out_dtype: torch.dtype,
+) -> torch.Tensor:
+    scale_recipe_a, swizzle_a = infer_scale_swizzle(a, scale_a)
+    scale_recipe_b, swizzle_b = infer_scale_swizzle(a, scale_a)
+
+    return F.scaled_mm(
+        a,
+        b,
+        scale_a=scale_a,
+        scale_recipe_a=scale_recipe_a,
+        scale_b=scale_b,
+        scale_recipe_b=scale_recipe_b,
+        swizzle_a=swizzle_a,
+        swizzle_b=swizzle_b,
+        output_dtype=out_dtype,
+    )
 
 
 class fp8_blockwise_mm(torch.autograd.Function):
@@ -42,7 +66,7 @@ class fp8_blockwise_mm(torch.autograd.Function):
         )
 
         # out = input @ weight.T
-        fp8_gemm = triton_fp8_gemm_1x128_128x128 if use_triton else torch._scaled_mm
+        fp8_gemm = triton_fp8_gemm_1x128_128x128 if use_triton else torch_scaled_mm_wrap
         out = fp8_gemm(
             x_fp8,
             weight_t_fp8,
@@ -87,7 +111,7 @@ class fp8_blockwise_mm(torch.autograd.Function):
 
         # grad_x = grad_output @ weight
         fp8_gemm_1x128_128x128 = (
-            triton_fp8_gemm_1x128_128x128 if use_triton else torch._scaled_mm
+            triton_fp8_gemm_1x128_128x128 if use_triton else torch_scaled_mm_wrap
         )
         grad_x = fp8_gemm_1x128_128x128(
             grad_output_fp8,
@@ -114,7 +138,7 @@ class fp8_blockwise_mm(torch.autograd.Function):
 
         # grad_weight = grad_output.T @ x
         fp8_gemm_1x128_128x1 = (
-            triton_fp8_gemm_1x128_128x1 if use_triton else torch._scaled_mm
+            triton_fp8_gemm_1x128_128x1 if use_triton else torch_scaled_mm_wrap
         )
         grad_weight = fp8_gemm_1x128_128x1(
             grad_output_t_fp8,
