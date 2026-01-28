@@ -10,7 +10,7 @@ To learn more about custom ops in PyTorch you can refer to the [PyTorch Custom O
 
 ## How to add your own kernel in ao
 
-We've integrated several kernels which you can use as a template for your own kernels. `tensor_core_tiled_layout` is the most straight-forward to get started with.
+We've integrated several kernels which you can use as a template for your own kernels.
 
 1. Install the cudatoolkit https://anaconda.org/conda-forge/cudatoolkit
 2. In `csrc/cuda` author your custom kernel and ensure you expose a `TORCH_LIBRARY_IMPL` which will expose `torchao::your_custom_kernel`
