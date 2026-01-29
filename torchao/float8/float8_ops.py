@@ -14,7 +14,7 @@ from torchao.float8.float8_training_tensor import (
     choose_scaled_mm_config,
 )
 from torchao.float8.float8_utils import (
-    infer_scale_swizzle,
+    infer_float8_scaling,
     is_row_major,
     pad_tensor_for_matmul,
 )
@@ -63,8 +63,8 @@ def addmm_float8_unwrapped(
         a_inverse_scale = a_inverse_scale.new_ones(())
         b_inverse_scale = a_inverse_scale.new_ones(())
 
-    scale_recipe_a, swizzle_a = infer_scale_swizzle(a_data, a_inverse_scale)
-    scale_recipe_b, swizzle_b = infer_scale_swizzle(b_data, b_inverse_scale)
+    scale_recipe_a = infer_float8_scaling(a_data, a_inverse_scale)
+    scale_recipe_b = infer_float8_scaling(b_data, b_inverse_scale)
 
     # work around F.scaled_mm not having float32 output type
     # TODO(pytorch/pytorch#156771): remove this once F.scaled_mm supports float32 output
@@ -85,8 +85,6 @@ def addmm_float8_unwrapped(
         scale_recipe_a=scale_recipe_a,
         scale_b=b_inverse_scale,
         scale_recipe_b=scale_recipe_b,
-        swizzle_a=swizzle_a,
-        swizzle_b=swizzle_b,
         bias=bias,
         output_dtype=output_dtype,
         use_fast_accum=use_fast_accum,

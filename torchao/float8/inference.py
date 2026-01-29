@@ -14,7 +14,7 @@ import torch
 import torch.nn.functional as F
 
 from torchao.float8.float8_utils import (
-    infer_scale_swizzle,
+    infer_float8_scaling,
     is_row_major,
     pad_tensor_for_matmul,
 )
@@ -108,8 +108,8 @@ def addmm_float8_unwrapped_inference(
     versions of the linear module.
     """
 
-    scale_recipe_a, swizzle_a = infer_scale_swizzle(a_data, a_scale)
-    scale_recipe_b, swizzle_b = infer_scale_swizzle(b_data, b_scale)
+    scale_recipe_a = infer_float8_scaling(a_data, a_scale)
+    scale_recipe_b = infer_float8_scaling(b_data, b_scale)
 
     if output_dtype == torch.float32 and bias is not None:
         # Bias is not supported by scaled_mm when output is fp32
@@ -120,8 +120,6 @@ def addmm_float8_unwrapped_inference(
             scale_recipe_a=scale_recipe_a,
             scale_b=b_scale,
             scale_recipe_b=scale_recipe_b,
-            swizzle_a=swizzle_a,
-            swizzle_b=swizzle_b,
             output_dtype=output_dtype,
             use_fast_accum=use_fast_accum,
         )
@@ -133,8 +131,6 @@ def addmm_float8_unwrapped_inference(
         scale_recipe_a=scale_recipe_a,
         scale_b=b_scale,
         scale_recipe_b=scale_recipe_b,
-        swizzle_a=swizzle_a,
-        swizzle_b=swizzle_b,
         bias=bias,
         output_dtype=output_dtype,
         use_fast_accum=use_fast_accum,

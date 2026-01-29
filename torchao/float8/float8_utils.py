@@ -4,17 +4,14 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
-from typing import Any, Iterable, Optional, Tuple, Union
+from typing import Iterable, Optional, Tuple, Union
 
 import torch
 import torch.distributed as dist
 from torch.distributed._functional_collectives import AsyncCollectiveTensor, all_reduce
+from torch.nn.functional import ScalingType
 
 from torchao.float8.config import ScalingGranularity
-from torchao.utils import (
-    ceil_div,
-    round_up,
-)
 
 # Helpful visualizer for debugging (only supports fp32):
 # https://www.h-schmidt.net/FloatConverter/IEEE754.html
@@ -31,131 +28,31 @@ FP8_TYPES = {
     torch.float8_e5m2fnuz,
 }
 
-infer_scale_swizzle = None
-try:
-    from torch._inductor.utils import infer_scale_swizzle as _infer_scale_swizzle
 
-    infer_scale_swizzle = _infer_scale_swizzle
-except ImportError:
-    from collections.abc import (
-        Callable,
-    )
+def infer_float8_scaling(
+    a: torch.Tensor,
+    scale: torch.Tensor,
+) -> ScalingType:
+    """
+    Infer based on the shapes of the tensor & its scale
+    what form of scaling we're doing.
+    Note: This only handles tensor/row-wise scaling.
+    """
+    # Tensor-wise: single scale for entire tensor
+    if scale.numel() == 1:
+        return ScalingType.TensorWise
 
-    def _infer_scale_swizzle_impl(
-        mat_size: tuple[Any, Any],
-        scale_size: tuple[Any, ...],
-        scale_numel: Any,
-        mat_dtype: torch.dtype,
-        scale_dtype: torch.dtype,
-        eq_fn: Callable[[Any, Any], bool],
-    ) -> tuple[Optional[Any], Optional[Any]]:
-        """
-        Core implementation for scale/swizzle inference.
-        """
-        from torch.nn.functional import ScalingType, SwizzleType
+    # Row-wise: one scale per row or column
+    if scale.ndim >= 2:
+        if (
+            (scale.shape[0] == a.shape[0])
+            and (scale.shape[1] == 1)
+            or (scale.shape[0] == 1)
+            and (scale.shape[1] == a.shape[1])
+        ):
+            return ScalingType.RowWise
 
-        # Tensor-wise: single scale for entire tensor
-        if eq_fn(scale_numel, 1):
-            return ScalingType.TensorWise, SwizzleType.NO_SWIZZLE
-
-        # Row-wise: one scale per row or column
-        if len(scale_size) >= 2:
-            if (eq_fn(scale_size[0], mat_size[0]) and eq_fn(scale_size[1], 1)) or (
-                eq_fn(scale_size[0], 1) and eq_fn(scale_size[1], mat_size[1])
-            ):
-                return ScalingType.RowWise, SwizzleType.NO_SWIZZLE
-
-            # Block-wise 1x128 / 128x1 (DeepGemm style)
-            if (
-                eq_fn(scale_size[0], mat_size[0])
-                and eq_fn(scale_size[1], ceil_div(mat_size[1], 128))
-            ) or (
-                eq_fn(scale_size[1], mat_size[1])
-                and eq_fn(scale_size[0], ceil_div(mat_size[0], 128))
-            ):
-                return ScalingType.BlockWise1x128, SwizzleType.NO_SWIZZLE
-
-            # Block-wise 128x128
-            if eq_fn(scale_size[0], ceil_div(mat_size[0], 128)) and eq_fn(
-                scale_size[1], ceil_div(mat_size[1], 128)
-            ):
-                return ScalingType.BlockWise128x128, SwizzleType.NO_SWIZZLE
-
-        # Adjust for packed FP4 data (2 values per element)
-        K_multiplier = 2 if mat_dtype == torch.float4_e2m1fn_x2 else 1
-
-        # NVFP4: BlockWise1x16 with float8_e4m3fn scales
-        if mat_dtype == torch.float4_e2m1fn_x2 and scale_dtype == torch.float8_e4m3fn:
-            expected_numel_a = round_up(mat_size[0], 128) * round_up(
-                ceil_div(K_multiplier * mat_size[1], 16), 4
-            )
-            expected_numel_b = round_up(mat_size[1], 128) * round_up(
-                ceil_div(K_multiplier * mat_size[0], 16), 4
-            )
-            if eq_fn(scale_numel, expected_numel_a) or eq_fn(
-                scale_numel, expected_numel_b
-            ):
-                return ScalingType.BlockWise1x16, SwizzleType.SWIZZLE_32_4_4
-
-        # MXFP8: BlockWise1x32 with float8_e8m0fnu scales
-        if scale_dtype == torch.float8_e8m0fnu:
-            if not torch.version.hip:
-                # NVIDIA: uses swizzled 32x4x4 layout
-                expected_numel_a = round_up(mat_size[0], 128) * round_up(
-                    ceil_div(K_multiplier * mat_size[1], 32), 4
-                )
-                expected_numel_b = round_up(mat_size[1], 128) * round_up(
-                    ceil_div(K_multiplier * mat_size[0], 32), 4
-                )
-                if eq_fn(scale_numel, expected_numel_a) or eq_fn(
-                    scale_numel, expected_numel_b
-                ):
-                    return ScalingType.BlockWise1x32, SwizzleType.SWIZZLE_32_4_4
-            else:
-                # AMD: no swizzle
-                expected_numel_a = (
-                    ceil_div(mat_size[0], 32) * K_multiplier * mat_size[1]
-                )
-                expected_numel_b = (
-                    ceil_div(K_multiplier * mat_size[1], 32) * mat_size[0]
-                )
-                if eq_fn(scale_numel, expected_numel_a) or eq_fn(
-                    scale_numel, expected_numel_b
-                ):
-                    return ScalingType.BlockWise1x32, SwizzleType.NO_SWIZZLE
-
-        return None, None
-
-    def _infer_scale_swizzle(
-        mat: torch.Tensor, scale: torch.Tensor
-    ) -> tuple[Optional[Any], Optional[Any]]:
-        """
-        Infer the scaling type and swizzle mode from matrix and scale tensor shapes/dtypes.
-
-        This function determines how scale factors are laid out relative to the matrix:
-        - TensorWise: Single scale for entire tensor
-        - RowWise: One scale per row
-        - BlockWise1x128/128x128: Block-scaled with float32 scales
-        - BlockWise1x32: MXFP8 with float8_e8m0fnu scales (swizzled on NVIDIA)
-        - BlockWise1x16: NVFP4 with float8_e4m3fn scales (swizzled)
-
-        Args:
-            mat: The matrix tensor (FP8 or FP4)
-            scale: The scale factor tensor
-
-        Returns:
-            Tuple of (ScalingType, SwizzleType) or (None, None) if unrecognized
-        """
-        return _infer_scale_swizzle_impl(
-            mat_size=(mat.shape[0], mat.shape[1]),
-            scale_size=tuple(scale.shape),
-            scale_numel=scale.numel(),
-            mat_dtype=mat.dtype,
-            scale_dtype=scale.dtype,
-            eq_fn=lambda a, b: a == b,
-        )
-
-    infer_scale_swizzle = _infer_scale_swizzle
+    raise ValueError(f"Could not infer scaling from a: {a.shape}, scale: {scale.shape}")
 
 
 @torch.no_grad()
