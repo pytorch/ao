@@ -329,7 +329,7 @@ def _test_scaled_embedding_bag_cpu_helper(
         refe_out = m.forward(indices, offsets) * weight_scale
         if out_dtype == torch.int8:
             refe_out = torch.round(refe_out / out_scale).to(torch.int32)
-            refe_out = torch.clamp(refe_out, -128, 127).to(out_dtype)
+            refe_out = torch.clamp(refe_out, -128, 127).to(out_dtype).to(torch.float)
         if out_dtype == torch.float8_e4m3fn:
             refe_out = (
                 torch.clamp(refe_out / out_scale, -448, 448)
@@ -348,7 +348,7 @@ def _test_scaled_embedding_bag_cpu_helper(
         )
         torch.testing.assert_close(
             refe_out,
-            test_out.to(torch.float) if out_dtype == torch.float8_e4m3fn else test_out,
+            test_out.to(torch.float),
             atol=1e-5,
             rtol=1e-5,
         )

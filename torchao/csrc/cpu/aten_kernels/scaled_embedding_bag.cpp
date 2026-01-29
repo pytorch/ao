@@ -33,8 +33,8 @@
       using output_t = int8_t;                                                 \
       return __VA_ARGS__();                                                    \
     }                                                                          \
-    case c10::ScalarType::Float8_e4m3fn: {                                              \
-      using output_t = at::Float8_e4m3fn;                                                 \
+    case c10::ScalarType::Float8_e4m3fn: {                                     \
+      using output_t = at::Float8_e4m3fn;                                      \
       return __VA_ARGS__();                                                    \
     }                                                                          \
     default:                                                                   \
