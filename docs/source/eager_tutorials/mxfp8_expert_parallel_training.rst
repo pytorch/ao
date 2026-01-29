@@ -48,9 +48,14 @@ Prerequisites
 ^^^^^^^^^^^^^
 
 1. (Recommended) Create a new virtual environment with conda or venv.
+<<<<<<< HEAD
 2. `Install PyTorch <https://pytorch.org/get-started/locally/>`__ 2.10 or nightly build with CUDA 12.8+ support.
 3. `Install torchao <https://github.com/pytorch/ao/tree/main?tab=readme-ov-file#installation>`__ nightly build (required for CUDA 12.8+ support).
 4. `Install torchtitan <https://github.com/pytorch/torchtitan/tree/main?tab=readme-ov-file#installation>`__, including the "downloading a tokenizer" step.
+=======
+2. `Install torchao <https://github.com/pytorch/ao/tree/main?tab=readme-ov-file#installation>`__ nightly build (required for CUDA 12.8+ support).
+3. `Install torchtitan <https://github.com/pytorch/torchtitan/tree/main?tab=readme-ov-file#installation>`__, including the "downloading a tokenizer" step.
+>>>>>>> 587cbdb80 ([mxfp8 moe training][docs] add tutorial for training with MXFP8 expert parallel)
 
 You're now ready to start a training job with MXFP8 expert parallel!
 
@@ -79,6 +84,11 @@ Run the following command from torchtitan root directory to launch a DeepSeek-V3
         --compile.enable \
         --compile.components="model,loss" \
         --debug.moe_force_load_balance \
+<<<<<<< HEAD
+=======
+        --parallelism.expert_parallel_a2a_dispatch_fwd_precision="mxfp8" \
+        --parallelism.expert_parallel_a2a_combine_bwd_precision="mxfp8" \
+>>>>>>> 587cbdb80 ([mxfp8 moe training][docs] add tutorial for training with MXFP8 expert parallel)
         --model.converters="quantize.grouped_mm.mx"
 
 Understanding the Configuration
@@ -96,10 +106,22 @@ Let's break down the key parameters for MXFP8 expert parallel training:
 **MXFP8 Quantization Configuration:**
 
 - :code:`--quantize.grouped_mm.mx.fqns="experts"`: Apply MXFP8 to expert layers only
+<<<<<<< HEAD
 - :code:`--quantize.grouped_mm.mx.recipe_name="mxfp8_wgrad_with_hp"`: Use the weight-gradient recipe with high precision accumulation. This also automatically applies MXFP8 all-to-all the forward token dispatch, and MXFP8 all-to-all for the backward of combine.
 - :code:`--quantize.linear.mx.mxfp8_dim0_cast_kernel_choice="triton"`: Use Triton kernel for dimension 0 casting
 - :code:`--quantize.linear.mx.mxfp8_dim1_cast_kernel_choice="cuda"`: Use CUDA kernel for dimension 1 casting
 
+=======
+- :code:`--quantize.grouped_mm.mx.recipe_name="mxfp8_wgrad_with_hp"`: Use the weight-gradient recipe with high precision accumulation
+- :code:`--quantize.linear.mx.mxfp8_dim0_cast_kernel_choice="triton"`: Use Triton kernel for dimension 0 casting
+- :code:`--quantize.linear.mx.mxfp8_dim1_cast_kernel_choice="cuda"`: Use CUDA kernel for dimension 1 casting
+
+**Expert Parallel All-to-All Configuration:**
+
+- :code:`--parallelism.expert_parallel_a2a_dispatch_fwd_precision="mxfp8"`: Use MXFP8 for token dispatch in forward pass
+- :code:`--parallelism.expert_parallel_a2a_combine_bwd_precision="mxfp8"`: Use MXFP8 for token combine in backward pass
+
+>>>>>>> 587cbdb80 ([mxfp8 moe training][docs] add tutorial for training with MXFP8 expert parallel)
 **Other Important Settings:**
 
 - :code:`--model.converters="quantize.grouped_mm.mx"`: Apply the grouped MM MXFP8 converter to the model
@@ -149,7 +171,11 @@ MXFP8 expert parallel can be combined with other parallelism techniques:
     --parallelism.expert_parallel_degree=4
 
 
+<<<<<<< HEAD
 Given the trend toward granular experts and increased sparsity, where achieving good GEMM efficiency is already difficult,
+=======
+Given the trend toward granular experts and increased sparsity, where achieving good GEMM efficiency is already difficult,
+>>>>>>> 587cbdb80 ([mxfp8 moe training][docs] add tutorial for training with MXFP8 expert parallel)
 we recommend against applying tensor parallel to the routed experts, but other layers like attention or dense FFNs are fine.
 
 **With Pipeline Parallelism:**
@@ -186,7 +212,11 @@ You're now ready to integrate MXFP8 expert parallel primitives into your trainin
 
 **Part 1:** Defining a simplified MoE layer
 
+<<<<<<< HEAD
 Using the `TorchTitan MoE implementation <https://github.com/pytorch/torchtitan/blob/main/torchtitan/models/moe/moe.py>`__ as a reference,
+=======
+Using the `TorchTitan MoE implementation <https://github.com/pytorch/torchtitan/blob/main/torchtitan/models/moe/moe.py>`__ as a reference,
+>>>>>>> 587cbdb80 ([mxfp8 moe training][docs] add tutorial for training with MXFP8 expert parallel)
 we define a simplified MoE layer without a real router (we will use fake token-expert affinity scores later).
 
 Key requirements:
@@ -223,10 +253,17 @@ Key requirements:
 
             # Expert computation using MXFP8 grouped matrix multiplication.
 
+<<<<<<< HEAD
             # Use this torchao autograd function that optionally accepts
             # MXTensor inputs (pre-quantized prior to the all2all - shown later)
             # to use MXFP8 grouped GEMM, for ~2x speedup over BF16 grouped GEMM!
             # The `wgrad_with_hp` recipe required for MXFP8 expert parallelism (more details later in the tutorial)
+=======
+            # 🔥 Use this torchao autograd function that optionally accepts
+            # 🔥 MXTensor inputs (pre-quantized prior to the all2all - shown later)
+            # 🔥 to use MXFP8 grouped GEMM, for ~2x speedup over BF16 grouped GEMM!
+            # 🔥 The `wgrad_with_hp` recipe required for MXFP8 expert parallelism (more details later in the tutorial)
+>>>>>>> 587cbdb80 ([mxfp8 moe training][docs] add tutorial for training with MXFP8 expert parallel)
             from torchao.prototype.moe_training.scaled_grouped_mm import (
                 _to_mxfp8_then_scaled_grouped_mm as mxfp8_gmm,
             )
@@ -252,15 +289,24 @@ Key requirements:
             return self.experts(routed_input, num_tokens_per_expert)
 
 
+<<<<<<< HEAD
 **Part 2**: MXFP8 Expert Parallelism
+=======
+**Part 2**: MXFP8 Expert Parallelism
+>>>>>>> 587cbdb80 ([mxfp8 moe training][docs] add tutorial for training with MXFP8 expert parallel)
 
 Next, we will define a `ParallelStyle <https://github.com/pytorch/pytorch/blob/5d1599cfa64659f11880c0c867ca13e9e3d8fbed/torch/distributed/tensor/parallel/style.py#L31>`__ subclass
 which uses torchao MXFP8 expert parallel autograd functions.
 
 .. code:: py
 
+<<<<<<< HEAD
     # Use torchao mxfp8 autograd functions as building blocks
     # to define custom MXFP8 Expert Parallel implementation!
+=======
+    # 🔥 Use torchao mxfp8 autograd functions as building blocks
+    # 🔥 to define custom MXFP8 Expert Parallel implementation!
+>>>>>>> 587cbdb80 ([mxfp8 moe training][docs] add tutorial for training with MXFP8 expert parallel)
     from torchao.prototype.moe_training.ep import (
         a2a_combine_hp_fwd_mxfp8_bwd,
         a2a_dispatch_mxfp8_fwd_hp_bwd,
@@ -329,12 +375,21 @@ which uses torchao MXFP8 expert parallel autograd functions.
                 self.output_splits = output_splits.tolist()
 
             # Perform all-to-all token dispatch with MXFP8 forward pass
+<<<<<<< HEAD
             # This torchao autograd function quantizes the high precision input activations/tokens,
             # and performs the expensive all-to-all token dispatch in MXFP8, producing MXTensor outputs
             # which the next step can consume!
             # Sending ~1/2 the bytes over the network = speedup!
             # In the backward pass, the incoming upstream gradients will be in BF16, and it routes these
             # output token gradients back to the device they came from.
+=======
+            # 🔥 This torchao autograd function quantizes the high precision input activations/tokens,
+            # 🔥 and performs the expensive all-to-all token dispatch in MXFP8, producing MXTensor outputs
+            # 🔥 which the next step can consume!
+            # 🔥 Sending ~1/2 the bytes over the network = speedup!
+            # 🔥 In the backward pass, the incoming upstream gradients will be in BF16, and it routes these
+            # 🔥 output token gradients back to the device they came from.
+>>>>>>> 587cbdb80 ([mxfp8 moe training][docs] add tutorial for training with MXFP8 expert parallel)
             routed_input = a2a_dispatch_mxfp8_fwd_hp_bwd(
                 routed_input,
                 output_splits=self.output_splits,
@@ -343,10 +398,17 @@ which uses torchao MXFP8 expert parallel autograd functions.
             )
 
             # Permute and pad token groups for MXFP8 computation
+<<<<<<< HEAD
             # This torchao autograd function accepts MXTensor inputs produced by the MXFP8 all-to-all,
             # and does the token permutation and padding needed for MXFP8 grouped GEMM (seen in GroupedExperts above).
             # In the backward pass, the incoming upstream gradients will be the BF16 outputs of the MXFP8 grouped GEMM
             # backward pass, so the permutation backward pass also happens in BF16.
+=======
+            # 🔥 This torchao autograd function accepts MXTensor inputs produced by the MXFP8 all-to-all,
+            # 🔥 and does the token permutation and padding needed for MXFP8 grouped GEMM (seen in GroupedExperts above).
+            # 🔥 In the backward pass, the incoming upstream gradients will be the BF16 outputs of the MXFP8 grouped GEMM
+            # 🔥 backward pass, so the permutation backward pass also happens in BF16.
+>>>>>>> 587cbdb80 ([mxfp8 moe training][docs] add tutorial for training with MXFP8 expert parallel)
             (
                 self.input_shape,
                 routed_input,
@@ -369,17 +431,27 @@ which uses torchao MXFP8 expert parallel autograd functions.
             2. All-to-all to route tokens back to their original EP rank
             """
             # Unpermute tokens
+<<<<<<< HEAD
             # This torchao autograd function accepts the BF16 outputs of the MXFP8 grouped GEMM, so the
             # "unpermutation" step (putting tokens back in their original order and removing the padding)
             # happens in BF16 as well.
             # In the backward pass, the incoming upstream gradients will be the MXTensor outputs of the
             # MXFP8 all-to-all combine backward pass, so this unpermute autograd func accepts MXTensor
             # inputs and performs the reordering in MXFP8.
+=======
+            # 🔥 This torchao autograd function accepts the BF16 outputs of the MXFP8 grouped GEMM, so the
+            # 🔥 "unpermutation" step (putting tokens back in their original order and removing the padding)
+            # 🔥 happens in BF16 as well.
+            # 🔥 In the backward pass, the incoming upstream gradients will be the MXTensor outputs of the
+            # 🔥 MXFP8 all-to-all combine backward pass, so this unpermute autograd func accepts MXTensor
+            # 🔥 inputs and performs the reordering in MXFP8.
+>>>>>>> 587cbdb80 ([mxfp8 moe training][docs] add tutorial for training with MXFP8 expert parallel)
             routed_output = unpermute_hp_fwd_mxfp8_bwd(
                 routed_output, self.permuted_indices, self.input_shape
             )
 
             # Reverse all-to-all to route tokens back
+<<<<<<< HEAD
             # This torchao autograd function receives BF16 inputs in the forward pass (from the unpermute step above),
             # and we do the forward all-to-all here for the combine step in BF16. We don't use MXFP8 here because:
             #   1. There is no opportunity to do a MXFP8 grouped GEMM for a big speedup on the other side, we'll have
@@ -390,6 +462,18 @@ which uses torchao MXFP8 expert parallel autograd functions.
             # In the backward pass, we DO quantize to MXFP8 (just moving the quantization for the MXFP8 grouped GEMM backward pass
             # EARLIER - before the all-to-all backward instead of right before the grouped GEMM kernel itself.
             # This is numerically equivalent, and much faster due to low precision comms!)
+=======
+            # 🔥 This torchao autograd function receives BF16 inputs in the forward pass (from the unpermute step above),
+            # 🔥 and we do the forward all-to-all here for the combine step in BF16. We don't use MXFP8 here because:
+            # 🔥   1. There is no opportunity to do a MXFP8 grouped GEMM for a big speedup on the other side, we'll have
+            # 🔥      to just immediately dequantize. This is still a net perf benefit in multi-node EP, however...:
+            # 🔥   2. We would be introducing a new quantize/dequantize pair (not lossless!) that would not have been present in regular
+            # 🔥      MXFP8 training with BF16 all-to-alls, which has numerical implications that have not been evaluated yet.
+            # 🔥      We may support this in the future, but for this initial version, we stay in BF16 for this all-to-all.
+            # 🔥 In the backward pass, we DO quantize to MXFP8 (just moving the quantization for the MXFP8 grouped GEMM backward pass
+            # 🔥 EARLIER - before the all-to-all backward instead of right before the grouped GEMM kernel itself.
+            # 🔥 This is numerically equivalent, and much faster due to low precision comms!)
+>>>>>>> 587cbdb80 ([mxfp8 moe training][docs] add tutorial for training with MXFP8 expert parallel)
             routed_output = a2a_combine_hp_fwd_mxfp8_bwd(
                 routed_output,
                 output_splits=self.input_splits,  # Swap to reverse the dispatch
@@ -745,8 +829,13 @@ Against a full bfloat16 baseline, MXFP8 expert parallelism achieves **1.22-1.43x
 Comparison Against BF16 All-to-Alls + MXFP8 Grouped GEMM
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+<<<<<<< HEAD
 The table below shows expert parallelism pipeline benchmark results on a single node with 8xB200 GPUs connected via NVL8.
 Both configurations use MXFP8 grouped matrix multiplication with :code:`wgrad_with_hp=True`.
+=======
+The table below shows expert parallelism pipeline benchmark results on a single node with 8xB200 GPUs connected via NVL8.
+Both configurations use MXFP8 grouped matrix multiplication with :code:`wgrad_with_hp=True`.
+>>>>>>> 587cbdb80 ([mxfp8 moe training][docs] add tutorial for training with MXFP8 expert parallel)
 The speedup comes from using MXFP8 for all-to-all communications:
 
 * **Baseline (bf16)**: bfloat16 all-to-all + MXFP8 grouped MM with :code:`wgrad_with_hp=True`
@@ -768,9 +857,12 @@ The speedup comes from using MXFP8 for all-to-all communications:
     +----------+-------+--------------+---------------+---------------+----------------+---------------+---------------+----------------+---------------+-----------------+
 
 As shown, using MXFP8 for all-to-all communications achieves **1.14-1.25x total speedup** versus only quantizing directly before the grouped GEMMs.
+<<<<<<< HEAD
 
 ## Conclusion
 
 In this tutorial we demonstrated how to use TorchAO's differentiable building blocks for MXFP8 MoE training with expert parallelism.
 
 For more details, see the [MXFP8 MoE training docs](https://github.com/pytorch/ao/blob/main/torchao/prototype/moe_training/README.md).
+=======
+>>>>>>> 587cbdb80 ([mxfp8 moe training][docs] add tutorial for training with MXFP8 expert parallel)
