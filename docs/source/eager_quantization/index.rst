@@ -6,6 +6,7 @@ Tutorials for quantization using eager mode execution.
 .. toctree::
    :maxdepth: 1
 
+   first_quantization_example
    pretraining
    finetuning
    serving
