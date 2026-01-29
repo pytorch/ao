@@ -12,8 +12,10 @@
 #include <torch/csrc/stable/library.h>
 #include <torch/csrc/stable/ops.h>
 #include <torch/csrc/stable/accelerator.h>
+#include <torch/csrc/stable/macros.h>
 #include <torch/csrc/inductor/aoti_torch/c/shim.h>
 #include <torch/headeronly/core/ScalarType.h>
+#include <torch/headeronly/core/Layout.h>
 #include <torch/headeronly/util/Exception.h>
 
 #include <cuda.h>  // For CUDA_VERSION
@@ -33,27 +35,12 @@
 #include <cutlass/util/packed_stride.hpp>
 
 #include "cutlass_extensions/common.h"
-
-// Redefine CUTLASS_STATUS_CHECK to use STD_TORCH_CHECK for ABI stability
-#undef CUTLASS_STATUS_CHECK
-#define CUTLASS_STATUS_CHECK(status, message_prefix)                           \
-  {                                                                            \
-    STD_TORCH_CHECK(status == cutlass::Status::kSuccess, message_prefix,       \
-                    " : Got CUTLASS error: ", cutlassGetStatusString(status)); \
-  }
 #endif
 
 #define OPERATOR_NAME "to_sparse_semi_structured_cutlass_sm9x"
 
-// Macro for checking CUDA kernel launch errors (replacement for C10_CUDA_KERNEL_LAUNCH_CHECK)
-#define CHECK_CUDA_KERNEL_LAUNCH() \
-    do { \
-        cudaError_t err = cudaGetLastError(); \
-        STD_TORCH_CHECK(err == cudaSuccess, \
-            OPERATOR_NAME, " : CUDA kernel launch failed: ", cudaGetErrorString(err)); \
-    } while(0)
-
 using torch::stable::Tensor;
+using torch::headeronly::Layout;
 namespace tsa = torch::stable::accelerator;
 
 namespace torchao {
@@ -155,7 +142,7 @@ to_sparse_semi_structured_kernel_cutlass_sm9x(const Tensor& W) {
   status = compressor_op.run(stream);
   CUTLASS_STATUS_CHECK(status, OPERATOR_NAME);
 
-  CHECK_CUDA_KERNEL_LAUNCH();
+  STD_CUDA_KERNEL_LAUNCH_CHECK();
 
   return std::make_tuple(W_compressed, W_meta);
 }
@@ -163,13 +150,18 @@ to_sparse_semi_structured_kernel_cutlass_sm9x(const Tensor& W) {
 template<typename DtypeW>
 void
 to_sparse_semi_structured_cutlass_sm9x_check_inputs(const Tensor& W) {
-  // Validate the input tensor layout.
+  // Validate the input tensor dim.
   STD_TORCH_CHECK(W.dim() == 2, OPERATOR_NAME,
               " : Expected W argument to be 2D tensor,  got ", W.dim(),
               " dims");
 
-  // Note: layout() check removed as torch::stable::Tensor doesn't support it.
-  // The stride check below implicitly validates the tensor is strided.
+  // Validate the input tensor layout.
+  int32_t w_layout_int;
+  TORCH_ERROR_CODE_CHECK(aoti_torch_get_layout(W.get(), &w_layout_int));
+  auto w_layout = torch::stable::detail::to<Layout>(
+      torch::stable::detail::from(w_layout_int));
+  STD_TORCH_CHECK(w_layout == Layout::Strided, OPERATOR_NAME,
+              " : Expected W argument to be strided, got layout ", w_layout_int);
 
   // Validate the input tensor shape.
   STD_TORCH_CHECK(W.size(1) % 8 == 0, OPERATOR_NAME,

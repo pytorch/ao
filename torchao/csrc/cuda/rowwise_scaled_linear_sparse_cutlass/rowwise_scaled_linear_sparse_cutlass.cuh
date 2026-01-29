@@ -7,11 +7,21 @@
 
 #include <algorithm>
 #include <optional>
+#include <deque>
+#include <mutex>
 
-#include <ATen/ATen.h>
-#include <ATen/core/Tensor.h>
-#include <ATen/cuda/CUDAUtils.h>
-#include <c10/util/Exception.h>
+#include <cuda.h>
+
+#include <torch/csrc/stable/version.h>
+#include <torch/csrc/stable/library.h>
+#include <torch/csrc/stable/tensor.h>
+#include <torch/csrc/stable/ops.h>
+#include <torch/csrc/stable/accelerator.h>
+#include <torch/csrc/stable/macros.h>
+#include <torch/csrc/inductor/aoti_torch/c/shim.h>
+#include <torch/headeronly/core/ScalarType.h>
+#include <torch/headeronly/core/Layout.h>
+#include <torch/headeronly/util/Exception.h>
 
 #if defined(TORCHAO_USE_CUTLASS) && !defined(_WIN32) &&                   \
     defined(CUDA_VERSION) && (CUDA_VERSION >= 12020)
@@ -30,6 +40,7 @@
 #include <cutlass/util/packed_stride.hpp>
 
 #include "cutlass_extensions/common.h"
+
 #endif
 
 #define OPERATOR_NAME "rowwise_scaled_linear_sparse_cutlass"
@@ -37,7 +48,64 @@
 
 namespace torchao {
 
+using torch::stable::Tensor;
+namespace tsa = torch::stable::accelerator;
+
 #if defined(BUILD_ROWWISE_SCALED_LINEAR_SPARSE_CUTLASS)
+
+namespace {
+inline tsa::DeviceGuard make_device_guard(const Tensor& t) {
+  return tsa::DeviceGuard(static_cast<tsa::DeviceIndex>(t.get_device_index()));
+}
+
+std::deque<std::once_flag> device_flags;
+std::vector<cudaDeviceProp> device_properties;
+
+void initVectors() {
+  static bool init_flag [[maybe_unused]] = []() {
+    int device_count;
+    cudaError_t err = cudaGetDeviceCount(&device_count);
+    if (err != cudaSuccess) {
+      STD_TORCH_CHECK(false, "cudaGetDeviceProperties failed: " +
+                                 std::string(cudaGetErrorString(err)));
+    }
+    device_flags.resize(device_count);
+    device_properties.resize(device_count);
+    return true;
+  }();
+}
+
+void initDeviceProperty(int device_index) {
+  cudaDeviceProp device_prop{};
+  cudaError_t err = cudaGetDeviceProperties(&device_prop, device_index);
+  if (err != cudaSuccess) {
+    STD_TORCH_CHECK(false, "cudaGetDeviceProperties failed: " +
+                               std::string(cudaGetErrorString(err)));
+  }
+  device_properties[device_index] = device_prop;
+}
+
+cudaDeviceProp* get_device_prop() {
+  initVectors();
+  int device_index;
+  cudaError_t err = cudaGetDevice(&device_index);
+  if (err != cudaSuccess) {
+    STD_TORCH_CHECK(false, "cudaGetDevice failed: " +
+                               std::string(cudaGetErrorString(err)));
+  }
+
+  std::call_once(device_flags[device_index], initDeviceProperty, device_index);
+  return &device_properties[device_index];
+}
+
+inline cudaStream_t get_current_cuda_stream(const Tensor& t) {
+  void* stream_ptr = nullptr;
+  TORCH_ERROR_CODE_CHECK(aoti_torch_get_current_cuda_stream(
+      static_cast<int32_t>(t.get_device_index()), &stream_ptr));
+  return static_cast<cudaStream_t>(stream_ptr);
+}
+} // anonymous namespace
+
 template<
     typename DtypeXq,
     typename DtypeWq,
@@ -49,9 +117,9 @@ template<
     typename TileShape,
     typename ClusterShape>
 void rowwise_scaled_linear_sparse_kernel_cutlass_sm9x(
-  const at::Tensor& Xq, const at::Tensor& X_scale, const at::Tensor& Wq,
-  const at::Tensor& W_meta, const at::Tensor& W_scale, const at::Tensor& bias,
-  at::Tensor& Y) {
+  const Tensor& Xq, const Tensor& X_scale, const Tensor& Wq,
+  const Tensor& W_meta, const Tensor& W_scale, const Tensor& bias,
+  Tensor& Y) {
   // For CUTLASS, sparsified tensor must be the first operand, thus
   // the result will be calculated as:
   //    ((Wq @ Xq.T) * W_scale * X_scale.T + bias.T).T
@@ -223,27 +291,30 @@ void rowwise_scaled_linear_sparse_kernel_cutlass_sm9x(
 
   // Allocate workspace for CUTLASS mixed datatypes GEMM kernel.
   const auto workspace_size = Gemm::get_workspace_size(arguments);
-  auto workspace = Xq.new_empty({(int64_t)workspace_size},
-                                      at::TensorOptions().dtype(at::kByte));
+  auto workspace = torch::stable::new_empty(
+      Xq, {(int64_t)workspace_size},
+      std::make_optional(torch::headeronly::ScalarType::Byte));
+
+  // Get CUDA stream from tensor
+  cudaStream_t stream = get_current_cuda_stream(Xq);
 
   // Initialize CUTLASS mixed datatypes GEMM object.
-  status = gemm_op.initialize(arguments, workspace.data_ptr(),
-                              at::cuda::getCurrentCUDAStream());
+  status = gemm_op.initialize(arguments, workspace.data_ptr(), stream);
   CUTLASS_STATUS_CHECK(status, OPERATOR_NAME);
 
   // Perform mixed datatypes GEMM operation.
-  status = gemm_op.run(at::cuda::getCurrentCUDAStream());
+  status = gemm_op.run(stream);
   CUTLASS_STATUS_CHECK(status, OPERATOR_NAME);
 
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
+  STD_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
 template<typename DtypeXq, typename DtypeWq, typename... Types>
 static void select_config(
-    const at::Tensor& Xq, const at::Tensor& X_scale, const at::Tensor& Wq,
-    const at::Tensor& W_meta, const at::Tensor& W_scale, const at::Tensor& bias,
-    at::Tensor& Y) {
-  const auto dprops = at::cuda::getCurrentDeviceProperties();
+    const Tensor& Xq, const Tensor& X_scale, const Tensor& Wq,
+    const Tensor& W_meta, const Tensor& W_scale, const Tensor& bias,
+    Tensor& Y) {
+  const auto dprops = get_device_prop();
   const auto is_sm9x = dprops->major == 9;
 
   if (is_sm9x) {
@@ -281,7 +352,7 @@ static void select_config(
     }
   }
 
-  TORCH_CHECK(false, OPERATOR_NAME,
+  STD_TORCH_CHECK(false, OPERATOR_NAME,
               " : Operator not supported on SM", dprops->major, ".",
               dprops->minor, " for given operands");
 }
@@ -289,25 +360,25 @@ static void select_config(
 template<typename... Types>
 static void
 dispatch_on_X_scale_and_W_scale(
-    const at::Tensor& Xq, const at::Tensor& X_scale, const at::Tensor& Wq,
-    const at::Tensor& W_meta, const at::Tensor& W_scale,
-    const at::Tensor& bias, at::Tensor& Y) {
-  if (X_scale.scalar_type() == at::ScalarType::Half &&
-      W_scale.scalar_type() == at::ScalarType::Half) {
+    const Tensor& Xq, const Tensor& X_scale, const Tensor& Wq,
+    const Tensor& W_meta, const Tensor& W_scale,
+    const Tensor& bias, Tensor& Y) {
+  if (X_scale.scalar_type() == torch::headeronly::ScalarType::Half &&
+      W_scale.scalar_type() == torch::headeronly::ScalarType::Half) {
     using DtypeXScale = cutlass::half_t;
     using DtypeWScale = cutlass::half_t;
     select_config<Types..., DtypeXScale, DtypeWScale>(
         Xq, X_scale, Wq, W_meta, W_scale, bias, Y);
     return;
-  } else if (X_scale.scalar_type() == at::ScalarType::BFloat16 &&
-             W_scale.scalar_type() == at::ScalarType::BFloat16) {
+  } else if (X_scale.scalar_type() == torch::headeronly::ScalarType::BFloat16 &&
+             W_scale.scalar_type() == torch::headeronly::ScalarType::BFloat16) {
     using DtypeXScale = cutlass::bfloat16_t;
     using DtypeWScale = cutlass::bfloat16_t;
     select_config<Types..., DtypeXScale, DtypeWScale>(
         Xq, X_scale, Wq, W_meta, W_scale, bias, Y);
     return;
-  } else if (X_scale.scalar_type() == at::ScalarType::Float &&
-             W_scale.scalar_type() == at::ScalarType::Float) {
+  } else if (X_scale.scalar_type() == torch::headeronly::ScalarType::Float &&
+             W_scale.scalar_type() == torch::headeronly::ScalarType::Float) {
     using DtypeXScale = float;
     using DtypeWScale = float;
     select_config<Types..., DtypeXScale, DtypeWScale>(
@@ -315,7 +386,7 @@ dispatch_on_X_scale_and_W_scale(
     return;
   }
 
-  TORCH_CHECK(false, OPERATOR_NAME,
+  STD_TORCH_CHECK(false, OPERATOR_NAME,
               " : Operator not supported for combination of data types ",
               X_scale.scalar_type(), " for first operand scale and ",
               W_scale.scalar_type(), " for second operand scale");
@@ -324,12 +395,12 @@ dispatch_on_X_scale_and_W_scale(
 template<typename DtypeXq, typename DtypeWq, typename DtypeY>
 static void
 dispatch_on_bias(
-    const at::Tensor& Xq, const at::Tensor& X_scale, const at::Tensor& Wq,
-    const at::Tensor& W_meta, const at::Tensor& W_scale,
-    const std::optional<at::Tensor>& bias_opt, at::Tensor& Y) {
+    const Tensor& Xq, const Tensor& X_scale, const Tensor& Wq,
+    const Tensor& W_meta, const Tensor& W_scale,
+    const std::optional<Tensor>& bias_opt, Tensor& Y) {
   if (bias_opt.has_value()) {
     const auto bias = *bias_opt;
-    TORCH_CHECK(bias.scalar_type() == Y.scalar_type(),
+    STD_TORCH_CHECK(bias.scalar_type() == Y.scalar_type(),
                 OPERATOR_NAME, " : Operator not supported for bias datatype ",
                 bias.scalar_type(), " as it's different from the output ",
                 " datatype ", Y.scalar_type());
@@ -353,22 +424,22 @@ dispatch_on_bias(
 template<typename DtypeXq, typename DtypeWq>
 static void
 dispatch_on_Y(
-    const at::Tensor& Xq, const at::Tensor& X_scale, const at::Tensor& Wq,
-    const at::Tensor& W_meta, const at::Tensor& W_scale,
-    const std::optional<at::Tensor>& bias_opt, at::Tensor& Y) {
-  if (Y.scalar_type() == at::ScalarType::Half) {
+    const Tensor& Xq, const Tensor& X_scale, const Tensor& Wq,
+    const Tensor& W_meta, const Tensor& W_scale,
+    const std::optional<Tensor>& bias_opt, Tensor& Y) {
+  if (Y.scalar_type() == torch::headeronly::ScalarType::Half) {
     using DtypeY = cutlass::half_t;
     dispatch_on_bias<DtypeXq, DtypeWq, DtypeY>(
         Xq, X_scale, Wq, W_meta, W_scale, bias_opt, Y);
     return;
-  } else if (Y.scalar_type() == at::ScalarType::BFloat16) {
+  } else if (Y.scalar_type() == torch::headeronly::ScalarType::BFloat16) {
     using DtypeY = cutlass::bfloat16_t;
     dispatch_on_bias<DtypeXq, DtypeWq, DtypeY>(
         Xq, X_scale, Wq, W_meta, W_scale, bias_opt, Y);
     return;
   }
 
-  TORCH_CHECK(false, OPERATOR_NAME,
+  STD_TORCH_CHECK(false, OPERATOR_NAME,
               " : Operator not supported for output data type ",
               Y.scalar_type());
 }
@@ -376,121 +447,138 @@ dispatch_on_Y(
 template<typename DtypeXq, typename DtypeWq>
 void
 check_inputs(
-    const at::Tensor& Xq, const at::Tensor& X_scale, const at::Tensor& Wq,
-    const at::Tensor& W_meta, const at::Tensor& W_scale,
-    const std::optional<at::Tensor>& bias_opt) {
+    const Tensor& Xq, const Tensor& X_scale, const Tensor& Wq,
+    const Tensor& W_meta, const Tensor& W_scale,
+    const std::optional<Tensor>& bias_opt) {
+  using torch::headeronly::Layout;
+
   // Validate metadata datatype.
-  TORCH_CHECK(W_meta.dtype() == at::kByte, OPERATOR_NAME,
+  STD_TORCH_CHECK(W_meta.scalar_type() == torch::headeronly::ScalarType::Byte, OPERATOR_NAME,
               " : Expected Wq meta argument to be of torch.uint8 datatype got ",
-              Wq.dtype());
+              Wq.scalar_type());
 
   // Validate layouts of arguments.
-  TORCH_CHECK(Xq.dim() >= 2, OPERATOR_NAME,
+  STD_TORCH_CHECK(Xq.dim() >= 2, OPERATOR_NAME,
               " : Expected Xq argument to be 2D or higher-dimensional tensor, "
               " got ", Xq.dim(), " dims");
-  TORCH_CHECK(Xq.layout() == at::Layout::Strided, OPERATOR_NAME,
-              " : Expected Xq argument to be strided, got layout ",
-              Xq.layout());
-  TORCH_CHECK(X_scale.dim() == Xq.dim() - 1, OPERATOR_NAME,
+  int32_t xq_layout_int;
+  TORCH_ERROR_CODE_CHECK(aoti_torch_get_layout(Xq.get(), &xq_layout_int));
+  auto xq_layout = torch::stable::detail::to<Layout>(
+      torch::stable::detail::from(xq_layout_int));
+  STD_TORCH_CHECK(xq_layout == Layout::Strided, OPERATOR_NAME,
+              " : Expected Xq argument to be strided, got layout ", xq_layout_int);
+  STD_TORCH_CHECK(X_scale.dim() == Xq.dim() - 1, OPERATOR_NAME,
               " : Expected Xq scale argument to be ", Xq.dim() - 1,
               "D tensor, got ", X_scale.dim(), " dims");
-  TORCH_CHECK(X_scale.layout() == at::Layout::Strided, OPERATOR_NAME,
-              " : Expected Xq scale argument to be strided, got layout ",
-              X_scale.layout());
-  TORCH_CHECK(Wq.dim() == 2, OPERATOR_NAME,
+  int32_t x_scale_layout_int;
+  TORCH_ERROR_CODE_CHECK(aoti_torch_get_layout(X_scale.get(), &x_scale_layout_int));
+  auto x_scale_layout = torch::stable::detail::to<Layout>(
+      torch::stable::detail::from(x_scale_layout_int));
+  STD_TORCH_CHECK(x_scale_layout == Layout::Strided, OPERATOR_NAME,
+              " : Expected Xq scale argument to be strided, got layout ", x_scale_layout_int);
+  STD_TORCH_CHECK(Wq.dim() == 2, OPERATOR_NAME,
               " : Expected Wq argument to be 2D tensor, got ", Wq.dim(),
               " dims");
-  TORCH_CHECK(Wq.layout() == at::Layout::Strided, OPERATOR_NAME,
-              " : Expected Wq argument to be strided, got layout ",
-              Wq.layout());
-  TORCH_CHECK(W_meta.dim() == 2, OPERATOR_NAME,
+  int32_t wq_layout_int;
+  TORCH_ERROR_CODE_CHECK(aoti_torch_get_layout(Wq.get(), &wq_layout_int));
+  auto wq_layout = torch::stable::detail::to<Layout>(
+      torch::stable::detail::from(wq_layout_int));
+  STD_TORCH_CHECK(wq_layout == Layout::Strided, OPERATOR_NAME,
+              " : Expected Wq argument to be strided, got layout ", wq_layout_int);
+  STD_TORCH_CHECK(W_meta.dim() == 2, OPERATOR_NAME,
               " : Expected Wq meta argument to be 2D tensor, got ",
               W_meta.dim(), " dims");
-  TORCH_CHECK(W_meta.layout() == at::Layout::Strided, OPERATOR_NAME,
-              " : Expected Wq meta argument to be strided, got layout ",
-              W_meta.layout());
-  TORCH_CHECK(W_scale.dim() == 1 || W_scale.dim() == 2, OPERATOR_NAME,
+  int32_t w_meta_layout_int;
+  TORCH_ERROR_CODE_CHECK(aoti_torch_get_layout(W_meta.get(), &w_meta_layout_int));
+  auto w_meta_layout = torch::stable::detail::to<Layout>(
+      torch::stable::detail::from(w_meta_layout_int));
+  STD_TORCH_CHECK(w_meta_layout == Layout::Strided, OPERATOR_NAME,
+              " : Expected Wq meta argument to be strided, got layout ", w_meta_layout_int);
+  STD_TORCH_CHECK(W_scale.dim() == 1 || W_scale.dim() == 2, OPERATOR_NAME,
               " : Expected Wq scale argument to be 1D or 2D tensor, ",
               "got ", W_scale.dim(), " dims");
-  TORCH_CHECK(W_scale.layout() == at::Layout::Strided, OPERATOR_NAME,
-              " : Expected Wq scale argument to be strided, got layout ",
-              W_scale.layout());
+  int32_t w_scale_layout_int;
+  TORCH_ERROR_CODE_CHECK(aoti_torch_get_layout(W_scale.get(), &w_scale_layout_int));
+  auto w_scale_layout = torch::stable::detail::to<Layout>(
+      torch::stable::detail::from(w_scale_layout_int));
+  STD_TORCH_CHECK(w_scale_layout == Layout::Strided, OPERATOR_NAME,
+              " : Expected Wq scale argument to be strided, got layout ", w_scale_layout_int);
   if (bias_opt.has_value()) {
     const auto bias = *bias_opt;
-    TORCH_CHECK(bias.dim() == 1, OPERATOR_NAME,
+    STD_TORCH_CHECK(bias.dim() == 1, OPERATOR_NAME,
                 " : Expected bias argument to be 1D tensor, got ", bias.dim(),
                 " dims");
-    TORCH_CHECK(bias.layout() == at::Layout::Strided, OPERATOR_NAME,
-                " : Expected bias argument to be strided, got layout ",
-                bias.layout());
+    int32_t bias_layout_int;
+    TORCH_ERROR_CODE_CHECK(aoti_torch_get_layout(bias.get(), &bias_layout_int));
+    auto bias_layout = torch::stable::detail::to<Layout>(
+        torch::stable::detail::from(bias_layout_int));
+    STD_TORCH_CHECK(bias_layout == Layout::Strided, OPERATOR_NAME,
+                " : Expected bias argument to be strided, got layout ", bias_layout_int);
   }
 
   // Validate sizes of arguments.
-  const auto Xq_sizes = Xq.sizes().vec();
-  const auto Wq_sizes = Wq.sizes().vec();
-  TORCH_CHECK(Xq_sizes.back() % 32 == 0, OPERATOR_NAME,
+  const auto Xq_size_back = Xq.size(-1);
+  const auto Wq_size_0 = Wq.size(0);
+  const auto Wq_size_1 = Wq.size(1);
+  STD_TORCH_CHECK(Xq_size_back % 32 == 0, OPERATOR_NAME,
               " : For alignment purpose, Xq argument must have number of "
-              "columns divisible by ", 32, ", got ", Xq_sizes.back(),
+              "columns divisible by ", 32, ", got ", Xq_size_back,
               " columns");
-  TORCH_CHECK(Wq_sizes[0] % 8 == 0, OPERATOR_NAME,
+  STD_TORCH_CHECK(Wq_size_0 % 8 == 0, OPERATOR_NAME,
               " : For alignment purpose, Wq argument to have number of rows "
-              "divisible by ", 8, ", but got ", Wq_sizes[0], " rows");
-  TORCH_CHECK(Xq_sizes.back() == 2 * Wq_sizes[1], OPERATOR_NAME,
-              " : Expected Xq argument to have ", 2 * Wq_sizes[1],
-              " columns, but got ", Xq_sizes.back());
-  const auto X_scale_sizes = X_scale.sizes().vec();
-  for (auto i = 0; i < X_scale_sizes.size(); ++i)
-    TORCH_CHECK(X_scale_sizes[i] == Xq_sizes[i], OPERATOR_NAME,
+              "divisible by ", 8, ", but got ", Wq_size_0, " rows");
+  STD_TORCH_CHECK(Xq_size_back == 2 * Wq_size_1, OPERATOR_NAME,
+              " : Expected Xq argument to have ", 2 * Wq_size_1,
+              " columns, but got ", Xq_size_back);
+  for (int64_t i = 0; i < X_scale.dim(); ++i) {
+    STD_TORCH_CHECK(X_scale.size(i) == Xq.size(i), OPERATOR_NAME,
                 " : Expected Xq scale argument size at position ", i, " to be ",
-                Xq_sizes[i], ", but got ", X_scale_sizes[i]);
-  TORCH_CHECK(Wq_sizes[1] % 8 == 0, OPERATOR_NAME,
+                Xq.size(i), ", but got ", X_scale.size(i));
+  }
+  STD_TORCH_CHECK(Wq_size_1 % 8 == 0, OPERATOR_NAME,
               " : Expected Wq argument to have number of columns divisible by ",
-              " 8, got ", Wq_sizes[1]);
+              " 8, got ", Wq_size_1);
   // W_meta may be padded, thus expected shape calculations for this
   // tensor are as follows.
-  const auto W_meta_size_0_expected = std::max((int)Wq_sizes[0], 64);
-  const auto W_meta_size_1_expected = std::max(PAD_TO_MULTIPLE_OF_16((int)Wq_sizes[1]/4), 16);
-  TORCH_CHECK(W_meta.size(0) == W_meta_size_0_expected, OPERATOR_NAME,
+  const auto W_meta_size_0_expected = std::max((int64_t)Wq_size_0, (int64_t)64);
+  const auto W_meta_size_1_expected = std::max((int64_t)PAD_TO_MULTIPLE_OF_16((int)Wq_size_1/4), (int64_t)16);
+  STD_TORCH_CHECK(W_meta.size(0) == W_meta_size_0_expected, OPERATOR_NAME,
               " : Expected Wq meta argument to have ", W_meta_size_0_expected,
               " rows, got ", W_meta.size(0), " rows");
-  TORCH_CHECK(W_meta.size(1) == W_meta_size_1_expected, OPERATOR_NAME,
+  STD_TORCH_CHECK(W_meta.size(1) == W_meta_size_1_expected, OPERATOR_NAME,
               " : Expected Wq meta argument to hold ", W_meta_size_1_expected,
               " bytes per row to encode sparsity of Wq argument, got ",
               W_meta.size(1), " bytes");
-  TORCH_CHECK(W_scale.numel() == Wq_sizes[0], OPERATOR_NAME,
-              " : Expected Wq scale argument to have ", Wq_sizes[0],
+  STD_TORCH_CHECK(W_scale.numel() == Wq_size_0, OPERATOR_NAME,
+              " : Expected Wq scale argument to have ", Wq_size_0,
               " elements, got ", W_scale.numel(), " elements");
   if (bias_opt.has_value()) {
     const auto bias = *bias_opt;
-    TORCH_CHECK(bias.numel() == Wq_sizes[0], OPERATOR_NAME,
-                " : Expected bias argument to have ", Wq_sizes[0],
+    STD_TORCH_CHECK(bias.numel() == Wq_size_0, OPERATOR_NAME,
+                " : Expected bias argument to have ", Wq_size_0,
                 " elements, got ", bias.numel(), " elements");
   }
 
   // Validate strides of arguments.
-  const auto Xq_strides = Xq.strides();
-  TORCH_CHECK(Xq_strides[Xq_strides.size() - 1] == 1, OPERATOR_NAME,
+  STD_TORCH_CHECK(Xq.stride(-1) == 1, OPERATOR_NAME,
               " : Expected Xq argument in row-major layout");
-  auto Xq_stride_expected = Xq_strides[Xq_strides.size() - 2];
-  for (int i = Xq_strides.size() - 3; i >= 0; --i) {
-    Xq_stride_expected *= Xq_sizes[i + 1];
-    TORCH_CHECK(Xq_strides[i] == Xq_stride_expected, OPERATOR_NAME,
+  auto Xq_stride_expected = Xq.stride(-2);
+  for (int64_t i = Xq.dim() - 3; i >= 0; --i) {
+    Xq_stride_expected *= Xq.size(i + 1);
+    STD_TORCH_CHECK(Xq.stride(i) == Xq_stride_expected, OPERATOR_NAME,
                 " : Expected Xq argument in row-major layout");
   }
-  TORCH_CHECK(X_scale.is_contiguous(), OPERATOR_NAME,
+  STD_TORCH_CHECK(X_scale.is_contiguous(), OPERATOR_NAME,
               " : Expected Xq scale argument to be contiguous");
-  const auto Wq_strides = Wq.strides();
-  TORCH_CHECK(Wq_strides[0] >= 1 && Wq_strides[1] == 1, OPERATOR_NAME,
+  STD_TORCH_CHECK(Wq.stride(0) >= 1 && Wq.stride(1) == 1, OPERATOR_NAME,
               " : Expected Wq argument in row-major layout");
-  const auto W_meta_strides = W_meta.strides();
-  TORCH_CHECK(W_meta_strides[0] >= 1 && W_meta_strides[1] == 1, OPERATOR_NAME,
+  STD_TORCH_CHECK(W_meta.stride(0) >= 1 && W_meta.stride(1) == 1, OPERATOR_NAME,
               " : Expected Wq meta argument in row-major layout");
-  TORCH_CHECK(W_scale.is_contiguous(), OPERATOR_NAME,
+  STD_TORCH_CHECK(W_scale.is_contiguous(), OPERATOR_NAME,
               " : Expected Wq scale argument to be contiguous");
   if (bias_opt.has_value()) {
     const auto bias = *bias_opt;
-    const auto bias_strides = bias.strides();
-    TORCH_CHECK(bias_strides[0] == 1, OPERATOR_NAME,
+    STD_TORCH_CHECK(bias.stride(0) == 1, OPERATOR_NAME,
                 " : Expected bias argument to be contiguous");
   }
 }
@@ -500,12 +588,12 @@ check_inputs(
 // GEMM kernel, to given arguments - result produced is:
 //     (Xq * X_scale) @ ((Wq, W_meta) * W_scale).T + bias
 template <typename DtypeXq, typename DtypeWq>
-at::Tensor
+Tensor
 rowwise_scaled_linear_sparse_cutlass(
-    const at::Tensor& Xq, const at::Tensor& X_scale, const at::Tensor& Wq,
-    const at::Tensor& W_meta, const at::Tensor& W_scale,
-    const std::optional<at::Tensor>& bias_opt,
-    const std::optional<at::ScalarType> out_dtype_opt) {
+    const Tensor& Xq, const Tensor& X_scale, const Tensor& Wq,
+    const Tensor& W_meta, const Tensor& W_scale,
+    const std::optional<Tensor>& bias_opt,
+    const std::optional<torch::headeronly::ScalarType> out_dtype_opt) {
 #if defined(BUILD_ROWWISE_SCALED_LINEAR_SPARSE_CUTLASS)
   // Check inputs.  Note that data types are checked in the
   // corresponding dispatch methods.  The limitations on data types
@@ -515,28 +603,32 @@ rowwise_scaled_linear_sparse_cutlass(
   check_inputs<DtypeXq, DtypeWq>(Xq, X_scale, Wq, W_meta, W_scale, bias_opt);
 
   // Squash the input tensors as appropriate.
-  const auto Xq_sizes = Xq.sizes().vec();
-  const auto Xq_2d = Xq.reshape({-1, Xq_sizes.back()});
-  const auto X_scale_1d = X_scale.reshape({-1});
-  const auto W_scale_1d = W_scale.reshape({-1});
+  const auto Xq_size_back = Xq.size(-1);
+  const auto Xq_2d = torch::stable::reshape(Xq, {-1, Xq_size_back});
+  const auto X_scale_1d = torch::stable::flatten(X_scale, 0, -1);
+  const auto W_scale_1d = torch::stable::flatten(W_scale, 0, -1);
 
   // Create result tensor.
-  const auto options = out_dtype_opt.has_value()
-                         ? X_scale.options().dtype(*out_dtype_opt)
-                         : X_scale.options();
-  at::Tensor Y = X_scale.new_empty({Xq_2d.size(0), Wq.size(0)}, options);
+  auto out_dtype = out_dtype_opt.has_value()
+                       ? *out_dtype_opt
+                       : X_scale.scalar_type();
+  Tensor Y = torch::stable::new_empty(
+      X_scale, {Xq_2d.size(0), Wq.size(0)}, std::make_optional(out_dtype));
 
   // Dispatch to appropriate kernel template.
   dispatch_on_Y<DtypeXq, DtypeWq>(
       Xq_2d, X_scale_1d, Wq, W_meta, W_scale_1d, bias_opt, Y);
 
   // Reshape and return Y tensor.
-  auto Y_sizes = Xq_sizes;
-  Y_sizes.back() = Wq.size(0);
-  return Y.reshape(Y_sizes);
+  std::vector<int64_t> Y_sizes;
+  for (int64_t i = 0; i < Xq.dim() - 1; ++i) {
+    Y_sizes.push_back(Xq.size(i));
+  }
+  Y_sizes.push_back(Wq.size(0));
+  return torch::stable::reshape(Y, Y_sizes);
 #else
-  TORCH_CHECK_NOT_IMPLEMENTED(false, OPERATOR_NAME);
-  return at::Tensor{};
+  STD_TORCH_CHECK(false, OPERATOR_NAME, " : Not implemented");
+  return Tensor{};
 #endif
 }
 

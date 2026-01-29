@@ -7,11 +7,12 @@
 
 #include <cuda_runtime.h>
 #include <cutlass/cutlass.h>
+#include <torch/headeronly/util/Exception.h>
 
 #define CUTLASS_STATUS_CHECK(status, message_prefix)                           \
   {                                                                            \
-    TORCH_CHECK(status == cutlass::Status::kSuccess, message_prefix,           \
-                " : Got CUTLASS error: ", cutlassGetStatusString(status));     \
+    STD_TORCH_CHECK(status == cutlass::Status::kSuccess, message_prefix,       \
+                    " : Got CUTLASS error: ", cutlassGetStatusString(status)); \
   }
 
 namespace torchao {

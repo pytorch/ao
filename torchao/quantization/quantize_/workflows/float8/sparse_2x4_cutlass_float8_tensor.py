@@ -115,10 +115,10 @@ class Sparse2x4CUTLASSFloat8Tensor(TorchAOBaseTensor):
         # semi-structured format, so multiplying with identity matrix,
         # and using identity scale factors, for the conversion.
         cols = self.shape[1]
-        plain_input = torch.eye(cols, device=self.qdata.device)
-        input = plain_input.to(dtype=self.qdata.dtype)
-        plain_input_scale = torch.ones((cols,), device=self.qdata.device)
-        input_scale = plain_input_scale.to(dtype=self.scale.dtype)
+        input = torch.eye(cols, dtype=self.qdata.dtype, device=self.qdata.device)
+        input_scale = torch.ones(
+            (cols,), dtype=self.scale.dtype, device=self.qdata.device
+        )
 
         out_dtype = torch.bfloat16
         dense = (

@@ -26,7 +26,7 @@ operations to actual quantize and dequantize operations after training, thereby 
 a quantized model (dequantize operations are typically fused with linear after lowering).
 Between these two steps, training can proceed exactly as before.
 
-![qat](images/qat_diagram.png)
+![qat](https://raw.githubusercontent.com/pytorch/ao/main/torchao/quantization/qat/images/qat_diagram.png)
 
 
 ## torchao APIs
