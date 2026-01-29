@@ -170,7 +170,7 @@ static inline void store_elem(int8_t &out, float input) {
 }
 
 static inline void store_elem(at::Float8_e4m3fn &out, float input) {
-  out = at::Float8_e4m3fn(input);
+  out = static_cast<at::Float8_e4m3fn>(input);
 }
 
 template <typename index_t, typename data_t, typename output_t>
