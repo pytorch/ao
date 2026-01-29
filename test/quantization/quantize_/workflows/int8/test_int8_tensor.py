@@ -28,7 +28,7 @@ from torchao.quantization.quantize_.workflows.int8.int8_tensor import (
 )
 from torchao.quantization.utils import compute_error, get_block_size
 from torchao.testing.model_architectures import ToyTwoLinearModel
-from torchao.testing.utils import TorchAOIntegrationTestCase
+from torchao.testing.utils import TorchAOIntegrationTestCase, skip_if_xpu
 from torchao.utils import (
     get_available_devices,
     get_current_accelerator_device,
@@ -234,7 +234,7 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
             "extern_kernels._int_mm", 1
         ).check_count("triton_poi_fused", 1).run(code[0])
 
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @skip_if_xpu("XPU enablement in progress")
     @common_utils.parametrize("config", INT8_TEST_CONFIGS)
     def test_pin_memory(self, config):
         linear = torch.nn.Linear(
