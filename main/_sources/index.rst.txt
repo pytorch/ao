@@ -16,49 +16,27 @@ for an overall introduction to the library and recent highlight and updates.
 .. toctree::
    :glob:
    :maxdepth: 1
-   :caption: Developer Notes
-
-   quantization_overview
-   contributor_guide
-   sparsity
-   benchmarking_api_guide
-   benchmarking_user_guide
-
-.. toctree::
-   :glob:
-   :maxdepth: 1
    :caption: API Reference
 
-   api_ref_dtypes
-   api_ref_quantization
-   api_ref_qat
-   api_ref_sparsity
-   api_ref_float8
-   api_ref_utils
+   api_reference/index
 
 .. toctree::
    :glob:
    :maxdepth: 1
    :caption: Eager Quantization Tutorials
 
-   pretraining
-   finetuning
-   serving
-   torchao_vllm_integration
-   torchao_hf_integration
-   serialization
-   static_quantization
-   subclass_basic
-   subclass_advanced
+   eager_quantization/index
+
+.. toctree::
+   :glob:
+   :maxdepth: 1
+   :caption: Developer Notes
+
+   developer_notes/index
 
 .. toctree::
    :glob:
    :maxdepth: 1
    :caption: PT2E Quantization Tutorials
 
-   tutorials_source/pt2e_quant_ptq
-   tutorials_source/pt2e_quant_qat
-   tutorials_source/pt2e_quant_x86_inductor
-   tutorials_source/pt2e_quant_xpu_inductor
-   tutorials_source/pt2e_quant_openvino_inductor
-   tutorials_source/pt2e_quantizer
+   pt2e_quantization/index
