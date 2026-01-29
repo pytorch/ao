@@ -1132,6 +1132,14 @@ def is_sm_at_least_90():
     )
 
 
+def is_sm_exactly_90():
+    return (
+        torch.cuda.is_available()
+        and torch.version.cuda
+        and torch.cuda.get_device_capability() == (9, 0)
+    )
+
+
 # TODO(future PR): rename to 8_9, 9_0, 10_0 instead of 89, 10, 100
 def is_sm_at_least_100():
     return (

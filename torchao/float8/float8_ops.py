@@ -6,13 +6,18 @@
 from typing import Any, Dict, Optional, Tuple
 
 import torch
+import torch.nn.functional as F
 from torch.utils._pytree import tree_map
 
 from torchao.float8.float8_training_tensor import (
     Float8TrainingTensor,
     choose_scaled_mm_config,
 )
-from torchao.float8.float8_utils import is_row_major, pad_tensor_for_matmul
+from torchao.float8.float8_utils import (
+    infer_float8_scaling,
+    is_row_major,
+    pad_tensor_for_matmul,
+)
 from torchao.utils import torch_version_at_least
 
 aten = torch.ops.aten
@@ -58,26 +63,30 @@ def addmm_float8_unwrapped(
         a_inverse_scale = a_inverse_scale.new_ones(())
         b_inverse_scale = a_inverse_scale.new_ones(())
 
-    # work around torch._scaled_mm not having float32 output type
-    # TODO(pytorch/pytorch#156771): remove this once torch._scaled_mm supports float32 output
+    scale_recipe_a = infer_float8_scaling(a_data, a_inverse_scale)
+    scale_recipe_b = infer_float8_scaling(b_data, b_inverse_scale)
+
+    # work around F.scaled_mm not having float32 output type
+    # TODO(pytorch/pytorch#156771): remove this once F.scaled_mm supports float32 output
     orig_dtype = output_dtype
     if orig_dtype in (torch.float16, torch.float32) and is_rowwise_scaling:
         output_dtype = torch.bfloat16
 
     post_bias = None
     if output_dtype == torch.float32:
-        # Bias is not supported by _scaled_mm when output is fp32
+        # Bias is not supported by scaled_mm when output is fp32
         post_bias = bias
         bias = None
 
-    output = torch._scaled_mm(
+    output = F.scaled_mm(
         a_data,
         b_data,
         scale_a=a_inverse_scale,
+        scale_recipe_a=scale_recipe_a,
         scale_b=b_inverse_scale,
+        scale_recipe_b=scale_recipe_b,
         bias=bias,
-        scale_result=output_scale,
-        out_dtype=output_dtype,
+        output_dtype=output_dtype,
         use_fast_accum=use_fast_accum,
     )
 
@@ -345,11 +354,11 @@ def preprocess_addmm(a: Float8TrainingTensor, b: Float8TrainingTensor):
         b_data = b_data.t().contiguous().t()
     b_scale = b._scale
 
-    # Today, torch._scaled_mm only supports both operands using the
+    # Today, F.scaled_mm only supports both operands using the
     # same granularity. The code below checks for cases where one
     # operand is scaled axiswise and one tensorwise. If this case is found,
     # we reshape the tensorwise scale to be repeat along the needed axis,
-    # so that torch._scaled_mm can call the axiswise-axiswise kernel.
+    # so that F.scaled_mm can call the axiswise-axiswise kernel.
     # Note: using shape/size info does not work with compile here, which is
     # why we are using inferring scaling type from the presence of
     # axiswise_dim.

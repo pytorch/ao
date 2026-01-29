@@ -457,9 +457,6 @@ def test_nvfp4_matmul_with_amax(
     if quant_type == "dynamic" and not is_sm_at_least_100():
         pytest.skip("CUDA capability >= 10.0 required for DYNAMIC float4 gemm")
 
-    if bias and inpt_dtype == torch.float32:
-        pytest.xfail("Bias is not supported when module weight is in fp32")
-
     if quant_type == "weight_only" and compile:
         pytest.skip("TODO: weight_only currently errors w/ compile")
 

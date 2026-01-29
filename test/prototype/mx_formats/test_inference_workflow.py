@@ -32,6 +32,9 @@ torch.manual_seed(2)
 if not torch_version_at_least("2.8.0"):
     pytest.skip("Unsupported PyTorch version", allow_module_level=True)
 
+# Check if MSLK is available for MXFP4
+mslk_available = "USE_MSLK" in torch.__config__.show()
+
 
 # source: https://stackoverflow.com/a/22638709
 @pytest.fixture(autouse=True)
@@ -95,6 +98,8 @@ def test_inference_workflow_mx(
     elif elem_dtype == torch.float4_e2m1fn_x2:
         if not is_sm_at_least_100() and not emulate:
             pytest.skip("CUDA capability >= 10.0 required for mxfp4 gemm")
+        elif not mslk_available:
+            pytest.skip("mxfp4 requires torch + MSLK support, not found")
         elif compile:
             # TODO(future PR): investigate and fix this
             pytest.skip("mxfp4 + compile currently does not work, low SQNR")
