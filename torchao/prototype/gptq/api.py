@@ -26,6 +26,7 @@ from torchao.quantization.quant_api import (
     Int8WeightOnlyConfig,
     _module_extra_repr,
 )
+from torchao.quantization.quantize_.common.quantization_step import QuantizationStep
 from torchao.quantization.transform_module import register_quantize_module_handler
 from torchao.quantization.utils import get_block_size
 
@@ -42,10 +43,10 @@ class GPTQConfig(AOBaseConfig):
     """Config for GPTQ quantization
 
     GPTQ uses a two-step process:
-    - step="observe": Wraps weights as GPTQObserverTensor to collect Hessian information
-    - step="convert": Applies GPTQ quantization using the collected observations
+    - step=QuantizationStep.PREPARE: Wraps weights as GPTQObserverTensor to collect Hessian information
+    - step=QuantizationStep.CONVERT: Applies GPTQ quantization using the collected observations
 
-    Note: By default, the "observe" step uses unquantized weights during forward passes.
+    Note: By default, the PREPARE step uses unquantized weights during forward passes.
     For sequential quantization (where each layer observes quantized inputs from the
     previous layer), quantize the model one block at a time. See gptq_example.py for
     an example with HuggingFace models.
@@ -54,14 +55,16 @@ class GPTQConfig(AOBaseConfig):
     A prototype implementation of this exists here: https://gist.github.com/jcaip/2750b5c0711500df48763bdb01d28a31, we plan to revisit adding support for this based on user feedback.
 
     Args:
-        step: Either "observe" or "convert"
+        step (QuantizationStep): The step for GPTQ process
+            PREPARE: insert GPTQ observers to collect Hessian information
+            CONVERT: convert the observed linear modules to GPTQ quantized modules
         base_config: Base quantization configuration that determines the target dtype.
             Use Int4WeightOnlyConfig() for int4 or Int8WeightOnlyConfig() for int8.
         percdamp: Damping factor for Hessian diagonal (default: 0.01)
         gptq_quantize_block_size: Block size for GPTQ algorithm (default: 256)
     """
 
-    step: str = "observe"  # "observe" or "convert"
+    step: QuantizationStep = QuantizationStep.PREPARE
     base_config: Union[Int4WeightOnlyConfig, Int8WeightOnlyConfig] = None
     percdamp: float = 0.01
     gptq_quantize_block_size: int = 256
@@ -82,8 +85,9 @@ def _gptq_config_transform(
 ) -> torch.nn.Module:
     """Unified transform handler that uses explicit step control."""
     tensor = getattr(module, parameter_name)
+    step = config.step
 
-    if config.step == "observe":
+    if step == QuantizationStep.PREPARE:
         # Observation phase: wrap as GPTQObserverTensor
         new_tensor = GPTQObserverTensor.from_hp(tensor)
         setattr(module, parameter_name, nn.Parameter(new_tensor, requires_grad=False))
@@ -96,19 +100,19 @@ def _gptq_config_transform(
             module,
         )
         return module
-    elif config.step == "convert":
+    elif step == QuantizationStep.CONVERT:
         # Quantization phase: tensor should be an GPTQObserverTensor
         if not isinstance(tensor, GPTQObserverTensor):
             raise ValueError(
                 f"Expected {parameter_name} to be GPTQObserverTensor in 'convert' step, "
-                f"but got {type(tensor)}. Did you run the 'observe' step first?"
+                f"but got {type(tensor)}. Did you run the 'prepare' step first?"
             )
 
         # Validate that observations were recorded
         if tensor.hessian is None:
             raise ValueError(
                 f"No observations recorded for {parameter_name}. "
-                f"Hessian is None. Did you run forward passes during the observe step?"
+                f"Hessian is None. Did you run forward passes during the prepare step?"
             )
 
         # Use pre-computed Hessian directly
@@ -119,7 +123,7 @@ def _gptq_config_transform(
         return module
     else:
         raise ValueError(
-            f"Invalid step '{config.step}'. Must be 'observe' or 'convert'."
+            f"Invalid step '{config.step}'. Expected QuantizationStep.PREPARE or QuantizationStep.CONVERT."
         )
 
 

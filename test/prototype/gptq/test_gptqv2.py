@@ -17,6 +17,7 @@ from torchao.prototype.gptq import (
 from torchao.prototype.gptq.observer import GPTQObserverTensor
 from torchao.quantization import Int4WeightOnlyConfig, Int8WeightOnlyConfig, quantize_
 from torchao.quantization.granularity import PerRow
+from torchao.quantization.quantize_.common.quantization_step import QuantizationStep
 from torchao.utils import _is_mslk_available
 
 
@@ -229,8 +230,10 @@ class TestGPTQObserverTensor:
         linear = torch.nn.Linear(64, 32, bias=False).cuda()
         original_weight = linear.weight.data.clone()
 
-        # Apply GPTQConfig with observe step
-        quantize_(linear, GPTQConfig(step="observe", base_config=base_config))
+        # Apply GPTQConfig with prepare step
+        quantize_(
+            linear, GPTQConfig(step=QuantizationStep.PREPARE, base_config=base_config)
+        )
 
         # Check weight is now an GPTQObserverTensor
         assert isinstance(linear.weight, GPTQObserverTensor)
@@ -315,7 +318,7 @@ class TestGPTQFlow:
 
         # Phase 1: Observation step - wrap as GPTQObserverTensor
         observe_config = GPTQConfig(
-            step="observe",
+            step=QuantizationStep.PREPARE,
             base_config=base_config,
         )
         quantize_(linear, observe_config)
@@ -335,7 +338,7 @@ class TestGPTQFlow:
 
         # Phase 2: Convert step - apply GPTQ quantization
         convert_config = GPTQConfig(
-            step="convert",
+            step=QuantizationStep.CONVERT,
             base_config=base_config,
         )
         quantize_(linear, convert_config)
@@ -390,7 +393,7 @@ class TestGPTQFlow:
 
         # Create GPTQ config
         config = GPTQConfig(
-            step="convert",
+            step=QuantizationStep.CONVERT,
             base_config=base_config,
         )
 
@@ -469,7 +472,7 @@ class TestGPTQFlow:
 
         # GPTQ quantization
         config = GPTQConfig(
-            step="convert",
+            step=QuantizationStep.CONVERT,
             base_config=base_config,
         )
         gptq_quantized = gptq_quantize(H, weight, config)
@@ -539,16 +542,20 @@ class TestGPTQFlow:
         quantize_(model2, base_config)
         out_rtn = model2(test_input)
 
-        # Apply GPTQ observe step
-        gptqnew_config = GPTQConfig(step="observe", base_config=base_config)
+        # Apply GPTQ prepare step
+        gptqnew_config = GPTQConfig(
+            step=QuantizationStep.PREPARE, base_config=base_config
+        )
         quantize_(model, gptqnew_config)
 
-        # Run calibration
+        # Run calibration (observation)
         for inp in calibration_inputs:
             model(inp)
 
         # Apply GPTQ convert step
-        convert_config = GPTQConfig(step="convert", base_config=base_config)
+        convert_config = GPTQConfig(
+            step=QuantizationStep.CONVERT, base_config=base_config
+        )
         quantize_(model, convert_config)
         out_gptq = model(test_input)
 
