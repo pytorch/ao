@@ -63,91 +63,19 @@ vllm bench throughput --num_prompts 128 --input_len 32 --output_len 2048 --max_m
 
 ## Quantization Techniques
 
-#### A16W4 WeightOnly Quantization
+See the [API Reference documentation](https://docs.pytorch.org/ao/main/api_reference/api_ref_quantization.html) for code examples and detailed documentation for each quantization config:
 
-```python
-import torch
-from torchao.quantization import Int4WeightOnlyConfig, quantize_
+- **float8 weight configs**: `Float8DynamicActivationFloat8WeightConfig`, `Float8WeightOnlyConfig`
+- **int8 weight configs**: `Int8DynamicActivationInt8WeightConfig`, `Int8WeightOnlyConfig`
+- **int4 weight configs**: `Int4WeightOnlyConfig`, `Float8DynamicActivationInt4WeightConfig`, `Int8DynamicActivationInt4WeightConfig`
+- **intx weight configs**: `IntxWeightOnlyConfig`, `Int8DynamicActivationIntxWeightConfig`
 
-# Note: int4_packing_format varies by backend
-if torch.cuda.is_available():
-    # CUDA: Optimized with tile packing and HQQ
-    config = Int4WeightOnlyConfig(group_size=32, int4_packing_format="tile_packed_to_4d", int4_choose_qparams_algorithm="hqq")
-elif torch.xpu.is_available():
-    # XPU: Use plain_int32 packing
-    config = Int4WeightOnlyConfig(group_size=32, int4_packing_format="plain_int32")
-
-quantize_(model, config)
-```
-
-Note: 
+Notes:
 - The quantization error incurred by applying int4 quantization to your model can be fairly significant, so using external techniques like GPTQ may be necessary to obtain a usable model.
+- Float8 quantization requires hardware with CUDA compute capability 8.9 or greater (e.g., H100).
 - Third-party backend CI status:
   - Ascend NPU(requires torch_npu ≥ 2.7.1)
   [![Ascend NPU](https://github.com/Ascend/Ascend-CI/actions/workflows/torchao.yml/badge.svg)](https://github.com/Ascend/Ascend-CI/actions/workflows/torchao.yml)
-  
-#### A16W8 Int8 WeightOnly Quantization
-
-```python
-from torchao.quantization import quantize_, Int8WeightOnlyConfig
-quantize_(model, Int8WeightOnlyConfig())
-```
-
-#### A8W8 Int8 Dynamic Quantization
-
-```python
-from torchao.quantization import quantize_, Int8DynamicActivationInt8WeightConfig
-quantize_(model, Int8DynamicActivationInt8WeightConfig())
-```
-
-#### A16W8 Float8 WeightOnly Quantization
-
-```python
-# for torch 2.5+
-from torchao.quantization import quantize_, Float8WeightOnlyConfig
-quantize_(model, Float8WeightOnlyConfig())
-```
-
-Supports all dtypes for original weight and activation. This API is only tested on H100. Hardware with CUDA compute capability 8.9 or greater is required.
-
-#### A8W8 Float8 Dynamic Quantization with Tensorwise Scaling
-
-```python
-# for torch 2.4+
-from torchao.quantization import quantize_, Float8DynamicActivationFloat8WeightConfig, PerTensor
-quantize_(model, Float8DynamicActivationFloat8WeightConfig(granularity=PerTensor()))
-```
-
-Supports all dtypes for original weight and activation. This API is only tested on H100. Hardware with CUDA compute capability 8.9 or greater is required.
-
-### A8W8 Float8 Dynamic Quantization with Rowwise Scaling
-
-```python
-# for torch 2.5+
-from torchao.quantization import quantize_, PerRow, Float8DynamicActivationFloat8WeightConfig
-quantize_(model, Float8DynamicActivationFloat8WeightConfig(granularity=PerRow()))
-```
-
-Per-row scaling is only supported for bfloat16 weight and activation. This API is only tested on H100. Hardware with CUDA compute capability 8.9 or greater is required.
-
-#### Workaround with `unwrap_tensor_subclass` for `export`, `AOTI` and `torch.compile`
-
-If you are using pytorch 2.6 or before, you need to call `unwrap_tensor_subclass` before `torch.export.export` and `aot_compile`:
-```
-from torchao.utils import unwrap_tensor_subclass
-m_unwrapped = unwrap_tensor_subclass(m)
-
-
-# export
-m = torch.export.export(m_unwrapped, example_inputs).module()
-
-# aot_compile
-torch._export.aot_compile(m_unwrapped, example_inputs)
-```
-
-If you are using pytorch 2.4 or before, you'll also need `unwrap_tensor_subclass` before calling `torch.compile` as well.
-
-Note that the workaround is also required for `torch.compile` with `freezing` (`torch._inductor.config.freezing=True`) until https://github.com/pytorch/pytorch/pull/136265 is fixed.
 
 ## Other Available Quantization Techniques
 
