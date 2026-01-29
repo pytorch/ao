@@ -16,3 +16,4 @@ Tutorials for quantization using eager mode execution.
    static_quantization
    subclass_basic
    subclass_advanced
+   mxfp8_expert_parallel_training
