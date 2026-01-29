@@ -322,7 +322,7 @@ def _test_scaled_embedding_bag_cpu_helper(
     m.weight.data = qweight.to(m.weight.dtype)
 
     out_scale = 1.0
-    if out_dtype == torch.int8:
+    if out_dtype in [torch.int8, torch.float8_e4m3fn]:
         out_scale = 2.0
 
     with torch.no_grad():
@@ -330,6 +330,12 @@ def _test_scaled_embedding_bag_cpu_helper(
         if out_dtype == torch.int8:
             refe_out = torch.round(refe_out / out_scale).to(torch.int32)
             refe_out = torch.clamp(refe_out, -128, 127).to(out_dtype)
+            atol = rtol = 1e-5
+        if out_dtype == torch.float8_e4m3fn:
+            refe_out = torch.clamp(refe_out / out_scale, -448, 448).to(out_dtype)
+            # Rtol=1e-5 and atol=1e-5 are not supported for bitwise comparison of low dimensional floats.
+            # Please use rtol=0.0 and atol=0.0.
+            atol = rtol = 0.0
         test_out = torch.ops.torchao._scaled_embedding_bag(
             qweight,
             indices,
@@ -340,7 +346,7 @@ def _test_scaled_embedding_bag_cpu_helper(
             include_last_offset,
             out_dtype,
         )
-        torch.testing.assert_close(refe_out, test_out, atol=1e-5, rtol=1e-5)
+        torch.testing.assert_close(refe_out, test_out, atol=atol, rtol=rtol)
 
 
 @pytest.mark.skipif(
@@ -374,9 +380,10 @@ def test_scaled_embedding_bag_int8_cpu(multi_hot, batch_size, vector_size, index
     ids=str,
 )
 def test_scaled_embedding_bag_fp8_cpu(multi_hot, batch_size, vector_size, index_type):
-    _test_scaled_embedding_bag_cpu_helper(
-        multi_hot, batch_size, vector_size, index_type, torch.float8_e4m3fn
-    )
+    for out_dtype in [torch.float, torch.float8_e4m3fn]:
+        _test_scaled_embedding_bag_cpu_helper(
+            multi_hot, batch_size, vector_size, index_type, torch.float8_e4m3fn, out_dtype
+        )
 
 
 @pytest.mark.skipif(

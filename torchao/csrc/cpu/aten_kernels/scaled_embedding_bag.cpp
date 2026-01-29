@@ -33,6 +33,10 @@
       using output_t = int8_t;                                                 \
       return __VA_ARGS__();                                                    \
     }                                                                          \
+    case c10::ScalarType::Float8_e4m3fn: {                                              \
+      using output_t = at::Float8_e4m3fn;                                                 \
+      return __VA_ARGS__();                                                    \
+    }                                                                          \
     default:                                                                   \
       TORCH_CHECK(false, "scaled_embeding_bag: unsupport output type");        \
     }                                                                          \
@@ -131,6 +135,27 @@ static inline void store_chunk(int8_t *output, CHUNK chunk) {
   _mm512_store_si512(output, x00);
   _mm512_store_si512(output + 64, x64);
 }
+
+static inline void store_chunk(at::Float8_e4m3fn *output, CHUNK chunk) {
+  __m512 x0, x1, x2, x3, x4, x5, x6, x7;
+  std::tie(x0, x1, x2, x3, x4, x5, x6, x7) = chunk;
+  _mm_storeu_si128(reinterpret_cast<__m128i *>(output + 0),
+                   at::vec::CPU_CAPABILITY::cvtfp32_fp8e4m3(x0));
+  _mm_storeu_si128(reinterpret_cast<__m128i *>(output + 16),
+                   at::vec::CPU_CAPABILITY::cvtfp32_fp8e4m3(x1));
+  _mm_storeu_si128(reinterpret_cast<__m128i *>(output + 32),
+                   at::vec::CPU_CAPABILITY::cvtfp32_fp8e4m3(x2));
+  _mm_storeu_si128(reinterpret_cast<__m128i *>(output + 48),
+                   at::vec::CPU_CAPABILITY::cvtfp32_fp8e4m3(x3));
+  _mm_storeu_si128(reinterpret_cast<__m128i *>(output + 64),
+                   at::vec::CPU_CAPABILITY::cvtfp32_fp8e4m3(x4));
+  _mm_storeu_si128(reinterpret_cast<__m128i *>(output + 80),
+                   at::vec::CPU_CAPABILITY::cvtfp32_fp8e4m3(x5));
+  _mm_storeu_si128(reinterpret_cast<__m128i *>(output + 96),
+                   at::vec::CPU_CAPABILITY::cvtfp32_fp8e4m3(x6));
+  _mm_storeu_si128(reinterpret_cast<__m128i *>(output + 112),
+                   at::vec::CPU_CAPABILITY::cvtfp32_fp8e4m3(x7));
+}
 #endif
 
 static inline void store_elem(float &out, float input) {
@@ -142,6 +167,10 @@ static inline void store_elem(int8_t &out, float input) {
   float clamped = std::max(-128.0f, std::min(127.0f, rounded));
   int32_t int32_value = static_cast<int32_t>(clamped);
   out = static_cast<int8_t>(int32_value);
+}
+
+static inline void store_elem(at::Float8_e4m3fn &out, float input) {
+  out = at::Float8_e4m3fn(input);
 }
 
 template <typename index_t, typename data_t, typename output_t>
