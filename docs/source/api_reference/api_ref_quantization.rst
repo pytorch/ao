@@ -14,9 +14,35 @@ Main Quantization APIs
     :nosignatures:
 
     quantize_
+    AOBaseConfig
+    FqnToConfig
 
-Inference APIs for quantize\_
--------------------------------
+Workflow Configs
+----------------
+
+float8 weight configs
+~~~~~~~~~~~~~~~~~~~~~
+
+.. autosummary::
+    :toctree: generated/
+    :nosignatures:
+
+    Float8DynamicActivationFloat8WeightConfig
+    Float8DynamicActivationFloat8SemiSparseWeightConfig
+    Float8WeightOnlyConfig
+
+int8 weight configs
+~~~~~~~~~~~~~~~~~~~
+
+.. autosummary::
+    :toctree: generated/
+    :nosignatures:
+
+    Int8DynamicActivationInt8WeightConfig
+    Int8WeightOnlyConfig
+
+int4 weight configs
+~~~~~~~~~~~~~~~~~~~
 
 .. autosummary::
     :toctree: generated/
@@ -24,27 +50,35 @@ Inference APIs for quantize\_
 
     Int4WeightOnlyConfig
     Float8DynamicActivationInt4WeightConfig
-    Float8DynamicActivationFloat8WeightConfig
-    Float8WeightOnlyConfig
     Int8DynamicActivationInt4WeightConfig
-    Int8WeightOnlyConfig
-    Int8DynamicActivationInt8WeightConfig
-    FqnToConfig
 
-.. currentmodule:: torchao.quantization
-
-Quantization Primitives
------------------------
+intx weight configs
+~~~~~~~~~~~~~~~~~~~
 
 .. autosummary::
     :toctree: generated/
     :nosignatures:
 
-    choose_qparams_affine
-    choose_qparams_affine_with_min_max
-    quantize_affine
-    dequantize_affine
-    safe_int_mm
-    int_scaled_matmul
-    MappingType
-    TorchAODType
+    IntxWeightOnlyConfig
+    Int8DynamicActivationIntxWeightConfig
+
+.. currentmodule:: torchao.prototype.mx_formats
+
+mx weight configs (prototype)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. autosummary::
+    :toctree: generated/
+    :nosignatures:
+
+    MXDynamicActivationMXWeightConfig
+
+nvfp4 weight configs (prototype)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. autosummary::
+    :toctree: generated/
+    :nosignatures:
+
+    NVFP4DynamicActivationNVFP4WeightConfig
+    NVFP4WeightOnlyConfig
