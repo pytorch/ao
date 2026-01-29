@@ -3,6 +3,8 @@
 #
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
+import warnings
+
 import torch
 import torch.nn.functional as F
 from torch.utils._python_dispatch import return_and_correct_aliasing
@@ -1241,6 +1243,12 @@ def autoquant(
         model(*example_input2)
         model.finalize_autoquant()
     """
+    warnings.warn(
+        "torchao.autoquant is deprecated and will be removed in a future release. "
+        "For more information, see: https://github.com/pytorch/ao/issues/3739",
+        FutureWarning,
+        stacklevel=2,
+    )
     torch._C._log_api_usage_once("torchao.quantization.autoquant")
 
     if set_inductor_config:
