@@ -1,6 +1,13 @@
 Welcome to the torchao Documentation
 ====================================
 
+PyTorch-Native Training-to-Serving Model Optimization
+-----------------------------------------------------
+
+- Pre-train Llama-3.1-70B **1.5x faster** with float8 training
+- Recover **67% of quantized accuracy degradation** on Gemma3-4B with QAT
+- Quantize Llama-3-8B to int4 for **1.89x faster** inference with **58% less memory**
+
 `torchao <https://github.com/pytorch/ao>`__ is a library for custom data types and optimizations.
 Quantize and sparsify weights, gradients, optimizers, and activations for inference and training
 using native PyTorch. Please checkout torchao `README <https://github.com/pytorch/ao#torchao-pytorch-architecture-optimization>`__
@@ -9,177 +16,56 @@ for an overall introduction to the library and recent highlight and updates.
 Quick Start
 -----------
 
-In this quick start guide, we will explore how to perform basic quantization using torchao.
+First, install TorchAO. We recommend installing the latest stable version:
 
-Follow `torchao installation and compatibility guide <https://github.com/pytorch/ao#-installation>`__ to install torchao and compatible pytorch.
+.. code:: bash
 
-First Quantization Example
-==========================
+    pip install torchao
 
-The main entry point for quantization in torchao is the `quantize_ <https://pytorch.org/ao/stable/generated/torchao.quantization.quantize_.html#torchao.quantization.quantize_>`__ API.
-This function mutates your model inplace based on the quantization config you provide.
-All code in this guide can be found in this `example script <https://github.com/pytorch/ao/blob/main/scripts/quick_start.py>`__.
+Quantize your model weights to int4!
 
-Setting Up the Model
-~~~~~~~~~~~~~~~~~~~~~
+.. code:: python
 
-First, let's create a simple model:
+    import torch
+    from torchao.quantization import Int4WeightOnlyConfig, quantize_
+    if torch.cuda.is_available():
+      # quantize on CUDA
+      quantize_(model, Int4WeightOnlyConfig(group_size=32, int4_packing_format="tile_packed_to_4d", int4_choose_qparams_algorithm="hqq"))
+    elif torch.xpu.is_available():
+      # quantize on XPU
+      quantize_(model, Int4WeightOnlyConfig(group_size=32, int4_packing_format="plain_int32"))
 
-.. code:: py
+See our `first quantization example <eager_quantization/first_quantization_example.html>`__ for more details.
 
-    class ToyLinearModel(torch.nn.Module):
-        def __init__(
-            self,
-            input_dim,
-            hidden_dim,
-            output_dim,
-            dtype,
-            device,
-            has_bias=False,
-        ):
-            super().__init__()
-            self.dtype = dtype
-            self.device = device
-            self.linear1 = torch.nn.Linear(
-                input_dim, hidden_dim, bias=has_bias, dtype=dtype, device=device
-            )
-            self.linear2 = torch.nn.Linear(
-                hidden_dim, output_dim, bias=has_bias, dtype=dtype, device=device
-            )
+Installation
+------------
 
-        def example_inputs(self, batch_size=1):
-            return (
-                torch.randn(
-                    batch_size,
-                    self.linear1.in_features,
-                    dtype=self.dtype,
-                    device=self.device,
-                ),
-            )
+To install the latest stable version:
 
-        def forward(self, x):
-            x = self.linear1(x)
-            x = self.linear2(x)
-            return x
+.. code:: bash
 
+    pip install torchao
 
-    model = ToyLinearModel(
-        1024, 1024, 1024, device="cuda", dtype=torch.bfloat16
-    ).eval()
-    model_w16a16 = copy.deepcopy(model)
-    model_w8a8 = copy.deepcopy(model)  # We will quantize in next chapter!
+Other installation options:
 
-W8A8-INT: 8-bit Dynamic Activation and Weight Quantization
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+.. code:: bash
 
-Dynamic quantization quantizes both weights and activations at runtime.
-This provides better accuracy than weight-only while still offering speedup:
+    # Nightly
+    pip install --pre torchao --index-url https://download.pytorch.org/whl/nightly/cu128
 
-.. code:: py
+    # Different CUDA versions
+    pip install torchao --index-url https://download.pytorch.org/whl/cu126  # CUDA 12.6
+    pip install torchao --index-url https://download.pytorch.org/whl/cu129  # CUDA 12.9
+    pip install torchao --index-url https://download.pytorch.org/whl/xpu    # XPU
+    pip install torchao --index-url https://download.pytorch.org/whl/cpu    # CPU only
 
-    from torchao.quantization import Int8DynamicActivationInt8WeightConfig, quantize_
+    # For developers
+    # Note: the --no-build-isolation flag is required.
+    USE_CUDA=1 pip install -e . --no-build-isolation
+    USE_XPU=1 pip install -e . --no-build-isolation
+    USE_CPP=0 pip install -e . --no-build-isolation
 
-    quantize_(model_w8a8, Int8DynamicActivationInt8WeightConfig())
-
-The model structure remains unchanged - only weight tensors are quantized. You can verify quantization by checking the weight tensor type:
-
-  >>> print(type(model_w8a8.linear1.weight).__name__)
-  'Int8Tensor'
-
-The quantized model is now ready to use! Note that the quantization
-logic is inserted through tensor subclasses, so there is no change
-to the overall model structure; only the weights tensors are updated.
-
-Model Size Comparison
-^^^^^^^^^^^^^^^^^^^^^
-
-The int8 quantized model achieves approximately 2x size reduction compared to the original bfloat16 model.
-You can verify this by saving both models to disk and comparing file sizes:
-
-.. code:: py
-
-    import os
-
-    # Save models
-    torch.save(model_w16a16.state_dict(), "model_w16a16.pth")
-    torch.save(model_w8a8.state_dict(), "model_w8a8.pth")
-
-    # Compare file sizes
-    original_size = os.path.getsize("model_w16a16.pth") / 1024**2
-    quantized_size = os.path.getsize("model_w8a8.pth") / 1024**2
-    print(
-        f"Size reduction: {original_size / quantized_size:.2f}x ({original_size:.2f}MB -> {quantized_size:.2f}MB)"
-    )
-
-Output::
-
-  Size reduction: 2.00x (4.00MB -> 2.00MB)
-
-Speedup Comparison
-^^^^^^^^^^^^^^^^^^
-
-Let's demonstrate that not only is the quantized model smaller, but it is also faster.
-
-.. code:: py
-
-    import time
-
-    # Optional: compile model for faster inference and generation
-    model_w16a16 = torch.compile(model, mode="max-autotune", fullgraph=True)
-    model_w8a8 = torch.compile(model_w8a8, mode="max-autotune", fullgraph=True)
-
-    # Get example inputs
-    example_inputs = model_w8a8.example_inputs(batch_size=128)
-
-    # Warmup
-    for _ in range(10):
-        _ = model_w8a8(*example_inputs)
-        _ = model_w16a16(*example_inputs)
-    torch.cuda.synchronize()
-
-    # Throughput: original model
-    torch.cuda.synchronize()
-    start = time.time()
-    for _ in range(100):
-        _ = model_w16a16(*example_inputs)
-    torch.cuda.synchronize()
-    original_time = time.time() - start
-
-    # Throughput: Quantized (W8A8-INT) model
-    torch.cuda.synchronize()
-    start = time.time()
-    for _ in range(100):
-        _ = model_w8a8(*example_inputs)
-    torch.cuda.synchronize()
-    quantized_time = time.time() - start
-
-    print(f"Speedup: {original_time / quantized_time:.2f}x")
-
-Output::
-
-    Speedup: 1.03x
-
-.. note::
-   The speedup results can vary significantly based on hardware and model. We recommend CUDA-enabled GPUs and models larger than 8B for best performance.
-
-Both weights and activations are quantized to int8, reducing model size by ~2x. Speedup is not enough in small toy model because it requires dynamic overhead. For comprehensive benchmark results and detailed evaluation workflows on production models,
-see the `quantization benchmarks <https://github.com/pytorch/ao/blob/main/torchao/quantization/README.md>`__.
-
-
-We will address how to evaluate quantized model using `vLLM` and `lm-eval` in `model serving <eager_quantization/serving.html>`__ post.
-
-Next Steps
-==========
-
-In this quick start guide, we learned how to quantize a simple model with
-torchao. To learn more about the different workflows supported in torchao,
-see our main `README <https://github.com/pytorch/ao/blob/main/README.md>`__.
-For a more detailed overview of quantization in torchao, visit
-`this page <developer_notes/quantization_overview.html>`__.
-
-Finally, if you would like to contribute to torchao, don't forget to check
-out our `contributor guide <developer_notes/contributor_guide.html>`__ and our list of
-`good first issues <https://github.com/pytorch/ao/issues?q=is%3Aissue%20state%3Aopen%20label%3A%22good%20first%20issue%22>`__ on Github!
+Please see the `torchao compatibility table <https://github.com/pytorch/ao/issues/2919>`__ for version requirements for dependencies.
 
 .. toctree::
    :glob:
