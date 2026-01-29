@@ -9,6 +9,7 @@ from typing import Iterable, Optional, Tuple, Union
 import torch
 import torch.distributed as dist
 from torch.distributed._functional_collectives import AsyncCollectiveTensor, all_reduce
+from torch.nn.functional import ScalingType
 
 from torchao.float8.config import ScalingGranularity
 
@@ -26,6 +27,32 @@ FP8_TYPES = {
     torch.float8_e4m3fnuz,
     torch.float8_e5m2fnuz,
 }
+
+
+def infer_float8_scaling(
+    a: torch.Tensor,
+    scale: torch.Tensor,
+) -> ScalingType:
+    """
+    Infer based on the shapes of the tensor & its scale
+    what form of scaling we're doing.
+    Note: This only handles tensor/row-wise scaling.
+    """
+    # Tensor-wise: single scale for entire tensor
+    if scale.numel() == 1:
+        return ScalingType.TensorWise
+
+    # Row-wise: one scale per row or column
+    if scale.ndim >= 2:
+        if (
+            (scale.shape[0] == a.shape[0])
+            and (scale.shape[1] == 1)
+            or (scale.shape[0] == 1)
+            and (scale.shape[1] == a.shape[1])
+        ):
+            return ScalingType.RowWise
+
+    raise ValueError(f"Could not infer scaling from a: {a.shape}, scale: {scale.shape}")
 
 
 @torch.no_grad()
@@ -200,7 +227,7 @@ def pad_tensor_for_matmul(
     tensor: torch.Tensor, dims: Union[int, Iterable[int]]
 ) -> torch.Tensor:
     """
-    Pads a 2D tensor with zeros to ensure that its dimensions are multiples of 16, which is required `torch._scaled_mm`
+    Pads a 2D tensor with zeros to ensure that its dimensions are multiples of 16, which is required by `F.scaled_mm`
 
     Args:
         tensor: The tensor to pad.

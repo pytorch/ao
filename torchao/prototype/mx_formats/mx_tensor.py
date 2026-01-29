@@ -682,13 +682,17 @@ def _addmm_mx_dispatch(
 
         if a._elem_dtype == torch.float8_e4m3fn:
             assert b._elem_dtype == torch.float8_e4m3fn
-            res = torch._scaled_mm(
+            res = F.scaled_mm(
                 a.qdata,
                 b.qdata,
-                a_scale_block.view(torch.float8_e8m0fnu),
-                b_scale_block.view(torch.float8_e8m0fnu),
+                scale_a=a_scale_block.view(torch.float8_e8m0fnu),
+                scale_recipe_a=ScalingType.BlockWise1x32,
+                scale_b=b_scale_block.view(torch.float8_e8m0fnu),
+                scale_recipe_b=ScalingType.BlockWise1x32,
+                swizzle_a=SwizzleType.SWIZZLE_32_4_4,
+                swizzle_b=SwizzleType.SWIZZLE_32_4_4,
                 bias=bias,
-                out_dtype=torch.bfloat16,
+                output_dtype=torch.bfloat16,
             )
         else:
             assert a._elem_dtype == torch.float4_e2m1fn_x2

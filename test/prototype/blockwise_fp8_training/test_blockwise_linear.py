@@ -9,11 +9,11 @@ import copy
 import pytest
 import torch
 
-from torchao.utils import is_sm_at_least_90
+from torchao.utils import is_sm_exactly_90
 
 triton = pytest.importorskip("triton", reason="Triton required to run this test")
-if not is_sm_at_least_90():
-    pytest.skip("This test requires SM90 or higher", allow_module_level=True)
+if not is_sm_exactly_90():
+    pytest.skip("This test requires SM90 exactly", allow_module_level=True)
 
 
 from torchao.float8.float8_utils import compute_error

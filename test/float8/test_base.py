@@ -587,7 +587,7 @@ class TestScaledMM:
         )
 
         with pytest.raises(
-            RuntimeError,
+            ValueError,
             match=re.escape(
                 "Expected trailing dimension of mat1 to be divisible by 16 but got mat1 shape: (16x41"
             ),

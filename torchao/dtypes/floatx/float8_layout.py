@@ -331,7 +331,7 @@ def _linear_fp8_act_fp8_weight_impl(
     weight_tensor: "AffineQuantizedTensor",
     bias: Optional[torch.Tensor],
 ):
-    """Implements matmul between FP8 input and FP8 weight with compute using _scaled_mm"""
+    """Implements matmul between FP8 input and FP8 weight with compute using scaled_mm"""
     scaled_mm_config = weight_tensor._layout.mm_config
     assert scaled_mm_config is not None
     assert not weight_tensor.tensor_impl.transposed, "Weight tensor must be contiguous"

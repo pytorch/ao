@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import torch
+import torch.nn.functional as F
 from torch import nn
 
 from torchao.core.config import AOBaseConfig
@@ -20,7 +21,34 @@ from torchao.prototype.blockwise_fp8_training.kernels import (
 from torchao.quantization.transform_module import (
     register_quantize_module_handler,
 )
-from torchao.utils import is_sm_at_least_90
+
+# Note: cublasLt only supports DeepSeek-style scaling on Hopper (sm90),
+#       _NOT_ 90+
+from torchao.utils import is_sm_exactly_90
+
+
+def triton_mm_1x128_128x128_wrap(
+    a, b, scale_a, scale_recipe_a, scale_b, scale_recipe_b, output_dtype
+) -> torch.Tensor:
+    return triton_fp8_gemm_1x128_128x128(
+        a,
+        b,
+        scale_a,
+        scale_b,
+        out_dtype=output_dtype,
+    )
+
+
+def triton_mm_1x128_128x1_wrap(
+    a, b, scale_a, scale_recipe_a, scale_b, scale_recipe_b, output_dtype
+) -> torch.Tensor:
+    return triton_fp8_gemm_1x128_128x1(
+        a,
+        b,
+        scale_a,
+        scale_b,
+        out_dtype=output_dtype,
+    )
 
 
 class fp8_blockwise_mm(torch.autograd.Function):
@@ -42,13 +70,15 @@ class fp8_blockwise_mm(torch.autograd.Function):
         )
 
         # out = input @ weight.T
-        fp8_gemm = triton_fp8_gemm_1x128_128x128 if use_triton else torch._scaled_mm
+        fp8_gemm = triton_mm_1x128_128x128_wrap if use_triton else F.scaled_mm
         out = fp8_gemm(
             x_fp8,
             weight_t_fp8,
             x_scale,
+            F.ScalingType.BlockWise1x128,
             weight_t_scale,
-            out_dtype=out_dtype,
+            F.ScalingType.BlockWise128x128,
+            output_dtype=out_dtype,
         )
         out = out.reshape(*x_orig_shape[:-1], out.shape[-1])
         ctx.save_for_backward(x, weight)
@@ -87,14 +117,16 @@ class fp8_blockwise_mm(torch.autograd.Function):
 
         # grad_x = grad_output @ weight
         fp8_gemm_1x128_128x128 = (
-            triton_fp8_gemm_1x128_128x128 if use_triton else torch._scaled_mm
+            triton_mm_1x128_128x128_wrap if use_triton else F.scaled_mm
         )
         grad_x = fp8_gemm_1x128_128x128(
             grad_output_fp8,
             weight_fp8,
             grad_output_scale,
+            F.ScalingType.BlockWise1x128,
             weight_scale,
-            out_dtype=out_dtype,
+            F.ScalingType.BlockWise1x128,
+            output_dtype=out_dtype,
         )
 
         # Cast grad_output_t to fp8 blockwise with (1 x block_size) scaling groups, since it is
@@ -113,15 +145,15 @@ class fp8_blockwise_mm(torch.autograd.Function):
         x_fp8, x_scale = triton_fp8_blockwise_act_quant_rhs(x, block_size)
 
         # grad_weight = grad_output.T @ x
-        fp8_gemm_1x128_128x1 = (
-            triton_fp8_gemm_1x128_128x1 if use_triton else torch._scaled_mm
-        )
+        fp8_gemm_1x128_128x1 = triton_mm_1x128_128x1_wrap if use_triton else F.scaled_mm
         grad_weight = fp8_gemm_1x128_128x1(
             grad_output_t_fp8,
             x_fp8,
             grad_output_t_scale,
+            F.ScalingType.BlockWise1x128,
             x_scale,
-            out_dtype=out_dtype,
+            F.ScalingType.BlockWise1x128,
+            output_dtype=out_dtype,
         )
 
         # Reshape grad_x to expected potentially 3D+ shape
@@ -158,10 +190,13 @@ class Float8BlockwiseLinear(nn.Linear):
         assert dtype in self.supported_dtypes, (
             f"Unsupported dtype: {dtype}. Supported dtypes: {self.supported_dtypes}"
         )
-        assert is_sm_at_least_90(), "Only support SM90"
+        # Note: Triton kernels are broken (as-of 01/29/26), so must only run on
+        #       H100 w/cublasLt
+        assert is_sm_exactly_90(), "Only supported on SM90 + cublasLt"
         self.block_size = block_size
         self.dtype = dtype
-        self.use_triton = use_triton
+        # Must use triton on non-Hopper.
+        self.use_triton = use_triton or not is_sm_exactly_90()
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
