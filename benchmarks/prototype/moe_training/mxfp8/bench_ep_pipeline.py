@@ -78,6 +78,7 @@ def get_configs() -> List[ExperimentConfig]:
     configs = [
         ExperimentConfig(num_tokens=131072, dim=8192, hidden_dim=5120, num_experts=8),
         ExperimentConfig(num_tokens=131072, dim=7168, hidden_dim=2048, num_experts=8),
+        ExperimentConfig(num_tokens=131072, dim=2048, hidden_dim=1408, num_experts=8),
     ]
     return configs
 
@@ -201,7 +202,7 @@ def mxfp8_pipeline(
         input_tensor,
         output_splits_list,
         input_splits_list,
-        group=group,
+        group_name=group.group_name,
     )
 
     # Step 2: Permute - maintains MXTensor
@@ -243,7 +244,7 @@ def mxfp8_pipeline(
         unpermuted,
         output_splits=input_splits_list,
         input_splits=output_splits_list,
-        group=group,
+        group_name=group.group_name,
         mxfp8_bwd=True,
     )
 
