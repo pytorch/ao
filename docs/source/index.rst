@@ -98,6 +98,6 @@ Please see the `torchao compatibility table <https://github.com/pytorch/ao/issue
 .. toctree::
    :glob:
    :maxdepth: 1
-   :caption: PT2E Quantization Tutorials
+   :caption: PT2E Quantization
 
    pt2e_quantization/index
