@@ -38,7 +38,7 @@ import torchao.quantization.pt2e.quantizer.x86_inductor_quantizer as xiq
 from torchao.quantization.pt2e.quantizer.x86_inductor_quantizer import (
     X86InductorQuantizer,
 )
-from torchao.testing.pt2e.utils import _generate_qdq_quantized_model, qdq_fp8
+from torchao.testing.pt2e.utils import _generate_ref_quantized_model, qdq_fp8
 from torchao.utils import torch_version_at_least
 
 # The dict value is match_nodes(computation_op+unary_op)
@@ -188,7 +188,7 @@ class TestPatternMatcherBase(TestCase):
             assert check_autocast == torch.float32
             maybe_autocast = contextlib.nullcontext()
         if check_quantization:
-            convert_model = _generate_qdq_quantized_model(
+            convert_model = _generate_ref_quantized_model(
                 mod, inputs, is_qat, is_dynamic, quantizer, is_fp8
             )
             with torch.no_grad(), maybe_autocast:
@@ -219,7 +219,7 @@ class TestPatternMatcherBase(TestCase):
         with torch.no_grad():
             clone_inputs = self._clone_inputs(inputs)
             if check_quantization:
-                mod = _generate_qdq_quantized_model(
+                mod = _generate_ref_quantized_model(
                     mod, inputs, quantizer=quantizer, is_fp8=is_fp8
                 )
             expected = mod(*inputs)

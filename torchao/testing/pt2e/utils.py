@@ -222,7 +222,7 @@ class PT2ENumericDebuggerTestCase(TestCase):
         )
 
 
-def get_default_quantizer(is_qat, is_dynamic):
+def get_default_x86_quantizer(is_qat, is_dynamic):
     """
     Create a default X86InductorQuantizer configured for the given mode (QAT and dynamic quant).
     """
@@ -408,7 +408,7 @@ def fp8_convert_(model):
         setattr(parent, name, patched_mod)
 
 
-def _generate_qdq_quantized_model(
+def _generate_ref_quantized_model(
     mod,
     inputs,
     is_qat=False,
@@ -417,7 +417,7 @@ def _generate_qdq_quantized_model(
     is_fp8=False,
 ):
     """
-    Generate a quantized model with QDQ (fake quant) pattern
+    Generate a reference-quantized model with quant/dequant (fake quant) pattern
     For INT8: using the PT2E quantization flow.
     For FP8: using `fp8_convert_`.
     """
@@ -432,7 +432,9 @@ def _generate_qdq_quantized_model(
         else:
             export_model = torch.export.export(mod, inputs, strict=True).module()
             quantizer = (
-                quantizer if quantizer else get_default_quantizer(is_qat, is_dynamic)
+                quantizer
+                if quantizer
+                else get_default_x86_quantizer(is_qat, is_dynamic)
             )
             prepare_model = (
                 prepare_qat_pt2e(export_model, quantizer)
