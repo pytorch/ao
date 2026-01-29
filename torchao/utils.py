@@ -153,10 +153,8 @@ def get_available_devices():
 
 
 def get_current_accelerator_device():
-    if torch.accelerator.is_available():
-        return torch.accelerator.current_accelerator()
-    else:
-        return None
+    assert torch.accelerator.is_available()
+    return torch.accelerator.current_accelerator()
 
 
 def get_compute_capability():
@@ -862,9 +860,9 @@ class TorchAOBaseTensor(torch.Tensor):
 
     @classmethod
     def __init_subclass__(cls, **kwargs):
-        if not hasattr(cls, "_ATEN_OP_TABLE"):
+        if "_ATEN_OP_TABLE" not in cls.__dict__:
             cls._ATEN_OP_TABLE = {}
-        if not hasattr(cls, "_TORCH_FN_TABLE"):
+        if "_TORCH_FN_TABLE" not in cls.__dict__:
             cls._TORCH_FN_TABLE = {}
         if cls not in cls._ATEN_OP_TABLE:
             cls._ATEN_OP_TABLE[cls] = {}
@@ -880,10 +878,14 @@ class TorchAOBaseTensor(torch.Tensor):
         # inherit the torch function and dispatch implementations from direct parent classes
         # e.g. for `class C(B, A)`, C.__bases__ == (B, A)
         for parent in cls.__bases__:
-            if hasattr(cls, "_ATEN_OP_TABLE") and parent in cls._ATEN_OP_TABLE:
-                cls._ATEN_OP_TABLE[cls].update(cls._ATEN_OP_TABLE[parent])
-            if hasattr(cls, "_TORCH_FN_TABLE") and parent in cls._TORCH_FN_TABLE:
-                cls._TORCH_FN_TABLE[cls].update(cls._TORCH_FN_TABLE[parent])
+            parent_aten_table = getattr(parent, "_ATEN_OP_TABLE", None)
+            if parent_aten_table and parent in parent_aten_table:
+                # shallow-copy parent's per-class op mapping into child's per-class mapping
+                cls._ATEN_OP_TABLE[cls].update(parent_aten_table[parent])
+
+            parent_torch_table = getattr(parent, "_TORCH_FN_TABLE", None)
+            if parent_torch_table and parent in parent_torch_table:
+                cls._TORCH_FN_TABLE[cls].update(parent_torch_table[parent])
 
     implements = classmethod(_implements)
     implements_torch_function = classmethod(_implements_torch_function)

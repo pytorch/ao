@@ -44,8 +44,6 @@ from torchao.utils import (
 _SEED = 1234
 torch.manual_seed(_SEED)
 
-_DEVICE = get_current_accelerator_device()
-
 
 # Helper function to run a function twice
 # and verify that the result is the same.
@@ -600,8 +598,9 @@ class TestQuantPrimitives(unittest.TestCase):
     )
     def test_get_group_qparams_symmetric_memory(self):
         """Check the memory usage of the op"""
-        weight = torch.randn(1024, 1024).to(device=_DEVICE)
-        device_module = torch.get_device_module(_DEVICE)
+        device = get_current_accelerator_device()
+        weight = torch.randn(1024, 1024).to(device=device)
+        device_module = torch.get_device_module(device)
         original_mem_use = device_module.memory_allocated()
         n_bit = 4
         groupsize = 128
