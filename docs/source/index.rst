@@ -72,7 +72,7 @@ Please see the `torchao compatibility table <https://github.com/pytorch/ao/issue
    :maxdepth: 1
    :caption: Workflows
 
-   workflows
+   workflows/index
 
 .. toctree::
    :glob:
