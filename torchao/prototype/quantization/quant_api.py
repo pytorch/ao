@@ -512,6 +512,7 @@ def _float8_static_activation_float8_weight_transform(
                 eps=torch.finfo(torch.float32).eps,
                 scale_dtype=torch.float32,
                 zero_point_dtype=torch.float32,
+                keepdim=True,
             )
             return Float8ObservedSoftmax.from_float(module, output_observer)
 
@@ -524,6 +525,7 @@ def _float8_static_activation_float8_weight_transform(
             eps=torch.finfo(torch.float32).eps,
             scale_dtype=torch.float32,
             zero_point_dtype=torch.float32,
+            keepdim=True,
         )
         # Create output observer if quantize_and_dequantize_output is True
         output_observer = None
@@ -535,6 +537,7 @@ def _float8_static_activation_float8_weight_transform(
                 eps=torch.finfo(torch.float32).eps,
                 scale_dtype=torch.float32,
                 zero_point_dtype=torch.float32,
+                keepdim=True,
             )
         return Float8ObservedLinear.from_float(module, input_observer, output_observer)
 
@@ -549,8 +552,6 @@ def _float8_static_activation_float8_weight_transform(
 
             # Extract output scale from observer
             output_act_quant_scale, _ = module.output_act_obs.calculate_qparams()
-            if output_act_quant_scale.ndim == 0:
-                output_act_quant_scale = output_act_quant_scale.view(1, 1)
 
             output_act_quant_kwargs = QuantizeTensorToFloat8Kwargs(
                 float8_dtype=config.activation_dtype,
@@ -573,12 +574,7 @@ def _float8_static_activation_float8_weight_transform(
             return module
 
         # Extract activation scale from observer
-        # Scale needs to be 2D for 2D activation tensors
         act_quant_scale, _ = module.input_act_obs.calculate_qparams()
-        if act_quant_scale.ndim == 0:
-            # TODO: add keep_dim arg for `choose_qparams_affine_with_min_max`
-            # to avoid this workaround
-            act_quant_scale = act_quant_scale.view(1, 1)
 
         if config.set_inductor_config:
             torchao.quantization.utils.recommended_inductor_config_setter()
@@ -591,8 +587,6 @@ def _float8_static_activation_float8_weight_transform(
         output_act_quant_kwargs = None
         if module.output_act_obs is not None:
             output_act_quant_scale, _ = module.output_act_obs.calculate_qparams()
-            if output_act_quant_scale.ndim == 0:
-                output_act_quant_scale = output_act_quant_scale.view(1, 1)
             output_act_quant_kwargs = QuantizeTensorToFloat8Kwargs(
                 float8_dtype=activation_dtype,
                 granularity=granularity,
