@@ -9,16 +9,16 @@
   <meta name="robots" content="noindex">
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
-<meta property="og:title" content="(Part 2) Fine-tuning with QAT, QLoRA, and float8" />
+<meta property="og:title" content="Quantization-Aware Training (QAT)" />
 <meta property="og:type" content="website" />
-<meta property="og:url" content="http://pytorch.org/eager_quantization/finetuning.html" />
+<meta property="og:url" content="http://pytorch.org/workflows/qat.html" />
 <meta property="og:site_name" content="torchao" />
-<meta property="og:description" content="TorchAO provides an end-to-end pre-training, fine-tuning, and serving model optimization flow by leveraging our quantization and sparsity techniques integrated into our partner frameworks. This is ..." />
+<meta property="og:description" content="Quantization-Aware Training (QAT) refers to applying fake quantization during the training or fine-tuning process, such that the final quantized model will exhibit higher accuracies and lower perpl..." />
 <meta property="og:image" content="https://pytorch.org/assets/images/social-share.jpg" />
 <meta property="og:image:alt" content="torchao" />
-<meta name="description" content="TorchAO provides an end-to-end pre-training, fine-tuning, and serving model optimization flow by leveraging our quantization and sparsity techniques integrated into our partner frameworks. This is ..." />
+<meta name="description" content="Quantization-Aware Training (QAT) refers to applying fake quantization during the training or fine-tuning process, such that the final quantized model will exhibit higher accuracies and lower perpl..." />
 
-    <title>(Part 2) Fine-tuning with QAT, QLoRA, and float8 &#8212; torchao main documentation</title>
+    <title>Quantization-Aware Training (QAT) &#8212; torchao main documentation</title>
   
   
   
@@ -63,11 +63,11 @@
     <script src="../_static/clipboard.min.js"></script>
     <script src="../_static/copybutton.js"></script>
     <script src="../_static/design-tabs.js"></script>
-    <link rel="canonical" href="https://pytorch.org/ao/eager_quantization/finetuning.html" />
+    <link rel="canonical" href="https://pytorch.org/ao/workflows/qat.html" />
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="(Part 3) Serving on vLLM, SGLang, ExecuTorch" href="serving.html" />
-    <link rel="prev" title="(Part 1) Pre-training with float8" href="pretraining.html" />
+    <link rel="next" title="API Reference" href="../api_reference/index.html" />
+    <link rel="prev" title="Workflows" href="index.html" />
 
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
@@ -616,8 +616,8 @@
 <nav>
   <ul class="bd-navbar-elements navbar-nav">
     
-<li class="nav-item ">
-  <a class="nav-link nav-internal" href="../workflows/index.html">
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="index.html">
     Workflows
   </a>
 </li>
@@ -630,8 +630,8 @@
 </li>
 
 
-<li class="nav-item current active">
-  <a class="nav-link nav-internal" href="index.html">
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../eager_quantization/index.html">
     Eager Quantization Tutorials
   </a>
 </li>
@@ -779,8 +779,8 @@ document.write(`
 <nav>
   <ul class="bd-navbar-elements navbar-nav">
     
-<li class="nav-item ">
-  <a class="nav-link nav-internal" href="../workflows/index.html">
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="index.html">
     Workflows
   </a>
 </li>
@@ -793,8 +793,8 @@ document.write(`
 </li>
 
 
-<li class="nav-item current active">
-  <a class="nav-link nav-internal" href="index.html">
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../eager_quantization/index.html">
     Eager Quantization Tutorials
   </a>
 </li>
@@ -917,16 +917,7 @@ document.write(`
      aria-label="Section Navigation">
   <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
   <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
-<li class="toctree-l1"><a class="reference internal" href="first_quantization_example.html">First Quantization Example</a></li>
-<li class="toctree-l1"><a class="reference internal" href="pretraining.html">(Part 1) Pre-training with float8</a></li>
-<li class="toctree-l1 current active"><a class="current reference internal" href="#">(Part 2) Fine-tuning with QAT, QLoRA, and float8</a></li>
-<li class="toctree-l1"><a class="reference internal" href="serving.html">(Part 3) Serving on vLLM, SGLang, ExecuTorch</a></li>
-<li class="toctree-l1"><a class="reference internal" href="torchao_vllm_integration.html">Integration with VLLM: Architecture and Usage Guide</a></li>
-<li class="toctree-l1"><a class="reference internal" href="torchao_hf_integration.html">Hugging Face Integration</a></li>
-<li class="toctree-l1"><a class="reference internal" href="serialization.html">Serialization</a></li>
-<li class="toctree-l1"><a class="reference internal" href="static_quantization.html">Static Quantization</a></li>
-<li class="toctree-l1"><a class="reference internal" href="subclass_basic.html">Writing Your Own Quantized Tensor</a></li>
-<li class="toctree-l1"><a class="reference internal" href="subclass_advanced.html">Writing Your Own Quantized Tensor (advanced)</a></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">Quantization-Aware Training (QAT)</a></li>
 </ul>
 </div>
 </nav></div>
@@ -965,9 +956,9 @@ document.write(`
       </a>
     </li>
     
-    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Eager Quantization Tutorials</a></li>
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Workflows</a></li>
     
-    <li class="breadcrumb-item active" aria-current="page">(Part 2)...</li>
+    <li class="breadcrumb-item active" aria-current="page">Quantization...</li>
   </ul>
 </nav>
 </div>
@@ -1010,12 +1001,12 @@ document.write(`
       
       <div itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
         <link itemprop="item" href="index.html">
-        <meta itemprop="name" content="Eager Quantization Tutorials">
+        <meta itemprop="name" content="Workflows">
         <meta itemprop="position" content="1">
       </div>
       
       <div itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
-        <meta itemprop="name" content="(Part 2) Fine-tuning with QAT, QLoRA, and float8">
+        <meta itemprop="name" content="Quantization-Aware Training (QAT)">
         <meta itemprop="position" content="2">
       </div>
     </div>
@@ -1029,147 +1020,44 @@ document.write(`
 <div id="searchbox"></div>
                 <article class="bd-article">
                   
-  <section id="part-2-fine-tuning-with-qat-qlora-and-float8">
-<h1>(Part 2) Fine-tuning with QAT, QLoRA, and float8<a class="headerlink" href="#part-2-fine-tuning-with-qat-qlora-and-float8" title="Permalink to this heading">#</a></h1>
+  <section id="quantization-aware-training-qat">
+<h1>Quantization-Aware Training (QAT)<a class="headerlink" href="#quantization-aware-training-qat" title="Permalink to this heading">#</a></h1>
 <p class="date-info-last-verified" style="color: #6c6c6d; font-size: small;">Created On: Jan 29, 2026 | Last Updated On: Jan 29, 2026</p>
-<p>TorchAO provides an end-to-end pre-training, fine-tuning, and serving
-model optimization flow by leveraging our quantization and sparsity
-techniques integrated into our partner frameworks. This is part 2 of 3
-such tutorials showcasing this end-to-end flow, focusing on the
-fine-tuning step.</p>
-<img alt="static/e2e_flow_part2.png" src="static/e2e_flow_part2.png" />
-<p>Fine-tuning is an important step for adapting your pre-trained model
-to more domain-specific data. In this tutorial, we demonstrate 3 model
-optimization techniques that can be applied to your model during fine-tuning:</p>
-<p>1. <strong>Quantization-Aware Training (QAT)</strong>, for adapting your model to
-quantization numerics during fine-tuning, with the goal of mitigating
-quantization degradations in your fine-tuned model when it is quantized
-eventually, e.g. in the serving step. Check out <a class="reference external" href="https://pytorch.org/blog/quantization-aware-training/">our blog</a>
-and <a class="reference external" href="https://github.com/pytorch/ao/blob/main/torchao/quantization/qat/README.md">README</a> for more details!</p>
-<p>2. <strong>Quantized Low-Rank Adaptation (QLoRA)</strong>, for reducing the resource
-requirement of fine-tuning by introducing small, trainable low-rank
-matrices and freezing the original pre-trained checkpoint, a type of
-Parameter-Efficient Fine-Tuning (PEFT). Please refer to the <a class="reference external" href="https://arxiv.org/pdf/2305.14314">original
-paper</a> for more details.</p>
-<p>3. <strong>Float8 Quantized Fine-tuning</strong>, for speeding up fine-tuning by
-dynamically quantizing high precision weights and activations to float8,
-similar to <a class="reference external" href="pretraining.html">pre-training in float8</a>.</p>
-<section id="quantization-aware-training-qat">
-<h2>Quantization-Aware Training (QAT)<a class="headerlink" href="#quantization-aware-training-qat" title="Permalink to this heading">#</a></h2>
-<p>The goal of Quantization-Aware Training is to adapt the model to
-quantization numerics during training or fine-tuning, so as to mitigate
-the inevitable quantization degradation when the model is actually
-quantized eventually, presumably during the serving step after fine-tuning.
-TorchAO’s QAT support has been used successfully for the recent release of
-the <a class="reference external" href="https://ai.meta.com/blog/meta-llama-quantized-lightweight-models/">Llama-3.2 quantized 1B/3B</a>
-and the <a class="reference external" href="https://github.com/meta-llama/PurpleLlama/blob/main/Llama-Guard3/8B/MODEL_CARD.md">LlamaGuard-3-8B</a> models to improve the quality of the quantized models.</p>
-<p>TorchAO’s QAT support involves two separate steps: prepare and convert.
-The prepare step “fake” quantizes activations and/or weights during
-training, which means, the high precision values (e.g. bf16) are mapped
-to their corresponding quantized values <em>without</em> actually casting them
-to the target lower precision dtype (e.g. int4). The convert step,
-applied after training, replaces “fake” quantization operations in the
-model with “real” quantization that does perform the dtype casting:</p>
-<img alt="https://raw.githubusercontent.com/pytorch/ao/main/torchao/quantization/qat/images/qat_diagram.png" src="https://raw.githubusercontent.com/pytorch/ao/main/torchao/quantization/qat/images/qat_diagram.png" />
-<p>There are multiple options for using TorchAO’s QAT for fine-tuning:</p>
-<ol class="arabic simple">
-<li><p>Use our integration with <a class="reference external" href="https://github.com/pytorch/torchtune">TorchTune</a></p></li>
-<li><p>Use our integration with <a class="reference external" href="https://github.com/axolotl-ai-cloud/axolotl">Axolotl</a></p></li>
-<li><p>Directly use our QAT APIs with your own training loop</p></li>
-</ol>
-<section id="option-1-torchtune-qat-integration">
-<h3>Option 1: TorchTune QAT Integration<a class="headerlink" href="#option-1-torchtune-qat-integration" title="Permalink to this heading">#</a></h3>
-<p>TorchAO’s QAT support is integrated into TorchTune’s distributed fine-tuning recipe.
-Instead of the following command, which applies full distributed fine-tuning without QAT:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="c1"># Regular fine-tuning without QAT</span>
-<span class="n">tune</span> <span class="n">run</span> <span class="o">--</span><span class="n">nnodes</span> <span class="mi">1</span> <span class="o">--</span><span class="n">nproc_per_node</span> <span class="mi">4</span> <span class="n">full_finetune_distributed</span> <span class="o">--</span><span class="n">config</span> <span class="n">llama3_2</span><span class="o">/</span><span class="mi">3</span><span class="n">B_full</span> <span class="n">batch_size</span><span class="o">=</span><span class="mi">16</span>
-</pre></div>
-</div>
-<p>Users can run the following equivalent command instead. Note that specifying the quantizer
-is optional:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="c1"># Fine-tuning with QAT, by default:</span>
-<span class="c1">#   activations are fake quantized to asymmetric per token int8</span>
-<span class="c1">#   weights are fake quantized to symmetric per group int4</span>
-<span class="c1">#   configurable through &quot;quantizer._component_&quot; in the command</span>
-<span class="n">tune</span> <span class="n">run</span> <span class="o">--</span><span class="n">nnodes</span> <span class="mi">1</span> <span class="o">--</span><span class="n">nproc_per_node</span> <span class="mi">4</span> <span class="n">qat_distributed</span> <span class="o">--</span><span class="n">config</span> <span class="n">llama3_2</span><span class="o">/</span><span class="mi">3</span><span class="n">B_qat_full</span> <span class="n">batch_size</span><span class="o">=</span><span class="mi">16</span>
-</pre></div>
-</div>
-<p>After fine-tuning, users can quantize and evaluate the resulting model as follows.
-This is the same whether or not QAT was used during the fine-tuning process:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="c1"># Quantize model weights to int4</span>
-<span class="n">tune</span> <span class="n">run</span> <span class="n">quantize</span> <span class="o">--</span><span class="n">config</span> <span class="n">quantization</span> \
-    <span class="n">model</span><span class="o">.</span><span class="n">_component_</span><span class="o">=</span><span class="n">torchtune</span><span class="o">.</span><span class="n">models</span><span class="o">.</span><span class="n">llama3_2</span><span class="o">.</span><span class="n">llama3_2_3b</span> \
-    <span class="n">checkpointer</span><span class="o">.</span><span class="n">_component_</span><span class="o">=</span><span class="n">torchtune</span><span class="o">.</span><span class="n">training</span><span class="o">.</span><span class="n">FullModelHFCheckpointer</span> \
-    <span class="s1">&#39;checkpointer.checkpoint_files=[model-00001-of-00002.safetensors,model-00002-of-00002.safetensors]&#39;</span> \
-    <span class="n">checkpointer</span><span class="o">.</span><span class="n">model_type</span><span class="o">=</span><span class="n">LLAMA3</span> \
-    <span class="n">quantizer</span><span class="o">.</span><span class="n">_component_</span><span class="o">=</span><span class="n">torchtune</span><span class="o">.</span><span class="n">training</span><span class="o">.</span><span class="n">quantization</span><span class="o">.</span><span class="n">Int8DynActInt4WeightQuantizer</span> \
-    <span class="n">quantizer</span><span class="o">.</span><span class="n">groupsize</span><span class="o">=</span><span class="mi">32</span>
+<p>Quantization-Aware Training (QAT) refers to applying fake quantization during the
+training or fine-tuning process, such that the final quantized model will exhibit
+higher accuracies and lower perplexities. Fake quantization refers to rounding the float
+values to quantized values without actually casting them to dtypes with lower
+bit-widths, in contrast to post-training quantization (PTQ), which does cast the
+quantized values to lower bit-width dtypes, e.g.:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="c1"># PTQ: x_q is quantized and cast to int8</span>
+<span class="c1"># scale and zero point (zp) refer to parameters used to quantize x_float</span>
+<span class="c1"># qmin and qmax refer to the range of quantized values</span>
+<span class="n">x_q</span> <span class="o">=</span> <span class="p">(</span><span class="n">x_float</span> <span class="o">/</span> <span class="n">scale</span> <span class="o">+</span> <span class="n">zp</span><span class="p">)</span><span class="o">.</span><span class="n">round</span><span class="p">()</span><span class="o">.</span><span class="n">clamp</span><span class="p">(</span><span class="n">qmin</span><span class="p">,</span> <span class="n">qmax</span><span class="p">)</span><span class="o">.</span><span class="n">cast</span><span class="p">(</span><span class="n">int8</span><span class="p">)</span>
 
-<span class="c1"># Evaluate the int4 model on hellaswag and wikitext</span>
-<span class="n">tune</span> <span class="n">run</span> <span class="n">eleuther_eval</span> <span class="o">--</span><span class="n">config</span> <span class="n">eleuther_evaluation</span> \
-    <span class="n">batch_size</span><span class="o">=</span><span class="mi">1</span> \
-    <span class="s1">&#39;tasks=[hellaswag, wikitext]&#39;</span> \
-    <span class="n">model</span><span class="o">.</span><span class="n">_component_</span><span class="o">=</span><span class="n">torchtune</span><span class="o">.</span><span class="n">models</span><span class="o">.</span><span class="n">llama3_2</span><span class="o">.</span><span class="n">llama3_2_3b</span> \
-    <span class="n">checkpointer</span><span class="o">.</span><span class="n">_component_</span><span class="o">=</span><span class="n">torchtune</span><span class="o">.</span><span class="n">training</span><span class="o">.</span><span class="n">FullModelTorchTuneCheckpointer</span> \
-    <span class="s1">&#39;checkpointer.checkpoint_files=[model-00001-of-00002-8da4w.ckpt]&#39;</span> \
-    <span class="n">checkpointer</span><span class="o">.</span><span class="n">model_type</span><span class="o">=</span><span class="n">LLAMA3</span> \
-    <span class="n">tokenizer</span><span class="o">.</span><span class="n">_component_</span><span class="o">=</span><span class="n">torchtune</span><span class="o">.</span><span class="n">models</span><span class="o">.</span><span class="n">llama3</span><span class="o">.</span><span class="n">llama3_tokenizer</span> \
-    <span class="n">tokenizer</span><span class="o">.</span><span class="n">path</span><span class="o">=/</span><span class="n">tmp</span><span class="o">/</span><span class="n">Meta</span><span class="o">-</span><span class="n">Llama</span><span class="o">-</span><span class="mi">3</span><span class="o">-</span><span class="mi">8</span><span class="n">B</span><span class="o">-</span><span class="n">Instruct</span><span class="o">/</span><span class="n">original</span><span class="o">/</span><span class="n">tokenizer</span><span class="o">.</span><span class="n">model</span> \
-    <span class="n">quantizer</span><span class="o">.</span><span class="n">_component_</span><span class="o">=</span><span class="n">torchtune</span><span class="o">.</span><span class="n">training</span><span class="o">.</span><span class="n">quantization</span><span class="o">.</span><span class="n">Int8DynActInt4WeightQuantizer</span> \
-    <span class="n">quantizer</span><span class="o">.</span><span class="n">groupsize</span><span class="o">=</span><span class="mi">32</span>
+<span class="c1"># QAT: x_fq is still in float</span>
+<span class="c1"># Fake quantize simulates the numerics of quantize + dequantize</span>
+<span class="n">x_fq</span> <span class="o">=</span> <span class="p">(</span><span class="n">x_float</span> <span class="o">/</span> <span class="n">scale</span> <span class="o">+</span> <span class="n">zp</span><span class="p">)</span><span class="o">.</span><span class="n">round</span><span class="p">()</span><span class="o">.</span><span class="n">clamp</span><span class="p">(</span><span class="n">qmin</span><span class="p">,</span> <span class="n">qmax</span><span class="p">)</span>
+<span class="n">x_fq</span> <span class="o">=</span> <span class="p">(</span><span class="n">x_fq</span> <span class="o">-</span> <span class="n">zp</span><span class="p">)</span> <span class="o">*</span> <span class="n">scale</span>
 </pre></div>
 </div>
-<p>This should print the following after fine-tuning:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>|  Tasks  |Version|Filter|n-shot| Metric |   |Value |   |Stderr|
-|---------|------:|------|------|--------|---|-----:|---|-----:|
-|hellaswag|      1|none  |None  |acc     |↑  |0.5021|±  |0.0050|
-|         |       |none  |None  |acc_norm|↑  |0.6797|±  |0.0047|
-
-| Tasks  |Version|Filter|n-shot|    Metric     |   | Value |   |Stderr|
-|--------|------:|------|------|---------------|---|------:|---|------|
-|wikitext|      2|none  |None  |bits_per_byte  |↓  | 0.6965|±  |   N/A|
-|        |       |none  |None  |byte_perplexity|↓  | 1.6206|±  |   N/A|
-|        |       |none  |None  |word_perplexity|↓  |13.2199|±  |   N/A|
-</pre></div>
-</div>
-<p>You can compare these values with and without QAT to see how much QAT helped mitigate quantization degradation!
-For example, when fine-tuning Llama-3.2-3B on the
-<a class="reference external" href="https://huggingface.co/datasets/OpenAssistant/oasst1">OpenAssistant Conversations (OASST1)</a>
-dataset, we find that the quantized model achieved 3.4% higher accuracy
-with QAT than without, recovering 69.8% of the overall accuracy degradation
-from quantization:</p>
-<img alt="../_images/qat_eval.png" src="../_images/qat_eval.png" />
-<p>In addition to vanilla QAT as in the above example, TorchAO’s QAT can also be composed with LoRA to yield a <a class="reference external" href="https://dev-discuss.pytorch.org/t/speeding-up-qat-by-1-89x-with-lora/2700">1.89x training speedup</a> and lower memory usage by 36.1%. This is implemented in TorchTune’s <a class="reference external" href="https://github.com/pytorch/torchtune/blob/main/recipes/qat_lora_finetune_distributed.py">QAT + LoRA fine-tuning recipe</a>, which can be run using the following command:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="c1"># Fine-tuning with QAT + LoRA</span>
-<span class="n">tune</span> <span class="n">run</span> <span class="o">--</span><span class="n">nnodes</span> <span class="mi">1</span> <span class="o">--</span><span class="n">nproc_per_node</span> <span class="mi">4</span> <span class="n">qat_lora_finetune_distributed</span> <span class="o">--</span><span class="n">config</span> <span class="n">llama3_2</span><span class="o">/</span><span class="mi">3</span><span class="n">B_qat_lora</span> <span class="n">batch_size</span><span class="o">=</span><span class="mi">16</span>
-</pre></div>
-</div>
-<p>For more details about how QAT is set up in TorchTune, please refer to <a class="reference external" href="https://docs.pytorch.org/torchtune/main/tutorials/qat_finetune.html">this tutorial</a>.</p>
-</section>
-<section id="option-2-axolotl-qat-integration">
-<h3>Option 2: Axolotl QAT Integration<a class="headerlink" href="#option-2-axolotl-qat-integration" title="Permalink to this heading">#</a></h3>
-<p>Axolotl also recently added a QAT fine-tuning recipe that leverages TorchAO’s QAT support.
-To get started, try fine-tuning Llama-3.2-3B with QAT using the following command:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">axolotl</span> <span class="n">train</span> <span class="n">examples</span><span class="o">/</span><span class="n">llama</span><span class="o">-</span><span class="mi">3</span><span class="o">/</span><span class="mi">3</span><span class="n">b</span><span class="o">-</span><span class="n">qat</span><span class="o">-</span><span class="n">fsdp2</span><span class="o">.</span><span class="n">yaml</span>
-<span class="c1"># once training is complete, perform the quantization step</span>
-
-<span class="n">axolotl</span> <span class="n">quantize</span> <span class="n">examples</span><span class="o">/</span><span class="n">llama</span><span class="o">-</span><span class="mi">3</span><span class="o">/</span><span class="mi">3</span><span class="n">b</span><span class="o">-</span><span class="n">qat</span><span class="o">-</span><span class="n">fsdp2</span><span class="o">.</span><span class="n">yaml</span>
-<span class="c1"># you should now have a quantized model saved in ./outputs/qat_out/quatized</span>
-</pre></div>
-</div>
-<p>Please refer to the <a class="reference external" href="https://docs.axolotl.ai/docs/qat.html">Axolotl QAT documentation</a> for full details.</p>
-</section>
-<section id="option-3-torchao-qat-api">
-<h3>Option 3: TorchAO QAT API<a class="headerlink" href="#option-3-torchao-qat-api" title="Permalink to this heading">#</a></h3>
-<p>If you prefer to use a different training framework or your own custom training loop,
-you can call TorchAO’s QAT APIs directly to transform the model before fine-tuning.
-These APIs are what the TorchTune and Axolotl QAT integrations call under the hood.</p>
-<p>In this example, we will fine-tune a mini version of Llama3 on a single GPU:</p>
-<div class="highlight-py notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<p>QAT typically involves applying a transformation to your model before and after training.
+In torchao, these are represented as the prepare and convert steps: (1) prepare inserts
+fake quantize operations into linear layers, and (2) convert transforms the fake quantize
+operations to actual quantize and dequantize operations after training, thereby producing
+a quantized model (dequantize operations are typically fused with linear after lowering).
+Between these two steps, training can proceed exactly as before.</p>
+<p><img alt="qat" src="https://raw.githubusercontent.com/pytorch/ao/main/torchao/quantization/qat/images/qat_diagram.png" /></p>
+<section id="torchao-apis">
+<h2>torchao APIs<a class="headerlink" href="#torchao-apis" title="Permalink to this heading">#</a></h2>
+<p>torchao currently supports two QAT APIs, one through the <a class="reference external" href="https://pytorch.org/ao/stable/generated/torchao.quantization.quantize_.html#torchao.quantization.quantize_"><code class="docutils literal notranslate"><span class="pre">quantize_</span></code></a>
+API (recommended) and one through the Quantizer classes (legacy). The <code class="docutils literal notranslate"><span class="pre">quantize_</span></code> API
+allows flexible configuration of quantization settings for both activations and weights,
+while the Quantizer classes each hardcode a specific quantization setting.</p>
+<p>For example, running QAT on a single GPU:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torchtune.models.llama3</span><span class="w"> </span><span class="kn">import</span> <span class="n">llama3</span>
 
-<span class="c1"># Set up a smaller version of llama3 to fit in a single A100 GPU</span>
-<span class="c1"># For smaller GPUs, adjust the model attributes accordingly</span>
+<span class="c1"># Set up smaller version of llama3 to fit in a single GPU</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">get_model</span><span class="p">():</span>
     <span class="k">return</span> <span class="n">llama3</span><span class="p">(</span>
         <span class="n">vocab_size</span><span class="o">=</span><span class="mi">4096</span><span class="p">,</span>
@@ -1194,12 +1082,22 @@ These APIs are what the TorchTune and Axolotl QAT integrations call under the ho
         <span class="n">optimizer</span><span class="o">.</span><span class="n">zero_grad</span><span class="p">()</span>
 </pre></div>
 </div>
-<p>Next, run the prepare step, which fake quantizes the model. In this example,
-we use int8 per token dynamic activations and int4 symmetric per group weights
-as our quantization scheme. Note that although we are targeting lower integer
-precisions, training still performs arithmetic in higher float precision (float32)
-because we are not actually casting the fake quantized values.</p>
-<div class="highlight-py notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization</span><span class="w"> </span><span class="kn">import</span> <span class="n">quantize_</span><span class="p">,</span> <span class="n">Int8DynamicActivationInt4WeightConfig</span>
+<section id="quantize-api-recommended">
+<h3>quantize_ API (recommended)<a class="headerlink" href="#quantize-api-recommended" title="Permalink to this heading">#</a></h3>
+<p>The recommended way to run QAT in torchao is through the <code class="docutils literal notranslate"><span class="pre">quantize_</span></code> API.</p>
+<ol class="arabic simple">
+<li><p><strong>Prepare:</strong> The main <a class="reference external" href="https://docs.pytorch.org/ao/main/generated/torchao.quantization.qat.QATConfig.html"><code class="docutils literal notranslate"><span class="pre">QATConfig</span></code></a>
+accepts a post-training quantization (PTQ) config and automatically infers
+the corresponding fake quantization configs to use.</p></li>
+<li><p><strong>Convert:</strong> quantize the model using the base config provided</p></li>
+</ol>
+<p>Currently only the following PTQ base configs are supported:</p>
+<ul class="simple">
+<li><p><a class="reference external" href="https://docs.pytorch.org/ao/main/generated/torchao.quantization.Int8DynamicActivationInt4WeightConfig.html"><code class="docutils literal notranslate"><span class="pre">Int8DynamicActivationInt4WeightConfig</span></code></a></p></li>
+<li><p><a class="reference external" href="https://docs.pytorch.org/ao/main/generated/torchao.quantization.Int4WeightOnlyConfig.html"><code class="docutils literal notranslate"><span class="pre">Int4WeightOnlyConfig</span></code></a></p></li>
+</ul>
+<p>For example (most use cases):</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization</span><span class="w"> </span><span class="kn">import</span> <span class="n">quantize_</span><span class="p">,</span> <span class="n">Int8DynamicActivationInt4WeightConfig</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.qat</span><span class="w"> </span><span class="kn">import</span> <span class="n">QATConfig</span>
 
 <span class="n">model</span> <span class="o">=</span> <span class="n">get_model</span><span class="p">()</span>
@@ -1208,16 +1106,8 @@ because we are not actually casting the fake quantized values.</p>
 <span class="n">base_config</span> <span class="o">=</span> <span class="n">Int8DynamicActivationInt4WeightConfig</span><span class="p">(</span><span class="n">group_size</span><span class="o">=</span><span class="mi">32</span><span class="p">)</span>
 <span class="n">quantize_</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">QATConfig</span><span class="p">(</span><span class="n">base_config</span><span class="p">,</span> <span class="n">step</span><span class="o">=</span><span class="s2">&quot;prepare&quot;</span><span class="p">))</span>
 
-<span class="c1"># fine-tune</span>
+<span class="c1"># train</span>
 <span class="n">train_loop</span><span class="p">(</span><span class="n">model</span><span class="p">)</span>
-</pre></div>
-</div>
-<p>After fine-tuning, we end up with a model in the original high precision.
-This fine-tuned model has the exact same structure as the original model.
-The only difference is the QAT fine-tuned model has weights that are more
-attuned to quantization, which will be beneficial later during inference.
-The next step is to actually quantize the model:</p>
-<div class="highlight-py notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization</span><span class="w"> </span><span class="kn">import</span> <span class="n">Int8DynamicActivationInt4WeightConfig</span>
 
 <span class="c1"># convert: swap `FakeQuantizedLinear` -&gt; `torch.nn.Linear`, then quantize using `base_config`</span>
 <span class="n">quantize_</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">QATConfig</span><span class="p">(</span><span class="n">base_config</span><span class="p">,</span> <span class="n">step</span><span class="o">=</span><span class="s2">&quot;convert&quot;</span><span class="p">))</span>
@@ -1225,16 +1115,54 @@ The next step is to actually quantize the model:</p>
 <span class="c1"># inference or generate</span>
 </pre></div>
 </div>
-<p>Now our model is ready for serving, and will typically have higher quantized
-accuracy than if we did not apply the prepare step (fake quantization) during
-fine-tuning.</p>
-<p>For full details of using TorchAO’s QAT API, please refer to the <a class="reference external" href="https://github.com/pytorch/ao/blob/main/torchao/quantization/qat/README.md">QAT README</a>.</p>
+<p>The <code class="docutils literal notranslate"><span class="pre">quantize_</span></code> API also allows more general quantization settings that
+may not have a corresponding PTQ base config, e.g. for experimentation
+purposes. Users can specify custom fake quantization configs for activations
+and/or weights. For example, the following usage is numerically equivalent
+to the above:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization</span><span class="w"> </span><span class="kn">import</span> <span class="n">quantize_</span><span class="p">,</span> <span class="n">Int8DynamicActivationInt4WeightConfig</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.qat</span><span class="w"> </span><span class="kn">import</span> <span class="n">IntxFakeQuantizeConfig</span><span class="p">,</span> <span class="n">QATConfig</span>
+
+<span class="n">model</span> <span class="o">=</span> <span class="n">get_model</span><span class="p">()</span>
+
+<span class="c1"># prepare: swap `torch.nn.Linear` -&gt; `FakeQuantizedLinear`</span>
+<span class="n">activation_config</span> <span class="o">=</span> <span class="n">IntxFakeQuantizeConfig</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">int8</span><span class="p">,</span> <span class="s2">&quot;per_token&quot;</span><span class="p">,</span> <span class="n">is_symmetric</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+<span class="n">weight_config</span> <span class="o">=</span> <span class="n">IntxFakeQuantizeConfig</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">int4</span><span class="p">,</span> <span class="n">group_size</span><span class="o">=</span><span class="mi">32</span><span class="p">)</span>
+<span class="n">qat_config</span> <span class="o">=</span> <span class="n">QATConfig</span><span class="p">(</span>
+    <span class="n">activation_config</span><span class="o">=</span><span class="n">activation_config</span><span class="p">,</span>
+    <span class="n">weight_config</span><span class="o">=</span><span class="n">weight_config</span><span class="p">,</span>
+    <span class="n">step</span><span class="o">=</span><span class="s2">&quot;prepare&quot;</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">quantize_</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">qat_config</span><span class="p">)</span>
+
+<span class="c1"># train</span>
+<span class="n">train_loop</span><span class="p">(</span><span class="n">model</span><span class="p">)</span>
+
+<span class="c1"># convert: (not shown, same as before)</span>
+</pre></div>
+</div>
+<p>To fake quantize embedding in addition to linear, you can additionally call
+the following with a filter function during the prepare step:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="c1"># First apply linear transformation to the model as above</span>
+<span class="c1"># Then apply weight-only transformation to embedding layers</span>
+<span class="c1"># (activation fake quantization is not supported for embedding layers)</span>
+<span class="n">qat_config</span> <span class="o">=</span> <span class="n">QATConfig</span><span class="p">(</span><span class="n">weight_config</span><span class="o">=</span><span class="n">weight_config</span><span class="p">,</span> <span class="n">step</span><span class="o">=</span><span class="s2">&quot;prepare&quot;</span><span class="p">)</span>
+<span class="n">quantize_</span><span class="p">(</span><span class="n">m</span><span class="p">,</span> <span class="n">qat_config</span><span class="p">,</span> <span class="n">filter_fn</span><span class="o">=</span><span class="k">lambda</span> <span class="n">m</span><span class="p">,</span> <span class="n">_</span><span class="p">:</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">m</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Embedding</span><span class="p">))</span>
+</pre></div>
+</div>
 <details>
-<summary><a>Alternative Legacy API</a></summary><p>The above <cite>quantize_</cite> API is the recommended flow for using TorchAO QAT.
-We also offer an alternative legacy “quantizer” API for specific quantization
-schemes, but these are not customizable unlike the above example.</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.qat</span><span class="w"> </span><span class="kn">import</span> <span class="n">Int8DynActInt4WeightQATQuantizer</span>
+  <summary><h3>Quantizer API (legacy)</h3></summary>
+<p>Alternatively, torchao provides a few hardcoded quantization settings through
+the following Quantizers, but these may be removed soon:</p>
+<ul class="simple">
+<li><p><a class="reference external" href="https://docs.pytorch.org/ao/main/generated/torchao.quantization.qat.Int8DynActInt4WeightQATQuantizer.html#torchao.quantization.qat.Int8DynActInt4WeightQATQuantizer">Int8DynActInt4QATQuantizer</a> (linear), targeting int8 per-token dynamic asymmetric activation + int4 per-group symmetric weight</p></li>
+<li><p><a class="reference external" href="https://docs.pytorch.org/ao/main/generated/torchao.quantization.qat.Int4WeightOnlyQATQuantizer.html#torchao.quantization.qat.Int4WeightOnlyQATQuantizer">Int4WeightOnlyQATQuantizer</a> (linear), targeting int4 per-group asymmetric weight using the efficient <a class="reference external" href="https://github.com/pytorch/pytorch/blob/a672f6c84e318bbf455f13dfdd3fd7c68a388bf5/aten/src/ATen/native/cuda/int4mm.cu#L1097">int4 tinygemm kernel</a> after training)</p></li>
+<li><p><a class="reference external" href="https://docs.pytorch.org/ao/main/generated/torchao.quantization.qat.Int4WeightOnlyEmbeddingQATQuantizer.html#torchao.quantization.qat.Int4WeightOnlyEmbeddingQATQuantizer">Int4WeightOnlyEmbeddingQATQuantizer</a> (embedding), targeting int4 per-group symmetric weight</p></li>
+</ul>
+<p>For example:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.qat</span><span class="w"> </span><span class="kn">import</span> <span class="n">Int8DynActInt4WeightQATQuantizer</span>
 <span class="n">qat_quantizer</span> <span class="o">=</span> <span class="n">Int8DynActInt4WeightQATQuantizer</span><span class="p">(</span><span class="n">group_size</span><span class="o">=</span><span class="mi">32</span><span class="p">)</span>
+<span class="n">model</span> <span class="o">=</span> <span class="n">get_model</span><span class="p">()</span>
 
 <span class="c1"># prepare: insert fake quantization ops</span>
 <span class="c1"># swaps `torch.nn.Linear` with `Int8DynActInt4WeightQATLinear`</span>
@@ -1246,119 +1174,154 @@ schemes, but these are not customizable unlike the above example.</p>
 <span class="c1"># convert: transform fake quantization ops into actual quantized ops</span>
 <span class="c1"># swaps `Int8DynActInt4WeightQATLinear` with `Int8DynActInt4WeightLinear`</span>
 <span class="n">model</span> <span class="o">=</span> <span class="n">qat_quantizer</span><span class="o">.</span><span class="n">convert</span><span class="p">(</span><span class="n">model</span><span class="p">)</span>
-</pre></div>
-</div>
-</details></section>
-</section>
-<section id="quantized-low-rank-adaptation-qlora">
-<h2>Quantized Low-Rank Adaptation (QLoRA)<a class="headerlink" href="#quantized-low-rank-adaptation-qlora" title="Permalink to this heading">#</a></h2>
-<p>Low-Rank Adaptation (LoRA) refers to freezing the original model,
-and instead training a set of new “adapter” parameters that are a
-small fraction of the original parameters, thereby significantly
-reducing the memory footprint during training. QLoRA is an extension
-of LoRA that additionally quantizes the frozen original model
-parameters to 4-bits, thereby further reducing the memory footprint.</p>
-<p>TorchAO offers an implementation of the NF4 data type proposed in
-the original <a class="reference external" href="https://arxiv.org/pdf/2305.14314">QLoRA paper</a>.
-This implementation expresses NF4 as a tensor subclass through the
-<a class="reference external" href="https://docs.pytorch.org/ao/stable/generated/torchao.dtypes.NF4Tensor.html">NF4Tensor</a>,
-which composes cleanly with other PyTorch features like <cite>torch.compile</cite>
-and FSDP2. Users can convert a high precision tensor to NF4 simply
-by calling <a class="reference external" href="https://docs.pytorch.org/ao/stable/generated/torchao.dtypes.to_nf4.html">torchao.dtypes.to_nf4</a>.
-For example:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="k">class</span><span class="w"> </span><span class="nc">FrozenNF4Linear</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">):</span>
-    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
-        <span class="bp">self</span><span class="p">,</span>
-        <span class="n">in_dim</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
-        <span class="n">out_dim</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
-        <span class="n">bias</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
-        <span class="n">device</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">device</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-        <span class="n">dtype</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">dtype</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-        <span class="o">**</span><span class="n">quantization_kwargs</span><span class="p">,</span>
-    <span class="p">):</span>
-        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">in_dim</span><span class="p">,</span> <span class="n">out_dim</span><span class="p">,</span> <span class="n">bias</span><span class="o">=</span><span class="n">bias</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">dtype</span><span class="p">)</span>
-        <span class="c1"># No need to train these in QLoRA</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">requires_grad_</span><span class="p">(</span><span class="kc">False</span><span class="p">)</span>
-        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">bias</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">bias</span><span class="o">.</span><span class="n">requires_grad_</span><span class="p">(</span><span class="kc">False</span><span class="p">)</span>
-        <span class="n">nf4_weight</span> <span class="o">=</span> <span class="n">to_nf4</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">weight</span><span class="p">,</span> <span class="o">**</span><span class="n">quantization_kwargs</span><span class="p">)</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">weight</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Parameter</span><span class="p">(</span><span class="n">nf4_weight</span><span class="p">,</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
-</pre></div>
-</div>
-<p>QLoRA need not work with NF4 specifically, though NF4 has been
-shown to achieve competitive results compared to bf16 baselines
-while significantly reducing the memory required for training.
-This technique can also compose with other lower bit dtypes
-such as regular INT4 or even newer <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/prototype/mx_formats">MXFP4 or NVFP4</a>
-targeting Blackwell GPUs to reap similar memory benefits with
-varying tradeoffs.</p>
-<section id="option-1-torchtune-integration">
-<h3>Option 1: TorchTune Integration<a class="headerlink" href="#option-1-torchtune-integration" title="Permalink to this heading">#</a></h3>
-<p>TorchTune incorporates the <cite>NF4Tensor</cite> in its QLoRA fine-tuning
-recipe through their implementation of <a class="reference external" href="https://github.com/pytorch/torchtune/blob/a6290a5b40758f13bca61c386bc8756a49ef417e/torchtune/modules/peft/lora.py#L19">LoRALinear</a>.
-You can also try it out by running the following command,
-or refer to their <a class="reference external" href="https://docs.pytorch.org/torchtune/stable/tutorials/qlora_finetune.html">QLoRA tutorial</a>
-for more details.</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">tune</span> <span class="n">run</span> <span class="n">lora_finetune_single_device</span> <span class="o">--</span><span class="n">config</span> <span class="n">llama3_2</span><span class="o">/</span><span class="mi">3</span><span class="n">B_qlora_single_device</span><span class="o">.</span><span class="n">yaml</span>
-</pre></div>
-</div>
-</section>
-<section id="option-2-huggingface-peft-integration">
-<h3>Option 2: HuggingFace PEFT Integration<a class="headerlink" href="#option-2-huggingface-peft-integration" title="Permalink to this heading">#</a></h3>
-<p><a class="reference external" href="https://huggingface.co/docs/peft/main/en/developer_guides/quantization#torchao-pytorch-architecture-optimization">HuggingFace PEFT</a>
-also has a limited version of QLoRA leveraging TorchAO’s INT8
-quantization, though INT4 or NF4 are not supported yet. Users
-can invoke this functionality by preparing their models as follows.
-For full details, please refer to <a class="reference external" href="https://huggingface.co/docs/peft/main/en/developer_guides/quantization#torchao-pytorch-architecture-optimization">this tutorial</a>.</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">peft</span><span class="w"> </span><span class="kn">import</span> <span class="n">LoraConfig</span><span class="p">,</span> <span class="n">get_peft_model</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">transformers</span><span class="w"> </span><span class="kn">import</span> <span class="n">AutoModelForCausalLM</span><span class="p">,</span> <span class="n">TorchAoConfig</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization</span><span class="w"> </span><span class="kn">import</span> <span class="n">Int8WeightOnlyConfig</span>
 
-<span class="n">base_model</span> <span class="o">=</span> <span class="n">AutoModelForCausalLM</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span>
-    <span class="s2">&quot;meta-llama/Llama-3.2-1B&quot;</span><span class="p">,</span>
-    <span class="n">quantization_config</span><span class="o">=</span><span class="n">TorchAoConfig</span><span class="p">(</span><span class="n">Int8WeightOnlyConfig</span><span class="p">()),</span>
+<span class="c1"># inference or generate</span>
+</pre></div>
+</div>
+<p>To use multiple Quantizers in the same model for different layer types,
+users can also leverage the <a class="reference external" href="https://docs.pytorch.org/ao/main/generated/torchao.quantization.qat.ComposableQATQuantizer.html#torchao.quantization.qat.ComposableQATQuantizer">ComposableQATQuantizer</a>
+as follows:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.qat</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">ComposableQATQuantizer</span><span class="p">,</span>
+    <span class="n">Int4WeightOnlyEmbeddingQATQuantizer</span><span class="p">,</span>
+    <span class="n">Int8DynActInt4WeightQATQuantizer</span><span class="p">,</span>
 <span class="p">)</span>
-<span class="n">peft_config</span> <span class="o">=</span> <span class="n">LoraConfig</span><span class="p">()</span>
-<span class="n">model</span> <span class="o">=</span> <span class="n">get_peft_model</span><span class="p">(</span><span class="n">base_model</span><span class="p">,</span> <span class="n">peft_config</span><span class="p">)</span>
-</pre></div>
-</div>
-</section>
-</section>
-<section id="float8-quantized-fine-tuning">
-<h2>Float8 Quantized Fine-tuning<a class="headerlink" href="#float8-quantized-fine-tuning" title="Permalink to this heading">#</a></h2>
-<p>Similar to <a class="reference external" href="pretraining.html">pre-training</a>, we can also
-leverage float8 in fine-tuning for higher training throughput
-with no accuracy degradation and no increase in memory usage.
-Float8 training is integrated into TorchTune’s distributed
-full fine-tuning recipe, leveraging the same APIs as our
-integration with TorchTitan. Users can invoke this fine-tuning
-recipe as follows:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">tune</span> <span class="n">run</span> <span class="o">--</span><span class="n">nnodes</span> <span class="mi">1</span> <span class="o">--</span><span class="n">nproc_per_node</span> <span class="mi">4</span> <span class="n">full_finetune_distributed</span> <span class="o">--</span><span class="n">config</span> <span class="n">llama3_2</span><span class="o">/</span><span class="mi">3</span><span class="n">B_full</span>
-  <span class="n">enable_fp8_training</span><span class="o">=</span><span class="n">true</span> \
-  <span class="n">fp8_recipe_name</span><span class="o">=</span><span class="n">tensorwise</span> \
-  <span class="nb">compile</span><span class="o">=</span><span class="kc">True</span>
-</pre></div>
-</div>
-<p>Initial experiments saw up to 16.5% throughput improvement
-for fine-tuning Llama3.2-3B in float8:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">experiment_name</span>         <span class="n">tok</span><span class="o">/</span><span class="n">s</span>                 <span class="n">peak_mem_reserved</span>
-<span class="o">----------------------</span>  <span class="o">-------------------</span>   <span class="o">-------------------</span>
-<span class="n">bf16</span>                    <span class="mf">6502.143</span> <span class="p">(</span><span class="o">+</span><span class="mf">0.000</span><span class="o">%</span><span class="p">)</span>    <span class="mf">30.090</span> <span class="p">(</span><span class="o">+</span><span class="mf">0.000</span><span class="o">%</span><span class="p">)</span>
-<span class="n">fp8_noname</span>              <span class="mf">7205.386</span> <span class="p">(</span><span class="o">+</span><span class="mf">10.816</span><span class="o">%</span><span class="p">)</span>   <span class="mf">30.010</span> <span class="p">(</span><span class="o">-</span><span class="mf">0.266</span><span class="o">%</span><span class="p">)</span>
-<span class="n">fp8_tensorwise</span>          <span class="mf">7222.198</span> <span class="p">(</span><span class="o">+</span><span class="mf">11.074</span><span class="o">%</span><span class="p">)</span>   <span class="mf">30.010</span> <span class="p">(</span><span class="o">-</span><span class="mf">0.266</span><span class="o">%</span><span class="p">)</span>
-<span class="n">fp8_rowwise</span>             <span class="mf">6387.968</span> <span class="p">(</span><span class="o">-</span><span class="mf">1.756</span><span class="o">%</span><span class="p">)</span>    <span class="mf">29.158</span> <span class="p">(</span><span class="o">-</span><span class="mf">3.096</span><span class="o">%</span><span class="p">)</span>
-<span class="n">fp8_rowwise_with_gw_hp</span>  <span class="mf">7573.698</span> <span class="p">(</span><span class="o">+</span><span class="mf">16.480</span><span class="o">%</span><span class="p">)</span>   <span class="mf">29.516</span> <span class="p">(</span><span class="o">-</span><span class="mf">1.908</span><span class="o">%</span><span class="p">)</span>
 
-<span class="n">experiment_name</span>         <span class="n">hellaswag_acc</span>    <span class="n">wikitext_word_perplexity</span>
-<span class="o">----------------------</span>  <span class="o">---------------</span>  <span class="o">--------------------------</span>
-<span class="n">bf16</span>                    <span class="mf">0.533</span> <span class="p">(</span><span class="o">+</span><span class="mf">0.000</span><span class="p">)</span>   <span class="mf">12.407</span> <span class="p">(</span><span class="o">+</span><span class="mf">0.000</span><span class="p">)</span>
-<span class="n">fp8_noname</span>              <span class="mf">0.533</span> <span class="p">(</span><span class="o">+</span><span class="mf">0.000</span><span class="p">)</span>   <span class="mf">12.414</span> <span class="p">(</span><span class="o">+</span><span class="mf">0.007</span><span class="p">)</span>
-<span class="n">fp8_tensorwise</span>          <span class="mf">0.533</span> <span class="p">(</span><span class="o">+</span><span class="mf">0.000</span><span class="p">)</span>   <span class="mf">12.412</span> <span class="p">(</span><span class="o">+</span><span class="mf">0.005</span><span class="p">)</span>
-<span class="n">fp8_rowwise</span>             <span class="mf">0.533</span> <span class="p">(</span><span class="o">-</span><span class="mf">0.000</span><span class="p">)</span>   <span class="mf">12.420</span> <span class="p">(</span><span class="o">+</span><span class="mf">0.013</span><span class="p">)</span>
-<span class="n">fp8_rowwise_with_gw_hp</span>  <span class="mf">0.534</span> <span class="p">(</span><span class="o">+</span><span class="mf">0.001</span><span class="p">)</span>   <span class="mf">12.416</span> <span class="p">(</span><span class="o">+</span><span class="mf">0.009</span><span class="p">)</span>
+<span class="n">quantizer</span> <span class="o">=</span> <span class="n">ComposableQATQuantizer</span><span class="p">([</span>
+    <span class="n">Int8DynActInt4WeightQATQuantizer</span><span class="p">(</span><span class="n">groupsize</span><span class="o">=</span><span class="n">group_size</span><span class="p">),</span>
+    <span class="n">Int4WeightOnlyEmbeddingQATQuantizer</span><span class="p">(</span><span class="n">group_size</span><span class="o">=</span><span class="n">group_size</span><span class="p">),</span>
+<span class="p">])</span>
+
+<span class="c1"># prepare + train + convert as before</span>
+<span class="n">model</span> <span class="o">=</span> <span class="n">qat_quantizer</span><span class="o">.</span><span class="n">prepare</span><span class="p">(</span><span class="n">model</span><span class="p">)</span>
+<span class="n">train_loop</span><span class="p">(</span><span class="n">model</span><span class="p">)</span>
+<span class="n">model</span> <span class="o">=</span> <span class="n">qat_quantizer</span><span class="o">.</span><span class="n">convert</span><span class="p">(</span><span class="n">model</span><span class="p">)</span>
 </pre></div>
 </div>
-<p>Please refer to the <a class="reference external" href="pretraining.html">pre-training</a> tutorial for more details.</p>
+</details>
+</section>
+</section>
+<section id="axolotl-integration">
+<h2>Axolotl integration<a class="headerlink" href="#axolotl-integration" title="Permalink to this heading">#</a></h2>
+<p><a class="reference external" href="https://github.com/axolotl-ai-cloud">Axolotl</a> uses TorchAO to support quantized-aware fine-tuning. You can use the following commands to fine-tune, and then quantize a Llama-3.2-3B model:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>axolotl<span class="w"> </span>train<span class="w"> </span>examples/llama-3/3b-qat-fsdp2.yaml
+<span class="c1"># once training is complete, perform the quantization step</span>
+axolotl<span class="w"> </span>quantize<span class="w"> </span>examples/llama-3/3b-qat-fsdp2.yaml
+<span class="c1"># you should now have a quantized model saved in ./outputs/qat_out/quatized</span>
+</pre></div>
+</div>
+<p>Please see the <a class="reference external" href="https://docs.axolotl.ai/docs/qat.html">QAT documentation</a> in axolotl for more details.</p>
+</section>
+<section id="unsloth-integration">
+<h2>Unsloth integration<a class="headerlink" href="#unsloth-integration" title="Permalink to this heading">#</a></h2>
+<p><a class="reference external" href="https://github.com/unslothai/unsloth">Unsloth</a> also leverages TorchAO for quantized-aware fine-tuning. Unsloth’s QAT support can be used with both full and LoRA fine-tuning. For example:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">unsloth</span><span class="w"> </span><span class="kn">import</span> <span class="n">FastLanguageModel</span>
+
+<span class="n">model</span><span class="p">,</span> <span class="n">tokenizer</span> <span class="o">=</span> <span class="n">FastLanguageModel</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span>
+    <span class="s2">&quot;unsloth/Qwen3-4B-Instruct-2507&quot;</span><span class="p">,</span>
+    <span class="n">max_seq_len</span> <span class="o">=</span> <span class="mi">2048</span><span class="p">,</span>
+    <span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">,</span>
+    <span class="n">load_in_4bit</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+    <span class="n">full_finetuning</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">model</span> <span class="o">=</span> <span class="n">FastLanguageModel</span><span class="o">.</span><span class="n">get_peft_model</span><span class="p">(</span>
+    <span class="n">model</span><span class="p">,</span>
+    <span class="n">r</span> <span class="o">=</span> <span class="mi">16</span><span class="p">,</span>
+    <span class="n">target_modules</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;q_proj&quot;</span><span class="p">,</span> <span class="s2">&quot;k_proj&quot;</span><span class="p">,</span> <span class="s2">&quot;v_proj&quot;</span><span class="p">,</span> <span class="s2">&quot;o_proj&quot;</span><span class="p">,</span> <span class="s2">&quot;gate_proj&quot;</span><span class="p">,</span> <span class="s2">&quot;up_proj&quot;</span><span class="p">,</span> <span class="s2">&quot;down_proj&quot;</span><span class="p">,],</span>
+    <span class="n">lora_alpha</span> <span class="o">=</span> <span class="mi">16</span><span class="p">,</span>
+    <span class="n">qat_scheme</span> <span class="o">=</span> <span class="s2">&quot;int4&quot;</span><span class="p">,</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<p>For a full notebook example, see: https://colab.research.google.com/github/unslothai/notebooks/blob/main/nb/Qwen3_(14B)-Reasoning-Conversational.ipynb. A QAT-specific notebook is coming soon.</p>
+<details>
+    <summary><h2>torchtune integration (legacy)</h2></summary>
+<p>torchao QAT is integrated with <a class="reference external" href="https://github.com/pytorch/torchtune">torchtune</a>
+to allow users to run quantized-aware fine-tuning as follows:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">tune</span> <span class="n">run</span> <span class="o">--</span><span class="n">nproc_per_node</span> <span class="mi">8</span> <span class="n">qat_distributed</span> <span class="o">--</span><span class="n">config</span> <span class="n">llama3</span><span class="o">/</span><span class="mi">8</span><span class="n">B_qat_full</span>
+</pre></div>
+</div>
+<p>torchtune also supports a <a class="reference external" href="https://github.com/pytorch/torchtune/blob/main/recipes/qat_lora_finetune_distributed.py">QAT + LoRA distributed training recipe</a>
+that is 1.89x faster and uses 36.1% memory compared to vanilla QAT in our early experiments.
+You can read more about it <a class="reference external" href="https://dev-discuss.pytorch.org/t/speeding-up-qat-by-1-89x-with-lora/2700">here</a>:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">tune</span> <span class="n">run</span> <span class="o">--</span><span class="n">nnodes</span> <span class="mi">1</span> <span class="o">--</span><span class="n">nproc_per_node</span> <span class="mi">4</span> <span class="n">qat_lora_finetune_distributed</span> <span class="o">--</span><span class="n">config</span> <span class="n">llama3</span><span class="o">/</span><span class="mi">8</span><span class="n">B_qat_lora</span>
+</pre></div>
+</div>
+<p>For more detail, please refer to <a class="reference external" href="https://pytorch.org/torchtune/main/tutorials/qat_finetune.html">this QAT tutorial</a>.</p>
+</details>
+</section>
+<section id="evaluation-results">
+<h2>Evaluation Results<a class="headerlink" href="#evaluation-results" title="Permalink to this heading">#</a></h2>
+<p>Int4 weight-only QAT + LoRA using a group size of 128, fine-tuned using Unsloth.
+Both fine-tuning and evaluation was done on a single H100 GPU using the
+<a class="reference external" href="https://huggingface.co/datasets/mlabonne/FineTome-100k">mlabonne/FineTome-100k</a>
+dataset. Learning rate was 2e-5 and batch size was 64 with no gradient accumulation.</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="c1"># gemma3-12b-it</span>
+<span class="o">+-------------+-----------------+-----------------+------------+-------------+</span>
+<span class="o">|</span> <span class="n">Eval</span> <span class="n">task</span>   <span class="o">|</span>   <span class="n">bf16</span> <span class="n">baseline</span> <span class="o">|</span>   <span class="n">int4</span> <span class="n">baseline</span> <span class="o">|</span>   <span class="n">int4</span> <span class="n">QAT</span> <span class="o">|</span> <span class="n">recovered</span>   <span class="o">|</span>
+<span class="o">+=============+=================+=================+============+=============+</span>
+<span class="o">|</span> <span class="n">wikitext</span>    <span class="o">|</span>          <span class="mf">9.1477</span> <span class="o">|</span>          <span class="mf">9.7745</span> <span class="o">|</span>     <span class="mf">9.5631</span> <span class="o">|</span> <span class="mf">33.727</span><span class="o">%</span>     <span class="o">|</span>
+<span class="o">+-------------+-----------------+-----------------+------------+-------------+</span>
+<span class="o">|</span> <span class="n">bbh</span>         <span class="o">|</span>          <span class="mf">0.8079</span> <span class="o">|</span>          <span class="mf">0.7624</span> <span class="o">|</span>     <span class="mf">0.7831</span> <span class="o">|</span> <span class="mf">45.495</span><span class="o">%</span>     <span class="o">|</span>
+<span class="o">+-------------+-----------------+-----------------+------------+-------------+</span>
+
+<span class="c1"># gemma3-4b-it</span>
+<span class="o">+-------------+-----------------+-----------------+------------+-------------+</span>
+<span class="o">|</span> <span class="n">Eval</span> <span class="n">task</span>   <span class="o">|</span>   <span class="n">bf16</span> <span class="n">baseline</span> <span class="o">|</span>   <span class="n">int4</span> <span class="n">baseline</span> <span class="o">|</span>   <span class="n">int4</span> <span class="n">QAT</span> <span class="o">|</span> <span class="n">recovered</span>   <span class="o">|</span>
+<span class="o">+=============+=================+=================+============+=============+</span>
+<span class="o">|</span> <span class="n">wikitext</span>    <span class="o">|</span>         <span class="mf">12.1155</span> <span class="o">|</span>         <span class="mf">13.247</span>  <span class="o">|</span>    <span class="mf">12.797</span>  <span class="o">|</span> <span class="mf">39.770</span><span class="o">%</span>     <span class="o">|</span>
+<span class="o">+-------------+-----------------+-----------------+------------+-------------+</span>
+<span class="o">|</span> <span class="n">bbh</span>         <span class="o">|</span>          <span class="mf">0.7074</span> <span class="o">|</span>          <span class="mf">0.6415</span> <span class="o">|</span>     <span class="mf">0.6666</span> <span class="o">|</span> <span class="mf">38.088</span>      <span class="o">|</span>
+<span class="o">+-------------+-----------------+-----------------+------------+-------------+</span>
+<span class="o">|</span> <span class="n">gpqa</span>        <span class="o">|</span>          <span class="mf">0.3232</span> <span class="o">|</span>          <span class="mf">0.3081</span> <span class="o">|</span>     <span class="mf">0.3182</span> <span class="o">|</span> <span class="mf">66.887</span><span class="o">%</span>     <span class="o">|</span>
+<span class="o">+-------------+-----------------+-----------------+------------+-------------+</span>
+
+<span class="c1"># Qwen3-4B-Instruct</span>
+<span class="o">+-------------+-----------------+-----------------+------------+-------------+</span>
+<span class="o">|</span> <span class="n">Eval</span> <span class="n">task</span>   <span class="o">|</span>   <span class="n">bf16</span> <span class="n">baseline</span> <span class="o">|</span>   <span class="n">int4</span> <span class="n">baseline</span> <span class="o">|</span>   <span class="n">int4</span> <span class="n">QAT</span> <span class="o">|</span> <span class="n">recovered</span>   <span class="o">|</span>
+<span class="o">+=============+=================+=================+============+=============+</span>
+<span class="o">|</span> <span class="n">mmlu</span><span class="o">-</span><span class="n">pro</span>    <span class="o">|</span>          <span class="mf">0.4909</span> <span class="o">|</span>          <span class="mf">0.4328</span> <span class="o">|</span>     <span class="mf">0.4524</span> <span class="o">|</span> <span class="mf">33.735</span><span class="o">%</span>     <span class="o">|</span>
+<span class="o">+-------------+-----------------+-----------------+------------+-------------+</span>
+
+<span class="c1"># Llama3.2-3B</span>
+<span class="o">+-------------+-----------------+-----------------+------------+-------------+</span>
+<span class="o">|</span> <span class="n">Eval</span> <span class="n">task</span>   <span class="o">|</span>   <span class="n">bf16</span> <span class="n">baseline</span> <span class="o">|</span>   <span class="n">int4</span> <span class="n">baseline</span> <span class="o">|</span>   <span class="n">int4</span> <span class="n">QAT</span> <span class="o">|</span> <span class="n">recovered</span>   <span class="o">|</span>
+<span class="o">+=============+=================+=================+============+=============+</span>
+<span class="o">|</span> <span class="n">wikitext</span>    <span class="o">|</span>         <span class="mf">12.1322</span> <span class="o">|</span>         <span class="mf">13.3459</span> <span class="o">|</span>    <span class="mf">12.8796</span> <span class="o">|</span> <span class="mf">38.420</span><span class="o">%</span>     <span class="o">|</span>
+<span class="o">+-------------+-----------------+-----------------+------------+-------------+</span>
+<span class="o">|</span> <span class="n">bbh</span>         <span class="o">|</span>          <span class="mf">0.5483</span> <span class="o">|</span>          <span class="mf">0.4967</span> <span class="o">|</span>     <span class="mf">0.5174</span> <span class="o">|</span> <span class="mf">40.116</span><span class="o">%</span>     <span class="o">|</span>
+<span class="o">+-------------+-----------------+-----------------+------------+-------------+</span>
+<span class="o">|</span> <span class="n">gpqa</span>        <span class="o">|</span>          <span class="mf">0.3333</span> <span class="o">|</span>          <span class="mf">0.2879</span> <span class="o">|</span>     <span class="mf">0.303</span>  <span class="o">|</span> <span class="mf">33.260</span><span class="o">%</span>     <span class="o">|</span>
+<span class="o">+-------------+-----------------+-----------------+------------+-------------+</span>
+<span class="o">|</span> <span class="n">mmlu</span><span class="o">-</span><span class="n">pro</span>    <span class="o">|</span>          <span class="mf">0.2771</span> <span class="o">|</span>          <span class="mf">0.2562</span> <span class="o">|</span>     <span class="mf">0.2629</span> <span class="o">|</span> <span class="mf">32.057</span><span class="o">%</span>     <span class="o">|</span>
+<span class="o">+-------------+-----------------+-----------------+------------+-------------+</span>
+</pre></div>
+</div>
+<p>NVFP4 QAT full fine-tuning, fine-tuned using Axolotl on 8x B200 GPUs on the
+<a class="reference external" href="https://huggingface.co/datasets/yahma/alpaca-cleaned">yahma/alpaca-cleaned</a>
+dataset. Learning rate was 2e-5 and batch size was 128 for <code class="docutils literal notranslate"><span class="pre">gemma3-12b-it</span></code>
+and 32 for <code class="docutils literal notranslate"><span class="pre">Qwen3-8B</span></code>.</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="c1"># gemma3-12b-it</span>
+<span class="o">+-------------+-----------------+------------------+-------------+-------------+</span>
+<span class="o">|</span> <span class="n">Eval</span> <span class="n">task</span>   <span class="o">|</span>   <span class="n">bf16</span> <span class="n">baseline</span> <span class="o">|</span>   <span class="n">nvfp4</span> <span class="n">baseline</span> <span class="o">|</span>   <span class="n">nvfp4</span> <span class="n">QAT</span> <span class="o">|</span> <span class="n">recovered</span>   <span class="o">|</span>
+<span class="o">+=============+=================+==================+=============+=============+</span>
+<span class="o">|</span> <span class="n">bbh</span>         <span class="o">|</span>          <span class="mf">0.7527</span> <span class="o">|</span>           <span class="mf">0.7068</span> <span class="o">|</span>      <span class="mf">0.7222</span> <span class="o">|</span> <span class="mf">33.551</span><span class="o">%</span>     <span class="o">|</span>
+<span class="o">+-------------+-----------------+------------------+-------------+-------------+</span>
+<span class="o">|</span> <span class="n">mmlu</span><span class="o">-</span><span class="n">pro</span>    <span class="o">|</span>          <span class="mf">0.4074</span> <span class="o">|</span>           <span class="mf">0.3621</span> <span class="o">|</span>      <span class="mf">0.3702</span> <span class="o">|</span> <span class="mf">17.881</span><span class="o">%</span>     <span class="o">|</span>
+<span class="o">+-------------+-----------------+------------------+-------------+-------------+</span>
+
+<span class="c1"># Qwen3-8B</span>
+<span class="o">+-------------+-----------------+------------------+-------------+-------------+</span>
+<span class="o">|</span> <span class="n">Eval</span> <span class="n">task</span>   <span class="o">|</span>   <span class="n">bf16</span> <span class="n">baseline</span> <span class="o">|</span>   <span class="n">nvfp4</span> <span class="n">baseline</span> <span class="o">|</span>   <span class="n">nvfp4</span> <span class="n">QAT</span> <span class="o">|</span> <span class="n">recovered</span>   <span class="o">|</span>
+<span class="o">+=============+=================+==================+=============+=============+</span>
+<span class="o">|</span> <span class="n">bbh</span>         <span class="o">|</span>          <span class="mf">0.7771</span> <span class="o">|</span>           <span class="mf">0.7262</span> <span class="o">|</span>      <span class="mf">0.7397</span> <span class="o">|</span> <span class="mf">26.523</span><span class="o">%</span>     <span class="o">|</span>
+<span class="o">+-------------+-----------------+------------------+-------------+-------------+</span>
+<span class="o">|</span> <span class="n">mmlu</span><span class="o">-</span><span class="n">pro</span>    <span class="o">|</span>          <span class="mf">0.4929</span> <span class="o">|</span>           <span class="mf">0.4519</span> <span class="o">|</span>      <span class="mf">0.4686</span> <span class="o">|</span> <span class="mf">40.732</span><span class="o">%</span>     <span class="o">|</span>
+<span class="o">+-------------+-----------------+------------------+-------------+-------------+</span>
+</pre></div>
+</div>
+<p>For more details, please refer to <a class="reference external" href="https://pytorch.org/blog/quantization-aware-training">this blog post</a>.</p>
 </section>
 </section>
 
@@ -1405,20 +1368,20 @@ for fine-tuning Llama3.2-3B in float8:</p>
 
 <div class="prev-next-area">
     <a class="left-prev"
-       href="pretraining.html"
+       href="index.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">(Part 1) Pre-training with float8</p>
+        <p class="prev-next-title">Workflows</p>
       </div>
     </a>
     <a class="right-next"
-       href="serving.html"
+       href="../api_reference/index.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">(Part 3) Serving on vLLM, SGLang, ExecuTorch</p>
+        <p class="prev-next-title">API Reference</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -1444,20 +1407,20 @@ for fine-tuning Llama3.2-3B in float8:</p>
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="pretraining.html"
+       href="index.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">(Part 1) Pre-training with float8</p>
+        <p class="prev-next-title">Workflows</p>
       </div>
     </a>
     <a class="right-next"
-       href="serving.html"
+       href="../api_reference/index.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">(Part 3) Serving on vLLM, SGLang, ExecuTorch</p>
+        <p class="prev-next-title">API Reference</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -1479,18 +1442,13 @@ for fine-tuning Llama3.2-3B in float8:</p>
   </div>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#quantization-aware-training-qat">Quantization-Aware Training (QAT)</a><ul class="nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#option-1-torchtune-qat-integration">Option 1: TorchTune QAT Integration</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#option-2-axolotl-qat-integration">Option 2: Axolotl QAT Integration</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#option-3-torchao-qat-api">Option 3: TorchAO QAT API</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#torchao-apis">torchao APIs</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#quantize-api-recommended">quantize_ API (recommended)</a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#quantized-low-rank-adaptation-qlora">Quantized Low-Rank Adaptation (QLoRA)</a><ul class="nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#option-1-torchtune-integration">Option 1: TorchTune Integration</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#option-2-huggingface-peft-integration">Option 2: HuggingFace PEFT Integration</a></li>
-</ul>
-</li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#float8-quantized-fine-tuning">Float8 Quantized Fine-tuning</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#axolotl-integration">Axolotl integration</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#unsloth-integration">Unsloth integration</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#evaluation-results">Evaluation Results</a></li>
 </ul>
   </nav></div>
     
@@ -1498,7 +1456,7 @@ for fine-tuning Llama3.2-3B in float8:</p>
 
   
   <div class="tocsection editthispage">
-    <a href="https://github.com/pytorch/ao/edit/main/docs/source/eager_quantization/finetuning.rst">
+    <a href="https://github.com/pytorch/ao/edit/main/docs/source/workflows/qat.md">
       <i class="fa-solid fa-pencil"></i>
       
       
@@ -1512,7 +1470,7 @@ for fine-tuning Llama3.2-3B in float8:</p>
     
        <div class="sidebar-secondary-item">
     <div class="tocsection sourcelink">
-      <a href="../_sources/eager_quantization/finetuning.rst.txt">
+      <a href="../_sources/workflows/qat.md.txt">
         <i class="fa-solid fa-file-lines"></i> Show Source
       </a>
     </div>
@@ -1712,11 +1670,11 @@ for fine-tuning Llama3.2-3B in float8:</p>
     {
        "@context": "https://schema.org",
        "@type": "Article",
-       "name": "(Part 2) Fine-tuning with QAT, QLoRA, and float8",
-       "headline": "(Part 2) Fine-tuning with QAT, QLoRA, and float8",
+       "name": "Quantization-Aware Training (QAT)",
+       "headline": "Quantization-Aware Training (QAT)",
        "description": "PyTorch Documentation. Explore PyTorch, an open-source machine learning library that accelerates the path from research prototyping to production deployment. Discover tutorials, API references, and guides to help you build and deploy deep learning models efficiently.",
-       "url": "/eager_quantization/finetuning.html",
-       "articleBody": "(Part 2) Fine-tuning with QAT, QLoRA, and float8# Created On: Jan 29, 2026 | Last Updated On: Jan 29, 2026 TorchAO provides an end-to-end pre-training, fine-tuning, and serving model optimization flow by leveraging our quantization and sparsity techniques integrated into our partner frameworks. This is part 2 of 3 such tutorials showcasing this end-to-end flow, focusing on the fine-tuning step. Fine-tuning is an important step for adapting your pre-trained model to more domain-specific data. In this tutorial, we demonstrate 3 model optimization techniques that can be applied to your model during fine-tuning: 1. Quantization-Aware Training (QAT), for adapting your model to quantization numerics during fine-tuning, with the goal of mitigating quantization degradations in your fine-tuned model when it is quantized eventually, e.g. in the serving step. Check out our blog and README for more details! 2. Quantized Low-Rank Adaptation (QLoRA), for reducing the resource requirement of fine-tuning by introducing small, trainable low-rank matrices and freezing the original pre-trained checkpoint, a type of Parameter-Efficient Fine-Tuning (PEFT). Please refer to the original paper for more details. 3. Float8 Quantized Fine-tuning, for speeding up fine-tuning by dynamically quantizing high precision weights and activations to float8, similar to pre-training in float8. Quantization-Aware Training (QAT)# The goal of Quantization-Aware Training is to adapt the model to quantization numerics during training or fine-tuning, so as to mitigate the inevitable quantization degradation when the model is actually quantized eventually, presumably during the serving step after fine-tuning. TorchAO\u2019s QAT support has been used successfully for the recent release of the Llama-3.2 quantized 1B/3B and the LlamaGuard-3-8B models to improve the quality of the quantized models. TorchAO\u2019s QAT support involves two separate steps: prepare and convert. The prepare step \u201cfake\u201d quantizes activations and/or weights during training, which means, the high precision values (e.g. bf16) are mapped to their corresponding quantized values without actually casting them to the target lower precision dtype (e.g. int4). The convert step, applied after training, replaces \u201cfake\u201d quantization operations in the model with \u201creal\u201d quantization that does perform the dtype casting: There are multiple options for using TorchAO\u2019s QAT for fine-tuning: Use our integration with TorchTune Use our integration with Axolotl Directly use our QAT APIs with your own training loop Option 1: TorchTune QAT Integration# TorchAO\u2019s QAT support is integrated into TorchTune\u2019s distributed fine-tuning recipe. Instead of the following command, which applies full distributed fine-tuning without QAT: # Regular fine-tuning without QAT tune run --nnodes 1 --nproc_per_node 4 full_finetune_distributed --config llama3_2/3B_full batch_size=16 Users can run the following equivalent command instead. Note that specifying the quantizer is optional: # Fine-tuning with QAT, by default: # activations are fake quantized to asymmetric per token int8 # weights are fake quantized to symmetric per group int4 # configurable through \"quantizer._component_\" in the command tune run --nnodes 1 --nproc_per_node 4 qat_distributed --config llama3_2/3B_qat_full batch_size=16 After fine-tuning, users can quantize and evaluate the resulting model as follows. This is the same whether or not QAT was used during the fine-tuning process: # Quantize model weights to int4 tune run quantize --config quantization \\ model._component_=torchtune.models.llama3_2.llama3_2_3b \\ checkpointer._component_=torchtune.training.FullModelHFCheckpointer \\ \u0027checkpointer.checkpoint_files=[model-00001-of-00002.safetensors,model-00002-of-00002.safetensors]\u0027 \\ checkpointer.model_type=LLAMA3 \\ quantizer._component_=torchtune.training.quantization.Int8DynActInt4WeightQuantizer \\ quantizer.groupsize=32 # Evaluate the int4 model on hellaswag and wikitext tune run eleuther_eval --config eleuther_evaluation \\ batch_size=1 \\ \u0027tasks=[hellaswag, wikitext]\u0027 \\ model._component_=torchtune.models.llama3_2.llama3_2_3b \\ checkpointer._component_=torchtune.training.FullModelTorchTuneCheckpointer \\ \u0027checkpointer.checkpoint_files=[model-00001-of-00002-8da4w.ckpt]\u0027 \\ checkpointer.model_type=LLAMA3 \\ tokenizer._component_=torchtune.models.llama3.llama3_tokenizer \\ tokenizer.path=/tmp/Meta-Llama-3-8B-Instruct/original/tokenizer.model \\ quantizer._component_=torchtune.training.quantization.Int8DynActInt4WeightQuantizer \\ quantizer.groupsize=32 This should print the following after fine-tuning: | Tasks |Version|Filter|n-shot| Metric | |Value | |Stderr| |---------|------:|------|------|--------|---|-----:|---|-----:| |hellaswag| 1|none |None |acc |\u2191 |0.5021|\u00b1 |0.0050| | | |none |None |acc_norm|\u2191 |0.6797|\u00b1 |0.0047| | Tasks |Version|Filter|n-shot| Metric | | Value | |Stderr| |--------|------:|------|------|---------------|---|------:|---|------| |wikitext| 2|none |None |bits_per_byte |\u2193 | 0.6965|\u00b1 | N/A| | | |none |None |byte_perplexity|\u2193 | 1.6206|\u00b1 | N/A| | | |none |None |word_perplexity|\u2193 |13.2199|\u00b1 | N/A| You can compare these values with and without QAT to see how much QAT helped mitigate quantization degradation! For example, when fine-tuning Llama-3.2-3B on the OpenAssistant Conversations (OASST1) dataset, we find that the quantized model achieved 3.4% higher accuracy with QAT than without, recovering 69.8% of the overall accuracy degradation from quantization: In addition to vanilla QAT as in the above example, TorchAO\u2019s QAT can also be composed with LoRA to yield a 1.89x training speedup and lower memory usage by 36.1%. This is implemented in TorchTune\u2019s QAT + LoRA fine-tuning recipe, which can be run using the following command: # Fine-tuning with QAT + LoRA tune run --nnodes 1 --nproc_per_node 4 qat_lora_finetune_distributed --config llama3_2/3B_qat_lora batch_size=16 For more details about how QAT is set up in TorchTune, please refer to this tutorial. Option 2: Axolotl QAT Integration# Axolotl also recently added a QAT fine-tuning recipe that leverages TorchAO\u2019s QAT support. To get started, try fine-tuning Llama-3.2-3B with QAT using the following command: axolotl train examples/llama-3/3b-qat-fsdp2.yaml # once training is complete, perform the quantization step axolotl quantize examples/llama-3/3b-qat-fsdp2.yaml # you should now have a quantized model saved in ./outputs/qat_out/quatized Please refer to the Axolotl QAT documentation for full details. Option 3: TorchAO QAT API# If you prefer to use a different training framework or your own custom training loop, you can call TorchAO\u2019s QAT APIs directly to transform the model before fine-tuning. These APIs are what the TorchTune and Axolotl QAT integrations call under the hood. In this example, we will fine-tune a mini version of Llama3 on a single GPU: import torch from torchtune.models.llama3 import llama3 # Set up a smaller version of llama3 to fit in a single A100 GPU # For smaller GPUs, adjust the model attributes accordingly def get_model(): return llama3( vocab_size=4096, num_layers=16, num_heads=16, num_kv_heads=4, embed_dim=2048, max_seq_len=2048, ).cuda() # Example training loop def train_loop(m: torch.nn.Module): optimizer = torch.optim.SGD(m.parameters(), lr=0.001, momentum=0.9, weight_decay=1e-5) loss_fn = torch.nn.CrossEntropyLoss() for i in range(10): example = torch.randint(0, 4096, (2, 16)).cuda() target = torch.randn((2, 16, 4096)).cuda() output = m(example) loss = loss_fn(output, target) loss.backward() optimizer.step() optimizer.zero_grad() Next, run the prepare step, which fake quantizes the model. In this example, we use int8 per token dynamic activations and int4 symmetric per group weights as our quantization scheme. Note that although we are targeting lower integer precisions, training still performs arithmetic in higher float precision (float32) because we are not actually casting the fake quantized values. from torchao.quantization import quantize_, Int8DynamicActivationInt4WeightConfig from torchao.quantization.qat import QATConfig model = get_model() # prepare: swap `torch.nn.Linear` -\u003e `FakeQuantizedLinear` base_config = Int8DynamicActivationInt4WeightConfig(group_size=32) quantize_(model, QATConfig(base_config, step=\"prepare\")) # fine-tune train_loop(model) After fine-tuning, we end up with a model in the original high precision. This fine-tuned model has the exact same structure as the original model. The only difference is the QAT fine-tuned model has weights that are more attuned to quantization, which will be beneficial later during inference. The next step is to actually quantize the model: from torchao.quantization import Int8DynamicActivationInt4WeightConfig # convert: swap `FakeQuantizedLinear` -\u003e `torch.nn.Linear`, then quantize using `base_config` quantize_(model, QATConfig(base_config, step=\"convert\")) # inference or generate Now our model is ready for serving, and will typically have higher quantized accuracy than if we did not apply the prepare step (fake quantization) during fine-tuning. For full details of using TorchAO\u2019s QAT API, please refer to the QAT README. Alternative Legacy APIThe above quantize_ API is the recommended flow for using TorchAO QAT. We also offer an alternative legacy \u201cquantizer\u201d API for specific quantization schemes, but these are not customizable unlike the above example. from torchao.quantization.qat import Int8DynActInt4WeightQATQuantizer qat_quantizer = Int8DynActInt4WeightQATQuantizer(group_size=32) # prepare: insert fake quantization ops # swaps `torch.nn.Linear` with `Int8DynActInt4WeightQATLinear` model = qat_quantizer.prepare(model) # train train_loop(model) # convert: transform fake quantization ops into actual quantized ops # swaps `Int8DynActInt4WeightQATLinear` with `Int8DynActInt4WeightLinear` model = qat_quantizer.convert(model) Quantized Low-Rank Adaptation (QLoRA)# Low-Rank Adaptation (LoRA) refers to freezing the original model, and instead training a set of new \u201cadapter\u201d parameters that are a small fraction of the original parameters, thereby significantly reducing the memory footprint during training. QLoRA is an extension of LoRA that additionally quantizes the frozen original model parameters to 4-bits, thereby further reducing the memory footprint. TorchAO offers an implementation of the NF4 data type proposed in the original QLoRA paper. This implementation expresses NF4 as a tensor subclass through the NF4Tensor, which composes cleanly with other PyTorch features like torch.compile and FSDP2. Users can convert a high precision tensor to NF4 simply by calling torchao.dtypes.to_nf4. For example: class FrozenNF4Linear(nn.Linear): def __init__( self, in_dim: int, out_dim: int, bias: bool = False, device: Optional[torch.device] = None, dtype: Optional[torch.dtype] = None, **quantization_kwargs, ): super().__init__(in_dim, out_dim, bias=bias, device=device, dtype=dtype) # No need to train these in QLoRA self.weight.requires_grad_(False) if self.bias is not None: self.bias.requires_grad_(False) nf4_weight = to_nf4(self.weight, **quantization_kwargs) self.weight = torch.nn.Parameter(nf4_weight, requires_grad=False) QLoRA need not work with NF4 specifically, though NF4 has been shown to achieve competitive results compared to bf16 baselines while significantly reducing the memory required for training. This technique can also compose with other lower bit dtypes such as regular INT4 or even newer MXFP4 or NVFP4 targeting Blackwell GPUs to reap similar memory benefits with varying tradeoffs. Option 1: TorchTune Integration# TorchTune incorporates the NF4Tensor in its QLoRA fine-tuning recipe through their implementation of LoRALinear. You can also try it out by running the following command, or refer to their QLoRA tutorial for more details. tune run lora_finetune_single_device --config llama3_2/3B_qlora_single_device.yaml Option 2: HuggingFace PEFT Integration# HuggingFace PEFT also has a limited version of QLoRA leveraging TorchAO\u2019s INT8 quantization, though INT4 or NF4 are not supported yet. Users can invoke this functionality by preparing their models as follows. For full details, please refer to this tutorial. from peft import LoraConfig, get_peft_model from transformers import AutoModelForCausalLM, TorchAoConfig from torchao.quantization import Int8WeightOnlyConfig base_model = AutoModelForCausalLM.from_pretrained( \"meta-llama/Llama-3.2-1B\", quantization_config=TorchAoConfig(Int8WeightOnlyConfig()), ) peft_config = LoraConfig() model = get_peft_model(base_model, peft_config) Float8 Quantized Fine-tuning# Similar to pre-training, we can also leverage float8 in fine-tuning for higher training throughput with no accuracy degradation and no increase in memory usage. Float8 training is integrated into TorchTune\u2019s distributed full fine-tuning recipe, leveraging the same APIs as our integration with TorchTitan. Users can invoke this fine-tuning recipe as follows: tune run --nnodes 1 --nproc_per_node 4 full_finetune_distributed --config llama3_2/3B_full enable_fp8_training=true \\ fp8_recipe_name=tensorwise \\ compile=True Initial experiments saw up to 16.5% throughput improvement for fine-tuning Llama3.2-3B in float8: experiment_name tok/s peak_mem_reserved ---------------------- ------------------- ------------------- bf16 6502.143 (+0.000%) 30.090 (+0.000%) fp8_noname 7205.386 (+10.816%) 30.010 (-0.266%) fp8_tensorwise 7222.198 (+11.074%) 30.010 (-0.266%) fp8_rowwise 6387.968 (-1.756%) 29.158 (-3.096%) fp8_rowwise_with_gw_hp 7573.698 (+16.480%) 29.516 (-1.908%) experiment_name hellaswag_acc wikitext_word_perplexity ---------------------- --------------- -------------------------- bf16 0.533 (+0.000) 12.407 (+0.000) fp8_noname 0.533 (+0.000) 12.414 (+0.007) fp8_tensorwise 0.533 (+0.000) 12.412 (+0.005) fp8_rowwise 0.533 (-0.000) 12.420 (+0.013) fp8_rowwise_with_gw_hp 0.534 (+0.001) 12.416 (+0.009) Please refer to the pre-training tutorial for more details.",
+       "url": "/workflows/qat.html",
+       "articleBody": "Quantization-Aware Training (QAT)# Created On: Jan 29, 2026 | Last Updated On: Jan 29, 2026 Quantization-Aware Training (QAT) refers to applying fake quantization during the training or fine-tuning process, such that the final quantized model will exhibit higher accuracies and lower perplexities. Fake quantization refers to rounding the float values to quantized values without actually casting them to dtypes with lower bit-widths, in contrast to post-training quantization (PTQ), which does cast the quantized values to lower bit-width dtypes, e.g.: # PTQ: x_q is quantized and cast to int8 # scale and zero point (zp) refer to parameters used to quantize x_float # qmin and qmax refer to the range of quantized values x_q = (x_float / scale + zp).round().clamp(qmin, qmax).cast(int8) # QAT: x_fq is still in float # Fake quantize simulates the numerics of quantize + dequantize x_fq = (x_float / scale + zp).round().clamp(qmin, qmax) x_fq = (x_fq - zp) * scale QAT typically involves applying a transformation to your model before and after training. In torchao, these are represented as the prepare and convert steps: (1) prepare inserts fake quantize operations into linear layers, and (2) convert transforms the fake quantize operations to actual quantize and dequantize operations after training, thereby producing a quantized model (dequantize operations are typically fused with linear after lowering). Between these two steps, training can proceed exactly as before. torchao APIs# torchao currently supports two QAT APIs, one through the quantize_ API (recommended) and one through the Quantizer classes (legacy). The quantize_ API allows flexible configuration of quantization settings for both activations and weights, while the Quantizer classes each hardcode a specific quantization setting. For example, running QAT on a single GPU: import torch from torchtune.models.llama3 import llama3 # Set up smaller version of llama3 to fit in a single GPU def get_model(): return llama3( vocab_size=4096, num_layers=16, num_heads=16, num_kv_heads=4, embed_dim=2048, max_seq_len=2048, ).cuda() # Example training loop def train_loop(m: torch.nn.Module): optimizer = torch.optim.SGD(m.parameters(), lr=0.001, momentum=0.9, weight_decay=1e-5) loss_fn = torch.nn.CrossEntropyLoss() for i in range(10): example = torch.randint(0, 4096, (2, 16)).cuda() target = torch.randn((2, 16, 4096)).cuda() output = m(example) loss = loss_fn(output, target) loss.backward() optimizer.step() optimizer.zero_grad() quantize_ API (recommended)# The recommended way to run QAT in torchao is through the quantize_ API. Prepare: The main QATConfig accepts a post-training quantization (PTQ) config and automatically infers the corresponding fake quantization configs to use. Convert: quantize the model using the base config provided Currently only the following PTQ base configs are supported: Int8DynamicActivationInt4WeightConfig Int4WeightOnlyConfig For example (most use cases): from torchao.quantization import quantize_, Int8DynamicActivationInt4WeightConfig from torchao.quantization.qat import QATConfig model = get_model() # prepare: swap `torch.nn.Linear` -\u003e `FakeQuantizedLinear` base_config = Int8DynamicActivationInt4WeightConfig(group_size=32) quantize_(model, QATConfig(base_config, step=\"prepare\")) # train train_loop(model) # convert: swap `FakeQuantizedLinear` -\u003e `torch.nn.Linear`, then quantize using `base_config` quantize_(model, QATConfig(base_config, step=\"convert\")) # inference or generate The quantize_ API also allows more general quantization settings that may not have a corresponding PTQ base config, e.g. for experimentation purposes. Users can specify custom fake quantization configs for activations and/or weights. For example, the following usage is numerically equivalent to the above: from torchao.quantization import quantize_, Int8DynamicActivationInt4WeightConfig from torchao.quantization.qat import IntxFakeQuantizeConfig, QATConfig model = get_model() # prepare: swap `torch.nn.Linear` -\u003e `FakeQuantizedLinear` activation_config = IntxFakeQuantizeConfig(torch.int8, \"per_token\", is_symmetric=False) weight_config = IntxFakeQuantizeConfig(torch.int4, group_size=32) qat_config = QATConfig( activation_config=activation_config, weight_config=weight_config, step=\"prepare\", ) quantize_(model, qat_config) # train train_loop(model) # convert: (not shown, same as before) To fake quantize embedding in addition to linear, you can additionally call the following with a filter function during the prepare step: # First apply linear transformation to the model as above # Then apply weight-only transformation to embedding layers # (activation fake quantization is not supported for embedding layers) qat_config = QATConfig(weight_config=weight_config, step=\"prepare\") quantize_(m, qat_config, filter_fn=lambda m, _: isinstance(m, torch.nn.Embedding)) Quantizer API (legacy) Alternatively, torchao provides a few hardcoded quantization settings through the following Quantizers, but these may be removed soon: Int8DynActInt4QATQuantizer (linear), targeting int8 per-token dynamic asymmetric activation + int4 per-group symmetric weight Int4WeightOnlyQATQuantizer (linear), targeting int4 per-group asymmetric weight using the efficient int4 tinygemm kernel after training) Int4WeightOnlyEmbeddingQATQuantizer (embedding), targeting int4 per-group symmetric weight For example: from torchao.quantization.qat import Int8DynActInt4WeightQATQuantizer qat_quantizer = Int8DynActInt4WeightQATQuantizer(group_size=32) model = get_model() # prepare: insert fake quantization ops # swaps `torch.nn.Linear` with `Int8DynActInt4WeightQATLinear` model = qat_quantizer.prepare(model) # train train_loop(model) # convert: transform fake quantization ops into actual quantized ops # swaps `Int8DynActInt4WeightQATLinear` with `Int8DynActInt4WeightLinear` model = qat_quantizer.convert(model) # inference or generate To use multiple Quantizers in the same model for different layer types, users can also leverage the ComposableQATQuantizer as follows: from torchao.quantization.qat import ( ComposableQATQuantizer, Int4WeightOnlyEmbeddingQATQuantizer, Int8DynActInt4WeightQATQuantizer, ) quantizer = ComposableQATQuantizer([ Int8DynActInt4WeightQATQuantizer(groupsize=group_size), Int4WeightOnlyEmbeddingQATQuantizer(group_size=group_size), ]) # prepare + train + convert as before model = qat_quantizer.prepare(model) train_loop(model) model = qat_quantizer.convert(model) Axolotl integration# Axolotl uses TorchAO to support quantized-aware fine-tuning. You can use the following commands to fine-tune, and then quantize a Llama-3.2-3B model: axolotl train examples/llama-3/3b-qat-fsdp2.yaml # once training is complete, perform the quantization step axolotl quantize examples/llama-3/3b-qat-fsdp2.yaml # you should now have a quantized model saved in ./outputs/qat_out/quatized Please see the QAT documentation in axolotl for more details. Unsloth integration# Unsloth also leverages TorchAO for quantized-aware fine-tuning. Unsloth\u2019s QAT support can be used with both full and LoRA fine-tuning. For example: from unsloth import FastLanguageModel model, tokenizer = FastLanguageModel.from_pretrained( \"unsloth/Qwen3-4B-Instruct-2507\", max_seq_len = 2048, dtype = torch.bfloat16, load_in_4bit = False, full_finetuning = False, ) model = FastLanguageModel.get_peft_model( model, r = 16, target_modules = [\"q_proj\", \"k_proj\", \"v_proj\", \"o_proj\", \"gate_proj\", \"up_proj\", \"down_proj\",], lora_alpha = 16, qat_scheme = \"int4\", ) For a full notebook example, see: https://colab.research.google.com/github/unslothai/notebooks/blob/main/nb/Qwen3_(14B)-Reasoning-Conversational.ipynb. A QAT-specific notebook is coming soon. torchtune integration (legacy) torchao QAT is integrated with torchtune to allow users to run quantized-aware fine-tuning as follows: tune run --nproc_per_node 8 qat_distributed --config llama3/8B_qat_full torchtune also supports a QAT + LoRA distributed training recipe that is 1.89x faster and uses 36.1% memory compared to vanilla QAT in our early experiments. You can read more about it here: tune run --nnodes 1 --nproc_per_node 4 qat_lora_finetune_distributed --config llama3/8B_qat_lora For more detail, please refer to this QAT tutorial. Evaluation Results# Int4 weight-only QAT + LoRA using a group size of 128, fine-tuned using Unsloth. Both fine-tuning and evaluation was done on a single H100 GPU using the mlabonne/FineTome-100k dataset. Learning rate was 2e-5 and batch size was 64 with no gradient accumulation. # gemma3-12b-it +-------------+-----------------+-----------------+------------+-------------+ | Eval task | bf16 baseline | int4 baseline | int4 QAT | recovered | +=============+=================+=================+============+=============+ | wikitext | 9.1477 | 9.7745 | 9.5631 | 33.727% | +-------------+-----------------+-----------------+------------+-------------+ | bbh | 0.8079 | 0.7624 | 0.7831 | 45.495% | +-------------+-----------------+-----------------+------------+-------------+ # gemma3-4b-it +-------------+-----------------+-----------------+------------+-------------+ | Eval task | bf16 baseline | int4 baseline | int4 QAT | recovered | +=============+=================+=================+============+=============+ | wikitext | 12.1155 | 13.247 | 12.797 | 39.770% | +-------------+-----------------+-----------------+------------+-------------+ | bbh | 0.7074 | 0.6415 | 0.6666 | 38.088 | +-------------+-----------------+-----------------+------------+-------------+ | gpqa | 0.3232 | 0.3081 | 0.3182 | 66.887% | +-------------+-----------------+-----------------+------------+-------------+ # Qwen3-4B-Instruct +-------------+-----------------+-----------------+------------+-------------+ | Eval task | bf16 baseline | int4 baseline | int4 QAT | recovered | +=============+=================+=================+============+=============+ | mmlu-pro | 0.4909 | 0.4328 | 0.4524 | 33.735% | +-------------+-----------------+-----------------+------------+-------------+ # Llama3.2-3B +-------------+-----------------+-----------------+------------+-------------+ | Eval task | bf16 baseline | int4 baseline | int4 QAT | recovered | +=============+=================+=================+============+=============+ | wikitext | 12.1322 | 13.3459 | 12.8796 | 38.420% | +-------------+-----------------+-----------------+------------+-------------+ | bbh | 0.5483 | 0.4967 | 0.5174 | 40.116% | +-------------+-----------------+-----------------+------------+-------------+ | gpqa | 0.3333 | 0.2879 | 0.303 | 33.260% | +-------------+-----------------+-----------------+------------+-------------+ | mmlu-pro | 0.2771 | 0.2562 | 0.2629 | 32.057% | +-------------+-----------------+-----------------+------------+-------------+ NVFP4 QAT full fine-tuning, fine-tuned using Axolotl on 8x B200 GPUs on the yahma/alpaca-cleaned dataset. Learning rate was 2e-5 and batch size was 128 for gemma3-12b-it and 32 for Qwen3-8B. # gemma3-12b-it +-------------+-----------------+------------------+-------------+-------------+ | Eval task | bf16 baseline | nvfp4 baseline | nvfp4 QAT | recovered | +=============+=================+==================+=============+=============+ | bbh | 0.7527 | 0.7068 | 0.7222 | 33.551% | +-------------+-----------------+------------------+-------------+-------------+ | mmlu-pro | 0.4074 | 0.3621 | 0.3702 | 17.881% | +-------------+-----------------+------------------+-------------+-------------+ # Qwen3-8B +-------------+-----------------+------------------+-------------+-------------+ | Eval task | bf16 baseline | nvfp4 baseline | nvfp4 QAT | recovered | +=============+=================+==================+=============+=============+ | bbh | 0.7771 | 0.7262 | 0.7397 | 26.523% | +-------------+-----------------+------------------+-------------+-------------+ | mmlu-pro | 0.4929 | 0.4519 | 0.4686 | 40.732% | +-------------+-----------------+------------------+-------------+-------------+ For more details, please refer to this blog post.",
        "author": {
          "@type": "Organization",
          "name": "PyTorch Contributors",
@@ -1725,7 +1683,7 @@ for fine-tuning Llama3.2-3B in float8:</p>
        "image": "https://pytorch.org/docs/stable/_static/img/pytorch_seo.png",
        "mainEntityOfPage": {
          "@type": "WebPage",
-         "@id": "/eager_quantization/finetuning.html"
+         "@id": "/workflows/qat.html"
        },
        "datePublished": "Jan 29, 2026T00:00:00Z",
        "dateModified": "Jan 29, 2026T00:00:00Z"
