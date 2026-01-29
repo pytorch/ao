@@ -28,7 +28,7 @@ void test_embedding(
       has_scales);
 
   const size_t packed_embedding_size =
-      torchao::kernels::cpu::aarch64::embedding::packed_embedding_size(
+      torchao::cpu::aarch64::embedding::packed_embedding_size(
           weight_nbit,
           num_embeddings,
           embedding_dim,
@@ -40,7 +40,7 @@ void test_embedding(
   auto output = std::vector<float>(num_embeddings * embedding_dim, 0.0);
 
   for (int i = 0; i < num_embeddings; i++) {
-    torchao::kernels::cpu::aarch64::embedding::pack_embedding_row_at_index_lut<
+    torchao::cpu::aarch64::embedding::pack_embedding_row_at_index_lut<
         weight_nbit>(
         packed.data(),
         i,
@@ -55,7 +55,7 @@ void test_embedding(
   }
 
   for (int i = 0; i < num_embeddings; i++) {
-    torchao::kernels::cpu::aarch64::embedding::
+    torchao::cpu::aarch64::embedding::
         dequantize_embedding_row_at_idx_lut<weight_nbit>(
             output.data() + i * embedding_dim,
             packed.data(),

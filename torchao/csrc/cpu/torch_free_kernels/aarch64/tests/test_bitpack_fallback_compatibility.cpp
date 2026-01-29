@@ -22,7 +22,7 @@ TEST(test_bitpacking_64_uint1_values, CppToNeon) {
   std::vector<uint8_t> packed(packed_bytes, 0);
   std::vector<uint8_t> unpacked(unpacked_bytes, 0);
 
-  torchao::kernels::cpu::fallback::bitpacking::internal::pack_64_uint1_values(
+  torchao::cpu::fallback::bitpacking::internal::pack_64_uint1_values(
       packed.data(), input.data());
 
   uint8x16_t u0, u1, u2, u3;
@@ -52,7 +52,7 @@ TEST(test_bitpacking_64_uint1_values, NeonToCpp) {
   torchao::bitpacking::internal::vec_pack_64_uint1_values(
       packed.data(), i0, i1, i2, i3);
 
-  torchao::kernels::cpu::fallback::bitpacking::internal::unpack_64_uint1_values(
+  torchao::cpu::fallback::bitpacking::internal::unpack_64_uint1_values(
       unpacked.data(), packed.data());
 
   for (int i = 0; i < unpacked_bytes; ++i) {
@@ -68,7 +68,7 @@ TEST(test_bitpacking_128_uint1_values, CppToNeon) {
   std::vector<uint8_t> packed(packed_bytes, 0);
   std::vector<uint8_t> unpacked(unpacked_bytes, 0);
 
-  torchao::kernels::cpu::fallback::bitpacking::internal::pack_128_uint1_values(
+  torchao::cpu::fallback::bitpacking::internal::pack_128_uint1_values(
       packed.data(), input.data());
 
   uint8x16_t u0, u1, u2, u3, u4, u5, u6, u7;
@@ -104,7 +104,7 @@ TEST(test_bitpacking_128_uint1_values, NeonToCpp) {
   torchao::bitpacking::internal::vec_pack_128_uint1_values(
       packed.data(), i0, i1, i2, i3, i4, i5, i6, i7);
 
-  torchao::kernels::cpu::fallback::bitpacking::internal::
+  torchao::cpu::fallback::bitpacking::internal::
       unpack_128_uint1_values(unpacked.data(), packed.data());
 
   for (int i = 0; i < unpacked_bytes; ++i) {
@@ -122,7 +122,7 @@ TEST(test_bitpacking_32_uint2_values, CppToNeon) {
   std::vector<uint8_t> packed(packed_bytes, 0);
   std::vector<uint8_t> unpacked(unpacked_bytes, 0);
 
-  torchao::kernels::cpu::fallback::bitpacking::internal::pack_32_uint2_values(
+  torchao::cpu::fallback::bitpacking::internal::pack_32_uint2_values(
       packed.data(), input.data());
 
   uint8x8_t u0, u1, u2, u3;
@@ -152,7 +152,7 @@ TEST(test_bitpacking_32_uint2_values, NeonToCpp) {
   torchao::bitpacking::internal::vec_pack_32_uint2_values(
       packed.data(), i0, i1, i2, i3);
 
-  torchao::kernels::cpu::fallback::bitpacking::internal::unpack_32_uint2_values(
+  torchao::cpu::fallback::bitpacking::internal::unpack_32_uint2_values(
       unpacked.data(), packed.data());
 
   for (int i = 0; i < unpacked_bytes; ++i) {
@@ -168,7 +168,7 @@ TEST(test_bitpacking_64_uint2_values, CppToNeon) {
   std::vector<uint8_t> packed(packed_bytes, 0);
   std::vector<uint8_t> unpacked(unpacked_bytes, 0);
 
-  torchao::kernels::cpu::fallback::bitpacking::internal::pack_64_uint2_values(
+  torchao::cpu::fallback::bitpacking::internal::pack_64_uint2_values(
       packed.data(), input.data());
 
   uint8x16_t u0, u1, u2, u3;
@@ -198,7 +198,7 @@ TEST(test_bitpacking_64_uint2_values, NeonToCpp) {
   torchao::bitpacking::internal::vec_pack_64_uint2_values(
       packed.data(), i0, i1, i2, i3);
 
-  torchao::kernels::cpu::fallback::bitpacking::internal::unpack_64_uint2_values(
+  torchao::cpu::fallback::bitpacking::internal::unpack_64_uint2_values(
       unpacked.data(), packed.data());
 
   for (int i = 0; i < unpacked_bytes; ++i) {
@@ -216,7 +216,7 @@ TEST(test_bitpacking_64_uint3_values, CppToNeon) {
   std::vector<uint8_t> packed(packed_bytes, 0);
   std::vector<uint8_t> unpacked(unpacked_bytes, 0);
 
-  torchao::kernels::cpu::fallback::bitpacking::internal::pack_64_uint3_values(
+  torchao::cpu::fallback::bitpacking::internal::pack_64_uint3_values(
       packed.data(), input.data());
 
   uint8x16_t u0, u1, u2, u3;
@@ -246,7 +246,7 @@ TEST(test_bitpacking_64_uint3_values, NeonToCpp) {
   torchao::bitpacking::internal::vec_pack_64_uint3_values(
       packed.data(), i0, i1, i2, i3);
 
-  torchao::kernels::cpu::fallback::bitpacking::internal::unpack_64_uint3_values(
+  torchao::cpu::fallback::bitpacking::internal::unpack_64_uint3_values(
       unpacked.data(), packed.data());
 
   for (int i = 0; i < unpacked_bytes; ++i) {
@@ -262,7 +262,7 @@ TEST(test_bitpacking_128_uint3_values, CppToNeon) {
   std::vector<uint8_t> packed(packed_bytes, 0);
   std::vector<uint8_t> unpacked(unpacked_bytes, 0);
 
-  torchao::kernels::cpu::fallback::bitpacking::internal::pack_128_uint3_values(
+  torchao::cpu::fallback::bitpacking::internal::pack_128_uint3_values(
       packed.data(), input.data());
 
   uint8x16_t u0, u1, u2, u3, u4, u5, u6, u7;
@@ -298,7 +298,7 @@ TEST(test_bitpacking_128_uint3_values, NeonToCpp) {
   torchao::bitpacking::internal::vec_pack_128_uint3_values(
       packed.data(), i0, i1, i2, i3, i4, i5, i6, i7);
 
-  torchao::kernels::cpu::fallback::bitpacking::internal::
+  torchao::cpu::fallback::bitpacking::internal::
       unpack_128_uint3_values(unpacked.data(), packed.data());
 
   for (int i = 0; i < unpacked_bytes; ++i) {
@@ -316,7 +316,7 @@ TEST(test_bitpacking_16_uint4_values, CppToNeon) {
   std::vector<uint8_t> packed(packed_bytes, 0);
   std::vector<uint8_t> unpacked(unpacked_bytes, 0);
 
-  torchao::kernels::cpu::fallback::bitpacking::internal::pack_16_uint4_values(
+  torchao::cpu::fallback::bitpacking::internal::pack_16_uint4_values(
       packed.data(), input.data());
 
   uint8x16_t unpacked0;
@@ -341,7 +341,7 @@ TEST(test_bitpacking_16_uint4_values, NeonToCpp) {
   torchao::bitpacking::internal::vec_pack_16_uint4_values(
       packed.data(), input0);
 
-  torchao::kernels::cpu::fallback::bitpacking::internal::unpack_16_uint4_values(
+  torchao::cpu::fallback::bitpacking::internal::unpack_16_uint4_values(
       unpacked.data(), packed.data());
 
   for (int i = 0; i < unpacked_bytes; ++i) {
@@ -357,7 +357,7 @@ TEST(test_bitpacking_32_uint4_values, CppToNeon) {
   std::vector<uint8_t> packed(packed_bytes, 0);
   std::vector<uint8_t> unpacked(unpacked_bytes, 0);
 
-  torchao::kernels::cpu::fallback::bitpacking::internal::pack_32_uint4_values(
+  torchao::cpu::fallback::bitpacking::internal::pack_32_uint4_values(
       packed.data(), input.data());
 
   uint8x16_t unpacked0, unpacked1;
@@ -384,7 +384,7 @@ TEST(test_bitpacking_32_uint4_values, NeonToCpp) {
   torchao::bitpacking::internal::vec_pack_32_uint4_values(
       packed.data(), input0, input1);
 
-  torchao::kernels::cpu::fallback::bitpacking::internal::unpack_32_uint4_values(
+  torchao::cpu::fallback::bitpacking::internal::unpack_32_uint4_values(
       unpacked.data(), packed.data());
 
   for (int i = 0; i < unpacked_bytes; ++i) {
@@ -402,7 +402,7 @@ TEST(test_bitpacking_64_uint5_values, CppToNeon) {
   std::vector<uint8_t> packed(packed_bytes, 0);
   std::vector<uint8_t> unpacked(unpacked_bytes, 0);
 
-  torchao::kernels::cpu::fallback::bitpacking::internal::pack_64_uint5_values(
+  torchao::cpu::fallback::bitpacking::internal::pack_64_uint5_values(
       packed.data(), input.data());
 
   uint8x16_t unpacked0, unpacked1, unpacked2, unpacked3;
@@ -432,7 +432,7 @@ TEST(test_bitpacking_64_uint5_values, NeonToCpp) {
   torchao::bitpacking::internal::vec_pack_64_uint5_values(
       packed.data(), input0, input1, input2, input3);
 
-  torchao::kernels::cpu::fallback::bitpacking::internal::unpack_64_uint5_values(
+  torchao::cpu::fallback::bitpacking::internal::unpack_64_uint5_values(
       unpacked.data(), packed.data());
 
   for (int i = 0; i < unpacked_bytes; ++i) {
@@ -448,7 +448,7 @@ TEST(test_bitpacking_128_uint5_values, CppToNeon) {
   std::vector<uint8_t> packed(packed_bytes, 0);
   std::vector<uint8_t> unpacked(unpacked_bytes, 0);
 
-  torchao::kernels::cpu::fallback::bitpacking::internal::pack_128_uint5_values(
+  torchao::cpu::fallback::bitpacking::internal::pack_128_uint5_values(
       packed.data(), input.data());
 
   uint8x16_t u0, u1, u2, u3, u4, u5, u6, u7;
@@ -484,7 +484,7 @@ TEST(test_bitpacking_128_uint5_values, NeonToCpp) {
   torchao::bitpacking::internal::vec_pack_128_uint5_values(
       packed.data(), i0, i1, i2, i3, i4, i5, i6, i7);
 
-  torchao::kernels::cpu::fallback::bitpacking::internal::
+  torchao::cpu::fallback::bitpacking::internal::
       unpack_128_uint5_values(unpacked.data(), packed.data());
 
   for (int i = 0; i < unpacked_bytes; ++i) {
@@ -502,7 +502,7 @@ TEST(test_bitpacking_32_uint6_values, CppToNeon) {
   std::vector<uint8_t> packed(packed_bytes, 0);
   std::vector<uint8_t> unpacked(unpacked_bytes, 0);
 
-  torchao::kernels::cpu::fallback::bitpacking::internal::pack_32_uint6_values(
+  torchao::cpu::fallback::bitpacking::internal::pack_32_uint6_values(
       packed.data(), input.data());
 
   uint8x16_t u0, u1;
@@ -529,7 +529,7 @@ TEST(test_bitpacking_32_uint6_values, NeonToCpp) {
   torchao::bitpacking::internal::vec_pack_32_uint6_values(
       packed.data(), i0, i1);
 
-  torchao::kernels::cpu::fallback::bitpacking::internal::unpack_32_uint6_values(
+  torchao::cpu::fallback::bitpacking::internal::unpack_32_uint6_values(
       unpacked.data(), packed.data());
 
   for (int i = 0; i < unpacked_bytes; ++i) {
@@ -545,7 +545,7 @@ TEST(test_bitpacking_64_uint6_values, CppToNeon) {
   std::vector<uint8_t> packed(packed_bytes, 0);
   std::vector<uint8_t> unpacked(unpacked_bytes, 0);
 
-  torchao::kernels::cpu::fallback::bitpacking::internal::pack_64_uint6_values(
+  torchao::cpu::fallback::bitpacking::internal::pack_64_uint6_values(
       packed.data(), input.data());
 
   uint8x16_t u0, u1, u2, u3;
@@ -575,7 +575,7 @@ TEST(test_bitpacking_64_uint6_values, NeonToCpp) {
   torchao::bitpacking::internal::vec_pack_64_uint6_values(
       packed.data(), i0, i1, i2, i3);
 
-  torchao::kernels::cpu::fallback::bitpacking::internal::unpack_64_uint6_values(
+  torchao::cpu::fallback::bitpacking::internal::unpack_64_uint6_values(
       unpacked.data(), packed.data());
 
   for (int i = 0; i < unpacked_bytes; ++i) {
@@ -593,7 +593,7 @@ TEST(test_bitpacking_64_uint7_values, CppToNeon) {
   std::vector<uint8_t> packed(packed_bytes, 0);
   std::vector<uint8_t> unpacked(unpacked_bytes, 0);
 
-  torchao::kernels::cpu::fallback::bitpacking::internal::pack_64_uint7_values(
+  torchao::cpu::fallback::bitpacking::internal::pack_64_uint7_values(
       packed.data(), input.data());
 
   uint8x16_t unpacked0, unpacked1, unpacked2, unpacked3;
@@ -623,7 +623,7 @@ TEST(test_bitpacking_64_uint7_values, NeonToCpp) {
   torchao::bitpacking::internal::vec_pack_64_uint7_values(
       packed.data(), input0, input1, input2, input3);
 
-  torchao::kernels::cpu::fallback::bitpacking::internal::unpack_64_uint7_values(
+  torchao::cpu::fallback::bitpacking::internal::unpack_64_uint7_values(
       unpacked.data(), packed.data());
 
   for (int i = 0; i < unpacked_bytes; ++i) {
@@ -639,7 +639,7 @@ TEST(test_bitpacking_128_uint7_values, CppToNeon) {
   std::vector<uint8_t> packed(packed_bytes, 0);
   std::vector<uint8_t> unpacked(unpacked_bytes, 0);
 
-  torchao::kernels::cpu::fallback::bitpacking::internal::pack_128_uint7_values(
+  torchao::cpu::fallback::bitpacking::internal::pack_128_uint7_values(
       packed.data(), input.data());
 
   uint8x16_t u0, u1, u2, u3, u4, u5, u6, u7;
@@ -675,7 +675,7 @@ TEST(test_bitpacking_128_uint7_values, NeonToCpp) {
   torchao::bitpacking::internal::vec_pack_128_uint7_values(
       packed.data(), i0, i1, i2, i3, i4, i5, i6, i7);
 
-  torchao::kernels::cpu::fallback::bitpacking::internal::
+  torchao::cpu::fallback::bitpacking::internal::
       unpack_128_uint7_values(unpacked.data(), packed.data());
 
   for (int i = 0; i < unpacked_bytes; ++i) {

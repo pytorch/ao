@@ -9,7 +9,7 @@
 #include <torchao/csrc/cpu/torch_free_kernels/macro.h>
 #include <cstdint>
 
-namespace torchao::kernels::cpu::fallback::bitpacking {
+namespace torchao::cpu::fallback::bitpacking {
 namespace internal {
 /**
  * @brief Packs 2 bytes, each holding a 4-bit value (0-15), into a single
@@ -106,4 +106,4 @@ TORCHAO_ALWAYS_INLINE inline void unpack_32_uint4_values(
   }
 }
 } // namespace internal
-} // namespace torchao::kernels::cpu::fallback::bitpacking
+} // namespace torchao::cpu::fallback::bitpacking

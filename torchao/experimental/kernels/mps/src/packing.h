@@ -4,7 +4,7 @@
 // This source code is licensed under the license found in the
 // LICENSE file in the root directory of this source tree.
 
-namespace torchao::kernels::mps::lowbit::packing {
+namespace torchao::mps::lowbit::packing {
 
 /**
  * Pack weights into a smaller number of bits.
@@ -187,4 +187,4 @@ pack<7>(const uint8_t* w_ptr, uint8_t* b_ptr, int32_t N, int32_t K) {
   }
 }
 
-} // namespace torchao::kernels::mps::lowbit::packing
+} // namespace torchao::mps::lowbit::packing
