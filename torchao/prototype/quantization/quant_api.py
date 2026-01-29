@@ -624,6 +624,7 @@ def _float8_static_activation_float8_weight_transform(
         )
         linear.weight = torch.nn.Parameter(quantized_tensor, requires_grad=False)
         linear.bias = module.bias
+        linear.extra_repr = types.MethodType(_linear_extra_repr, linear)
         return linear
 
     elif step is None:
