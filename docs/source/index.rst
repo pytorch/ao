@@ -70,6 +70,13 @@ Please see the `torchao compatibility table <https://github.com/pytorch/ao/issue
 .. toctree::
    :glob:
    :maxdepth: 1
+   :caption: Workflows
+
+   workflows
+
+.. toctree::
+   :glob:
+   :maxdepth: 1
    :caption: API Reference
 
    api_reference/index
