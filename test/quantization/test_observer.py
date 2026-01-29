@@ -189,6 +189,112 @@ class TestQuantFlow(TestCase):
         scale, zero_point = obs.calculate_qparams()
         self.assertTrue(torch.allclose(scale, torch.ones(2048)))
 
+    def test_keepdim_per_axis(self):
+        """Test keepdim option for per-axis quantization."""
+        # Test with keepdim=False (default)
+        obs_no_keepdim = AffineQuantizedMinMaxObserver(
+            MappingType.ASYMMETRIC,
+            torch.uint8,
+            granularity=PerAxis(axis=0),
+            eps=torch.finfo(torch.float32).eps,
+            scale_dtype=torch.float,
+            zero_point_dtype=torch.int,
+            keepdim=False,
+        )
+        # Test with keepdim=True
+        obs_keepdim = AffineQuantizedMinMaxObserver(
+            MappingType.ASYMMETRIC,
+            torch.uint8,
+            granularity=PerAxis(axis=0),
+            eps=torch.finfo(torch.float32).eps,
+            scale_dtype=torch.float,
+            zero_point_dtype=torch.int,
+            keepdim=True,
+        )
+
+        example_input = torch.randn(10, 2048)
+        obs_no_keepdim(example_input)
+        obs_keepdim(example_input)
+
+        # Check min_val/max_val shapes differ based on keepdim
+        # For PerAxis(0) with input [10, 2048], block_size = [1, 2048]
+        # reduction is over dim 1 only
+        # With keepdim=False: shape is [10]
+        # With keepdim=True: shape is [10, 1]
+        self.assertEqual(obs_no_keepdim.min_val.shape, torch.Size([10]))
+        self.assertEqual(obs_keepdim.min_val.shape, torch.Size([10, 1]))
+
+        # Calculate qparams
+        scale_no_keepdim, zp_no_keepdim = obs_no_keepdim.calculate_qparams()
+        scale_keepdim, zp_keepdim = obs_keepdim.calculate_qparams()
+
+        # With keepdim=False: scale/zero_point have reduced shape
+        self.assertEqual(scale_no_keepdim.shape, torch.Size([10]))
+        self.assertEqual(zp_no_keepdim.shape, torch.Size([10]))
+
+        # With keepdim=True: scale/zero_point keep dimensions (same as min_val/max_val)
+        self.assertEqual(scale_keepdim.shape, torch.Size([10, 1]))
+        self.assertEqual(zp_keepdim.shape, torch.Size([10, 1]))
+
+        # Values should be the same (just different shapes)
+        self.assertTrue(torch.allclose(scale_no_keepdim, scale_keepdim.squeeze()))
+        self.assertTrue(
+            torch.allclose(zp_no_keepdim.float(), zp_keepdim.squeeze().float())
+        )
+
+    @common_utils.parametrize("input_shape", [(10, 2048), (4, 16, 256)])
+    def test_keepdim_per_tensor(self, input_shape):
+        """Test keepdim option for per-tensor quantization with various input shapes."""
+        # Test with keepdim=False (default)
+        obs_no_keepdim = AffineQuantizedMinMaxObserver(
+            MappingType.ASYMMETRIC,
+            torch.uint8,
+            granularity=PerTensor(),
+            eps=torch.finfo(torch.float32).eps,
+            scale_dtype=torch.float,
+            zero_point_dtype=torch.int,
+            keepdim=False,
+        )
+        # Test with keepdim=True
+        obs_keepdim = AffineQuantizedMinMaxObserver(
+            MappingType.ASYMMETRIC,
+            torch.uint8,
+            granularity=PerTensor(),
+            eps=torch.finfo(torch.float32).eps,
+            scale_dtype=torch.float,
+            zero_point_dtype=torch.int,
+            keepdim=True,
+        )
+
+        example_input = torch.randn(*input_shape)
+        obs_no_keepdim(example_input)
+        obs_keepdim(example_input)
+
+        # Check min_val/max_val shapes differ based on keepdim
+        # For PerTensor, block_size equals input_shape, reduction is over all dims
+        # With keepdim=False: min_val shape is [] (scalar)
+        # With keepdim=True: min_val shape is [1] * len(input_shape)
+        self.assertEqual(obs_no_keepdim.min_val.shape, torch.Size([]))
+        self.assertEqual(obs_keepdim.min_val.shape, torch.Size([1] * len(input_shape)))
+
+        # Calculate qparams
+        scale_no_keepdim, zp_no_keepdim = obs_no_keepdim.calculate_qparams()
+        scale_keepdim, zp_keepdim = obs_keepdim.calculate_qparams()
+
+        # With keepdim=False: scale/zero_point are scalar-like
+        self.assertEqual(scale_no_keepdim.shape, torch.Size([]))
+        self.assertEqual(zp_no_keepdim.shape, torch.Size([]))
+
+        # With keepdim=True: scale/zero_point keep dimensions (same as min_val/max_val)
+        self.assertEqual(scale_keepdim.shape, torch.Size([1] * len(input_shape)))
+        self.assertEqual(zp_keepdim.shape, torch.Size([1] * len(input_shape)))
+
+        # Values should be the same (just different shapes)
+        self.assertTrue(torch.allclose(scale_no_keepdim, scale_keepdim.squeeze()))
+        self.assertTrue(
+            torch.allclose(zp_no_keepdim.float(), zp_keepdim.squeeze().float())
+        )
+
 
 class TestLinearObserver(TestCase):
     @common_utils.parametrize("observe_weight", [True, False])
@@ -265,6 +371,7 @@ class TestLinearObserver(TestCase):
             self.assertIsNone(linear.weight.weight_observer)
 
 
+common_utils.instantiate_parametrized_tests(TestQuantFlow)
 common_utils.instantiate_parametrized_tests(TestLinearObserver)
 
 if __name__ == "__main__":
