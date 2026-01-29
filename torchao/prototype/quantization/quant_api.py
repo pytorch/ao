@@ -674,6 +674,7 @@ def _float8_static_activation_float8_weight_transform(
         )
 
         module.weight = torch.nn.Parameter(quantized_tensor, requires_grad=False)
+        module.extra_repr = types.MethodType(_linear_extra_repr, module)
         return module
 
     else:
