@@ -91,9 +91,9 @@ Please see the `torchao compatibility table <https://github.com/pytorch/ao/issue
 .. toctree::
    :glob:
    :maxdepth: 1
-   :caption: Developer Notes
+   :caption: Contributing
 
-   developer_notes/index
+   contributing/index
 
 .. toctree::
    :glob:
