@@ -9,16 +9,16 @@
   <meta name="robots" content="noindex">
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
-<meta property="og:title" content="PyTorch 2 Export Quantization for OpenVINO torch.compile Backend" />
+<meta property="og:title" content="Workflows" />
 <meta property="og:type" content="website" />
-<meta property="og:url" content="http://pytorch.org/pt2e_quantization/pt2e_quant_openvino_inductor.html" />
+<meta property="og:url" content="http://pytorch.org/workflows.html" />
 <meta property="og:site_name" content="torchao" />
-<meta property="og:description" content="Authors: Daniil Lyakhov, Aamir Nazir, Alexander Suslov, Yamini Nimmagadda, Alexander Kozlov Prerequisites: PyTorch 2 Export Post Training Quantization, How to Write a Quantizer for PyTorch 2 Export..." />
+<meta property="og:description" content="This page provides an overview of the quantization and training workflows available in torchao. Stable Workflows: 🟢 = stable, 🟡 = prototype, 🟠 = planned, ⚪ = not supported,,,,,,, recommended hardwa..." />
 <meta property="og:image" content="https://pytorch.org/assets/images/social-share.jpg" />
 <meta property="og:image:alt" content="torchao" />
-<meta name="description" content="Authors: Daniil Lyakhov, Aamir Nazir, Alexander Suslov, Yamini Nimmagadda, Alexander Kozlov Prerequisites: PyTorch 2 Export Post Training Quantization, How to Write a Quantizer for PyTorch 2 Export..." />
+<meta name="description" content="This page provides an overview of the quantization and training workflows available in torchao. Stable Workflows: 🟢 = stable, 🟡 = prototype, 🟠 = planned, ⚪ = not supported,,,,,,, recommended hardwa..." />
 
-    <title>PyTorch 2 Export Quantization for OpenVINO torch.compile Backend &#8212; torchao main documentation</title>
+    <title>Workflows &#8212; torchao main documentation</title>
   
   
   
@@ -28,46 +28,46 @@
   </script>
   
   <!-- Loaded before other Sphinx assets -->
-  <link href="../_static/styles/theme.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
-<link href="../_static/styles/bootstrap.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
-<link href="../_static/styles/pydata-sphinx-theme.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
+  <link href="_static/styles/theme.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
+<link href="_static/styles/bootstrap.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
+<link href="_static/styles/pydata-sphinx-theme.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
 
   
-  <link href="../_static/vendor/fontawesome/6.5.2/css/all.min.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
-  <link rel="preload" as="font" type="font/woff2" crossorigin href="../_static/vendor/fontawesome/6.5.2/webfonts/fa-solid-900.woff2" />
-<link rel="preload" as="font" type="font/woff2" crossorigin href="../_static/vendor/fontawesome/6.5.2/webfonts/fa-brands-400.woff2" />
-<link rel="preload" as="font" type="font/woff2" crossorigin href="../_static/vendor/fontawesome/6.5.2/webfonts/fa-regular-400.woff2" />
+  <link href="_static/vendor/fontawesome/6.5.2/css/all.min.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
+  <link rel="preload" as="font" type="font/woff2" crossorigin href="_static/vendor/fontawesome/6.5.2/webfonts/fa-solid-900.woff2" />
+<link rel="preload" as="font" type="font/woff2" crossorigin href="_static/vendor/fontawesome/6.5.2/webfonts/fa-brands-400.woff2" />
+<link rel="preload" as="font" type="font/woff2" crossorigin href="_static/vendor/fontawesome/6.5.2/webfonts/fa-regular-400.woff2" />
 
-    <link rel="stylesheet" type="text/css" href="../_static/pygments.css" />
-    <link rel="stylesheet" type="text/css" href="../_static/css/theme.css" />
-    <link rel="stylesheet" type="text/css" href="../_static/copybutton.css" />
-    <link rel="stylesheet" type="text/css" href="../_static/tabs.css" />
-    <link rel="stylesheet" type="text/css" href="../_static/design-style.1e8bd061cd6da7fc9cf755528e8ffc24.min.css" />
-    <link rel="stylesheet" type="text/css" href="../_static/sg_gallery.css" />
-    <link rel="stylesheet" type="text/css" href="../_static/sg_gallery-binder.css" />
-    <link rel="stylesheet" type="text/css" href="../_static/sg_gallery-dataframe.css" />
-    <link rel="stylesheet" type="text/css" href="../_static/sg_gallery-rendered-html.css" />
-    <link rel="stylesheet" type="text/css" href="../_static/css/custom.css" />
+    <link rel="stylesheet" type="text/css" href="_static/pygments.css" />
+    <link rel="stylesheet" type="text/css" href="_static/css/theme.css" />
+    <link rel="stylesheet" type="text/css" href="_static/copybutton.css" />
+    <link rel="stylesheet" type="text/css" href="_static/tabs.css" />
+    <link rel="stylesheet" type="text/css" href="_static/design-style.1e8bd061cd6da7fc9cf755528e8ffc24.min.css" />
+    <link rel="stylesheet" type="text/css" href="_static/sg_gallery.css" />
+    <link rel="stylesheet" type="text/css" href="_static/sg_gallery-binder.css" />
+    <link rel="stylesheet" type="text/css" href="_static/sg_gallery-dataframe.css" />
+    <link rel="stylesheet" type="text/css" href="_static/sg_gallery-rendered-html.css" />
+    <link rel="stylesheet" type="text/css" href="_static/css/custom.css" />
   
   <!-- Pre-loaded scripts that we'll load fully later -->
-  <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=dfe6caa3a7d634c4db9b" />
-<link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=dfe6caa3a7d634c4db9b" />
-  <script src="../_static/vendor/fontawesome/6.5.2/js/all.min.js?digest=dfe6caa3a7d634c4db9b"></script>
+  <link rel="preload" as="script" href="_static/scripts/bootstrap.js?digest=dfe6caa3a7d634c4db9b" />
+<link rel="preload" as="script" href="_static/scripts/pydata-sphinx-theme.js?digest=dfe6caa3a7d634c4db9b" />
+  <script src="_static/vendor/fontawesome/6.5.2/js/all.min.js?digest=dfe6caa3a7d634c4db9b"></script>
 
-    <script data-url_root="../" id="documentation_options" src="../_static/documentation_options.js"></script>
-    <script src="../_static/jquery.js"></script>
-    <script src="../_static/underscore.js"></script>
-    <script src="../_static/_sphinx_javascript_frameworks_compat.js"></script>
-    <script src="../_static/doctools.js"></script>
-    <script src="../_static/sphinx_highlight.js"></script>
-    <script src="../_static/clipboard.min.js"></script>
-    <script src="../_static/copybutton.js"></script>
-    <script src="../_static/design-tabs.js"></script>
-    <link rel="canonical" href="https://pytorch.org/ao/pt2e_quantization/pt2e_quant_openvino_inductor.html" />
-    <link rel="index" title="Index" href="../genindex.html" />
-    <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="How to Write a Quantizer for PyTorch 2 Export Quantization" href="pt2e_quantizer.html" />
-    <link rel="prev" title="PyTorch 2 Export Quantization with Intel GPU Backend through Inductor" href="pt2e_quant_xpu_inductor.html" />
+    <script data-url_root="./" id="documentation_options" src="_static/documentation_options.js"></script>
+    <script src="_static/jquery.js"></script>
+    <script src="_static/underscore.js"></script>
+    <script src="_static/_sphinx_javascript_frameworks_compat.js"></script>
+    <script src="_static/doctools.js"></script>
+    <script src="_static/sphinx_highlight.js"></script>
+    <script src="_static/clipboard.min.js"></script>
+    <script src="_static/copybutton.js"></script>
+    <script src="_static/design-tabs.js"></script>
+    <link rel="canonical" href="https://pytorch.org/ao/workflows.html" />
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="API Reference" href="api_reference/index.html" />
+    <link rel="prev" title="Welcome to the torchao Documentation" href="index.html" />
 
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
@@ -100,13 +100,13 @@
 <!-- Conditional CSS for header and footer height adjustment -->
 
 
-<link rel="stylesheet" type="text/css" href="../_static/css/theme.css" crossorigin="anonymous">
-<script type="text/javascript" src="../_static/js/theme.js"></script>
+<link rel="stylesheet" type="text/css" href="_static/css/theme.css" crossorigin="anonymous">
+<script type="text/javascript" src="_static/js/theme.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400&display=swap" rel="stylesheet">
 <meta property="og:image" content="https://docs.pytorch.org/docs/stable/_static/img/pytorch_seo.png" />
-<link rel="stylesheet" href="../_static/webfonts/all.min.css" crossorigin="anonymous">
+<link rel="stylesheet" href="_static/webfonts/all.min.css" crossorigin="anonymous">
 <meta http-equiv="Content-Security-Policy"
   content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:; style-src * 'unsafe-inline'; script-src * 'unsafe-inline' 'unsafe-eval' blob:;">
 <meta name="pytorch_project" content="">
@@ -571,7 +571,7 @@
     <div class="search-button__overlay"></div>
     <div class="search-button__search-container">
 <form class="bd-search d-flex align-items-center"
-      action="../search.html"
+      action="search.html"
       method="get">
   <i class="fa-solid fa-magnifying-glass"></i>
   <input type="search"
@@ -603,7 +603,7 @@
   <div class=" navbar-header-items__start">
     
       <div class="navbar-item">
-  <a href="../index.html" class="version">main</a>
+  <a href="index.html" class="version">main</a>
 </div>
     
   </div>
@@ -616,36 +616,36 @@
 <nav>
   <ul class="bd-navbar-elements navbar-nav">
     
-<li class="nav-item ">
-  <a class="nav-link nav-internal" href="../workflows.html">
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="#">
     Workflows
   </a>
 </li>
 
 
 <li class="nav-item ">
-  <a class="nav-link nav-internal" href="../api_reference/index.html">
+  <a class="nav-link nav-internal" href="api_reference/index.html">
     API Reference
   </a>
 </li>
 
 
 <li class="nav-item ">
-  <a class="nav-link nav-internal" href="../eager_quantization/index.html">
+  <a class="nav-link nav-internal" href="eager_quantization/index.html">
     Eager Quantization Tutorials
   </a>
 </li>
 
 
 <li class="nav-item ">
-  <a class="nav-link nav-internal" href="../developer_notes/index.html">
+  <a class="nav-link nav-internal" href="developer_notes/index.html">
     Developer Notes
   </a>
 </li>
 
 
-<li class="nav-item current active">
-  <a class="nav-link nav-internal" href="index.html">
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="pt2e_quantization/index.html">
     PT2E Quantization Tutorials
   </a>
 </li>
@@ -662,7 +662,7 @@
         <div class="navbar-item">
   
 <form class="bd-search d-flex align-items-center"
-      action="../search.html"
+      action="search.html"
       method="get">
   <i class="fa-solid fa-magnifying-glass"></i>
   <input type="search"
@@ -779,36 +779,36 @@ document.write(`
 <nav>
   <ul class="bd-navbar-elements navbar-nav">
     
-<li class="nav-item ">
-  <a class="nav-link nav-internal" href="../workflows.html">
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="#">
     Workflows
   </a>
 </li>
 
 
 <li class="nav-item ">
-  <a class="nav-link nav-internal" href="../api_reference/index.html">
+  <a class="nav-link nav-internal" href="api_reference/index.html">
     API Reference
   </a>
 </li>
 
 
 <li class="nav-item ">
-  <a class="nav-link nav-internal" href="../eager_quantization/index.html">
+  <a class="nav-link nav-internal" href="eager_quantization/index.html">
     Eager Quantization Tutorials
   </a>
 </li>
 
 
 <li class="nav-item ">
-  <a class="nav-link nav-internal" href="../developer_notes/index.html">
+  <a class="nav-link nav-internal" href="developer_notes/index.html">
     Developer Notes
   </a>
 </li>
 
 
-<li class="nav-item current active">
-  <a class="nav-link nav-internal" href="index.html">
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="pt2e_quantization/index.html">
     PT2E Quantization Tutorials
   </a>
 </li>
@@ -826,7 +826,7 @@ document.write(`
           <div class="navbar-item">
   
 <form class="bd-search d-flex align-items-center"
-      action="../search.html"
+      action="search.html"
       method="get">
   <i class="fa-solid fa-magnifying-glass"></i>
   <input type="search"
@@ -916,15 +916,7 @@ document.write(`
 <nav class="bd-docs-nav bd-links"
      aria-label="Section Navigation">
   <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
-  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
-<li class="toctree-l1"><a class="reference internal" href="pt2e_quant_ptq.html">PyTorch 2 Export Post Training Quantization</a></li>
-<li class="toctree-l1"><a class="reference internal" href="pt2e_quant_qat.html">PyTorch 2 Export Quantization-Aware Training (QAT)</a></li>
-<li class="toctree-l1"><a class="reference internal" href="pt2e_quant_x86_inductor.html">PyTorch 2 Export Quantization with X86 Backend through Inductor</a></li>
-<li class="toctree-l1"><a class="reference internal" href="pt2e_quant_xpu_inductor.html">PyTorch 2 Export Quantization with Intel GPU Backend through Inductor</a></li>
-<li class="toctree-l1 current active"><a class="current reference internal" href="#">PyTorch 2 Export Quantization for OpenVINO torch.compile Backend</a></li>
-<li class="toctree-l1"><a class="reference internal" href="pt2e_quantizer.html">How to Write a <code class="docutils literal notranslate"><span class="pre">Quantizer</span></code> for PyTorch 2 Export Quantization</a></li>
-</ul>
-</div>
+  <div class="bd-toc-item navbar-nav"></div>
 </nav></div>
     </div>
   
@@ -956,14 +948,11 @@ document.write(`
   <ul class="bd-breadcrumbs">
     
     <li class="breadcrumb-item breadcrumb-home">
-      <a href="../index.html" class="nav-link" aria-label="Home">
+      <a href="index.html" class="nav-link" aria-label="Home">
         <i class="fa-solid fa-home"></i>
       </a>
     </li>
-    
-    <li class="breadcrumb-item"><a href="index.html" class="nav-link">PT2E Quantization Tutorials</a></li>
-    
-    <li class="breadcrumb-item active" aria-current="page">PyTorch 2...</li>
+    <li class="breadcrumb-item active" aria-current="page">Workflows</li>
   </ul>
 </nav>
 </div>
@@ -1005,14 +994,8 @@ document.write(`
     <div style="display:none;" itemscope itemtype="https://schema.org/BreadcrumbList">
       
       <div itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
-        <link itemprop="item" href="index.html">
-        <meta itemprop="name" content="PT2E Quantization Tutorials">
+        <meta itemprop="name" content="Workflows">
         <meta itemprop="position" content="1">
-      </div>
-      
-      <div itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
-        <meta itemprop="name" content="PyTorch 2 Export Quantization for OpenVINO torch.compile Backend">
-        <meta itemprop="position" content="2">
       </div>
     </div>
 
@@ -1025,230 +1008,160 @@ document.write(`
 <div id="searchbox"></div>
                 <article class="bd-article">
                   
-  <section id="pytorch-2-export-quantization-for-openvino-torch-compile-backend">
-<h1>PyTorch 2 Export Quantization for OpenVINO torch.compile Backend<a class="headerlink" href="#pytorch-2-export-quantization-for-openvino-torch-compile-backend" title="Permalink to this heading">#</a></h1>
+  <section id="workflows">
+<h1>Workflows<a class="headerlink" href="#workflows" title="Permalink to this heading">#</a></h1>
 <p class="date-info-last-verified" style="color: #6c6c6d; font-size: small;">Created On: Jan 29, 2026 | Last Updated On: Jan 29, 2026</p>
-<p><strong>Authors</strong>: <a class="reference external" href="https://github.com/daniil-lyakhov">Daniil Lyakhov</a>,  <a class="reference external" href="https://github.com/anzr299">Aamir Nazir</a>,  <a class="reference external" href="https://github.com/alexsu52">Alexander Suslov</a>, <a class="reference external" href="https://github.com/ynimmaga">Yamini Nimmagadda</a>, <a class="reference external" href="https://github.com/AlexKoff88">Alexander Kozlov</a></p>
-<section id="prerequisites">
-<h2>Prerequisites<a class="headerlink" href="#prerequisites" title="Permalink to this heading">#</a></h2>
+<p>This page provides an overview of the quantization and training workflows available in torchao.</p>
+<section id="stable-workflows">
+<h2>Stable Workflows<a class="headerlink" href="#stable-workflows" title="Permalink to this heading">#</a></h2>
+<p>🟢 = stable, 🟡 = prototype, 🟠 = planned, ⚪ = not supported</p>
+<div class="pst-scrollable-table-container"><table class="colwidths-auto table">
+<thead>
+<tr class="row-odd"><th class="head"><p>recommended hardware</p></th>
+<th class="head"><p>weight</p></th>
+<th class="head"><p>activation</p></th>
+<th class="head"><p>quantized training</p></th>
+<th class="head"><p>QAT</p></th>
+<th class="head"><p>PTQ data algorithms</p></th>
+<th class="head"><p>quantized inference</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>H100, B200 GPUs</p></td>
+<td><p>float8 rowwise</p></td>
+<td><p>float8 rowwise</p></td>
+<td><p>🟢 <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/float8">(link)</a></p></td>
+<td><p>🟢 <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/quantization/qat">(link)</a></p></td>
+<td><p>⚪</p></td>
+<td><p>🟢 <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/quantization#a8w8-float8-dynamic-quantization-with-rowwise-scaling">(link)</a></p></td>
+</tr>
+<tr class="row-odd"><td><p>Intel® BMG GPUs</p></td>
+<td><p>float8 tensor/rowwise</p></td>
+<td><p>float8 tensor/rowwise</p></td>
+<td><p>🟠</p></td>
+<td><p>🟢 <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/quantization/qat">(link)</a></p></td>
+<td><p>⚪</p></td>
+<td><p>🟢 <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/quantization#a8w8-float8-dynamic-quantization-with-rowwise-scaling">(link)</a></p></td>
+</tr>
+<tr class="row-even"><td><p>H100 GPUs</p></td>
+<td><p>int4</p></td>
+<td><p>float8 rowwise</p></td>
+<td><p>⚪</p></td>
+<td><p>🟢 <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/quantization/qat">(link)</a></p></td>
+<td><p>🟠</p></td>
+<td><p>🟢 <a class="reference external" href="https://github.com/pytorch/ao/blob/257d18ae1b41e8bd8d85849dd2bd43ad3885678e/torchao/quantization/quant_api.py#L1296">(link)</a></p></td>
+</tr>
+<tr class="row-odd"><td><p>A100 GPUs</p></td>
+<td><p>int4</p></td>
+<td><p>bfloat16</p></td>
+<td><p>⚪</p></td>
+<td><p>🟢 <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/quantization/qat">(link)</a></p></td>
+<td><p>🟡: <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/prototype/hqq/README.md">HQQ</a>, <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/prototype/awq">AWQ</a></p></td>
+<td><p>🟢 <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/quantization#a16w4-weightonly-quantization">(link)</a></p></td>
+</tr>
+<tr class="row-even"><td><p>Intel® BMG GPUs</p></td>
+<td><p>int4</p></td>
+<td><p>float16/bfloat16</p></td>
+<td><p>⚪</p></td>
+<td><p>🟢 <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/quantization/qat">(link)</a></p></td>
+<td><p>🟡: <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/prototype/awq">AWQ</a></p></td>
+<td><p>🟢 <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/quantization#a16w4-weightonly-quantization">(link)</a></p></td>
+</tr>
+<tr class="row-odd"><td><p>A100 GPUs</p></td>
+<td><p>int8</p></td>
+<td><p>bfloat16</p></td>
+<td><p>⚪</p></td>
+<td><p>🟢 <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/quantization/qat">(link)</a></p></td>
+<td><p>⚪</p></td>
+<td><p>🟢 <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/quantization#a16w8-int8-weightonly-quantization">(link)</a></p></td>
+</tr>
+<tr class="row-even"><td><p>A100 GPUs</p></td>
+<td><p>int8</p></td>
+<td><p>int8</p></td>
+<td><p>🟡 <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/prototype/quantized_training">(link)</a></p></td>
+<td><p>🟢 <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/quantization/qat">(link)</a></p></td>
+<td><p>⚪</p></td>
+<td><p>🟢 <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/quantization#a8w8-int8-dynamic-quantization">(link)</a></p></td>
+</tr>
+<tr class="row-odd"><td><p>Intel® BMG GPUs</p></td>
+<td><p>int8</p></td>
+<td><p>int8</p></td>
+<td><p>🟠</p></td>
+<td><p>🟢 <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/quantization/qat">(link)</a></p></td>
+<td><p>⚪</p></td>
+<td><p>🟢 <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/quantization#a8w8-int8-dynamic-quantization">(link)</a></p></td>
+</tr>
+<tr class="row-even"><td><p>edge</p></td>
+<td><p>intx (1..7)</p></td>
+<td><p>bfloat16</p></td>
+<td><p>⚪</p></td>
+<td><p>🟢 <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/quantization/qat">(link)</a></p></td>
+<td><p>⚪</p></td>
+<td><p>🟢 <a class="reference external" href="https://github.com/pytorch/ao/blob/257d18ae1b41e8bd8d85849dd2bd43ad3885678e/torchao/quantization/quant_api.py#L2267">(link)</a></p></td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<section id="prototype-workflows">
+<h2>Prototype Workflows<a class="headerlink" href="#prototype-workflows" title="Permalink to this heading">#</a></h2>
+<p>🟢 = stable, 🟡 = prototype, 🟠 = planned, ⚪ = not supported</p>
+<div class="pst-scrollable-table-container"><table class="colwidths-auto table">
+<thead>
+<tr class="row-odd"><th class="head"><p>recommended hardware</p></th>
+<th class="head"><p>weight</p></th>
+<th class="head"><p>activation</p></th>
+<th class="head"><p>quantized training</p></th>
+<th class="head"><p>QAT</p></th>
+<th class="head"><p>PTQ data algorithms</p></th>
+<th class="head"><p>quantized inference</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>B200, MI350x GPUs</p></td>
+<td><p>mxfp8</p></td>
+<td><p>mxfp8</p></td>
+<td><p>🟡 <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/prototype/mx_formats#mx-training">(dense)</a>, <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/prototype/moe_training">(moe)</a></p></td>
+<td><p>⚪</p></td>
+<td><p>⚪</p></td>
+<td><p>🟡 <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/prototype/mx_formats#mx-inference">(link)</a></p></td>
+</tr>
+<tr class="row-odd"><td><p>B200 GPUs</p></td>
+<td><p>nvfp4</p></td>
+<td><p>nvfp4</p></td>
+<td><p>🟠</p></td>
+<td><p>🟡 <a class="reference external" href="https://github.com/pytorch/ao/blob/main/torchao/prototype/qat/nvfp4.py">(link)</a></p></td>
+<td><p>⚪</p></td>
+<td><p>🟡 <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/prototype/mx_formats#mx-inference">(link)</a></p></td>
+</tr>
+<tr class="row-even"><td><p>B200, MI350x GPUs</p></td>
+<td><p>mxfp4</p></td>
+<td><p>mxfp4</p></td>
+<td><p>⚪ not supported</p></td>
+<td><p>🟠</p></td>
+<td><p>🟠</p></td>
+<td><p>🟡 <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/prototype/mx_formats#mx-inference">(link)</a></p></td>
+</tr>
+<tr class="row-odd"><td><p>H100</p></td>
+<td><p>float8 128x128 (blockwise)</p></td>
+<td><p>float8 1x128</p></td>
+<td><p>🟠</p></td>
+<td><p>⚪</p></td>
+<td><p>⚪</p></td>
+<td><p>🟡</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<section id="other">
+<h2>Other<a class="headerlink" href="#other" title="Permalink to this heading">#</a></h2>
 <ul class="simple">
-<li><p><a class="reference external" href="https://docs.pytorch.org/ao/stable/tutorial_source/pt2e_quant_ptq.html">PyTorch 2 Export Post Training Quantization</a></p></li>
-<li><p><a class="reference external" href="https://docs.pytorch.org/ao/stable/tutorial_source/pt2e_quantizer.html">How to Write a Quantizer for PyTorch 2 Export Quantization</a></p></li>
+<li><p><a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/quantization/qat/README.md">Quantization-Aware Training (QAT) README.md</a></p></li>
+<li><p><a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/quantization/README.md">Post-Training Quantization (PTQ) README.md</a></p></li>
+<li><p><a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/sparsity/README.md">Sparsity README.md</a>, includes different techniques such as 2:4 sparsity and block sparsity</p></li>
+<li><p><a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/prototype">the prototype folder</a> for other prototype features</p></li>
 </ul>
-</section>
-<section id="introduction">
-<h2>Introduction<a class="headerlink" href="#introduction" title="Permalink to this heading">#</a></h2>
-<div class="admonition note">
-<p class="admonition-title">Note</p>
-<p>This is an experimental feature, the quantization API is subject to change.</p>
-</div>
-<p>This tutorial demonstrates how to use <code class="docutils literal notranslate"><span class="pre">OpenVINOQuantizer</span></code> from <a class="reference external" href="https://github.com/openvinotoolkit/nncf/tree/develop">Neural Network Compression Framework (NNCF)</a> in PyTorch 2 Export Quantization flow to generate a quantized model customized for the <a class="reference external" href="https://docs.openvino.ai/2024/openvino-workflow/torch-compile.html">OpenVINO torch.compile backend</a> and explains how to lower the quantized model into the <a class="reference external" href="https://docs.openvino.ai/2024/index.html">OpenVINO</a> representation.
-<code class="docutils literal notranslate"><span class="pre">OpenVINOQuantizer</span></code> unlocks the full potential of low-precision OpenVINO kernels due to the placement of quantizers designed specifically for the OpenVINO.</p>
-<p>The PyTorch 2 export quantization flow uses <code class="docutils literal notranslate"><span class="pre">torch.export</span></code> to capture the model into a graph and performs quantization transformations on top of the ATen graph.
-This approach is expected to have significantly higher model coverage, improved flexibility, and a simplified UX.
-OpenVINO backend compiles the FX Graph generated by TorchDynamo into an optimized OpenVINO model.</p>
-<p>The quantization flow mainly includes four steps:</p>
-<ul class="simple">
-<li><p>Step 1: Capture the FX Graph from the eager Model based on the <a class="reference external" href="https://pytorch.org/docs/main/export.html">torch export mechanism</a>.</p></li>
-<li><p>Step 2: Apply the PyTorch 2 Export Quantization flow with OpenVINOQuantizer based on the captured FX Graph.</p></li>
-<li><p>Step 3: Lower the quantized model into OpenVINO representation with the <a class="reference external" href="https://docs.openvino.ai/2024/openvino-workflow/torch-compile.html">torch.compile</a> API.</p></li>
-<li><p>Optional step 4: : Improve quantized model metrics via <a class="reference external" href="https://openvinotoolkit.github.io/nncf/autoapi/nncf/experimental/torch/fx/index.html#nncf.experimental.torch.fx.quantize_pt2e">quantize_pt2e</a> method.</p></li>
-</ul>
-<p>The high-level architecture of this flow could look like this:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>float_model(Python)                          Example Input
-    \                                              /
-     \                                            /
-—--------------------------------------------------------
-|                         export                       |
-—--------------------------------------------------------
-                            |
-                    FX Graph in ATen
-                            |
-                            |           OpenVINOQuantizer
-                            |                 /
-—--------------------------------------------------------
-|                      prepare_pt2e                     |
-|                           |                           |
-|                       Calibrate
-|                           |                           |
-|                      convert_pt2e                     |
-—--------------------------------------------------------
-                            |
-                     Quantized Model
-                            |
-—--------------------------------------------------------
-|                  Lower into Inductor                  |
-—--------------------------------------------------------
-                            |
-                      OpenVINO model
-</pre></div>
-</div>
-</section>
-<section id="post-training-quantization">
-<h2>Post Training Quantization<a class="headerlink" href="#post-training-quantization" title="Permalink to this heading">#</a></h2>
-<p>Now, we will walk you through a step-by-step tutorial for how to use it with <a class="reference external" href="https://download.pytorch.org/models/resnet18-f37072fd.pth">torchvision resnet18 model</a>
-for post training quantization.</p>
-<section id="prerequisite-openvino-and-nncf-installation">
-<h3>Prerequisite: OpenVINO and NNCF installation<a class="headerlink" href="#prerequisite-openvino-and-nncf-installation" title="Permalink to this heading">#</a></h3>
-<p>OpenVINO and NNCF could be easily installed via <a class="reference external" href="https://docs.openvino.ai/2024/get-started/install-openvino.html">pip distribution</a>:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span>-U<span class="w"> </span>pip
-pip<span class="w"> </span>install<span class="w"> </span>openvino<span class="w"> </span>nncf
-</pre></div>
-</div>
-</section>
-<section id="capture-fx-graph">
-<h3>1. Capture FX Graph<a class="headerlink" href="#capture-fx-graph" title="Permalink to this heading">#</a></h3>
-<p>We will start by performing the necessary imports, capturing the FX Graph from the eager module.</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">openvino.torch</span>
-<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
-<span class="kn">import</span><span class="w"> </span><span class="nn">torchvision.models</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">models</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.pt2e.quantize_pt2e</span><span class="w"> </span><span class="kn">import</span> <span class="n">convert_pt2e</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.pt2e.quantize_pt2e</span><span class="w"> </span><span class="kn">import</span> <span class="n">prepare_pt2e</span>
-
-<span class="kn">import</span><span class="w"> </span><span class="nn">nncf.torch</span>
-
-<span class="c1"># Create the Eager Model</span>
-<span class="n">model_name</span> <span class="o">=</span> <span class="s2">&quot;resnet18&quot;</span>
-<span class="n">model</span> <span class="o">=</span> <span class="n">models</span><span class="o">.</span><span class="vm">__dict__</span><span class="p">[</span><span class="n">model_name</span><span class="p">](</span><span class="n">pretrained</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-
-<span class="c1"># Set the model to eval mode</span>
-<span class="n">model</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">eval</span><span class="p">()</span>
-
-<span class="c1"># Create the data, using the dummy data here as an example</span>
-<span class="n">traced_bs</span> <span class="o">=</span> <span class="mi">50</span>
-<span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="n">traced_bs</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">224</span><span class="p">,</span> <span class="mi">224</span><span class="p">)</span>
-<span class="n">example_inputs</span> <span class="o">=</span> <span class="p">(</span><span class="n">x</span><span class="p">,)</span>
-
-<span class="c1"># Capture the FX Graph to be quantized</span>
-<span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">():</span>
-    <span class="n">exported_model</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">export</span><span class="o">.</span><span class="n">export</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">example_inputs</span><span class="p">)</span><span class="o">.</span><span class="n">module</span><span class="p">()</span>
-</pre></div>
-</div>
-</section>
-<section id="apply-quantization">
-<h3>2. Apply Quantization<a class="headerlink" href="#apply-quantization" title="Permalink to this heading">#</a></h3>
-<p>After we capture the FX Module to be quantized, we will import the OpenVINOQuantizer.</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">nncf.experimental.torch.fx</span><span class="w"> </span><span class="kn">import</span> <span class="n">OpenVINOQuantizer</span>
-
-<span class="n">quantizer</span> <span class="o">=</span> <span class="n">OpenVINOQuantizer</span><span class="p">()</span>
-</pre></div>
-</div>
-<p><code class="docutils literal notranslate"><span class="pre">OpenVINOQuantizer</span></code> has several optional parameters that allow tuning the quantization process to get a more accurate model.
-Below is the list of essential parameters and their description:</p>
-<ul>
-<li><p><code class="docutils literal notranslate"><span class="pre">preset</span></code> - defines quantization scheme for the model. Two types of presets are available:</p>
-<blockquote>
-<div><ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">PERFORMANCE</span></code> (default) - defines symmetric quantization of weights and activations</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">MIXED</span></code> - weights are quantized with symmetric quantization and the activations are quantized with asymmetric quantization. This preset is recommended for models with non-ReLU and asymmetric activation functions, e.g. ELU, PReLU, GELU, etc.</p></li>
-</ul>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">OpenVINOQuantizer</span><span class="p">(</span><span class="n">preset</span><span class="o">=</span><span class="n">nncf</span><span class="o">.</span><span class="n">QuantizationPreset</span><span class="o">.</span><span class="n">MIXED</span><span class="p">)</span>
-</pre></div>
-</div>
-</div></blockquote>
-</li>
-<li><p><code class="docutils literal notranslate"><span class="pre">model_type</span></code> - used to specify quantization scheme required for specific type of the model. Transformer is the only supported special quantization scheme to preserve accuracy after quantization of Transformer models (BERT, Llama, etc.). None is default, i.e. no specific scheme is defined.</p>
-<blockquote>
-<div><div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">OpenVINOQuantizer</span><span class="p">(</span><span class="n">model_type</span><span class="o">=</span><span class="n">nncf</span><span class="o">.</span><span class="n">ModelType</span><span class="o">.</span><span class="n">Transformer</span><span class="p">)</span>
-</pre></div>
-</div>
-</div></blockquote>
-</li>
-<li><p><code class="docutils literal notranslate"><span class="pre">ignored_scope</span></code> - this parameter can be used to exclude some layers from the quantization process to preserve the model accuracy.  For example, when you want to exclude the last layer of the model from quantization.  Below are some examples of how to use this parameter:</p>
-<blockquote>
-<div><div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1">#Exclude by layer name:</span>
-<span class="n">names</span> <span class="o">=</span> <span class="p">[</span><span class="s1">&#39;layer_1&#39;</span><span class="p">,</span> <span class="s1">&#39;layer_2&#39;</span><span class="p">,</span> <span class="s1">&#39;layer_3&#39;</span><span class="p">]</span>
-<span class="n">OpenVINOQuantizer</span><span class="p">(</span><span class="n">ignored_scope</span><span class="o">=</span><span class="n">nncf</span><span class="o">.</span><span class="n">IgnoredScope</span><span class="p">(</span><span class="n">names</span><span class="o">=</span><span class="n">names</span><span class="p">))</span>
-
-<span class="c1">#Exclude by layer type:</span>
-<span class="n">types</span> <span class="o">=</span> <span class="p">[</span><span class="s1">&#39;Conv2d&#39;</span><span class="p">,</span> <span class="s1">&#39;Linear&#39;</span><span class="p">]</span>
-<span class="n">OpenVINOQuantizer</span><span class="p">(</span><span class="n">ignored_scope</span><span class="o">=</span><span class="n">nncf</span><span class="o">.</span><span class="n">IgnoredScope</span><span class="p">(</span><span class="n">types</span><span class="o">=</span><span class="n">types</span><span class="p">))</span>
-
-<span class="c1">#Exclude by regular expression:</span>
-<span class="n">regex</span> <span class="o">=</span> <span class="s1">&#39;.*layer_.*&#39;</span>
-<span class="n">OpenVINOQuantizer</span><span class="p">(</span><span class="n">ignored_scope</span><span class="o">=</span><span class="n">nncf</span><span class="o">.</span><span class="n">IgnoredScope</span><span class="p">(</span><span class="n">patterns</span><span class="o">=</span><span class="n">regex</span><span class="p">))</span>
-
-<span class="c1">#Exclude by subgraphs:</span>
-<span class="c1"># In this case, all nodes along all simple paths in the graph</span>
-<span class="c1"># from input to output nodes will be excluded from the quantization process.</span>
-<span class="n">subgraph</span> <span class="o">=</span> <span class="n">nncf</span><span class="o">.</span><span class="n">Subgraph</span><span class="p">(</span><span class="n">inputs</span><span class="o">=</span><span class="p">[</span><span class="s1">&#39;layer_1&#39;</span><span class="p">,</span> <span class="s1">&#39;layer_2&#39;</span><span class="p">],</span> <span class="n">outputs</span><span class="o">=</span><span class="p">[</span><span class="s1">&#39;layer_3&#39;</span><span class="p">])</span>
-<span class="n">OpenVINOQuantizer</span><span class="p">(</span><span class="n">ignored_scope</span><span class="o">=</span><span class="n">nncf</span><span class="o">.</span><span class="n">IgnoredScope</span><span class="p">(</span><span class="n">subgraphs</span><span class="o">=</span><span class="p">[</span><span class="n">subgraph</span><span class="p">]))</span>
-</pre></div>
-</div>
-</div></blockquote>
-</li>
-<li><p><code class="docutils literal notranslate"><span class="pre">target_device</span></code> - defines the target device, the specificity of which will be taken into account during optimization. The following values are supported: <code class="docutils literal notranslate"><span class="pre">ANY</span></code> (default), <code class="docutils literal notranslate"><span class="pre">CPU</span></code>, <code class="docutils literal notranslate"><span class="pre">CPU_SPR</span></code>, <code class="docutils literal notranslate"><span class="pre">GPU</span></code>, and <code class="docutils literal notranslate"><span class="pre">NPU</span></code>.</p>
-<blockquote>
-<div><div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">OpenVINOQuantizer</span><span class="p">(</span><span class="n">target_device</span><span class="o">=</span><span class="n">nncf</span><span class="o">.</span><span class="n">TargetDevice</span><span class="o">.</span><span class="n">CPU</span><span class="p">)</span>
-</pre></div>
-</div>
-</div></blockquote>
-</li>
-</ul>
-<p>For further details on <cite>OpenVINOQuantizer</cite> please see the <a class="reference external" href="https://openvinotoolkit.github.io/nncf/autoapi/nncf/experimental/torch/fx/index.html#nncf.experimental.torch.fx.OpenVINOQuantizer">documentation</a>.</p>
-<p>After we import the backend-specific Quantizer, we will prepare the model for post-training quantization.
-<code class="docutils literal notranslate"><span class="pre">prepare_pt2e</span></code> folds BatchNorm operators into preceding Conv2d operators, and inserts observers in appropriate places in the model.</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">prepared_model</span> <span class="o">=</span> <span class="n">prepare_pt2e</span><span class="p">(</span><span class="n">exported_model</span><span class="p">,</span> <span class="n">quantizer</span><span class="p">)</span>
-</pre></div>
-</div>
-<p>Now, we will calibrate the <code class="docutils literal notranslate"><span class="pre">prepared_model</span></code> after the observers are inserted in the model.</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># We use the dummy data as an example here</span>
-<span class="n">prepared_model</span><span class="p">(</span><span class="o">*</span><span class="n">example_inputs</span><span class="p">)</span>
-</pre></div>
-</div>
-<p>Finally, we will convert the calibrated Model to a quantized Model. <code class="docutils literal notranslate"><span class="pre">convert_pt2e</span></code> takes a calibrated model and produces a quantized model.</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">quantized_model</span> <span class="o">=</span> <span class="n">convert_pt2e</span><span class="p">(</span><span class="n">prepared_model</span><span class="p">,</span> <span class="n">fold_quantize</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
-</pre></div>
-</div>
-<p>After these steps, we finished running the quantization flow, and we will get the quantized model.</p>
-</section>
-<section id="lower-into-openvino-representation">
-<h3>3. Lower into OpenVINO representation<a class="headerlink" href="#lower-into-openvino-representation" title="Permalink to this heading">#</a></h3>
-<p>After that the FX Graph can utilize OpenVINO optimizations using <a class="reference external" href="https://docs.openvino.ai/2024/openvino-workflow/torch-compile.html">torch.compile(…, backend=”openvino”)</a> functionality.</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">():</span>
-    <span class="n">optimized_model</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="n">quantized_model</span><span class="p">,</span> <span class="n">backend</span><span class="o">=</span><span class="s2">&quot;openvino&quot;</span><span class="p">)</span>
-
-    <span class="c1"># Running some benchmark</span>
-    <span class="n">optimized_model</span><span class="p">(</span><span class="o">*</span><span class="n">example_inputs</span><span class="p">)</span>
-</pre></div>
-</div>
-<p>The optimized model is using low-level kernels designed specifically for Intel CPU.
-This should significantly speed up inference time in comparison with the eager model.</p>
-</section>
-<section id="optional-improve-quantized-model-metrics">
-<h3>4. Optional: Improve quantized model metrics<a class="headerlink" href="#optional-improve-quantized-model-metrics" title="Permalink to this heading">#</a></h3>
-<p>NNCF implements advanced quantization algorithms like <a class="reference external" href="https://arxiv.org/abs/2211.10438">SmoothQuant</a> and <a class="reference external" href="https://arxiv.org/abs/1906.04721">BiasCorrection</a>, which help
-to improve the quantized model metrics while minimizing the output discrepancies between the original and compressed models.
-These advanced NNCF algorithms can be accessed via the NNCF <cite>quantize_pt2e</cite> API:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">nncf.experimental.torch.fx</span><span class="w"> </span><span class="kn">import</span> <span class="n">quantize_pt2e</span>
-
-<span class="n">calibration_loader</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">utils</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">DataLoader</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>
-
-
-<span class="k">def</span><span class="w"> </span><span class="nf">transform_fn</span><span class="p">(</span><span class="n">data_item</span><span class="p">):</span>
-    <span class="n">images</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">data_item</span>
-    <span class="k">return</span> <span class="n">images</span>
-
-
-<span class="n">calibration_dataset</span> <span class="o">=</span> <span class="n">nncf</span><span class="o">.</span><span class="n">Dataset</span><span class="p">(</span><span class="n">calibration_loader</span><span class="p">,</span> <span class="n">transform_fn</span><span class="p">)</span>
-
-<span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">():</span>
-    <span class="n">exported_model</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">export</span><span class="o">.</span><span class="n">export</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">example_inputs</span><span class="p">)</span><span class="o">.</span><span class="n">module</span><span class="p">()</span>
-
-<span class="n">quantized_model</span> <span class="o">=</span> <span class="n">quantize_pt2e</span><span class="p">(</span>
-    <span class="n">exported_model</span><span class="p">,</span> <span class="n">quantizer</span><span class="p">,</span> <span class="n">calibration_dataset</span><span class="p">,</span> <span class="n">smooth_quant</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">fast_bias_correction</span><span class="o">=</span><span class="kc">False</span>
-<span class="p">)</span>
-</pre></div>
-</div>
-<p>For further details, please see the <a class="reference external" href="https://openvinotoolkit.github.io/nncf/autoapi/nncf/experimental/torch/fx/index.html#nncf.experimental.torch.fx.quantize_pt2e">documentation</a>
-and a complete <a class="reference external" href="https://github.com/openvinotoolkit/nncf/blob/develop/examples/post_training_quantization/torch_fx/resnet18/README.md">example on Resnet18 quantization</a>.</p>
-</section>
-</section>
-<section id="conclusion">
-<h2>Conclusion<a class="headerlink" href="#conclusion" title="Permalink to this heading">#</a></h2>
-<p>This tutorial introduces how to use torch.compile with the OpenVINO backend and the OpenVINO quantizer.
-For more details on NNCF and the NNCF Quantization Flow for PyTorch models, refer to the <a class="reference external" href="https://docs.openvino.ai/2025/openvino-workflow/model-optimization-guide/quantizing-models-post-training/basic-quantization-flow.html.">NNCF Quantization Guide</a>.
-For additional information, check out the <a class="reference external" href="https://docs.openvino.ai/2024/openvino-workflow/torch-compile.html">OpenVINO Deployment via torch.compile Documentation</a>.</p>
 </section>
 </section>
 
@@ -1295,20 +1208,20 @@ For additional information, check out the <a class="reference external" href="ht
 
 <div class="prev-next-area">
     <a class="left-prev"
-       href="pt2e_quant_xpu_inductor.html"
+       href="index.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">PyTorch 2 Export Quantization with Intel GPU Backend through Inductor</p>
+        <p class="prev-next-title">Welcome to the torchao Documentation</p>
       </div>
     </a>
     <a class="right-next"
-       href="pt2e_quantizer.html"
+       href="api_reference/index.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">How to Write a <code class="docutils literal notranslate"><span class="pre">Quantizer</span></code> for PyTorch 2 Export Quantization</p>
+        <p class="prev-next-title">API Reference</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -1334,20 +1247,20 @@ For additional information, check out the <a class="reference external" href="ht
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="pt2e_quant_xpu_inductor.html"
+       href="index.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">PyTorch 2 Export Quantization with Intel GPU Backend through Inductor</p>
+        <p class="prev-next-title">Welcome to the torchao Documentation</p>
       </div>
     </a>
     <a class="right-next"
-       href="pt2e_quantizer.html"
+       href="api_reference/index.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">How to Write a <code class="docutils literal notranslate"><span class="pre">Quantizer</span></code> for PyTorch 2 Export Quantization</p>
+        <p class="prev-next-title">API Reference</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -1369,17 +1282,9 @@ For additional information, check out the <a class="reference external" href="ht
   </div>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#prerequisites">Prerequisites</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#introduction">Introduction</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#post-training-quantization">Post Training Quantization</a><ul class="nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#prerequisite-openvino-and-nncf-installation">Prerequisite: OpenVINO and NNCF installation</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#capture-fx-graph">1. Capture FX Graph</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#apply-quantization">2. Apply Quantization</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#lower-into-openvino-representation">3. Lower into OpenVINO representation</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#optional-improve-quantized-model-metrics">4. Optional: Improve quantized model metrics</a></li>
-</ul>
-</li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#conclusion">Conclusion</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#stable-workflows">Stable Workflows</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#prototype-workflows">Prototype Workflows</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#other">Other</a></li>
 </ul>
   </nav></div>
     
@@ -1387,7 +1292,7 @@ For additional information, check out the <a class="reference external" href="ht
 
   
   <div class="tocsection editthispage">
-    <a href="https://github.com/pytorch/ao/edit/main/docs/source/pt2e_quantization/pt2e_quant_openvino_inductor.rst">
+    <a href="https://github.com/pytorch/ao/edit/main/docs/source/workflows.md">
       <i class="fa-solid fa-pencil"></i>
       
       
@@ -1401,7 +1306,7 @@ For additional information, check out the <a class="reference external" href="ht
     
        <div class="sidebar-secondary-item">
     <div class="tocsection sourcelink">
-      <a href="../_sources/pt2e_quantization/pt2e_quant_openvino_inductor.rst.txt">
+      <a href="_sources/workflows.md.txt">
         <i class="fa-solid fa-file-lines"></i> Show Source
       </a>
     </div>
@@ -1425,8 +1330,8 @@ For additional information, check out the <a class="reference external" href="ht
   </div>
   
   <!-- Scripts loaded after <body> so the DOM is not blocked -->
-  <script src="../_static/scripts/bootstrap.js?digest=dfe6caa3a7d634c4db9b"></script>
-<script src="../_static/scripts/pydata-sphinx-theme.js?digest=dfe6caa3a7d634c4db9b"></script>
+  <script src="_static/scripts/bootstrap.js?digest=dfe6caa3a7d634c4db9b"></script>
+<script src="_static/scripts/pydata-sphinx-theme.js?digest=dfe6caa3a7d634c4db9b"></script>
 
   
 
@@ -1554,7 +1459,7 @@ For additional information, check out the <a class="reference external" href="ht
 <div class="cookie-banner-wrapper">
   <div class="container">
     <p class="gdpr-notice">To analyze traffic and optimize your experience, we serve cookies on this site. By clicking or navigating, you agree to allow our usage of cookies. As the current maintainers of this site, Facebook’s Cookies Policy applies. Learn more, including about available controls: <a href="https://www.facebook.com/policies/cookies/">Cookies Policy</a>.</p>
-    <img class="close-button" src="../_static/img/pytorch-x.svg">
+    <img class="close-button" src="_static/img/pytorch-x.svg">
   </div>
 </div>
   
@@ -1601,11 +1506,11 @@ For additional information, check out the <a class="reference external" href="ht
     {
        "@context": "https://schema.org",
        "@type": "Article",
-       "name": "PyTorch 2 Export Quantization for OpenVINO torch.compile Backend",
-       "headline": "PyTorch 2 Export Quantization for OpenVINO torch.compile Backend",
+       "name": "Workflows",
+       "headline": "Workflows",
        "description": "PyTorch Documentation. Explore PyTorch, an open-source machine learning library that accelerates the path from research prototyping to production deployment. Discover tutorials, API references, and guides to help you build and deploy deep learning models efficiently.",
-       "url": "/pt2e_quantization/pt2e_quant_openvino_inductor.html",
-       "articleBody": "PyTorch 2 Export Quantization for OpenVINO torch.compile Backend# Created On: Jan 29, 2026 | Last Updated On: Jan 29, 2026 Authors: Daniil Lyakhov, Aamir Nazir, Alexander Suslov, Yamini Nimmagadda, Alexander Kozlov Prerequisites# PyTorch 2 Export Post Training Quantization How to Write a Quantizer for PyTorch 2 Export Quantization Introduction# Note This is an experimental feature, the quantization API is subject to change. This tutorial demonstrates how to use OpenVINOQuantizer from Neural Network Compression Framework (NNCF) in PyTorch 2 Export Quantization flow to generate a quantized model customized for the OpenVINO torch.compile backend and explains how to lower the quantized model into the OpenVINO representation. OpenVINOQuantizer unlocks the full potential of low-precision OpenVINO kernels due to the placement of quantizers designed specifically for the OpenVINO. The PyTorch 2 export quantization flow uses torch.export to capture the model into a graph and performs quantization transformations on top of the ATen graph. This approach is expected to have significantly higher model coverage, improved flexibility, and a simplified UX. OpenVINO backend compiles the FX Graph generated by TorchDynamo into an optimized OpenVINO model. The quantization flow mainly includes four steps: Step 1: Capture the FX Graph from the eager Model based on the torch export mechanism. Step 2: Apply the PyTorch 2 Export Quantization flow with OpenVINOQuantizer based on the captured FX Graph. Step 3: Lower the quantized model into OpenVINO representation with the torch.compile API. Optional step 4: : Improve quantized model metrics via quantize_pt2e method. The high-level architecture of this flow could look like this: float_model(Python) Example Input \\ / \\ / \u2014-------------------------------------------------------- | export | \u2014-------------------------------------------------------- | FX Graph in ATen | | OpenVINOQuantizer | / \u2014-------------------------------------------------------- | prepare_pt2e | | | | | Calibrate | | | | convert_pt2e | \u2014-------------------------------------------------------- | Quantized Model | \u2014-------------------------------------------------------- | Lower into Inductor | \u2014-------------------------------------------------------- | OpenVINO model Post Training Quantization# Now, we will walk you through a step-by-step tutorial for how to use it with torchvision resnet18 model for post training quantization. Prerequisite: OpenVINO and NNCF installation# OpenVINO and NNCF could be easily installed via pip distribution: pip install -U pip pip install openvino nncf 1. Capture FX Graph# We will start by performing the necessary imports, capturing the FX Graph from the eager module. import openvino.torch import torch import torchvision.models as models from torchao.quantization.pt2e.quantize_pt2e import convert_pt2e from torchao.quantization.pt2e.quantize_pt2e import prepare_pt2e import nncf.torch # Create the Eager Model model_name = \"resnet18\" model = models.__dict__[model_name](pretrained=True) # Set the model to eval mode model = model.eval() # Create the data, using the dummy data here as an example traced_bs = 50 x = torch.randn(traced_bs, 3, 224, 224) example_inputs = (x,) # Capture the FX Graph to be quantized with torch.no_grad(): exported_model = torch.export.export(model, example_inputs).module() 2. Apply Quantization# After we capture the FX Module to be quantized, we will import the OpenVINOQuantizer. from nncf.experimental.torch.fx import OpenVINOQuantizer quantizer = OpenVINOQuantizer() OpenVINOQuantizer has several optional parameters that allow tuning the quantization process to get a more accurate model. Below is the list of essential parameters and their description: preset - defines quantization scheme for the model. Two types of presets are available: PERFORMANCE (default) - defines symmetric quantization of weights and activations MIXED - weights are quantized with symmetric quantization and the activations are quantized with asymmetric quantization. This preset is recommended for models with non-ReLU and asymmetric activation functions, e.g. ELU, PReLU, GELU, etc. OpenVINOQuantizer(preset=nncf.QuantizationPreset.MIXED) model_type - used to specify quantization scheme required for specific type of the model. Transformer is the only supported special quantization scheme to preserve accuracy after quantization of Transformer models (BERT, Llama, etc.). None is default, i.e. no specific scheme is defined. OpenVINOQuantizer(model_type=nncf.ModelType.Transformer) ignored_scope - this parameter can be used to exclude some layers from the quantization process to preserve the model accuracy. For example, when you want to exclude the last layer of the model from quantization. Below are some examples of how to use this parameter: #Exclude by layer name: names = [\u0027layer_1\u0027, \u0027layer_2\u0027, \u0027layer_3\u0027] OpenVINOQuantizer(ignored_scope=nncf.IgnoredScope(names=names)) #Exclude by layer type: types = [\u0027Conv2d\u0027, \u0027Linear\u0027] OpenVINOQuantizer(ignored_scope=nncf.IgnoredScope(types=types)) #Exclude by regular expression: regex = \u0027.*layer_.*\u0027 OpenVINOQuantizer(ignored_scope=nncf.IgnoredScope(patterns=regex)) #Exclude by subgraphs: # In this case, all nodes along all simple paths in the graph # from input to output nodes will be excluded from the quantization process. subgraph = nncf.Subgraph(inputs=[\u0027layer_1\u0027, \u0027layer_2\u0027], outputs=[\u0027layer_3\u0027]) OpenVINOQuantizer(ignored_scope=nncf.IgnoredScope(subgraphs=[subgraph])) target_device - defines the target device, the specificity of which will be taken into account during optimization. The following values are supported: ANY (default), CPU, CPU_SPR, GPU, and NPU. OpenVINOQuantizer(target_device=nncf.TargetDevice.CPU) For further details on OpenVINOQuantizer please see the documentation. After we import the backend-specific Quantizer, we will prepare the model for post-training quantization. prepare_pt2e folds BatchNorm operators into preceding Conv2d operators, and inserts observers in appropriate places in the model. prepared_model = prepare_pt2e(exported_model, quantizer) Now, we will calibrate the prepared_model after the observers are inserted in the model. # We use the dummy data as an example here prepared_model(*example_inputs) Finally, we will convert the calibrated Model to a quantized Model. convert_pt2e takes a calibrated model and produces a quantized model. quantized_model = convert_pt2e(prepared_model, fold_quantize=False) After these steps, we finished running the quantization flow, and we will get the quantized model. 3. Lower into OpenVINO representation# After that the FX Graph can utilize OpenVINO optimizations using torch.compile(\u2026, backend=\u201dopenvino\u201d) functionality. with torch.no_grad(): optimized_model = torch.compile(quantized_model, backend=\"openvino\") # Running some benchmark optimized_model(*example_inputs) The optimized model is using low-level kernels designed specifically for Intel CPU. This should significantly speed up inference time in comparison with the eager model. 4. Optional: Improve quantized model metrics# NNCF implements advanced quantization algorithms like SmoothQuant and BiasCorrection, which help to improve the quantized model metrics while minimizing the output discrepancies between the original and compressed models. These advanced NNCF algorithms can be accessed via the NNCF quantize_pt2e API: from nncf.experimental.torch.fx import quantize_pt2e calibration_loader = torch.utils.data.DataLoader(...) def transform_fn(data_item): images, _ = data_item return images calibration_dataset = nncf.Dataset(calibration_loader, transform_fn) with torch.no_grad(): exported_model = torch.export.export(model, example_inputs).module() quantized_model = quantize_pt2e( exported_model, quantizer, calibration_dataset, smooth_quant=True, fast_bias_correction=False ) For further details, please see the documentation and a complete example on Resnet18 quantization. Conclusion# This tutorial introduces how to use torch.compile with the OpenVINO backend and the OpenVINO quantizer. For more details on NNCF and the NNCF Quantization Flow for PyTorch models, refer to the NNCF Quantization Guide. For additional information, check out the OpenVINO Deployment via torch.compile Documentation.",
+       "url": "/workflows.html",
+       "articleBody": "Workflows# Created On: Jan 29, 2026 | Last Updated On: Jan 29, 2026 This page provides an overview of the quantization and training workflows available in torchao. Stable Workflows# \ud83d\udfe2 = stable, \ud83d\udfe1 = prototype, \ud83d\udfe0 = planned, \u26aa = not supported recommended hardware weight activation quantized training QAT PTQ data algorithms quantized inference H100, B200 GPUs float8 rowwise float8 rowwise \ud83d\udfe2 (link) \ud83d\udfe2 (link) \u26aa \ud83d\udfe2 (link) Intel\u00ae BMG GPUs float8 tensor/rowwise float8 tensor/rowwise \ud83d\udfe0 \ud83d\udfe2 (link) \u26aa \ud83d\udfe2 (link) H100 GPUs int4 float8 rowwise \u26aa \ud83d\udfe2 (link) \ud83d\udfe0 \ud83d\udfe2 (link) A100 GPUs int4 bfloat16 \u26aa \ud83d\udfe2 (link) \ud83d\udfe1: HQQ, AWQ \ud83d\udfe2 (link) Intel\u00ae BMG GPUs int4 float16/bfloat16 \u26aa \ud83d\udfe2 (link) \ud83d\udfe1: AWQ \ud83d\udfe2 (link) A100 GPUs int8 bfloat16 \u26aa \ud83d\udfe2 (link) \u26aa \ud83d\udfe2 (link) A100 GPUs int8 int8 \ud83d\udfe1 (link) \ud83d\udfe2 (link) \u26aa \ud83d\udfe2 (link) Intel\u00ae BMG GPUs int8 int8 \ud83d\udfe0 \ud83d\udfe2 (link) \u26aa \ud83d\udfe2 (link) edge intx (1..7) bfloat16 \u26aa \ud83d\udfe2 (link) \u26aa \ud83d\udfe2 (link) Prototype Workflows# \ud83d\udfe2 = stable, \ud83d\udfe1 = prototype, \ud83d\udfe0 = planned, \u26aa = not supported recommended hardware weight activation quantized training QAT PTQ data algorithms quantized inference B200, MI350x GPUs mxfp8 mxfp8 \ud83d\udfe1 (dense), (moe) \u26aa \u26aa \ud83d\udfe1 (link) B200 GPUs nvfp4 nvfp4 \ud83d\udfe0 \ud83d\udfe1 (link) \u26aa \ud83d\udfe1 (link) B200, MI350x GPUs mxfp4 mxfp4 \u26aa not supported \ud83d\udfe0 \ud83d\udfe0 \ud83d\udfe1 (link) H100 float8 128x128 (blockwise) float8 1x128 \ud83d\udfe0 \u26aa \u26aa \ud83d\udfe1 Other# Quantization-Aware Training (QAT) README.md Post-Training Quantization (PTQ) README.md Sparsity README.md, includes different techniques such as 2:4 sparsity and block sparsity the prototype folder for other prototype features",
        "author": {
          "@type": "Organization",
          "name": "PyTorch Contributors",
@@ -1614,7 +1519,7 @@ For additional information, check out the <a class="reference external" href="ht
        "image": "https://pytorch.org/docs/stable/_static/img/pytorch_seo.png",
        "mainEntityOfPage": {
          "@type": "WebPage",
-         "@id": "/pt2e_quantization/pt2e_quant_openvino_inductor.html"
+         "@id": "/workflows.html"
        },
        "datePublished": "Jan 29, 2026T00:00:00Z",
        "dateModified": "Jan 29, 2026T00:00:00Z"
