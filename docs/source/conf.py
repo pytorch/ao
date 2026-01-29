@@ -57,9 +57,9 @@ extensions = [
 ]
 
 sphinx_gallery_conf = {
-    "examples_dirs": "tutorials_source",  # path to your sphinx-gallery examples source
+    "examples_dirs": "pt2e_quantization",  # path to your sphinx-gallery examples source
     "gallery_dirs": "tutorials",  # path to where to save sphinx-gallery generated output
-    "filename_pattern": "./*.py",  # any .py file in tutorials_source will be built by sphinx-gallery
+    "filename_pattern": "./*.py",  # any .py file in pt2e_quantization will be built by sphinx-gallery
     "backreferences_dir": "gen_modules/backreferences",  # path to store the backreferences
     "remove_config_comments": True,
 }
