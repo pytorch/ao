@@ -9,14 +9,14 @@
   <meta name="robots" content="noindex">
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
-<meta property="og:title" content="choose_qparams_affine_with_min_max" />
+<meta property="og:title" content="NVFP4WeightOnlyConfig" />
 <meta property="og:type" content="website" />
-<meta property="og:url" content="http://pytorch.org/api_reference/generated/torchao.quantization.choose_qparams_affine_with_min_max.html" />
+<meta property="og:url" content="http://pytorch.org/api_reference/generated/torchao.prototype.mx_formats.NVFP4WeightOnlyConfig.html" />
 <meta property="og:site_name" content="torchao" />
 <meta property="og:image" content="https://pytorch.org/assets/images/social-share.jpg" />
 <meta property="og:image:alt" content="torchao" />
 
-    <title>choose_qparams_affine_with_min_max &#8212; torchao main documentation</title>
+    <title>NVFP4WeightOnlyConfig &#8212; torchao main documentation</title>
   
   
   
@@ -61,11 +61,11 @@
     <script src="../../_static/clipboard.min.js"></script>
     <script src="../../_static/copybutton.js"></script>
     <script src="../../_static/design-tabs.js"></script>
-    <link rel="canonical" href="https://pytorch.org/ao/api_reference/generated/torchao.quantization.choose_qparams_affine_with_min_max.html" />
+    <link rel="canonical" href="https://pytorch.org/ao/api_reference/generated/torchao.prototype.mx_formats.NVFP4WeightOnlyConfig.html" />
     <link rel="index" title="Index" href="../../genindex.html" />
     <link rel="search" title="Search" href="../../search.html" />
-    <link rel="next" title="quantize_affine" href="torchao.quantization.quantize_affine.html" />
-    <link rel="prev" title="choose_qparams_affine" href="torchao.quantization.choose_qparams_affine.html" />
+    <link rel="next" title="torchao.quantization.qat" href="../api_ref_qat.html" />
+    <link rel="prev" title="NVFP4DynamicActivationNVFP4WeightConfig" href="torchao.prototype.mx_formats.NVFP4DynamicActivationNVFP4WeightConfig.html" />
 
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
@@ -915,25 +915,22 @@ document.write(`
      aria-label="Section Navigation">
   <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
   <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
-<li class="toctree-l1"><a class="reference internal" href="../api_ref_dtypes.html">Dtypes</a></li>
 <li class="toctree-l1 current active has-children"><a class="reference internal" href="../api_ref_quantization.html">torchao.quantization</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
 <li class="toctree-l2"><a class="reference internal" href="torchao.quantization.quantize_.html">quantize</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.FqnToConfig.html">FqnToConfig</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.Float8DynamicActivationFloat8WeightConfig.html">Float8DynamicActivationFloat8WeightConfig</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.Float8DynamicActivationFloat8SemiSparseWeightConfig.html">Float8DynamicActivationFloat8SemiSparseWeightConfig</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.Float8WeightOnlyConfig.html">Float8WeightOnlyConfig</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.Int8DynamicActivationInt8WeightConfig.html">Int8DynamicActivationInt8WeightConfig</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.Int8WeightOnlyConfig.html">Int8WeightOnlyConfig</a></li>
 <li class="toctree-l2"><a class="reference internal" href="torchao.quantization.Int4WeightOnlyConfig.html">Int4WeightOnlyConfig</a></li>
 <li class="toctree-l2"><a class="reference internal" href="torchao.quantization.Float8DynamicActivationInt4WeightConfig.html">Float8DynamicActivationInt4WeightConfig</a></li>
-<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.Float8DynamicActivationFloat8WeightConfig.html">Float8DynamicActivationFloat8WeightConfig</a></li>
-<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.Float8WeightOnlyConfig.html">Float8WeightOnlyConfig</a></li>
 <li class="toctree-l2"><a class="reference internal" href="torchao.quantization.Int8DynamicActivationInt4WeightConfig.html">Int8DynamicActivationInt4WeightConfig</a></li>
-<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.Int8WeightOnlyConfig.html">Int8WeightOnlyConfig</a></li>
-<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.Int8DynamicActivationInt8WeightConfig.html">Int8DynamicActivationInt8WeightConfig</a></li>
-<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.FqnToConfig.html">FqnToConfig</a></li>
-<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.choose_qparams_affine.html">choose_qparams_affine</a></li>
-<li class="toctree-l2 current active"><a class="current reference internal" href="#">choose_qparams_affine_with_min_max</a></li>
-<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.quantize_affine.html">quantize_affine</a></li>
-<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.dequantize_affine.html">dequantize_affine</a></li>
-<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.safe_int_mm.html">safe_int_mm</a></li>
-<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.int_scaled_matmul.html">int_scaled_matmul</a></li>
-<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.MappingType.html">MappingType</a></li>
-<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.TorchAODType.html">TorchAODType</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.IntxWeightOnlyConfig.html">IntxWeightOnlyConfig</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.Int8DynamicActivationIntxWeightConfig.html">Int8DynamicActivationIntxWeightConfig</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.prototype.mx_formats.MXDynamicActivationMXWeightConfig.html">MXDynamicActivationMXWeightConfig</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.prototype.mx_formats.NVFP4DynamicActivationNVFP4WeightConfig.html">NVFP4DynamicActivationNVFP4WeightConfig</a></li>
+<li class="toctree-l2 current active"><a class="current reference internal" href="#">NVFP4WeightOnlyConfig</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../api_ref_qat.html">torchao.quantization.qat</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -1029,7 +1026,7 @@ document.write(`
     
     <li class="breadcrumb-item"><a href="../api_ref_quantization.html" class="nav-link">torchao.quantization</a></li>
     
-    <li class="breadcrumb-item active" aria-current="page">choose_qpara...</li>
+    <li class="breadcrumb-item active" aria-current="page">NVFP4WeightO...</li>
   </ul>
 </nav>
 </div>
@@ -1083,7 +1080,7 @@ document.write(`
       </div>
       
       <div itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
-        <meta itemprop="name" content="choose_qparams_affine_with_min_max">
+        <meta itemprop="name" content="NVFP4WeightOnlyConfig">
         <meta itemprop="position" content="3">
       </div>
     </div>
@@ -1097,20 +1094,12 @@ document.write(`
 <div id="searchbox"></div>
                 <article class="bd-article">
                   
-  <section id="choose-qparams-affine-with-min-max">
-<h1>choose_qparams_affine_with_min_max<a class="headerlink" href="#choose-qparams-affine-with-min-max" title="Permalink to this heading">#</a></h1>
-<dl class="py function">
-<dt class="sig sig-object py" id="torchao.quantization.choose_qparams_affine_with_min_max">
-<span class="sig-prename descclassname"><span class="pre">torchao.quantization.</span></span><span class="sig-name descname"><span class="pre">choose_qparams_affine_with_min_max</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">min_val</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.pytorch.org/docs/stable/tensors.html#torch.Tensor" title="(in PyTorch v2.10)"><span class="pre">Tensor</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_val</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.pytorch.org/docs/stable/tensors.html#torch.Tensor" title="(in PyTorch v2.10)"><span class="pre">Tensor</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">mapping_type</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="torchao.quantization.MappingType.html#torchao.quantization.MappingType" title="torchao.quantization.quant_primitives.MappingType"><span class="pre">MappingType</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">block_size</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Tuple" title="(in Python v3.14)"><span class="pre">Tuple</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="p"><span class="pre">...</span></span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">target_dtype</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.pytorch.org/docs/stable/tensor_attributes.html#torch.dtype" title="(in PyTorch v2.10)"><span class="pre">dtype</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">quant_min</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.14)"><span class="pre">Optional</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">quant_max</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.14)"><span class="pre">Optional</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">eps</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.14)"><span class="pre">Optional</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.14)"><span class="pre">float</span></a><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">scale_dtype</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.14)"><span class="pre">Optional</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.pytorch.org/docs/stable/tensor_attributes.html#torch.dtype" title="(in PyTorch v2.10)"><span class="pre">dtype</span></a><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">zero_point_dtype</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.14)"><span class="pre">Optional</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.pytorch.org/docs/stable/tensor_attributes.html#torch.dtype" title="(in PyTorch v2.10)"><span class="pre">dtype</span></a><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">preserve_zero</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">zero_point_domain</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">ZeroPointDomain</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">ZeroPointDomain.INT</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Tuple" title="(in Python v3.14)"><span class="pre">Tuple</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.pytorch.org/docs/stable/tensors.html#torch.Tensor" title="(in PyTorch v2.10)"><span class="pre">Tensor</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.pytorch.org/docs/stable/tensors.html#torch.Tensor" title="(in PyTorch v2.10)"><span class="pre">Tensor</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="reference internal" href="../../_modules/torchao/quantization/quant_primitives.html#choose_qparams_affine_with_min_max"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="reference external" href="https://github.com/pytorch/ao/blob/main/torchao/quantization/quant_primitives.py#L1395"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#torchao.quantization.choose_qparams_affine_with_min_max" title="Permalink to this definition">#</a></dt>
-<dd><p>A variant of <code class="xref py py-func docutils literal notranslate"><span class="pre">choose_qparams_affine()</span></code>
-operator that pass in min_val and max_val directly instead of deriving these from a single input.
-This is used for observers in static quantization where min_val and max_val may be obtained through
-tracking all the data in calibration data set.</p>
-<p>:param Mostly same as <code class="xref py py-func docutils literal notranslate"><span class="pre">choose_qparams_affine()</span></code>. with one:
-:param difference: instead of passing in <cite>input</cite> Tensor and use that to calculate min_val/max_val
-:param and then scale/zero_point:
-:param we pass in min_val/max_val directly:</p>
-</dd></dl>
+  <section id="nvfp4weightonlyconfig">
+<h1>NVFP4WeightOnlyConfig<a class="headerlink" href="#nvfp4weightonlyconfig" title="Permalink to this heading">#</a></h1>
+<dl class="py class">
+<dt class="sig sig-object py" id="torchao.prototype.mx_formats.NVFP4WeightOnlyConfig">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">torchao.prototype.mx_formats.</span></span><span class="sig-name descname"><span class="pre">NVFP4WeightOnlyConfig</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">use_dynamic_per_tensor_scale</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/torchao/prototype/mx_formats/inference_workflow.html#NVFP4WeightOnlyConfig"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="reference external" href="https://github.com/pytorch/ao/blob/main/torchao/prototype/mx_formats/inference_workflow.py#L176"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#torchao.prototype.mx_formats.NVFP4WeightOnlyConfig" title="Permalink to this definition">#</a></dt>
+<dd></dd></dl>
 
 </section>
 
@@ -1157,20 +1146,20 @@ tracking all the data in calibration data set.</p>
 
 <div class="prev-next-area">
     <a class="left-prev"
-       href="torchao.quantization.choose_qparams_affine.html"
+       href="torchao.prototype.mx_formats.NVFP4DynamicActivationNVFP4WeightConfig.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">choose_qparams_affine</p>
+        <p class="prev-next-title">NVFP4DynamicActivationNVFP4WeightConfig</p>
       </div>
     </a>
     <a class="right-next"
-       href="torchao.quantization.quantize_affine.html"
+       href="../api_ref_qat.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">quantize_affine</p>
+        <p class="prev-next-title">torchao.quantization.qat</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -1196,20 +1185,20 @@ tracking all the data in calibration data set.</p>
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="torchao.quantization.choose_qparams_affine.html"
+       href="torchao.prototype.mx_formats.NVFP4DynamicActivationNVFP4WeightConfig.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">choose_qparams_affine</p>
+        <p class="prev-next-title">NVFP4DynamicActivationNVFP4WeightConfig</p>
       </div>
     </a>
     <a class="right-next"
-       href="torchao.quantization.quantize_affine.html"
+       href="../api_ref_qat.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">quantize_affine</p>
+        <p class="prev-next-title">torchao.quantization.qat</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -1231,7 +1220,7 @@ tracking all the data in calibration data set.</p>
   </div>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#torchao.quantization.choose_qparams_affine_with_min_max"><code class="docutils literal notranslate"><span class="pre">choose_qparams_affine_with_min_max()</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#torchao.prototype.mx_formats.NVFP4WeightOnlyConfig"><code class="docutils literal notranslate"><span class="pre">NVFP4WeightOnlyConfig</span></code></a></li>
 </ul>
   </nav></div>
     
@@ -1239,7 +1228,7 @@ tracking all the data in calibration data set.</p>
 
   
   <div class="tocsection editthispage">
-    <a href="https://github.com/pytorch/ao/edit/main/docs/source/api_reference/generated/torchao.quantization.choose_qparams_affine_with_min_max.rst">
+    <a href="https://github.com/pytorch/ao/edit/main/docs/source/api_reference/generated/torchao.prototype.mx_formats.NVFP4WeightOnlyConfig.rst">
       <i class="fa-solid fa-pencil"></i>
       
       
@@ -1253,7 +1242,7 @@ tracking all the data in calibration data set.</p>
     
        <div class="sidebar-secondary-item">
     <div class="tocsection sourcelink">
-      <a href="../../_sources/api_reference/generated/torchao.quantization.choose_qparams_affine_with_min_max.rst.txt">
+      <a href="../../_sources/api_reference/generated/torchao.prototype.mx_formats.NVFP4WeightOnlyConfig.rst.txt">
         <i class="fa-solid fa-file-lines"></i> Show Source
       </a>
     </div>
@@ -1453,11 +1442,11 @@ tracking all the data in calibration data set.</p>
     {
        "@context": "https://schema.org",
        "@type": "Article",
-       "name": "choose_qparams_affine_with_min_max",
-       "headline": "choose_qparams_affine_with_min_max",
+       "name": "NVFP4WeightOnlyConfig",
+       "headline": "NVFP4WeightOnlyConfig",
        "description": "PyTorch Documentation. Explore PyTorch, an open-source machine learning library that accelerates the path from research prototyping to production deployment. Discover tutorials, API references, and guides to help you build and deploy deep learning models efficiently.",
-       "url": "/api_reference/generated/torchao.quantization.choose_qparams_affine_with_min_max.html",
-       "articleBody": "choose_qparams_affine_with_min_max# torchao.quantization.choose_qparams_affine_with_min_max(min_val: Tensor, max_val: Tensor, mapping_type: MappingType, block_size: Tuple[int, ...], target_dtype: dtype, quant_min: Optional[int] = None, quant_max: Optional[int] = None, eps: Optional[float] = None, scale_dtype: Optional[dtype] = None, zero_point_dtype: Optional[dtype] = None, preserve_zero: bool = True, zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT) \u2192 Tuple[Tensor, Tensor][source][source]# A variant of choose_qparams_affine() operator that pass in min_val and max_val directly instead of deriving these from a single input. This is used for observers in static quantization where min_val and max_val may be obtained through tracking all the data in calibration data set. :param Mostly same as choose_qparams_affine(). with one: :param difference: instead of passing in input Tensor and use that to calculate min_val/max_val :param and then scale/zero_point: :param we pass in min_val/max_val directly:",
+       "url": "/api_reference/generated/torchao.prototype.mx_formats.NVFP4WeightOnlyConfig.html",
+       "articleBody": "NVFP4WeightOnlyConfig# class torchao.prototype.mx_formats.NVFP4WeightOnlyConfig(use_dynamic_per_tensor_scale: bool = True)[source][source]#",
        "author": {
          "@type": "Organization",
          "name": "PyTorch Contributors",
@@ -1466,7 +1455,7 @@ tracking all the data in calibration data set.</p>
        "image": "https://pytorch.org/docs/stable/_static/img/pytorch_seo.png",
        "mainEntityOfPage": {
          "@type": "WebPage",
-         "@id": "/api_reference/generated/torchao.quantization.choose_qparams_affine_with_min_max.html"
+         "@id": "/api_reference/generated/torchao.prototype.mx_formats.NVFP4WeightOnlyConfig.html"
        },
        "datePublished": "UnknownT00:00:00Z",
        "dateModified": "UnknownT00:00:00Z"

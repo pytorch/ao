@@ -13,10 +13,10 @@
 <meta property="og:type" content="website" />
 <meta property="og:url" content="http://pytorch.org/api_reference/api_ref_quantization.html" />
 <meta property="og:site_name" content="torchao" />
-<meta property="og:description" content="Main Quantization APIs: Inference APIs for quantize_: Quantization Primitives:" />
+<meta property="og:description" content="Main Quantization APIs: Workflow Configs: float8 weight configs: int8 weight configs: int4 weight configs: intx weight configs: mx weight configs (prototype): nvfp4 weight configs (prototype):" />
 <meta property="og:image" content="https://pytorch.org/assets/images/social-share.jpg" />
 <meta property="og:image:alt" content="torchao" />
-<meta name="description" content="Main Quantization APIs: Inference APIs for quantize_: Quantization Primitives:" />
+<meta name="description" content="Main Quantization APIs: Workflow Configs: float8 weight configs: int8 weight configs: int4 weight configs: intx weight configs: mx weight configs (prototype): nvfp4 weight configs (prototype):" />
 
     <title>torchao.quantization &#8212; torchao main documentation</title>
   
@@ -67,7 +67,7 @@
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
     <link rel="next" title="quantize" href="generated/torchao.quantization.quantize_.html" />
-    <link rel="prev" title="Dtypes" href="api_ref_dtypes.html" />
+    <link rel="prev" title="API Reference" href="index.html" />
 
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
@@ -917,25 +917,22 @@ document.write(`
      aria-label="Section Navigation">
   <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
   <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
-<li class="toctree-l1"><a class="reference internal" href="api_ref_dtypes.html">Dtypes</a></li>
 <li class="toctree-l1 current active has-children"><a class="current reference internal" href="#">torchao.quantization</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="generated/torchao.quantization.quantize_.html">quantize</a></li>
+<li class="toctree-l2"><a class="reference internal" href="generated/torchao.quantization.FqnToConfig.html">FqnToConfig</a></li>
+<li class="toctree-l2"><a class="reference internal" href="generated/torchao.quantization.Float8DynamicActivationFloat8WeightConfig.html">Float8DynamicActivationFloat8WeightConfig</a></li>
+<li class="toctree-l2"><a class="reference internal" href="generated/torchao.quantization.Float8DynamicActivationFloat8SemiSparseWeightConfig.html">Float8DynamicActivationFloat8SemiSparseWeightConfig</a></li>
+<li class="toctree-l2"><a class="reference internal" href="generated/torchao.quantization.Float8WeightOnlyConfig.html">Float8WeightOnlyConfig</a></li>
+<li class="toctree-l2"><a class="reference internal" href="generated/torchao.quantization.Int8DynamicActivationInt8WeightConfig.html">Int8DynamicActivationInt8WeightConfig</a></li>
+<li class="toctree-l2"><a class="reference internal" href="generated/torchao.quantization.Int8WeightOnlyConfig.html">Int8WeightOnlyConfig</a></li>
 <li class="toctree-l2"><a class="reference internal" href="generated/torchao.quantization.Int4WeightOnlyConfig.html">Int4WeightOnlyConfig</a></li>
 <li class="toctree-l2"><a class="reference internal" href="generated/torchao.quantization.Float8DynamicActivationInt4WeightConfig.html">Float8DynamicActivationInt4WeightConfig</a></li>
-<li class="toctree-l2"><a class="reference internal" href="generated/torchao.quantization.Float8DynamicActivationFloat8WeightConfig.html">Float8DynamicActivationFloat8WeightConfig</a></li>
-<li class="toctree-l2"><a class="reference internal" href="generated/torchao.quantization.Float8WeightOnlyConfig.html">Float8WeightOnlyConfig</a></li>
 <li class="toctree-l2"><a class="reference internal" href="generated/torchao.quantization.Int8DynamicActivationInt4WeightConfig.html">Int8DynamicActivationInt4WeightConfig</a></li>
-<li class="toctree-l2"><a class="reference internal" href="generated/torchao.quantization.Int8WeightOnlyConfig.html">Int8WeightOnlyConfig</a></li>
-<li class="toctree-l2"><a class="reference internal" href="generated/torchao.quantization.Int8DynamicActivationInt8WeightConfig.html">Int8DynamicActivationInt8WeightConfig</a></li>
-<li class="toctree-l2"><a class="reference internal" href="generated/torchao.quantization.FqnToConfig.html">FqnToConfig</a></li>
-<li class="toctree-l2"><a class="reference internal" href="generated/torchao.quantization.choose_qparams_affine.html">choose_qparams_affine</a></li>
-<li class="toctree-l2"><a class="reference internal" href="generated/torchao.quantization.choose_qparams_affine_with_min_max.html">choose_qparams_affine_with_min_max</a></li>
-<li class="toctree-l2"><a class="reference internal" href="generated/torchao.quantization.quantize_affine.html">quantize_affine</a></li>
-<li class="toctree-l2"><a class="reference internal" href="generated/torchao.quantization.dequantize_affine.html">dequantize_affine</a></li>
-<li class="toctree-l2"><a class="reference internal" href="generated/torchao.quantization.safe_int_mm.html">safe_int_mm</a></li>
-<li class="toctree-l2"><a class="reference internal" href="generated/torchao.quantization.int_scaled_matmul.html">int_scaled_matmul</a></li>
-<li class="toctree-l2"><a class="reference internal" href="generated/torchao.quantization.MappingType.html">MappingType</a></li>
-<li class="toctree-l2"><a class="reference internal" href="generated/torchao.quantization.TorchAODType.html">TorchAODType</a></li>
+<li class="toctree-l2"><a class="reference internal" href="generated/torchao.quantization.IntxWeightOnlyConfig.html">IntxWeightOnlyConfig</a></li>
+<li class="toctree-l2"><a class="reference internal" href="generated/torchao.quantization.Int8DynamicActivationIntxWeightConfig.html">Int8DynamicActivationIntxWeightConfig</a></li>
+<li class="toctree-l2"><a class="reference internal" href="generated/torchao.prototype.mx_formats.MXDynamicActivationMXWeightConfig.html">MXDynamicActivationMXWeightConfig</a></li>
+<li class="toctree-l2"><a class="reference internal" href="generated/torchao.prototype.mx_formats.NVFP4DynamicActivationNVFP4WeightConfig.html">NVFP4DynamicActivationNVFP4WeightConfig</a></li>
+<li class="toctree-l2"><a class="reference internal" href="generated/torchao.prototype.mx_formats.NVFP4WeightOnlyConfig.html">NVFP4WeightOnlyConfig</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="api_ref_qat.html">torchao.quantization.qat</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -1104,12 +1101,56 @@ document.write(`
 <tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.quantization.quantize_.html#torchao.quantization.quantize_" title="torchao.quantization.quantize_"><code class="xref py py-obj docutils literal notranslate"><span class="pre">quantize_</span></code></a></p></td>
 <td><p>Convert the weight of linear modules in the model with <cite>config</cite>, model is modified inplace</p></td>
 </tr>
+<tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.quantization.FqnToConfig.html#torchao.quantization.FqnToConfig" title="torchao.quantization.FqnToConfig"><code class="xref py py-obj docutils literal notranslate"><span class="pre">FqnToConfig</span></code></a></p></td>
+<td><p>Configuration class for applying different quantization configs to modules or parameters based on their fully qualified names (FQNs).</p></td>
+</tr>
 </tbody>
 </table>
 </div>
 </section>
-<section id="inference-apis-for-quantize">
-<h2>Inference APIs for quantize_<a class="headerlink" href="#inference-apis-for-quantize" title="Permalink to this heading">#</a></h2>
+<section id="workflow-configs">
+<h2>Workflow Configs<a class="headerlink" href="#workflow-configs" title="Permalink to this heading">#</a></h2>
+<section id="float8-weight-configs">
+<h3>float8 weight configs<a class="headerlink" href="#float8-weight-configs" title="Permalink to this heading">#</a></h3>
+<div class="pst-scrollable-table-container"><table class="autosummary longtable table autosummary">
+<colgroup>
+<col style="width: 10%" />
+<col style="width: 90%" />
+</colgroup>
+<tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.quantization.Float8DynamicActivationFloat8WeightConfig.html#torchao.quantization.Float8DynamicActivationFloat8WeightConfig" title="torchao.quantization.Float8DynamicActivationFloat8WeightConfig"><code class="xref py py-obj docutils literal notranslate"><span class="pre">Float8DynamicActivationFloat8WeightConfig</span></code></a></p></td>
+<td><p>Configuration for applying float8 dynamic symmetric quantization to both activations and weights of linear layers.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.quantization.Float8DynamicActivationFloat8SemiSparseWeightConfig.html#torchao.quantization.Float8DynamicActivationFloat8SemiSparseWeightConfig" title="torchao.quantization.Float8DynamicActivationFloat8SemiSparseWeightConfig"><code class="xref py py-obj docutils literal notranslate"><span class="pre">Float8DynamicActivationFloat8SemiSparseWeightConfig</span></code></a></p></td>
+<td><p>Applies float8 dynamic quantization to activations and float8 quantization followed by compression to sparse semi-structured tensor to weights of linear layers.</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.quantization.Float8WeightOnlyConfig.html#torchao.quantization.Float8WeightOnlyConfig" title="torchao.quantization.Float8WeightOnlyConfig"><code class="xref py py-obj docutils literal notranslate"><span class="pre">Float8WeightOnlyConfig</span></code></a></p></td>
+<td><p>Configuration for applying float8 weight-only symmetric per-channel quantization to linear layers.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<section id="int8-weight-configs">
+<h3>int8 weight configs<a class="headerlink" href="#int8-weight-configs" title="Permalink to this heading">#</a></h3>
+<div class="pst-scrollable-table-container"><table class="autosummary longtable table autosummary">
+<colgroup>
+<col style="width: 10%" />
+<col style="width: 90%" />
+</colgroup>
+<tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.quantization.Int8DynamicActivationInt8WeightConfig.html#torchao.quantization.Int8DynamicActivationInt8WeightConfig" title="torchao.quantization.Int8DynamicActivationInt8WeightConfig"><code class="xref py py-obj docutils literal notranslate"><span class="pre">Int8DynamicActivationInt8WeightConfig</span></code></a></p></td>
+<td><p>Configuration for applying int8 dynamic symmetric per-token activation and int8 per-channel weight quantization to linear layers.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.quantization.Int8WeightOnlyConfig.html#torchao.quantization.Int8WeightOnlyConfig" title="torchao.quantization.Int8WeightOnlyConfig"><code class="xref py py-obj docutils literal notranslate"><span class="pre">Int8WeightOnlyConfig</span></code></a></p></td>
+<td><p>Configuration for applying int8 weight-only symmetric per-channel quantization to linear layers.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<section id="int4-weight-configs">
+<h3>int4 weight configs<a class="headerlink" href="#int4-weight-configs" title="Permalink to this heading">#</a></h3>
 <div class="pst-scrollable-table-container"><table class="autosummary longtable table autosummary">
 <colgroup>
 <col style="width: 10%" />
@@ -1122,78 +1163,64 @@ document.write(`
 <tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.quantization.Float8DynamicActivationInt4WeightConfig.html#torchao.quantization.Float8DynamicActivationInt4WeightConfig" title="torchao.quantization.Float8DynamicActivationInt4WeightConfig"><code class="xref py py-obj docutils literal notranslate"><span class="pre">Float8DynamicActivationInt4WeightConfig</span></code></a></p></td>
 <td><p>Configuration for apply float8 dynamic per row quantization and int4 per group weight quantization to linear (only group_size 128 is supported right now since underlying kernel used only supports 128 and above and no benefits of making it bigger)</p></td>
 </tr>
-<tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.quantization.Float8DynamicActivationFloat8WeightConfig.html#torchao.quantization.Float8DynamicActivationFloat8WeightConfig" title="torchao.quantization.Float8DynamicActivationFloat8WeightConfig"><code class="xref py py-obj docutils literal notranslate"><span class="pre">Float8DynamicActivationFloat8WeightConfig</span></code></a></p></td>
-<td><p>Configuration for applying float8 dynamic symmetric quantization to both activations and weights of linear layers.</p></td>
-</tr>
-<tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.quantization.Float8WeightOnlyConfig.html#torchao.quantization.Float8WeightOnlyConfig" title="torchao.quantization.Float8WeightOnlyConfig"><code class="xref py py-obj docutils literal notranslate"><span class="pre">Float8WeightOnlyConfig</span></code></a></p></td>
-<td><p>Configuration for applying float8 weight-only symmetric per-channel quantization to linear layers.</p></td>
-</tr>
 <tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.quantization.Int8DynamicActivationInt4WeightConfig.html#torchao.quantization.Int8DynamicActivationInt4WeightConfig" title="torchao.quantization.Int8DynamicActivationInt4WeightConfig"><code class="xref py py-obj docutils literal notranslate"><span class="pre">Int8DynamicActivationInt4WeightConfig</span></code></a></p></td>
 <td><p>Configuration for applying int8 dynamic per token asymmetric activation quantization and int4 per group weight symmetric quantization to linear This is used to produce a model for executorch backend, but currently executorch did not support lowering for the quantized model from this flow yet</p></td>
-</tr>
-<tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.quantization.Int8WeightOnlyConfig.html#torchao.quantization.Int8WeightOnlyConfig" title="torchao.quantization.Int8WeightOnlyConfig"><code class="xref py py-obj docutils literal notranslate"><span class="pre">Int8WeightOnlyConfig</span></code></a></p></td>
-<td><p>Configuration for applying int8 weight-only symmetric per-channel quantization to linear layers.</p></td>
-</tr>
-<tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.quantization.Int8DynamicActivationInt8WeightConfig.html#torchao.quantization.Int8DynamicActivationInt8WeightConfig" title="torchao.quantization.Int8DynamicActivationInt8WeightConfig"><code class="xref py py-obj docutils literal notranslate"><span class="pre">Int8DynamicActivationInt8WeightConfig</span></code></a></p></td>
-<td><p>Configuration for applying int8 dynamic symmetric per-token activation and int8 per-channel weight quantization to linear layers.</p></td>
-</tr>
-<tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.quantization.FqnToConfig.html#torchao.quantization.FqnToConfig" title="torchao.quantization.FqnToConfig"><code class="xref py py-obj docutils literal notranslate"><span class="pre">FqnToConfig</span></code></a></p></td>
-<td><p>Configuration class for applying different quantization configs to modules or parameters based on their fully qualified names (FQNs).</p></td>
 </tr>
 </tbody>
 </table>
 </div>
 </section>
-<section id="quantization-primitives">
-<h2>Quantization Primitives<a class="headerlink" href="#quantization-primitives" title="Permalink to this heading">#</a></h2>
+<section id="intx-weight-configs">
+<h3>intx weight configs<a class="headerlink" href="#intx-weight-configs" title="Permalink to this heading">#</a></h3>
 <div class="pst-scrollable-table-container"><table class="autosummary longtable table autosummary">
 <colgroup>
 <col style="width: 10%" />
 <col style="width: 90%" />
 </colgroup>
 <tbody>
-<tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.quantization.choose_qparams_affine.html#torchao.quantization.choose_qparams_affine" title="torchao.quantization.choose_qparams_affine"><code class="xref py py-obj docutils literal notranslate"><span class="pre">choose_qparams_affine</span></code></a></p></td>
-<td><p><dl class="field-list simple">
-<dt class="field-odd">param input</dt>
-<dd class="field-odd"><p>fp32, bf16, fp16 input Tensor</p>
-</dd>
-</dl>
-</p></td>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.quantization.IntxWeightOnlyConfig.html#torchao.quantization.IntxWeightOnlyConfig" title="torchao.quantization.IntxWeightOnlyConfig"><code class="xref py py-obj docutils literal notranslate"><span class="pre">IntxWeightOnlyConfig</span></code></a></p></td>
+<td><p>Configuration for quantizing weights to torch.intx, with 1 &lt;= x &lt;= 8. Weights are quantized with scales/zeros in a groupwise or channelwise manner using the number of bits specified by weight_dtype. :param <cite>weight_dtype</cite>: The dtype to use for weight quantization. Must be torch.intx, where 1 &lt;= x &lt;= 8. :param <cite>granularity</cite>: The granularity to use for weight quantization. Must be PerGroup or PerAxis(0). :param <cite>mapping_type</cite>: The type of mapping to use for the weight quantization. Must be one of MappingType.ASYMMETRIC or MappingType.SYMMETRIC. :param <cite>scale_dtype</cite>: The dtype to use for the weight scale. :param <cite>intx_packing_format</cite>: The format to use for the packed weight tensor (version 2 only). :param <cite>intx_choose_qparams_algorithm</cite>: The algorithm to use for choosing the quantization parameters. :param <cite>version</cite>: version of the config to use, only subset of above args are valid based on version, see note for more details.</p></td>
 </tr>
-<tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.quantization.choose_qparams_affine_with_min_max.html#torchao.quantization.choose_qparams_affine_with_min_max" title="torchao.quantization.choose_qparams_affine_with_min_max"><code class="xref py py-obj docutils literal notranslate"><span class="pre">choose_qparams_affine_with_min_max</span></code></a></p></td>
-<td><p>A variant of <code class="xref py py-func docutils literal notranslate"><span class="pre">choose_qparams_affine()</span></code> operator that pass in min_val and max_val directly instead of deriving these from a single input.</p></td>
-</tr>
-<tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.quantization.quantize_affine.html#torchao.quantization.quantize_affine" title="torchao.quantization.quantize_affine"><code class="xref py py-obj docutils literal notranslate"><span class="pre">quantize_affine</span></code></a></p></td>
-<td><p><dl class="field-list simple">
-<dt class="field-odd">param input</dt>
-<dd class="field-odd"><p>original float32, float16 or bfloat16 Tensor</p>
-</dd>
-</dl>
-</p></td>
-</tr>
-<tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.quantization.dequantize_affine.html#torchao.quantization.dequantize_affine" title="torchao.quantization.dequantize_affine"><code class="xref py py-obj docutils literal notranslate"><span class="pre">dequantize_affine</span></code></a></p></td>
-<td><p><dl class="field-list simple">
-<dt class="field-odd">param input</dt>
-<dd class="field-odd"><p>quantized tensor, should match the dtype <cite>dtype</cite> argument</p>
-</dd>
-</dl>
-</p></td>
-</tr>
-<tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.quantization.safe_int_mm.html#torchao.quantization.safe_int_mm" title="torchao.quantization.safe_int_mm"><code class="xref py py-obj docutils literal notranslate"><span class="pre">safe_int_mm</span></code></a></p></td>
-<td><p>Performs a safe integer matrix multiplication, considering different paths for torch.compile, cublas, and fallback cases.</p></td>
-</tr>
-<tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.quantization.int_scaled_matmul.html#torchao.quantization.int_scaled_matmul" title="torchao.quantization.int_scaled_matmul"><code class="xref py py-obj docutils literal notranslate"><span class="pre">int_scaled_matmul</span></code></a></p></td>
-<td><p>Performs scaled integer matrix multiplication.</p></td>
-</tr>
-<tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.quantization.MappingType.html#torchao.quantization.MappingType" title="torchao.quantization.MappingType"><code class="xref py py-obj docutils literal notranslate"><span class="pre">MappingType</span></code></a></p></td>
-<td><p>How floating point number is mapped to integer number</p></td>
-</tr>
-<tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.quantization.TorchAODType.html#torchao.quantization.TorchAODType" title="torchao.quantization.TorchAODType"><code class="xref py py-obj docutils literal notranslate"><span class="pre">TorchAODType</span></code></a></p></td>
-<td><p>Placeholder for dtypes that do not exist in PyTorch core yet.</p></td>
+<tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.quantization.Int8DynamicActivationIntxWeightConfig.html#torchao.quantization.Int8DynamicActivationIntxWeightConfig" title="torchao.quantization.Int8DynamicActivationIntxWeightConfig"><code class="xref py py-obj docutils literal notranslate"><span class="pre">Int8DynamicActivationIntxWeightConfig</span></code></a></p></td>
+<td><p>Configuration for dynamically quantizing activations to torch.int8 and weights to torch.intx, with 1 &lt;= x &lt;= 8.</p></td>
 </tr>
 </tbody>
 </table>
 </div>
+</section>
+<section id="mx-weight-configs-prototype">
+<h3>mx weight configs (prototype)<a class="headerlink" href="#mx-weight-configs-prototype" title="Permalink to this heading">#</a></h3>
+<div class="pst-scrollable-table-container"><table class="autosummary longtable table autosummary">
+<colgroup>
+<col style="width: 10%" />
+<col style="width: 90%" />
+</colgroup>
+<tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.prototype.mx_formats.MXDynamicActivationMXWeightConfig.html#torchao.prototype.mx_formats.MXDynamicActivationMXWeightConfig" title="torchao.prototype.mx_formats.MXDynamicActivationMXWeightConfig"><code class="xref py py-obj docutils literal notranslate"><span class="pre">MXDynamicActivationMXWeightConfig</span></code></a></p></td>
+<td><p>MX Format Inference Quantization</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<section id="nvfp4-weight-configs-prototype">
+<h3>nvfp4 weight configs (prototype)<a class="headerlink" href="#nvfp4-weight-configs-prototype" title="Permalink to this heading">#</a></h3>
+<div class="pst-scrollable-table-container"><table class="autosummary longtable table autosummary">
+<colgroup>
+<col style="width: 10%" />
+<col style="width: 90%" />
+</colgroup>
+<tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.prototype.mx_formats.NVFP4DynamicActivationNVFP4WeightConfig.html#torchao.prototype.mx_formats.NVFP4DynamicActivationNVFP4WeightConfig" title="torchao.prototype.mx_formats.NVFP4DynamicActivationNVFP4WeightConfig"><code class="xref py py-obj docutils literal notranslate"><span class="pre">NVFP4DynamicActivationNVFP4WeightConfig</span></code></a></p></td>
+<td><p>NVIDIA FP4 (NVFP4) Inference Quantization Configuration</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.prototype.mx_formats.NVFP4WeightOnlyConfig.html#torchao.prototype.mx_formats.NVFP4WeightOnlyConfig" title="torchao.prototype.mx_formats.NVFP4WeightOnlyConfig"><code class="xref py py-obj docutils literal notranslate"><span class="pre">NVFP4WeightOnlyConfig</span></code></a></p></td>
+<td><p></p></td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
 </section>
 </section>
 
@@ -1240,12 +1267,12 @@ document.write(`
 
 <div class="prev-next-area">
     <a class="left-prev"
-       href="api_ref_dtypes.html"
+       href="index.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">Dtypes</p>
+        <p class="prev-next-title">API Reference</p>
       </div>
     </a>
     <a class="right-next"
@@ -1279,12 +1306,12 @@ document.write(`
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="api_ref_dtypes.html"
+       href="index.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">Dtypes</p>
+        <p class="prev-next-title">API Reference</p>
       </div>
     </a>
     <a class="right-next"
@@ -1315,8 +1342,15 @@ document.write(`
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#main-quantization-apis">Main Quantization APIs</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#inference-apis-for-quantize">Inference APIs for quantize_</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#quantization-primitives">Quantization Primitives</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#workflow-configs">Workflow Configs</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#float8-weight-configs">float8 weight configs</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#int8-weight-configs">int8 weight configs</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#int4-weight-configs">int4 weight configs</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#intx-weight-configs">intx weight configs</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#mx-weight-configs-prototype">mx weight configs (prototype)</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#nvfp4-weight-configs-prototype">nvfp4 weight configs (prototype)</a></li>
+</ul>
+</li>
 </ul>
   </nav></div>
     
@@ -1542,7 +1576,7 @@ document.write(`
        "headline": "torchao.quantization",
        "description": "PyTorch Documentation. Explore PyTorch, an open-source machine learning library that accelerates the path from research prototyping to production deployment. Discover tutorials, API references, and guides to help you build and deploy deep learning models efficiently.",
        "url": "/api_reference/api_ref_quantization.html",
-       "articleBody": "torchao.quantization# Created On: Jan 29, 2026 | Last Updated On: Jan 29, 2026 Main Quantization APIs# quantize_ Convert the weight of linear modules in the model with config, model is modified inplace Inference APIs for quantize_# Int4WeightOnlyConfig Configuration for int4 weight only quantization, only groupwise quantization is supported right now, and we support version 1 and version 2, that are implemented differently although with same support. Float8DynamicActivationInt4WeightConfig Configuration for apply float8 dynamic per row quantization and int4 per group weight quantization to linear (only group_size 128 is supported right now since underlying kernel used only supports 128 and above and no benefits of making it bigger) Float8DynamicActivationFloat8WeightConfig Configuration for applying float8 dynamic symmetric quantization to both activations and weights of linear layers. Float8WeightOnlyConfig Configuration for applying float8 weight-only symmetric per-channel quantization to linear layers. Int8DynamicActivationInt4WeightConfig Configuration for applying int8 dynamic per token asymmetric activation quantization and int4 per group weight symmetric quantization to linear This is used to produce a model for executorch backend, but currently executorch did not support lowering for the quantized model from this flow yet Int8WeightOnlyConfig Configuration for applying int8 weight-only symmetric per-channel quantization to linear layers. Int8DynamicActivationInt8WeightConfig Configuration for applying int8 dynamic symmetric per-token activation and int8 per-channel weight quantization to linear layers. FqnToConfig Configuration class for applying different quantization configs to modules or parameters based on their fully qualified names (FQNs). Quantization Primitives# choose_qparams_affine param input fp32, bf16, fp16 input Tensor choose_qparams_affine_with_min_max A variant of choose_qparams_affine() operator that pass in min_val and max_val directly instead of deriving these from a single input. quantize_affine param input original float32, float16 or bfloat16 Tensor dequantize_affine param input quantized tensor, should match the dtype dtype argument safe_int_mm Performs a safe integer matrix multiplication, considering different paths for torch.compile, cublas, and fallback cases. int_scaled_matmul Performs scaled integer matrix multiplication. MappingType How floating point number is mapped to integer number TorchAODType Placeholder for dtypes that do not exist in PyTorch core yet.",
+       "articleBody": "torchao.quantization# Created On: Jan 29, 2026 | Last Updated On: Jan 29, 2026 Main Quantization APIs# quantize_ Convert the weight of linear modules in the model with config, model is modified inplace FqnToConfig Configuration class for applying different quantization configs to modules or parameters based on their fully qualified names (FQNs). Workflow Configs# float8 weight configs# Float8DynamicActivationFloat8WeightConfig Configuration for applying float8 dynamic symmetric quantization to both activations and weights of linear layers. Float8DynamicActivationFloat8SemiSparseWeightConfig Applies float8 dynamic quantization to activations and float8 quantization followed by compression to sparse semi-structured tensor to weights of linear layers. Float8WeightOnlyConfig Configuration for applying float8 weight-only symmetric per-channel quantization to linear layers. int8 weight configs# Int8DynamicActivationInt8WeightConfig Configuration for applying int8 dynamic symmetric per-token activation and int8 per-channel weight quantization to linear layers. Int8WeightOnlyConfig Configuration for applying int8 weight-only symmetric per-channel quantization to linear layers. int4 weight configs# Int4WeightOnlyConfig Configuration for int4 weight only quantization, only groupwise quantization is supported right now, and we support version 1 and version 2, that are implemented differently although with same support. Float8DynamicActivationInt4WeightConfig Configuration for apply float8 dynamic per row quantization and int4 per group weight quantization to linear (only group_size 128 is supported right now since underlying kernel used only supports 128 and above and no benefits of making it bigger) Int8DynamicActivationInt4WeightConfig Configuration for applying int8 dynamic per token asymmetric activation quantization and int4 per group weight symmetric quantization to linear This is used to produce a model for executorch backend, but currently executorch did not support lowering for the quantized model from this flow yet intx weight configs# IntxWeightOnlyConfig Configuration for quantizing weights to torch.intx, with 1 \u003c= x \u003c= 8. Weights are quantized with scales/zeros in a groupwise or channelwise manner using the number of bits specified by weight_dtype. :param weight_dtype: The dtype to use for weight quantization. Must be torch.intx, where 1 \u003c= x \u003c= 8. :param granularity: The granularity to use for weight quantization. Must be PerGroup or PerAxis(0). :param mapping_type: The type of mapping to use for the weight quantization. Must be one of MappingType.ASYMMETRIC or MappingType.SYMMETRIC. :param scale_dtype: The dtype to use for the weight scale. :param intx_packing_format: The format to use for the packed weight tensor (version 2 only). :param intx_choose_qparams_algorithm: The algorithm to use for choosing the quantization parameters. :param version: version of the config to use, only subset of above args are valid based on version, see note for more details. Int8DynamicActivationIntxWeightConfig Configuration for dynamically quantizing activations to torch.int8 and weights to torch.intx, with 1 \u003c= x \u003c= 8. mx weight configs (prototype)# MXDynamicActivationMXWeightConfig MX Format Inference Quantization nvfp4 weight configs (prototype)# NVFP4DynamicActivationNVFP4WeightConfig NVIDIA FP4 (NVFP4) Inference Quantization Configuration NVFP4WeightOnlyConfig",
        "author": {
          "@type": "Organization",
          "name": "PyTorch Contributors",

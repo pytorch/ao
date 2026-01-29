@@ -9,14 +9,14 @@
   <meta name="robots" content="noindex">
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
-<meta property="og:title" content="MappingType" />
+<meta property="og:title" content="IntxWeightOnlyConfig" />
 <meta property="og:type" content="website" />
-<meta property="og:url" content="http://pytorch.org/api_reference/generated/torchao.quantization.MappingType.html" />
+<meta property="og:url" content="http://pytorch.org/api_reference/generated/torchao.quantization.IntxWeightOnlyConfig.html" />
 <meta property="og:site_name" content="torchao" />
 <meta property="og:image" content="https://pytorch.org/assets/images/social-share.jpg" />
 <meta property="og:image:alt" content="torchao" />
 
-    <title>MappingType &#8212; torchao main documentation</title>
+    <title>IntxWeightOnlyConfig &#8212; torchao main documentation</title>
   
   
   
@@ -61,11 +61,11 @@
     <script src="../../_static/clipboard.min.js"></script>
     <script src="../../_static/copybutton.js"></script>
     <script src="../../_static/design-tabs.js"></script>
-    <link rel="canonical" href="https://pytorch.org/ao/api_reference/generated/torchao.quantization.MappingType.html" />
+    <link rel="canonical" href="https://pytorch.org/ao/api_reference/generated/torchao.quantization.IntxWeightOnlyConfig.html" />
     <link rel="index" title="Index" href="../../genindex.html" />
     <link rel="search" title="Search" href="../../search.html" />
-    <link rel="next" title="TorchAODType" href="torchao.quantization.TorchAODType.html" />
-    <link rel="prev" title="int_scaled_matmul" href="torchao.quantization.int_scaled_matmul.html" />
+    <link rel="next" title="Int8DynamicActivationIntxWeightConfig" href="torchao.quantization.Int8DynamicActivationIntxWeightConfig.html" />
+    <link rel="prev" title="Int8DynamicActivationInt4WeightConfig" href="torchao.quantization.Int8DynamicActivationInt4WeightConfig.html" />
 
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
@@ -915,25 +915,22 @@ document.write(`
      aria-label="Section Navigation">
   <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
   <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
-<li class="toctree-l1"><a class="reference internal" href="../api_ref_dtypes.html">Dtypes</a></li>
 <li class="toctree-l1 current active has-children"><a class="reference internal" href="../api_ref_quantization.html">torchao.quantization</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
 <li class="toctree-l2"><a class="reference internal" href="torchao.quantization.quantize_.html">quantize</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.FqnToConfig.html">FqnToConfig</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.Float8DynamicActivationFloat8WeightConfig.html">Float8DynamicActivationFloat8WeightConfig</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.Float8DynamicActivationFloat8SemiSparseWeightConfig.html">Float8DynamicActivationFloat8SemiSparseWeightConfig</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.Float8WeightOnlyConfig.html">Float8WeightOnlyConfig</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.Int8DynamicActivationInt8WeightConfig.html">Int8DynamicActivationInt8WeightConfig</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.Int8WeightOnlyConfig.html">Int8WeightOnlyConfig</a></li>
 <li class="toctree-l2"><a class="reference internal" href="torchao.quantization.Int4WeightOnlyConfig.html">Int4WeightOnlyConfig</a></li>
 <li class="toctree-l2"><a class="reference internal" href="torchao.quantization.Float8DynamicActivationInt4WeightConfig.html">Float8DynamicActivationInt4WeightConfig</a></li>
-<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.Float8DynamicActivationFloat8WeightConfig.html">Float8DynamicActivationFloat8WeightConfig</a></li>
-<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.Float8WeightOnlyConfig.html">Float8WeightOnlyConfig</a></li>
 <li class="toctree-l2"><a class="reference internal" href="torchao.quantization.Int8DynamicActivationInt4WeightConfig.html">Int8DynamicActivationInt4WeightConfig</a></li>
-<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.Int8WeightOnlyConfig.html">Int8WeightOnlyConfig</a></li>
-<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.Int8DynamicActivationInt8WeightConfig.html">Int8DynamicActivationInt8WeightConfig</a></li>
-<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.FqnToConfig.html">FqnToConfig</a></li>
-<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.choose_qparams_affine.html">choose_qparams_affine</a></li>
-<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.choose_qparams_affine_with_min_max.html">choose_qparams_affine_with_min_max</a></li>
-<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.quantize_affine.html">quantize_affine</a></li>
-<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.dequantize_affine.html">dequantize_affine</a></li>
-<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.safe_int_mm.html">safe_int_mm</a></li>
-<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.int_scaled_matmul.html">int_scaled_matmul</a></li>
-<li class="toctree-l2 current active"><a class="current reference internal" href="#">MappingType</a></li>
-<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.TorchAODType.html">TorchAODType</a></li>
+<li class="toctree-l2 current active"><a class="current reference internal" href="#">IntxWeightOnlyConfig</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.Int8DynamicActivationIntxWeightConfig.html">Int8DynamicActivationIntxWeightConfig</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.prototype.mx_formats.MXDynamicActivationMXWeightConfig.html">MXDynamicActivationMXWeightConfig</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.prototype.mx_formats.NVFP4DynamicActivationNVFP4WeightConfig.html">NVFP4DynamicActivationNVFP4WeightConfig</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.prototype.mx_formats.NVFP4WeightOnlyConfig.html">NVFP4WeightOnlyConfig</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../api_ref_qat.html">torchao.quantization.qat</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -1029,7 +1026,7 @@ document.write(`
     
     <li class="breadcrumb-item"><a href="../api_ref_quantization.html" class="nav-link">torchao.quantization</a></li>
     
-    <li class="breadcrumb-item active" aria-current="page">MappingType</li>
+    <li class="breadcrumb-item active" aria-current="page">IntxWeightOnlyConfig</li>
   </ul>
 </nav>
 </div>
@@ -1083,7 +1080,7 @@ document.write(`
       </div>
       
       <div itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
-        <meta itemprop="name" content="MappingType">
+        <meta itemprop="name" content="IntxWeightOnlyConfig">
         <meta itemprop="position" content="3">
       </div>
     </div>
@@ -1097,24 +1094,30 @@ document.write(`
 <div id="searchbox"></div>
                 <article class="bd-article">
                   
-  <section id="mappingtype">
-<h1>MappingType<a class="headerlink" href="#mappingtype" title="Permalink to this heading">#</a></h1>
+  <section id="intxweightonlyconfig">
+<h1>IntxWeightOnlyConfig<a class="headerlink" href="#intxweightonlyconfig" title="Permalink to this heading">#</a></h1>
 <dl class="py class">
-<dt class="sig sig-object py" id="torchao.quantization.MappingType">
-<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">torchao.quantization.</span></span><span class="sig-name descname"><span class="pre">MappingType</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">value</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">names</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">module</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">qualname</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">type</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">start</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">boundary</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/torchao/quantization/quant_primitives.html#MappingType"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="reference external" href="https://github.com/pytorch/ao/blob/main/torchao/quantization/quant_primitives.py#L54"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#torchao.quantization.MappingType" title="Permalink to this definition">#</a></dt>
-<dd><p>How floating point number is mapped to integer number</p>
-<p>symmetric mapping means floating point range is symmetrically mapped to integer range
-let’s say we have floating point range (-3.5, 10.2) and integer range (-8, 7) (int4)
-we’ll use (-10.2, 10.2) as the range for floating point and map that to (-8, 7)
-e.g. scale = (10.2 - (-10.2)) / (7 - (-8))</p>
-<p>SYMMETRIC_NO_CLIPPING_ERR is a variant of symmetric mapping, where the scale is the max of smin
-and smax, where smin = min_val_neg / quant_min, and smax = max_val_pos / quant_max. By calculating
-smin and smax individually, there can be less round error on negative values, and no out-of-range
-of all floating point values.</p>
-<p>asymmetric mapping means we just directly map the floating point range to integer range,
-for the above example, we will map (-3.5, 10.2) to (-8, 7) and calculate quantization parameter
-based on this mapping
-e.g. scale = (10.2 - (-3.5)) / (7 - (-8))</p>
+<dt class="sig sig-object py" id="torchao.quantization.IntxWeightOnlyConfig">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">torchao.quantization.</span></span><span class="sig-name descname"><span class="pre">IntxWeightOnlyConfig</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">weight_dtype</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.pytorch.org/docs/stable/tensor_attributes.html#torch.dtype" title="(in PyTorch v2.10)"><span class="pre">dtype</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">torch.int8</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">granularity</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Granularity</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">PerAxis(axis=0)</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mapping_type</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">MappingType</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">MappingType.SYMMETRIC</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">scale_dtype</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.14)"><span class="pre">Optional</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.pytorch.org/docs/stable/tensor_attributes.html#torch.dtype" title="(in PyTorch v2.10)"><span class="pre">dtype</span></a><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">intx_packing_format</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">IntxPackingFormat</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">IntxPackingFormat.UNPACKED_TO_INT8</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">intx_choose_qparams_algorithm</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">IntxChooseQParamsAlgorithm</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">IntxChooseQParamsAlgorithm.AFFINE</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">version</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">2</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/torchao/quantization/quant_api.html#IntxWeightOnlyConfig"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="reference external" href="https://github.com/pytorch/ao/blob/main/torchao/quantization/quant_api.py#L1672"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#torchao.quantization.IntxWeightOnlyConfig" title="Permalink to this definition">#</a></dt>
+<dd><p>Configuration for quantizing weights to torch.intx, with 1 &lt;= x &lt;= 8.
+Weights are quantized with scales/zeros in a groupwise or channelwise
+manner using the number of bits specified by weight_dtype.
+:param <cite>weight_dtype</cite>: The dtype to use for weight quantization.  Must be torch.intx, where 1 &lt;= x &lt;= 8.
+:param <cite>granularity</cite>: The granularity to use for weight quantization.  Must be PerGroup or PerAxis(0).
+:param <cite>mapping_type</cite>: The type of mapping to use for the weight quantization.</p>
+<blockquote>
+<div><p>Must be one of MappingType.ASYMMETRIC or MappingType.SYMMETRIC.</p>
+</div></blockquote>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>scale_dtype</strong> – The dtype to use for the weight scale.</p></li>
+<li><p><strong>intx_packing_format</strong> – The format to use for the packed weight tensor (version 2 only).</p></li>
+<li><p><strong>intx_choose_qparams_algorithm</strong> – The algorithm to use for choosing the quantization parameters.</p></li>
+<li><p><strong>version</strong> – version of the config to use, only subset of above args are valid based on version, see note for more details.</p></li>
+</ul>
+</dd>
+</dl>
 </dd></dl>
 
 </section>
@@ -1162,20 +1165,20 @@ e.g. scale = (10.2 - (-3.5)) / (7 - (-8))</p>
 
 <div class="prev-next-area">
     <a class="left-prev"
-       href="torchao.quantization.int_scaled_matmul.html"
+       href="torchao.quantization.Int8DynamicActivationInt4WeightConfig.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">int_scaled_matmul</p>
+        <p class="prev-next-title">Int8DynamicActivationInt4WeightConfig</p>
       </div>
     </a>
     <a class="right-next"
-       href="torchao.quantization.TorchAODType.html"
+       href="torchao.quantization.Int8DynamicActivationIntxWeightConfig.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">TorchAODType</p>
+        <p class="prev-next-title">Int8DynamicActivationIntxWeightConfig</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -1201,20 +1204,20 @@ e.g. scale = (10.2 - (-3.5)) / (7 - (-8))</p>
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="torchao.quantization.int_scaled_matmul.html"
+       href="torchao.quantization.Int8DynamicActivationInt4WeightConfig.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">int_scaled_matmul</p>
+        <p class="prev-next-title">Int8DynamicActivationInt4WeightConfig</p>
       </div>
     </a>
     <a class="right-next"
-       href="torchao.quantization.TorchAODType.html"
+       href="torchao.quantization.Int8DynamicActivationIntxWeightConfig.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">TorchAODType</p>
+        <p class="prev-next-title">Int8DynamicActivationIntxWeightConfig</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -1236,7 +1239,7 @@ e.g. scale = (10.2 - (-3.5)) / (7 - (-8))</p>
   </div>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#torchao.quantization.MappingType"><code class="docutils literal notranslate"><span class="pre">MappingType</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#torchao.quantization.IntxWeightOnlyConfig"><code class="docutils literal notranslate"><span class="pre">IntxWeightOnlyConfig</span></code></a></li>
 </ul>
   </nav></div>
     
@@ -1244,7 +1247,7 @@ e.g. scale = (10.2 - (-3.5)) / (7 - (-8))</p>
 
   
   <div class="tocsection editthispage">
-    <a href="https://github.com/pytorch/ao/edit/main/docs/source/api_reference/generated/torchao.quantization.MappingType.rst">
+    <a href="https://github.com/pytorch/ao/edit/main/docs/source/api_reference/generated/torchao.quantization.IntxWeightOnlyConfig.rst">
       <i class="fa-solid fa-pencil"></i>
       
       
@@ -1258,7 +1261,7 @@ e.g. scale = (10.2 - (-3.5)) / (7 - (-8))</p>
     
        <div class="sidebar-secondary-item">
     <div class="tocsection sourcelink">
-      <a href="../../_sources/api_reference/generated/torchao.quantization.MappingType.rst.txt">
+      <a href="../../_sources/api_reference/generated/torchao.quantization.IntxWeightOnlyConfig.rst.txt">
         <i class="fa-solid fa-file-lines"></i> Show Source
       </a>
     </div>
@@ -1458,11 +1461,11 @@ e.g. scale = (10.2 - (-3.5)) / (7 - (-8))</p>
     {
        "@context": "https://schema.org",
        "@type": "Article",
-       "name": "MappingType",
-       "headline": "MappingType",
+       "name": "IntxWeightOnlyConfig",
+       "headline": "IntxWeightOnlyConfig",
        "description": "PyTorch Documentation. Explore PyTorch, an open-source machine learning library that accelerates the path from research prototyping to production deployment. Discover tutorials, API references, and guides to help you build and deploy deep learning models efficiently.",
-       "url": "/api_reference/generated/torchao.quantization.MappingType.html",
-       "articleBody": "MappingType# class torchao.quantization.MappingType(value, names=None, *, module=None, qualname=None, type=None, start=1, boundary=None)[source][source]# How floating point number is mapped to integer number symmetric mapping means floating point range is symmetrically mapped to integer range let\u2019s say we have floating point range (-3.5, 10.2) and integer range (-8, 7) (int4) we\u2019ll use (-10.2, 10.2) as the range for floating point and map that to (-8, 7) e.g. scale = (10.2 - (-10.2)) / (7 - (-8)) SYMMETRIC_NO_CLIPPING_ERR is a variant of symmetric mapping, where the scale is the max of smin and smax, where smin = min_val_neg / quant_min, and smax = max_val_pos / quant_max. By calculating smin and smax individually, there can be less round error on negative values, and no out-of-range of all floating point values. asymmetric mapping means we just directly map the floating point range to integer range, for the above example, we will map (-3.5, 10.2) to (-8, 7) and calculate quantization parameter based on this mapping e.g. scale = (10.2 - (-3.5)) / (7 - (-8))",
+       "url": "/api_reference/generated/torchao.quantization.IntxWeightOnlyConfig.html",
+       "articleBody": "IntxWeightOnlyConfig# class torchao.quantization.IntxWeightOnlyConfig(weight_dtype: dtype = torch.int8, granularity: Granularity = PerAxis(axis=0), mapping_type: MappingType = MappingType.SYMMETRIC, scale_dtype: Optional[dtype] = None, intx_packing_format: IntxPackingFormat = IntxPackingFormat.UNPACKED_TO_INT8, intx_choose_qparams_algorithm: IntxChooseQParamsAlgorithm = IntxChooseQParamsAlgorithm.AFFINE, version: int = 2)[source][source]# Configuration for quantizing weights to torch.intx, with 1 \u003c= x \u003c= 8. Weights are quantized with scales/zeros in a groupwise or channelwise manner using the number of bits specified by weight_dtype. :param weight_dtype: The dtype to use for weight quantization. Must be torch.intx, where 1 \u003c= x \u003c= 8. :param granularity: The granularity to use for weight quantization. Must be PerGroup or PerAxis(0). :param mapping_type: The type of mapping to use for the weight quantization. Must be one of MappingType.ASYMMETRIC or MappingType.SYMMETRIC. Parameters scale_dtype \u2013 The dtype to use for the weight scale. intx_packing_format \u2013 The format to use for the packed weight tensor (version 2 only). intx_choose_qparams_algorithm \u2013 The algorithm to use for choosing the quantization parameters. version \u2013 version of the config to use, only subset of above args are valid based on version, see note for more details.",
        "author": {
          "@type": "Organization",
          "name": "PyTorch Contributors",
@@ -1471,7 +1474,7 @@ e.g. scale = (10.2 - (-3.5)) / (7 - (-8))</p>
        "image": "https://pytorch.org/docs/stable/_static/img/pytorch_seo.png",
        "mainEntityOfPage": {
          "@type": "WebPage",
-         "@id": "/api_reference/generated/torchao.quantization.MappingType.html"
+         "@id": "/api_reference/generated/torchao.quantization.IntxWeightOnlyConfig.html"
        },
        "datePublished": "UnknownT00:00:00Z",
        "dateModified": "UnknownT00:00:00Z"

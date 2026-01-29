@@ -64,8 +64,8 @@
     <link rel="canonical" href="https://pytorch.org/ao/api_reference/generated/torchao.quantization.Int8DynamicActivationInt8WeightConfig.html" />
     <link rel="index" title="Index" href="../../genindex.html" />
     <link rel="search" title="Search" href="../../search.html" />
-    <link rel="next" title="FqnToConfig" href="torchao.quantization.FqnToConfig.html" />
-    <link rel="prev" title="Int8WeightOnlyConfig" href="torchao.quantization.Int8WeightOnlyConfig.html" />
+    <link rel="next" title="Int8WeightOnlyConfig" href="torchao.quantization.Int8WeightOnlyConfig.html" />
+    <link rel="prev" title="Float8WeightOnlyConfig" href="torchao.quantization.Float8WeightOnlyConfig.html" />
 
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
@@ -915,25 +915,22 @@ document.write(`
      aria-label="Section Navigation">
   <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
   <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
-<li class="toctree-l1"><a class="reference internal" href="../api_ref_dtypes.html">Dtypes</a></li>
 <li class="toctree-l1 current active has-children"><a class="reference internal" href="../api_ref_quantization.html">torchao.quantization</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
 <li class="toctree-l2"><a class="reference internal" href="torchao.quantization.quantize_.html">quantize</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.FqnToConfig.html">FqnToConfig</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.Float8DynamicActivationFloat8WeightConfig.html">Float8DynamicActivationFloat8WeightConfig</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.Float8DynamicActivationFloat8SemiSparseWeightConfig.html">Float8DynamicActivationFloat8SemiSparseWeightConfig</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.Float8WeightOnlyConfig.html">Float8WeightOnlyConfig</a></li>
+<li class="toctree-l2 current active"><a class="current reference internal" href="#">Int8DynamicActivationInt8WeightConfig</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.Int8WeightOnlyConfig.html">Int8WeightOnlyConfig</a></li>
 <li class="toctree-l2"><a class="reference internal" href="torchao.quantization.Int4WeightOnlyConfig.html">Int4WeightOnlyConfig</a></li>
 <li class="toctree-l2"><a class="reference internal" href="torchao.quantization.Float8DynamicActivationInt4WeightConfig.html">Float8DynamicActivationInt4WeightConfig</a></li>
-<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.Float8DynamicActivationFloat8WeightConfig.html">Float8DynamicActivationFloat8WeightConfig</a></li>
-<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.Float8WeightOnlyConfig.html">Float8WeightOnlyConfig</a></li>
 <li class="toctree-l2"><a class="reference internal" href="torchao.quantization.Int8DynamicActivationInt4WeightConfig.html">Int8DynamicActivationInt4WeightConfig</a></li>
-<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.Int8WeightOnlyConfig.html">Int8WeightOnlyConfig</a></li>
-<li class="toctree-l2 current active"><a class="current reference internal" href="#">Int8DynamicActivationInt8WeightConfig</a></li>
-<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.FqnToConfig.html">FqnToConfig</a></li>
-<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.choose_qparams_affine.html">choose_qparams_affine</a></li>
-<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.choose_qparams_affine_with_min_max.html">choose_qparams_affine_with_min_max</a></li>
-<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.quantize_affine.html">quantize_affine</a></li>
-<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.dequantize_affine.html">dequantize_affine</a></li>
-<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.safe_int_mm.html">safe_int_mm</a></li>
-<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.int_scaled_matmul.html">int_scaled_matmul</a></li>
-<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.MappingType.html">MappingType</a></li>
-<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.TorchAODType.html">TorchAODType</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.IntxWeightOnlyConfig.html">IntxWeightOnlyConfig</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.Int8DynamicActivationIntxWeightConfig.html">Int8DynamicActivationIntxWeightConfig</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.prototype.mx_formats.MXDynamicActivationMXWeightConfig.html">MXDynamicActivationMXWeightConfig</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.prototype.mx_formats.NVFP4DynamicActivationNVFP4WeightConfig.html">NVFP4DynamicActivationNVFP4WeightConfig</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.prototype.mx_formats.NVFP4WeightOnlyConfig.html">NVFP4WeightOnlyConfig</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../api_ref_qat.html">torchao.quantization.qat</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -1101,7 +1098,7 @@ document.write(`
 <h1>Int8DynamicActivationInt8WeightConfig<a class="headerlink" href="#int8dynamicactivationint8weightconfig" title="Permalink to this heading">#</a></h1>
 <dl class="py class">
 <dt class="sig sig-object py" id="torchao.quantization.Int8DynamicActivationInt8WeightConfig">
-<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">torchao.quantization.</span></span><span class="sig-name descname"><span class="pre">Int8DynamicActivationInt8WeightConfig</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">layout</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.14)"><span class="pre">Optional</span></a><span class="p"><span class="pre">[</span></span><span class="pre">Layout</span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">PlainLayout()</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">act_mapping_type</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.14)"><span class="pre">Optional</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="torchao.quantization.MappingType.html#torchao.quantization.MappingType" title="torchao.quantization.quant_primitives.MappingType"><span class="pre">MappingType</span></a><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">MappingType.SYMMETRIC</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">weight_only_decode</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">granularity</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Granularity</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">PerRow(dim=-1)</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">set_inductor_config</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">version</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/torchao/quantization/quant_api.html#Int8DynamicActivationInt8WeightConfig"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="reference external" href="https://github.com/pytorch/ao/blob/main/torchao/quantization/quant_api.py#L1030"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#torchao.quantization.Int8DynamicActivationInt8WeightConfig" title="Permalink to this definition">#</a></dt>
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">torchao.quantization.</span></span><span class="sig-name descname"><span class="pre">Int8DynamicActivationInt8WeightConfig</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">layout</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.14)"><span class="pre">Optional</span></a><span class="p"><span class="pre">[</span></span><span class="pre">Layout</span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">PlainLayout()</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">act_mapping_type</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.14)"><span class="pre">Optional</span></a><span class="p"><span class="pre">[</span></span><span class="pre">MappingType</span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">MappingType.SYMMETRIC</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">weight_only_decode</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">granularity</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Granularity</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">PerRow(dim=-1)</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">set_inductor_config</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">version</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/torchao/quantization/quant_api.html#Int8DynamicActivationInt8WeightConfig"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="reference external" href="https://github.com/pytorch/ao/blob/main/torchao/quantization/quant_api.py#L1050"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#torchao.quantization.Int8DynamicActivationInt8WeightConfig" title="Permalink to this definition">#</a></dt>
 <dd><p>Configuration for applying int8 dynamic symmetric per-token activation and int8 per-channel weight
 quantization to linear layers.</p>
 <dl class="field-list simple">
@@ -1119,6 +1116,11 @@ for better performance with this quantization scheme.</p></li>
 </ul>
 </dd>
 </dl>
+<p>Example:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization</span><span class="w"> </span><span class="kn">import</span> <span class="n">quantize_</span><span class="p">,</span> <span class="n">Int8DynamicActivationInt8WeightConfig</span>
+<span class="n">quantize_</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">Int8DynamicActivationInt8WeightConfig</span><span class="p">())</span>
+</pre></div>
+</div>
 </dd></dl>
 
 </section>
@@ -1166,20 +1168,20 @@ for better performance with this quantization scheme.</p></li>
 
 <div class="prev-next-area">
     <a class="left-prev"
-       href="torchao.quantization.Int8WeightOnlyConfig.html"
+       href="torchao.quantization.Float8WeightOnlyConfig.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">Int8WeightOnlyConfig</p>
+        <p class="prev-next-title">Float8WeightOnlyConfig</p>
       </div>
     </a>
     <a class="right-next"
-       href="torchao.quantization.FqnToConfig.html"
+       href="torchao.quantization.Int8WeightOnlyConfig.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">FqnToConfig</p>
+        <p class="prev-next-title">Int8WeightOnlyConfig</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -1205,20 +1207,20 @@ for better performance with this quantization scheme.</p></li>
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="torchao.quantization.Int8WeightOnlyConfig.html"
+       href="torchao.quantization.Float8WeightOnlyConfig.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">Int8WeightOnlyConfig</p>
+        <p class="prev-next-title">Float8WeightOnlyConfig</p>
       </div>
     </a>
     <a class="right-next"
-       href="torchao.quantization.FqnToConfig.html"
+       href="torchao.quantization.Int8WeightOnlyConfig.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">FqnToConfig</p>
+        <p class="prev-next-title">Int8WeightOnlyConfig</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -1466,7 +1468,7 @@ for better performance with this quantization scheme.</p></li>
        "headline": "Int8DynamicActivationInt8WeightConfig",
        "description": "PyTorch Documentation. Explore PyTorch, an open-source machine learning library that accelerates the path from research prototyping to production deployment. Discover tutorials, API references, and guides to help you build and deploy deep learning models efficiently.",
        "url": "/api_reference/generated/torchao.quantization.Int8DynamicActivationInt8WeightConfig.html",
-       "articleBody": "Int8DynamicActivationInt8WeightConfig# class torchao.quantization.Int8DynamicActivationInt8WeightConfig(layout: Optional[Layout] = PlainLayout(), act_mapping_type: Optional[MappingType] = MappingType.SYMMETRIC, weight_only_decode: bool = False, granularity: Granularity = PerRow(dim=-1), set_inductor_config: bool = True, version: int = 1)[source][source]# Configuration for applying int8 dynamic symmetric per-token activation and int8 per-channel weight quantization to linear layers. Parameters layout \u2013 Optional[Layout] = PlainLayout() - Tensor layout for the quantized weights. Controls how the quantized data is stored and accessed. act_mapping_type \u2013 Optional[MappingType] = MappingType.SYMMETRIC - Mapping type for activation quantization. SYMMETRIC uses symmetric quantization around zero. weight_only_decode \u2013 bool = False - If True, only quantizes weights during forward pass and keeps activations in original precision during decode operations. set_inductor_config \u2013 bool = True - If True, adjusts torchinductor settings to recommended values for better performance with this quantization scheme. version (int) \u2013 the version of the config, version 1 is using AffineQuantizedTensor that we plan to deprecate/split, version 2 is using Int8Tensor",
+       "articleBody": "Int8DynamicActivationInt8WeightConfig# class torchao.quantization.Int8DynamicActivationInt8WeightConfig(layout: Optional[Layout] = PlainLayout(), act_mapping_type: Optional[MappingType] = MappingType.SYMMETRIC, weight_only_decode: bool = False, granularity: Granularity = PerRow(dim=-1), set_inductor_config: bool = True, version: int = 1)[source][source]# Configuration for applying int8 dynamic symmetric per-token activation and int8 per-channel weight quantization to linear layers. Parameters layout \u2013 Optional[Layout] = PlainLayout() - Tensor layout for the quantized weights. Controls how the quantized data is stored and accessed. act_mapping_type \u2013 Optional[MappingType] = MappingType.SYMMETRIC - Mapping type for activation quantization. SYMMETRIC uses symmetric quantization around zero. weight_only_decode \u2013 bool = False - If True, only quantizes weights during forward pass and keeps activations in original precision during decode operations. set_inductor_config \u2013 bool = True - If True, adjusts torchinductor settings to recommended values for better performance with this quantization scheme. version (int) \u2013 the version of the config, version 1 is using AffineQuantizedTensor that we plan to deprecate/split, version 2 is using Int8Tensor Example: from torchao.quantization import quantize_, Int8DynamicActivationInt8WeightConfig quantize_(model, Int8DynamicActivationInt8WeightConfig())",
        "author": {
          "@type": "Organization",
          "name": "PyTorch Contributors",

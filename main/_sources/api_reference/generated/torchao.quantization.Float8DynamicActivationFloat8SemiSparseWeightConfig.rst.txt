@@ -1,0 +1,10 @@
+﻿.. role:: hidden
+    :class: hidden-section
+.. currentmodule:: torchao.quantization
+
+
+Float8DynamicActivationFloat8SemiSparseWeightConfig
+===================================================
+
+.. autoclass:: Float8DynamicActivationFloat8SemiSparseWeightConfig
+    :members:

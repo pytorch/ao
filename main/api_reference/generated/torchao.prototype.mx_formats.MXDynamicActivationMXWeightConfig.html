@@ -8,8 +8,15 @@
   <head>
   <meta name="robots" content="noindex">
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>torchao.kernel.intmm &#8212; torchao main documentation</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
+<meta property="og:title" content="MXDynamicActivationMXWeightConfig" />
+<meta property="og:type" content="website" />
+<meta property="og:url" content="http://pytorch.org/api_reference/generated/torchao.prototype.mx_formats.MXDynamicActivationMXWeightConfig.html" />
+<meta property="og:site_name" content="torchao" />
+<meta property="og:image" content="https://pytorch.org/assets/images/social-share.jpg" />
+<meta property="og:image:alt" content="torchao" />
+
+    <title>MXDynamicActivationMXWeightConfig &#8212; torchao main documentation</title>
   
   
   
@@ -19,54 +26,46 @@
   </script>
   
   <!-- Loaded before other Sphinx assets -->
-  <link href="../../../_static/styles/theme.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
-<link href="../../../_static/styles/bootstrap.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
-<link href="../../../_static/styles/pydata-sphinx-theme.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
+  <link href="../../_static/styles/theme.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
+<link href="../../_static/styles/bootstrap.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
+<link href="../../_static/styles/pydata-sphinx-theme.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
 
   
-  <link href="../../../_static/vendor/fontawesome/6.5.2/css/all.min.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
-  <link rel="preload" as="font" type="font/woff2" crossorigin href="../../../_static/vendor/fontawesome/6.5.2/webfonts/fa-solid-900.woff2" />
-<link rel="preload" as="font" type="font/woff2" crossorigin href="../../../_static/vendor/fontawesome/6.5.2/webfonts/fa-brands-400.woff2" />
-<link rel="preload" as="font" type="font/woff2" crossorigin href="../../../_static/vendor/fontawesome/6.5.2/webfonts/fa-regular-400.woff2" />
+  <link href="../../_static/vendor/fontawesome/6.5.2/css/all.min.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
+  <link rel="preload" as="font" type="font/woff2" crossorigin href="../../_static/vendor/fontawesome/6.5.2/webfonts/fa-solid-900.woff2" />
+<link rel="preload" as="font" type="font/woff2" crossorigin href="../../_static/vendor/fontawesome/6.5.2/webfonts/fa-brands-400.woff2" />
+<link rel="preload" as="font" type="font/woff2" crossorigin href="../../_static/vendor/fontawesome/6.5.2/webfonts/fa-regular-400.woff2" />
 
-    <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css" />
-    <link rel="stylesheet" type="text/css" href="../../../_static/css/theme.css" />
-    <link rel="stylesheet" type="text/css" href="../../../_static/copybutton.css" />
-    <link rel="stylesheet" type="text/css" href="../../../_static/tabs.css" />
-    <link rel="stylesheet" type="text/css" href="../../../_static/design-style.1e8bd061cd6da7fc9cf755528e8ffc24.min.css" />
-    <link rel="stylesheet" type="text/css" href="../../../_static/sg_gallery.css" />
-    <link rel="stylesheet" type="text/css" href="../../../_static/sg_gallery-binder.css" />
-    <link rel="stylesheet" type="text/css" href="../../../_static/sg_gallery-dataframe.css" />
-    <link rel="stylesheet" type="text/css" href="../../../_static/sg_gallery-rendered-html.css" />
-    <link rel="stylesheet" type="text/css" href="../../../_static/css/custom.css" />
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css" />
+    <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css" />
+    <link rel="stylesheet" type="text/css" href="../../_static/copybutton.css" />
+    <link rel="stylesheet" type="text/css" href="../../_static/tabs.css" />
+    <link rel="stylesheet" type="text/css" href="../../_static/design-style.1e8bd061cd6da7fc9cf755528e8ffc24.min.css" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sg_gallery.css" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sg_gallery-binder.css" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sg_gallery-dataframe.css" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sg_gallery-rendered-html.css" />
+    <link rel="stylesheet" type="text/css" href="../../_static/css/custom.css" />
   
   <!-- Pre-loaded scripts that we'll load fully later -->
-  <link rel="preload" as="script" href="../../../_static/scripts/bootstrap.js?digest=dfe6caa3a7d634c4db9b" />
-<link rel="preload" as="script" href="../../../_static/scripts/pydata-sphinx-theme.js?digest=dfe6caa3a7d634c4db9b" />
-  <script src="../../../_static/vendor/fontawesome/6.5.2/js/all.min.js?digest=dfe6caa3a7d634c4db9b"></script>
+  <link rel="preload" as="script" href="../../_static/scripts/bootstrap.js?digest=dfe6caa3a7d634c4db9b" />
+<link rel="preload" as="script" href="../../_static/scripts/pydata-sphinx-theme.js?digest=dfe6caa3a7d634c4db9b" />
+  <script src="../../_static/vendor/fontawesome/6.5.2/js/all.min.js?digest=dfe6caa3a7d634c4db9b"></script>
 
-    <script data-url_root="../../../" id="documentation_options" src="../../../_static/documentation_options.js"></script>
-    <script src="../../../_static/jquery.js"></script>
-    <script src="../../../_static/underscore.js"></script>
-    <script src="../../../_static/_sphinx_javascript_frameworks_compat.js"></script>
-    <script src="../../../_static/doctools.js"></script>
-    <script src="../../../_static/sphinx_highlight.js"></script>
-    <script src="../../../_static/clipboard.min.js"></script>
-    <script src="../../../_static/copybutton.js"></script>
-    <script src="../../../_static/tabs.js"></script>
-    <script src="../../../_static/design-tabs.js"></script>
-    <script type="module" src="https://cdn.jsdelivr.net/npm/mermaid@11.2.0/dist/mermaid.esm.min.mjs"></script>
-    <script type="module" src="https://cdn.jsdelivr.net/npm/@mermaid-js/layout-elk@0.1.4/dist/mermaid-layout-elk.esm.min.mjs"></script>
-    <script type="module">import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11.2.0/dist/mermaid.esm.min.mjs";import elkLayouts from "https://cdn.jsdelivr.net/npm/@mermaid-js/layout-elk@0.1.4/dist/mermaid-layout-elk.esm.min.mjs";mermaid.registerLayoutLoaders(elkLayouts);mermaid.initialize({startOnLoad:false});</script>
-    <script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
-    <script type="module">
-import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11.2.0/dist/mermaid.esm.min.mjs";
-window.addEventListener("load", () => mermaid.run());
-</script>
-    <script>DOCUMENTATION_OPTIONS.pagename = '_modules/torchao/kernel/intmm';</script>
-    <link rel="canonical" href="https://pytorch.org/ao/_modules/torchao/kernel/intmm.html" />
-    <link rel="index" title="Index" href="../../../genindex.html" />
-    <link rel="search" title="Search" href="../../../search.html" />
+    <script data-url_root="../../" id="documentation_options" src="../../_static/documentation_options.js"></script>
+    <script src="../../_static/jquery.js"></script>
+    <script src="../../_static/underscore.js"></script>
+    <script src="../../_static/_sphinx_javascript_frameworks_compat.js"></script>
+    <script src="../../_static/doctools.js"></script>
+    <script src="../../_static/sphinx_highlight.js"></script>
+    <script src="../../_static/clipboard.min.js"></script>
+    <script src="../../_static/copybutton.js"></script>
+    <script src="../../_static/design-tabs.js"></script>
+    <link rel="canonical" href="https://pytorch.org/ao/api_reference/generated/torchao.prototype.mx_formats.MXDynamicActivationMXWeightConfig.html" />
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="NVFP4DynamicActivationNVFP4WeightConfig" href="torchao.prototype.mx_formats.NVFP4DynamicActivationNVFP4WeightConfig.html" />
+    <link rel="prev" title="Int8DynamicActivationIntxWeightConfig" href="torchao.quantization.Int8DynamicActivationIntxWeightConfig.html" />
 
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
@@ -99,13 +98,13 @@ window.addEventListener("load", () => mermaid.run());
 <!-- Conditional CSS for header and footer height adjustment -->
 
 
-<link rel="stylesheet" type="text/css" href="../../../_static/css/theme.css" crossorigin="anonymous">
-<script type="text/javascript" src="../../../_static/js/theme.js"></script>
+<link rel="stylesheet" type="text/css" href="../../_static/css/theme.css" crossorigin="anonymous">
+<script type="text/javascript" src="../../_static/js/theme.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400&display=swap" rel="stylesheet">
 <meta property="og:image" content="https://docs.pytorch.org/docs/stable/_static/img/pytorch_seo.png" />
-<link rel="stylesheet" href="../../../_static/webfonts/all.min.css" crossorigin="anonymous">
+<link rel="stylesheet" href="../../_static/webfonts/all.min.css" crossorigin="anonymous">
 <meta http-equiv="Content-Security-Policy"
   content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:; style-src * 'unsafe-inline'; script-src * 'unsafe-inline' 'unsafe-eval' blob:;">
 <meta name="pytorch_project" content="">
@@ -570,7 +569,7 @@ window.addEventListener("load", () => mermaid.run());
     <div class="search-button__overlay"></div>
     <div class="search-button__search-container">
 <form class="bd-search d-flex align-items-center"
-      action="../../../search.html"
+      action="../../search.html"
       method="get">
   <i class="fa-solid fa-magnifying-glass"></i>
   <input type="search"
@@ -602,7 +601,7 @@ window.addEventListener("load", () => mermaid.run());
   <div class=" navbar-header-items__start">
     
       <div class="navbar-item">
-  <a href="../../../index.html" class="version">main</a>
+  <a href="../../index.html" class="version">main</a>
 </div>
     
   </div>
@@ -616,35 +615,35 @@ window.addEventListener("load", () => mermaid.run());
   <ul class="bd-navbar-elements navbar-nav">
     
 <li class="nav-item ">
-  <a class="nav-link nav-internal" href="../../../workflows.html">
+  <a class="nav-link nav-internal" href="../../workflows.html">
     Workflows
   </a>
 </li>
 
 
-<li class="nav-item ">
-  <a class="nav-link nav-internal" href="../../../api_reference/index.html">
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
     API Reference
   </a>
 </li>
 
 
 <li class="nav-item ">
-  <a class="nav-link nav-internal" href="../../../eager_quantization/index.html">
+  <a class="nav-link nav-internal" href="../../eager_quantization/index.html">
     Eager Quantization Tutorials
   </a>
 </li>
 
 
 <li class="nav-item ">
-  <a class="nav-link nav-internal" href="../../../developer_notes/index.html">
+  <a class="nav-link nav-internal" href="../../developer_notes/index.html">
     Developer Notes
   </a>
 </li>
 
 
 <li class="nav-item ">
-  <a class="nav-link nav-internal" href="../../../pt2e_quantization/index.html">
+  <a class="nav-link nav-internal" href="../../pt2e_quantization/index.html">
     PT2E Quantization Tutorials
   </a>
 </li>
@@ -661,7 +660,7 @@ window.addEventListener("load", () => mermaid.run());
         <div class="navbar-item">
   
 <form class="bd-search d-flex align-items-center"
-      action="../../../search.html"
+      action="../../search.html"
       method="get">
   <i class="fa-solid fa-magnifying-glass"></i>
   <input type="search"
@@ -749,6 +748,10 @@ document.write(`
   
 
   
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
 </div>
 
     </header>
@@ -759,9 +762,7 @@ document.write(`
       
       
       
-        
-      
-      <div class="bd-sidebar-primary bd-sidebar hide-on-wide">
+      <div class="bd-sidebar-primary bd-sidebar">
         
 
   
@@ -777,35 +778,35 @@ document.write(`
   <ul class="bd-navbar-elements navbar-nav">
     
 <li class="nav-item ">
-  <a class="nav-link nav-internal" href="../../../workflows.html">
+  <a class="nav-link nav-internal" href="../../workflows.html">
     Workflows
   </a>
 </li>
 
 
-<li class="nav-item ">
-  <a class="nav-link nav-internal" href="../../../api_reference/index.html">
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
     API Reference
   </a>
 </li>
 
 
 <li class="nav-item ">
-  <a class="nav-link nav-internal" href="../../../eager_quantization/index.html">
+  <a class="nav-link nav-internal" href="../../eager_quantization/index.html">
     Eager Quantization Tutorials
   </a>
 </li>
 
 
 <li class="nav-item ">
-  <a class="nav-link nav-internal" href="../../../developer_notes/index.html">
+  <a class="nav-link nav-internal" href="../../developer_notes/index.html">
     Developer Notes
   </a>
 </li>
 
 
 <li class="nav-item ">
-  <a class="nav-link nav-internal" href="../../../pt2e_quantization/index.html">
+  <a class="nav-link nav-internal" href="../../pt2e_quantization/index.html">
     PT2E Quantization Tutorials
   </a>
 </li>
@@ -823,7 +824,7 @@ document.write(`
           <div class="navbar-item">
   
 <form class="bd-search d-flex align-items-center"
-      action="../../../search.html"
+      action="../../search.html"
       method="get">
   <i class="fa-solid fa-magnifying-glass"></i>
   <input type="search"
@@ -908,6 +909,85 @@ document.write(`
     
   </div>
   
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1 current active has-children"><a class="reference internal" href="../api_ref_quantization.html">torchao.quantization</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.quantize_.html">quantize</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.FqnToConfig.html">FqnToConfig</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.Float8DynamicActivationFloat8WeightConfig.html">Float8DynamicActivationFloat8WeightConfig</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.Float8DynamicActivationFloat8SemiSparseWeightConfig.html">Float8DynamicActivationFloat8SemiSparseWeightConfig</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.Float8WeightOnlyConfig.html">Float8WeightOnlyConfig</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.Int8DynamicActivationInt8WeightConfig.html">Int8DynamicActivationInt8WeightConfig</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.Int8WeightOnlyConfig.html">Int8WeightOnlyConfig</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.Int4WeightOnlyConfig.html">Int4WeightOnlyConfig</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.Float8DynamicActivationInt4WeightConfig.html">Float8DynamicActivationInt4WeightConfig</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.Int8DynamicActivationInt4WeightConfig.html">Int8DynamicActivationInt4WeightConfig</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.IntxWeightOnlyConfig.html">IntxWeightOnlyConfig</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.Int8DynamicActivationIntxWeightConfig.html">Int8DynamicActivationIntxWeightConfig</a></li>
+<li class="toctree-l2 current active"><a class="current reference internal" href="#">MXDynamicActivationMXWeightConfig</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.prototype.mx_formats.NVFP4DynamicActivationNVFP4WeightConfig.html">NVFP4DynamicActivationNVFP4WeightConfig</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.prototype.mx_formats.NVFP4WeightOnlyConfig.html">NVFP4WeightOnlyConfig</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../api_ref_qat.html">torchao.quantization.qat</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.qat.QATConfig.html">QATConfig</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.qat.QATStep.html">QATStep</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.qat.FakeQuantizeConfigBase.html">FakeQuantizeConfigBase</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.qat.IntxFakeQuantizeConfig.html">IntxFakeQuantizeConfig</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.qat.Float8FakeQuantizeConfig.html">Float8FakeQuantizeConfig</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.qat.FakeQuantizedLinear.html">FakeQuantizedLinear</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.qat.FakeQuantizedEmbedding.html">FakeQuantizedEmbedding</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.qat.FakeQuantizerBase.html">FakeQuantizerBase</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.qat.IntxFakeQuantizer.html">IntxFakeQuantizer</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.qat.Float8FakeQuantizer.html">Float8FakeQuantizer</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.qat.linear.enable_linear_fake_quant.html">enable_linear_fake_quant</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.qat.linear.disable_linear_fake_quant.html">disable_linear_fake_quant</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.qat.IntXQuantizationAwareTrainingConfig.html">IntXQuantizationAwareTrainingConfig</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.qat.FromIntXQuantizationAwareTrainingConfig.html">FromIntXQuantizationAwareTrainingConfig</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.qat.Int4WeightOnlyQATQuantizer.html">Int4WeightOnlyQATQuantizer</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.qat.linear.Int4WeightOnlyQATLinear.html">Int4WeightOnlyQATLinear</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.qat.Int8DynActInt4WeightQATQuantizer.html">Int8DynActInt4WeightQATQuantizer</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.qat.linear.Int8DynActInt4WeightQATLinear.html">Int8DynActInt4WeightQATLinear</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.qat.Int4WeightOnlyEmbeddingQATQuantizer.html">Int4WeightOnlyEmbeddingQATQuantizer</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.qat.embedding.Int4WeightOnlyQATEmbedding.html">Int4WeightOnlyQATEmbedding</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.qat.embedding.Int4WeightOnlyEmbedding.html">Int4WeightOnlyEmbedding</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.qat.Float8ActInt4WeightQATQuantizer.html">Float8ActInt4WeightQATQuantizer</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.qat.ComposableQATQuantizer.html">ComposableQATQuantizer</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.qat.initialize_fake_quantizers.html">initialize_fake_quantizers</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../api_ref_sparsity.html">torchao.sparsity</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="torchao.sparsity.sparsify_.html">sparsify</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.sparsity.semi_sparse_weight.html">semi_sparse_weight</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.sparsity.apply_fake_sparsity.html">apply_fake_sparsity</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.sparsity.WandaSparsifier.html">WandaSparsifier</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.sparsity.PerChannelNormObserver.html">PerChannelNormObserver</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../api_ref_float8.html">torchao.float8</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="torchao.float8.convert_to_float8_training.html">convert_to_float8_training</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.float8.Float8LinearConfig.html">Float8LinearConfig</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.float8.CastConfig.html">CastConfig</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.float8.ScalingType.html">ScalingType</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.float8.ScalingGranularity.html">ScalingGranularity</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.float8.precompute_float8_dynamic_scale_for_fsdp.html">precompute_float8_dynamic_scale_for_fsdp</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../api_ref_utils.html">torchao.utils</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="torchao.utils.TorchAOBaseTensor.html">TorchAOBaseTensor</a></li>
+</ul>
+</details></li>
+
+<li class="toctree-l1"><a class="reference internal" href="../api_ref_kernel.html">torchao.kernel</a></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
   
   <div class="sidebar-primary-items__end sidebar-primary__section">
   </div>
@@ -936,14 +1016,17 @@ document.write(`
   <ul class="bd-breadcrumbs">
     
     <li class="breadcrumb-item breadcrumb-home">
-      <a href="../../../index.html" class="nav-link" aria-label="Home">
+      <a href="../../index.html" class="nav-link" aria-label="Home">
         <i class="fa-solid fa-home"></i>
       </a>
     </li>
     
-    <li class="breadcrumb-item"><a href="../../index.html" class="nav-link">Module code</a></li>
+    <li class="breadcrumb-item"><a href="../index.html" class="nav-link">API Reference</a></li>
     
-    <li class="breadcrumb-item active" aria-current="page">torchao.kernel.intmm</li>
+    
+    <li class="breadcrumb-item"><a href="../api_ref_quantization.html" class="nav-link">torchao.quantization</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page">MXDynamicAct...</li>
   </ul>
 </nav>
 </div>
@@ -985,14 +1068,20 @@ document.write(`
     <div style="display:none;" itemscope itemtype="https://schema.org/BreadcrumbList">
       
       <div itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
-        <link itemprop="item" href="../../index.html">
-        <meta itemprop="name" content="Module code">
+        <link itemprop="item" href="../index.html">
+        <meta itemprop="name" content="API Reference">
         <meta itemprop="position" content="1">
       </div>
       
       <div itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
-        <meta itemprop="name" content="torchao.kernel.intmm">
+        <link itemprop="item" href="../api_ref_quantization.html">
+        <meta itemprop="name" content="torchao.quantization">
         <meta itemprop="position" content="2">
+      </div>
+      
+      <div itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
+        <meta itemprop="name" content="MXDynamicActivationMXWeightConfig">
+        <meta itemprop="position" content="3">
       </div>
     </div>
 
@@ -1005,151 +1094,20 @@ document.write(`
 <div id="searchbox"></div>
                 <article class="bd-article">
                   
-  <h1>Source code for torchao.kernel.intmm</h1><div class="highlight"><pre>
-<span></span><span class="c1"># Copyright (c) Meta Platforms, Inc. and affiliates.</span>
-<span class="c1"># All rights reserved.</span>
-<span class="c1">#</span>
-<span class="c1"># This source code is licensed under the BSD 3-Clause license found in the</span>
-<span class="c1"># LICENSE file in the root directory of this source tree.</span>
-<span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
-<span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
+  <section id="mxdynamicactivationmxweightconfig">
+<h1>MXDynamicActivationMXWeightConfig<a class="headerlink" href="#mxdynamicactivationmxweightconfig" title="Permalink to this heading">#</a></h1>
+<dl class="py class">
+<dt class="sig sig-object py" id="torchao.prototype.mx_formats.MXDynamicActivationMXWeightConfig">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">torchao.prototype.mx_formats.</span></span><span class="sig-name descname"><span class="pre">MXDynamicActivationMXWeightConfig</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">block_size</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">32</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">activation_dtype</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.pytorch.org/docs/stable/tensor_attributes.html#torch.dtype" title="(in PyTorch v2.10)"><span class="pre">dtype</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">torch.float8_e4m3fn</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">weight_dtype</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.pytorch.org/docs/stable/tensor_attributes.html#torch.dtype" title="(in PyTorch v2.10)"><span class="pre">dtype</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">torch.float8_e4m3fn</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">kernel_preference</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="torchao.quantization.quantize_.common.KernelPreference.html#torchao.quantization.quantize_.common.KernelPreference" title="torchao.quantization.quantize_.common.kernel_preference.KernelPreference"><span class="pre">KernelPreference</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">KernelPreference.AUTO</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/torchao/prototype/mx_formats/inference_workflow.html#MXDynamicActivationMXWeightConfig"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="reference external" href="https://github.com/pytorch/ao/blob/main/torchao/prototype/mx_formats/inference_workflow.py#L38"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#torchao.prototype.mx_formats.MXDynamicActivationMXWeightConfig" title="Permalink to this definition">#</a></dt>
+<dd><p>MX Format Inference Quantization</p>
+<p>This module provides support for running inference with float8 quantization using MX formats.</p>
+<p>Requirements:
+- NVIDIA SM100+ hardware (Blackwell or newer) is required for execution
+- PyTorch 2.5+ for proper serialization support</p>
+</dd></dl>
 
-<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">torch._dynamo</span><span class="w"> </span><span class="kn">import</span> <span class="n">is_compiling</span> <span class="k">as</span> <span class="n">dynamo_is_compiling</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">torch._higher_order_ops.out_dtype</span><span class="w"> </span><span class="kn">import</span> <span class="n">out_dtype</span>
+</section>
 
-<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">check_cpu_version</span>
-
-<span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span>
-<span class="n">logger</span><span class="o">.</span><span class="n">addHandler</span><span class="p">(</span><span class="n">logging</span><span class="o">.</span><span class="n">NullHandler</span><span class="p">())</span>
-
-<span class="k">try</span><span class="p">:</span>
-    <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.kernel</span><span class="w"> </span><span class="kn">import</span> <span class="n">intmm_triton</span>
-<span class="k">except</span> <span class="ne">ImportError</span><span class="p">:</span>
-    <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span>
-        <span class="s2">&quot;Warning: Detected no triton, on systems without Triton certain kernels will not work&quot;</span>
-    <span class="p">)</span>
-    <span class="c1"># On cpu-only builds might not be available.</span>
-    <span class="n">intmm_triton</span> <span class="o">=</span> <span class="kc">None</span>
-
-<span class="n">AUTOTUNER_ENABLE</span> <span class="o">=</span> <span class="nb">bool</span><span class="p">(</span><span class="nb">int</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">getenv</span><span class="p">(</span><span class="s2">&quot;TORCHAO_AUTOTUNER_ENABLE&quot;</span><span class="p">,</span> <span class="mi">0</span><span class="p">)))</span>
-
-
-<div class="viewcode-block" id="safe_int_mm"><a class="viewcode-back" href="../../../api_reference/generated/torchao.quantization.safe_int_mm.html#torchao.quantization.safe_int_mm">[docs]</a><span class="k">def</span><span class="w"> </span><span class="nf">safe_int_mm</span><span class="p">(</span><span class="nb">input</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">mat2</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">    Performs a safe integer matrix multiplication, considering different paths for</span>
-<span class="sd">    torch.compile, cublas, and fallback cases.</span>
-
-<span class="sd">    Args:</span>
-<span class="sd">        input (torch.Tensor): The input tensor of shape [i, j].</span>
-<span class="sd">        mat2 (torch.Tensor): The matrix to multiply with, of shape [j, k].</span>
-
-<span class="sd">    Returns:</span>
-<span class="sd">        torch.Tensor: The result of the matrix multiplication.</span>
-
-<span class="sd">    Raises:</span>
-<span class="sd">        AssertionError: If the tensors are not on the same device.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
-    <span class="c1"># torch.compile path</span>
-    <span class="k">if</span> <span class="n">dynamo_is_compiling</span><span class="p">()</span> <span class="ow">or</span> <span class="s2">&quot;FakeTensor&quot;</span> <span class="ow">in</span> <span class="nb">input</span><span class="o">.</span><span class="fm">__repr__</span><span class="p">():</span>
-        <span class="k">if</span> <span class="nb">input</span><span class="o">.</span><span class="n">device</span><span class="o">.</span><span class="n">type</span> <span class="o">==</span> <span class="s2">&quot;cpu&quot;</span><span class="p">:</span>
-            <span class="c1"># Matmul in int32 is slow on CPU and not supported well by Inductor cpp backend</span>
-            <span class="k">return</span> <span class="n">out_dtype</span><span class="p">(</span>
-                <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">aten</span><span class="o">.</span><span class="n">mm</span><span class="o">.</span><span class="n">default</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">int32</span><span class="p">,</span> <span class="nb">input</span><span class="o">.</span><span class="n">float</span><span class="p">(),</span> <span class="n">mat2</span><span class="o">.</span><span class="n">float</span><span class="p">()</span>
-            <span class="p">)</span>
-        <span class="k">return</span> <span class="n">out_dtype</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">aten</span><span class="o">.</span><span class="n">mm</span><span class="o">.</span><span class="n">default</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">int32</span><span class="p">,</span> <span class="nb">input</span><span class="p">,</span> <span class="n">mat2</span><span class="p">)</span>
-
-    <span class="c1"># error checking for cublas path</span>
-    <span class="k">assert</span> <span class="n">mat2</span><span class="o">.</span><span class="n">device</span> <span class="o">==</span> <span class="nb">input</span><span class="o">.</span><span class="n">device</span><span class="p">,</span> <span class="p">(</span>
-        <span class="sa">f</span><span class="s2">&quot;need both tensors to be on the same device but got </span><span class="si">{</span><span class="n">mat2</span><span class="o">.</span><span class="n">device</span><span class="si">}</span><span class="s2"> and </span><span class="si">{</span><span class="nb">input</span><span class="o">.</span><span class="n">device</span><span class="si">}</span><span class="s2">&quot;</span>
-    <span class="p">)</span>
-    <span class="n">device_cpu</span> <span class="o">=</span> <span class="s2">&quot;cpu&quot;</span> <span class="ow">in</span> <span class="p">[</span><span class="n">mat2</span><span class="o">.</span><span class="n">device</span><span class="o">.</span><span class="n">type</span><span class="p">,</span> <span class="nb">input</span><span class="o">.</span><span class="n">device</span><span class="o">.</span><span class="n">type</span><span class="p">]</span>
-    <span class="c1"># with input.shape = [i,j] and mat2.shape = [j,k]</span>
-    <span class="n">j_is_nonzero_multiple_of_8</span> <span class="o">=</span> <span class="p">(</span><span class="nb">input</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">%</span> <span class="mi">8</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)</span> <span class="ow">and</span> <span class="p">(</span><span class="nb">input</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">)</span>
-    <span class="n">k_is_nonzero_multiple_of_8</span> <span class="o">=</span> <span class="p">(</span><span class="n">mat2</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">%</span> <span class="mi">8</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)</span> <span class="ow">and</span> <span class="p">(</span><span class="n">mat2</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">)</span>
-    <span class="n">bad_dimensions_for_cublas</span> <span class="o">=</span> <span class="ow">not</span> <span class="p">(</span>
-        <span class="n">j_is_nonzero_multiple_of_8</span> <span class="ow">and</span> <span class="n">k_is_nonzero_multiple_of_8</span>
-    <span class="p">)</span>
-
-    <span class="k">if</span> <span class="n">device_cpu</span> <span class="ow">or</span> <span class="n">bad_dimensions_for_cublas</span><span class="p">:</span>
-        <span class="c1"># fallback path</span>
-        <span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">matmul</span><span class="p">(</span><span class="nb">input</span><span class="o">.</span><span class="n">cpu</span><span class="p">()</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">int32</span><span class="p">),</span> <span class="n">mat2</span><span class="o">.</span><span class="n">cpu</span><span class="p">()</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">int32</span><span class="p">))</span><span class="o">.</span><span class="n">to</span><span class="p">(</span>
-            <span class="nb">input</span><span class="o">.</span><span class="n">device</span><span class="o">.</span><span class="n">type</span>
-        <span class="p">)</span>
-
-    <span class="c1"># cublas paths</span>
-    <span class="k">if</span> <span class="ow">not</span> <span class="n">mat2</span><span class="o">.</span><span class="n">is_contiguous</span><span class="p">():</span>  <span class="c1"># silently gives incorrect result without this</span>
-        <span class="n">mat2</span> <span class="o">=</span> <span class="n">mat2</span><span class="o">.</span><span class="n">contiguous</span><span class="p">()</span>
-    <span class="k">if</span> <span class="p">(</span><span class="ow">not</span> <span class="nb">input</span><span class="o">.</span><span class="n">is_contiguous</span><span class="p">())</span> <span class="ow">and</span> <span class="p">(</span>
-        <span class="nb">input</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">%</span> <span class="mi">8</span> <span class="o">!=</span> <span class="mi">0</span>
-    <span class="p">):</span>  <span class="c1"># gives cryptic error without this</span>
-        <span class="nb">input</span> <span class="o">=</span> <span class="p">(</span>
-            <span class="nb">input</span><span class="o">.</span><span class="n">contiguous</span><span class="p">()</span>
-        <span class="p">)</span>  <span class="c1"># (it seems the transpose makes cublas check the above j constraint on i)</span>
-    <span class="k">try</span><span class="p">:</span>
-        <span class="k">return</span> <span class="n">out_dtype</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">aten</span><span class="o">.</span><span class="n">mm</span><span class="o">.</span><span class="n">default</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">int32</span><span class="p">,</span> <span class="nb">input</span><span class="p">,</span> <span class="n">mat2</span><span class="p">)</span>
-    <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
-        <span class="c1"># fallback path, would run on H100 for float8 dtypes</span>
-        <span class="c1"># Exception on H100 float8 dtype : &quot;addmm_cuda&quot; not implemented for &#39;Float8_e4m3fn&#39;</span>
-        <span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">matmul</span><span class="p">(</span><span class="nb">input</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">),</span> <span class="n">mat2</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">))</span><span class="o">.</span><span class="n">to</span><span class="p">(</span>
-            <span class="n">torch</span><span class="o">.</span><span class="n">int32</span>
-        <span class="p">)</span></div>
-
-
-<span class="k">def</span><span class="w"> </span><span class="nf">int_matmul</span><span class="p">(</span><span class="n">a</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">b</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">    Performs integer matrix multiplication using intmm_triton if available and autotuner is enabled,</span>
-<span class="sd">    otherwise falls back to safe_int_mm.</span>
-
-<span class="sd">    Args:</span>
-<span class="sd">        a (torch.Tensor): The first matrix to multiply.</span>
-<span class="sd">        b (torch.Tensor): The second matrix to multiply.</span>
-
-<span class="sd">    Returns:</span>
-<span class="sd">        torch.Tensor: The result of the matrix multiplication.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
-    <span class="k">if</span> <span class="n">intmm_triton</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">AUTOTUNER_ENABLE</span><span class="p">:</span>
-        <span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">torchao</span><span class="o">.</span><span class="n">int_matmul</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">)</span>
-    <span class="k">return</span> <span class="n">safe_int_mm</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">)</span>
-
-
-<div class="viewcode-block" id="int_scaled_matmul"><a class="viewcode-back" href="../../../api_reference/generated/torchao.quantization.int_scaled_matmul.html#torchao.quantization.int_scaled_matmul">[docs]</a><span class="k">def</span><span class="w"> </span><span class="nf">int_scaled_matmul</span><span class="p">(</span>
-    <span class="n">a</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">b</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">scales1</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">    Performs scaled integer matrix multiplication.</span>
-
-<span class="sd">    Args:</span>
-<span class="sd">        a (torch.Tensor): The first matrix to multiply.</span>
-<span class="sd">        b (torch.Tensor): The second matrix to multiply.</span>
-<span class="sd">        scales1 (torch.Tensor): The scaling factors for the rows of the result.</span>
-
-<span class="sd">    Returns:</span>
-<span class="sd">        torch.Tensor: The result of the scaled matrix multiplication.</span>
-
-<span class="sd">    Raises:</span>
-<span class="sd">        AssertionError: If the dimensions of the input tensors do not match the expected shapes.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
-    <span class="n">M</span><span class="p">,</span> <span class="n">K</span> <span class="o">=</span> <span class="n">a</span><span class="o">.</span><span class="n">shape</span>
-    <span class="n">K</span><span class="p">,</span> <span class="n">N</span> <span class="o">=</span> <span class="n">b</span><span class="o">.</span><span class="n">shape</span>
-    <span class="k">assert</span> <span class="n">M</span> <span class="o">==</span> <span class="n">scales1</span><span class="o">.</span><span class="n">size</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span> <span class="ow">or</span> <span class="n">scales1</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="o">==</span> <span class="mi">1</span>
-    <span class="k">assert</span> <span class="mi">1</span> <span class="o">==</span> <span class="n">scales1</span><span class="o">.</span><span class="n">size</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
-    <span class="k">assert</span> <span class="n">scales1</span><span class="o">.</span><span class="n">is_contiguous</span><span class="p">()</span>
-    <span class="n">scales1</span> <span class="o">=</span> <span class="n">scales1</span><span class="o">.</span><span class="n">expand</span><span class="p">((</span><span class="n">M</span><span class="p">,</span> <span class="n">N</span><span class="p">))</span>
-    <span class="k">assert</span> <span class="n">scales1</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span> <span class="o">==</span> <span class="mi">2</span>
-
-    <span class="k">if</span> <span class="n">check_cpu_version</span><span class="p">(</span><span class="n">scales1</span><span class="o">.</span><span class="n">device</span><span class="p">):</span>
-        <span class="c1"># CPU prefers decomposed version of int_scaled_matmul</span>
-        <span class="c1"># to leverage the fusion capability of Inductor</span>
-        <span class="n">c</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">_int_mm</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">)</span>
-        <span class="k">return</span> <span class="n">c</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">scales1</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span> <span class="o">*</span> <span class="n">scales1</span>
-
-    <span class="k">if</span> <span class="n">intmm_triton</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">AUTOTUNER_ENABLE</span><span class="p">:</span>
-        <span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">torchao</span><span class="o">.</span><span class="n">int_scaled_matmul</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">scales1</span><span class="p">)</span>
-
-    <span class="n">c</span> <span class="o">=</span> <span class="n">safe_int_mm</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">)</span>
-    <span class="k">return</span> <span class="n">c</span> <span class="o">*</span> <span class="n">scales1</span></div>
-</pre></div>
 
                 </article>
               
@@ -1192,6 +1150,24 @@ document.write(`
 </div>
 
 <div class="prev-next-area">
+    <a class="left-prev"
+       href="torchao.quantization.Int8DynamicActivationIntxWeightConfig.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Int8DynamicActivationIntxWeightConfig</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="torchao.prototype.mx_formats.NVFP4DynamicActivationNVFP4WeightConfig.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">NVFP4DynamicActivationNVFP4WeightConfig</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
 </div>
 
 <div class="footer-info">
@@ -1213,12 +1189,76 @@ document.write(`
                 <footer class="prev-next-footer d-print-none">
                   
 <div class="prev-next-area">
+    <a class="left-prev"
+       href="torchao.quantization.Int8DynamicActivationIntxWeightConfig.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Int8DynamicActivationIntxWeightConfig</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="torchao.prototype.mx_formats.NVFP4DynamicActivationNVFP4WeightConfig.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">NVFP4DynamicActivationNVFP4WeightConfig</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
 </div>
                 </footer>
               
             </div>
             
             
+              
+                <div class="bd-sidebar-secondary bd-toc">
+<div class="sidebar-secondary-items sidebar-secondary__inner">
+    
+       <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#torchao.prototype.mx_formats.MXDynamicActivationMXWeightConfig"><code class="docutils literal notranslate"><span class="pre">MXDynamicActivationMXWeightConfig</span></code></a></li>
+</ul>
+  </nav></div>
+    
+       <div class="sidebar-secondary-item">
+
+  
+  <div class="tocsection editthispage">
+    <a href="https://github.com/pytorch/ao/edit/main/docs/source/api_reference/generated/torchao.prototype.mx_formats.MXDynamicActivationMXWeightConfig.rst">
+      <i class="fa-solid fa-pencil"></i>
+      
+      
+        
+          Edit on GitHub
+        
+      
+    </a>
+  </div>
+</div>
+    
+       <div class="sidebar-secondary-item">
+    <div class="tocsection sourcelink">
+      <a href="../../_sources/api_reference/generated/torchao.prototype.mx_formats.MXDynamicActivationMXWeightConfig.rst.txt">
+        <i class="fa-solid fa-file-lines"></i> Show Source
+      </a>
+    </div>
+</div>
+    
+
+
+
+
+</div>
+</div>
               
             
           </div>
@@ -1231,8 +1271,8 @@ document.write(`
   </div>
   
   <!-- Scripts loaded after <body> so the DOM is not blocked -->
-  <script src="../../../_static/scripts/bootstrap.js?digest=dfe6caa3a7d634c4db9b"></script>
-<script src="../../../_static/scripts/pydata-sphinx-theme.js?digest=dfe6caa3a7d634c4db9b"></script>
+  <script src="../../_static/scripts/bootstrap.js?digest=dfe6caa3a7d634c4db9b"></script>
+<script src="../../_static/scripts/pydata-sphinx-theme.js?digest=dfe6caa3a7d634c4db9b"></script>
 
   
 
@@ -1360,7 +1400,7 @@ document.write(`
 <div class="cookie-banner-wrapper">
   <div class="container">
     <p class="gdpr-notice">To analyze traffic and optimize your experience, we serve cookies on this site. By clicking or navigating, you agree to allow our usage of cookies. As the current maintainers of this site, Facebook’s Cookies Policy applies. Learn more, including about available controls: <a href="https://www.facebook.com/policies/cookies/">Cookies Policy</a>.</p>
-    <img class="close-button" src="../../../_static/img/pytorch-x.svg">
+    <img class="close-button" src="../../_static/img/pytorch-x.svg">
   </div>
 </div>
   
@@ -1407,11 +1447,11 @@ document.write(`
     {
        "@context": "https://schema.org",
        "@type": "Article",
-       "name": "torchao.kernel.intmm",
-       "headline": "torchao.kernel.intmm",
+       "name": "MXDynamicActivationMXWeightConfig",
+       "headline": "MXDynamicActivationMXWeightConfig",
        "description": "PyTorch Documentation. Explore PyTorch, an open-source machine learning library that accelerates the path from research prototyping to production deployment. Discover tutorials, API references, and guides to help you build and deploy deep learning models efficiently.",
-       "url": "/_modules/torchao/kernel/intmm.html",
-       "articleBody": "Source code for torchao.kernel.intmm # Copyright (c) Meta Platforms, Inc. and affiliates. # All rights reserved. # # This source code is licensed under the BSD 3-Clause license found in the # LICENSE file in the root directory of this source tree. import logging import os import torch from torch._dynamo import is_compiling as dynamo_is_compiling from torch._higher_order_ops.out_dtype import out_dtype from torchao.utils import check_cpu_version logger = logging.getLogger(__name__) logger.addHandler(logging.NullHandler()) try: from torchao.kernel import intmm_triton except ImportError: logger.warning( \"Warning: Detected no triton, on systems without Triton certain kernels will not work\" ) # On cpu-only builds might not be available. intmm_triton = None AUTOTUNER_ENABLE = bool(int(os.getenv(\"TORCHAO_AUTOTUNER_ENABLE\", 0))) [docs]def safe_int_mm(input: torch.Tensor, mat2: torch.Tensor) -\u003e torch.Tensor: \"\"\" Performs a safe integer matrix multiplication, considering different paths for torch.compile, cublas, and fallback cases. Args: input (torch.Tensor): The input tensor of shape [i, j]. mat2 (torch.Tensor): The matrix to multiply with, of shape [j, k]. Returns: torch.Tensor: The result of the matrix multiplication. Raises: AssertionError: If the tensors are not on the same device. \"\"\" # torch.compile path if dynamo_is_compiling() or \"FakeTensor\" in input.__repr__(): if input.device.type == \"cpu\": # Matmul in int32 is slow on CPU and not supported well by Inductor cpp backend return out_dtype( torch.ops.aten.mm.default, torch.int32, input.float(), mat2.float() ) return out_dtype(torch.ops.aten.mm.default, torch.int32, input, mat2) # error checking for cublas path assert mat2.device == input.device, ( f\"need both tensors to be on the same device but got {mat2.device} and {input.device}\" ) device_cpu = \"cpu\" in [mat2.device.type, input.device.type] # with input.shape = [i,j] and mat2.shape = [j,k] j_is_nonzero_multiple_of_8 = (input.shape[1] % 8 == 0) and (input.shape[1] \u003e 0) k_is_nonzero_multiple_of_8 = (mat2.shape[1] % 8 == 0) and (mat2.shape[1] \u003e 0) bad_dimensions_for_cublas = not ( j_is_nonzero_multiple_of_8 and k_is_nonzero_multiple_of_8 ) if device_cpu or bad_dimensions_for_cublas: # fallback path return torch.matmul(input.cpu().to(torch.int32), mat2.cpu().to(torch.int32)).to( input.device.type ) # cublas paths if not mat2.is_contiguous(): # silently gives incorrect result without this mat2 = mat2.contiguous() if (not input.is_contiguous()) and ( input.shape[0] % 8 != 0 ): # gives cryptic error without this input = ( input.contiguous() ) # (it seems the transpose makes cublas check the above j constraint on i) try: return out_dtype(torch.ops.aten.mm.default, torch.int32, input, mat2) except Exception: # fallback path, would run on H100 for float8 dtypes # Exception on H100 float8 dtype : \"addmm_cuda\" not implemented for \u0027Float8_e4m3fn\u0027 return torch.matmul(input.to(torch.float32), mat2.to(torch.float32)).to( torch.int32 ) def int_matmul(a: torch.Tensor, b: torch.Tensor) -\u003e torch.Tensor: \"\"\" Performs integer matrix multiplication using intmm_triton if available and autotuner is enabled, otherwise falls back to safe_int_mm. Args: a (torch.Tensor): The first matrix to multiply. b (torch.Tensor): The second matrix to multiply. Returns: torch.Tensor: The result of the matrix multiplication. \"\"\" if intmm_triton is not None and AUTOTUNER_ENABLE: return torch.ops.torchao.int_matmul(a, b) return safe_int_mm(a, b) [docs]def int_scaled_matmul( a: torch.Tensor, b: torch.Tensor, scales1: torch.Tensor ) -\u003e torch.Tensor: \"\"\" Performs scaled integer matrix multiplication. Args: a (torch.Tensor): The first matrix to multiply. b (torch.Tensor): The second matrix to multiply. scales1 (torch.Tensor): The scaling factors for the rows of the result. Returns: torch.Tensor: The result of the scaled matrix multiplication. Raises: AssertionError: If the dimensions of the input tensors do not match the expected shapes. \"\"\" M, K = a.shape K, N = b.shape assert M == scales1.size(0) or scales1.numel() == 1 assert 1 == scales1.size(1) assert scales1.is_contiguous() scales1 = scales1.expand((M, N)) assert scales1.dim() == 2 if check_cpu_version(scales1.device): # CPU prefers decomposed version of int_scaled_matmul # to leverage the fusion capability of Inductor c = torch._int_mm(a, b) return c.to(scales1.dtype) * scales1 if intmm_triton is not None and AUTOTUNER_ENABLE: return torch.ops.torchao.int_scaled_matmul(a, b, scales1) c = safe_int_mm(a, b) return c * scales1",
+       "url": "/api_reference/generated/torchao.prototype.mx_formats.MXDynamicActivationMXWeightConfig.html",
+       "articleBody": "MXDynamicActivationMXWeightConfig# class torchao.prototype.mx_formats.MXDynamicActivationMXWeightConfig(block_size: int = 32, activation_dtype: dtype = torch.float8_e4m3fn, weight_dtype: dtype = torch.float8_e4m3fn, kernel_preference: KernelPreference = KernelPreference.AUTO)[source][source]# MX Format Inference Quantization This module provides support for running inference with float8 quantization using MX formats. Requirements: - NVIDIA SM100+ hardware (Blackwell or newer) is required for execution - PyTorch 2.5+ for proper serialization support",
        "author": {
          "@type": "Organization",
          "name": "PyTorch Contributors",
@@ -1420,10 +1460,10 @@ document.write(`
        "image": "https://pytorch.org/docs/stable/_static/img/pytorch_seo.png",
        "mainEntityOfPage": {
          "@type": "WebPage",
-         "@id": "/_modules/torchao/kernel/intmm.html"
+         "@id": "/api_reference/generated/torchao.prototype.mx_formats.MXDynamicActivationMXWeightConfig.html"
        },
-       "datePublished": "2023-01-01T00:00:00Z",
-       "dateModified": "2023-01-01T00:00:00Z"
+       "datePublished": "UnknownT00:00:00Z",
+       "dateModified": "UnknownT00:00:00Z"
      }
  </script>
   <script>

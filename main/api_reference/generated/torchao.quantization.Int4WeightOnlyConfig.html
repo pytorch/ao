@@ -65,7 +65,7 @@
     <link rel="index" title="Index" href="../../genindex.html" />
     <link rel="search" title="Search" href="../../search.html" />
     <link rel="next" title="Float8DynamicActivationInt4WeightConfig" href="torchao.quantization.Float8DynamicActivationInt4WeightConfig.html" />
-    <link rel="prev" title="quantize" href="torchao.quantization.quantize_.html" />
+    <link rel="prev" title="Int8WeightOnlyConfig" href="torchao.quantization.Int8WeightOnlyConfig.html" />
 
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
@@ -915,25 +915,22 @@ document.write(`
      aria-label="Section Navigation">
   <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
   <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
-<li class="toctree-l1"><a class="reference internal" href="../api_ref_dtypes.html">Dtypes</a></li>
 <li class="toctree-l1 current active has-children"><a class="reference internal" href="../api_ref_quantization.html">torchao.quantization</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
 <li class="toctree-l2"><a class="reference internal" href="torchao.quantization.quantize_.html">quantize</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.FqnToConfig.html">FqnToConfig</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.Float8DynamicActivationFloat8WeightConfig.html">Float8DynamicActivationFloat8WeightConfig</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.Float8DynamicActivationFloat8SemiSparseWeightConfig.html">Float8DynamicActivationFloat8SemiSparseWeightConfig</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.Float8WeightOnlyConfig.html">Float8WeightOnlyConfig</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.Int8DynamicActivationInt8WeightConfig.html">Int8DynamicActivationInt8WeightConfig</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.Int8WeightOnlyConfig.html">Int8WeightOnlyConfig</a></li>
 <li class="toctree-l2 current active"><a class="current reference internal" href="#">Int4WeightOnlyConfig</a></li>
 <li class="toctree-l2"><a class="reference internal" href="torchao.quantization.Float8DynamicActivationInt4WeightConfig.html">Float8DynamicActivationInt4WeightConfig</a></li>
-<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.Float8DynamicActivationFloat8WeightConfig.html">Float8DynamicActivationFloat8WeightConfig</a></li>
-<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.Float8WeightOnlyConfig.html">Float8WeightOnlyConfig</a></li>
 <li class="toctree-l2"><a class="reference internal" href="torchao.quantization.Int8DynamicActivationInt4WeightConfig.html">Int8DynamicActivationInt4WeightConfig</a></li>
-<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.Int8WeightOnlyConfig.html">Int8WeightOnlyConfig</a></li>
-<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.Int8DynamicActivationInt8WeightConfig.html">Int8DynamicActivationInt8WeightConfig</a></li>
-<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.FqnToConfig.html">FqnToConfig</a></li>
-<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.choose_qparams_affine.html">choose_qparams_affine</a></li>
-<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.choose_qparams_affine_with_min_max.html">choose_qparams_affine_with_min_max</a></li>
-<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.quantize_affine.html">quantize_affine</a></li>
-<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.dequantize_affine.html">dequantize_affine</a></li>
-<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.safe_int_mm.html">safe_int_mm</a></li>
-<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.int_scaled_matmul.html">int_scaled_matmul</a></li>
-<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.MappingType.html">MappingType</a></li>
-<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.TorchAODType.html">TorchAODType</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.IntxWeightOnlyConfig.html">IntxWeightOnlyConfig</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.Int8DynamicActivationIntxWeightConfig.html">Int8DynamicActivationIntxWeightConfig</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.prototype.mx_formats.MXDynamicActivationMXWeightConfig.html">MXDynamicActivationMXWeightConfig</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.prototype.mx_formats.NVFP4DynamicActivationNVFP4WeightConfig.html">NVFP4DynamicActivationNVFP4WeightConfig</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.prototype.mx_formats.NVFP4WeightOnlyConfig.html">NVFP4WeightOnlyConfig</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../api_ref_qat.html">torchao.quantization.qat</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -1118,6 +1115,21 @@ currently support TINYGEMM (“tinygemm”) and HQQ (“hqq”), used in version
 </ul>
 </dd>
 </dl>
+<p>Example:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization</span><span class="w"> </span><span class="kn">import</span> <span class="n">Int4WeightOnlyConfig</span><span class="p">,</span> <span class="n">quantize_</span>
+
+<span class="c1"># Note: int4_packing_format varies by backend</span>
+<span class="k">if</span> <span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">is_available</span><span class="p">():</span>
+    <span class="c1"># CUDA: Optimized with tile packing and HQQ</span>
+    <span class="n">config</span> <span class="o">=</span> <span class="n">Int4WeightOnlyConfig</span><span class="p">(</span><span class="n">group_size</span><span class="o">=</span><span class="mi">32</span><span class="p">,</span> <span class="n">int4_packing_format</span><span class="o">=</span><span class="s2">&quot;tile_packed_to_4d&quot;</span><span class="p">,</span> <span class="n">int4_choose_qparams_algorithm</span><span class="o">=</span><span class="s2">&quot;hqq&quot;</span><span class="p">)</span>
+<span class="k">elif</span> <span class="n">torch</span><span class="o">.</span><span class="n">xpu</span><span class="o">.</span><span class="n">is_available</span><span class="p">():</span>
+    <span class="c1"># XPU: Use plain_int32 packing</span>
+    <span class="n">config</span> <span class="o">=</span> <span class="n">Int4WeightOnlyConfig</span><span class="p">(</span><span class="n">group_size</span><span class="o">=</span><span class="mi">32</span><span class="p">,</span> <span class="n">int4_packing_format</span><span class="o">=</span><span class="s2">&quot;plain_int32&quot;</span><span class="p">)</span>
+
+<span class="n">quantize_</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">config</span><span class="p">)</span>
+</pre></div>
+</div>
 </dd></dl>
 
 </section>
@@ -1165,12 +1177,12 @@ currently support TINYGEMM (“tinygemm”) and HQQ (“hqq”), used in version
 
 <div class="prev-next-area">
     <a class="left-prev"
-       href="torchao.quantization.quantize_.html"
+       href="torchao.quantization.Int8WeightOnlyConfig.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">quantize</p>
+        <p class="prev-next-title">Int8WeightOnlyConfig</p>
       </div>
     </a>
     <a class="right-next"
@@ -1204,12 +1216,12 @@ currently support TINYGEMM (“tinygemm”) and HQQ (“hqq”), used in version
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="torchao.quantization.quantize_.html"
+       href="torchao.quantization.Int8WeightOnlyConfig.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">quantize</p>
+        <p class="prev-next-title">Int8WeightOnlyConfig</p>
       </div>
     </a>
     <a class="right-next"
@@ -1465,7 +1477,7 @@ currently support TINYGEMM (“tinygemm”) and HQQ (“hqq”), used in version
        "headline": "Int4WeightOnlyConfig",
        "description": "PyTorch Documentation. Explore PyTorch, an open-source machine learning library that accelerates the path from research prototyping to production deployment. Discover tutorials, API references, and guides to help you build and deploy deep learning models efficiently.",
        "url": "/api_reference/generated/torchao.quantization.Int4WeightOnlyConfig.html",
-       "articleBody": "Int4WeightOnlyConfig# class torchao.quantization.Int4WeightOnlyConfig(group_size: int = 128, set_inductor_config: bool = True, int4_packing_format: Int4PackingFormat = Int4PackingFormat.PLAIN, int4_choose_qparams_algorithm: Int4ChooseQParamsAlgorithm = Int4ChooseQParamsAlgorithm.TINYGEMM, version: int = 2)[source][source]# Configuration for int4 weight only quantization, only groupwise quantization is supported right now, and we support version 1 and version 2, that are implemented differently although with same support. In version 2, different target are mainly distinguished by packing_format arg, and in version 1, mainly by layout. Parameters group_size \u2013 parameter for quantization, controls the granularity of quantization, smaller size is more fine grained, choices are [256, 128, 64, 32], used in both version 1 and 2 int4_packing_format \u2013 the packing format for int4 tensor, used in version 2 only int4_choose_qparams_algorithm: variants of choose qparams algorithm to use for int4, currently support TINYGEMM (\u201ctinygemm\u201d) and HQQ (\u201chqq\u201d), used in version 2 only set_inductor_config \u2013 if True, adjusts torchinductor settings to recommended values. used in both version 1 and 2 version \u2013 version of the config to use, default is 2",
+       "articleBody": "Int4WeightOnlyConfig# class torchao.quantization.Int4WeightOnlyConfig(group_size: int = 128, set_inductor_config: bool = True, int4_packing_format: Int4PackingFormat = Int4PackingFormat.PLAIN, int4_choose_qparams_algorithm: Int4ChooseQParamsAlgorithm = Int4ChooseQParamsAlgorithm.TINYGEMM, version: int = 2)[source][source]# Configuration for int4 weight only quantization, only groupwise quantization is supported right now, and we support version 1 and version 2, that are implemented differently although with same support. In version 2, different target are mainly distinguished by packing_format arg, and in version 1, mainly by layout. Parameters group_size \u2013 parameter for quantization, controls the granularity of quantization, smaller size is more fine grained, choices are [256, 128, 64, 32], used in both version 1 and 2 int4_packing_format \u2013 the packing format for int4 tensor, used in version 2 only int4_choose_qparams_algorithm: variants of choose qparams algorithm to use for int4, currently support TINYGEMM (\u201ctinygemm\u201d) and HQQ (\u201chqq\u201d), used in version 2 only set_inductor_config \u2013 if True, adjusts torchinductor settings to recommended values. used in both version 1 and 2 version \u2013 version of the config to use, default is 2 Example: import torch from torchao.quantization import Int4WeightOnlyConfig, quantize_ # Note: int4_packing_format varies by backend if torch.cuda.is_available(): # CUDA: Optimized with tile packing and HQQ config = Int4WeightOnlyConfig(group_size=32, int4_packing_format=\"tile_packed_to_4d\", int4_choose_qparams_algorithm=\"hqq\") elif torch.xpu.is_available(): # XPU: Use plain_int32 packing config = Int4WeightOnlyConfig(group_size=32, int4_packing_format=\"plain_int32\") quantize_(model, config)",
        "author": {
          "@type": "Organization",
          "name": "PyTorch Contributors",

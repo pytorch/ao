@@ -3,8 +3,8 @@
 .. currentmodule:: torchao.quantization
 
 
-TorchAODType
-============
+IntxWeightOnlyConfig
+====================
 
-.. autoclass:: TorchAODType
+.. autoclass:: IntxWeightOnlyConfig
     :members:
