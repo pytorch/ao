@@ -13,6 +13,7 @@ Uses DrawBench dataset for standardized prompt evaluation.
 Modes:
     - fp8_sdpa: Replace SDPA with FP8 SDPA (quantize Q/K/V before attention)
     - fp8_rope_sdpa: Replace SDPA with FP8 RoPE + SDPA (fused RoPE + quantization + attention)
+    - fp8_rope_hadamard_sdpa: Replace SDPA with FP8 RoPE + Hadamard + SDPA (fused RoPE + Hadamard + quantization + attention)
     - fp8_linear: Replace linear layers with FP8 dynamic activation + FP8 weight
 
 Usage:
@@ -21,6 +22,9 @@ Usage:
 
     # FP8 RoPE + SDPA with 50 prompts
     python eval_flux_fp8_sdpa.py --mode fp8_rope_sdpa --num_prompts 50
+
+    # FP8 RoPE + Hadamard + SDPA with 50 prompts
+    python eval_flux_fp8_sdpa.py --mode fp8_rope_hadamard_sdpa --num_prompts 50
 
     # FP8 Linear with 50 prompts
     python eval_flux_fp8_sdpa.py --mode fp8_linear --num_prompts 50
@@ -137,6 +141,7 @@ def run_benchmark(
     mode_display = {
         "fp8_sdpa": "FP8 SDPA",
         "fp8_rope_sdpa": "FP8 RoPE SDPA",
+        "fp8_rope_hadamard_sdpa": "FP8 RoPE Hadamard SDPA",
         "fp8_linear": "FP8 Linear",
     }[mode]
     compile_str = " + torch.compile" if compile else ""
@@ -250,6 +255,12 @@ def run_benchmark(
         # Wrap the transformer to use FP8 RoPE + SDPA (fused)
         print("Wrapping transformer with FP8 RoPE + SDPA...")
         pipe.transformer = wrap_module_with_fp8_rope_sdpa(pipe.transformer)
+    elif mode == "fp8_rope_hadamard_sdpa":
+        # Wrap the transformer to use FP8 RoPE + Hadamard + SDPA (fused)
+        print("Wrapping transformer with FP8 RoPE + Hadamard + SDPA...")
+        pipe.transformer = wrap_module_with_fp8_rope_sdpa(
+            pipe.transformer, use_hadamard=True
+        )
     elif mode == "fp8_linear":
         # Quantize linear layers with FP8 dynamic activation + FP8 weight
         print("Quantizing transformer linear layers with FP8...")
@@ -345,8 +356,8 @@ def main():
         "--mode",
         type=str,
         default="fp8_sdpa",
-        choices=["fp8_sdpa", "fp8_rope_sdpa", "fp8_linear"],
-        help="Quantization mode: fp8_sdpa (FP8 SDPA), fp8_rope_sdpa (FP8 RoPE + SDPA fused), or fp8_linear (FP8 linear layers)",
+        choices=["fp8_sdpa", "fp8_rope_sdpa", "fp8_rope_hadamard_sdpa", "fp8_linear"],
+        help="Quantization mode: fp8_sdpa (FP8 SDPA), fp8_rope_sdpa (FP8 RoPE + SDPA fused), fp8_rope_hadamard_sdpa (FP8 RoPE + Hadamard + SDPA fused), or fp8_linear (FP8 linear layers)",
     )
     parser.add_argument(
         "--num_prompts",
