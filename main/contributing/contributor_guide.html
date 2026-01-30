@@ -9,16 +9,16 @@
   <meta name="robots" content="noindex">
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
-<meta property="og:title" content="Benchmarking API Guide" />
+<meta property="og:title" content="Contributor Guide" />
 <meta property="og:type" content="website" />
-<meta property="og:url" content="http://pytorch.org/developer_notes/benchmarking_api_guide.html" />
+<meta property="og:url" content="http://pytorch.org/contributing/contributor_guide.html" />
 <meta property="og:site_name" content="torchao" />
-<meta property="og:description" content="This tutorial will guide you through using the TorchAO benchmarking framework. The tutorial contains integrating new APIs with the framework and dashboard. Add an API to benchmarking recipes, Add a..." />
+<meta property="og:description" content="General Guide on Extending torchao: Please start by reading our quantization overview page first. To contribute to existing code base: Adding a new Tensor: torchao/quantization/quantize_/workflows,..." />
 <meta property="og:image" content="https://pytorch.org/assets/images/social-share.jpg" />
 <meta property="og:image:alt" content="torchao" />
-<meta name="description" content="This tutorial will guide you through using the TorchAO benchmarking framework. The tutorial contains integrating new APIs with the framework and dashboard. Add an API to benchmarking recipes, Add a..." />
+<meta name="description" content="General Guide on Extending torchao: Please start by reading our quantization overview page first. To contribute to existing code base: Adding a new Tensor: torchao/quantization/quantize_/workflows,..." />
 
-    <title>Benchmarking API Guide &#8212; torchao main documentation</title>
+    <title>Contributor Guide &#8212; torchao main documentation</title>
   
   
   
@@ -63,11 +63,11 @@
     <script src="../_static/clipboard.min.js"></script>
     <script src="../_static/copybutton.js"></script>
     <script src="../_static/design-tabs.js"></script>
-    <link rel="canonical" href="https://pytorch.org/ao/developer_notes/benchmarking_api_guide.html" />
+    <link rel="canonical" href="https://pytorch.org/ao/contributing/contributor_guide.html" />
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Benchmarking User Guide" href="benchmarking_user_guide.html" />
-    <link rel="prev" title="Sparsity Overview" href="sparsity.html" />
+    <link rel="next" title="Sparsity Overview" href="sparsity.html" />
+    <link rel="prev" title="Quantization Overview" href="quantization_overview.html" />
 
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
@@ -639,7 +639,7 @@
 
 <li class="nav-item current active">
   <a class="nav-link nav-internal" href="index.html">
-    Developer Notes
+    Contributing
   </a>
 </li>
 
@@ -802,7 +802,7 @@ document.write(`
 
 <li class="nav-item current active">
   <a class="nav-link nav-internal" href="index.html">
-    Developer Notes
+    Contributing
   </a>
 </li>
 
@@ -918,10 +918,9 @@ document.write(`
   <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
   <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
 <li class="toctree-l1"><a class="reference internal" href="quantization_overview.html">Quantization Overview</a></li>
-<li class="toctree-l1"><a class="reference internal" href="contributor_guide.html">Contributor Guide</a></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">Contributor Guide</a></li>
 <li class="toctree-l1"><a class="reference internal" href="sparsity.html">Sparsity Overview</a></li>
-<li class="toctree-l1 current active"><a class="current reference internal" href="#">Benchmarking API Guide</a></li>
-<li class="toctree-l1"><a class="reference internal" href="benchmarking_user_guide.html">Benchmarking User Guide</a></li>
+<li class="toctree-l1"><a class="reference internal" href="benchmarking_api_guide.html">Benchmarking API Guide</a></li>
 </ul>
 </div>
 </nav></div>
@@ -960,9 +959,9 @@ document.write(`
       </a>
     </li>
     
-    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Developer Notes</a></li>
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Contributing</a></li>
     
-    <li class="breadcrumb-item active" aria-current="page">Benchmarking...</li>
+    <li class="breadcrumb-item active" aria-current="page">Contributor Guide</li>
   </ul>
 </nav>
 </div>
@@ -1005,12 +1004,12 @@ document.write(`
       
       <div itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
         <link itemprop="item" href="index.html">
-        <meta itemprop="name" content="Developer Notes">
+        <meta itemprop="name" content="Contributing">
         <meta itemprop="position" content="1">
       </div>
       
       <div itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
-        <meta itemprop="name" content="Benchmarking API Guide">
+        <meta itemprop="name" content="Contributor Guide">
         <meta itemprop="position" content="2">
       </div>
     </div>
@@ -1024,216 +1023,160 @@ document.write(`
 <div id="searchbox"></div>
                 <article class="bd-article">
                   
-  <section id="benchmarking-api-guide">
-<h1>Benchmarking API Guide<a class="headerlink" href="#benchmarking-api-guide" title="Permalink to this heading">#</a></h1>
+  <section id="contributor-guide">
+<h1>Contributor Guide<a class="headerlink" href="#contributor-guide" title="Permalink to this heading">#</a></h1>
 <p class="date-info-last-verified" style="color: #6c6c6d; font-size: small;">Created On: Jan 29, 2026 | Last Updated On: Jan 29, 2026</p>
-<p>This tutorial will guide you through using the TorchAO benchmarking framework. The tutorial contains integrating new APIs with the framework and dashboard.</p>
-<ol class="arabic simple">
-<li><p><span class="xref myst">Add an API to benchmarking recipes</span></p></li>
-<li><p><span class="xref myst">Add a model architecture for benchmarking recipes</span></p></li>
-<li><p><span class="xref myst">Add an HF model to benchmarking recipes</span></p></li>
-<li><p><span class="xref myst">Add an API to micro-benchmarking CI dashboard</span></p></li>
-</ol>
-<section id="add-an-api-to-benchmarking-recipes">
-<h2>Add an API to Benchmarking Recipes<a class="headerlink" href="#add-an-api-to-benchmarking-recipes" title="Permalink to this heading">#</a></h2>
-<p>The framework currently supports quantization and sparsity recipes, which can be run using the quantize_() or sparsity_() functions:</p>
-<p>To add a new recipe, add the corresponding string configuration to the function <code class="docutils literal notranslate"><span class="pre">string_to_config()</span></code> in <code class="docutils literal notranslate"><span class="pre">benchmarks/microbenchmarks/utils.py</span></code>.</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">string_to_config</span><span class="p">(</span>
-  <span class="n">quantization</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span> <span class="n">sparsity</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span> <span class="o">**</span><span class="n">kwargs</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">AOBaseConfig</span><span class="p">:</span>
-
-<span class="c1"># ... existing code ...</span>
-
-<span class="k">elif</span> <span class="n">quantization</span> <span class="o">==</span> <span class="s2">&quot;my_new_quantization&quot;</span><span class="p">:</span>
-  <span class="c1"># If additional information needs to be passed as kwargs, process it here</span>
-  <span class="k">return</span> <span class="n">MyNewQuantizationConfig</span><span class="p">(</span><span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
-<span class="k">elif</span> <span class="n">sparsity</span> <span class="o">==</span> <span class="s2">&quot;my_new_sparsity&quot;</span><span class="p">:</span>
-  <span class="k">return</span> <span class="n">MyNewSparsityConfig</span><span class="p">(</span><span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
-
-<span class="c1"># ... rest of existing code ...</span>
-</pre></div>
-</div>
-<p>Now we can use this recipe throughout the benchmarking framework.</p>
-<p><strong>Note:</strong> If the <code class="docutils literal notranslate"><span class="pre">AOBaseConfig</span></code> uses input parameters, like bit-width, group-size etc, you can pass them appended to the string config in input. For example, for <code class="docutils literal notranslate"><span class="pre">GemliteUIntXWeightOnlyConfig</span></code> we can pass bit-width and group-size as <code class="docutils literal notranslate"><span class="pre">gemlitewo-&lt;bit_width&gt;-&lt;group_size&gt;</span></code></p>
-</section>
-<section id="add-a-model-to-benchmarking-recipes">
-<h2>Add a Model to Benchmarking Recipes<a class="headerlink" href="#add-a-model-to-benchmarking-recipes" title="Permalink to this heading">#</a></h2>
-<p>To add a new model architecture to the benchmarking system, you need to modify <code class="docutils literal notranslate"><span class="pre">torchao/testing/model_architectures.py</span></code>.</p>
-<ol class="arabic simple">
-<li><p>To add a new model type, define your model class in <code class="docutils literal notranslate"><span class="pre">torchao/testing/model_architectures.py</span></code>:</p></li>
-</ol>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">class</span><span class="w"> </span><span class="nc">MyCustomModel</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
-    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">input_dim</span><span class="p">,</span> <span class="n">output_dim</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">):</span>
-        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
-        <span class="c1"># Define your model architecture</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">layer1</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="n">input_dim</span><span class="p">,</span> <span class="mi">512</span><span class="p">,</span> <span class="n">bias</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">dtype</span><span class="p">)</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">activation</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">ReLU</span><span class="p">()</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">layer2</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">512</span><span class="p">,</span> <span class="n">output_dim</span><span class="p">,</span> <span class="n">bias</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">dtype</span><span class="p">)</span>
-
-    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">):</span>
-        <span class="n">x</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">layer1</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
-        <span class="n">x</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">activation</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
-        <span class="n">x</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">layer2</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
-        <span class="k">return</span> <span class="n">x</span>
-</pre></div>
-</div>
-<ol class="arabic simple" start="2">
-<li><p>Update the <code class="docutils literal notranslate"><span class="pre">create_model_and_input_data</span></code> function to handle your new model type:</p></li>
-</ol>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">create_model_and_input_data</span><span class="p">(</span>
-    <span class="n">model_type</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
-    <span class="n">m</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
-    <span class="n">k</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
-    <span class="n">n</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
-    <span class="n">high_precision_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">,</span>
-    <span class="n">device</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;cuda&quot;</span><span class="p">,</span>
-    <span class="n">activation</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;relu&quot;</span><span class="p">,</span>
-<span class="p">):</span>
-    <span class="c1"># ... existing code ...</span>
-
-    <span class="k">elif</span> <span class="n">model_type</span> <span class="o">==</span> <span class="s2">&quot;my_custom_model&quot;</span><span class="p">:</span>
-        <span class="n">model</span> <span class="o">=</span> <span class="n">MyCustomModel</span><span class="p">(</span><span class="n">k</span><span class="p">,</span> <span class="n">n</span><span class="p">,</span> <span class="n">high_precision_dtype</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="p">)</span>
-        <span class="n">input_data</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="n">m</span><span class="p">,</span> <span class="n">k</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">high_precision_dtype</span><span class="p">)</span>
-
-    <span class="c1"># ... rest of existing code ...</span>
-</pre></div>
-</div>
-<section id="model-design-considerations">
-<h3>Model Design Considerations<a class="headerlink" href="#model-design-considerations" title="Permalink to this heading">#</a></h3>
-<p>When adding new models:</p>
+<section id="general-guide-on-extending-torchao">
+<h2>General Guide on Extending torchao<a class="headerlink" href="#general-guide-on-extending-torchao" title="Permalink to this heading">#</a></h2>
+<p>Please start by reading our <a class="reference external" href="quantization_overview.html">quantization overview page</a> first.</p>
+<p>To contribute to existing code base:</p>
 <ul class="simple">
-<li><p><strong>Input/Output Dimensions</strong>: Ensure your model handles the (m, k, n) dimension convention where:</p>
+<li><p>Adding a new Tensor: <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/quantization/quantize_/workflows">torchao/quantization/quantize_/workflows</a></p></li>
+<li><p>Adding new quantization APIs: <a class="reference external" href="https://github.com/pytorch/ao/blob/main/torchao/quantization/quant_api.py">torchao/quantization/quant_api.py</a></p></li>
+<li><p>Adding features to existing Tensor subclasses like <code class="docutils literal notranslate"><span class="pre">Float8Tensor</span></code>, e.g. adding new operator support, making it trainable, add tensor parallelism support etc., <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/quantization/quantize_/workflows">tensor subclasses</a>, <a class="reference external" href="https://github.com/pytorch/ao/tree/main/test/quantization/quantize_/workflows">tests</a></p></li>
+<li><p>Adding new quantization primitive ops, e.g. slight variations of existing quantization primitive ops: <a class="reference external" href="https://github.com/pytorch/ao/blob/main/torchao/quantization/quant_primitives.py">torchao/quantization/quant_primitives.py</a></p></li>
+<li><p>Adding new autotuned triton kernels: <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/kernel">torchao/kernel</a></p></li>
+<li><p>Adding new custom cpu/cuda/mps kernels: <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/csrc">torchao/csrc</a></p></li>
+</ul>
+</section>
+<section id="adding-new-tensor-subclasses">
+<h2>Adding New Tensor Subclasses<a class="headerlink" href="#adding-new-tensor-subclasses" title="Permalink to this heading">#</a></h2>
+<p>torchao Tensor subclasses are structured by <code class="docutils literal notranslate"><span class="pre">derived</span> <span class="pre">dtype</span></code> and <code class="docutils literal notranslate"><span class="pre">packing</span> <span class="pre">format</span></code>, please check out the <a class="reference external" href="quantization_overview.html">quantization overview page</a> to understand these concepts. If a new tensor subclass is needed for your use case, i.e. a new dtype, or a new packing format that does not already exist, we could define a new Tensor.</p>
+<p>To understand how to use tensor subclass in the context of quantization, please also check <a class="reference external" href="https://docs.pytorch.org/ao/main/subclass_basic.html">Writing Your Own Quantized Tensor</a>.</p>
+<p>We have utility base class: <code class="docutils literal notranslate"><span class="pre">torchao.utils.TorchAOBaseTensor</span></code> that can help define common util functions and methods for you, if you specified the names of Tensor and non-Tensor attributes of the tensor subclass. for example:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="k">class</span><span class="w"> </span><span class="nc">MyTensor</span><span class="p">(</span><span class="n">TorchAOBaseTensor</span><span class="p">):</span>
+    <span class="n">tensor_data_names</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;qdata&quot;</span><span class="p">,</span> <span class="s2">&quot;scale&quot;</span><span class="p">]</span>
+    <span class="n">tensor_attribute_names</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;device&quot;</span><span class="p">,</span> <span class="s2">&quot;dtype&quot;</span><span class="p">]</span>
+</pre></div>
+</div>
+<p>With the above, we’ll have multiple methods and functions available to use for this Tensor, for more details please check the docs for <a class="reference external" href="https://docs.pytorch.org/ao/main/generated/torchao.utils.TorchAOBaseTensor.html#torchao.utils.TorchAOBaseTensor">TorchAOBaseTensor</a></p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Many of the existing use cases in torchao still uses AffineQuantizedTensor, but we plan to move away from it to reduce the abstractions and make it easier for people to contribute to torchao.</p>
+</div>
+</section>
+<section id="adding-efficient-kernels">
+<h2>Adding Efficient Kernels<a class="headerlink" href="#adding-efficient-kernels" title="Permalink to this heading">#</a></h2>
+<section id="custom-triton-kernels">
+<h3>Custom triton kernels<a class="headerlink" href="#custom-triton-kernels" title="Permalink to this heading">#</a></h3>
+<p>Custom triton kernels can be implemented and registered in <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/kernel">torchao/kernel</a></p>
+<ul class="simple">
+<li><p><a class="reference external" href="https://github.com/pytorch/ao/blob/0bdde92114b470823aa24725bf3b0811e980c8ce/torchao/kernel/intmm_triton.py#L270-L302">Implementation Example</a></p></li>
+<li><p><a class="reference external" href="https://github.com/pytorch/ao/blob/0bdde92114b470823aa24725bf3b0811e980c8ce/torchao/kernel/intmm_triton.py#L337-L364">Register as a custom op</a></p></li>
+</ul>
+<p>You may need to define you own <a class="reference external" href="https://github.com/pytorch/ao/blob/main/torchao/kernel/autotuner.py">autotuner</a> as well.</p>
+</section>
+<section id="custom-hand-written-kernels">
+<h3>Custom hand written kernels<a class="headerlink" href="#custom-hand-written-kernels" title="Permalink to this heading">#</a></h3>
+<p>Custom kernels (implementations) for cpu/cuda/mps can be implemented through <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/csrc">torchao/csrc</a> e.g. int4 cuda, and accessible through torch.ops.my_custom_op</p>
+</section>
+</section>
+<section id="using-hand-written-kernels-in-tensor-subclasses">
+<h2>Using hand written kernels in Tensor Subclasses<a class="headerlink" href="#using-hand-written-kernels-in-tensor-subclasses" title="Permalink to this heading">#</a></h2>
+<p>For calling optimized kernels, we have <code class="docutils literal notranslate"><span class="pre">implements</span></code> from the tensor subclass, for example, if we want to call into a new custom op: <code class="docutils literal notranslate"><span class="pre">torch.ops.torchao.my_mm_for_mps</span></code>:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="k">class</span><span class="w"> </span><span class="nc">Float8Tensor</span><span class="p">(</span><span class="n">TorchAOBaseTensor</span><span class="p">):</span>
+    <span class="o">...</span>
+
+<span class="n">implements</span> <span class="o">=</span> <span class="n">Float8Tensor</span><span class="o">.</span><span class="n">implements</span>
+
+<span class="nd">@implements</span><span class="p">([</span><span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">functional</span><span class="o">.</span><span class="n">linear</span><span class="p">,</span> <span class="n">aten</span><span class="o">.</span><span class="n">linear</span><span class="o">.</span><span class="n">default</span><span class="p">])</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_</span><span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="n">types</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">):</span>
+    <span class="o">...</span>
+    <span class="c1"># call into the custom op</span>
+    <span class="n">res</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">torchao</span><span class="o">.</span><span class="n">my_mm_for_mps</span><span class="p">(</span><span class="n">input_tensor</span><span class="o">.</span><span class="n">qdata</span><span class="p">,</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">qdata</span><span class="p">,</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">scale</span><span class="p">,</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">scale</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">res</span>
+</pre></div>
+</div>
+<section id="kernelpreference">
+<h3>KernelPreference<a class="headerlink" href="#kernelpreference" title="Permalink to this heading">#</a></h3>
+<p>For some tensor subclasses, there could be multiple kernel choices for quantize and mm etc. The recommended way to handle this in torchao tensor subclasses is through <code class="docutils literal notranslate"><span class="pre">KernelPreference</span></code>, that represents which group of kernels we want to use for quantize, mm, group_mm etc. We can use use <code class="docutils literal notranslate"><span class="pre">KernelPreference.AUTO</span></code> as default option, as the option for developers to choose whatever we think is the fastest under different conditions for user, so user don’t need to worry about the details, and we can have other more specific kernel options for debugging purposes.</p>
+<p><code class="docutils literal notranslate"><span class="pre">Float8Tensor</span></code> for example, has:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">KernelPreference.AUTO</span></code> that will choose the most performant quantize and mm kernel based on hardware (H100 SM89 or SM90+), availability of libraries (whether <code class="docutils literal notranslate"><span class="pre">mslk</span></code> is installed), granularity (per row or per tensor)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">KernelPreference.TORCH</span></code> will use torchao quantize op (<code class="docutils literal notranslate"><span class="pre">_choose_scale_float8</span></code> and <code class="docutils literal notranslate"><span class="pre">_quantize_affine_float8</span></code>) and <code class="docutils literal notranslate"><span class="pre">_scaled_mm</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">Kerenel.MSLK</span></code> uses MSLK quantize and mm op (<code class="docutils literal notranslate"><span class="pre">torch.ops.mslk.f8f8bf16_rowwise</span></code>)</p></li>
+</ul>
+</section>
+</section>
+<section id="flow">
+<h2>Flow<a class="headerlink" href="#flow" title="Permalink to this heading">#</a></h2>
+<p>For model level API, people can reuse <code class="docutils literal notranslate"><span class="pre">torchao.quantize_</span></code> that allows people to apply a tensor subclass conversion to weight of linear, and allows <a class="reference external" href="https://docs.pytorch.org/ao/main/generated/torchao.quantization.quantize_.html#torchao.quantization.quantize_">filtering function</a> to choose which module the tensor subclass conversion should be applied to.</p>
+<p>See Quantization Algorithms/Flows section for examples of weight only/dynamic quant and other types of model level APIs.</p>
+</section>
+<section id="using-torch-compile-for-performance">
+<h2>Using torch.compile for Performance<a class="headerlink" href="#using-torch-compile-for-performance" title="Permalink to this heading">#</a></h2>
+<p>In order to be compatible with <code class="docutils literal notranslate"><span class="pre">torch.compile</span></code>, to aim for performance optimization, we should run through <code class="docutils literal notranslate"><span class="pre">torch.compile</span></code> with <code class="docutils literal notranslate"><span class="pre">fullgraph=True</span></code> first, and remove any unnecessary graph breaks. You can add <code class="docutils literal notranslate"><span class="pre">TORCH_LOGS=&quot;output_code&quot;</span></code> when you run the script in order to see the inductor generated code. e.g. <code class="docutils literal notranslate"><span class="pre">TORCH_LOGS=&quot;output_code&quot;</span> <span class="pre">python</span> <span class="pre">example.py</span></code>:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">model</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="s2">&quot;max-autotune&quot;</span><span class="p">,</span> <span class="n">fullgraph</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="serialization">
+<h2>Serialization<a class="headerlink" href="#serialization" title="Permalink to this heading">#</a></h2>
+<dl class="simple">
+<dt>To enable support for serialization (torch.save and torch.load with tensor subclasses as weights), we need to add the tensor subclass and the relevant object to safe globals (available after torch 2.5), e.g.::</dt><dd><p>torch.serialization.add_safe_globals([Float8Tensor, QuantizeTensorToFloat8Kwargs])</p>
+</dd>
+</dl>
+<p>Please checkout the <a class="reference external" href="serialization.html">serialization doc</a> for more details.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>We are <a class="reference external" href="https://huggingface.co/docs/transformers/main/en/quantization/torchao">integrated</a> with huggingface transformer and supports serialization and deserialization through the huggingface <code class="docutils literal notranslate"><span class="pre">save_pretrained</span></code>, <code class="docutils literal notranslate"><span class="pre">push_to_hub</span></code> and <code class="docutils literal notranslate"><span class="pre">from_pretrained</span></code> APIs. We also have <a class="reference external" href="https://github.com/sayakpaul/diffusers-torchao/blob/main/inference/serialization_and_loading.md">serialization examples</a> with diffuser models.</p>
+</div>
+</section>
+<section id="other-feature-support">
+<h2>Other Feature Support<a class="headerlink" href="#other-feature-support" title="Permalink to this heading">#</a></h2>
+<p>The above just talks about basic feature support, we also provide examples on how to add supports for training, tensor parallel, FSDP by extending the <a class="reference external" href="https://github.com/pytorch/ao/blob/main/tutorials/developer_api_guide/my_dtype_tensor_subclass.py">MyDTypeTensor</a>, we’ll put more examples in <a class="reference external" href="https://github.com/pytorch/ao/tree/main/tutorials/developer_api_guide">developer_api_guide</a> folder covering the following use cases.</p>
+<ul class="simple">
+<li><p><a class="reference external" href="https://github.com/pytorch/ao/blob/main/tutorials/developer_api_guide/my_trainable_tensor_subclass.py">Quantized Training</a></p></li>
+<li><p><a class="reference external" href="https://github.com/pytorch/ao/blob/main/tutorials/developer_api_guide/tensor_parallel.py">Tensor Parallel Support for Quantized Tensor</a></p></li>
+<li><p><a class="reference external" href="https://github.com/pytorch/ao/blob/main/tutorials/developer_api_guide/export_to_executorch.py">Compatibility with executorch / torchchat</a></p></li>
+</ul>
+</section>
+<section id="tensor-subclass-functionality-composability-testing">
+<h2>Tensor Subclass Functionality/Composability Testing<a class="headerlink" href="#tensor-subclass-functionality-composability-testing" title="Permalink to this heading">#</a></h2>
+<p>We are also working on test suites to test out the functionalities of tensor subclass and the composability with different systems like torch.compile, DTensor etc. (we recommend to copy paste the tests and adapt to test your own tensor subclass for now):</p>
+<ul class="simple">
+<li><p><a class="reference external" href="https://github.com/pytorch/ao/blob/17a0a96d24ebfc154a23342b84e788d9ed6776f4/torchao/testing/utils.py#L74">Basic Test</a></p></li>
+<li><p><a class="reference external" href="https://github.com/pytorch/ao/blob/17a0a96d24ebfc154a23342b84e788d9ed6776f4/torchao/testing/utils.py#L147">Compile Test</a></p></li>
+<li><p><a class="reference external" href="https://github.com/pytorch/ao/blob/17a0a96d24ebfc154a23342b84e788d9ed6776f4/torchao/testing/utils.py#L227">Tensor Parallel Test</a></p></li>
+</ul>
+</section>
+<section id="kernel-microbenchmarks">
+<h2>Kernel Microbenchmarks<a class="headerlink" href="#kernel-microbenchmarks" title="Permalink to this heading">#</a></h2>
+<p>Before we test performance on models, we can also do some microbenchmarks on single linear operator (or other compute intensive/memory intensive) operators with different input dimensions to get a sense of speedup. For a specific kernel that you’d like to benchmark, you can create a benchmark file like <a class="reference external" href="https://github.com/pytorch/ao/blob/main/benchmarks/benchmark_aq.py">benchmarks/benchmark_aq.py</a> and run benchmark with different shapes that’s important for target model. A quick way to get the relevant shape for linear op and other ops is by running the example with <a class="reference external" href="https://github.com/pytorch/ao/blob/main/tutorials/developer_api_guide/print_op_and_shapes.py">this</a>.</p>
+<p>Change the model with the model you are interested in optimizing, and run the following:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">python</span> <span class="n">tutorials</span><span class="o">/</span><span class="n">developer_api_guide</span><span class="o">/</span><span class="n">print_op_and_shapes</span><span class="o">.</span><span class="n">py</span>
+</pre></div>
+</div>
+<p>Example output:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">TORCH_FUNC</span><span class="o">=&lt;</span><span class="n">built</span><span class="o">-</span><span class="ow">in</span> <span class="n">function</span> <span class="n">linear</span><span class="o">&gt;</span> <span class="p">(</span><span class="n">M</span><span class="p">,</span> <span class="n">K</span><span class="p">,</span> <span class="n">N</span><span class="p">):</span> <span class="mi">10</span> <span class="mi">10</span> <span class="mi">10</span>
+<span class="n">TORCH_FUNC</span><span class="o">=&lt;</span><span class="n">method</span> <span class="s1">&#39;add&#39;</span> <span class="n">of</span> <span class="s1">&#39;torch._C.TensorBase&#39;</span> <span class="n">objects</span><span class="o">&gt;</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="n">shape</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Size</span><span class="p">([</span><span class="mi">10</span><span class="p">,</span> <span class="mi">10</span><span class="p">])</span>
+
+<span class="nb">all</span> <span class="n">linear</span> <span class="n">shapes</span> <span class="p">(</span><span class="n">M</span><span class="p">,</span> <span class="n">K</span><span class="p">,</span> <span class="n">N</span><span class="p">):</span> <span class="p">[(</span><span class="mi">10</span><span class="p">,</span> <span class="mi">10</span><span class="p">,</span> <span class="mi">10</span><span class="p">)]</span>
+</pre></div>
+</div>
+<p>The output of all linear shapes can be copy pasted to microbenchmarking script code under <code class="docutils literal notranslate"><span class="pre">benchmarks/benchmark_your_kernel.py</span></code> for benchmarking.</p>
+<p>For benchmark helper functions, right now we have <a class="reference external" href="https://github.com/pytorch/ao/blob/0bdde92114b470823aa24725bf3b0811e980c8ce/torchao/utils.py#L55">1</a> and <a class="reference external" href="https://github.com/pytorch/ao/blob/0bdde92114b470823aa24725bf3b0811e980c8ce/torchao/utils.py#L139">2</a>, feel free to use either one for now, but we’ll probably keep one in the future.</p>
+</section>
+<section id="model-benchmarks-and-eval">
+<h2>Model Benchmarks and Eval<a class="headerlink" href="#model-benchmarks-and-eval" title="Permalink to this heading">#</a></h2>
+<p>After you have the quantization flow implemented, you can run benchmark and eval on llama (llama2/llama3) or sam models that are already modified to be friendly to torch.compile, and compare with existing techniques in torchao.</p>
+<p>Note: llama model (llama2/llama3) is our representative model for memory bound models and sam is our representative model for compute bound models.</p>
+<ul class="simple">
+<li><p><a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/_models/llama">llama</a></p>
 <ul>
-<li><p><code class="docutils literal notranslate"><span class="pre">m</span></code>: Batch size or sequence length</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">k</span></code>: Input feature dimension</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">n</span></code>: Output feature dimension</p></li>
+<li><p><a class="reference external" href="https://github.com/pytorch/ao/blob/main/torchao/_models/llama/generate.py">benchmark</a></p></li>
+<li><p><a class="reference external" href="https://github.com/pytorch/ao/blob/main/torchao/_models/llama/eval.py">eval</a></p></li>
 </ul>
 </li>
-<li><p><strong>Data Types</strong>: Support the <code class="docutils literal notranslate"><span class="pre">high_precision_dtype</span></code> parameter (typically <code class="docutils literal notranslate"><span class="pre">torch.bfloat16</span></code>)</p></li>
-<li><p><strong>Device Compatibility</strong>: Ensure your model works on CUDA, CPU, and other target devices</p></li>
-<li><p><strong>Quantization Compatibility</strong>: Design your model to work with TorchAO quantization methods</p></li>
+<li><p><a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/_models/sam">sam</a></p>
+<ul>
+<li><p><a class="reference external" href="https://github.com/pytorch/ao/blob/main/torchao/_models/sam/eval_combo.py">benchmark and eval</a></p></li>
 </ul>
-</section>
-</section>
-<section id="add-an-hf-model-to-benchmarking-recipes">
-<h2>Add an HF model to benchmarking recipes<a class="headerlink" href="#add-an-hf-model-to-benchmarking-recipes" title="Permalink to this heading">#</a></h2>
-<p>(Coming soon!!!)</p>
-</section>
-<section id="add-an-api-to-benchmarking-ci-dashboard">
-<h2>Add an API to Benchmarking CI Dashboard<a class="headerlink" href="#add-an-api-to-benchmarking-ci-dashboard" title="Permalink to this heading">#</a></h2>
-<p>To integrate your API with the CI <a class="reference external" href="https://hud.pytorch.org/benchmark/llms?repoName=pytorch%2Fao&amp;benchmarkName=micro-benchmark+api">dashboard</a>:</p>
-<section id="modify-existing-ci-configuration">
-<h3>1. Modify Existing CI Configuration<a class="headerlink" href="#modify-existing-ci-configuration" title="Permalink to this heading">#</a></h3>
-<p>Add your quantization method to the existing CI configuration file at <code class="docutils literal notranslate"><span class="pre">benchmarks/dashboard/microbenchmark_quantization_config.yml</span></code>:</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># benchmarks/dashboard/microbenchmark_quantization_config.yml</span>
-<span class="nt">benchmark_mode</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;inference&quot;</span>
-<span class="nt">quantization_config_recipe_names</span><span class="p">:</span>
-<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;int8wo&quot;</span>
-<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;int8dq&quot;</span>
-<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;float8dq-tensor&quot;</span>
-<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;float8dq-row&quot;</span>
-<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;float8wo&quot;</span>
-<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;my_new_quantization&quot;</span><span class="w">  </span><span class="c1"># Add your method here</span>
-
-<span class="nt">output_dir</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;benchmarks/microbenchmarks/results&quot;</span>
-
-<span class="nt">model_params</span><span class="p">:</span>
-<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;small_bf16_linear&quot;</span>
-<span class="w">    </span><span class="nt">matrix_shapes</span><span class="p">:</span>
-<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;small_sweep&quot;</span>
-<span class="w">        </span><span class="nt">min_power</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10</span>
-<span class="w">        </span><span class="nt">max_power</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">15</span>
-<span class="w">    </span><span class="nt">high_precision_dtype</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;torch.bfloat16&quot;</span>
-<span class="w">    </span><span class="nt">torch_compile_mode</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;max-autotune&quot;</span>
-<span class="w">    </span><span class="nt">device</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;cuda&quot;</span>
-<span class="w">    </span><span class="nt">model_type</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;linear&quot;</span>
-</pre></div>
-</div>
-</section>
-<section id="run-ci-benchmarks">
-<h3>2. Run CI Benchmarks<a class="headerlink" href="#run-ci-benchmarks" title="Permalink to this heading">#</a></h3>
-<p>Use the CI runner to generate results in PyTorch OSS benchmark database format:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>benchmarks/dashboard/ci_microbenchmark_runner.py<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--config<span class="w"> </span>benchmarks/dashboard/microbenchmark_quantization_config.yml<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--output<span class="w"> </span>benchmark_results.json
-</pre></div>
-</div>
-</section>
-<section id="ci-output-format">
-<h3>3. CI Output Format<a class="headerlink" href="#ci-output-format" title="Permalink to this heading">#</a></h3>
-<p>The CI runner outputs results in a specific JSON format required by the PyTorch OSS benchmark database:</p>
-<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">[</span>
-<span class="w">  </span><span class="p">{</span>
-<span class="w">    </span><span class="nt">&quot;benchmark&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">      </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;micro-benchmark api&quot;</span><span class="p">,</span>
-<span class="w">      </span><span class="nt">&quot;mode&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;inference&quot;</span><span class="p">,</span>
-<span class="w">      </span><span class="nt">&quot;dtype&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;int8wo&quot;</span><span class="p">,</span>
-<span class="w">      </span><span class="nt">&quot;extra_info&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">        </span><span class="nt">&quot;device&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;cuda&quot;</span><span class="p">,</span>
-<span class="w">        </span><span class="nt">&quot;arch&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;NVIDIA A100-SXM4-80GB&quot;</span>
-<span class="w">      </span><span class="p">}</span>
-<span class="w">    </span><span class="p">},</span>
-<span class="w">    </span><span class="nt">&quot;model&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">      </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;1024-1024-1024&quot;</span><span class="p">,</span>
-<span class="w">      </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;micro-benchmark custom layer&quot;</span><span class="p">,</span>
-<span class="w">      </span><span class="nt">&quot;origins&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;torchao&quot;</span><span class="p">]</span>
-<span class="w">    </span><span class="p">},</span>
-<span class="w">    </span><span class="nt">&quot;metric&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">      </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;speedup(wrt bf16)&quot;</span><span class="p">,</span>
-<span class="w">      </span><span class="nt">&quot;benchmark_values&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="mf">1.25</span><span class="p">],</span>
-<span class="w">      </span><span class="nt">&quot;target_value&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">0.0</span>
-<span class="w">    </span><span class="p">},</span>
-<span class="w">    </span><span class="nt">&quot;runners&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[],</span>
-<span class="w">    </span><span class="nt">&quot;dependencies&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{}</span>
-<span class="w">  </span><span class="p">}</span>
-<span class="p">]</span>
-</pre></div>
-</div>
-</section>
-<section id="integration-with-ci-pipeline">
-<h3>4. Integration with CI Pipeline<a class="headerlink" href="#integration-with-ci-pipeline" title="Permalink to this heading">#</a></h3>
-<p>To integrate with your CI pipeline, add the benchmark step to your workflow:</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># Example GitHub Actions step</span>
-<span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Run Microbenchmarks</span>
-<span class="w">  </span><span class="nt">run</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">|</span>
-<span class="w">    </span><span class="no">python benchmarks/dashboard/ci_microbenchmark_runner.py \</span>
-<span class="w">      </span><span class="no">--config benchmarks/dashboard/microbenchmark_quantization_config.yml \</span>
-<span class="w">      </span><span class="no">--output benchmark_results.json</span>
-
-<span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Upload Results</span>
-<span class="w">  </span><span class="c1"># Upload benchmark_results.json to your dashboard system</span>
-</pre></div>
-</div>
-</section>
-</section>
-<section id="troubleshooting">
-<h2>Troubleshooting<a class="headerlink" href="#troubleshooting" title="Permalink to this heading">#</a></h2>
-<section id="running-tests">
-<h3>Running Tests<a class="headerlink" href="#running-tests" title="Permalink to this heading">#</a></h3>
-<p>To verify your setup and run the test suite:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>-m<span class="w"> </span>unittest<span class="w"> </span>discover<span class="w"> </span>benchmarks/microbenchmarks/test
-</pre></div>
-</div>
-</section>
-<section id="common-issues">
-<h3>Common Issues<a class="headerlink" href="#common-issues" title="Permalink to this heading">#</a></h3>
-<ol class="arabic simple">
-<li><p><strong>CUDA Out of Memory</strong>: Reduce batch size or matrix dimensions</p></li>
-<li><p><strong>Missing Quantization Methods</strong>: Ensure TorchAO is properly installed</p></li>
-<li><p><strong>Device Not Available</strong>: Check device availability and drivers</p></li>
-</ol>
-</section>
-<section id="best-practices">
-<h3>Best Practices<a class="headerlink" href="#best-practices" title="Permalink to this heading">#</a></h3>
-<ol class="arabic simple">
-<li><p>Use <code class="docutils literal notranslate"><span class="pre">small_sweep</span></code> for basic testing, <code class="docutils literal notranslate"><span class="pre">custom</span> <span class="pre">shapes</span></code> for comprehensive or model specific analysis</p></li>
-<li><p>Enable profiling only when needed (adds overhead)</p></li>
-<li><p>Test on multiple devices when possible</p></li>
-<li><p>Use consistent naming conventions for reproducibility</p></li>
-</ol>
-<p>For information on different use-cases for benchmarking, refer to <a class="reference internal" href="benchmarking_user_guide.html"><span class="doc std std-doc">Benchmarking User Guide</span></a></p>
-<p>For more detailed information about the framework components, see the README files in the <code class="docutils literal notranslate"><span class="pre">benchmarks/microbenchmarks/</span></code> directory.</p>
-</section>
+</li>
+</ul>
+<p>Please checkout the <code class="docutils literal notranslate"><span class="pre">--help</span></code> option for each of the script to understand the supported options, e.g. you can use <code class="docutils literal notranslate"><span class="pre">--profile=profile_path</span></code> to get the chrome trace of the run to understand detailed <a class="reference external" href="https://pytorch.org/tutorials/recipes/recipes/profiler_recipe.html#using-tracing-functionality">chrome trace</a>.</p>
+<p>Please let us know if there are any new important models that makes sense to be added to torchao model benchmark/eval folder.</p>
+<p>Please also check out <a class="reference external" href="https://docs.pytorch.org/ao/main/benchmarking_user_guide.html">Benchmarking User Guide</a> and <a class="reference external" href="https://docs.pytorch.org/ao/main/benchmarking_api_guide.html">Benchmarking API Guide</a> to understand how to use our benchmarking framework.</p>
 </section>
 </section>
 
@@ -1280,20 +1223,20 @@ document.write(`
 
 <div class="prev-next-area">
     <a class="left-prev"
-       href="sparsity.html"
+       href="quantization_overview.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">Sparsity Overview</p>
+        <p class="prev-next-title">Quantization Overview</p>
       </div>
     </a>
     <a class="right-next"
-       href="benchmarking_user_guide.html"
+       href="sparsity.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Benchmarking User Guide</p>
+        <p class="prev-next-title">Sparsity Overview</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -1319,20 +1262,20 @@ document.write(`
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="sparsity.html"
+       href="quantization_overview.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">Sparsity Overview</p>
+        <p class="prev-next-title">Quantization Overview</p>
       </div>
     </a>
     <a class="right-next"
-       href="benchmarking_user_guide.html"
+       href="sparsity.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Benchmarking User Guide</p>
+        <p class="prev-next-title">Sparsity Overview</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -1354,25 +1297,24 @@ document.write(`
   </div>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#add-an-api-to-benchmarking-recipes">Add an API to Benchmarking Recipes</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#add-a-model-to-benchmarking-recipes">Add a Model to Benchmarking Recipes</a><ul class="nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#model-design-considerations">Model Design Considerations</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#general-guide-on-extending-torchao">General Guide on Extending torchao</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#adding-new-tensor-subclasses">Adding New Tensor Subclasses</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#adding-efficient-kernels">Adding Efficient Kernels</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#custom-triton-kernels">Custom triton kernels</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#custom-hand-written-kernels">Custom hand written kernels</a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#add-an-hf-model-to-benchmarking-recipes">Add an HF model to benchmarking recipes</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#add-an-api-to-benchmarking-ci-dashboard">Add an API to Benchmarking CI Dashboard</a><ul class="nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#modify-existing-ci-configuration">1. Modify Existing CI Configuration</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#run-ci-benchmarks">2. Run CI Benchmarks</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#ci-output-format">3. CI Output Format</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#integration-with-ci-pipeline">4. Integration with CI Pipeline</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#using-hand-written-kernels-in-tensor-subclasses">Using hand written kernels in Tensor Subclasses</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#kernelpreference">KernelPreference</a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#troubleshooting">Troubleshooting</a><ul class="nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#running-tests">Running Tests</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#common-issues">Common Issues</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#best-practices">Best Practices</a></li>
-</ul>
-</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#flow">Flow</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#using-torch-compile-for-performance">Using torch.compile for Performance</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#serialization">Serialization</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#other-feature-support">Other Feature Support</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#tensor-subclass-functionality-composability-testing">Tensor Subclass Functionality/Composability Testing</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#kernel-microbenchmarks">Kernel Microbenchmarks</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#model-benchmarks-and-eval">Model Benchmarks and Eval</a></li>
 </ul>
   </nav></div>
     
@@ -1380,7 +1322,7 @@ document.write(`
 
   
   <div class="tocsection editthispage">
-    <a href="https://github.com/pytorch/ao/edit/main/docs/source/developer_notes/benchmarking_api_guide.md">
+    <a href="https://github.com/pytorch/ao/edit/main/docs/source/contributing/contributor_guide.rst">
       <i class="fa-solid fa-pencil"></i>
       
       
@@ -1394,7 +1336,7 @@ document.write(`
     
        <div class="sidebar-secondary-item">
     <div class="tocsection sourcelink">
-      <a href="../_sources/developer_notes/benchmarking_api_guide.md.txt">
+      <a href="../_sources/contributing/contributor_guide.rst.txt">
         <i class="fa-solid fa-file-lines"></i> Show Source
       </a>
     </div>
@@ -1594,11 +1536,11 @@ document.write(`
     {
        "@context": "https://schema.org",
        "@type": "Article",
-       "name": "Benchmarking API Guide",
-       "headline": "Benchmarking API Guide",
+       "name": "Contributor Guide",
+       "headline": "Contributor Guide",
        "description": "PyTorch Documentation. Explore PyTorch, an open-source machine learning library that accelerates the path from research prototyping to production deployment. Discover tutorials, API references, and guides to help you build and deploy deep learning models efficiently.",
-       "url": "/developer_notes/benchmarking_api_guide.html",
-       "articleBody": "Benchmarking API Guide# Created On: Jan 29, 2026 | Last Updated On: Jan 29, 2026 This tutorial will guide you through using the TorchAO benchmarking framework. The tutorial contains integrating new APIs with the framework and dashboard. Add an API to benchmarking recipes Add a model architecture for benchmarking recipes Add an HF model to benchmarking recipes Add an API to micro-benchmarking CI dashboard Add an API to Benchmarking Recipes# The framework currently supports quantization and sparsity recipes, which can be run using the quantize_() or sparsity_() functions: To add a new recipe, add the corresponding string configuration to the function string_to_config() in benchmarks/microbenchmarks/utils.py. def string_to_config( quantization: Optional[str], sparsity: Optional[str], **kwargs ) -\u003e AOBaseConfig: # ... existing code ... elif quantization == \"my_new_quantization\": # If additional information needs to be passed as kwargs, process it here return MyNewQuantizationConfig(**kwargs) elif sparsity == \"my_new_sparsity\": return MyNewSparsityConfig(**kwargs) # ... rest of existing code ... Now we can use this recipe throughout the benchmarking framework. Note: If the AOBaseConfig uses input parameters, like bit-width, group-size etc, you can pass them appended to the string config in input. For example, for GemliteUIntXWeightOnlyConfig we can pass bit-width and group-size as gemlitewo-\u003cbit_width\u003e-\u003cgroup_size\u003e Add a Model to Benchmarking Recipes# To add a new model architecture to the benchmarking system, you need to modify torchao/testing/model_architectures.py. To add a new model type, define your model class in torchao/testing/model_architectures.py: class MyCustomModel(torch.nn.Module): def __init__(self, input_dim, output_dim, dtype=torch.bfloat16): super().__init__() # Define your model architecture self.layer1 = torch.nn.Linear(input_dim, 512, bias=False).to(dtype) self.activation = torch.nn.ReLU() self.layer2 = torch.nn.Linear(512, output_dim, bias=False).to(dtype) def forward(self, x): x = self.layer1(x) x = self.activation(x) x = self.layer2(x) return x Update the create_model_and_input_data function to handle your new model type: def create_model_and_input_data( model_type: str, m: int, k: int, n: int, high_precision_dtype: torch.dtype = torch.bfloat16, device: str = \"cuda\", activation: str = \"relu\", ): # ... existing code ... elif model_type == \"my_custom_model\": model = MyCustomModel(k, n, high_precision_dtype).to(device) input_data = torch.randn(m, k, device=device, dtype=high_precision_dtype) # ... rest of existing code ... Model Design Considerations# When adding new models: Input/Output Dimensions: Ensure your model handles the (m, k, n) dimension convention where: m: Batch size or sequence length k: Input feature dimension n: Output feature dimension Data Types: Support the high_precision_dtype parameter (typically torch.bfloat16) Device Compatibility: Ensure your model works on CUDA, CPU, and other target devices Quantization Compatibility: Design your model to work with TorchAO quantization methods Add an HF model to benchmarking recipes# (Coming soon!!!) Add an API to Benchmarking CI Dashboard# To integrate your API with the CI dashboard: 1. Modify Existing CI Configuration# Add your quantization method to the existing CI configuration file at benchmarks/dashboard/microbenchmark_quantization_config.yml: # benchmarks/dashboard/microbenchmark_quantization_config.yml benchmark_mode: \"inference\" quantization_config_recipe_names: - \"int8wo\" - \"int8dq\" - \"float8dq-tensor\" - \"float8dq-row\" - \"float8wo\" - \"my_new_quantization\" # Add your method here output_dir: \"benchmarks/microbenchmarks/results\" model_params: - name: \"small_bf16_linear\" matrix_shapes: - name: \"small_sweep\" min_power: 10 max_power: 15 high_precision_dtype: \"torch.bfloat16\" torch_compile_mode: \"max-autotune\" device: \"cuda\" model_type: \"linear\" 2. Run CI Benchmarks# Use the CI runner to generate results in PyTorch OSS benchmark database format: python benchmarks/dashboard/ci_microbenchmark_runner.py \\ --config benchmarks/dashboard/microbenchmark_quantization_config.yml \\ --output benchmark_results.json 3. CI Output Format# The CI runner outputs results in a specific JSON format required by the PyTorch OSS benchmark database: [ { \"benchmark\": { \"name\": \"micro-benchmark api\", \"mode\": \"inference\", \"dtype\": \"int8wo\", \"extra_info\": { \"device\": \"cuda\", \"arch\": \"NVIDIA A100-SXM4-80GB\" } }, \"model\": { \"name\": \"1024-1024-1024\", \"type\": \"micro-benchmark custom layer\", \"origins\": [\"torchao\"] }, \"metric\": { \"name\": \"speedup(wrt bf16)\", \"benchmark_values\": [1.25], \"target_value\": 0.0 }, \"runners\": [], \"dependencies\": {} } ] 4. Integration with CI Pipeline# To integrate with your CI pipeline, add the benchmark step to your workflow: # Example GitHub Actions step - name: Run Microbenchmarks run: | python benchmarks/dashboard/ci_microbenchmark_runner.py \\ --config benchmarks/dashboard/microbenchmark_quantization_config.yml \\ --output benchmark_results.json - name: Upload Results # Upload benchmark_results.json to your dashboard system Troubleshooting# Running Tests# To verify your setup and run the test suite: python -m unittest discover benchmarks/microbenchmarks/test Common Issues# CUDA Out of Memory: Reduce batch size or matrix dimensions Missing Quantization Methods: Ensure TorchAO is properly installed Device Not Available: Check device availability and drivers Best Practices# Use small_sweep for basic testing, custom shapes for comprehensive or model specific analysis Enable profiling only when needed (adds overhead) Test on multiple devices when possible Use consistent naming conventions for reproducibility For information on different use-cases for benchmarking, refer to Benchmarking User Guide For more detailed information about the framework components, see the README files in the benchmarks/microbenchmarks/ directory.",
+       "url": "/contributing/contributor_guide.html",
+       "articleBody": "Contributor Guide# Created On: Jan 29, 2026 | Last Updated On: Jan 29, 2026 General Guide on Extending torchao# Please start by reading our quantization overview page first. To contribute to existing code base: Adding a new Tensor: torchao/quantization/quantize_/workflows Adding new quantization APIs: torchao/quantization/quant_api.py Adding features to existing Tensor subclasses like Float8Tensor, e.g. adding new operator support, making it trainable, add tensor parallelism support etc., tensor subclasses, tests Adding new quantization primitive ops, e.g. slight variations of existing quantization primitive ops: torchao/quantization/quant_primitives.py Adding new autotuned triton kernels: torchao/kernel Adding new custom cpu/cuda/mps kernels: torchao/csrc Adding New Tensor Subclasses# torchao Tensor subclasses are structured by derived dtype and packing format, please check out the quantization overview page to understand these concepts. If a new tensor subclass is needed for your use case, i.e. a new dtype, or a new packing format that does not already exist, we could define a new Tensor. To understand how to use tensor subclass in the context of quantization, please also check Writing Your Own Quantized Tensor. We have utility base class: torchao.utils.TorchAOBaseTensor that can help define common util functions and methods for you, if you specified the names of Tensor and non-Tensor attributes of the tensor subclass. for example: class MyTensor(TorchAOBaseTensor): tensor_data_names = [\"qdata\", \"scale\"] tensor_attribute_names = [\"device\", \"dtype\"] With the above, we\u2019ll have multiple methods and functions available to use for this Tensor, for more details please check the docs for TorchAOBaseTensor Note Many of the existing use cases in torchao still uses AffineQuantizedTensor, but we plan to move away from it to reduce the abstractions and make it easier for people to contribute to torchao. Adding Efficient Kernels# Custom triton kernels# Custom triton kernels can be implemented and registered in torchao/kernel Implementation Example Register as a custom op You may need to define you own autotuner as well. Custom hand written kernels# Custom kernels (implementations) for cpu/cuda/mps can be implemented through torchao/csrc e.g. int4 cuda, and accessible through torch.ops.my_custom_op Using hand written kernels in Tensor Subclasses# For calling optimized kernels, we have implements from the tensor subclass, for example, if we want to call into a new custom op: torch.ops.torchao.my_mm_for_mps: class Float8Tensor(TorchAOBaseTensor): ... implements = Float8Tensor.implements @implements([torch.nn.functional.linear, aten.linear.default]) def _(func, types, args, kwargs): ... # call into the custom op res = torch.ops.torchao.my_mm_for_mps(input_tensor.qdata, weight_tensor.qdata, input_tensor.scale, weight_tensor.scale) return res KernelPreference# For some tensor subclasses, there could be multiple kernel choices for quantize and mm etc. The recommended way to handle this in torchao tensor subclasses is through KernelPreference, that represents which group of kernels we want to use for quantize, mm, group_mm etc. We can use use KernelPreference.AUTO as default option, as the option for developers to choose whatever we think is the fastest under different conditions for user, so user don\u2019t need to worry about the details, and we can have other more specific kernel options for debugging purposes. Float8Tensor for example, has: KernelPreference.AUTO that will choose the most performant quantize and mm kernel based on hardware (H100 SM89 or SM90+), availability of libraries (whether mslk is installed), granularity (per row or per tensor) KernelPreference.TORCH will use torchao quantize op (_choose_scale_float8 and _quantize_affine_float8) and _scaled_mm Kerenel.MSLK uses MSLK quantize and mm op (torch.ops.mslk.f8f8bf16_rowwise) Flow# For model level API, people can reuse torchao.quantize_ that allows people to apply a tensor subclass conversion to weight of linear, and allows filtering function to choose which module the tensor subclass conversion should be applied to. See Quantization Algorithms/Flows section for examples of weight only/dynamic quant and other types of model level APIs. Using torch.compile for Performance# In order to be compatible with torch.compile, to aim for performance optimization, we should run through torch.compile with fullgraph=True first, and remove any unnecessary graph breaks. You can add TORCH_LOGS=\"output_code\" when you run the script in order to see the inductor generated code. e.g. TORCH_LOGS=\"output_code\" python example.py: model = torch.compile(model, mode=\"max-autotune\", fullgraph=True) Serialization# To enable support for serialization (torch.save and torch.load with tensor subclasses as weights), we need to add the tensor subclass and the relevant object to safe globals (available after torch 2.5), e.g.::torch.serialization.add_safe_globals([Float8Tensor, QuantizeTensorToFloat8Kwargs]) Please checkout the serialization doc for more details. Note We are integrated with huggingface transformer and supports serialization and deserialization through the huggingface save_pretrained, push_to_hub and from_pretrained APIs. We also have serialization examples with diffuser models. Other Feature Support# The above just talks about basic feature support, we also provide examples on how to add supports for training, tensor parallel, FSDP by extending the MyDTypeTensor, we\u2019ll put more examples in developer_api_guide folder covering the following use cases. Quantized Training Tensor Parallel Support for Quantized Tensor Compatibility with executorch / torchchat Tensor Subclass Functionality/Composability Testing# We are also working on test suites to test out the functionalities of tensor subclass and the composability with different systems like torch.compile, DTensor etc. (we recommend to copy paste the tests and adapt to test your own tensor subclass for now): Basic Test Compile Test Tensor Parallel Test Kernel Microbenchmarks# Before we test performance on models, we can also do some microbenchmarks on single linear operator (or other compute intensive/memory intensive) operators with different input dimensions to get a sense of speedup. For a specific kernel that you\u2019d like to benchmark, you can create a benchmark file like benchmarks/benchmark_aq.py and run benchmark with different shapes that\u2019s important for target model. A quick way to get the relevant shape for linear op and other ops is by running the example with this. Change the model with the model you are interested in optimizing, and run the following: python tutorials/developer_api_guide/print_op_and_shapes.py Example output: TORCH_FUNC=\u003cbuilt-in function linear\u003e (M, K, N): 10 10 10 TORCH_FUNC=\u003cmethod \u0027add\u0027 of \u0027torch._C.TensorBase\u0027 objects\u003e args[0] shape: torch.Size([10, 10]) all linear shapes (M, K, N): [(10, 10, 10)] The output of all linear shapes can be copy pasted to microbenchmarking script code under benchmarks/benchmark_your_kernel.py for benchmarking. For benchmark helper functions, right now we have 1 and 2, feel free to use either one for now, but we\u2019ll probably keep one in the future. Model Benchmarks and Eval# After you have the quantization flow implemented, you can run benchmark and eval on llama (llama2/llama3) or sam models that are already modified to be friendly to torch.compile, and compare with existing techniques in torchao. Note: llama model (llama2/llama3) is our representative model for memory bound models and sam is our representative model for compute bound models. llama benchmark eval sam benchmark and eval Please checkout the --help option for each of the script to understand the supported options, e.g. you can use --profile=profile_path to get the chrome trace of the run to understand detailed chrome trace. Please let us know if there are any new important models that makes sense to be added to torchao model benchmark/eval folder. Please also check out Benchmarking User Guide and Benchmarking API Guide to understand how to use our benchmarking framework.",
        "author": {
          "@type": "Organization",
          "name": "PyTorch Contributors",
@@ -1607,7 +1549,7 @@ document.write(`
        "image": "https://pytorch.org/docs/stable/_static/img/pytorch_seo.png",
        "mainEntityOfPage": {
          "@type": "WebPage",
-         "@id": "/developer_notes/benchmarking_api_guide.html"
+         "@id": "/contributing/contributor_guide.html"
        },
        "datePublished": "Jan 29, 2026T00:00:00Z",
        "dateModified": "Jan 29, 2026T00:00:00Z"
