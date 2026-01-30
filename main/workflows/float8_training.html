@@ -9,16 +9,16 @@
   <meta name="robots" content="noindex">
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
-<meta property="og:title" content="Workflows" />
+<meta property="og:title" content="torchao.float8" />
 <meta property="og:type" content="website" />
-<meta property="og:url" content="http://pytorch.org/workflows/index.html" />
+<meta property="og:url" content="http://pytorch.org/workflows/float8_training.html" />
 <meta property="og:site_name" content="torchao" />
-<meta property="og:description" content="This page provides an overview of the various workflows available in torchao. Workflow overview by training/QAT/inference: Training: our main training workflow is float8 quantized training. We also..." />
+<meta property="og:description" content="This is a workflow for accelerating training with float8 in native PyTorch. With torch.compile on, we demonstrate e2e pretraining throughput speedups of up to 1.5x at 512 GPU / 405B parameter count..." />
 <meta property="og:image" content="https://pytorch.org/assets/images/social-share.jpg" />
 <meta property="og:image:alt" content="torchao" />
-<meta name="description" content="This page provides an overview of the various workflows available in torchao. Workflow overview by training/QAT/inference: Training: our main training workflow is float8 quantized training. We also..." />
+<meta name="description" content="This is a workflow for accelerating training with float8 in native PyTorch. With torch.compile on, we demonstrate e2e pretraining throughput speedups of up to 1.5x at 512 GPU / 405B parameter count..." />
 
-    <title>Workflows &#8212; torchao main documentation</title>
+    <title>torchao.float8 &#8212; torchao main documentation</title>
   
   
   
@@ -63,11 +63,11 @@
     <script src="../_static/clipboard.min.js"></script>
     <script src="../_static/copybutton.js"></script>
     <script src="../_static/design-tabs.js"></script>
-    <link rel="canonical" href="https://pytorch.org/ao/workflows/index.html" />
+    <link rel="canonical" href="https://pytorch.org/ao/workflows/float8_training.html" />
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="torchao.float8" href="float8_training.html" />
-    <link rel="prev" title="Welcome to the torchao Documentation" href="../index.html" />
+    <link rel="next" title="Quantization-Aware Training (QAT)" href="qat.html" />
+    <link rel="prev" title="Workflows" href="index.html" />
 
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
@@ -617,7 +617,7 @@
   <ul class="bd-navbar-elements navbar-nav">
     
 <li class="nav-item current active">
-  <a class="nav-link nav-internal" href="#">
+  <a class="nav-link nav-internal" href="index.html">
     Workflows
   </a>
 </li>
@@ -780,7 +780,7 @@ document.write(`
   <ul class="bd-navbar-elements navbar-nav">
     
 <li class="nav-item current active">
-  <a class="nav-link nav-internal" href="#">
+  <a class="nav-link nav-internal" href="index.html">
     Workflows
   </a>
 </li>
@@ -916,8 +916,8 @@ document.write(`
 <nav class="bd-docs-nav bd-links"
      aria-label="Section Navigation">
   <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
-  <div class="bd-toc-item navbar-nav"><ul class="nav bd-sidenav">
-<li class="toctree-l1"><a class="reference internal" href="float8_training.html">torchao.float8</a></li>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">torchao.float8</a></li>
 
 
 
@@ -961,7 +961,10 @@ document.write(`
         <i class="fa-solid fa-home"></i>
       </a>
     </li>
-    <li class="breadcrumb-item active" aria-current="page">Workflows</li>
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Workflows</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page">torchao.float8</li>
   </ul>
 </nav>
 </div>
@@ -1003,8 +1006,14 @@ document.write(`
     <div style="display:none;" itemscope itemtype="https://schema.org/BreadcrumbList">
       
       <div itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
+        <link itemprop="item" href="index.html">
         <meta itemprop="name" content="Workflows">
         <meta itemprop="position" content="1">
+      </div>
+      
+      <div itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
+        <meta itemprop="name" content="torchao.float8">
+        <meta itemprop="position" content="2">
       </div>
     </div>
 
@@ -1017,225 +1026,346 @@ document.write(`
 <div id="searchbox"></div>
                 <article class="bd-article">
                   
-  <section id="workflows">
-<h1>Workflows<a class="headerlink" href="#workflows" title="Permalink to this heading">#</a></h1>
+  <section id="torchao-float8">
+<h1>torchao.float8<a class="headerlink" href="#torchao-float8" title="Permalink to this heading">#</a></h1>
 <p class="date-info-last-verified" style="color: #6c6c6d; font-size: small;">Created On: Jan 30, 2026 | Last Updated On: Jan 30, 2026</p>
-<p>This page provides an overview of the various workflows available in torchao.</p>
-<section id="workflow-overview-by-training-qat-inference">
-<h2>Workflow overview by training/QAT/inference<a class="headerlink" href="#workflow-overview-by-training-qat-inference" title="Permalink to this heading">#</a></h2>
+<p>This is a workflow for accelerating training with <a class="reference external" href="https://arxiv.org/pdf/2209.05433.pdf">float8</a> in native PyTorch.
+With <code class="docutils literal notranslate"><span class="pre">torch.compile</span></code> on, we demonstrate e2e pretraining throughput speedups of up to <a class="reference external" href="https://pytorch.org/blog/training-using-float8-fsdp2/"><strong>1.5x at 512 GPU / 405B parameter count scale</strong></a>,
+and up to <span class="xref myst"><strong>1.25x at 8 GPU / 8B parameter count scale</strong></span>.
+The codebase strives to stay small, hackable, debuggable with native PyTorch tooling
+and composable with key systems such as autograd, <code class="docutils literal notranslate"><span class="pre">torch.compile</span></code> and distributed.</p>
+<section id="key-features">
+<h2>Key features<a class="headerlink" href="#key-features" title="Permalink to this heading">#</a></h2>
 <ul class="simple">
-<li><p>Training: our main training workflow is <a class="reference internal" href="float8_training.html"><span class="doc std std-doc">float8 quantized training</span></a>. We
-also have three prototype quantized training workflows: <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/prototype/mx_formats#mx-training">mxfp8 dense</a>,
-<a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/prototype/moe_training#mxfp8-moe-training">mxfp8 MoE</a>,
-<a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/prototype/quantized_training">int8 dense</a></p></li>
-<li><p>QAT: the <a class="reference internal" href="qat.html"><span class="doc std std-doc">QAT documentation</span></a> for details on how to use quantization-aware training to improve model accuracy after quantization.</p></li>
-<li><p>Inference: See the <a class="reference external" href="https://github.com/pytorch/ao/blob/main/torchao/quantization/README.md">inference quantization documentation</a> for an overview of quantization for inference workflows.</p></li>
+<li><p>e2e pretraining speedups of up to <a class="reference external" href="https://pytorch.org/blog/training-using-float8-fsdp2/"><strong>1.5x at 512 GPU / 405B parameter count scale</strong></a>,
+and up to <span class="xref myst"><strong>1.25x at 8 GPU / 8B parameter count scale</strong></span>, with performance and accuracy validated on up to <a class="reference external" href="https://pytorch.org/blog/accelerating-large-scale-training-and-convergence-with-pytorch-float8-rowwise-on-crusoe-2k-h200s/"><strong>2k GPUs</strong></a>, via <a class="reference external" href="https://github.com/pytorch/torchtitan/blob/main/docs/float8.md">torchtitan’s float8 integration</a></p></li>
+<li><p>seamless composability with <a class="reference external" href="https://docs.pytorch.org/docs/stable/torch.compiler.html">torch.compile</a>, <a class="reference external" href="https://docs.pytorch.org/docs/stable/distributed.tensor.html">DTensor</a>, <a class="reference external" href="https://dev-discuss.pytorch.org/t/enabling-float8-all-gather-in-fsdp2/2359">FSDP2 with float8 weight all-gather</a>, <a class="reference external" href="https://discuss.pytorch.org/t/distributed-w-torchtitan-introducing-async-tensor-parallelism-in-pytorch/209487">Async TP</a>, and <a class="reference external" href="https://pytorch.org/blog/activation-checkpointing-techniques/">PyTorch AC</a></p></li>
+<li><p>three recipes to trade off performance vs accuracy: <code class="docutils literal notranslate"><span class="pre">tensorwise</span></code> (fastest), <code class="docutils literal notranslate"><span class="pre">rowwise</span></code>, <code class="docutils literal notranslate"><span class="pre">rowwise_with_gw_hp</span></code> (most accurate)</p></li>
+<li><p>supports both NVIDIA and AMD hardware</p></li>
 </ul>
+<p>ℹ️ <em>See the <a class="reference external" href="https://github.com/pytorch/ao/issues/556">feature tracker</a> for upcoming features.</em></p>
 </section>
-<section id="workflows-status-by-dtype-hardware">
-<h2>Workflows status by dtype + hardware<a class="headerlink" href="#workflows-status-by-dtype-hardware" title="Permalink to this heading">#</a></h2>
-<p>🟢 = stable, 🟡 = prototype, 🟠 = planned, ⚪ = not supported</p>
-<section id="nvidia-cuda">
-<h3>NVIDIA CUDA<a class="headerlink" href="#nvidia-cuda" title="Permalink to this heading">#</a></h3>
-<div class="pst-scrollable-table-container"><table class="colwidths-auto table">
-<thead>
-<tr class="row-odd"><th class="head"><p>recommended hardware</p></th>
-<th class="head"><p>weight</p></th>
-<th class="head"><p>activation</p></th>
-<th class="head"><p>quantized training</p></th>
-<th class="head"><p>QAT</p></th>
-<th class="head"><p>PTQ data algorithms</p></th>
-<th class="head"><p>quantized inference</p></th>
-</tr>
-</thead>
-<tbody>
-<tr class="row-even"><td><p>H100, B200</p></td>
-<td><p>float8 rowwise</p></td>
-<td><p>float8 rowwise</p></td>
-<td><p>🟢 <a class="reference internal" href="float8_training.html"><span class="doc std std-doc">(link)</span></a></p></td>
-<td><p>🟢 <a class="reference internal" href="qat.html"><span class="doc std std-doc">(link)</span></a></p></td>
-<td><p>⚪</p></td>
-<td><p>🟢 <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/quantization#a8w8-float8-dynamic-quantization-with-rowwise-scaling">(link)</a></p></td>
-</tr>
-<tr class="row-odd"><td><p>H100</p></td>
-<td><p>int4</p></td>
-<td><p>float8 rowwise</p></td>
-<td><p>⚪</p></td>
-<td><p>🟢 <a class="reference internal" href="qat.html"><span class="doc std std-doc">(link)</span></a></p></td>
-<td><p>🟠</p></td>
-<td><p>🟢 <a class="reference external" href="https://github.com/pytorch/ao/blob/257d18ae1b41e8bd8d85849dd2bd43ad3885678e/torchao/quantization/quant_api.py#L1296">(link)</a></p></td>
-</tr>
-<tr class="row-even"><td><p>A100</p></td>
-<td><p>int4</p></td>
-<td><p>bfloat16</p></td>
-<td><p>⚪</p></td>
-<td><p>🟢 <a class="reference internal" href="qat.html"><span class="doc std std-doc">(link)</span></a></p></td>
-<td><p>🟡: <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/prototype/hqq/README.md">HQQ</a>, <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/prototype/awq">AWQ</a></p></td>
-<td><p>🟢 <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/quantization#a16w4-weightonly-quantization">(link)</a></p></td>
-</tr>
-<tr class="row-odd"><td><p>A100</p></td>
-<td><p>int8</p></td>
-<td><p>bfloat16</p></td>
-<td><p>⚪</p></td>
-<td><p>🟢 <a class="reference internal" href="qat.html"><span class="doc std std-doc">(link)</span></a></p></td>
-<td><p>⚪</p></td>
-<td><p>🟢 <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/quantization#a16w8-int8-weightonly-quantization">(link)</a></p></td>
-</tr>
-<tr class="row-even"><td><p>A100</p></td>
-<td><p>int8</p></td>
-<td><p>int8</p></td>
-<td><p>🟡 <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/prototype/quantized_training">(link)</a></p></td>
-<td><p>🟢 <a class="reference internal" href="qat.html"><span class="doc std std-doc">(link)</span></a></p></td>
-<td><p>⚪</p></td>
-<td><p>🟢 <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/quantization#a8w8-int8-dynamic-quantization">(link)</a></p></td>
-</tr>
-<tr class="row-odd"><td><p>B200</p></td>
-<td><p>nvfp4</p></td>
-<td><p>nvfp4</p></td>
-<td><p>🟠</p></td>
-<td><p>🟡 <a class="reference external" href="https://github.com/pytorch/ao/blob/main/torchao/prototype/qat/nvfp4.py">(link)</a></p></td>
-<td><p>⚪</p></td>
-<td><p>🟡 <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/prototype/mx_formats#mx-inference">(link)</a></p></td>
-</tr>
-<tr class="row-even"><td><p>B200</p></td>
-<td><p>mxfp8</p></td>
-<td><p>mxfp8</p></td>
-<td><p>🟡 <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/prototype/mx_formats#mx-training">(dense)</a>, <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/prototype/moe_training">(moe)</a></p></td>
-<td><p>⚪</p></td>
-<td><p>⚪</p></td>
-<td><p>🟡 <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/prototype/mx_formats#mx-inference">(link)</a></p></td>
-</tr>
-<tr class="row-odd"><td><p>B200</p></td>
-<td><p>mxfp4</p></td>
-<td><p>mxfp4</p></td>
-<td><p>⚪ not supported</p></td>
-<td><p>🟠</p></td>
-<td><p>🟠</p></td>
-<td><p>🟡 <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/prototype/mx_formats#mx-inference">(link)</a></p></td>
-</tr>
-<tr class="row-even"><td><p>H100</p></td>
-<td><p>float8 128x128 (blockwise)</p></td>
-<td><p>float8 1x128</p></td>
-<td><p>🟠</p></td>
-<td><p>⚪</p></td>
-<td><p>⚪</p></td>
-<td><p>🟡</p></td>
-</tr>
-</tbody>
-</table>
+<section id="quick-start">
+<h2>Quick Start<a class="headerlink" href="#quick-start" title="Permalink to this heading">#</a></h2>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.float8</span><span class="w"> </span><span class="kn">import</span> <span class="n">Float8LinearConfig</span><span class="p">,</span> <span class="n">convert_to_float8_training</span>
+
+<span class="c1"># create model and sample input</span>
+<span class="n">m</span> <span class="o">=</span> <span class="p">(</span>
+    <span class="n">nn</span><span class="o">.</span><span class="n">Sequential</span><span class="p">(</span>
+        <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">8192</span><span class="p">,</span> <span class="mi">4096</span><span class="p">,</span> <span class="n">bias</span><span class="o">=</span><span class="kc">False</span><span class="p">),</span>
+        <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">4096</span><span class="p">,</span> <span class="mi">128</span><span class="p">,</span> <span class="n">bias</span><span class="o">=</span><span class="kc">False</span><span class="p">),</span>
+    <span class="p">)</span>
+    <span class="o">.</span><span class="n">bfloat16</span><span class="p">()</span>
+    <span class="o">.</span><span class="n">cuda</span><span class="p">()</span>
+<span class="p">)</span>
+<span class="n">optimizer</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">optim</span><span class="o">.</span><span class="n">SGD</span><span class="p">(</span><span class="n">m</span><span class="o">.</span><span class="n">parameters</span><span class="p">(),</span> <span class="n">lr</span><span class="o">=</span><span class="mf">0.1</span><span class="p">)</span>
+
+
+<span class="c1"># optional: filter modules from being eligible for float8 conversion</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">module_filter_fn</span><span class="p">(</span><span class="n">mod</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span> <span class="n">fqn</span><span class="p">:</span> <span class="nb">str</span><span class="p">):</span>
+    <span class="c1"># don&#39;t convert the last module</span>
+    <span class="k">if</span> <span class="n">fqn</span> <span class="o">==</span> <span class="s2">&quot;1&quot;</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">False</span>
+    <span class="c1"># don&#39;t convert linear modules with weight dimensions not divisible by 16</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">mod</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">mod</span><span class="o">.</span><span class="n">in_features</span> <span class="o">%</span> <span class="mi">16</span> <span class="o">!=</span> <span class="mi">0</span> <span class="ow">or</span> <span class="n">mod</span><span class="o">.</span><span class="n">out_features</span> <span class="o">%</span> <span class="mi">16</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">return</span> <span class="kc">False</span>
+    <span class="k">return</span> <span class="kc">True</span>
+
+
+<span class="c1"># configure float8 recipe</span>
+<span class="c1"># valid recipe names: &quot;tensorwise&quot;, &quot;rowwise&quot;, &quot;rowwise_with_gw_hp&quot;</span>
+<span class="n">config</span> <span class="o">=</span> <span class="n">Float8LinearConfig</span><span class="o">.</span><span class="n">from_recipe_name</span><span class="p">(</span><span class="s2">&quot;tensorwise&quot;</span><span class="p">)</span>
+
+<span class="c1"># convert specified `torch.nn.Linear` modules to `Float8Linear`</span>
+<span class="n">convert_to_float8_training</span><span class="p">(</span><span class="n">m</span><span class="p">,</span> <span class="n">config</span><span class="o">=</span><span class="n">config</span><span class="p">,</span> <span class="n">module_filter_fn</span><span class="o">=</span><span class="n">module_filter_fn</span><span class="p">)</span>
+
+<span class="c1"># enable torch.compile for competitive performance</span>
+<span class="n">m</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="n">m</span><span class="p">)</span>
+
+<span class="c1"># training loop</span>
+<span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">4096</span><span class="p">,</span> <span class="mi">8192</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="s2">&quot;cuda&quot;</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">)</span>
+<span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">10</span><span class="p">):</span>
+    <span class="n">optimizer</span><span class="o">.</span><span class="n">zero_grad</span><span class="p">()</span>
+    <span class="n">y</span> <span class="o">=</span> <span class="n">m</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+    <span class="n">y</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>
+    <span class="n">optimizer</span><span class="o">.</span><span class="n">step</span><span class="p">()</span>
+</pre></div>
 </div>
 </section>
-<section id="edge">
-<h3>Edge<a class="headerlink" href="#edge" title="Permalink to this heading">#</a></h3>
-<div class="pst-scrollable-table-container"><table class="colwidths-auto table">
-<thead>
-<tr class="row-odd"><th class="head"><p>recommended hardware</p></th>
-<th class="head"><p>weight</p></th>
-<th class="head"><p>activation</p></th>
-<th class="head"><p>quantized training</p></th>
-<th class="head"><p>QAT</p></th>
-<th class="head"><p>PTQ data algorithms</p></th>
-<th class="head"><p>quantized inference</p></th>
-</tr>
-</thead>
-<tbody>
-<tr class="row-even"><td><p>edge</p></td>
-<td><p>intx (1..7)</p></td>
-<td><p>bfloat16</p></td>
-<td><p>⚪</p></td>
-<td><p>🟢 <a class="reference internal" href="qat.html"><span class="doc std std-doc">(link)</span></a></p></td>
-<td><p>⚪</p></td>
-<td><p>🟢 <a class="reference external" href="https://github.com/pytorch/ao/blob/257d18ae1b41e8bd8d85849dd2bd43ad3885678e/torchao/quantization/quant_api.py#L2267">(link)</a></p></td>
-</tr>
-</tbody>
-</table>
-</div>
 </section>
-<section id="rocm">
-<h3>ROCM<a class="headerlink" href="#rocm" title="Permalink to this heading">#</a></h3>
-<div class="pst-scrollable-table-container"><table class="colwidths-auto table">
-<thead>
-<tr class="row-odd"><th class="head"><p>recommended hardware</p></th>
-<th class="head"><p>weight</p></th>
-<th class="head"><p>activation</p></th>
-<th class="head"><p>quantized training</p></th>
-<th class="head"><p>QAT</p></th>
-<th class="head"><p>PTQ data algorithms</p></th>
-<th class="head"><p>quantized inference</p></th>
-</tr>
-</thead>
-<tbody>
-<tr class="row-even"><td><p>MI350x</p></td>
-<td><p>mxfp8</p></td>
-<td><p>mxfp8</p></td>
-<td><p>🟡 <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/prototype/mx_formats#mx-training">(dense)</a>, <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/prototype/moe_training">(moe)</a></p></td>
-<td><p>⚪</p></td>
-<td><p>⚪</p></td>
-<td><p>🟡 <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/prototype/mx_formats#mx-inference">(link)</a></p></td>
-</tr>
-<tr class="row-odd"><td><p>MI350x</p></td>
-<td><p>mxfp4</p></td>
-<td><p>mxfp4</p></td>
-<td><p>⚪ not supported</p></td>
-<td><p>🟠</p></td>
-<td><p>🟠</p></td>
-<td><p>🟡 <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/prototype/mx_formats#mx-inference">(link)</a></p></td>
-</tr>
-</tbody>
-</table>
-</div>
-</section>
-<section id="intel">
-<h3>Intel<a class="headerlink" href="#intel" title="Permalink to this heading">#</a></h3>
-<div class="pst-scrollable-table-container"><table class="colwidths-auto table">
-<thead>
-<tr class="row-odd"><th class="head"><p>recommended hardware</p></th>
-<th class="head"><p>weight</p></th>
-<th class="head"><p>activation</p></th>
-<th class="head"><p>quantized training</p></th>
-<th class="head"><p>QAT</p></th>
-<th class="head"><p>PTQ data algorithms</p></th>
-<th class="head"><p>quantized inference</p></th>
-</tr>
-</thead>
-<tbody>
-<tr class="row-even"><td><p>Intel® BMG</p></td>
-<td><p>float8 tensor/rowwise</p></td>
-<td><p>float8 tensor/rowwise</p></td>
-<td><p>🟠</p></td>
-<td><p>🟢 <a class="reference internal" href="qat.html"><span class="doc std std-doc">(link)</span></a></p></td>
-<td><p>⚪</p></td>
-<td><p>🟢 <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/quantization#a8w8-float8-dynamic-quantization-with-rowwise-scaling">(link)</a></p></td>
-</tr>
-<tr class="row-odd"><td><p>Intel® BMG</p></td>
-<td><p>int4</p></td>
-<td><p>float16/bfloat16</p></td>
-<td><p>⚪</p></td>
-<td><p>🟢 <a class="reference internal" href="qat.html"><span class="doc std std-doc">(link)</span></a></p></td>
-<td><p>🟡: <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/prototype/awq">AWQ</a></p></td>
-<td><p>🟢 <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/quantization#a16w4-weightonly-quantization">(link)</a></p></td>
-</tr>
-<tr class="row-even"><td><p>Intel® BMG</p></td>
-<td><p>int8</p></td>
-<td><p>int8</p></td>
-<td><p>🟠</p></td>
-<td><p>🟢 <a class="reference internal" href="qat.html"><span class="doc std std-doc">(link)</span></a></p></td>
-<td><p>⚪</p></td>
-<td><p>🟢 <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/quantization#a8w8-int8-dynamic-quantization">(link)</a></p></td>
-</tr>
-</tbody>
-</table>
-</div>
-</section>
-<section id="other">
-<h3>Other<a class="headerlink" href="#other" title="Permalink to this heading">#</a></h3>
+<section id="e2e-training-benchmarks">
+<h1>e2e training benchmarks<a class="headerlink" href="#e2e-training-benchmarks" title="Permalink to this heading">#</a></h1>
+<p><a class="reference external" href="https://github.com/pytorch/torchtitan">Torchtitan</a> was used to benchmark float8 training performance.</p>
+<section id="nvidia-h100">
+<h2>NVIDIA H100<a class="headerlink" href="#nvidia-h100" title="Permalink to this heading">#</a></h2>
 <ul class="simple">
-<li><p><a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/sparsity/README.md">Sparsity README.md</a>, includes different techniques such as 2:4 sparsity and block sparsity</p></li>
-<li><p><a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/prototype">the prototype folder</a> for other prototype features</p></li>
+<li><p>Single-node training on 8xH100 GPUs, batch size 1, sequence length 8192, steps 100, <code class="docutils literal notranslate"><span class="pre">torch.compile</span></code>, FSDP2, per-op SAC</p></li>
+<li><p>pytorch version: <code class="docutils literal notranslate"><span class="pre">2.7.0a0+gitb98af95</span></code>, torchao version: <code class="docutils literal notranslate"><span class="pre">0.10.0+git890e0ac8</span></code>, torchtitan version: <code class="docutils literal notranslate"><span class="pre">0.0.2</span></code></p></li>
 </ul>
-<div class="toctree-wrapper compound">
+<div class="pst-scrollable-table-container"><table class="colwidths-auto table">
+<thead>
+<tr class="row-odd"><th class="head"><p>Model</p></th>
+<th class="head"><p>Scaling</p></th>
+<th class="head"><p>Peak Memory (GB)</p></th>
+<th class="head"><p>Median tokens/second</p></th>
+<th class="head"><p>Speedup over baseline</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Llama3-8b</p></td>
+<td><p>none (bfloat16)</p></td>
+<td><p>47.65</p></td>
+<td><p>6150</p></td>
+<td><p>-</p></td>
+</tr>
+<tr class="row-odd"><td><p>Llama3-8b</p></td>
+<td><p>tensorwise with float8 all-gather</p></td>
+<td><p>47.77</p></td>
+<td><p>7689.5</p></td>
+<td><p>25.03%</p></td>
+</tr>
+<tr class="row-even"><td><p>Llama3-8b</p></td>
+<td><p>rowwise with bfloat16 all-gather</p></td>
+<td><p>47.79</p></td>
+<td><p>6768</p></td>
+<td><p>10.05%</p></td>
+</tr>
+</tbody>
+</table>
 </div>
 </section>
+<section id="amd-mi300x">
+<h2>AMD MI300x<a class="headerlink" href="#amd-mi300x" title="Permalink to this heading">#</a></h2>
+<ul class="simple">
+<li><p>Single-node training on 8xMI300X GPUs, batch size 1, sequence length 8192, steps 100, <code class="docutils literal notranslate"><span class="pre">torch.compile</span></code>, FSDP2, per-op SAC</p></li>
+<li><p>pytorch version: <code class="docutils literal notranslate"><span class="pre">2.9.0.dev20250811+rocm6.4</span></code>, torchao version <code class="docutils literal notranslate"><span class="pre">0.13.0+git4fc4068d6</span></code>, torchtitan commit <code class="docutils literal notranslate"><span class="pre">2c8b5947991239913d67e2f7d22a255c3e2a9694</span></code></p></li>
+</ul>
+<div class="pst-scrollable-table-container"><table class="colwidths-auto table">
+<thead>
+<tr class="row-odd"><th class="head"><p>Model</p></th>
+<th class="head"><p>Scaling</p></th>
+<th class="head"><p>Peak Memory (GB)</p></th>
+<th class="head"><p>Median tokens/second</p></th>
+<th class="head"><p>Speedup over baseline</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Llama3-8b</p></td>
+<td><p>none (bfloat16)</p></td>
+<td><p>39.09</p></td>
+<td><p>5376.5</p></td>
+<td><p>-</p></td>
+</tr>
+<tr class="row-odd"><td><p>Llama3-8b</p></td>
+<td><p>tensorwise with float8 all-gather</p></td>
+<td><p>39.07</p></td>
+<td><p>6166.0</p></td>
+<td><p>14.68%</p></td>
+</tr>
+<tr class="row-even"><td><p>Llama3-8b</p></td>
+<td><p>rowwise_with_gw_hp with bfloat16 all-gather</p></td>
+<td><p>39.32</p></td>
+<td><p>6100.0</p></td>
+<td><p>13.46%</p></td>
+</tr>
+<tr class="row-odd"><td><p>Llama3-8b</p></td>
+<td><p>rowwise with bfloat16 all-gather</p></td>
+<td><p>39.32</p></td>
+<td><p>5891.0</p></td>
+<td><p>9.57%</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>Important notes</strong>:</p>
+<ul class="simple">
+<li><p>E2E speedups increase as M,K,N (GEMM dimensions) increase. Speedups as high as 1.5x have been measured with larger shapes (<a class="reference external" href="https://pytorch.org/blog/training-using-float8-fsdp2/">example</a>).</p></li>
+<li><p>Rowwise scaling is better at handling outliers than tensorwise scaling, so these recipes are different points on the accuracy vs performance curve.</p></li>
+</ul>
+<p><strong>Reproducing training benchmarks</strong>
+To reproduce these benchmarks, you can follow these steps:</p>
+<ol class="arabic simple">
+<li><p>On a machine with compatible GPUs, clone torchtitan and follow local installation <a class="reference external" href="https://github.com/pytorch/torchtitan?tab=readme-ov-file#installation">steps</a>,
+including <a class="reference external" href="https://github.com/pytorch/torchtitan?tab=readme-ov-file#downloading-a-tokenizer">downloading a tokenizer</a>.</p></li>
+<li><p>Install torchao following these <a class="reference external" href="https://github.com/pytorch/ao/tree/main?tab=readme-ov-file#installation">steps</a>.</p></li>
+<li><p>From the <code class="docutils literal notranslate"><span class="pre">torchao/</span></code> directory, you can run the following commands to reproduce the benchmarks above:</p>
+<ul class="simple">
+<li><p>bf16 + compile: <code class="docutils literal notranslate"><span class="pre">TORCHTITAN_ROOT=&lt;path&gt;</span> <span class="pre">./benchmarks/float8/training/llama3.sh</span></code></p></li>
+<li><p>float8 tensorwise with float8 all-gather + compile: <code class="docutils literal notranslate"><span class="pre">TORCHTITAN_ROOT=&lt;path&gt;</span> <span class="pre">FLOAT8_RECIPE_WITH_BEST_SETTINGS=&quot;tensorwise&quot;</span> <span class="pre">./benchmarks/float8/training/llama3.sh</span></code></p></li>
+<li><p>float8 rowwise with bf16 all-gather + compile: <code class="docutils literal notranslate"><span class="pre">TORCHTITAN_ROOT=&lt;path&gt;</span> <span class="pre">FLOAT8_RECIPE_WITH_BEST_SETTINGS=&quot;rowwise&quot;</span> <span class="pre">./benchmarks/float8/training/llama3.sh</span></code></p></li>
+</ul>
+</li>
+</ol>
+<p>See the float8 training benchmarking <a class="reference external" href="https://github.com/pytorch/ao/blob/main/torchao/benchmarks/float8/training/README.md">guide</a> for more details.</p>
+</section>
+</section>
+<section id="multi-gpu-user-api">
+<h1>Multi GPU User API<a class="headerlink" href="#multi-gpu-user-api" title="Permalink to this heading">#</a></h1>
+<p>We compose with the <code class="docutils literal notranslate"><span class="pre">DTensor</span></code> based <a class="reference external" href="https://pytorch.org/docs/stable/distributed.tensor.parallel.html">distributed APIs</a>,
+such as FSDP, TP and SP. Please see the <a class="reference external" href="https://github.com/pytorch/torchtitan/blob/main/docs/float8.md">torchtitan</a> repository for e2e examples
+on using <code class="docutils literal notranslate"><span class="pre">torchao.float8</span></code> in a distributed setting.</p>
+</section>
+<section id="performance">
+<h1>Performance<a class="headerlink" href="#performance" title="Permalink to this heading">#</a></h1>
+<p>A common question about float8 training is “when is float8 linear faster vs bfloat16?”.  Given the M, K, N of the forward pass through your linear, you can reference the tables below for a microbenchmark based speedup estimate on NVIDIA H100:</p>
+<section id="tensorwise-scaling">
+<h2>tensorwise scaling<a class="headerlink" href="#tensorwise-scaling" title="Permalink to this heading">#</a></h2>
+<img width="753" height="773" alt="Image" src="https://github.com/user-attachments/assets/e46c671a-ed35-41b4-b17c-50caf1629ecb" />
+<div class="highlight-lang=shell notranslate"><div class="highlight"><pre><span></span># reproduction: run the script below
+python benchmarks/float8/float8_roofline.py your_output_filename.csv --shape_gen_name sweep
+</pre></div>
+</div>
+</section>
+<section id="rowwise-scaling">
+<h2>rowwise scaling<a class="headerlink" href="#rowwise-scaling" title="Permalink to this heading">#</a></h2>
+<img width="755" height="778" alt="Image" src="https://github.com/user-attachments/assets/7d70ba36-f480-459f-b5c0-797895332631" />
+<div class="highlight-lang=shell notranslate"><div class="highlight"><pre><span></span># reproduction: run the script below
+python benchmarks/float8/float8_roofline.py your_output_filename.csv --shape_gen_name sweep --float8_recipe_name rowwise
+</pre></div>
+</div>
+</section>
+<section id="rowwise-with-gw-hp-scaling">
+<h2>rowwise_with_gw_hp scaling<a class="headerlink" href="#rowwise-with-gw-hp-scaling" title="Permalink to this heading">#</a></h2>
+<img width="750" height="797" alt="Image" src="https://github.com/user-attachments/assets/e4479abc-1aca-436d-a142-60e5e804ff10" />
+<div class="highlight-lang=shell notranslate"><div class="highlight"><pre><span></span># reproduction: run the script below
+python benchmarks/float8/float8_roofline.py your_output_filename.csv --shape_gen_name sweep --float8_recipe_name rowwise_with_gw_hp
+</pre></div>
+</div>
+</section>
+<section id="derivation">
+<h2>Derivation<a class="headerlink" href="#derivation" title="Permalink to this heading">#</a></h2>
+<p>In a bf16 linear, assume all of the time is spent in gemms.  In a float8 linear, account for max_abs and casting overhead.  We want to know when</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">bf16_gemm_time</span> <span class="o">&gt;</span> <span class="n">fp8_gemm_time</span> <span class="o">+</span> <span class="n">fp8_overhead_time</span>
+</pre></div>
+</div>
+<p>Or, equivalently,</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">bf16_gemm_time</span> <span class="o">-</span> <span class="n">fp8_gemm_time</span> <span class="o">&gt;</span> <span class="n">fp8_overhead_time</span>
+</pre></div>
+</div>
+<p>There are three observations we can make about the formula above:</p>
+<ul class="simple">
+<li><p>LHS &gt; 0 for large shapes, with the gemm speedup approaching 2x as M, K, N increase</p></li>
+<li><p>LHS &lt; 0 for small shapes, on NVIDIA H100 + cuBLAS</p></li>
+<li><p>RHS &gt; 0 for all shapes, bounded by memory bandwidth, framework overhead and compiler limitations</p></li>
+</ul>
+<p>For small shapes, a combination of (2) and (3) leads to speedup &lt; 1.  For medium shapes, (1) and (3) are of similar magnitude and the speedup depends on M, K, N and framework and compiler behavior.  For large shapes, (1) leads to speedup &gt; 1.</p>
+</section>
+</section>
+<section id="testing">
+<h1>Testing<a class="headerlink" href="#testing" title="Permalink to this heading">#</a></h1>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># run single-GPU unit tests</span>
+pytest<span class="w"> </span>test/float8/test_base.py
+
+<span class="c1"># run single-GPU compile tests</span>
+pytest<span class="w"> </span>test/float8/test_compile.py
+
+<span class="c1"># run single-GPU numerics integration tests</span>
+pytest<span class="w"> </span>test/float8/test_numerics_integration.py
+
+<span class="c1"># run a two-GPU integration test on FSDP</span>
+./test/float8/test_fsdp.sh
+
+<span class="c1"># run integration tests on the DTensor TP/SP integration</span>
+./test/float8/test_dtensor.sh
+
+<span class="c1"># run integration tests on the FSDP2 integration</span>
+python<span class="w"> </span>test/float8/test_fsdp2/test_fsdp2.py
+
+<span class="c1"># run all of these tests</span>
+./test/float8/test_everything.sh
+</pre></div>
+</div>
+</section>
+<section id="e2e-training-inference-flow">
+<h1>E2E training + inference flow<a class="headerlink" href="#e2e-training-inference-flow" title="Permalink to this heading">#</a></h1>
+<p>The first step in the E2E is to train your model and save a checkpoint. The second step is to load the checkpoint and optionally apply inference quantization before serving the model.</p>
+<section id="train-model-and-save-checkpoint">
+<h2>1. Train model and save checkpoint<a class="headerlink" href="#train-model-and-save-checkpoint" title="Permalink to this heading">#</a></h2>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torch</span><span class="w"> </span><span class="kn">import</span> <span class="n">nn</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn.functional</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">F</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.float8.float8_linear_utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">convert_to_float8_training</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.float8.float8_linear</span><span class="w"> </span><span class="kn">import</span> <span class="n">Float8Linear</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.float8</span><span class="w"> </span><span class="kn">import</span> <span class="n">convert_to_float8_training</span>
+
+<span class="c1"># create model and sample input</span>
+<span class="n">m</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Sequential</span><span class="p">(</span>
+    <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">2048</span><span class="p">,</span> <span class="mi">4096</span><span class="p">),</span>
+    <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">4096</span><span class="p">,</span> <span class="mi">128</span><span class="p">),</span>
+    <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">128</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span>
+<span class="p">)</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">()</span><span class="o">.</span><span class="n">cuda</span><span class="p">()</span>
+<span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">4096</span><span class="p">,</span> <span class="mi">2048</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="s2">&quot;cuda&quot;</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">)</span>
+<span class="n">optimizer</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">optim</span><span class="o">.</span><span class="n">AdamW</span><span class="p">(</span><span class="n">m</span><span class="o">.</span><span class="n">parameters</span><span class="p">(),</span> <span class="n">lr</span><span class="o">=</span><span class="mf">1e-3</span><span class="p">)</span>
+
+<span class="c1"># optional: filter modules from being eligible for float8 conversion</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">module_filter_fn</span><span class="p">(</span><span class="n">mod</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span> <span class="n">fqn</span><span class="p">:</span> <span class="nb">str</span><span class="p">):</span>
+    <span class="c1"># don&#39;t convert the last module</span>
+    <span class="k">if</span> <span class="n">fqn</span> <span class="o">==</span> <span class="s2">&quot;1&quot;</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">False</span>
+    <span class="c1"># don&#39;t convert linear modules with weight dimensions not divisible by 16</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">mod</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">mod</span><span class="o">.</span><span class="n">in_features</span> <span class="o">%</span> <span class="mi">16</span> <span class="o">!=</span> <span class="mi">0</span> <span class="ow">or</span> <span class="n">mod</span><span class="o">.</span><span class="n">out_features</span> <span class="o">%</span> <span class="mi">16</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">return</span> <span class="kc">False</span>
+    <span class="k">return</span> <span class="kc">True</span>
+
+<span class="c1"># convert specified `torch.nn.Linear` modules to `Float8Linear`</span>
+<span class="n">convert_to_float8_training</span><span class="p">(</span><span class="n">m</span><span class="p">,</span> <span class="n">module_filter_fn</span><span class="o">=</span><span class="n">module_filter_fn</span><span class="p">)</span>
+
+<span class="c1"># enable torch.compile for competitive performance</span>
+<span class="n">m</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="n">m</span><span class="p">)</span>
+
+<span class="c1"># toy training loop</span>
+<span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">10</span><span class="p">):</span>
+    <span class="n">optimizer</span><span class="o">.</span><span class="n">zero_grad</span><span class="p">()</span>
+    <span class="n">output</span> <span class="o">=</span> <span class="n">m</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+    <span class="c1"># use fake labels for demonstration purposes</span>
+    <span class="n">fake_labels</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">ones_like</span><span class="p">(</span><span class="n">output</span><span class="p">)</span>
+    <span class="n">loss</span> <span class="o">=</span> <span class="n">F</span><span class="o">.</span><span class="n">mse_loss</span><span class="p">(</span><span class="n">output</span><span class="p">,</span> <span class="n">fake_labels</span><span class="p">)</span>
+    <span class="n">loss</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>
+    <span class="n">optimizer</span><span class="o">.</span><span class="n">step</span><span class="p">()</span>
+
+<span class="c1"># save the model</span>
+<span class="n">torch</span><span class="o">.</span><span class="n">save</span><span class="p">({</span>
+    <span class="s1">&#39;model&#39;</span><span class="p">:</span> <span class="n">m</span><span class="p">,</span>
+    <span class="s1">&#39;model_state_dict&#39;</span><span class="p">:</span> <span class="n">m</span><span class="o">.</span><span class="n">state_dict</span><span class="p">(),</span>
+    <span class="s1">&#39;optimizer_state_dict&#39;</span><span class="p">:</span> <span class="n">optimizer</span><span class="o">.</span><span class="n">state_dict</span><span class="p">(),</span>
+<span class="p">},</span> <span class="s1">&#39;checkpoint.pth&#39;</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="load-checkpoint-and-optionally-apply-inference-quantization">
+<h2>2. Load checkpoint and optionally apply inference quantization<a class="headerlink" href="#load-checkpoint-and-optionally-apply-inference-quantization" title="Permalink to this heading">#</a></h2>
+<p>There are 3 float8 inference quantization strategies that be used after training with float8: 1) weight only quantization, and 2) dynamic activation and weight quantization, and 3) static quantization.</p>
+<p>Below is an example of dynamic activation and weight quantization. For more details, examples, and inference benchmrks, see the <a class="reference external" href="https://github.com/pytorch/ao/blob/main/torchao/quantization/README.md">torchao inference docs</a>.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.float8.float8_linear</span><span class="w"> </span><span class="kn">import</span> <span class="n">Float8Linear</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.granularity</span><span class="w"> </span><span class="kn">import</span> <span class="n">PerTensor</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.quant_api</span><span class="w"> </span><span class="kn">import</span> <span class="n">quantize_</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">Float8DynamicActivationFloat8WeightConfig</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="c1"># load checkpoint</span>
+<span class="n">checkpoint</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="s1">&#39;checkpoint.pth&#39;</span><span class="p">,</span> <span class="n">weights_only</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+<span class="n">model</span> <span class="o">=</span> <span class="n">checkpoint</span><span class="p">[</span><span class="s1">&#39;model&#39;</span><span class="p">]</span>
+<span class="n">model</span><span class="o">.</span><span class="n">load_state_dict</span><span class="p">(</span><span class="n">checkpoint</span><span class="p">[</span><span class="s1">&#39;model_state_dict&#39;</span><span class="p">])</span>
+
+<span class="c1"># optional: apply dynamic float8 quantization on both activations and weights for inference</span>
+<span class="n">quantize_</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">Float8DynamicActivationFloat8WeightConfig</span><span class="p">(</span><span class="n">granularity</span><span class="o">=</span><span class="n">PerTensor</span><span class="p">()))</span>
+
+<span class="c1"># run inference</span>
+<span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">4096</span><span class="p">,</span> <span class="mi">2048</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="s2">&quot;cuda&quot;</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">)</span>
+<span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">inference_mode</span><span class="p">():</span>
+    <span class="n">out</span> <span class="o">=</span> <span class="n">model</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="n">out</span><span class="p">)</span>
+</pre></div>
+</div>
 </section>
 </section>
 
@@ -1282,20 +1412,20 @@ also have three prototype quantized training workflows: <a class="reference exte
 
 <div class="prev-next-area">
     <a class="left-prev"
-       href="../index.html"
+       href="index.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">Welcome to the torchao Documentation</p>
+        <p class="prev-next-title">Workflows</p>
       </div>
     </a>
     <a class="right-next"
-       href="float8_training.html"
+       href="qat.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">torchao.float8</p>
+        <p class="prev-next-title">Quantization-Aware Training (QAT)</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -1321,20 +1451,20 @@ also have three prototype quantized training workflows: <a class="reference exte
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="../index.html"
+       href="index.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">Welcome to the torchao Documentation</p>
+        <p class="prev-next-title">Workflows</p>
       </div>
     </a>
     <a class="right-next"
-       href="float8_training.html"
+       href="qat.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">torchao.float8</p>
+        <p class="prev-next-title">Quantization-Aware Training (QAT)</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -1356,23 +1486,39 @@ also have three prototype quantized training workflows: <a class="reference exte
   </div>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#workflow-overview-by-training-qat-inference">Workflow overview by training/QAT/inference</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#workflows-status-by-dtype-hardware">Workflows status by dtype + hardware</a><ul class="nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#nvidia-cuda">NVIDIA CUDA</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#edge">Edge</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#rocm">ROCM</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#intel">Intel</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#other">Other</a></li>
+<li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#">torchao.float8</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#key-features">Key features</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#quick-start">Quick Start</a></li>
+</ul>
+</li>
+<li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#e2e-training-benchmarks">e2e training benchmarks</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#nvidia-h100">NVIDIA H100</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#amd-mi300x">AMD MI300x</a></li>
+</ul>
+</li>
+<li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#multi-gpu-user-api">Multi GPU User API</a></li>
+<li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#performance">Performance</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#tensorwise-scaling">tensorwise scaling</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#rowwise-scaling">rowwise scaling</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#rowwise-with-gw-hp-scaling">rowwise_with_gw_hp scaling</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#derivation">Derivation</a></li>
+</ul>
+</li>
+<li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#testing">Testing</a></li>
+<li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#e2e-training-inference-flow">E2E training + inference flow</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#train-model-and-save-checkpoint">1. Train model and save checkpoint</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#load-checkpoint-and-optionally-apply-inference-quantization">2. Load checkpoint and optionally apply inference quantization</a></li>
 </ul>
 </li>
 </ul>
+
   </nav></div>
     
        <div class="sidebar-secondary-item">
 
   
   <div class="tocsection editthispage">
-    <a href="https://github.com/pytorch/ao/edit/main/docs/source/workflows/index.md">
+    <a href="https://github.com/pytorch/ao/edit/main/docs/source/workflows/float8_training.md">
       <i class="fa-solid fa-pencil"></i>
       
       
@@ -1386,7 +1532,7 @@ also have three prototype quantized training workflows: <a class="reference exte
     
        <div class="sidebar-secondary-item">
     <div class="tocsection sourcelink">
-      <a href="../_sources/workflows/index.md.txt">
+      <a href="../_sources/workflows/float8_training.md.txt">
         <i class="fa-solid fa-file-lines"></i> Show Source
       </a>
     </div>
@@ -1586,11 +1732,11 @@ also have three prototype quantized training workflows: <a class="reference exte
     {
        "@context": "https://schema.org",
        "@type": "Article",
-       "name": "Workflows",
-       "headline": "Workflows",
+       "name": "torchao.float8",
+       "headline": "torchao.float8",
        "description": "PyTorch Documentation. Explore PyTorch, an open-source machine learning library that accelerates the path from research prototyping to production deployment. Discover tutorials, API references, and guides to help you build and deploy deep learning models efficiently.",
-       "url": "/workflows/index.html",
-       "articleBody": "Workflows# Created On: Jan 30, 2026 | Last Updated On: Jan 30, 2026 This page provides an overview of the various workflows available in torchao. Workflow overview by training/QAT/inference# Training: our main training workflow is float8 quantized training. We also have three prototype quantized training workflows: mxfp8 dense, mxfp8 MoE, int8 dense QAT: the QAT documentation for details on how to use quantization-aware training to improve model accuracy after quantization. Inference: See the inference quantization documentation for an overview of quantization for inference workflows. Workflows status by dtype + hardware# \ud83d\udfe2 = stable, \ud83d\udfe1 = prototype, \ud83d\udfe0 = planned, \u26aa = not supported NVIDIA CUDA# recommended hardware weight activation quantized training QAT PTQ data algorithms quantized inference H100, B200 float8 rowwise float8 rowwise \ud83d\udfe2 (link) \ud83d\udfe2 (link) \u26aa \ud83d\udfe2 (link) H100 int4 float8 rowwise \u26aa \ud83d\udfe2 (link) \ud83d\udfe0 \ud83d\udfe2 (link) A100 int4 bfloat16 \u26aa \ud83d\udfe2 (link) \ud83d\udfe1: HQQ, AWQ \ud83d\udfe2 (link) A100 int8 bfloat16 \u26aa \ud83d\udfe2 (link) \u26aa \ud83d\udfe2 (link) A100 int8 int8 \ud83d\udfe1 (link) \ud83d\udfe2 (link) \u26aa \ud83d\udfe2 (link) B200 nvfp4 nvfp4 \ud83d\udfe0 \ud83d\udfe1 (link) \u26aa \ud83d\udfe1 (link) B200 mxfp8 mxfp8 \ud83d\udfe1 (dense), (moe) \u26aa \u26aa \ud83d\udfe1 (link) B200 mxfp4 mxfp4 \u26aa not supported \ud83d\udfe0 \ud83d\udfe0 \ud83d\udfe1 (link) H100 float8 128x128 (blockwise) float8 1x128 \ud83d\udfe0 \u26aa \u26aa \ud83d\udfe1 Edge# recommended hardware weight activation quantized training QAT PTQ data algorithms quantized inference edge intx (1..7) bfloat16 \u26aa \ud83d\udfe2 (link) \u26aa \ud83d\udfe2 (link) ROCM# recommended hardware weight activation quantized training QAT PTQ data algorithms quantized inference MI350x mxfp8 mxfp8 \ud83d\udfe1 (dense), (moe) \u26aa \u26aa \ud83d\udfe1 (link) MI350x mxfp4 mxfp4 \u26aa not supported \ud83d\udfe0 \ud83d\udfe0 \ud83d\udfe1 (link) Intel# recommended hardware weight activation quantized training QAT PTQ data algorithms quantized inference Intel\u00ae BMG float8 tensor/rowwise float8 tensor/rowwise \ud83d\udfe0 \ud83d\udfe2 (link) \u26aa \ud83d\udfe2 (link) Intel\u00ae BMG int4 float16/bfloat16 \u26aa \ud83d\udfe2 (link) \ud83d\udfe1: AWQ \ud83d\udfe2 (link) Intel\u00ae BMG int8 int8 \ud83d\udfe0 \ud83d\udfe2 (link) \u26aa \ud83d\udfe2 (link) Other# Sparsity README.md, includes different techniques such as 2:4 sparsity and block sparsity the prototype folder for other prototype features",
+       "url": "/workflows/float8_training.html",
+       "articleBody": "torchao.float8# Created On: Jan 30, 2026 | Last Updated On: Jan 30, 2026 This is a workflow for accelerating training with float8 in native PyTorch. With torch.compile on, we demonstrate e2e pretraining throughput speedups of up to 1.5x at 512 GPU / 405B parameter count scale, and up to 1.25x at 8 GPU / 8B parameter count scale. The codebase strives to stay small, hackable, debuggable with native PyTorch tooling and composable with key systems such as autograd, torch.compile and distributed. Key features# e2e pretraining speedups of up to 1.5x at 512 GPU / 405B parameter count scale, and up to 1.25x at 8 GPU / 8B parameter count scale, with performance and accuracy validated on up to 2k GPUs, via torchtitan\u2019s float8 integration seamless composability with torch.compile, DTensor, FSDP2 with float8 weight all-gather, Async TP, and PyTorch AC three recipes to trade off performance vs accuracy: tensorwise (fastest), rowwise, rowwise_with_gw_hp (most accurate) supports both NVIDIA and AMD hardware \u2139\ufe0f See the feature tracker for upcoming features. Quick Start# import torch import torch.nn as nn from torchao.float8 import Float8LinearConfig, convert_to_float8_training # create model and sample input m = ( nn.Sequential( nn.Linear(8192, 4096, bias=False), nn.Linear(4096, 128, bias=False), ) .bfloat16() .cuda() ) optimizer = torch.optim.SGD(m.parameters(), lr=0.1) # optional: filter modules from being eligible for float8 conversion def module_filter_fn(mod: torch.nn.Module, fqn: str): # don\u0027t convert the last module if fqn == \"1\": return False # don\u0027t convert linear modules with weight dimensions not divisible by 16 if isinstance(mod, torch.nn.Linear): if mod.in_features % 16 != 0 or mod.out_features % 16 != 0: return False return True # configure float8 recipe # valid recipe names: \"tensorwise\", \"rowwise\", \"rowwise_with_gw_hp\" config = Float8LinearConfig.from_recipe_name(\"tensorwise\") # convert specified `torch.nn.Linear` modules to `Float8Linear` convert_to_float8_training(m, config=config, module_filter_fn=module_filter_fn) # enable torch.compile for competitive performance m = torch.compile(m) # training loop x = torch.randn(4096, 8192, device=\"cuda\", dtype=torch.bfloat16) for _ in range(10): optimizer.zero_grad() y = m(x) y.sum().backward() optimizer.step() e2e training benchmarks# Torchtitan was used to benchmark float8 training performance. NVIDIA H100# Single-node training on 8xH100 GPUs, batch size 1, sequence length 8192, steps 100, torch.compile, FSDP2, per-op SAC pytorch version: 2.7.0a0+gitb98af95, torchao version: 0.10.0+git890e0ac8, torchtitan version: 0.0.2 Model Scaling Peak Memory (GB) Median tokens/second Speedup over baseline Llama3-8b none (bfloat16) 47.65 6150 - Llama3-8b tensorwise with float8 all-gather 47.77 7689.5 25.03% Llama3-8b rowwise with bfloat16 all-gather 47.79 6768 10.05% AMD MI300x# Single-node training on 8xMI300X GPUs, batch size 1, sequence length 8192, steps 100, torch.compile, FSDP2, per-op SAC pytorch version: 2.9.0.dev20250811+rocm6.4, torchao version 0.13.0+git4fc4068d6, torchtitan commit 2c8b5947991239913d67e2f7d22a255c3e2a9694 Model Scaling Peak Memory (GB) Median tokens/second Speedup over baseline Llama3-8b none (bfloat16) 39.09 5376.5 - Llama3-8b tensorwise with float8 all-gather 39.07 6166.0 14.68% Llama3-8b rowwise_with_gw_hp with bfloat16 all-gather 39.32 6100.0 13.46% Llama3-8b rowwise with bfloat16 all-gather 39.32 5891.0 9.57% Important notes: E2E speedups increase as M,K,N (GEMM dimensions) increase. Speedups as high as 1.5x have been measured with larger shapes (example). Rowwise scaling is better at handling outliers than tensorwise scaling, so these recipes are different points on the accuracy vs performance curve. Reproducing training benchmarks To reproduce these benchmarks, you can follow these steps: On a machine with compatible GPUs, clone torchtitan and follow local installation steps, including downloading a tokenizer. Install torchao following these steps. From the torchao/ directory, you can run the following commands to reproduce the benchmarks above: bf16 + compile: TORCHTITAN_ROOT=\u003cpath\u003e ./benchmarks/float8/training/llama3.sh float8 tensorwise with float8 all-gather + compile: TORCHTITAN_ROOT=\u003cpath\u003e FLOAT8_RECIPE_WITH_BEST_SETTINGS=\"tensorwise\" ./benchmarks/float8/training/llama3.sh float8 rowwise with bf16 all-gather + compile: TORCHTITAN_ROOT=\u003cpath\u003e FLOAT8_RECIPE_WITH_BEST_SETTINGS=\"rowwise\" ./benchmarks/float8/training/llama3.sh See the float8 training benchmarking guide for more details. Multi GPU User API# We compose with the DTensor based distributed APIs, such as FSDP, TP and SP. Please see the torchtitan repository for e2e examples on using torchao.float8 in a distributed setting. Performance# A common question about float8 training is \u201cwhen is float8 linear faster vs bfloat16?\u201d. Given the M, K, N of the forward pass through your linear, you can reference the tables below for a microbenchmark based speedup estimate on NVIDIA H100: tensorwise scaling# # reproduction: run the script below python benchmarks/float8/float8_roofline.py your_output_filename.csv --shape_gen_name sweep rowwise scaling# # reproduction: run the script below python benchmarks/float8/float8_roofline.py your_output_filename.csv --shape_gen_name sweep --float8_recipe_name rowwise rowwise_with_gw_hp scaling# # reproduction: run the script below python benchmarks/float8/float8_roofline.py your_output_filename.csv --shape_gen_name sweep --float8_recipe_name rowwise_with_gw_hp Derivation# In a bf16 linear, assume all of the time is spent in gemms. In a float8 linear, account for max_abs and casting overhead. We want to know when bf16_gemm_time \u003e fp8_gemm_time + fp8_overhead_time Or, equivalently, bf16_gemm_time - fp8_gemm_time \u003e fp8_overhead_time There are three observations we can make about the formula above: LHS \u003e 0 for large shapes, with the gemm speedup approaching 2x as M, K, N increase LHS \u003c 0 for small shapes, on NVIDIA H100 + cuBLAS RHS \u003e 0 for all shapes, bounded by memory bandwidth, framework overhead and compiler limitations For small shapes, a combination of (2) and (3) leads to speedup \u003c 1. For medium shapes, (1) and (3) are of similar magnitude and the speedup depends on M, K, N and framework and compiler behavior. For large shapes, (1) leads to speedup \u003e 1. Testing# # run single-GPU unit tests pytest test/float8/test_base.py # run single-GPU compile tests pytest test/float8/test_compile.py # run single-GPU numerics integration tests pytest test/float8/test_numerics_integration.py # run a two-GPU integration test on FSDP ./test/float8/test_fsdp.sh # run integration tests on the DTensor TP/SP integration ./test/float8/test_dtensor.sh # run integration tests on the FSDP2 integration python test/float8/test_fsdp2/test_fsdp2.py # run all of these tests ./test/float8/test_everything.sh E2E training + inference flow# The first step in the E2E is to train your model and save a checkpoint. The second step is to load the checkpoint and optionally apply inference quantization before serving the model. 1. Train model and save checkpoint# import torch from torch import nn import torch.nn.functional as F from torchao.float8.float8_linear_utils import convert_to_float8_training from torchao.float8.float8_linear import Float8Linear from torchao.float8 import convert_to_float8_training # create model and sample input m = nn.Sequential( nn.Linear(2048, 4096), nn.Linear(4096, 128), nn.Linear(128, 1), ).bfloat16().cuda() x = torch.randn(4096, 2048, device=\"cuda\", dtype=torch.bfloat16) optimizer = torch.optim.AdamW(m.parameters(), lr=1e-3) # optional: filter modules from being eligible for float8 conversion def module_filter_fn(mod: torch.nn.Module, fqn: str): # don\u0027t convert the last module if fqn == \"1\": return False # don\u0027t convert linear modules with weight dimensions not divisible by 16 if isinstance(mod, torch.nn.Linear): if mod.in_features % 16 != 0 or mod.out_features % 16 != 0: return False return True # convert specified `torch.nn.Linear` modules to `Float8Linear` convert_to_float8_training(m, module_filter_fn=module_filter_fn) # enable torch.compile for competitive performance m = torch.compile(m) # toy training loop for _ in range(10): optimizer.zero_grad() output = m(x) # use fake labels for demonstration purposes fake_labels = torch.ones_like(output) loss = F.mse_loss(output, fake_labels) loss.backward() optimizer.step() # save the model torch.save({ \u0027model\u0027: m, \u0027model_state_dict\u0027: m.state_dict(), \u0027optimizer_state_dict\u0027: optimizer.state_dict(), }, \u0027checkpoint.pth\u0027) 2. Load checkpoint and optionally apply inference quantization# There are 3 float8 inference quantization strategies that be used after training with float8: 1) weight only quantization, and 2) dynamic activation and weight quantization, and 3) static quantization. Below is an example of dynamic activation and weight quantization. For more details, examples, and inference benchmrks, see the torchao inference docs. import torch from torchao.float8.float8_linear import Float8Linear from torchao.quantization.granularity import PerTensor from torchao.quantization.quant_api import quantize_ from torchao.quantization import ( Float8DynamicActivationFloat8WeightConfig, ) # load checkpoint checkpoint = torch.load(\u0027checkpoint.pth\u0027, weights_only=False) model = checkpoint[\u0027model\u0027] model.load_state_dict(checkpoint[\u0027model_state_dict\u0027]) # optional: apply dynamic float8 quantization on both activations and weights for inference quantize_(model, Float8DynamicActivationFloat8WeightConfig(granularity=PerTensor())) # run inference x = torch.randn(1, 4096, 2048, device=\"cuda\", dtype=torch.bfloat16) with torch.inference_mode(): out = model(x) print(out)",
        "author": {
          "@type": "Organization",
          "name": "PyTorch Contributors",
@@ -1599,7 +1745,7 @@ also have three prototype quantized training workflows: <a class="reference exte
        "image": "https://pytorch.org/docs/stable/_static/img/pytorch_seo.png",
        "mainEntityOfPage": {
          "@type": "WebPage",
-         "@id": "/workflows/index.html"
+         "@id": "/workflows/float8_training.html"
        },
        "datePublished": "Jan 30, 2026T00:00:00Z",
        "dateModified": "Jan 30, 2026T00:00:00Z"
