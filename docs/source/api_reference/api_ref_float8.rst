@@ -23,6 +23,7 @@ Other float8 training types
     :nosignatures:
 
     Float8LinearConfig
+    Float8LinearRecipeName
     Float8GEMMConfig
     CastConfig
     ScalingType

@@ -804,7 +804,7 @@ def _register_qconv_weight_prepack_pass(
                 qw,
                 w_scale,
                 x_scale.args[1] if is_fp8 else x_scale,
-                0,
+                0 if is_fp8 else x_zp,
                 stride,
                 padding,
                 dilation,

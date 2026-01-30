@@ -18,25 +18,25 @@ class KernelPreference(str, Enum):
     Examples of how options affects the selected kernels can be found in tensor subclass implementations under torchao/quantization/quantize_/workflows
     """
 
+    AUTO = "auto"
     """Use the most efficient quantize and mm kernels chosen for user based on hardware and library availabilities and versions etc.
     """
-    AUTO = "auto"
 
+    TORCH = "torch"
     """Use torch native quantize and quantized mm kernels
     """
-    TORCH = "torch"
 
+    MSLK = "mslk"
     """Use quantize and quantized mm kernels from mslk library, requires mslk library
     """
-    MSLK = "mslk"
 
+    EMULATED = "emulated"
     """Emulates gemm_lowp(A, B) with gemm_fp32(A.dequantize(), B.dequantize()).
     Intended use cases are:
-    1. Running CI for product logic on hardware which does not support the 
+    1. Running CI for product logic on hardware which does not support the
        actual lowp gemm.
     2. Debugging kernel numerics issues.
     """
-    EMULATED = "emulated"
 
 
 torch.serialization.add_safe_globals([KernelPreference])
