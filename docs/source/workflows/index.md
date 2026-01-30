@@ -1,26 +1,15 @@
 # Workflows
 
-This page provides an overview of the various workflows available in torchao:
+This page provides an overview of the various workflows available in torchao.
 
-1. by where quantization is applied in the model lifecycle (training vs QAT vs PTQ vs inference) <a href="#workflows-for-training-qat-inference">(link)</a>
-2. by type of quantization being applied (float8, mxfp8, int4, etc) <a href="#workflows-status-by-dtype-hardware">(link)</a>
+## Workflow overview by training/QAT/inference
 
-## Workflows for training/QAT/inference
-
-### Training
-
-* Our main training product is for float8 quantized training, the documentation is here: [(link)](https://github.com/pytorch/ao/blob/main/torchao/float8/README.md)
-* We have three prototype quantized training workflows: mxfp8 dense [(link)](https://github.com/pytorch/ao/tree/main/torchao/prototype/mx_formats#mx-training),
-  mxfp8 MoE [(link)](https://github.com/pytorch/ao/tree/main/torchao/prototype/moe_training#mxfp8-moe-training),
-  int8 dense [(link)](https://github.com/pytorch/ao/tree/main/torchao/prototype/quantized_training)
-
-### Quantization-Aware Training (QAT)
-
-See the [QAT documentation](qat.md) for details on how to use quantization-aware training to improve model accuracy after quantization.
-
-### Inference
-
-See the [inference quantization documentation](https://github.com/pytorch/ao/blob/main/torchao/quantization/README.md) for an overview of quantization for inference workflows.
+* Training: our main training workflow is [float8 quantized training](float8_training.md). We 
+  also have three prototype quantized training workflows: [mxfp8 dense](https://github.com/pytorch/ao/tree/main/torchao/prototype/mx_formats#mx-training),
+  [mxfp8 MoE](https://github.com/pytorch/ao/tree/main/torchao/prototype/moe_training#mxfp8-moe-training),
+  [int8 dense](https://github.com/pytorch/ao/tree/main/torchao/prototype/quantized_training)
+* QAT: the [QAT documentation](qat.md) for details on how to use quantization-aware training to improve model accuracy after quantization.
+* Inference: See the [inference quantization documentation](https://github.com/pytorch/ao/blob/main/torchao/quantization/README.md) for an overview of quantization for inference workflows.
 
 ## Workflows status by dtype + hardware
 
@@ -30,7 +19,7 @@ See the [inference quantization documentation](https://github.com/pytorch/ao/blo
 
 | recommended hardware | weight | activation | quantized training | QAT | PTQ data algorithms | quantized inference |
 | -------- | ------ | ---------- | ------------------ | --- | ------------------- | ------------------- |
-| H100, B200 | float8 rowwise | float8 rowwise | 🟢 [(link)](https://github.com/pytorch/ao/tree/main/torchao/float8) | 🟢 [(link)](qat.md) | ⚪ | 🟢 [(link)](https://github.com/pytorch/ao/tree/main/torchao/quantization#a8w8-float8-dynamic-quantization-with-rowwise-scaling) |
+| H100, B200 | float8 rowwise | float8 rowwise | 🟢 [(link)](float8_training.md) | 🟢 [(link)](qat.md) | ⚪ | 🟢 [(link)](https://github.com/pytorch/ao/tree/main/torchao/quantization#a8w8-float8-dynamic-quantization-with-rowwise-scaling) |
 | H100 | int4 | float8 rowwise | ⚪ | 🟢 [(link)](qat.md) | 🟠 | 🟢 [(link)](https://github.com/pytorch/ao/blob/257d18ae1b41e8bd8d85849dd2bd43ad3885678e/torchao/quantization/quant_api.py#L1296) |
 | A100 | int4 | bfloat16 | ⚪ | 🟢 [(link)](qat.md) | 🟡: [HQQ](https://github.com/pytorch/ao/tree/main/torchao/prototype/hqq/README.md), [AWQ](https://github.com/pytorch/ao/tree/main/torchao/prototype/awq) | 🟢 [(link)](https://github.com/pytorch/ao/tree/main/torchao/quantization#a16w4-weightonly-quantization) |
 | A100 | int8 | bfloat16 | ⚪ | 🟢 [(link)](qat.md) | ⚪ | 🟢 [(link)](https://github.com/pytorch/ao/tree/main/torchao/quantization#a16w8-int8-weightonly-quantization) |
@@ -69,5 +58,6 @@ See the [inference quantization documentation](https://github.com/pytorch/ao/blo
 :hidden:
 :maxdepth: 1
 
+float8_training
 qat
 ```
