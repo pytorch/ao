@@ -16,13 +16,13 @@ This module provides a functional interface for fused:
 The fused operation reduces memory traffic by applying RoPE and quantization
 in a single pass before calling FP8 SDPA.
 
-Optionally supports Hadamard transform on Q, K, and V before quantization,
-which improves FP8 quantization quality by spreading outlier values across
-the head dimension. When Hadamard is used on V, inverse Hadamard is applied
-to the attention output to recover correct results.
+Supports multiple Hadamard transform modes to improve FP8 quantization quality:
+- "none": No Hadamard transform
+- "qkv": Hadamard on Q, K, and V (requires inverse Hadamard on output for V)
+- "v_only": Hadamard on V only (requires inverse Hadamard on output)
 """
 
-from typing import Optional, Tuple
+from typing import Literal, Optional, Tuple
 
 import torch
 from torch.nn.attention import SDPBackend, sdpa_kernel
@@ -37,6 +37,13 @@ from torchao.prototype.fp8_rope_sdpa_inference.fp8_hadamard_rope_sdpa_quantizati
 from torchao.prototype.fp8_rope_sdpa_inference.fp8_rope_sdpa_quantization import (
     fp8_rope_quantize_func,
 )
+from torchao.prototype.fp8_rope_sdpa_inference.fp8_v_hadamard_rope_sdpa_quantization import (
+    fp8_v_hadamard_rope_quantize_func,
+)
+
+# Type alias for hadamard mode
+HadamardMode = Literal["none", "qkv", "v_only"]
+
 
 # =============================================================================
 # Variant for FLUX-style inputs (sequence_dim=1)
@@ -53,7 +60,7 @@ def fp8_rope_sdpa_flux(
     is_causal: bool = False,
     scale: Optional[float] = None,
     num_chunks: Optional[int] = None,
-    use_hadamard: bool = False,
+    hadamard_mode: HadamardMode = "none",
 ) -> torch.Tensor:
     """
     FP8 RoPE + SDPA for FLUX-style inputs.
@@ -70,10 +77,11 @@ def fp8_rope_sdpa_flux(
         is_causal: Whether to apply causal masking
         scale: Optional scale factor for attention
         num_chunks: Number of chunks for parallelized quantization
-        use_hadamard: If True, apply Hadamard transform to Q, K, and V before
-            quantization to improve FP8 quantization quality by spreading
-            outliers. Inverse Hadamard is applied to the output to recover
-            correct attention results.
+        hadamard_mode: Hadamard transform mode for FP8 quantization quality:
+            - "none": No Hadamard transform (default)
+            - "qkv": Apply Hadamard to Q, K, and V before quantization
+            - "v_only": Apply Hadamard to V only before quantization
+            Both "qkv" and "v_only" require inverse Hadamard on output.
 
     Returns:
         Attention output tensor of shape (B, S, H, D)
@@ -86,11 +94,15 @@ def fp8_rope_sdpa_flux(
 
     # Fused RoPE + quantization using Triton kernel
     # Input: [B, S, H, D], Output: [B, H, S, D] (ready for SDPA)
-    if use_hadamard:
+    if hadamard_mode == "qkv":
         # Use RoPE + Hadamard (on Q, K, and V) + FP8 quantization
-        # Hadamard on V requires inverse Hadamard on output to recover correct results
         q_fp8, k_fp8, v_fp8, q_descale, k_descale, v_descale = (
             fp8_hadamard_rope_quantize_func(query, key, value, cos, sin, num_chunks)
+        )
+    elif hadamard_mode == "v_only":
+        # Use RoPE + Hadamard (on V only) + FP8 quantization
+        q_fp8, k_fp8, v_fp8, q_descale, k_descale, v_descale = (
+            fp8_v_hadamard_rope_quantize_func(query, key, value, cos, sin, num_chunks)
         )
     else:
         # Use RoPE + FP8 quantization (no Hadamard)
@@ -116,7 +128,7 @@ def fp8_rope_sdpa_flux(
 
     # Apply inverse Hadamard to recover correct attention output
     # This is needed because V was Hadamard-transformed before attention
-    if use_hadamard:
+    if hadamard_mode in ("qkv", "v_only"):
         out = inverse_hadamard_transform(out)
 
     return out
