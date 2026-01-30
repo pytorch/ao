@@ -53,9 +53,9 @@ def fp8_sdpa_context():
         scale=None,
         enable_gqa=False,
     ):
-        if dropout_p != 0.0 or attn_mask is not None or enable_gqa:
+        if dropout_p != 0.0 or attn_mask is not None:
             warnings.warn(
-                "Dropout, attention mask, and GQA are not supported for FP8 SDPA. Using regular SDPA instead."
+                "Dropout and attention mask are not supported for FP8 SDPA. Using regular SDPA instead."
             )
             return _original_sdpa(
                 query,
@@ -68,7 +68,9 @@ def fp8_sdpa_context():
                 enable_gqa=enable_gqa,
             )
         # Activate FA3 backend (required for FP8 SDPA)
-        return fp8_sdpa_parallel(query, key, value, None, 0.0, is_causal, scale, False)
+        return fp8_sdpa_parallel(
+            query, key, value, None, 0.0, is_causal, scale, enable_gqa
+        )
 
     F.scaled_dot_product_attention = fp8_wrapper
     try:

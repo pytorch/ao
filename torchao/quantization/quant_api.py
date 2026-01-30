@@ -107,9 +107,6 @@ from torchao.utils import (
     is_sm_at_least_90,
 )
 
-from .GPTQ import (
-    Int4WeightOnlyGPTQQuantizer,
-)
 from .granularity import (
     Granularity,
     PerAxis,
@@ -144,7 +141,6 @@ __all__ = [
     "swap_conv2d_1x1_to_linear",
     "Quantizer",
     "TwoStepQuantizer",
-    "Int4WeightOnlyGPTQQuantizer",
     "Int4WeightOnlyQuantizer",
     "autoquant",  # noqa: F822
     "_get_subclass_inserter",

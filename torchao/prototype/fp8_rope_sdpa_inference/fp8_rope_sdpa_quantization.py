@@ -5,16 +5,14 @@
 # LICENSE file in the root directory of this source tree.
 
 """
-Fused FP8 RoPE + Quantization for SDPA.
+Fused RoPE + FP8 Quantization kernels.
 
 This module provides Triton kernels that fuse:
 - RoPE (Rotary Position Embeddings) for Q and K
 - FP8 quantization for Q, K, V
 
-The fused kernel reduces memory traffic by:
-1. Using linearized iteration for coalesced memory access
-2. Reading Q, K, V in a single pass during max computation
-3. Applying RoPE + quantization in a second pass
+The fused 3-kernel sequence reduces memory traffic by applying RoPE + quantization in a single pass
+Note: The 3-kernel sequence is used for chunking the sequence for parallelization.
 
 Input format: [B, S, H, D] (FLUX-style)
 Output format: [B, H, S, D] (SDPA-style)
@@ -57,12 +55,12 @@ def _compute_num_chunks(tensor: torch.Tensor, S: int) -> int:
 
 @triton.autotune(
     configs=[
+        triton.Config({"BLOCK_SIZE": 256}, num_warps=4),
         triton.Config({"BLOCK_SIZE": 512}, num_warps=4),
-        triton.Config({"BLOCK_SIZE": 1024}, num_warps=4),
+        triton.Config({"BLOCK_SIZE": 1024}, num_warps=8),
         triton.Config({"BLOCK_SIZE": 2048}, num_warps=8),
-        triton.Config({"BLOCK_SIZE": 4096}, num_warps=8),
     ],
-    key=["chunk_size", "D"],
+    key=["chunk_size", "D_HALF"],
 )
 @triton.jit
 def rope_qkv_phase1_kernel(
@@ -73,16 +71,25 @@ def rope_qkv_phase1_kernel(
     # RoPE frequency tensors [S, D]
     cos_ptr,
     sin_ptr,
+    # Intermediate output tensors [B, H, S, D] - stores RoPE'd Q, K
+    q_rope_ptr,
+    k_rope_ptr,
     # Output: partial max values [B * H * num_chunks, 3]
     partial_max_ptr,
     # Input strides (for [B, S, H, D] layout)
-    stride_b,
-    stride_s,
-    stride_h,
-    stride_d,
+    stride_in_b,
+    stride_in_s,
+    stride_in_h,
+    stride_in_d,
+    # Output strides (for [B, H, S, D] layout)
+    stride_out_b,
+    stride_out_h,
+    stride_out_s,
+    stride_out_d,
     # Dimensions
     S,
     D,
+    D_HALF,
     H,
     chunk_size,
     num_chunks,
@@ -90,14 +97,16 @@ def rope_qkv_phase1_kernel(
     BLOCK_SIZE: tl.constexpr,
 ):
     """
-    Phase 1: Apply RoPE to Q and K, compute partial max for all tensors.
+    Phase 1: Apply RoPE to Q and K, store results, compute partial max.
 
     Grid: (B, H, num_chunks)
-    Each block processes chunk_size * D elements for one (batch, head) pair.
 
-    Uses linearized iteration: treats chunk_size * D as a flat array and
-    computes (s, d) coordinates from linear offsets. This ensures coalesced
-    memory access (adjacent threads access adjacent D elements).
+    Uses stride-2 access pattern to load each element exactly once:
+    - Iterates over D/2 pairs instead of D elements
+    - Loads real (even) and imag (odd) elements per pair
+    - Applies complex multiplication for RoPE rotation with FMA
+    - Uses linearized iteration for optimal thread utilization
+
     """
     pid_b = tl.program_id(axis=0)
     pid_h = tl.program_id(axis=1)
@@ -106,64 +115,105 @@ def rope_qkv_phase1_kernel(
     # Compute the S range for this chunk
     s_start = pid_chunk * chunk_size
     s_end = tl.minimum(s_start + chunk_size, S)
-    chunk_elements = (s_end - s_start) * D
+    actual_chunk_size = s_end - s_start
 
-    # Base pointer for this (batch, head)
-    base_b = pid_b * stride_b
-    base_h = pid_h * stride_h
+    # Number of pairs to process in this chunk
+    chunk_pairs = actual_chunk_size * D_HALF
+
+    # Base pointers for input [B, S, H, D]
+    in_base_b = pid_b * stride_in_b
+    in_base_h = pid_h * stride_in_h
+
+    # Base pointers for output [B, H, S, D]
+    out_base_b = pid_b * stride_out_b
+    out_base_h = pid_h * stride_out_h
 
     # Initialize max accumulators
     q_max = 0.0
     k_max = 0.0
     v_max = 0.0
 
-    # Linearized iteration over chunk_size * D elements
-    for block_start in range(0, chunk_elements, BLOCK_SIZE):
+    # Linearized iteration over chunk_size * D_HALF pairs
+    for block_start in range(0, chunk_pairs, BLOCK_SIZE):
         offs = block_start + tl.arange(0, BLOCK_SIZE)
-        mask = offs < chunk_elements
+        mask = offs < chunk_pairs
 
-        # Convert linear offset to (s, d) coordinates
-        local_s = offs // D
-        d_idx = offs % D
+        # Convert linear offset to (s, pair_idx) coordinates
+        local_s = offs // D_HALF
+        pair_idx = offs % D_HALF
         s_idx = s_start + local_s
 
-        # Compute input pointer offset - coalesced access pattern
-        ptr_offset = base_b + s_idx * stride_s + base_h + d_idx * stride_d
+        # Real (even) and imag (odd) dimension indices
+        d_real = pair_idx * 2
+        d_imag = pair_idx * 2 + 1
 
-        # Load Q, K, V values (coalesced: adjacent threads access adjacent d)
-        q_vals = tl.load(q_ptr + ptr_offset, mask=mask, other=0.0).to(tl.float32)
-        k_vals = tl.load(k_ptr + ptr_offset, mask=mask, other=0.0).to(tl.float32)
-        v_vals = tl.load(v_ptr + ptr_offset, mask=mask, other=0.0).to(tl.float32)
+        # Input offsets [B, S, H, D]
+        in_offset_real = (
+            in_base_b + s_idx * stride_in_s + in_base_h + d_real * stride_in_d
+        )
+        in_offset_imag = (
+            in_base_b + s_idx * stride_in_s + in_base_h + d_imag * stride_in_d
+        )
 
-        # Load cos/sin for RoPE (indexed by [s_idx, d_idx])
-        cos_offset = s_idx * D + d_idx
-        cos_vals = tl.load(cos_ptr + cos_offset, mask=mask, other=1.0).to(tl.float32)
-        sin_vals = tl.load(sin_ptr + cos_offset, mask=mask, other=0.0).to(tl.float32)
+        # Output offsets [B, H, S, D]
+        out_offset_real = (
+            out_base_b + out_base_h + s_idx * stride_out_s + d_real * stride_out_d
+        )
+        out_offset_imag = (
+            out_base_b + out_base_h + s_idx * stride_out_s + d_imag * stride_out_d
+        )
 
-        # RoPE rotation: compute pair indices
-        # pair_d = d ^ 1 swaps 0<->1, 2<->3, etc.
-        # This creates access pattern 1,0,3,2,5,4,... which is mostly coalesced
-        pair_d = d_idx ^ 1
-        pair_offset = base_b + s_idx * stride_s + base_h + pair_d * stride_d
+        # Load Q, K, V pairs (each element loaded exactly once)
+        q_real = tl.load(q_ptr + in_offset_real, mask=mask, other=0.0).to(tl.float32)
+        q_imag = tl.load(q_ptr + in_offset_imag, mask=mask, other=0.0).to(tl.float32)
+        k_real = tl.load(k_ptr + in_offset_real, mask=mask, other=0.0).to(tl.float32)
+        k_imag = tl.load(k_ptr + in_offset_imag, mask=mask, other=0.0).to(tl.float32)
+        v_real = tl.load(v_ptr + in_offset_real, mask=mask, other=0.0).to(tl.float32)
+        v_imag = tl.load(v_ptr + in_offset_imag, mask=mask, other=0.0).to(tl.float32)
 
-        # Load paired values for rotation (XOR pattern is cache-friendly)
-        q_pair = tl.load(q_ptr + pair_offset, mask=mask, other=0.0).to(tl.float32)
-        k_pair = tl.load(k_ptr + pair_offset, mask=mask, other=0.0).to(tl.float32)
+        # Load cos/sin for BOTH real and imag positions (NO halving)
+        # cos/sin shape is [S, D], indexed by (s_idx, d_real) and (s_idx, d_imag)
+        cos_offset_real = s_idx * D + d_real
+        cos_offset_imag = s_idx * D + d_imag
+        cos_real = tl.load(cos_ptr + cos_offset_real, mask=mask, other=1.0).to(
+            tl.float32
+        )
+        sin_real = tl.load(sin_ptr + cos_offset_real, mask=mask, other=0.0).to(
+            tl.float32
+        )
+        cos_imag = tl.load(cos_ptr + cos_offset_imag, mask=mask, other=1.0).to(
+            tl.float32
+        )
+        sin_imag = tl.load(sin_ptr + cos_offset_imag, mask=mask, other=0.0).to(
+            tl.float32
+        )
 
-        # Compute sign: -1 for even d indices, +1 for odd d indices
-        is_even = (d_idx % 2) == 0
-        sign = tl.where(is_even, -1.0, 1.0)
+        # Apply RoPE using complex multiplication with FMA
+        # Standard RoPE: (x_real + i*x_imag) * (cos + i*sin)
+        # Since cos[d_real] == cos[d_imag] and sin[d_real] == sin[d_imag] in standard RoPE,
+        # we could use just one, but we load both here (no optimization)
+        # out_real = x_real * cos - x_imag * sin
+        # out_imag = x_real * sin + x_imag * cos
+        q_rope_real = tl.math.fma(q_real, cos_real, -(q_imag * sin_real))
+        q_rope_imag = tl.math.fma(q_real, sin_imag, q_imag * cos_imag)
+        k_rope_real = tl.math.fma(k_real, cos_real, -(k_imag * sin_real))
+        k_rope_imag = tl.math.fma(k_real, sin_imag, k_imag * cos_imag)
 
-        # Compute rotated values and apply RoPE
-        q_rotated = sign * q_pair
-        k_rotated = sign * k_pair
-        q_rope = q_vals * cos_vals + q_rotated * sin_vals
-        k_rope = k_vals * cos_vals + k_rotated * sin_vals
+        # Store RoPE'd Q and K to intermediate buffers [B, H, S, D]
+        tl.store(q_rope_ptr + out_offset_real, q_rope_real.to(q_real.dtype), mask=mask)
+        tl.store(q_rope_ptr + out_offset_imag, q_rope_imag.to(q_real.dtype), mask=mask)
+        tl.store(k_rope_ptr + out_offset_real, k_rope_real.to(k_real.dtype), mask=mask)
+        tl.store(k_rope_ptr + out_offset_imag, k_rope_imag.to(k_real.dtype), mask=mask)
 
-        # Update max values (V doesn't get RoPE)
-        q_max = tl.maximum(q_max, tl.max(tl.abs(q_rope)))
-        k_max = tl.maximum(k_max, tl.max(tl.abs(k_rope)))
-        v_max = tl.maximum(v_max, tl.max(tl.abs(v_vals)))
+        # Update max values for Q and K (RoPE'd values)
+        q_max = tl.maximum(q_max, tl.max(tl.abs(q_rope_real)))
+        q_max = tl.maximum(q_max, tl.max(tl.abs(q_rope_imag)))
+        k_max = tl.maximum(k_max, tl.max(tl.abs(k_rope_real)))
+        k_max = tl.maximum(k_max, tl.max(tl.abs(k_rope_imag)))
+
+        # Update max values for V (no RoPE, just max computation)
+        v_max = tl.maximum(v_max, tl.max(tl.abs(v_real)))
+        v_max = tl.maximum(v_max, tl.max(tl.abs(v_imag)))
 
     # Store partial maxes: layout is (B * H * num_chunks, 3)
     chunk_idx = pid_b * (H * num_chunks) + pid_h * num_chunks + pid_chunk
@@ -229,8 +279,7 @@ def rope_qkv_reduce_kernel(
 
 
 # =============================================================================
-# Phase 2: RoPE + Quantize (parallel across chunks)
-# Uses linearized iteration for coalesced memory access
+# Phase 2: Quantize (parallel across chunks)
 # =============================================================================
 
 
@@ -245,14 +294,12 @@ def rope_qkv_reduce_kernel(
 )
 @triton.jit
 def rope_qkv_phase2_kernel(
-    # Input tensors [B, S, H, D]
-    q_ptr,
-    k_ptr,
+    # Intermediate tensors [B, H, S, D] - already RoPE'd Q, K
+    q_rope_ptr,
+    k_rope_ptr,
+    # Original V tensor [B, S, H, D] - needs transpose only
     v_ptr,
-    # RoPE frequency tensors [S, D]
-    cos_ptr,
-    sin_ptr,
-    # Output tensors [B, H, S, D] - transposed for SDPA
+    # Output tensors [B, H, S, D] - FP8 quantized
     q_out_ptr,
     k_out_ptr,
     v_out_ptr,
@@ -260,12 +307,12 @@ def rope_qkv_phase2_kernel(
     q_scale_ptr,
     k_scale_ptr,
     v_scale_ptr,
-    # Input strides (for [B, S, H, D] layout)
-    stride_in_b,
-    stride_in_s,
-    stride_in_h,
-    stride_in_d,
-    # Output strides (for [B, H, S, D] layout)
+    # V input strides (for [B, S, H, D] layout)
+    stride_v_in_b,
+    stride_v_in_s,
+    stride_v_in_h,
+    stride_v_in_d,
+    # Output strides (for [B, H, S, D] layout) - same for intermediate and output
     stride_out_b,
     stride_out_h,
     stride_out_s,
@@ -279,14 +326,12 @@ def rope_qkv_phase2_kernel(
     BLOCK_SIZE: tl.constexpr,
 ):
     """
-    Phase 2: Apply RoPE to Q and K, then quantize all tensors to FP8.
+    Phase 2: Quantize pre-computed RoPE'd Q, K and transpose+quantize V.
 
     Grid: (B, H, num_chunks)
 
-    Input format: [B, S, H, D]
-    Output format: [B, H, S, D] (transposed for SDPA)
-
-    Uses linearized iteration: treats chunk_size * D as a flat array.
+    Q and K are read from intermediate buffers (already RoPE'd in Phase 1).
+    V is read from original input and transposed during quantization.
     """
     pid_b = tl.program_id(axis=0)
     pid_h = tl.program_id(axis=1)
@@ -303,9 +348,11 @@ def rope_qkv_phase2_kernel(
     s_end = tl.minimum(s_start + chunk_size, S)
     chunk_elements = (s_end - s_start) * D
 
-    # Base pointers
-    in_base_b = pid_b * stride_in_b
-    in_base_h = pid_h * stride_in_h
+    # Base pointers for V input [B, S, H, D]
+    v_in_base_b = pid_b * stride_v_in_b
+    v_in_base_h = pid_h * stride_v_in_h
+
+    # Base pointers for output [B, H, S, D] - same layout for intermediate and output
     out_base_b = pid_b * stride_out_b
     out_base_h = pid_h * stride_out_h
 
@@ -319,49 +366,29 @@ def rope_qkv_phase2_kernel(
         d_idx = offs % D
         s_idx = s_start + local_s
 
-        # Input offset (B, S, H, D layout) - coalesced access
-        in_offset = in_base_b + s_idx * stride_in_s + in_base_h + d_idx * stride_in_d
-        # Output offset (B, H, S, D layout) - coalesced access
+        # Output offset [B, H, S, D] - used for reading intermediate and writing output
         out_offset = (
             out_base_b + out_base_h + s_idx * stride_out_s + d_idx * stride_out_d
         )
 
-        # Load Q, K, V values (coalesced)
-        q_vals = tl.load(q_ptr + in_offset, mask=mask, other=0.0).to(tl.float32)
-        k_vals = tl.load(k_ptr + in_offset, mask=mask, other=0.0).to(tl.float32)
-        v_vals = tl.load(v_ptr + in_offset, mask=mask, other=0.0).to(tl.float32)
-
-        # Load cos/sin for RoPE
-        cos_offset = s_idx * D + d_idx
-        cos_vals = tl.load(cos_ptr + cos_offset, mask=mask, other=1.0).to(tl.float32)
-        sin_vals = tl.load(sin_ptr + cos_offset, mask=mask, other=0.0).to(tl.float32)
-
-        # RoPE rotation: compute pair indices (XOR pattern)
-        pair_d = d_idx ^ 1
-        pair_in_offset = (
-            in_base_b + s_idx * stride_in_s + in_base_h + pair_d * stride_in_d
+        # V input offset [B, S, H, D]
+        v_in_offset = (
+            v_in_base_b + s_idx * stride_v_in_s + v_in_base_h + d_idx * stride_v_in_d
         )
 
-        # Load paired values (XOR pattern is cache-friendly)
-        q_pair = tl.load(q_ptr + pair_in_offset, mask=mask, other=0.0).to(tl.float32)
-        k_pair = tl.load(k_ptr + pair_in_offset, mask=mask, other=0.0).to(tl.float32)
+        # Load pre-computed RoPE'd Q, K from intermediate buffers
+        q_rope = tl.load(q_rope_ptr + out_offset, mask=mask, other=0.0).to(tl.float32)
+        k_rope = tl.load(k_rope_ptr + out_offset, mask=mask, other=0.0).to(tl.float32)
 
-        # Compute sign for rotation
-        is_even = (d_idx % 2) == 0
-        sign = tl.where(is_even, -1.0, 1.0)
-
-        # Compute rotated values and apply RoPE
-        q_rotated = sign * q_pair
-        k_rotated = sign * k_pair
-        q_rope = q_vals * cos_vals + q_rotated * sin_vals
-        k_rope = k_vals * cos_vals + k_rotated * sin_vals
+        # Load V from original input (no RoPE, just transpose)
+        v_vals = tl.load(v_ptr + v_in_offset, mask=mask, other=0.0).to(tl.float32)
 
         # Quantize to FP8
         q_fp8 = (q_rope * q_scale).to(tl.float8e4nv)
         k_fp8 = (k_rope * k_scale).to(tl.float8e4nv)
         v_fp8 = (v_vals * v_scale).to(tl.float8e4nv)
 
-        # Store to output (transposed layout, coalesced)
+        # Store to output (same layout as intermediate)
         tl.store(q_out_ptr + out_offset, q_fp8, mask=mask)
         tl.store(k_out_ptr + out_offset, k_fp8, mask=mask)
         tl.store(v_out_ptr + out_offset, v_fp8, mask=mask)
@@ -419,20 +446,18 @@ def fp8_rope_quantize_func(
 
     B, S, H, D = q.shape
 
+    assert D % 2 == 0, f"Head dimension D must be even for RoPE, got D={D}"
     assert cos.shape == (S, D), f"Expected cos shape [{S}, {D}], got {cos.shape}"
     assert sin.shape == (S, D), f"Expected sin shape [{S}, {D}], got {sin.shape}"
 
+    D_HALF = D // 2
+
     # Make tensors contiguous if needed
-    if not q.is_contiguous():
-        q = q.contiguous()
-    if not k.is_contiguous():
-        k = k.contiguous()
-    if not v.is_contiguous():
-        v = v.contiguous()
-    if not cos.is_contiguous():
-        cos = cos.contiguous()
-    if not sin.is_contiguous():
-        sin = sin.contiguous()
+    q = q.contiguous()
+    k = k.contiguous()
+    v = v.contiguous()
+    cos = cos.contiguous()
+    sin = sin.contiguous()
 
     # Compute number of chunks
     if num_chunks is None:
@@ -443,6 +468,10 @@ def fp8_rope_quantize_func(
     q_fp8 = torch.empty(B, H, S, D, dtype=torch.float8_e4m3fn, device=q.device)
     k_fp8 = torch.empty(B, H, S, D, dtype=torch.float8_e4m3fn, device=q.device)
     v_fp8 = torch.empty(B, H, S, D, dtype=torch.float8_e4m3fn, device=q.device)
+
+    # Allocate intermediate buffers for RoPE'd Q, K in [B, H, S, D] layout
+    q_rope_intermediate = torch.empty(B, H, S, D, dtype=q.dtype, device=q.device)
+    k_rope_intermediate = torch.empty(B, H, S, D, dtype=k.dtype, device=q.device)
 
     # Allocate temporary buffer for partial maxes
     partial_max = torch.empty(
@@ -457,21 +486,31 @@ def fp8_rope_quantize_func(
     k_descale = torch.empty(B, H, dtype=torch.float32, device=q.device)
     v_descale = torch.empty(B, H, dtype=torch.float32, device=q.device)
 
-    # Phase 1: Apply RoPE and compute partial maxes
+    # Phase 1: Apply RoPE, store to intermediate, compute partial maxes
+    # Uses FULL [S, D] cos/sin tensors (no halving)
     grid_phase1 = (B, H, num_chunks)
     rope_qkv_phase1_kernel[grid_phase1](
         q,
         k,
         v,
-        cos,
-        sin,
+        cos,  # Full size [S, D]
+        sin,  # Full size [S, D]
+        q_rope_intermediate,
+        k_rope_intermediate,
         partial_max,
+        # Input strides [B, S, H, D]
         q.stride(0),
         q.stride(1),
         q.stride(2),
         q.stride(3),
+        # Output strides [B, H, S, D]
+        q_rope_intermediate.stride(0),
+        q_rope_intermediate.stride(1),
+        q_rope_intermediate.stride(2),
+        q_rope_intermediate.stride(3),
         S,
         D,
+        D_HALF,
         H,
         chunk_size,
         num_chunks,
@@ -490,25 +529,23 @@ def fp8_rope_quantize_func(
         num_chunks,
     )
 
-    # Phase 2: Apply RoPE and quantize
+    # Phase 2: Read RoPE'd Q, K from intermediate, quantize all to FP8
     grid_phase2 = (B, H, num_chunks)
     rope_qkv_phase2_kernel[grid_phase2](
-        q,
-        k,
+        q_rope_intermediate,
+        k_rope_intermediate,
         v,
-        cos,
-        sin,
         q_fp8,
         k_fp8,
         v_fp8,
         q_scale,
         k_scale,
         v_scale,
-        # Input strides [B, S, H, D]
-        q.stride(0),
-        q.stride(1),
-        q.stride(2),
-        q.stride(3),
+        # V input strides [B, S, H, D]
+        v.stride(0),
+        v.stride(1),
+        v.stride(2),
+        v.stride(3),
         # Output strides [B, H, S, D]
         q_fp8.stride(0),
         q_fp8.stride(1),

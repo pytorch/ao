@@ -7,14 +7,12 @@
 """
 FP8 RoPE + SDPA Inference
 
-This module provides utilities for fusing RoPE (Rotary Position Embedding)
-and FP8 quantization with scaled dot-product attention
-for inference optimization.
+This module provides utilities for replacing RoPE (Rotary Position Embeddings) + SDPA
+with a RoPE + FP8 quantization fused operation into FP8 SDPA using the FA3 backend for inference optimization.
 """
 
 from torchao.prototype.fp8_rope_sdpa_inference.fp8_rope_sdpa_attention import (
     fp8_rope_sdpa_flux,
-    fp8_rope_sdpa_flux_reference,
 )
 from torchao.prototype.fp8_rope_sdpa_inference.fp8_rope_sdpa_quantization import (
     fp8_rope_quantize_func,
@@ -28,6 +26,5 @@ __all__ = [
     "fp8_rope_quantize_func",
     "fp8_rope_sdpa_context",
     "fp8_rope_sdpa_flux",
-    "fp8_rope_sdpa_flux_reference",
     "wrap_module_with_fp8_rope_sdpa",
 ]
