@@ -178,18 +178,13 @@ template <typename DtypeW>
 std::tuple<Tensor, Tensor>
 to_sparse_semi_structured_cutlass_sm9x(const Tensor& W) {
 #if defined(BUILD_TO_SPARSE_SEMI_STRUCTURED_CUTLASS_SM9X)
-  // Get device properties using raw CUDA API.
-  int device_id = W.get_device();
-  cudaDeviceProp device_prop;
-  cudaError_t err = cudaGetDeviceProperties(&device_prop, device_id);
-  STD_TORCH_CHECK(err == cudaSuccess,
-                  OPERATOR_NAME, " : cudaGetDeviceProperties failed: ",
-                  cudaGetErrorString(err));
-  const auto is_sm9x = device_prop.major == 9;
+  // Get device properties using cached helper.
+  const auto dprops = get_device_prop();
+  const auto is_sm9x = dprops->major == 9;
   if (!is_sm9x) {
     STD_TORCH_CHECK(false, OPERATOR_NAME,
-                " : Operator not supported on SM", device_prop.major, ".",
-                device_prop.minor, " for given operands");
+                " : Operator not supported on SM", dprops->major, ".",
+                dprops->minor, " for given operands");
   }
 
   // Check inputs.

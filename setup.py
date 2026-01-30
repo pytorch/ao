@@ -354,14 +354,12 @@ def get_cutlass_build_flags():
     """
     # Try nvcc then torch version
     cuda_version = get_cuda_version_from_nvcc() or torch.version.cuda
-    print("cuda version:", cuda_version)
 
     try:
         if not cuda_version:
             raise ValueError("No CUDA version found")
 
         major, minor = map(int, cuda_version.split(".")[:2])
-        print("major, minor", major, minor)
         build_sm90a = major > 12 or (major == 12 and minor >= 6)
         build_sm100a = major > 12 or (major == 12 and minor >= 8)
 
@@ -478,7 +476,6 @@ def get_extensions():
         print("If you'd like to compile ROCm extensions locally please install ROCm")
 
     use_cuda = torch.version.cuda and CUDA_HOME is not None
-    print("use cuda:", use_cuda)
     use_rocm = torch.version.hip and ROCM_HOME is not None
     extension = CUDAExtension if (use_cuda or use_rocm) else CppExtension
 
@@ -663,7 +660,6 @@ def get_extensions():
         )
         cutlass_extensions_include_dir = os.path.join(cwd, extensions_cuda_dir)
     if use_cutlass:
-        print("use_cutlass, adding extra compile args")
         extra_compile_args["nvcc"].extend(
             [
                 "-DTORCHAO_USE_CUTLASS",
@@ -771,13 +767,6 @@ def get_extensions():
 
     # Only build the cutlass_90a extension if sm90a is in the architecture flags
     # and if torch version >= 2.10
-
-    print(f"nvcc version: {get_cuda_version_from_nvcc()}")
-    print(f"torch.version.cuda: {torch.version.cuda}")
-    print(f"build_for_sm90a: {build_for_sm90a}")
-    print("cutlass_90a_sources:", cutlass_90a_sources)
-    print("torch_version_at_least_2_10:", _torch_version_at_least("2.10.0"))
-
     if (
         cutlass_90a_sources is not None
         and len(cutlass_90a_sources) > 0
