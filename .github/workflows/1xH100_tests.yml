@@ -54,3 +54,4 @@ jobs:
         python test/quantization/quantize_/workflows/int4/test_int4_preshuffled_tensor.py
         ./test/float8/test_everything_single_gpu.sh
         pytest test/prototype/mx_formats/ -s
+        pytest test/prototype/moe_training/test_scaled_grouped_mm.py -v -s -k mx
