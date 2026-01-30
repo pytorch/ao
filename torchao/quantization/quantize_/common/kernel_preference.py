@@ -28,6 +28,7 @@ class KernelPreference(str, Enum):
 
     MSLK = "mslk"
     """Use quantize and quantized mm kernels from mslk library, requires mslk library
+    Reference: https://github.com/meta-pytorch/MSLK
     """
 
     EMULATED = "emulated"
