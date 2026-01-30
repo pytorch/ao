@@ -1069,7 +1069,7 @@ class Int8DynamicActivationInt8WeightConfig(AOBaseConfig):
     granularity: Granularity = PerRow()
     set_inductor_config: bool = True
     version: int = 1
-    kernel_preference: KernelPreference = KernelPreference.TORCH
+    kernel_preference: KernelPreference = KernelPreference.AUTO
 
     def __post_init__(self):
         torch._C._log_api_usage_once(

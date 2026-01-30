@@ -251,7 +251,7 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
             weight_cpu.dequantize(), weight_pinned.dequantize(), atol=0, rtol=0
         )
 
-    @common_utils.parametrize("kernel_preference", ["TORCH", "TRITON"])
+    @common_utils.parametrize("kernel_preference", ["AUTO", "TORCH", "TRITON"])
     def test_kernel_preference(self, kernel_preference):
         """Test that kernel routing works correctly"""
         M, K, N = 32, 64, 128

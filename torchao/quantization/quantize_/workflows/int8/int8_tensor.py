@@ -78,7 +78,7 @@ class Int8Tensor(TorchAOBaseTensor):
         act_quant_scale: Optional[torch.Tensor] = None,
         act_pre_scale: Optional[torch.Tensor] = None,
         act_quant_kwargs: Optional[QuantizeTensorToInt8Kwargs] = None,
-        kernel_preference: KernelPreference = KernelPreference.TORCH,
+        kernel_preference: KernelPreference = KernelPreference.AUTO,
     ):
         kwargs = {
             "device": qdata.device,
@@ -96,7 +96,7 @@ class Int8Tensor(TorchAOBaseTensor):
         act_quant_scale: Optional[torch.Tensor] = None,
         act_pre_scale: Optional[torch.Tensor] = None,
         act_quant_kwargs: Optional[QuantizeTensorToInt8Kwargs] = None,
-        kernel_preference: KernelPreference = KernelPreference.TORCH,
+        kernel_preference: KernelPreference = KernelPreference.AUTO,
     ):
         super().__init__()
         self.qdata = qdata
@@ -133,7 +133,7 @@ class Int8Tensor(TorchAOBaseTensor):
         act_quant_kwargs: Optional[QuantizeTensorToInt8Kwargs] = None,
         act_quant_scale: Optional[torch.Tensor] = None,
         act_pre_scale: Optional[torch.Tensor] = None,
-        kernel_preference: KernelPreference = KernelPreference.TORCH,
+        kernel_preference: KernelPreference = KernelPreference.AUTO,
     ):
         """Create Int8Tensor from high-precision tensor"""
         block_size = get_block_size(hp_tensor.shape, granularity)
@@ -244,7 +244,25 @@ def _(func, types, args, kwargs):
 
         tmp = x_vals_int8.reshape(-1, x_vals_int8.shape[-1])
 
-        if weight_tensor.kernel_preference == KernelPreference.TRITON:
+        kernel_choice = None
+        if weight_tensor.kernel_preference == KernelPreference.AUTO:
+            # AUTO: prefer Triton on CUDA for rowwise scaled tensors
+            is_rowwise = tuple(weight_tensor.block_size) == (1,) * (
+                weight_tensor.dim() - 1
+            ) + (weight_tensor.shape[-1],)
+            kernel_choice = (
+                "triton" if tmp.device.type == "cuda" and is_rowwise else "torch"
+            )
+        elif weight_tensor.kernel_preference == KernelPreference.TRITON:
+            kernel_choice = "triton"
+        elif weight_tensor.kernel_preference == KernelPreference.TORCH:
+            kernel_choice = "torch"
+        else:
+            raise ValueError(
+                f"Unsupported kernel_preference: {weight_tensor.kernel_preference}"
+            )
+
+        if kernel_choice == "triton":
             # Triton kernel handles both row and col scaling directly
             y = torch.ops.torchao.scaled_int8_mm(
                 tmp,
@@ -252,7 +270,7 @@ def _(func, types, args, kwargs):
                 x_scales.reshape(-1, 1),
                 w_scales.reshape(-1, 1) if w_scales.numel() > 1 else w_scales,
             )
-        elif weight_tensor.kernel_preference == KernelPreference.TORCH:
+        elif kernel_choice == KernelPreference.TORCH:
             # PyTorch kernel only applies row scaling, apply col scaling separately
             intermediate_dtype = (
                 torch.float if x_scales.dtype == torch.half else x_scales.dtype
@@ -261,10 +279,6 @@ def _(func, types, args, kwargs):
                 tmp, w_vals_int8_t, x_scales.reshape(-1, 1).to(intermediate_dtype)
             ).to(output_dtype)
             y = y_dot_scaled * w_scales.flatten()
-        else:
-            raise ValueError(
-                f"Only 'pytorch' and 'triton' are supported for mm_config, got {weight_tensor.mm_config}"
-            )
 
         y = y.reshape(*x_vals_int8.shape[:-1], y.shape[-1])
 
