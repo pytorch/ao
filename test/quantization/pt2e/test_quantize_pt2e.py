@@ -74,7 +74,6 @@ from torchao.testing.pt2e.utils import PT2EQuantizationTestCase
 from torchao.utils import get_current_accelerator_device, torch_version_at_least
 
 DEVICE_LIST = ["cpu"] + (["cuda"] if TEST_CUDA else []) + (["xpu"] if TEST_XPU else [])
-_DEVICE = get_current_accelerator_device()
 
 if torch_version_at_least("2.7.0"):
     from torch.testing._internal.common_utils import (
@@ -2319,8 +2318,9 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
                 return x
 
         if TEST_CUDA or TEST_XPU:
-            m = M().train().to(_DEVICE)
-            example_inputs = (torch.randn(1, 3, 3, 3).to(_DEVICE),)
+            device = get_current_accelerator_device()
+            m = M().train().to(device)
+            example_inputs = (torch.randn(1, 3, 3, 3).to(device),)
         else:
             m = M().train()
             example_inputs = (torch.randn(1, 3, 3, 3),)

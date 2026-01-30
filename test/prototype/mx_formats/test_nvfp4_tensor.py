@@ -117,13 +117,13 @@ def test_nvfp4_reconstruction(dtype, shape, use_per_tensor_scale):
 def test_nvfp4_swizzled_scales_construction(is_swizzled_scales, shape):
     """
     Test that NVFP4Tensor can be constructed with swizzled scales and
-    that the _is_swizzled_scales flag is set correctly.
+    that the is_swizzled_scales flag is set correctly.
     """
 
     data = torch.randn(*shape, device="cuda", dtype=torch.bfloat16)
 
     tensor = NVFP4Tensor.to_nvfp4(data, is_swizzled_scales=is_swizzled_scales)
-    assert tensor._is_swizzled_scales == is_swizzled_scales
+    assert tensor.is_swizzled_scales == is_swizzled_scales
     reconstructed = tensor.dequantize(torch.bfloat16)
     assert reconstructed.shape == data.shape
 
@@ -167,7 +167,7 @@ def test_nvfp4_swizzled_scales_slicing(slice_dim, slice_spec):
     data = torch.randn(M, K, device="cuda", dtype=torch.bfloat16)
 
     tensor = NVFP4Tensor.to_nvfp4(data, is_swizzled_scales=True)
-    assert tensor._is_swizzled_scales == True
+    assert tensor.is_swizzled_scales == True
 
     if slice_dim == 0:
         sliced_tensor = tensor[slice_spec, :]
@@ -175,7 +175,7 @@ def test_nvfp4_swizzled_scales_slicing(slice_dim, slice_spec):
         sliced_tensor = tensor[:, slice_spec]
 
     # Verify sliced tensor maintains swizzled state
-    assert sliced_tensor._is_swizzled_scales == True
+    assert sliced_tensor.is_swizzled_scales == True
 
     # Verify sliced tensor can be dequantized
     sliced_reconstructed = sliced_tensor.dequantize(torch.bfloat16)
@@ -305,8 +305,8 @@ def test_nvfp4_swizzled_scales_serialization():
     tensor_list, ctx = original_tensor.__tensor_flatten__()
 
     # Verify swizzled flag is preserved in context
-    assert "_is_swizzled_scales" in ctx
-    assert ctx["_is_swizzled_scales"] == True
+    assert "is_swizzled_scales" in ctx
+    assert ctx["is_swizzled_scales"] == True
 
     # Test deserialization
     inner_tensors = {}
@@ -318,7 +318,7 @@ def test_nvfp4_swizzled_scales_serialization():
     )
 
     # Verify the swizzled state is preserved
-    assert reconstructed_tensor._is_swizzled_scales == True
+    assert reconstructed_tensor.is_swizzled_scales == True
 
     # Verify functionality is preserved
     original_dq = original_tensor.dequantize(torch.bfloat16)
