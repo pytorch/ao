@@ -3,7 +3,6 @@
 #
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
-from enum import Enum
 from typing import Optional
 
 import torch
@@ -12,12 +11,6 @@ import torch.nn.functional as F
 from torchao.quantization.quantize_.common import (
     _choose_quant_func_and_quantize_tensor,
 )
-
-
-class SmoothQuantStep(str, Enum):
-    PREPARE = "prepare"
-    CONVERT = "convert"
-    PREPARE_FOR_LOADING = "prepare_for_loading"
 
 
 class SmoothQuantObserver(torch.nn.Module):
