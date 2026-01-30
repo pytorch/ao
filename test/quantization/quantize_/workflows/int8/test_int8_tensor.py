@@ -340,7 +340,7 @@ class TestInt8StaticQuant(TorchAOIntegrationTestCase):
         self.assertIn("PerRow(dim=-1)", str(cm.exception))
 
     @common_utils.parametrize("granularity", [PerRow(), PerTensor()])
-    def test_static_act_quant_slice_and_select(self, granularity, device):
+    def test_static_act_quant_slice_and_select(self, granularity):
         """Test static activation quantization with slice and select operations.
 
         This test validates that PerRow(dim=-1) and PerTensor() work correctly
