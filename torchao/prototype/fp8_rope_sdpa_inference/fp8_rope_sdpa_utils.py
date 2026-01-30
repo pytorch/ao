@@ -27,6 +27,7 @@ from torch.nn.attention import (
 )
 
 from torchao.prototype.fp8_rope_sdpa_inference.fp8_rope_sdpa_attention import (
+    HadamardMode,
     fp8_rope_sdpa_flux,
 )
 from torchao.prototype.fp8_sdpa_inference.fp8_sdpa_attention import (
@@ -118,18 +119,20 @@ class FP8RoPESDPAFluxAttnProcessor:
     FP8 quantization quality by spreading outlier values.
 
     Args:
-        use_hadamard: If True, apply Hadamard transform before FP8 quantization.
-            This can improve quantization quality at the cost of additional
-            computation for the inverse Hadamard on output.
+        hadamard_mode: Hadamard transform mode for FP8 quantization quality:
+            - "none": No Hadamard transform (default)
+            - "qkv": Apply Hadamard to Q, K, and V before quantization
+            - "v_only": Apply Hadamard to V only before quantization
+            Both "qkv" and "v_only" require inverse Hadamard on output.
     """
 
-    def __init__(self, use_hadamard: bool = False):
+    def __init__(self, hadamard_mode: HadamardMode = "none"):
         if not hasattr(F, "scaled_dot_product_attention"):
             raise ImportError(
                 f"{self.__class__.__name__} requires PyTorch 2.0. "
                 "Please upgrade your pytorch version."
             )
-        self.use_hadamard = use_hadamard
+        self.hadamard_mode = hadamard_mode
 
     def __call__(
         self,
@@ -177,7 +180,7 @@ class FP8RoPESDPAFluxAttnProcessor:
                 attn_mask=None,  # attention_mask not supported for FP8
                 is_causal=False,
                 scale=None,
-                use_hadamard=self.use_hadamard,
+                hadamard_mode=self.hadamard_mode,
             )
         else:
             # No RoPE needed, use FP8 SDPA directly
@@ -219,7 +222,7 @@ class FP8RoPESDPAFluxAttnProcessor:
 
 
 def wrap_module_with_fp8_rope_sdpa(
-    module: nn.Module, use_hadamard: bool = False
+    module: nn.Module, hadamard_mode: HadamardMode = "none"
 ) -> nn.Module:
     """
     Wrap a module to use fused FP8 RoPE + SDPA.
@@ -235,16 +238,19 @@ def wrap_module_with_fp8_rope_sdpa(
 
     Args:
         module: The module to wrap (e.g., a FLUX transformer)
-        use_hadamard: If True, apply Hadamard transform before FP8 quantization.
-            This can improve quantization quality by spreading outlier values
-            across the head dimension, at the cost of additional computation
-            for the inverse Hadamard on output.
+        hadamard_mode: Hadamard transform mode for FP8 quantization quality:
+            - "none": No Hadamard transform (default)
+            - "qkv": Apply Hadamard to Q, K, and V before quantization
+            - "v_only": Apply Hadamard to V only before quantization
+            Both "qkv" and "v_only" can improve quantization quality by
+            spreading outlier values across the head dimension, at the cost
+            of additional computation for the inverse Hadamard on output.
 
     Returns:
         The wrapped module with fused FP8 RoPE + SDPA attention
     """
     # Find all FluxAttention modules and replace their processor
-    fp8_processor = FP8RoPESDPAFluxAttnProcessor(use_hadamard=use_hadamard)
+    fp8_processor = FP8RoPESDPAFluxAttnProcessor(hadamard_mode=hadamard_mode)
 
     for name, submodule in module.named_modules():
         # Check if this is a FluxAttention module (has a processor attribute)
