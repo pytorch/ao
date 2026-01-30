@@ -56,19 +56,19 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
         self.test_shape = (32, 20)
         self.dtype = torch.bfloat16
         self.batch_size = 32
-        self._DEVICE = get_current_accelerator_device()
 
         torch.manual_seed(42)
 
     @common_utils.parametrize("config", INT8_TEST_CONFIGS)
-    def test_creation_and_attributes(self, config):
+    @common_utils.parametrize("device", get_current_accelerator_device)
+    def test_creation_and_attributes(self, config, device):
         """Test tensor creation, dtypes, and ranges"""
         linear = torch.nn.Linear(
             self.test_shape[1],
             self.test_shape[0],
             bias=False,
             dtype=self.dtype,
-            device=self._DEVICE,
+            device=device,
         )
         quantize_(linear, config)
 
@@ -89,6 +89,7 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
     @common_utils.parametrize("dtype", [torch.bfloat16, torch.float32])
     @common_utils.parametrize("compile", [True, False])
     @common_utils.parametrize("config", INT8_TEST_CONFIGS)
+    @common_utils.parametrize("device", get_current_accelerator_device)
     @common_utils.parametrize(
         "sizes",
         [
@@ -100,6 +101,7 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
         self,
         dtype: torch.dtype,
         config,
+        device,
         compile: bool,
         sizes: tuple,
     ):
@@ -107,8 +109,8 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
         torch.compiler.reset()
 
         M, N, K = sizes
-        input_tensor = torch.randn(*M, K, dtype=dtype, device=self._DEVICE)
-        model = ToyTwoLinearModel(K, N, K, dtype=dtype, device=self._DEVICE).eval()
+        input_tensor = torch.randn(*M, K, dtype=dtype, device=device)
+        model = ToyTwoLinearModel(K, N, K, dtype=dtype, device=device).eval()
         model_q = copy.deepcopy(model)
 
         quantize_(model_q, config)
@@ -164,12 +166,13 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
             _ = dummy.weight[::2]
 
     @common_utils.parametrize("config", INT8_TEST_CONFIGS)
-    def test_index_select(self, config):
+    @common_utils.parametrize("device", get_current_accelerator_device)
+    def test_index_select(self, config, device):
         """test that `x_0 = x[0]` works when `x` is a 2D quantized tensor."""
         N, K = 256, 512
-        x = torch.randn(N, K, device=self._DEVICE, dtype=torch.bfloat16)
+        x = torch.randn(N, K, device=device, dtype=torch.bfloat16)
         linear = torch.nn.Linear(
-            K, N, bias=False, dtype=torch.bfloat16, device=self._DEVICE
+            K, N, bias=False, dtype=torch.bfloat16, device=device
         )
         linear.weight.data = x
 
@@ -194,10 +197,11 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
             )
 
     @common_utils.parametrize("config", INT8_TEST_CONFIGS)
-    def test_dequantization_accuracy(self, config):
+    @common_utils.parametrize("device", get_current_accelerator_device)
+    def test_dequantization_accuracy(self, config, device):
         """Test dequantization accuracy separately"""
         linear = torch.nn.Linear(
-            256, 512, bias=False, dtype=torch.bfloat16, device=self._DEVICE
+            256, 512, bias=False, dtype=torch.bfloat16, device=device
         )
         weight_fp = copy.deepcopy(linear.weight)
         quantize_(linear, config)
@@ -212,20 +216,21 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
     @unittest.skipIf(
         not torch_version_at_least("2.7.0"), "torch 2.6.0 and below has custom fx pass"
     )
-    def test_available_gpu_kernels(self):
+    @common_utils.parametrize("device", get_current_accelerator_device)
+    def test_available_gpu_kernels(self, device):
         """Check which GPU kernels are used"""
         torch.compiler.reset()
 
         M, K, N = 128, 256, 512
         m = torch.nn.Sequential(
-            torch.nn.Linear(K, N, device=self._DEVICE, dtype=torch.bfloat16)
+            torch.nn.Linear(K, N, device=device, dtype=torch.bfloat16)
         )
 
         config = Int8DynamicActivationInt8WeightConfig(version=2)
         quantize_(m, config)
 
         m = torch.compile(m)
-        x = torch.randn(M, K, device=self._DEVICE, dtype=torch.bfloat16)
+        x = torch.randn(M, K, device=device, dtype=torch.bfloat16)
 
         out, code = run_and_get_code(m, x)
 
@@ -264,15 +269,15 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
 class TestInt8StaticQuant(TorchAOIntegrationTestCase):
     @common_utils.parametrize("granularity", [PerRow(), PerTensor()])
     @common_utils.parametrize("dtype", [torch.bfloat16])
-    def test_static_activation_per_row_int8_weight(self, granularity, dtype):
+    @common_utils.parametrize("device", get_current_accelerator_device)
+    def test_static_activation_per_row_int8_weight(self, granularity, dtype, device):
         torch.compiler.reset()
 
         M, N, K = 128, 128, 128
 
-        _DEVICE = get_current_accelerator_device()
-        input_tensor = torch.randn(M, K, dtype=dtype, device=_DEVICE)
+        input_tensor = torch.randn(M, K, dtype=dtype, device=device)
 
-        model = torch.nn.Linear(K, N, bias=False).eval().to(device=_DEVICE, dtype=dtype)
+        model = torch.nn.Linear(K, N, bias=False).eval().to(device=device, dtype=dtype)
         model_static_quant = copy.deepcopy(model)
         model_dynamic_quant = copy.deepcopy(model)
 
@@ -401,7 +406,8 @@ class TestInt8StaticQuant(TorchAOIntegrationTestCase):
         self.assertGreater(error, 15, f"Quantization SQNR too low: {error}")
 
     @common_utils.parametrize("dtype", [torch.bfloat16])
-    def test_int8_weight_only_v2_correct_eps(self, dtype):
+    @common_utils.parametrize("device", get_current_accelerator_device)
+    def test_int8_weight_only_v2_correct_eps(self, dtype, device):
         """
         Ensure that v2 of Int8WeightOnlyConfig uses the correct eps value.
         This test will fail if we use bfloat16 eps
@@ -409,12 +415,11 @@ class TestInt8StaticQuant(TorchAOIntegrationTestCase):
         torch.manual_seed(42)
 
         # Create test model
-        _DEVICE = get_current_accelerator_device()
-        model = ToyTwoLinearModel(256, 128, 256, dtype=dtype, device=_DEVICE).eval()
+        model = ToyTwoLinearModel(256, 128, 256, dtype=dtype, device=device).eval()
         model_baseline = copy.deepcopy(model)
 
         # Create input
-        input_tensor = torch.randn(32, 256, dtype=dtype, device=_DEVICE)
+        input_tensor = torch.randn(32, 256, dtype=dtype, device=device)
 
         # Get baseline output
         output_baseline = model_baseline(input_tensor)
