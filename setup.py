@@ -789,9 +789,10 @@ def get_extensions():
                 "-DTORCH_TARGET_VERSION=0x020a000000000000",
             ]
         )
+        # stable ABI cutlass_90a module
         ext_modules.append(
             extension(
-                "torchao._C_cutlass_90a_stable",
+                "torchao._C_cutlass_90a",
                 cutlass_90a_sources,
                 py_limited_api=True,
                 extra_compile_args=cutlass_90a_extra_compile_args,
