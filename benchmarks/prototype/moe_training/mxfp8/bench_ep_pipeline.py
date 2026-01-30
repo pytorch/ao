@@ -158,7 +158,6 @@ def standard_pipeline(
         expert_weights_t,
         offs=offsets,
         out_dtype=torch.bfloat16,
-        use_cuda_kernel_for_blocked_layout=True,
         wgrad_with_hp=True,
     )
 
@@ -227,7 +226,6 @@ def mxfp8_pipeline(
         expert_weights_t,
         offs=mx_group_offsets,
         block_size=block_size,
-        use_cuda_kernel_for_blocked_layout=True,
         wgrad_with_hp=True,
     )
 
