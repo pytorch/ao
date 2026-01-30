@@ -24,7 +24,6 @@ from torch.testing._internal.common_device_type import (
 from torch.testing._internal.common_utils import (
     IS_MACOS,
     IS_WINDOWS,
-    TEST_WITH_ROCM,
     slowTest,
 )
 from torch.testing._internal.inductor_utils import HAS_CPU
@@ -175,7 +174,7 @@ def make_dynamic_cls(cls, xfail_prop="_expected_failure_dynamic"):
     )
 
 
-if RUN_CPU and not TEST_WITH_ROCM and torch_version_at_least("2.8.0"):
+if RUN_CPU and (torch.version.hip is None) and torch_version_at_least("2.8.0"):
 
     class BaseTest(NamedTuple):
         name: str
