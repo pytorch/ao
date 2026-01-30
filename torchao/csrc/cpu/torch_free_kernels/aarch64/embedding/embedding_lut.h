@@ -14,7 +14,7 @@
 #include <cassert>
 #include <vector>
 
-namespace torchao::kernels::cpu::aarch64::embedding {
+namespace torchao::cpu::aarch64::embedding {
 
 /**
  * @brief Calculates the size in bytes for a single row of packed embeddings.
@@ -377,6 +377,6 @@ inline void dequantize_embedding_row_at_idx_lut(
     vst1q_f32(out + j + 12, out3);
   }
 }
-} // namespace torchao::kernels::cpu::aarch64::embedding
+} // namespace torchao::cpu::aarch64::embedding
 
 #endif // defined(__aarch64__) || defined(__ARM_NEON)

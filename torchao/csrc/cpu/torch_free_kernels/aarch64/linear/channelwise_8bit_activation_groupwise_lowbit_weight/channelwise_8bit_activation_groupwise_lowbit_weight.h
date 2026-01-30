@@ -17,7 +17,7 @@
 #include <torchao/csrc/cpu/torch_free_kernels/aarch64/linear/channelwise_8bit_activation_groupwise_lowbit_weight/kernel_1x4x16_f32_neondot-impl.h>
 #include <torchao/csrc/cpu/torch_free_kernels/aarch64/linear/channelwise_8bit_activation_groupwise_lowbit_weight/kernel_1x8x16_f32_neondot-impl.h>
 
-namespace torchao::kernels::cpu::aarch64::linear::
+namespace torchao::cpu::aarch64::linear::
     channelwise_8bit_activation_groupwise_lowbit_weight {
 
 inline size_t packed_activations_size(
@@ -148,7 +148,7 @@ void pack_weights_with_lut(
   (void)nr; // unused
   (void)kr; // unused
   (void)sr; // unused
-  torchao::kernels::cpu::aarch64::linear::
+  torchao::cpu::aarch64::linear::
       channelwise_8bit_activation_groupwise_lowbit_weight::weight_packing::
           pack_weights_with_lut<weight_nbit, nr_, kr_, sr_>(
               packed_weights,
@@ -298,6 +298,6 @@ void kernel_1x8x16_f32_neondot(
 }
 
 } // namespace
-  // torchao::kernels::cpu::aarch64::linear::channelwise_8bit_activation_groupwise_lowbit_weight
+  // torchao::cpu::aarch64::linear::channelwise_8bit_activation_groupwise_lowbit_weight
 
 #endif // defined(__aarch64__) || defined(__ARM_NEON)

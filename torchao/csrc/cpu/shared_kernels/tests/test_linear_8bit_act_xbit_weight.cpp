@@ -16,7 +16,7 @@
 
 #if defined(TORCHAO_ENABLE_KLEIDI)
 #include <torchao/csrc/cpu/torch_free_kernels/aarch64/kleidi/kai_matmul_clamp_f32_qai8dxp_qsi4c32p.h>
-using namespace torchao::kernels::cpu::aarch64::kleidi::
+using namespace torchao::cpu::aarch64::kleidi::
     kai_matmul_clamp_f32_qai8dxp_qsi4c32p;
 #endif // TORCHAO_ENABLE_KLEIDI
 
@@ -27,7 +27,7 @@ using namespace torchao::ops::linear_8bit_act_xbit_weight;
 
 template <int weight_nbit, bool has_weight_zeros, bool has_bias, bool has_clamp, bool has_lut = false>
 UKernelConfig get_ukernel_config() {
-  namespace kernel = torchao::kernels::cpu::aarch64::linear::
+  namespace kernel = torchao::cpu::aarch64::linear::
       channelwise_8bit_activation_groupwise_lowbit_weight;
 
   int preferred_alignment = 16;
@@ -213,7 +213,7 @@ enum kai_kernel_id {
 
 template <typename kernel_struct>
 UKernelConfig get_ukernel_config_kleidi_impl() {
-  namespace op = torchao::kernels::cpu::aarch64::kleidi::
+  namespace op = torchao::cpu::aarch64::kleidi::
       kai_matmul_clamp_f32_qai8dxp_qsi4c32p;
 
   auto uk = kernel_struct::get_ukernel();

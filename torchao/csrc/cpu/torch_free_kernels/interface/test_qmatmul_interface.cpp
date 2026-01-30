@@ -297,7 +297,7 @@ struct test_channelwise_8bit_channelwise_8bit_b<
             m, k, n, a_has_zeros, a_has_zeros, false, true, stride);
 
     int a_stride_m, b_stride_n;
-    auto kernel = torchao::kernels::cpu::quantized_matmul::
+    auto kernel = torchao::cpu::quantized_matmul::
         get_int8_a_int8_b_channelwise_qmatmul(
             m, n, k, false, true, a_stride_m, b_stride_n);
     a_stride_m = a_stride_m * stride;
@@ -563,7 +563,7 @@ static void test_fp32_a_input_channelwise_8bit_b(
   test_case.execute(beta);
 
   int a_stride_m, b_stride_n;
-  auto kernel = torchao::kernels::cpu::quantized_matmul::
+  auto kernel = torchao::cpu::quantized_matmul::
       get_fp32_a_input_channelwise_8bit_b_f32_c_matmul(
           m, n, k, false, false, a_stride_m, b_stride_n);
   b_stride_n = b_stride_n * stride;

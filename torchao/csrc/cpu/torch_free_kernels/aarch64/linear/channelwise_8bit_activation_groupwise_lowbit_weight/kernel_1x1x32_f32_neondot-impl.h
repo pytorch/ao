@@ -11,7 +11,7 @@
 #include <torchao/csrc/cpu/torch_free_kernels/aarch64/bitpacking/bitpack.h>
 #include <cassert>
 
-namespace torchao::kernels::cpu::aarch64::linear::
+namespace torchao::cpu::aarch64::linear::
     channelwise_8bit_activation_groupwise_lowbit_weight::kernel {
 
 namespace internal {
@@ -174,6 +174,6 @@ void kernel_1x1x32_f32_neondot(
 }
 
 } // namespace
-  // torchao::kernels::cpu::aarch64::linear::channelwise_8bit_activation_groupwise_lowbit_weight::kernel
+  // torchao::cpu::aarch64::linear::channelwise_8bit_activation_groupwise_lowbit_weight::kernel
 
 #endif // defined(__aarch64__) || defined(__ARM_NEON)

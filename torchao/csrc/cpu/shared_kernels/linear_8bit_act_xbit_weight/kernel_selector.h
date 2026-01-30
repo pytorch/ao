@@ -97,7 +97,7 @@ void register_ukernel_config_universal(
       torchao::ops::PackedWeightsType::linear_8bit_act_xbit_weight_universal,
       weight_nbit);
 
-  namespace kernel = torchao::kernels::cpu::aarch64::linear::
+  namespace kernel = torchao::cpu::aarch64::linear::
       channelwise_8bit_activation_groupwise_lowbit_weight;
 
   constexpr bool has_lut = false;
@@ -181,7 +181,7 @@ void register_ukernel_config_lut(
     int preferred_alignment = 16;
 
     #if defined(TORCHAO_ENABLE_ARM_NEON_DOT)
-    namespace kernel = torchao::kernels::cpu::aarch64::linear::
+    namespace kernel = torchao::cpu::aarch64::linear::
       channelwise_8bit_activation_groupwise_lowbit_weight;
 
     if (!cpuinfo_has_arm_neon_dot()) {
@@ -232,7 +232,7 @@ void register_ukernel_config_lut(
 template <typename kernel_struct>
 UKernelConfig::linear_config_type
 get_linear_config_kleidi(int n_step, int nr, int kr, int sr) {
-  namespace op = torchao::kernels::cpu::aarch64::kleidi::
+  namespace op = torchao::cpu::aarch64::kleidi::
       kai_matmul_clamp_f32_qai8dxp_qsi4c32p;
   assert(n_step == kernel_struct::get_ukernel().get_n_step());
   assert(nr == kernel_struct::get_ukernel().get_nr());
@@ -256,7 +256,7 @@ void register_ukernel_config_kleidi(
     throw std::runtime_error("Failed to initialize cpuinfo!");
   }
   check_format(format, torchao::ops::PackedWeightsType::linear_8bit_act_xbit_weight_kleidi_ai, weight_nbit);
-  namespace op = torchao::kernels::cpu::aarch64::kleidi::
+  namespace op = torchao::cpu::aarch64::kleidi::
       kai_matmul_clamp_f32_qai8dxp_qsi4c32p;
 
   auto uk = UKernelConfig::make(

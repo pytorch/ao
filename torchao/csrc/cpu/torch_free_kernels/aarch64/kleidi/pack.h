@@ -12,7 +12,7 @@
 #include <kai/ukernels/matmul/pack/kai_lhs_quant_pack_qai8dxp_f32.h>
 #include <kai/ukernels/matmul/pack/kai_rhs_pack_nxk_qsi4c32p_qsu4c32s1s0.h>
 
-namespace torchao::kernels::cpu::aarch64::kleidi {
+namespace torchao::cpu::aarch64::kleidi {
 namespace kai_matmul_clamp_f32_qai8dxp_qsi4c32p {
 // All the kernels in this namespace use following packing interface/routines.
 // TODO: move these to Kleidi as interfaces?
@@ -115,4 +115,4 @@ lhs_packing get_lhs_packing() {
 }
 
 } // namespace kai_matmul_clamp_f32_qai8dxp_qsi4c32p
-} // namespace torchao::kernels::cpu::aarch64::kleidi
+} // namespace torchao::cpu::aarch64::kleidi

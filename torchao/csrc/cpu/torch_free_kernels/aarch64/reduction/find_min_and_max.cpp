@@ -9,7 +9,7 @@
 #include <torchao/csrc/cpu/torch_free_kernels/aarch64/reduction/reduction.h>
 #include <cassert>
 
-void torchao::kernels::cpu::aarch64::reduction::find_min_and_max(
+void torchao::cpu::aarch64::reduction::find_min_and_max(
     float32_t& min,
     float32_t& max,
     const float32_t* vals,

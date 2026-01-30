@@ -23,9 +23,9 @@ TEST(FallbackBitpackingTest, PackUnpack8_uint1) {
   std::vector<uint8_t> packed(packed_bytes);
   std::vector<uint8_t> unpacked(unpacked_bytes);
 
-  torchao::kernels::cpu::fallback::bitpacking::internal::pack_8_uint1_values(
+  torchao::cpu::fallback::bitpacking::internal::pack_8_uint1_values(
       packed.data(), input.data());
-  torchao::kernels::cpu::fallback::bitpacking::internal::unpack_8_uint1_values(
+  torchao::cpu::fallback::bitpacking::internal::unpack_8_uint1_values(
       unpacked.data(), packed.data());
 
   ASSERT_EQ(input, unpacked);
@@ -38,9 +38,9 @@ TEST(FallbackBitpackingTest, PackUnpack4_uint2) {
   std::vector<uint8_t> packed(packed_bytes);
   std::vector<uint8_t> unpacked(unpacked_bytes);
 
-  torchao::kernels::cpu::fallback::bitpacking::internal::pack_4_uint2_values(
+  torchao::cpu::fallback::bitpacking::internal::pack_4_uint2_values(
       packed.data(), input.data());
-  torchao::kernels::cpu::fallback::bitpacking::internal::unpack_4_uint2_values(
+  torchao::cpu::fallback::bitpacking::internal::unpack_4_uint2_values(
       unpacked.data(), packed.data());
 
   ASSERT_EQ(input, unpacked);
@@ -53,9 +53,9 @@ TEST(FallbackBitpackingTest, PackUnpack8_uint3) {
   std::vector<uint8_t> packed(packed_bytes);
   std::vector<uint8_t> unpacked(unpacked_bytes);
 
-  torchao::kernels::cpu::fallback::bitpacking::internal::pack_8_uint3_values(
+  torchao::cpu::fallback::bitpacking::internal::pack_8_uint3_values(
       packed.data(), input.data());
-  torchao::kernels::cpu::fallback::bitpacking::internal::unpack_8_uint3_values(
+  torchao::cpu::fallback::bitpacking::internal::unpack_8_uint3_values(
       unpacked.data(), packed.data());
 
   ASSERT_EQ(input, unpacked);
@@ -68,9 +68,9 @@ TEST(FallbackBitpackingTest, PackUnpack32_uint4) {
   std::vector<uint8_t> packed(packed_bytes);
   std::vector<uint8_t> unpacked(unpacked_bytes);
 
-  torchao::kernels::cpu::fallback::bitpacking::internal::pack_32_uint4_values(
+  torchao::cpu::fallback::bitpacking::internal::pack_32_uint4_values(
       packed.data(), input.data());
-  torchao::kernels::cpu::fallback::bitpacking::internal::unpack_32_uint4_values(
+  torchao::cpu::fallback::bitpacking::internal::unpack_32_uint4_values(
       unpacked.data(), packed.data());
 
   ASSERT_EQ(input, unpacked);
@@ -83,9 +83,9 @@ TEST(FallbackBitpackingTest, PackUnpack8_uint5) {
   std::vector<uint8_t> packed(packed_bytes);
   std::vector<uint8_t> unpacked(unpacked_bytes);
 
-  torchao::kernels::cpu::fallback::bitpacking::internal::pack_8_uint5_values(
+  torchao::cpu::fallback::bitpacking::internal::pack_8_uint5_values(
       packed.data(), input.data());
-  torchao::kernels::cpu::fallback::bitpacking::internal::unpack_8_uint5_values(
+  torchao::cpu::fallback::bitpacking::internal::unpack_8_uint5_values(
       unpacked.data(), packed.data());
 
   ASSERT_EQ(input, unpacked);
@@ -98,9 +98,9 @@ TEST(FallbackBitpackingTest, PackUnpack4_uint6) {
   std::vector<uint8_t> packed(packed_bytes);
   std::vector<uint8_t> unpacked(unpacked_bytes);
 
-  torchao::kernels::cpu::fallback::bitpacking::internal::pack_4_uint6_values(
+  torchao::cpu::fallback::bitpacking::internal::pack_4_uint6_values(
       packed.data(), input.data());
-  torchao::kernels::cpu::fallback::bitpacking::internal::unpack_4_uint6_values(
+  torchao::cpu::fallback::bitpacking::internal::unpack_4_uint6_values(
       unpacked.data(), packed.data());
 
   ASSERT_EQ(input, unpacked);
@@ -113,9 +113,9 @@ TEST(FallbackBitpackingTest, PackUnpack8_uint7) {
   std::vector<uint8_t> packed(packed_bytes);
   std::vector<uint8_t> unpacked(unpacked_bytes);
 
-  torchao::kernels::cpu::fallback::bitpacking::internal::pack_8_uint7_values(
+  torchao::cpu::fallback::bitpacking::internal::pack_8_uint7_values(
       packed.data(), input.data());
-  torchao::kernels::cpu::fallback::bitpacking::internal::unpack_8_uint7_values(
+  torchao::cpu::fallback::bitpacking::internal::unpack_8_uint7_values(
       unpacked.data(), packed.data());
 
   ASSERT_EQ(input, unpacked);
@@ -131,9 +131,9 @@ void test_bitpacking_128_lowbit_values() {
   std::vector<uint8_t> packed(packed_bytes);
   std::vector<int8_t> unpacked(unpacked_bytes);
 
-  torchao::kernels::cpu::fallback::bitpacking::internal::
+  torchao::cpu::fallback::bitpacking::internal::
       pack_128_lowbit_int_values<nbit>(packed.data(), input.data());
-  torchao::kernels::cpu::fallback::bitpacking::internal::
+  torchao::cpu::fallback::bitpacking::internal::
       unpack_128_lowbit_int_values<nbit>(unpacked.data(), packed.data());
 
   ASSERT_EQ(input, unpacked);
@@ -159,31 +159,31 @@ void test_bitpacking_128_lowbit_values_with_lut() {
   // 3. Pack the indices
   std::vector<uint8_t> packed(packed_bytes);
   if constexpr (nbit == 1)
-    torchao::kernels::cpu::fallback::bitpacking::internal::
+    torchao::cpu::fallback::bitpacking::internal::
         pack_128_uint1_values(packed.data(), indices.data());
   if constexpr (nbit == 2) {
-    torchao::kernels::cpu::fallback::bitpacking::internal::pack_64_uint2_values(
+    torchao::cpu::fallback::bitpacking::internal::pack_64_uint2_values(
         packed.data(), indices.data());
-    torchao::kernels::cpu::fallback::bitpacking::internal::pack_64_uint2_values(
+    torchao::cpu::fallback::bitpacking::internal::pack_64_uint2_values(
         packed.data() + 16, indices.data() + 64);
   }
   if constexpr (nbit == 3)
-    torchao::kernels::cpu::fallback::bitpacking::internal::
+    torchao::cpu::fallback::bitpacking::internal::
         pack_128_uint3_values(packed.data(), indices.data());
   if constexpr (nbit == 4) {
-    torchao::kernels::cpu::fallback::bitpacking::internal::pack_32_uint4_values(
+    torchao::cpu::fallback::bitpacking::internal::pack_32_uint4_values(
         packed.data(), indices.data());
-    torchao::kernels::cpu::fallback::bitpacking::internal::pack_32_uint4_values(
+    torchao::cpu::fallback::bitpacking::internal::pack_32_uint4_values(
         packed.data() + 16, indices.data() + 32);
-    torchao::kernels::cpu::fallback::bitpacking::internal::pack_32_uint4_values(
+    torchao::cpu::fallback::bitpacking::internal::pack_32_uint4_values(
         packed.data() + 32, indices.data() + 64);
-    torchao::kernels::cpu::fallback::bitpacking::internal::pack_32_uint4_values(
+    torchao::cpu::fallback::bitpacking::internal::pack_32_uint4_values(
         packed.data() + 48, indices.data() + 96);
   }
 
   // 4. Unpack using the LUT function
   std::vector<int8_t> unpacked(unpacked_bytes);
-  torchao::kernels::cpu::fallback::bitpacking::internal::
+  torchao::cpu::fallback::bitpacking::internal::
       unpack_128_lowbit_values_with_lut<nbit>(
           unpacked.data(), packed.data(), lut.data());
 
