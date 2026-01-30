@@ -26,11 +26,6 @@ def __getattr__(name):
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
-from .GPTQ import (
-    Int4WeightOnlyGPTQQuantizer,
-    MultiTensor,
-    MultiTensorInputRecorder,
-)
 from .granularity import (
     Granularity,
     PerAxis,
@@ -187,8 +182,4 @@ __all__ = [
     "PlainLayout",
     "TensorCoreTiledLayout",
     "Float8MMConfig",
-    # GPTQ
-    "Int4WeightOnlyGPTQQuantizer",
-    "MultiTensor",
-    "MultiTensorInputRecorder",
 ]
