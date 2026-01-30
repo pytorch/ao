@@ -8,6 +8,7 @@
 Utilities to convert models to use FP8 SDPA.
 """
 
+import warnings
 from contextlib import contextmanager
 
 import torch.nn.functional as F
@@ -43,9 +44,19 @@ def fp8_sdpa_context():
     activate_flash_attention_impl("FA3")
 
     def fp8_wrapper(
-        query, key, value, attn_mask=None, dropout_p=0.0, is_causal=False, scale=None
+        query,
+        key,
+        value,
+        attn_mask=None,
+        dropout_p=0.0,
+        is_causal=False,
+        scale=None,
+        enable_gqa=False,
     ):
         if dropout_p != 0.0 or attn_mask is not None:
+            warnings.warn(
+                "Dropout and attention mask are not supported for FP8 SDPA. Using regular SDPA instead."
+            )
             return _original_sdpa(
                 query,
                 key,
@@ -54,9 +65,12 @@ def fp8_sdpa_context():
                 dropout_p=dropout_p,
                 is_causal=is_causal,
                 scale=scale,
+                enable_gqa=enable_gqa,
             )
         # Activate FA3 backend (required for FP8 SDPA)
-        return fp8_sdpa_parallel(query, key, value, None, 0.0, is_causal, scale)
+        return fp8_sdpa_parallel(
+            query, key, value, None, 0.0, is_causal, scale, enable_gqa
+        )
 
     F.scaled_dot_product_attention = fp8_wrapper
     try:

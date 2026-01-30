@@ -30,6 +30,7 @@ def fp8_sdpa_parallel(
     dropout_p: float = 0.0,
     is_causal: bool = False,
     scale: Optional[float] = None,
+    enable_gqa: bool = False,
     num_chunks: Optional[int] = None,
 ) -> torch.Tensor:
     """
@@ -38,12 +39,17 @@ def fp8_sdpa_parallel(
     Splits quantization work across multiple thread blocks for better SM utilization.
     This version is faster when B*H is small relative to the number of SMs on the GPU.
 
+    Note:
+        GQA is automatically supported when query has different head dim than key/value.
+        It is included here for compatibility with F.scaled_dot_product_attention.
+
     Args:
         query, key, value: Input tensors of shape (B, H, S, D)
         attn_mask: Not supported, must be None
         dropout_p: Must be 0.0
         is_causal: Whether to apply causal masking
         scale: Optional scale factor for attention
+        enable_gqa: Accepted for API compatibility but ignored. FA3 auto-detects GQA.
         num_chunks: Number of chunks to split the S dimension into.
                     If None, automatically selects based on GPU SM count.
     """
