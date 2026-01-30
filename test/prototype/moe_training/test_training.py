@@ -19,18 +19,9 @@ from torchao.prototype.moe_training.conversion_utils import (
 from torchao.quantization.quant_api import quantize_
 from torchao.quantization.quantize_.common import KernelPreference
 
+# Reference MoE implementation (copied from torchtitan to avoid external dependency)
+from .reference_moe import MoE, MoEArgs, set_token_group_alignment_size_m
 from .testing_utils import _validate_model_conversion
-
-# this test requires torchtitan
-try:
-    from torchtitan.models.moe import MoE, MoEArgs
-    from torchtitan.models.moe.utils import (
-        set_token_group_alignment_size_m,
-    )
-except ImportError:
-    pytest.skip(
-        "torchtitan not installed, skipping MoE tests.", allow_module_level=True
-    )
 
 # Needed since changing args to function causes recompiles
 torch._dynamo.config.cache_size_limit = 1000
