@@ -60,9 +60,9 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
         torch.manual_seed(42)
 
     @common_utils.parametrize("config", INT8_TEST_CONFIGS)
-    @common_utils.parametrize("device", get_current_accelerator_device)
-    def test_creation_and_attributes(self, config, device):
+    def test_creation_and_attributes(self, config):
         """Test tensor creation, dtypes, and ranges"""
+        device = get_current_accelerator_device()
         linear = torch.nn.Linear(
             self.test_shape[1],
             self.test_shape[0],
@@ -89,7 +89,6 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
     @common_utils.parametrize("dtype", [torch.bfloat16, torch.float32])
     @common_utils.parametrize("compile", [True, False])
     @common_utils.parametrize("config", INT8_TEST_CONFIGS)
-    @common_utils.parametrize("device", get_current_accelerator_device)
     @common_utils.parametrize(
         "sizes",
         [
@@ -101,7 +100,6 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
         self,
         dtype: torch.dtype,
         config,
-        device,
         compile: bool,
         sizes: tuple,
     ):
@@ -109,6 +107,7 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
         torch.compiler.reset()
 
         M, N, K = sizes
+        device = get_current_accelerator_device()
         input_tensor = torch.randn(*M, K, dtype=dtype, device=device)
         model = ToyTwoLinearModel(K, N, K, dtype=dtype, device=device).eval()
         model_q = copy.deepcopy(model)
@@ -166,14 +165,12 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
             _ = dummy.weight[::2]
 
     @common_utils.parametrize("config", INT8_TEST_CONFIGS)
-    @common_utils.parametrize("device", get_current_accelerator_device)
-    def test_index_select(self, config, device):
+    def test_index_select(self, config):
         """test that `x_0 = x[0]` works when `x` is a 2D quantized tensor."""
         N, K = 256, 512
+        device = get_current_accelerator_device()
         x = torch.randn(N, K, device=device, dtype=torch.bfloat16)
-        linear = torch.nn.Linear(
-            K, N, bias=False, dtype=torch.bfloat16, device=device
-        )
+        linear = torch.nn.Linear(K, N, bias=False, dtype=torch.bfloat16, device=device)
         linear.weight.data = x
 
         quantize_(linear, config)
@@ -197,9 +194,9 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
             )
 
     @common_utils.parametrize("config", INT8_TEST_CONFIGS)
-    @common_utils.parametrize("device", get_current_accelerator_device)
-    def test_dequantization_accuracy(self, config, device):
+    def test_dequantization_accuracy(self, config):
         """Test dequantization accuracy separately"""
+        device = get_current_accelerator_device()
         linear = torch.nn.Linear(
             256, 512, bias=False, dtype=torch.bfloat16, device=device
         )
@@ -216,12 +213,12 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
     @unittest.skipIf(
         not torch_version_at_least("2.7.0"), "torch 2.6.0 and below has custom fx pass"
     )
-    @common_utils.parametrize("device", get_current_accelerator_device)
-    def test_available_gpu_kernels(self, device):
+    def test_available_gpu_kernels(self):
         """Check which GPU kernels are used"""
         torch.compiler.reset()
 
         M, K, N = 128, 256, 512
+        device = get_current_accelerator_device()
         m = torch.nn.Sequential(
             torch.nn.Linear(K, N, device=device, dtype=torch.bfloat16)
         )
@@ -269,12 +266,12 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
 class TestInt8StaticQuant(TorchAOIntegrationTestCase):
     @common_utils.parametrize("granularity", [PerRow(), PerTensor()])
     @common_utils.parametrize("dtype", [torch.bfloat16])
-    @common_utils.parametrize("device", get_current_accelerator_device)
-    def test_static_activation_per_row_int8_weight(self, granularity, dtype, device):
+    def test_static_activation_per_row_int8_weight(self, granularity, dtype):
         torch.compiler.reset()
 
         M, N, K = 128, 128, 128
 
+        device = get_current_accelerator_device()
         input_tensor = torch.randn(M, K, dtype=dtype, device=device)
 
         model = torch.nn.Linear(K, N, bias=False).eval().to(device=device, dtype=dtype)
@@ -343,7 +340,7 @@ class TestInt8StaticQuant(TorchAOIntegrationTestCase):
         self.assertIn("PerRow(dim=-1)", str(cm.exception))
 
     @common_utils.parametrize("granularity", [PerRow(), PerTensor()])
-    def test_static_act_quant_slice_and_select(self, granularity):
+    def test_static_act_quant_slice_and_select(self, granularity, device):
         """Test static activation quantization with slice and select operations.
 
         This test validates that PerRow(dim=-1) and PerTensor() work correctly
@@ -353,8 +350,8 @@ class TestInt8StaticQuant(TorchAOIntegrationTestCase):
         N, K = 256, 512
         M = 32  # batch size
         dtype = torch.bfloat16
-        device = get_current_accelerator_device()
 
+        device = get_current_accelerator_device()
         linear = torch.nn.Linear(K, N, bias=False, dtype=dtype, device=device)
         input_tensor = torch.randn(M, K, dtype=dtype, device=device)
         int8_input = _choose_quant_func_and_quantize_tensor(
@@ -406,8 +403,7 @@ class TestInt8StaticQuant(TorchAOIntegrationTestCase):
         self.assertGreater(error, 15, f"Quantization SQNR too low: {error}")
 
     @common_utils.parametrize("dtype", [torch.bfloat16])
-    @common_utils.parametrize("device", get_current_accelerator_device)
-    def test_int8_weight_only_v2_correct_eps(self, dtype, device):
+    def test_int8_weight_only_v2_correct_eps(self, dtype):
         """
         Ensure that v2 of Int8WeightOnlyConfig uses the correct eps value.
         This test will fail if we use bfloat16 eps
@@ -415,6 +411,7 @@ class TestInt8StaticQuant(TorchAOIntegrationTestCase):
         torch.manual_seed(42)
 
         # Create test model
+        device = get_current_accelerator_device()
         model = ToyTwoLinearModel(256, 128, 256, dtype=dtype, device=device).eval()
         model_baseline = copy.deepcopy(model)
 
