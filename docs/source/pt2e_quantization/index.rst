@@ -1,7 +1,5 @@
-PT2E Quantization Tutorials
-===========================
-
-Tutorials for quantization using PyTorch 2 Export.
+PT2E Quantization
+=================
 
 Quick Start
 -----------
@@ -86,7 +84,6 @@ Backend Developers (please check out all Modeling Users docs as well):
 
 .. toctree::
    :maxdepth: 1
-   :hidden:
 
    pt2e_quant_ptq
    pt2e_quant_qat
