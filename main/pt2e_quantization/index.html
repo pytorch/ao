@@ -9,16 +9,16 @@
   <meta name="robots" content="noindex">
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
-<meta property="og:title" content="PT2E Quantization Tutorials" />
+<meta property="og:title" content="PT2E Quantization" />
 <meta property="og:type" content="website" />
 <meta property="og:url" content="http://pytorch.org/pt2e_quantization/index.html" />
 <meta property="og:site_name" content="torchao" />
-<meta property="og:description" content="Tutorials for quantization using PyTorch 2 Export. Quick Start: PyTorch 2 Export Quantization is a full graph quantization workflow mostly for static quantization. It targets hardwares that require..." />
+<meta property="og:description" content="Quick Start: PyTorch 2 Export Quantization is a full graph quantization workflow mostly for static quantization. It targets hardwares that requires both input and output activation and weight to be..." />
 <meta property="og:image" content="https://pytorch.org/assets/images/social-share.jpg" />
 <meta property="og:image:alt" content="torchao" />
-<meta name="description" content="Tutorials for quantization using PyTorch 2 Export. Quick Start: PyTorch 2 Export Quantization is a full graph quantization workflow mostly for static quantization. It targets hardwares that require..." />
+<meta name="description" content="Quick Start: PyTorch 2 Export Quantization is a full graph quantization workflow mostly for static quantization. It targets hardwares that requires both input and output activation and weight to be..." />
 
-    <title>PT2E Quantization Tutorials &#8212; torchao main documentation</title>
+    <title>PT2E Quantization &#8212; torchao main documentation</title>
   
   
   
@@ -646,7 +646,7 @@
 
 <li class="nav-item current active">
   <a class="nav-link nav-internal" href="#">
-    PT2E Quantization Tutorials
+    PT2E Quantization
   </a>
 </li>
 
@@ -809,7 +809,7 @@ document.write(`
 
 <li class="nav-item current active">
   <a class="nav-link nav-internal" href="#">
-    PT2E Quantization Tutorials
+    PT2E Quantization
   </a>
 </li>
 
@@ -960,7 +960,7 @@ document.write(`
         <i class="fa-solid fa-home"></i>
       </a>
     </li>
-    <li class="breadcrumb-item active" aria-current="page">PT2E...</li>
+    <li class="breadcrumb-item active" aria-current="page">PT2E Quantization</li>
   </ul>
 </nav>
 </div>
@@ -1002,7 +1002,7 @@ document.write(`
     <div style="display:none;" itemscope itemtype="https://schema.org/BreadcrumbList">
       
       <div itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
-        <meta itemprop="name" content="PT2E Quantization Tutorials">
+        <meta itemprop="name" content="PT2E Quantization">
         <meta itemprop="position" content="1">
       </div>
     </div>
@@ -1016,10 +1016,9 @@ document.write(`
 <div id="searchbox"></div>
                 <article class="bd-article">
                   
-  <section id="pt2e-quantization-tutorials">
-<h1>PT2E Quantization Tutorials<a class="headerlink" href="#pt2e-quantization-tutorials" title="Permalink to this heading">#</a></h1>
+  <section id="pt2e-quantization">
+<h1>PT2E Quantization<a class="headerlink" href="#pt2e-quantization" title="Permalink to this heading">#</a></h1>
 <p class="date-info-last-verified" style="color: #6c6c6d; font-size: small;">Created On: Jan 29, 2026 | Last Updated On: Jan 29, 2026</p>
-<p>Tutorials for quantization using PyTorch 2 Export.</p>
 <section id="quick-start">
 <h2>Quick Start<a class="headerlink" href="#quick-start" title="Permalink to this heading">#</a></h2>
 <p>PyTorch 2 Export Quantization is a full graph quantization workflow mostly for static quantization. It targets hardwares that requires both input and output activation and weight to be quantized and relies of recognizing an operator pattern to make quantization decisions (such as linear - relu). PT2E quantization produces a pattern with quantize and dequantize ops inserted around the operators and during lowering quantized operator patterns will be fused into real quantized ops. Currently there are two typical lowering paths, 1. torch.compile through inductor lowering 2. ExecuTorch through delegation</p>
@@ -1097,6 +1096,14 @@ document.write(`
 <li><p><a class="reference external" href="pt2e_quantizer.html">How to Write a Quantizer for PyTorch 2 Export Quantization</a></p></li>
 </ul>
 <div class="toctree-wrapper compound">
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="pt2e_quant_ptq.html">PyTorch 2 Export Post Training Quantization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="pt2e_quant_qat.html">PyTorch 2 Export Quantization-Aware Training (QAT)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="pt2e_quant_x86_inductor.html">PyTorch 2 Export Quantization with X86 Backend through Inductor</a></li>
+<li class="toctree-l1"><a class="reference internal" href="pt2e_quant_xpu_inductor.html">PyTorch 2 Export Quantization with Intel GPU Backend through Inductor</a></li>
+<li class="toctree-l1"><a class="reference internal" href="pt2e_quant_openvino_inductor.html">PyTorch 2 Export Quantization for OpenVINO torch.compile Backend</a></li>
+<li class="toctree-l1"><a class="reference internal" href="pt2e_quantizer.html">How to Write a <code class="docutils literal notranslate"><span class="pre">Quantizer</span></code> for PyTorch 2 Export Quantization</a></li>
+</ul>
 </div>
 </section>
 </section>
@@ -1440,11 +1447,11 @@ document.write(`
     {
        "@context": "https://schema.org",
        "@type": "Article",
-       "name": "PT2E Quantization Tutorials",
-       "headline": "PT2E Quantization Tutorials",
+       "name": "PT2E Quantization",
+       "headline": "PT2E Quantization",
        "description": "PyTorch Documentation. Explore PyTorch, an open-source machine learning library that accelerates the path from research prototyping to production deployment. Discover tutorials, API references, and guides to help you build and deploy deep learning models efficiently.",
        "url": "/pt2e_quantization/index.html",
-       "articleBody": "PT2E Quantization Tutorials# Created On: Jan 29, 2026 | Last Updated On: Jan 29, 2026 Tutorials for quantization using PyTorch 2 Export. Quick Start# PyTorch 2 Export Quantization is a full graph quantization workflow mostly for static quantization. It targets hardwares that requires both input and output activation and weight to be quantized and relies of recognizing an operator pattern to make quantization decisions (such as linear - relu). PT2E quantization produces a pattern with quantize and dequantize ops inserted around the operators and during lowering quantized operator patterns will be fused into real quantized ops. Currently there are two typical lowering paths, 1. torch.compile through inductor lowering 2. ExecuTorch through delegation Here we show an example with X86InductorQuantizer API Example: import torch from torchao.quantization.pt2e.quantize_pt2e import prepare_pt2e from torch.export import export from torchao.quantization.pt2e.quantizer.x86_inductor_quantizer import ( X86InductorQuantizer, get_default_x86_inductor_quantization_config, ) class M(torch.nn.Module): def __init__(self): super().__init__() self.linear = torch.nn.Linear(5, 10) def forward(self, x): return self.linear(x) # initialize a floating point model float_model = M().eval() # define calibration function def calibrate(model, data_loader): model.eval() with torch.no_grad(): for image, target in data_loader: model(image) # Step 1. program capture m = export(m, *example_inputs).module() # we get a model with aten ops # Step 2. quantization # backend developer will write their own Quantizer and expose methods to allow # users to express how they # want the model to be quantized quantizer = X86InductorQuantizer() quantizer.set_global(xiq.get_default_x86_inductor_quantization_config()) # or prepare_qat_pt2e for Quantization Aware Training m = prepare_pt2e(m, quantizer) # run calibration # calibrate(m, sample_inference_data) m = convert_pt2e(m) # Step 3. lowering # lower to target backend # Optional: using the C++ wrapper instead of default Python wrapper import torch._inductor.config as config config.cpp_wrapper = True with torch.no_grad(): optimized_model = torch.compile(converted_model) # Running some benchmark optimized_model(*example_inputs) Please follow these tutorials to get started on PyTorch 2 Export Quantization: Modeling Users: PyTorch 2 Export Post Training Quantization PyTorch 2 Export Quantization Aware Training PyTorch 2 Export Post Training Quantization with X86 Backend through Inductor PyTorch 2 Export Post Training Quantization with XPU Backend through Inductor PyTorch 2 Export Quantization for OpenVINO torch.compile Backend Backend Developers (please check out all Modeling Users docs as well): How to Write a Quantizer for PyTorch 2 Export Quantization",
+       "articleBody": "PT2E Quantization# Created On: Jan 29, 2026 | Last Updated On: Jan 29, 2026 Quick Start# PyTorch 2 Export Quantization is a full graph quantization workflow mostly for static quantization. It targets hardwares that requires both input and output activation and weight to be quantized and relies of recognizing an operator pattern to make quantization decisions (such as linear - relu). PT2E quantization produces a pattern with quantize and dequantize ops inserted around the operators and during lowering quantized operator patterns will be fused into real quantized ops. Currently there are two typical lowering paths, 1. torch.compile through inductor lowering 2. ExecuTorch through delegation Here we show an example with X86InductorQuantizer API Example: import torch from torchao.quantization.pt2e.quantize_pt2e import prepare_pt2e from torch.export import export from torchao.quantization.pt2e.quantizer.x86_inductor_quantizer import ( X86InductorQuantizer, get_default_x86_inductor_quantization_config, ) class M(torch.nn.Module): def __init__(self): super().__init__() self.linear = torch.nn.Linear(5, 10) def forward(self, x): return self.linear(x) # initialize a floating point model float_model = M().eval() # define calibration function def calibrate(model, data_loader): model.eval() with torch.no_grad(): for image, target in data_loader: model(image) # Step 1. program capture m = export(m, *example_inputs).module() # we get a model with aten ops # Step 2. quantization # backend developer will write their own Quantizer and expose methods to allow # users to express how they # want the model to be quantized quantizer = X86InductorQuantizer() quantizer.set_global(xiq.get_default_x86_inductor_quantization_config()) # or prepare_qat_pt2e for Quantization Aware Training m = prepare_pt2e(m, quantizer) # run calibration # calibrate(m, sample_inference_data) m = convert_pt2e(m) # Step 3. lowering # lower to target backend # Optional: using the C++ wrapper instead of default Python wrapper import torch._inductor.config as config config.cpp_wrapper = True with torch.no_grad(): optimized_model = torch.compile(converted_model) # Running some benchmark optimized_model(*example_inputs) Please follow these tutorials to get started on PyTorch 2 Export Quantization: Modeling Users: PyTorch 2 Export Post Training Quantization PyTorch 2 Export Quantization Aware Training PyTorch 2 Export Post Training Quantization with X86 Backend through Inductor PyTorch 2 Export Post Training Quantization with XPU Backend through Inductor PyTorch 2 Export Quantization for OpenVINO torch.compile Backend Backend Developers (please check out all Modeling Users docs as well): How to Write a Quantizer for PyTorch 2 Export Quantization PyTorch 2 Export Post Training Quantization PyTorch 2 Export Quantization-Aware Training (QAT) PyTorch 2 Export Quantization with X86 Backend through Inductor PyTorch 2 Export Quantization with Intel GPU Backend through Inductor PyTorch 2 Export Quantization for OpenVINO torch.compile Backend How to Write a Quantizer for PyTorch 2 Export Quantization",
        "author": {
          "@type": "Organization",
          "name": "PyTorch Contributors",
