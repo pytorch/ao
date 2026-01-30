@@ -35,7 +35,7 @@ Quantize your model weights to int4!
       # quantize on XPU
       quantize_(model, Int4WeightOnlyConfig(group_size=32, int4_packing_format="plain_int32"))
 
-See our `first quantization example <tutorials/eager_quantization/first_quantization_example.html>`__ for more details.
+See our `first quantization example <eager_tutorials/first_quantization_example.html>`__ for more details.
 
 Installation
 ------------
@@ -86,7 +86,7 @@ Please see the `torchao compatibility table <https://github.com/pytorch/ao/issue
    :maxdepth: 1
    :caption: Tutorials
 
-   tutorials/eager_quantization/index
+   eager_tutorials/index
 
 .. toctree::
    :glob:
