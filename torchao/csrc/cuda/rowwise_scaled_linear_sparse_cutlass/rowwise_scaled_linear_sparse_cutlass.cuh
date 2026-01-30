@@ -41,15 +41,6 @@
 
 #include "cutlass_extensions/common.h"
 
-// Redefine CUTLASS_STATUS_CHECK to use STD_TORCH_CHECK for ABI stability
-// TODO: just edit the original one in torchao/csrc/cuda/cutlass_extensions/common.h after #3727
-#undef CUTLASS_STATUS_CHECK
-#define CUTLASS_STATUS_CHECK(status, message_prefix)                           \
-  {                                                                            \
-    STD_TORCH_CHECK(status == cutlass::Status::kSuccess, message_prefix,       \
-                    " : Got CUTLASS error: ", cutlassGetStatusString(status)); \
-  }
-
 #endif
 
 #define OPERATOR_NAME "rowwise_scaled_linear_sparse_cutlass"
@@ -65,53 +56,6 @@ namespace tsa = torch::stable::accelerator;
 namespace {
 inline tsa::DeviceGuard make_device_guard(const Tensor& t) {
   return tsa::DeviceGuard(static_cast<tsa::DeviceIndex>(t.get_device_index()));
-}
-
-std::deque<std::once_flag> device_flags;
-std::vector<cudaDeviceProp> device_properties;
-
-void initVectors() {
-  static bool init_flag [[maybe_unused]] = []() {
-    int device_count;
-    cudaError_t err = cudaGetDeviceCount(&device_count);
-    if (err != cudaSuccess) {
-      STD_TORCH_CHECK(false, "cudaGetDeviceProperties failed: " +
-                                 std::string(cudaGetErrorString(err)));
-    }
-    device_flags.resize(device_count);
-    device_properties.resize(device_count);
-    return true;
-  }();
-}
-
-void initDeviceProperty(int device_index) {
-  cudaDeviceProp device_prop{};
-  cudaError_t err = cudaGetDeviceProperties(&device_prop, device_index);
-  if (err != cudaSuccess) {
-    STD_TORCH_CHECK(false, "cudaGetDeviceProperties failed: " +
-                               std::string(cudaGetErrorString(err)));
-  }
-  device_properties[device_index] = device_prop;
-}
-
-cudaDeviceProp* get_device_prop() {
-  initVectors();
-  int device_index;
-  cudaError_t err = cudaGetDevice(&device_index);
-  if (err != cudaSuccess) {
-    STD_TORCH_CHECK(false, "cudaGetDevice failed: " +
-                               std::string(cudaGetErrorString(err)));
-  }
-
-  std::call_once(device_flags[device_index], initDeviceProperty, device_index);
-  return &device_properties[device_index];
-}
-
-inline cudaStream_t get_current_cuda_stream(const Tensor& t) {
-  void* stream_ptr = nullptr;
-  TORCH_ERROR_CODE_CHECK(aoti_torch_get_current_cuda_stream(
-      static_cast<int32_t>(t.get_device_index()), &stream_ptr));
-  return static_cast<cudaStream_t>(stream_ptr);
 }
 } // anonymous namespace
 
