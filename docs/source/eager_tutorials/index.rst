@@ -1,5 +1,5 @@
-Eager Quantization Tutorials
-============================
+Tutorials
+=========
 
 Tutorials for quantization using eager mode execution.
 
