@@ -9,16 +9,16 @@
   <meta name="robots" content="noindex">
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
-<meta property="og:title" content="Writing Your Own Quantized Tensor (advanced)" />
+<meta property="og:title" content="(Part 1) Pre-training with float8" />
 <meta property="og:type" content="website" />
-<meta property="og:url" content="http://pytorch.org/eager_quantization/subclass_advanced.html" />
+<meta property="og:url" content="http://pytorch.org/eager_tutorials/pretraining.html" />
 <meta property="og:site_name" content="torchao" />
-<meta property="og:description" content="Coming soon!" />
+<meta property="og:description" content="TorchAO provides an end-to-end pre-training, fine-tuning, and serving model optimization flow by leveraging our quantization and sparsity techniques integrated into our partner frameworks. This is ..." />
 <meta property="og:image" content="https://pytorch.org/assets/images/social-share.jpg" />
 <meta property="og:image:alt" content="torchao" />
-<meta name="description" content="Coming soon!" />
+<meta name="description" content="TorchAO provides an end-to-end pre-training, fine-tuning, and serving model optimization flow by leveraging our quantization and sparsity techniques integrated into our partner frameworks. This is ..." />
 
-    <title>Writing Your Own Quantized Tensor (advanced) &#8212; torchao main documentation</title>
+    <title>(Part 1) Pre-training with float8 &#8212; torchao main documentation</title>
   
   
   
@@ -63,11 +63,11 @@
     <script src="../_static/clipboard.min.js"></script>
     <script src="../_static/copybutton.js"></script>
     <script src="../_static/design-tabs.js"></script>
-    <link rel="canonical" href="https://pytorch.org/ao/eager_quantization/subclass_advanced.html" />
+    <link rel="canonical" href="https://pytorch.org/ao/eager_tutorials/pretraining.html" />
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Developer Notes" href="../developer_notes/index.html" />
-    <link rel="prev" title="Writing Your Own Quantized Tensor" href="subclass_basic.html" />
+    <link rel="next" title="(Part 2) Fine-tuning with QAT, QLoRA, and float8" href="finetuning.html" />
+    <link rel="prev" title="First Quantization Example" href="first_quantization_example.html" />
 
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
@@ -632,7 +632,7 @@
 
 <li class="nav-item current active">
   <a class="nav-link nav-internal" href="index.html">
-    Eager Quantization Tutorials
+    Tutorials
   </a>
 </li>
 
@@ -795,7 +795,7 @@ document.write(`
 
 <li class="nav-item current active">
   <a class="nav-link nav-internal" href="index.html">
-    Eager Quantization Tutorials
+    Tutorials
   </a>
 </li>
 
@@ -918,7 +918,7 @@ document.write(`
   <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
   <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
 <li class="toctree-l1"><a class="reference internal" href="first_quantization_example.html">First Quantization Example</a></li>
-<li class="toctree-l1"><a class="reference internal" href="pretraining.html">(Part 1) Pre-training with float8</a></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">(Part 1) Pre-training with float8</a></li>
 <li class="toctree-l1"><a class="reference internal" href="finetuning.html">(Part 2) Fine-tuning with QAT, QLoRA, and float8</a></li>
 <li class="toctree-l1"><a class="reference internal" href="serving.html">(Part 3) Serving on vLLM, SGLang, ExecuTorch</a></li>
 <li class="toctree-l1"><a class="reference internal" href="torchao_vllm_integration.html">Integration with VLLM: Architecture and Usage Guide</a></li>
@@ -926,7 +926,7 @@ document.write(`
 <li class="toctree-l1"><a class="reference internal" href="serialization.html">Serialization</a></li>
 <li class="toctree-l1"><a class="reference internal" href="static_quantization.html">Static Quantization</a></li>
 <li class="toctree-l1"><a class="reference internal" href="subclass_basic.html">Writing Your Own Quantized Tensor</a></li>
-<li class="toctree-l1 current active"><a class="current reference internal" href="#">Writing Your Own Quantized Tensor (advanced)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="subclass_advanced.html">Writing Your Own Quantized Tensor (advanced)</a></li>
 </ul>
 </div>
 </nav></div>
@@ -965,9 +965,9 @@ document.write(`
       </a>
     </li>
     
-    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Eager Quantization Tutorials</a></li>
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Tutorials</a></li>
     
-    <li class="breadcrumb-item active" aria-current="page">Writing...</li>
+    <li class="breadcrumb-item active" aria-current="page">(Part 1)...</li>
   </ul>
 </nav>
 </div>
@@ -1010,12 +1010,12 @@ document.write(`
       
       <div itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
         <link itemprop="item" href="index.html">
-        <meta itemprop="name" content="Eager Quantization Tutorials">
+        <meta itemprop="name" content="Tutorials">
         <meta itemprop="position" content="1">
       </div>
       
       <div itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
-        <meta itemprop="name" content="Writing Your Own Quantized Tensor (advanced)">
+        <meta itemprop="name" content="(Part 1) Pre-training with float8">
         <meta itemprop="position" content="2">
       </div>
     </div>
@@ -1029,10 +1029,179 @@ document.write(`
 <div id="searchbox"></div>
                 <article class="bd-article">
                   
-  <section id="writing-your-own-quantized-tensor-advanced">
-<h1>Writing Your Own Quantized Tensor (advanced)<a class="headerlink" href="#writing-your-own-quantized-tensor-advanced" title="Permalink to this heading">#</a></h1>
+  <section id="part-1-pre-training-with-float8">
+<h1>(Part 1) Pre-training with float8<a class="headerlink" href="#part-1-pre-training-with-float8" title="Permalink to this heading">#</a></h1>
 <p class="date-info-last-verified" style="color: #6c6c6d; font-size: small;">Created On: Jan 29, 2026 | Last Updated On: Jan 29, 2026</p>
-<p>Coming soon!</p>
+<p>TorchAO provides an end-to-end pre-training, fine-tuning, and serving
+model optimization flow by leveraging our quantization and sparsity
+techniques integrated into our partner frameworks. This is part 1 of 3
+such tutorials showcasing this end-to-end flow, focusing on the
+pre-training step.</p>
+<img alt="static/e2e_flow_part1.png" src="static/e2e_flow_part1.png" />
+<p>Pre-training with float8 using torchao can provide <a class="reference external" href="https://pytorch.org/blog/training-using-float8-fsdp2/">up to 1.5x speedups</a> on 512 GPU clusters,
+and up to <a class="reference external" href="https://pytorch.org/blog/accelerating-large-scale-training-and-convergence-with-pytorch-float8-rowwise-on-crusoe-2k-h200s/">1.34-1.43x speedups</a> on 2K H200 clusters with the latest <cite>torchao.float8</cite> rowwise recipe.</p>
+<p>In this tutorial, we will show 2 ways to use the <strong>torchao.float8</strong> recipes for pre-training:</p>
+<ol class="arabic simple">
+<li><p><a class="reference internal" href="#pre-training-with-torchtitan"><span class="std std-ref">Pre-training with torchtitan</span></a>, the offical PyTorch pre-training framework with native torchao integration.</p></li>
+<li><p><a class="reference internal" href="#pre-training-with-torchao-directly"><span class="std std-ref">Pre-training with torchao directly</span></a>, to integrate torchao’s float8 training recipes into your own pre-training code.</p></li>
+</ol>
+<section id="pre-training-with-torchtitan">
+<h2>Pre-training with torchtitan<a class="headerlink" href="#pre-training-with-torchtitan" title="Permalink to this heading">#</a></h2>
+<p>In this tutorial we’ll pre-train Llama3-8B using torchtitan with torchao’s float8 training recipes: rowwise scaling and tensorwise scaling.</p>
+<p><a class="reference external" href="https://github.com/pytorch/torchtitan/">Torchtitan</a> is PyTorch’s official pre-training framework that is natively integrated with torchao, and supports
+several popular flagship models with common forms of parallelism, float8 training, distributed checkpointing and more.
+See the torchtitan <a class="reference external" href="https://github.com/pytorch/torchtitan">docs</a> for additional details.</p>
+<p>You can use this workflow to get started quickly with a “batteries included” experience. Users commonly
+fork torchtitan and build on top of it when they’re ready.</p>
+<section id="prerequisites">
+<h3>Prerequisites<a class="headerlink" href="#prerequisites" title="Permalink to this heading">#</a></h3>
+<ol class="arabic simple">
+<li><p>(Recommended) Create a new virtual environment with conda or venv.</p></li>
+<li><p><a class="reference external" href="https://github.com/pytorch/ao/tree/main?tab=readme-ov-file#installation">Install torchao</a>.</p></li>
+<li><p><a class="reference external" href="https://github.com/pytorch/torchtitan/tree/main?tab=readme-ov-file#installation">Install torchtitan</a>, including the “downloading a tokenizer” step.</p></li>
+</ol>
+<p>You’re now ready to start a pre-training job using one of the recipes below!</p>
+</section>
+<section id="rowwise-scaling">
+<h3>Rowwise scaling<a class="headerlink" href="#rowwise-scaling" title="Permalink to this heading">#</a></h3>
+<p>Run the following command from torchtitan root directory to launch a Llama3-8B training job on 8 GPUs with float8 rowwise training:</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="go">NGPU=8 CONFIG_FILE=&quot;./torchtitan/models/llama3/train_configs/llama3_8b.toml&quot; ./run_train.sh --training.compile --model.converters=&quot;float8&quot; --float8.recipe_name=&quot;rowwise&quot;</span>
+</pre></div>
+</div>
+<p>Torchtitan will automatically use FSDP2 to parallelize training when more than 1 GPU is used. To use other forms of parallelism, modify hyperparameters, or change other training configurations, you can directly edit the <a class="reference external" href="https://github.com/pytorch/torchtitan/blob/775a486edd173ceb9be1c9b1b30af6ca2d4b4fa0/torchtitan/models/llama3/train_configs/llama3_8b.toml">llama3_8b.toml</a> file or use command line flags (run the command with <code class="code docutils literal notranslate"><span class="pre">--help</span></code> to see more options).</p>
+<p>You should see terminal output that looks like this:</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">[rank0]:[titan] 2025-06-04 08:51:48,074 - root - INFO - step:  1  loss: 12.2254  memory: 27.34GiB(28.78%)  tps: 375  tflops: 21.73  mfu: 2.20%</span>
+<span class="gp">[rank0]:[titan] 2025-06-04 08:51:58,557 - root - INFO - step: 10  loss: 10.7069  memory: 30.99GiB(32.62%)  tps: 7,034  tflops: 407.35  mfu: 41.19%</span>
+<span class="gp">[rank0]:[titan] 2025-06-04 08:52:10,224 - root - INFO - step: 20  loss:  8.9196  memory: 30.99GiB(32.62%)  tps: 7,022  tflops: 406.65  mfu: 41.12%</span>
+<span class="gp">[rank0]:[titan] 2025-06-04 08:52:21,904 - root - INFO - step: 30  loss:  8.1423  memory: 30.99GiB(32.62%)  tps: 7,014  tflops: 406.23  mfu: 41.08%</span>
+</pre></div>
+</div>
+<p>As you can see, ignoring the warmup steps we are achieving around ~7k TPS with 30.99GB peak memory usage. To compare performance against bfloat16 training, you can remove the <code class="code docutils literal notranslate"><span class="pre">--model.converters=&quot;float8&quot;</span> <span class="pre">--float8.recipe_name=&quot;rowwise&quot;</span></code> flags
+and run the same command to see the baseline performance of bfloat16 training:</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="go">NGPU=8 CONFIG_FILE=&quot;./torchtitan/models/llama3/train_configs/llama3_8b.toml&quot; ./run_train.sh --training.compile</span>
+</pre></div>
+</div>
+<p>You should see the following output:</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">[rank0]:[titan] 2025-06-04 11:02:37,404 - root - INFO - step:  1  loss: 12.2611  memory: 27.22GiB(28.65%)  tps: 595  tflops: 34.47  mfu: 3.49%</span>
+<span class="gp">[rank0]:[titan] 2025-06-04 11:02:49,027 - root - INFO - step: 10  loss: 10.4260  memory: 30.89GiB(32.51%)  tps: 6,344  tflops: 367.39  mfu: 37.15%</span>
+<span class="gp">[rank0]:[titan] 2025-06-04 11:03:01,988 - root - INFO - step: 20  loss:  8.9482  memory: 30.89GiB(32.51%)  tps: 6,321  tflops: 366.06  mfu: 37.01%</span>
+<span class="gp">[rank0]:[titan] 2025-06-04 11:03:14,991 - root - INFO - step: 30  loss:  8.1183  memory: 30.89GiB(32.51%)  tps: 6,300  tflops: 364.89  mfu: 36.89%</span>
+<span class="gp">[rank0]:[titan] 2025-06-04 11:03:28,013 - root - INFO - step: 40  loss:  7.4659  memory: 30.89GiB(32.51%)  tps: 6,291  tflops: 364.36  mfu: 36.84%</span>
+<span class="go">[rank0]:[titan] 2025-06-04 11:03:39,769 - root - INFO - [GC] Peforming periodical GC collection. 0.02 seconds.</span>
+</pre></div>
+</div>
+<p>As you can see, the bfloat16 baseline achieves ~6.3k TPS using 30.89GB peak memory.</p>
+<p>This means our float8 rowwise scaling recipe achieves <strong>1.11x higher throughput</strong> compared to bfloat16 baseline, using nearly identical peak memory!</p>
+<p>Note that you can achieve even higher throughput improvement using the tensorwise scaling recipe, which exists at a different point on the performane vs accuracy curve.</p>
+</section>
+<section id="tensorwise-scaling">
+<h3>Tensorwise scaling<a class="headerlink" href="#tensorwise-scaling" title="Permalink to this heading">#</a></h3>
+<p>Float8 training with tensorwise scaling is the default recipe, so we can omit the <code class="code docutils literal notranslate"><span class="pre">--float8.recipe_name</span></code> flag:</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="go">NGPU=8 CONFIG_FILE=&quot;./torchtitan/models/llama3/train_configs/llama3_8b.toml&quot; ./run_train.sh --training.compile --model.converters=&quot;float8&quot;</span>
+</pre></div>
+</div>
+<p>You should see the output like the following:</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">[rank0]:[titan] 2025-06-04 10:52:19,648 - root - INFO - step:  1  loss: 12.2648  memory: 27.28GiB(28.71%)  tps: 557  tflops: 32.29  mfu: 3.26%</span>
+<span class="gp">[rank0]:[titan] 2025-06-04 10:52:29,475 - root - INFO - step: 10  loss: 10.9106  memory: 30.91GiB(32.53%)  tps: 7,503  tflops: 434.53  mfu: 43.94%</span>
+<span class="gp">[rank0]:[titan] 2025-06-04 10:52:40,166 - root - INFO - step: 20  loss:  9.0774  memory: 30.91GiB(32.53%)  tps: 7,663  tflops: 443.78  mfu: 44.87%</span>
+<span class="gp">[rank0]:[titan] 2025-06-04 10:52:50,885 - root - INFO - step: 30  loss:  8.3233  memory: 30.91GiB(32.53%)  tps: 7,643  tflops: 442.66  mfu: 44.76%</span>
+<span class="gp">[rank0]:[titan] 2025-06-04 10:53:01,613 - root - INFO - step: 40  loss:  7.6150  memory: 30.91GiB(32.53%)  tps: 7,637  tflops: 442.27  mfu: 44.72%</span>
+</pre></div>
+</div>
+<p>As you can see, we are achieving ~7.6k TPS using 30.91GB peak memory, which is <strong>1.21x higher throughput</strong> compared to the bfloat16 baseline!</p>
+</section>
+<section id="picking-a-recipe">
+<h3>Picking a recipe<a class="headerlink" href="#picking-a-recipe" title="Permalink to this heading">#</a></h3>
+<p><strong>TL;DR</strong>: rowwise scaling is better for jobs prioritizing more accurate numerics and training stability, and tensorwise is better for jobs prioritizing training throughput.</p>
+<p>The higher throughput of tensorwise scaling comes at the cost of slightly higher quantization error (i.e., reduced numerical integrity vs bfloat16) compared to rowwise scaling.
+This is because rowwise scaling using a more granular scaling factor (per row, instead of per tensor), which limits the impact of outliers that can cause underflow during scaling.</p>
+<p>Below you can see the loss curves comparing bfloat16, float8 tensorwise, and float8 rowwise training for training Llama3-8B on 8xH100 GPUs:</p>
+<img alt="Loss curves for training Llama3-8B on 8xH100s with torchtitan using bfloat16, float8 tensorwise, and float8 rowwise training." src="static/fp8-loss-curves.png" />
+</section>
+<section id="important-notes">
+<h3>Important notes<a class="headerlink" href="#important-notes" title="Permalink to this heading">#</a></h3>
+<ul class="simple">
+<li><p>float8 training is currently only supported on 2+ GPUs in torchtitan, not single GPU training.</p></li>
+<li><p>You must use <code class="code docutils literal notranslate"><span class="pre">--training.compile</span></code> to achieve high performance. torchao float8 training recipes are built natively on top of <code class="code docutils literal notranslate"><span class="pre">torch.compile</span></code>, so it will work out of the box!</p></li>
+</ul>
+</section>
+</section>
+<section id="pre-training-with-torchao-directly">
+<h2>Pre-training with torchao directly<a class="headerlink" href="#pre-training-with-torchao-directly" title="Permalink to this heading">#</a></h2>
+<p>In this tutorial we’ll pre-train a toy model using torchao APIs directly.</p>
+<p>You can use this workflow to integrate torchao into your own custom pre-training code directly.</p>
+<section id="id1">
+<h3>Prerequisites<a class="headerlink" href="#id1" title="Permalink to this heading">#</a></h3>
+<ol class="arabic simple">
+<li><p>(Recommended) Create a new virtual environment with conda or venv.</p></li>
+<li><p><a class="reference external" href="https://github.com/pytorch/ao/tree/main?tab=readme-ov-file#installation">Install torchao</a>.</p></li>
+</ol>
+<p>You’re now ready to integrate torchao into your training code directly!</p>
+</section>
+<section id="model-conversion-api">
+<h3>Model conversion API<a class="headerlink" href="#model-conversion-api" title="Permalink to this heading">#</a></h3>
+<p>The torchao API for converting your model to use float8 training is: <a class="reference external" href="https://github.com/pytorch/ao/blob/152a8e397e1383c55bf7b87a8eaa2b87ffb2c114/torchao/float8/float8_linear_utils.py#L84">convert_to_float8_training</a>. This API will recursively convert <code class="code docutils literal notranslate"><span class="pre">nn.Linear</span></code> modules in your model to use <a class="reference external" href="https://github.com/pytorch/ao/blob/152a8e397e1383c55bf7b87a8eaa2b87ffb2c114/torchao/float8/float8_linear.py#L254">Float8Linear</a>.</p>
+<p>You can use the <code class="code docutils literal notranslate"><span class="pre">module_filter_fn</span></code> argument to determine which <code class="code docutils literal notranslate"><span class="pre">nn.Linear</span></code> layers should be swapped to use <code class="code docutils literal notranslate"><span class="pre">Float8Linear</span></code>.</p>
+<p>You should refer to this <a class="reference external" href="https://github.com/pytorch/ao/tree/152a8e397e1383c55bf7b87a8eaa2b87ffb2c114/torchao/float8#performance">performance benchmark table</a> to understand
+what kind of performance improvement over bfloat16 you can expect for a given GEMM size.</p>
+<p>Below is a code snippet showing how to use it:</p>
+<div class="highlight-py notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torch</span><span class="w"> </span><span class="kn">import</span> <span class="n">nn</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn.functional</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">F</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.float8.float8_linear_utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">convert_to_float8_training</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.float8.float8_linear</span><span class="w"> </span><span class="kn">import</span> <span class="n">Float8Linear</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.float8</span><span class="w"> </span><span class="kn">import</span> <span class="n">convert_to_float8_training</span>
+
+<span class="c1"># create model and sample input</span>
+<span class="n">m</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Sequential</span><span class="p">(</span>
+    <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">2048</span><span class="p">,</span> <span class="mi">4096</span><span class="p">),</span>
+    <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">4096</span><span class="p">,</span> <span class="mi">128</span><span class="p">),</span>
+    <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">128</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span>
+<span class="p">)</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">()</span><span class="o">.</span><span class="n">cuda</span><span class="p">()</span>
+<span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">4096</span><span class="p">,</span> <span class="mi">2048</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="s2">&quot;cuda&quot;</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">)</span>
+<span class="n">optimizer</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">optim</span><span class="o">.</span><span class="n">AdamW</span><span class="p">(</span><span class="n">m</span><span class="o">.</span><span class="n">parameters</span><span class="p">(),</span> <span class="n">lr</span><span class="o">=</span><span class="mf">1e-3</span><span class="p">)</span>
+
+<span class="c1"># optional: filter modules from being eligible for float8 conversion</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">module_filter_fn</span><span class="p">(</span><span class="n">mod</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span> <span class="n">fqn</span><span class="p">:</span> <span class="nb">str</span><span class="p">):</span>
+    <span class="c1"># don&#39;t convert the last module</span>
+    <span class="k">if</span> <span class="n">fqn</span> <span class="o">==</span> <span class="s2">&quot;1&quot;</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">False</span>
+    <span class="c1"># don&#39;t convert linear modules with weight dimensions not divisible by 16</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">mod</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">mod</span><span class="o">.</span><span class="n">in_features</span> <span class="o">%</span> <span class="mi">16</span> <span class="o">!=</span> <span class="mi">0</span> <span class="ow">or</span> <span class="n">mod</span><span class="o">.</span><span class="n">out_features</span> <span class="o">%</span> <span class="mi">16</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">return</span> <span class="kc">False</span>
+    <span class="k">return</span> <span class="kc">True</span>
+
+<span class="c1"># convert specified `torch.nn.Linear` modules to `Float8Linear`</span>
+<span class="n">convert_to_float8_training</span><span class="p">(</span><span class="n">m</span><span class="p">,</span> <span class="n">module_filter_fn</span><span class="o">=</span><span class="n">module_filter_fn</span><span class="p">)</span>
+
+<span class="c1"># enable torch.compile for competitive performance</span>
+<span class="n">m</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="n">m</span><span class="p">)</span>
+
+<span class="c1"># toy training loop</span>
+<span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">10</span><span class="p">):</span>
+    <span class="n">optimizer</span><span class="o">.</span><span class="n">zero_grad</span><span class="p">()</span>
+    <span class="n">output</span> <span class="o">=</span> <span class="n">m</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+    <span class="c1"># use fake labels for demonstration purposes</span>
+    <span class="n">fake_labels</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">ones_like</span><span class="p">(</span><span class="n">output</span><span class="p">)</span>
+    <span class="n">loss</span> <span class="o">=</span> <span class="n">F</span><span class="o">.</span><span class="n">mse_loss</span><span class="p">(</span><span class="n">output</span><span class="p">,</span> <span class="n">fake_labels</span><span class="p">)</span>
+    <span class="n">loss</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>
+    <span class="n">optimizer</span><span class="o">.</span><span class="n">step</span><span class="p">()</span>
+
+<span class="c1"># save the model</span>
+<span class="n">torch</span><span class="o">.</span><span class="n">save</span><span class="p">({</span>
+    <span class="s1">&#39;model&#39;</span><span class="p">:</span> <span class="n">m</span><span class="p">,</span>
+    <span class="s1">&#39;model_state_dict&#39;</span><span class="p">:</span> <span class="n">m</span><span class="o">.</span><span class="n">state_dict</span><span class="p">(),</span>
+    <span class="s1">&#39;optimizer_state_dict&#39;</span><span class="p">:</span> <span class="n">optimizer</span><span class="o">.</span><span class="n">state_dict</span><span class="p">(),</span>
+<span class="p">},</span> <span class="s1">&#39;checkpoint.pth&#39;</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>After pre-training your model, you can optionally fine-tune it to more domain-specific datasets
+and adapt it for eventual quantization during serving. In the <a class="reference external" href="finetuning.html">next part</a> of
+this tutorial, we will explore a few model optimization options during the fine-tuning step.</p>
+</section>
+</section>
 </section>
 
 
@@ -1078,20 +1247,20 @@ document.write(`
 
 <div class="prev-next-area">
     <a class="left-prev"
-       href="subclass_basic.html"
+       href="first_quantization_example.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">Writing Your Own Quantized Tensor</p>
+        <p class="prev-next-title">First Quantization Example</p>
       </div>
     </a>
     <a class="right-next"
-       href="../developer_notes/index.html"
+       href="finetuning.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Developer Notes</p>
+        <p class="prev-next-title">(Part 2) Fine-tuning with QAT, QLoRA, and float8</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -1117,20 +1286,20 @@ document.write(`
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="subclass_basic.html"
+       href="first_quantization_example.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">Writing Your Own Quantized Tensor</p>
+        <p class="prev-next-title">First Quantization Example</p>
       </div>
     </a>
     <a class="right-next"
-       href="../developer_notes/index.html"
+       href="finetuning.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Developer Notes</p>
+        <p class="prev-next-title">(Part 2) Fine-tuning with QAT, QLoRA, and float8</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -1145,10 +1314,34 @@ document.write(`
 <div class="sidebar-secondary-items sidebar-secondary__inner">
     
        <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#pre-training-with-torchtitan">Pre-training with torchtitan</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#prerequisites">Prerequisites</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#rowwise-scaling">Rowwise scaling</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#tensorwise-scaling">Tensorwise scaling</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#picking-a-recipe">Picking a recipe</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#important-notes">Important notes</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#pre-training-with-torchao-directly">Pre-training with torchao directly</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#id1">Prerequisites</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#model-conversion-api">Model conversion API</a></li>
+</ul>
+</li>
+</ul>
+  </nav></div>
+    
+       <div class="sidebar-secondary-item">
 
   
   <div class="tocsection editthispage">
-    <a href="https://github.com/pytorch/ao/edit/main/docs/source/eager_quantization/subclass_advanced.rst">
+    <a href="https://github.com/pytorch/ao/edit/main/docs/source/eager_tutorials/pretraining.rst">
       <i class="fa-solid fa-pencil"></i>
       
       
@@ -1162,7 +1355,7 @@ document.write(`
     
        <div class="sidebar-secondary-item">
     <div class="tocsection sourcelink">
-      <a href="../_sources/eager_quantization/subclass_advanced.rst.txt">
+      <a href="../_sources/eager_tutorials/pretraining.rst.txt">
         <i class="fa-solid fa-file-lines"></i> Show Source
       </a>
     </div>
@@ -1362,11 +1555,11 @@ document.write(`
     {
        "@context": "https://schema.org",
        "@type": "Article",
-       "name": "Writing Your Own Quantized Tensor (advanced)",
-       "headline": "Writing Your Own Quantized Tensor (advanced)",
+       "name": "(Part 1) Pre-training with float8",
+       "headline": "(Part 1) Pre-training with float8",
        "description": "PyTorch Documentation. Explore PyTorch, an open-source machine learning library that accelerates the path from research prototyping to production deployment. Discover tutorials, API references, and guides to help you build and deploy deep learning models efficiently.",
-       "url": "/eager_quantization/subclass_advanced.html",
-       "articleBody": "Writing Your Own Quantized Tensor (advanced)# Created On: Jan 29, 2026 | Last Updated On: Jan 29, 2026 Coming soon!",
+       "url": "/eager_tutorials/pretraining.html",
+       "articleBody": "(Part 1) Pre-training with float8# Created On: Jan 29, 2026 | Last Updated On: Jan 29, 2026 TorchAO provides an end-to-end pre-training, fine-tuning, and serving model optimization flow by leveraging our quantization and sparsity techniques integrated into our partner frameworks. This is part 1 of 3 such tutorials showcasing this end-to-end flow, focusing on the pre-training step. Pre-training with float8 using torchao can provide up to 1.5x speedups on 512 GPU clusters, and up to 1.34-1.43x speedups on 2K H200 clusters with the latest torchao.float8 rowwise recipe. In this tutorial, we will show 2 ways to use the torchao.float8 recipes for pre-training: Pre-training with torchtitan, the offical PyTorch pre-training framework with native torchao integration. Pre-training with torchao directly, to integrate torchao\u2019s float8 training recipes into your own pre-training code. Pre-training with torchtitan# In this tutorial we\u2019ll pre-train Llama3-8B using torchtitan with torchao\u2019s float8 training recipes: rowwise scaling and tensorwise scaling. Torchtitan is PyTorch\u2019s official pre-training framework that is natively integrated with torchao, and supports several popular flagship models with common forms of parallelism, float8 training, distributed checkpointing and more. See the torchtitan docs for additional details. You can use this workflow to get started quickly with a \u201cbatteries included\u201d experience. Users commonly fork torchtitan and build on top of it when they\u2019re ready. Prerequisites# (Recommended) Create a new virtual environment with conda or venv. Install torchao. Install torchtitan, including the \u201cdownloading a tokenizer\u201d step. You\u2019re now ready to start a pre-training job using one of the recipes below! Rowwise scaling# Run the following command from torchtitan root directory to launch a Llama3-8B training job on 8 GPUs with float8 rowwise training: NGPU=8 CONFIG_FILE=\"./torchtitan/models/llama3/train_configs/llama3_8b.toml\" ./run_train.sh --training.compile --model.converters=\"float8\" --float8.recipe_name=\"rowwise\" Torchtitan will automatically use FSDP2 to parallelize training when more than 1 GPU is used. To use other forms of parallelism, modify hyperparameters, or change other training configurations, you can directly edit the llama3_8b.toml file or use command line flags (run the command with --help to see more options). You should see terminal output that looks like this: [rank0]:[titan] 2025-06-04 08:51:48,074 - root - INFO - step: 1 loss: 12.2254 memory: 27.34GiB(28.78%) tps: 375 tflops: 21.73 mfu: 2.20% [rank0]:[titan] 2025-06-04 08:51:58,557 - root - INFO - step: 10 loss: 10.7069 memory: 30.99GiB(32.62%) tps: 7,034 tflops: 407.35 mfu: 41.19% [rank0]:[titan] 2025-06-04 08:52:10,224 - root - INFO - step: 20 loss: 8.9196 memory: 30.99GiB(32.62%) tps: 7,022 tflops: 406.65 mfu: 41.12% [rank0]:[titan] 2025-06-04 08:52:21,904 - root - INFO - step: 30 loss: 8.1423 memory: 30.99GiB(32.62%) tps: 7,014 tflops: 406.23 mfu: 41.08% As you can see, ignoring the warmup steps we are achieving around ~7k TPS with 30.99GB peak memory usage. To compare performance against bfloat16 training, you can remove the --model.converters=\"float8\" --float8.recipe_name=\"rowwise\" flags and run the same command to see the baseline performance of bfloat16 training: NGPU=8 CONFIG_FILE=\"./torchtitan/models/llama3/train_configs/llama3_8b.toml\" ./run_train.sh --training.compile You should see the following output: [rank0]:[titan] 2025-06-04 11:02:37,404 - root - INFO - step: 1 loss: 12.2611 memory: 27.22GiB(28.65%) tps: 595 tflops: 34.47 mfu: 3.49% [rank0]:[titan] 2025-06-04 11:02:49,027 - root - INFO - step: 10 loss: 10.4260 memory: 30.89GiB(32.51%) tps: 6,344 tflops: 367.39 mfu: 37.15% [rank0]:[titan] 2025-06-04 11:03:01,988 - root - INFO - step: 20 loss: 8.9482 memory: 30.89GiB(32.51%) tps: 6,321 tflops: 366.06 mfu: 37.01% [rank0]:[titan] 2025-06-04 11:03:14,991 - root - INFO - step: 30 loss: 8.1183 memory: 30.89GiB(32.51%) tps: 6,300 tflops: 364.89 mfu: 36.89% [rank0]:[titan] 2025-06-04 11:03:28,013 - root - INFO - step: 40 loss: 7.4659 memory: 30.89GiB(32.51%) tps: 6,291 tflops: 364.36 mfu: 36.84% [rank0]:[titan] 2025-06-04 11:03:39,769 - root - INFO - [GC] Peforming periodical GC collection. 0.02 seconds. As you can see, the bfloat16 baseline achieves ~6.3k TPS using 30.89GB peak memory. This means our float8 rowwise scaling recipe achieves 1.11x higher throughput compared to bfloat16 baseline, using nearly identical peak memory! Note that you can achieve even higher throughput improvement using the tensorwise scaling recipe, which exists at a different point on the performane vs accuracy curve. Tensorwise scaling# Float8 training with tensorwise scaling is the default recipe, so we can omit the --float8.recipe_name flag: NGPU=8 CONFIG_FILE=\"./torchtitan/models/llama3/train_configs/llama3_8b.toml\" ./run_train.sh --training.compile --model.converters=\"float8\" You should see the output like the following: [rank0]:[titan] 2025-06-04 10:52:19,648 - root - INFO - step: 1 loss: 12.2648 memory: 27.28GiB(28.71%) tps: 557 tflops: 32.29 mfu: 3.26% [rank0]:[titan] 2025-06-04 10:52:29,475 - root - INFO - step: 10 loss: 10.9106 memory: 30.91GiB(32.53%) tps: 7,503 tflops: 434.53 mfu: 43.94% [rank0]:[titan] 2025-06-04 10:52:40,166 - root - INFO - step: 20 loss: 9.0774 memory: 30.91GiB(32.53%) tps: 7,663 tflops: 443.78 mfu: 44.87% [rank0]:[titan] 2025-06-04 10:52:50,885 - root - INFO - step: 30 loss: 8.3233 memory: 30.91GiB(32.53%) tps: 7,643 tflops: 442.66 mfu: 44.76% [rank0]:[titan] 2025-06-04 10:53:01,613 - root - INFO - step: 40 loss: 7.6150 memory: 30.91GiB(32.53%) tps: 7,637 tflops: 442.27 mfu: 44.72% As you can see, we are achieving ~7.6k TPS using 30.91GB peak memory, which is 1.21x higher throughput compared to the bfloat16 baseline! Picking a recipe# TL;DR: rowwise scaling is better for jobs prioritizing more accurate numerics and training stability, and tensorwise is better for jobs prioritizing training throughput. The higher throughput of tensorwise scaling comes at the cost of slightly higher quantization error (i.e., reduced numerical integrity vs bfloat16) compared to rowwise scaling. This is because rowwise scaling using a more granular scaling factor (per row, instead of per tensor), which limits the impact of outliers that can cause underflow during scaling. Below you can see the loss curves comparing bfloat16, float8 tensorwise, and float8 rowwise training for training Llama3-8B on 8xH100 GPUs: Important notes# float8 training is currently only supported on 2+ GPUs in torchtitan, not single GPU training. You must use --training.compile to achieve high performance. torchao float8 training recipes are built natively on top of torch.compile, so it will work out of the box! Pre-training with torchao directly# In this tutorial we\u2019ll pre-train a toy model using torchao APIs directly. You can use this workflow to integrate torchao into your own custom pre-training code directly. Prerequisites# (Recommended) Create a new virtual environment with conda or venv. Install torchao. You\u2019re now ready to integrate torchao into your training code directly! Model conversion API# The torchao API for converting your model to use float8 training is: convert_to_float8_training. This API will recursively convert nn.Linear modules in your model to use Float8Linear. You can use the module_filter_fn argument to determine which nn.Linear layers should be swapped to use Float8Linear. You should refer to this performance benchmark table to understand what kind of performance improvement over bfloat16 you can expect for a given GEMM size. Below is a code snippet showing how to use it: import torch from torch import nn import torch.nn.functional as F from torchao.float8.float8_linear_utils import convert_to_float8_training from torchao.float8.float8_linear import Float8Linear from torchao.float8 import convert_to_float8_training # create model and sample input m = nn.Sequential( nn.Linear(2048, 4096), nn.Linear(4096, 128), nn.Linear(128, 1), ).bfloat16().cuda() x = torch.randn(4096, 2048, device=\"cuda\", dtype=torch.bfloat16) optimizer = torch.optim.AdamW(m.parameters(), lr=1e-3) # optional: filter modules from being eligible for float8 conversion def module_filter_fn(mod: torch.nn.Module, fqn: str): # don\u0027t convert the last module if fqn == \"1\": return False # don\u0027t convert linear modules with weight dimensions not divisible by 16 if isinstance(mod, torch.nn.Linear): if mod.in_features % 16 != 0 or mod.out_features % 16 != 0: return False return True # convert specified `torch.nn.Linear` modules to `Float8Linear` convert_to_float8_training(m, module_filter_fn=module_filter_fn) # enable torch.compile for competitive performance m = torch.compile(m) # toy training loop for _ in range(10): optimizer.zero_grad() output = m(x) # use fake labels for demonstration purposes fake_labels = torch.ones_like(output) loss = F.mse_loss(output, fake_labels) loss.backward() optimizer.step() # save the model torch.save({ \u0027model\u0027: m, \u0027model_state_dict\u0027: m.state_dict(), \u0027optimizer_state_dict\u0027: optimizer.state_dict(), }, \u0027checkpoint.pth\u0027) After pre-training your model, you can optionally fine-tune it to more domain-specific datasets and adapt it for eventual quantization during serving. In the next part of this tutorial, we will explore a few model optimization options during the fine-tuning step.",
        "author": {
          "@type": "Organization",
          "name": "PyTorch Contributors",
@@ -1375,7 +1568,7 @@ document.write(`
        "image": "https://pytorch.org/docs/stable/_static/img/pytorch_seo.png",
        "mainEntityOfPage": {
          "@type": "WebPage",
-         "@id": "/eager_quantization/subclass_advanced.html"
+         "@id": "/eager_tutorials/pretraining.html"
        },
        "datePublished": "Jan 29, 2026T00:00:00Z",
        "dateModified": "Jan 29, 2026T00:00:00Z"

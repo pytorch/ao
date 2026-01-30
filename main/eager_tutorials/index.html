@@ -9,16 +9,16 @@
   <meta name="robots" content="noindex">
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
-<meta property="og:title" content="Serialization" />
+<meta property="og:title" content="Tutorials" />
 <meta property="og:type" content="website" />
-<meta property="og:url" content="http://pytorch.org/eager_quantization/serialization.html" />
+<meta property="og:url" content="http://pytorch.org/eager_tutorials/index.html" />
 <meta property="og:site_name" content="torchao" />
-<meta property="og:description" content="Serialization and deserialization is an important question that people care about especially when we integrate torchao with other libraries. Here we want to describe how serialization and deseriali..." />
+<meta property="og:description" content="Tutorials for quantization using eager mode execution. First Quantization Example,(Part 1) Pre-training with float8,(Part 2) Fine-tuning with QAT, QLoRA, and float8,(Part 3) Serving on vLLM, SGLang..." />
 <meta property="og:image" content="https://pytorch.org/assets/images/social-share.jpg" />
 <meta property="og:image:alt" content="torchao" />
-<meta name="description" content="Serialization and deserialization is an important question that people care about especially when we integrate torchao with other libraries. Here we want to describe how serialization and deseriali..." />
+<meta name="description" content="Tutorials for quantization using eager mode execution. First Quantization Example,(Part 1) Pre-training with float8,(Part 2) Fine-tuning with QAT, QLoRA, and float8,(Part 3) Serving on vLLM, SGLang..." />
 
-    <title>Serialization &#8212; torchao main documentation</title>
+    <title>Tutorials &#8212; torchao main documentation</title>
   
   
   
@@ -63,11 +63,11 @@
     <script src="../_static/clipboard.min.js"></script>
     <script src="../_static/copybutton.js"></script>
     <script src="../_static/design-tabs.js"></script>
-    <link rel="canonical" href="https://pytorch.org/ao/eager_quantization/serialization.html" />
+    <link rel="canonical" href="https://pytorch.org/ao/eager_tutorials/index.html" />
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Static Quantization" href="static_quantization.html" />
-    <link rel="prev" title="Hugging Face Integration" href="torchao_hf_integration.html" />
+    <link rel="next" title="First Quantization Example" href="first_quantization_example.html" />
+    <link rel="prev" title="_choose_quant_func_and_quantize_tensor" href="../api_reference/generated/torchao.quantization.quantize_.common._choose_quant_func_and_quantize_tensor.html" />
 
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
@@ -631,8 +631,8 @@
 
 
 <li class="nav-item current active">
-  <a class="nav-link nav-internal" href="index.html">
-    Eager Quantization Tutorials
+  <a class="nav-link nav-internal" href="#">
+    Tutorials
   </a>
 </li>
 
@@ -794,8 +794,8 @@ document.write(`
 
 
 <li class="nav-item current active">
-  <a class="nav-link nav-internal" href="index.html">
-    Eager Quantization Tutorials
+  <a class="nav-link nav-internal" href="#">
+    Tutorials
   </a>
 </li>
 
@@ -916,14 +916,14 @@ document.write(`
 <nav class="bd-docs-nav bd-links"
      aria-label="Section Navigation">
   <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
-  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+  <div class="bd-toc-item navbar-nav"><ul class="nav bd-sidenav">
 <li class="toctree-l1"><a class="reference internal" href="first_quantization_example.html">First Quantization Example</a></li>
 <li class="toctree-l1"><a class="reference internal" href="pretraining.html">(Part 1) Pre-training with float8</a></li>
 <li class="toctree-l1"><a class="reference internal" href="finetuning.html">(Part 2) Fine-tuning with QAT, QLoRA, and float8</a></li>
 <li class="toctree-l1"><a class="reference internal" href="serving.html">(Part 3) Serving on vLLM, SGLang, ExecuTorch</a></li>
 <li class="toctree-l1"><a class="reference internal" href="torchao_vllm_integration.html">Integration with VLLM: Architecture and Usage Guide</a></li>
 <li class="toctree-l1"><a class="reference internal" href="torchao_hf_integration.html">Hugging Face Integration</a></li>
-<li class="toctree-l1 current active"><a class="current reference internal" href="#">Serialization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="serialization.html">Serialization</a></li>
 <li class="toctree-l1"><a class="reference internal" href="static_quantization.html">Static Quantization</a></li>
 <li class="toctree-l1"><a class="reference internal" href="subclass_basic.html">Writing Your Own Quantized Tensor</a></li>
 <li class="toctree-l1"><a class="reference internal" href="subclass_advanced.html">Writing Your Own Quantized Tensor (advanced)</a></li>
@@ -964,10 +964,7 @@ document.write(`
         <i class="fa-solid fa-home"></i>
       </a>
     </li>
-    
-    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Eager Quantization Tutorials</a></li>
-    
-    <li class="breadcrumb-item active" aria-current="page">Serialization</li>
+    <li class="breadcrumb-item active" aria-current="page">Tutorials</li>
   </ul>
 </nav>
 </div>
@@ -1009,14 +1006,8 @@ document.write(`
     <div style="display:none;" itemscope itemtype="https://schema.org/BreadcrumbList">
       
       <div itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
-        <link itemprop="item" href="index.html">
-        <meta itemprop="name" content="Eager Quantization Tutorials">
+        <meta itemprop="name" content="Tutorials">
         <meta itemprop="position" content="1">
-      </div>
-      
-      <div itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
-        <meta itemprop="name" content="Serialization">
-        <meta itemprop="position" content="2">
       </div>
     </div>
 
@@ -1029,99 +1020,24 @@ document.write(`
 <div id="searchbox"></div>
                 <article class="bd-article">
                   
-  <section id="serialization">
-<h1>Serialization<a class="headerlink" href="#serialization" title="Permalink to this heading">#</a></h1>
+  <section id="tutorials">
+<h1>Tutorials<a class="headerlink" href="#tutorials" title="Permalink to this heading">#</a></h1>
 <p class="date-info-last-verified" style="color: #6c6c6d; font-size: small;">Created On: Jan 29, 2026 | Last Updated On: Jan 29, 2026</p>
-<p>Serialization and deserialization is an important question that people care about especially when we integrate torchao with other libraries. Here we want to describe how serialization and deserialization works for torchao optimized (quantized or sparsified) models.</p>
-<section id="serialization-and-deserialization-flow">
-<h2>Serialization and deserialization flow<a class="headerlink" href="#serialization-and-deserialization-flow" title="Permalink to this heading">#</a></h2>
-<p>Here is the serialization and deserialization flow:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">copy</span>
-<span class="kn">import</span><span class="w"> </span><span class="nn">tempfile</span>
-<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_model_size_in_bytes</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.quant_api</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
-    <span class="n">quantize_</span><span class="p">,</span>
-    <span class="n">Int4WeightOnlyConfig</span><span class="p">,</span>
-<span class="p">)</span>
-
-<span class="k">class</span><span class="w"> </span><span class="nc">ToyLinearModel</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
-    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">m</span><span class="o">=</span><span class="mi">64</span><span class="p">,</span> <span class="n">n</span><span class="o">=</span><span class="mi">32</span><span class="p">,</span> <span class="n">k</span><span class="o">=</span><span class="mi">64</span><span class="p">):</span>
-        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">linear1</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="n">m</span><span class="p">,</span> <span class="n">n</span><span class="p">,</span> <span class="n">bias</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">linear2</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="n">n</span><span class="p">,</span> <span class="n">k</span><span class="p">,</span> <span class="n">bias</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
-
-    <span class="k">def</span><span class="w"> </span><span class="nf">example_inputs</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">batch_size</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="s2">&quot;cpu&quot;</span><span class="p">):</span>
-        <span class="k">return</span> <span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="n">batch_size</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">linear1</span><span class="o">.</span><span class="n">in_features</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">dtype</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">),)</span>
-
-    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">):</span>
-        <span class="n">x</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">linear1</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
-        <span class="n">x</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">linear2</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
-        <span class="k">return</span> <span class="n">x</span>
-
-<span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span>
-<span class="n">m</span> <span class="o">=</span> <span class="n">ToyLinearModel</span><span class="p">(</span><span class="mi">1024</span><span class="p">,</span> <span class="mi">1024</span><span class="p">,</span> <span class="mi">1024</span><span class="p">)</span><span class="o">.</span><span class="n">eval</span><span class="p">()</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">dtype</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="s2">&quot;cuda&quot;</span><span class="p">)</span>
-<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;original model size: </span><span class="si">{</span><span class="n">get_model_size_in_bytes</span><span class="p">(</span><span class="n">m</span><span class="p">)</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="mi">1024</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="mi">1024</span><span class="si">}</span><span class="s2"> MB&quot;</span><span class="p">)</span>
-
-<span class="n">example_inputs</span> <span class="o">=</span> <span class="n">m</span><span class="o">.</span><span class="n">example_inputs</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="n">dtype</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="s2">&quot;cuda&quot;</span><span class="p">)</span>
-<span class="n">quantize_</span><span class="p">(</span><span class="n">m</span><span class="p">,</span> <span class="n">Int4WeightOnlyConfig</span><span class="p">())</span>
-<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;quantized model size: </span><span class="si">{</span><span class="n">get_model_size_in_bytes</span><span class="p">(</span><span class="n">m</span><span class="p">)</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="mi">1024</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="mi">1024</span><span class="si">}</span><span class="s2"> MB&quot;</span><span class="p">)</span>
-
-<span class="n">ref</span> <span class="o">=</span> <span class="n">m</span><span class="p">(</span><span class="o">*</span><span class="n">example_inputs</span><span class="p">)</span>
-<span class="k">with</span> <span class="n">tempfile</span><span class="o">.</span><span class="n">NamedTemporaryFile</span><span class="p">()</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
-    <span class="n">torch</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="n">m</span><span class="o">.</span><span class="n">state_dict</span><span class="p">(),</span> <span class="n">f</span><span class="p">)</span>
-    <span class="n">f</span><span class="o">.</span><span class="n">seek</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
-    <span class="n">state_dict</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">f</span><span class="p">)</span>
-
-<span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">device</span><span class="p">(</span><span class="s2">&quot;meta&quot;</span><span class="p">):</span>
-    <span class="n">m_loaded</span> <span class="o">=</span> <span class="n">ToyLinearModel</span><span class="p">(</span><span class="mi">1024</span><span class="p">,</span> <span class="mi">1024</span><span class="p">,</span> <span class="mi">1024</span><span class="p">)</span><span class="o">.</span><span class="n">eval</span><span class="p">()</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">dtype</span><span class="p">)</span>
-
-<span class="c1"># `linear.weight` is nn.Parameter, so we check the type of `linear.weight.data`</span>
-<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;type of weight before loading: </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">m_loaded</span><span class="o">.</span><span class="n">linear1</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">data</span><span class="p">),</span><span class="w"> </span><span class="nb">type</span><span class="p">(</span><span class="n">m_loaded</span><span class="o">.</span><span class="n">linear2</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">data</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-<span class="n">m_loaded</span><span class="o">.</span><span class="n">load_state_dict</span><span class="p">(</span><span class="n">state_dict</span><span class="p">,</span> <span class="n">assign</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;type of weight after loading: </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">m_loaded</span><span class="o">.</span><span class="n">linear1</span><span class="o">.</span><span class="n">weight</span><span class="p">),</span><span class="w"> </span><span class="nb">type</span><span class="p">(</span><span class="n">m_loaded</span><span class="o">.</span><span class="n">linear2</span><span class="o">.</span><span class="n">weight</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-
-<span class="n">res</span> <span class="o">=</span> <span class="n">m_loaded</span><span class="p">(</span><span class="o">*</span><span class="n">example_inputs</span><span class="p">)</span>
-<span class="k">assert</span> <span class="n">torch</span><span class="o">.</span><span class="n">equal</span><span class="p">(</span><span class="n">res</span><span class="p">,</span> <span class="n">ref</span><span class="p">)</span>
-</pre></div>
+<p>Tutorials for quantization using eager mode execution.</p>
+<div class="toctree-wrapper compound">
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="first_quantization_example.html">First Quantization Example</a></li>
+<li class="toctree-l1"><a class="reference internal" href="pretraining.html">(Part 1) Pre-training with float8</a></li>
+<li class="toctree-l1"><a class="reference internal" href="finetuning.html">(Part 2) Fine-tuning with QAT, QLoRA, and float8</a></li>
+<li class="toctree-l1"><a class="reference internal" href="serving.html">(Part 3) Serving on vLLM, SGLang, ExecuTorch</a></li>
+<li class="toctree-l1"><a class="reference internal" href="torchao_vllm_integration.html">Integration with VLLM: Architecture and Usage Guide</a></li>
+<li class="toctree-l1"><a class="reference internal" href="torchao_hf_integration.html">Hugging Face Integration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="serialization.html">Serialization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="static_quantization.html">Static Quantization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="subclass_basic.html">Writing Your Own Quantized Tensor</a></li>
+<li class="toctree-l1"><a class="reference internal" href="subclass_advanced.html">Writing Your Own Quantized Tensor (advanced)</a></li>
+</ul>
 </div>
-</section>
-<section id="what-happens-when-serializing-an-optimized-model">
-<h2>What happens when serializing an optimized model?<a class="headerlink" href="#what-happens-when-serializing-an-optimized-model" title="Permalink to this heading">#</a></h2>
-<p>To serialize an optimized model, we just need to call <code class="docutils literal notranslate"><span class="pre">torch.save(m.state_dict(),</span> <span class="pre">f)</span></code>, because in torchao, we use tensor subclass to represent different dtypes or support different optimization techniques like quantization and sparsity. So after optimization, the only thing change is the weight Tensor is changed to an optimized weight Tensor, and the model structure is not changed at all. For example:</p>
-<p>original floating point model <code class="docutils literal notranslate"><span class="pre">state_dict</span></code>:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="p">{</span><span class="s2">&quot;linear1.weight&quot;</span><span class="p">:</span> <span class="n">float_weight1</span><span class="p">,</span> <span class="s2">&quot;linear2.weight&quot;</span><span class="p">:</span> <span class="n">float_weight2</span><span class="p">}</span>
-</pre></div>
-</div>
-<p>quantized model <code class="docutils literal notranslate"><span class="pre">state_dict</span></code>:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="p">{</span><span class="s2">&quot;linear1.weight&quot;</span><span class="p">:</span> <span class="n">quantized_weight1</span><span class="p">,</span> <span class="s2">&quot;linear2.weight&quot;</span><span class="p">:</span> <span class="n">quantized_weight2</span><span class="p">,</span> <span class="o">...</span><span class="p">}</span>
-</pre></div>
-</div>
-<p>The size of the quantized model is typically going to be smaller to the original floating point model, but it also depends on the specific techinque and implementation you are using. You can print the model size with <code class="docutils literal notranslate"><span class="pre">torchao.utils.get_model_size_in_bytes</span></code> utility function, specifically for the above example using Int4WeightOnlyConfig quantization, we can see the size reduction is around 4x:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">original</span> <span class="n">model</span> <span class="n">size</span><span class="p">:</span> <span class="mf">4.0</span> <span class="n">MB</span>
-<span class="n">quantized</span> <span class="n">model</span> <span class="n">size</span><span class="p">:</span> <span class="mf">1.0625</span> <span class="n">MB</span>
-</pre></div>
-</div>
-</section>
-<section id="what-happens-when-deserializing-an-optimized-model">
-<h2>What happens when deserializing an optimized model?<a class="headerlink" href="#what-happens-when-deserializing-an-optimized-model" title="Permalink to this heading">#</a></h2>
-<p>To deserialize an optimized model, we can initialize the floating point model in <a class="reference external" href="https://pytorch.org/docs/stable/meta.html">meta</a> device and then load the optimized <code class="docutils literal notranslate"><span class="pre">state_dict</span></code> with <code class="docutils literal notranslate"><span class="pre">assign=True</span></code> using <a class="reference external" href="https://pytorch.org/docs/stable/generated/torch.nn.Module.html#torch.nn.Module.load_state_dict">model.load_state_dict</a>:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">device</span><span class="p">(</span><span class="s2">&quot;meta&quot;</span><span class="p">):</span>
-    <span class="n">m_loaded</span> <span class="o">=</span> <span class="n">ToyLinearModel</span><span class="p">(</span><span class="mi">1024</span><span class="p">,</span> <span class="mi">1024</span><span class="p">,</span> <span class="mi">1024</span><span class="p">)</span><span class="o">.</span><span class="n">eval</span><span class="p">()</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">dtype</span><span class="p">)</span>
-
-<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;type of weight before loading: </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">m_loaded</span><span class="o">.</span><span class="n">linear1</span><span class="o">.</span><span class="n">weight</span><span class="p">),</span><span class="w"> </span><span class="nb">type</span><span class="p">(</span><span class="n">m_loaded</span><span class="o">.</span><span class="n">linear2</span><span class="o">.</span><span class="n">weight</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-<span class="n">m_loaded</span><span class="o">.</span><span class="n">load_state_dict</span><span class="p">(</span><span class="n">state_dict</span><span class="p">,</span> <span class="n">assign</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;type of weight after loading: </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">m_loaded</span><span class="o">.</span><span class="n">linear1</span><span class="o">.</span><span class="n">weight</span><span class="p">),</span><span class="w"> </span><span class="nb">type</span><span class="p">(</span><span class="n">m_loaded</span><span class="o">.</span><span class="n">linear2</span><span class="o">.</span><span class="n">weight</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-</pre></div>
-</div>
-<p>The reason we initialize the model in <code class="docutils literal notranslate"><span class="pre">meta</span></code> device is to avoid initializing the original floating point model since original floating point model may not fit into the device that we want to use for inference.</p>
-<p>What happens in <code class="docutils literal notranslate"><span class="pre">m_loaded.load_state_dict(state_dict,</span> <span class="pre">assign=True)</span></code> is that the corresponding weights (e.g. m_loaded.linear1.weight) are updated with the Tensors in <code class="docutils literal notranslate"><span class="pre">state_dict</span></code>, which is an optimized tensor subclass instance (e.g. int4 <code class="docutils literal notranslate"><span class="pre">AffineQuantizedTensor</span></code>). No dependency on torchao is needed for this to work.</p>
-<p>We can also verify that the weight is properly loaded by checking the type of weight tensor:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>type of weight before loading: (&lt;class &#39;torch.Tensor&#39;&gt;, &lt;class &#39;torch.Tensor&#39;&gt;)
-type of weight after loading: (&lt;class &#39;torchao.dtypes.affine_quantized_tensor.AffineQuantizedTensor&#39;&gt;, &lt;class &#39;torchao.dtypes.affine_quantized_tensor.AffineQuantizedTensor&#39;&gt;)
-</pre></div>
-</div>
-</section>
 </section>
 
 
@@ -1167,20 +1083,20 @@ type of weight after loading: (&lt;class &#39;torchao.dtypes.affine_quantized_te
 
 <div class="prev-next-area">
     <a class="left-prev"
-       href="torchao_hf_integration.html"
+       href="../api_reference/generated/torchao.quantization.quantize_.common._choose_quant_func_and_quantize_tensor.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">Hugging Face Integration</p>
+        <p class="prev-next-title">_choose_quant_func_and_quantize_tensor</p>
       </div>
     </a>
     <a class="right-next"
-       href="static_quantization.html"
+       href="first_quantization_example.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Static Quantization</p>
+        <p class="prev-next-title">First Quantization Example</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -1206,20 +1122,20 @@ type of weight after loading: (&lt;class &#39;torchao.dtypes.affine_quantized_te
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="torchao_hf_integration.html"
+       href="../api_reference/generated/torchao.quantization.quantize_.common._choose_quant_func_and_quantize_tensor.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">Hugging Face Integration</p>
+        <p class="prev-next-title">_choose_quant_func_and_quantize_tensor</p>
       </div>
     </a>
     <a class="right-next"
-       href="static_quantization.html"
+       href="first_quantization_example.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Static Quantization</p>
+        <p class="prev-next-title">First Quantization Example</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -1234,24 +1150,10 @@ type of weight after loading: (&lt;class &#39;torchao.dtypes.affine_quantized_te
 <div class="sidebar-secondary-items sidebar-secondary__inner">
     
        <div class="sidebar-secondary-item">
-<div
-    id="pst-page-navigation-heading-2"
-    class="page-toc tocsection onthispage">
-    <i class="fa-solid fa-list"></i> On this page
-  </div>
-  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
-    <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#serialization-and-deserialization-flow">Serialization and deserialization flow</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-happens-when-serializing-an-optimized-model">What happens when serializing an optimized model?</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-happens-when-deserializing-an-optimized-model">What happens when deserializing an optimized model?</a></li>
-</ul>
-  </nav></div>
-    
-       <div class="sidebar-secondary-item">
 
   
   <div class="tocsection editthispage">
-    <a href="https://github.com/pytorch/ao/edit/main/docs/source/eager_quantization/serialization.rst">
+    <a href="https://github.com/pytorch/ao/edit/main/docs/source/eager_tutorials/index.rst">
       <i class="fa-solid fa-pencil"></i>
       
       
@@ -1265,7 +1167,7 @@ type of weight after loading: (&lt;class &#39;torchao.dtypes.affine_quantized_te
     
        <div class="sidebar-secondary-item">
     <div class="tocsection sourcelink">
-      <a href="../_sources/eager_quantization/serialization.rst.txt">
+      <a href="../_sources/eager_tutorials/index.rst.txt">
         <i class="fa-solid fa-file-lines"></i> Show Source
       </a>
     </div>
@@ -1465,11 +1367,11 @@ type of weight after loading: (&lt;class &#39;torchao.dtypes.affine_quantized_te
     {
        "@context": "https://schema.org",
        "@type": "Article",
-       "name": "Serialization",
-       "headline": "Serialization",
+       "name": "Tutorials",
+       "headline": "Tutorials",
        "description": "PyTorch Documentation. Explore PyTorch, an open-source machine learning library that accelerates the path from research prototyping to production deployment. Discover tutorials, API references, and guides to help you build and deploy deep learning models efficiently.",
-       "url": "/eager_quantization/serialization.html",
-       "articleBody": "Serialization# Created On: Jan 29, 2026 | Last Updated On: Jan 29, 2026 Serialization and deserialization is an important question that people care about especially when we integrate torchao with other libraries. Here we want to describe how serialization and deserialization works for torchao optimized (quantized or sparsified) models. Serialization and deserialization flow# Here is the serialization and deserialization flow: import copy import tempfile import torch from torchao.utils import get_model_size_in_bytes from torchao.quantization.quant_api import ( quantize_, Int4WeightOnlyConfig, ) class ToyLinearModel(torch.nn.Module): def __init__(self, m=64, n=32, k=64): super().__init__() self.linear1 = torch.nn.Linear(m, n, bias=False) self.linear2 = torch.nn.Linear(n, k, bias=False) def example_inputs(self, batch_size=1, dtype=torch.float32, device=\"cpu\"): return (torch.randn(batch_size, self.linear1.in_features, dtype=dtype, device=device),) def forward(self, x): x = self.linear1(x) x = self.linear2(x) return x dtype = torch.bfloat16 m = ToyLinearModel(1024, 1024, 1024).eval().to(dtype).to(\"cuda\") print(f\"original model size: {get_model_size_in_bytes(m) / 1024 / 1024} MB\") example_inputs = m.example_inputs(dtype=dtype, device=\"cuda\") quantize_(m, Int4WeightOnlyConfig()) print(f\"quantized model size: {get_model_size_in_bytes(m) / 1024 / 1024} MB\") ref = m(*example_inputs) with tempfile.NamedTemporaryFile() as f: torch.save(m.state_dict(), f) f.seek(0) state_dict = torch.load(f) with torch.device(\"meta\"): m_loaded = ToyLinearModel(1024, 1024, 1024).eval().to(dtype) # `linear.weight` is nn.Parameter, so we check the type of `linear.weight.data` print(f\"type of weight before loading: {type(m_loaded.linear1.weight.data), type(m_loaded.linear2.weight.data)}\") m_loaded.load_state_dict(state_dict, assign=True) print(f\"type of weight after loading: {type(m_loaded.linear1.weight), type(m_loaded.linear2.weight)}\") res = m_loaded(*example_inputs) assert torch.equal(res, ref) What happens when serializing an optimized model?# To serialize an optimized model, we just need to call torch.save(m.state_dict(), f), because in torchao, we use tensor subclass to represent different dtypes or support different optimization techniques like quantization and sparsity. So after optimization, the only thing change is the weight Tensor is changed to an optimized weight Tensor, and the model structure is not changed at all. For example: original floating point model state_dict: {\"linear1.weight\": float_weight1, \"linear2.weight\": float_weight2} quantized model state_dict: {\"linear1.weight\": quantized_weight1, \"linear2.weight\": quantized_weight2, ...} The size of the quantized model is typically going to be smaller to the original floating point model, but it also depends on the specific techinque and implementation you are using. You can print the model size with torchao.utils.get_model_size_in_bytes utility function, specifically for the above example using Int4WeightOnlyConfig quantization, we can see the size reduction is around 4x: original model size: 4.0 MB quantized model size: 1.0625 MB What happens when deserializing an optimized model?# To deserialize an optimized model, we can initialize the floating point model in meta device and then load the optimized state_dict with assign=True using model.load_state_dict: with torch.device(\"meta\"): m_loaded = ToyLinearModel(1024, 1024, 1024).eval().to(dtype) print(f\"type of weight before loading: {type(m_loaded.linear1.weight), type(m_loaded.linear2.weight)}\") m_loaded.load_state_dict(state_dict, assign=True) print(f\"type of weight after loading: {type(m_loaded.linear1.weight), type(m_loaded.linear2.weight)}\") The reason we initialize the model in meta device is to avoid initializing the original floating point model since original floating point model may not fit into the device that we want to use for inference. What happens in m_loaded.load_state_dict(state_dict, assign=True) is that the corresponding weights (e.g. m_loaded.linear1.weight) are updated with the Tensors in state_dict, which is an optimized tensor subclass instance (e.g. int4 AffineQuantizedTensor). No dependency on torchao is needed for this to work. We can also verify that the weight is properly loaded by checking the type of weight tensor: type of weight before loading: (\u003cclass \u0027torch.Tensor\u0027\u003e, \u003cclass \u0027torch.Tensor\u0027\u003e) type of weight after loading: (\u003cclass \u0027torchao.dtypes.affine_quantized_tensor.AffineQuantizedTensor\u0027\u003e, \u003cclass \u0027torchao.dtypes.affine_quantized_tensor.AffineQuantizedTensor\u0027\u003e)",
+       "url": "/eager_tutorials/index.html",
+       "articleBody": "Tutorials# Created On: Jan 29, 2026 | Last Updated On: Jan 29, 2026 Tutorials for quantization using eager mode execution. First Quantization Example (Part 1) Pre-training with float8 (Part 2) Fine-tuning with QAT, QLoRA, and float8 (Part 3) Serving on vLLM, SGLang, ExecuTorch Integration with VLLM: Architecture and Usage Guide Hugging Face Integration Serialization Static Quantization Writing Your Own Quantized Tensor Writing Your Own Quantized Tensor (advanced)",
        "author": {
          "@type": "Organization",
          "name": "PyTorch Contributors",
@@ -1478,7 +1380,7 @@ type of weight after loading: (&lt;class &#39;torchao.dtypes.affine_quantized_te
        "image": "https://pytorch.org/docs/stable/_static/img/pytorch_seo.png",
        "mainEntityOfPage": {
          "@type": "WebPage",
-         "@id": "/eager_quantization/serialization.html"
+         "@id": "/eager_tutorials/index.html"
        },
        "datePublished": "Jan 29, 2026T00:00:00Z",
        "dateModified": "Jan 29, 2026T00:00:00Z"

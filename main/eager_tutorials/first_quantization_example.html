@@ -9,16 +9,16 @@
   <meta name="robots" content="noindex">
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
-<meta property="og:title" content="Hugging Face Integration" />
+<meta property="og:title" content="First Quantization Example" />
 <meta property="og:type" content="website" />
-<meta property="og:url" content="http://pytorch.org/eager_quantization/torchao_hf_integration.html" />
+<meta property="og:url" content="http://pytorch.org/eager_tutorials/first_quantization_example.html" />
 <meta property="og:site_name" content="torchao" />
-<meta property="og:description" content="Quick Start: Usage Example- 1. Quantizing Models with Transformers, 2. Quantizing Models with Diffusers., Saving the Model, Supported Quantization Types. Quick Start: Usage Example: First, install ..." />
+<meta property="og:description" content="The main entry point for quantization in torchao is the quantize_ API. This function mutates your model inplace based on the quantization config you provide. All code in this guide can be found in ..." />
 <meta property="og:image" content="https://pytorch.org/assets/images/social-share.jpg" />
 <meta property="og:image:alt" content="torchao" />
-<meta name="description" content="Quick Start: Usage Example- 1. Quantizing Models with Transformers, 2. Quantizing Models with Diffusers., Saving the Model, Supported Quantization Types. Quick Start: Usage Example: First, install ..." />
+<meta name="description" content="The main entry point for quantization in torchao is the quantize_ API. This function mutates your model inplace based on the quantization config you provide. All code in this guide can be found in ..." />
 
-    <title>Hugging Face Integration &#8212; torchao main documentation</title>
+    <title>First Quantization Example &#8212; torchao main documentation</title>
   
   
   
@@ -63,11 +63,11 @@
     <script src="../_static/clipboard.min.js"></script>
     <script src="../_static/copybutton.js"></script>
     <script src="../_static/design-tabs.js"></script>
-    <link rel="canonical" href="https://pytorch.org/ao/eager_quantization/torchao_hf_integration.html" />
+    <link rel="canonical" href="https://pytorch.org/ao/eager_tutorials/first_quantization_example.html" />
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Serialization" href="serialization.html" />
-    <link rel="prev" title="Integration with VLLM: Architecture and Usage Guide" href="torchao_vllm_integration.html" />
+    <link rel="next" title="(Part 1) Pre-training with float8" href="pretraining.html" />
+    <link rel="prev" title="Tutorials" href="index.html" />
 
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
@@ -632,7 +632,7 @@
 
 <li class="nav-item current active">
   <a class="nav-link nav-internal" href="index.html">
-    Eager Quantization Tutorials
+    Tutorials
   </a>
 </li>
 
@@ -795,7 +795,7 @@ document.write(`
 
 <li class="nav-item current active">
   <a class="nav-link nav-internal" href="index.html">
-    Eager Quantization Tutorials
+    Tutorials
   </a>
 </li>
 
@@ -917,12 +917,12 @@ document.write(`
      aria-label="Section Navigation">
   <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
   <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
-<li class="toctree-l1"><a class="reference internal" href="first_quantization_example.html">First Quantization Example</a></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">First Quantization Example</a></li>
 <li class="toctree-l1"><a class="reference internal" href="pretraining.html">(Part 1) Pre-training with float8</a></li>
 <li class="toctree-l1"><a class="reference internal" href="finetuning.html">(Part 2) Fine-tuning with QAT, QLoRA, and float8</a></li>
 <li class="toctree-l1"><a class="reference internal" href="serving.html">(Part 3) Serving on vLLM, SGLang, ExecuTorch</a></li>
 <li class="toctree-l1"><a class="reference internal" href="torchao_vllm_integration.html">Integration with VLLM: Architecture and Usage Guide</a></li>
-<li class="toctree-l1 current active"><a class="current reference internal" href="#">Hugging Face Integration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="torchao_hf_integration.html">Hugging Face Integration</a></li>
 <li class="toctree-l1"><a class="reference internal" href="serialization.html">Serialization</a></li>
 <li class="toctree-l1"><a class="reference internal" href="static_quantization.html">Static Quantization</a></li>
 <li class="toctree-l1"><a class="reference internal" href="subclass_basic.html">Writing Your Own Quantized Tensor</a></li>
@@ -965,9 +965,9 @@ document.write(`
       </a>
     </li>
     
-    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Eager Quantization Tutorials</a></li>
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Tutorials</a></li>
     
-    <li class="breadcrumb-item active" aria-current="page">Hugging...</li>
+    <li class="breadcrumb-item active" aria-current="page">First...</li>
   </ul>
 </nav>
 </div>
@@ -1010,12 +1010,12 @@ document.write(`
       
       <div itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
         <link itemprop="item" href="index.html">
-        <meta itemprop="name" content="Eager Quantization Tutorials">
+        <meta itemprop="name" content="Tutorials">
         <meta itemprop="position" content="1">
       </div>
       
       <div itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
-        <meta itemprop="name" content="Hugging Face Integration">
+        <meta itemprop="name" content="First Quantization Example">
         <meta itemprop="position" content="2">
       </div>
     </div>
@@ -1029,136 +1029,159 @@ document.write(`
 <div id="searchbox"></div>
                 <article class="bd-article">
                   
-  <section id="hugging-face-integration">
-<span id="torchao-hf-integration"></span><h1>Hugging Face Integration<a class="headerlink" href="#hugging-face-integration" title="Permalink to this heading">#</a></h1>
+  <section id="first-quantization-example">
+<h1>First Quantization Example<a class="headerlink" href="#first-quantization-example" title="Permalink to this heading">#</a></h1>
 <p class="date-info-last-verified" style="color: #6c6c6d; font-size: small;">Created On: Jan 29, 2026 | Last Updated On: Jan 29, 2026</p>
-<div class="contents local topic" id="contents">
-<ul class="simple">
-<li><p><a class="reference internal" href="#quick-start-usage-example" id="id2">Quick Start: Usage Example</a></p>
-<ul>
-<li><p><a class="reference internal" href="#quantizing-models-with-transformers" id="id3">1. Quantizing Models with Transformers</a></p></li>
-<li><p><a class="reference internal" href="#quantizing-models-with-diffusers" id="id4">2. Quantizing Models with Diffusers</a></p></li>
-</ul>
-</li>
-<li><p><a class="reference internal" href="#saving-the-model" id="id5">Saving the Model</a></p></li>
-<li><p><a class="reference internal" href="#supported-quantization-types" id="id6">Supported Quantization Types</a></p></li>
-</ul>
-</div>
-<section id="quick-start-usage-example">
-<span id="usage-examples"></span><h2><a class="toc-backref" href="#id2">Quick Start: Usage Example</a><a class="headerlink" href="#quick-start-usage-example" title="Permalink to this heading">#</a></h2>
-<p>First, install the required packages.</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span>git+https://github.com/huggingface/transformers@main
-pip<span class="w"> </span>install<span class="w"> </span>git+https://github.com/huggingface/diffusers@main
-pip<span class="w"> </span>install<span class="w"> </span>torchao
-pip<span class="w"> </span>install<span class="w"> </span>torch
-pip<span class="w"> </span>install<span class="w"> </span>accelerate
-</pre></div>
-</div>
-<section id="quantizing-models-with-transformers">
-<span id="quantizing-models-transformers"></span><h3><a class="toc-backref" href="#id3">1. Quantizing Models with Transformers</a><a class="headerlink" href="#quantizing-models-with-transformers" title="Permalink to this heading">#</a></h3>
-<p>Below is an example of using <code class="docutils literal notranslate"><span class="pre">Float8DynamicActivationInt4WeightConfig</span></code> on the Llama-3.2-1B model.</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">transformers</span><span class="w"> </span><span class="kn">import</span> <span class="n">TorchAoConfig</span><span class="p">,</span> <span class="n">AutoModelForCausalLM</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization</span><span class="w"> </span><span class="kn">import</span> <span class="n">Float8DynamicActivationInt4WeightConfig</span>
+<p>The main entry point for quantization in torchao is the <a class="reference external" href="https://pytorch.org/ao/stable/generated/torchao.quantization.quantize_.html#torchao.quantization.quantize_">quantize_</a> API.
+This function mutates your model inplace based on the quantization config you provide.
+All code in this guide can be found in this <a class="reference external" href="https://github.com/pytorch/ao/blob/main/scripts/quick_start.py">example script</a>.</p>
+<section id="setting-up-the-model">
+<h2>Setting Up the Model<a class="headerlink" href="#setting-up-the-model" title="Permalink to this heading">#</a></h2>
+<p>First, let’s create a simple model:</p>
+<div class="highlight-py notranslate"><div class="highlight"><pre><span></span><span class="k">class</span><span class="w"> </span><span class="nc">ToyLinearModel</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">input_dim</span><span class="p">,</span>
+        <span class="n">hidden_dim</span><span class="p">,</span>
+        <span class="n">output_dim</span><span class="p">,</span>
+        <span class="n">dtype</span><span class="p">,</span>
+        <span class="n">device</span><span class="p">,</span>
+        <span class="n">has_bias</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+    <span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">dtype</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">device</span> <span class="o">=</span> <span class="n">device</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">linear1</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span>
+            <span class="n">input_dim</span><span class="p">,</span> <span class="n">hidden_dim</span><span class="p">,</span> <span class="n">bias</span><span class="o">=</span><span class="n">has_bias</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">dtype</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">device</span>
+        <span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">linear2</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span>
+            <span class="n">hidden_dim</span><span class="p">,</span> <span class="n">output_dim</span><span class="p">,</span> <span class="n">bias</span><span class="o">=</span><span class="n">has_bias</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">dtype</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">device</span>
+        <span class="p">)</span>
 
-<span class="c1"># Create quantization configuration</span>
-<span class="n">quantization_config</span> <span class="o">=</span> <span class="n">TorchAoConfig</span><span class="p">(</span>
-    <span class="n">quant_type</span><span class="o">=</span><span class="n">Float8DynamicActivationInt4WeightConfig</span><span class="p">(</span><span class="n">group_size</span><span class="o">=</span><span class="mi">128</span><span class="p">,</span> <span class="n">use_hqq</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-<span class="p">)</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">example_inputs</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">batch_size</span><span class="o">=</span><span class="mi">1</span><span class="p">):</span>
+        <span class="k">return</span> <span class="p">(</span>
+            <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span>
+                <span class="n">batch_size</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">linear1</span><span class="o">.</span><span class="n">in_features</span><span class="p">,</span>
+                <span class="n">dtype</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span>
+                <span class="n">device</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">device</span><span class="p">,</span>
+            <span class="p">),</span>
+        <span class="p">)</span>
 
-<span class="c1"># Load and automatically quantize the model</span>
-<span class="n">model</span> <span class="o">=</span> <span class="n">AutoModelForCausalLM</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span>
-    <span class="s2">&quot;meta-llama/Llama-3.2-1B&quot;</span><span class="p">,</span>
-    <span class="n">torch_dtype</span><span class="o">=</span><span class="s2">&quot;auto&quot;</span><span class="p">,</span>
-    <span class="n">device_map</span><span class="o">=</span><span class="s2">&quot;auto&quot;</span><span class="p">,</span>
-    <span class="n">quantization_config</span><span class="o">=</span><span class="n">quantization_config</span>
-<span class="p">)</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">):</span>
+        <span class="n">x</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">linear1</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+        <span class="n">x</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">linear2</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">x</span>
+
+
+<span class="n">model</span> <span class="o">=</span> <span class="n">ToyLinearModel</span><span class="p">(</span>
+    <span class="mi">1024</span><span class="p">,</span> <span class="mi">1024</span><span class="p">,</span> <span class="mi">1024</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="s2">&quot;cuda&quot;</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span>
+<span class="p">)</span><span class="o">.</span><span class="n">eval</span><span class="p">()</span>
+<span class="n">model_w16a16</span> <span class="o">=</span> <span class="n">copy</span><span class="o">.</span><span class="n">deepcopy</span><span class="p">(</span><span class="n">model</span><span class="p">)</span>
+<span class="n">model_w8a8</span> <span class="o">=</span> <span class="n">copy</span><span class="o">.</span><span class="n">deepcopy</span><span class="p">(</span><span class="n">model</span><span class="p">)</span>  <span class="c1"># We will quantize in next chapter!</span>
 </pre></div>
-</div>
-<div class="admonition seealso">
-<p class="admonition-title">See also</p>
-<p>For inference examples and recommended quantization methods based on different hardwares (i.e. A100 GPU, H100 GPU, CPU), see <a class="reference external" href="https://huggingface.co/docs/transformers/main/en/quantization/torchao#quantization-examples">HF-Torchao Docs (Quantization Examples)</a>.</p>
-<p>For inference using vLLM, please see <a class="reference external" href="https://docs.pytorch.org/ao/main/serving.html">(Part 3) Serving on vLLM, SGLang, ExecuTorch</a> for a full end-to-end tutorial.</p>
 </div>
 </section>
-<section id="quantizing-models-with-diffusers">
-<span id="quantizing-models-diffusers"></span><h3><a class="toc-backref" href="#id4">2. Quantizing Models with Diffusers</a><a class="headerlink" href="#quantizing-models-with-diffusers" title="Permalink to this heading">#</a></h3>
-<p>Below is an example of how we can integrate with Diffusers.</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">diffusers</span><span class="w"> </span><span class="kn">import</span> <span class="n">FluxPipeline</span><span class="p">,</span> <span class="n">FluxTransformer2DModel</span><span class="p">,</span> <span class="n">TorchAoConfig</span>
+<section id="w8a8-int-8-bit-dynamic-activation-and-weight-quantization">
+<h2>W8A8-INT: 8-bit Dynamic Activation and Weight Quantization<a class="headerlink" href="#w8a8-int-8-bit-dynamic-activation-and-weight-quantization" title="Permalink to this heading">#</a></h2>
+<p>Dynamic quantization quantizes both weights and activations at runtime.
+This provides better accuracy than weight-only while still offering speedup:</p>
+<div class="highlight-py notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization</span><span class="w"> </span><span class="kn">import</span> <span class="n">Int8DynamicActivationInt8WeightConfig</span><span class="p">,</span> <span class="n">quantize_</span>
 
-<span class="n">model_id</span> <span class="o">=</span> <span class="s2">&quot;black-forest-labs/Flux.1-Dev&quot;</span>
-<span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span>
+<span class="n">quantize_</span><span class="p">(</span><span class="n">model_w8a8</span><span class="p">,</span> <span class="n">Int8DynamicActivationInt8WeightConfig</span><span class="p">())</span>
+</pre></div>
+</div>
+<p>The model structure remains unchanged - only weight tensors are quantized. You can verify quantization by checking the weight tensor type:</p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="nb">type</span><span class="p">(</span><span class="n">model_w8a8</span><span class="o">.</span><span class="n">linear1</span><span class="o">.</span><span class="n">weight</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="p">)</span>
+<span class="go">&#39;Int8Tensor&#39;</span>
+</pre></div>
+</div>
+<p>The quantized model is now ready to use! Note that the quantization
+logic is inserted through tensor subclasses, so there is no change
+to the overall model structure; only the weights tensors are updated.</p>
+<section id="model-size-comparison">
+<h3>Model Size Comparison<a class="headerlink" href="#model-size-comparison" title="Permalink to this heading">#</a></h3>
+<p>The int8 quantized model achieves approximately 2x size reduction compared to the original bfloat16 model.
+You can verify this by saving both models to disk and comparing file sizes:</p>
+<div class="highlight-py notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
 
-<span class="n">quantization_config</span> <span class="o">=</span> <span class="n">TorchAoConfig</span><span class="p">(</span><span class="s2">&quot;int8wo&quot;</span><span class="p">)</span>
-<span class="n">transformer</span> <span class="o">=</span> <span class="n">FluxTransformer2DModel</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span>
-    <span class="n">model_id</span><span class="p">,</span>
-    <span class="n">subfolder</span><span class="o">=</span><span class="s2">&quot;transformer&quot;</span><span class="p">,</span>
-    <span class="n">quantization_config</span><span class="o">=</span><span class="n">quantization_config</span><span class="p">,</span>
-    <span class="n">torch_dtype</span><span class="o">=</span><span class="n">dtype</span><span class="p">,</span>
+<span class="c1"># Save models</span>
+<span class="n">torch</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="n">model_w16a16</span><span class="o">.</span><span class="n">state_dict</span><span class="p">(),</span> <span class="s2">&quot;model_w16a16.pth&quot;</span><span class="p">)</span>
+<span class="n">torch</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="n">model_w8a8</span><span class="o">.</span><span class="n">state_dict</span><span class="p">(),</span> <span class="s2">&quot;model_w8a8.pth&quot;</span><span class="p">)</span>
+
+<span class="c1"># Compare file sizes</span>
+<span class="n">original_size</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">getsize</span><span class="p">(</span><span class="s2">&quot;model_w16a16.pth&quot;</span><span class="p">)</span> <span class="o">/</span> <span class="mi">1024</span><span class="o">**</span><span class="mi">2</span>
+<span class="n">quantized_size</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">getsize</span><span class="p">(</span><span class="s2">&quot;model_w8a8.pth&quot;</span><span class="p">)</span> <span class="o">/</span> <span class="mi">1024</span><span class="o">**</span><span class="mi">2</span>
+<span class="nb">print</span><span class="p">(</span>
+    <span class="sa">f</span><span class="s2">&quot;Size reduction: </span><span class="si">{</span><span class="n">original_size</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="n">quantized_size</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2">x (</span><span class="si">{</span><span class="n">original_size</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2">MB -&gt; </span><span class="si">{</span><span class="n">quantized_size</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2">MB)&quot;</span>
 <span class="p">)</span>
-<span class="n">pipe</span> <span class="o">=</span> <span class="n">FluxPipeline</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span>
-    <span class="n">model_id</span><span class="p">,</span>
-    <span class="n">transformer</span><span class="o">=</span><span class="n">transformer</span><span class="p">,</span>
-    <span class="n">torch_dtype</span><span class="o">=</span><span class="n">dtype</span><span class="p">,</span>
-<span class="p">)</span>
-<span class="n">pipe</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="s2">&quot;cuda&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Output:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">Size</span> <span class="n">reduction</span><span class="p">:</span> <span class="mf">2.00</span><span class="n">x</span> <span class="p">(</span><span class="mf">4.00</span><span class="n">MB</span> <span class="o">-&gt;</span> <span class="mf">2.00</span><span class="n">MB</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="speedup-comparison">
+<h3>Speedup Comparison<a class="headerlink" href="#speedup-comparison" title="Permalink to this heading">#</a></h3>
+<p>Let’s demonstrate that not only is the quantized model smaller, but it is also faster.</p>
+<div class="highlight-py notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">time</span>
 
-<span class="n">prompt</span> <span class="o">=</span> <span class="s2">&quot;A cat holding a sign that says hello world&quot;</span>
-<span class="n">image</span> <span class="o">=</span> <span class="n">pipe</span><span class="p">(</span><span class="n">prompt</span><span class="p">,</span> <span class="n">num_inference_steps</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span> <span class="n">guidance_scale</span><span class="o">=</span><span class="mf">0.0</span><span class="p">)</span><span class="o">.</span><span class="n">images</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
-<span class="n">image</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="s2">&quot;output.png&quot;</span><span class="p">)</span>
+<span class="c1"># Optional: compile model for faster inference and generation</span>
+<span class="n">model_w16a16</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="s2">&quot;max-autotune&quot;</span><span class="p">,</span> <span class="n">fullgraph</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">model_w8a8</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="n">model_w8a8</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="s2">&quot;max-autotune&quot;</span><span class="p">,</span> <span class="n">fullgraph</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+<span class="c1"># Get example inputs</span>
+<span class="n">example_inputs</span> <span class="o">=</span> <span class="n">model_w8a8</span><span class="o">.</span><span class="n">example_inputs</span><span class="p">(</span><span class="n">batch_size</span><span class="o">=</span><span class="mi">128</span><span class="p">)</span>
+
+<span class="c1"># Warmup</span>
+<span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">10</span><span class="p">):</span>
+    <span class="n">_</span> <span class="o">=</span> <span class="n">model_w8a8</span><span class="p">(</span><span class="o">*</span><span class="n">example_inputs</span><span class="p">)</span>
+    <span class="n">_</span> <span class="o">=</span> <span class="n">model_w16a16</span><span class="p">(</span><span class="o">*</span><span class="n">example_inputs</span><span class="p">)</span>
+<span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">synchronize</span><span class="p">()</span>
+
+<span class="c1"># Throughput: original model</span>
+<span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">synchronize</span><span class="p">()</span>
+<span class="n">start</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+<span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">100</span><span class="p">):</span>
+    <span class="n">_</span> <span class="o">=</span> <span class="n">model_w16a16</span><span class="p">(</span><span class="o">*</span><span class="n">example_inputs</span><span class="p">)</span>
+<span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">synchronize</span><span class="p">()</span>
+<span class="n">original_time</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="n">start</span>
+
+<span class="c1"># Throughput: Quantized (W8A8-INT) model</span>
+<span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">synchronize</span><span class="p">()</span>
+<span class="n">start</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+<span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">100</span><span class="p">):</span>
+    <span class="n">_</span> <span class="o">=</span> <span class="n">model_w8a8</span><span class="p">(</span><span class="o">*</span><span class="n">example_inputs</span><span class="p">)</span>
+<span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">synchronize</span><span class="p">()</span>
+<span class="n">quantized_time</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="n">start</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Speedup: </span><span class="si">{</span><span class="n">original_time</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="n">quantized_time</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2">x&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Output:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">Speedup</span><span class="p">:</span> <span class="mf">1.03</span><span class="n">x</span>
 </pre></div>
 </div>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
-<p>Example Output:
-<img alt="alt text" src="eager_quantization/output.png" /></p>
+<p>The speedup results can vary significantly based on hardware and model. We recommend CUDA-enabled GPUs and models larger than 8B for best performance.</p>
 </div>
-<div class="admonition seealso">
-<p class="admonition-title">See also</p>
-<p>Please refer to <a class="reference external" href="https://huggingface.co/docs/diffusers/en/quantization/torchao">HF-TorchAO-Diffuser Docs</a> for more examples and benchmarking results.</p>
-</div>
+<p>Both weights and activations are quantized to int8, reducing model size by ~2x. Speedup is not enough in small toy model because it requires dynamic overhead. For comprehensive benchmark results and detailed evaluation workflows on production models,
+see the <a class="reference external" href="https://github.com/pytorch/ao/blob/main/torchao/quantization/README.md">quantization benchmarks</a>.</p>
+<p>We will address how to evaluate quantized model using <cite>vLLM</cite> and <cite>lm-eval</cite> in <a class="reference external" href="serving.html">model serving</a> post.</p>
 </section>
 </section>
-<section id="saving-the-model">
-<span id="saving-models"></span><h2><a class="toc-backref" href="#id5">Saving the Model</a><a class="headerlink" href="#saving-the-model" title="Permalink to this heading">#</a></h2>
-<p>After we quantize the model, we can save it.</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Save quantized model</span>
-<span class="k">with</span> <span class="n">tempfile</span><span class="o">.</span><span class="n">TemporaryDirectory</span><span class="p">()</span> <span class="k">as</span> <span class="n">tmp_dir</span><span class="p">:</span>
-    <span class="n">model</span><span class="o">.</span><span class="n">save_pretrained</span><span class="p">(</span><span class="n">tmp_dir</span><span class="p">)</span>
-
-<span class="c1"># optional: push to hub (uncomment the following lines)</span>
-<span class="c1"># save_to = &quot;your-username/Llama-3.2-1B-int4&quot;</span>
-<span class="c1"># model.push_to_hub(save_to)</span>
-
-<span class="n">tokenizer</span> <span class="o">=</span> <span class="n">AutoTokenizer</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span><span class="s2">&quot;meta-llama/Llama-3.2-1B&quot;</span><span class="p">)</span>
-<span class="n">tokenizer</span><span class="o">.</span><span class="n">push_to_hub</span><span class="p">(</span><span class="n">save_to</span><span class="p">)</span>
-</pre></div>
-</div>
-<p><strong>Current Status of Safetensors support</strong></p>
-<p>We now support safetensors serialization for the following TorchAO quantization configs:</p>
-<ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">Float8DynamicActivationFloat8WeightConfig</span></code></p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">Int4WeightOnlyConfig</span></code></p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">IntxWeightOnlyConfig</span></code></p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">Int8DynamicActivationIntxWeightConfig</span></code></p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">Int8WeightOnlyConfig</span></code></p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">Int8DynamicActivationInt8WeightConfig</span></code></p></li>
-</ul>
-<p>We will continue to add support for configs as they become stable. When saving quantized models not in this list, you must use <code class="docutils literal notranslate"><span class="pre">safe_serialization=False</span></code>.</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># don&#39;t serialize model with Safetensors</span>
-<span class="n">output_dir</span> <span class="o">=</span> <span class="s2">&quot;llama3-8b-int4wo-128&quot;</span>
-<span class="n">quantized_model</span><span class="o">.</span><span class="n">save_pretrained</span><span class="p">(</span><span class="s2">&quot;llama3-8b-int4wo-128&quot;</span><span class="p">,</span> <span class="n">safe_serialization</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
-</pre></div>
-</div>
-<p><strong>Future Work</strong>: The TorchAO team is actively working on safetensors support for tensor subclasses. Track progress <a class="reference external" href="https://github.com/pytorch/ao/issues/2338">here</a> and <a class="reference external" href="https://github.com/pytorch/ao/pull/2881">here</a>.</p>
-</section>
-<section id="supported-quantization-types">
-<span id="id1"></span><h2><a class="toc-backref" href="#id6">Supported Quantization Types</a><a class="headerlink" href="#supported-quantization-types" title="Permalink to this heading">#</a></h2>
-<p>Weight-only quantization stores the model weights in a specific low-bit data type but performs computation with a higher-precision data type, like <code class="docutils literal notranslate"><span class="pre">bfloat16</span></code>. This lowers the memory requirements from model weights but retains the memory peaks for activation computation.</p>
-<p>Dynamic activation quantization stores the model weights in a low-bit dtype, while also quantizing the activations on-the-fly to save additional memory. This lowers the memory requirements from model weights, while also lowering the memory overhead from activation computations. However, this may come at a quality tradeoff at times, so it is recommended to test different models thoroughly.</p>
-<div class="admonition note">
-<p class="admonition-title">Note</p>
-<p>Please refer to the <a class="reference external" href="https://docs.pytorch.org/ao/main/api_ref_quantization.html">torchao docs</a> for supported quantization types.</p>
-</div>
+<section id="next-steps">
+<h2>Next Steps<a class="headerlink" href="#next-steps" title="Permalink to this heading">#</a></h2>
+<p>In this tutorial, we learned how to quantize a simple model with
+torchao. To learn more about the different workflows supported in torchao,
+see our main <a class="reference external" href="https://github.com/pytorch/ao/blob/main/README.md">README</a>.
+For a more detailed overview of quantization in torchao, visit
+<a class="reference external" href="../developer_notes/quantization_overview.html">this page</a>.</p>
+<p>Finally, if you would like to contribute to torchao, don’t forget to check
+out our <a class="reference external" href="../developer_notes/contributor_guide.html">contributor guide</a> and our list of
+<a class="reference external" href="https://github.com/pytorch/ao/issues?q=is%3Aissue%20state%3Aopen%20label%3A%22good%20first%20issue%22">good first issues</a> on Github!</p>
 </section>
 </section>
 
@@ -1205,20 +1228,20 @@ pip<span class="w"> </span>install<span class="w"> </span>accelerate
 
 <div class="prev-next-area">
     <a class="left-prev"
-       href="torchao_vllm_integration.html"
+       href="index.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">Integration with VLLM: Architecture and Usage Guide</p>
+        <p class="prev-next-title">Tutorials</p>
       </div>
     </a>
     <a class="right-next"
-       href="serialization.html"
+       href="pretraining.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Serialization</p>
+        <p class="prev-next-title">(Part 1) Pre-training with float8</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -1244,20 +1267,20 @@ pip<span class="w"> </span>install<span class="w"> </span>accelerate
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="torchao_vllm_integration.html"
+       href="index.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">Integration with VLLM: Architecture and Usage Guide</p>
+        <p class="prev-next-title">Tutorials</p>
       </div>
     </a>
     <a class="right-next"
-       href="serialization.html"
+       href="pretraining.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Serialization</p>
+        <p class="prev-next-title">(Part 1) Pre-training with float8</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -1279,13 +1302,13 @@ pip<span class="w"> </span>install<span class="w"> </span>accelerate
   </div>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#quick-start-usage-example">Quick Start: Usage Example</a><ul class="nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#quantizing-models-with-transformers">1. Quantizing Models with Transformers</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#quantizing-models-with-diffusers">2. Quantizing Models with Diffusers</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#setting-up-the-model">Setting Up the Model</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#w8a8-int-8-bit-dynamic-activation-and-weight-quantization">W8A8-INT: 8-bit Dynamic Activation and Weight Quantization</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#model-size-comparison">Model Size Comparison</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#speedup-comparison">Speedup Comparison</a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#saving-the-model">Saving the Model</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#supported-quantization-types">Supported Quantization Types</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#next-steps">Next Steps</a></li>
 </ul>
   </nav></div>
     
@@ -1293,7 +1316,7 @@ pip<span class="w"> </span>install<span class="w"> </span>accelerate
 
   
   <div class="tocsection editthispage">
-    <a href="https://github.com/pytorch/ao/edit/main/docs/source/eager_quantization/torchao_hf_integration.md">
+    <a href="https://github.com/pytorch/ao/edit/main/docs/source/eager_tutorials/first_quantization_example.rst">
       <i class="fa-solid fa-pencil"></i>
       
       
@@ -1307,7 +1330,7 @@ pip<span class="w"> </span>install<span class="w"> </span>accelerate
     
        <div class="sidebar-secondary-item">
     <div class="tocsection sourcelink">
-      <a href="../_sources/eager_quantization/torchao_hf_integration.md.txt">
+      <a href="../_sources/eager_tutorials/first_quantization_example.rst.txt">
         <i class="fa-solid fa-file-lines"></i> Show Source
       </a>
     </div>
@@ -1507,11 +1530,11 @@ pip<span class="w"> </span>install<span class="w"> </span>accelerate
     {
        "@context": "https://schema.org",
        "@type": "Article",
-       "name": "Hugging Face Integration",
-       "headline": "Hugging Face Integration",
+       "name": "First Quantization Example",
+       "headline": "First Quantization Example",
        "description": "PyTorch Documentation. Explore PyTorch, an open-source machine learning library that accelerates the path from research prototyping to production deployment. Discover tutorials, API references, and guides to help you build and deploy deep learning models efficiently.",
-       "url": "/eager_quantization/torchao_hf_integration.html",
-       "articleBody": "Hugging Face Integration# Created On: Jan 29, 2026 | Last Updated On: Jan 29, 2026 Quick Start: Usage Example 1. Quantizing Models with Transformers 2. Quantizing Models with Diffusers Saving the Model Supported Quantization Types Quick Start: Usage Example# First, install the required packages. pip install git+https://github.com/huggingface/transformers@main pip install git+https://github.com/huggingface/diffusers@main pip install torchao pip install torch pip install accelerate 1. Quantizing Models with Transformers# Below is an example of using Float8DynamicActivationInt4WeightConfig on the Llama-3.2-1B model. from transformers import TorchAoConfig, AutoModelForCausalLM from torchao.quantization import Float8DynamicActivationInt4WeightConfig # Create quantization configuration quantization_config = TorchAoConfig( quant_type=Float8DynamicActivationInt4WeightConfig(group_size=128, use_hqq=True) ) # Load and automatically quantize the model model = AutoModelForCausalLM.from_pretrained( \"meta-llama/Llama-3.2-1B\", torch_dtype=\"auto\", device_map=\"auto\", quantization_config=quantization_config ) See also For inference examples and recommended quantization methods based on different hardwares (i.e. A100 GPU, H100 GPU, CPU), see HF-Torchao Docs (Quantization Examples). For inference using vLLM, please see (Part 3) Serving on vLLM, SGLang, ExecuTorch for a full end-to-end tutorial. 2. Quantizing Models with Diffusers# Below is an example of how we can integrate with Diffusers. from diffusers import FluxPipeline, FluxTransformer2DModel, TorchAoConfig model_id = \"black-forest-labs/Flux.1-Dev\" dtype = torch.bfloat16 quantization_config = TorchAoConfig(\"int8wo\") transformer = FluxTransformer2DModel.from_pretrained( model_id, subfolder=\"transformer\", quantization_config=quantization_config, torch_dtype=dtype, ) pipe = FluxPipeline.from_pretrained( model_id, transformer=transformer, torch_dtype=dtype, ) pipe.to(\"cuda\") prompt = \"A cat holding a sign that says hello world\" image = pipe(prompt, num_inference_steps=4, guidance_scale=0.0).images[0] image.save(\"output.png\") Note Example Output: See also Please refer to HF-TorchAO-Diffuser Docs for more examples and benchmarking results. Saving the Model# After we quantize the model, we can save it. # Save quantized model with tempfile.TemporaryDirectory() as tmp_dir: model.save_pretrained(tmp_dir) # optional: push to hub (uncomment the following lines) # save_to = \"your-username/Llama-3.2-1B-int4\" # model.push_to_hub(save_to) tokenizer = AutoTokenizer.from_pretrained(\"meta-llama/Llama-3.2-1B\") tokenizer.push_to_hub(save_to) Current Status of Safetensors support We now support safetensors serialization for the following TorchAO quantization configs: Float8DynamicActivationFloat8WeightConfig Int4WeightOnlyConfig IntxWeightOnlyConfig Int8DynamicActivationIntxWeightConfig Int8WeightOnlyConfig Int8DynamicActivationInt8WeightConfig We will continue to add support for configs as they become stable. When saving quantized models not in this list, you must use safe_serialization=False. # don\u0027t serialize model with Safetensors output_dir = \"llama3-8b-int4wo-128\" quantized_model.save_pretrained(\"llama3-8b-int4wo-128\", safe_serialization=False) Future Work: The TorchAO team is actively working on safetensors support for tensor subclasses. Track progress here and here. Supported Quantization Types# Weight-only quantization stores the model weights in a specific low-bit data type but performs computation with a higher-precision data type, like bfloat16. This lowers the memory requirements from model weights but retains the memory peaks for activation computation. Dynamic activation quantization stores the model weights in a low-bit dtype, while also quantizing the activations on-the-fly to save additional memory. This lowers the memory requirements from model weights, while also lowering the memory overhead from activation computations. However, this may come at a quality tradeoff at times, so it is recommended to test different models thoroughly. Note Please refer to the torchao docs for supported quantization types.",
+       "url": "/eager_tutorials/first_quantization_example.html",
+       "articleBody": "First Quantization Example# Created On: Jan 29, 2026 | Last Updated On: Jan 29, 2026 The main entry point for quantization in torchao is the quantize_ API. This function mutates your model inplace based on the quantization config you provide. All code in this guide can be found in this example script. Setting Up the Model# First, let\u2019s create a simple model: class ToyLinearModel(torch.nn.Module): def __init__( self, input_dim, hidden_dim, output_dim, dtype, device, has_bias=False, ): super().__init__() self.dtype = dtype self.device = device self.linear1 = torch.nn.Linear( input_dim, hidden_dim, bias=has_bias, dtype=dtype, device=device ) self.linear2 = torch.nn.Linear( hidden_dim, output_dim, bias=has_bias, dtype=dtype, device=device ) def example_inputs(self, batch_size=1): return ( torch.randn( batch_size, self.linear1.in_features, dtype=self.dtype, device=self.device, ), ) def forward(self, x): x = self.linear1(x) x = self.linear2(x) return x model = ToyLinearModel( 1024, 1024, 1024, device=\"cuda\", dtype=torch.bfloat16 ).eval() model_w16a16 = copy.deepcopy(model) model_w8a8 = copy.deepcopy(model) # We will quantize in next chapter! W8A8-INT: 8-bit Dynamic Activation and Weight Quantization# Dynamic quantization quantizes both weights and activations at runtime. This provides better accuracy than weight-only while still offering speedup: from torchao.quantization import Int8DynamicActivationInt8WeightConfig, quantize_ quantize_(model_w8a8, Int8DynamicActivationInt8WeightConfig()) The model structure remains unchanged - only weight tensors are quantized. You can verify quantization by checking the weight tensor type: \u003e\u003e\u003e print(type(model_w8a8.linear1.weight).__name__) \u0027Int8Tensor\u0027 The quantized model is now ready to use! Note that the quantization logic is inserted through tensor subclasses, so there is no change to the overall model structure; only the weights tensors are updated. Model Size Comparison# The int8 quantized model achieves approximately 2x size reduction compared to the original bfloat16 model. You can verify this by saving both models to disk and comparing file sizes: import os # Save models torch.save(model_w16a16.state_dict(), \"model_w16a16.pth\") torch.save(model_w8a8.state_dict(), \"model_w8a8.pth\") # Compare file sizes original_size = os.path.getsize(\"model_w16a16.pth\") / 1024**2 quantized_size = os.path.getsize(\"model_w8a8.pth\") / 1024**2 print( f\"Size reduction: {original_size / quantized_size:.2f}x ({original_size:.2f}MB -\u003e {quantized_size:.2f}MB)\" ) Output: Size reduction: 2.00x (4.00MB -\u003e 2.00MB) Speedup Comparison# Let\u2019s demonstrate that not only is the quantized model smaller, but it is also faster. import time # Optional: compile model for faster inference and generation model_w16a16 = torch.compile(model, mode=\"max-autotune\", fullgraph=True) model_w8a8 = torch.compile(model_w8a8, mode=\"max-autotune\", fullgraph=True) # Get example inputs example_inputs = model_w8a8.example_inputs(batch_size=128) # Warmup for _ in range(10): _ = model_w8a8(*example_inputs) _ = model_w16a16(*example_inputs) torch.cuda.synchronize() # Throughput: original model torch.cuda.synchronize() start = time.time() for _ in range(100): _ = model_w16a16(*example_inputs) torch.cuda.synchronize() original_time = time.time() - start # Throughput: Quantized (W8A8-INT) model torch.cuda.synchronize() start = time.time() for _ in range(100): _ = model_w8a8(*example_inputs) torch.cuda.synchronize() quantized_time = time.time() - start print(f\"Speedup: {original_time / quantized_time:.2f}x\") Output: Speedup: 1.03x Note The speedup results can vary significantly based on hardware and model. We recommend CUDA-enabled GPUs and models larger than 8B for best performance. Both weights and activations are quantized to int8, reducing model size by ~2x. Speedup is not enough in small toy model because it requires dynamic overhead. For comprehensive benchmark results and detailed evaluation workflows on production models, see the quantization benchmarks. We will address how to evaluate quantized model using vLLM and lm-eval in model serving post. Next Steps# In this tutorial, we learned how to quantize a simple model with torchao. To learn more about the different workflows supported in torchao, see our main README. For a more detailed overview of quantization in torchao, visit this page. Finally, if you would like to contribute to torchao, don\u2019t forget to check out our contributor guide and our list of good first issues on Github!",
        "author": {
          "@type": "Organization",
          "name": "PyTorch Contributors",
@@ -1520,7 +1543,7 @@ pip<span class="w"> </span>install<span class="w"> </span>accelerate
        "image": "https://pytorch.org/docs/stable/_static/img/pytorch_seo.png",
        "mainEntityOfPage": {
          "@type": "WebPage",
-         "@id": "/eager_quantization/torchao_hf_integration.html"
+         "@id": "/eager_tutorials/first_quantization_example.html"
        },
        "datePublished": "Jan 29, 2026T00:00:00Z",
        "dateModified": "Jan 29, 2026T00:00:00Z"
