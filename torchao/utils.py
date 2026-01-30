@@ -33,6 +33,8 @@ __all__ = [
     "is_sm_at_least_89",
     "is_sm_at_least_90",
     "is_sm_at_least_100",
+    "is_b200",
+    "is_b200_clear_cache",
     "is_package_at_least",
     "DummyModule",
 ]
@@ -162,6 +164,73 @@ def get_compute_capability():
         capability = torch.cuda.get_device_capability()
         return float(f"{capability[0]}.{capability[1]}")
     return 0.0
+
+
+def is_b200(device=None) -> bool:
+    """Return True if the given CUDA device (or current device) is an NVIDIA B200/GB200 GPU.
+
+    Args:
+        device: Optional device indicator - may be a :class:`torch.device`, integer
+            device index, or a Tensor from which the device will be extracted. If None,
+            the current CUDA device is used.
+    """
+    if not torch.cuda.is_available():
+        return False
+
+    # Resolve device index from the provided argument
+    try:
+        if device is None:
+            device_index = torch.cuda.current_device()
+        elif isinstance(device, torch.device):
+            if device.type != "cuda":
+                return False
+            device_index = (
+                device.index if device.index is not None else torch.cuda.current_device()
+            )
+        elif hasattr(device, "device"):
+            # e.g., Tensor
+            dev = device.device
+            if not isinstance(dev, torch.device) or dev.type != "cuda":
+                return False
+            device_index = dev.index if dev.index is not None else torch.cuda.current_device()
+        else:
+            # assume an int-like index
+            device_index = int(device)
+    except Exception:
+        # If any of the above fails, fall back to current device
+        device_index = torch.cuda.current_device()
+
+    # small cache to avoid repeated system calls
+    cache = getattr(is_b200, "_cache", None)
+    if cache is None:
+        is_b200._cache = {}
+        cache = is_b200._cache
+    if device_index in cache:
+        return cache[device_index]
+
+    try:
+        name = torch.cuda.get_device_name(device_index).lower()
+    except Exception:
+        try:
+            name = torch.cuda.get_device_properties(device_index).name.lower()
+        except Exception:
+            cache[device_index] = False
+            return False
+
+    res = ("b200" in name) or ("gb200" in name)
+    cache[device_index] = res
+    return res
+
+
+def is_b200_clear_cache() -> None:
+    """Clear internal cache used by :func:`is_b200`.
+
+    Tests and other code that mock CUDA device properties may need to
+    clear the cache to avoid cross-test interference.
+    """
+    if hasattr(is_b200, "_cache"):
+        is_b200._cache.clear()
+
 
 
 def compute_max_diff(output: torch.Tensor, output_ref: torch.Tensor) -> torch.Tensor:

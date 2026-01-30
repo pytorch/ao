@@ -36,6 +36,49 @@ class TestTorchVersion(unittest.TestCase):
                     f"Failed for torch.__version__={torch_version}, comparing with {compare_version}",
                 )
 
+    def test_is_b200_device_variants(self):
+        # Test detection for various device inputs and name variants
+        from torchao.utils import is_b200, is_b200_clear_cache
+        from unittest import mock
+
+        # ensure cache doesn't leak between test phases
+        is_b200_clear_cache()
+        with mock.patch("torch.cuda.is_available", return_value=True), mock.patch(
+            "torch.cuda.current_device", return_value=0
+        ), mock.patch("torch.cuda.get_device_name", side_effect=lambda idx: "NVIDIA A100" if idx == 0 else "NVIDIA B200"):
+            # default current device is 0 -> A100
+            self.assertFalse(is_b200())
+            # integer device index
+            self.assertTrue(is_b200(1))
+            # torch.device input
+            self.assertTrue(is_b200(torch.device("cuda:1")))
+        is_b200_clear_cache()
+
+        # GB200 name detection
+        is_b200_clear_cache()
+        with mock.patch("torch.cuda.is_available", return_value=True), mock.patch(
+            "torch.cuda.current_device", return_value=0
+        ), mock.patch("torch.cuda.get_device_name", return_value="NVIDIA GB200"):
+            self.assertTrue(is_b200())
+        is_b200_clear_cache()
+
+        # non-cuda device should return False
+        self.assertFalse(is_b200(torch.device("cpu")))
+
+        # Tensor-like object with .device attribute
+        class Dummy:
+            def __init__(self, device):
+                self.device = device
+
+        is_b200_clear_cache()
+        with mock.patch("torch.cuda.is_available", return_value=True), mock.patch(
+            "torch.cuda.get_device_name", return_value="NVIDIA GB200"
+        ):
+            d = Dummy(torch.device("cuda:2"))
+            self.assertTrue(is_b200(d))
+        is_b200_clear_cache()
+
+
 
 class TestTorchAOBaseTensor(unittest.TestCase):
     def test_print_arg_types(self):

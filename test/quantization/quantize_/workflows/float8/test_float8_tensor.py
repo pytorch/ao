@@ -35,6 +35,7 @@ from torchao.utils import (
     is_sm_at_least_89,
     is_sm_at_least_90,
     is_sm_at_least_100,
+    is_b200,
     torch_version_at_least,
 )
 
@@ -274,6 +275,114 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
             sizes,
             bias=False,
             model=model.to(device),
+        )
+
+    @torch.no_grad()
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(
+        not is_sm_at_least_90(), "Requires GPU with compute capability >= 9.0"
+    )
+    @common_utils.parametrize("granularity", [PerTensor(), PerRow()])
+    def test_expected_kernels_on_gpu(self, granularity):
+        """
+        Verify that float8 quantization + torch.compile results in the
+        expected number of kernels in the GPU trace for both TORCH and AUTO
+        kernel preferences. On NVIDIA B200 we additionally assert that AUTO
+        does not select MSLK for per-tensor scaled weights.
+        """
+        torch.compiler.reset()
+
+        M, K, N = 128, 256, 512
+        device = get_current_accelerator_device()
+        x = torch.randn(M, K, device=device, dtype=torch.bfloat16)
+
+        for kernel_pref in (KernelPreference.TORCH, KernelPreference.AUTO):
+            m = torch.nn.Sequential(
+                torch.nn.Linear(K, N, device=device, dtype=torch.bfloat16)
+            )
+            config = Float8DynamicActivationFloat8WeightConfig(
+                granularity=granularity,
+                version=2,
+                kernel_preference=kernel_pref,
+            )
+            quantize_(m, config)
+
+            m = torch.compile(m)
+            out, code = run_and_get_code(m, x)
+
+            if granularity == PerRow():
+                # one triton kernel for quantizing the activation
+                FileCheck().check("def call(").check_count(".run(", 1, exactly=True).run(
+                    code[0]
+                )
+                # one scaled_mm call
+                FileCheck().check("def call(").check_count(
+                    "._scaled_mm(", 1, exactly=True
+                ).run(code[0])
+            else:
+                assert granularity == PerTensor(), "unsupported"
+                # three triton kernels for quantizing the activation:
+                FileCheck().check("def call(").check_count(".run(", 3, exactly=True).run(
+                    code[0]
+                )
+                # For TORCH, expect scaled_mm. For AUTO, behavior differs by GPU:
+                if kernel_pref == KernelPreference.TORCH:
+                    FileCheck().check("def call(").check_count(
+                        "._scaled_mm(", 1, exactly=True
+                    ).run(code[0])
+                else:  # AUTO
+                    if is_b200():
+                        # On B200 AUTO should not select MSLK for per-tensor
+                        FileCheck().check("def call(").check_count(
+                            "._scaled_mm(", 1, exactly=True
+                        ).run(code[0])
+                        assert "mslk" not in code[0]
+                    else:
+                        # On non-B200 hardware AUTO may select MSLK; ensure
+                        # the quantization kernels are present and that at
+                        # least one of the expected backend calls is present.
+                        has_scaled_mm = "._scaled_mm(" in code[0]
+                        has_mslk = "mslk" in code[0]
+                        assert has_scaled_mm or has_mslk
+
+    @torch.no_grad()
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(
+        not is_sm_at_least_90(), "Requires GPU with compute capability >= 9.0"
+    )
+    def test_explicit_mslk_on_b200_warns_and_falls_back(self):
+        M, K, N = 16, 32, 64
+        device = get_current_accelerator_device()
+        x = torch.randn(M, K, device=device, dtype=torch.bfloat16)
+
+        m = torch.nn.Sequential(
+            torch.nn.Linear(K, N, device=device, dtype=torch.bfloat16)
+        )
+
+        config = Float8DynamicActivationFloat8WeightConfig(
+            granularity=PerTensor(),
+            version=2,
+            kernel_preference=KernelPreference.MSLK,
+        )
+
+        import warnings
+        from unittest import mock
+
+        # Simulate running on a B200 and having mslk available
+        with mock.patch("torchao.utils.is_b200", return_value=True), mock.patch(
+            "torchao.quantization.quantize_.workflows.float8.float8_tensor._is_mslk_available",
+            return_value=True,
+        ), warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            quantize_(m, config)
+            # Should warn about falling back to TORCH
+            assert any("Falling back to TORCH" in str(x.message) for x in w)
+
+        # After quantize_ and fallback, compiled code should use scaled_mm
+        m = torch.compile(m)
+        out, code = run_and_get_code(m, x)
+        FileCheck().check("def call(").check_count("._scaled_mm(", 1, exactly=True).run(
+            code[0]
         )
 
     def _test_fp8_matmul_model(

@@ -38,12 +38,15 @@ from torchao.quantization.quantize_.common import (
     _choose_quant_func_and_quantize_tensor,
 )
 from torchao.quantization.utils import get_block_size
+import warnings
+
 from torchao.utils import (
     TorchAOBaseTensor,
     _is_mslk_available,
     fill_defaults,
     is_sm_at_least_90,
     is_sm_at_least_100,
+    is_b200,
 )
 
 if _is_mslk_available():
@@ -343,14 +346,28 @@ def _float8_addmm_impl(
 
         if weight_tensor.kernel_preference == KernelPreference.AUTO:
             kernel_choice = "torch"
+            # Avoid selecting the MSLK path on NVIDIA B200 when weights are
+            # per-tensor scaled (tensorwise) because B200's arch conditional
+            # MMA instruction mix can lead to aborts or very slow execution.
             if (
                 _is_mslk_available()
                 and is_sm_at_least_90()
                 and (not _is_128_128_scaled(weight_tensor))
+                and not (is_b200(weight_tensor.qdata.device) and _is_tensorwise_scaled(weight_tensor))
             ):
                 kernel_choice = "mslk"
         elif weight_tensor.kernel_preference == KernelPreference.MSLK:
-            kernel_choice = "mslk"
+            # If user explicitly requests MSLK on B200 with per-tensor scales,
+            # warn and fall back to TORCH to avoid aborts / severe slowdowns.
+            if is_b200(weight_tensor.qdata.device) and _is_tensorwise_scaled(weight_tensor):
+                warnings.warn(
+                    "Requested MSLK kernel with per-tensor scaled weights on an NVIDIA B200/GB200 GPU "
+                    "may fail or be very slow. Falling back to TORCH (scaled_mm). "
+                    "For best results, set KernelPreference to TORCH or AUTO."
+                )
+                kernel_choice = "torch"
+            else:
+                kernel_choice = "mslk"
         else:
             assert weight_tensor.kernel_preference == KernelPreference.TORCH, (
                 f"{weight_tensor.kernel_preference=} not handled"
