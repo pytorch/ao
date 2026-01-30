@@ -42,6 +42,7 @@ jobs:
         conda create -n venv python=3.10 -y
         conda activate venv
         export PATH=/opt/rh/devtoolset-10/root/usr/bin/:$PATH
+        export IS_CI=1
         python -m pip install --upgrade pip
         pip install uv
         pip install ${{ matrix.torch-spec }}
@@ -54,3 +55,9 @@ jobs:
         python test/quantization/quantize_/workflows/int4/test_int4_preshuffled_tensor.py
         ./test/float8/test_everything_single_gpu.sh
         pytest test/prototype/mx_formats/ -s
+<<<<<<< Updated upstream
+        pytest test/prototype/moe_training/test_scaled_grouped_mm.py -v -s -k mx
+=======
+        pytest test/prototype/moe_training/test_scaled_grouped_mm.py -v -rs
+        pytest test/prototype/moe_training/test_training.py -v -rs
+>>>>>>> Stashed changes

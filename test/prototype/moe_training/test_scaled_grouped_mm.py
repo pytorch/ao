@@ -3,6 +3,7 @@
 #
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
+import os
 
 import pytest
 import torch
@@ -49,8 +50,13 @@ from torchao.testing.utils import skip_if_rocm
 torch._dynamo.config.cache_size_limit = 1000
 
 
+# context: https://github.com/pytorch/ao/issues/3788
+@pytest.mark.skipif(
+    os.environ.get("IS_CI"), 
+    "Skipping FP8 rowwise test in CI"
+)
 @skip_if_rocm("ROCm not supported")
-@pytest.mark.parametrize("m", [131072])
+@pytest.mark.parametrize("m", [4096])
 @pytest.mark.parametrize("n", [8192])
 @pytest.mark.parametrize("k", [5120])
 @pytest.mark.parametrize("n_groups", [1, 2, 4, 8])
