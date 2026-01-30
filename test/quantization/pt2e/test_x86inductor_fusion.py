@@ -2901,6 +2901,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
     }
 )
 @unittest.skipIf(not torch_version_at_least("2.8.0"), "Requires torch 2.8+")
+@unittest.skipIf(torch.version.hip is not None, "Not applicable to ROCm")
 class TestDynamicPatternMatcher(TestPatternMatcherBase):
     def test_qconv2d_maxpool2d_linear_dynamic_cpu(self, include_ops=None):
         r"""
