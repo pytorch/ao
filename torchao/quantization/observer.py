@@ -86,6 +86,7 @@ class AffineQuantizedObserverBase(ABC, torch.nn.Module):
         zero_point_dtype: Optional[torch.dtype] = None,
         preserve_zero: bool = True,
         zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
+        keepdim: bool = False,
     ):
         super().__init__()
         assert granularity is not None, "granularity is None"
@@ -101,6 +102,7 @@ class AffineQuantizedObserverBase(ABC, torch.nn.Module):
         self.zero_point_dtype = zero_point_dtype
         self.preserve_zero = preserve_zero
         self.zero_point_domain = zero_point_domain
+        self.keepdim = keepdim
 
     @abstractmethod
     def forward(self, input: torch.Tensor) -> torch.Tensor:
@@ -130,8 +132,8 @@ class AffineQuantizedMinMaxObserver(AffineQuantizedObserverBase):
             block_size, input_detached.size()
         )
         input_detached = input_detached.view(shape_for_reduction)
-        min_val = torch.amin(input_detached, dim=reduction_dims, keepdim=False)
-        max_val = torch.amax(input_detached, dim=reduction_dims, keepdim=False)
+        min_val = torch.amin(input_detached, dim=reduction_dims, keepdim=self.keepdim)
+        max_val = torch.amax(input_detached, dim=reduction_dims, keepdim=self.keepdim)
         if not hasattr(self, "min_val") or not hasattr(self, "max_val"):
             self.min_val = min_val
             self.max_val = max_val

@@ -21,7 +21,6 @@ from .uintx import (
     TensorCoreTiledLayout,
 )
 from .uintx.block_sparse_layout import BlockSparseLayout
-from .uintx.cutlass_int4_packed_layout import CutlassInt4PackedLayout
 from .uintx.dyn_int8_act_int4_wei_cpu_layout import Int8DynamicActInt4WeightCPULayout
 from .uintx.uintx_layout import UintxLayout
 from .utils import (
@@ -46,14 +45,11 @@ __all__ = [
     "BlockSparseLayout",
     "UintxLayout",
     "Int4CPULayout",
-    "CutlassInt4PackedLayout",
     "CutlassSemiSparseLayout",
     "QDQLayout",
     "PackedLinearInt8DynamicActivationIntxWeightLayout",
     "to_affine_quantized_packed_linear_int8_dynamic_activation_intx_weight",
     "Int4XPULayout",
-    "to_fbgemm_fp8",
-    "FbgemmFp8Tensor",
     "Int8DynamicActInt4WeightCPULayout",
     "Int4GroupwisePreshuffleTensor",
 ]

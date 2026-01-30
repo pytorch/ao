@@ -98,7 +98,7 @@ from torchao.quantization.utils import (
 )
 from torchao.testing.utils import skip_if_xpu
 from torchao.utils import (
-    _is_fbgemm_gpu_genai_available,
+    _is_mslk_available,
     get_current_accelerator_device,
     is_fbcode,
     is_sm_at_least_89,
@@ -106,7 +106,6 @@ from torchao.utils import (
 
 # TODO: put this in a common test utils file
 _CUDA_IS_AVAILABLE = torch.cuda.is_available()
-_DEVICE = get_current_accelerator_device()
 
 
 class Sub(torch.nn.Module):
@@ -314,7 +313,7 @@ class TestQAT(TestCase):
         Set the weight to the quantized version of the given fp32 weights,
         for making linear outputs comparable with QAT.
         """
-        from torchao.quantization.GPTQ import (
+        from torchao.quantization.linear_quant_modules import (
             Int8DynActInt4WeightLinear,
             WeightOnlyInt4Linear,
         )
@@ -349,8 +348,9 @@ class TestQAT(TestCase):
                 n_bit,
                 group_size,
             )
+            device = get_current_accelerator_device()
             q_weight = torch.ops.aten._convert_weight_to_int4pack(
-                q_weight.to(_DEVICE),
+                q_weight.to(device),
                 qat_linear.inner_k_tiles,
             )
             ptq_linear.weight = q_weight
@@ -359,7 +359,7 @@ class TestQAT(TestCase):
             raise ValueError("Unknown ptq_linear type: %s" % type(ptq_linear))
 
     def test_qat_8da4w_linear(self):
-        from torchao.quantization.GPTQ import Int8DynActInt4WeightLinear
+        from torchao.quantization.linear_quant_modules import Int8DynActInt4WeightLinear
         from torchao.quantization.qat.linear import Int8DynActInt4WeightQATLinear
 
         group_size = 128
@@ -389,7 +389,9 @@ class TestQAT(TestCase):
         torch.testing.assert_close(ptq_out, qat_out, atol=0, rtol=0)
 
     def test_qat_8da4w_quantizer(self):
-        from torchao.quantization.GPTQ import Int8DynActInt4WeightQuantizer
+        from torchao.quantization.linear_quant_modules import (
+            Int8DynActInt4WeightQuantizer,
+        )
         from torchao.quantization.qat import Int8DynActInt4WeightQATQuantizer
 
         group_size = 16
@@ -603,12 +605,13 @@ class TestQAT(TestCase):
         print(mean_err)
         self.assertTrue(mean_err < 0.05)
 
-    @unittest.skipIf(_DEVICE is None, "skipping when gpu is not available")
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test_qat_4w_primitives(self):
         n_bit = 4
         group_size = 32
         inner_k_tiles = 8
         scales_precision = torch.bfloat16
+        _DEVICE = get_current_accelerator_device()
         device = torch.device(_DEVICE)
         dtype = torch.bfloat16
         torch.manual_seed(self.SEED)
@@ -654,12 +657,13 @@ class TestQAT(TestCase):
 
         self._assert_close_4w(qat_out, ptq_out)
 
-    @unittest.skipIf(_DEVICE is None, "skipping when GPU is not available")
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test_qat_4w_linear(self):
-        from torchao.quantization.GPTQ import WeightOnlyInt4Linear
+        from torchao.quantization.linear_quant_modules import WeightOnlyInt4Linear
         from torchao.quantization.qat.linear import Int4WeightOnlyQATLinear
 
         group_size = 128
+        _DEVICE = get_current_accelerator_device()
         device = torch.device(_DEVICE)
         dtype = torch.bfloat16
         torch.manual_seed(self.SEED)
@@ -695,14 +699,15 @@ class TestQAT(TestCase):
         quantizer = Int4WeightOnlyQATQuantizer(groupsize=32, inner_k_tiles=8)
         self._test_qat_quantized_gradients(quantizer)
 
-    @unittest.skipIf(_DEVICE is None, "skipping when GPU is not available")
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     @skip_if_xpu("skipped due to https://github.com/intel/torch-xpu-ops/issues/1770")
     def test_qat_4w_quantizer(self):
-        from torchao.quantization.GPTQ import Int4WeightOnlyQuantizer
+        from torchao.quantization.linear_quant_modules import Int4WeightOnlyQuantizer
         from torchao.quantization.qat import Int4WeightOnlyQATQuantizer
 
         group_size = 32
         inner_k_tiles = 8
+        _DEVICE = get_current_accelerator_device()
         device = torch.device(_DEVICE)
         dtype = torch.bfloat16
         torch.manual_seed(self.SEED)
@@ -1892,14 +1897,15 @@ class TestQAT(TestCase):
             quantize_(model, base_config)
         """
         torch.manual_seed(self.SEED)
+        device = get_current_accelerator_device()
 
         if module_type == "linear":
-            m = M().to(dtype).to(_DEVICE)
-            example_inputs = (m.example_inputs()[0].to(dtype).to(_DEVICE),)
+            m = M().to(dtype).to(device)
+            example_inputs = (m.example_inputs()[0].to(dtype).to(device),)
             filter_fn = lambda m, fqn: isinstance(m, torch.nn.Linear)
         elif module_type == "embedding":
-            m = M3().to(dtype).to(_DEVICE)
-            example_inputs = (m.example_inputs()[0].to(_DEVICE),)
+            m = M3().to(dtype).to(device)
+            example_inputs = (m.example_inputs()[0].to(device),)
             filter_fn = lambda m, fqn: isinstance(m, torch.nn.Embedding)
         else:
             raise ValueError(f"Unknown module type {module_type}")
@@ -1938,9 +1944,7 @@ class TestQAT(TestCase):
 
     @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
     @unittest.skipIf(not is_sm_at_least_89(), "Need sm89+")
-    @unittest.skipIf(
-        not _is_fbgemm_gpu_genai_available(), "Requires fbgemm-gpu-genai >= 1.2.0"
-    )
+    @unittest.skipIf(not _is_mslk_available(), "Requires mslk >= 1.0.0")
     def test_quantize_api_fp8_int4(self):
         """
         Test the following:
@@ -1954,9 +1958,7 @@ class TestQAT(TestCase):
         )
 
     @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
-    @unittest.skipIf(
-        not _is_fbgemm_gpu_genai_available(), "Requires fbgemm-gpu-genai >= 1.2.0"
-    )
+    @unittest.skipIf(not _is_mslk_available(), "Requires mslk >= 1.0.0")
     @unittest.skipIf(is_fbcode(), "cutlass cannot initialize")
     @parametrize("version", [1, 2])
     @parametrize(
@@ -1974,7 +1976,7 @@ class TestQAT(TestCase):
             target_convert_sqnr=float("inf"),
         )
 
-    @unittest.skipIf(_DEVICE is None, "skipping when GPU is not available")
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test_quantize_api_int8_int4(self):
         """
         Test the following:
@@ -1987,7 +1989,7 @@ class TestQAT(TestCase):
             target_convert_sqnr=float("inf"),
         )
 
-    @unittest.skipIf(_DEVICE is None, "skipping when GPU is not available")
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     @parametrize(
         "weight_dtype, weight_granularity, dtype",
         [
@@ -2012,7 +2014,7 @@ class TestQAT(TestCase):
             dtype=dtype,
         )
 
-    @unittest.skipIf(_DEVICE is None, "skipping when GPU is not available")
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     @skip_if_xpu("XPU enablement in progress")
     @parametrize(
         "weight_dtype, granularity, dtype, module_type",
@@ -2211,17 +2213,15 @@ class TestQAT(TestCase):
         optimizer.zero_grad()
 
     @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
-    @unittest.skipIf(
-        not _is_fbgemm_gpu_genai_available(), "Requires fbgemm-gpu-genai >= 1.2.0"
-    )
+    @unittest.skipIf(not _is_mslk_available(), "Requires mslk >= 1.0.0")
     @unittest.skipIf(is_fbcode(), "triton compilation error")
-    def test_fbgemm_fp8_primitives(self):
+    def test_mslk_fp8_primitives(self):
         """
         Compare numerics between:
-            (1) fbgemm_gpu.experimental.gen_ai.quantize.quantize_fp8_row
+            (1) mslk.quantize.triton.fp8_quantize.quantize_fp8_row
             (2) Our reference QAT version in `Float8FakeQuantizer`
         """
-        from fbgemm_gpu.experimental.gen_ai.quantize import quantize_fp8_row
+        from mslk.quantize.triton.fp8_quantize import quantize_fp8_row
 
         from torchao.quantization.quant_primitives import (
             _choose_scale_float8,
@@ -2251,22 +2251,20 @@ class TestQAT(TestCase):
         self.assertGreater(scale_sqnr, 50)
 
     @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
-    @unittest.skipIf(
-        not _is_fbgemm_gpu_genai_available(), "Requires fbgemm-gpu-genai >= 1.2.0"
-    )
+    @unittest.skipIf(not _is_mslk_available(), "Requires mslk >= 1.0.0")
     @unittest.skipIf(is_fbcode(), "triton compilation error")
-    def test_fbgemm_fp8_int4_preshuffled_primitives(self):
+    def test_mslk_fp8_int4_preshuffled_primitives(self):
         """
         Compare numerics between:
-            (1) fbgemm_gpu.experimental.gen_ai.quantize.quantize_int4_preshuffle
+            (1) mslk.quantize.shuffle.quantize_int4_preshuffle
             (2) Our reference QAT version in `Int4WeightFakeQuantizer`
         """
-        from fbgemm_gpu.experimental.gen_ai.quantize import (
+        from mslk.quantize.shuffle import (
             int4_row_quantize,
             pack_int4,
-            quantize_fp8_row,
             quantize_int4_preshuffle,
         )
+        from mslk.quantize.triton.fp8_quantize import quantize_fp8_row
 
         from torchao.quantization.quant_primitives import (
             _choose_scale_float8,
@@ -2311,7 +2309,7 @@ class TestQAT(TestCase):
 
         def shuffle_and_pack(t: torch.Tensor, scale: torch.Tensor) -> torch.Tensor:
             t = pack_int4(t.to(torch.int8))
-            return torch.ops.fbgemm.preshuffle_i4(t, scale.to(torch.float8_e4m3fn))[0]
+            return torch.ops.mslk.preshuffle_i4(t, scale.to(torch.float8_e4m3fn))[0]
 
         # First, sanity check that shuffle_and_pack(q2) == q1
         torch.testing.assert_close(q1, shuffle_and_pack(q2, scale2), atol=0, rtol=0)
@@ -2333,17 +2331,15 @@ class TestQAT(TestCase):
         self.assertGreater(sqnr_q1_q3_preshuffle, 32)
 
     @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
-    @unittest.skipIf(
-        not _is_fbgemm_gpu_genai_available(), "Requires fbgemm-gpu-genai >= 1.2.0"
-    )
+    @unittest.skipIf(not _is_mslk_available(), "Requires mslk >= 1.0.0")
     @unittest.skipIf(is_fbcode(), "triton compilation error")
-    def test_fbgemm_int4_weight_only_primitives(self):
+    def test_mslk_int4_weight_only_primitives(self):
         """
         Compare numerics between:
-            (1) fbgemm_gpu.experimental.gen_ai.quantize.int4_row_quantize_zp
+            (1) mslk.quantize.shuffle.int4_row_quantize_zp
             (2) Our reference QAT version in `Int4WeightFakeQuantizer`
         """
-        from fbgemm_gpu.experimental.gen_ai.quantize import (
+        from mslk.quantize.shuffle import (
             int4_row_quantize_zp,
             pack_int4,
             quantize_int4_preshuffle,
@@ -2364,18 +2360,18 @@ class TestQAT(TestCase):
         # (3) Reference implementation for QAT without the dequantize
         eps = 1e-6
         qmin, qmax = 0, 15
-        fbgemm_symmetric_qmax = 8
+        mslk_symmetric_qmax = 8
         w_grouped = x3.to(torch.float32).view(x3.shape[0], -1, group_size)
         max_val = torch.amax(w_grouped, dim=-1, keepdim=True)
         min_val = torch.amin(w_grouped, dim=-1, keepdim=True)
         scale3 = torch.clamp(max_val - min_val, min=eps) / qmax
         q3 = (w_grouped.sub(min_val).div(scale3)).round().clamp_(qmin, qmax)
-        q3 = q3 - fbgemm_symmetric_qmax
+        q3 = q3 - mslk_symmetric_qmax
         q3 = q3.view(x3.shape)
 
         def shuffle_and_pack(t: torch.Tensor, scale: torch.Tensor) -> torch.Tensor:
             t = pack_int4(t.to(torch.int8))
-            return torch.ops.fbgemm.preshuffle_i4(t, scale.to(torch.bfloat16))[0]
+            return torch.ops.mslk.preshuffle_i4(t, scale.to(torch.bfloat16))[0]
 
         # First, sanity check that shuffle_and_pack(q2) == q1
         torch.testing.assert_close(q1, shuffle_and_pack(q2, scale2), atol=0, rtol=0)

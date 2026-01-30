@@ -452,7 +452,7 @@ class MXTensor(TorchAOBaseTensor):
         "_orig_dtype",
         "kernel_preference",
         "act_quant_kwargs",
-        "_is_swizzled_scales",
+        "is_swizzled_scales",
     ]
 
     def __new__(
@@ -501,12 +501,12 @@ class MXTensor(TorchAOBaseTensor):
         self._orig_dtype = orig_dtype
         self.kernel_preference = kernel_preference
         self.act_quant_kwargs = act_quant_kwargs
-        self._is_swizzled_scales = is_swizzled_scales
+        self.is_swizzled_scales = is_swizzled_scales
         return self
 
     def __repr__(self):
         # TODO better elem dtype print for fp4
-        return f"MXTensor: elem_dtype: {self._elem_dtype}, s_e8m0: {self.scale}, d: {self.qdata}, act_quant_kwargs: {self.act_quant_kwargs}, _is_swizzled_scales={self._is_swizzled_scales}"  # noqa: E501
+        return f"MXTensor: elem_dtype: {self._elem_dtype}, s_e8m0: {self.scale}, d: {self.qdata}, act_quant_kwargs: {self.act_quant_kwargs}, is_swizzled_scales={self.is_swizzled_scales}"  # noqa: E501
 
     def _quantization_type(self):
         return f"{self._elem_dtype=}, {self.block_size=}, {self._orig_dtype=}, {self.kernel_preference=}, {self.act_quant_kwargs=}"
@@ -516,7 +516,7 @@ class MXTensor(TorchAOBaseTensor):
             output_dtype = self.dtype
 
         scale = self.scale
-        if self._is_swizzled_scales:
+        if self.is_swizzled_scales:
             is_transposed = self.qdata.stride(-2) < self.qdata.stride(-1)
             if is_transposed:
                 leading_dims, M, K = self.shape[:-2], self.shape[-1], self.shape[-2]
@@ -668,13 +668,13 @@ def _addmm_mx_dispatch(
         assert a.block_size == 32, f"Invalid block size {a.block_size}"
         assert b.block_size == 32, f"Invalid block size {b.block_size}"
 
-        if a._is_swizzled_scales:
+        if a.is_swizzled_scales:
             a_scale_block = a.scale
         else:
             a_scale = a.scale.view(M, K // a.block_size)
             a_scale_block = to_blocked(a_scale)
 
-        if b._is_swizzled_scales:
+        if b.is_swizzled_scales:
             b_scale_block = b.scale.t()
         else:
             b_scale = b.scale.t().view(N, K // b.block_size)
@@ -780,7 +780,7 @@ def mx_t(func, types, args, kwargs):
         old._orig_dtype,
         old.kernel_preference,
         old.act_quant_kwargs,
-        old._is_swizzled_scales,
+        old.is_swizzled_scales,
     )
     return new
 
@@ -821,7 +821,7 @@ def mx_view_op(func, types, args, kwargs):
         args[0]._orig_dtype,
         args[0].kernel_preference,
         args[0].act_quant_kwargs,
-        args[0]._is_swizzled_scales,
+        args[0].is_swizzled_scales,
     )
 
 
@@ -846,7 +846,7 @@ def mx_slice(func, types, args, kwargs):
             x._orig_dtype,
             x.kernel_preference,
             x.act_quant_kwargs,
-            x._is_swizzled_scales,
+            x.is_swizzled_scales,
         ),
     )
 
@@ -871,7 +871,7 @@ def mx_select(func, types, args, kwargs):
     assert len(old_mx_tensor.qdata.shape) == len(old_mx_tensor.scale.shape), (
         "unsupported"
     )
-    assert not old_mx_tensor._is_swizzled_scales, "unsupported"
+    assert not old_mx_tensor.is_swizzled_scales, "unsupported"
     new_mx_tensor = old_mx_tensor.__class__(
         old_mx_tensor.qdata[index],
         old_mx_tensor.scale[index],
@@ -880,7 +880,7 @@ def mx_select(func, types, args, kwargs):
         old_mx_tensor._orig_dtype,
         old_mx_tensor.kernel_preference,
         old_mx_tensor.act_quant_kwargs,
-        old_mx_tensor._is_swizzled_scales,
+        old_mx_tensor.is_swizzled_scales,
     )
     return return_and_correct_aliasing(func, args, kwargs, new_mx_tensor)
 
@@ -929,7 +929,7 @@ def mx_all_gather(func, types, args, kwargs):
         mx_tensor._orig_dtype,
         mx_tensor.kernel_preference,
         mx_tensor.act_quant_kwargs,
-        mx_tensor._is_swizzled_scales,
+        mx_tensor.is_swizzled_scales,
     )
 
 
@@ -960,5 +960,5 @@ def mx_wait_tensor(func, types, args, kwargs):
         mx_tensor._orig_dtype,
         mx_tensor.kernel_preference,
         mx_tensor.act_quant_kwargs,
-        mx_tensor._is_swizzled_scales,
+        mx_tensor.is_swizzled_scales,
     )

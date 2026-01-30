@@ -1,6 +1,6 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # All rights reserved.
-# Copyright 2025 Arm Limited and/or its affiliates.
+# Copyright 2025-2026 Arm Limited and/or its affiliates.
 #
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
@@ -21,7 +21,7 @@ from torch.ao.quantization.qconfig import (
     per_channel_weight_observer_range_neg_127_to_127,
     weight_observer_range_neg_127_to_127,
 )
-from torch.fx import Node
+from torch.fx import Node, symbolic_trace
 from torch.testing import FileCheck
 from torch.testing._internal.common_quantization import (
     NodeSpec as ns,
@@ -74,7 +74,6 @@ from torchao.testing.pt2e.utils import PT2EQuantizationTestCase
 from torchao.utils import get_current_accelerator_device, torch_version_at_least
 
 DEVICE_LIST = ["cpu"] + (["cuda"] if TEST_CUDA else []) + (["xpu"] if TEST_XPU else [])
-_DEVICE = get_current_accelerator_device()
 
 if torch_version_at_least("2.7.0"):
     from torch.testing._internal.common_utils import (
@@ -1455,6 +1454,98 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
         with self.assertRaises(Exception):
             m = prepare_pt2e(m, BackendAQuantizer())
 
+    def test_quantize_kwargs(self):
+        """Ensure non-tensor kwargs pass quantization, tensor kwargs don't"""
+
+        class OnesLikeModule(torch.nn.Module):
+            def forward(self, t: torch.Tensor):
+                return torch.ones_like(t, device="cpu", pin_memory=False)
+
+        class ClampModule(torch.nn.Module):
+            def __init__(self, max: float | torch.Tensor, use_out: bool):
+                super().__init__()
+                self.max = max
+                self.use_out = use_out
+
+            def forward(self, t: torch.Tensor):
+                if self.use_out:
+                    torch.clamp(t, max=self.max, out=t)
+                    return t
+                return torch.clamp(t, max=self.max)
+
+        class BackendAQuantizer(Quantizer):
+            def annotate(self, model: torch.fx.GraphModule) -> torch.fx.GraphModule:
+                qspec = QuantizationSpec(
+                    torch.int8,
+                    observer.default_observer,
+                    qscheme=torch.per_tensor_symmetric,
+                )
+                for node in model.graph.nodes:
+                    if node.op != "call_function":
+                        continue
+                    input_qspec_map = {
+                        in_node: qspec for in_node in node.all_input_nodes
+                    }
+                    node.meta["quantization_annotation"] = QuantizationAnnotation(
+                        input_qspec_map=input_qspec_map, output_qspec=qspec
+                    )
+                return model
+
+            def validate(self, model: torch.fx.GraphModule) -> None:
+                pass
+
+        def validate_quantization(m: torch.fx.GraphModule):
+            num_dq = 0
+            num_q = 0
+            for node in m.graph.nodes:
+                if (
+                    node.target
+                    == torch.ops.quantized_decomposed.dequantize_per_tensor.default
+                ):
+                    num_dq += 1
+                if (
+                    node.target
+                    == torch.ops.quantized_decomposed.quantize_per_tensor.default
+                ):
+                    num_q += 1
+            # Just check that at least one q/dq node was inserted by quantization.
+            assert num_dq > 0
+            assert num_q > 0
+
+        example_inputs = torch.randn(1, 2, 3, 3)
+        quantizer = BackendAQuantizer()
+
+        # Example 1: ones_like with device and pin_memory passes.
+        m = self._quantize(OnesLikeModule(), quantizer, (example_inputs,))
+        validate_quantization(m)
+        m(example_inputs)
+
+        # Example 2: Clamp with tensor kwarg 'max' is normalized to arg when exported and passes.
+        m = self._quantize(
+            ClampModule(example_inputs - 0.2, False),
+            quantizer,
+            (example_inputs,),
+        )
+        validate_quantization(m)
+        m(example_inputs)
+
+        # Example 3: Clamp with kwarg 'out' doesn't pass, out is a Tensor.
+        with self.assertRaises(AssertionError):
+            m = self._quantize(ClampModule(0.5, True), quantizer, (example_inputs,))
+
+        # Example 4: Contrived, but when traced using symbolic_trace clamp keeps max as kwarg. Scalars pass...
+        m = symbolic_trace(ClampModule(0.5, False))
+        m = prepare_pt2e(m, quantizer)
+        m(example_inputs)
+        convert_pt2e(m)
+        validate_quantization(m)
+        m(example_inputs)
+
+        # Example 5: ... but Tensors don't.
+        with self.assertRaises(AssertionError):
+            m = symbolic_trace(ClampModule(example_inputs - 0.2, False))
+            m = prepare_pt2e(m, quantizer)
+
     def _quantize(self, m, quantizer, example_inputs, is_qat: bool = False):
         # resetting dynamo cache
         torch._dynamo.reset()
@@ -2227,8 +2318,9 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
                 return x
 
         if TEST_CUDA or TEST_XPU:
-            m = M().train().to(_DEVICE)
-            example_inputs = (torch.randn(1, 3, 3, 3).to(_DEVICE),)
+            device = get_current_accelerator_device()
+            m = M().train().to(device)
+            example_inputs = (torch.randn(1, 3, 3, 3).to(device),)
         else:
             m = M().train()
             example_inputs = (torch.randn(1, 3, 3, 3),)
