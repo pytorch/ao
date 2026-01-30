@@ -1168,7 +1168,7 @@ You can verify this by saving both models to disk and comparing file sizes:</p>
 <p>The speedup results can vary significantly based on hardware and model. We recommend CUDA-enabled GPUs and models larger than 8B for best performance.</p>
 </div>
 <p>Both weights and activations are quantized to int8, reducing model size by ~2x. Speedup is not enough in small toy model because it requires dynamic overhead. For comprehensive benchmark results and detailed evaluation workflows on production models,
-see the <a class="reference external" href="https://github.com/pytorch/ao/blob/main/torchao/quantization/README.md">quantization benchmarks</a>.</p>
+see the <a class="reference external" href="../workflows/inference_quantization.html">quantization benchmarks</a>.</p>
 <p>We will address how to evaluate quantized model using <cite>vLLM</cite> and <cite>lm-eval</cite> in <a class="reference external" href="serving.html">model serving</a> post.</p>
 </section>
 </section>

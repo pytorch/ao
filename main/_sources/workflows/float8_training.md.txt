@@ -210,7 +210,7 @@ torch.save({
 
 There are 3 float8 inference quantization strategies that be used after training with float8: 1) weight only quantization, and 2) dynamic activation and weight quantization, and 3) static quantization.
 
-Below is an example of dynamic activation and weight quantization. For more details, examples, and inference benchmrks, see the [torchao inference docs](https://github.com/pytorch/ao/blob/main/torchao/quantization/README.md).
+Below is an example of dynamic activation and weight quantization. For more details, examples, and inference benchmrks, see the [torchao inference docs](inference_quantization.md).
 
 ```python
 import torch

@@ -924,6 +924,7 @@ document.write(`
 
 
 <li class="toctree-l1"><a class="reference internal" href="qat.html">Quantization-Aware Training (QAT)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="inference_quantization.html">Inference quantization</a></li>
 </ul>
 </div>
 </nav></div>
@@ -1029,7 +1030,7 @@ also have three prototype quantized training workflows: <a class="reference exte
 <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/prototype/moe_training#mxfp8-moe-training">mxfp8 MoE</a>,
 <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/prototype/quantized_training">int8 dense</a></p></li>
 <li><p>QAT: the <a class="reference internal" href="qat.html"><span class="doc std std-doc">QAT documentation</span></a> for details on how to use quantization-aware training to improve model accuracy after quantization.</p></li>
-<li><p>Inference: See the <a class="reference external" href="https://github.com/pytorch/ao/blob/main/torchao/quantization/README.md">inference quantization documentation</a> for an overview of quantization for inference workflows.</p></li>
+<li><p>Inference: See the <a class="reference internal" href="inference_quantization.html"><span class="doc std std-doc">inference quantization documentation</span></a> for an overview of quantization for inference workflows.</p></li>
 </ul>
 </section>
 <section id="workflows-status-by-dtype-hardware">
@@ -1055,7 +1056,7 @@ also have three prototype quantized training workflows: <a class="reference exte
 <td><p>🟢 <a class="reference internal" href="float8_training.html"><span class="doc std std-doc">(link)</span></a></p></td>
 <td><p>🟢 <a class="reference internal" href="qat.html"><span class="doc std std-doc">(link)</span></a></p></td>
 <td><p>⚪</p></td>
-<td><p>🟢 <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/quantization#a8w8-float8-dynamic-quantization-with-rowwise-scaling">(link)</a></p></td>
+<td><p>🟢 <a class="reference internal" href="inference_quantization.html"><span class="doc std std-doc">(link)</span></a></p></td>
 </tr>
 <tr class="row-odd"><td><p>H100</p></td>
 <td><p>int4</p></td>
@@ -1071,7 +1072,7 @@ also have three prototype quantized training workflows: <a class="reference exte
 <td><p>⚪</p></td>
 <td><p>🟢 <a class="reference internal" href="qat.html"><span class="doc std std-doc">(link)</span></a></p></td>
 <td><p>🟡: <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/prototype/hqq/README.md">HQQ</a>, <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/prototype/awq">AWQ</a></p></td>
-<td><p>🟢 <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/quantization#a16w4-weightonly-quantization">(link)</a></p></td>
+<td><p>🟢 <a class="reference internal" href="inference_quantization.html"><span class="doc std std-doc">(link)</span></a></p></td>
 </tr>
 <tr class="row-odd"><td><p>A100</p></td>
 <td><p>int8</p></td>
@@ -1079,7 +1080,7 @@ also have three prototype quantized training workflows: <a class="reference exte
 <td><p>⚪</p></td>
 <td><p>🟢 <a class="reference internal" href="qat.html"><span class="doc std std-doc">(link)</span></a></p></td>
 <td><p>⚪</p></td>
-<td><p>🟢 <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/quantization#a16w8-int8-weightonly-quantization">(link)</a></p></td>
+<td><p>🟢 <a class="reference internal" href="inference_quantization.html"><span class="doc std std-doc">(link)</span></a></p></td>
 </tr>
 <tr class="row-even"><td><p>A100</p></td>
 <td><p>int8</p></td>
@@ -1087,7 +1088,7 @@ also have three prototype quantized training workflows: <a class="reference exte
 <td><p>🟡 <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/prototype/quantized_training">(link)</a></p></td>
 <td><p>🟢 <a class="reference internal" href="qat.html"><span class="doc std std-doc">(link)</span></a></p></td>
 <td><p>⚪</p></td>
-<td><p>🟢 <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/quantization#a8w8-int8-dynamic-quantization">(link)</a></p></td>
+<td><p>🟢 <a class="reference internal" href="inference_quantization.html"><span class="doc std std-doc">(link)</span></a></p></td>
 </tr>
 <tr class="row-odd"><td><p>B200</p></td>
 <td><p>nvfp4</p></td>
@@ -1205,7 +1206,7 @@ also have three prototype quantized training workflows: <a class="reference exte
 <td><p>🟠</p></td>
 <td><p>🟢 <a class="reference internal" href="qat.html"><span class="doc std std-doc">(link)</span></a></p></td>
 <td><p>⚪</p></td>
-<td><p>🟢 <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/quantization#a8w8-float8-dynamic-quantization-with-rowwise-scaling">(link)</a></p></td>
+<td><p>🟢 <a class="reference internal" href="inference_quantization.html"><span class="doc std std-doc">(link)</span></a></p></td>
 </tr>
 <tr class="row-odd"><td><p>Intel® BMG</p></td>
 <td><p>int4</p></td>
@@ -1213,7 +1214,7 @@ also have three prototype quantized training workflows: <a class="reference exte
 <td><p>⚪</p></td>
 <td><p>🟢 <a class="reference internal" href="qat.html"><span class="doc std std-doc">(link)</span></a></p></td>
 <td><p>🟡: <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/prototype/awq">AWQ</a></p></td>
-<td><p>🟢 <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/quantization#a16w4-weightonly-quantization">(link)</a></p></td>
+<td><p>🟢 <a class="reference internal" href="inference_quantization.html"><span class="doc std std-doc">(link)</span></a></p></td>
 </tr>
 <tr class="row-even"><td><p>Intel® BMG</p></td>
 <td><p>int8</p></td>
@@ -1221,7 +1222,7 @@ also have three prototype quantized training workflows: <a class="reference exte
 <td><p>🟠</p></td>
 <td><p>🟢 <a class="reference internal" href="qat.html"><span class="doc std std-doc">(link)</span></a></p></td>
 <td><p>⚪</p></td>
-<td><p>🟢 <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/quantization#a8w8-int8-dynamic-quantization">(link)</a></p></td>
+<td><p>🟢 <a class="reference internal" href="inference_quantization.html"><span class="doc std std-doc">(link)</span></a></p></td>
 </tr>
 </tbody>
 </table>

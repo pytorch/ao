@@ -924,6 +924,7 @@ document.write(`
 
 
 <li class="toctree-l1"><a class="reference internal" href="qat.html">Quantization-Aware Training (QAT)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="inference_quantization.html">Inference quantization</a></li>
 </ul>
 </div>
 </nav></div>
@@ -1341,7 +1342,7 @@ python<span class="w"> </span>test/float8/test_fsdp2/test_fsdp2.py
 <section id="load-checkpoint-and-optionally-apply-inference-quantization">
 <h2>2. Load checkpoint and optionally apply inference quantization<a class="headerlink" href="#load-checkpoint-and-optionally-apply-inference-quantization" title="Permalink to this heading">#</a></h2>
 <p>There are 3 float8 inference quantization strategies that be used after training with float8: 1) weight only quantization, and 2) dynamic activation and weight quantization, and 3) static quantization.</p>
-<p>Below is an example of dynamic activation and weight quantization. For more details, examples, and inference benchmrks, see the <a class="reference external" href="https://github.com/pytorch/ao/blob/main/torchao/quantization/README.md">torchao inference docs</a>.</p>
+<p>Below is an example of dynamic activation and weight quantization. For more details, examples, and inference benchmrks, see the <a class="reference internal" href="inference_quantization.html"><span class="doc std std-doc">torchao inference docs</span></a>.</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.float8.float8_linear</span><span class="w"> </span><span class="kn">import</span> <span class="n">Float8Linear</span>
