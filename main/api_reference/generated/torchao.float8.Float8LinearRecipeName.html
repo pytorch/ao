@@ -9,14 +9,14 @@
   <meta name="robots" content="noindex">
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
-<meta property="og:title" content="Int8DynActInt4WeightQATLinear" />
+<meta property="og:title" content="Float8LinearRecipeName" />
 <meta property="og:type" content="website" />
-<meta property="og:url" content="http://pytorch.org/api_reference/generated/torchao.quantization.qat.linear.Int8DynActInt4WeightQATLinear.html" />
+<meta property="og:url" content="http://pytorch.org/api_reference/generated/torchao.float8.Float8LinearRecipeName.html" />
 <meta property="og:site_name" content="torchao" />
 <meta property="og:image" content="https://pytorch.org/assets/images/social-share.jpg" />
 <meta property="og:image:alt" content="torchao" />
 
-    <title>Int8DynActInt4WeightQATLinear &#8212; torchao main documentation</title>
+    <title>Float8LinearRecipeName &#8212; torchao main documentation</title>
   
   
   
@@ -61,11 +61,11 @@
     <script src="../../_static/clipboard.min.js"></script>
     <script src="../../_static/copybutton.js"></script>
     <script src="../../_static/design-tabs.js"></script>
-    <link rel="canonical" href="https://pytorch.org/ao/api_reference/generated/torchao.quantization.qat.linear.Int8DynActInt4WeightQATLinear.html" />
+    <link rel="canonical" href="https://pytorch.org/ao/api_reference/generated/torchao.float8.Float8LinearRecipeName.html" />
     <link rel="index" title="Index" href="../../genindex.html" />
     <link rel="search" title="Search" href="../../search.html" />
-    <link rel="next" title="Int4WeightOnlyEmbeddingQATQuantizer" href="torchao.quantization.qat.Int4WeightOnlyEmbeddingQATQuantizer.html" />
-    <link rel="prev" title="Int8DynActInt4WeightQATQuantizer" href="torchao.quantization.qat.Int8DynActInt4WeightQATQuantizer.html" />
+    <link rel="next" title="CastConfig" href="torchao.float8.CastConfig.html" />
+    <link rel="prev" title="Float8LinearConfig" href="torchao.float8.Float8LinearConfig.html" />
 
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
@@ -933,7 +933,7 @@ document.write(`
 <li class="toctree-l2"><a class="reference internal" href="torchao.prototype.mx_formats.NVFP4WeightOnlyConfig.html">NVFP4WeightOnlyConfig</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1 current active has-children"><a class="reference internal" href="../api_ref_qat.html">torchao.quantization.qat</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l1 has-children"><a class="reference internal" href="../api_ref_qat.html">torchao.quantization.qat</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="torchao.quantization.qat.QATConfig.html">QATConfig</a></li>
 <li class="toctree-l2"><a class="reference internal" href="torchao.quantization.qat.QATStep.html">QATStep</a></li>
 <li class="toctree-l2"><a class="reference internal" href="torchao.quantization.qat.FakeQuantizeConfigBase.html">FakeQuantizeConfigBase</a></li>
@@ -951,7 +951,7 @@ document.write(`
 <li class="toctree-l2"><a class="reference internal" href="torchao.quantization.qat.Int4WeightOnlyQATQuantizer.html">Int4WeightOnlyQATQuantizer</a></li>
 <li class="toctree-l2"><a class="reference internal" href="torchao.quantization.qat.linear.Int4WeightOnlyQATLinear.html">Int4WeightOnlyQATLinear</a></li>
 <li class="toctree-l2"><a class="reference internal" href="torchao.quantization.qat.Int8DynActInt4WeightQATQuantizer.html">Int8DynActInt4WeightQATQuantizer</a></li>
-<li class="toctree-l2 current active"><a class="current reference internal" href="#">Int8DynActInt4WeightQATLinear</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.qat.linear.Int8DynActInt4WeightQATLinear.html">Int8DynActInt4WeightQATLinear</a></li>
 <li class="toctree-l2"><a class="reference internal" href="torchao.quantization.qat.Int4WeightOnlyEmbeddingQATQuantizer.html">Int4WeightOnlyEmbeddingQATQuantizer</a></li>
 <li class="toctree-l2"><a class="reference internal" href="torchao.quantization.qat.embedding.Int4WeightOnlyQATEmbedding.html">Int4WeightOnlyQATEmbedding</a></li>
 <li class="toctree-l2"><a class="reference internal" href="torchao.quantization.qat.embedding.Int4WeightOnlyEmbedding.html">Int4WeightOnlyEmbedding</a></li>
@@ -968,10 +968,10 @@ document.write(`
 <li class="toctree-l2"><a class="reference internal" href="torchao.sparsity.PerChannelNormObserver.html">PerChannelNormObserver</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1 has-children"><a class="reference internal" href="../api_ref_float8.html">torchao.float8</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l1 current active has-children"><a class="reference internal" href="../api_ref_float8.html">torchao.float8</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
 <li class="toctree-l2"><a class="reference internal" href="torchao.float8.convert_to_float8_training.html">convert_to_float8_training</a></li>
 <li class="toctree-l2"><a class="reference internal" href="torchao.float8.Float8LinearConfig.html">Float8LinearConfig</a></li>
-<li class="toctree-l2"><a class="reference internal" href="torchao.float8.Float8LinearRecipeName.html">Float8LinearRecipeName</a></li>
+<li class="toctree-l2 current active"><a class="current reference internal" href="#">Float8LinearRecipeName</a></li>
 <li class="toctree-l2"><a class="reference internal" href="torchao.float8.CastConfig.html">CastConfig</a></li>
 <li class="toctree-l2"><a class="reference internal" href="torchao.float8.ScalingType.html">ScalingType</a></li>
 <li class="toctree-l2"><a class="reference internal" href="torchao.float8.ScalingGranularity.html">ScalingGranularity</a></li>
@@ -1025,9 +1025,9 @@ document.write(`
     <li class="breadcrumb-item"><a href="../index.html" class="nav-link">API Reference</a></li>
     
     
-    <li class="breadcrumb-item"><a href="../api_ref_qat.html" class="nav-link">torchao.quantization.qat</a></li>
+    <li class="breadcrumb-item"><a href="../api_ref_float8.html" class="nav-link">torchao.float8</a></li>
     
-    <li class="breadcrumb-item active" aria-current="page">Int8DynActIn...</li>
+    <li class="breadcrumb-item active" aria-current="page">Float8Linear...</li>
   </ul>
 </nav>
 </div>
@@ -1075,13 +1075,13 @@ document.write(`
       </div>
       
       <div itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
-        <link itemprop="item" href="../api_ref_qat.html">
-        <meta itemprop="name" content="torchao.quantization.qat">
+        <link itemprop="item" href="../api_ref_float8.html">
+        <meta itemprop="name" content="torchao.float8">
         <meta itemprop="position" content="2">
       </div>
       
       <div itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
-        <meta itemprop="name" content="Int8DynActInt4WeightQATLinear">
+        <meta itemprop="name" content="Float8LinearRecipeName">
         <meta itemprop="position" content="3">
       </div>
     </div>
@@ -1095,25 +1095,22 @@ document.write(`
 <div id="searchbox"></div>
                 <article class="bd-article">
                   
-  <section id="int8dynactint4weightqatlinear">
-<h1>Int8DynActInt4WeightQATLinear<a class="headerlink" href="#int8dynactint4weightqatlinear" title="Permalink to this heading">#</a></h1>
+  <section id="float8linearrecipename">
+<h1>Float8LinearRecipeName<a class="headerlink" href="#float8linearrecipename" title="Permalink to this heading">#</a></h1>
 <dl class="py class">
-<dt class="sig sig-object py" id="torchao.quantization.qat.linear.Int8DynActInt4WeightQATLinear">
-<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">torchao.quantization.qat.linear.</span></span><span class="sig-name descname"><span class="pre">Int8DynActInt4WeightQATLinear</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">in_features</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">out_features</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">bias</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">device</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.pytorch.org/docs/stable/tensor_attributes.html#torch.device" title="(in PyTorch v2.10)"><span class="pre">device</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">groupsize</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">256</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">precision</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.pytorch.org/docs/stable/tensor_attributes.html#torch.dtype" title="(in PyTorch v2.10)"><span class="pre">dtype</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">torch.float32</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">scales_precision</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.pytorch.org/docs/stable/tensor_attributes.html#torch.dtype" title="(in PyTorch v2.10)"><span class="pre">dtype</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">torch.float32</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/torchao/quantization/qat/linear.html#Int8DynActInt4WeightQATLinear"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="reference external" href="https://github.com/pytorch/ao/blob/main/torchao/quantization/qat/linear.py#L301"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#torchao.quantization.qat.linear.Int8DynActInt4WeightQATLinear" title="Permalink to this definition">#</a></dt>
-<dd><p>This module implements a linear layer with int8 dynamic per token fake
-quantized activations with int4 fake quantized grouped per channel weights.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Parameters</dt>
-<dd class="field-odd"><ul class="simple">
-<li><p><strong>groupsize</strong> – the number of elements in each quantized group for weights</p></li>
-<li><p><strong>precision</strong> – precision of weights</p></li>
-<li><p><strong>scales_precision</strong> – precision of per group scales and zero points</p></li>
+<dt class="sig sig-object py" id="torchao.float8.Float8LinearRecipeName">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">torchao.float8.</span></span><span class="sig-name descname"><span class="pre">Float8LinearRecipeName</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">value</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">names</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">module</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">qualname</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">type</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">start</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">boundary</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/torchao/float8/config.html#Float8LinearRecipeName"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="reference external" href="https://github.com/pytorch/ao/blob/main/torchao/float8/config.py#L141"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#torchao.float8.Float8LinearRecipeName" title="Permalink to this definition">#</a></dt>
+<dd><p>Pre-made recipes for common float8 training configurations.</p>
+<p>Values:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">TENSORWISE</span></code>: Default, dynamic per-tensor scaling with the cuBLAS tensorwise kernel.
+Fastest option.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">ROWWISE</span></code>: Dynamic rowwise scaling with the CUTLASS rowwise kernel.
+Uses e4m3 for activations, weights, gradients. Scales are rounded (floor) to
+the nearest power of two for increased accuracy.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">ROWWISE_WITH_GW_HP</span></code>: A modification on rowwise scaling with increased accuracy
+for grad_weight by keeping grad_weight computation in high precision. Most accurate option.</p></li>
 </ul>
-</dd>
-</dl>
-<p>Note: we hardcode activation scales to use torch.fp32, but allow users to specify the weight scales (defaults to torch.fp32).
-To get an exact numerical match with Int8DynamicActivationInt4WeightConfig, users must use the same dtype for both the weights
-and the scales. Here scales_precision refers specifically to the weight scales only, not the activation scales.</p>
 </dd></dl>
 
 </section>
@@ -1161,20 +1158,20 @@ and the scales. Here scales_precision refers specifically to the weight scales o
 
 <div class="prev-next-area">
     <a class="left-prev"
-       href="torchao.quantization.qat.Int8DynActInt4WeightQATQuantizer.html"
+       href="torchao.float8.Float8LinearConfig.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">Int8DynActInt4WeightQATQuantizer</p>
+        <p class="prev-next-title">Float8LinearConfig</p>
       </div>
     </a>
     <a class="right-next"
-       href="torchao.quantization.qat.Int4WeightOnlyEmbeddingQATQuantizer.html"
+       href="torchao.float8.CastConfig.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Int4WeightOnlyEmbeddingQATQuantizer</p>
+        <p class="prev-next-title">CastConfig</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -1200,20 +1197,20 @@ and the scales. Here scales_precision refers specifically to the weight scales o
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="torchao.quantization.qat.Int8DynActInt4WeightQATQuantizer.html"
+       href="torchao.float8.Float8LinearConfig.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">Int8DynActInt4WeightQATQuantizer</p>
+        <p class="prev-next-title">Float8LinearConfig</p>
       </div>
     </a>
     <a class="right-next"
-       href="torchao.quantization.qat.Int4WeightOnlyEmbeddingQATQuantizer.html"
+       href="torchao.float8.CastConfig.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Int4WeightOnlyEmbeddingQATQuantizer</p>
+        <p class="prev-next-title">CastConfig</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -1235,7 +1232,7 @@ and the scales. Here scales_precision refers specifically to the weight scales o
   </div>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#torchao.quantization.qat.linear.Int8DynActInt4WeightQATLinear"><code class="docutils literal notranslate"><span class="pre">Int8DynActInt4WeightQATLinear</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#torchao.float8.Float8LinearRecipeName"><code class="docutils literal notranslate"><span class="pre">Float8LinearRecipeName</span></code></a></li>
 </ul>
   </nav></div>
     
@@ -1243,7 +1240,7 @@ and the scales. Here scales_precision refers specifically to the weight scales o
 
   
   <div class="tocsection editthispage">
-    <a href="https://github.com/pytorch/ao/edit/main/docs/source/api_reference/generated/torchao.quantization.qat.linear.Int8DynActInt4WeightQATLinear.rst">
+    <a href="https://github.com/pytorch/ao/edit/main/docs/source/api_reference/generated/torchao.float8.Float8LinearRecipeName.rst">
       <i class="fa-solid fa-pencil"></i>
       
       
@@ -1257,7 +1254,7 @@ and the scales. Here scales_precision refers specifically to the weight scales o
     
        <div class="sidebar-secondary-item">
     <div class="tocsection sourcelink">
-      <a href="../../_sources/api_reference/generated/torchao.quantization.qat.linear.Int8DynActInt4WeightQATLinear.rst.txt">
+      <a href="../../_sources/api_reference/generated/torchao.float8.Float8LinearRecipeName.rst.txt">
         <i class="fa-solid fa-file-lines"></i> Show Source
       </a>
     </div>
@@ -1457,11 +1454,11 @@ and the scales. Here scales_precision refers specifically to the weight scales o
     {
        "@context": "https://schema.org",
        "@type": "Article",
-       "name": "Int8DynActInt4WeightQATLinear",
-       "headline": "Int8DynActInt4WeightQATLinear",
+       "name": "Float8LinearRecipeName",
+       "headline": "Float8LinearRecipeName",
        "description": "PyTorch Documentation. Explore PyTorch, an open-source machine learning library that accelerates the path from research prototyping to production deployment. Discover tutorials, API references, and guides to help you build and deploy deep learning models efficiently.",
-       "url": "/api_reference/generated/torchao.quantization.qat.linear.Int8DynActInt4WeightQATLinear.html",
-       "articleBody": "Int8DynActInt4WeightQATLinear# class torchao.quantization.qat.linear.Int8DynActInt4WeightQATLinear(in_features: int, out_features: int, bias: bool = False, device: device = None, groupsize: int = 256, precision: dtype = torch.float32, scales_precision: dtype = torch.float32)[source][source]# This module implements a linear layer with int8 dynamic per token fake quantized activations with int4 fake quantized grouped per channel weights. Parameters groupsize \u2013 the number of elements in each quantized group for weights precision \u2013 precision of weights scales_precision \u2013 precision of per group scales and zero points Note: we hardcode activation scales to use torch.fp32, but allow users to specify the weight scales (defaults to torch.fp32). To get an exact numerical match with Int8DynamicActivationInt4WeightConfig, users must use the same dtype for both the weights and the scales. Here scales_precision refers specifically to the weight scales only, not the activation scales.",
+       "url": "/api_reference/generated/torchao.float8.Float8LinearRecipeName.html",
+       "articleBody": "Float8LinearRecipeName# class torchao.float8.Float8LinearRecipeName(value, names=None, *, module=None, qualname=None, type=None, start=1, boundary=None)[source][source]# Pre-made recipes for common float8 training configurations. Values: TENSORWISE: Default, dynamic per-tensor scaling with the cuBLAS tensorwise kernel. Fastest option. ROWWISE: Dynamic rowwise scaling with the CUTLASS rowwise kernel. Uses e4m3 for activations, weights, gradients. Scales are rounded (floor) to the nearest power of two for increased accuracy. ROWWISE_WITH_GW_HP: A modification on rowwise scaling with increased accuracy for grad_weight by keeping grad_weight computation in high precision. Most accurate option.",
        "author": {
          "@type": "Organization",
          "name": "PyTorch Contributors",
@@ -1470,7 +1467,7 @@ and the scales. Here scales_precision refers specifically to the weight scales o
        "image": "https://pytorch.org/docs/stable/_static/img/pytorch_seo.png",
        "mainEntityOfPage": {
          "@type": "WebPage",
-         "@id": "/api_reference/generated/torchao.quantization.qat.linear.Int8DynActInt4WeightQATLinear.html"
+         "@id": "/api_reference/generated/torchao.float8.Float8LinearRecipeName.html"
        },
        "datePublished": "UnknownT00:00:00Z",
        "dateModified": "UnknownT00:00:00Z"

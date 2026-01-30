@@ -971,6 +971,7 @@ document.write(`
 <li class="toctree-l1 current active has-children"><a class="reference internal" href="../api_ref_float8.html">torchao.float8</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
 <li class="toctree-l2"><a class="reference internal" href="torchao.float8.convert_to_float8_training.html">convert_to_float8_training</a></li>
 <li class="toctree-l2"><a class="reference internal" href="torchao.float8.Float8LinearConfig.html">Float8LinearConfig</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.float8.Float8LinearRecipeName.html">Float8LinearRecipeName</a></li>
 <li class="toctree-l2"><a class="reference internal" href="torchao.float8.CastConfig.html">CastConfig</a></li>
 <li class="toctree-l2"><a class="reference internal" href="torchao.float8.ScalingType.html">ScalingType</a></li>
 <li class="toctree-l2"><a class="reference internal" href="torchao.float8.ScalingGranularity.html">ScalingGranularity</a></li>
@@ -1099,15 +1100,20 @@ document.write(`
 <dl class="py function">
 <dt class="sig sig-object py" id="torchao.float8.precompute_float8_dynamic_scale_for_fsdp">
 <span class="sig-prename descclassname"><span class="pre">torchao.float8.</span></span><span class="sig-name descname"><span class="pre">precompute_float8_dynamic_scale_for_fsdp</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">module</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.pytorch.org/docs/stable/generated/torch.nn.Module.html#torch.nn.Module" title="(in PyTorch v2.10)"><span class="pre">Module</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></span><a class="reference internal" href="../../_modules/torchao/float8/fsdp_utils.html#precompute_float8_dynamic_scale_for_fsdp"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="reference external" href="https://github.com/pytorch/ao/blob/main/torchao/float8/fsdp_utils.py#L27"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#torchao.float8.precompute_float8_dynamic_scale_for_fsdp" title="Permalink to this definition">#</a></dt>
-<dd><p>Calculate scale dynamically for all float8 parameters.
-This should be run after the optimizer step. It performs a single all-reduce to compute the
-scales for all float8 weights.
-Example usage:</p>
-<blockquote>
-<div><p>model(input).sum().backward()
-optim.step()
-precompute_float8_dynamic_scale_for_fsdp(model)</p>
-</div></blockquote>
+<dd><p>Calculate scale dynamically for all float8 parameters.</p>
+<p>This should be run after the optimizer step. It performs a single all-reduce
+to compute the scales for all float8 weights.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><p><strong>module</strong> – The module containing float8 parameters.</p>
+</dd>
+</dl>
+<p>Example:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">model</span><span class="p">(</span><span class="nb">input</span><span class="p">)</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>
+<span class="n">optim</span><span class="o">.</span><span class="n">step</span><span class="p">()</span>
+<span class="n">precompute_float8_dynamic_scale_for_fsdp</span><span class="p">(</span><span class="n">model</span><span class="p">)</span>
+</pre></div>
+</div>
 </dd></dl>
 
 </section>
@@ -1455,7 +1461,7 @@ precompute_float8_dynamic_scale_for_fsdp(model)</p>
        "headline": "precompute_float8_dynamic_scale_for_fsdp",
        "description": "PyTorch Documentation. Explore PyTorch, an open-source machine learning library that accelerates the path from research prototyping to production deployment. Discover tutorials, API references, and guides to help you build and deploy deep learning models efficiently.",
        "url": "/api_reference/generated/torchao.float8.precompute_float8_dynamic_scale_for_fsdp.html",
-       "articleBody": "precompute_float8_dynamic_scale_for_fsdp# torchao.float8.precompute_float8_dynamic_scale_for_fsdp(module: Module) \u2192 None[source][source]# Calculate scale dynamically for all float8 parameters. This should be run after the optimizer step. It performs a single all-reduce to compute the scales for all float8 weights. Example usage: model(input).sum().backward() optim.step() precompute_float8_dynamic_scale_for_fsdp(model)",
+       "articleBody": "precompute_float8_dynamic_scale_for_fsdp# torchao.float8.precompute_float8_dynamic_scale_for_fsdp(module: Module) \u2192 None[source][source]# Calculate scale dynamically for all float8 parameters. This should be run after the optimizer step. It performs a single all-reduce to compute the scales for all float8 weights. Parameters module \u2013 The module containing float8 parameters. Example: model(input).sum().backward() optim.step() precompute_float8_dynamic_scale_for_fsdp(model)",
        "author": {
          "@type": "Organization",
          "name": "PyTorch Contributors",

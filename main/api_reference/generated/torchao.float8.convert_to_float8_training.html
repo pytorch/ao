@@ -971,6 +971,7 @@ document.write(`
 <li class="toctree-l1 current active has-children"><a class="reference internal" href="../api_ref_float8.html">torchao.float8</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
 <li class="toctree-l2 current active"><a class="current reference internal" href="#">convert_to_float8_training</a></li>
 <li class="toctree-l2"><a class="reference internal" href="torchao.float8.Float8LinearConfig.html">Float8LinearConfig</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.float8.Float8LinearRecipeName.html">Float8LinearRecipeName</a></li>
 <li class="toctree-l2"><a class="reference internal" href="torchao.float8.CastConfig.html">CastConfig</a></li>
 <li class="toctree-l2"><a class="reference internal" href="torchao.float8.ScalingType.html">ScalingType</a></li>
 <li class="toctree-l2"><a class="reference internal" href="torchao.float8.ScalingGranularity.html">ScalingGranularity</a></li>
@@ -1117,6 +1118,48 @@ filter function are the module instance and the FQN.</p></li>
 <dd class="field-odd"><p>nn.Module</p>
 </dd>
 </dl>
+<p>Example:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.float8</span><span class="w"> </span><span class="kn">import</span> <span class="n">convert_to_float8_training</span><span class="p">,</span> <span class="n">Float8LinearConfig</span>
+
+<span class="c1"># create model and sample input</span>
+<span class="n">m</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Sequential</span><span class="p">(</span>
+    <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">8192</span><span class="p">,</span> <span class="mi">4096</span><span class="p">,</span> <span class="n">bias</span><span class="o">=</span><span class="kc">False</span><span class="p">),</span>
+    <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">4096</span><span class="p">,</span> <span class="mi">128</span><span class="p">,</span> <span class="n">bias</span><span class="o">=</span><span class="kc">False</span><span class="p">),</span>
+<span class="p">)</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">()</span><span class="o">.</span><span class="n">cuda</span><span class="p">()</span>
+<span class="n">optimizer</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">optim</span><span class="o">.</span><span class="n">SGD</span><span class="p">(</span><span class="n">m</span><span class="o">.</span><span class="n">parameters</span><span class="p">(),</span> <span class="n">lr</span><span class="o">=</span><span class="mf">0.1</span><span class="p">)</span>
+
+<span class="c1"># optional: filter modules from being eligible for float8 conversion</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">module_filter_fn</span><span class="p">(</span><span class="n">mod</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span> <span class="n">fqn</span><span class="p">:</span> <span class="nb">str</span><span class="p">):</span>
+    <span class="c1"># don&#39;t convert the last module</span>
+    <span class="k">if</span> <span class="n">fqn</span> <span class="o">==</span> <span class="s2">&quot;1&quot;</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">False</span>
+    <span class="c1"># don&#39;t convert linear modules with weight dimensions not divisible by 16</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">mod</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">mod</span><span class="o">.</span><span class="n">in_features</span> <span class="o">%</span> <span class="mi">16</span> <span class="o">!=</span> <span class="mi">0</span> <span class="ow">or</span> <span class="n">mod</span><span class="o">.</span><span class="n">out_features</span> <span class="o">%</span> <span class="mi">16</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">return</span> <span class="kc">False</span>
+    <span class="k">return</span> <span class="kc">True</span>
+
+<span class="c1"># configure float8 recipe</span>
+<span class="c1"># valid recipe names: &quot;tensorwise&quot;, &quot;rowwise&quot;, &quot;rowwise_with_gw_hp&quot;</span>
+<span class="n">config</span> <span class="o">=</span> <span class="n">Float8LinearConfig</span><span class="o">.</span><span class="n">from_recipe_name</span><span class="p">(</span><span class="s2">&quot;tensorwise&quot;</span><span class="p">)</span>
+
+<span class="c1"># convert specified `torch.nn.Linear` modules to `Float8Linear`</span>
+<span class="n">convert_to_float8_training</span><span class="p">(</span><span class="n">m</span><span class="p">,</span> <span class="n">config</span><span class="o">=</span><span class="n">config</span><span class="p">,</span> <span class="n">module_filter_fn</span><span class="o">=</span><span class="n">module_filter_fn</span><span class="p">)</span>
+
+<span class="c1"># enable torch.compile for competitive performance</span>
+<span class="n">m</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="n">m</span><span class="p">)</span>
+
+<span class="c1"># training loop</span>
+<span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">4096</span><span class="p">,</span> <span class="mi">8192</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="s2">&quot;cuda&quot;</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">)</span>
+<span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">10</span><span class="p">):</span>
+    <span class="n">optimizer</span><span class="o">.</span><span class="n">zero_grad</span><span class="p">()</span>
+    <span class="n">y</span> <span class="o">=</span> <span class="n">m</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+    <span class="n">y</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>
+    <span class="n">optimizer</span><span class="o">.</span><span class="n">step</span><span class="p">()</span>
+</pre></div>
+</div>
 </dd></dl>
 
 </section>
@@ -1464,7 +1507,7 @@ filter function are the module instance and the FQN.</p></li>
        "headline": "convert_to_float8_training",
        "description": "PyTorch Documentation. Explore PyTorch, an open-source machine learning library that accelerates the path from research prototyping to production deployment. Discover tutorials, API references, and guides to help you build and deploy deep learning models efficiently.",
        "url": "/api_reference/generated/torchao.float8.convert_to_float8_training.html",
-       "articleBody": "convert_to_float8_training# torchao.float8.convert_to_float8_training(module: Module, *, module_filter_fn: Optional[Callable[[Module, str], bool]] = None, config: Optional[Float8LinearConfig] = None) \u2192 Module[source][source]# Swaps torch.nn.Linear in module with Float8Linear. Parameters module \u2013 Module to modify. module_filter_fn \u2013 If specified, only the torch.nn.Linear subclasses that that pass the filter function will be swapped. The inputs to the filter function are the module instance and the FQN. config (Float8LinearConfig) \u2013 configuration for conversion to float8 Returns The modified module with swapped linear layers. Return type nn.Module",
+       "articleBody": "convert_to_float8_training# torchao.float8.convert_to_float8_training(module: Module, *, module_filter_fn: Optional[Callable[[Module, str], bool]] = None, config: Optional[Float8LinearConfig] = None) \u2192 Module[source][source]# Swaps torch.nn.Linear in module with Float8Linear. Parameters module \u2013 Module to modify. module_filter_fn \u2013 If specified, only the torch.nn.Linear subclasses that that pass the filter function will be swapped. The inputs to the filter function are the module instance and the FQN. config (Float8LinearConfig) \u2013 configuration for conversion to float8 Returns The modified module with swapped linear layers. Return type nn.Module Example: import torch import torch.nn as nn from torchao.float8 import convert_to_float8_training, Float8LinearConfig # create model and sample input m = nn.Sequential( nn.Linear(8192, 4096, bias=False), nn.Linear(4096, 128, bias=False), ).bfloat16().cuda() optimizer = torch.optim.SGD(m.parameters(), lr=0.1) # optional: filter modules from being eligible for float8 conversion def module_filter_fn(mod: torch.nn.Module, fqn: str): # don\u0027t convert the last module if fqn == \"1\": return False # don\u0027t convert linear modules with weight dimensions not divisible by 16 if isinstance(mod, torch.nn.Linear): if mod.in_features % 16 != 0 or mod.out_features % 16 != 0: return False return True # configure float8 recipe # valid recipe names: \"tensorwise\", \"rowwise\", \"rowwise_with_gw_hp\" config = Float8LinearConfig.from_recipe_name(\"tensorwise\") # convert specified `torch.nn.Linear` modules to `Float8Linear` convert_to_float8_training(m, config=config, module_filter_fn=module_filter_fn) # enable torch.compile for competitive performance m = torch.compile(m) # training loop x = torch.randn(4096, 8192, device=\"cuda\", dtype=torch.bfloat16) for _ in range(10): optimizer.zero_grad() y = m(x) y.sum().backward() optimizer.step()",
        "author": {
          "@type": "Organization",
          "name": "PyTorch Contributors",

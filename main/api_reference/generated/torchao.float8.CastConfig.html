@@ -65,7 +65,7 @@
     <link rel="index" title="Index" href="../../genindex.html" />
     <link rel="search" title="Search" href="../../search.html" />
     <link rel="next" title="ScalingType" href="torchao.float8.ScalingType.html" />
-    <link rel="prev" title="Float8LinearConfig" href="torchao.float8.Float8LinearConfig.html" />
+    <link rel="prev" title="Float8LinearRecipeName" href="torchao.float8.Float8LinearRecipeName.html" />
 
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
@@ -971,6 +971,7 @@ document.write(`
 <li class="toctree-l1 current active has-children"><a class="reference internal" href="../api_ref_float8.html">torchao.float8</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
 <li class="toctree-l2"><a class="reference internal" href="torchao.float8.convert_to_float8_training.html">convert_to_float8_training</a></li>
 <li class="toctree-l2"><a class="reference internal" href="torchao.float8.Float8LinearConfig.html">Float8LinearConfig</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.float8.Float8LinearRecipeName.html">Float8LinearRecipeName</a></li>
 <li class="toctree-l2 current active"><a class="current reference internal" href="#">CastConfig</a></li>
 <li class="toctree-l2"><a class="reference internal" href="torchao.float8.ScalingType.html">ScalingType</a></li>
 <li class="toctree-l2"><a class="reference internal" href="torchao.float8.ScalingGranularity.html">ScalingGranularity</a></li>
@@ -1098,8 +1099,20 @@ document.write(`
 <h1>CastConfig<a class="headerlink" href="#castconfig" title="Permalink to this heading">#</a></h1>
 <dl class="py class">
 <dt class="sig sig-object py" id="torchao.float8.CastConfig">
-<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">torchao.float8.</span></span><span class="sig-name descname"><span class="pre">CastConfig</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">scaling_type</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="torchao.float8.ScalingType.html#torchao.float8.ScalingType" title="torchao.float8.config.ScalingType"><span class="pre">ScalingType</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">ScalingType.DYNAMIC</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">scaling_granularity</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="torchao.float8.ScalingGranularity.html#torchao.float8.ScalingGranularity" title="torchao.float8.config.ScalingGranularity"><span class="pre">ScalingGranularity</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">ScalingGranularity.TENSORWISE</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">target_dtype</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.14)"><span class="pre">Optional</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.pytorch.org/docs/stable/tensor_attributes.html#torch.dtype" title="(in PyTorch v2.10)"><span class="pre">dtype</span></a><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/torchao/float8/config.html#CastConfig"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="reference external" href="https://github.com/pytorch/ao/blob/main/torchao/float8/config.py#L78"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#torchao.float8.CastConfig" title="Permalink to this definition">#</a></dt>
-<dd><p>Configuration for maybe casting a single tensor to float8</p>
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">torchao.float8.</span></span><span class="sig-name descname"><span class="pre">CastConfig</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">scaling_type</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="torchao.float8.ScalingType.html#torchao.float8.ScalingType" title="torchao.float8.config.ScalingType"><span class="pre">ScalingType</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">ScalingType.DYNAMIC</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">scaling_granularity</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="torchao.float8.ScalingGranularity.html#torchao.float8.ScalingGranularity" title="torchao.float8.config.ScalingGranularity"><span class="pre">ScalingGranularity</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">ScalingGranularity.TENSORWISE</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">target_dtype</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.14)"><span class="pre">Optional</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.pytorch.org/docs/stable/tensor_attributes.html#torch.dtype" title="(in PyTorch v2.10)"><span class="pre">dtype</span></a><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/torchao/float8/config.html#CastConfig"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="reference external" href="https://github.com/pytorch/ao/blob/main/torchao/float8/config.py#L92"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#torchao.float8.CastConfig" title="Permalink to this definition">#</a></dt>
+<dd><p>Configuration for casting a single tensor to float8.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>scaling_type</strong> – The type of scaling to use. See <a class="reference internal" href="torchao.float8.ScalingType.html#torchao.float8.ScalingType" title="torchao.float8.ScalingType"><code class="xref py py-class docutils literal notranslate"><span class="pre">ScalingType</span></code></a>.
+Default: <code class="docutils literal notranslate"><span class="pre">ScalingType.DYNAMIC</span></code></p></li>
+<li><p><strong>scaling_granularity</strong> – The granularity of scaling. See <a class="reference internal" href="torchao.float8.ScalingGranularity.html#torchao.float8.ScalingGranularity" title="torchao.float8.ScalingGranularity"><code class="xref py py-class docutils literal notranslate"><span class="pre">ScalingGranularity</span></code></a>.
+Default: <code class="docutils literal notranslate"><span class="pre">ScalingGranularity.TENSORWISE</span></code></p></li>
+<li><p><strong>target_dtype</strong> – The target float8 dtype (e.g., <code class="docutils literal notranslate"><span class="pre">torch.float8_e4m3fn</span></code>).
+Default: <code class="docutils literal notranslate"><span class="pre">None</span></code> (will be set based on the recipe)</p></li>
+</ul>
+</dd>
+</dl>
 </dd></dl>
 
 </section>
@@ -1147,12 +1160,12 @@ document.write(`
 
 <div class="prev-next-area">
     <a class="left-prev"
-       href="torchao.float8.Float8LinearConfig.html"
+       href="torchao.float8.Float8LinearRecipeName.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">Float8LinearConfig</p>
+        <p class="prev-next-title">Float8LinearRecipeName</p>
       </div>
     </a>
     <a class="right-next"
@@ -1186,12 +1199,12 @@ document.write(`
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="torchao.float8.Float8LinearConfig.html"
+       href="torchao.float8.Float8LinearRecipeName.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">Float8LinearConfig</p>
+        <p class="prev-next-title">Float8LinearRecipeName</p>
       </div>
     </a>
     <a class="right-next"
@@ -1447,7 +1460,7 @@ document.write(`
        "headline": "CastConfig",
        "description": "PyTorch Documentation. Explore PyTorch, an open-source machine learning library that accelerates the path from research prototyping to production deployment. Discover tutorials, API references, and guides to help you build and deploy deep learning models efficiently.",
        "url": "/api_reference/generated/torchao.float8.CastConfig.html",
-       "articleBody": "CastConfig# class torchao.float8.CastConfig(scaling_type: ScalingType = ScalingType.DYNAMIC, scaling_granularity: ScalingGranularity = ScalingGranularity.TENSORWISE, target_dtype: Optional[dtype] = None)[source][source]# Configuration for maybe casting a single tensor to float8",
+       "articleBody": "CastConfig# class torchao.float8.CastConfig(scaling_type: ScalingType = ScalingType.DYNAMIC, scaling_granularity: ScalingGranularity = ScalingGranularity.TENSORWISE, target_dtype: Optional[dtype] = None)[source][source]# Configuration for casting a single tensor to float8. Parameters scaling_type \u2013 The type of scaling to use. See ScalingType. Default: ScalingType.DYNAMIC scaling_granularity \u2013 The granularity of scaling. See ScalingGranularity. Default: ScalingGranularity.TENSORWISE target_dtype \u2013 The target float8 dtype (e.g., torch.float8_e4m3fn). Default: None (will be set based on the recipe)",
        "author": {
          "@type": "Organization",
          "name": "PyTorch Contributors",

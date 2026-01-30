@@ -973,6 +973,7 @@ document.write(`
 <li class="toctree-l1 current active has-children"><a class="current reference internal" href="#">torchao.float8</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="generated/torchao.float8.convert_to_float8_training.html">convert_to_float8_training</a></li>
 <li class="toctree-l2"><a class="reference internal" href="generated/torchao.float8.Float8LinearConfig.html">Float8LinearConfig</a></li>
+<li class="toctree-l2"><a class="reference internal" href="generated/torchao.float8.Float8LinearRecipeName.html">Float8LinearRecipeName</a></li>
 <li class="toctree-l2"><a class="reference internal" href="generated/torchao.float8.CastConfig.html">CastConfig</a></li>
 <li class="toctree-l2"><a class="reference internal" href="generated/torchao.float8.ScalingType.html">ScalingType</a></li>
 <li class="toctree-l2"><a class="reference internal" href="generated/torchao.float8.ScalingGranularity.html">ScalingGranularity</a></li>
@@ -1116,17 +1117,20 @@ document.write(`
 <tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.float8.Float8LinearConfig.html#torchao.float8.Float8LinearConfig" title="torchao.float8.Float8LinearConfig"><code class="xref py py-obj docutils literal notranslate"><span class="pre">Float8LinearConfig</span></code></a></p></td>
 <td><p>Configuration for converting a <cite>torch.nn.Linear</cite> module to float8 for training.</p></td>
 </tr>
-<tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.float8.CastConfig.html#torchao.float8.CastConfig" title="torchao.float8.CastConfig"><code class="xref py py-obj docutils literal notranslate"><span class="pre">CastConfig</span></code></a></p></td>
-<td><p>Configuration for maybe casting a single tensor to float8</p></td>
+<tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.float8.Float8LinearRecipeName.html#torchao.float8.Float8LinearRecipeName" title="torchao.float8.Float8LinearRecipeName"><code class="xref py py-obj docutils literal notranslate"><span class="pre">Float8LinearRecipeName</span></code></a></p></td>
+<td><p>Pre-made recipes for common float8 training configurations.</p></td>
 </tr>
-<tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.float8.ScalingType.html#torchao.float8.ScalingType" title="torchao.float8.ScalingType"><code class="xref py py-obj docutils literal notranslate"><span class="pre">ScalingType</span></code></a></p></td>
-<td><p></p></td>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.float8.CastConfig.html#torchao.float8.CastConfig" title="torchao.float8.CastConfig"><code class="xref py py-obj docutils literal notranslate"><span class="pre">CastConfig</span></code></a></p></td>
+<td><p>Configuration for casting a single tensor to float8.</p></td>
 </tr>
-<tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.float8.ScalingGranularity.html#torchao.float8.ScalingGranularity" title="torchao.float8.ScalingGranularity"><code class="xref py py-obj docutils literal notranslate"><span class="pre">ScalingGranularity</span></code></a></p></td>
-<td><p>Defines the granularity of scaling strategies for casting to float8</p></td>
+<tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.float8.ScalingType.html#torchao.float8.ScalingType" title="torchao.float8.ScalingType"><code class="xref py py-obj docutils literal notranslate"><span class="pre">ScalingType</span></code></a></p></td>
+<td><p>Defines the type of scaling to use for casting to float8.</p></td>
 </tr>
-<tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.float8.precompute_float8_dynamic_scale_for_fsdp.html#torchao.float8.precompute_float8_dynamic_scale_for_fsdp" title="torchao.float8.precompute_float8_dynamic_scale_for_fsdp"><code class="xref py py-obj docutils literal notranslate"><span class="pre">precompute_float8_dynamic_scale_for_fsdp</span></code></a></p></td>
-<td><p>Calculate scale dynamically for all float8 parameters. This should be run after the optimizer step. It performs a single all-reduce to compute the scales for all float8 weights. Example usage:     model(input).sum().backward()     optim.step()     precompute_float8_dynamic_scale_for_fsdp(model).</p></td>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.float8.ScalingGranularity.html#torchao.float8.ScalingGranularity" title="torchao.float8.ScalingGranularity"><code class="xref py py-obj docutils literal notranslate"><span class="pre">ScalingGranularity</span></code></a></p></td>
+<td><p>Defines the granularity of scaling strategies for casting to float8.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.float8.precompute_float8_dynamic_scale_for_fsdp.html#torchao.float8.precompute_float8_dynamic_scale_for_fsdp" title="torchao.float8.precompute_float8_dynamic_scale_for_fsdp"><code class="xref py py-obj docutils literal notranslate"><span class="pre">precompute_float8_dynamic_scale_for_fsdp</span></code></a></p></td>
+<td><p>Calculate scale dynamically for all float8 parameters.</p></td>
 </tr>
 </tbody>
 </table>
@@ -1478,7 +1482,7 @@ document.write(`
        "headline": "torchao.float8",
        "description": "PyTorch Documentation. Explore PyTorch, an open-source machine learning library that accelerates the path from research prototyping to production deployment. Discover tutorials, API references, and guides to help you build and deploy deep learning models efficiently.",
        "url": "/api_reference/api_ref_float8.html",
-       "articleBody": "torchao.float8# Created On: Jan 29, 2026 | Last Updated On: Jan 29, 2026 Main float8 training APIs# convert_to_float8_training Swaps torch.nn.Linear in module with Float8Linear. Other float8 training types# Float8LinearConfig Configuration for converting a torch.nn.Linear module to float8 for training. CastConfig Configuration for maybe casting a single tensor to float8 ScalingType ScalingGranularity Defines the granularity of scaling strategies for casting to float8 precompute_float8_dynamic_scale_for_fsdp Calculate scale dynamically for all float8 parameters. This should be run after the optimizer step. It performs a single all-reduce to compute the scales for all float8 weights. Example usage: model(input).sum().backward() optim.step() precompute_float8_dynamic_scale_for_fsdp(model).",
+       "articleBody": "torchao.float8# Created On: Jan 29, 2026 | Last Updated On: Jan 29, 2026 Main float8 training APIs# convert_to_float8_training Swaps torch.nn.Linear in module with Float8Linear. Other float8 training types# Float8LinearConfig Configuration for converting a torch.nn.Linear module to float8 for training. Float8LinearRecipeName Pre-made recipes for common float8 training configurations. CastConfig Configuration for casting a single tensor to float8. ScalingType Defines the type of scaling to use for casting to float8. ScalingGranularity Defines the granularity of scaling strategies for casting to float8. precompute_float8_dynamic_scale_for_fsdp Calculate scale dynamically for all float8 parameters.",
        "author": {
          "@type": "Organization",
          "name": "PyTorch Contributors",
