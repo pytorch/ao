@@ -355,7 +355,8 @@ class TestFloat8StaticActivation(TorchAOIntegrationTestCase):
         act_quant_kwargs = config.get_act_quant_kwargs()
         self.assertIsNotNone(act_quant_kwargs)
 
-    def test_static_quant_with_output_quantization(self):
+    @common_utils.parametrize("input_shape", [(4, 64), (2, 4, 64)])
+    def test_static_quant_with_output_quantization(self, input_shape):
         """
         Test static quantization with output quantization enabled.
 
@@ -363,6 +364,8 @@ class TestFloat8StaticActivation(TorchAOIntegrationTestCase):
         1. An output observer is created during prepare step
         2. The output of the linear layer is quantized to float8 after scaled_mm
         3. The output is then dequantized back to original dtype
+
+        Tests both 2D (batch_size, input_dim) and 3D (batch_size, seq_len, input_dim) inputs.
         """
         torch.compiler.reset()
         torch.manual_seed(42)
@@ -373,7 +376,7 @@ class TestFloat8StaticActivation(TorchAOIntegrationTestCase):
         model = ToySingleLinearModel(
             input_dim=64, output_dim=32, dtype=dtype, device="cuda"
         ).eval()
-        example_inputs = model.example_inputs(batch_size=4)
+        example_inputs = (torch.randn(*input_shape, dtype=dtype, device="cuda"),)
 
         # Get reference output before quantization
         before_quant = model(*example_inputs)

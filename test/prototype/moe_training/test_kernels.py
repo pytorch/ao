@@ -260,6 +260,10 @@ def test_triton_mx_block_rearrange_2d_M_groups(
         (512, 1024, 4, 4),
         (512, 2048, 4, 4),
         (1024, 512, 8, 4),
+        (128, 1408, 2, 1),  # dsv3-16b moe intermediate dim
+        (256, 1408, 2, 1),
+        (32768, 1408, 4, 1),
+        (8192, 1536, 4, 1),  # dsv3-236b moe intermediate dim
     ],
 )
 def test_cuda_mx_block_rearrange_2d_M_groups(
@@ -294,36 +298,6 @@ def test_cuda_mx_block_rearrange_2d_M_groups(
     assert torch.allclose(ref_out_scales, cuda_out_scales, atol=0, rtol=0), (
         f"blocked scales not equal for scale_cols={scale_cols}"
     )
-
-
-@pytest.mark.skipif(
-    not is_sm_at_least_100(),
-    reason="MXFP8 requires CUDA capability 10.0 or greater",
-)
-@skip_if_rocm("ROCm enablement in progress")
-def test_cuda_mx_block_rearrange_2d_M_groups_invalid_cols():
-    """Test that validation catches column widths not divisible by 16."""
-    device = "cuda"
-    block_size = 32
-    m, k, n_groups = 512, 1408, 4  # k=1408 gives scale_cols=44 (not divisible by 16)
-
-    input_data = torch.randn(m, k, device=device)
-    e8m0_scales, _ = to_mx(
-        input_data, elem_dtype=torch.float8_e4m3fn, block_size=block_size
-    )
-    scale_rows, scale_cols = e8m0_scales.shape
-
-    input_group_offsets = generate_jagged_offs(
-        n_groups, m, multiple_of=block_size, device=device
-    )
-
-    # Should raise ValueError for scale_cols not divisible by 16
-    with pytest.raises(ValueError, match="TMA requirement for 2D transfers"):
-        mx_block_rearrange_2d_M_groups_cuda(
-            e8m0_scales,
-            input_group_offsets,
-            chunks_per_tb=4,
-        )
 
 
 @skip_if_rocm("ROCm enablement in progress")

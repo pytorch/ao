@@ -10,13 +10,6 @@ from typing import Optional
 
 import torch
 from torch._dynamo.utils import warn_once
-from torch.sparse._triton_ops import (
-    broadcast_batch_dims,
-    launch_kernel,
-    prepare_inputs,
-    ptr_stride_extractor,
-    tile_to_blocksize,
-)
 from torch.sparse._triton_ops_meta import get_meta, minimize, update
 from torch.utils._triton import has_triton
 
@@ -278,6 +271,9 @@ def bsr_dense_addmm(
     specified, otherwise, these are treated as tensors filled with
     ones.
     """
+    global _bsr_strided_addmm_kernel
+    _lazy_init_triton()
+
     f_name = "bsr_dense_addmm"
     values = bsr.values()
     crow_indices = bsr.crow_indices()
@@ -286,6 +282,16 @@ def bsr_dense_addmm(
     M, K = bsr.shape[batch_ndim : batch_ndim + 2]
     blocksize = values.shape[batch_ndim + 1 : batch_ndim + 3]
     N = dense.shape[-1]
+
+    # lazy import to prevent premature cuda init
+    import triton.language as tl
+    from torch.sparse._triton_ops import (
+        broadcast_batch_dims,
+        launch_kernel,
+        prepare_inputs,
+        ptr_stride_extractor,
+        tile_to_blocksize,
+    )
 
     original_batch_dims_broadcasted = broadcast_batch_dims(f_name, bsr, dense)
     if out is None:
@@ -440,12 +446,25 @@ def bsr_dense_addmm(
     return out_backup
 
 
-if has_triton():
+# Lazy initialization for triton kernel to avoid CUDA init at import time
+_triton_initialized = False
+_bsr_strided_addmm_kernel = None
+
+
+def _lazy_init_triton():
+    global _triton_initialized, _bsr_strided_addmm_kernel
+    if _triton_initialized:
+        return
+    _triton_initialized = True
+
+    if not has_triton():
+        return
+
     import triton
     import triton.language as tl
 
     @triton.jit
-    def _bsr_strided_addmm_kernel(
+    def _bsr_strided_addmm_kernel_impl(
         # values prologue
         values_ptr,
         values_batch_stride,
@@ -660,5 +679,4 @@ if has_triton():
             mask=col_block_arange[None, :] < BLOCKSIZE_COL,
         )
 
-else:
-    _bsr_strided_addmm_kernel = None  # type: ignore[assignment]
+    _bsr_strided_addmm_kernel = _bsr_strided_addmm_kernel_impl

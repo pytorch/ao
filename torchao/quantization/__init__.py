@@ -1,23 +1,31 @@
+import importlib
+
 from torchao.kernel import (
     int_scaled_matmul,
     safe_int_mm,
 )
 
-from .autoquant import (
-    ALL_AUTOQUANT_CLASS_LIST,
-    DEFAULT_AUTOQUANT_CLASS_LIST,
-    DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST,
-    DEFAULT_INT4_AUTOQUANT_CLASS_LIST,
-    DEFAULT_SPARSE_AUTOQUANT_CLASS_LIST,
-    GEMLITE_INT4_AUTOQUANT_CLASS_LIST,
-    OTHER_AUTOQUANT_CLASS_LIST,
-    autoquant,
-)
-from .GPTQ import (
-    Int4WeightOnlyGPTQQuantizer,
-    MultiTensor,
-    MultiTensorInputRecorder,
-)
+# Lazy imports to avoid CUDA initialization at import time
+_lazy_imports = {
+    "ALL_AUTOQUANT_CLASS_LIST": ".autoquant",
+    "DEFAULT_AUTOQUANT_CLASS_LIST": ".autoquant",
+    "DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST": ".autoquant",
+    "DEFAULT_INT4_AUTOQUANT_CLASS_LIST": ".autoquant",
+    "DEFAULT_SPARSE_AUTOQUANT_CLASS_LIST": ".autoquant",
+    "GEMLITE_INT4_AUTOQUANT_CLASS_LIST": ".autoquant",
+    "OTHER_AUTOQUANT_CLASS_LIST": ".autoquant",
+    "autoquant": ".autoquant",
+}
+
+
+def __getattr__(name):
+    if name in _lazy_imports:
+        module_path = _lazy_imports[name]
+        module = importlib.import_module(module_path, __name__)
+        return getattr(module, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
 from .granularity import (
     Granularity,
     PerAxis,
@@ -44,7 +52,6 @@ from .observer import (
     AffineQuantizedObserverBase,
 )
 from .quant_api import (
-    CutlassInt4PackedLayout,
     Float8DynamicActivationFloat8SemiSparseWeightConfig,
     Float8DynamicActivationFloat8WeightConfig,
     Float8DynamicActivationInt4WeightConfig,
@@ -53,7 +60,6 @@ from .quant_api import (
     Float8WeightOnlyConfig,
     FqnToConfig,
     GemliteUIntXWeightOnlyConfig,
-    Int4DynamicActivationInt4WeightConfig,
     Int4WeightOnlyConfig,
     Int8DynamicActivationInt4WeightConfig,
     Int8DynamicActivationInt8WeightConfig,
@@ -114,7 +120,6 @@ __all__ = [
     "intx_quantization_aware_training",
     "fqn_matches_fqn_config",
     "swap_conv2d_1x1_to_linear",
-    "Int4DynamicActivationInt4WeightConfig",
     "Int8DynamicActivationInt4WeightConfig",
     "Int8DynamicActivationInt8WeightConfig",
     "Int8DynamicActivationIntxWeightConfig",
@@ -178,10 +183,5 @@ __all__ = [
     # Layouts for quant_api
     "PlainLayout",
     "TensorCoreTiledLayout",
-    "CutlassInt4PackedLayout",
     "Float8MMConfig",
-    # GPTQ
-    "Int4WeightOnlyGPTQQuantizer",
-    "MultiTensor",
-    "MultiTensorInputRecorder",
 ]

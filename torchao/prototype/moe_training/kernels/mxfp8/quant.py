@@ -701,11 +701,13 @@ def _blocked_group_start_idx(
     return group_start_idx
 
 
-mxfp8_cuda_extension_available = is_sm_at_least_100() and is_cuda_version_at_least(
-    12, 8
+_mxfp8_cuda_kernels_available = (
+    torch.cuda.is_available()
+    and is_sm_at_least_100()
+    and is_cuda_version_at_least(12, 8)
 )
 
-if mxfp8_cuda_extension_available:
+if _mxfp8_cuda_kernels_available:
     lib = torch.library.Library("torchao", "FRAGMENT")
     lib.define(
         "mxfp8_quantize_3d(Tensor input, int scale_dim_n, str fp8_format, str scaling_mode) -> (Tensor, Tensor)",
@@ -797,18 +799,6 @@ if mxfp8_cuda_extension_available:
             "input_group_end_offsets must be int32"
         )
         assert chunks_per_tb in (1, 4, 8, 16), "chunks_per_tb must be 1, 4, 8, or 16"
-
-        # Validate that scale_cols meets TMA alignment requirements
-        # Reference: https://docs.nvidia.com/cuda/archive/12.6.3/cuda-driver-api/group__CUDA__TENSOR__MEMORY.html
-        # For 2D TMA transfers, the stride must be a multiple of 16 bytes.
-        # Since we use row-major layout with stride = scale_cols (in bytes), scale_cols must be divisible by 16.
-        rows, cols = scales_tensor.shape
-        if cols % 16 != 0:
-            raise ValueError(
-                f"TMA requirement for 2D transfers: stride must be a multiple of 16 bytes. "
-                f"Got scale_cols={cols} (stride in row-major layout). "
-                f"Consider using Triton kernel instead with use_cuda_kernel_for_blocked_layout=False."
-            )
 
         return torch.ops.torchao.mx_block_rearrange_2d_M_groups.default(
             scales_tensor,

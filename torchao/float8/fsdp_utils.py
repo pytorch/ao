@@ -28,9 +28,15 @@ from torchao.float8.float8_utils import EPS
 def precompute_float8_dynamic_scale_for_fsdp(module: nn.Module) -> None:
     """
     Calculate scale dynamically for all float8 parameters.
-    This should be run after the optimizer step. It performs a single all-reduce to compute the
-    scales for all float8 weights.
-    Example usage:
+
+    This should be run after the optimizer step. It performs a single all-reduce
+    to compute the scales for all float8 weights.
+
+    Args:
+        module: The module containing float8 parameters.
+
+    Example::
+
         model(input).sum().backward()
         optim.step()
         precompute_float8_dynamic_scale_for_fsdp(model)

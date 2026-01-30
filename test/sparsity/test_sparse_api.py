@@ -158,6 +158,7 @@ class TestQuantSemiSparse(common_utils.TestCase):
 
 
 class TestBlockSparseWeight(common_utils.TestCase):
+    @unittest.skipIf(not is_sm_at_least_90(), "Need H100 to run")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @common_utils.parametrize("compile", [True, False])
     @common_utils.parametrize("input_shape", [1, 1024])
@@ -192,6 +193,7 @@ class TestBlockSparseWeight(common_utils.TestCase):
 
 
 class TestQuantBlockSparseWeight(common_utils.TestCase):
+    @unittest.skipIf(not is_sm_at_least_90(), "Need H100 to run")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @common_utils.parametrize("compile", [True, False])
     def test_sparse(self, compile):

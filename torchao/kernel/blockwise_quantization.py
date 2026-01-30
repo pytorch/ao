@@ -8,9 +8,36 @@ import math
 from typing import Tuple
 
 import torch
-from torch.utils._triton import has_triton
 
-if has_triton():
+# Lazy initialization state
+_triton_initialized = False
+_triton_available = None
+_blockwise_fp8_gemm_impl = None
+_fp8_blockwise_act_quant_kernel = None
+_fp8_blockwise_weight_quant_kernel = None
+_fp8_blockwise_weight_dequant_kernel = None
+
+
+def _lazy_init_triton():
+    global _triton_initialized, _triton_available
+    global _blockwise_fp8_gemm_impl
+    global _fp8_blockwise_act_quant_kernel
+    global _fp8_blockwise_weight_quant_kernel
+    global _fp8_blockwise_weight_dequant_kernel
+
+    if _triton_initialized:
+        return
+
+    _triton_initialized = True
+
+    from torch.utils._triton import has_triton
+
+    if not has_triton():
+        _triton_available = False
+        return
+
+    _triton_available = True
+
     import triton
     import triton.language as tl
     from triton import Config
@@ -77,7 +104,7 @@ if has_triton():
         tl.store(c_ptrs, c, mask=mask)
 
     @torch.library.custom_op("ao::blockwise_fp8_gemm", mutates_args=())
-    def blockwise_fp8_gemm(
+    def _blockwise_fp8_gemm_op(
         a: torch.Tensor,
         a_s: torch.Tensor,
         b: torch.Tensor,
@@ -102,14 +129,18 @@ if has_triton():
         )
         return c
 
-    @blockwise_fp8_gemm.register_fake
+    @_blockwise_fp8_gemm_op.register_fake
     def _(a, a_s, b, b_s, block_size=128):
         N = b.size(0)
         c = a.new_empty(*a.size()[:-1], N, dtype=torch.bfloat16)
         return c
 
+    _blockwise_fp8_gemm_impl = _blockwise_fp8_gemm_op
+
     @triton.jit
-    def fp8_blockwise_act_quant_kernel(x_ptr, y_ptr, s_ptr, BLOCK_SIZE: tl.constexpr):
+    def _fp8_blockwise_act_quant_kernel_impl(
+        x_ptr, y_ptr, s_ptr, BLOCK_SIZE: tl.constexpr
+    ):
         """
         Quantizes the input tensor `x_ptr` and stores the result in `y_ptr` and the scaling factor in `s_ptr`.
 
@@ -131,39 +162,10 @@ if has_triton():
         tl.store(y_ptr + offs, y)
         tl.store(s_ptr + pid, s)
 
-    def fp8_blockwise_act_quant(
-        x: torch.Tensor, block_size: int = 128, dtype: torch.dtype = torch.float8_e4m3fn
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-        """
-        Quantizes the input tensor `x` using block-wise quantization with block size being BLOCK_SIZEx1.
-
-        Args:
-            x (torch.Tensor): The input tensor to be quantized. Must be contiguous and its last dimension size must be divisible by `block_size`.
-            block_size (int, optional): The size of the blocks to be used for quantization. Default is 128.
-            dtype (torch.dtype, optional): The dtype to use for the quantized tensor. Default is `torch.float8_e4m3fn`.
-
-
-        Returns:
-            Tuple[torch.Tensor, torch.Tensor]: A tuple containing:
-                - The quantized tensor with dtype `dtype`.
-                - A tensor of scaling factors with dtype `torch.float32`.
-        """
-        assert x.is_contiguous(), "Input tensor must be contiguous"
-        assert x.size(-1) % block_size == 0, (
-            f"Last dimension size must be divisible by block_size (block_size={block_size})"
-        )
-        assert dtype in [
-            torch.float8_e4m3fn,
-            torch.float8_e5m2,
-        ], "dtype must be torch.float8_e4m3fn or torch.float8_e5m2"
-        y = torch.empty_like(x, dtype=dtype)
-        s = x.new_empty(*x.size()[:-1], x.size(-1) // block_size, dtype=torch.float32)
-        grid = lambda meta: (triton.cdiv(x.numel(), meta["BLOCK_SIZE"]),)
-        fp8_blockwise_act_quant_kernel[grid](x, y, s, BLOCK_SIZE=block_size)
-        return y, s
+    _fp8_blockwise_act_quant_kernel = _fp8_blockwise_act_quant_kernel_impl
 
     @triton.jit
-    def fp8_blockwise_weight_quant_kernel(
+    def _fp8_blockwise_weight_quant_kernel_impl(
         x_ptr, y_ptr, s_ptr, M, N, BLOCK_SIZE: tl.constexpr
     ):
         """
@@ -191,43 +193,10 @@ if has_triton():
         tl.store(y_ptr + offs, y, mask=mask)
         tl.store(s_ptr + pid_m * n + pid_n, s)
 
-    def fp8_blockwise_weight_quant(
-        x: torch.Tensor, block_size: int = 128, dtype=torch.float8_e4m3fn
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-        """
-        Quantizes the given weight tensor using block-wise quantization with block size being BLOCK_SIZExBLOCK_SIZE.
-
-        Args:
-            x (torch.Tensor): The weight tensor to be quantized.
-            block_size (int, optional): The block size to use for quantization. Defaults to 128.
-            dtype (torch.dtype, optional): The dtype to use for the quantized tensor. Defaults to `torch.float8_e4m3fn`.
-
-        Returns:
-            Tuple[torch.Tensor, torch.Tensor]: A tuple containing:
-                - The quantized weight tensor with dtype `dtype`.
-                - A tensor of scaling factors with dtype `torch.float32`.
-        """
-        assert x.is_contiguous(), "Input tensor must be contiguous"
-        assert x.dim() == 2, "Input tensor must have 2 dimensions"
-        assert x.size(0) % block_size == 0 and x.size(1) % block_size == 0, (
-            f"Both dimensions of x must be divisible by block_size (block_size={block_size})"
-        )
-        assert dtype in [
-            torch.float8_e4m3fn,
-            torch.float8_e5m2,
-        ], "dtype must be torch.float8_e4m3fn or torch.float8_e5m2"
-        M, N = x.size()
-        y = torch.empty_like(x, dtype=dtype)
-        s = x.new_empty(M // block_size, N // block_size, dtype=torch.float32)
-        grid = lambda meta: (
-            triton.cdiv(M, meta["BLOCK_SIZE"]),
-            triton.cdiv(N, meta["BLOCK_SIZE"]),
-        )
-        fp8_blockwise_weight_quant_kernel[grid](x, y, s, M, N, BLOCK_SIZE=block_size)
-        return y, s
+    _fp8_blockwise_weight_quant_kernel = _fp8_blockwise_weight_quant_kernel_impl
 
     @triton.jit
-    def fp8_blockwise_weight_dequant_kernel(
+    def _fp8_blockwise_weight_dequant_kernel_impl(
         x_ptr, s_ptr, y_ptr, M, N, BLOCK_SIZE: tl.constexpr
     ):
         """
@@ -256,53 +225,132 @@ if has_triton():
         y = x * s
         tl.store(y_ptr + offs, y, mask=mask)
 
-    def fp8_blockwise_weight_dequant(
-        x: torch.Tensor, s: torch.Tensor, block_size: int = 128
-    ) -> torch.Tensor:
-        """
-        Dequantizes the given weight tensor using the provided scale tensor.
+    _fp8_blockwise_weight_dequant_kernel = _fp8_blockwise_weight_dequant_kernel_impl
 
-        Args:
-            x (torch.Tensor): The quantized weight tensor of shape (M, N).
-            s (torch.Tensor): The scale tensor of shape (M, N).
-            block_size (int, optional): The block size to use for dequantization. Defaults to 128.
 
-        Returns:
-            torch.Tensor: The dequantized weight tensor of the same shape as `x`.
+def blockwise_fp8_gemm(
+    a: torch.Tensor,
+    a_s: torch.Tensor,
+    b: torch.Tensor,
+    b_s: torch.Tensor,
+    block_size: int = 128,
+) -> torch.Tensor:
+    _lazy_init_triton()
+    if not _triton_available:
+        raise AssertionError("unsupported without triton")
+    return _blockwise_fp8_gemm_impl(a, a_s, b, b_s, block_size)
 
-        Raises:
-            AssertionError: If `x` or `s` are not contiguous or if their dimensions are not 2.
-        """
-        assert x.is_contiguous() and s.is_contiguous(), (
-            "Input tensors must be contiguous"
-        )
-        assert x.dim() == 2 and s.dim() == 2, "Input tensors must have 2 dimensions"
-        M, N = x.size()
-        y = torch.empty_like(x, dtype=torch.get_default_dtype())
-        grid = lambda meta: (
-            triton.cdiv(M, meta["BLOCK_SIZE"]),
-            triton.cdiv(N, meta["BLOCK_SIZE"]),
-        )
-        fp8_blockwise_weight_dequant_kernel[grid](x, s, y, M, N, BLOCK_SIZE=block_size)
-        return y
 
-else:
+def fp8_blockwise_act_quant(
+    x: torch.Tensor, block_size: int = 128, dtype: torch.dtype = torch.float8_e4m3fn
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Quantizes the input tensor `x` using block-wise quantization with block size being BLOCK_SIZEx1.
 
-    def blockwise_fp8_gemm(
-        a: torch.Tensor,
-        a_s: torch.Tensor,
-        b: torch.Tensor,
-        b_s: torch.Tensor,
-        block_size: int = 128,
-    ) -> torch.Tensor:
+    Args:
+        x (torch.Tensor): The input tensor to be quantized. Must be contiguous and its last dimension size must be divisible by `block_size`.
+        block_size (int, optional): The size of the blocks to be used for quantization. Default is 128.
+        dtype (torch.dtype, optional): The dtype to use for the quantized tensor. Default is `torch.float8_e4m3fn`.
+
+
+    Returns:
+        Tuple[torch.Tensor, torch.Tensor]: A tuple containing:
+            - The quantized tensor with dtype `dtype`.
+            - A tensor of scaling factors with dtype `torch.float32`.
+    """
+    _lazy_init_triton()
+    if not _triton_available:
         raise AssertionError("unsupported without triton")
 
-    def fp8_blockwise_act_quant(
-        x: torch.Tensor, block_size: int = 128, dtype: torch.dtype = torch.float8_e4m3fn
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    import triton
+
+    assert x.is_contiguous(), "Input tensor must be contiguous"
+    assert x.size(-1) % block_size == 0, (
+        f"Last dimension size must be divisible by block_size (block_size={block_size})"
+    )
+    assert dtype in [
+        torch.float8_e4m3fn,
+        torch.float8_e5m2,
+    ], "dtype must be torch.float8_e4m3fn or torch.float8_e5m2"
+    y = torch.empty_like(x, dtype=dtype)
+    s = x.new_empty(*x.size()[:-1], x.size(-1) // block_size, dtype=torch.float32)
+    grid = lambda meta: (triton.cdiv(x.numel(), meta["BLOCK_SIZE"]),)
+    _fp8_blockwise_act_quant_kernel[grid](x, y, s, BLOCK_SIZE=block_size)
+    return y, s
+
+
+def fp8_blockwise_weight_quant(
+    x: torch.Tensor, block_size: int = 128, dtype=torch.float8_e4m3fn
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Quantizes the given weight tensor using block-wise quantization with block size being BLOCK_SIZExBLOCK_SIZE.
+
+    Args:
+        x (torch.Tensor): The weight tensor to be quantized.
+        block_size (int, optional): The block size to use for quantization. Defaults to 128.
+        dtype (torch.dtype, optional): The dtype to use for the quantized tensor. Defaults to `torch.float8_e4m3fn`.
+
+    Returns:
+        Tuple[torch.Tensor, torch.Tensor]: A tuple containing:
+            - The quantized weight tensor with dtype `dtype`.
+            - A tensor of scaling factors with dtype `torch.float32`.
+    """
+    _lazy_init_triton()
+    if not _triton_available:
         raise AssertionError("unsupported without triton")
 
-    def fp8_blockwise_weight_quant(
-        x: torch.Tensor, block_size: int = 128, dtype=torch.float8_e4m3fn
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    import triton
+
+    assert x.is_contiguous(), "Input tensor must be contiguous"
+    assert x.dim() == 2, "Input tensor must have 2 dimensions"
+    assert x.size(0) % block_size == 0 and x.size(1) % block_size == 0, (
+        f"Both dimensions of x must be divisible by block_size (block_size={block_size})"
+    )
+    assert dtype in [
+        torch.float8_e4m3fn,
+        torch.float8_e5m2,
+    ], "dtype must be torch.float8_e4m3fn or torch.float8_e5m2"
+    M, N = x.size()
+    y = torch.empty_like(x, dtype=dtype)
+    s = x.new_empty(M // block_size, N // block_size, dtype=torch.float32)
+    grid = lambda meta: (
+        triton.cdiv(M, meta["BLOCK_SIZE"]),
+        triton.cdiv(N, meta["BLOCK_SIZE"]),
+    )
+    _fp8_blockwise_weight_quant_kernel[grid](x, y, s, M, N, BLOCK_SIZE=block_size)
+    return y, s
+
+
+def fp8_blockwise_weight_dequant(
+    x: torch.Tensor, s: torch.Tensor, block_size: int = 128
+) -> torch.Tensor:
+    """
+    Dequantizes the given weight tensor using the provided scale tensor.
+
+    Args:
+        x (torch.Tensor): The quantized weight tensor of shape (M, N).
+        s (torch.Tensor): The scale tensor of shape (M, N).
+        block_size (int, optional): The block size to use for dequantization. Defaults to 128.
+
+    Returns:
+        torch.Tensor: The dequantized weight tensor of the same shape as `x`.
+
+    Raises:
+        AssertionError: If `x` or `s` are not contiguous or if their dimensions are not 2.
+    """
+    _lazy_init_triton()
+    if not _triton_available:
         raise AssertionError("unsupported without triton")
+
+    import triton
+
+    assert x.is_contiguous() and s.is_contiguous(), "Input tensors must be contiguous"
+    assert x.dim() == 2 and s.dim() == 2, "Input tensors must have 2 dimensions"
+    M, N = x.size()
+    y = torch.empty_like(x, dtype=torch.get_default_dtype())
+    grid = lambda meta: (
+        triton.cdiv(M, meta["BLOCK_SIZE"]),
+        triton.cdiv(N, meta["BLOCK_SIZE"]),
+    )
+    _fp8_blockwise_weight_dequant_kernel[grid](x, s, y, M, N, BLOCK_SIZE=block_size)
+    return y
