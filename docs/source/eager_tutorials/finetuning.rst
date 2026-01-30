@@ -49,7 +49,7 @@ to the target lower precision dtype (e.g. int4). The convert step,
 applied after training, replaces "fake" quantization operations in the
 model with "real" quantization that does perform the dtype casting:
 
-.. image:: ../../torchao/quantization/qat/images/qat_diagram.png
+.. image:: https://raw.githubusercontent.com/pytorch/ao/main/torchao/quantization/qat/images/qat_diagram.png
 
 There are multiple options for using TorchAO's QAT for fine-tuning:
 
@@ -129,7 +129,7 @@ dataset, we find that the quantized model achieved 3.4% higher accuracy
 with QAT than without, recovering 69.8% of the overall accuracy degradation
 from quantization:
 
-.. image:: ../static/qat_eval.png
+.. image:: ../../static/qat_eval.png
 
 In addition to vanilla QAT as in the above example, TorchAO's QAT can also be composed with LoRA to yield a `1.89x training speedup <https://dev-discuss.pytorch.org/t/speeding-up-qat-by-1-89x-with-lora/2700>`__ and lower memory usage by 36.1%. This is implemented in TorchTune's `QAT + LoRA fine-tuning recipe <https://github.com/pytorch/torchtune/blob/main/recipes/qat_lora_finetune_distributed.py>`__, which can be run using the following command:
 

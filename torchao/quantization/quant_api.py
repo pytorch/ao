@@ -107,9 +107,6 @@ from torchao.utils import (
     is_sm_at_least_90,
 )
 
-from .GPTQ import (
-    Int4WeightOnlyGPTQQuantizer,
-)
 from .granularity import (
     Granularity,
     PerAxis,
@@ -144,7 +141,6 @@ __all__ = [
     "swap_conv2d_1x1_to_linear",
     "Quantizer",
     "TwoStepQuantizer",
-    "Int4WeightOnlyGPTQQuantizer",
     "Int4WeightOnlyQuantizer",
     "autoquant",  # noqa: F822
     "_get_subclass_inserter",
@@ -748,6 +744,21 @@ class Int4WeightOnlyConfig(AOBaseConfig):
          currently support TINYGEMM ("tinygemm") and HQQ ("hqq"), used in version 2 only
         `set_inductor_config`: if True, adjusts `torchinductor` settings to recommended values. used in both version 1 and 2
         `version`: version of the config to use, default is 2
+
+    Example::
+
+        import torch
+        from torchao.quantization import Int4WeightOnlyConfig, quantize_
+
+        # Note: int4_packing_format varies by backend
+        if torch.cuda.is_available():
+            # CUDA: Optimized with tile packing and HQQ
+            config = Int4WeightOnlyConfig(group_size=32, int4_packing_format="tile_packed_to_4d", int4_choose_qparams_algorithm="hqq")
+        elif torch.xpu.is_available():
+            # XPU: Use plain_int32 packing
+            config = Int4WeightOnlyConfig(group_size=32, int4_packing_format="plain_int32")
+
+        quantize_(model, config)
     """
 
     group_size: int = 128
@@ -889,6 +900,11 @@ class Int8WeightOnlyConfig(AOBaseConfig):
             PerRow() for per-channel quantization, PerTensor() for per-tensor quantization.
         set_inductor_config: bool = True - If True, adjusts `torchinductor` settings to recommended values
             for better performance with this quantization scheme.
+
+    Example::
+
+        from torchao.quantization import quantize_, Int8WeightOnlyConfig
+        quantize_(model, Int8WeightOnlyConfig())
     """
 
     group_size: Optional[int] = None
@@ -1047,6 +1063,11 @@ class Int8DynamicActivationInt8WeightConfig(AOBaseConfig):
         set_inductor_config: bool = True - If True, adjusts `torchinductor` settings to recommended values
             for better performance with this quantization scheme.
         version (int): the version of the config, version 1 is using AffineQuantizedTensor that we plan to deprecate/split, version 2 is using Int8Tensor
+
+    Example::
+
+        from torchao.quantization import quantize_, Int8DynamicActivationInt8WeightConfig
+        quantize_(model, Int8DynamicActivationInt8WeightConfig())
     """
 
     layout: Optional[Layout] = PlainLayout()
@@ -1284,6 +1305,12 @@ class Float8WeightOnlyConfig(AOBaseConfig):
 
     Note:
         The actual matmul will be computed in original precision of the weight tensor.
+
+    Example::
+
+        # for torch 2.5+
+        from torchao.quantization import quantize_, Float8WeightOnlyConfig
+        quantize_(model, Float8WeightOnlyConfig())
     """
 
     weight_dtype: torch.dtype = e4m3_dtype
@@ -1402,6 +1429,15 @@ class Float8DynamicActivationFloat8WeightConfig(AOBaseConfig):
         set_inductor_config (bool): if True, adjusts `torchinductor` settings to recommended values.
         version (int): the version of the config, version 1 is deprecated, version 2 is using Float8Tensor (default)
 
+    Example::
+
+        # Tensorwise scaling
+        from torchao.quantization import quantize_, Float8DynamicActivationFloat8WeightConfig, PerTensor
+        quantize_(model, Float8DynamicActivationFloat8WeightConfig(granularity=PerTensor()))
+
+        # Rowwise scaling (recommended for torch 2.5+)
+        from torchao.quantization import quantize_, PerRow, Float8DynamicActivationFloat8WeightConfig
+        quantize_(model, Float8DynamicActivationFloat8WeightConfig(granularity=PerRow()))
     """
 
     activation_dtype: torch.dtype = e4m3_dtype
