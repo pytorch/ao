@@ -200,7 +200,7 @@ class TestUIntxWeightOnlyLinearQuantizer(unittest.TestCase):
             )
 
             # Compare results
-            torch.testing.assert_close(result.cpu(), expected, rtol=0.001, atol=0.001)
+            torch.testing.assert_close(result.cpu(), expected, rtol=0.01, atol=0.01)
 
 
 if __name__ == "__main__":

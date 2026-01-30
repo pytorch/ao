@@ -9,19 +9,23 @@ Fused FP8 RoPE + Hadamard + Quantization for SDPA.
 
 This module provides Triton kernels that fuse:
 - RoPE (Rotary Position Embeddings) for Q and K
-- Hadamard transform for Q, K, V (improves quantization by spreading outliers)
+- Hadamard transform for Q, K, and V (improves quantization by spreading outliers)
 - FP8 quantization for Q, K, V
+
+The fused 3-kernel sequence reduces memory traffic by applying RoPE + quantization in a single pass
+Note: The 3-kernel sequence is used for chunking the sequence for parallelization.
 
 The Hadamard transform improves per-head FP8 quantization by redistributing
 outlier values across the head dimension, leading to better dynamic range
-utilization. The transform is orthogonal and can be inverted after dequantization.
+utilization.
+
+Note: Since V is Hadamard-transformed, the caller must apply inverse Hadamard
+to the attention output to recover correct results:
+    output = inverse_hadamard(softmax(Q @ K^T) @ V)
 
 Input format: [B, S, H, D] (FLUX-style)
 Output format: [B, H, S, D] (SDPA-style)
 
-Design note: Since D is typically small (64-128), the kernel processes multiple
-S positions per block to maximize SM utilization. Each block has D threads that
-collaboratively process BLOCK_S sequence positions.
 """
 
 from typing import Optional, Tuple
@@ -65,7 +69,7 @@ def _get_log2_d(D: int) -> int:
 
 
 # =============================================================================
-# Hadamard transform helper (in-place via temp buffer)
+# Hadamard transform helper
 # =============================================================================
 
 
@@ -76,22 +80,42 @@ def _hadamard_butterfly_stage(
     temp_base,
     d_idx,
     stage: tl.constexpr,
+    D: tl.constexpr,
 ):
     """
     Perform one stage of the Hadamard butterfly transform.
 
-    Uses temp buffer for inter-thread data exchange within the block.
-    Each thread handles one D element; all threads collaborate on the butterfly.
+    The butterfly operation requires swapping elements between different d_idx
+    positions. Use global memory as a shuffle buffer:
+    1. Store the full D-vector to temp buffer
+    2. Use tl.debug_barrier() to ensure stores complete (compiles to bar.sync)
+    3. Load with reordered indices (partner_d) to get the swapped elements
+
+    Args:
+        x: Current D-element vector (vectorized across threads)
+        temp_ptr: Pointer to temp buffer base
+        temp_base: Offset to this block's region in temp buffer
+        d_idx: Vectorized index tensor (tl.arange(0, D))
+        stage: Butterfly stage (0 to log2(D)-1)
+        D: Head dimension (compile-time constant)
     """
     stride = 1 << stage
     partner_d = d_idx ^ stride
     is_left = (d_idx & stride) == 0
 
-    # Store current value to temp buffer
+    # Store current value to temp buffer (vectorized store)
     tl.store(temp_ptr + temp_base + d_idx, x)
 
-    # Load partner value (guaranteed to see stored value due to block-level consistency)
+    # Block-level barrier to ensure all stores are visible before loads
+    tl.debug_barrier()
+
+    # Load partner value from temp buffer (vectorized load with reordering)
     x_partner = tl.load(temp_ptr + temp_base + partner_d)
+
+    # Barrier after load to ensure all threads finish reading before next stage writes
+    # Without this, threads starting the next stage could overwrite temp before
+    # slower threads finish reading from the current stage
+    tl.debug_barrier()
 
     # Butterfly: left gets sum, right gets difference
     return tl.where(is_left, x + x_partner, x_partner - x)
@@ -100,9 +124,18 @@ def _hadamard_butterfly_stage(
 # =============================================================================
 # Phase 1: RoPE + Hadamard + Max computation
 # Each block has D threads processing chunk_size S positions
+# Hadamard is applied to Q, K, and V for quantization quality
 # =============================================================================
 
 
+@triton.autotune(
+    configs=[
+        triton.Config({}, num_warps=2),
+        triton.Config({}, num_warps=4),
+        triton.Config({}, num_warps=8),
+    ],
+    key=["D"],
+)
 @triton.jit
 def hadamard_rope_qkv_phase1_kernel(
     # Input tensors [B, S, H, D]
@@ -112,17 +145,29 @@ def hadamard_rope_qkv_phase1_kernel(
     # RoPE frequency tensors [S, D]
     cos_ptr,
     sin_ptr,
-    # Temp buffers for Hadamard [B, H, D] - one D-vector per (b, h) pair
-    q_temp_ptr,
-    k_temp_ptr,
-    v_temp_ptr,
+    # Temp buffer for Hadamard [B, H, num_chunks, D] - one D-vector per (b, h, chunk) triple
+    temp_ptr,
+    # Intermediate output tensors [B, H, S, D] - stores RoPE+Hadamard'd Q, K and transposed V
+    q_rope_ptr,
+    k_rope_ptr,
+    v_out_ptr,
     # Output: partial max values [B * H * num_chunks, 3]
     partial_max_ptr,
     # Input strides (for [B, S, H, D] layout)
-    stride_b,
-    stride_s,
-    stride_h,
-    stride_d,
+    stride_in_b,
+    stride_in_s,
+    stride_in_h,
+    stride_in_d,
+    # Output strides (for [B, H, S, D] layout)
+    stride_out_b,
+    stride_out_h,
+    stride_out_s,
+    stride_out_d,
+    # Temp buffer strides [B, H, num_chunks, D]
+    stride_temp_b,
+    stride_temp_h,
+    stride_temp_c,
+    stride_temp_d,
     # Dimensions
     S,
     H,
@@ -131,16 +176,17 @@ def hadamard_rope_qkv_phase1_kernel(
     # Compile-time constants
     D: tl.constexpr,
     LOG2_D: tl.constexpr,
+    USE_BFLOAT16: tl.constexpr,
 ):
     """
-    Phase 1: Apply RoPE + Hadamard to Q/K, Hadamard to V, compute partial max.
+    Phase 1: Apply RoPE + Hadamard to Q/K/V, store to intermediate buffers, compute partial max.
 
     Grid: (B, H, num_chunks)
     Block: D threads, each handles one d index across all S positions in chunk.
 
-    The Hadamard transform uses a temp buffer for butterfly data exchange.
-    Since we process one S position at a time, the temp buffer only needs
-    D elements per (b, h) pair.
+    Hadamard is applied to Q, K, and V to improve FP8 quantization quality.
+
+    Uses per-chunk temp buffer to avoid race conditions between chunks.
     """
     pid_b = tl.program_id(axis=0)
     pid_h = tl.program_id(axis=1)
@@ -149,122 +195,149 @@ def hadamard_rope_qkv_phase1_kernel(
     # Thread index = d index (each thread handles one element of D)
     d_idx = tl.arange(0, D)
 
-    # Temp buffer base for this (b, h) pair
-    temp_base = (pid_b * H + pid_h) * D
+    # Temp buffer base for this (b, h, chunk) triple - unique per chunk to avoid races
+    temp_base = (
+        pid_b * stride_temp_b + pid_h * stride_temp_h + pid_chunk * stride_temp_c
+    )
 
     # Compute the S range for this chunk
     s_start = pid_chunk * chunk_size
 
     # Base pointer for this (batch, head)
-    base_b = pid_b * stride_b
-    base_h = pid_h * stride_h
+    in_base_b = pid_b * stride_in_b
+    in_base_h = pid_h * stride_in_h
+
+    # Output base pointers [B, H, S, D]
+    out_base_b = pid_b * stride_out_b
+    out_base_h = pid_h * stride_out_h
 
     # Initialize max accumulators
     q_max = tl.zeros([D], dtype=tl.float32)
     k_max = tl.zeros([D], dtype=tl.float32)
     v_max = tl.zeros([D], dtype=tl.float32)
 
+    # Precompute normalization factor
+    inv_sqrt_d = 1.0 / tl.sqrt(float(D))
+
+    # Precompute sign for RoPE (loop-invariant)
+    is_even = (d_idx % 2) == 0
+    sign = tl.where(is_even, -1.0, 1.0)
+
     # Process each S position in this chunk
     for s_offset in range(chunk_size):
         s_idx = s_start + s_offset
 
-        # Early exit for positions beyond S
-        if s_idx >= S:
-            continue
+        # Mask for valid S positions
+        s_mask = s_idx < S
 
         # Compute input pointer offset for this (s, d) position
-        ptr_offset = base_b + s_idx * stride_s + base_h + d_idx * stride_d
+        in_offset = in_base_b + s_idx * stride_in_s + in_base_h + d_idx * stride_in_d
+
+        # Output offset [B, H, S, D]
+        out_offset = (
+            out_base_b + out_base_h + s_idx * stride_out_s + d_idx * stride_out_d
+        )
 
         # Load Q, K, V values
-        q_vals = tl.load(q_ptr + ptr_offset).to(tl.float32)
-        k_vals = tl.load(k_ptr + ptr_offset).to(tl.float32)
-        v_vals = tl.load(v_ptr + ptr_offset).to(tl.float32)
+        q_vals = tl.load(q_ptr + in_offset, mask=s_mask, other=0.0).to(tl.float32)
+        k_vals = tl.load(k_ptr + in_offset, mask=s_mask, other=0.0).to(tl.float32)
+        v_vals = tl.load(v_ptr + in_offset, mask=s_mask, other=0.0).to(tl.float32)
 
         # Load cos/sin for RoPE
         cos_offset = s_idx * D + d_idx
-        cos_vals = tl.load(cos_ptr + cos_offset).to(tl.float32)
-        sin_vals = tl.load(sin_ptr + cos_offset).to(tl.float32)
+        cos_vals = tl.load(cos_ptr + cos_offset, mask=s_mask, other=1.0).to(tl.float32)
+        sin_vals = tl.load(sin_ptr + cos_offset, mask=s_mask, other=0.0).to(tl.float32)
 
         # RoPE rotation: pair_d = d ^ 1 swaps 0<->1, 2<->3, etc.
         pair_d = d_idx ^ 1
-        pair_offset = base_b + s_idx * stride_s + base_h + pair_d * stride_d
+        pair_in_offset = (
+            in_base_b + s_idx * stride_in_s + in_base_h + pair_d * stride_in_d
+        )
 
         # Load paired values for rotation
-        q_pair = tl.load(q_ptr + pair_offset).to(tl.float32)
-        k_pair = tl.load(k_ptr + pair_offset).to(tl.float32)
+        q_pair = tl.load(q_ptr + pair_in_offset, mask=s_mask, other=0.0).to(tl.float32)
+        k_pair = tl.load(k_ptr + pair_in_offset, mask=s_mask, other=0.0).to(tl.float32)
 
-        # Compute sign: -1 for even d indices, +1 for odd d indices
-        is_even = (d_idx % 2) == 0
-        sign = tl.where(is_even, -1.0, 1.0)
-
-        # Apply RoPE
+        # Apply RoPE using FMA for better performance
         q_rotated = sign * q_pair
         k_rotated = sign * k_pair
-        q_rope = q_vals * cos_vals + q_rotated * sin_vals
-        k_rope = k_vals * cos_vals + k_rotated * sin_vals
+        q_rope = tl.math.fma(q_vals, cos_vals, q_rotated * sin_vals)
+        k_rope = tl.math.fma(k_vals, cos_vals, k_rotated * sin_vals)
 
         # Apply Hadamard transform to Q
         # Unrolled butterfly stages for common D values
         if LOG2_D >= 1:
-            q_rope = _hadamard_butterfly_stage(q_rope, q_temp_ptr, temp_base, d_idx, 0)
+            q_rope = _hadamard_butterfly_stage(q_rope, temp_ptr, temp_base, d_idx, 0, D)
         if LOG2_D >= 2:
-            q_rope = _hadamard_butterfly_stage(q_rope, q_temp_ptr, temp_base, d_idx, 1)
+            q_rope = _hadamard_butterfly_stage(q_rope, temp_ptr, temp_base, d_idx, 1, D)
         if LOG2_D >= 3:
-            q_rope = _hadamard_butterfly_stage(q_rope, q_temp_ptr, temp_base, d_idx, 2)
+            q_rope = _hadamard_butterfly_stage(q_rope, temp_ptr, temp_base, d_idx, 2, D)
         if LOG2_D >= 4:
-            q_rope = _hadamard_butterfly_stage(q_rope, q_temp_ptr, temp_base, d_idx, 3)
+            q_rope = _hadamard_butterfly_stage(q_rope, temp_ptr, temp_base, d_idx, 3, D)
         if LOG2_D >= 5:
-            q_rope = _hadamard_butterfly_stage(q_rope, q_temp_ptr, temp_base, d_idx, 4)
+            q_rope = _hadamard_butterfly_stage(q_rope, temp_ptr, temp_base, d_idx, 4, D)
         if LOG2_D >= 6:
-            q_rope = _hadamard_butterfly_stage(q_rope, q_temp_ptr, temp_base, d_idx, 5)
+            q_rope = _hadamard_butterfly_stage(q_rope, temp_ptr, temp_base, d_idx, 5, D)
         if LOG2_D >= 7:
-            q_rope = _hadamard_butterfly_stage(q_rope, q_temp_ptr, temp_base, d_idx, 6)
+            q_rope = _hadamard_butterfly_stage(q_rope, temp_ptr, temp_base, d_idx, 6, D)
         if LOG2_D >= 8:
-            q_rope = _hadamard_butterfly_stage(q_rope, q_temp_ptr, temp_base, d_idx, 7)
-        q_rope = q_rope / tl.sqrt(D.to(tl.float32))
+            q_rope = _hadamard_butterfly_stage(q_rope, temp_ptr, temp_base, d_idx, 7, D)
+        q_rope = q_rope * inv_sqrt_d
 
-        # Apply Hadamard transform to K
+        # Apply Hadamard transform to K (reusing same temp buffer - safe within same S position)
         if LOG2_D >= 1:
-            k_rope = _hadamard_butterfly_stage(k_rope, k_temp_ptr, temp_base, d_idx, 0)
+            k_rope = _hadamard_butterfly_stage(k_rope, temp_ptr, temp_base, d_idx, 0, D)
         if LOG2_D >= 2:
-            k_rope = _hadamard_butterfly_stage(k_rope, k_temp_ptr, temp_base, d_idx, 1)
+            k_rope = _hadamard_butterfly_stage(k_rope, temp_ptr, temp_base, d_idx, 1, D)
         if LOG2_D >= 3:
-            k_rope = _hadamard_butterfly_stage(k_rope, k_temp_ptr, temp_base, d_idx, 2)
+            k_rope = _hadamard_butterfly_stage(k_rope, temp_ptr, temp_base, d_idx, 2, D)
         if LOG2_D >= 4:
-            k_rope = _hadamard_butterfly_stage(k_rope, k_temp_ptr, temp_base, d_idx, 3)
+            k_rope = _hadamard_butterfly_stage(k_rope, temp_ptr, temp_base, d_idx, 3, D)
         if LOG2_D >= 5:
-            k_rope = _hadamard_butterfly_stage(k_rope, k_temp_ptr, temp_base, d_idx, 4)
+            k_rope = _hadamard_butterfly_stage(k_rope, temp_ptr, temp_base, d_idx, 4, D)
         if LOG2_D >= 6:
-            k_rope = _hadamard_butterfly_stage(k_rope, k_temp_ptr, temp_base, d_idx, 5)
+            k_rope = _hadamard_butterfly_stage(k_rope, temp_ptr, temp_base, d_idx, 5, D)
         if LOG2_D >= 7:
-            k_rope = _hadamard_butterfly_stage(k_rope, k_temp_ptr, temp_base, d_idx, 6)
+            k_rope = _hadamard_butterfly_stage(k_rope, temp_ptr, temp_base, d_idx, 6, D)
         if LOG2_D >= 8:
-            k_rope = _hadamard_butterfly_stage(k_rope, k_temp_ptr, temp_base, d_idx, 7)
-        k_rope = k_rope / tl.sqrt(D.to(tl.float32))
+            k_rope = _hadamard_butterfly_stage(k_rope, temp_ptr, temp_base, d_idx, 7, D)
+        k_rope = k_rope * inv_sqrt_d
 
-        # Apply Hadamard transform to V (no RoPE)
+        # Apply Hadamard transform to V (reusing same temp buffer - safe within same S position)
+        v_had = v_vals
         if LOG2_D >= 1:
-            v_vals = _hadamard_butterfly_stage(v_vals, v_temp_ptr, temp_base, d_idx, 0)
+            v_had = _hadamard_butterfly_stage(v_had, temp_ptr, temp_base, d_idx, 0, D)
         if LOG2_D >= 2:
-            v_vals = _hadamard_butterfly_stage(v_vals, v_temp_ptr, temp_base, d_idx, 1)
+            v_had = _hadamard_butterfly_stage(v_had, temp_ptr, temp_base, d_idx, 1, D)
         if LOG2_D >= 3:
-            v_vals = _hadamard_butterfly_stage(v_vals, v_temp_ptr, temp_base, d_idx, 2)
+            v_had = _hadamard_butterfly_stage(v_had, temp_ptr, temp_base, d_idx, 2, D)
         if LOG2_D >= 4:
-            v_vals = _hadamard_butterfly_stage(v_vals, v_temp_ptr, temp_base, d_idx, 3)
+            v_had = _hadamard_butterfly_stage(v_had, temp_ptr, temp_base, d_idx, 3, D)
         if LOG2_D >= 5:
-            v_vals = _hadamard_butterfly_stage(v_vals, v_temp_ptr, temp_base, d_idx, 4)
+            v_had = _hadamard_butterfly_stage(v_had, temp_ptr, temp_base, d_idx, 4, D)
         if LOG2_D >= 6:
-            v_vals = _hadamard_butterfly_stage(v_vals, v_temp_ptr, temp_base, d_idx, 5)
+            v_had = _hadamard_butterfly_stage(v_had, temp_ptr, temp_base, d_idx, 5, D)
         if LOG2_D >= 7:
-            v_vals = _hadamard_butterfly_stage(v_vals, v_temp_ptr, temp_base, d_idx, 6)
+            v_had = _hadamard_butterfly_stage(v_had, temp_ptr, temp_base, d_idx, 6, D)
         if LOG2_D >= 8:
-            v_vals = _hadamard_butterfly_stage(v_vals, v_temp_ptr, temp_base, d_idx, 7)
-        v_vals = v_vals / tl.sqrt(D.to(tl.float32))
+            v_had = _hadamard_butterfly_stage(v_had, temp_ptr, temp_base, d_idx, 7, D)
+        v_had = v_had * inv_sqrt_d
+
+        # Store results to intermediate buffers [B, H, S, D]
+        # Cast to input dtype (bf16/fp16) to reduce memory bandwidth
+        if USE_BFLOAT16:
+            tl.store(q_rope_ptr + out_offset, q_rope.to(tl.bfloat16), mask=s_mask)
+            tl.store(k_rope_ptr + out_offset, k_rope.to(tl.bfloat16), mask=s_mask)
+            tl.store(v_out_ptr + out_offset, v_had.to(tl.bfloat16), mask=s_mask)
+        else:
+            tl.store(q_rope_ptr + out_offset, q_rope.to(tl.float16), mask=s_mask)
+            tl.store(k_rope_ptr + out_offset, k_rope.to(tl.float16), mask=s_mask)
+            tl.store(v_out_ptr + out_offset, v_had.to(tl.float16), mask=s_mask)
 
         # Update max values (element-wise max across all S positions)
         q_max = tl.maximum(q_max, tl.abs(q_rope))
         k_max = tl.maximum(k_max, tl.abs(k_rope))
-        v_max = tl.maximum(v_max, tl.abs(v_vals))
+        v_max = tl.maximum(v_max, tl.abs(v_had))
 
     # Reduce max across D dimension
     q_max_scalar = tl.max(q_max)
@@ -335,25 +408,26 @@ def hadamard_rope_qkv_reduce_kernel(
 
 
 # =============================================================================
-# Phase 2: RoPE + Hadamard + Quantize
-# Each block has D threads processing chunk_size S positions
+# Phase 2: Quantize pre-computed RoPE+Hadamard'd tensors
 # =============================================================================
 
 
+@triton.autotune(
+    configs=[
+        triton.Config({"BLOCK_SIZE": 512}, num_warps=4),
+        triton.Config({"BLOCK_SIZE": 1024}, num_warps=4),
+        triton.Config({"BLOCK_SIZE": 2048}, num_warps=8),
+        triton.Config({"BLOCK_SIZE": 4096}, num_warps=8),
+    ],
+    key=["chunk_size", "D"],
+)
 @triton.jit
 def hadamard_rope_qkv_phase2_kernel(
-    # Input tensors [B, S, H, D]
-    q_ptr,
-    k_ptr,
-    v_ptr,
-    # RoPE frequency tensors [S, D]
-    cos_ptr,
-    sin_ptr,
-    # Temp buffers for Hadamard [B, H, D]
-    q_temp_ptr,
-    k_temp_ptr,
-    v_temp_ptr,
-    # Output tensors [B, H, S, D] - transposed for SDPA
+    # Intermediate tensors [B, H, S, D] - already RoPE+Hadamard'd Q, K, V
+    q_rope_ptr,
+    k_rope_ptr,
+    v_had_ptr,
+    # Output tensors [B, H, S, D] - FP8 quantized
     q_out_ptr,
     k_out_ptr,
     v_out_ptr,
@@ -361,32 +435,121 @@ def hadamard_rope_qkv_phase2_kernel(
     q_scale_ptr,
     k_scale_ptr,
     v_scale_ptr,
-    # Input strides (for [B, S, H, D] layout)
+    # Strides (for [B, H, S, D] layout) - same for intermediate and output
+    stride_b,
+    stride_h,
+    stride_s,
+    stride_d,
+    # Dimensions
+    S,
+    D,
+    H,
+    chunk_size,
+    num_chunks,
+    # Block size
+    BLOCK_SIZE: tl.constexpr,
+):
+    """
+    Phase 2: Quantize pre-computed RoPE+Hadamard'd Q, K, V to FP8.
+
+    Grid: (B, H, num_chunks)
+
+    Q, K, V are read from intermediate buffers (already transformed in Phase 1).
+    """
+    pid_b = tl.program_id(axis=0)
+    pid_h = tl.program_id(axis=1)
+    pid_chunk = tl.program_id(axis=2)
+
+    # Load scales for this head
+    scale_idx = pid_b * H + pid_h
+    q_scale = tl.load(q_scale_ptr + scale_idx)
+    k_scale = tl.load(k_scale_ptr + scale_idx)
+    v_scale = tl.load(v_scale_ptr + scale_idx)
+
+    # Compute the S range for this chunk
+    s_start = pid_chunk * chunk_size
+    s_end = tl.minimum(s_start + chunk_size, S)
+    chunk_elements = (s_end - s_start) * D
+
+    # Base pointers [B, H, S, D]
+    base_b = pid_b * stride_b
+    base_h = pid_h * stride_h
+
+    # Linearized iteration over chunk_size * D elements
+    for block_start in range(0, chunk_elements, BLOCK_SIZE):
+        offs = block_start + tl.arange(0, BLOCK_SIZE)
+        mask = offs < chunk_elements
+
+        # Convert linear offset to (s, d) coordinates
+        local_s = offs // D
+        d_idx = offs % D
+        s_idx = s_start + local_s
+
+        # Offset [B, H, S, D]
+        offset = base_b + base_h + s_idx * stride_s + d_idx * stride_d
+
+        # Load pre-computed RoPE+Hadamard'd Q, K, V from intermediate buffers
+        q_rope = tl.load(q_rope_ptr + offset, mask=mask, other=0.0).to(tl.float32)
+        k_rope = tl.load(k_rope_ptr + offset, mask=mask, other=0.0).to(tl.float32)
+        v_had = tl.load(v_had_ptr + offset, mask=mask, other=0.0).to(tl.float32)
+
+        # Quantize to FP8
+        q_fp8 = (q_rope * q_scale).to(tl.float8e4nv)
+        k_fp8 = (k_rope * k_scale).to(tl.float8e4nv)
+        v_fp8 = (v_had * v_scale).to(tl.float8e4nv)
+
+        # Store to output
+        tl.store(q_out_ptr + offset, q_fp8, mask=mask)
+        tl.store(k_out_ptr + offset, k_fp8, mask=mask)
+        tl.store(v_out_ptr + offset, v_fp8, mask=mask)
+
+
+# =============================================================================
+# Inverse Hadamard transform kernel
+# Applied to attention output to recover correct results after V was transformed
+# =============================================================================
+
+
+@triton.jit
+def inverse_hadamard_kernel(
+    # Input tensor [B, S, H, D]
+    input_ptr,
+    # Output tensor [B, S, H, D]
+    output_ptr,
+    # Temp buffer for Hadamard [B, H, num_chunks, D]
+    temp_ptr,
+    # Input strides (for [B, S, H, D] layout - may be non-contiguous)
     stride_in_b,
     stride_in_s,
     stride_in_h,
     stride_in_d,
-    # Output strides (for [B, H, S, D] layout)
+    # Output strides (for [B, S, H, D] layout - contiguous)
     stride_out_b,
-    stride_out_h,
     stride_out_s,
+    stride_out_h,
     stride_out_d,
+    # Temp buffer strides [B, H, num_chunks, D]
+    stride_temp_b,
+    stride_temp_h,
+    stride_temp_c,
+    stride_temp_d,
     # Dimensions
     S,
     H,
     chunk_size,
+    num_chunks,
     # Compile-time constants
     D: tl.constexpr,
     LOG2_D: tl.constexpr,
 ):
     """
-    Phase 2: Apply RoPE + Hadamard, then quantize to FP8.
+    Apply inverse Hadamard transform along the D dimension.
 
     Grid: (B, H, num_chunks)
-    Block: D threads
+    Block: D threads, each handles one d index across all S positions in chunk.
 
-    Input format: [B, S, H, D]
-    Output format: [B, H, S, D] (transposed for SDPA)
+    The Hadamard transform is self-inverse (up to normalization), so we apply
+    the same butterfly operations as the forward transform, with 1/sqrt(D) normalization.
     """
     pid_b = tl.program_id(axis=0)
     pid_h = tl.program_id(axis=1)
@@ -395,132 +558,144 @@ def hadamard_rope_qkv_phase2_kernel(
     # Thread index = d index
     d_idx = tl.arange(0, D)
 
-    # Load scales for this head
-    scale_idx = pid_b * H + pid_h
-    q_scale = tl.load(q_scale_ptr + scale_idx)
-    k_scale = tl.load(k_scale_ptr + scale_idx)
-    v_scale = tl.load(v_scale_ptr + scale_idx)
-
-    # Temp buffer base for this (b, h) pair
-    temp_base = (pid_b * H + pid_h) * D
+    # Temp buffer base for this (b, h, chunk) triple
+    temp_base = (
+        pid_b * stride_temp_b + pid_h * stride_temp_h + pid_chunk * stride_temp_c
+    )
 
     # Compute the S range for this chunk
     s_start = pid_chunk * chunk_size
 
-    # Base pointers
+    # Base pointers for input (may be non-contiguous)
     in_base_b = pid_b * stride_in_b
     in_base_h = pid_h * stride_in_h
+
+    # Base pointers for output (contiguous)
     out_base_b = pid_b * stride_out_b
     out_base_h = pid_h * stride_out_h
+
+    # Precompute normalization factor
+    inv_sqrt_d = 1.0 / tl.sqrt(float(D))
 
     # Process each S position in this chunk
     for s_offset in range(chunk_size):
         s_idx = s_start + s_offset
 
-        # Early exit for positions beyond S
-        if s_idx >= S:
-            continue
+        # Mask for valid S positions
+        s_mask = s_idx < S
 
-        # Input offset (B, S, H, D layout)
+        # Compute input offset (using input strides - handles non-contiguous)
         in_offset = in_base_b + s_idx * stride_in_s + in_base_h + d_idx * stride_in_d
-        # Output offset (B, H, S, D layout)
+
+        # Compute output offset (using output strides - contiguous)
         out_offset = (
-            out_base_b + out_base_h + s_idx * stride_out_s + d_idx * stride_out_d
+            out_base_b + s_idx * stride_out_s + out_base_h + d_idx * stride_out_d
         )
 
-        # Load Q, K, V values
-        q_vals = tl.load(q_ptr + in_offset).to(tl.float32)
-        k_vals = tl.load(k_ptr + in_offset).to(tl.float32)
-        v_vals = tl.load(v_ptr + in_offset).to(tl.float32)
+        # Load input value
+        x = tl.load(input_ptr + in_offset, mask=s_mask, other=0.0).to(tl.float32)
 
-        # Load cos/sin for RoPE
-        cos_offset = s_idx * D + d_idx
-        cos_vals = tl.load(cos_ptr + cos_offset).to(tl.float32)
-        sin_vals = tl.load(sin_ptr + cos_offset).to(tl.float32)
-
-        # RoPE rotation
-        pair_d = d_idx ^ 1
-        pair_in_offset = (
-            in_base_b + s_idx * stride_in_s + in_base_h + pair_d * stride_in_d
-        )
-
-        q_pair = tl.load(q_ptr + pair_in_offset).to(tl.float32)
-        k_pair = tl.load(k_ptr + pair_in_offset).to(tl.float32)
-
-        is_even = (d_idx % 2) == 0
-        sign = tl.where(is_even, -1.0, 1.0)
-
-        q_rotated = sign * q_pair
-        k_rotated = sign * k_pair
-        q_rope = q_vals * cos_vals + q_rotated * sin_vals
-        k_rope = k_vals * cos_vals + k_rotated * sin_vals
-
-        # Apply Hadamard transform to Q
+        # Apply Hadamard transform (same as forward - it's self-inverse)
         if LOG2_D >= 1:
-            q_rope = _hadamard_butterfly_stage(q_rope, q_temp_ptr, temp_base, d_idx, 0)
+            x = _hadamard_butterfly_stage(x, temp_ptr, temp_base, d_idx, 0, D)
         if LOG2_D >= 2:
-            q_rope = _hadamard_butterfly_stage(q_rope, q_temp_ptr, temp_base, d_idx, 1)
+            x = _hadamard_butterfly_stage(x, temp_ptr, temp_base, d_idx, 1, D)
         if LOG2_D >= 3:
-            q_rope = _hadamard_butterfly_stage(q_rope, q_temp_ptr, temp_base, d_idx, 2)
+            x = _hadamard_butterfly_stage(x, temp_ptr, temp_base, d_idx, 2, D)
         if LOG2_D >= 4:
-            q_rope = _hadamard_butterfly_stage(q_rope, q_temp_ptr, temp_base, d_idx, 3)
+            x = _hadamard_butterfly_stage(x, temp_ptr, temp_base, d_idx, 3, D)
         if LOG2_D >= 5:
-            q_rope = _hadamard_butterfly_stage(q_rope, q_temp_ptr, temp_base, d_idx, 4)
+            x = _hadamard_butterfly_stage(x, temp_ptr, temp_base, d_idx, 4, D)
         if LOG2_D >= 6:
-            q_rope = _hadamard_butterfly_stage(q_rope, q_temp_ptr, temp_base, d_idx, 5)
+            x = _hadamard_butterfly_stage(x, temp_ptr, temp_base, d_idx, 5, D)
         if LOG2_D >= 7:
-            q_rope = _hadamard_butterfly_stage(q_rope, q_temp_ptr, temp_base, d_idx, 6)
+            x = _hadamard_butterfly_stage(x, temp_ptr, temp_base, d_idx, 6, D)
         if LOG2_D >= 8:
-            q_rope = _hadamard_butterfly_stage(q_rope, q_temp_ptr, temp_base, d_idx, 7)
-        q_rope = q_rope / tl.sqrt(D.to(tl.float32))
+            x = _hadamard_butterfly_stage(x, temp_ptr, temp_base, d_idx, 7, D)
 
-        # Apply Hadamard transform to K
-        if LOG2_D >= 1:
-            k_rope = _hadamard_butterfly_stage(k_rope, k_temp_ptr, temp_base, d_idx, 0)
-        if LOG2_D >= 2:
-            k_rope = _hadamard_butterfly_stage(k_rope, k_temp_ptr, temp_base, d_idx, 1)
-        if LOG2_D >= 3:
-            k_rope = _hadamard_butterfly_stage(k_rope, k_temp_ptr, temp_base, d_idx, 2)
-        if LOG2_D >= 4:
-            k_rope = _hadamard_butterfly_stage(k_rope, k_temp_ptr, temp_base, d_idx, 3)
-        if LOG2_D >= 5:
-            k_rope = _hadamard_butterfly_stage(k_rope, k_temp_ptr, temp_base, d_idx, 4)
-        if LOG2_D >= 6:
-            k_rope = _hadamard_butterfly_stage(k_rope, k_temp_ptr, temp_base, d_idx, 5)
-        if LOG2_D >= 7:
-            k_rope = _hadamard_butterfly_stage(k_rope, k_temp_ptr, temp_base, d_idx, 6)
-        if LOG2_D >= 8:
-            k_rope = _hadamard_butterfly_stage(k_rope, k_temp_ptr, temp_base, d_idx, 7)
-        k_rope = k_rope / tl.sqrt(D.to(tl.float32))
+        # Normalize
+        x = x * inv_sqrt_d
 
-        # Apply Hadamard transform to V
-        if LOG2_D >= 1:
-            v_vals = _hadamard_butterfly_stage(v_vals, v_temp_ptr, temp_base, d_idx, 0)
-        if LOG2_D >= 2:
-            v_vals = _hadamard_butterfly_stage(v_vals, v_temp_ptr, temp_base, d_idx, 1)
-        if LOG2_D >= 3:
-            v_vals = _hadamard_butterfly_stage(v_vals, v_temp_ptr, temp_base, d_idx, 2)
-        if LOG2_D >= 4:
-            v_vals = _hadamard_butterfly_stage(v_vals, v_temp_ptr, temp_base, d_idx, 3)
-        if LOG2_D >= 5:
-            v_vals = _hadamard_butterfly_stage(v_vals, v_temp_ptr, temp_base, d_idx, 4)
-        if LOG2_D >= 6:
-            v_vals = _hadamard_butterfly_stage(v_vals, v_temp_ptr, temp_base, d_idx, 5)
-        if LOG2_D >= 7:
-            v_vals = _hadamard_butterfly_stage(v_vals, v_temp_ptr, temp_base, d_idx, 6)
-        if LOG2_D >= 8:
-            v_vals = _hadamard_butterfly_stage(v_vals, v_temp_ptr, temp_base, d_idx, 7)
-        v_vals = v_vals / tl.sqrt(D.to(tl.float32))
+        # Store result to contiguous output
+        tl.store(output_ptr + out_offset, x, mask=s_mask)
 
-        # Quantize to FP8
-        q_fp8 = (q_rope * q_scale).to(tl.float8e4nv)
-        k_fp8 = (k_rope * k_scale).to(tl.float8e4nv)
-        v_fp8 = (v_vals * v_scale).to(tl.float8e4nv)
 
-        # Store to output (transposed layout)
-        tl.store(q_out_ptr + out_offset, q_fp8)
-        tl.store(k_out_ptr + out_offset, k_fp8)
-        tl.store(v_out_ptr + out_offset, v_fp8)
+def inverse_hadamard_transform(
+    x: torch.Tensor,
+    num_chunks: Optional[int] = None,
+) -> torch.Tensor:
+    """
+    Apply inverse Hadamard transform along the last dimension using Triton kernel.
+
+    The Hadamard transform is self-inverse (up to normalization), so this applies
+    the same butterfly operations as the forward transform, with 1/sqrt(D) normalization.
+
+    Supports non-contiguous input tensors (e.g., from transpose operations) without
+    requiring an explicit copy. The kernel handles non-contiguous input by using
+    separate input and output strides.
+
+    Args:
+        x: Input tensor of shape [B, S, H, D] where D is a power of 2.
+           Can be non-contiguous (e.g., result of transpose).
+        num_chunks: Number of chunks to split S dimension into.
+                    If None, automatically selects based on GPU SM count.
+
+    Returns:
+        Inverse Hadamard transformed tensor of the same shape and dtype.
+        Output is always contiguous.
+    """
+    assert x.dim() == 4, f"Expected 4D tensor [B, S, H, D], got {x.dim()}D"
+
+    B, S, H, D = x.shape
+    LOG2_D = _get_log2_d(D)
+
+    assert D <= 256, f"D must be <= 256 for Hadamard transform, got {D}"
+
+    # No need to call x.contiguous() - the kernel handles non-contiguous input
+    # by using separate input and output strides
+
+    # Compute number of chunks
+    if num_chunks is None:
+        num_chunks = _compute_num_chunks(x, S)
+    chunk_size = (S + num_chunks - 1) // num_chunks
+
+    # Allocate contiguous output tensor (same shape and dtype as input)
+    output = torch.empty(B, S, H, D, dtype=x.dtype, device=x.device)
+
+    # Allocate temp buffer for Hadamard transform [B, H, num_chunks, D]
+    temp_buffer = torch.empty(B, H, num_chunks, D, dtype=torch.float32, device=x.device)
+
+    # Launch kernel
+    grid = (B, H, num_chunks)
+    inverse_hadamard_kernel[grid](
+        x,
+        output,
+        temp_buffer,
+        # Input strides [B, S, H, D] - may be non-contiguous
+        x.stride(0),
+        x.stride(1),
+        x.stride(2),
+        x.stride(3),
+        # Output strides [B, S, H, D] - contiguous
+        output.stride(0),
+        output.stride(1),
+        output.stride(2),
+        output.stride(3),
+        # Temp buffer strides [B, H, num_chunks, D]
+        temp_buffer.stride(0),
+        temp_buffer.stride(1),
+        temp_buffer.stride(2),
+        temp_buffer.stride(3),
+        S,
+        H,
+        chunk_size,
+        num_chunks,
+        D=D,
+        LOG2_D=LOG2_D,
+        num_warps=4,
+    )
+
+    return output
 
 
 # =============================================================================
@@ -546,13 +721,15 @@ def fp8_hadamard_rope_quantize_func(
     """
     Fused RoPE + Hadamard + FP8 quantization for Q, K, V tensors.
 
-    Applies RoPE to Q and K, then Hadamard transform to all tensors, then
-    quantizes to FP8 with per-head scaling. Also performs layout transformation
-    from [B, S, H, D] to [B, H, S, D].
+    Applies RoPE to Q and K, then Hadamard transform to Q, K, and V,
+    then quantizes all tensors to FP8 with per-head scaling. Also performs
+    layout transformation from [B, S, H, D] to [B, H, S, D].
 
     The Hadamard transform improves FP8 quantization quality by spreading
-    outlier values across the head dimension, leading to better utilization
-    of the dynamic range.
+    outlier values across the head dimension.
+
+    The caller must apply inverse Hadamard to the attention output:
+        output = inverse_hadamard(attention_output)
 
     Args:
         q: Query tensor of shape [B, S, H, D] in bf16/fp16
@@ -572,9 +749,8 @@ def fp8_hadamard_rope_quantize_func(
         v_descale: Value descale factors, shape [B, H] in fp32
 
     Note:
-        To recover original values after dequantization, apply inverse Hadamard
-        (which is the same as forward Hadamard for normalized transforms).
-        D must be a power of 2.
+        D must be a power of 2 for the Hadamard transform.
+        The caller must apply inverse Hadamard to the attention output.
     """
     assert q.dim() == 4, f"Expected 4D tensor [B, S, H, D], got {q.dim()}D"
     assert k.dim() == 4, f"Expected 4D tensor [B, S, H, D], got {k.dim()}D"
@@ -591,16 +767,11 @@ def fp8_hadamard_rope_quantize_func(
     assert D <= 256, f"D must be <= 256 for Hadamard transform, got {D}"
 
     # Make tensors contiguous if needed
-    if not q.is_contiguous():
-        q = q.contiguous()
-    if not k.is_contiguous():
-        k = k.contiguous()
-    if not v.is_contiguous():
-        v = v.contiguous()
-    if not cos.is_contiguous():
-        cos = cos.contiguous()
-    if not sin.is_contiguous():
-        sin = sin.contiguous()
+    q = q.contiguous()
+    k = k.contiguous()
+    v = v.contiguous()
+    cos = cos.contiguous()
+    sin = sin.contiguous()
 
     # Compute number of chunks
     if num_chunks is None:
@@ -612,11 +783,15 @@ def fp8_hadamard_rope_quantize_func(
     k_fp8 = torch.empty(B, H, S, D, dtype=torch.float8_e4m3fn, device=q.device)
     v_fp8 = torch.empty(B, H, S, D, dtype=torch.float8_e4m3fn, device=q.device)
 
-    # Allocate temporary buffers for Hadamard transform [B, H, D]
-    # These are reused across all S positions
-    q_temp = torch.empty(B, H, D, dtype=torch.float32, device=q.device)
-    k_temp = torch.empty(B, H, D, dtype=torch.float32, device=q.device)
-    v_temp = torch.empty(B, H, D, dtype=torch.float32, device=q.device)
+    # Allocate temp buffer for Hadamard transform [B, H, num_chunks, D]
+    # Each (b, h, chunk) triple gets its own D-sized buffer to avoid race conditions
+    temp_buffer = torch.empty(B, H, num_chunks, D, dtype=torch.float32, device=q.device)
+
+    # Allocate intermediate buffers for RoPE+Hadamard'd Q, K, V in [B, H, S, D] layout
+    # Use input dtype (bf16/fp16) to reduce memory bandwidth
+    q_rope_intermediate = torch.empty(B, H, S, D, dtype=q.dtype, device=q.device)
+    k_rope_intermediate = torch.empty(B, H, S, D, dtype=q.dtype, device=q.device)
+    v_intermediate = torch.empty(B, H, S, D, dtype=q.dtype, device=q.device)
 
     # Allocate temporary buffer for partial maxes
     partial_max = torch.empty(
@@ -631,28 +806,42 @@ def fp8_hadamard_rope_quantize_func(
     k_descale = torch.empty(B, H, dtype=torch.float32, device=q.device)
     v_descale = torch.empty(B, H, dtype=torch.float32, device=q.device)
 
-    # Phase 1: Apply RoPE + Hadamard and compute partial maxes
+    # Phase 1: Apply RoPE + Hadamard to Q/K, transpose V, compute partial maxes
     grid_phase1 = (B, H, num_chunks)
+    use_bfloat16 = q.dtype == torch.bfloat16
     hadamard_rope_qkv_phase1_kernel[grid_phase1](
         q,
         k,
         v,
         cos,
         sin,
-        q_temp,
-        k_temp,
-        v_temp,
+        temp_buffer,
+        q_rope_intermediate,
+        k_rope_intermediate,
+        v_intermediate,
         partial_max,
+        # Input strides [B, S, H, D]
         q.stride(0),
         q.stride(1),
         q.stride(2),
         q.stride(3),
+        # Output strides [B, H, S, D]
+        q_rope_intermediate.stride(0),
+        q_rope_intermediate.stride(1),
+        q_rope_intermediate.stride(2),
+        q_rope_intermediate.stride(3),
+        # Temp buffer strides [B, H, num_chunks, D]
+        temp_buffer.stride(0),
+        temp_buffer.stride(1),
+        temp_buffer.stride(2),
+        temp_buffer.stride(3),
         S,
         H,
         chunk_size,
         num_chunks,
         D=D,
         LOG2_D=LOG2_D,
+        USE_BFLOAT16=use_bfloat16,
     )
 
     # Reduce: Aggregate maxes and compute scales
@@ -668,38 +857,28 @@ def fp8_hadamard_rope_quantize_func(
         num_chunks,
     )
 
-    # Phase 2: Apply RoPE + Hadamard and quantize
+    # Phase 2: Read from intermediate buffers and quantize to FP8
     grid_phase2 = (B, H, num_chunks)
     hadamard_rope_qkv_phase2_kernel[grid_phase2](
-        q,
-        k,
-        v,
-        cos,
-        sin,
-        q_temp,
-        k_temp,
-        v_temp,
+        q_rope_intermediate,
+        k_rope_intermediate,
+        v_intermediate,
         q_fp8,
         k_fp8,
         v_fp8,
         q_scale,
         k_scale,
         v_scale,
-        # Input strides [B, S, H, D]
-        q.stride(0),
-        q.stride(1),
-        q.stride(2),
-        q.stride(3),
-        # Output strides [B, H, S, D]
-        q_fp8.stride(0),
-        q_fp8.stride(1),
-        q_fp8.stride(2),
-        q_fp8.stride(3),
+        # Strides [B, H, S, D] - same for intermediate and output
+        q_rope_intermediate.stride(0),
+        q_rope_intermediate.stride(1),
+        q_rope_intermediate.stride(2),
+        q_rope_intermediate.stride(3),
         S,
+        D,
         H,
         chunk_size,
-        D=D,
-        LOG2_D=LOG2_D,
+        num_chunks,
     )
 
     return q_fp8, k_fp8, v_fp8, q_descale, k_descale, v_descale

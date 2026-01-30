@@ -13,7 +13,6 @@ import logging
 import types
 import warnings
 from dataclasses import dataclass
-from enum import Enum
 from typing import Optional
 
 import torch
@@ -46,6 +45,7 @@ from torchao.quantization.quantize_.common import (
     KernelPreference,
     QuantizeTensorKwargs,
 )
+from torchao.quantization.quantize_.common.quantization_step import QuantizationStep
 from torchao.quantization.quantize_.workflows import (
     QuantizeTensorToFloat8Kwargs,
 )
@@ -243,7 +243,7 @@ class Float8StaticActivationFloat8WeightConfig(AOBaseConfig):
         - Provide act_quant_scale directly (step is not required)
 
     Args:
-        step (Optional[Float8StaticStep]): Specifies the step for the observer-based quantization process.
+        step (Optional[QuantizationStep]): Specifies the step for the observer-based quantization process.
             PREPARE: insert observers to linear
             CONVERT: convert the observed linear modules to linear modules with quantized weights
             Can use the corresponding string "prepare", "convert" for simplicity
@@ -280,7 +280,7 @@ class Float8StaticActivationFloat8WeightConfig(AOBaseConfig):
         quantize_(model, config)
     """
 
-    step: Optional["Float8StaticStep"] = None
+    step: Optional["QuantizationStep"] = None
     act_quant_scale: Optional[torch.Tensor] = None
     activation_dtype: torch.dtype = e4m3_dtype
     weight_dtype: torch.dtype = e4m3_dtype
@@ -302,9 +302,9 @@ class Float8StaticActivationFloat8WeightConfig(AOBaseConfig):
         if self.step is not None:
             if isinstance(self.step, str):
                 self.step = self.step.lower()
-            all_step_values = [s.value for s in Float8StaticStep]
+            all_step_values = [s.value for s in QuantizationStep]
             if self.step not in all_step_values and self.step not in list(
-                Float8StaticStep
+                QuantizationStep
             ):
                 raise ValueError(f"{self.step} is not one of {all_step_values}")
 
@@ -320,12 +320,6 @@ class Float8StaticActivationFloat8WeightConfig(AOBaseConfig):
             mm_config=self.mm_config,
             kernel_preference=self.kernel_preference,
         )
-
-
-# Float8 static quantization step enum
-class Float8StaticStep(str, Enum):
-    PREPARE = "prepare"
-    CONVERT = "convert"
 
 
 class Float8ObservedLinear(torch.nn.Linear):
@@ -508,7 +502,7 @@ def _float8_static_activation_float8_weight_transform(
     step = config.step
     granularity = config.granularity if config.granularity is not None else PerTensor()
 
-    if step == Float8StaticStep.PREPARE or step == "prepare":
+    if step == QuantizationStep.PREPARE or step == "prepare":
         # Handle Softmax modules
         if isinstance(module, torch.nn.Softmax):
             output_observer = AffineQuantizedMinMaxObserver(
@@ -544,7 +538,7 @@ def _float8_static_activation_float8_weight_transform(
             )
         return Float8ObservedLinear.from_float(module, input_observer, output_observer)
 
-    elif step == Float8StaticStep.CONVERT or step == "convert":
+    elif step == QuantizationStep.CONVERT or step == "convert":
         # Handle observed Softmax modules
         if isinstance(module, Float8ObservedSoftmax):
             if module.output_act_obs is None:
@@ -689,7 +683,7 @@ def _float8_static_activation_float8_weight_transform(
 
     else:
         raise ValueError(
-            f"Unexpected step: {step}. Expected one of {[s.value for s in Float8StaticStep]} or None."
+            f"Unexpected step: {step}. Expected one of {[s.value for s in QuantizationStep]} or None."
         )
 
 
