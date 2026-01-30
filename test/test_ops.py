@@ -294,6 +294,8 @@ def _test_scaled_embedding_bag_cpu_helper(
     qtype,
     out_dtype=torch.float,
 ):
+    assert out_dtype in [torch.float, torch.int8, torch.float8_e4m3fn]
+
     include_last_offset = True
     mode = "sum"
 
@@ -330,7 +332,7 @@ def _test_scaled_embedding_bag_cpu_helper(
         if out_dtype == torch.int8:
             refe_out = torch.round(refe_out / out_scale).to(torch.int32)
             refe_out = torch.clamp(refe_out, -128, 127).to(out_dtype).to(torch.float)
-        if out_dtype == torch.float8_e4m3fn:
+        elif out_dtype == torch.float8_e4m3fn:
             refe_out = (
                 torch.clamp(refe_out / out_scale, -448, 448)
                 .to(out_dtype)
@@ -345,10 +347,10 @@ def _test_scaled_embedding_bag_cpu_helper(
             mode_enum,
             include_last_offset,
             out_dtype,
-        )
+        ).to(torch.float)
         torch.testing.assert_close(
             refe_out,
-            test_out.to(torch.float),
+            test_out,
             atol=1e-5,
             rtol=1e-5,
         )
@@ -363,16 +365,18 @@ def _test_scaled_embedding_bag_cpu_helper(
     EMBEDINGBAG_TEST_PARAMS,
     ids=str,
 )
-def test_scaled_embedding_bag_int8_cpu(multi_hot, batch_size, vector_size, index_type):
-    for out_dtype in [torch.float, torch.int8]:
-        _test_scaled_embedding_bag_cpu_helper(
-            multi_hot,
-            batch_size,
-            vector_size,
-            index_type,
-            torch.int8,
-            out_dtype,
-        )
+@pytest.mark.parametrize("out_dtype", [torch.float, torch.int8])
+def test_scaled_embedding_bag_int8_cpu(
+    multi_hot, batch_size, vector_size, index_type, out_dtype
+):
+    _test_scaled_embedding_bag_cpu_helper(
+        multi_hot,
+        batch_size,
+        vector_size,
+        index_type,
+        torch.int8,
+        out_dtype,
+    )
 
 
 @pytest.mark.skipif(
@@ -384,16 +388,18 @@ def test_scaled_embedding_bag_int8_cpu(multi_hot, batch_size, vector_size, index
     EMBEDINGBAG_TEST_PARAMS,
     ids=str,
 )
-def test_scaled_embedding_bag_fp8_cpu(multi_hot, batch_size, vector_size, index_type):
-    for out_dtype in [torch.float, torch.float8_e4m3fn]:
-        _test_scaled_embedding_bag_cpu_helper(
-            multi_hot,
-            batch_size,
-            vector_size,
-            index_type,
-            torch.float8_e4m3fn,
-            out_dtype,
-        )
+@pytest.mark.parametrize("out_dtype", [torch.float, torch.float8_e4m3fn])
+def test_scaled_embedding_bag_fp8_cpu(
+    multi_hot, batch_size, vector_size, index_type, out_dtype
+):
+    _test_scaled_embedding_bag_cpu_helper(
+        multi_hot,
+        batch_size,
+        vector_size,
+        index_type,
+        torch.float8_e4m3fn,
+        out_dtype,
+    )
 
 
 @pytest.mark.skipif(

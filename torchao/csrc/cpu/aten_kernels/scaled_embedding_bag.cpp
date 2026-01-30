@@ -38,7 +38,7 @@
       return __VA_ARGS__();                                                    \
     }                                                                          \
     default:                                                                   \
-      TORCH_CHECK(false, "scaled_embeding_bag: unsupport output type");        \
+      TORCH_CHECK(false, "scaled_embedding_bag: unsupported output type");     \
     }                                                                          \
   }()
 
