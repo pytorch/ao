@@ -39,13 +39,17 @@ def fp8_sdpa_parallel(
     Splits quantization work across multiple thread blocks for better SM utilization.
     This version is faster when B*H is small relative to the number of SMs on the GPU.
 
+    Note:
+        GQA is automatically supported when query has different head dim than key/value.
+        It is included here for compatibility with F.scaled_dot_product_attention.
+
     Args:
         query, key, value: Input tensors of shape (B, H, S, D)
         attn_mask: Not supported, must be None
         dropout_p: Must be 0.0
         is_causal: Whether to apply causal masking
         scale: Optional scale factor for attention
-        enable_gqa: Whether to enable Grouped Query Attention (GQA)
+        enable_gqa: Accepted for API compatibility but ignored. FA3 auto-detects GQA.
         num_chunks: Number of chunks to split the S dimension into.
                     If None, automatically selects based on GPU SM count.
     """
@@ -53,8 +57,6 @@ def fp8_sdpa_parallel(
         raise ValueError("attn_mask is not supported for FP8 SDPA")
     if dropout_p != 0.0:
         raise ValueError("dropout_p must be 0.0 for FP8 SDPA")
-    if enable_gqa:
-        raise ValueError("enable_gqa is not supported for FP8 SDPA")
 
     # Parallelized quantization of Q, K, V
     q_fp8, k_fp8, v_fp8, descale_q, descale_k, descale_v = fp8_sdpa_quantize_func(
