@@ -594,6 +594,7 @@ class TestInt8DynamicActivationTorchaoQuantizer(common_utils.TestCase):
 
 class TestTorchAoConfigIntegration(common_utils.TestCase):
     @unittest.skipIf(torch.backends.mps.is_available(), "MPS not supported")
+    @unittest.skipIf(torch.xpu.is_available(), "XPU not supported")
     @unittest.skipIf(not TRANSFORMERS_AVAIL, "Need transformers")
     def test_tied_weights_quantization(self, b: int = 4):
         config = MConfig(m=128, n=128, tied_weights=True)
