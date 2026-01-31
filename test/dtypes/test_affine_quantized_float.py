@@ -297,6 +297,71 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
             torch.testing.assert_close(expected_quantized, test_q)
             torch.testing.assert_close(expected_dequantized, test_dq)
 
+    @torch.no_grad()
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(
+        not is_sm_at_least_90(), "Requires GPU with compute capability >= 9.0"
+    )
+    @common_utils.parametrize("granularity", [PerTensor(), PerRow()])
+    def test_expected_kernels_on_gpu(self, granularity):
+        """
+        Verify that float8 quantization + torch.compile results in the
+        expected number of kernels in the GPU trace for both TORCH and AUTO
+        kernel preferences.
+        """
+        torch.compiler.reset()
+
+        M, K, N = 128, 256, 512
+        m = torch.nn.Sequential(
+            torch.nn.Linear(K, N, device="cuda", dtype=torch.bfloat16)
+        )
+
+        for kernel_pref in (KernelPreference.TORCH, KernelPreference.AUTO):
+            config = Float8DynamicActivationFloat8WeightConfig(
+                granularity=granularity,
+                version=2,
+                kernel_preference=kernel_pref,
+            )
+            quantize_(
+                m,
+                config,
+            )
+
+            m = torch.compile(m)
+            x = torch.randn(M, K, device="cuda", dtype=torch.bfloat16)
+            out, code = run_and_get_code(m, x)
+
+            if granularity == PerRow():
+                # one triton kernel for quantizing the activation
+                FileCheck().check("def call(").check_count(".run(", 1, exactly=True).run(
+                    code[0]
+                )
+                # one scaled_mm call
+                FileCheck().check("def call(").check_count(
+                    "._scaled_mm(", 1, exactly=True
+                ).run(code[0])
+            else:
+                assert granularity == PerTensor(), "unsupported"
+                # three triton kernels for quantizing the activation:
+                # kernel 1: x_max_tmp = max(x, ...)
+                # kernel 2: x_max = max(x_max_tmp)
+                # kernel 3: x_float8 = to_float8(x, x_max)
+                FileCheck().check("def call(").check_count(".run(", 3, exactly=True).run(
+                    code[0]
+                )
+                # For TORCH, expect scaled_mm. For AUTO, behavior differs by GPU:
+                if kernel_pref == KernelPreference.TORCH:
+                    FileCheck().check("def call(").check_count(
+                        "._scaled_mm(", 1, exactly=True
+                    ).run(code[0])
+                else:  # AUTO
+                    # On non-B200 hardware AUTO may select MSLK; ensure
+                    # the quantization kernels are present and that at
+                    # least one of the expected backend calls is present.
+                    has_scaled_mm = "._scaled_mm(" in code[0]
+                    has_mslk = "mslk" in code[0]
+                    assert has_scaled_mm or has_mslk
+
 
 
 common_utils.instantiate_parametrized_tests(TestAffineQuantizedFloat8Compile)
