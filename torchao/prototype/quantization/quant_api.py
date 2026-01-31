@@ -498,6 +498,7 @@ def _float8_static_activation_float8_weight_transform(
         PrototypeFloat8Tensor,
     )
     from torchao.quantization.observer import AffineQuantizedMinMaxObserver
+    from torchao.quantization.quantize_.common import ObservedLinear
 
     step = config.step
     granularity = config.granularity if config.granularity is not None else PerTensor()
@@ -539,7 +540,7 @@ def _float8_static_activation_float8_weight_transform(
                 zero_point_dtype=torch.float32,
                 keepdim=True,
             )
-        return Float8ObservedLinear.from_float(module, input_observer, output_observer)
+        return ObservedLinear.from_float(module, input_observer, output_observer)
 
     elif step == QuantizationStep.CONVERT or step == "convert":
         # Handle observed Softmax modules
@@ -567,9 +568,9 @@ def _float8_static_activation_float8_weight_transform(
             )
 
         # Handle observed Linear modules
-        if not isinstance(module, Float8ObservedLinear):
+        if not isinstance(module, ObservedLinear):
             logger.info(
-                f"convert: module is not Float8ObservedLinear or Float8ObservedSoftmax, skipping: {type(module)}"
+                f"convert: module is not ObservedLinear or Float8ObservedSoftmax, skipping: {type(module)}"
             )
             return module
 
