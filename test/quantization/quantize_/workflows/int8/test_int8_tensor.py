@@ -28,8 +28,12 @@ from torchao.quantization.quantize_.workflows.int8.int8_tensor import (
 )
 from torchao.quantization.utils import compute_error, get_block_size
 from torchao.testing.model_architectures import ToyTwoLinearModel
-from torchao.testing.utils import TorchAOIntegrationTestCase
-from torchao.utils import torch_version_at_least
+from torchao.testing.utils import TorchAOIntegrationTestCase, skip_if_xpu
+from torchao.utils import (
+    get_available_devices,
+    get_current_accelerator_device,
+    torch_version_at_least,
+)
 
 INT8_TEST_CONFIGS = [
     Int8WeightOnlyConfig(version=2, granularity=PerTensor()),
@@ -43,7 +47,7 @@ INT8_TEST_CONFIGS = [
 ]
 
 
-@unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+@unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
 @common_utils.instantiate_parametrized_tests
 class TestInt8Tensor(TorchAOIntegrationTestCase):
     def setUp(self):
@@ -58,12 +62,13 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
     @common_utils.parametrize("config", INT8_TEST_CONFIGS)
     def test_creation_and_attributes(self, config):
         """Test tensor creation, dtypes, and ranges"""
+        device = get_current_accelerator_device()
         linear = torch.nn.Linear(
             self.test_shape[1],
             self.test_shape[0],
             bias=False,
             dtype=self.dtype,
-            device="cuda",
+            device=device,
         )
         quantize_(linear, config)
 
@@ -102,8 +107,9 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
         torch.compiler.reset()
 
         M, N, K = sizes
-        input_tensor = torch.randn(*M, K, dtype=dtype, device="cuda")
-        model = ToyTwoLinearModel(K, N, K, dtype=dtype, device="cuda").eval()
+        device = get_current_accelerator_device()
+        input_tensor = torch.randn(*M, K, dtype=dtype, device=device)
+        model = ToyTwoLinearModel(K, N, K, dtype=dtype, device=device).eval()
         model_q = copy.deepcopy(model)
 
         quantize_(model_q, config)
@@ -131,7 +137,7 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
         )
 
     @common_utils.parametrize("config", INT8_TEST_CONFIGS)
-    @common_utils.parametrize("device", ["cpu", "cuda"])
+    @common_utils.parametrize("device", get_available_devices())
     @common_utils.parametrize("dtype", [torch.bfloat16, torch.float16])
     def test_slice(self, config, device, dtype):
         """Test tensor slicing with per-row quantization"""
@@ -162,8 +168,9 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
     def test_index_select(self, config):
         """test that `x_0 = x[0]` works when `x` is a 2D quantized tensor."""
         N, K = 256, 512
-        x = torch.randn(N, K, device="cuda", dtype=torch.bfloat16)
-        linear = torch.nn.Linear(K, N, bias=False, dtype=torch.bfloat16, device="cuda")
+        device = get_current_accelerator_device()
+        x = torch.randn(N, K, device=device, dtype=torch.bfloat16)
+        linear = torch.nn.Linear(K, N, bias=False, dtype=torch.bfloat16, device=device)
         linear.weight.data = x
 
         quantize_(linear, config)
@@ -189,8 +196,9 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
     @common_utils.parametrize("config", INT8_TEST_CONFIGS)
     def test_dequantization_accuracy(self, config):
         """Test dequantization accuracy separately"""
+        device = get_current_accelerator_device()
         linear = torch.nn.Linear(
-            256, 512, bias=False, dtype=torch.bfloat16, device="cuda"
+            256, 512, bias=False, dtype=torch.bfloat16, device=device
         )
         weight_fp = copy.deepcopy(linear.weight)
         quantize_(linear, config)
@@ -210,15 +218,16 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
         torch.compiler.reset()
 
         M, K, N = 128, 256, 512
+        device = get_current_accelerator_device()
         m = torch.nn.Sequential(
-            torch.nn.Linear(K, N, device="cuda", dtype=torch.bfloat16)
+            torch.nn.Linear(K, N, device=device, dtype=torch.bfloat16)
         )
 
         config = Int8DynamicActivationInt8WeightConfig(version=2)
         quantize_(m, config)
 
         m = torch.compile(m)
-        x = torch.randn(M, K, device="cuda", dtype=torch.bfloat16)
+        x = torch.randn(M, K, device=device, dtype=torch.bfloat16)
 
         out, code = run_and_get_code(m, x)
 
@@ -227,6 +236,7 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
             "extern_kernels._int_mm", 1
         ).check_count("triton_poi_fused", 1).run(code[0])
 
+    @skip_if_xpu("pin memory is not supported on XPU")
     @common_utils.parametrize("config", INT8_TEST_CONFIGS)
     def test_pin_memory(self, config):
         linear = torch.nn.Linear(
@@ -251,7 +261,7 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
         )
 
 
-@unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+@unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
 @common_utils.instantiate_parametrized_tests
 class TestInt8StaticQuant(TorchAOIntegrationTestCase):
     @common_utils.parametrize("granularity", [PerRow(), PerTensor()])
@@ -260,9 +270,11 @@ class TestInt8StaticQuant(TorchAOIntegrationTestCase):
         torch.compiler.reset()
 
         M, N, K = 128, 128, 128
-        input_tensor = torch.randn(M, K, dtype=dtype, device="cuda")
 
-        model = torch.nn.Linear(K, N, bias=False).eval().to(device="cuda", dtype=dtype)
+        device = get_current_accelerator_device()
+        input_tensor = torch.randn(M, K, dtype=dtype, device=device)
+
+        model = torch.nn.Linear(K, N, bias=False).eval().to(device=device, dtype=dtype)
         model_static_quant = copy.deepcopy(model)
         model_dynamic_quant = copy.deepcopy(model)
 
@@ -338,8 +350,8 @@ class TestInt8StaticQuant(TorchAOIntegrationTestCase):
         N, K = 256, 512
         M = 32  # batch size
         dtype = torch.bfloat16
-        device = "cuda"
 
+        device = get_current_accelerator_device()
         linear = torch.nn.Linear(K, N, bias=False, dtype=dtype, device=device)
         input_tensor = torch.randn(M, K, dtype=dtype, device=device)
         int8_input = _choose_quant_func_and_quantize_tensor(
@@ -399,11 +411,12 @@ class TestInt8StaticQuant(TorchAOIntegrationTestCase):
         torch.manual_seed(42)
 
         # Create test model
-        model = ToyTwoLinearModel(256, 128, 256, dtype=dtype, device="cuda").eval()
+        device = get_current_accelerator_device()
+        model = ToyTwoLinearModel(256, 128, 256, dtype=dtype, device=device).eval()
         model_baseline = copy.deepcopy(model)
 
         # Create input
-        input_tensor = torch.randn(32, 256, dtype=dtype, device="cuda")
+        input_tensor = torch.randn(32, 256, dtype=dtype, device=device)
 
         # Get baseline output
         output_baseline = model_baseline(input_tensor)
