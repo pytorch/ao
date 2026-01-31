@@ -71,10 +71,10 @@ def run_test_for_op(
     W_aqt = W_quant_func(W, Wq_dtype)
 
     Xq = X_aqt.tensor_impl.float8_data
-    X_scale = X_aqt.tensor_impl.scale
+    X_scale = X_aqt.tensor_impl.scale.squeeze(-1)
     Wq_sparse = W_aqt.tensor_impl.sparse
     W_meta = W_aqt.tensor_impl.meta
-    W_scale = W_aqt.tensor_impl.scale
+    W_scale = W_aqt.tensor_impl.scale.squeeze(-1)
     Wq_dense, _, _ = W_aqt.tensor_impl.get_plain()
 
     # If torch.nn.functional.linear(X, W, bias) used as reference, the
