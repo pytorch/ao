@@ -19,15 +19,16 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from torchao.prototype.gptq import GPTQConfig
 from torchao.quantization import Int4WeightOnlyConfig, Int8WeightOnlyConfig, quantize_
 from torchao.quantization.granularity import PerRow
+from torchao.quantization.quantize_.common.quantization_step import QuantizationStep
 
 """
-GPTQ sequential quantization example for huggignface models.
+GPTQ sequential quantization example for huggingface models.
 
-Suppose we have a two layer model that we want to quantize. We can either use the unquantized or quantized output of the first layer as  our observed input to the the second layer.
+Suppose we have a two layer model that we want to quantize. We can either use the unquantized or quantized output of the first layer as our observed input to the second layer.
 
-To do this for huggingface models, we interate through the layers one at a time and quantize each block respectively with GPTQ.
+To do this for huggingface models, we iterate through the layers one at a time and quantize each block respectively with GPTQ.
 
-Depending on your exact task, you may see a difference in accuraccy between the two approaches. Users need to implement sequential quantization for their specific model type.
+Depending on your exact task, you may see a difference in accuracy between the two approaches. Users need to implement sequential quantization for their specific model type.
 """
 
 
@@ -273,12 +274,12 @@ def main():
             base_config = Int8WeightOnlyConfig(granularity=PerRow(), version=2)
             quant_type = "Int8"
 
-        # First application: wrap weights with GPTQObserverTensor (observe step)
+        # First application: wrap weights with GPTQObserverTensor (prepare step)
         print(
             f"Wrapping weights with GPTQObserverTensor for {quant_type} calibration..."
         )
         observe_config = GPTQConfig(
-            step="observe",
+            step=QuantizationStep.PREPARE,
             base_config=base_config,
             percdamp=args.percdamp,
             gptq_quantize_block_size=args.gptq_block_size,
@@ -300,7 +301,7 @@ def main():
 
         # Second application: apply GPTQ quantization (convert step)
         convert_config = GPTQConfig(
-            step="convert",
+            step=QuantizationStep.CONVERT,
             base_config=base_config,
             percdamp=args.percdamp,
             gptq_quantize_block_size=args.gptq_block_size,
