@@ -96,11 +96,12 @@ def _smooth_quant_transform(
     else:
         raise ValueError(f"Unexpected step: {step}")
 
-    quant_kwargs = (
-        base_config.get_act_quant_kwargs()
-        if isinstance(base_config, IsStaticQuantizationConfig)
-        else None
-    )
+    if isinstance(base_config, IsStaticQuantizationConfig):
+        # Static quantization
+        quant_kwargs = base_config.get_act_quant_kwargs()
+        quant_kwargs.granularity = base_config.granularity[0]
+    else:
+        quant_kwargs = None
 
     # Compute smoothed weight parameters
     smoothing_factor, activation_scale = observed_linear.obs.calculate_qparams(
