@@ -38,6 +38,8 @@ from torchao.quantization.quantize_.common import (
     _choose_quant_func_and_quantize_tensor,
 )
 from torchao.quantization.utils import get_block_size
+import warnings
+
 from torchao.utils import (
     TorchAOBaseTensor,
     _is_mslk_available,
@@ -347,9 +349,17 @@ def _float8_addmm_impl(
                 _is_mslk_available()
                 and is_sm_at_least_90()
                 and (not _is_128_128_scaled(weight_tensor))
+                and not (is_sm_at_least_100() and _is_tensorwise_scaled(weight_tensor))
             ):
                 kernel_choice = "mslk"
         elif weight_tensor.kernel_preference == KernelPreference.MSLK:
+            # If user explicitly requests MSLK on a B200-like GPU with per-tensor
+            # scales, warn but honor the user's explicit preference.
+            if is_sm_at_least_100() and _is_tensorwise_scaled(weight_tensor):
+                warnings.warn(
+                    "Requested MSLK kernel with per-tensor scaled weights on a B200/GB200-like GPU "
+                    "may fail or be very slow. Consider setting KernelPreference to TORCH or AUTO."
+                )
             kernel_choice = "mslk"
         else:
             assert weight_tensor.kernel_preference == KernelPreference.TORCH, (
