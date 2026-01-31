@@ -17,6 +17,9 @@ from torch.testing._internal.common_utils import (
 from torchao.prototype.awq import AWQConfig
 from torchao.prototype.int4_opaque_tensor import Int4WeightOnlyOpaqueTensorConfig
 from torchao.quantization import Int4WeightOnlyConfig, quantize_
+from torchao.quantization.quantize_.workflows.int4.int4_choose_qparams_algorithm import (
+    Int4ChooseQParamsAlgorithm,
+)
 from torchao.quantization.quantize_.common.quantization_step import QuantizationStep
 from torchao.utils import _is_mslk_available, torch_version_at_least
 
@@ -77,6 +80,10 @@ device_to_base_configs = {
         Int4WeightOnlyConfig(group_size=128),
         # Note: the functionality unit test doesn't work for hqq
         Int4WeightOnlyConfig(group_size=128, int4_packing_format="tile_packed_to_4d"),
+        Int4WeightOnlyConfig(
+            int4_packing_format="tile_packed_to_4d",
+            int4_choose_qparams_algorithm=Int4ChooseQParamsAlgorithm.HQQ,
+        ),
     ],
     "cpu": [Int4WeightOnlyOpaqueTensorConfig(group_size=128)],
     "xpu": [Int4WeightOnlyConfig(group_size=128, int4_packing_format="plain_int32")],
