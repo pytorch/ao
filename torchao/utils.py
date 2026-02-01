@@ -164,9 +164,6 @@ def get_compute_capability():
     return 0.0
 
 
-
-
-
 def compute_max_diff(output: torch.Tensor, output_ref: torch.Tensor) -> torch.Tensor:
     return torch.mean(torch.abs(output - output_ref)) / torch.mean(
         torch.abs(output_ref)

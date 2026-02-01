@@ -37,8 +37,6 @@ class TestTorchVersion(unittest.TestCase):
                 )
 
 
-
-
 class TestTorchAOBaseTensor(unittest.TestCase):
     def test_print_arg_types(self):
         class MyTensor(TorchAOBaseTensor):

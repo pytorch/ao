@@ -32,6 +32,7 @@ from torchao.utils import (
     get_current_accelerator_device,
     is_sm_at_least_89,
     is_sm_at_least_90,
+    is_sm_at_least_100,
 )
 
 random.seed(0)
@@ -355,12 +356,19 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
                         "._scaled_mm(", 1, exactly=True
                     ).run(code[0])
                 else:  # AUTO
-                    # On non-B200 hardware AUTO may select MSLK; ensure
-                    # the quantization kernels are present and that at
-                    # least one of the expected backend calls is present.
-                    has_scaled_mm = "._scaled_mm(" in code[0]
-                    has_mslk = "mslk" in code[0]
-                    assert has_scaled_mm or has_mslk
+                    # On B200+ hardware with per-tensor scales, AUTO should use scaled_mm
+                    # On non-B200 hardware, AUTO may select MSLK
+                    if is_sm_at_least_100():
+                        # B200/GB200: expect scaled_mm for per-tensor scales
+                        FileCheck().check("def call(").check_count(
+                            "._scaled_mm(", 1, exactly=True
+                        ).run(code[0])
+                    else:
+                        # Non-B200: MSLK should be selected if available
+                        # This check is flexible since MSLK may not be installed
+                        has_scaled_mm = "._scaled_mm(" in code[0]
+                        has_mslk = "mslk" in code[0]
+                        assert has_scaled_mm or has_mslk, "Expected either scaled_mm or mslk kernel"
 
 
 

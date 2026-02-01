@@ -276,8 +276,6 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
             model=model.to(device),
         )
 
-
-
     def _test_fp8_matmul_model(
         self,
         dtype: torch.dtype,
