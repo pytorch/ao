@@ -107,7 +107,9 @@ from torchao.utils import (
 
 # TODO: put this in a common test utils file
 _CUDA_IS_AVAILABLE = torch.cuda.is_available()
-_DEVICE = get_current_accelerator_device()
+_DEVICE = (
+    get_current_accelerator_device() if torch.accelerator.is_available() else "cpu"
+)
 _MXFP4_TORCH_AVAILABLE = torch_version_at_least("2.8.0")
 
 
@@ -2717,6 +2719,7 @@ class TestQAT(TestCase):
     @unittest.skipIf(not torch_version_at_least("2.10.0"), "Need pytorch 2.10+")
     @unittest.skipIf(not _MXFP4_TORCH_AVAILABLE, "Need pytorch 2.10+ for MXFP4")
     @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
+    @unittest.skipIf(not is_sm_at_least_89(), "Need sm89+")
     @parametrize(
         "dtype",
         [torch.float4_e2m1fn_x2, torch.float8_e4m3fn]
