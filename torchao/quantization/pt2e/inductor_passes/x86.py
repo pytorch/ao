@@ -1,3 +1,9 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
+
 # mypy: allow-untyped-decorators
 # mypy: allow-untyped-defs
 import copy
@@ -2911,6 +2917,8 @@ def _register_scaled_embedding_bag_pass(pattern, pass_number, dtype=torch.float3
         pass_number=pass_number,
     )
     def scaled_embedding_bag(match: Match, *args, **kwargs):
+        # import pdb
+        # pdb.set_trace()
         assert dtype in [torch.float32, torch.bfloat16]
 
         if "o_dtype" in kwargs:
@@ -2947,15 +2955,46 @@ def _register_scaled_embedding_bag_pass(pattern, pass_number, dtype=torch.float3
             kwargs["include_last_offset"],
         )
         output_type = torch.float
-        o_scale = 1.0
+        o_scale: float = 1.0
         if "o_dtype" in kwargs:
-            output_type = kwargs["o_dtype"]
-            o_scale = kwargs["o_inv_scale"]
+            if kwargs["o_dtype"] == 24:  # TODO
+                output_type = torch.float8_e4m3fn
+            else:
+                output_type = kwargs["o_dtype"]
+
+            def _extract_const_float(val) -> float | None:
+                # Prefer extracting from python scalars and FX node structure
+                if isinstance(val, (int, float, bool)):
+                    return float(val)
+                if isinstance(val, torch.fx.Node):
+                    meta_val = val.meta.get("val", None)
+                    if isinstance(meta_val, (int, float, bool)):
+                        return float(meta_val)
+                    # Common pattern: aten.full([1], fill_value, dtype=float)
+                    if val.target is torch.ops.aten.full.default and len(val.args) >= 2:
+                        fill_value = val.args[1]
+                        if isinstance(fill_value, (int, float, bool)):
+                            return float(fill_value)
+                    # Common pattern in user code: torch.tensor([scalar])
+                    if val.target is torch.tensor and len(val.args) >= 1:
+                        data = val.args[0]
+                        if (
+                            isinstance(data, (list, tuple))
+                            and len(data) == 1
+                            and isinstance(data[0], (int, float, bool))
+                        ):
+                            return float(data[0])
+                return None
+
+            o_scale_maybe = _extract_const_float(kwargs["o_inv_scale"])
+            if o_scale_maybe is None:
+                # Can't safely extract a python float (e.g., FakeTensor/meta). Skip fusion.
+                return
+            o_scale = o_scale_maybe
 
         graph = match.graph
         with graph.inserting_before(getitem_node):
-            # float scale not supported on scaled_embedding_bag
-            # convert scale from float into tensor
+            # Weight scale: convert python float into tensor (op expects Tensor weight_scale)
             if type(w_scale) is float:
                 w_scale = graph.call_function(
                     torch.ops.aten.full.default,
@@ -2978,8 +3017,11 @@ def _register_scaled_embedding_bag_pass(pattern, pass_number, dtype=torch.float3
             )
 
             # Erase quant pattern
-            if output_type == torch.int8:
-                quant_node.replace_all_uses_with(getitem_node)
+            # if output_type in [torch.int8, 24]: # TODO
+            if output_type in [torch.int8, torch.float8_e4m3fn]:
+                quant_node.replace_all_uses_with(
+                    getitem_node
+                )  # quant的user换给getitem，然后把quant删掉。
                 getitem_node.meta.update(quant_node.meta)
                 graph.erase_node(quant_node)
             getitem_node.replace_all_uses_with(new_embedding_bag_node)
@@ -3036,18 +3078,19 @@ def _register_quantization_embeddingbag_pass():
             )
 
             # will support fp8 output later
-            if not is_fp8:
-                embeddingbag_with_qoutput_pattern = generate_pattern_with_output_quant(
-                    embeddingbag_pattern,
-                    dtype == torch.bfloat16,
-                    is_fp8,
-                )
+            # if not is_fp8:
+            embeddingbag_with_qoutput_pattern = generate_pattern_with_output_quant(
+                embeddingbag_pattern,
+                dtype == torch.bfloat16,
+                is_fp8,
+            )
+            print(embeddingbag_with_qoutput_pattern)
 
-                _register_scaled_embedding_bag_pass(
-                    embeddingbag_with_qoutput_pattern,
-                    pass_number=0,
-                    dtype=dtype,
-                )
+            _register_scaled_embedding_bag_pass(
+                embeddingbag_with_qoutput_pattern,
+                pass_number=0,
+                dtype=dtype,
+            )
 
 
 def _is_valid_concat_dq_q_pattern():
