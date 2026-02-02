@@ -22,7 +22,6 @@ from torchao.prototype.mx_formats.mx_tensor import (
     MXTensor,
     ScaleCalculationMode,
     tensor_size_fp4x2_to_hp,
-    tensor_size_hp_to_fp4x2,
     to_dtype,
 )
 from torchao.prototype.mx_formats.utils import from_blocked, to_blocked
@@ -438,15 +437,6 @@ def test_transpose(elem_dtype):
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
-def test_view(elem_dtype):
-    x = torch.randn(1, 2, 4, device="cuda")
-    block_size = 4
-    x_mx = MXTensor.to_mx(x, elem_dtype, block_size)
-    x_mx_2 = x_mx.view(2, 4)  # noqa: F841
-
-
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 def test_clone():
     data = torch.randn(8, 8, device="cuda", dtype=torch.bfloat16)
     block_size = 4
@@ -761,27 +751,19 @@ def test_shape_conversions():
     # 2D
     x = torch.randn(M, K)
     # 2D - contiguous
-    shape_fp4x2 = tensor_size_hp_to_fp4x2(x.shape, x.is_contiguous())
-    assert shape_fp4x2 == [M, K // 2]
-    shape_hp = tensor_size_fp4x2_to_hp(x.shape, x.is_contiguous())
+    shape_hp = tensor_size_fp4x2_to_hp(x.shape, x.stride())
     assert shape_hp == [M, K * 2]
     # 2D - transposed
     x = x.t()
-    shape_fp4x2_t = tensor_size_hp_to_fp4x2(x.shape, x.is_contiguous())
-    assert shape_fp4x2_t == [K // 2, M]
-    shape_hp_t = tensor_size_fp4x2_to_hp(x.shape, x.is_contiguous())
+    shape_hp_t = tensor_size_fp4x2_to_hp(x.shape, x.stride())
     assert shape_hp_t == [K * 2, M]
 
     # 3D
     x = torch.randn(B, M, K)
     # 3D - contiguous
-    shape_fp4x2 = tensor_size_hp_to_fp4x2(x.shape, x.is_contiguous())
-    assert shape_fp4x2 == [B, M, K // 2]
-    shape_hp = tensor_size_fp4x2_to_hp(x.shape, x.is_contiguous())
+    shape_hp = tensor_size_fp4x2_to_hp(x.shape, x.stride())
     assert shape_hp == [B, M, K * 2]
     # 2D - transposed
     x = x.transpose(-2, -1)
-    shape_fp4x2_t = tensor_size_hp_to_fp4x2(x.shape, x.is_contiguous())
-    assert shape_fp4x2_t == [B, K // 2, M]
-    shape_hp_t = tensor_size_fp4x2_to_hp(x.shape, x.is_contiguous())
+    shape_hp_t = tensor_size_fp4x2_to_hp(x.shape, x.stride())
     assert shape_hp_t == [B, K * 2, M]

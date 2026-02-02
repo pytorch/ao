@@ -21,7 +21,6 @@ from torchao.prototype.mx_formats.kernels import (
 )
 from torchao.prototype.mx_formats.mx_tensor import (
     tensor_size_fp4x2_to_hp,
-    tensor_size_hp_to_fp4x2,
 )
 from torchao.prototype.mx_formats.utils import (
     _swizzle_aware_slice,
@@ -93,7 +92,7 @@ class NVFP4Tensor(TorchAOBaseTensor):
 
         new_size = tensor_size_fp4x2_to_hp(
             new_size,
-            qdata.stride(-2) > qdata.stride(-1),
+            qdata.stride(),
         )
 
         self = torch.Tensor._make_wrapper_subclass(
@@ -391,25 +390,6 @@ def nvfp4_transpose(func, types, args, kwargs):
         old.act_quant_kwargs,
     )
     return new
-
-
-@implements([aten.view.default])
-def nvfp4_view_op(func, types, args, kwargs):
-    data = args[0].qdata
-    new_size = args[1]
-    new_size = tensor_size_hp_to_fp4x2(new_size, data.is_contiguous())
-    new_data = func(data, new_size, *args[2:], **kwargs)
-    return NVFP4Tensor(
-        new_data,
-        args[0].scale,
-        args[0].block_size,
-        args[0].orig_dtype,
-        args[0].per_tensor_scale,
-        args[0].act_per_tensor_scale,
-        args[0].is_swizzled_scales,
-        args[0].use_triton_kernel,
-        args[0].act_quant_kwargs,
-    )
 
 
 @implements([aten.select.int])

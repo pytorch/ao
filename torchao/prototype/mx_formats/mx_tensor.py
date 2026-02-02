@@ -416,31 +416,12 @@ def to_dtype(
     return data_hp
 
 
-def tensor_size_hp_to_fp4x2(orig_size, is_contiguous):
-    new_size = orig_size
-    if is_contiguous:
-        new_size = [*list(new_size[:-1]), new_size[-1] // 2]
-    else:
-        if len(orig_size) == 2:
-            new_size = [new_size[0] // 2, *list(new_size[1:])]
-        else:
-            assert len(orig_size) == 3, "unsupported"
-            # only supporting dim0, dim1, dim2 and dim0, dim2, dim1 orders
-            new_size = [new_size[0], new_size[1] // 2, new_size[2]]
-    return new_size
-
-
-def tensor_size_fp4x2_to_hp(orig_size, is_contiguous):
-    new_size = orig_size
-    if is_contiguous:
-        new_size = [*list(new_size[:-1]), new_size[-1] * 2]
-    else:
-        if len(orig_size) == 2:
-            new_size = [new_size[0] * 2, *list(new_size[1:])]
-        else:
-            assert len(orig_size) == 3, "unsupported"
-            # only supporting dim0, dim1, dim2 and dim0, dim2, dim1 orders
-            new_size = [new_size[0], new_size[1] * 2, new_size[2]]
+def tensor_size_fp4x2_to_hp(orig_size, orig_strides):
+    new_size = list(orig_size)
+    for stride_idx, stride in enumerate(orig_strides):
+        if stride == 1:
+            new_size[stride_idx] *= 2
+            break
     return new_size
 
 
@@ -468,14 +449,9 @@ class MXTensor(TorchAOBaseTensor):
     ):
         new_size = qdata.size()
         if elem_dtype == torch.float4_e2m1fn_x2:
-            # set the tensor size to what it would be without 2x4 packing
-            # Note: `is_contiguous` is going to return True for a tensor of size
-            # (M, 1) regardless or the order of dims, so this logic is currently
-            # broken for tensors of size (M, 1) or (1, M). Leaving broken until
-            # a time when fixing this becomes important.
             new_size = tensor_size_fp4x2_to_hp(
                 new_size,
-                qdata.is_contiguous(),
+                qdata.stride(),
             )
         self = torch.Tensor._make_wrapper_subclass(
             cls,
@@ -803,26 +779,6 @@ def mx_cast_up_op(func, types, args, kwargs):
     new_args = tree_map(unwrap, args)
     new_kwargs = tree_map(unwrap, kwargs)
     return func(*new_args, **new_kwargs)
-
-
-@implements([aten.view.default])
-def mx_view_op(func, types, args, kwargs):
-    data = args[0].qdata
-    new_size = args[1]
-    if args[0]._elem_dtype == torch.float4_e2m1fn_x2:
-        # special case fp4 as we pack two elements per byte
-        new_size = tensor_size_hp_to_fp4x2(new_size, data.is_contiguous())
-    new_data = func(data, new_size, *args[2:], **kwargs)
-    return MXTensor(
-        new_data,
-        args[0].scale,
-        args[0]._elem_dtype,
-        args[0].block_size,
-        args[0]._orig_dtype,
-        args[0].kernel_preference,
-        args[0].act_quant_kwargs,
-        args[0].is_swizzled_scales,
-    )
 
 
 @implements([aten.slice.Tensor])
