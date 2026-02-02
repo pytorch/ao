@@ -1,4 +1,6 @@
-# torchao.float8
+# Quantized Training
+
+## float8
 
 This is a workflow for accelerating training with [float8](https://arxiv.org/pdf/2209.05433.pdf) in native PyTorch.
 With ``torch.compile`` on, we demonstrate e2e pretraining throughput speedups of up to [**1.5x at 512 GPU / 405B parameter count scale**](https://pytorch.org/blog/training-using-float8-fsdp2/),
@@ -210,7 +212,7 @@ torch.save({
 
 There are 3 float8 inference quantization strategies that be used after training with float8: 1) weight only quantization, and 2) dynamic activation and weight quantization, and 3) static quantization.
 
-Below is an example of dynamic activation and weight quantization. For more details, examples, and inference benchmrks, see the [torchao inference docs](inference_quantization.md).
+Below is an example of dynamic activation and weight quantization. For more details, examples, and inference benchmrks, see the [torchao inference docs](inference.md).
 
 ```python
 import torch
