@@ -294,6 +294,13 @@ def _(func, types, args, kwargs):
     )
 
 
+@implements(aten.abs.default)
+def _(func, types, args, kwargs):
+    return return_and_correct_aliasing(
+        func, args, kwargs, args[0]._apply_fn_to_data(torch.abs)
+    )
+
+
 to_linear_activation_quantized = LinearActivationQuantizedTensor.from_float  # Converts a float tensor to LinearActivationQuantizedTensor for dynamic activation quantization
 
 # Allow a model with LinearActivationQuantizedTensor weights to be loaded with `weights_only=True`

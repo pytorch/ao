@@ -34,16 +34,11 @@ from torch.testing._internal.inductor_utils import (
     _check_has_dynamic_shape,
 )
 
-import torchao
 import torchao.quantization.pt2e.quantizer.x86_inductor_quantizer as xiq
-from torchao.quantization.pt2e.quantize_pt2e import (
-    convert_pt2e,
-    prepare_pt2e,
-    prepare_qat_pt2e,
-)
 from torchao.quantization.pt2e.quantizer.x86_inductor_quantizer import (
     X86InductorQuantizer,
 )
+from torchao.testing.pt2e.utils import _generate_ref_quantized_model, qdq_fp8
 from torchao.utils import torch_version_at_least
 
 # The dict value is match_nodes(computation_op+unary_op)
@@ -95,206 +90,6 @@ skipIfNoFloat8Support = unittest.skipIf(
 skipIfNoQConvFp8Support = unittest.skipIf(
     not torch_version_at_least("2.10.0.dev"), "QConv fp8 requires torch 2.10+"
 )
-
-
-def get_default_quantizer(is_qat, is_dynamic):
-    quantizer = X86InductorQuantizer()
-    quantizer.set_global(
-        xiq.get_default_x86_inductor_quantization_config(
-            is_qat=is_qat, is_dynamic=is_dynamic
-        )
-    )
-    return quantizer
-
-
-class FP8QDQLinear(torch.nn.Module):
-    def __init__(self, in_features, out_features, has_bias):
-        super().__init__()
-        self.qtype = torch.float8_e4m3fn
-        self.weight = torch.randn((out_features, in_features)).to(self.qtype)
-        self.weight_scale = 2.0
-        self.scale = 2.0
-        self.bias = None
-        if has_bias:
-            self.bias = torch.randn((out_features,))
-
-    def forward(self, input):
-        weight = torch.ops.torchao.dequantize_affine_float8_non_decomposed.default(
-            tensor=self.weight.data,
-            scale=torch.tensor([self.weight_scale]),
-            output_dtype=torch.float,
-        )
-
-        q_input = torch.ops.torchao.quantize_affine_float8_non_decomposed.default(
-            tensor=input,
-            scale=torch.tensor([self.scale]),
-            float8_dtype=self.qtype,
-        )
-        dq_input = torch.ops.torchao.dequantize_affine_float8_non_decomposed.default(
-            tensor=q_input,
-            scale=torch.tensor([self.scale]),
-            output_dtype=torch.float,
-        )
-
-        out = torch.nn.functional.linear(dq_input, weight, self.bias)
-        return out
-
-
-class FP8QDQConv2d(torch.nn.Module):
-    def __init__(
-        self,
-        in_channels,
-        out_channels,
-        kernel_size,
-        stride=1,
-        padding=0,
-        dilation=1,
-        groups=1,
-        bias=True,
-    ):
-        super().__init__()
-        self.qtype = torch.float8_e4m3fn
-        self.weight = torch.randn(
-            (out_channels, in_channels // groups, *kernel_size)
-        ).to(self.qtype)
-        self.weight_scale = 2.0
-        self.scale = 2.0
-        self.bias = None
-        if bias:
-            self.bias = torch.randn((out_channels,))
-        self.stride = stride
-        self.padding = padding
-        self.dilation = dilation
-        self.groups = groups
-
-    def forward(self, input):
-        weight = torch.ops.torchao.dequantize_affine_float8_non_decomposed.default(
-            tensor=self.weight.data,
-            scale=torch.tensor([self.weight_scale]),
-            output_dtype=torch.float,
-        )
-        q_input = torch.ops.torchao.quantize_affine_float8_non_decomposed.default(
-            tensor=input,
-            scale=torch.tensor([self.scale]),
-            float8_dtype=self.qtype,
-        )
-        dq_input = torch.ops.torchao.dequantize_affine_float8_non_decomposed.default(
-            tensor=q_input,
-            scale=torch.tensor([self.scale]),
-            output_dtype=torch.float,
-        )
-
-        return torch.nn.functional.conv2d(
-            dq_input,
-            weight,
-            self.bias,
-            self.stride,
-            self.padding,
-            self.dilation,
-            self.groups,
-        )
-
-
-def qdq(input, scale):
-    dtype = input.dtype
-    q_input = torch.ops.torchao.quantize_affine_float8_non_decomposed.default(
-        input,
-        torch.tensor([scale]),
-        torch.float8_e4m3fn,
-    )
-    dq_input = torch.ops.torchao.dequantize_affine_float8_non_decomposed.default(
-        q_input,
-        torch.tensor([scale]),
-        dtype,
-    )
-    return dq_input
-
-
-def fp8_convert_(model):
-    def generate_model_info(model):
-        from collections import namedtuple
-
-        mod_inst_info = namedtuple("ModInstInfo", ["name", "parent"])
-        parent_child_mod_dict = {}
-
-        def create_mod_info_recursion(parent):
-            for name, mod in parent.named_children():
-                parent_child_mod_dict[mod] = mod_inst_info(name=name, parent=parent)
-                create_mod_info_recursion(mod)
-
-        create_mod_info_recursion(model)
-        return parent_child_mod_dict
-
-    parent_child_mod_dict = generate_model_info(model)
-    for name, mod in model.named_modules():
-        mod_type_str = mod.__class__.__name__
-        if mod_type_str not in ["Linear", "Conv2d"]:
-            continue
-        param = mod.weight
-        xmax = torch.max(param)
-        weight_scale = xmax / torch.finfo(torch.float8_e4m3fn).max
-        mod.weight_scale = weight_scale
-        q_param = torch.clamp(
-            (param / weight_scale),
-            torch.finfo(torch.float8_e4m3fn).min,
-            torch.finfo(torch.float8_e4m3fn).max,
-        ).to(torch.float8_e4m3fn)
-        mod.weight.data = q_param
-        if mod_type_str in ["Linear"]:
-            patched_mod = FP8QDQLinear(mod.in_features, mod.out_features, False)
-            patched_mod.bias = mod.bias
-            patched_mod.weight_scale = weight_scale.item()
-            patched_mod.weight.data = q_param
-        elif mod_type_str in ["Conv2d"]:
-            patched_mod = FP8QDQConv2d(
-                mod.in_channels,
-                mod.out_channels,
-                mod.kernel_size,
-                mod.stride,
-                mod.padding,
-                mod.dilation,
-                mod.groups,
-                False,
-            )
-            patched_mod.bias = mod.bias
-            patched_mod.weight_scale = weight_scale.item()
-            patched_mod.weight.data = q_param
-
-        parent = parent_child_mod_dict[mod].parent
-        name = parent_child_mod_dict[mod].name
-        setattr(parent, name, patched_mod)
-
-
-def _generate_qdq_quantized_model(
-    mod,
-    inputs,
-    is_qat=False,
-    is_dynamic=False,
-    quantizer=None,
-    is_fp8=False,
-):
-    maybe_no_grad = contextlib.nullcontext() if is_qat else torch.no_grad()
-    with maybe_no_grad:
-        if is_fp8:
-            # fp8_convert_ not support dynamic and qat yet
-            assert not is_dynamic
-            assert not is_qat
-            fp8_convert_(mod)
-            return mod
-        else:
-            export_model = torch.export.export(mod, inputs, strict=True).module()
-            quantizer = (
-                quantizer if quantizer else get_default_quantizer(is_qat, is_dynamic)
-            )
-            prepare_model = (
-                prepare_qat_pt2e(export_model, quantizer)
-                if is_qat
-                else prepare_pt2e(export_model, quantizer)
-            )
-            prepare_model(*inputs)
-            torchao.quantization.pt2e.move_exported_model_to_eval(prepare_model)
-            convert_model = convert_pt2e(prepare_model)
-            return convert_model
 
 
 def cal_conv_generated_kernel_number(mod, input, dtype, dim=4, device="cpu"):
@@ -393,7 +188,7 @@ class TestPatternMatcherBase(TestCase):
             assert check_autocast == torch.float32
             maybe_autocast = contextlib.nullcontext()
         if check_quantization:
-            convert_model = _generate_qdq_quantized_model(
+            convert_model = _generate_ref_quantized_model(
                 mod, inputs, is_qat, is_dynamic, quantizer, is_fp8
             )
             with torch.no_grad(), maybe_autocast:
@@ -424,7 +219,7 @@ class TestPatternMatcherBase(TestCase):
         with torch.no_grad():
             clone_inputs = self._clone_inputs(inputs)
             if check_quantization:
-                mod = _generate_qdq_quantized_model(
+                mod = _generate_ref_quantized_model(
                     mod, inputs, quantizer=quantizer, is_fp8=is_fp8
                 )
             expected = mod(*inputs)
@@ -3106,6 +2901,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
     }
 )
 @unittest.skipIf(not torch_version_at_least("2.8.0"), "Requires torch 2.8+")
+@unittest.skipIf(torch.version.hip is not None, "Not applicable to ROCm")
 class TestDynamicPatternMatcher(TestPatternMatcherBase):
     def test_qconv2d_maxpool2d_linear_dynamic_cpu(self, include_ops=None):
         r"""
@@ -3233,13 +3029,13 @@ class TestDynamicPatternMatcher(TestPatternMatcherBase):
                 v = self.transpose_for_scores(v)
                 k = k.transpose(-1, -2)
                 if self.annotate_matmul:
-                    q = qdq(q, self.q_out_scale)
-                    k = qdq(k, self.k_out_scale)
+                    q = qdq_fp8(q, self.q_out_scale)
+                    k = qdq_fp8(k, self.k_out_scale)
                 scores = torch.matmul(q, k) / (self.input_dim**0.5)
                 attention = self.softmax(scores)
                 if self.annotate_matmul:
-                    attention = qdq(attention, self.attn_weights_scale)
-                    v = qdq(v, self.v_out_scale)
+                    attention = qdq_fp8(attention, self.attn_weights_scale)
+                    v = qdq_fp8(v, self.v_out_scale)
                 weighted = torch.matmul(attention, v)
                 weighted = weighted.permute(0, 2, 1, 3).contiguous()
                 weighted = weighted.reshape(
@@ -3421,6 +3217,54 @@ class TestDynamicPatternMatcher(TestPatternMatcherBase):
     )
     def test_int8_scaled_embedding_bag_with_output_quant(self):
         self._test_scaled_embedding_bag_helper(torch.int8, True)
+
+    @skipIfNoDynamoSupport
+    @skipIfNoONEDNN
+    @skipIfNoFloat8Support
+    @unittest.skipIf(
+        "CPU" not in torch._C._dispatch_dump("torchao::_scaled_embedding_bag"),
+        reason="cpp kernels not built",
+    )
+    def test_int8_concat_dequant_quant(self):
+        class Mod(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.scale = 2.0
+
+            def forward(
+                self,
+                int8_inputs,
+            ):
+                res = torch.cat(int8_inputs, dim=1)
+                res = torch.ops.quantized_decomposed.dequantize_per_tensor.default(
+                    res, self.scale, 0, -128, 127, torch.int8
+                )
+                res = torch.ops.quantized_decomposed.quantize_per_tensor.default(
+                    res, self.scale, 0, -128, 127, torch.int8
+                )
+                return res
+
+        def quant_input(x):
+            scale = 127 / x.max()
+            x = x * scale
+            x = x.to(torch.int8)
+            return x
+
+        def matcher_check_fn():
+            self.assertEqual(counters["inductor"]["concat_dq_q_matcher_count"], 1)
+
+        input_len_list = [2, 3]
+        shape = (128, 3)
+
+        mod = Mod()
+        for len in input_len_list:
+            inputs = [torch.randn(shape) for _ in range(len)]
+            int8_inputs = [quant_input(x) for x in inputs]
+            self._test_common(
+                mod,
+                (int8_inputs,),
+                matcher_check_fn,
+            )
 
 
 instantiate_parametrized_tests(TestPatternMatcher)

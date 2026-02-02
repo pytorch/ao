@@ -63,3 +63,32 @@ Interactive code examples and demos that can be run:
 - Each Python file becomes a downloadable notebook and HTML page
 
 When you run `make html`, sphinx-gallery automatically converts Python files in `tutorials_source/` into an interactive gallery in the `tutorials/` directory.
+
+## Using `workflow_dispatch` for Doc Previews
+
+The `workflow_dispatch` trigger allows you to manually build and preview documentation without creating a pull request or waiting for the PR trigger.
+
+### When to Use
+
+- Testing documentation changes on a feature branch before opening a PR
+- Previewing docs when your PR modifies files outside `docs/**` that affect documentation, such as docstings updates.
+- Quick iteration on documentation without pushing multiple commits
+
+### How to Use
+
+1. Go to the [Actions tab](https://github.com/pytorch/ao/actions) in the repository.
+2. Select "Build Docs" from the workflow list.
+3. Click "Run workflow".
+4. Select your branch from the dropdown.
+5. Click "Run workflow".
+
+**Important:** You need to trigger the workflow manually after every change you push. Unlike PR-triggered builds, `workflow_dispatch` does not automatically rebuild when new commits are added to your branch.
+
+### Preview URL Behavior
+
+| Trigger | Preview URL Format | How to Access |
+|---------|-------------------|---------------|
+| Pull Request | `https://docs-preview.pytorch.org/pytorch/ao/{PR_NUMBER}/index.html` | Pytorchbot automatically comments on the PR |
+| workflow_dispatch | `https://docs-preview.pytorch.org/pytorch/ao/{RUN_ID}/index.html` | A comment is posted on any associated open PR |
+
+**Note:** When using `workflow_dispatch`, if you have an open PR for your branch, the workflow will automatically find it and post a comment with the preview link. The comment clarifies that the pytorchbot doc preview link will not work for manual builds and provides the correct URL instead. If no PR exists, the preview URL can be found in the workflow run logs.

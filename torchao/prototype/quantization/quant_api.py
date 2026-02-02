@@ -13,7 +13,6 @@ import logging
 import types
 import warnings
 from dataclasses import dataclass
-from enum import Enum
 from typing import Optional
 
 import torch
@@ -23,7 +22,6 @@ from torch import Tensor
 import torchao
 from torchao.core.config import AOBaseConfig
 from torchao.dtypes import (
-    CutlassInt4PackedLayout,
     Int8DynamicActInt4WeightCPULayout,
     PlainLayout,
     UintxLayout,
@@ -47,6 +45,7 @@ from torchao.quantization.quantize_.common import (
     KernelPreference,
     QuantizeTensorKwargs,
 )
+from torchao.quantization.quantize_.common.quantization_step import QuantizationStep
 from torchao.quantization.quantize_.workflows import (
     QuantizeTensorToFloat8Kwargs,
 )
@@ -69,7 +68,7 @@ class Int8DynamicActivationInt4WeightConfig(AOBaseConfig):
     Args:
         `group_size`: parameter for quantization, controls the granularity of quantization, smaller
          size is more fine grained
-        `layout`: layout type for quantized weight tensor, only supports `CutlassInt4PackedLayout()` for now
+        `layout`: layout type for quantized weight tensor
         `mapping_type`: quantization type for weight, controls the weight quantization is symmetric or asymmetric
         `act_mapping_type`: quantization type for activation, controls the activation quantization is symmetric or asymmetric
         `set_inductor_config`: if True, adjusts `torchinductor` settings to recommended values.
@@ -120,9 +119,7 @@ def _int8_dynamic_activation_int4_weight_transform(
 
     # avoid circular import
     from torchao.quantization.quant_api import (
-        _int4_symm_cutlass_quant,
         _int8_asymm_per_token_quant,
-        _int8_symm_cutlass_quant,
         _int8_symm_per_token_quant,
         _uint8_asymm_per_token_quant,
     )
@@ -134,16 +131,11 @@ def _int8_dynamic_activation_int4_weight_transform(
         else:
             input_quant_func = _int8_asymm_per_token_quant
     elif act_mapping_type == MappingType.SYMMETRIC:
-        if isinstance(layout, CutlassInt4PackedLayout):
-            input_quant_func = _int8_symm_cutlass_quant
-        else:
-            input_quant_func = _int8_symm_per_token_quant
+        input_quant_func = _int8_symm_per_token_quant
     else:
         assert False, f"Unsupported activation mapping type: {act_mapping_type}"
 
-    if isinstance(layout, CutlassInt4PackedLayout):
-        weight = _int4_symm_cutlass_quant(weight)
-    elif isinstance(layout, Int8DynamicActInt4WeightCPULayout):
+    if isinstance(layout, Int8DynamicActInt4WeightCPULayout):
         weight = to_affine_quantized_intx(
             weight,
             mapping_type,
@@ -168,64 +160,6 @@ def _int8_dynamic_activation_int4_weight_transform(
             custom_zero_point=custom_zero_point,
         )
     weight = to_linear_activation_quantized(weight, input_quant_func)
-    module.weight = torch.nn.Parameter(weight, requires_grad=False)
-    module.extra_repr = types.MethodType(_linear_extra_repr, module)
-    return module
-
-
-@dataclass
-class Int4DynamicActivationInt4WeightConfig(AOBaseConfig):
-    """Applies int4 dynamic per token symmetric activation quantization and int4 per row weight symmetric quantization to linear
-
-    Args:
-        `layout`: layout type for quantized weight tensor, only supports `CutlassInt4PackedLayout()` for now
-        `mapping_type`: quantization type for weight, controls the weight quantization is symmetric or asymmetric
-        `act_mapping_type`: quantization type for activation, controls the activation quantization is symmetric or asymmetric
-        `set_inductor_config`: if True, adjusts `torchinductor` settings to recommended values.
-    """
-
-    layout: Layout = CutlassInt4PackedLayout()
-    mapping_type: MappingType = MappingType.SYMMETRIC
-    act_mapping_type: MappingType = MappingType.SYMMETRIC
-    set_inductor_config: bool = True
-
-    def __post_init__(self):
-        torch._C._log_api_usage_once(
-            "torchao.quantization.Int4DynamicActivationInt4WeightConfig"
-        )
-        warnings.warn(
-            "`Int4DynamicActivationInt4WeightConfig` will be deleted in a future release of torchao. Please see https://github.com/pytorch/ao/issues/2752 for more details."
-        )
-
-
-@register_quantize_module_handler(Int4DynamicActivationInt4WeightConfig)
-def _int4_dynamic_activation_int4_weight_transform(
-    module: torch.nn.Module, config: Int4DynamicActivationInt4WeightConfig
-) -> torch.nn.Module:
-    weight = module.weight
-    layout = config.layout
-    mapping_type = config.mapping_type
-    act_mapping_type = config.act_mapping_type
-    if config.set_inductor_config:
-        torchao.quantization.utils.recommended_inductor_config_setter()
-
-    if not isinstance(layout, CutlassInt4PackedLayout):
-        raise NotImplementedError(
-            f"Only CutlassInt4PackedLayout layout is supported. Received {layout}."
-        )
-    if mapping_type != MappingType.SYMMETRIC:
-        raise NotImplementedError("Only mapping_type=SYMMETRIC is supported.")
-    if act_mapping_type != MappingType.SYMMETRIC:
-        raise NotImplementedError("Only act_mapping_type=SYMMETRIC is supported.")
-
-    # avoid circular import
-    from torchao.quantization.quant_api import _int4_symm_cutlass_quant
-
-    weight = _int4_symm_cutlass_quant(weight)
-    weight = to_linear_activation_quantized(
-        weight,
-        _int4_symm_cutlass_quant,
-    )
     module.weight = torch.nn.Parameter(weight, requires_grad=False)
     module.extra_repr = types.MethodType(_linear_extra_repr, module)
     return module
@@ -309,7 +243,7 @@ class Float8StaticActivationFloat8WeightConfig(AOBaseConfig):
         - Provide act_quant_scale directly (step is not required)
 
     Args:
-        step (Optional[Float8StaticStep]): Specifies the step for the observer-based quantization process.
+        step (Optional[QuantizationStep]): Specifies the step for the observer-based quantization process.
             PREPARE: insert observers to linear
             CONVERT: convert the observed linear modules to linear modules with quantized weights
             Can use the corresponding string "prepare", "convert" for simplicity
@@ -322,6 +256,10 @@ class Float8StaticActivationFloat8WeightConfig(AOBaseConfig):
         mm_config (Float8MMConfig): Configuration for the matrix multiplication. Default uses fast accumulation.
         kernel_preference (KernelPreference): Kernel preference for quantization and matmul operations.
         set_inductor_config (bool): if True, adjusts `torchinductor` settings to recommended values.
+        quantize_and_dequantize_output (bool): If True, the output of the linear layer will also be statically
+            quantized to float8 and then dequantized back to the original dtype. This is useful for simulating
+            the quantization error of the output while keeping the output as a regular tensor for downstream ops.
+            This requires an additional output observer during the prepare step. Default is False.
 
     Example (Observer flow):
         # Step 1: Prepare model by inserting observers
@@ -342,7 +280,7 @@ class Float8StaticActivationFloat8WeightConfig(AOBaseConfig):
         quantize_(model, config)
     """
 
-    step: Optional["Float8StaticStep"] = None
+    step: Optional["QuantizationStep"] = None
     act_quant_scale: Optional[torch.Tensor] = None
     activation_dtype: torch.dtype = e4m3_dtype
     weight_dtype: torch.dtype = e4m3_dtype
@@ -350,6 +288,8 @@ class Float8StaticActivationFloat8WeightConfig(AOBaseConfig):
     mm_config: Optional[Float8MMConfig] = None
     kernel_preference: KernelPreference = KernelPreference.AUTO
     set_inductor_config: bool = True
+    quantize_and_dequantize_output: bool = False
+    output_act_quant_scale: Optional[torch.Tensor] = None
 
     def __post_init__(self):
         torch._C._log_api_usage_once(
@@ -362,9 +302,9 @@ class Float8StaticActivationFloat8WeightConfig(AOBaseConfig):
         if self.step is not None:
             if isinstance(self.step, str):
                 self.step = self.step.lower()
-            all_step_values = [s.value for s in Float8StaticStep]
+            all_step_values = [s.value for s in QuantizationStep]
             if self.step not in all_step_values and self.step not in list(
-                Float8StaticStep
+                QuantizationStep
             ):
                 raise ValueError(f"{self.step} is not one of {all_step_values}")
 
@@ -382,12 +322,6 @@ class Float8StaticActivationFloat8WeightConfig(AOBaseConfig):
         )
 
 
-# Float8 static quantization step enum
-class Float8StaticStep(str, Enum):
-    PREPARE = "prepare"
-    CONVERT = "convert"
-
-
 class Float8ObservedLinear(torch.nn.Linear):
     """
     A linear module with an observer for float8 static quantization.
@@ -396,43 +330,152 @@ class Float8ObservedLinear(torch.nn.Linear):
     that collects statistics during calibration. After calibration, use
     `quantize_` with `Float8StaticActivationFloat8WeightConfig(step="convert")`
     to convert to a quantized module.
+
+    Optionally, an output observer can be provided to collect statistics for
+    output quantization when `quantize_and_dequantize_output=True` is used.
     """
 
     def __init__(
         self,
         in_features: int,
         out_features: int,
-        act_obs: "AffineQuantizedMinMaxObserver",  # noqa: F821
+        input_act_obs: "AffineQuantizedMinMaxObserver",  # noqa: F821
         bias: bool = True,
         device=None,
         dtype=None,
+        output_act_obs: Optional["AffineQuantizedMinMaxObserver"] = None,  # noqa: F821
     ):
         super().__init__(in_features, out_features, bias, device, dtype)
-        self.act_obs = act_obs
+        self.input_act_obs = input_act_obs
+        self.output_act_obs = output_act_obs
 
     def forward(self, input: Tensor) -> Tensor:
-        self.act_obs(input)
+        self.input_act_obs(input)
         output = F.linear(input, self.weight, self.bias)
+        if self.output_act_obs is not None:
+            self.output_act_obs(output)
         return output
 
     @classmethod
     def from_float(
         cls,
         float_linear: torch.nn.Linear,
-        act_obs: "AffineQuantizedMinMaxObserver",  # noqa: F821
+        input_act_obs: "AffineQuantizedMinMaxObserver",  # noqa: F821
+        output_act_obs: Optional["AffineQuantizedMinMaxObserver"] = None,  # noqa: F821
     ) -> "Float8ObservedLinear":
         """Create an observed linear from a float linear module."""
         observed_linear = cls(
             float_linear.in_features,
             float_linear.out_features,
-            act_obs,
+            input_act_obs,
             bias=float_linear.bias is not None,
             device=float_linear.weight.device,
             dtype=float_linear.weight.dtype,
+            output_act_obs=output_act_obs,
         )
         observed_linear.weight = float_linear.weight
         observed_linear.bias = float_linear.bias
         return observed_linear
+
+
+class Float8ObservedSoftmax(torch.nn.Softmax):
+    """
+    A softmax module with an observer for float8 static quantization.
+
+    This module wraps a softmax layer and adds an AffineQuantizedMinMaxObserver
+    that collects statistics on the output during calibration. After calibration,
+    use `quantize_` with `Float8StaticActivationFloat8WeightConfig(step="convert")`
+    to convert to a quantized softmax module that applies quantize-and-dequantize
+    to simulate quantization error.
+    """
+
+    def __init__(
+        self,
+        dim: Optional[int] = None,
+        output_act_obs: Optional["AffineQuantizedMinMaxObserver"] = None,  # noqa: F821
+    ):
+        super().__init__(dim=dim)
+        self.output_act_obs = output_act_obs
+
+    def forward(self, input: Tensor) -> Tensor:
+        output = F.softmax(input, self.dim, _stacklevel=5)
+        if self.output_act_obs is not None:
+            self.output_act_obs(output)
+        return output
+
+    @classmethod
+    def from_float(
+        cls,
+        float_softmax: torch.nn.Softmax,
+        output_act_obs: "AffineQuantizedMinMaxObserver",  # noqa: F821
+    ) -> "Float8ObservedSoftmax":
+        """Create an observed softmax from a float softmax module."""
+        observed_softmax = cls(
+            dim=float_softmax.dim,
+            output_act_obs=output_act_obs,
+        )
+        return observed_softmax
+
+
+class Float8QuantizedSoftmax(torch.nn.Module):
+    """
+    A softmax module that applies quantize-and-dequantize to its output.
+
+    This module computes softmax and then quantizes the output to float8,
+    immediately dequantizing it back to the original dtype. This simulates
+    the quantization error while returning a regular tensor.
+    """
+
+    def __init__(
+        self,
+        dim: Optional[int] = None,
+        output_act_quant_scale: Optional[torch.Tensor] = None,
+        output_act_quant_kwargs: Optional[QuantizeTensorToFloat8Kwargs] = None,
+    ):
+        super().__init__()
+        self._dim = dim
+        # Register scale as a buffer so it moves with the module
+        if output_act_quant_scale is not None:
+            self.register_buffer("output_act_quant_scale", output_act_quant_scale)
+        else:
+            self.output_act_quant_scale = None
+        self.output_act_quant_kwargs = output_act_quant_kwargs
+
+    @property
+    def dim(self) -> Optional[int]:
+        return self._dim
+
+    def forward(self, input: Tensor) -> Tensor:
+        from torchao.prototype.quantization.float8_static_quant.prototype_float8_tensor import (
+            _choose_quant_func_and_quantize_tensor,
+        )
+
+        output = F.softmax(input, self._dim, _stacklevel=5)
+
+        # Apply quantize-and-dequantize if configured
+        if self.output_act_quant_kwargs is not None:
+            quantized_output = _choose_quant_func_and_quantize_tensor(
+                output,
+                self.output_act_quant_kwargs,
+                act_quant_scale=self.output_act_quant_scale,
+            )
+            output = quantized_output.dequantize()
+
+        return output
+
+    @classmethod
+    def from_observed(
+        cls,
+        observed_softmax: "Float8ObservedSoftmax",
+        output_act_quant_scale: torch.Tensor,
+        output_act_quant_kwargs: QuantizeTensorToFloat8Kwargs,
+    ) -> "Float8QuantizedSoftmax":
+        """Create a quantized softmax from an observed softmax module."""
+        return cls(
+            dim=observed_softmax.dim,
+            output_act_quant_scale=output_act_quant_scale,
+            output_act_quant_kwargs=output_act_quant_kwargs,
+        )
 
 
 @register_quantize_module_handler(Float8StaticActivationFloat8WeightConfig)
@@ -444,8 +487,12 @@ def _float8_static_activation_float8_weight_transform(
     Transform handler for Float8StaticActivationFloat8WeightConfig.
 
     Behavior depends on the step:
-    - PREPARE: Insert observer into linear module
-    - CONVERT: Convert observed linear to quantized linear
+    - PREPARE: Insert observer into linear or softmax module
+    - CONVERT: Convert observed modules to quantized modules
+
+    Supported modules:
+    - torch.nn.Linear: Static activation quantization with float8 weights
+    - torch.nn.Softmax: Output quantization simulation (quantize-and-dequantize)
     """
     from torchao.prototype.quantization.float8_static_quant.prototype_float8_tensor import (
         PrototypeFloat8Tensor,
@@ -455,38 +502,97 @@ def _float8_static_activation_float8_weight_transform(
     step = config.step
     granularity = config.granularity if config.granularity is not None else PerTensor()
 
-    if step == Float8StaticStep.PREPARE or step == "prepare":
-        # Create observer and wrap linear
-        observer = AffineQuantizedMinMaxObserver(
+    if step == QuantizationStep.PREPARE or step == "prepare":
+        # Handle Softmax modules
+        if isinstance(module, torch.nn.Softmax):
+            output_observer = AffineQuantizedMinMaxObserver(
+                mapping_type=MappingType.SYMMETRIC,
+                target_dtype=config.activation_dtype,
+                granularity=granularity,
+                eps=torch.finfo(torch.float32).eps,
+                scale_dtype=torch.float32,
+                zero_point_dtype=torch.float32,
+                keepdim=True,
+            )
+            return Float8ObservedSoftmax.from_float(module, output_observer)
+
+        # Handle Linear modules
+        # Create input observer and wrap linear
+        input_observer = AffineQuantizedMinMaxObserver(
             mapping_type=MappingType.SYMMETRIC,
             target_dtype=config.activation_dtype,
             granularity=granularity,
             eps=torch.finfo(torch.float32).eps,
             scale_dtype=torch.float32,
             zero_point_dtype=torch.float32,
+            keepdim=True,
         )
-        return Float8ObservedLinear.from_float(module, observer)
+        # Create output observer if quantize_and_dequantize_output is True
+        output_observer = None
+        if config.quantize_and_dequantize_output:
+            output_observer = AffineQuantizedMinMaxObserver(
+                mapping_type=MappingType.SYMMETRIC,
+                target_dtype=config.activation_dtype,
+                granularity=granularity,
+                eps=torch.finfo(torch.float32).eps,
+                scale_dtype=torch.float32,
+                zero_point_dtype=torch.float32,
+                keepdim=True,
+            )
+        return Float8ObservedLinear.from_float(module, input_observer, output_observer)
 
-    elif step == Float8StaticStep.CONVERT or step == "convert":
+    elif step == QuantizationStep.CONVERT or step == "convert":
+        # Handle observed Softmax modules
+        if isinstance(module, Float8ObservedSoftmax):
+            if module.output_act_obs is None:
+                logger.warning(
+                    "Float8ObservedSoftmax has no output observer, returning as-is"
+                )
+                return module
+
+            # Extract output scale from observer
+            output_act_quant_scale, _ = module.output_act_obs.calculate_qparams()
+
+            output_act_quant_kwargs = QuantizeTensorToFloat8Kwargs(
+                float8_dtype=config.activation_dtype,
+                granularity=granularity,
+                mm_config=config.mm_config,
+                kernel_preference=config.kernel_preference,
+            )
+
+            return Float8QuantizedSoftmax.from_observed(
+                module,
+                output_act_quant_scale=output_act_quant_scale.detach(),
+                output_act_quant_kwargs=output_act_quant_kwargs,
+            )
+
+        # Handle observed Linear modules
         if not isinstance(module, Float8ObservedLinear):
             logger.info(
-                f"convert: module is not Float8ObservedLinear, skipping: {type(module)}"
+                f"convert: module is not Float8ObservedLinear or Float8ObservedSoftmax, skipping: {type(module)}"
             )
             return module
 
         # Extract activation scale from observer
-        # Scale needs to be 2D for 2D activation tensors
-        act_quant_scale, _ = module.act_obs.calculate_qparams()
-        if act_quant_scale.ndim == 0:
-            # TODO: add keep_dim arg for `choose_qparams_affine_with_min_max`
-            # to avoid this workaround
-            act_quant_scale = act_quant_scale.view(1, 1)
+        act_quant_scale, _ = module.input_act_obs.calculate_qparams()
 
         if config.set_inductor_config:
             torchao.quantization.utils.recommended_inductor_config_setter()
 
         activation_dtype = config.activation_dtype
         weight_dtype = config.weight_dtype
+
+        # Extract output activation scale from observer if available
+        output_act_quant_scale = None
+        output_act_quant_kwargs = None
+        if module.output_act_obs is not None:
+            output_act_quant_scale, _ = module.output_act_obs.calculate_qparams()
+            output_act_quant_kwargs = QuantizeTensorToFloat8Kwargs(
+                float8_dtype=activation_dtype,
+                granularity=granularity,
+                mm_config=config.mm_config,
+                kernel_preference=config.kernel_preference,
+            )
 
         # Create quantized weight tensor
         quantized_tensor = PrototypeFloat8Tensor.from_hp(
@@ -502,6 +608,10 @@ def _float8_static_activation_float8_weight_transform(
                 kernel_preference=config.kernel_preference,
             ),
             act_quant_scale=act_quant_scale.detach(),
+            output_act_quant_scale=output_act_quant_scale.detach()
+            if output_act_quant_scale is not None
+            else None,
+            output_act_quant_kwargs=output_act_quant_kwargs,
         )
 
         # Create new Linear module with quantized weight
@@ -514,6 +624,7 @@ def _float8_static_activation_float8_weight_transform(
         )
         linear.weight = torch.nn.Parameter(quantized_tensor, requires_grad=False)
         linear.bias = module.bias
+        linear.extra_repr = types.MethodType(_linear_extra_repr, linear)
         return linear
 
     elif step is None:
@@ -531,6 +642,17 @@ def _float8_static_activation_float8_weight_transform(
         weight_dtype = config.weight_dtype
         act_quant_scale = config.act_quant_scale
 
+        # Handle output quantization kwargs if output_act_quant_scale is provided
+        output_act_quant_scale = config.output_act_quant_scale
+        output_act_quant_kwargs = None
+        if output_act_quant_scale is not None:
+            output_act_quant_kwargs = QuantizeTensorToFloat8Kwargs(
+                float8_dtype=activation_dtype,
+                granularity=granularity,
+                mm_config=config.mm_config,
+                kernel_preference=config.kernel_preference,
+            )
+
         # Create quantized weight tensor
         quantized_tensor = PrototypeFloat8Tensor.from_hp(
             module.weight,
@@ -545,14 +667,19 @@ def _float8_static_activation_float8_weight_transform(
                 kernel_preference=config.kernel_preference,
             ),
             act_quant_scale=act_quant_scale.detach(),
+            output_act_quant_scale=output_act_quant_scale.detach()
+            if output_act_quant_scale is not None
+            else None,
+            output_act_quant_kwargs=output_act_quant_kwargs,
         )
 
         module.weight = torch.nn.Parameter(quantized_tensor, requires_grad=False)
+        module.extra_repr = types.MethodType(_linear_extra_repr, module)
         return module
 
     else:
         raise ValueError(
-            f"Unexpected step: {step}. Expected one of {[s.value for s in Float8StaticStep]} or None."
+            f"Unexpected step: {step}. Expected one of {[s.value for s in QuantizationStep]} or None."
         )
 
 

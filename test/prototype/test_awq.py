@@ -14,10 +14,11 @@ from torch.testing._internal.common_utils import (
     run_tests,
 )
 
-from torchao.prototype.awq import AWQConfig, AWQStep
+from torchao.prototype.awq import AWQConfig
 from torchao.prototype.int4_opaque_tensor import Int4WeightOnlyOpaqueTensorConfig
 from torchao.quantization import Int4WeightOnlyConfig, quantize_
-from torchao.utils import _is_fbgemm_gpu_genai_available, torch_version_at_least
+from torchao.quantization.quantize_.common.quantization_step import QuantizationStep
+from torchao.utils import _is_mslk_available, torch_version_at_least
 
 
 class ToyLinearModel(torch.nn.Module):
@@ -61,7 +62,7 @@ class ToyLinearModel(torch.nn.Module):
 devices = ["cpu"]
 if (
     torch.cuda.is_available()
-    and _is_fbgemm_gpu_genai_available()
+    and _is_mslk_available()
     and torch_version_at_least("2.6.0")
 ):
     devices.append("cuda")
@@ -91,9 +92,9 @@ device_config_pairs = [
 class TestAWQ(TestCase):
     def test_awq_config(self):
         base_config = Int4WeightOnlyConfig()
-        AWQConfig(base_config, step=AWQStep.PREPARE)
-        AWQConfig(base_config, step=AWQStep.PREPARE_FOR_LOADING)
-        AWQConfig(base_config, step=AWQStep.CONVERT)
+        AWQConfig(base_config, step=QuantizationStep.PREPARE)
+        AWQConfig(base_config, step=QuantizationStep.PREPARE_FOR_LOADING)
+        AWQConfig(base_config, step=QuantizationStep.CONVERT)
 
         AWQConfig(base_config, step="prepare")
         AWQConfig(base_config, step="prepare_for_loading")
@@ -129,13 +130,13 @@ class TestAWQ(TestCase):
         quantize_(m_baseline, base_config)
 
         # awq quantization
-        quant_config = AWQConfig(base_config, step=AWQStep.PREPARE)
+        quant_config = AWQConfig(base_config, step=QuantizationStep.PREPARE)
         quantize_(m, quant_config)
 
         for example in calibration_data:
             m(example)
 
-        quant_config = AWQConfig(base_config, step=AWQStep.CONVERT)
+        quant_config = AWQConfig(base_config, step=QuantizationStep.CONVERT)
         quantize_(m, quant_config)
 
         # evaluating on calibration data set to remove any uncertainty
@@ -164,15 +165,14 @@ class TestAWQ(TestCase):
         input_cat = torch.cat(calibration_data, dim=-2)
 
         # calibrate
-
-        quant_config = AWQConfig(base_config, step=AWQStep.PREPARE)
+        quant_config = AWQConfig(base_config, step=QuantizationStep.PREPARE)
         quantize_(m, quant_config)
 
         for example in calibration_data:
             m(example)
 
         # quantize
-        quant_config = AWQConfig(base_config, step=AWQStep.CONVERT)
+        quant_config = AWQConfig(base_config, step=QuantizationStep.CONVERT)
         quantize_(m, quant_config)
 
         with tempfile.NamedTemporaryFile() as f:
@@ -219,14 +219,14 @@ class TestAWQ(TestCase):
         input_cat = torch.cat(calibration_data, dim=-2)
 
         # calibrate
-        quant_config = AWQConfig(base_config, step=AWQStep.PREPARE)
+        quant_config = AWQConfig(base_config, step=QuantizationStep.PREPARE)
         quantize_(m, quant_config)
 
         for example in calibration_data:
             m(example)
 
         # quantize
-        quant_config = AWQConfig(base_config, step=AWQStep.CONVERT)
+        quant_config = AWQConfig(base_config, step=QuantizationStep.CONVERT)
         quantize_(m, quant_config)
 
         with tempfile.NamedTemporaryFile() as f:
@@ -237,7 +237,7 @@ class TestAWQ(TestCase):
         loaded_model = ToyLinearModel(
             l1, l2, l3, device=device, dtype=original_dtype
         ).eval()
-        quant_config = AWQConfig(base_config, step=AWQStep.PREPARE_FOR_LOADING)
+        quant_config = AWQConfig(base_config, step=QuantizationStep.PREPARE_FOR_LOADING)
         quantize_(loaded_model, quant_config)
 
         loaded_model.linear1.weight.copy_(state_dict["linear1.weight"])

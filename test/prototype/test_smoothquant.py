@@ -13,7 +13,6 @@ from torchao.prototype.smoothquant import (
     SmoothQuantConfig,
     SmoothQuantObservedLinear,
 )
-from torchao.prototype.smoothquant.core import SmoothQuantStep
 from torchao.quantization import quantize_
 from torchao.quantization.granularity import PerRow, PerTensor
 from torchao.quantization.quant_api import (
@@ -21,6 +20,7 @@ from torchao.quantization.quant_api import (
     Int8StaticActivationInt8WeightConfig,
 )
 from torchao.quantization.quantize_.common import SupportsActivationPreScaling
+from torchao.quantization.quantize_.common.quantization_step import QuantizationStep
 from torchao.quantization.utils import (
     compute_error as SQNR,
 )
@@ -130,7 +130,7 @@ class TestSmoothQuant(unittest.TestCase):
         model = deepcopy(m)
         config = SmoothQuantConfig(
             base_config=base_config,
-            step=SmoothQuantStep.PREPARE,
+            step=QuantizationStep.PREPARE,
             alpha=alpha,
         )
         quantize_(model, config)
@@ -138,7 +138,7 @@ class TestSmoothQuant(unittest.TestCase):
         # Perform calibration with test data
         model(*x)
 
-        config.step = SmoothQuantStep.CONVERT
+        config.step = QuantizationStep.CONVERT
         quantize_(model, config)
         assert isinstance(model.linear1.weight, SupportsActivationPreScaling)
         assert isinstance(model.linear2.weight, SupportsActivationPreScaling)
@@ -173,7 +173,7 @@ class TestSmoothQuant(unittest.TestCase):
         # PREPARE step - should insert observers
         config = SmoothQuantConfig(
             base_config=base_config,
-            step=SmoothQuantStep.PREPARE,
+            step=QuantizationStep.PREPARE,
         )
         quantize_(m, config)
 
@@ -186,7 +186,7 @@ class TestSmoothQuant(unittest.TestCase):
         m(test_data)
 
         # CONVERT step - should produce regular Linear with quantized weights
-        config.step = SmoothQuantStep.CONVERT
+        config.step = QuantizationStep.CONVERT
         quantize_(m, config)
 
         # After CONVERT - should be regular Linear again (but quantized)
@@ -212,7 +212,7 @@ class TestSmoothQuant(unittest.TestCase):
         # PREPARE_FOR_LOADING step - should create quantized model ready for loading
         config = SmoothQuantConfig(
             base_config=base_config,
-            step=SmoothQuantStep.PREPARE_FOR_LOADING,
+            step=QuantizationStep.PREPARE_FOR_LOADING,
             alpha=0.5,
         )
         quantize_(m, config)

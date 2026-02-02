@@ -40,7 +40,6 @@ from torchao.quantization.quantize_.common import (
 from torchao.quantization.utils import get_block_size
 from torchao.utils import (
     TorchAOBaseTensor,
-    _is_fbgemm_gpu_genai_available,
     _is_mslk_available,
     fill_defaults,
     is_sm_at_least_90,
@@ -180,31 +179,31 @@ class Float8Tensor(TorchAOBaseTensor):
         kernel_choice = None
         if (
             kernel_preference == KernelPreference.AUTO
-            and _is_fbgemm_gpu_genai_available()
+            and _is_mslk_available()
             and is_sm_at_least_90()
             and isinstance(granularity, PerRow)
-            # fbgemm path only supports quantizing along the last dim
+            # mslk path only supports quantizing along the last dim
             and granularity.dim in (-1, len(hp_tensor.shape) - 1)
             and float8_dtype == torch.float8_e4m3fn
             and hp_value_lb is None
         ):
             # if kernel_preference is AUTO and per row quantization
-            # we'll use fbgemm quantize kernel for best performance
-            kernel_choice = "fbgemm"
-        elif kernel_preference == KernelPreference.FBGEMM:
-            # if user explicitly chose FBGEMM kernel preference, we'll also use fbgemm kernel
-            assert _is_fbgemm_gpu_genai_available() and is_sm_at_least_90(), (
-                "Specified fbgemm but fbgemm_gpu_genai is not installed or hardware is not >= SM 9.0 (>= H100)"
+            # we'll use mslk quantize kernel for best performance
+            kernel_choice = "mslk"
+        elif kernel_preference == KernelPreference.MSLK:
+            # if user explicitly chose MSLK kernel preference, we'll also use mslk kernel
+            assert _is_mslk_available() and is_sm_at_least_90(), (
+                "Specified mslk but mslk is not installed or hardware is not >= SM 9.0 (>= H100)"
             )
             assert hp_value_lb is None, (
-                "hp_value_lb should not be specified if with KerenelPreference.FBGEMM"
+                "hp_value_lb should not be specified if with KernelPreference.MSLK"
             )
-            kernel_choice = "fbgemm"
+            kernel_choice = "mslk"
         else:
             # fallback quantize kernel for everything else will be torch
             kernel_choice = "torch"
 
-        if kernel_choice == "fbgemm":
+        if kernel_choice == "mslk":
             assert hp_value_lb is None, f"{hp_value_lb=} is not supported"
             if hp_value_ub is not None:
                 maybe_hp_value_ub_tensor = torch.tensor(
@@ -216,22 +215,18 @@ class Float8Tensor(TorchAOBaseTensor):
                 data, scale = torch.ops.triton.quantize_fp8_row(
                     hp_tensor, scale_ub=maybe_hp_value_ub_tensor
                 )
-                scale_shape = []
-                for i in range(hp_tensor.ndim):
-                    scale_shape.append(hp_tensor.shape[i] // block_size[i])
-                scale = scale.reshape(*scale_shape)
             else:
                 assert isinstance(granularity, PerTensor), (
                     f"Expected per tensor, got {granularity}"
                 )
-                # current error: torch.AcceleratorError: CUDA error: an illegal memory access was encountered
-                # TODO: enable after this is working
-                # data, scale = torch.ops.fbgemm.quantize_fp8_per_tensor(
-                #     hp_tensor, num_tokens, scale_ub=maybe_hp_value_ub_tensor
-                # )
-                raise NotImplementedError(
-                    "Currently KernelPreference.FBGEMM does not work for per tensor float8 quant"
-                )
+                data, scale = torch.ops.triton.quantize_fp8_tensor(hp_tensor)
+
+            # Reshape scale to match expected shape for quantization
+            scale_shape = []
+            for i in range(hp_tensor.ndim):
+                scale_shape.append(hp_tensor.shape[i] // block_size[i])
+            scale = scale.reshape(*scale_shape)
+
         else:
             assert kernel_choice == "torch", f"Expected torch, got {kernel_choice}"
             scale = _choose_scale_float8(
@@ -349,24 +344,22 @@ def _float8_addmm_impl(
         if weight_tensor.kernel_preference == KernelPreference.AUTO:
             kernel_choice = "torch"
             if (
-                _is_fbgemm_gpu_genai_available()
+                _is_mslk_available()
                 and is_sm_at_least_90()
                 and (not _is_128_128_scaled(weight_tensor))
             ):
-                kernel_choice = "fbgemm"
-        elif weight_tensor.kernel_preference == KernelPreference.FBGEMM:
-            kernel_choice = "fbgemm"
+                kernel_choice = "mslk"
+        elif weight_tensor.kernel_preference == KernelPreference.MSLK:
+            kernel_choice = "mslk"
         else:
             assert weight_tensor.kernel_preference == KernelPreference.TORCH, (
                 f"{weight_tensor.kernel_preference=} not handled"
             )
             kernel_choice = "torch"
 
-        if kernel_choice == "fbgemm":
-            assert _is_fbgemm_gpu_genai_available(), (
-                "Expected fbgemm_gpu_genai package to be installed"
-            )
-            assert is_sm_at_least_90(), "Expected SM90+ for fbgemm_gpu_genai"
+        if kernel_choice == "mslk":
+            assert _is_mslk_available(), "Expected mslk package to be installed"
+            assert is_sm_at_least_90(), "Expected SM90+ for mslk"
             mm_config = weight_tensor.mm_config
             assert mm_config is not None
             assert not _is_128_128_scaled(weight_tensor), "unimplemented"
@@ -377,7 +370,7 @@ def _float8_addmm_impl(
                 assert _is_rowwise_scaled(input_tensor), (
                     "Input tensor must be rowwise block size"
                 )
-                res = torch.ops.fbgemm.f8f8bf16_rowwise(
+                res = torch.ops.mslk.f8f8bf16_rowwise(
                     xq,
                     weight_tensor.qdata.t(),
                     input_tensor.scale,
@@ -388,7 +381,7 @@ def _float8_addmm_impl(
             else:
                 assert _is_tensorwise_scaled(weight_tensor)
                 assert _is_tensorwise_scaled(input_tensor)
-                res = torch.ops.fbgemm.f8f8bf16(
+                res = torch.ops.mslk.f8f8bf16(
                     xq,
                     weight_tensor.qdata.t(),
                     x_scale * weight_tensor.scale.t(),
@@ -423,7 +416,7 @@ def _float8_addmm_impl(
             if _is_128_128_scaled(weight_tensor):
                 # TODO(future PR): add testing for torch._scaled_mm with
                 # blockwise scaling on CUDA 12.9
-                # TODO(future PR): add fbgemm_gpu_genai path if available
+                # TODO(future PR): add mslk path if available
                 # TODO(future PR): proper out_dtype handling
                 assert _is_1_128_scaled(input_tensor), "unsupported"
                 res = blockwise_fp8_gemm(
@@ -471,9 +464,7 @@ def _(func, types, args, kwargs):
 
     kernel_preference = weight_tensor.kernel_preference
     assert kernel_preference != KernelPreference.TORCH, "bmm is not supported for TORCH"
-    assert _is_fbgemm_gpu_genai_available(), (
-        "bmm is not supported when fbgemm_gpu_genai is not installed"
-    )
+    assert _is_mslk_available(), "bmm is not supported when mslk is not installed"
 
     orig_act_size = input_tensor.size()
     act_quant_kwargs = weight_tensor.act_quant_kwargs
@@ -501,7 +492,7 @@ def _(func, types, args, kwargs):
 
         orig_out_features = b_data.shape[-1]
 
-        res = torch.ops.fbgemm.f8f8bf16_rowwise_batched(
+        res = torch.ops.mslk.f8f8bf16_rowwise_batched(
             a_data,
             b_data.transpose(-2, -1).contiguous(),
             a_scale,
@@ -549,8 +540,8 @@ def _quantize_and_scaled_conv3d(
                 raise NotImplementedError(
                     f"No available kernel choice for {weight_tensor.kernel_preference}"
                 )
-        elif weight_tensor.kernel_preference == KernelPreference.FBGEMM:
-            kernel_choice = "fbgemm"
+        elif weight_tensor.kernel_preference == KernelPreference.MSLK:
+            kernel_choice = "mslk"
         else:
             raise NotImplementedError(
                 f"No available kernel choice for {weight_tensor.kernel_preference}"
@@ -568,7 +559,7 @@ def _quantize_and_scaled_conv3d(
     )
 
     # convert the input/weight to channels_last_3d memory_format here
-    # to make sure we can call the fbgemm conv
+    # to make sure we can call the mslk conv
     # kernel, it should be a no-op if both activation and weight are in
     # channels_last_3d memory_format
     input_qdata = input_qdata.contiguous(memory_format=torch.channels_last_3d)
@@ -594,7 +585,7 @@ def _quantize_and_scaled_conv3d(
     # aligning the semantics with bfloat16 conv ops, the
     # output should use contiguous_format if none of the input/weight
     # are in channels_last format, otherwise, the output is already
-    # in channels_last format (from fbgemm kernel)
+    # in channels_last format (from mslk kernel)
     if not (is_input_channels_last or is_weight_channels_last):
         output = output.contiguous()
     return output
