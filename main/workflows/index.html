@@ -66,7 +66,7 @@
     <link rel="canonical" href="https://pytorch.org/ao/workflows/index.html" />
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="torchao.float8" href="float8_training.html" />
+    <link rel="next" title="Quantized Training" href="training.html" />
     <link rel="prev" title="Welcome to the torchao Documentation" href="../index.html" />
 
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
@@ -917,14 +917,9 @@ document.write(`
      aria-label="Section Navigation">
   <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
   <div class="bd-toc-item navbar-nav"><ul class="nav bd-sidenav">
-<li class="toctree-l1"><a class="reference internal" href="float8_training.html">torchao.float8</a></li>
-
-
-
-
-
+<li class="toctree-l1"><a class="reference internal" href="training.html">Quantized Training</a></li>
 <li class="toctree-l1"><a class="reference internal" href="qat.html">Quantization-Aware Training (QAT)</a></li>
-<li class="toctree-l1"><a class="reference internal" href="inference_quantization.html">Inference quantization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="inference.html">Quantized Inference</a></li>
 </ul>
 </div>
 </nav></div>
@@ -1020,17 +1015,17 @@ document.write(`
                   
   <section id="workflows">
 <h1>Workflows<a class="headerlink" href="#workflows" title="Permalink to this heading">#</a></h1>
-<p class="date-info-last-verified" style="color: #6c6c6d; font-size: small;">Created On: Jan 31, 2026 | Last Updated On: Jan 31, 2026</p>
+<p class="date-info-last-verified" style="color: #6c6c6d; font-size: small;">Created On: Feb 02, 2026 | Last Updated On: Feb 02, 2026</p>
 <p>This page provides an overview of the various workflows available in torchao.</p>
 <section id="workflow-overview-by-training-qat-inference">
 <h2>Workflow overview by training/QAT/inference<a class="headerlink" href="#workflow-overview-by-training-qat-inference" title="Permalink to this heading">#</a></h2>
 <ul class="simple">
-<li><p>Training: our main training workflow is <a class="reference internal" href="float8_training.html"><span class="doc std std-doc">float8 quantized training</span></a>. We
+<li><p>Training: our main training workflow is <a class="reference internal" href="training.html"><span class="doc std std-doc">float8 quantized training</span></a>. We
 also have three prototype quantized training workflows: <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/prototype/mx_formats#mx-training">mxfp8 dense</a>,
 <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/prototype/moe_training#mxfp8-moe-training">mxfp8 MoE</a>,
 <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/prototype/quantized_training">int8 dense</a></p></li>
 <li><p>QAT: the <a class="reference internal" href="qat.html"><span class="doc std std-doc">QAT documentation</span></a> for details on how to use quantization-aware training to improve model accuracy after quantization.</p></li>
-<li><p>Inference: See the <a class="reference internal" href="inference_quantization.html"><span class="doc std std-doc">inference quantization documentation</span></a> for an overview of quantization for inference workflows.</p></li>
+<li><p>Inference: See the <a class="reference internal" href="inference.html"><span class="doc std std-doc">inference quantization documentation</span></a> for an overview of quantization for inference workflows.</p></li>
 </ul>
 </section>
 <section id="workflows-status-by-dtype-hardware">
@@ -1053,10 +1048,10 @@ also have three prototype quantized training workflows: <a class="reference exte
 <tr class="row-even"><td><p>H100, B200</p></td>
 <td><p>float8 rowwise</p></td>
 <td><p>float8 rowwise</p></td>
-<td><p>🟢 <a class="reference internal" href="float8_training.html"><span class="doc std std-doc">(link)</span></a></p></td>
+<td><p>🟢 <a class="reference internal" href="training.html"><span class="doc std std-doc">(link)</span></a></p></td>
 <td><p>🟢 <a class="reference internal" href="qat.html"><span class="doc std std-doc">(link)</span></a></p></td>
 <td><p>⚪</p></td>
-<td><p>🟢 <a class="reference internal" href="inference_quantization.html"><span class="doc std std-doc">(link)</span></a></p></td>
+<td><p>🟢 <a class="reference internal" href="inference.html"><span class="doc std std-doc">(link)</span></a></p></td>
 </tr>
 <tr class="row-odd"><td><p>H100</p></td>
 <td><p>int4</p></td>
@@ -1072,7 +1067,7 @@ also have three prototype quantized training workflows: <a class="reference exte
 <td><p>⚪</p></td>
 <td><p>🟢 <a class="reference internal" href="qat.html"><span class="doc std std-doc">(link)</span></a></p></td>
 <td><p>🟡: <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/prototype/hqq/README.md">HQQ</a>, <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/prototype/awq">AWQ</a></p></td>
-<td><p>🟢 <a class="reference internal" href="inference_quantization.html"><span class="doc std std-doc">(link)</span></a></p></td>
+<td><p>🟢 <a class="reference internal" href="inference.html"><span class="doc std std-doc">(link)</span></a></p></td>
 </tr>
 <tr class="row-odd"><td><p>A100</p></td>
 <td><p>int8</p></td>
@@ -1080,7 +1075,7 @@ also have three prototype quantized training workflows: <a class="reference exte
 <td><p>⚪</p></td>
 <td><p>🟢 <a class="reference internal" href="qat.html"><span class="doc std std-doc">(link)</span></a></p></td>
 <td><p>⚪</p></td>
-<td><p>🟢 <a class="reference internal" href="inference_quantization.html"><span class="doc std std-doc">(link)</span></a></p></td>
+<td><p>🟢 <a class="reference internal" href="inference.html"><span class="doc std std-doc">(link)</span></a></p></td>
 </tr>
 <tr class="row-even"><td><p>A100</p></td>
 <td><p>int8</p></td>
@@ -1088,7 +1083,7 @@ also have three prototype quantized training workflows: <a class="reference exte
 <td><p>🟡 <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/prototype/quantized_training">(link)</a></p></td>
 <td><p>🟢 <a class="reference internal" href="qat.html"><span class="doc std std-doc">(link)</span></a></p></td>
 <td><p>⚪</p></td>
-<td><p>🟢 <a class="reference internal" href="inference_quantization.html"><span class="doc std std-doc">(link)</span></a></p></td>
+<td><p>🟢 <a class="reference internal" href="inference.html"><span class="doc std std-doc">(link)</span></a></p></td>
 </tr>
 <tr class="row-odd"><td><p>B200</p></td>
 <td><p>nvfp4</p></td>
@@ -1206,7 +1201,7 @@ also have three prototype quantized training workflows: <a class="reference exte
 <td><p>🟠</p></td>
 <td><p>🟢 <a class="reference internal" href="qat.html"><span class="doc std std-doc">(link)</span></a></p></td>
 <td><p>⚪</p></td>
-<td><p>🟢 <a class="reference internal" href="inference_quantization.html"><span class="doc std std-doc">(link)</span></a></p></td>
+<td><p>🟢 <a class="reference internal" href="inference.html"><span class="doc std std-doc">(link)</span></a></p></td>
 </tr>
 <tr class="row-odd"><td><p>Intel® BMG</p></td>
 <td><p>int4</p></td>
@@ -1214,7 +1209,7 @@ also have three prototype quantized training workflows: <a class="reference exte
 <td><p>⚪</p></td>
 <td><p>🟢 <a class="reference internal" href="qat.html"><span class="doc std std-doc">(link)</span></a></p></td>
 <td><p>🟡: <a class="reference external" href="https://github.com/pytorch/ao/tree/main/torchao/prototype/awq">AWQ</a></p></td>
-<td><p>🟢 <a class="reference internal" href="inference_quantization.html"><span class="doc std std-doc">(link)</span></a></p></td>
+<td><p>🟢 <a class="reference internal" href="inference.html"><span class="doc std std-doc">(link)</span></a></p></td>
 </tr>
 <tr class="row-even"><td><p>Intel® BMG</p></td>
 <td><p>int8</p></td>
@@ -1222,7 +1217,7 @@ also have three prototype quantized training workflows: <a class="reference exte
 <td><p>🟠</p></td>
 <td><p>🟢 <a class="reference internal" href="qat.html"><span class="doc std std-doc">(link)</span></a></p></td>
 <td><p>⚪</p></td>
-<td><p>🟢 <a class="reference internal" href="inference_quantization.html"><span class="doc std std-doc">(link)</span></a></p></td>
+<td><p>🟢 <a class="reference internal" href="inference.html"><span class="doc std std-doc">(link)</span></a></p></td>
 </tr>
 </tbody>
 </table>
@@ -1292,11 +1287,11 @@ also have three prototype quantized training workflows: <a class="reference exte
       </div>
     </a>
     <a class="right-next"
-       href="float8_training.html"
+       href="training.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">torchao.float8</p>
+        <p class="prev-next-title">Quantized Training</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -1331,11 +1326,11 @@ also have three prototype quantized training workflows: <a class="reference exte
       </div>
     </a>
     <a class="right-next"
-       href="float8_training.html"
+       href="training.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">torchao.float8</p>
+        <p class="prev-next-title">Quantized Training</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -1591,7 +1586,7 @@ also have three prototype quantized training workflows: <a class="reference exte
        "headline": "Workflows",
        "description": "PyTorch Documentation. Explore PyTorch, an open-source machine learning library that accelerates the path from research prototyping to production deployment. Discover tutorials, API references, and guides to help you build and deploy deep learning models efficiently.",
        "url": "/workflows/index.html",
-       "articleBody": "Workflows# Created On: Jan 31, 2026 | Last Updated On: Jan 31, 2026 This page provides an overview of the various workflows available in torchao. Workflow overview by training/QAT/inference# Training: our main training workflow is float8 quantized training. We also have three prototype quantized training workflows: mxfp8 dense, mxfp8 MoE, int8 dense QAT: the QAT documentation for details on how to use quantization-aware training to improve model accuracy after quantization. Inference: See the inference quantization documentation for an overview of quantization for inference workflows. Workflows status by dtype + hardware# \ud83d\udfe2 = stable, \ud83d\udfe1 = prototype, \ud83d\udfe0 = planned, \u26aa = not supported NVIDIA CUDA# recommended hardware weight activation quantized training QAT PTQ data algorithms quantized inference H100, B200 float8 rowwise float8 rowwise \ud83d\udfe2 (link) \ud83d\udfe2 (link) \u26aa \ud83d\udfe2 (link) H100 int4 float8 rowwise \u26aa \ud83d\udfe2 (link) \ud83d\udfe0 \ud83d\udfe2 (link) A100 int4 bfloat16 \u26aa \ud83d\udfe2 (link) \ud83d\udfe1: HQQ, AWQ \ud83d\udfe2 (link) A100 int8 bfloat16 \u26aa \ud83d\udfe2 (link) \u26aa \ud83d\udfe2 (link) A100 int8 int8 \ud83d\udfe1 (link) \ud83d\udfe2 (link) \u26aa \ud83d\udfe2 (link) B200 nvfp4 nvfp4 \ud83d\udfe0 \ud83d\udfe1 (link) \u26aa \ud83d\udfe1 (link) B200 mxfp8 mxfp8 \ud83d\udfe1 (dense), (moe) \u26aa \u26aa \ud83d\udfe1 (link) B200 mxfp4 mxfp4 \u26aa not supported \ud83d\udfe0 \ud83d\udfe0 \ud83d\udfe1 (link) H100 float8 128x128 (blockwise) float8 1x128 \ud83d\udfe0 \u26aa \u26aa \ud83d\udfe1 Edge# recommended hardware weight activation quantized training QAT PTQ data algorithms quantized inference edge intx (1..7) bfloat16 \u26aa \ud83d\udfe2 (link) \u26aa \ud83d\udfe2 (link) ROCM# recommended hardware weight activation quantized training QAT PTQ data algorithms quantized inference MI350x mxfp8 mxfp8 \ud83d\udfe1 (dense), (moe) \u26aa \u26aa \ud83d\udfe1 (link) MI350x mxfp4 mxfp4 \u26aa not supported \ud83d\udfe0 \ud83d\udfe0 \ud83d\udfe1 (link) Intel# recommended hardware weight activation quantized training QAT PTQ data algorithms quantized inference Intel\u00ae BMG float8 tensor/rowwise float8 tensor/rowwise \ud83d\udfe0 \ud83d\udfe2 (link) \u26aa \ud83d\udfe2 (link) Intel\u00ae BMG int4 float16/bfloat16 \u26aa \ud83d\udfe2 (link) \ud83d\udfe1: AWQ \ud83d\udfe2 (link) Intel\u00ae BMG int8 int8 \ud83d\udfe0 \ud83d\udfe2 (link) \u26aa \ud83d\udfe2 (link) Other# Sparsity README.md, includes different techniques such as 2:4 sparsity and block sparsity the prototype folder for other prototype features",
+       "articleBody": "Workflows# Created On: Feb 02, 2026 | Last Updated On: Feb 02, 2026 This page provides an overview of the various workflows available in torchao. Workflow overview by training/QAT/inference# Training: our main training workflow is float8 quantized training. We also have three prototype quantized training workflows: mxfp8 dense, mxfp8 MoE, int8 dense QAT: the QAT documentation for details on how to use quantization-aware training to improve model accuracy after quantization. Inference: See the inference quantization documentation for an overview of quantization for inference workflows. Workflows status by dtype + hardware# \ud83d\udfe2 = stable, \ud83d\udfe1 = prototype, \ud83d\udfe0 = planned, \u26aa = not supported NVIDIA CUDA# recommended hardware weight activation quantized training QAT PTQ data algorithms quantized inference H100, B200 float8 rowwise float8 rowwise \ud83d\udfe2 (link) \ud83d\udfe2 (link) \u26aa \ud83d\udfe2 (link) H100 int4 float8 rowwise \u26aa \ud83d\udfe2 (link) \ud83d\udfe0 \ud83d\udfe2 (link) A100 int4 bfloat16 \u26aa \ud83d\udfe2 (link) \ud83d\udfe1: HQQ, AWQ \ud83d\udfe2 (link) A100 int8 bfloat16 \u26aa \ud83d\udfe2 (link) \u26aa \ud83d\udfe2 (link) A100 int8 int8 \ud83d\udfe1 (link) \ud83d\udfe2 (link) \u26aa \ud83d\udfe2 (link) B200 nvfp4 nvfp4 \ud83d\udfe0 \ud83d\udfe1 (link) \u26aa \ud83d\udfe1 (link) B200 mxfp8 mxfp8 \ud83d\udfe1 (dense), (moe) \u26aa \u26aa \ud83d\udfe1 (link) B200 mxfp4 mxfp4 \u26aa not supported \ud83d\udfe0 \ud83d\udfe0 \ud83d\udfe1 (link) H100 float8 128x128 (blockwise) float8 1x128 \ud83d\udfe0 \u26aa \u26aa \ud83d\udfe1 Edge# recommended hardware weight activation quantized training QAT PTQ data algorithms quantized inference edge intx (1..7) bfloat16 \u26aa \ud83d\udfe2 (link) \u26aa \ud83d\udfe2 (link) ROCM# recommended hardware weight activation quantized training QAT PTQ data algorithms quantized inference MI350x mxfp8 mxfp8 \ud83d\udfe1 (dense), (moe) \u26aa \u26aa \ud83d\udfe1 (link) MI350x mxfp4 mxfp4 \u26aa not supported \ud83d\udfe0 \ud83d\udfe0 \ud83d\udfe1 (link) Intel# recommended hardware weight activation quantized training QAT PTQ data algorithms quantized inference Intel\u00ae BMG float8 tensor/rowwise float8 tensor/rowwise \ud83d\udfe0 \ud83d\udfe2 (link) \u26aa \ud83d\udfe2 (link) Intel\u00ae BMG int4 float16/bfloat16 \u26aa \ud83d\udfe2 (link) \ud83d\udfe1: AWQ \ud83d\udfe2 (link) Intel\u00ae BMG int8 int8 \ud83d\udfe0 \ud83d\udfe2 (link) \u26aa \ud83d\udfe2 (link) Other# Sparsity README.md, includes different techniques such as 2:4 sparsity and block sparsity the prototype folder for other prototype features",
        "author": {
          "@type": "Organization",
          "name": "PyTorch Contributors",
@@ -1602,8 +1597,8 @@ also have three prototype quantized training workflows: <a class="reference exte
          "@type": "WebPage",
          "@id": "/workflows/index.html"
        },
-       "datePublished": "Jan 31, 2026T00:00:00Z",
-       "dateModified": "Jan 31, 2026T00:00:00Z"
+       "datePublished": "Feb 02, 2026T00:00:00Z",
+       "dateModified": "Feb 02, 2026T00:00:00Z"
      }
  </script>
   <script>

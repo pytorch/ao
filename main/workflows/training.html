@@ -9,16 +9,16 @@
   <meta name="robots" content="noindex">
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
-<meta property="og:title" content="torchao.float8" />
+<meta property="og:title" content="Quantized Training" />
 <meta property="og:type" content="website" />
-<meta property="og:url" content="http://pytorch.org/workflows/float8_training.html" />
+<meta property="og:url" content="http://pytorch.org/workflows/training.html" />
 <meta property="og:site_name" content="torchao" />
-<meta property="og:description" content="This is a workflow for accelerating training with float8 in native PyTorch. With torch.compile on, we demonstrate e2e pretraining throughput speedups of up to 1.5x at 512 GPU / 405B parameter count..." />
+<meta property="og:description" content="float8: This is a workflow for accelerating training with float8 in native PyTorch. With torch.compile on, we demonstrate e2e pretraining throughput speedups of up to 1.5x at 512 GPU / 405B paramet..." />
 <meta property="og:image" content="https://pytorch.org/assets/images/social-share.jpg" />
 <meta property="og:image:alt" content="torchao" />
-<meta name="description" content="This is a workflow for accelerating training with float8 in native PyTorch. With torch.compile on, we demonstrate e2e pretraining throughput speedups of up to 1.5x at 512 GPU / 405B parameter count..." />
+<meta name="description" content="float8: This is a workflow for accelerating training with float8 in native PyTorch. With torch.compile on, we demonstrate e2e pretraining throughput speedups of up to 1.5x at 512 GPU / 405B paramet..." />
 
-    <title>torchao.float8 &#8212; torchao main documentation</title>
+    <title>Quantized Training &#8212; torchao main documentation</title>
   
   
   
@@ -63,7 +63,7 @@
     <script src="../_static/clipboard.min.js"></script>
     <script src="../_static/copybutton.js"></script>
     <script src="../_static/design-tabs.js"></script>
-    <link rel="canonical" href="https://pytorch.org/ao/workflows/float8_training.html" />
+    <link rel="canonical" href="https://pytorch.org/ao/workflows/training.html" />
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
     <link rel="next" title="Quantization-Aware Training (QAT)" href="qat.html" />
@@ -917,14 +917,9 @@ document.write(`
      aria-label="Section Navigation">
   <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
   <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
-<li class="toctree-l1 current active"><a class="current reference internal" href="#">torchao.float8</a></li>
-
-
-
-
-
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">Quantized Training</a></li>
 <li class="toctree-l1"><a class="reference internal" href="qat.html">Quantization-Aware Training (QAT)</a></li>
-<li class="toctree-l1"><a class="reference internal" href="inference_quantization.html">Inference quantization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="inference.html">Quantized Inference</a></li>
 </ul>
 </div>
 </nav></div>
@@ -965,7 +960,7 @@ document.write(`
     
     <li class="breadcrumb-item"><a href="index.html" class="nav-link">Workflows</a></li>
     
-    <li class="breadcrumb-item active" aria-current="page">torchao.float8</li>
+    <li class="breadcrumb-item active" aria-current="page">Quantized Training</li>
   </ul>
 </nav>
 </div>
@@ -1013,7 +1008,7 @@ document.write(`
       </div>
       
       <div itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
-        <meta itemprop="name" content="torchao.float8">
+        <meta itemprop="name" content="Quantized Training">
         <meta itemprop="position" content="2">
       </div>
     </div>
@@ -1027,16 +1022,18 @@ document.write(`
 <div id="searchbox"></div>
                 <article class="bd-article">
                   
-  <section id="torchao-float8">
-<h1>torchao.float8<a class="headerlink" href="#torchao-float8" title="Permalink to this heading">#</a></h1>
-<p class="date-info-last-verified" style="color: #6c6c6d; font-size: small;">Created On: Jan 31, 2026 | Last Updated On: Jan 31, 2026</p>
+  <section id="quantized-training">
+<h1>Quantized Training<a class="headerlink" href="#quantized-training" title="Permalink to this heading">#</a></h1>
+<p class="date-info-last-verified" style="color: #6c6c6d; font-size: small;">Created On: Feb 02, 2026 | Last Updated On: Feb 02, 2026</p>
+<section id="float8">
+<h2>float8<a class="headerlink" href="#float8" title="Permalink to this heading">#</a></h2>
 <p>This is a workflow for accelerating training with <a class="reference external" href="https://arxiv.org/pdf/2209.05433.pdf">float8</a> in native PyTorch.
 With <code class="docutils literal notranslate"><span class="pre">torch.compile</span></code> on, we demonstrate e2e pretraining throughput speedups of up to <a class="reference external" href="https://pytorch.org/blog/training-using-float8-fsdp2/"><strong>1.5x at 512 GPU / 405B parameter count scale</strong></a>,
 and up to <span class="xref myst"><strong>1.25x at 8 GPU / 8B parameter count scale</strong></span>.
 The codebase strives to stay small, hackable, debuggable with native PyTorch tooling
 and composable with key systems such as autograd, <code class="docutils literal notranslate"><span class="pre">torch.compile</span></code> and distributed.</p>
 <section id="key-features">
-<h2>Key features<a class="headerlink" href="#key-features" title="Permalink to this heading">#</a></h2>
+<h3>Key features<a class="headerlink" href="#key-features" title="Permalink to this heading">#</a></h3>
 <ul class="simple">
 <li><p>e2e pretraining speedups of up to <a class="reference external" href="https://pytorch.org/blog/training-using-float8-fsdp2/"><strong>1.5x at 512 GPU / 405B parameter count scale</strong></a>,
 and up to <span class="xref myst"><strong>1.25x at 8 GPU / 8B parameter count scale</strong></span>, with performance and accuracy validated on up to <a class="reference external" href="https://pytorch.org/blog/accelerating-large-scale-training-and-convergence-with-pytorch-float8-rowwise-on-crusoe-2k-h200s/"><strong>2k GPUs</strong></a>, via <a class="reference external" href="https://github.com/pytorch/torchtitan/blob/main/docs/float8.md">torchtitan’s float8 integration</a></p></li>
@@ -1047,7 +1044,7 @@ and up to <span class="xref myst"><strong>1.25x at 8 GPU / 8B parameter count sc
 <p>ℹ️ <em>See the <a class="reference external" href="https://github.com/pytorch/ao/issues/556">feature tracker</a> for upcoming features.</em></p>
 </section>
 <section id="quick-start">
-<h2>Quick Start<a class="headerlink" href="#quick-start" title="Permalink to this heading">#</a></h2>
+<h3>Quick Start<a class="headerlink" href="#quick-start" title="Permalink to this heading">#</a></h3>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
 
@@ -1097,12 +1094,11 @@ and up to <span class="xref myst"><strong>1.25x at 8 GPU / 8B parameter count sc
 </pre></div>
 </div>
 </section>
-</section>
 <section id="e2e-training-benchmarks">
-<h1>e2e training benchmarks<a class="headerlink" href="#e2e-training-benchmarks" title="Permalink to this heading">#</a></h1>
+<h3>e2e training benchmarks<a class="headerlink" href="#e2e-training-benchmarks" title="Permalink to this heading">#</a></h3>
 <p><a class="reference external" href="https://github.com/pytorch/torchtitan">Torchtitan</a> was used to benchmark float8 training performance.</p>
 <section id="nvidia-h100">
-<h2>NVIDIA H100<a class="headerlink" href="#nvidia-h100" title="Permalink to this heading">#</a></h2>
+<h4>NVIDIA H100<a class="headerlink" href="#nvidia-h100" title="Permalink to this heading">#</a></h4>
 <ul class="simple">
 <li><p>Single-node training on 8xH100 GPUs, batch size 1, sequence length 8192, steps 100, <code class="docutils literal notranslate"><span class="pre">torch.compile</span></code>, FSDP2, per-op SAC</p></li>
 <li><p>pytorch version: <code class="docutils literal notranslate"><span class="pre">2.7.0a0+gitb98af95</span></code>, torchao version: <code class="docutils literal notranslate"><span class="pre">0.10.0+git890e0ac8</span></code>, torchtitan version: <code class="docutils literal notranslate"><span class="pre">0.0.2</span></code></p></li>
@@ -1140,7 +1136,7 @@ and up to <span class="xref myst"><strong>1.25x at 8 GPU / 8B parameter count sc
 </div>
 </section>
 <section id="amd-mi300x">
-<h2>AMD MI300x<a class="headerlink" href="#amd-mi300x" title="Permalink to this heading">#</a></h2>
+<h4>AMD MI300x<a class="headerlink" href="#amd-mi300x" title="Permalink to this heading">#</a></h4>
 <ul class="simple">
 <li><p>Single-node training on 8xMI300X GPUs, batch size 1, sequence length 8192, steps 100, <code class="docutils literal notranslate"><span class="pre">torch.compile</span></code>, FSDP2, per-op SAC</p></li>
 <li><p>pytorch version: <code class="docutils literal notranslate"><span class="pre">2.9.0.dev20250811+rocm6.4</span></code>, torchao version <code class="docutils literal notranslate"><span class="pre">0.13.0+git4fc4068d6</span></code>, torchtitan commit <code class="docutils literal notranslate"><span class="pre">2c8b5947991239913d67e2f7d22a255c3e2a9694</span></code></p></li>
@@ -1205,16 +1201,16 @@ including <a class="reference external" href="https://github.com/pytorch/torchti
 </section>
 </section>
 <section id="multi-gpu-user-api">
-<h1>Multi GPU User API<a class="headerlink" href="#multi-gpu-user-api" title="Permalink to this heading">#</a></h1>
+<h3>Multi GPU User API<a class="headerlink" href="#multi-gpu-user-api" title="Permalink to this heading">#</a></h3>
 <p>We compose with the <code class="docutils literal notranslate"><span class="pre">DTensor</span></code> based <a class="reference external" href="https://pytorch.org/docs/stable/distributed.tensor.parallel.html">distributed APIs</a>,
 such as FSDP, TP and SP. Please see the <a class="reference external" href="https://github.com/pytorch/torchtitan/blob/main/docs/float8.md">torchtitan</a> repository for e2e examples
 on using <code class="docutils literal notranslate"><span class="pre">torchao.float8</span></code> in a distributed setting.</p>
 </section>
 <section id="performance">
-<h1>Performance<a class="headerlink" href="#performance" title="Permalink to this heading">#</a></h1>
+<h3>Performance<a class="headerlink" href="#performance" title="Permalink to this heading">#</a></h3>
 <p>A common question about float8 training is “when is float8 linear faster vs bfloat16?”.  Given the M, K, N of the forward pass through your linear, you can reference the tables below for a microbenchmark based speedup estimate on NVIDIA H100:</p>
 <section id="tensorwise-scaling">
-<h2>tensorwise scaling<a class="headerlink" href="#tensorwise-scaling" title="Permalink to this heading">#</a></h2>
+<h4>tensorwise scaling<a class="headerlink" href="#tensorwise-scaling" title="Permalink to this heading">#</a></h4>
 <img width="753" height="773" alt="Image" src="https://github.com/user-attachments/assets/e46c671a-ed35-41b4-b17c-50caf1629ecb" />
 <div class="highlight-lang=shell notranslate"><div class="highlight"><pre><span></span># reproduction: run the script below
 python benchmarks/float8/float8_roofline.py your_output_filename.csv --shape_gen_name sweep
@@ -1222,7 +1218,7 @@ python benchmarks/float8/float8_roofline.py your_output_filename.csv --shape_gen
 </div>
 </section>
 <section id="rowwise-scaling">
-<h2>rowwise scaling<a class="headerlink" href="#rowwise-scaling" title="Permalink to this heading">#</a></h2>
+<h4>rowwise scaling<a class="headerlink" href="#rowwise-scaling" title="Permalink to this heading">#</a></h4>
 <img width="755" height="778" alt="Image" src="https://github.com/user-attachments/assets/7d70ba36-f480-459f-b5c0-797895332631" />
 <div class="highlight-lang=shell notranslate"><div class="highlight"><pre><span></span># reproduction: run the script below
 python benchmarks/float8/float8_roofline.py your_output_filename.csv --shape_gen_name sweep --float8_recipe_name rowwise
@@ -1230,7 +1226,7 @@ python benchmarks/float8/float8_roofline.py your_output_filename.csv --shape_gen
 </div>
 </section>
 <section id="rowwise-with-gw-hp-scaling">
-<h2>rowwise_with_gw_hp scaling<a class="headerlink" href="#rowwise-with-gw-hp-scaling" title="Permalink to this heading">#</a></h2>
+<h4>rowwise_with_gw_hp scaling<a class="headerlink" href="#rowwise-with-gw-hp-scaling" title="Permalink to this heading">#</a></h4>
 <img width="750" height="797" alt="Image" src="https://github.com/user-attachments/assets/e4479abc-1aca-436d-a142-60e5e804ff10" />
 <div class="highlight-lang=shell notranslate"><div class="highlight"><pre><span></span># reproduction: run the script below
 python benchmarks/float8/float8_roofline.py your_output_filename.csv --shape_gen_name sweep --float8_recipe_name rowwise_with_gw_hp
@@ -1238,7 +1234,7 @@ python benchmarks/float8/float8_roofline.py your_output_filename.csv --shape_gen
 </div>
 </section>
 <section id="derivation">
-<h2>Derivation<a class="headerlink" href="#derivation" title="Permalink to this heading">#</a></h2>
+<h4>Derivation<a class="headerlink" href="#derivation" title="Permalink to this heading">#</a></h4>
 <p>In a bf16 linear, assume all of the time is spent in gemms.  In a float8 linear, account for max_abs and casting overhead.  We want to know when</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">bf16_gemm_time</span> <span class="o">&gt;</span> <span class="n">fp8_gemm_time</span> <span class="o">+</span> <span class="n">fp8_overhead_time</span>
 </pre></div>
@@ -1257,7 +1253,7 @@ python benchmarks/float8/float8_roofline.py your_output_filename.csv --shape_gen
 </section>
 </section>
 <section id="testing">
-<h1>Testing<a class="headerlink" href="#testing" title="Permalink to this heading">#</a></h1>
+<h3>Testing<a class="headerlink" href="#testing" title="Permalink to this heading">#</a></h3>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># run single-GPU unit tests</span>
 pytest<span class="w"> </span>test/float8/test_base.py
 
@@ -1282,10 +1278,10 @@ python<span class="w"> </span>test/float8/test_fsdp2/test_fsdp2.py
 </div>
 </section>
 <section id="e2e-training-inference-flow">
-<h1>E2E training + inference flow<a class="headerlink" href="#e2e-training-inference-flow" title="Permalink to this heading">#</a></h1>
+<h3>E2E training + inference flow<a class="headerlink" href="#e2e-training-inference-flow" title="Permalink to this heading">#</a></h3>
 <p>The first step in the E2E is to train your model and save a checkpoint. The second step is to load the checkpoint and optionally apply inference quantization before serving the model.</p>
 <section id="train-model-and-save-checkpoint">
-<h2>1. Train model and save checkpoint<a class="headerlink" href="#train-model-and-save-checkpoint" title="Permalink to this heading">#</a></h2>
+<h4>1. Train model and save checkpoint<a class="headerlink" href="#train-model-and-save-checkpoint" title="Permalink to this heading">#</a></h4>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torch</span><span class="w"> </span><span class="kn">import</span> <span class="n">nn</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn.functional</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">F</span>
@@ -1340,9 +1336,9 @@ python<span class="w"> </span>test/float8/test_fsdp2/test_fsdp2.py
 </div>
 </section>
 <section id="load-checkpoint-and-optionally-apply-inference-quantization">
-<h2>2. Load checkpoint and optionally apply inference quantization<a class="headerlink" href="#load-checkpoint-and-optionally-apply-inference-quantization" title="Permalink to this heading">#</a></h2>
+<h4>2. Load checkpoint and optionally apply inference quantization<a class="headerlink" href="#load-checkpoint-and-optionally-apply-inference-quantization" title="Permalink to this heading">#</a></h4>
 <p>There are 3 float8 inference quantization strategies that be used after training with float8: 1) weight only quantization, and 2) dynamic activation and weight quantization, and 3) static quantization.</p>
-<p>Below is an example of dynamic activation and weight quantization. For more details, examples, and inference benchmrks, see the <a class="reference internal" href="inference_quantization.html"><span class="doc std std-doc">torchao inference docs</span></a>.</p>
+<p>Below is an example of dynamic activation and weight quantization. For more details, examples, and inference benchmrks, see the <a class="reference internal" href="inference.html"><span class="doc std std-doc">torchao inference docs</span></a>.</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.float8.float8_linear</span><span class="w"> </span><span class="kn">import</span> <span class="n">Float8Linear</span>
@@ -1367,6 +1363,8 @@ python<span class="w"> </span>test/float8/test_fsdp2/test_fsdp2.py
     <span class="nb">print</span><span class="p">(</span><span class="n">out</span><span class="p">)</span>
 </pre></div>
 </div>
+</section>
+</section>
 </section>
 </section>
 
@@ -1487,39 +1485,38 @@ python<span class="w"> </span>test/float8/test_fsdp2/test_fsdp2.py
   </div>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
-<li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#">torchao.float8</a><ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#key-features">Key features</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#quick-start">Quick Start</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#float8">float8</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#key-features">Key features</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#quick-start">Quick Start</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#e2e-training-benchmarks">e2e training benchmarks</a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#nvidia-h100">NVIDIA H100</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#amd-mi300x">AMD MI300x</a></li>
 </ul>
 </li>
-<li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#e2e-training-benchmarks">e2e training benchmarks</a><ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#nvidia-h100">NVIDIA H100</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#amd-mi300x">AMD MI300x</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#multi-gpu-user-api">Multi GPU User API</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#performance">Performance</a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#tensorwise-scaling">tensorwise scaling</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#rowwise-scaling">rowwise scaling</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#rowwise-with-gw-hp-scaling">rowwise_with_gw_hp scaling</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#derivation">Derivation</a></li>
 </ul>
 </li>
-<li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#multi-gpu-user-api">Multi GPU User API</a></li>
-<li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#performance">Performance</a><ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#tensorwise-scaling">tensorwise scaling</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#rowwise-scaling">rowwise scaling</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#rowwise-with-gw-hp-scaling">rowwise_with_gw_hp scaling</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#derivation">Derivation</a></li>
-</ul>
-</li>
-<li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#testing">Testing</a></li>
-<li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#e2e-training-inference-flow">E2E training + inference flow</a><ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#train-model-and-save-checkpoint">1. Train model and save checkpoint</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#load-checkpoint-and-optionally-apply-inference-quantization">2. Load checkpoint and optionally apply inference quantization</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#testing">Testing</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#e2e-training-inference-flow">E2E training + inference flow</a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#train-model-and-save-checkpoint">1. Train model and save checkpoint</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#load-checkpoint-and-optionally-apply-inference-quantization">2. Load checkpoint and optionally apply inference quantization</a></li>
 </ul>
 </li>
 </ul>
-
+</li>
+</ul>
   </nav></div>
     
        <div class="sidebar-secondary-item">
 
   
   <div class="tocsection editthispage">
-    <a href="https://github.com/pytorch/ao/edit/main/docs/source/workflows/float8_training.md">
+    <a href="https://github.com/pytorch/ao/edit/main/docs/source/workflows/training.md">
       <i class="fa-solid fa-pencil"></i>
       
       
@@ -1533,7 +1530,7 @@ python<span class="w"> </span>test/float8/test_fsdp2/test_fsdp2.py
     
        <div class="sidebar-secondary-item">
     <div class="tocsection sourcelink">
-      <a href="../_sources/workflows/float8_training.md.txt">
+      <a href="../_sources/workflows/training.md.txt">
         <i class="fa-solid fa-file-lines"></i> Show Source
       </a>
     </div>
@@ -1733,11 +1730,11 @@ python<span class="w"> </span>test/float8/test_fsdp2/test_fsdp2.py
     {
        "@context": "https://schema.org",
        "@type": "Article",
-       "name": "torchao.float8",
-       "headline": "torchao.float8",
+       "name": "Quantized Training",
+       "headline": "Quantized Training",
        "description": "PyTorch Documentation. Explore PyTorch, an open-source machine learning library that accelerates the path from research prototyping to production deployment. Discover tutorials, API references, and guides to help you build and deploy deep learning models efficiently.",
-       "url": "/workflows/float8_training.html",
-       "articleBody": "torchao.float8# Created On: Jan 31, 2026 | Last Updated On: Jan 31, 2026 This is a workflow for accelerating training with float8 in native PyTorch. With torch.compile on, we demonstrate e2e pretraining throughput speedups of up to 1.5x at 512 GPU / 405B parameter count scale, and up to 1.25x at 8 GPU / 8B parameter count scale. The codebase strives to stay small, hackable, debuggable with native PyTorch tooling and composable with key systems such as autograd, torch.compile and distributed. Key features# e2e pretraining speedups of up to 1.5x at 512 GPU / 405B parameter count scale, and up to 1.25x at 8 GPU / 8B parameter count scale, with performance and accuracy validated on up to 2k GPUs, via torchtitan\u2019s float8 integration seamless composability with torch.compile, DTensor, FSDP2 with float8 weight all-gather, Async TP, and PyTorch AC three recipes to trade off performance vs accuracy: tensorwise (fastest), rowwise, rowwise_with_gw_hp (most accurate) supports both NVIDIA and AMD hardware \u2139\ufe0f See the feature tracker for upcoming features. Quick Start# import torch import torch.nn as nn from torchao.float8 import Float8LinearConfig, convert_to_float8_training # create model and sample input m = ( nn.Sequential( nn.Linear(8192, 4096, bias=False), nn.Linear(4096, 128, bias=False), ) .bfloat16() .cuda() ) optimizer = torch.optim.SGD(m.parameters(), lr=0.1) # optional: filter modules from being eligible for float8 conversion def module_filter_fn(mod: torch.nn.Module, fqn: str): # don\u0027t convert the last module if fqn == \"1\": return False # don\u0027t convert linear modules with weight dimensions not divisible by 16 if isinstance(mod, torch.nn.Linear): if mod.in_features % 16 != 0 or mod.out_features % 16 != 0: return False return True # configure float8 recipe # valid recipe names: \"tensorwise\", \"rowwise\", \"rowwise_with_gw_hp\" config = Float8LinearConfig.from_recipe_name(\"tensorwise\") # convert specified `torch.nn.Linear` modules to `Float8Linear` convert_to_float8_training(m, config=config, module_filter_fn=module_filter_fn) # enable torch.compile for competitive performance m = torch.compile(m) # training loop x = torch.randn(4096, 8192, device=\"cuda\", dtype=torch.bfloat16) for _ in range(10): optimizer.zero_grad() y = m(x) y.sum().backward() optimizer.step() e2e training benchmarks# Torchtitan was used to benchmark float8 training performance. NVIDIA H100# Single-node training on 8xH100 GPUs, batch size 1, sequence length 8192, steps 100, torch.compile, FSDP2, per-op SAC pytorch version: 2.7.0a0+gitb98af95, torchao version: 0.10.0+git890e0ac8, torchtitan version: 0.0.2 Model Scaling Peak Memory (GB) Median tokens/second Speedup over baseline Llama3-8b none (bfloat16) 47.65 6150 - Llama3-8b tensorwise with float8 all-gather 47.77 7689.5 25.03% Llama3-8b rowwise with bfloat16 all-gather 47.79 6768 10.05% AMD MI300x# Single-node training on 8xMI300X GPUs, batch size 1, sequence length 8192, steps 100, torch.compile, FSDP2, per-op SAC pytorch version: 2.9.0.dev20250811+rocm6.4, torchao version 0.13.0+git4fc4068d6, torchtitan commit 2c8b5947991239913d67e2f7d22a255c3e2a9694 Model Scaling Peak Memory (GB) Median tokens/second Speedup over baseline Llama3-8b none (bfloat16) 39.09 5376.5 - Llama3-8b tensorwise with float8 all-gather 39.07 6166.0 14.68% Llama3-8b rowwise_with_gw_hp with bfloat16 all-gather 39.32 6100.0 13.46% Llama3-8b rowwise with bfloat16 all-gather 39.32 5891.0 9.57% Important notes: E2E speedups increase as M,K,N (GEMM dimensions) increase. Speedups as high as 1.5x have been measured with larger shapes (example). Rowwise scaling is better at handling outliers than tensorwise scaling, so these recipes are different points on the accuracy vs performance curve. Reproducing training benchmarks To reproduce these benchmarks, you can follow these steps: On a machine with compatible GPUs, clone torchtitan and follow local installation steps, including downloading a tokenizer. Install torchao following these steps. From the torchao/ directory, you can run the following commands to reproduce the benchmarks above: bf16 + compile: TORCHTITAN_ROOT=\u003cpath\u003e ./benchmarks/float8/training/llama3.sh float8 tensorwise with float8 all-gather + compile: TORCHTITAN_ROOT=\u003cpath\u003e FLOAT8_RECIPE_WITH_BEST_SETTINGS=\"tensorwise\" ./benchmarks/float8/training/llama3.sh float8 rowwise with bf16 all-gather + compile: TORCHTITAN_ROOT=\u003cpath\u003e FLOAT8_RECIPE_WITH_BEST_SETTINGS=\"rowwise\" ./benchmarks/float8/training/llama3.sh See the float8 training benchmarking guide for more details. Multi GPU User API# We compose with the DTensor based distributed APIs, such as FSDP, TP and SP. Please see the torchtitan repository for e2e examples on using torchao.float8 in a distributed setting. Performance# A common question about float8 training is \u201cwhen is float8 linear faster vs bfloat16?\u201d. Given the M, K, N of the forward pass through your linear, you can reference the tables below for a microbenchmark based speedup estimate on NVIDIA H100: tensorwise scaling# # reproduction: run the script below python benchmarks/float8/float8_roofline.py your_output_filename.csv --shape_gen_name sweep rowwise scaling# # reproduction: run the script below python benchmarks/float8/float8_roofline.py your_output_filename.csv --shape_gen_name sweep --float8_recipe_name rowwise rowwise_with_gw_hp scaling# # reproduction: run the script below python benchmarks/float8/float8_roofline.py your_output_filename.csv --shape_gen_name sweep --float8_recipe_name rowwise_with_gw_hp Derivation# In a bf16 linear, assume all of the time is spent in gemms. In a float8 linear, account for max_abs and casting overhead. We want to know when bf16_gemm_time \u003e fp8_gemm_time + fp8_overhead_time Or, equivalently, bf16_gemm_time - fp8_gemm_time \u003e fp8_overhead_time There are three observations we can make about the formula above: LHS \u003e 0 for large shapes, with the gemm speedup approaching 2x as M, K, N increase LHS \u003c 0 for small shapes, on NVIDIA H100 + cuBLAS RHS \u003e 0 for all shapes, bounded by memory bandwidth, framework overhead and compiler limitations For small shapes, a combination of (2) and (3) leads to speedup \u003c 1. For medium shapes, (1) and (3) are of similar magnitude and the speedup depends on M, K, N and framework and compiler behavior. For large shapes, (1) leads to speedup \u003e 1. Testing# # run single-GPU unit tests pytest test/float8/test_base.py # run single-GPU compile tests pytest test/float8/test_compile.py # run single-GPU numerics integration tests pytest test/float8/test_numerics_integration.py # run a two-GPU integration test on FSDP ./test/float8/test_fsdp.sh # run integration tests on the DTensor TP/SP integration ./test/float8/test_dtensor.sh # run integration tests on the FSDP2 integration python test/float8/test_fsdp2/test_fsdp2.py # run all of these tests ./test/float8/test_everything.sh E2E training + inference flow# The first step in the E2E is to train your model and save a checkpoint. The second step is to load the checkpoint and optionally apply inference quantization before serving the model. 1. Train model and save checkpoint# import torch from torch import nn import torch.nn.functional as F from torchao.float8.float8_linear_utils import convert_to_float8_training from torchao.float8.float8_linear import Float8Linear from torchao.float8 import convert_to_float8_training # create model and sample input m = nn.Sequential( nn.Linear(2048, 4096), nn.Linear(4096, 128), nn.Linear(128, 1), ).bfloat16().cuda() x = torch.randn(4096, 2048, device=\"cuda\", dtype=torch.bfloat16) optimizer = torch.optim.AdamW(m.parameters(), lr=1e-3) # optional: filter modules from being eligible for float8 conversion def module_filter_fn(mod: torch.nn.Module, fqn: str): # don\u0027t convert the last module if fqn == \"1\": return False # don\u0027t convert linear modules with weight dimensions not divisible by 16 if isinstance(mod, torch.nn.Linear): if mod.in_features % 16 != 0 or mod.out_features % 16 != 0: return False return True # convert specified `torch.nn.Linear` modules to `Float8Linear` convert_to_float8_training(m, module_filter_fn=module_filter_fn) # enable torch.compile for competitive performance m = torch.compile(m) # toy training loop for _ in range(10): optimizer.zero_grad() output = m(x) # use fake labels for demonstration purposes fake_labels = torch.ones_like(output) loss = F.mse_loss(output, fake_labels) loss.backward() optimizer.step() # save the model torch.save({ \u0027model\u0027: m, \u0027model_state_dict\u0027: m.state_dict(), \u0027optimizer_state_dict\u0027: optimizer.state_dict(), }, \u0027checkpoint.pth\u0027) 2. Load checkpoint and optionally apply inference quantization# There are 3 float8 inference quantization strategies that be used after training with float8: 1) weight only quantization, and 2) dynamic activation and weight quantization, and 3) static quantization. Below is an example of dynamic activation and weight quantization. For more details, examples, and inference benchmrks, see the torchao inference docs. import torch from torchao.float8.float8_linear import Float8Linear from torchao.quantization.granularity import PerTensor from torchao.quantization.quant_api import quantize_ from torchao.quantization import ( Float8DynamicActivationFloat8WeightConfig, ) # load checkpoint checkpoint = torch.load(\u0027checkpoint.pth\u0027, weights_only=False) model = checkpoint[\u0027model\u0027] model.load_state_dict(checkpoint[\u0027model_state_dict\u0027]) # optional: apply dynamic float8 quantization on both activations and weights for inference quantize_(model, Float8DynamicActivationFloat8WeightConfig(granularity=PerTensor())) # run inference x = torch.randn(1, 4096, 2048, device=\"cuda\", dtype=torch.bfloat16) with torch.inference_mode(): out = model(x) print(out)",
+       "url": "/workflows/training.html",
+       "articleBody": "Quantized Training# Created On: Feb 02, 2026 | Last Updated On: Feb 02, 2026 float8# This is a workflow for accelerating training with float8 in native PyTorch. With torch.compile on, we demonstrate e2e pretraining throughput speedups of up to 1.5x at 512 GPU / 405B parameter count scale, and up to 1.25x at 8 GPU / 8B parameter count scale. The codebase strives to stay small, hackable, debuggable with native PyTorch tooling and composable with key systems such as autograd, torch.compile and distributed. Key features# e2e pretraining speedups of up to 1.5x at 512 GPU / 405B parameter count scale, and up to 1.25x at 8 GPU / 8B parameter count scale, with performance and accuracy validated on up to 2k GPUs, via torchtitan\u2019s float8 integration seamless composability with torch.compile, DTensor, FSDP2 with float8 weight all-gather, Async TP, and PyTorch AC three recipes to trade off performance vs accuracy: tensorwise (fastest), rowwise, rowwise_with_gw_hp (most accurate) supports both NVIDIA and AMD hardware \u2139\ufe0f See the feature tracker for upcoming features. Quick Start# import torch import torch.nn as nn from torchao.float8 import Float8LinearConfig, convert_to_float8_training # create model and sample input m = ( nn.Sequential( nn.Linear(8192, 4096, bias=False), nn.Linear(4096, 128, bias=False), ) .bfloat16() .cuda() ) optimizer = torch.optim.SGD(m.parameters(), lr=0.1) # optional: filter modules from being eligible for float8 conversion def module_filter_fn(mod: torch.nn.Module, fqn: str): # don\u0027t convert the last module if fqn == \"1\": return False # don\u0027t convert linear modules with weight dimensions not divisible by 16 if isinstance(mod, torch.nn.Linear): if mod.in_features % 16 != 0 or mod.out_features % 16 != 0: return False return True # configure float8 recipe # valid recipe names: \"tensorwise\", \"rowwise\", \"rowwise_with_gw_hp\" config = Float8LinearConfig.from_recipe_name(\"tensorwise\") # convert specified `torch.nn.Linear` modules to `Float8Linear` convert_to_float8_training(m, config=config, module_filter_fn=module_filter_fn) # enable torch.compile for competitive performance m = torch.compile(m) # training loop x = torch.randn(4096, 8192, device=\"cuda\", dtype=torch.bfloat16) for _ in range(10): optimizer.zero_grad() y = m(x) y.sum().backward() optimizer.step() e2e training benchmarks# Torchtitan was used to benchmark float8 training performance. NVIDIA H100# Single-node training on 8xH100 GPUs, batch size 1, sequence length 8192, steps 100, torch.compile, FSDP2, per-op SAC pytorch version: 2.7.0a0+gitb98af95, torchao version: 0.10.0+git890e0ac8, torchtitan version: 0.0.2 Model Scaling Peak Memory (GB) Median tokens/second Speedup over baseline Llama3-8b none (bfloat16) 47.65 6150 - Llama3-8b tensorwise with float8 all-gather 47.77 7689.5 25.03% Llama3-8b rowwise with bfloat16 all-gather 47.79 6768 10.05% AMD MI300x# Single-node training on 8xMI300X GPUs, batch size 1, sequence length 8192, steps 100, torch.compile, FSDP2, per-op SAC pytorch version: 2.9.0.dev20250811+rocm6.4, torchao version 0.13.0+git4fc4068d6, torchtitan commit 2c8b5947991239913d67e2f7d22a255c3e2a9694 Model Scaling Peak Memory (GB) Median tokens/second Speedup over baseline Llama3-8b none (bfloat16) 39.09 5376.5 - Llama3-8b tensorwise with float8 all-gather 39.07 6166.0 14.68% Llama3-8b rowwise_with_gw_hp with bfloat16 all-gather 39.32 6100.0 13.46% Llama3-8b rowwise with bfloat16 all-gather 39.32 5891.0 9.57% Important notes: E2E speedups increase as M,K,N (GEMM dimensions) increase. Speedups as high as 1.5x have been measured with larger shapes (example). Rowwise scaling is better at handling outliers than tensorwise scaling, so these recipes are different points on the accuracy vs performance curve. Reproducing training benchmarks To reproduce these benchmarks, you can follow these steps: On a machine with compatible GPUs, clone torchtitan and follow local installation steps, including downloading a tokenizer. Install torchao following these steps. From the torchao/ directory, you can run the following commands to reproduce the benchmarks above: bf16 + compile: TORCHTITAN_ROOT=\u003cpath\u003e ./benchmarks/float8/training/llama3.sh float8 tensorwise with float8 all-gather + compile: TORCHTITAN_ROOT=\u003cpath\u003e FLOAT8_RECIPE_WITH_BEST_SETTINGS=\"tensorwise\" ./benchmarks/float8/training/llama3.sh float8 rowwise with bf16 all-gather + compile: TORCHTITAN_ROOT=\u003cpath\u003e FLOAT8_RECIPE_WITH_BEST_SETTINGS=\"rowwise\" ./benchmarks/float8/training/llama3.sh See the float8 training benchmarking guide for more details. Multi GPU User API# We compose with the DTensor based distributed APIs, such as FSDP, TP and SP. Please see the torchtitan repository for e2e examples on using torchao.float8 in a distributed setting. Performance# A common question about float8 training is \u201cwhen is float8 linear faster vs bfloat16?\u201d. Given the M, K, N of the forward pass through your linear, you can reference the tables below for a microbenchmark based speedup estimate on NVIDIA H100: tensorwise scaling# # reproduction: run the script below python benchmarks/float8/float8_roofline.py your_output_filename.csv --shape_gen_name sweep rowwise scaling# # reproduction: run the script below python benchmarks/float8/float8_roofline.py your_output_filename.csv --shape_gen_name sweep --float8_recipe_name rowwise rowwise_with_gw_hp scaling# # reproduction: run the script below python benchmarks/float8/float8_roofline.py your_output_filename.csv --shape_gen_name sweep --float8_recipe_name rowwise_with_gw_hp Derivation# In a bf16 linear, assume all of the time is spent in gemms. In a float8 linear, account for max_abs and casting overhead. We want to know when bf16_gemm_time \u003e fp8_gemm_time + fp8_overhead_time Or, equivalently, bf16_gemm_time - fp8_gemm_time \u003e fp8_overhead_time There are three observations we can make about the formula above: LHS \u003e 0 for large shapes, with the gemm speedup approaching 2x as M, K, N increase LHS \u003c 0 for small shapes, on NVIDIA H100 + cuBLAS RHS \u003e 0 for all shapes, bounded by memory bandwidth, framework overhead and compiler limitations For small shapes, a combination of (2) and (3) leads to speedup \u003c 1. For medium shapes, (1) and (3) are of similar magnitude and the speedup depends on M, K, N and framework and compiler behavior. For large shapes, (1) leads to speedup \u003e 1. Testing# # run single-GPU unit tests pytest test/float8/test_base.py # run single-GPU compile tests pytest test/float8/test_compile.py # run single-GPU numerics integration tests pytest test/float8/test_numerics_integration.py # run a two-GPU integration test on FSDP ./test/float8/test_fsdp.sh # run integration tests on the DTensor TP/SP integration ./test/float8/test_dtensor.sh # run integration tests on the FSDP2 integration python test/float8/test_fsdp2/test_fsdp2.py # run all of these tests ./test/float8/test_everything.sh E2E training + inference flow# The first step in the E2E is to train your model and save a checkpoint. The second step is to load the checkpoint and optionally apply inference quantization before serving the model. 1. Train model and save checkpoint# import torch from torch import nn import torch.nn.functional as F from torchao.float8.float8_linear_utils import convert_to_float8_training from torchao.float8.float8_linear import Float8Linear from torchao.float8 import convert_to_float8_training # create model and sample input m = nn.Sequential( nn.Linear(2048, 4096), nn.Linear(4096, 128), nn.Linear(128, 1), ).bfloat16().cuda() x = torch.randn(4096, 2048, device=\"cuda\", dtype=torch.bfloat16) optimizer = torch.optim.AdamW(m.parameters(), lr=1e-3) # optional: filter modules from being eligible for float8 conversion def module_filter_fn(mod: torch.nn.Module, fqn: str): # don\u0027t convert the last module if fqn == \"1\": return False # don\u0027t convert linear modules with weight dimensions not divisible by 16 if isinstance(mod, torch.nn.Linear): if mod.in_features % 16 != 0 or mod.out_features % 16 != 0: return False return True # convert specified `torch.nn.Linear` modules to `Float8Linear` convert_to_float8_training(m, module_filter_fn=module_filter_fn) # enable torch.compile for competitive performance m = torch.compile(m) # toy training loop for _ in range(10): optimizer.zero_grad() output = m(x) # use fake labels for demonstration purposes fake_labels = torch.ones_like(output) loss = F.mse_loss(output, fake_labels) loss.backward() optimizer.step() # save the model torch.save({ \u0027model\u0027: m, \u0027model_state_dict\u0027: m.state_dict(), \u0027optimizer_state_dict\u0027: optimizer.state_dict(), }, \u0027checkpoint.pth\u0027) 2. Load checkpoint and optionally apply inference quantization# There are 3 float8 inference quantization strategies that be used after training with float8: 1) weight only quantization, and 2) dynamic activation and weight quantization, and 3) static quantization. Below is an example of dynamic activation and weight quantization. For more details, examples, and inference benchmrks, see the torchao inference docs. import torch from torchao.float8.float8_linear import Float8Linear from torchao.quantization.granularity import PerTensor from torchao.quantization.quant_api import quantize_ from torchao.quantization import ( Float8DynamicActivationFloat8WeightConfig, ) # load checkpoint checkpoint = torch.load(\u0027checkpoint.pth\u0027, weights_only=False) model = checkpoint[\u0027model\u0027] model.load_state_dict(checkpoint[\u0027model_state_dict\u0027]) # optional: apply dynamic float8 quantization on both activations and weights for inference quantize_(model, Float8DynamicActivationFloat8WeightConfig(granularity=PerTensor())) # run inference x = torch.randn(1, 4096, 2048, device=\"cuda\", dtype=torch.bfloat16) with torch.inference_mode(): out = model(x) print(out)",
        "author": {
          "@type": "Organization",
          "name": "PyTorch Contributors",
@@ -1746,10 +1743,10 @@ python<span class="w"> </span>test/float8/test_fsdp2/test_fsdp2.py
        "image": "https://pytorch.org/docs/stable/_static/img/pytorch_seo.png",
        "mainEntityOfPage": {
          "@type": "WebPage",
-         "@id": "/workflows/float8_training.html"
+         "@id": "/workflows/training.html"
        },
-       "datePublished": "Jan 31, 2026T00:00:00Z",
-       "dateModified": "Jan 31, 2026T00:00:00Z"
+       "datePublished": "Feb 02, 2026T00:00:00Z",
+       "dateModified": "Feb 02, 2026T00:00:00Z"
      }
  </script>
   <script>
