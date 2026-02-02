@@ -105,6 +105,7 @@ class NVFP4Tensor(TorchAOBaseTensor):
 
         self.qdata = qdata
         self.scale = scale
+        # TODO(future PR): make block_size multi-dimensional
         self.block_size = block_size
         self.orig_dtype = orig_dtype
         self.per_tensor_scale = per_tensor_scale
@@ -600,6 +601,73 @@ def nvfp4_addmm(func, types, args, kwargs):
                 use_triton_kernel=k.use_triton_kernel,
             )
         return _addmm_nvfp4_dispatch(input_tensor, weight_tensor, func, bias=bias)
+
+
+@implements([aten.expand.default])
+def nvfp4_expand(func, types, args, kwargs):
+    x = args[0]
+    sizes = args[1]
+    assert len(x.shape) == 2, f"unsupported {len(x.shape)=}"
+    assert len(sizes) == 3, f"unsupported {sizes=}"
+    assert x.shape[0] == sizes[1], f"unsupported {x.shape=}, {sizes=}"
+    assert x.shape[1] == sizes[2], f"unsupported {x.shape=}, {sizes=}"
+    # adjust qdata size for fp4 x2 packing
+    qdata_sizes = (sizes[0], *x.qdata.shape)
+    new_qdata = func(x.qdata, qdata_sizes, **kwargs)
+    # adjust scale sizes for block_size
+    scale_sizes = (sizes[0], *x.scale.shape)
+    new_scale = func(x.scale, scale_sizes, **kwargs)
+
+    return NVFP4Tensor(
+        new_qdata,
+        new_scale,
+        x.block_size,
+        x.orig_dtype,
+        x.per_tensor_scale,
+        x.act_per_tensor_scale,
+        x.is_swizzled_scales,
+        x.use_triton_kernel,
+        x.act_quant_kwargs,
+    )
+
+
+@implements([aten.view.default])
+def nvfp4_view(func, types, args, kwargs):
+    x = args[0]
+    new_shape = args[1]
+    if list(x.shape) == new_shape:
+        # fast path when old_shape == new_shape
+        return NVFP4Tensor(
+            x.qdata,
+            x.scale,
+            x.block_size,
+            x.orig_dtype,
+            x.per_tensor_scale,
+            x.act_per_tensor_scale,
+            x.is_swizzled_scales,
+            x.use_triton_kernel,
+            x.act_quant_kwargs,
+        )
+
+    raise AssertionError("unsupported")
+
+
+@implements([aten.bmm.default])
+def nvfp4_bmm(func, types, args, kwargs):
+    # slow fallback path, for two reasons:
+    # 1. we do not have a nvfp4 bmm kernel yet, so we call B mm kernels
+    # 2. torch._scaled_mm and F.scaled_mm do not support an `out` arg,
+    #    so we have write out the output N times and then copy it to
+    #    the final destination
+    A = args[0]
+    B = args[1]
+    C_list = []
+    for idx in range(A.shape[0]):
+        a = A[idx]
+        b = B[idx]
+        C_list.append(torch.mm(a, b, **kwargs))
+    C = torch.cat(C_list, dim=0)
+    return C
 
 
 def per_tensor_amax_to_scale(amax: torch.Tensor) -> torch.Tensor:

@@ -240,6 +240,51 @@ def test_inference_workflow_nvfp4(
     )
 
 
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(not is_sm_at_least_100(), reason="requires CUDA capability 10.0+")
+@pytest.mark.skipif(
+    not torch_version_at_least("2.8.0"), reason="torch.compile requires PyTorch 2.8+"
+)
+@torch.no_grad()
+@skip_if_rocm("ROCm float4 gemm require gfx950")
+def test_nvfp4_bmm_decomp():
+    """
+    Verifies the nvfp4 workflow works when the activation is non-contiguous
+    and `torch.bmm` is called.
+    """
+    # Create a Linear layer and quantize it
+    in_features, out_features = 128, 64
+    linear = torch.nn.Linear(in_features, out_features, bias=True).cuda().bfloat16()
+
+    config = NVFP4DynamicActivationNVFP4WeightConfig()
+    quantize_(linear, config=config)
+
+    # Create a tensor and split it to produce a non-contiguous view
+    batch, seq_len = 4, 20
+    split_point = 10
+
+    full_tensor = torch.randn(
+        batch, seq_len, in_features, device="cuda", dtype=torch.bfloat16
+    )
+
+    # split_with_sizes returns views - the second chunk is non-contiguous
+    first_chunk, second_chunk = full_tensor.split_with_sizes(
+        [split_point, seq_len - split_point], dim=1
+    )
+    # second_chunk = second_chunk.contiguous()
+
+    print(f"Input shape: {second_chunk.shape}")
+    print(f"Input stride: {second_chunk.stride()}")
+    print(f"Input is_contiguous: {second_chunk.is_contiguous()}")
+    print()
+
+    # This should fail with "aten.expand not implemented"
+    print("Calling linear with non-contiguous input...")
+    _ = linear(second_chunk)
+
+    # TODO(before land): test numerical correctness
+
+
 class VLLMIntegrationTestCase(TorchAOIntegrationTestCase):
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
     @pytest.mark.skipif(
