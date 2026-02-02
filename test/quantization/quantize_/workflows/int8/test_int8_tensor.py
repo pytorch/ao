@@ -214,12 +214,12 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
     @unittest.skipIf(
         not torch_version_at_least("2.7.0"), "torch 2.6.0 and below has custom fx pass"
     )
-    @common_utils.parametrize("device", get_available_devices())
-    def test_available_gpu_kernels(self, device):
+    def test_available_gpu_kernels(self):
         """Check which GPU kernels are used"""
         torch.compiler.reset()
 
         M, K, N = 128, 256, 512
+        device = get_current_accelerator_device()
         m = torch.nn.Sequential(
             torch.nn.Linear(K, N, device=device, dtype=torch.bfloat16)
         )
