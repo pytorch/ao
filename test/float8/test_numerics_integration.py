@@ -25,7 +25,8 @@ from torchao.float8.float8_linear_utils import (
 from torchao.float8.float8_utils import compute_error
 from torchao.testing.training.test_utils import get_test_float8_linear_config
 from torchao.utils import (
-    is_ROCM,
+    is_MI300,
+    is_MI350,
     is_sm_at_least_89,
     is_sm_at_least_90,
 )
@@ -155,7 +156,7 @@ class TestFloat8NumericsIntegrationTest:
         [ScalingType.DYNAMIC],
     )
     @pytest.mark.skipif(
-        not is_ROCM() and not is_sm_at_least_89(), reason="requires SM89 compatible machine"
+        not is_MI300() and not is_MI350() and not is_sm_at_least_89(), reason="requires SM89 compatible machine"
     )
     def test_encoder_fw_bw_from_config_params(
         self,
@@ -179,7 +180,7 @@ class TestFloat8NumericsIntegrationTest:
         ],
     )
     @pytest.mark.skipif(
-        not is_ROCM() and not is_sm_at_least_90(), reason="requires SM90 compatible machine"
+        not is_MI300() and not is_MI350() and not is_sm_at_least_90(), reason="requires SM90 compatible machine"
     )
     def test_encoder_fw_bw_from_recipe(
         self,
