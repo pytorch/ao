@@ -1889,7 +1889,7 @@ def _register_smooth_quant_int_mm_pattern():
     )
 
     def _validate_pattern(match: Match):
-        if len(match.nodes) not in [4, 5, 6, 7, 8, 9, 10, 12]:
+        if len(match.nodes) not in [4, 5, 7, 9]:
             return False
         # Make sure weight is a constant
         aten_int_mm_node = filter_nodes(match.nodes, aten._int_mm.default)[0]
