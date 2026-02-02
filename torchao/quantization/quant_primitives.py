@@ -2423,7 +2423,7 @@ def _quantize_affine_float8_meta(
 def _dequantize_affine_float8_non_decomposed(
     tensor: torch.Tensor,
     scale: torch.Tensor,
-    output_dtype: torch.dtype = torch.float32,
+    output_dtype: torch.dtype,
 ) -> torch.Tensor:
     """
     Dequantizes the float8 tensor to high precision tensor.
@@ -2439,6 +2439,6 @@ def _dequantize_affine_float8_non_decomposed(
 def _dequantize_affine_float8_meta(
     tensor: torch.Tensor,
     scale: torch.Tensor,
-    output_dtype: torch.dtype = torch.float32,
+    output_dtype: torch.dtype,
 ) -> torch.Tensor:
     return torch.empty_like(tensor, dtype=output_dtype)
