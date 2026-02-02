@@ -1856,15 +1856,9 @@ def _register_smooth_quant_int_mm_pattern():
             aten.reshape.default, pattern, KeywordArg("out_shape_no_bias")
         )
 
-    # for torch.compile(dynamic=False)
     pattern_no_bias_1 = _with_outer_reshape(get_pattern_no_bias(expand_a_scale=False))
     pattern_no_bias_1_c1 = _with_outer_reshape(
         get_pattern_no_bias(expand_a_scale=False, convert_a=True)
-    )
-    pattern_no_bias_1_c2 = CallFunction(
-        prims.convert_element_type.default,
-        pattern_no_bias_1_c1,
-        KeywordArg("dtype"),
     )
     pattern_with_bias_1 = CallFunction(
         aten.add.Tensor,
@@ -1879,47 +1873,6 @@ def _register_smooth_quant_int_mm_pattern():
     pattern_with_bias_1_c2 = CallFunction(
         prims.convert_element_type.default,
         pattern_with_bias_1_c1,
-        KeywordArg("dtype"),
-    )
-    # for torch.compile(dynamic=True)
-    pattern_no_bias_2 = _with_outer_reshape(get_pattern_no_bias(expand_a_scale=True))
-    pattern_no_bias_2_c1 = _with_outer_reshape(
-        get_pattern_no_bias(expand_a_scale=True, convert_a=True)
-    )
-    pattern_no_bias_2_c2 = CallFunction(
-        prims.convert_element_type.default,
-        pattern_no_bias_2_c1,
-        KeywordArg("dtype"),
-    )
-    pattern_with_bias_2 = CallFunction(
-        aten.reshape.default,
-        CallFunction(
-            aten.reshape.default,
-            CallFunction(
-                aten.add.Tensor,
-                pattern_no_bias_2,
-                KeywordArg("bias"),
-            ),
-            Arg(),
-        ),
-        KeywordArg("out_shape_with_bias"),
-    )
-    pattern_with_bias_2_c1 = CallFunction(
-        aten.reshape.default,
-        CallFunction(
-            aten.reshape.default,
-            CallFunction(
-                aten.add.Tensor,
-                pattern_no_bias_2_c1,
-                KeywordArg("bias"),
-            ),
-            Arg(),
-        ),
-        KeywordArg("out_shape_with_bias"),
-    )
-    pattern_with_bias_2_c2 = CallFunction(
-        prims.convert_element_type.default,
-        pattern_with_bias_2_c1,
         KeywordArg("dtype"),
     )
 
@@ -1962,16 +1915,10 @@ def _register_smooth_quant_int_mm_pattern():
         return True
 
     pattern_to_pass_number = {
-        pattern_no_bias_2_c2: 0,
-        pattern_no_bias_2: 0,
-        pattern_with_bias_2_c2: 0,
-        pattern_with_bias_2: 0,
-        pattern_no_bias_1_c2: 1,
-        pattern_no_bias_1: 1,
-        pattern_with_bias_1_c2: 1,
-        pattern_with_bias_1: 1,
-        pattern1_with_no_outer_or_act_reshape: 2,
-        pattern2_with_no_outer_or_act_reshape: 2,
+        pattern_with_bias_1_c2: 0,
+        pattern_with_bias_1: 0,
+        pattern1_with_no_outer_or_act_reshape: 1,
+        pattern2_with_no_outer_or_act_reshape: 1,
     }
     for pattern, pass_number in pattern_to_pass_number.items():
 
