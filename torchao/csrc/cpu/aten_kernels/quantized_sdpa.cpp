@@ -2494,11 +2494,15 @@ at::Tensor _qscaled_dot_product_cpu(
     TORCH_CHECK(q_zp == 0 && k_zp == 0 && v_zp == 0 && a_zp == 0 && o_zp == 0,
       "_qscaled_dot_product_cpu: Don't accept zero point for Float8_e4m3");
   }
+  int64_t batch_size = query.size(0);
+  int64_t num_head = query.size(1);
+  int64_t q_seq_len = query.size(2);
+  int64_t head_size = query.size(3);
 
   if (dtype == at::ScalarType::Byte) {
 #ifdef CPU_CAPABILITY_AVX512
       if (at::native::cpublas::could_pack(dtype)) {
-          at::Tensor output = at::empty_like(query, query.options()).transpose(1, 2);
+          at::Tensor output = at::empty({batch_size, q_seq_len, num_head, head_size}, query.options());
           int8_sdpa_fused_kernel(output, query, key, value,
               dropout_p, is_causal, attn_mask, scale,
               q_scale, q_zp,
@@ -2523,7 +2527,7 @@ at::Tensor _qscaled_dot_product_cpu(
 #if defined(CPUBLAS_BRGEMM_F8F8F32) && defined(CPU_CAPABILITY_AVX512)
 // CPUBLAS_BRGEMM_F8F8F32 is defined if FP8 BRGEMM is supported in PyTorch CPUBlas.
       if (at::native::cpublas::could_pack(dtype)) {
-          at::Tensor output = at::empty_like(query, query.options()).transpose(1, 2);
+          at::Tensor output = at::empty({batch_size, q_seq_len, num_head, head_size}, query.options());
           fp8_sdpa_fused_kernel(output, query, key, value,
               dropout_p, is_causal, attn_mask, scale,
               q_scale, k_scale,
