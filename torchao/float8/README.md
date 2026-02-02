@@ -2,4 +2,4 @@
 
 The float8 training documentation has moved to the torchao docs:
 
-https://pytorch.org/ao/main/workflows/float8_training.html
+https://pytorch.org/ao/main/workflows/training.html

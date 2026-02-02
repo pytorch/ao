@@ -1,4 +1,4 @@
-# Inference quantization
+# Quantized Inference
 Typically quantization algorithms will have different schemes for how the activation and weights are quantized so A16W8 for instance means the activations are quantized to 16 bits wheras the weights are quantized to 8 bits. Trying out different quantization schemes in `torchao` is generally a 1 line change. Note: exact APIs are not stable, we may change them in the future.
 
 ## Accuracy benchmarks
