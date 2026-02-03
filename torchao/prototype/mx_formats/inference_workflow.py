@@ -56,6 +56,9 @@ class MXDynamicActivationMXWeightConfig(AOBaseConfig):
     # Which kernel to run for mm
     kernel_preference: KernelPreference = KernelPreference.AUTO
 
+    # How to calculate the block scales
+    scaling_mode: ScaleCalculationMode = ScaleCalculationMode.RCEIL
+
     def __post_init__(self):
         assert self.activation_dtype == self.weight_dtype, (
             "For now - we only support matching input/weight dtypes."
@@ -85,7 +88,7 @@ def _mx_inference_linear_transform(
         block_size=config.block_size,
         kernel_preference=config.kernel_preference,
         is_swizzled_scales=True,
-        scaling_mode=ScaleCalculationMode.RCEIL,
+        scaling_mode=config.scaling_mode,
     )
 
     # Convert weight to MX Tensor
@@ -96,7 +99,7 @@ def _mx_inference_linear_transform(
         kernel_preference=config.kernel_preference,
         act_quant_kwargs=act_quant_kwargs,
         is_swizzled_scales=True,
-        scaling_mode=ScaleCalculationMode.RCEIL,
+        scaling_mode=config.scaling_mode,
     )
 
     module.weight = torch.nn.Parameter(quantized_weight, requires_grad=False)
