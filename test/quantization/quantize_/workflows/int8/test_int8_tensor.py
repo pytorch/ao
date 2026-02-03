@@ -11,6 +11,7 @@ import torch
 from torch._inductor.utils import run_and_get_code
 from torch.testing import FileCheck
 from torch.testing._internal import common_utils
+from torch.utils._triton import has_triton
 
 from torchao.quantization import (
     Int8DynamicActivationInt8WeightConfig,
@@ -251,6 +252,7 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
             weight_cpu.dequantize(), weight_pinned.dequantize(), atol=0, rtol=0
         )
 
+    @unittest.skipIf(not has_triton(), "Triton is not available")
     @common_utils.parametrize("kernel_preference", ["AUTO", "TORCH", "TRITON"])
     def test_kernel_preference(self, kernel_preference):
         """Test that kernel routing works correctly"""
