@@ -90,7 +90,8 @@ from torchao.quantization.quantize_.workflows import (
     QuantizeTensorToFloat8Kwargs,
     QuantizeTensorToInt8Kwargs,
     Sparse2x4CUTLASSFloat8Tensor,
-    _process_granularity,
+    _normalize_granularity_int8,
+    _validate_granularity_int8,
 )
 from torchao.quantization.transform_module import (
     _QUANTIZE_CONFIG_HANDLER,
@@ -1136,7 +1137,10 @@ def _int8_dynamic_activation_int8_weight_quantize_tensor(weight, config):
         )
         quantized_weight = to_linear_activation_quantized(new_weight, input_quant_func)
     else:
-        act_granularity, weight_granularity = _process_granularity(config.granularity)
+        act_granularity, weight_granularity = _normalize_granularity_int8(
+            config.granularity
+        )
+        _validate_granularity_int8((act_granularity, weight_granularity))
         assert config.act_mapping_type == MappingType.SYMMETRIC, (
             "asymmetric dynamic quant not supported currently"
         )
@@ -1218,12 +1222,9 @@ class Int8StaticActivationInt8WeightConfig(AOBaseConfig):
         Returns:
             QuantizeTensorToInt8Kwargs with the configured granularity and mapping type.
         """
-        # If granularity is a list/tuple with 2 elements, use the first one for activation quantization
-        # Otherwise, use the granularity as is
-        if isinstance(self.granularity, (list, tuple)) and len(self.granularity) == 2:
-            act_granularity = self.granularity[0]
-        else:
-            act_granularity = self.granularity
+        act_granularity, weight_granularity = _normalize_granularity_int8(
+            self.granularity
+        )
 
         return QuantizeTensorToInt8Kwargs(
             granularity=act_granularity,
@@ -1238,9 +1239,10 @@ def _int8_static_activation_int8_weight_transform(
     *,
     parameter_name="weight",
 ):
-    activation_granularity, weight_granularity = _process_granularity(
+    activation_granularity, weight_granularity = _normalize_granularity_int8(
         config.granularity
     )
+    _validate_granularity_int8((activation_granularity, weight_granularity))
     # Validate activation granularity for static quantization
     if isinstance(activation_granularity, PerRow) and activation_granularity.dim != -1:
         raise ValueError(

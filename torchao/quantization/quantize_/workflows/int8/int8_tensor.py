@@ -32,13 +32,14 @@ from torchao.utils import TorchAOBaseTensor, fill_defaults
 __all__ = [
     "Int8Tensor",
     "QuantizeTensorToInt8Kwargs",
-    "_process_granularity",
+    "_normalize_granularity_int8",
+    "_validate_granularity_int8",
 ]
 
 aten = torch.ops.aten
 
 
-def _normalize_granularity(
+def _normalize_granularity_int8(
     granularity: Optional[
         Union[
             Granularity,
@@ -69,7 +70,7 @@ def _normalize_granularity(
     return normalized_granularity
 
 
-def _validate_granularity(
+def _validate_granularity_int8(
     granularity: Tuple[Granularity, Granularity],
 ) -> None:
     act_granularity, weight_granularity = granularity
@@ -85,20 +86,6 @@ def _validate_granularity(
             f"Unsupported weight granularity type: {type(weight_granularity)}. "
             f"Only PerTensor and PerRow are supported."
         )
-
-
-def _process_granularity(
-    granularity: Optional[
-        Union[
-            Granularity,
-            Tuple[Granularity, Granularity],
-            list[Granularity],
-        ]
-    ],
-) -> Tuple[Granularity, Granularity]:
-    processed_granularity = _normalize_granularity(granularity)
-    _validate_granularity(processed_granularity)
-    return processed_granularity
 
 
 @dataclass
