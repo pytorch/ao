@@ -106,7 +106,10 @@ def _swap_params(
             )
         if not isinstance(module.data, ScaledGroupedMMTensor):
             new_data = ScaledGroupedMMTensor(
-                module.data, config.scaling_type, config.float8_dtype, config.kernel_preference
+                module.data,
+                config.scaling_type,
+                config.float8_dtype,
+                config.kernel_preference,
             )
             return nn.Parameter(new_data, requires_grad=module.requires_grad)
         return module
@@ -134,7 +137,10 @@ def _swap_params(
                 if not isinstance(param.data, ScaledGroupedMMTensor):
                     new_param = nn.Parameter(
                         ScaledGroupedMMTensor(
-                            param.data, config.scaling_type, config.float8_dtype,config.kernel_preference
+                            param.data,
+                            config.scaling_type,
+                            config.float8_dtype,
+                            config.kernel_preference,
                         ),
                         requires_grad=param.requires_grad,
                     )

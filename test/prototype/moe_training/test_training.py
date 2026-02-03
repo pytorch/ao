@@ -5,10 +5,15 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
-# this feature requires CUDA and SM89+
-if not torch.cuda.is_available() or torch.cuda.get_device_capability() < (8, 9):
+from torchao.utils import is_MI300, is_MI350, is_ROCM
+
+# this feature requires CUDA/ROCm; CUDA path requires SM89+
+if not torch.cuda.is_available() or (
+    not is_ROCM() and torch.cuda.get_device_capability() < (8, 9)
+):
     pytest.skip(
-        "CUDA not available or compute capability < 8.9", allow_module_level=True
+        "CUDA/ROCm not available or (CUDA) compute capability < 8.9",
+        allow_module_level=True,
     )
 
 from torchao.float8.float8_utils import compute_error
@@ -104,14 +109,19 @@ def test_moe_training(
                 "Skipping compile=True with kernel_preference=EMULATED, not currently supported"
             )
 
-    # FP8_ROWWISE hardware path requires SM90
-    if recipe == MoEScalingType.FP8_ROWWISE and torch.cuda.get_device_capability() != (
-        9,
-        0,
+    # FP8_ROWWISE hardware path requires SM90 (CUDA) or MI300/MI350 (ROCm)
+    if recipe == MoEScalingType.FP8_ROWWISE and (
+        (is_ROCM() and not (is_MI300() or is_MI350()))
+        or ((not is_ROCM()) and torch.cuda.get_device_capability() != (9, 0))
     ):
-        pytest.skip(
-            f"Skipping FP8 rowwise tests, only supported on compute capability 9.0 and found {torch.cuda.get_device_capability()}"
-        )
+        if is_ROCM():
+            pytest.skip(
+                "Skipping FP8 rowwise tests on ROCm: only enabled for MI300/MI350"
+            )
+        else:
+            pytest.skip(
+                f"Skipping FP8 rowwise tests, only supported on compute capability 9.0 and found {torch.cuda.get_device_capability()}"
+            )
 
     # MXFP8 hardware path requires SM100
     if (
@@ -121,15 +131,19 @@ def test_moe_training(
             MoEScalingType.MXFP8_WGRAD_WITH_HP,
         )
         and kernel_preference != KernelPreference.EMULATED
-        and torch.cuda.get_device_capability()
-        != (
-            10,
-            0,
+        and (
+            (is_ROCM() and not is_MI350())
+            or ((not is_ROCM()) and torch.cuda.get_device_capability() != (10, 0))
         )
     ):
-        pytest.skip(
-            f"Skipping MXFP8 hardware mode tests, only supported on compute capability 10.0 and found {torch.cuda.get_device_capability()}"
-        )
+        if is_ROCM():
+            pytest.skip(
+                "Skipping MXFP8 hardware mode tests on ROCm: only enabled for MI350"
+            )
+        else:
+            pytest.skip(
+                f"Skipping MXFP8 hardware mode tests, only supported on compute capability 10.0 and found {torch.cuda.get_device_capability()}"
+            )
 
     # Set token group alignment size. This is required so that
     # each logically distinct gemm in the grouped gemm `grad_weight = grad_output_t @ input`
@@ -163,7 +177,15 @@ def test_moe_training(
         return False
 
     # quantize test model
-    config = MoETrainingConfig(scaling_type=recipe, kernel_preference=kernel_preference)
+    config = MoETrainingConfig(
+        scaling_type=recipe,
+        float8_dtype=(
+            torch.float8_e4m3fnuz
+            if (is_MI300() and hasattr(torch, "float8_e4m3fnuz"))
+            else torch.float8_e4m3fn
+        ),
+        kernel_preference=kernel_preference,
+    )
     quantize_(model, config=config, filter_fn=moe_module_filter_fn)
 
     # validate that only the experts were converted

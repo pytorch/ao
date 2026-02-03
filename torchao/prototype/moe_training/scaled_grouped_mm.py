@@ -313,7 +313,7 @@ class _Float8GroupedMM(torch.autograd.Function):
             out_dtype=out_dtype,
             use_fast_accum=True,
         )
-        return grad_A, grad_B.transpose(-2, -1), None, None, None, None
+        return grad_A, grad_B.transpose(-2, -1), None, None, None
 
 
 class _MXFP8GroupedMM(torch.autograd.Function):
@@ -490,7 +490,7 @@ class _MXFP8GroupedMM(torch.autograd.Function):
             wgrad_with_hp,
             kernel_preference,
         )
-        return grad_input, grad_weight_t, None, None, None, None, None, None
+        return grad_input, grad_weight_t, None, None, None, None, None, None, None
 
 
 def _compute_dgrad(
@@ -1017,6 +1017,7 @@ def _to_mxfp8_then_scaled_grouped_mm(
     B_t: torch.Tensor,
     offs: Optional[torch.Tensor] = None,
     block_size: int = 32,
+    float8_dtype: torch.dtype = torch.float8_e4m3fn,
     out_dtype: Optional[torch.dtype] = torch.bfloat16,
     kernel_preference: KernelPreference = KernelPreference.AUTO,
     wgrad_with_hp: bool = False,
@@ -1034,6 +1035,7 @@ def _to_mxfp8_then_scaled_grouped_mm(
             and in "per group column-major memory" layout (i.e., strides of (N*K, 1, N)).
         - offs (int32 torch.Tensor): The offsets to use to mark the end index of each group along the dim0 of the A tensor.
         - block_size (int): The block size to use for mxpf8 quantization. Currently only 32 is supported.
+        - float8_dtype (torch.dtype): The float8 dtype to use for quantization. Default is torch.float8_e4m3fn.
         - out_dtype (Optional[torch.dtype]): The dtype of the output tensor. Default is torch.bfloat16.
         - kernel_preference (KernelPreference): Kernel preference (AUTO uses CUDA/Triton, EMULATED uses to_mx).
         - wgrad_with_hp (bool): Whether to compute weight gradients in high precision.
@@ -1047,6 +1049,7 @@ def _to_mxfp8_then_scaled_grouped_mm(
         B_t,
         offs,
         block_size,
+        float8_dtype,
         out_dtype,
         kernel_preference,
         wgrad_with_hp,

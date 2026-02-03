@@ -22,6 +22,7 @@ from benchmarks.utils import (
 from torchao.prototype.moe_training import _quantize_then_scaled_grouped_mm
 from torchao.prototype.moe_training.conversion_utils import MoEScalingType
 from torchao.prototype.moe_training.utils import generate_jagged_offs
+from torchao.utils import is_MI300, is_MI350, is_ROCM
 
 device = torch.device("cuda")
 
@@ -112,6 +113,11 @@ def run_experiment(
 ) -> ExperimentResult:
     total_M, N, K, G = config.MNKG
 
+    if bool(is_ROCM()) and is_MI300():
+        float8_dtype = torch.float8_e4m3fnuz
+    else:
+        float8_dtype = torch.float8_e4m3fn
+
     # define test inputs
     A = torch.randn(
         (total_M, K),
@@ -167,6 +173,7 @@ def run_experiment(
         B_t,
         offs,
         scaling_type=config.recipe,
+        float8_dtype=float8_dtype,
         labels=labels,
         use_compile=args.compile,
         fullgraph=False,
@@ -178,6 +185,7 @@ def run_experiment(
             B_t,
             offs,
             scaling_type=config.recipe,
+            float8_dtype=float8_dtype,
             labels=labels,
             use_compile=args.compile,
             profile_name="scaled_profile",
@@ -199,6 +207,7 @@ def run_experiment(
         B_t,
         offs,
         scaling_type=config.recipe,
+        float8_dtype=float8_dtype,
         use_compile=args.compile,
         fullgraph=True,
     )
@@ -245,23 +254,37 @@ def main(args: argparse.Namespace):
     torch.random.manual_seed(123)
     configs = get_configs()
     results = []
+
     for config in tqdm(configs):
-        if (
-            config.recipe == MoEScalingType.FP8_ROWWISE
-            and torch.cuda.get_device_capability() != (9, 0)
+        if config.recipe == MoEScalingType.FP8_ROWWISE and (
+            (is_ROCM() and not (is_MI300() or is_MI350()))
+            or ((not is_ROCM()) and torch.cuda.get_device_capability() != (9, 0))
         ):
-            logging.warning(
-                f"Skipping FP8 rowwise benchmarks, only supported on compute capability 9.0 and found {torch.cuda.get_device_capability()}"
-            )
+            if is_ROCM():
+                logging.warning(
+                    "Skipping FP8 rowwise benchmarks on ROCm: only enabled for MI300/MI350 family"
+                )
+            else:
+                logging.warning(
+                    f"Skipping FP8 rowwise benchmarks, only supported on compute capability 9.0 and found {torch.cuda.get_device_capability()}"
+                )
             continue
 
-        elif (
-            config.recipe == MoEScalingType.MXFP8
-            and torch.cuda.get_device_capability() != (10, 0)
+        elif config.recipe in (
+            MoEScalingType.MXFP8,
+            MoEScalingType.MXFP8_WGRAD_WITH_HP,
+        ) and (
+            (is_ROCM() and not is_MI350())
+            or ((not is_ROCM()) and torch.cuda.get_device_capability() != (10, 0))
         ):
-            logging.warning(
-                f"Skipping MXFP8 benchmarks, only supported on compute capability 10.0 and found {torch.cuda.get_device_capability()}"
-            )
+            if is_ROCM():
+                logging.warning(
+                    "Skipping MXFP8 benchmarks on ROCm: only enabled for MI350 family"
+                )
+            else:
+                logging.warning(
+                    f"Skipping MXFP8 benchmarks, only supported on compute capability 10.0 and found {torch.cuda.get_device_capability()}"
+                )
             continue
 
         result = run_experiment(config, args)

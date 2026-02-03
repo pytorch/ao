@@ -45,7 +45,7 @@ from torchao.prototype.moe_training.utils import (
 from torchao.prototype.mx_formats.mx_tensor import to_mx
 from torchao.quantization.quantize_.common import KernelPreference
 from torchao.testing.utils import skip_if_rocm
-from torchao.utils import is_MI300, is_MI350, is_ROCM
+from torchao.utils import is_MI300, is_ROCM
 
 # Needed since changing args to function causes recompiles
 torch._dynamo.config.cache_size_limit = 1000
@@ -57,8 +57,8 @@ torch._dynamo.config.cache_size_limit = 1000
 @pytest.mark.parametrize("n_groups", [1, 2, 4, 8])
 def test_valid_scaled_grouped_mm_2d_3d(m, n, k, n_groups):
     if is_ROCM():
-        if not (is_MI300() or is_MI350()):
-            pytest.skip("ROCm test requires MI300 or MI350")
+        if not is_MI300():
+            pytest.skip("ROCm test requires MI300")
         # ROCm known bad-case: weight-grad mismatch for this exact large shape.
         if (m, k, n_groups) == (131072, 5120, 8):
             pytest.skip(

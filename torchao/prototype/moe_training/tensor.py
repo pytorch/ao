@@ -174,7 +174,9 @@ class ScaledGroupedMMTensor(torch.Tensor):
         # wrap outputs back into ScaledGroupedMMTensor for ops that do preserve subclass
         return pytree.tree_map_only(
             torch.Tensor,
-            lambda x: ScaledGroupedMMTensor(x, scaling_type, float8_dtype,kernel_preference),
+            lambda x: ScaledGroupedMMTensor(
+                x, scaling_type, float8_dtype, kernel_preference
+            ),
             out,
         )
 
@@ -258,6 +260,8 @@ class ScaledGroupedMMTensor(torch.Tensor):
             return
 
         # For training step 0, out=None, so we need to return a new ScaledGroupedMMTensor.
-        output = ScaledGroupedMMTensor(data, self.scaling_type, self.float8_dtype, self.emulated)
+        output = ScaledGroupedMMTensor(
+            data, self.scaling_type, self.float8_dtype, self.emulated
+        )
         inner_tensors = (data,)
         return output, inner_tensors
