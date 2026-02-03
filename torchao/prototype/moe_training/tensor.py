@@ -210,13 +210,11 @@ class ScaledGroupedMMTensor(torch.Tensor):
             if isinstance(out, ScaledGroupedMMTensor):
                 out_data = out._data
                 out.scaling_type = self.scaling_type
-                out.emulated = self.emulated
             elif isinstance(out, DTensor) and isinstance(
                 out._local_tensor, ScaledGroupedMMTensor
             ):
                 out_data = out._local_tensor._data
                 out._local_tensor.scaling_type = self.scaling_type
-                out._local_tensor.emulated = self.emulated
             else:
                 raise RuntimeError(
                     f"expect out to be ScaledGroupedMMTensor or DTensor with local_tensor=ScaledGroupedMM, but got {type(out)}"
@@ -239,6 +237,6 @@ class ScaledGroupedMMTensor(torch.Tensor):
             return
 
         # For training step 0, out=None, so we need to return a new ScaledGroupedMMTensor.
-        output = ScaledGroupedMMTensor(data, self.scaling_type, self.emulated)
+        output = ScaledGroupedMMTensor(data, self.scaling_type)
         inner_tensors = (data,)
         return output, inner_tensors
