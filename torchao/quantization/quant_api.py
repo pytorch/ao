@@ -1261,8 +1261,15 @@ class Int8StaticActivationInt8WeightConfig(AOBaseConfig):
         Returns:
             QuantizeTensorToInt8Kwargs with the configured granularity and mapping type.
         """
+        # If granularity is a list/tuple with 2 elements, use the first one for activation quantization
+        # Otherwise, use the granularity as is
+        if isinstance(self.granularity, (list, tuple)) and len(self.granularity) == 2:
+            act_granularity = self.granularity[0]
+        else:
+            act_granularity = self.granularity
+
         return QuantizeTensorToInt8Kwargs(
-            granularity=self.granularity,
+            granularity=act_granularity,
             mapping_type=self.act_mapping_type,
         )
 

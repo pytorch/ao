@@ -99,7 +99,6 @@ def _smooth_quant_transform(
     if isinstance(base_config, IsStaticQuantizationConfig):
         # Static quantization
         quant_kwargs = base_config.get_act_quant_kwargs()
-        quant_kwargs.granularity = base_config.granularity[0]
     else:
         quant_kwargs = None
 
