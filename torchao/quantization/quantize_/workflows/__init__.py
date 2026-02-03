@@ -23,6 +23,7 @@ from .int4.int4_tile_packed_to_4d_tensor import Int4TilePackedTo4dTensor
 from .int8.int8_tensor import (
     Int8Tensor,
     QuantizeTensorToInt8Kwargs,
+    _process_granularity,
 )
 from .intx.intx_choose_qparams_algorithm import IntxChooseQParamsAlgorithm
 from .intx.intx_opaque_tensor import (
@@ -54,4 +55,5 @@ __all__ = [
     "IntxPackingFormat",
     "IntxUnpackedToInt8Tensor",
     "IntxOpaqueTensor",
+    "_process_granularity",
 ]

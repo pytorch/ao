@@ -4,14 +4,18 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import List, Optional, Tuple, Union
 
 import torch
 from torch.utils._python_dispatch import return_and_correct_aliasing
 
 from torchao.float8.inference import _slice_scale_for_dimension
 from torchao.kernel import int_scaled_matmul
-from torchao.quantization.granularity import Granularity
+from torchao.quantization.granularity import (
+    Granularity,
+    PerRow,
+    PerTensor,
+)
 from torchao.quantization.quant_primitives import (
     MappingType,
     choose_qparams_affine,
@@ -25,9 +29,76 @@ from torchao.quantization.quantize_.common import (
 from torchao.quantization.utils import get_block_size
 from torchao.utils import TorchAOBaseTensor, fill_defaults
 
-__all__ = ["Int8Tensor", "QuantizeTensorToInt8Kwargs"]
+__all__ = [
+    "Int8Tensor",
+    "QuantizeTensorToInt8Kwargs",
+    "_process_granularity",
+]
 
 aten = torch.ops.aten
+
+
+def _normalize_granularity(
+    granularity: Optional[
+        Union[
+            Granularity,
+            Tuple[Granularity, Granularity],
+            list[Granularity],
+        ]
+    ],
+) -> Tuple[Granularity, Granularity]:
+    normalized_granularity = None
+    if granularity is None:
+        normalized_granularity = (PerRow(), PerRow())
+
+    elif isinstance(granularity, (PerTensor, PerRow)):
+        normalized_granularity = (granularity, granularity)
+
+    elif isinstance(granularity, (tuple, list)):
+        if len(granularity) == 2:
+            normalized_granularity = tuple(granularity)
+        else:
+            raise ValueError(
+                f"Granularity tuple/list must have exactly 2 elements, got {len(granularity)}: {granularity}"
+            )
+    else:
+        raise ValueError(
+            f"Invalid granularity type: {type(granularity)}. "
+            f"Expected None, Granularity, or tuple/list of 2 Granularities."
+        )
+    return normalized_granularity
+
+
+def _validate_granularity(
+    granularity: Tuple[Granularity, Granularity],
+) -> None:
+    act_granularity, weight_granularity = granularity
+
+    if not isinstance(act_granularity, (PerTensor, PerRow)):
+        raise ValueError(
+            f"Unsupported activation granularity type: {type(act_granularity)}. "
+            f"Only PerTensor and PerRow are supported."
+        )
+
+    if not isinstance(weight_granularity, (PerTensor, PerRow)):
+        raise ValueError(
+            f"Unsupported weight granularity type: {type(weight_granularity)}. "
+            f"Only PerTensor and PerRow are supported."
+        )
+
+
+def _process_granularity(
+    granularity: Optional[
+        Union[
+            Granularity,
+            Tuple[Granularity, Granularity],
+            list[Granularity],
+        ]
+    ],
+) -> Tuple[Granularity, Granularity]:
+    processed_granularity = _normalize_granularity(granularity)
+    _validate_granularity(processed_granularity)
+    return processed_granularity
 
 
 @dataclass
