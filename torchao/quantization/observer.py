@@ -166,8 +166,6 @@ class AffineQuantizedMinMaxObserver(AffineQuantizedObserverBase):
             self.eps,
             self.scale_dtype,
             self.zero_point_dtype,
-            self.preserve_zero,
-            self.zero_point_domain,
         )
 
 
@@ -280,8 +278,6 @@ class AffineQuantizedMSEObserver(AffineQuantizedObserverBase):
             self.eps,
             self.scale_dtype,
             self.zero_point_dtype,
-            self.preserve_zero,
-            self.zero_point_domain,
         )
         x_q = _fake_quantize_affine(
             x,
@@ -345,6 +341,4 @@ class AffineQuantizedMSEObserver(AffineQuantizedObserverBase):
             self.eps,
             self.scale_dtype,
             self.zero_point_dtype,
-            self.preserve_zero,
-            self.zero_point_domain,
         )
