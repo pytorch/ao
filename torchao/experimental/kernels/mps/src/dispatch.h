@@ -48,4 +48,18 @@ inline void dispatch_qmv_fast(
       threadsPerThreadgroup:MTLSizeMake(32, 2, 1)];
 }
 
+inline void dispatch_qmv_impl(
+    id<MTLComputeCommandEncoder> encoder,
+    int32_t maxThreadsPerGroup,
+    int32_t M,
+    int32_t N,
+    int32_t K) {
+  (void)K;
+  if (maxThreadsPerGroup < 64) {
+    throw std::runtime_error("Can't dispatch!");
+  }
+  [encoder dispatchThreadgroups:MTLSizeMake(M, (N + 7) / 8, 1)
+      threadsPerThreadgroup:MTLSizeMake(32, 2, 1)];
+}
+
 } // namespace torchao::kernels::mps::lowbit::dispatch
