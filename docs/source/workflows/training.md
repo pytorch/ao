@@ -1,5 +1,27 @@
 # Quantized Training
 
+For training, we support quantizing `torch.nn.Linear` layers (stable) and `torch._grouped_mm` ops (prototype).
+Specifically, we quantize the matrix multiplies in the forward and backward of a linear, as follows:
+
+```python
+# high precision (baseline)
+     output_bf16 =       input_bf16 @ weight_bf16.t()
+ grad_input_bf16 = grad_output_bf16 @ weight_bf16
+grad_weight_bf16 =   input_bf16.t() @ grad_output_bf16
+
+# quantized (via torchao APIs, shown for fp8_rowwise, pseudocode)
+     output_bf16 =       to_fp8(input_bf16) @ to_fp8(weight_bf16.t())
+ grad_input_bf16 = to_fp8(grad_output_bf16) @ to_fp8(weight_bf16)
+grad_weight_bf16 =   to_fp8(input_bf16.t()) @ to_fp8(grad_output_bf16)
+```
+
+We have various quantized training workflows:
+* [`torchao.float8`](float8-section) (stable) for float8 rowwise training for `torch.nn.Linear`.
+* [`torchao.prototype.mx_formats`](https://github.com/pytorch/ao/blob/main/torchao/prototype/mx_formats/README.md) (prototype) for mxfp8 training for `torch.nn.Linear`. This is on its way to stable.
+* [`torchao.prototype.moe_training`](https://github.com/pytorch/ao/blob/main/torchao/prototype/moe_training/README.md) (prototype) for mxfp8 training for `torch._grouped_mm` for MoEs. The API will be combined with the training APIs in `torchao.prototype.mx_formats` in the future.
+* [`torchao.prototype.quantized_training`](https://github.com/pytorch/ao/blob/main/torchao/prototype/quantized_training/README.md) (prototype) for int8 training for `torch.nn.functional.linear`. This is currently in prototype.
+
+(float8-section)=
 ## float8
 
 This is a workflow for accelerating training with [float8](https://arxiv.org/pdf/2209.05433.pdf) in native PyTorch.
