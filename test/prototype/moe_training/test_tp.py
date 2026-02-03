@@ -17,6 +17,8 @@ import os
 import pytest
 import torch
 
+from torchao.quantization.quantize_.common.kernel_preference import KernelPreference
+
 if torch.version.hip is not None:
     pytest.skip(
         "ROCm support for MoE quantization is under development",
@@ -32,6 +34,7 @@ from torch.nn import functional as F
 
 try:
     from torch.distributed.tensor.parallel import (
+        ParallelStyle,
         PrepareModuleInputOutput,
         parallelize_module,
     )
@@ -54,22 +57,95 @@ from torchao.prototype.moe_training.conversion_utils import (
 )
 from torchao.quantization.quant_api import quantize_
 
+from .reference_moe import MoE, MoEArgs, set_token_group_alignment_size_m
 from .testing_utils import _validate_model_conversion
 
-# this test requires torchtitan
-try:
-    from torchtitan.distributed import NoParallel
-    from torchtitan.distributed.expert_parallel import (
-        ExpertParallel,
-        ExpertTensorParallel,
-        TensorParallel,
-    )
-    from torchtitan.models.moe import MoE, MoEArgs
-    from torchtitan.models.moe.utils import set_token_group_alignment_size_m
-except ImportError:
-    pytest.skip(
-        "torchtitan not installed, skipping MoE tests.", allow_module_level=True
-    )
+
+class NoParallel(ParallelStyle):
+    """Placeholder for no parallelization."""
+
+    def _apply(self, module: nn.Module, device_mesh: DeviceMesh) -> nn.Module:
+        return module
+
+
+class TensorParallel(ParallelStyle):
+    """Tensor parallelism for MoE layers."""
+
+    def _apply(self, module: nn.Module, device_mesh: DeviceMesh) -> nn.Module:
+        from torch.distributed.tensor import distribute_module, distribute_tensor
+
+        def _partition_fn(name: str, mod: nn.Module, device_mesh: DeviceMesh) -> None:
+            # Shard w1 and w3 on dim 1 (hidden_dim), w2 on dim 2 (hidden_dim)
+            for param_name, param in mod.named_parameters(recurse=False):
+                if param_name in ("w1", "w3"):
+                    dist_param = nn.Parameter(
+                        distribute_tensor(param, device_mesh, [Shard(1)])
+                    )
+                elif param_name == "w2":
+                    dist_param = nn.Parameter(
+                        distribute_tensor(param, device_mesh, [Shard(2)])
+                    )
+                else:
+                    dist_param = nn.Parameter(
+                        distribute_tensor(param, device_mesh, [Replicate()])
+                    )
+                mod.register_parameter(param_name, dist_param)
+
+        return distribute_module(module, device_mesh, partition_fn=_partition_fn)
+
+
+class ExpertParallel(ParallelStyle):
+    """Expert parallelism for MoE layers."""
+
+    def _apply(self, module: nn.Module, device_mesh: DeviceMesh) -> nn.Module:
+        from torch.distributed.tensor import distribute_tensor
+        from torch.distributed.tensor.parallel import distribute_module
+
+        def _partition_fn(name: str, mod: nn.Module, device_mesh: DeviceMesh) -> None:
+            # Shard experts along the expert dimension (dim 0)
+            for param_name, param in mod.named_parameters(recurse=False):
+                dist_param = nn.Parameter(
+                    distribute_tensor(param, device_mesh, [Shard(0)])
+                )
+                mod.register_parameter(param_name, dist_param)
+
+        return distribute_module(module, device_mesh, partition_fn=_partition_fn)
+
+
+class ExpertTensorParallel(ParallelStyle):
+    """Combined expert and tensor parallelism for MoE layers."""
+
+    def __init__(self, tp_mesh: DeviceMesh, ep_mesh: DeviceMesh):
+        super().__init__()
+        self.tp_mesh = tp_mesh
+        self.ep_mesh = ep_mesh
+
+    def _apply(self, module: nn.Module, device_mesh: DeviceMesh) -> nn.Module:
+        from torch.distributed.tensor import distribute_tensor
+        from torch.distributed.tensor.parallel import distribute_module
+
+        def _partition_fn(name: str, mod: nn.Module, device_mesh: DeviceMesh) -> None:
+            # Shard along expert dim (EP) and hidden dim (TP)
+            for param_name, param in mod.named_parameters(recurse=False):
+                if param_name in ("w1", "w3"):
+                    # Shard on expert dim and hidden_dim
+                    dist_param = nn.Parameter(
+                        distribute_tensor(param, device_mesh, [Shard(0), Shard(1)])
+                    )
+                elif param_name == "w2":
+                    # Shard on expert dim and hidden_dim (dim 2 for w2)
+                    dist_param = nn.Parameter(
+                        distribute_tensor(param, device_mesh, [Shard(0), Shard(2)])
+                    )
+                else:
+                    dist_param = nn.Parameter(
+                        distribute_tensor(
+                            param, device_mesh, [Replicate(), Replicate()]
+                        )
+                    )
+                mod.register_parameter(param_name, dist_param)
+
+        return distribute_module(module, device_mesh, partition_fn=_partition_fn)
 
 
 @pytest.fixture(scope="module")
@@ -80,7 +156,7 @@ def device_mesh_1d() -> DeviceMesh:
     """
     rank = int(os.environ["RANK"])
     world_size = int(os.environ["WORLD_SIZE"])
-    device_mesh = init_device_mesh("cuda", (world_size,))
+    device_mesh = init_device_mesh("cuda", (world_size,), mesh_dim_names=("tp",))
     torch.manual_seed(1)
     torch.cuda.set_device(rank)
 
@@ -95,6 +171,9 @@ def device_mesh_1d() -> DeviceMesh:
         ["experts"],
         ["experts,shared_experts"],
     ],
+)
+@pytest.mark.parametrize(
+    "kernel_preference", [KernelPreference.AUTO, KernelPreference.EMULATED]
 )
 @pytest.mark.parametrize("compile", [False, True])
 @pytest.mark.parametrize(
@@ -114,10 +193,18 @@ def device_mesh_1d() -> DeviceMesh:
             "min_input_grad_sqnr": 29.0,
             "min_param_grad_sqnr": 21.0,
         },
+        {
+            "recipe": MoEScalingType.MXFP8_WGRAD_WITH_HP,
+            "group_alignment_size": 32,
+            "min_out_sqnr": 28.0,
+            "min_input_grad_sqnr": 29.0,
+            "min_param_grad_sqnr": 25.0,
+        },
     ],
 )
 def test_moe_training_tp(
     target_fqns: list[str],
+    kernel_preference: KernelPreference,
     compile: bool,
     recipe_config: dict,
     device_mesh_1d: DeviceMesh,
@@ -144,22 +231,21 @@ def test_moe_training_tp(
             f"Skipping FP8 rowwise tests, only supported on compute capability 9.0 and found {torch.cuda.get_device_capability()}"
         )
 
-    elif recipe == MoEScalingType.MXFP8 and torch.cuda.get_device_capability() != (
-        10,
-        0,
-    ):
-        pytest.skip(
-            f"Skipping MXFP8 benchmarks, only supported on compute capability 10.0 and found {torch.cuda.get_device_capability()}"
-        )
+    elif recipe in (MoEScalingType.MXFP8, MoEScalingType.MXFP8_WGRAD_WITH_HP):
+        emulated = kernel_preference == KernelPreference.EMULATED
+        if not emulated and torch.cuda.get_device_capability() != (
+            10,
+            0,
+        ):
+            pytest.skip(
+                f"Non-emulated mode only supported on compute capability 10.0 and found {torch.cuda.get_device_capability()}"
+            )
+        if emulated and compile:
+            pytest.skip("MXFP8 emulated mode does not support torch.compile")
 
     # set token group alignment size needed for GEMM (contraction dim stride must be 16 byte aligned)
     # or quantization ops (mxfp8 scaling groups are size 1x32)
     set_token_group_alignment_size_m(group_alignment_size)
-
-    # define model args
-    model_args = MoEArgs(
-        num_experts=8,
-    )
 
     # define model args
     model_args = MoEArgs(
@@ -189,7 +275,7 @@ def test_moe_training_tp(
         return False
 
     # quantize test model
-    config = MoETrainingConfig(recipe)
+    config = MoETrainingConfig(recipe, kernel_preference=kernel_preference)
     quantize_(model, config=config, filter_fn=moe_module_filter_fn)
 
     # validate that only the experts were converted
