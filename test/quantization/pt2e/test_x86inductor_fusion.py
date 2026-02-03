@@ -208,9 +208,15 @@ class TestPatternMatcherBase(TestCase):
                 clone_inputs = self._clone_inputs(inputs)
                 expected = mod(*inputs)
                 actual = torch.compile(mod, **compile_options)(*clone_inputs)
-                torch.testing.assert_close(
-                    actual.float(), expected.float(), atol=atol, rtol=rtol
-                )
+                if inputs[0].dtype == torch.float8_e4m3fn:
+                    torch.testing.assert_close(
+                        actual.to(torch.float),
+                        expected.to(torch.float),
+                        atol=atol,
+                        rtol=rtol,
+                    )
+                else:
+                    torch.testing.assert_close(actual, expected, atol=atol, rtol=rtol)
                 matcher_check_fn()
 
     def _test_code_common(

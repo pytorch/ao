@@ -2917,8 +2917,6 @@ def _register_scaled_embedding_bag_pass(pattern, pass_number, dtype=torch.float3
         pass_number=pass_number,
     )
     def scaled_embedding_bag(match: Match, *args, **kwargs):
-        # import pdb
-        # pdb.set_trace()
         assert dtype in [torch.float32, torch.bfloat16]
 
         if "o_dtype" in kwargs:
@@ -2957,8 +2955,6 @@ def _register_scaled_embedding_bag_pass(pattern, pass_number, dtype=torch.float3
         output_type = torch.float
         normalized_o_dtype: Any = None
         o_scale: float = 1.0
-        # import pdb
-        # pdb.set_trace()
         if "o_dtype" in kwargs:
 
             def _normalize_dtype(dtype_or_enum: Any) -> torch.dtype | Any:
@@ -2967,8 +2963,7 @@ def _register_scaled_embedding_bag_pass(pattern, pass_number, dtype=torch.float3
                 if isinstance(dtype_or_enum, torch.dtype):
                     return dtype_or_enum
                 if isinstance(dtype_or_enum, int):
-                    # Fallback mapping for common ScalarType enums (keeps fusion robust even if
-                    # torch._C._get_dtype_from_enum isn't available in this build).
+                    # Fallback mapping for common ScalarType enums.
                     _fallback_enum_to_dtype: dict[int, torch.dtype] = {
                         0: torch.uint8,
                         1: torch.int8,
@@ -3016,13 +3011,13 @@ def _register_scaled_embedding_bag_pass(pattern, pass_number, dtype=torch.float3
 
             o_scale_maybe = _extract_const_float(kwargs["o_inv_scale"])
             if o_scale_maybe is None:
-                # Can't safely extract a python float (e.g., FakeTensor/meta). Skip fusion.
                 assert False, "Output scale is not a constant float."
             o_scale = o_scale_maybe
 
         graph = match.graph
         with graph.inserting_before(getitem_node):
-            # Weight scale: convert python float into tensor (op expects Tensor weight_scale)
+            # float scale not supported on scaled_embedding_bag
+            # convert scale from float into tensor
             if type(w_scale) is float:
                 w_scale = graph.call_function(
                     torch.ops.aten.full.default,
@@ -3049,9 +3044,7 @@ def _register_scaled_embedding_bag_pass(pattern, pass_number, dtype=torch.float3
                 torch.int8,
                 torch.float8_e4m3fn,
             ]:
-                quant_node.replace_all_uses_with(
-                    getitem_node
-                )  # quant的user换给getitem，然后把quant删掉。
+                quant_node.replace_all_uses_with(getitem_node)
                 getitem_node.meta.update(quant_node.meta)
                 graph.erase_node(quant_node)
             getitem_node.replace_all_uses_with(new_embedding_bag_node)
@@ -3107,14 +3100,12 @@ def _register_quantization_embeddingbag_pass():
                 embeddingbag_pattern, pass_number=1, dtype=dtype
             )
 
-            # will support fp8 output later
-            # if not is_fp8:
+            # support int8, fp8 output
             embeddingbag_with_qoutput_pattern = generate_pattern_with_output_quant(
                 embeddingbag_pattern,
                 dtype == torch.bfloat16,
                 is_fp8,
             )
-            print(embeddingbag_with_qoutput_pattern)
 
             _register_scaled_embedding_bag_pass(
                 embeddingbag_with_qoutput_pattern,
