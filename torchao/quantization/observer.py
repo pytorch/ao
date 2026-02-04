@@ -4,6 +4,7 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 import logging
+import warnings
 from abc import ABCMeta, abstractmethod
 from functools import partial
 from typing import Any, Optional, Tuple
@@ -92,6 +93,24 @@ class AffineQuantizedObserverBase(ABC, torch.nn.Module):
         assert granularity is not None, "granularity is None"
         if zero_point_domain is None:
             raise ValueError("Please use ZeroPointDomain.NONE instead of None")
+
+        # Deprecation warnings for preserve_zero and zero_point_domain
+        # Only preserve_zero=True and zero_point_domain=INT are supported
+        if not preserve_zero:
+            warnings.warn(
+                "preserve_zero=False is deprecated and will be removed in a future release. "
+                "Only preserve_zero=True is supported.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+        if zero_point_domain != ZeroPointDomain.INT:
+            warnings.warn(
+                f"zero_point_domain={zero_point_domain} is deprecated and will be removed in a future release. "
+                "Only ZeroPointDomain.INT is supported.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+
         self.mapping_type = mapping_type
         self.target_dtype = target_dtype
         self.granularity = granularity
@@ -151,11 +170,11 @@ class AffineQuantizedMinMaxObserver(AffineQuantizedObserverBase):
         # returning original input
         return input
 
-    def calculate_qparams(self) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
+    def calculate_qparams(self) -> Tuple[torch.Tensor, torch.Tensor]:
         assert hasattr(self, "min_val") and hasattr(self, "max_val"), (
             "Expecting the observer has min_val and max_val, please run the observer before calling calculate_qparams"
         )
-        scale, zero_point = choose_qparams_affine_with_min_max(
+        return choose_qparams_affine_with_min_max(
             self.min_val,
             self.max_val,
             self.mapping_type,
@@ -167,10 +186,6 @@ class AffineQuantizedMinMaxObserver(AffineQuantizedObserverBase):
             self.scale_dtype,
             self.zero_point_dtype,
         )
-        # Handle ZeroPointDomain.NONE case (e.g., float8 symmetric quantization)
-        if self.zero_point_domain == ZeroPointDomain.NONE:
-            zero_point = None
-        return scale, zero_point
 
 
 class AffineQuantizedFixedQParamObserver(AffineQuantizedObserverBase):
@@ -283,9 +298,6 @@ class AffineQuantizedMSEObserver(AffineQuantizedObserverBase):
             self.scale_dtype,
             self.zero_point_dtype,
         )
-        # Handle ZeroPointDomain.NONE case (e.g., float8 symmetric quantization)
-        if self.zero_point_domain == ZeroPointDomain.NONE:
-            zero_point = None
         x_q = _fake_quantize_affine(
             x,
             block_size,
@@ -337,7 +349,7 @@ class AffineQuantizedMSEObserver(AffineQuantizedObserverBase):
         assert hasattr(self, "min_val") and hasattr(self, "max_val"), (
             "Expecting the observer has min_val and max_val, please run the observer before calling calculate_qparams"
         )
-        scale, zero_point = choose_qparams_affine_with_min_max(
+        return choose_qparams_affine_with_min_max(
             self.min_val,
             self.max_val,
             self.mapping_type,
@@ -349,8 +361,4 @@ class AffineQuantizedMSEObserver(AffineQuantizedObserverBase):
             self.scale_dtype,
             self.zero_point_dtype,
         )
-        # Handle ZeroPointDomain.NONE case (e.g., float8 symmetric quantization)
-        if self.zero_point_domain == ZeroPointDomain.NONE:
-            zero_point = None
-        return scale, zero_point
 
