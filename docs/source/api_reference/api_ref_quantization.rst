@@ -49,7 +49,6 @@ int4 weight configs
 
     Int4WeightOnlyConfig
     Float8DynamicActivationInt4WeightConfig
-    Int8DynamicActivationInt4WeightConfig
 
 intx weight configs
 ~~~~~~~~~~~~~~~~~~~
