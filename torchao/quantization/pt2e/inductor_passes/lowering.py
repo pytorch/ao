@@ -61,7 +61,7 @@ def _register_quantize_dequantize_fp8_lowering():
     ) -> TensorBox:
         # Expect scale to be a scalar tensor or a 1D tensor with size 1
         assert len(scale.get_size()) <= 1 and scale.get_numel() == 1, (
-            "Only support per-tensor dquantization for float8 now."
+            "Only support per-tensor dequantization for float8 now."
         )
         if input.get_dtype() != torch.float32:
             input = to_dtype(input, torch.float32)
