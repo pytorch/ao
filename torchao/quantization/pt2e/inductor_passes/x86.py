@@ -2987,16 +2987,16 @@ def _register_scaled_embedding_bag_pass(pattern, pass_number, dtype=torch.float3
 
             def _extract_const_float(val) -> float | None:
                 # Prefer extracting from python scalars and FX node structure
-                if isinstance(val, (int, float, bool)):
+                if isinstance(val, (int, float)):
                     return float(val)
                 if isinstance(val, torch.fx.Node):
                     meta_val = val.meta.get("val", None)
-                    if isinstance(meta_val, (int, float, bool)):
+                    if isinstance(meta_val, (int, float)):
                         return float(meta_val)
                     # Common pattern: aten.full([1], fill_value, dtype=float)
                     if val.target is torch.ops.aten.full.default and len(val.args) >= 2:
                         fill_value = val.args[1]
-                        if isinstance(fill_value, (int, float, bool)):
+                        if isinstance(fill_value, (int, float)):
                             return float(fill_value)
                     # Common pattern in user code: torch.tensor([scalar])
                     if val.target is torch.tensor and len(val.args) >= 1:
@@ -3004,7 +3004,7 @@ def _register_scaled_embedding_bag_pass(pattern, pass_number, dtype=torch.float3
                         if (
                             isinstance(data, (list, tuple))
                             and len(data) == 1
-                            and isinstance(data[0], (int, float, bool))
+                            and isinstance(data[0], (int, float))
                         ):
                             return float(data[0])
                 return None
