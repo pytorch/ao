@@ -55,3 +55,4 @@ jobs:
         ./test/float8/test_everything_single_gpu.sh
         pytest test/prototype/mx_formats/ --verbose -s
         pytest test/prototype/moe_training/test_scaled_grouped_mm.py --verbose -s
+        pytest test/prototype/moe_training/test_training.py --verbose -s
