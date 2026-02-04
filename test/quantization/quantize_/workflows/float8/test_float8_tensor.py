@@ -802,8 +802,9 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         kp_and_res = list(quantized_outputs.items())
         for i in range(len(kp_and_res)):
             kp, res = kp_and_res[i]
-            self.assertTrue(
-                compute_error(res, res_ref) > 28,
+            self.assertGreater(
+                compute_error(res, res_ref),
+                28,
                 f"mismatch between {kp=} and {kp_ref}, {sizes=}, {granularity=}",
             )
 
