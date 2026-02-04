@@ -3267,6 +3267,37 @@ class TestDynamicPatternMatcher(TestPatternMatcherBase):
             )
 
 
+@unittest.skipIf(not torch_version_at_least("2.8.0"), "Requires torch 2.8+")
+@unittest.skipIf(torch.version.hip is not None, "Not applicable to ROCm")
+class TestLowering(TestPatternMatcherBase):
+    def test_lowering_quant_dequant_fp8(self):
+        r"""
+        This testcase will test lowering of quant-dequant pattern.
+        """
+
+        class M(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+
+            def forward(self, x):
+                return qdq_fp8(x, scale=0.2)
+
+        mod = M().eval()
+        x = torch.randn((4, 4))
+
+        self._test_code_common(
+            mod,
+            (x,),
+            include_ops=[],
+            # these ops should be lowered away
+            exclude_ops=[
+                "torch.ops.torchao.quantize_affine_float8_non_decomposed.default",
+                "torch.ops.torchao.dequantize_affine_float8_non_decomposed.default",
+            ],
+            is_fp8=True,
+        )
+
+
 instantiate_parametrized_tests(TestPatternMatcher)
 if __name__ == "__main__":
     if IS_LINUX and HAS_CPU and torch.backends.mkldnn.is_available():
