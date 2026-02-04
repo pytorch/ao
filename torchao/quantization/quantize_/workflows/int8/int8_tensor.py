@@ -32,6 +32,7 @@ from torchao.utils import TorchAOBaseTensor, fill_defaults
 __all__ = [
     "Int8Tensor",
     "QuantizeTensorToInt8Kwargs",
+    "Int8Granularity",
     "_normalize_granularity_int8",
     "_validate_granularity_int8",
 ]
@@ -39,14 +40,17 @@ __all__ = [
 aten = torch.ops.aten
 
 
+Int8Granularity = Optional[
+    Union[
+        Granularity,
+        Tuple[Granularity, Granularity],
+        list[Granularity],
+    ]
+]
+
+
 def _normalize_granularity_int8(
-    granularity: Optional[
-        Union[
-            Granularity,
-            Tuple[Granularity, Granularity],
-            list[Granularity],
-        ]
-    ],
+    granularity: Int8Granularity,
 ) -> Tuple[Granularity, Granularity]:
     normalized_granularity = None
     if granularity is None:

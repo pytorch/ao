@@ -82,6 +82,7 @@ from torchao.quantization.quantize_.workflows import (
     Int4PreshuffledTensor,
     Int4Tensor,
     Int4TilePackedTo4dTensor,
+    Int8Granularity,
     Int8Tensor,
     IntxChooseQParamsAlgorithm,
     IntxOpaqueTensor,
@@ -1058,7 +1059,7 @@ class Int8DynamicActivationInt8WeightConfig(AOBaseConfig):
     Args:
         layout: Optional[Layout] = PlainLayout() - Tensor layout for the quantized weights. Controls how the
             quantized data is stored and accessed.
-        granularity (Optional[Union[Granularity, List[Granularity]]]):
+        granularity (Int8Granularity = PerRow()):
             The granularity for quantization. Can be either a single granularity (applied to both
             activations and weights) or a tuple of two granularities (first for activations, second for weights).
             If None, defaults to PerRow for both. Only PerTensor and PerRow are supported.
@@ -1079,7 +1080,7 @@ class Int8DynamicActivationInt8WeightConfig(AOBaseConfig):
     layout: Optional[Layout] = PlainLayout()
     act_mapping_type: Optional[MappingType] = MappingType.SYMMETRIC
     weight_only_decode: bool = False
-    granularity: Optional[Union[Granularity, List[Granularity]]] = PerRow()
+    granularity: Int8Granularity = PerRow()
     set_inductor_config: bool = True
     version: int = 1
 
@@ -1196,7 +1197,7 @@ class Int8StaticActivationInt8WeightConfig(AOBaseConfig):
 
     Args:
         act_quant_scale (torch.Tensor): The scale tensor for activation quantization.
-        granularity (Optional[Union[Granularity, List[Granularity]]]):
+        granularity (Int8Granularity = PerRow()):
             The granularity for quantization. Can be either a single granularity (applied to both
             activations and weights) or a tuple of two granularities (first for activations, second for weights).
             If None, defaults to PerRow for both. Only PerTensor and PerRow are supported.
@@ -1206,7 +1207,7 @@ class Int8StaticActivationInt8WeightConfig(AOBaseConfig):
     """
 
     act_quant_scale: Optional[torch.Tensor] = None
-    granularity: Optional[Union[Granularity, List[Granularity]]] = PerRow()
+    granularity: Int8Granularity = PerRow()
     act_mapping_type: Optional[MappingType] = MappingType.SYMMETRIC
     set_inductor_config: bool = True
     version: int = 1
@@ -1244,10 +1245,12 @@ def _int8_static_activation_int8_weight_transform(
     )
     _validate_granularity_int8((activation_granularity, weight_granularity))
     # Validate activation granularity for static quantization
-    if isinstance(activation_granularity, PerRow) and activation_granularity.dim != -1:
+    if isinstance(
+        activation_granularity, PerRow
+    ) and activation_granularity.dim not in [-1, 1]:
         raise ValueError(
-            f"Int8StaticActivationInt8WeightConfig only supports PerRow(dim=-1) "
-            f"for activation quantization, got PerRow(dim={activation_granularity.dim}). "
+            f"Int8StaticActivationInt8WeightConfig only supports PerRow(dim=-1) or PerRow(dim=1) "
+            f"for 2D activations, got PerRow(dim={activation_granularity.dim}). "
             f"Per-feature activation quantization is not supported due to slicing limitations."
         )
     assert config.act_mapping_type == MappingType.SYMMETRIC, (
