@@ -1,9 +1,3 @@
-# Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
-#
-# This source code is licensed under the BSD 3-Clause license found in the
-# LICENSE file in the root directory of this source tree.
-
 import itertools
 import unittest
 
@@ -21,8 +15,22 @@ from torchao.prototype.inductor.fx_passes.qsdpa_fusion import (
     _qsdpa_init,
     custom_pass,
 )
-from torchao.testing.pt2e.utils import qdq_fp8
 from torchao.utils import torch_version_at_least
+
+
+def qdq(input, scale):
+    dtype = input.dtype
+    q_input = torch.ops.torchao.quantize_affine_float8_non_decomposed.default(
+        input,
+        torch.tensor([scale]),
+        torch.float8_e4m3fn,
+    )
+    dq_input = torch.ops.torchao.dequantize_affine_float8_non_decomposed.default(
+        q_input,
+        torch.tensor([scale]),
+        dtype,
+    )
+    return dq_input
 
 
 def fp8_convert_(model):
@@ -143,8 +151,8 @@ class FP8QDQSDPA(torch.nn.Module):
         query = self.transpose_for_scores(v)
 
         # Take the dot product between "query" and "key" to get the raw attention scores.
-        query_qdq = qdq_fp8(query, self.q_out_scale)
-        key_qdq = qdq_fp8(key.transpose(-1, -2), self.k_out_scale)
+        query_qdq = qdq(query, self.q_out_scale)
+        key_qdq = qdq(key.transpose(-1, -2), self.k_out_scale)
         attn_weights = torch.matmul(query_qdq, key_qdq) / (self.input_dim**0.5)
 
         # Normalize the attention scores to probabilities.
@@ -163,8 +171,8 @@ class FP8QDQSDPA(torch.nn.Module):
         if mask is not None:
             attn_weights = attn_weights + mask
 
-        value_qdq = qdq_fp8(value, self.v_out_scale)
-        attn_weights_qdq = qdq_fp8(attn_weights, self.attn_weights_scale)
+        value_qdq = qdq(value, self.v_out_scale)
+        attn_weights_qdq = qdq(attn_weights, self.attn_weights_scale)
         attn_output = torch.matmul(attn_weights_qdq, value_qdq)
         attn_output = attn_output.transpose(1, 2).contiguous()
 
