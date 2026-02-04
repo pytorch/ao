@@ -19,7 +19,6 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from torchao.prototype.gptq import GPTQConfig
 from torchao.quantization import Int4WeightOnlyConfig, Int8WeightOnlyConfig, quantize_
 from torchao.quantization.granularity import PerRow
-from torchao.quantization.quantize_.common.quantization_step import QuantizationStep
 
 """
 GPTQ sequential quantization example for huggingface models.
@@ -279,7 +278,7 @@ def main():
             f"Wrapping weights with GPTQObserverTensor for {quant_type} calibration..."
         )
         observe_config = GPTQConfig(
-            step=QuantizationStep.PREPARE,
+            step="prepare",
             base_config=base_config,
             percdamp=args.percdamp,
             gptq_quantize_block_size=args.gptq_block_size,
@@ -301,7 +300,7 @@ def main():
 
         # Second application: apply GPTQ quantization (convert step)
         convert_config = GPTQConfig(
-            step=QuantizationStep.CONVERT,
+            step="convert",
             base_config=base_config,
             percdamp=args.percdamp,
             gptq_quantize_block_size=args.gptq_block_size,

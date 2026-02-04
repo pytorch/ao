@@ -7,7 +7,7 @@
 import types
 from dataclasses import dataclass
 from functools import partial
-from typing import Union
+from typing import Literal, Union
 
 import torch
 import torch.nn as nn
@@ -26,7 +26,6 @@ from torchao.quantization.quant_api import (
     Int8WeightOnlyConfig,
     _module_extra_repr,
 )
-from torchao.quantization.quantize_.common.quantization_step import QuantizationStep
 from torchao.quantization.transform_module import register_quantize_module_handler
 from torchao.quantization.utils import get_block_size
 
@@ -43,8 +42,8 @@ class GPTQConfig(AOBaseConfig):
     """Config for GPTQ quantization
 
     GPTQ uses a two-step process:
-    - step=QuantizationStep.PREPARE: Wraps weights as GPTQObserverTensor to collect Hessian information
-    - step=QuantizationStep.CONVERT: Applies GPTQ quantization using the collected observations
+    - step="prepare": Wraps weights as GPTQObserverTensor to collect Hessian information
+    - step="convert": Applies GPTQ quantization using the collected observations
 
     Note: By default, the PREPARE step uses unquantized weights during forward passes.
     For sequential quantization (where each layer observes quantized inputs from the
@@ -55,16 +54,16 @@ class GPTQConfig(AOBaseConfig):
     A prototype implementation of this exists here: https://gist.github.com/jcaip/2750b5c0711500df48763bdb01d28a31, we plan to revisit adding support for this based on user feedback.
 
     Args:
-        step (QuantizationStep): The step for GPTQ process
-            PREPARE: insert GPTQ observers to collect Hessian information
-            CONVERT: convert the observed linear modules to GPTQ quantized modules
+        step: The step for GPTQ process. Can be "prepare" or "convert".
+            "prepare": insert GPTQ observers to collect Hessian information
+            "convert": convert the observed linear modules to GPTQ quantized modules
         base_config: Base quantization configuration that determines the target dtype.
             Use Int4WeightOnlyConfig() for int4 or Int8WeightOnlyConfig() for int8.
         percdamp: Damping factor for Hessian diagonal (default: 0.01)
         gptq_quantize_block_size: Block size for GPTQ algorithm (default: 256)
     """
 
-    step: QuantizationStep = QuantizationStep.PREPARE
+    step: Literal["prepare", "convert"] = "prepare"
     base_config: Union[Int4WeightOnlyConfig, Int8WeightOnlyConfig] = None
     percdamp: float = 0.01
     gptq_quantize_block_size: int = 256
@@ -87,7 +86,7 @@ def _gptq_config_transform(
     tensor = getattr(module, parameter_name)
     step = config.step
 
-    if step == QuantizationStep.PREPARE:
+    if step == "prepare":
         # Observation phase: wrap as GPTQObserverTensor
         new_tensor = GPTQObserverTensor.from_hp(tensor)
         setattr(module, parameter_name, nn.Parameter(new_tensor, requires_grad=False))
@@ -100,7 +99,7 @@ def _gptq_config_transform(
             module,
         )
         return module
-    elif step == QuantizationStep.CONVERT:
+    elif step == "convert":
         # Quantization phase: tensor should be an GPTQObserverTensor
         if not isinstance(tensor, GPTQObserverTensor):
             raise ValueError(
@@ -123,7 +122,7 @@ def _gptq_config_transform(
         return module
     else:
         raise ValueError(
-            f"Invalid step '{config.step}'. Expected QuantizationStep.PREPARE or QuantizationStep.CONVERT."
+            f"Invalid step '{config.step}'. Expected 'prepare' or 'convert'."
         )
 
 
