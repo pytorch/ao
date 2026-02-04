@@ -28,7 +28,6 @@ float8 weight configs
     :nosignatures:
 
     Float8DynamicActivationFloat8WeightConfig
-    Float8DynamicActivationFloat8SemiSparseWeightConfig
     Float8WeightOnlyConfig
 
 int8 weight configs
