@@ -39,6 +39,7 @@ bool check_linear_mps_args(
     int64_t group_size,
     const Tensor& S,
     const Tensor& Z) {
+  auto M = A.size(0);
   auto N = B.size(0);
   auto K = A.size(1);
 
@@ -57,7 +58,7 @@ bool check_linear_mps_args(
 
   ET_LOG_MSG_AND_RETURN_IF_FALSE(K % 8 == 0, "Expect K to be multiple of 8");
 
-  ET_LOG_MSG_AND_RETURN_IF_FALSE(N % 4 == 0, "Expect N to be multiple of 4");
+  ET_LOG_MSG_AND_RETURN_IF_FALSE(N % 4 == 0 || M == 1, "Expect N to be multiple of 4 when M != 1");
 
   ET_LOG_MSG_AND_RETURN_IF_FALSE(
       group_size == 32 || group_size == 64 || group_size == 128 ||

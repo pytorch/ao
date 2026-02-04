@@ -34,7 +34,7 @@ inline void dispatch_mm_Mr1xNr4_per_TG(
       threadsPerThreadgroup:MTLSizeMake(32, 1, 1)];
 }
 
-inline void dispatch_qmv_fast(
+inline void dispatch_qmv(
     id<MTLComputeCommandEncoder> encoder,
     int32_t maxThreadsPerGroup,
     int32_t M,
