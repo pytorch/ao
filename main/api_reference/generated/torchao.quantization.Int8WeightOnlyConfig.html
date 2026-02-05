@@ -919,13 +919,11 @@ document.write(`
 <li class="toctree-l2"><a class="reference internal" href="torchao.quantization.quantize_.html">quantize</a></li>
 <li class="toctree-l2"><a class="reference internal" href="torchao.quantization.FqnToConfig.html">FqnToConfig</a></li>
 <li class="toctree-l2"><a class="reference internal" href="torchao.quantization.Float8DynamicActivationFloat8WeightConfig.html">Float8DynamicActivationFloat8WeightConfig</a></li>
-<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.Float8DynamicActivationFloat8SemiSparseWeightConfig.html">Float8DynamicActivationFloat8SemiSparseWeightConfig</a></li>
 <li class="toctree-l2"><a class="reference internal" href="torchao.quantization.Float8WeightOnlyConfig.html">Float8WeightOnlyConfig</a></li>
 <li class="toctree-l2"><a class="reference internal" href="torchao.quantization.Int8DynamicActivationInt8WeightConfig.html">Int8DynamicActivationInt8WeightConfig</a></li>
 <li class="toctree-l2 current active"><a class="current reference internal" href="#">Int8WeightOnlyConfig</a></li>
 <li class="toctree-l2"><a class="reference internal" href="torchao.quantization.Int4WeightOnlyConfig.html">Int4WeightOnlyConfig</a></li>
 <li class="toctree-l2"><a class="reference internal" href="torchao.quantization.Float8DynamicActivationInt4WeightConfig.html">Float8DynamicActivationInt4WeightConfig</a></li>
-<li class="toctree-l2"><a class="reference internal" href="torchao.quantization.Int8DynamicActivationInt4WeightConfig.html">Int8DynamicActivationInt4WeightConfig</a></li>
 <li class="toctree-l2"><a class="reference internal" href="torchao.quantization.IntxWeightOnlyConfig.html">IntxWeightOnlyConfig</a></li>
 <li class="toctree-l2"><a class="reference internal" href="torchao.quantization.Int8DynamicActivationIntxWeightConfig.html">Int8DynamicActivationIntxWeightConfig</a></li>
 <li class="toctree-l2"><a class="reference internal" href="torchao.prototype.mx_formats.MXDynamicActivationMXWeightConfig.html">MXDynamicActivationMXWeightConfig</a></li>
@@ -1114,7 +1112,11 @@ for better performance with this quantization scheme.</p></li>
 </dd>
 </dl>
 <p>Example:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization</span><span class="w"> </span><span class="kn">import</span> <span class="n">quantize_</span><span class="p">,</span> <span class="n">Int8WeightOnlyConfig</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization</span><span class="w"> </span><span class="kn">import</span> <span class="n">Int8WeightOnlyConfig</span><span class="p">,</span> <span class="n">quantize_</span>
+
+<span class="n">model</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Sequential</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">2048</span><span class="p">,</span> <span class="mi">2048</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="s2">&quot;cuda&quot;</span><span class="p">))</span>
 <span class="n">quantize_</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">Int8WeightOnlyConfig</span><span class="p">())</span>
 </pre></div>
 </div>
@@ -1465,7 +1467,7 @@ for better performance with this quantization scheme.</p></li>
        "headline": "Int8WeightOnlyConfig",
        "description": "PyTorch Documentation. Explore PyTorch, an open-source machine learning library that accelerates the path from research prototyping to production deployment. Discover tutorials, API references, and guides to help you build and deploy deep learning models efficiently.",
        "url": "/api_reference/generated/torchao.quantization.Int8WeightOnlyConfig.html",
-       "articleBody": "Int8WeightOnlyConfig# class torchao.quantization.Int8WeightOnlyConfig(group_size: Optional[int] = None, granularity: Optional[Granularity] = PerRow(dim=-1), set_inductor_config: bool = True, version: int = 1)[source][source]# Configuration for applying int8 weight-only symmetric per-channel quantization to linear layers. Parameters group_size (version 1) \u2013 None (If) \u2013 Otherwise (applies per-channel quantization.) \u2013 size. (applies per-group quantization with the specified group) \u2013 granularity (version 2) \u2013 PerRow() for per-channel quantization, PerTensor() for per-tensor quantization. set_inductor_config \u2013 bool = True - If True, adjusts torchinductor settings to recommended values for better performance with this quantization scheme. Example: from torchao.quantization import quantize_, Int8WeightOnlyConfig quantize_(model, Int8WeightOnlyConfig())",
+       "articleBody": "Int8WeightOnlyConfig# class torchao.quantization.Int8WeightOnlyConfig(group_size: Optional[int] = None, granularity: Optional[Granularity] = PerRow(dim=-1), set_inductor_config: bool = True, version: int = 1)[source][source]# Configuration for applying int8 weight-only symmetric per-channel quantization to linear layers. Parameters group_size (version 1) \u2013 None (If) \u2013 Otherwise (applies per-channel quantization.) \u2013 size. (applies per-group quantization with the specified group) \u2013 granularity (version 2) \u2013 PerRow() for per-channel quantization, PerTensor() for per-tensor quantization. set_inductor_config \u2013 bool = True - If True, adjusts torchinductor settings to recommended values for better performance with this quantization scheme. Example: import torch.nn as nn from torchao.quantization import Int8WeightOnlyConfig, quantize_ model = nn.Sequential(nn.Linear(2048, 2048, device=\"cuda\")) quantize_(model, Int8WeightOnlyConfig())",
        "author": {
          "@type": "Organization",
          "name": "PyTorch Contributors",
