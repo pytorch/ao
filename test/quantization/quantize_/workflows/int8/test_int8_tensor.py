@@ -418,11 +418,12 @@ class TestInt8StaticQuant(TorchAOIntegrationTestCase):
         self.assertGreater(sqnr, 40, f"SQNR too low: {sqnr}")
 
     @common_utils.parametrize("scale_dtype", [torch.float16, torch.bfloat16])
+    @common_utils.parametrize("granularity", [PerRow(), PerTensor()])
     def test_scale_dtype_configuration(self, scale_dtype, granularity):
         """Test that scale_dtype configuration is properly applied"""
         model = ToyTwoLinearModel(256, 128, 256, dtype=torch.float32, device="cuda")
         config = Int8DynamicActivationInt8WeightConfig(
-            version=2, scale_dtype=scale_dtype
+            version=2, granularity=granularity, scale_dtype=scale_dtype
         )
         quantize_(model, config)
 
