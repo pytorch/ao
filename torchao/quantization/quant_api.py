@@ -1809,7 +1809,7 @@ def _intx_weight_only_transform(
 
 @dataclass
 class FqnToConfig(AOBaseConfig):
-    """Configuration class for applying different quantization configs to modules or parameters based on their fully qualified names (FQNs).
+    r"""Configuration class for applying different quantization configs to modules or parameters based on their fully qualified names (FQNs).
 
     Args:
         `fqn_to_config`: typing.OrderedDict[str, Optional[AOBaseConfig]]: an
