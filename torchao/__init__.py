@@ -80,7 +80,11 @@ elif not ("+git" in __version__) and not ("unknown" in __version__):
         # Built against torch 2.10.0
         (_parse_version("0.16.0"), _parse_version("2.10.0")),
         (_parse_version("0.16.0"), _parse_version("2.11.0.dev")),
-        # Current torchao version
+        # current torchao version - to be deleted after version bump
+        (_parse_version("0.16.0.dev"), _parse_version("2.9.1")),
+        (_parse_version("0.16.0.dev"), _parse_version("2.10.0.dev")),
+        (_parse_version("0.16.0.dev"), _parse_version("2.11.0.dev")),
+        # next torchao version
         (_parse_version("0.17.0.dev"), _parse_version("2.10.0")),
         (_parse_version("0.17.0.dev"), _parse_version("2.11.0.dev")),
     ]
