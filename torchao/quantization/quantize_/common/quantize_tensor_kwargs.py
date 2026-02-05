@@ -63,6 +63,7 @@ def _choose_quant_func_and_quantize_tensor(
             quant_kwargs.granularity,
             mapping_type=quant_kwargs.mapping_type,
             scale=scale,
+            scale_dtype=quant_kwargs.scale_dtype,
         )
 
     raise NotImplementedError(f"Quant kwargs not supported: {quant_kwargs}")

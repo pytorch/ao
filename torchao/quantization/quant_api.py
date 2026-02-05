@@ -1062,6 +1062,7 @@ class Int8DynamicActivationInt8WeightConfig(AOBaseConfig):
             in original precision during decode operations.
         set_inductor_config: bool = True - If True, adjusts `torchinductor` settings to recommended values
             for better performance with this quantization scheme.
+        scale_dtype: Optional[torch.dtype] = None - The dtype for the scale tensor (version 2 only), defaults to None (uses input tensor dtype)
         version (int): the version of the config, version 1 is using AffineQuantizedTensor that we plan to deprecate/split, version 2 is using Int8Tensor
 
     Example::
@@ -1075,6 +1076,7 @@ class Int8DynamicActivationInt8WeightConfig(AOBaseConfig):
     weight_only_decode: bool = False
     granularity: Granularity = PerRow()
     set_inductor_config: bool = True
+    scale_dtype: Optional[torch.dtype] = None
     version: int = 1
 
     def __post_init__(self):
@@ -1147,9 +1149,11 @@ def _int8_dynamic_activation_int8_weight_quantize_tensor(weight, config):
         quantized_weight = Int8Tensor.from_hp(
             weight,
             granularity=weight_granularity,
+            scale_dtype=config.scale_dtype,
             act_quant_kwargs=QuantizeTensorToInt8Kwargs(
                 granularity=act_granularity,
                 mapping_type=config.act_mapping_type,
+                scale_dtype=config.scale_dtype,
             ),
         )
 
@@ -1195,6 +1199,7 @@ class Int8StaticActivationInt8WeightConfig(AOBaseConfig):
         granularity (Granularity): The granularity of quantization. PerRow() and PerTensor() are supported currently
         act_mapping_type (MappingType): The mapping type for activation quantization. only SYMMETRIC is supported currently
         set_inductor_config (bool): if True, adjusts `torchinductor` settings to recommended values.
+        scale_dtype: Optional[torch.dtype] = None - The dtype for the scale tensor, defaults to None (uses input tensor dtype)
         version (int): the version of the config
     """
 
@@ -1202,6 +1207,7 @@ class Int8StaticActivationInt8WeightConfig(AOBaseConfig):
     granularity: Granularity = PerRow()
     act_mapping_type: Optional[MappingType] = MappingType.SYMMETRIC
     set_inductor_config: bool = True
+    scale_dtype: Optional[torch.dtype] = None
     version: int = 1
 
     def __post_init__(self):
@@ -1226,6 +1232,7 @@ class Int8StaticActivationInt8WeightConfig(AOBaseConfig):
         return QuantizeTensorToInt8Kwargs(
             granularity=self.granularity,
             mapping_type=self.act_mapping_type,
+            scale_dtype=self.scale_dtype,
         )
 
 
@@ -1255,9 +1262,11 @@ def _int8_static_activation_int8_weight_transform(
     quantized_tensor = Int8Tensor.from_hp(
         getattr(module, parameter_name),
         granularity=weight_granularity,
+        scale_dtype=config.scale_dtype,
         act_quant_kwargs=QuantizeTensorToInt8Kwargs(
             granularity=activation_granularity,
             mapping_type=config.act_mapping_type,
+            scale_dtype=config.scale_dtype,
         ),
         act_quant_scale=config.act_quant_scale.detach(),
     )
