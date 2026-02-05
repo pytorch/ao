@@ -36,7 +36,7 @@ try:
             test_x86inductor_fusion,
         )
     except ImportError:
-        import test_x86inductor_fusion
+        import test_x86inductor_fusion  # @manual
 except unittest.SkipTest:
     if __name__ == "__main__":
         sys.exit(0)
