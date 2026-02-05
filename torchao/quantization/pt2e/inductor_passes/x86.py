@@ -52,6 +52,23 @@ _VIEW_METHOD_OPS = [
     "reshape",
 ]
 
+# Dynamo/FX sometimes carries ScalarType as an int enum (e.g. 24 for float8_e4m3fn).
+# For readability and comparisons, normalize back to torch.dtype when possible using _fallback_enum_to_dtype table.
+_fallback_enum_to_dtype: dict[int, torch.dtype] = {
+    0: torch.uint8,
+    1: torch.int8,
+    2: torch.int16,
+    3: torch.int32,
+    4: torch.int64,
+    5: torch.float16,
+    6: torch.float,
+    7: torch.double,
+    11: torch.bool,
+    15: torch.bfloat16,
+    24: torch.float8_e4m3fn,
+    25: torch.float8_e5m2,
+}
+
 """
 The quantization.py file primarily incorporates passes related to quantization fusion
 in inductor, includes:
@@ -2964,20 +2981,6 @@ def _register_scaled_embedding_bag_pass(pattern, pass_number, dtype=torch.float3
                     return dtype_or_enum
                 if isinstance(dtype_or_enum, int):
                     # Fallback mapping for common ScalarType enums.
-                    _fallback_enum_to_dtype: dict[int, torch.dtype] = {
-                        0: torch.uint8,
-                        1: torch.int8,
-                        2: torch.int16,
-                        3: torch.int32,
-                        4: torch.int64,
-                        5: torch.float16,
-                        6: torch.float,
-                        7: torch.double,
-                        11: torch.bool,
-                        15: torch.bfloat16,
-                        24: torch.float8_e4m3fn,
-                        25: torch.float8_e5m2,
-                    }
                     if dtype_or_enum in _fallback_enum_to_dtype:
                         return _fallback_enum_to_dtype[dtype_or_enum]
                 return dtype_or_enum
@@ -3009,10 +3012,8 @@ def _register_scaled_embedding_bag_pass(pattern, pass_number, dtype=torch.float3
                             return float(data[0])
                 return None
 
-            o_scale_maybe = _extract_const_float(kwargs["o_inv_scale"])
-            if o_scale_maybe is None:
-                assert False, "Output scale is not a constant float."
-            o_scale = o_scale_maybe
+            o_scale = _extract_const_float(kwargs["o_inv_scale"])
+            assert o_scale is not None, "Output scale is not a constant float."
 
         graph = match.graph
         with graph.inserting_before(getitem_node):
