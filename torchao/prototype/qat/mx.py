@@ -145,8 +145,8 @@ class _MXQuantizedForwardFakeQuantizedBackward(torch.autograd.Function):
         orig_shape = ctx.orig_shape
         assert isinstance(_input_2d, MXTensor)
         assert isinstance(weight, MXTensor)
-        _input_2d = _input_2d.dequantize(_input_2d._orig_dtype)
-        weight = weight.dequantize(weight._orig_dtype)
+        _input_2d = _input_2d.dequantize(_input_2d.orig_dtype)
+        weight = weight.dequantize(weight.orig_dtype)
 
         grad_output_2d = grad_output.view(-1, grad_output.shape[-1])
 
