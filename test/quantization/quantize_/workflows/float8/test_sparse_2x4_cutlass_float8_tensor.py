@@ -23,13 +23,20 @@ from torchao.quantization.quantize_.workflows import (
 )
 from torchao.quantization.utils import compute_error
 from torchao.sparsity import apply_fake_sparsity
-from torchao.utils import is_sm_at_least_90
+from torchao.utils import (
+    is_sm_at_least_90,
+    torch_version_at_least,
+)
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
 
 
+@unittest.skipIf(
+    not torch_version_at_least("2.10.0"),
+    "Need torch >= 2.10.0 for availability of ABI kernels",
+)
 class TestSparse2x4Float8Tensor(common_utils.TestCase):
     @unittest.skipIf(not is_sm_at_least_90(), "Need H100 to run")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")

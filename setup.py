@@ -45,38 +45,6 @@ def read_version(file_path="version.txt"):
         return file.readline().strip()
 
 
-# Check if torch version is at least 2.10.0 (for stable ABI support)
-# util copied from torchao/utils.py 1
-def _parse_version(version_string):
-    """
-    Parse version string representing pre-release with -1
-
-    Examples: "2.5.0.dev20240708+cu121" -> [2, 5, -1], "2.5.0" -> [2, 5, 0]
-    """
-    # Check for pre-release indicators
-    is_prerelease = bool(re.search(r"(git|dev)", version_string))
-    match = re.match(r"(\d+)\.(\d+)\.(\d+)", version_string)
-    if match:
-        major, minor, patch = map(int, match.groups())
-        if is_prerelease:
-            patch = -1
-        return [major, minor, patch]
-    else:
-        raise ValueError(f"Invalid version string format: {version_string}")
-
-
-def _is_fbcode():
-    return not hasattr(torch.version, "git_version")
-
-
-def _torch_version_at_least(min_version):
-    if _is_fbcode():
-        return True
-
-    # Parser for local identifiers
-    return _parse_version(torch.__version__) >= _parse_version(min_version)
-
-
 SPINQUANT_REL_PATH = Path("torchao") / "prototype" / "spinquant"
 HADAMARD_JSON = "_hadamard_matrices.json"
 HADAMARD_PKL = "_hadamard_matrices.pkl"
@@ -180,6 +148,38 @@ from torch.utils.cpp_extension import (
     CUDAExtension,
     _get_cuda_arch_flags,
 )
+
+
+# Check if torch version is at least 2.10.0 (for stable ABI support)
+# util copied from torchao/utils.py
+def _parse_version(version_string):
+    """
+    Parse version string representing pre-release with -1
+
+    Examples: "2.5.0.dev20240708+cu121" -> [2, 5, -1], "2.5.0" -> [2, 5, 0]
+    """
+    # Check for pre-release indicators
+    is_prerelease = bool(re.search(r"(git|dev)", version_string))
+    match = re.match(r"(\d+)\.(\d+)\.(\d+)", version_string)
+    if match:
+        major, minor, patch = map(int, match.groups())
+        if is_prerelease:
+            patch = -1
+        return [major, minor, patch]
+    else:
+        raise ValueError(f"Invalid version string format: {version_string}")
+
+
+def _is_fbcode():
+    return not hasattr(torch.version, "git_version")
+
+
+def _torch_version_at_least(min_version):
+    if _is_fbcode():
+        return True
+
+    # Parser for local identifiers
+    return _parse_version(torch.__version__) >= _parse_version(min_version)
 
 
 def detect_hipify_v2():
@@ -649,7 +649,6 @@ def get_extensions():
 
     use_cutlass = False
     cutlass_90a_sources = None
-    stable_cutlass_90a_sources = None
     build_for_sm90a = False
     build_for_sm100a = False
     if use_cuda and not IS_WINDOWS:
@@ -681,17 +680,14 @@ def get_extensions():
         )
 
         build_for_sm90a, build_for_sm100a = get_cutlass_build_flags()
-        # Define sm90a sources
+
+        # Define sm90a sources that use stable ABI (requires torch >= 2.10.0)
         cutlass_90a_sources = [
-            # TODO: move this to stable_cutlass_90a_sources in #3727
             os.path.join(
                 extensions_cuda_dir,
                 "to_sparse_semi_structured_cutlass_sm9x",
                 "to_sparse_semi_structured_cutlass_sm9x_f8.cu",
             ),
-        ]
-
-        stable_cutlass_90a_sources = [
             os.path.join(
                 extensions_cuda_dir,
                 "rowwise_scaled_linear_sparse_cutlass",
@@ -699,16 +695,16 @@ def get_extensions():
             ),
         ]
         for dtypes in ["e4m3e4m3", "e4m3e5m2", "e5m2e4m3", "e5m2e5m2"]:
-            stable_cutlass_90a_sources.append(
+            cutlass_90a_sources.append(
                 os.path.join(
                     extensions_cuda_dir,
                     "rowwise_scaled_linear_sparse_cutlass",
                     "rowwise_scaled_linear_sparse_cutlass_" + dtypes + ".cu",
                 )
             )
+
         # Always remove sm90a sources from main sources
         sources = [s for s in sources if s not in cutlass_90a_sources]
-        sources = [s for s in sources if s not in stable_cutlass_90a_sources]
 
     else:
         # Remove CUTLASS-based kernels from the sources list.  An
@@ -770,55 +766,36 @@ def get_extensions():
             )
 
     # Only build the cutlass_90a extension if sm90a is in the architecture flags
-    # TODO: delete this after #3726 and #3727
+    # and if torch version >= 2.10
     if (
         cutlass_90a_sources is not None
         and len(cutlass_90a_sources) > 0
         and build_for_sm90a
+        and _torch_version_at_least("2.10.0")
     ):
         cutlass_90a_extra_compile_args = copy.deepcopy(extra_compile_args)
         # Only use sm90a architecture for these sources, ignoring other flags
-        cutlass_90a_extra_compile_args["nvcc"].append(
-            "-gencode=arch=compute_90a,code=sm_90a"
+        cutlass_90a_extra_compile_args["nvcc"].extend(
+            [
+                "-DUSE_CUDA",
+                "-gencode=arch=compute_90a,code=sm_90a",
+                "-DTORCH_TARGET_VERSION=0x020a000000000000",
+            ]
         )
+        # Add compile flags for stable ABI support (requires torch >= 2.10)
+        cutlass_90a_extra_compile_args["cxx"].extend(
+            [
+                "-DUSE_CUDA",
+                "-DTORCH_TARGET_VERSION=0x020a000000000000",
+            ]
+        )
+        # stable ABI cutlass_90a module
         ext_modules.append(
             extension(
                 "torchao._C_cutlass_90a",
                 cutlass_90a_sources,
                 py_limited_api=True,
                 extra_compile_args=cutlass_90a_extra_compile_args,
-                extra_link_args=extra_link_args,
-            )
-        )
-
-    # Only build the cutlass_90a extension if sm90a is in the architecture flags
-    # and if torch version >= 2.10
-    if (
-        stable_cutlass_90a_sources is not None
-        and len(stable_cutlass_90a_sources) > 0
-        and build_for_sm90a
-        and _torch_version_at_least("2.10.0")
-    ):
-        stable_cutlass_90a_extra_compile_args = copy.deepcopy(extra_compile_args)
-        # Only use sm90a architecture for these sources, ignoring other flags
-        stable_cutlass_90a_extra_compile_args["nvcc"].append(
-            "-gencode=arch=compute_90a,code=sm_90a"
-        )
-        # Add -DUSE_CUDA for stable ABI support (using features in torch 2.10)
-        stable_cutlass_90a_extra_compile_args["cxx"].append("-DUSE_CUDA")
-        stable_cutlass_90a_extra_compile_args["cxx"].append(
-            "-DTORCH_TARGET_VERSION=0x020a000000000000"
-        )
-        stable_cutlass_90a_extra_compile_args["nvcc"].append("-DUSE_CUDA")
-        stable_cutlass_90a_extra_compile_args["nvcc"].append(
-            "-DTORCH_TARGET_VERSION=0x020a000000000000"
-        )
-        ext_modules.append(
-            extension(
-                "torchao._C_cutlass_90a_stable",
-                stable_cutlass_90a_sources,
-                py_limited_api=True,
-                extra_compile_args=stable_cutlass_90a_extra_compile_args,
                 extra_link_args=extra_link_args,
             )
         )
