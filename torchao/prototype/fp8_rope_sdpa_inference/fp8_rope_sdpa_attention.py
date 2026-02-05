@@ -34,7 +34,7 @@ from torchao.prototype.fp8_rope_sdpa_inference.fp8_hadamard_rope_sdpa_quantizati
     fp8_hadamard_rope_quantize_func,
     inverse_hadamard_transform,
 )
-from torchao.prototype.fp8_rope_sdpa_inference.fp8_rope_sdpa_quantization import (
+from torchao.prototype.fp8_rope_sdpa_inference.fp8_rope_sdpa_quantization_helion import (
     fp8_rope_quantize_func,
 )
 from torchao.prototype.fp8_rope_sdpa_inference.fp8_v_hadamard_rope_sdpa_quantization import (
