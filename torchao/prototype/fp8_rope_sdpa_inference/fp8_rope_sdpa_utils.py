@@ -113,14 +113,23 @@ class FP8RoPESDPAFluxAttnProcessor:
         1. RoPE (rotary position embeddings)
         2. FP8 quantization
         3. Scaled dot-product attention in FP8
+
+    Optionally applies Hadamard transform before quantization to improve
+    FP8 quantization quality by spreading outlier values.
+
+    Args:
+        use_hadamard: If True, apply Hadamard transform before FP8 quantization.
+            This can improve quantization quality at the cost of additional
+            computation for the inverse Hadamard on output.
     """
 
-    def __init__(self):
+    def __init__(self, use_hadamard: bool = False):
         if not hasattr(F, "scaled_dot_product_attention"):
             raise ImportError(
                 f"{self.__class__.__name__} requires PyTorch 2.0. "
                 "Please upgrade your pytorch version."
             )
+        self.use_hadamard = use_hadamard
 
     def __call__(
         self,
@@ -168,6 +177,7 @@ class FP8RoPESDPAFluxAttnProcessor:
                 attn_mask=None,  # attention_mask not supported for FP8
                 is_causal=False,
                 scale=None,
+                use_hadamard=self.use_hadamard,
             )
         else:
             # No RoPE needed, use FP8 SDPA directly
@@ -208,7 +218,9 @@ class FP8RoPESDPAFluxAttnProcessor:
 # =============================================================================
 
 
-def wrap_module_with_fp8_rope_sdpa(module: nn.Module) -> nn.Module:
+def wrap_module_with_fp8_rope_sdpa(
+    module: nn.Module, use_hadamard: bool = False
+) -> nn.Module:
     """
     Wrap a module to use fused FP8 RoPE + SDPA.
 
@@ -223,12 +235,16 @@ def wrap_module_with_fp8_rope_sdpa(module: nn.Module) -> nn.Module:
 
     Args:
         module: The module to wrap (e.g., a FLUX transformer)
+        use_hadamard: If True, apply Hadamard transform before FP8 quantization.
+            This can improve quantization quality by spreading outlier values
+            across the head dimension, at the cost of additional computation
+            for the inverse Hadamard on output.
 
     Returns:
         The wrapped module with fused FP8 RoPE + SDPA attention
     """
     # Find all FluxAttention modules and replace their processor
-    fp8_processor = FP8RoPESDPAFluxAttnProcessor()
+    fp8_processor = FP8RoPESDPAFluxAttnProcessor(use_hadamard=use_hadamard)
 
     for name, submodule in module.named_modules():
         # Check if this is a FluxAttention module (has a processor attribute)
