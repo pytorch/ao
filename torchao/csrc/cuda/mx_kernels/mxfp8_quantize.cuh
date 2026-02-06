@@ -1231,9 +1231,9 @@ public:
     const dim3 grid(blocks_X, blocks_Y);
 
     // Create TMA descriptors
-    alignas(64) CUtensorMap tensor_map_input{};
-    alignas(64) CUtensorMap tensor_map_output_rowwise{};
-    alignas(64) CUtensorMap tensor_map_output_colwise{};
+    alignas(128) CUtensorMap tensor_map_input{};
+    alignas(128) CUtensorMap tensor_map_output_rowwise{};
+    alignas(128) CUtensorMap tensor_map_output_colwise{};
     int32_t input_bits_per_elem = get_dtype_bits(input_dtype);
     int32_t output_bits_per_elem = get_dtype_bits(output_dtype);
 
@@ -1371,8 +1371,8 @@ public:
 
     // Create TMA descriptors for each expert
     // Allocate GPU-accessible memory for TMA descriptors
-    alignas(64) CUtensorMap tensor_map_input{};
-    alignas(64) CUtensorMap tensor_map_output{};
+    alignas(128) CUtensorMap tensor_map_input{};
+    alignas(128) CUtensorMap tensor_map_output{};
     int32_t input_bits_per_elem = get_dtype_bits(input_dtype);
     int32_t output_bits_per_elem = get_dtype_bits(output_dtype);
 
