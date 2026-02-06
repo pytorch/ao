@@ -14,21 +14,20 @@ output_bf16 = to_fp8(input_bf16) @ to_fp8(weight_fp8.t())
 output_bf16 = input_bf16 @ weight_int4.t()
 ```
 
-## Quantization Techniques
+## Inference Workflows
 
-See the [API Reference documentation](https://docs.pytorch.org/ao/main/api_reference/api_ref_quantization.html) for code examples and detailed documentation for each quantization config:
+Below are the stable and near-stable inference workflows in torchao:
 
-- **float8 weight configs**: `Float8DynamicActivationFloat8WeightConfig`, `Float8WeightOnlyConfig`
-- **int8 weight configs**: `Int8DynamicActivationInt8WeightConfig`, `Int8WeightOnlyConfig`
-- **int4 weight configs**: `Int4WeightOnlyConfig`, `Float8DynamicActivationInt4WeightConfig`, `Int8DynamicActivationInt4WeightConfig`
-- **intx weight configs**: `IntxWeightOnlyConfig`, `Int8DynamicActivationIntxWeightConfig`
-
-Notes:
-- The quantization error incurred by applying int4 quantization to your model can be fairly significant, so using external techniques like GPTQ may be necessary to obtain a usable model.
-- Float8 quantization requires hardware with CUDA compute capability 8.9 or greater (e.g., H100).
-- Third-party backend CI status:
-  - Ascend NPU(requires torch_npu ≥ 2.7.1)
-  [![Ascend NPU](https://github.com/Ascend/Ascend-CI/actions/workflows/torchao.yml/badge.svg)](https://github.com/Ascend/Ascend-CI/actions/workflows/torchao.yml)
+| weight dtype | act dtype | summary |
+|--------------|-----------|---------|
+| float8 | float8 | {class}`~torchao.quantization.Float8DynamicActivationFloat8WeightConfig`: Applies float8 dynamic symmetric quantization to both activations and weights. Requires CUDA ≥8.9, AMD MI300+, or Intel XPU. Supports `PerTensor` and `PerRow` granularity. |
+| float8 | bf16 | {class}`~torchao.quantization.Float8WeightOnlyConfig`: Applies float8 weight-only symmetric per-channel quantization. Matmul computed in original precision. |
+| int8 | int8 | {class}`~torchao.quantization.Int8DynamicActivationInt8WeightConfig`: Applies int8 dynamic symmetric per-token activation and int8 per-channel weight quantization. |
+| int8 | bf16 | {class}`~torchao.quantization.Int8WeightOnlyConfig`: Applies int8 weight-only symmetric per-channel quantization. |
+| int4 | bf16 | {class}`~torchao.quantization.Int4WeightOnlyConfig`: Applies int4 weight-only groupwise quantization. Supports group sizes 256, 128, 64, 32. |
+| int4 | float8 | {class}`~torchao.quantization.Float8DynamicActivationInt4WeightConfig`: Applies float8 dynamic per-row activation and int4 per-group weight quantization. Group size 128 only. |
+| intx | bf16 | {class}`~torchao.quantization.IntxWeightOnlyConfig`: Applies intx (1-8 bit) weight-only quantization. Supports groupwise and per-channel. Works with Linear and Conv2D. |
+| intx | int8 | {class}`~torchao.quantization.Int8DynamicActivationIntxWeightConfig`: Applies int8 dynamic per-token activation and intx (1-8 bit) weight quantization. CPU optimized. |
 
 
 ## Accuracy benchmarks
