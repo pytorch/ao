@@ -32,64 +32,9 @@ from torchao.utils import TorchAOBaseTensor, fill_defaults
 __all__ = [
     "Int8Tensor",
     "QuantizeTensorToInt8Kwargs",
-    "Int8Granularity",
-    "_normalize_granularity_int8",
-    "_validate_granularity_int8",
 ]
 
 aten = torch.ops.aten
-
-
-Int8Granularity = Optional[
-    Union[
-        Granularity,
-        Tuple[Granularity, Granularity],
-        list[Granularity],
-    ]
-]
-
-
-def _normalize_granularity_int8(
-    granularity: Int8Granularity,
-) -> Tuple[Granularity, Granularity]:
-    normalized_granularity = None
-    if granularity is None:
-        normalized_granularity = (PerRow(), PerRow())
-
-    elif isinstance(granularity, (PerTensor, PerRow)):
-        normalized_granularity = (granularity, granularity)
-
-    elif isinstance(granularity, (tuple, list)):
-        if len(granularity) == 2:
-            normalized_granularity = tuple(granularity)
-        else:
-            raise ValueError(
-                f"Granularity tuple/list must have exactly 2 elements, got {len(granularity)}: {granularity}"
-            )
-    else:
-        raise ValueError(
-            f"Invalid granularity type: {type(granularity)}. "
-            f"Expected None, Granularity, or tuple/list of 2 Granularities."
-        )
-    return normalized_granularity
-
-
-def _validate_granularity_int8(
-    granularity: Tuple[Granularity, Granularity],
-) -> None:
-    act_granularity, weight_granularity = granularity
-
-    if not isinstance(act_granularity, (PerTensor, PerRow)):
-        raise ValueError(
-            f"Unsupported activation granularity type: {type(act_granularity)}. "
-            f"Only PerTensor and PerRow are supported."
-        )
-
-    if not isinstance(weight_granularity, (PerTensor, PerRow)):
-        raise ValueError(
-            f"Unsupported weight granularity type: {type(weight_granularity)}. "
-            f"Only PerTensor and PerRow are supported."
-        )
 
 
 @dataclass
@@ -176,6 +121,55 @@ class Int8Tensor(TorchAOBaseTensor):
             f"device={self.device}, "
             f"dtype={self.dtype})"
         )
+
+    @classmethod
+    def _normalize_granularity_int8(
+        cls,
+        granularity: Optional[
+            Union[
+                Granularity,
+                Tuple[Granularity, Granularity],
+                list[Granularity],
+            ]
+        ],
+    ) -> Tuple[Granularity, Granularity]:
+        normalized_granularity = None
+        supported = (PerTensor, PerRow)
+        if granularity is None:
+            normalized_granularity = (PerRow(), PerRow())
+        elif isinstance(granularity, supported):
+            normalized_granularity = (granularity, granularity)
+        elif isinstance(granularity, (tuple, list)):
+            if len(granularity) == 2:
+                normalized_granularity = tuple(granularity)
+            else:
+                raise ValueError(
+                    f"Granularity tuple/list must have exactly 2 elements, got {len(granularity)}: {granularity}"
+                )
+        else:
+            raise ValueError(
+                f"Invalid granularity type: {granularity}. "
+                f"Expected None, Granularity, or tuple/list of 2 Granularities."
+            )
+        return normalized_granularity
+
+    @classmethod
+    def _validate_granularity_int8(
+        cls,
+        granularity: Tuple[Granularity, Granularity],
+    ) -> None:
+        act_granularity, weight_granularity = granularity
+        supported = (PerTensor, PerRow)
+        if not isinstance(act_granularity, supported):
+            raise ValueError(
+                f"Unsupported activation granularity type: {type(act_granularity)}. "
+                f"Only PerTensor and PerRow are supported."
+            )
+        if not isinstance(weight_granularity, supported):
+            raise ValueError(
+                f"Unsupported weight granularity type: {type(weight_granularity)}. "
+                f"Only PerTensor and PerRow are supported."
+            )
 
     @classmethod
     def from_hp(

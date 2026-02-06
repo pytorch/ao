@@ -82,7 +82,6 @@ from torchao.quantization.quantize_.workflows import (
     Int4PreshuffledTensor,
     Int4Tensor,
     Int4TilePackedTo4dTensor,
-    Int8Granularity,
     Int8Tensor,
     IntxChooseQParamsAlgorithm,
     IntxOpaqueTensor,
@@ -91,8 +90,6 @@ from torchao.quantization.quantize_.workflows import (
     QuantizeTensorToFloat8Kwargs,
     QuantizeTensorToInt8Kwargs,
     Sparse2x4CUTLASSFloat8Tensor,
-    _normalize_granularity_int8,
-    _validate_granularity_int8,
 )
 from torchao.quantization.transform_module import (
     _QUANTIZE_CONFIG_HANDLER,
@@ -1059,9 +1056,9 @@ class Int8DynamicActivationInt8WeightConfig(AOBaseConfig):
     Args:
         layout: Optional[Layout] = PlainLayout() - Tensor layout for the quantized weights. Controls how the
             quantized data is stored and accessed.
-        granularity (Int8Granularity = PerRow()):
+        granularity: Optional[Union[Granularity, Tuple[Granularity, Granularity], List[Granularity]]] = PerRow()
             The granularity for quantization. Can be either a single granularity (applied to both
-            activations and weights) or a tuple of two granularities (first for activations, second for weights).
+            activations and weights) or a tuple / list of two granularities (first for activations, second for weights).
             If None, defaults to PerRow for both. Only PerTensor and PerRow are supported.
         act_mapping_type: Optional[MappingType] = MappingType.SYMMETRIC - Mapping type for activation quantization.
             SYMMETRIC uses symmetric quantization around zero.
@@ -1080,7 +1077,9 @@ class Int8DynamicActivationInt8WeightConfig(AOBaseConfig):
     layout: Optional[Layout] = PlainLayout()
     act_mapping_type: Optional[MappingType] = MappingType.SYMMETRIC
     weight_only_decode: bool = False
-    granularity: Int8Granularity = PerRow()
+    granularity: Optional[
+        Union[Granularity, Tuple[Granularity, Granularity], list[Granularity]]
+    ] = PerRow()
     set_inductor_config: bool = True
     version: int = 1
 
@@ -1138,10 +1137,10 @@ def _int8_dynamic_activation_int8_weight_quantize_tensor(weight, config):
         )
         quantized_weight = to_linear_activation_quantized(new_weight, input_quant_func)
     else:
-        act_granularity, weight_granularity = _normalize_granularity_int8(
+        act_granularity, weight_granularity = Int8Tensor._normalize_granularity_int8(
             config.granularity
         )
-        _validate_granularity_int8((act_granularity, weight_granularity))
+        Int8Tensor._validate_granularity_int8((act_granularity, weight_granularity))
         assert config.act_mapping_type == MappingType.SYMMETRIC, (
             "asymmetric dynamic quant not supported currently"
         )
@@ -1197,9 +1196,9 @@ class Int8StaticActivationInt8WeightConfig(AOBaseConfig):
 
     Args:
         act_quant_scale (torch.Tensor): The scale tensor for activation quantization.
-        granularity (Int8Granularity = PerRow()):
+        granularity (Optional[Union[Granularity, Tuple[Granularity, Granularity], List[Granularity]]] = PerRow()):
             The granularity for quantization. Can be either a single granularity (applied to both
-            activations and weights) or a tuple of two granularities (first for activations, second for weights).
+            activations and weights) or a tuple / list of two granularities (first for activations, second for weights).
             If None, defaults to PerRow for both. Only PerTensor and PerRow are supported.
         act_mapping_type (MappingType): The mapping type for activation quantization. only SYMMETRIC is supported currently
         set_inductor_config (bool): if True, adjusts `torchinductor` settings to recommended values.
@@ -1207,7 +1206,9 @@ class Int8StaticActivationInt8WeightConfig(AOBaseConfig):
     """
 
     act_quant_scale: Optional[torch.Tensor] = None
-    granularity: Int8Granularity = PerRow()
+    granularity: Optional[
+        Union[Granularity, Tuple[Granularity, Granularity], list[Granularity]]
+    ] = PerRow()
     act_mapping_type: Optional[MappingType] = MappingType.SYMMETRIC
     set_inductor_config: bool = True
     version: int = 1
@@ -1223,7 +1224,7 @@ class Int8StaticActivationInt8WeightConfig(AOBaseConfig):
         Returns:
             QuantizeTensorToInt8Kwargs with the configured granularity and mapping type.
         """
-        act_granularity, weight_granularity = _normalize_granularity_int8(
+        act_granularity, weight_granularity = Int8Tensor._normalize_granularity_int8(
             self.granularity
         )
 
@@ -1240,10 +1241,10 @@ def _int8_static_activation_int8_weight_transform(
     *,
     parameter_name="weight",
 ):
-    activation_granularity, weight_granularity = _normalize_granularity_int8(
+    activation_granularity, weight_granularity = Int8Tensor._normalize_granularity_int8(
         config.granularity
     )
-    _validate_granularity_int8((activation_granularity, weight_granularity))
+    Int8Tensor._validate_granularity_int8((activation_granularity, weight_granularity))
     # Validate activation granularity for static quantization
     if isinstance(
         activation_granularity, PerRow
