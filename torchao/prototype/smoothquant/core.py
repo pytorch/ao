@@ -77,12 +77,12 @@ class SmoothQuantObservedLinear(torch.nn.Linear):
         in_features: int,
         out_features: int,
         obs: SmoothQuantObserver,
-        is_bias: bool = False,
+        has_bias: bool = False,
         device=None,
         dtype=None,
     ):
         super().__init__(
-            in_features, out_features, bias=is_bias, device=device, dtype=dtype
+            in_features, out_features, bias=has_bias, device=device, dtype=dtype
         )
         self.obs = obs
 
@@ -97,7 +97,7 @@ class SmoothQuantObservedLinear(torch.nn.Linear):
                 float_linear.in_features,
                 float_linear.out_features,
                 obs,
-                is_bias=float_linear.bias is not None,
+                has_bias=float_linear.bias is not None,
                 device=float_linear.weight.device,
                 dtype=float_linear.weight.dtype,
             )
