@@ -127,7 +127,8 @@ class Int4TilePackedTo4dTensor(TorchAOBaseTensor):
 
         # Pre-process: pad to required dimensions
         in_features = find_multiple(orig_in_features, 1024)
-        out_features = find_multiple(orig_out_features, 8)
+        n_tile = 16 if orig_out_features < 16 and torch.version.hip else 8
+        out_features = find_multiple(orig_out_features, n_tile)
         hp_tensor_padded = torch.nn.functional.pad(
             hp_tensor,
             (0, in_features - orig_in_features, 0, out_features - orig_out_features),
