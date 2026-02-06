@@ -1,0 +1,1824 @@
+
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>torchao.quantization.qat.fake_quantize_config &#8212; torchao 0.16 documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../../../_static/styles/theme.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
+<link href="../../../../_static/styles/bootstrap.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
+<link href="../../../../_static/styles/pydata-sphinx-theme.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
+
+  
+  <link href="../../../../_static/vendor/fontawesome/6.5.2/css/all.min.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
+  <link rel="preload" as="font" type="font/woff2" crossorigin href="../../../../_static/vendor/fontawesome/6.5.2/webfonts/fa-solid-900.woff2" />
+<link rel="preload" as="font" type="font/woff2" crossorigin href="../../../../_static/vendor/fontawesome/6.5.2/webfonts/fa-brands-400.woff2" />
+<link rel="preload" as="font" type="font/woff2" crossorigin href="../../../../_static/vendor/fontawesome/6.5.2/webfonts/fa-regular-400.woff2" />
+
+    <link rel="stylesheet" type="text/css" href="../../../../_static/pygments.css" />
+    <link rel="stylesheet" type="text/css" href="../../../../_static/css/theme.css" />
+    <link rel="stylesheet" type="text/css" href="../../../../_static/copybutton.css" />
+    <link rel="stylesheet" type="text/css" href="../../../../_static/tabs.css" />
+    <link rel="stylesheet" type="text/css" href="../../../../_static/design-style.1e8bd061cd6da7fc9cf755528e8ffc24.min.css" />
+    <link rel="stylesheet" type="text/css" href="../../../../_static/sg_gallery.css" />
+    <link rel="stylesheet" type="text/css" href="../../../../_static/sg_gallery-binder.css" />
+    <link rel="stylesheet" type="text/css" href="../../../../_static/sg_gallery-dataframe.css" />
+    <link rel="stylesheet" type="text/css" href="../../../../_static/sg_gallery-rendered-html.css" />
+    <link rel="stylesheet" type="text/css" href="../../../../_static/css/custom.css" />
+  
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../../../_static/scripts/bootstrap.js?digest=dfe6caa3a7d634c4db9b" />
+<link rel="preload" as="script" href="../../../../_static/scripts/pydata-sphinx-theme.js?digest=dfe6caa3a7d634c4db9b" />
+  <script src="../../../../_static/vendor/fontawesome/6.5.2/js/all.min.js?digest=dfe6caa3a7d634c4db9b"></script>
+
+    <script data-url_root="../../../../" id="documentation_options" src="../../../../_static/documentation_options.js"></script>
+    <script src="../../../../_static/jquery.js"></script>
+    <script src="../../../../_static/underscore.js"></script>
+    <script src="../../../../_static/_sphinx_javascript_frameworks_compat.js"></script>
+    <script src="../../../../_static/doctools.js"></script>
+    <script src="../../../../_static/sphinx_highlight.js"></script>
+    <script src="../../../../_static/clipboard.min.js"></script>
+    <script src="../../../../_static/copybutton.js"></script>
+    <script src="../../../../_static/tabs.js"></script>
+    <script src="../../../../_static/design-tabs.js"></script>
+    <script type="module" src="https://cdn.jsdelivr.net/npm/mermaid@11.2.0/dist/mermaid.esm.min.mjs"></script>
+    <script type="module" src="https://cdn.jsdelivr.net/npm/@mermaid-js/layout-elk@0.1.4/dist/mermaid-layout-elk.esm.min.mjs"></script>
+    <script type="module">import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11.2.0/dist/mermaid.esm.min.mjs";import elkLayouts from "https://cdn.jsdelivr.net/npm/@mermaid-js/layout-elk@0.1.4/dist/mermaid-layout-elk.esm.min.mjs";mermaid.registerLayoutLoaders(elkLayouts);mermaid.initialize({startOnLoad:false});</script>
+    <script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
+    <script type="module">
+import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11.2.0/dist/mermaid.esm.min.mjs";
+window.addEventListener("load", () => mermaid.run());
+</script>
+    <script>DOCUMENTATION_OPTIONS.pagename = '_modules/torchao/quantization/qat/fake_quantize_config';</script>
+    <link rel="canonical" href="https://pytorch.org/ao/_modules/torchao/quantization/qat/fake_quantize_config.html" />
+    <link rel="index" title="Index" href="../../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../../search.html" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/list.js/2.3.1/list.min.js"></script>
+<script>
+  if (window.location.hostname === 'docs.pytorch.org' || window.location.hostname === 'docs-preview.pytorch.org') {
+    const script = document.createElement('script');
+    script.src = 'https://cmp.osano.com/16A0DbT9yDNIaQkvZ/31b1b91a-e0b6-47ea-bde2-7f2bd13dbe5c/osano.js?variant=one';
+    document.head.appendChild(script);
+  }
+</script>
+<script>
+  // Cookie banner for non-LF projects
+  document.addEventListener('DOMContentLoaded', function () {
+    // Hide cookie banner on local environments and LF owned docs
+    if (window.location.hostname === 'localhost' ||
+      window.location.hostname === '0.0.0.0' ||
+      window.location.hostname === '127.0.0.1' ||
+      window.location.hostname === 'docs.pytorch.org' ||
+      window.location.hostname === 'docs-preview.pytorch.org' ||
+      window.location.hostname.startsWith('192.168.')) {
+      const banner = document.querySelector('.cookie-banner-wrapper');
+      if (banner) {
+        banner.style.display = 'none';
+      }
+    }
+  });
+</script>
+<!-- Conditional CSS for header and footer height adjustment -->
+
+
+<link rel="stylesheet" type="text/css" href="../../../../_static/css/theme.css" crossorigin="anonymous">
+<script type="text/javascript" src="../../../../_static/js/theme.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400&display=swap" rel="stylesheet">
+<meta property="og:image" content="https://docs.pytorch.org/docs/stable/_static/img/pytorch_seo.png" />
+<link rel="stylesheet" href="../../../../_static/webfonts/all.min.css" crossorigin="anonymous">
+<meta http-equiv="Content-Security-Policy"
+  content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:; style-src * 'unsafe-inline'; script-src * 'unsafe-inline' 'unsafe-eval' blob:;">
+<meta name="pytorch_project" content="">
+<!-- Google Tag Manager (noscript) -->
+<noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-T8XT4PS" height="0" width="0"
+    style="display:none;visibility:hidden"></iframe></noscript>
+<!-- End Google Tag Manager (noscript) -->
+<!-- Google Tag Manager -->
+<script>(function (w, d, s, l, i) {
+    w[l] = w[l] || []; w[l].push({
+      'gtm.start':
+        new Date().getTime(), event: 'gtm.js'
+    }); var f = d.getElementsByTagName(s)[0],
+      j = d.createElement(s), dl = l != 'dataLayer' ? '&l=' + l : ''; j.async = true; j.src =
+        'https://www.googletagmanager.com/gtm.js?id=' + i + dl; f.parentNode.insertBefore(j, f);
+    j.onload = function () {
+      window.dispatchEvent(new Event('gtm_loaded'));
+      console.log('GTM loaded successfully');
+    };
+  })(window, document, 'script', 'dataLayer', 'GTM-T8XT4PS');
+</script>
+<!-- End Google Tag Manager -->
+<!-- Facebook Pixel Code -->
+<script>
+  !function (f, b, e, v, n, t, s) {
+    if (f.fbq) return; n = f.fbq = function () {
+      n.callMethod ?
+        n.callMethod.apply(n, arguments) : n.queue.push(arguments)
+    };
+    if (!f._fbq) f._fbq = n; n.push = n; n.loaded = !0; n.version = '2.0';
+    n.queue = []; t = b.createElement(e); t.async = !0;
+    t.src = v; s = b.getElementsByTagName(e)[0];
+    s.parentNode.insertBefore(t, s)
+  }(window, document, 'script',
+    'https://connect.facebook.net/en_US/fbevents.js');
+  fbq('init', '243028289693773');
+  fbq('track', 'PageView');
+</script>
+<script>
+  document.documentElement.setAttribute('data-version', '0.16');
+</script>
+<noscript>
+  <img height="1" width="1" src="https://www.facebook.com/tr?id=243028289693773&ev=PageView&noscript=1" />
+</noscript>
+<script>
+  function gtag() {
+    window.dataLayer.push(arguments);
+  }
+</script>
+<!-- End Facebook Pixel Code -->
+<!-- Repository configuration for tutorials -->
+
+<!-- Script to Fix scrolling -->
+<script>
+  document.addEventListener('DOMContentLoaded', function () {
+    // Fix anchor scrolling
+    document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+      anchor.addEventListener('click', function (e) {
+        e.preventDefault();
+        const targetId = this.getAttribute('href').substring(1);
+        const targetElement = document.getElementById(targetId);
+
+        if (targetElement) {
+          const headerHeight =
+            (document.querySelector('.header-holder') ? document.querySelector('.header-holder').offsetHeight : 0) +
+            (document.querySelector('.bd-header') ? document.querySelector('.bd-header').offsetHeight : 0) + 20;
+
+          const targetPosition = targetElement.getBoundingClientRect().top + window.pageYOffset - headerHeight;
+          window.scrollTo({
+            top: targetPosition,
+            behavior: 'smooth'
+          });
+
+          // Update URL hash without scrolling
+          history.pushState(null, null, '#' + targetId);
+        }
+      });
+    });
+  });
+</script>
+
+<script async src="https://cse.google.com/cse.js?cx=e65585f8c3ea1440e"></script>
+
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+
+  </head>
+
+<body data-feedback-url="" class="pytorch-body">
+  
+    <div class="container-fluid header-holder tutorials-header" id="header-holder">
+   <div class="header-container-wrapper">
+    <div class="header-container">
+      <a class="header-logo" href="https://pytorch.org/" aria-label="PyTorch"></a>
+
+      <div class="main-menu">
+        <ul>
+
+          <li class="main-menu-item">
+          <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
+              <a class="with-down-arrow">
+                <span>Learn</span>
+              </a>
+              <div class="resources-dropdown-menu">
+                <a class="nav-dropdown-item" href="https://pytorch.org/get-started/locally">
+                  <span class=dropdown-title>Get Started</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://docs.pytorch.org/tutorials">
+                  <span class="dropdown-title">Tutorials</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/tutorials/beginner/basics/intro.html">
+                  <span class="dropdown-title">Learn the Basics</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/tutorials/recipes/recipes_index.html">
+                  <span class="dropdown-title">PyTorch Recipes</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/tutorials/beginner/introyt.html">
+                  <span class="dropdown-title">Intro to PyTorch - YouTube Series</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/webinars/">
+                  <span class="dropdown-title">Webinars</span>
+                </a>
+              </div>
+            </div>
+          </li>
+
+          <li class="main-menu-item">
+          <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
+              <a class="with-down-arrow">
+              <span>Community</span>
+              </a>
+              <div class="resources-dropdown-menu">
+                <a class="nav-dropdown-item" href="https://landscape.pytorch.org/" target="_blank">
+                  <span class="dropdown-title">Landscape</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/join-ecosystem">
+                  <span class="dropdown-title">Join the Ecosystem</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/community-hub/">
+                  <span class="dropdown-title">Community Hub</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://discuss.pytorch.org/">
+                  <span class="dropdown-title">Forums</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/resources">
+                  <span class=dropdown-title>Developer Resources</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/contributor-awards/">
+                  <span class="dropdown-title">Contributor Awards</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/community-events/">
+                  <span class="dropdown-title">Community Events</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/programs/ambassadors/">
+                  <span class="dropdown-title">PyTorch Ambassadors</span>
+                </a>
+              </div>
+            </div>
+          </li>
+
+          <li class="main-menu-item">
+          <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
+              <a class="with-down-arrow">
+              <span>Projects</span>
+              </a>
+              <div class="resources-dropdown-menu">
+                <a class="nav-dropdown-item" href="https://pytorch.org/projects/pytorch/">
+                  <span class="dropdown-title">PyTorch</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/projects/vllm/">
+                  <span class="dropdown-title">vLLM</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/projects/deepspeed/">
+                  <span class="dropdown-title">DeepSpeed</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/projects/host-your-project/">
+                  <span class="dropdown-title">Host Your Project</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/projects/ray/">
+                  <span class="dropdown-title">RAY</span>
+                </a>
+              </div>
+            </div>
+          </li>
+
+          <li class="main-menu-item">
+            <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
+              <a class="with-down-arrow">
+              <span> Docs</span>
+              </a>
+              <div class="resources-dropdown-menu">
+                <a class="nav-dropdown-item" href="https://docs.pytorch.org/docs/stable/index.html">
+                  <span class="dropdown-title">PyTorch</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/domains">
+                  <span class="dropdown-title">Domains</span>
+                </a>
+              </div>
+            </div>
+          </li>
+
+          <li class="main-menu-item">
+            <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
+              <a class="with-down-arrow">
+              <span>Blogs & News</span>
+              </a>
+              <div class="resources-dropdown-menu">
+                <a class="nav-dropdown-item" href="https://pytorch.org/blog/">
+                  <span class="dropdown-title">Blog</span>
+                </a>
+                 <a class="nav-dropdown-item" href="https://pytorch.org/announcements">
+                  <span class="dropdown-title">Announcements</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/case-studies/">
+                  <span class="dropdown-title">Case Studies</span>
+                <a class="nav-dropdown-item" href="https://pytorch.org/events">
+                  <span class="dropdown-title">Events</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/newsletter">
+                  <span class="dropdown-title">Newsletter</span>
+                </a>
+            </div>
+          </li>
+
+          <li class="main-menu-item">
+            <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
+              <a class="with-down-arrow">
+              <span>About</span>
+              </a>
+              <div class="resources-dropdown-menu">
+                <a class="nav-dropdown-item" href="https://pytorch.org/foundation">
+                  <span class="dropdown-title">PyTorch Foundation</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/members">
+                  <span class="dropdown-title">Members</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/governing-board">
+                  <span class="dropdown-title">Governing Board</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/tac">
+                  <span class="dropdown-title">Technical Advisory Council</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/credits">
+                  <span class="dropdown-title">Cloud Credit Program</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/staff">
+                  <span class="dropdown-title">Staff</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/contact">
+                  <span class="dropdown-title">Contact</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/wp-content/uploads/2025/09/pytorch_brand_guide_091925a.pdf">
+                  <span class="dropdown-title">Brand Guidelines</span>
+                </a>
+              </div>
+            </div>
+          </li>
+
+          <li class="main-menu-item">
+            <div class="no-dropdown main-menu-button">
+              <a href="https://pytorch.org/join" data-cta="join">
+                JOIN
+              </a>
+            </div>
+          </li>
+        </ul>
+      </div>
+
+      <a class="main-menu-open-button" href="#" data-behavior="open-mobile-menu">
+        <i class="fa-solid fa-ellipsis"></i>
+      </a>
+    </div>
+  </div>
+ </div>
+
+ <!-- Begin Mobile Menu -->
+
+<div class="mobile-main-menu">
+  <div class="container-fluid">
+    <div class="header-container-wrapper">
+      <div class="mobile-main-menu-header-container">
+        <a class="main-menu-close-button" href="#" data-behavior="close-mobile-menu">
+        </a>
+      </div>
+    </div>
+  </div>
+
+  <div class="mobile-main-menu-links-container">
+    <div class="main-menu">
+      <ul>
+         <li class="resources-mobile-menu-title">
+           <a>Learn</a>
+         </li>
+         <ul class="resources-mobile-menu-items">
+           <li>
+             <a href="https://pytorch.org/get-started/locally">Get Started</a>
+           </li>
+           <li>
+             <a href="https://docs.pytorch.org/tutorials">Tutorials</a>
+           </li>
+           <li>
+             <a href="https://pytorch.org/tutorials/beginner/basics/intro.html">Learn the Basics</a>
+           </li>
+           <li>
+             <a href="https://pytorch.org/tutorials/recipes/recipes_index.html">PyTorch Recipes</a>
+           </li>
+           <li>
+             <a href="https://pytorch.org/tutorials/beginner/introyt.html">Introduction to PyTorch - YouTube Series</a>
+           </li>
+           <li>
+            <a href="https://pytorch.org/webinars/">Webinars</a>
+          </li>
+        </ul>
+         <li class="resources-mobile-menu-title">
+           <a>Community</a>
+         </li>
+         <ul class="resources-mobile-menu-items">
+          <li>
+            <a href="https://landscape.pytorch.org/">Landscape</a>
+          </li>
+          <li>
+             <a href="https://pytorch.org/join-ecosystem">Join the Ecosystem</a>
+           </li>
+           <li>
+             <a href="https://pytorch.org/community-hub/">Community Hub</a>
+           </li>
+           <li>
+             <a href="https://discuss.pytorch.org/">Forums</a>
+           </li>
+           <li>
+             <a href="https://pytorch.org/resources">Developer Resources</a>
+           </li>
+           <li>
+             <a href="https://pytorch.org/contributor-awards/">Contributor Awards</a>
+           </li>
+           <li>
+            <a href="https://pytorch.org/community-events/">Community Events</a>
+          </li>
+          <li>
+            <a href="https://pytorch.org/programs/ambassadors/">PyTorch Ambassadors</a>
+          </li>
+       </ul>
+
+         <li class="resources-mobile-menu-title">
+           <a>Projects</a>
+         </li>
+
+         <ul class="resources-mobile-menu-items">
+           <li>
+             <a href="https://pytorch.org/projects/pytorch/">PyTorch</a>
+           </li>
+
+           <li>
+             <a href="https://pytorch.org/projects/vllm/">vLLM</a>
+           </li>
+           <li>
+            <a href="https://pytorch.org/projects/deepspeed/">DeepSpeed</a>
+          </li>
+          <li>
+             <a href="https://pytorch.org/projects/host-your-project/">Host Your Project</a>
+           </li>
+         </ul>
+
+         <li class="resources-mobile-menu-title">
+           <a>Docs</a>
+         </li>
+
+         <ul class="resources-mobile-menu-items">
+          <li>
+            <a href="https://docs.pytorch.org/docs/stable/index.html">PyTorch</a>
+          </li>
+
+          <li>
+            <a href="https://pytorch.org/domains">Domains</a>
+          </li>
+        </ul>
+
+        <li class="resources-mobile-menu-title">
+          <a>Blog & News</a>
+        </li>
+
+         <ul class="resources-mobile-menu-items">
+          <li>
+            <a href="https://pytorch.org/blog/">Blog</a>
+          </li>
+          <li>
+            <a href="https://pytorch.org/announcements">Announcements</a>
+          </li>
+
+          <li>
+            <a href="https://pytorch.org/case-studies/">Case Studies</a>
+          </li>
+          <li>
+            <a href="https://pytorch.org/events">Events</a>
+          </li>
+          <li>
+             <a href="https://pytorch.org/newsletter">Newsletter</a>
+           </li>
+        </ul>
+
+        <li class="resources-mobile-menu-title">
+          <a>About</a>
+        </li>
+
+        <ul class="resources-mobile-menu-items">
+          <li>
+            <a href="https://pytorch.org/foundation">PyTorch Foundation</a>
+          </li>
+          <li>
+            <a href="https://pytorch.org/members">Members</a>
+          </li>
+          <li>
+            <a href="https://pytorch.org/governing-board">Governing Board</a>
+          </li>
+          <li>
+            <a href="https://pytorch.org/tac">Technical Advisory Council</a>
+         </li>
+         <li>
+             <a href="https://pytorch.org/credits">Cloud Credit Program</a>
+          </li>
+          <li>
+             <a href="https://pytorch.org/staff">Staff</a>
+          </li>
+          <li>
+             <a href="https://pytorch.org/contact">Contact</a>
+          </li>
+        </ul>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- End Mobile Menu -->
+  
+  
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <input type="checkbox"
+          class="sidebar-toggle"
+          id="pst-primary-sidebar-checkbox"/>
+  <label class="overlay overlay-primary" for="pst-primary-sidebar-checkbox"></label>
+  
+  <input type="checkbox"
+          class="sidebar-toggle"
+          id="pst-secondary-sidebar-checkbox"/>
+  <label class="overlay overlay-secondary" for="pst-secondary-sidebar-checkbox"></label>
+  
+  <div class="search-button__wrapper">
+    <div class="search-button__overlay"></div>
+    <div class="search-button__search-container">
+<form class="bd-search d-flex align-items-center"
+      action="../../../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         id="search-input"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form></div>
+  </div>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+  <a href="../../../../index.html" class="version">0.16</a>
+</div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../workflows/index.html">
+    Workflows
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../api_reference/index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../eager_tutorials/index.html">
+    Tutorials
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../contributing/index.html">
+    Contributing
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../pt2e_quantization/index.html">
+    PT2E Quantization
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+      
+        <div class="navbar-item">
+  
+<form class="bd-search d-flex align-items-center"
+      action="../../../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         id="search-input"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+</div>
+      
+        <div class="navbar-item">
+
+<script>
+document.write(`
+  <button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button" title="light/dark" aria-label="light/dark" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <i class="theme-switch fa-solid fa-sun fa-lg" data-mode="light"></i>
+    <i class="theme-switch fa-solid fa-moon fa-lg" data-mode="dark"></i>
+    <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"></i>
+  </button>
+`);
+</script></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://x.com/PyTorch" title="X" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-x-twitter fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">X</span></a>
+        </li>
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/pytorch/ao" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://dev-discuss.pytorch.org/" title="Discourse" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-discourse fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">Discourse</span></a>
+        </li>
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://pypi.org/project/torchao/" title="PyPi" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-python fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">PyPi</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+        
+      
+      <div class="bd-sidebar-primary bd-sidebar hide-on-wide">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../workflows/index.html">
+    Workflows
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../api_reference/index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../eager_tutorials/index.html">
+    Tutorials
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../contributing/index.html">
+    Contributing
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../pt2e_quantization/index.html">
+    PT2E Quantization
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+  
+<form class="bd-search d-flex align-items-center"
+      action="../../../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         id="search-input"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+</div>
+        
+          <div class="navbar-item">
+
+<script>
+document.write(`
+  <button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button" title="light/dark" aria-label="light/dark" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <i class="theme-switch fa-solid fa-sun fa-lg" data-mode="light"></i>
+    <i class="theme-switch fa-solid fa-moon fa-lg" data-mode="dark"></i>
+    <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"></i>
+  </button>
+`);
+</script></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://x.com/PyTorch" title="X" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-x-twitter fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">X</span></a>
+        </li>
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/pytorch/ao" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://dev-discuss.pytorch.org/" title="Discourse" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-discourse fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">Discourse</span></a>
+        </li>
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://pypi.org/project/torchao/" title="PyPi" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-python fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">PyPi</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+  </div>
+  
+  <div id="rtd-footer-container"></div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../../../index.html" class="nav-link">Module code</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page">torchao.quan...</li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+    <div class="header-article-items__end">
+      
+        <div class="header-article-item">
+<div class="rating">
+    Rate this Page
+    <div class="stars">
+        
+        <span class="star" data-behavior="tutorial-rating" data-count="1" data-value="1">★</span>
+        
+        <span class="star" data-behavior="tutorial-rating" data-count="2" data-value="2">★</span>
+        
+        <span class="star" data-behavior="tutorial-rating" data-count="3" data-value="3">★</span>
+        
+        <span class="star" data-behavior="tutorial-rating" data-count="4" data-value="4">★</span>
+        
+        <span class="star" data-behavior="tutorial-rating" data-count="5" data-value="5">★</span>
+        
+    </div>
+</div>
+</div>
+      
+    </div>
+  
+</div>
+</div>
+              
+              
+  
+<div id="searchbox"></div>
+  <article class="bd-article" id="pytorch-article">
+    <!-- Hidden breadcrumb schema for SEO only -->
+    <div style="display:none;" itemscope itemtype="https://schema.org/BreadcrumbList">
+      
+      <div itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
+        <link itemprop="item" href="../../../index.html">
+        <meta itemprop="name" content="Module code">
+        <meta itemprop="position" content="1">
+      </div>
+      
+      <div itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
+        <meta itemprop="name" content="torchao.quantization.qat.fake_quantize_config">
+        <meta itemprop="position" content="2">
+      </div>
+    </div>
+
+    
+    
+
+    
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <h1>Source code for torchao.quantization.qat.fake_quantize_config</h1><div class="highlight"><pre>
+<span></span><span class="c1"># Copyright (c) Meta Platforms, Inc. and affiliates.</span>
+<span class="c1"># All rights reserved.</span>
+
+<span class="c1"># This source code is licensed under the license found in the</span>
+<span class="c1"># LICENSE file in the root directory of this source tree.</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">abc</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Optional</span><span class="p">,</span> <span class="n">Tuple</span><span class="p">,</span> <span class="n">Union</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.core.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">AOBaseConfig</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.float8.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">e4m3_dtype</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.float8.inference</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">FP8Granularity</span><span class="p">,</span>
+    <span class="n">_normalize_granularity</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.granularity</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">Granularity</span><span class="p">,</span>
+    <span class="n">PerAxis</span><span class="p">,</span>
+    <span class="n">PerGroup</span><span class="p">,</span>
+    <span class="n">PerRow</span><span class="p">,</span>
+    <span class="n">PerTensor</span><span class="p">,</span>
+    <span class="n">PerToken</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.quant_primitives</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">_SUB_BYTE_INT_BOUNDS</span><span class="p">,</span>
+    <span class="n">_SUB_BYTE_UINT_BOUNDS</span><span class="p">,</span>
+    <span class="n">MappingType</span><span class="p">,</span>
+    <span class="n">TorchAODType</span><span class="p">,</span>
+    <span class="n">ZeroPointDomain</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.quantize_.workflows</span><span class="w"> </span><span class="kn">import</span> <span class="n">Int4PackingFormat</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">_is_float8_type</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">.utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">_log_deprecation_warning</span>
+
+
+<div class="viewcode-block" id="FakeQuantizeConfigBase"><a class="viewcode-back" href="../../../../api_reference/generated/torchao.quantization.qat.FakeQuantizeConfigBase.html#torchao.quantization.qat.FakeQuantizeConfigBase">[docs]</a><span class="k">class</span><span class="w"> </span><span class="nc">FakeQuantizeConfigBase</span><span class="p">(</span><span class="n">abc</span><span class="o">.</span><span class="n">ABC</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Base class for representing fake quantization config.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">pass</span></div>
+
+
+<div class="viewcode-block" id="Float8FakeQuantizeConfig"><a class="viewcode-back" href="../../../../api_reference/generated/torchao.quantization.qat.Float8FakeQuantizeConfig.html#torchao.quantization.qat.Float8FakeQuantizeConfig">[docs]</a><span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">Float8FakeQuantizeConfig</span><span class="p">(</span><span class="n">FakeQuantizeConfigBase</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Config for float8 fake quantization, targeting :class:`~torchao.quantization.Float8Tensor`.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">       dtype (torch.dtype): the dtype for float8 Tensor</span>
+<span class="sd">       granularity (FP8Granularity): the granularity for the Tensor, currently either PerRow() or PerTensor()</span>
+<span class="sd">       hp_value_lb (Optional[float]): the lower bound for high precision floating point value for calculating scale</span>
+<span class="sd">       hp_value_ub (Optional[float]): the upper bound for high precision floating point value for calculating scale</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">e4m3_dtype</span>
+    <span class="n">granularity</span><span class="p">:</span> <span class="n">FP8Granularity</span> <span class="o">=</span> <span class="n">PerRow</span><span class="p">()</span>
+    <span class="n">hp_value_lb</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">hp_value_ub</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">__post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Verify dtype and granularity are the ones we support.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">_is_float8_type</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dtype</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">dtype</span><span class="si">}</span><span class="s2"> is not a float8 dtype&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">granularity</span><span class="p">,</span> <span class="nb">type</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="s2">&quot;Please specify the granularity object instead of the class, e.g. PerRow() instead of PerRow&quot;</span>
+            <span class="p">)</span>
+        <span class="k">if</span> <span class="nb">type</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">granularity</span><span class="p">)</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">[</span><span class="n">PerRow</span><span class="p">,</span> <span class="n">PerTensor</span><span class="p">]:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;Expected PerRow or PerTensor granularity, got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">granularity</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="p">)</span></div>
+
+
+<span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">Int4WeightFakeQuantizeConfig</span><span class="p">(</span><span class="n">FakeQuantizeConfigBase</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Config for pint4 weight fake quantization that targets the numerics in the following preshuffled kernel:</span>
+<span class="sd">        torch.ops.mslk.f8i4bf16_shuffled</span>
+<span class="sd">        torch.ops.mslk.bf16i4bf16_shuffled</span>
+<span class="sd">        torch.ops.mslk.bf16i4bf16_rowwise</span>
+
+<span class="sd">    Currently this only supports float8 input activations. It is expected to be used in conjunction with</span>
+<span class="sd">    :class:`~torchao.quantization.Float8DynamicActivationInt4WeightConfig`. In the future, we may extend</span>
+<span class="sd">    this to support bfloat16 as well.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">group_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">128</span>
+    <span class="n">activation_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">e4m3_dtype</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">__post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">activation_dtype</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">[</span><span class="n">e4m3_dtype</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">]:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;Only </span><span class="si">{</span><span class="n">e4m3_dtype</span><span class="si">}</span><span class="s2"> or torch.bfloat16 activation are supported&quot;</span>
+            <span class="p">)</span>
+
+
+<div class="viewcode-block" id="IntxFakeQuantizeConfig"><a class="viewcode-back" href="../../../../api_reference/generated/torchao.quantization.qat.IntxFakeQuantizeConfig.html#torchao.quantization.qat.IntxFakeQuantizeConfig">[docs]</a><span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">IntxFakeQuantizeConfig</span><span class="p">(</span><span class="n">FakeQuantizeConfigBase</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Config for how to fake quantize weights or activations,</span>
+<span class="sd">    targeting integer dtypes up to torch.int8.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        dtype: dtype to simulate during fake quantization, e.g. torch.int8.</span>
+<span class="sd">            For PyTorch versions older than 2.6, you may use `TorchAODType` to represent</span>
+<span class="sd">            torch.int1 to torch.int7 instead, e.g. TorchAODType.INT4.</span>
+<span class="sd">        granularity: granularity of scales and zero points, e.g. PerGroup(32).</span>
+<span class="sd">            We also support the following strings:</span>
+<span class="sd">               1) &#39;per_token&#39;: equivalent to PerToken()</span>
+<span class="sd">               2) &#39;per_channel&#39;: equivalent to PerAxis(0)</span>
+<span class="sd">               3) &#39;per_group&#39;: equivalent to PerGroup(group_size), must be combined</span>
+<span class="sd">                   with separate `group_size` kwarg, Alternatively, just set the</span>
+<span class="sd">                   `group_size` kwarg and leave this field empty.</span>
+<span class="sd">        mapping_type: whether to use symmetric (default) or asymmetric quantization</span>
+<span class="sd">            Alternatively, set `is_symmetric` (bool) and leave this field empty.</span>
+<span class="sd">        scale_precision: scale dtype (default torch.fp32)</span>
+<span class="sd">        zero_point_precision: zero point dtype (default torch.int32)</span>
+<span class="sd">        zero_point_domain: whether zero point is in integer (default) or float domain</span>
+<span class="sd">        is_dynamic: whether to use dynamic (default) or static scale and zero points</span>
+<span class="sd">        range_learning (prototype): whether to learn scale and zero points during training</span>
+<span class="sd">            (default false), not compatible with `is_dynamic`.</span>
+
+<span class="sd">    Keyword args:</span>
+<span class="sd">        group_size: size of each group in per group fake quantization,</span>
+<span class="sd">            can be set instead of `granularity`</span>
+<span class="sd">        is_symmetric: whether to use symmetric or asymmetric quantization,</span>
+<span class="sd">            can be set instead of `mapping_type`</span>
+
+<span class="sd">    Example usage::</span>
+
+<span class="sd">        # Per token asymmetric quantization</span>
+<span class="sd">        IntxFakeQuantizeConfig(torch.int8, &quot;per_token&quot;, is_symmetric=False)</span>
+<span class="sd">        IntxFakeQuantizeConfig(torch.int8, PerToken(), MappingType.ASYMMETRIC)</span>
+
+<span class="sd">        # Per channel symmetric quantization</span>
+<span class="sd">        IntxFakeQuantizeConfig(torch.int4, &quot;per_channel&quot;)</span>
+<span class="sd">        IntxFakeQuantizeConfig(torch.int4, &quot;per_channel&quot;, is_symmetric=True)</span>
+<span class="sd">        IntxFakeQuantizeConfig(torch.int4, PerAxis(0), MappingType.SYMMETRIC)</span>
+
+<span class="sd">        # Per group symmetric quantization</span>
+<span class="sd">        IntxFakeQuantizeConfig(torch.int4, group_size=32)</span>
+<span class="sd">        IntxFakeQuantizeConfig(torch.int4, group_size=32, is_symmetric=True)</span>
+<span class="sd">        IntxFakeQuantizeConfig(torch.int4, &quot;per_group&quot;, group_size=32, is_symmetric=True)</span>
+<span class="sd">        IntxFakeQuantizeConfig(torch.int4, PerGroup(32), MappingType.SYMMETRIC)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">dtype</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span> <span class="n">TorchAODType</span><span class="p">]</span>
+    <span class="n">granularity</span><span class="p">:</span> <span class="n">Granularity</span>
+    <span class="n">mapping_type</span><span class="p">:</span> <span class="n">MappingType</span>
+    <span class="n">scale_precision</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span>
+    <span class="n">zero_point_precision</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span>
+    <span class="n">zero_point_domain</span><span class="p">:</span> <span class="n">ZeroPointDomain</span>
+    <span class="n">is_dynamic</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>
+    <span class="n">range_learning</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
+    <span class="n">eps</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">dtype</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span> <span class="n">TorchAODType</span><span class="p">],</span>
+        <span class="n">granularity</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span><span class="n">Granularity</span><span class="p">,</span> <span class="nb">str</span><span class="p">,</span> <span class="kc">None</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">mapping_type</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">MappingType</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">scale_precision</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">,</span>
+        <span class="n">zero_point_precision</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">int32</span><span class="p">,</span>
+        <span class="n">zero_point_domain</span><span class="p">:</span> <span class="n">ZeroPointDomain</span> <span class="o">=</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">INT</span><span class="p">,</span>
+        <span class="n">is_dynamic</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+        <span class="n">range_learning</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+        <span class="n">eps</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="o">*</span><span class="p">,</span>
+        <span class="n">group_size</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">is_symmetric</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">bool</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">):</span>
+        <span class="k">if</span> <span class="n">zero_point_domain</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;Please use ZeroPointDomain.NONE instead of None&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">dtype</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">granularity</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_granularity</span><span class="p">(</span><span class="n">granularity</span><span class="p">,</span> <span class="n">group_size</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">mapping_type</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_mapping_type</span><span class="p">(</span><span class="n">mapping_type</span><span class="p">,</span> <span class="n">is_symmetric</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">scale_precision</span> <span class="o">=</span> <span class="n">scale_precision</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">zero_point_precision</span> <span class="o">=</span> <span class="n">zero_point_precision</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">zero_point_domain</span> <span class="o">=</span> <span class="n">zero_point_domain</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">is_dynamic</span> <span class="o">=</span> <span class="n">is_dynamic</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">range_learning</span> <span class="o">=</span> <span class="n">range_learning</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">eps</span> <span class="o">=</span> <span class="n">eps</span>
+
+        <span class="c1"># Validate dtype</span>
+        <span class="n">all_dtypes</span> <span class="o">=</span> <span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">int8</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">uint8</span><span class="p">]</span>
+        <span class="n">all_dtypes</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="nb">list</span><span class="p">(</span><span class="n">_SUB_BYTE_INT_BOUNDS</span><span class="o">.</span><span class="n">keys</span><span class="p">()))</span>
+        <span class="n">all_dtypes</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="nb">list</span><span class="p">(</span><span class="n">_SUB_BYTE_UINT_BOUNDS</span><span class="o">.</span><span class="n">keys</span><span class="p">()))</span>
+        <span class="k">if</span> <span class="n">dtype</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">all_dtypes</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="s2">&quot;Unsupported dtype &#39;</span><span class="si">%s</span><span class="s2">&#39;, choose from </span><span class="si">%s</span><span class="s2">&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">dtype</span><span class="p">,</span> <span class="n">all_dtypes</span><span class="p">)</span>
+            <span class="p">)</span>
+
+        <span class="c1"># Dynamic is not compatible with range learning</span>
+        <span class="k">if</span> <span class="n">is_dynamic</span> <span class="ow">and</span> <span class="n">range_learning</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;`is_dynamic` is not compatible with `range_learning`&quot;</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">__post_init__</span><span class="p">()</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">__post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        For deprecation only, can remove after https://github.com/pytorch/ao/issues/2630.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">pass</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_get_granularity</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">granularity</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span><span class="n">Granularity</span><span class="p">,</span> <span class="nb">str</span><span class="p">,</span> <span class="kc">None</span><span class="p">],</span>
+        <span class="n">group_size</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">],</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Granularity</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Parse the `Granularity` represented in the args.</span>
+
+<span class="sd">        Granularity can be specified in one of three ways:</span>
+<span class="sd">            1) `Granularity` object: one of PerToken(), PerAxis(), and PerGroup(group_size)</span>
+<span class="sd">            2) str: one of &#39;per_token&#39;, &#39;per_channel&#39;, and &#39;per_group&#39;</span>
+<span class="sd">            3) None: `group_size` must be set instead, represents per group granularity</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c1"># If group_size is set, then granularity must be either &quot;per_group&quot; or None</span>
+        <span class="k">if</span> <span class="p">(</span>
+            <span class="n">group_size</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+            <span class="ow">and</span> <span class="n">granularity</span> <span class="o">!=</span> <span class="s2">&quot;per_group&quot;</span>
+            <span class="ow">and</span> <span class="n">granularity</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+        <span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="s2">&quot;`group_size` conflicts with granularity &#39;</span><span class="si">%s</span><span class="s2">&#39;&quot;</span> <span class="o">%</span> <span class="n">granularity</span>
+            <span class="p">)</span>
+
+        <span class="c1"># Case 1: Granularity object</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">granularity</span><span class="p">,</span> <span class="n">Granularity</span><span class="p">):</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">granularity</span><span class="p">,</span> <span class="p">(</span><span class="n">PerToken</span><span class="p">,</span> <span class="n">PerAxis</span><span class="p">,</span> <span class="n">PerGroup</span><span class="p">)):</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;Granularity &#39;</span><span class="si">%s</span><span class="s2">&#39; is not supported&quot;</span> <span class="o">%</span> <span class="n">granularity</span><span class="p">)</span>
+            <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">granularity</span><span class="p">,</span> <span class="n">PerAxis</span><span class="p">)</span> <span class="ow">and</span> <span class="n">granularity</span><span class="o">.</span><span class="n">axis</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;Only axis=0 is supported for PerAxis granularity&quot;</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">granularity</span>
+
+        <span class="c1"># Case 2: str granularity</span>
+        <span class="k">if</span> <span class="n">granularity</span> <span class="o">==</span> <span class="s2">&quot;per_token&quot;</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">PerToken</span><span class="p">()</span>
+        <span class="k">elif</span> <span class="n">granularity</span> <span class="o">==</span> <span class="s2">&quot;per_channel&quot;</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">PerAxis</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">granularity</span> <span class="o">==</span> <span class="s2">&quot;per_group&quot;</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">group_size</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                    <span class="s2">&quot;Granularity was &#39;per_group&#39; but no `group_size` was set&quot;</span>
+                <span class="p">)</span>
+            <span class="k">return</span> <span class="n">PerGroup</span><span class="p">(</span><span class="n">group_size</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">granularity</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="s2">&quot;Unexpected granularity: &#39;</span><span class="si">%s</span><span class="s2">&#39;, must be one of </span><span class="si">%s</span><span class="s2">&quot;</span>
+                <span class="o">%</span> <span class="p">(</span><span class="n">granularity</span><span class="p">,</span> <span class="p">[</span><span class="s2">&quot;per_token&quot;</span><span class="p">,</span> <span class="s2">&quot;per_channel&quot;</span><span class="p">,</span> <span class="s2">&quot;per_group&quot;</span><span class="p">])</span>
+            <span class="p">)</span>
+
+        <span class="c1"># Case 3: None granularity + group_size was specified</span>
+        <span class="k">if</span> <span class="n">granularity</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="s2">&quot;Granularity &#39;</span><span class="si">%s</span><span class="s2">&#39; has unexpected type </span><span class="si">%s</span><span class="s2">&quot;</span>
+                <span class="o">%</span> <span class="p">(</span><span class="n">granularity</span><span class="p">,</span> <span class="nb">type</span><span class="p">(</span><span class="n">granularity</span><span class="p">))</span>
+            <span class="p">)</span>
+        <span class="k">if</span> <span class="n">group_size</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="s2">&quot;At least one of `granularity` or `group_size` must be set&quot;</span>
+            <span class="p">)</span>
+        <span class="k">return</span> <span class="n">PerGroup</span><span class="p">(</span><span class="n">group_size</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_get_mapping_type</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">mapping_type</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">MappingType</span><span class="p">],</span>
+        <span class="n">is_symmetric</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">bool</span><span class="p">],</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">MappingType</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Parse the `MappingType` represented in the args.</span>
+
+<span class="sd">        Mapping type can be specified in one of two ways:</span>
+<span class="sd">            1): `MappingType` object: one of SYMMETRIC or ASYMMETRIC</span>
+<span class="sd">            2): is_symmetric bool</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">mapping_type</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">is_symmetric</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;Cannot set both `mapping_type` and `is_symmetric`&quot;</span><span class="p">)</span>
+
+        <span class="c1"># Case 0: Default to symmetric</span>
+        <span class="k">if</span> <span class="n">mapping_type</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">is_symmetric</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span>
+
+        <span class="c1"># Case 1: MappingType object</span>
+        <span class="k">if</span> <span class="n">mapping_type</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">mapping_type</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">[</span><span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span><span class="p">,</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">ASYMMETRIC</span><span class="p">]:</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;MappingType &#39;</span><span class="si">%s</span><span class="s2">&#39; is not supported&quot;</span> <span class="o">%</span> <span class="n">mapping_type</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">mapping_type</span>
+
+        <span class="c1"># Case 2: is_symmetric flag</span>
+        <span class="k">assert</span> <span class="n">is_symmetric</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+        <span class="k">if</span> <span class="n">is_symmetric</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">ASYMMETRIC</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">group_size</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        If this is per group granularity, return the group size.</span>
+<span class="sd">        Otherwise, throw an error.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">granularity</span><span class="p">,</span> <span class="n">PerGroup</span><span class="p">):</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">granularity</span><span class="o">.</span><span class="n">group_size</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="s2">&quot;`group_size` is undefined for </span><span class="si">%s</span><span class="s2"> granularity&quot;</span> <span class="o">%</span> <span class="bp">self</span><span class="o">.</span><span class="n">granularity</span>
+            <span class="p">)</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">is_symmetric</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Return True if mapping type is symmetric, else False (asymmetric).</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">mapping_type</span> <span class="o">==</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__setattr__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">value</span><span class="p">:</span> <span class="n">Any</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Support setting `group_size` and `is_symmetric`.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">name</span> <span class="o">==</span> <span class="s2">&quot;group_size&quot;</span><span class="p">:</span>
+            <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__setattr__</span><span class="p">(</span><span class="s2">&quot;granularity&quot;</span><span class="p">,</span> <span class="n">PerGroup</span><span class="p">(</span><span class="n">value</span><span class="p">))</span>
+        <span class="k">elif</span> <span class="n">name</span> <span class="o">==</span> <span class="s2">&quot;is_symmetric&quot;</span><span class="p">:</span>
+            <span class="n">mapping_type</span> <span class="o">=</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span> <span class="k">if</span> <span class="n">value</span> <span class="k">else</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">ASYMMETRIC</span>
+            <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__setattr__</span><span class="p">(</span><span class="s2">&quot;mapping_type&quot;</span><span class="p">,</span> <span class="n">mapping_type</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__setattr__</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span></div>
+
+
+<span class="c1"># For BC</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">FakeQuantizeConfig</span><span class="p">(</span><span class="n">IntxFakeQuantizeConfig</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    (Deprecated) Please use :class:`~torchao.quantization.qat.IntxFakeQuantizeConfig` instead.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">__post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">_log_deprecation_warning</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_infer_fake_quantize_configs</span><span class="p">(</span>
+    <span class="n">base_config</span><span class="p">:</span> <span class="n">AOBaseConfig</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tuple</span><span class="p">[</span><span class="n">Optional</span><span class="p">[</span><span class="n">FakeQuantizeConfigBase</span><span class="p">],</span> <span class="n">Optional</span><span class="p">[</span><span class="n">FakeQuantizeConfigBase</span><span class="p">]]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Given a base post-training quantization (PTQ) config, infer the corresponding</span>
+<span class="sd">    `FakeQuantizeConfigBase`s for both the activations and the weights.</span>
+<span class="sd">    This is called during the prepare phase of QAT.</span>
+
+<span class="sd">    Return a 2-tuple of (activation_config, weight_config) for fake quantization.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="c1"># TODO: rewrite using registration API so we don&#39;t need to import here</span>
+    <span class="c1"># avoid circular imports</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.prototype.mx_formats</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+        <span class="n">MXDynamicActivationMXWeightConfig</span><span class="p">,</span>
+        <span class="n">NVFP4DynamicActivationNVFP4WeightConfig</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.prototype.qat</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+        <span class="n">MXFakeQuantizeConfig</span><span class="p">,</span>
+        <span class="n">NVFP4FakeQuantizeConfig</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+        <span class="n">Float8DynamicActivationFloat8WeightConfig</span><span class="p">,</span>
+        <span class="n">Float8DynamicActivationInt4WeightConfig</span><span class="p">,</span>
+        <span class="n">Int4WeightOnlyConfig</span><span class="p">,</span>
+        <span class="n">Int8DynamicActivationInt4WeightConfig</span><span class="p">,</span>
+        <span class="n">Int8DynamicActivationIntxWeightConfig</span><span class="p">,</span>
+        <span class="n">IntxWeightOnlyConfig</span><span class="p">,</span>
+    <span class="p">)</span>
+
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">base_config</span><span class="p">,</span> <span class="n">Int8DynamicActivationInt4WeightConfig</span><span class="p">):</span>
+        <span class="n">act_config</span> <span class="o">=</span> <span class="n">IntxFakeQuantizeConfig</span><span class="p">(</span>
+            <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int8</span><span class="p">,</span>
+            <span class="n">granularity</span><span class="o">=</span><span class="s2">&quot;per_token&quot;</span><span class="p">,</span>
+            <span class="n">is_symmetric</span><span class="o">=</span><span class="n">base_config</span><span class="o">.</span><span class="n">act_mapping_type</span> <span class="o">==</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="n">weight_config</span> <span class="o">=</span> <span class="n">IntxFakeQuantizeConfig</span><span class="p">(</span>
+            <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int4</span><span class="p">,</span>
+            <span class="n">group_size</span><span class="o">=</span><span class="n">base_config</span><span class="o">.</span><span class="n">group_size</span><span class="p">,</span>
+            <span class="n">is_symmetric</span><span class="o">=</span><span class="n">base_config</span><span class="o">.</span><span class="n">mapping_type</span> <span class="o">==</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span><span class="p">,</span>
+        <span class="p">)</span>
+    <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">base_config</span><span class="p">,</span> <span class="n">Int4WeightOnlyConfig</span><span class="p">):</span>
+        <span class="n">act_config</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="k">if</span> <span class="n">base_config</span><span class="o">.</span><span class="n">version</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
+            <span class="n">supported_packing_formats</span> <span class="o">=</span> <span class="p">[</span>
+                <span class="n">Int4PackingFormat</span><span class="o">.</span><span class="n">PLAIN</span><span class="p">,</span>
+                <span class="n">Int4PackingFormat</span><span class="o">.</span><span class="n">PRESHUFFLED</span><span class="p">,</span>
+            <span class="p">]</span>
+            <span class="k">if</span> <span class="n">base_config</span><span class="o">.</span><span class="n">int4_packing_format</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">supported_packing_formats</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;Packing format must be one of </span><span class="si">{</span><span class="n">supported_packing_formats</span><span class="si">}</span><span class="s2">&quot;</span>
+                <span class="p">)</span>
+            <span class="n">weight_config</span> <span class="o">=</span> <span class="n">Int4WeightFakeQuantizeConfig</span><span class="p">(</span>
+                <span class="n">group_size</span><span class="o">=</span><span class="mi">128</span><span class="p">,</span>
+                <span class="n">activation_dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">,</span>
+            <span class="p">)</span>
+        <span class="k">elif</span> <span class="n">base_config</span><span class="o">.</span><span class="n">version</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="c1"># For BC</span>
+            <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.quant_api</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+                <span class="n">LAYOUT_TO_ZERO_POINT_DOMAIN</span><span class="p">,</span>
+            <span class="p">)</span>
+
+            <span class="k">if</span> <span class="n">base_config</span><span class="o">.</span><span class="n">zero_point_domain</span> <span class="o">==</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">NONE</span><span class="p">:</span>
+                <span class="n">zp_domain</span> <span class="o">=</span> <span class="n">LAYOUT_TO_ZERO_POINT_DOMAIN</span><span class="p">[</span><span class="nb">type</span><span class="p">(</span><span class="n">base_config</span><span class="o">.</span><span class="n">layout</span><span class="p">)][</span><span class="mi">0</span><span class="p">]</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">zp_domain</span> <span class="o">=</span> <span class="n">base_config</span><span class="o">.</span><span class="n">zero_point_domain</span>
+            <span class="n">weight_config</span> <span class="o">=</span> <span class="n">IntxFakeQuantizeConfig</span><span class="p">(</span>
+                <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">uint4</span><span class="p">,</span>
+                <span class="n">group_size</span><span class="o">=</span><span class="n">base_config</span><span class="o">.</span><span class="n">group_size</span><span class="p">,</span>
+                <span class="n">is_symmetric</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+                <span class="n">zero_point_domain</span><span class="o">=</span><span class="n">zp_domain</span><span class="p">,</span>
+            <span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Unknown version on base config </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">base_config</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">base_config</span><span class="p">,</span> <span class="n">Float8DynamicActivationFloat8WeightConfig</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">base_config</span><span class="o">.</span><span class="n">version</span> <span class="o">!=</span> <span class="mi">2</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Only version 2 of </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">base_config</span><span class="p">)</span><span class="si">}</span><span class="s2"> is supported&quot;</span><span class="p">)</span>
+        <span class="p">(</span><span class="n">act_granularity</span><span class="p">,</span> <span class="n">weight_granularity</span><span class="p">)</span> <span class="o">=</span> <span class="n">_normalize_granularity</span><span class="p">(</span>
+            <span class="n">base_config</span><span class="o">.</span><span class="n">granularity</span>
+        <span class="p">)</span>
+        <span class="n">act_config</span> <span class="o">=</span> <span class="n">Float8FakeQuantizeConfig</span><span class="p">(</span>
+            <span class="n">dtype</span><span class="o">=</span><span class="n">base_config</span><span class="o">.</span><span class="n">activation_dtype</span><span class="p">,</span>
+            <span class="n">granularity</span><span class="o">=</span><span class="n">act_granularity</span><span class="p">,</span>
+            <span class="n">hp_value_lb</span><span class="o">=</span><span class="n">base_config</span><span class="o">.</span><span class="n">activation_value_lb</span><span class="p">,</span>
+            <span class="n">hp_value_ub</span><span class="o">=</span><span class="n">base_config</span><span class="o">.</span><span class="n">activation_value_ub</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="n">weight_config</span> <span class="o">=</span> <span class="n">Float8FakeQuantizeConfig</span><span class="p">(</span>
+            <span class="n">dtype</span><span class="o">=</span><span class="n">base_config</span><span class="o">.</span><span class="n">weight_dtype</span><span class="p">,</span>
+            <span class="n">granularity</span><span class="o">=</span><span class="n">weight_granularity</span><span class="p">,</span>
+        <span class="p">)</span>
+    <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">base_config</span><span class="p">,</span> <span class="n">Float8DynamicActivationInt4WeightConfig</span><span class="p">):</span>
+        <span class="n">act_config</span> <span class="o">=</span> <span class="n">Float8FakeQuantizeConfig</span><span class="p">(</span>
+            <span class="n">dtype</span><span class="o">=</span><span class="n">e4m3_dtype</span><span class="p">,</span>
+            <span class="n">granularity</span><span class="o">=</span><span class="n">PerRow</span><span class="p">(),</span>
+        <span class="p">)</span>
+        <span class="n">weight_config</span> <span class="o">=</span> <span class="n">Int4WeightFakeQuantizeConfig</span><span class="p">(</span>
+            <span class="n">group_size</span><span class="o">=</span><span class="mi">128</span><span class="p">,</span>
+            <span class="n">activation_dtype</span><span class="o">=</span><span class="n">e4m3_dtype</span><span class="p">,</span>
+        <span class="p">)</span>
+    <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">base_config</span><span class="p">,</span> <span class="n">NVFP4DynamicActivationNVFP4WeightConfig</span><span class="p">):</span>
+        <span class="n">act_config</span> <span class="o">=</span> <span class="n">NVFP4FakeQuantizeConfig</span><span class="p">(</span>
+            <span class="n">use_per_tensor_scale</span><span class="o">=</span><span class="n">base_config</span><span class="o">.</span><span class="n">use_dynamic_per_tensor_scale</span><span class="p">,</span>
+            <span class="n">use_swizzled_scales</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+            <span class="n">use_triton_kernel</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="n">weight_config</span> <span class="o">=</span> <span class="n">NVFP4FakeQuantizeConfig</span><span class="p">(</span>
+            <span class="n">use_per_tensor_scale</span><span class="o">=</span><span class="n">base_config</span><span class="o">.</span><span class="n">use_dynamic_per_tensor_scale</span><span class="p">,</span>
+            <span class="n">use_swizzled_scales</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+            <span class="n">use_triton_kernel</span><span class="o">=</span><span class="n">base_config</span><span class="o">.</span><span class="n">use_triton_kernel</span><span class="p">,</span>
+        <span class="p">)</span>
+    <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">base_config</span><span class="p">,</span> <span class="n">MXDynamicActivationMXWeightConfig</span><span class="p">):</span>
+        <span class="n">act_config</span> <span class="o">=</span> <span class="n">MXFakeQuantizeConfig</span><span class="p">(</span>
+            <span class="n">dtype</span><span class="o">=</span><span class="n">base_config</span><span class="o">.</span><span class="n">activation_dtype</span><span class="p">,</span>
+            <span class="n">block_size</span><span class="o">=</span><span class="n">base_config</span><span class="o">.</span><span class="n">block_size</span><span class="p">,</span>
+            <span class="n">scaling_mode</span><span class="o">=</span><span class="n">base_config</span><span class="o">.</span><span class="n">scaling_mode</span><span class="p">,</span>
+            <span class="n">kernel_preference</span><span class="o">=</span><span class="n">base_config</span><span class="o">.</span><span class="n">kernel_preference</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="n">weight_config</span> <span class="o">=</span> <span class="n">MXFakeQuantizeConfig</span><span class="p">(</span>
+            <span class="n">dtype</span><span class="o">=</span><span class="n">base_config</span><span class="o">.</span><span class="n">weight_dtype</span><span class="p">,</span>
+            <span class="n">block_size</span><span class="o">=</span><span class="n">base_config</span><span class="o">.</span><span class="n">block_size</span><span class="p">,</span>
+            <span class="n">scaling_mode</span><span class="o">=</span><span class="n">base_config</span><span class="o">.</span><span class="n">scaling_mode</span><span class="p">,</span>
+            <span class="n">kernel_preference</span><span class="o">=</span><span class="n">base_config</span><span class="o">.</span><span class="n">kernel_preference</span><span class="p">,</span>
+        <span class="p">)</span>
+    <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">base_config</span><span class="p">,</span> <span class="n">Int8DynamicActivationIntxWeightConfig</span><span class="p">):</span>
+        <span class="k">assert</span> <span class="n">base_config</span><span class="o">.</span><span class="n">version</span> <span class="o">&gt;=</span> <span class="mi">2</span><span class="p">,</span> <span class="s2">&quot;Only version 2+ is supported&quot;</span>
+        <span class="k">assert</span> <span class="n">base_config</span><span class="o">.</span><span class="n">intx_packing_format</span> <span class="o">==</span> <span class="s2">&quot;unpacked_to_int8&quot;</span><span class="p">,</span> <span class="p">(</span>
+            <span class="s2">&quot;Only unpacked_to_int8 is supported&quot;</span>
+        <span class="p">)</span>
+        <span class="k">assert</span> <span class="n">base_config</span><span class="o">.</span><span class="n">weight_dtype</span> <span class="o">!=</span> <span class="n">torch</span><span class="o">.</span><span class="n">int1</span><span class="p">,</span> <span class="s2">&quot;Only int2+ is supported&quot;</span>
+        <span class="k">assert</span> <span class="n">base_config</span><span class="o">.</span><span class="n">act_mapping_type</span> <span class="o">==</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">ASYMMETRIC</span><span class="p">,</span> <span class="p">(</span>
+            <span class="s2">&quot;Only asymmetric activation mapping is supported&quot;</span>
+        <span class="p">)</span>
+        <span class="k">assert</span> <span class="n">base_config</span><span class="o">.</span><span class="n">weight_mapping_type</span> <span class="o">==</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span><span class="p">,</span> <span class="p">(</span>
+            <span class="s2">&quot;Only symmetric weight mapping is supported&quot;</span>
+        <span class="p">)</span>
+        <span class="k">assert</span> <span class="n">base_config</span><span class="o">.</span><span class="n">weight_scale_dtype</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">,</span> <span class="p">(</span>
+            <span class="s2">&quot;Specifying weight_scale_dtype is not supported&quot;</span>
+        <span class="p">)</span>
+
+        <span class="n">act_config</span> <span class="o">=</span> <span class="n">IntxFakeQuantizeConfig</span><span class="p">(</span>
+            <span class="n">torch</span><span class="o">.</span><span class="n">int8</span><span class="p">,</span>
+            <span class="s2">&quot;per_token&quot;</span><span class="p">,</span>
+            <span class="n">is_symmetric</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+            <span class="n">scale_precision</span><span class="o">=</span><span class="n">base_config</span><span class="o">.</span><span class="n">weight_scale_dtype</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="n">weight_config</span> <span class="o">=</span> <span class="n">IntxFakeQuantizeConfig</span><span class="p">(</span>
+            <span class="n">dtype</span><span class="o">=</span><span class="n">base_config</span><span class="o">.</span><span class="n">weight_dtype</span><span class="p">,</span>
+            <span class="n">granularity</span><span class="o">=</span><span class="n">base_config</span><span class="o">.</span><span class="n">weight_granularity</span><span class="p">,</span>
+            <span class="n">mapping_type</span><span class="o">=</span><span class="n">base_config</span><span class="o">.</span><span class="n">weight_mapping_type</span><span class="p">,</span>
+            <span class="n">scale_precision</span><span class="o">=</span><span class="n">base_config</span><span class="o">.</span><span class="n">weight_scale_dtype</span><span class="p">,</span>
+        <span class="p">)</span>
+    <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">base_config</span><span class="p">,</span> <span class="n">IntxWeightOnlyConfig</span><span class="p">):</span>
+        <span class="k">assert</span> <span class="n">base_config</span><span class="o">.</span><span class="n">version</span> <span class="o">&gt;=</span> <span class="mi">2</span><span class="p">,</span> <span class="s2">&quot;Only version 2+ is supported&quot;</span>
+        <span class="k">assert</span> <span class="n">base_config</span><span class="o">.</span><span class="n">intx_packing_format</span> <span class="o">==</span> <span class="s2">&quot;unpacked_to_int8&quot;</span><span class="p">,</span> <span class="p">(</span>
+            <span class="s2">&quot;Only unpacked_to_int8 is supported&quot;</span>
+        <span class="p">)</span>
+        <span class="k">assert</span> <span class="n">base_config</span><span class="o">.</span><span class="n">mapping_type</span> <span class="o">==</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span><span class="p">,</span> <span class="p">(</span>
+            <span class="s2">&quot;Only symmetric mapping is supported&quot;</span>
+        <span class="p">)</span>
+        <span class="k">assert</span> <span class="n">base_config</span><span class="o">.</span><span class="n">weight_dtype</span> <span class="o">!=</span> <span class="n">torch</span><span class="o">.</span><span class="n">int1</span><span class="p">,</span> <span class="s2">&quot;Only int2+ is supported&quot;</span>
+        <span class="k">assert</span> <span class="n">base_config</span><span class="o">.</span><span class="n">scale_dtype</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">,</span> <span class="p">(</span>
+            <span class="s2">&quot;Specifying scale_dtype is not supported&quot;</span>
+        <span class="p">)</span>
+
+        <span class="n">act_config</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="n">weight_config</span> <span class="o">=</span> <span class="n">IntxFakeQuantizeConfig</span><span class="p">(</span>
+            <span class="n">dtype</span><span class="o">=</span><span class="n">base_config</span><span class="o">.</span><span class="n">weight_dtype</span><span class="p">,</span>
+            <span class="n">granularity</span><span class="o">=</span><span class="n">base_config</span><span class="o">.</span><span class="n">granularity</span><span class="p">,</span>
+            <span class="n">mapping_type</span><span class="o">=</span><span class="n">base_config</span><span class="o">.</span><span class="n">mapping_type</span><span class="p">,</span>
+            <span class="n">scale_precision</span><span class="o">=</span><span class="n">base_config</span><span class="o">.</span><span class="n">scale_dtype</span><span class="p">,</span>
+        <span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;Unexpected base config: </span><span class="si">%s</span><span class="s2">&quot;</span> <span class="o">%</span> <span class="n">base_config</span><span class="p">)</span>
+    <span class="k">return</span> <span class="p">(</span><span class="n">act_config</span><span class="p">,</span> <span class="n">weight_config</span><span class="p">)</span>
+</pre></div>
+
+                </article>
+              
+  </article>
+  
+              
+              
+                <footer class="bd-footer-article">
+                  <div class="footer-article-items footer-article__inner">
+  
+    <div class="footer-article-item">
+<div class="feedback">
+  
+<div class="rating">
+    Rate this Page
+    <div class="stars">
+        
+        <span class="star" data-behavior="tutorial-rating" data-count="1" data-value="1">★</span>
+        
+        <span class="star" data-behavior="tutorial-rating" data-count="2" data-value="2">★</span>
+        
+        <span class="star" data-behavior="tutorial-rating" data-count="3" data-value="3">★</span>
+        
+        <span class="star" data-behavior="tutorial-rating" data-count="4" data-value="4">★</span>
+        
+        <span class="star" data-behavior="tutorial-rating" data-count="5" data-value="5">★</span>
+        
+    </div>
+</div>
+
+  <div class="feedback-send">
+    <button class="feedback-btn"
+            onclick="openGitHubIssue()"
+            data-bs-title="Create a GitHub Issue"
+            data-bs-placement="bottom"
+            data-bs-toggle="tooltip"
+            data-gtm="feedback-btn-click">Send Feedback
+    </button>
+  </div>
+</div>
+
+<div class="prev-next-area">
+</div>
+
+<div class="footer-info">
+  <p class="copyright">
+    
+  </p>
+
+  <p class="theme-version">
+    Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.15.4.
+  </p>
+</div>
+</div>
+  
+</div>
+                </footer>
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script src="../../../../_static/scripts/bootstrap.js?digest=dfe6caa3a7d634c4db9b"></script>
+<script src="../../../../_static/scripts/pydata-sphinx-theme.js?digest=dfe6caa3a7d634c4db9b"></script>
+
+  
+
+<div class="container-fluid docs-tutorials-resources" id="docs-tutorials-resources">
+  <div class="container">
+    <div class="row">
+      <div class="col-md-4">
+        <h2>Docs</h2>
+        <p>Access comprehensive developer documentation for PyTorch</p>
+        <a class="with-right-arrow" href="https://docs.pytorch.org/docs/stable/index.html">View Docs</a>
+      </div>
+
+      <div class="col-md-4">
+        <h2>Tutorials</h2>
+        <p>Get in-depth tutorials for beginners and advanced developers</p>
+        <a class="with-right-arrow" href="https://docs.pytorch.org/tutorials">View Tutorials</a>
+      </div>
+
+      <div class="col-md-4">
+        <h2>Resources</h2>
+        <p>Find development resources and get your questions answered</p>
+        <a class="with-right-arrow" href="https://pytorch.org/resources">View Resources</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+
+
+<footer class="site-footer">
+
+  <div class="container footer-container">
+
+    <div class="newsletter" id="newsletter">
+
+      <p class="newsletter__title is-style-max-width-800"><strong>Stay in touch</strong> for updates, event info, and
+        the latest news</p>
+
+
+      <script charset="utf-8" type="text/javascript" src="//js.hsforms.net/forms/embed/v2.js"></script>
+      <script>
+        hbspt.forms.create({
+          region: "na1",
+          portalId: "8112310",
+          formId: "2fb2231c-000b-4ec5-88a0-1ab242549c9e"
+        });
+      </script>
+
+
+      <p class="newsletter__privacy">By submitting this form, I consent to receive marketing emails from the LF and its
+        projects regarding their events, training, research, developments, and related announcements. I understand that
+        I can unsubscribe at any time using the links in the footers of the emails I receive. <a
+          href="https://www.linuxfoundation.org/privacy/">Privacy Policy</a>.</p>
+
+    </div>
+
+    <div class="lf-grid">
+      <ul class="social-links">
+        <li><a href="https://www.facebook.com/pytorch" target="_blank" title="PyTorch on Facebook">
+            <svg xmlns="http://www.w3.org/2000/svg" viewbox="-0.51 -0.26 26.45 26.45" aria-label="Facebook">
+              <path fill="currentColor"
+                d="M25.497 13.075c0-2.45-.698-4.848-2.011-6.911a12.765 12.765 0 0 0-5.398-4.73A12.671 12.671 0 0 0 11.008.38a12.705 12.705 0 0 0-6.529 2.95A12.827 12.827 0 0 0 .563 9.358a12.896 12.896 0 0 0-.07 7.201 12.831 12.831 0 0 0 3.801 6.103 12.709 12.709 0 0 0 6.471 3.078v-8.957H7.53v-3.708h3.235v-2.824c0-3.213 1.903-4.988 4.813-4.988.956.014 1.909.097 2.852.25V8.67h-1.607a1.83 1.83 0 0 0-1.518.497 1.854 1.854 0 0 0-.561 1.505v2.404h3.535l-.563 3.708h-2.97v8.957a12.725 12.725 0 0 0 7.697-4.337 12.87 12.87 0 0 0 3.054-8.328z" />
+            </svg>
+          </a></li>
+        <li><a href="https://twitter.com/pytorch" target="_blank" title="PyTorch on X">
+            <svg xmlns="http://www.w3.org/2000/svg" viewbox="0 0 300 300" aria-label="X">
+              <path fill="currentColor"
+                d="M178.57 127.15 290.27 0h-26.46l-97.03 110.38L89.34 0H0l117.13 166.93L0 300.25h26.46l102.4-116.59 81.8 116.59h89.34M36.01 19.54H76.66l187.13 262.13h-40.66" />
+            </svg>
+          </a></li>
+        <li><a href="https://www.youtube.com/pytorch" target="_blank" title="PyTorch on YouTube">
+            <svg xmlns="http://www.w3.org/2000/svg" viewbox="0.21 0.27 34.45 25.07" aria-label="YouTube">
+              <path fill="currentColor"
+                d="M33.729 6.084s-.327-2.33-1.317-3.356a4.691 4.691 0 0 0-3.32-1.432c-4.634-.34-11.589-.34-11.589-.34h-.014s-6.954 0-11.59.342a4.692 4.692 0 0 0-3.32 1.432c-.993 1.025-1.315 3.354-1.315 3.354a52.189 52.189 0 0 0-.331 5.473v2.566c.014 1.829.125 3.656.331 5.472 0 0 .322 2.33 1.316 3.36 1.26 1.345 2.916 1.3 3.653 1.445 2.65.26 11.263.34 11.263.34s6.96-.01 11.597-.353a4.691 4.691 0 0 0 3.32-1.432c.993-1.026 1.316-3.356 1.316-3.356.206-1.817.316-3.644.33-5.473v-2.57a52.26 52.26 0 0 0-.33-5.472zM14.076 17.232V7.729l8.951 4.768-8.95 4.735z" />
+            </svg>
+          </a></li>
+        <li><a href="https://www.linkedin.com/company/pytorch" target="_blank" title="PyTorch on LinkedIn">
+            <svg xmlns="http://www.w3.org/2000/svg" viewbox="-10.23 -10.23 531.96 531.96" aria-label="LinkedIn">
+              <rect width="512" height="512" rx="0" fill="currentColor" />
+              <circle fill="#000" cx="142" cy="138" r="37" />
+              <path stroke="#000" stroke-width="66" d="M244 194v198M142 194v198" />
+              <path fill="#000"
+                d="M276 282c0-20 13-40 36-40 24 0 33 18 33 45v105h66V279c0-61-32-89-76-89-34 0-51 19-59 32" />
+            </svg>
+          </a></li>
+        <li><a href="https://pytorch.slack.com" target="_blank" title="PyTorch Slack">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0.16 -0.03 21.19 21.19" aria-label="Slack">
+              <path fill="currentColor"
+                d="M4.896 13.27a2.147 2.147 0 0 1-2.141 2.142A2.147 2.147 0 0 1 .613 13.27c0-1.178.963-2.141 2.142-2.141h2.141v2.141zm1.08 0c0-1.178.962-2.141 2.141-2.141s2.142.963 2.142 2.141v5.363a2.147 2.147 0 0 1-2.142 2.141 2.147 2.147 0 0 1-2.141-2.142V13.27zm2.141-8.6a2.147 2.147 0 0 1-2.141-2.14c0-1.18.962-2.142 2.141-2.142s2.142.963 2.142 2.141v2.142H8.117zm0 1.08c1.179 0 2.141.962 2.141 2.141a2.147 2.147 0 0 1-2.141 2.142H2.755A2.147 2.147 0 0 1 .613 7.89c0-1.179.963-2.141 2.142-2.141h5.362zm8.599 2.141c0-1.179.963-2.141 2.141-2.141 1.179 0 2.143.962 2.143 2.14a2.147 2.147 0 0 1-2.142 2.142h-2.141V7.89zm-1.08 0a2.147 2.147 0 0 1-2.141 2.142 2.147 2.147 0 0 1-2.141-2.142V2.53c0-1.178.962-2.141 2.141-2.141s2.142.963 2.142 2.141v5.362zm-2.141 8.6c1.179 0 2.142.962 2.142 2.14a2.147 2.147 0 0 1-2.142 2.142 2.147 2.147 0 0 1-2.141-2.141V16.49h2.141zm0-1.08a2.147 2.147 0 0 1-2.141-2.141c0-1.179.962-2.142 2.141-2.142h5.362c1.179 0 2.142.963 2.142 2.142a2.147 2.147 0 0 1-2.142 2.142h-5.362z">
+              </path>
+            </svg>
+          </a></li>
+        <li><a href="https://pytorch.org/wechat" title="PyTorch on WeChat">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0.14 -0.17 38.02 33.02" aria-label="WeChat">
+              <path fill="currentColor"
+                d="M26.289 10.976a12.972 12.972 0 0 0-8.742 3.53 10.386 10.386 0 0 0-3.224 8.795c-1.326-.164-2.535-.345-3.75-.448a2.332 2.332 0 0 0-1.273.216c-1.18.666-2.311 1.418-3.652 2.255.246-1.112.405-2.087.687-3.024a1.15 1.15 0 0 0-.523-1.52C1.737 17.902.02 13.601 1.307 9.165c1.189-4.1 4.11-6.587 8.077-7.884A13.54 13.54 0 0 1 24.18 5.617a10.135 10.135 0 0 1 2.109 5.359zM10.668 9.594a1.564 1.564 0 0 0-2.095-1.472 1.52 1.52 0 0 0-.895 1.964 1.502 1.502 0 0 0 1.391.966 1.545 1.545 0 0 0 1.598-1.46v.002zm8.15-1.566a1.567 1.567 0 0 0-1.528 1.543 1.528 1.528 0 0 0 1.571 1.492 1.52 1.52 0 0 0 1.375-2.117 1.518 1.518 0 0 0-1.415-.919l-.003.001z">
+              </path>
+              <path fill="currentColor"
+                d="M33.914 32.137c-1.075-.478-2.062-1.196-3.11-1.306-1.049-.11-2.145.494-3.24.605a10.821 10.821 0 0 1-8.781-2.864c-4.682-4.33-4.013-10.97 1.403-14.518 4.811-3.154 11.874-2.102 15.268 2.273a8.671 8.671 0 0 1-1.002 12.095c-1.046.929-1.422 1.693-.751 2.917.102.257.174.525.213.798zM21.68 20.292a1.264 1.264 0 1 0 .01-2.528 1.264 1.264 0 0 0-.01 2.528zm7.887-2.526a1.266 1.266 0 0 0-1.256 1.21 1.247 1.247 0 1 0 1.256-1.21z">
+              </path>
+            </svg>
+          </a></li>
+      </ul>
+    </div>
+    
+    <div class="privacy-policy">
+      <div class="copyright">
+      
+        <p>
+          &copy; PyTorch. Copyright © The Linux Foundation®. All rights reserved. The Linux Foundation has registered
+          trademarks and uses trademarks. For more information, including terms of use, privacy policy, and trademark
+          usage, please see our <a href="https://www.linuxfoundation.org/legal/policies">Policies</a> page. <a
+            href="https://www.linuxfoundation.org/trademark-usage">Trademark Usage</a>. <a
+            href="http://www.linuxfoundation.org/privacy">Privacy Policy</a>.
+        </p>
+        
+      </div>
+    </div>
+
+
+  </div>
+</footer>
+
+<div class="cookie-banner-wrapper">
+  <div class="container">
+    <p class="gdpr-notice">To analyze traffic and optimize your experience, we serve cookies on this site. By clicking or navigating, you agree to allow our usage of cookies. As the current maintainers of this site, Facebook’s Cookies Policy applies. Learn more, including about available controls: <a href="https://www.facebook.com/policies/cookies/">Cookies Policy</a>.</p>
+    <img class="close-button" src="../../../../_static/img/pytorch-x.svg">
+  </div>
+</div>
+  
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2024-present, torchao Contributors.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 5.3.0.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.15.4.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  <script type="application/ld+json">
+    {
+       "@context": "https://schema.org",
+       "@type": "Article",
+       "name": "torchao.quantization.qat.fake_quantize_config",
+       "headline": "torchao.quantization.qat.fake_quantize_config",
+       "description": "PyTorch Documentation. Explore PyTorch, an open-source machine learning library that accelerates the path from research prototyping to production deployment. Discover tutorials, API references, and guides to help you build and deploy deep learning models efficiently.",
+       "url": "/_modules/torchao/quantization/qat/fake_quantize_config.html",
+       "articleBody": "Source code for torchao.quantization.qat.fake_quantize_config # Copyright (c) Meta Platforms, Inc. and affiliates. # All rights reserved. # This source code is licensed under the license found in the # LICENSE file in the root directory of this source tree. import abc from dataclasses import dataclass from typing import Any, Optional, Tuple, Union import torch from torchao.core.config import AOBaseConfig from torchao.float8.config import e4m3_dtype from torchao.float8.inference import ( FP8Granularity, _normalize_granularity, ) from torchao.quantization.granularity import ( Granularity, PerAxis, PerGroup, PerRow, PerTensor, PerToken, ) from torchao.quantization.quant_primitives import ( _SUB_BYTE_INT_BOUNDS, _SUB_BYTE_UINT_BOUNDS, MappingType, TorchAODType, ZeroPointDomain, ) from torchao.quantization.quantize_.workflows import Int4PackingFormat from torchao.utils import _is_float8_type from .utils import _log_deprecation_warning [docs]class FakeQuantizeConfigBase(abc.ABC): \"\"\" Base class for representing fake quantization config. \"\"\" pass [docs]@dataclass class Float8FakeQuantizeConfig(FakeQuantizeConfigBase): \"\"\" Config for float8 fake quantization, targeting :class:`~torchao.quantization.Float8Tensor`. Args: dtype (torch.dtype): the dtype for float8 Tensor granularity (FP8Granularity): the granularity for the Tensor, currently either PerRow() or PerTensor() hp_value_lb (Optional[float]): the lower bound for high precision floating point value for calculating scale hp_value_ub (Optional[float]): the upper bound for high precision floating point value for calculating scale \"\"\" dtype: torch.dtype = e4m3_dtype granularity: FP8Granularity = PerRow() hp_value_lb: Optional[float] = None hp_value_ub: Optional[float] = None def __post_init__(self): \"\"\" Verify dtype and granularity are the ones we support. \"\"\" if not _is_float8_type(self.dtype): raise ValueError(f\"{self.dtype} is not a float8 dtype\") if isinstance(self.granularity, type): raise ValueError( \"Please specify the granularity object instead of the class, e.g. PerRow() instead of PerRow\" ) if type(self.granularity) not in [PerRow, PerTensor]: raise ValueError( f\"Expected PerRow or PerTensor granularity, got {self.granularity}\" ) @dataclass class Int4WeightFakeQuantizeConfig(FakeQuantizeConfigBase): \"\"\" Config for pint4 weight fake quantization that targets the numerics in the following preshuffled kernel: torch.ops.mslk.f8i4bf16_shuffled torch.ops.mslk.bf16i4bf16_shuffled torch.ops.mslk.bf16i4bf16_rowwise Currently this only supports float8 input activations. It is expected to be used in conjunction with :class:`~torchao.quantization.Float8DynamicActivationInt4WeightConfig`. In the future, we may extend this to support bfloat16 as well. \"\"\" group_size: int = 128 activation_dtype: torch.dtype = e4m3_dtype def __post_init__(self): if self.activation_dtype not in [e4m3_dtype, torch.bfloat16]: raise ValueError( f\"Only {e4m3_dtype} or torch.bfloat16 activation are supported\" ) [docs]@dataclass class IntxFakeQuantizeConfig(FakeQuantizeConfigBase): \"\"\" Config for how to fake quantize weights or activations, targeting integer dtypes up to torch.int8. Args: dtype: dtype to simulate during fake quantization, e.g. torch.int8. For PyTorch versions older than 2.6, you may use `TorchAODType` to represent torch.int1 to torch.int7 instead, e.g. TorchAODType.INT4. granularity: granularity of scales and zero points, e.g. PerGroup(32). We also support the following strings: 1) \u0027per_token\u0027: equivalent to PerToken() 2) \u0027per_channel\u0027: equivalent to PerAxis(0) 3) \u0027per_group\u0027: equivalent to PerGroup(group_size), must be combined with separate `group_size` kwarg, Alternatively, just set the `group_size` kwarg and leave this field empty. mapping_type: whether to use symmetric (default) or asymmetric quantization Alternatively, set `is_symmetric` (bool) and leave this field empty. scale_precision: scale dtype (default torch.fp32) zero_point_precision: zero point dtype (default torch.int32) zero_point_domain: whether zero point is in integer (default) or float domain is_dynamic: whether to use dynamic (default) or static scale and zero points range_learning (prototype): whether to learn scale and zero points during training (default false), not compatible with `is_dynamic`. Keyword args: group_size: size of each group in per group fake quantization, can be set instead of `granularity` is_symmetric: whether to use symmetric or asymmetric quantization, can be set instead of `mapping_type` Example usage:: # Per token asymmetric quantization IntxFakeQuantizeConfig(torch.int8, \"per_token\", is_symmetric=False) IntxFakeQuantizeConfig(torch.int8, PerToken(), MappingType.ASYMMETRIC) # Per channel symmetric quantization IntxFakeQuantizeConfig(torch.int4, \"per_channel\") IntxFakeQuantizeConfig(torch.int4, \"per_channel\", is_symmetric=True) IntxFakeQuantizeConfig(torch.int4, PerAxis(0), MappingType.SYMMETRIC) # Per group symmetric quantization IntxFakeQuantizeConfig(torch.int4, group_size=32) IntxFakeQuantizeConfig(torch.int4, group_size=32, is_symmetric=True) IntxFakeQuantizeConfig(torch.int4, \"per_group\", group_size=32, is_symmetric=True) IntxFakeQuantizeConfig(torch.int4, PerGroup(32), MappingType.SYMMETRIC) \"\"\" dtype: Union[torch.dtype, TorchAODType] granularity: Granularity mapping_type: MappingType scale_precision: torch.dtype zero_point_precision: torch.dtype zero_point_domain: ZeroPointDomain is_dynamic: bool = True range_learning: bool = False eps: Optional[float] = None def __init__( self, dtype: Union[torch.dtype, TorchAODType], granularity: Union[Granularity, str, None] = None, mapping_type: Optional[MappingType] = None, scale_precision: torch.dtype = torch.float32, zero_point_precision: torch.dtype = torch.int32, zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT, is_dynamic: bool = True, range_learning: bool = False, eps: Optional[float] = None, *, group_size: Optional[int] = None, is_symmetric: Optional[bool] = None, ): if zero_point_domain is None: raise ValueError(\"Please use ZeroPointDomain.NONE instead of None\") self.dtype = dtype self.granularity = self._get_granularity(granularity, group_size) self.mapping_type = self._get_mapping_type(mapping_type, is_symmetric) self.scale_precision = scale_precision self.zero_point_precision = zero_point_precision self.zero_point_domain = zero_point_domain self.is_dynamic = is_dynamic self.range_learning = range_learning self.eps = eps # Validate dtype all_dtypes = [torch.int8, torch.uint8] all_dtypes.extend(list(_SUB_BYTE_INT_BOUNDS.keys())) all_dtypes.extend(list(_SUB_BYTE_UINT_BOUNDS.keys())) if dtype not in all_dtypes: raise ValueError( \"Unsupported dtype \u0027%s\u0027, choose from %s\" % (dtype, all_dtypes) ) # Dynamic is not compatible with range learning if is_dynamic and range_learning: raise ValueError(\"`is_dynamic` is not compatible with `range_learning`\") self.__post_init__() def __post_init__(self): \"\"\" For deprecation only, can remove after https://github.com/pytorch/ao/issues/2630. \"\"\" pass def _get_granularity( self, granularity: Union[Granularity, str, None], group_size: Optional[int], ) -\u003e Granularity: \"\"\" Parse the `Granularity` represented in the args. Granularity can be specified in one of three ways: 1) `Granularity` object: one of PerToken(), PerAxis(), and PerGroup(group_size) 2) str: one of \u0027per_token\u0027, \u0027per_channel\u0027, and \u0027per_group\u0027 3) None: `group_size` must be set instead, represents per group granularity \"\"\" # If group_size is set, then granularity must be either \"per_group\" or None if ( group_size is not None and granularity != \"per_group\" and granularity is not None ): raise ValueError( \"`group_size` conflicts with granularity \u0027%s\u0027\" % granularity ) # Case 1: Granularity object if isinstance(granularity, Granularity): if not isinstance(granularity, (PerToken, PerAxis, PerGroup)): raise ValueError(\"Granularity \u0027%s\u0027 is not supported\" % granularity) if isinstance(granularity, PerAxis) and granularity.axis != 0: raise ValueError(\"Only axis=0 is supported for PerAxis granularity\") return granularity # Case 2: str granularity if granularity == \"per_token\": return PerToken() elif granularity == \"per_channel\": return PerAxis(axis=0) elif granularity == \"per_group\": if group_size is None: raise ValueError( \"Granularity was \u0027per_group\u0027 but no `group_size` was set\" ) return PerGroup(group_size) elif isinstance(granularity, str): raise ValueError( \"Unexpected granularity: \u0027%s\u0027, must be one of %s\" % (granularity, [\"per_token\", \"per_channel\", \"per_group\"]) ) # Case 3: None granularity + group_size was specified if granularity is not None: raise ValueError( \"Granularity \u0027%s\u0027 has unexpected type %s\" % (granularity, type(granularity)) ) if group_size is None: raise ValueError( \"At least one of `granularity` or `group_size` must be set\" ) return PerGroup(group_size) def _get_mapping_type( self, mapping_type: Optional[MappingType], is_symmetric: Optional[bool], ) -\u003e MappingType: \"\"\" Parse the `MappingType` represented in the args. Mapping type can be specified in one of two ways: 1): `MappingType` object: one of SYMMETRIC or ASYMMETRIC 2): is_symmetric bool \"\"\" if mapping_type is not None and is_symmetric is not None: raise ValueError(\"Cannot set both `mapping_type` and `is_symmetric`\") # Case 0: Default to symmetric if mapping_type is None and is_symmetric is None: return MappingType.SYMMETRIC # Case 1: MappingType object if mapping_type is not None: if mapping_type not in [MappingType.SYMMETRIC, MappingType.ASYMMETRIC]: raise ValueError(\"MappingType \u0027%s\u0027 is not supported\" % mapping_type) return mapping_type # Case 2: is_symmetric flag assert is_symmetric is not None if is_symmetric: return MappingType.SYMMETRIC else: return MappingType.ASYMMETRIC @property def group_size(self) -\u003e int: \"\"\" If this is per group granularity, return the group size. Otherwise, throw an error. \"\"\" if isinstance(self.granularity, PerGroup): return self.granularity.group_size else: raise ValueError( \"`group_size` is undefined for %s granularity\" % self.granularity ) @property def is_symmetric(self) -\u003e bool: \"\"\" Return True if mapping type is symmetric, else False (asymmetric). \"\"\" return self.mapping_type == MappingType.SYMMETRIC def __setattr__(self, name: str, value: Any): \"\"\" Support setting `group_size` and `is_symmetric`. \"\"\" if name == \"group_size\": super().__setattr__(\"granularity\", PerGroup(value)) elif name == \"is_symmetric\": mapping_type = MappingType.SYMMETRIC if value else MappingType.ASYMMETRIC super().__setattr__(\"mapping_type\", mapping_type) else: super().__setattr__(name, value) # For BC class FakeQuantizeConfig(IntxFakeQuantizeConfig): \"\"\" (Deprecated) Please use :class:`~torchao.quantization.qat.IntxFakeQuantizeConfig` instead. \"\"\" def __post_init__(self): _log_deprecation_warning(self) def _infer_fake_quantize_configs( base_config: AOBaseConfig, ) -\u003e Tuple[Optional[FakeQuantizeConfigBase], Optional[FakeQuantizeConfigBase]]: \"\"\" Given a base post-training quantization (PTQ) config, infer the corresponding `FakeQuantizeConfigBase`s for both the activations and the weights. This is called during the prepare phase of QAT. Return a 2-tuple of (activation_config, weight_config) for fake quantization. \"\"\" # TODO: rewrite using registration API so we don\u0027t need to import here # avoid circular imports from torchao.prototype.mx_formats import ( MXDynamicActivationMXWeightConfig, NVFP4DynamicActivationNVFP4WeightConfig, ) from torchao.prototype.qat import ( MXFakeQuantizeConfig, NVFP4FakeQuantizeConfig, ) from torchao.quantization import ( Float8DynamicActivationFloat8WeightConfig, Float8DynamicActivationInt4WeightConfig, Int4WeightOnlyConfig, Int8DynamicActivationInt4WeightConfig, Int8DynamicActivationIntxWeightConfig, IntxWeightOnlyConfig, ) if isinstance(base_config, Int8DynamicActivationInt4WeightConfig): act_config = IntxFakeQuantizeConfig( dtype=torch.int8, granularity=\"per_token\", is_symmetric=base_config.act_mapping_type == MappingType.SYMMETRIC, ) weight_config = IntxFakeQuantizeConfig( dtype=torch.int4, group_size=base_config.group_size, is_symmetric=base_config.mapping_type == MappingType.SYMMETRIC, ) elif isinstance(base_config, Int4WeightOnlyConfig): act_config = None if base_config.version == 2: supported_packing_formats = [ Int4PackingFormat.PLAIN, Int4PackingFormat.PRESHUFFLED, ] if base_config.int4_packing_format not in supported_packing_formats: raise ValueError( f\"Packing format must be one of {supported_packing_formats}\" ) weight_config = Int4WeightFakeQuantizeConfig( group_size=128, activation_dtype=torch.bfloat16, ) elif base_config.version == 1: # For BC from torchao.quantization.quant_api import ( LAYOUT_TO_ZERO_POINT_DOMAIN, ) if base_config.zero_point_domain == ZeroPointDomain.NONE: zp_domain = LAYOUT_TO_ZERO_POINT_DOMAIN[type(base_config.layout)][0] else: zp_domain = base_config.zero_point_domain weight_config = IntxFakeQuantizeConfig( dtype=torch.uint4, group_size=base_config.group_size, is_symmetric=False, zero_point_domain=zp_domain, ) else: raise ValueError(f\"Unknown version on base config {type(base_config)}\") elif isinstance(base_config, Float8DynamicActivationFloat8WeightConfig): if base_config.version != 2: raise ValueError(f\"Only version 2 of {type(base_config)} is supported\") (act_granularity, weight_granularity) = _normalize_granularity( base_config.granularity ) act_config = Float8FakeQuantizeConfig( dtype=base_config.activation_dtype, granularity=act_granularity, hp_value_lb=base_config.activation_value_lb, hp_value_ub=base_config.activation_value_ub, ) weight_config = Float8FakeQuantizeConfig( dtype=base_config.weight_dtype, granularity=weight_granularity, ) elif isinstance(base_config, Float8DynamicActivationInt4WeightConfig): act_config = Float8FakeQuantizeConfig( dtype=e4m3_dtype, granularity=PerRow(), ) weight_config = Int4WeightFakeQuantizeConfig( group_size=128, activation_dtype=e4m3_dtype, ) elif isinstance(base_config, NVFP4DynamicActivationNVFP4WeightConfig): act_config = NVFP4FakeQuantizeConfig( use_per_tensor_scale=base_config.use_dynamic_per_tensor_scale, use_swizzled_scales=False, use_triton_kernel=False, ) weight_config = NVFP4FakeQuantizeConfig( use_per_tensor_scale=base_config.use_dynamic_per_tensor_scale, use_swizzled_scales=True, use_triton_kernel=base_config.use_triton_kernel, ) elif isinstance(base_config, MXDynamicActivationMXWeightConfig): act_config = MXFakeQuantizeConfig( dtype=base_config.activation_dtype, block_size=base_config.block_size, scaling_mode=base_config.scaling_mode, kernel_preference=base_config.kernel_preference, ) weight_config = MXFakeQuantizeConfig( dtype=base_config.weight_dtype, block_size=base_config.block_size, scaling_mode=base_config.scaling_mode, kernel_preference=base_config.kernel_preference, ) elif isinstance(base_config, Int8DynamicActivationIntxWeightConfig): assert base_config.version \u003e= 2, \"Only version 2+ is supported\" assert base_config.intx_packing_format == \"unpacked_to_int8\", ( \"Only unpacked_to_int8 is supported\" ) assert base_config.weight_dtype != torch.int1, \"Only int2+ is supported\" assert base_config.act_mapping_type == MappingType.ASYMMETRIC, ( \"Only asymmetric activation mapping is supported\" ) assert base_config.weight_mapping_type == MappingType.SYMMETRIC, ( \"Only symmetric weight mapping is supported\" ) assert base_config.weight_scale_dtype is None, ( \"Specifying weight_scale_dtype is not supported\" ) act_config = IntxFakeQuantizeConfig( torch.int8, \"per_token\", is_symmetric=False, scale_precision=base_config.weight_scale_dtype, ) weight_config = IntxFakeQuantizeConfig( dtype=base_config.weight_dtype, granularity=base_config.weight_granularity, mapping_type=base_config.weight_mapping_type, scale_precision=base_config.weight_scale_dtype, ) elif isinstance(base_config, IntxWeightOnlyConfig): assert base_config.version \u003e= 2, \"Only version 2+ is supported\" assert base_config.intx_packing_format == \"unpacked_to_int8\", ( \"Only unpacked_to_int8 is supported\" ) assert base_config.mapping_type == MappingType.SYMMETRIC, ( \"Only symmetric mapping is supported\" ) assert base_config.weight_dtype != torch.int1, \"Only int2+ is supported\" assert base_config.scale_dtype is None, ( \"Specifying scale_dtype is not supported\" ) act_config = None weight_config = IntxFakeQuantizeConfig( dtype=base_config.weight_dtype, granularity=base_config.granularity, mapping_type=base_config.mapping_type, scale_precision=base_config.scale_dtype, ) else: raise ValueError(\"Unexpected base config: %s\" % base_config) return (act_config, weight_config)",
+       "author": {
+         "@type": "Organization",
+         "name": "PyTorch Contributors",
+         "url": "https://pytorch.org"
+       },
+       "image": "https://pytorch.org/docs/stable/_static/img/pytorch_seo.png",
+       "mainEntityOfPage": {
+         "@type": "WebPage",
+         "@id": "/_modules/torchao/quantization/qat/fake_quantize_config.html"
+       },
+       "datePublished": "2023-01-01T00:00:00Z",
+       "dateModified": "2023-01-01T00:00:00Z"
+     }
+ </script>
+  <script>
+    // Tutorials Call to action event tracking
+    $("[data-behavior='call-to-action-event']").on('click', function () {
+      fbq('trackCustom', "Download", {
+        tutorialTitle: $('h1:first').text(),
+        downloadLink: this.href,
+        tutorialLink: window.location.href,
+        downloadTitle: $(this).attr("data-response")
+      });
+      if (typeof gtag === 'function') {
+        gtag('event', 'click', {
+          'event_category': $(this).attr("data-response"),
+          'event_label': $("h1").first().text(),
+          'tutorial_link': window.location.href
+        });
+      }
+    });
+  </script>
+  
+  </body>
+</html>
