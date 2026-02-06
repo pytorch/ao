@@ -88,7 +88,7 @@ class SmoothQuantObservedLinear(torch.nn.Linear):
 
     def forward(self, input: torch.Tensor):
         input = self.obs(input)
-        return F.linear(input, self.weight)
+        return F.linear(input, self.weight, self.bias)
 
     @classmethod
     def from_float(cls, float_linear: torch.nn.Linear, obs: SmoothQuantObserver):
