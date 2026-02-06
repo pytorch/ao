@@ -303,6 +303,7 @@ class TestLinearObserver(TestCase):
             eps=torch.finfo(torch.float32).eps,
             scale_dtype=torch.float,
             zero_point_dtype=torch.int,
+            zero_point_domain=ZeroPointDomain.NONE,
         )
         if observe_weight:
             weight_observer = AffineQuantizedMinMaxObserver(
@@ -312,6 +313,7 @@ class TestLinearObserver(TestCase):
                 eps=torch.finfo(torch.float32).eps,
                 scale_dtype=torch.float,
                 zero_point_dtype=torch.int,
+                zero_point_domain=ZeroPointDomain.NONE,
             )
         else:
             weight_observer = None

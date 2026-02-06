@@ -1410,19 +1410,9 @@ def choose_qparams_affine_with_min_max(
     tracking all the data in calibration data set.
 
     Args:
-      min_val (torch.Tensor): minimum values derived from calibration data
-      max_val (torch.Tensor): maximum values derived from calibration data
-      mapping_type (MappingType): determines how the qparams are calculated, symmetric or asymmetric
-      block_size: (Tuple[int, ...]): granularity of quantization
-      target_dtype (torch.dtype): dtype for target quantized Tensor
-      quant_min (Optional[int]): minimum quantized value for target quantized Tensor
-      quant_max (Optional[int]): maximum quantized value for target quantized Tensor
-      eps (Optional[float]): minimum scale, if not provided, default to eps of min_val.dtype
-      scale_dtype (torch.dtype): dtype for scale Tensor
-      zero_point_dtype (torch.dtype): dtype for zero_point Tensor
-
-    Output:
-        Tuple of scales and zero_points Tensor with requested dtype
+      Mostly same as :func:`~torchao.quantization.quant_primitives.choose_qparams_affine`. with one
+      difference: instead of passing in `input` Tensor and use that to calculate min_val/max_val
+      and then scale/zero_point, we pass in min_val/max_val directly
     """
     quant_min, quant_max = _get_and_check_qmin_qmax(target_dtype, quant_min, quant_max)
     assert mapping_type in [

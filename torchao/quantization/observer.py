@@ -174,7 +174,7 @@ class AffineQuantizedMinMaxObserver(AffineQuantizedObserverBase):
         assert hasattr(self, "min_val") and hasattr(self, "max_val"), (
             "Expecting the observer has min_val and max_val, please run the observer before calling calculate_qparams"
         )
-        return choose_qparams_affine_with_min_max(
+        scale, zero_point = choose_qparams_affine_with_min_max(
             self.min_val,
             self.max_val,
             self.mapping_type,
@@ -186,6 +186,10 @@ class AffineQuantizedMinMaxObserver(AffineQuantizedObserverBase):
             self.scale_dtype,
             self.zero_point_dtype,
         )
+        # Handle ZeroPointDomain.NONE case (e.g., float8 symmetric quantization)
+        if self.zero_point_domain == ZeroPointDomain.NONE:
+            zero_point = None
+        return scale, zero_point
 
 
 class AffineQuantizedFixedQParamObserver(AffineQuantizedObserverBase):
@@ -298,6 +302,9 @@ class AffineQuantizedMSEObserver(AffineQuantizedObserverBase):
             self.scale_dtype,
             self.zero_point_dtype,
         )
+        # Handle ZeroPointDomain.NONE case (e.g., float8 symmetric quantization)
+        if self.zero_point_domain == ZeroPointDomain.NONE:
+            zero_point = None
         x_q = _fake_quantize_affine(
             x,
             block_size,
@@ -349,7 +356,7 @@ class AffineQuantizedMSEObserver(AffineQuantizedObserverBase):
         assert hasattr(self, "min_val") and hasattr(self, "max_val"), (
             "Expecting the observer has min_val and max_val, please run the observer before calling calculate_qparams"
         )
-        return choose_qparams_affine_with_min_max(
+        scale, zero_point = choose_qparams_affine_with_min_max(
             self.min_val,
             self.max_val,
             self.mapping_type,
@@ -361,4 +368,7 @@ class AffineQuantizedMSEObserver(AffineQuantizedObserverBase):
             self.scale_dtype,
             self.zero_point_dtype,
         )
-
+        # Handle ZeroPointDomain.NONE case (e.g., float8 symmetric quantization)
+        if self.zero_point_domain == ZeroPointDomain.NONE:
+            zero_point = None
+        return scale, zero_point
