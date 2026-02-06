@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 
+import warnings
 from dataclasses import dataclass
 from typing import List, Optional
 
@@ -38,8 +39,6 @@ from torchao.quantization.quantize_.common import (
     _choose_quant_func_and_quantize_tensor,
 )
 from torchao.quantization.utils import get_block_size
-import warnings
-
 from torchao.utils import (
     TorchAOBaseTensor,
     _is_mslk_available,
