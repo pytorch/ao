@@ -315,8 +315,9 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
         for kernel_pref in (KernelPreference.TORCH, KernelPreference.AUTO):
             # Reset compiler and create fresh model for each iteration
             torch.compiler.reset()
+            # Use bias=False to avoid extra triton kernel for bias addition
             m = torch.nn.Sequential(
-                torch.nn.Linear(K, N, device="cuda", dtype=torch.bfloat16)
+                torch.nn.Linear(K, N, bias=False, device="cuda", dtype=torch.bfloat16)
             )
 
             config = Float8DynamicActivationFloat8WeightConfig(
@@ -334,14 +335,23 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
             out, code = run_and_get_code(m, x)
 
             if granularity == PerRow():
-                # one triton kernel for quantizing the activation
-                FileCheck().check("def call(").check_count(
-                    ".run(", 1, exactly=True
-                ).run(code[0])
-                # one scaled_mm call
-                FileCheck().check("def call(").check_count(
-                    "._scaled_mm(", 1, exactly=True
-                ).run(code[0])
+                if kernel_pref == KernelPreference.TORCH:
+                    # TORCH path: expect triton kernel + scaled_mm
+                    FileCheck().check("def call(").check_count(
+                        ".run(", 1, exactly=True
+                    ).run(code[0])
+                    FileCheck().check("def call(").check_count(
+                        "._scaled_mm(", 1, exactly=True
+                    ).run(code[0])
+                else:  # AUTO
+                    # AUTO may use MSLK (torch ops) or scaled_mm depending on hardware
+                    # MSLK uses torch.ops.triton.quantize_fp8_row + torch.ops.mslk.*
+                    # which don't have .run() calls like triton kernels
+                    has_scaled_mm = "._scaled_mm(" in code[0]
+                    has_mslk = "mslk" in code[0]
+                    assert has_scaled_mm or has_mslk, (
+                        "Expected either scaled_mm or mslk kernel for PerRow AUTO"
+                    )
             else:
                 assert granularity == PerTensor(), "unsupported"
                 # three triton kernels for quantizing the activation:
