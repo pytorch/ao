@@ -1087,6 +1087,11 @@ class Int8DynamicActivationInt8WeightConfig(AOBaseConfig):
         torch._C._log_api_usage_once(
             "torchao.quantization.Int8DynamicActivationInt8WeightConfig"
         )
+        if self.version == 2:
+            act_granularity, weight_granularity = Int8Tensor._normalize_granularity(
+                self.granularity
+            )
+            Int8Tensor._validate_granularity((act_granularity, weight_granularity))
 
 
 def _int8_dynamic_activation_int8_weight_quantize_tensor(weight, config):
@@ -1137,10 +1142,9 @@ def _int8_dynamic_activation_int8_weight_quantize_tensor(weight, config):
         )
         quantized_weight = to_linear_activation_quantized(new_weight, input_quant_func)
     else:
-        act_granularity, weight_granularity = Int8Tensor._normalize_granularity_int8(
+        act_granularity, weight_granularity = Int8Tensor._normalize_granularity(
             config.granularity
         )
-        Int8Tensor._validate_granularity_int8((act_granularity, weight_granularity))
         assert config.act_mapping_type == MappingType.SYMMETRIC, (
             "asymmetric dynamic quant not supported currently"
         )
@@ -1217,6 +1221,18 @@ class Int8StaticActivationInt8WeightConfig(AOBaseConfig):
         torch._C._log_api_usage_once(
             "torchao.quantization.Int8StaticActivationInt8WeightConfig"
         )
+        act_granularity, weight_granularity = Int8Tensor._normalize_granularity(
+            self.granularity
+        )
+        Int8Tensor._validate_granularity((act_granularity, weight_granularity))
+
+        # Validate activation granularity for static quantization
+        if isinstance(act_granularity, PerRow) and act_granularity.dim != -1:
+            raise ValueError(
+                f"Int8StaticActivationInt8WeightConfig only supports PerRow(dim=-1) "
+                f"for activation quantization, got PerRow(dim={act_granularity.dim}). "
+                f"Per-feature activation quantization is not supported due to slicing limitations."
+            )
 
     def get_act_quant_kwargs(self) -> QuantizeTensorToInt8Kwargs:
         """Get the activation quantization kwargs for static quantization.
@@ -1224,7 +1240,7 @@ class Int8StaticActivationInt8WeightConfig(AOBaseConfig):
         Returns:
             QuantizeTensorToInt8Kwargs with the configured granularity and mapping type.
         """
-        act_granularity, weight_granularity = Int8Tensor._normalize_granularity_int8(
+        act_granularity, weight_granularity = Int8Tensor._normalize_granularity(
             self.granularity
         )
 
@@ -1241,19 +1257,9 @@ def _int8_static_activation_int8_weight_transform(
     *,
     parameter_name="weight",
 ):
-    activation_granularity, weight_granularity = Int8Tensor._normalize_granularity_int8(
+    activation_granularity, weight_granularity = Int8Tensor._normalize_granularity(
         config.granularity
     )
-    Int8Tensor._validate_granularity_int8((activation_granularity, weight_granularity))
-    # Validate activation granularity for static quantization
-    if isinstance(
-        activation_granularity, PerRow
-    ) and activation_granularity.dim not in [-1, 1]:
-        raise ValueError(
-            f"Int8StaticActivationInt8WeightConfig only supports PerRow(dim=-1) or PerRow(dim=1) "
-            f"for 2D activations, got PerRow(dim={activation_granularity.dim}). "
-            f"Per-feature activation quantization is not supported due to slicing limitations."
-        )
     assert config.act_mapping_type == MappingType.SYMMETRIC, (
         "asymmetric static quant not supported currently"
     )

@@ -123,7 +123,7 @@ class Int8Tensor(TorchAOBaseTensor):
         )
 
     @classmethod
-    def _normalize_granularity_int8(
+    def _normalize_granularity(
         cls,
         granularity: Optional[
             Union[
@@ -133,15 +133,13 @@ class Int8Tensor(TorchAOBaseTensor):
             ]
         ],
     ) -> Tuple[Granularity, Granularity]:
-        normalized_granularity = None
-        supported = (PerTensor, PerRow)
         if granularity is None:
-            normalized_granularity = (PerRow(), PerRow())
-        elif isinstance(granularity, supported):
-            normalized_granularity = (granularity, granularity)
+            return (PerRow(), PerRow())
+        elif isinstance(granularity, Granularity):
+            return (granularity, granularity)
         elif isinstance(granularity, (tuple, list)):
             if len(granularity) == 2:
-                normalized_granularity = tuple(granularity)
+                return tuple(granularity)
             else:
                 raise ValueError(
                     f"Granularity tuple/list must have exactly 2 elements, got {len(granularity)}: {granularity}"
@@ -151,10 +149,9 @@ class Int8Tensor(TorchAOBaseTensor):
                 f"Invalid granularity type: {granularity}. "
                 f"Expected None, Granularity, or tuple/list of 2 Granularities."
             )
-        return normalized_granularity
 
     @classmethod
-    def _validate_granularity_int8(
+    def _validate_granularity(
         cls,
         granularity: Tuple[Granularity, Granularity],
     ) -> None:
