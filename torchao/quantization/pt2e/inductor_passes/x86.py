@@ -795,7 +795,7 @@ def _register_qconv_weight_prepack_pass(
             )
             with torch.utils._python_dispatch._disable_current_modes():
                 w_scale_tensor = torch.tensor([w_scale.args[1]])
-            scale_name = f"{conv_node}"
+            scale_name = f"{conv_node}_scale"
             match.graph.owning_module.register_buffer(scale_name, w_scale_tensor)
             w_scale = match.graph.create_node("get_attr", scale_name)
         graph = match.graph
