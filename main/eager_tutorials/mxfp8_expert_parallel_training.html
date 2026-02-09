@@ -1,0 +1,2159 @@
+
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="" >
+
+  <head>
+  <meta name="robots" content="noindex">
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
+<meta property="og:title" content="MXFP8 Expert Parallel Training" />
+<meta property="og:type" content="website" />
+<meta property="og:url" content="http://pytorch.org/eager_tutorials/mxfp8_expert_parallel_training.html" />
+<meta property="og:site_name" content="torchao" />
+<meta property="og:description" content="This tutorial demonstrates how to train Mixture-of-Experts (MoE) models using MXFP8 (Microscaling FP8) with Expert Parallelism. MXFP8 expert parallel training enables efficient distributed training..." />
+<meta property="og:image" content="https://pytorch.org/assets/images/social-share.jpg" />
+<meta property="og:image:alt" content="torchao" />
+<meta name="description" content="This tutorial demonstrates how to train Mixture-of-Experts (MoE) models using MXFP8 (Microscaling FP8) with Expert Parallelism. MXFP8 expert parallel training enables efficient distributed training..." />
+
+    <title>MXFP8 Expert Parallel Training &#8212; torchao main documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../_static/styles/theme.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
+<link href="../_static/styles/bootstrap.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
+<link href="../_static/styles/pydata-sphinx-theme.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
+
+  
+  <link href="../_static/vendor/fontawesome/6.5.2/css/all.min.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
+  <link rel="preload" as="font" type="font/woff2" crossorigin href="../_static/vendor/fontawesome/6.5.2/webfonts/fa-solid-900.woff2" />
+<link rel="preload" as="font" type="font/woff2" crossorigin href="../_static/vendor/fontawesome/6.5.2/webfonts/fa-brands-400.woff2" />
+<link rel="preload" as="font" type="font/woff2" crossorigin href="../_static/vendor/fontawesome/6.5.2/webfonts/fa-regular-400.woff2" />
+
+    <link rel="stylesheet" type="text/css" href="../_static/pygments.css" />
+    <link rel="stylesheet" type="text/css" href="../_static/css/theme.css" />
+    <link rel="stylesheet" type="text/css" href="../_static/copybutton.css" />
+    <link rel="stylesheet" type="text/css" href="../_static/tabs.css" />
+    <link rel="stylesheet" type="text/css" href="../_static/design-style.1e8bd061cd6da7fc9cf755528e8ffc24.min.css" />
+    <link rel="stylesheet" type="text/css" href="../_static/sg_gallery.css" />
+    <link rel="stylesheet" type="text/css" href="../_static/sg_gallery-binder.css" />
+    <link rel="stylesheet" type="text/css" href="../_static/sg_gallery-dataframe.css" />
+    <link rel="stylesheet" type="text/css" href="../_static/sg_gallery-rendered-html.css" />
+    <link rel="stylesheet" type="text/css" href="../_static/css/custom.css" />
+  
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=dfe6caa3a7d634c4db9b" />
+<link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=dfe6caa3a7d634c4db9b" />
+  <script src="../_static/vendor/fontawesome/6.5.2/js/all.min.js?digest=dfe6caa3a7d634c4db9b"></script>
+
+    <script data-url_root="../" id="documentation_options" src="../_static/documentation_options.js"></script>
+    <script src="../_static/jquery.js"></script>
+    <script src="../_static/underscore.js"></script>
+    <script src="../_static/_sphinx_javascript_frameworks_compat.js"></script>
+    <script src="../_static/doctools.js"></script>
+    <script src="../_static/sphinx_highlight.js"></script>
+    <script src="../_static/clipboard.min.js"></script>
+    <script src="../_static/copybutton.js"></script>
+    <script src="../_static/design-tabs.js"></script>
+    <link rel="canonical" href="https://pytorch.org/ao/eager_tutorials/mxfp8_expert_parallel_training.html" />
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Contributing" href="../contributing/index.html" />
+    <link rel="prev" title="Writing Your Own Quantized Tensor (advanced)" href="subclass_advanced.html" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/list.js/2.3.1/list.min.js"></script>
+<script>
+  if (window.location.hostname === 'docs.pytorch.org' || window.location.hostname === 'docs-preview.pytorch.org') {
+    const script = document.createElement('script');
+    script.src = 'https://cmp.osano.com/16A0DbT9yDNIaQkvZ/31b1b91a-e0b6-47ea-bde2-7f2bd13dbe5c/osano.js?variant=one';
+    document.head.appendChild(script);
+  }
+</script>
+<script>
+  // Cookie banner for non-LF projects
+  document.addEventListener('DOMContentLoaded', function () {
+    // Hide cookie banner on local environments and LF owned docs
+    if (window.location.hostname === 'localhost' ||
+      window.location.hostname === '0.0.0.0' ||
+      window.location.hostname === '127.0.0.1' ||
+      window.location.hostname === 'docs.pytorch.org' ||
+      window.location.hostname === 'docs-preview.pytorch.org' ||
+      window.location.hostname.startsWith('192.168.')) {
+      const banner = document.querySelector('.cookie-banner-wrapper');
+      if (banner) {
+        banner.style.display = 'none';
+      }
+    }
+  });
+</script>
+<!-- Conditional CSS for header and footer height adjustment -->
+
+
+<link rel="stylesheet" type="text/css" href="../_static/css/theme.css" crossorigin="anonymous">
+<script type="text/javascript" src="../_static/js/theme.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400&display=swap" rel="stylesheet">
+<meta property="og:image" content="https://docs.pytorch.org/docs/stable/_static/img/pytorch_seo.png" />
+<link rel="stylesheet" href="../_static/webfonts/all.min.css" crossorigin="anonymous">
+<meta http-equiv="Content-Security-Policy"
+  content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:; style-src * 'unsafe-inline'; script-src * 'unsafe-inline' 'unsafe-eval' blob:;">
+<meta name="pytorch_project" content="">
+<!-- Google Tag Manager (noscript) -->
+<noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-T8XT4PS" height="0" width="0"
+    style="display:none;visibility:hidden"></iframe></noscript>
+<!-- End Google Tag Manager (noscript) -->
+<!-- Google Tag Manager -->
+<script>(function (w, d, s, l, i) {
+    w[l] = w[l] || []; w[l].push({
+      'gtm.start':
+        new Date().getTime(), event: 'gtm.js'
+    }); var f = d.getElementsByTagName(s)[0],
+      j = d.createElement(s), dl = l != 'dataLayer' ? '&l=' + l : ''; j.async = true; j.src =
+        'https://www.googletagmanager.com/gtm.js?id=' + i + dl; f.parentNode.insertBefore(j, f);
+    j.onload = function () {
+      window.dispatchEvent(new Event('gtm_loaded'));
+      console.log('GTM loaded successfully');
+    };
+  })(window, document, 'script', 'dataLayer', 'GTM-T8XT4PS');
+</script>
+<!-- End Google Tag Manager -->
+<!-- Facebook Pixel Code -->
+<script>
+  !function (f, b, e, v, n, t, s) {
+    if (f.fbq) return; n = f.fbq = function () {
+      n.callMethod ?
+        n.callMethod.apply(n, arguments) : n.queue.push(arguments)
+    };
+    if (!f._fbq) f._fbq = n; n.push = n; n.loaded = !0; n.version = '2.0';
+    n.queue = []; t = b.createElement(e); t.async = !0;
+    t.src = v; s = b.getElementsByTagName(e)[0];
+    s.parentNode.insertBefore(t, s)
+  }(window, document, 'script',
+    'https://connect.facebook.net/en_US/fbevents.js');
+  fbq('init', '243028289693773');
+  fbq('track', 'PageView');
+</script>
+<script>
+  document.documentElement.setAttribute('data-version', 'main');
+</script>
+<noscript>
+  <img height="1" width="1" src="https://www.facebook.com/tr?id=243028289693773&ev=PageView&noscript=1" />
+</noscript>
+<script>
+  function gtag() {
+    window.dataLayer.push(arguments);
+  }
+</script>
+<!-- End Facebook Pixel Code -->
+<!-- Repository configuration for tutorials -->
+
+<!-- Script to Fix scrolling -->
+<script>
+  document.addEventListener('DOMContentLoaded', function () {
+    // Fix anchor scrolling
+    document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+      anchor.addEventListener('click', function (e) {
+        e.preventDefault();
+        const targetId = this.getAttribute('href').substring(1);
+        const targetElement = document.getElementById(targetId);
+
+        if (targetElement) {
+          const headerHeight =
+            (document.querySelector('.header-holder') ? document.querySelector('.header-holder').offsetHeight : 0) +
+            (document.querySelector('.bd-header') ? document.querySelector('.bd-header').offsetHeight : 0) + 20;
+
+          const targetPosition = targetElement.getBoundingClientRect().top + window.pageYOffset - headerHeight;
+          window.scrollTo({
+            top: targetPosition,
+            behavior: 'smooth'
+          });
+
+          // Update URL hash without scrolling
+          history.pushState(null, null, '#' + targetId);
+        }
+      });
+    });
+  });
+</script>
+
+<script async src="https://cse.google.com/cse.js?cx=e65585f8c3ea1440e"></script>
+
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+
+  </head>
+
+<body data-feedback-url="" class="pytorch-body">
+  
+    <div class="container-fluid header-holder tutorials-header" id="header-holder">
+   <div class="header-container-wrapper">
+    <div class="header-container">
+      <a class="header-logo" href="https://pytorch.org/" aria-label="PyTorch"></a>
+
+      <div class="main-menu">
+        <ul>
+
+          <li class="main-menu-item">
+          <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
+              <a class="with-down-arrow">
+                <span>Learn</span>
+              </a>
+              <div class="resources-dropdown-menu">
+                <a class="nav-dropdown-item" href="https://pytorch.org/get-started/locally">
+                  <span class=dropdown-title>Get Started</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://docs.pytorch.org/tutorials">
+                  <span class="dropdown-title">Tutorials</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/tutorials/beginner/basics/intro.html">
+                  <span class="dropdown-title">Learn the Basics</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/tutorials/recipes/recipes_index.html">
+                  <span class="dropdown-title">PyTorch Recipes</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/tutorials/beginner/introyt.html">
+                  <span class="dropdown-title">Intro to PyTorch - YouTube Series</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/webinars/">
+                  <span class="dropdown-title">Webinars</span>
+                </a>
+              </div>
+            </div>
+          </li>
+
+          <li class="main-menu-item">
+          <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
+              <a class="with-down-arrow">
+              <span>Community</span>
+              </a>
+              <div class="resources-dropdown-menu">
+                <a class="nav-dropdown-item" href="https://landscape.pytorch.org/" target="_blank">
+                  <span class="dropdown-title">Landscape</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/join-ecosystem">
+                  <span class="dropdown-title">Join the Ecosystem</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/community-hub/">
+                  <span class="dropdown-title">Community Hub</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://discuss.pytorch.org/">
+                  <span class="dropdown-title">Forums</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/resources">
+                  <span class=dropdown-title>Developer Resources</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/contributor-awards/">
+                  <span class="dropdown-title">Contributor Awards</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/community-events/">
+                  <span class="dropdown-title">Community Events</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/programs/ambassadors/">
+                  <span class="dropdown-title">PyTorch Ambassadors</span>
+                </a>
+              </div>
+            </div>
+          </li>
+
+          <li class="main-menu-item">
+          <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
+              <a class="with-down-arrow">
+              <span>Projects</span>
+              </a>
+              <div class="resources-dropdown-menu">
+                <a class="nav-dropdown-item" href="https://pytorch.org/projects/pytorch/">
+                  <span class="dropdown-title">PyTorch</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/projects/vllm/">
+                  <span class="dropdown-title">vLLM</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/projects/deepspeed/">
+                  <span class="dropdown-title">DeepSpeed</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/projects/host-your-project/">
+                  <span class="dropdown-title">Host Your Project</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/projects/ray/">
+                  <span class="dropdown-title">RAY</span>
+                </a>
+              </div>
+            </div>
+          </li>
+
+          <li class="main-menu-item">
+            <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
+              <a class="with-down-arrow">
+              <span> Docs</span>
+              </a>
+              <div class="resources-dropdown-menu">
+                <a class="nav-dropdown-item" href="https://docs.pytorch.org/docs/stable/index.html">
+                  <span class="dropdown-title">PyTorch</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/domains">
+                  <span class="dropdown-title">Domains</span>
+                </a>
+              </div>
+            </div>
+          </li>
+
+          <li class="main-menu-item">
+            <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
+              <a class="with-down-arrow">
+              <span>Blogs & News</span>
+              </a>
+              <div class="resources-dropdown-menu">
+                <a class="nav-dropdown-item" href="https://pytorch.org/blog/">
+                  <span class="dropdown-title">Blog</span>
+                </a>
+                 <a class="nav-dropdown-item" href="https://pytorch.org/announcements">
+                  <span class="dropdown-title">Announcements</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/case-studies/">
+                  <span class="dropdown-title">Case Studies</span>
+                <a class="nav-dropdown-item" href="https://pytorch.org/events">
+                  <span class="dropdown-title">Events</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/newsletter">
+                  <span class="dropdown-title">Newsletter</span>
+                </a>
+            </div>
+          </li>
+
+          <li class="main-menu-item">
+            <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
+              <a class="with-down-arrow">
+              <span>About</span>
+              </a>
+              <div class="resources-dropdown-menu">
+                <a class="nav-dropdown-item" href="https://pytorch.org/foundation">
+                  <span class="dropdown-title">PyTorch Foundation</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/members">
+                  <span class="dropdown-title">Members</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/governing-board">
+                  <span class="dropdown-title">Governing Board</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/tac">
+                  <span class="dropdown-title">Technical Advisory Council</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/credits">
+                  <span class="dropdown-title">Cloud Credit Program</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/staff">
+                  <span class="dropdown-title">Staff</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/contact">
+                  <span class="dropdown-title">Contact</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/wp-content/uploads/2025/09/pytorch_brand_guide_091925a.pdf">
+                  <span class="dropdown-title">Brand Guidelines</span>
+                </a>
+              </div>
+            </div>
+          </li>
+
+          <li class="main-menu-item">
+            <div class="no-dropdown main-menu-button">
+              <a href="https://pytorch.org/join" data-cta="join">
+                JOIN
+              </a>
+            </div>
+          </li>
+        </ul>
+      </div>
+
+      <a class="main-menu-open-button" href="#" data-behavior="open-mobile-menu">
+        <i class="fa-solid fa-ellipsis"></i>
+      </a>
+    </div>
+  </div>
+ </div>
+
+ <!-- Begin Mobile Menu -->
+
+<div class="mobile-main-menu">
+  <div class="container-fluid">
+    <div class="header-container-wrapper">
+      <div class="mobile-main-menu-header-container">
+        <a class="main-menu-close-button" href="#" data-behavior="close-mobile-menu">
+        </a>
+      </div>
+    </div>
+  </div>
+
+  <div class="mobile-main-menu-links-container">
+    <div class="main-menu">
+      <ul>
+         <li class="resources-mobile-menu-title">
+           <a>Learn</a>
+         </li>
+         <ul class="resources-mobile-menu-items">
+           <li>
+             <a href="https://pytorch.org/get-started/locally">Get Started</a>
+           </li>
+           <li>
+             <a href="https://docs.pytorch.org/tutorials">Tutorials</a>
+           </li>
+           <li>
+             <a href="https://pytorch.org/tutorials/beginner/basics/intro.html">Learn the Basics</a>
+           </li>
+           <li>
+             <a href="https://pytorch.org/tutorials/recipes/recipes_index.html">PyTorch Recipes</a>
+           </li>
+           <li>
+             <a href="https://pytorch.org/tutorials/beginner/introyt.html">Introduction to PyTorch - YouTube Series</a>
+           </li>
+           <li>
+            <a href="https://pytorch.org/webinars/">Webinars</a>
+          </li>
+        </ul>
+         <li class="resources-mobile-menu-title">
+           <a>Community</a>
+         </li>
+         <ul class="resources-mobile-menu-items">
+          <li>
+            <a href="https://landscape.pytorch.org/">Landscape</a>
+          </li>
+          <li>
+             <a href="https://pytorch.org/join-ecosystem">Join the Ecosystem</a>
+           </li>
+           <li>
+             <a href="https://pytorch.org/community-hub/">Community Hub</a>
+           </li>
+           <li>
+             <a href="https://discuss.pytorch.org/">Forums</a>
+           </li>
+           <li>
+             <a href="https://pytorch.org/resources">Developer Resources</a>
+           </li>
+           <li>
+             <a href="https://pytorch.org/contributor-awards/">Contributor Awards</a>
+           </li>
+           <li>
+            <a href="https://pytorch.org/community-events/">Community Events</a>
+          </li>
+          <li>
+            <a href="https://pytorch.org/programs/ambassadors/">PyTorch Ambassadors</a>
+          </li>
+       </ul>
+
+         <li class="resources-mobile-menu-title">
+           <a>Projects</a>
+         </li>
+
+         <ul class="resources-mobile-menu-items">
+           <li>
+             <a href="https://pytorch.org/projects/pytorch/">PyTorch</a>
+           </li>
+
+           <li>
+             <a href="https://pytorch.org/projects/vllm/">vLLM</a>
+           </li>
+           <li>
+            <a href="https://pytorch.org/projects/deepspeed/">DeepSpeed</a>
+          </li>
+          <li>
+             <a href="https://pytorch.org/projects/host-your-project/">Host Your Project</a>
+           </li>
+         </ul>
+
+         <li class="resources-mobile-menu-title">
+           <a>Docs</a>
+         </li>
+
+         <ul class="resources-mobile-menu-items">
+          <li>
+            <a href="https://docs.pytorch.org/docs/stable/index.html">PyTorch</a>
+          </li>
+
+          <li>
+            <a href="https://pytorch.org/domains">Domains</a>
+          </li>
+        </ul>
+
+        <li class="resources-mobile-menu-title">
+          <a>Blog & News</a>
+        </li>
+
+         <ul class="resources-mobile-menu-items">
+          <li>
+            <a href="https://pytorch.org/blog/">Blog</a>
+          </li>
+          <li>
+            <a href="https://pytorch.org/announcements">Announcements</a>
+          </li>
+
+          <li>
+            <a href="https://pytorch.org/case-studies/">Case Studies</a>
+          </li>
+          <li>
+            <a href="https://pytorch.org/events">Events</a>
+          </li>
+          <li>
+             <a href="https://pytorch.org/newsletter">Newsletter</a>
+           </li>
+        </ul>
+
+        <li class="resources-mobile-menu-title">
+          <a>About</a>
+        </li>
+
+        <ul class="resources-mobile-menu-items">
+          <li>
+            <a href="https://pytorch.org/foundation">PyTorch Foundation</a>
+          </li>
+          <li>
+            <a href="https://pytorch.org/members">Members</a>
+          </li>
+          <li>
+            <a href="https://pytorch.org/governing-board">Governing Board</a>
+          </li>
+          <li>
+            <a href="https://pytorch.org/tac">Technical Advisory Council</a>
+         </li>
+         <li>
+             <a href="https://pytorch.org/credits">Cloud Credit Program</a>
+          </li>
+          <li>
+             <a href="https://pytorch.org/staff">Staff</a>
+          </li>
+          <li>
+             <a href="https://pytorch.org/contact">Contact</a>
+          </li>
+        </ul>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- End Mobile Menu -->
+  
+  
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <input type="checkbox"
+          class="sidebar-toggle"
+          id="pst-primary-sidebar-checkbox"/>
+  <label class="overlay overlay-primary" for="pst-primary-sidebar-checkbox"></label>
+  
+  <input type="checkbox"
+          class="sidebar-toggle"
+          id="pst-secondary-sidebar-checkbox"/>
+  <label class="overlay overlay-secondary" for="pst-secondary-sidebar-checkbox"></label>
+  
+  <div class="search-button__wrapper">
+    <div class="search-button__overlay"></div>
+    <div class="search-button__search-container">
+<form class="bd-search d-flex align-items-center"
+      action="../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         id="search-input"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form></div>
+  </div>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+  <a href="../index.html" class="version">main</a>
+</div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../workflows/index.html">
+    Workflows
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../api_reference/index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="index.html">
+    Tutorials
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../contributing/index.html">
+    Contributing
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../pt2e_quantization/index.html">
+    PT2E Quantization
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+      
+        <div class="navbar-item">
+  
+<form class="bd-search d-flex align-items-center"
+      action="../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         id="search-input"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+</div>
+      
+        <div class="navbar-item">
+
+<script>
+document.write(`
+  <button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button" title="light/dark" aria-label="light/dark" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <i class="theme-switch fa-solid fa-sun fa-lg" data-mode="light"></i>
+    <i class="theme-switch fa-solid fa-moon fa-lg" data-mode="dark"></i>
+    <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"></i>
+  </button>
+`);
+</script></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://x.com/PyTorch" title="X" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-x-twitter fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">X</span></a>
+        </li>
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/pytorch/ao" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://dev-discuss.pytorch.org/" title="Discourse" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-discourse fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">Discourse</span></a>
+        </li>
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://pypi.org/project/torchao/" title="PyPi" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-python fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">PyPi</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <div class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../workflows/index.html">
+    Workflows
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../api_reference/index.html">
+    API Reference
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="index.html">
+    Tutorials
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../contributing/index.html">
+    Contributing
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../pt2e_quantization/index.html">
+    PT2E Quantization
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+  
+<form class="bd-search d-flex align-items-center"
+      action="../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         id="search-input"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+</div>
+        
+          <div class="navbar-item">
+
+<script>
+document.write(`
+  <button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button" title="light/dark" aria-label="light/dark" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <i class="theme-switch fa-solid fa-sun fa-lg" data-mode="light"></i>
+    <i class="theme-switch fa-solid fa-moon fa-lg" data-mode="dark"></i>
+    <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"></i>
+  </button>
+`);
+</script></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://x.com/PyTorch" title="X" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-x-twitter fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">X</span></a>
+        </li>
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/pytorch/ao" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://dev-discuss.pytorch.org/" title="Discourse" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-discourse fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">Discourse</span></a>
+        </li>
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://pypi.org/project/torchao/" title="PyPi" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-python fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">PyPi</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="first_quantization_example.html">First Quantization Example</a></li>
+<li class="toctree-l1"><a class="reference internal" href="pretraining.html">(Part 1) Pre-training with float8</a></li>
+<li class="toctree-l1"><a class="reference internal" href="finetuning.html">(Part 2) Fine-tuning with QAT, QLoRA, and float8</a></li>
+<li class="toctree-l1"><a class="reference internal" href="serving.html">(Part 3) Serving on vLLM, SGLang, ExecuTorch</a></li>
+<li class="toctree-l1"><a class="reference internal" href="torchao_vllm_integration.html">Integration with VLLM: Architecture and Usage Guide</a></li>
+<li class="toctree-l1"><a class="reference internal" href="torchao_hf_integration.html">Hugging Face Integration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="serialization.html">Serialization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="static_quantization.html">Static Quantization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="subclass_basic.html">Writing Your Own Quantized Tensor</a></li>
+<li class="toctree-l1"><a class="reference internal" href="subclass_advanced.html">Writing Your Own Quantized Tensor (advanced)</a></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">MXFP8 Expert Parallel Training</a></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+  </div>
+  
+  <div id="rtd-footer-container"></div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Tutorials</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page">MXFP8...</li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+    <div class="header-article-items__end">
+      
+        <div class="header-article-item">
+<div class="rating">
+    Rate this Page
+    <div class="stars">
+        
+        <span class="star" data-behavior="tutorial-rating" data-count="1" data-value="1">★</span>
+        
+        <span class="star" data-behavior="tutorial-rating" data-count="2" data-value="2">★</span>
+        
+        <span class="star" data-behavior="tutorial-rating" data-count="3" data-value="3">★</span>
+        
+        <span class="star" data-behavior="tutorial-rating" data-count="4" data-value="4">★</span>
+        
+        <span class="star" data-behavior="tutorial-rating" data-count="5" data-value="5">★</span>
+        
+    </div>
+</div>
+</div>
+      
+    </div>
+  
+</div>
+</div>
+              
+              
+  
+<div id="searchbox"></div>
+  <article class="bd-article" id="pytorch-article">
+    <!-- Hidden breadcrumb schema for SEO only -->
+    <div style="display:none;" itemscope itemtype="https://schema.org/BreadcrumbList">
+      
+      <div itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
+        <link itemprop="item" href="index.html">
+        <meta itemprop="name" content="Tutorials">
+        <meta itemprop="position" content="1">
+      </div>
+      
+      <div itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
+        <meta itemprop="name" content="MXFP8 Expert Parallel Training">
+        <meta itemprop="position" content="2">
+      </div>
+    </div>
+
+    
+    
+
+    
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="mxfp8-expert-parallel-training">
+<h1>MXFP8 Expert Parallel Training<a class="headerlink" href="#mxfp8-expert-parallel-training" title="Permalink to this heading">#</a></h1>
+<p class="date-info-last-verified" style="color: #6c6c6d; font-size: small;">Created On: Feb 09, 2026 | Last Updated On: Feb 09, 2026</p>
+<p>This tutorial demonstrates how to train Mixture-of-Experts (MoE) models using MXFP8 (Microscaling FP8) with Expert Parallelism. MXFP8 expert parallel training enables efficient distributed training of large MoE models by:</p>
+<ol class="arabic simple">
+<li><p>Sharding experts across GPUs with expert parallelism (EP)</p></li>
+<li><p>Using MXFP8 quantization during all-to-all communication and expert computation</p></li>
+</ol>
+<p>This approach achieves 10% - 25% tokens/second speedup for DeepSeekV3 16b training:</p>
+<ul class="simple">
+<li><p>+10% tokens/second on single node 8xB200 with NVLink intra-node networking for inter-device communication.</p></li>
+<li><p>+25% tokens/second on multi-node B200 cluster with IB inter-node networking and NVLink intra-node networking.</p></li>
+</ul>
+<p>In this tutorial, we will show 2 ways to use MXFP8 expert parallel training:</p>
+<ol class="arabic simple">
+<li><p><a class="reference internal" href="#training-with-torchtitan"><span class="std std-ref">Training with torchtitan</span></a>, using torchtitan’s native integration with torchao.</p></li>
+<li><p><a class="reference internal" href="#training-with-torchao-directly"><span class="std std-ref">Training with torchao directly</span></a>, to integrate MXFP8 expert parallelism into your own training code.</p></li>
+</ol>
+<section id="mxfp8-expert-parallel-apis">
+<h2>MXFP8 Expert Parallel APIs<a class="headerlink" href="#mxfp8-expert-parallel-apis" title="Permalink to this heading">#</a></h2>
+<p>The key torchao APIs for MXFP8 expert parallelism are located in <code class="code docutils literal notranslate"><span class="pre">torchao.prototype.moe_training.ep</span></code>.</p>
+<p>These are all differentiable autograd functions which can be chained together:</p>
+<img alt="MXFP8 Expert Parallel Training Diagram" src="../_images/mxfp8-ep-diagram.png" />
+<ul class="simple">
+<li><p><code class="code docutils literal notranslate"><span class="pre">a2a_dispatch_mxfp8_fwd_hp_bwd</span></code>: All-to-all token dispatch (MXFP8 forward pass, BF16 backward pass)</p></li>
+<li><p><code class="code docutils literal notranslate"><span class="pre">permute_mxfp8_fwd_hp_bwd</span></code>: Permute and pad tokens for MXFP8 computation (MXFP8 forward pass, BF16 backward pass)</p></li>
+<li><p><code class="code docutils literal notranslate"><span class="pre">_to_mxfp8_then_scaled_grouped_mm</span></code>: MXFP8 grouped GEMM for routed expert computation (accepts pre-quantized inputs, or dynamically quantizes high precision inputs). Produces bfloat16 output.</p></li>
+<li><p><code class="code docutils literal notranslate"><span class="pre">unpermute_hp_fwd_mxfp8_bwd</span></code>: Unpermute tokens back to original order (BF16 forward pass, MXFP8 backward pass)</p></li>
+<li><p><code class="code docutils literal notranslate"><span class="pre">a2a_combine_hp_fwd_mxfp8_bwd</span></code>: All-to-all token combine (BF16 forward pass, MXFP8 backward pass). Note the actual combine/aggregation op does not happen here, the naming is just to indicate it is intended to be used for the all2all immediatley preceding the aggregation.</p></li>
+</ul>
+<p>These autograd functions handle the communication and quantization patterns needed for efficient expert parallel training.</p>
+</section>
+<section id="training-with-torchtitan">
+<h2>Training with torchtitan<a class="headerlink" href="#training-with-torchtitan" title="Permalink to this heading">#</a></h2>
+<p>In this tutorial we’ll train a DeepSeek-V3-16B model using torchtitan with torchao’s MXFP8 expert parallel recipe.</p>
+<p><a class="reference external" href="https://github.com/pytorch/torchtitan/">Torchtitan</a> is PyTorch’s official pre-training framework that is natively integrated with torchao. For MoE models, torchtitan supports expert parallelism combined with other forms of parallelism like FSDP and tensor parallelism.</p>
+<section id="prerequisites">
+<h3>Prerequisites<a class="headerlink" href="#prerequisites" title="Permalink to this heading">#</a></h3>
+<ol class="arabic simple">
+<li><p>(Recommended) Create a new virtual environment with conda or venv.</p></li>
+<li><p><a class="reference external" href="https://pytorch.org/get-started/locally/">Install PyTorch</a> 2.10 or nightly build with CUDA 12.8+ support.</p></li>
+<li><p><a class="reference external" href="https://github.com/pytorch/ao/tree/main?tab=readme-ov-file#installation">Install torchao</a> nightly build (required for CUDA 12.8+ support).</p></li>
+<li><p><a class="reference external" href="https://github.com/pytorch/torchtitan/tree/main?tab=readme-ov-file#installation">Install torchtitan</a>, including the “downloading a tokenizer” step.</p></li>
+</ol>
+<p>You’re now ready to start a training job with MXFP8 expert parallel!</p>
+</section>
+<section id="id1">
+<h3>MXFP8 Expert Parallel Training<a class="headerlink" href="#id1" title="Permalink to this heading">#</a></h3>
+<p>Run the following command from torchtitan root directory to launch a DeepSeek-V3-16B training job on 8 B200 GPUs with MXFP8 expert parallel training:</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="go">CONFIG_FILE=/home/dev/torchtitan/torchtitan/models/deepseek_v3/train_configs/deepseek_v3_16b.toml ./run_train.sh \</span>
+<span class="go">    --metrics.log_freq=10 \</span>
+<span class="go">    --training.steps=1500 \</span>
+<span class="go">    --parallelism.data_parallel_shard_degree=8 \</span>
+<span class="go">    --parallelism.expert_parallel_degree=8 \</span>
+<span class="go">    --parallelism.tensor_parallel_degree=1 \</span>
+<span class="go">    --parallelism.expert_tensor_parallel_degree=1 \</span>
+<span class="go">    --training.seq_len=8192 \</span>
+<span class="go">    --activation_checkpoint.mode=full \</span>
+<span class="go">    --model.print_after_conversion \</span>
+<span class="go">    --training.local_batch_size=16 \</span>
+<span class="go">    --quantize.linear.mx.mxfp8_dim0_cast_kernel_choice=&quot;triton&quot; \</span>
+<span class="go">    --quantize.linear.mx.mxfp8_dim1_cast_kernel_choice=&quot;cuda&quot; \</span>
+<span class="go">    --quantize.grouped_mm.mx.fqns=&quot;experts&quot; \</span>
+<span class="go">    --quantize.grouped_mm.mx.recipe_name=&quot;mxfp8_wgrad_with_hp&quot; \</span>
+<span class="go">    --compile.enable \</span>
+<span class="go">    --compile.components=&quot;model,loss&quot; \</span>
+<span class="go">    --debug.moe_force_load_balance \</span>
+<span class="go">    --model.converters=&quot;quantize.grouped_mm.mx&quot;</span>
+</pre></div>
+</div>
+</section>
+<section id="understanding-the-configuration">
+<h3>Understanding the Configuration<a class="headerlink" href="#understanding-the-configuration" title="Permalink to this heading">#</a></h3>
+<p>Let’s break down the key parameters for MXFP8 expert parallel training:</p>
+<p><strong>Parallelism Configuration:</strong></p>
+<ul class="simple">
+<li><p><code class="code docutils literal notranslate"><span class="pre">--parallelism.data_parallel_shard_degree=8</span></code>: Use 8-way FSDP data parallelism</p></li>
+<li><p><code class="code docutils literal notranslate"><span class="pre">--parallelism.expert_parallel_degree=8</span></code>: Shard experts across 8 GPUs</p></li>
+<li><p><code class="code docutils literal notranslate"><span class="pre">--parallelism.tensor_parallel_degree=1</span></code>: No tensor parallelism (can be combined if needed)</p></li>
+<li><p><code class="code docutils literal notranslate"><span class="pre">--parallelism.expert_tensor_parallel_degree=1</span></code>: No expert-specific tensor parallelism</p></li>
+</ul>
+<p><strong>MXFP8 Quantization Configuration:</strong></p>
+<ul class="simple">
+<li><p><code class="code docutils literal notranslate"><span class="pre">--quantize.grouped_mm.mx.fqns=&quot;experts&quot;</span></code>: Apply MXFP8 to expert layers only</p></li>
+<li><p><code class="code docutils literal notranslate"><span class="pre">--quantize.grouped_mm.mx.recipe_name=&quot;mxfp8_wgrad_with_hp&quot;</span></code>: Use the weight-gradient recipe with high precision accumulation. This also automatically applies MXFP8 all-to-all the forward token dispatch, and MXFP8 all-to-all for the backward of combine.</p></li>
+<li><p><code class="code docutils literal notranslate"><span class="pre">--quantize.linear.mx.mxfp8_dim0_cast_kernel_choice=&quot;triton&quot;</span></code>: Use Triton kernel for dimension 0 casting</p></li>
+<li><p><code class="code docutils literal notranslate"><span class="pre">--quantize.linear.mx.mxfp8_dim1_cast_kernel_choice=&quot;cuda&quot;</span></code>: Use CUDA kernel for dimension 1 casting</p></li>
+</ul>
+<p><strong>Other Important Settings:</strong></p>
+<ul class="simple">
+<li><p><code class="code docutils literal notranslate"><span class="pre">--model.converters=&quot;quantize.grouped_mm.mx&quot;</span></code>: Apply the grouped MM MXFP8 converter to the model</p></li>
+<li><p><code class="code docutils literal notranslate"><span class="pre">--compile.enable</span> <span class="pre">--compile.components=&quot;model,loss&quot;</span></code>: Enable torch.compile for optimal performance</p></li>
+<li><p><code class="code docutils literal notranslate"><span class="pre">--debug.moe_force_load_balance</span></code>: Force balanced load distribution across experts (useful for debugging)</p></li>
+</ul>
+</section>
+<section id="expected-output">
+<h3>Expected Output<a class="headerlink" href="#expected-output" title="Permalink to this heading">#</a></h3>
+<p>You should see terminal output similar to this:</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">[rank0]:[titan] 2026-01-29 10:15:32,145 - root - INFO - step:   1  loss: 11.8432  memory: 45.23GiB(47.65%</span><span class="o">)</span><span class="w">  </span>tps:<span class="w"> </span><span class="m">512</span>
+<span class="gp">[rank0]:[titan] 2026-01-29 10:15:45,267 - root - INFO - step:  10  loss:  9.3421  memory: 48.91GiB(51.52%</span><span class="o">)</span><span class="w">  </span>tps:<span class="w"> </span><span class="m">21</span>,734
+<span class="gp">[rank0]:[titan] 2026-01-29 10:15:58,891 - root - INFO - step:  20  loss:  7.8234  memory: 48.91GiB(51.52%</span><span class="o">)</span><span class="w">  </span>tps:<span class="w"> </span><span class="m">21</span>,902
+<span class="gp">[rank0]:[titan] 2026-01-29 10:16:12,523 - root - INFO - step:  30  loss:  6.9123  memory: 48.91GiB(51.52%</span><span class="o">)</span><span class="w">  </span>tps:<span class="w"> </span><span class="m">21</span>,511
+</pre></div>
+</div>
+</section>
+<section id="recipe-selection-mxfp8-weight-gradient-with-high-precision">
+<h3>Recipe Selection: MXFP8 Weight Gradient with High Precision<a class="headerlink" href="#recipe-selection-mxfp8-weight-gradient-with-high-precision" title="Permalink to this heading">#</a></h3>
+<p>The <code class="code docutils literal notranslate"><span class="pre">mxfp8_wgrad_with_hp</span></code> recipe is required for MoE training with expert parallelism. Key characteristics:</p>
+<ul class="simple">
+<li><p><strong>Forward output</strong>: MXFP8 grouped GEMM</p></li>
+<li><p><strong>Input gradient</strong>: MXFP8 grouped GEMM</p></li>
+<li><p><strong>Weight gradient</strong>: BF16 grouped GEMM - this trades off some performance for improved numerical accuracy for weight gradients.</p></li>
+</ul>
+<p>This recipe is required for MXFP8 expert parallelism in the current prototype implementation.</p>
+<p><strong>Optional note for the interested reader for why this is required</strong>: This is because the input activations come into the <cite>forward</cite> method pre-quantized along dim zero (1x32 scaling factors), for the <cite>out = input &#64; weight.transpose(-2,-1)</cite> grouped GEMM.
+When we save those input activations for the backward pass, they are scaled along a different dimension than what we need for the gradient of the weight computation,
+<cite>wgrad = grad_out.t() &#64; input</cite>, where they will be the right-hand side operand and thus need to be scaled along dim one (32x1 scaling factors). To support MXFP8 Grouped GEMM for the weight gradient,
+we would need to <em>dequantize</em> the input along dim 0 then <em>requantize</em> along dim 1. This (1) would add some overhead, and (2) could impact numerics, so for the v0 implementation of this feature,
+we stick with requiring <cite>wgrad_with_hp</cite> recipe which avoids this issue entirely by doing the weight gradient grouped GEMM in bfloat16.</p>
+</section>
+<section id="combining-with-other-parallelism-strategies">
+<h3>Combining with Other Parallelism Strategies<a class="headerlink" href="#combining-with-other-parallelism-strategies" title="Permalink to this heading">#</a></h3>
+<p>MXFP8 expert parallel can be combined with other parallelism techniques:</p>
+<p><strong>With Tensor Parallelism:</strong></p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp"># </span>Add<span class="w"> </span>tensor<span class="w"> </span>parallelism<span class="w"> </span><span class="k">for</span><span class="w"> </span>larger<span class="w"> </span>models
+<span class="go">--parallelism.tensor_parallel_degree=2 \</span>
+<span class="go">--parallelism.expert_parallel_degree=4</span>
+</pre></div>
+</div>
+<p>Given the trend toward granular experts and increased sparsity, where achieving good GEMM efficiency is already difficult,
+we recommend against applying tensor parallel to the routed experts, but other layers like attention or dense FFNs are fine.</p>
+<p><strong>With Pipeline Parallelism:</strong></p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp"># </span>Add<span class="w"> </span>pipeline<span class="w"> </span>parallelism<span class="w"> </span><span class="o">(</span><span class="k">if</span><span class="w"> </span>supported<span class="w"> </span>by<span class="w"> </span>your<span class="w"> </span>model<span class="o">)</span>
+<span class="go">--parallelism.pipeline_parallel_degree=2</span>
+</pre></div>
+</div>
+<p>See the <a class="reference external" href="https://github.com/pytorch/torchtitan/tree/main">torchtitan docs</a> for more details.</p>
+<p><strong>Important Notes</strong></p>
+<ul class="simple">
+<li><p>MXFP8 expert parallel training requires a nightly build of torchao with CUDA 12.8+ support</p></li>
+<li><p>The <code class="code docutils literal notranslate"><span class="pre">wgrad_with_hp</span></code> recipe is currently required for MXFP8 expert parallelism</p></li>
+<li><p>We recommend <code class="code docutils literal notranslate"><span class="pre">--compile.enable</span> <span class="pre">--compile.components=&quot;model,loss&quot;</span></code> for competitive performance</p></li>
+<li><p>For benchmarking, lbalancing across experts is critical to ensure valid 1:1 comparisons - use <code class="code docutils literal notranslate"><span class="pre">--debug.moe_force_load_balance</span></code> during development to ensure balanced workloads</p></li>
+</ul>
+</section>
+</section>
+<section id="training-with-torchao-directly">
+<h2>Training with torchao directly<a class="headerlink" href="#training-with-torchao-directly" title="Permalink to this heading">#</a></h2>
+<p>In this tutorial we’ll apply MXFP8 expert parallelism to a custom MoE layer using torchao APIs directly.</p>
+<p>You can use this workflow to integrate MXFP8 expert parallelism into your own custom training code.</p>
+<section id="id2">
+<h3>Prerequisites<a class="headerlink" href="#id2" title="Permalink to this heading">#</a></h3>
+<ol class="arabic simple">
+<li><p>(Recommended) Create a new virtual environment with conda or venv.</p></li>
+<li><p><a class="reference external" href="https://github.com/pytorch/ao/tree/main?tab=readme-ov-file#installation">Install torchao</a> nightly build (required for CUDA 12.8+ support).</p></li>
+</ol>
+<p>You’re now ready to integrate MXFP8 expert parallel primitives into your training code directly!</p>
+<p><strong>Part 1:</strong> Defining a simplified MoE layer</p>
+<p>Using the <a class="reference external" href="https://github.com/pytorch/torchtitan/blob/main/torchtitan/models/moe/moe.py">TorchTitan MoE implementation</a> as a reference,
+we define a simplified MoE layer without a real router (we will use fake token-expert affinity scores later).</p>
+<p>Key requirements:</p>
+<ul class="simple">
+<li><p>Expert weights must be implemented as a 3d nn.Parameter so we can use a grouped GEMM for computation.</p></li>
+<li><p>Use <code class="code docutils literal notranslate"><span class="pre">_to_mxfp8_then_scaled_grouped_mm</span></code> from <code class="code docutils literal notranslate"><span class="pre">torchao.prototype.moe_training.scaled_grouped_mm</span></code> to do the routed expert computation.</p></li>
+</ul>
+<div class="highlight-py notranslate"><div class="highlight"><pre><span></span><span class="k">class</span><span class="w"> </span><span class="nc">GroupedExperts</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Grouped experts module that processes tokens with grouped matrix multiplication.&quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">dim</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">hidden_dim</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">num_experts</span><span class="p">:</span> <span class="nb">int</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">num_experts</span> <span class="o">=</span> <span class="n">num_experts</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">w1</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Parameter</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">empty</span><span class="p">(</span><span class="n">num_experts</span><span class="p">,</span> <span class="n">hidden_dim</span><span class="p">,</span> <span class="n">dim</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">w2</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Parameter</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">empty</span><span class="p">(</span><span class="n">num_experts</span><span class="p">,</span> <span class="n">dim</span><span class="p">,</span> <span class="n">hidden_dim</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">w3</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Parameter</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">empty</span><span class="p">(</span><span class="n">num_experts</span><span class="p">,</span> <span class="n">hidden_dim</span><span class="p">,</span> <span class="n">dim</span><span class="p">))</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+        <span class="n">num_tokens_per_expert</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+
+        <span class="c1"># Convert from DTensor to local tensor if needed (for EP)</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">w1</span><span class="p">,</span> <span class="n">DTensor</span><span class="p">):</span>
+            <span class="n">w1</span><span class="p">,</span> <span class="n">w2</span><span class="p">,</span> <span class="n">w3</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">w1</span><span class="o">.</span><span class="n">to_local</span><span class="p">(),</span> <span class="bp">self</span><span class="o">.</span><span class="n">w2</span><span class="o">.</span><span class="n">to_local</span><span class="p">(),</span> <span class="bp">self</span><span class="o">.</span><span class="n">w3</span><span class="o">.</span><span class="n">to_local</span><span class="p">()</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">w1</span><span class="p">,</span> <span class="n">w2</span><span class="p">,</span> <span class="n">w3</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">w1</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">w2</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">w3</span>
+
+        <span class="c1"># Compute offsets for grouped matrix multiplication</span>
+        <span class="n">offsets</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">cumsum</span><span class="p">(</span><span class="n">num_tokens_per_expert</span><span class="p">,</span> <span class="n">dim</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int32</span><span class="p">)</span>
+
+        <span class="c1"># Expert computation using MXFP8 grouped matrix multiplication.</span>
+
+        <span class="c1"># Use this torchao autograd function that optionally accepts</span>
+        <span class="c1"># MXTensor inputs (pre-quantized prior to the all2all - shown later)</span>
+        <span class="c1"># to use MXFP8 grouped GEMM, for ~2x speedup over BF16 grouped GEMM!</span>
+        <span class="c1"># The `wgrad_with_hp` recipe required for MXFP8 expert parallelism (more details later in the tutorial)</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.prototype.moe_training.scaled_grouped_mm</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+            <span class="n">_to_mxfp8_then_scaled_grouped_mm</span> <span class="k">as</span> <span class="n">mxfp8_gmm</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="n">h</span> <span class="o">=</span> <span class="n">F</span><span class="o">.</span><span class="n">silu</span><span class="p">(</span><span class="n">mxfp8_gmm</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">w1</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="o">-</span><span class="mi">2</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">),</span> <span class="n">offs</span><span class="o">=</span><span class="n">offsets</span><span class="p">,</span> <span class="n">wgrad_with_hp</span><span class="o">=</span><span class="kc">True</span><span class="p">))</span>
+        <span class="n">h</span> <span class="o">=</span> <span class="n">h</span> <span class="o">*</span> <span class="n">mxfp8_gmm</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">w3</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="o">-</span><span class="mi">2</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">),</span> <span class="n">offs</span><span class="o">=</span><span class="n">offsets</span><span class="p">,</span> <span class="n">wgrad_with_hp</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="n">output</span> <span class="o">=</span> <span class="n">mxfp8_gmm</span><span class="p">(</span><span class="n">h</span><span class="p">,</span> <span class="n">w2</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="o">-</span><span class="mi">2</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">),</span> <span class="n">offs</span><span class="o">=</span><span class="n">offsets</span><span class="p">,</span> <span class="n">wgrad_with_hp</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">output</span><span class="o">.</span><span class="n">type_as</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">SimplifiedMoE</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Simplified MoE layer for demonstration purposes.&quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">dim</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">hidden_dim</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">num_experts</span><span class="p">:</span> <span class="nb">int</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">num_experts</span> <span class="o">=</span> <span class="n">num_experts</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">experts</span> <span class="o">=</span> <span class="n">GroupedExperts</span><span class="p">(</span><span class="n">dim</span><span class="p">,</span> <span class="n">hidden_dim</span><span class="p">,</span> <span class="n">num_experts</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">routed_input</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+        <span class="n">num_tokens_per_expert</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">experts</span><span class="p">(</span><span class="n">routed_input</span><span class="p">,</span> <span class="n">num_tokens_per_expert</span><span class="p">)</span>
+</pre></div>
+</div>
+<p><strong>Part 2</strong>: MXFP8 Expert Parallelism</p>
+<p>Next, we will define a <a class="reference external" href="https://github.com/pytorch/pytorch/blob/5d1599cfa64659f11880c0c867ca13e9e3d8fbed/torch/distributed/tensor/parallel/style.py#L31">ParallelStyle</a> subclass
+which uses torchao MXFP8 expert parallel autograd functions.</p>
+<div class="highlight-py notranslate"><div class="highlight"><pre><span></span><span class="c1"># Use torchao mxfp8 autograd functions as building blocks</span>
+<span class="c1"># to define custom MXFP8 Expert Parallel implementation!</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.prototype.moe_training.ep</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">a2a_combine_hp_fwd_mxfp8_bwd</span><span class="p">,</span>
+    <span class="n">a2a_dispatch_mxfp8_fwd_hp_bwd</span><span class="p">,</span>
+    <span class="n">permute_mxfp8_fwd_hp_bwd</span><span class="p">,</span>
+    <span class="n">unpermute_hp_fwd_mxfp8_bwd</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">MXFP8ExpertParallel</span><span class="p">(</span><span class="n">ParallelStyle</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Custom ParallelStyle for MXFP8 Expert Parallelism.&quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">input_splits</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">output_splits</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">input_shape</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">permuted_indices</span> <span class="o">=</span> <span class="kc">None</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_partition_fn</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">mod</span><span class="p">:</span> <span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span> <span class="n">device_mesh</span><span class="p">:</span> <span class="n">DeviceMesh</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Shard expert parameters along the expert dimension.&quot;&quot;&quot;</span>
+        <span class="k">for</span> <span class="n">param_name</span><span class="p">,</span> <span class="n">param</span> <span class="ow">in</span> <span class="n">mod</span><span class="o">.</span><span class="n">named_parameters</span><span class="p">(</span><span class="n">recurse</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+            <span class="c1"># Experts are 3D parameters of shape (num_experts, ..., ...)</span>
+            <span class="c1"># Shard along the first dimension (expert dimension)</span>
+            <span class="n">dist_param</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Parameter</span><span class="p">(</span><span class="n">distribute_tensor</span><span class="p">(</span><span class="n">param</span><span class="p">,</span> <span class="n">device_mesh</span><span class="p">,</span> <span class="p">[</span><span class="n">Shard</span><span class="p">(</span><span class="mi">0</span><span class="p">)]))</span>
+            <span class="n">mod</span><span class="o">.</span><span class="n">register_parameter</span><span class="p">(</span><span class="n">param_name</span><span class="p">,</span> <span class="n">dist_param</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_token_dispatch</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span> <span class="n">mod</span><span class="p">:</span> <span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span> <span class="n">inputs</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">,</span> <span class="n">device_mesh</span><span class="p">:</span> <span class="n">DeviceMesh</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Dispatch tokens to appropriate experts using MXFP8 all-to-all communication.</span>
+
+<span class="sd">        This involves:</span>
+<span class="sd">        1. All-to-all to distribute tokens to the correct EP rank</span>
+<span class="sd">        2. Permutation to arrange tokens in the correct order for grouped computation</span>
+<span class="sd">        3. Padding to ensure token counts are multiples of MXFP8 block size (32)</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">routed_input</span><span class="p">,</span> <span class="n">num_tokens_per_expert</span> <span class="o">=</span> <span class="n">inputs</span>
+        <span class="n">ep_degree</span> <span class="o">=</span> <span class="n">device_mesh</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="n">num_local_experts</span> <span class="o">=</span> <span class="n">num_tokens_per_expert</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">//</span> <span class="n">ep_degree</span>
+
+        <span class="c1"># First all-to-all to calculate output splits from input splits</span>
+        <span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">():</span>
+            <span class="n">num_tokens_per_expert_group</span> <span class="o">=</span> <span class="n">all_to_all_single</span><span class="p">(</span>
+                <span class="n">num_tokens_per_expert</span><span class="p">,</span>
+                <span class="kc">None</span><span class="p">,</span>
+                <span class="kc">None</span><span class="p">,</span>
+                <span class="n">group</span><span class="o">=</span><span class="n">device_mesh</span><span class="o">.</span><span class="n">get_group</span><span class="p">(),</span>
+            <span class="p">)</span>
+            <span class="c1"># Wait for async collective to complete</span>
+            <span class="n">num_tokens_per_expert_group</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">_c10d_functional</span><span class="o">.</span><span class="n">wait_tensor</span><span class="p">(</span>
+                <span class="n">num_tokens_per_expert_group</span>
+            <span class="p">)</span>
+
+            <span class="c1"># Calculate input/output splits for all-to-all</span>
+            <span class="n">input_splits</span> <span class="o">=</span> <span class="p">(</span>
+                <span class="n">num_tokens_per_expert</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">ep_degree</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">)</span>
+                <span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">dim</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+                <span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">device</span><span class="p">(</span><span class="s2">&quot;cpu&quot;</span><span class="p">),</span> <span class="n">non_blocking</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+            <span class="p">)</span>
+            <span class="n">output_splits</span> <span class="o">=</span> <span class="p">(</span>
+                <span class="n">num_tokens_per_expert_group</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">ep_degree</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">)</span>
+                <span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">dim</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+                <span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">device</span><span class="p">(</span><span class="s2">&quot;cpu&quot;</span><span class="p">),</span> <span class="n">non_blocking</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+            <span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">input_splits</span> <span class="o">=</span> <span class="n">input_splits</span><span class="o">.</span><span class="n">tolist</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">output_splits</span> <span class="o">=</span> <span class="n">output_splits</span><span class="o">.</span><span class="n">tolist</span><span class="p">()</span>
+
+        <span class="c1"># Perform all-to-all token dispatch with MXFP8 forward pass</span>
+        <span class="c1"># This torchao autograd function quantizes the high precision input activations/tokens,</span>
+        <span class="c1"># and performs the expensive all-to-all token dispatch in MXFP8, producing MXTensor outputs</span>
+        <span class="c1"># which the next step can consume!</span>
+        <span class="c1"># Sending ~1/2 the bytes over the network = speedup!</span>
+        <span class="c1"># In the backward pass, the incoming upstream gradients will be in BF16, and it routes these</span>
+        <span class="c1"># output token gradients back to the device they came from.</span>
+        <span class="n">routed_input</span> <span class="o">=</span> <span class="n">a2a_dispatch_mxfp8_fwd_hp_bwd</span><span class="p">(</span>
+            <span class="n">routed_input</span><span class="p">,</span>
+            <span class="n">output_splits</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">output_splits</span><span class="p">,</span>
+            <span class="n">input_splits</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">input_splits</span><span class="p">,</span>
+            <span class="n">group_name</span><span class="o">=</span><span class="n">device_mesh</span><span class="o">.</span><span class="n">get_group</span><span class="p">()</span><span class="o">.</span><span class="n">group_name</span><span class="p">,</span>
+        <span class="p">)</span>
+
+        <span class="c1"># Permute and pad token groups for MXFP8 computation</span>
+        <span class="c1"># This torchao autograd function accepts MXTensor inputs produced by the MXFP8 all-to-all,</span>
+        <span class="c1"># and does the token permutation and padding needed for MXFP8 grouped GEMM (seen in GroupedExperts above).</span>
+        <span class="c1"># In the backward pass, the incoming upstream gradients will be the BF16 outputs of the MXFP8 grouped GEMM</span>
+        <span class="c1"># backward pass, so the permutation backward pass also happens in BF16.</span>
+        <span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">input_shape</span><span class="p">,</span>
+            <span class="n">routed_input</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">permuted_indices</span><span class="p">,</span>
+            <span class="n">num_tokens_per_expert_group</span><span class="p">,</span>
+            <span class="n">_</span><span class="p">,</span>
+        <span class="p">)</span> <span class="o">=</span> <span class="n">permute_mxfp8_fwd_hp_bwd</span><span class="p">(</span>
+            <span class="n">routed_input</span><span class="p">,</span> <span class="n">num_tokens_per_expert_group</span><span class="p">,</span> <span class="n">ep_degree</span><span class="p">,</span> <span class="n">num_local_experts</span>
+        <span class="p">)</span>
+        <span class="k">return</span> <span class="n">routed_input</span><span class="p">,</span> <span class="n">num_tokens_per_expert_group</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_token_combine</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span> <span class="n">mod</span><span class="p">:</span> <span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span> <span class="n">routed_output</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">device_mesh</span><span class="p">:</span> <span class="n">DeviceMesh</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Combine expert outputs and route tokens back using MXFP8 all-to-all communication.</span>
+
+<span class="sd">        This involves:</span>
+<span class="sd">        1. Unpermute tokens back to post-dispatch layout</span>
+<span class="sd">        2. All-to-all to route tokens back to their original EP rank</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c1"># Unpermute tokens</span>
+        <span class="c1"># This torchao autograd function accepts the BF16 outputs of the MXFP8 grouped GEMM, so the</span>
+        <span class="c1"># &quot;unpermutation&quot; step (putting tokens back in their original order and removing the padding)</span>
+        <span class="c1"># happens in BF16 as well.</span>
+        <span class="c1"># In the backward pass, the incoming upstream gradients will be the MXTensor outputs of the</span>
+        <span class="c1"># MXFP8 all-to-all combine backward pass, so this unpermute autograd func accepts MXTensor</span>
+        <span class="c1"># inputs and performs the reordering in MXFP8.</span>
+        <span class="n">routed_output</span> <span class="o">=</span> <span class="n">unpermute_hp_fwd_mxfp8_bwd</span><span class="p">(</span>
+            <span class="n">routed_output</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">permuted_indices</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">input_shape</span>
+        <span class="p">)</span>
+
+        <span class="c1"># Reverse all-to-all to route tokens back</span>
+        <span class="c1"># This torchao autograd function receives BF16 inputs in the forward pass (from the unpermute step above),</span>
+        <span class="c1"># and we do the forward all-to-all here for the combine step in BF16. We don&#39;t use MXFP8 here because:</span>
+        <span class="c1">#   1. There is no opportunity to do a MXFP8 grouped GEMM for a big speedup on the other side, we&#39;ll have</span>
+        <span class="c1">#      to just immediately dequantize. This is still a net perf benefit in multi-node EP, however...:</span>
+        <span class="c1">#   2. We would be introducing a new quantize/dequantize pair (not lossless!) that would not have been present in regular</span>
+        <span class="c1">#      MXFP8 training with BF16 all-to-alls, which has numerical implications that have not been evaluated yet.</span>
+        <span class="c1">#      We may support this in the future, but for this initial version, we stay in BF16 for this all-to-all.</span>
+        <span class="c1"># In the backward pass, we DO quantize to MXFP8 (just moving the quantization for the MXFP8 grouped GEMM backward pass</span>
+        <span class="c1"># EARLIER - before the all-to-all backward instead of right before the grouped GEMM kernel itself.</span>
+        <span class="c1"># This is numerically equivalent, and much faster due to low precision comms!)</span>
+        <span class="n">routed_output</span> <span class="o">=</span> <span class="n">a2a_combine_hp_fwd_mxfp8_bwd</span><span class="p">(</span>
+            <span class="n">routed_output</span><span class="p">,</span>
+            <span class="n">output_splits</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">input_splits</span><span class="p">,</span>  <span class="c1"># Swap to reverse the dispatch</span>
+            <span class="n">input_splits</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">output_splits</span><span class="p">,</span>
+            <span class="n">group_name</span><span class="o">=</span><span class="n">device_mesh</span><span class="o">.</span><span class="n">get_group</span><span class="p">()</span><span class="o">.</span><span class="n">group_name</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="k">return</span> <span class="n">routed_output</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_apply</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">module</span><span class="p">:</span> <span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span> <span class="n">device_mesh</span><span class="p">:</span> <span class="n">DeviceMesh</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Apply the parallel style to the module.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="n">distribute_module</span><span class="p">(</span>
+            <span class="n">module</span><span class="p">,</span>
+            <span class="n">device_mesh</span><span class="p">,</span>
+            <span class="n">partition_fn</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_partition_fn</span><span class="p">,</span>
+            <span class="n">input_fn</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_token_dispatch</span><span class="p">,</span>
+            <span class="n">output_fn</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_token_combine</span><span class="p">,</span>
+        <span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">apply_mxfp8_expert_parallel</span><span class="p">(</span><span class="n">moe_layer</span><span class="p">:</span> <span class="n">SimplifiedMoE</span><span class="p">,</span> <span class="n">ep_mesh</span><span class="p">:</span> <span class="n">DeviceMesh</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Apply MXFP8ExpertParallel to the MoE layer.&quot;&quot;&quot;</span>
+    <span class="n">experts_plan</span> <span class="o">=</span> <span class="n">MXFP8ExpertParallel</span><span class="p">()</span>
+    <span class="n">parallelize_module</span><span class="p">(</span>
+        <span class="n">module</span><span class="o">=</span><span class="n">moe_layer</span><span class="o">.</span><span class="n">experts</span><span class="p">,</span>
+        <span class="n">device_mesh</span><span class="o">=</span><span class="n">ep_mesh</span><span class="p">,</span>
+        <span class="n">parallelize_plan</span><span class="o">=</span><span class="n">experts_plan</span><span class="p">,</span>
+    <span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="complete-example">
+<h3>Complete Example<a class="headerlink" href="#complete-example" title="Permalink to this heading">#</a></h3>
+<p>Below is a complete example showing how to apply MXFP8 expert parallelism to a simplified MoE layer:</p>
+<div class="highlight-py notranslate"><div class="highlight"><pre><span></span><span class="ch">#!/usr/bin/env python3</span>
+<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">Standalone example of using MXFP8 Expert Parallel with a simplified MoE layer.</span>
+
+<span class="sd">Usage:</span>
+<span class="sd">    torchrun --nproc_per_node=2 mxfp8_expert_parallel_example.py</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn.functional</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">F</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torch.distributed</span><span class="w"> </span><span class="kn">import</span> <span class="n">init_process_group</span><span class="p">,</span> <span class="n">destroy_process_group</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torch.distributed._functional_collectives</span><span class="w"> </span><span class="kn">import</span> <span class="n">all_to_all_single</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torch.distributed.device_mesh</span><span class="w"> </span><span class="kn">import</span> <span class="n">DeviceMesh</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torch.distributed.tensor</span><span class="w"> </span><span class="kn">import</span> <span class="n">DTensor</span><span class="p">,</span> <span class="n">Shard</span><span class="p">,</span> <span class="n">distribute_tensor</span><span class="p">,</span> <span class="n">distribute_module</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torch.distributed.tensor.parallel</span><span class="w"> </span><span class="kn">import</span> <span class="n">ParallelStyle</span><span class="p">,</span> <span class="n">parallelize_module</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.prototype.moe_training.ep</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">a2a_combine_hp_fwd_mxfp8_bwd</span><span class="p">,</span>
+    <span class="n">a2a_dispatch_mxfp8_fwd_hp_bwd</span><span class="p">,</span>
+    <span class="n">permute_mxfp8_fwd_hp_bwd</span><span class="p">,</span>
+    <span class="n">unpermute_hp_fwd_mxfp8_bwd</span><span class="p">,</span>
+<span class="p">)</span>
+
+
+<span class="c1"># ============================================================================</span>
+<span class="c1"># Define MoE Components</span>
+<span class="c1"># ============================================================================</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">GroupedExperts</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Grouped experts module that processes tokens with grouped matrix multiplication.&quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">dim</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">hidden_dim</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">num_experts</span><span class="p">:</span> <span class="nb">int</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">num_experts</span> <span class="o">=</span> <span class="n">num_experts</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">w1</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Parameter</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">empty</span><span class="p">(</span><span class="n">num_experts</span><span class="p">,</span> <span class="n">hidden_dim</span><span class="p">,</span> <span class="n">dim</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">w2</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Parameter</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">empty</span><span class="p">(</span><span class="n">num_experts</span><span class="p">,</span> <span class="n">dim</span><span class="p">,</span> <span class="n">hidden_dim</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">w3</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Parameter</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">empty</span><span class="p">(</span><span class="n">num_experts</span><span class="p">,</span> <span class="n">hidden_dim</span><span class="p">,</span> <span class="n">dim</span><span class="p">))</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+        <span class="n">num_tokens_per_expert</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.prototype.moe_training.scaled_grouped_mm</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+            <span class="n">_to_mxfp8_then_scaled_grouped_mm</span> <span class="k">as</span> <span class="n">mxfp8_gmm</span><span class="p">,</span>
+        <span class="p">)</span>
+
+        <span class="c1"># Convert from DTensor to local tensor if needed (for EP)</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">w1</span><span class="p">,</span> <span class="n">DTensor</span><span class="p">):</span>
+            <span class="n">w1</span><span class="p">,</span> <span class="n">w2</span><span class="p">,</span> <span class="n">w3</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">w1</span><span class="o">.</span><span class="n">to_local</span><span class="p">(),</span> <span class="bp">self</span><span class="o">.</span><span class="n">w2</span><span class="o">.</span><span class="n">to_local</span><span class="p">(),</span> <span class="bp">self</span><span class="o">.</span><span class="n">w3</span><span class="o">.</span><span class="n">to_local</span><span class="p">()</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">w1</span><span class="p">,</span> <span class="n">w2</span><span class="p">,</span> <span class="n">w3</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">w1</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">w2</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">w3</span>
+
+        <span class="c1"># Compute offsets for grouped matrix multiplication</span>
+        <span class="n">offsets</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">cumsum</span><span class="p">(</span><span class="n">num_tokens_per_expert</span><span class="p">,</span> <span class="n">dim</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int32</span><span class="p">)</span>
+
+        <span class="c1"># Expert computation using MXFP8 grouped matrix multiplication</span>
+        <span class="c1"># wgrad_with_hp recipe required for MXFP8 expert parallelism</span>
+        <span class="n">h</span> <span class="o">=</span> <span class="n">F</span><span class="o">.</span><span class="n">silu</span><span class="p">(</span><span class="n">mxfp8_gmm</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">w1</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="o">-</span><span class="mi">2</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">),</span> <span class="n">offs</span><span class="o">=</span><span class="n">offsets</span><span class="p">,</span> <span class="n">wgrad_with_hp</span><span class="o">=</span><span class="kc">True</span><span class="p">))</span>
+        <span class="n">h</span> <span class="o">=</span> <span class="n">h</span> <span class="o">*</span> <span class="n">mxfp8_gmm</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">w3</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="o">-</span><span class="mi">2</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">),</span> <span class="n">offs</span><span class="o">=</span><span class="n">offsets</span><span class="p">,</span> <span class="n">wgrad_with_hp</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="n">output</span> <span class="o">=</span> <span class="n">mxfp8_gmm</span><span class="p">(</span><span class="n">h</span><span class="p">,</span> <span class="n">w2</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="o">-</span><span class="mi">2</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">),</span> <span class="n">offs</span><span class="o">=</span><span class="n">offsets</span><span class="p">,</span> <span class="n">wgrad_with_hp</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">output</span><span class="o">.</span><span class="n">type_as</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">SimplifiedMoE</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Simplified MoE layer for demonstration purposes.&quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">dim</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">hidden_dim</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">num_experts</span><span class="p">:</span> <span class="nb">int</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">num_experts</span> <span class="o">=</span> <span class="n">num_experts</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">experts</span> <span class="o">=</span> <span class="n">GroupedExperts</span><span class="p">(</span><span class="n">dim</span><span class="p">,</span> <span class="n">hidden_dim</span><span class="p">,</span> <span class="n">num_experts</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">routed_input</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+        <span class="n">num_tokens_per_expert</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">experts</span><span class="p">(</span><span class="n">routed_input</span><span class="p">,</span> <span class="n">num_tokens_per_expert</span><span class="p">)</span>
+
+
+<span class="c1"># ============================================================================</span>
+<span class="c1"># MXFP8 Expert Parallel Implementation</span>
+<span class="c1"># ============================================================================</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">MXFP8ExpertParallel</span><span class="p">(</span><span class="n">ParallelStyle</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Custom ParallelStyle for MXFP8 Expert Parallelism.&quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">input_splits</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">output_splits</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">input_shape</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">permuted_indices</span> <span class="o">=</span> <span class="kc">None</span>
+
+        <span class="c1"># Use torchao MXFP8 EP autograd functions as building blocks</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">a2a_dispatch_mxfp8_fwd_hp_bwd</span> <span class="o">=</span> <span class="n">a2a_dispatch_mxfp8_fwd_hp_bwd</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">permute_mxfp8_fwd_hp_bwd</span> <span class="o">=</span> <span class="n">permute_mxfp8_fwd_hp_bwd</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">unpermute_hp_fwd_mxfp8_bwd</span> <span class="o">=</span> <span class="n">unpermute_hp_fwd_mxfp8_bwd</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">a2a_combine_hp_fwd_mxfp8_bwd</span> <span class="o">=</span> <span class="n">a2a_combine_hp_fwd_mxfp8_bwd</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_partition_fn</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">mod</span><span class="p">:</span> <span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span> <span class="n">device_mesh</span><span class="p">:</span> <span class="n">DeviceMesh</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Shard expert parameters along the expert dimension.&quot;&quot;&quot;</span>
+        <span class="k">for</span> <span class="n">param_name</span><span class="p">,</span> <span class="n">param</span> <span class="ow">in</span> <span class="n">mod</span><span class="o">.</span><span class="n">named_parameters</span><span class="p">(</span><span class="n">recurse</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+            <span class="c1"># Experts are 3D parameters of shape (num_experts, ..., ...)</span>
+            <span class="c1"># Shard along the first dimension (expert dimension)</span>
+            <span class="n">dist_param</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Parameter</span><span class="p">(</span><span class="n">distribute_tensor</span><span class="p">(</span><span class="n">param</span><span class="p">,</span> <span class="n">device_mesh</span><span class="p">,</span> <span class="p">[</span><span class="n">Shard</span><span class="p">(</span><span class="mi">0</span><span class="p">)]))</span>
+            <span class="n">mod</span><span class="o">.</span><span class="n">register_parameter</span><span class="p">(</span><span class="n">param_name</span><span class="p">,</span> <span class="n">dist_param</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_token_dispatch</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span> <span class="n">mod</span><span class="p">:</span> <span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span> <span class="n">inputs</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">,</span> <span class="n">device_mesh</span><span class="p">:</span> <span class="n">DeviceMesh</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Dispatch tokens to appropriate experts using MXFP8 all-to-all communication.</span>
+
+<span class="sd">        This involves:</span>
+<span class="sd">        1. All-to-all to distribute tokens to the correct EP rank</span>
+<span class="sd">        2. Permutation to arrange tokens in the correct order for grouped computation</span>
+<span class="sd">        3. Padding to ensure token counts are multiples of MXFP8 block size (32)</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">routed_input</span><span class="p">,</span> <span class="n">num_tokens_per_expert</span> <span class="o">=</span> <span class="n">inputs</span>
+        <span class="n">ep_degree</span> <span class="o">=</span> <span class="n">device_mesh</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="n">num_local_experts</span> <span class="o">=</span> <span class="n">num_tokens_per_expert</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">//</span> <span class="n">ep_degree</span>
+
+        <span class="c1"># First all-to-all to calculate output splits from input splits</span>
+        <span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">():</span>
+            <span class="n">num_tokens_per_expert_group</span> <span class="o">=</span> <span class="n">all_to_all_single</span><span class="p">(</span>
+                <span class="n">num_tokens_per_expert</span><span class="p">,</span>
+                <span class="kc">None</span><span class="p">,</span>
+                <span class="kc">None</span><span class="p">,</span>
+                <span class="n">group</span><span class="o">=</span><span class="n">device_mesh</span><span class="o">.</span><span class="n">get_group</span><span class="p">(),</span>
+            <span class="p">)</span>
+            <span class="c1"># Wait for async collective to complete</span>
+            <span class="n">num_tokens_per_expert_group</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">_c10d_functional</span><span class="o">.</span><span class="n">wait_tensor</span><span class="p">(</span>
+                <span class="n">num_tokens_per_expert_group</span>
+            <span class="p">)</span>
+
+            <span class="c1"># Calculate input/output splits for all-to-all</span>
+            <span class="n">input_splits</span> <span class="o">=</span> <span class="p">(</span>
+                <span class="n">num_tokens_per_expert</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">ep_degree</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">)</span>
+                <span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">dim</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+                <span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">device</span><span class="p">(</span><span class="s2">&quot;cpu&quot;</span><span class="p">),</span> <span class="n">non_blocking</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+            <span class="p">)</span>
+            <span class="n">output_splits</span> <span class="o">=</span> <span class="p">(</span>
+                <span class="n">num_tokens_per_expert_group</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">ep_degree</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">)</span>
+                <span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">dim</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+                <span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">device</span><span class="p">(</span><span class="s2">&quot;cpu&quot;</span><span class="p">),</span> <span class="n">non_blocking</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+            <span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">input_splits</span> <span class="o">=</span> <span class="n">input_splits</span><span class="o">.</span><span class="n">tolist</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">output_splits</span> <span class="o">=</span> <span class="n">output_splits</span><span class="o">.</span><span class="n">tolist</span><span class="p">()</span>
+
+        <span class="c1"># Perform all-to-all token dispatch with MXFP8 forward pass</span>
+        <span class="n">routed_input</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">a2a_dispatch_mxfp8_fwd_hp_bwd</span><span class="p">(</span>
+            <span class="n">routed_input</span><span class="p">,</span>
+            <span class="n">output_splits</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">output_splits</span><span class="p">,</span>
+            <span class="n">input_splits</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">input_splits</span><span class="p">,</span>
+            <span class="n">group_name</span><span class="o">=</span><span class="n">device_mesh</span><span class="o">.</span><span class="n">get_group</span><span class="p">()</span><span class="o">.</span><span class="n">group_name</span><span class="p">,</span>
+        <span class="p">)</span>
+
+        <span class="c1"># Permute and pad tokens for MXFP8 computation</span>
+        <span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">input_shape</span><span class="p">,</span>
+            <span class="n">routed_input</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">permuted_indices</span><span class="p">,</span>
+            <span class="n">num_tokens_per_expert_group</span><span class="p">,</span>
+            <span class="n">_</span><span class="p">,</span>
+        <span class="p">)</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">permute_mxfp8_fwd_hp_bwd</span><span class="p">(</span>
+            <span class="n">routed_input</span><span class="p">,</span> <span class="n">num_tokens_per_expert_group</span><span class="p">,</span> <span class="n">ep_degree</span><span class="p">,</span> <span class="n">num_local_experts</span>
+        <span class="p">)</span>
+        <span class="k">return</span> <span class="n">routed_input</span><span class="p">,</span> <span class="n">num_tokens_per_expert_group</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_token_combine</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span> <span class="n">mod</span><span class="p">:</span> <span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span> <span class="n">routed_output</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">device_mesh</span><span class="p">:</span> <span class="n">DeviceMesh</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Combine expert outputs and route tokens back using MXFP8 all-to-all communication.</span>
+
+<span class="sd">        This involves:</span>
+<span class="sd">        1. Unpermute tokens back to post-dispatch layout</span>
+<span class="sd">        2. All-to-all to route tokens back to their original EP rank</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c1"># Unpermute tokens</span>
+        <span class="n">routed_output</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">unpermute_hp_fwd_mxfp8_bwd</span><span class="p">(</span>
+            <span class="n">routed_output</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">permuted_indices</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">input_shape</span>
+        <span class="p">)</span>
+
+        <span class="c1"># Reverse all-to-all to route tokens back</span>
+        <span class="n">routed_output</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">a2a_combine_hp_fwd_mxfp8_bwd</span><span class="p">(</span>
+            <span class="n">routed_output</span><span class="p">,</span>
+            <span class="n">output_splits</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">input_splits</span><span class="p">,</span>  <span class="c1"># Swap to reverse the dispatch</span>
+            <span class="n">input_splits</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">output_splits</span><span class="p">,</span>
+            <span class="n">group_name</span><span class="o">=</span><span class="n">device_mesh</span><span class="o">.</span><span class="n">get_group</span><span class="p">()</span><span class="o">.</span><span class="n">group_name</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="k">return</span> <span class="n">routed_output</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_apply</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">module</span><span class="p">:</span> <span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span> <span class="n">device_mesh</span><span class="p">:</span> <span class="n">DeviceMesh</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Apply the parallel style to the module.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="n">distribute_module</span><span class="p">(</span>
+            <span class="n">module</span><span class="p">,</span>
+            <span class="n">device_mesh</span><span class="p">,</span>
+            <span class="n">partition_fn</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_partition_fn</span><span class="p">,</span>
+            <span class="n">input_fn</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_token_dispatch</span><span class="p">,</span>
+            <span class="n">output_fn</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_token_combine</span><span class="p">,</span>
+        <span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">apply_mxfp8_expert_parallel</span><span class="p">(</span><span class="n">moe_layer</span><span class="p">:</span> <span class="n">SimplifiedMoE</span><span class="p">,</span> <span class="n">ep_mesh</span><span class="p">:</span> <span class="n">DeviceMesh</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Apply MXFP8ExpertParallel to the MoE layer.&quot;&quot;&quot;</span>
+    <span class="n">experts_plan</span> <span class="o">=</span> <span class="n">MXFP8ExpertParallel</span><span class="p">()</span>
+    <span class="n">parallelize_module</span><span class="p">(</span>
+        <span class="n">module</span><span class="o">=</span><span class="n">moe_layer</span><span class="o">.</span><span class="n">experts</span><span class="p">,</span>
+        <span class="n">device_mesh</span><span class="o">=</span><span class="n">ep_mesh</span><span class="p">,</span>
+        <span class="n">parallelize_plan</span><span class="o">=</span><span class="n">experts_plan</span><span class="p">,</span>
+    <span class="p">)</span>
+
+
+<span class="c1"># ============================================================================</span>
+<span class="c1"># Main Example</span>
+<span class="c1"># ============================================================================</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">():</span>
+    <span class="c1"># Initialize distributed process group</span>
+    <span class="n">init_process_group</span><span class="p">(</span><span class="n">backend</span><span class="o">=</span><span class="s2">&quot;nccl&quot;</span><span class="p">)</span>
+
+    <span class="n">local_rank</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">&quot;LOCAL_RANK&quot;</span><span class="p">])</span>
+    <span class="n">world_size</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">&quot;WORLD_SIZE&quot;</span><span class="p">])</span>
+    <span class="n">device</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">device</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;cuda:</span><span class="si">{</span><span class="n">local_rank</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">set_device</span><span class="p">(</span><span class="n">device</span><span class="p">)</span>
+
+    <span class="c1"># Model configuration</span>
+    <span class="n">dim</span> <span class="o">=</span> <span class="mi">7168</span>
+    <span class="n">hidden_dim</span> <span class="o">=</span> <span class="mi">2048</span>
+    <span class="n">num_experts</span> <span class="o">=</span> <span class="mi">32</span>
+    <span class="n">num_local_experts</span> <span class="o">=</span> <span class="n">num_experts</span> <span class="o">//</span> <span class="n">world_size</span>
+    <span class="n">batch_size</span> <span class="o">=</span> <span class="mi">16</span>
+    <span class="n">seq_len</span> <span class="o">=</span> <span class="mi">8192</span>
+
+    <span class="c1"># Create device mesh for expert parallelism</span>
+    <span class="n">ep_mesh</span> <span class="o">=</span> <span class="n">DeviceMesh</span><span class="p">(</span><span class="s2">&quot;cuda&quot;</span><span class="p">,</span> <span class="nb">list</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="n">world_size</span><span class="p">)),</span> <span class="n">mesh_dim_names</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;ep&quot;</span><span class="p">,))</span>
+
+    <span class="c1"># Create MoE layer</span>
+    <span class="n">moe</span> <span class="o">=</span> <span class="n">SimplifiedMoE</span><span class="p">(</span><span class="n">dim</span><span class="p">,</span> <span class="n">hidden_dim</span><span class="p">,</span> <span class="n">num_local_experts</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">)</span>
+
+    <span class="c1"># Apply MXFP8 expert parallel</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[Rank </span><span class="si">{</span><span class="n">local_rank</span><span class="si">}</span><span class="s2">] Applying MXFP8 Expert Parallelism...&quot;</span><span class="p">)</span>
+    <span class="n">apply_mxfp8_expert_parallel</span><span class="p">(</span><span class="n">moe</span><span class="p">,</span> <span class="n">ep_mesh</span><span class="p">)</span>
+
+    <span class="c1"># Create sample inputs (in practice, these come from the router)</span>
+    <span class="n">num_tokens</span> <span class="o">=</span> <span class="n">batch_size</span> <span class="o">*</span> <span class="n">seq_len</span>
+    <span class="n">routed_input</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="n">num_tokens</span><span class="p">,</span> <span class="n">dim</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">)</span>
+    <span class="n">num_tokens_per_expert</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">full</span><span class="p">(</span>
+        <span class="p">(</span><span class="n">num_local_experts</span><span class="p">,),</span>
+        <span class="n">num_tokens</span> <span class="o">//</span> <span class="n">num_local_experts</span><span class="p">,</span>
+        <span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">,</span>
+        <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int64</span><span class="p">,</span>
+    <span class="p">)</span>
+
+    <span class="c1"># Forward and backward pass</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[Rank </span><span class="si">{</span><span class="n">local_rank</span><span class="si">}</span><span class="s2">] Running forward pass...&quot;</span><span class="p">)</span>
+    <span class="n">output</span> <span class="o">=</span> <span class="n">moe</span><span class="p">(</span><span class="n">routed_input</span><span class="p">,</span> <span class="n">num_tokens_per_expert</span><span class="p">)</span>
+
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[Rank </span><span class="si">{</span><span class="n">local_rank</span><span class="si">}</span><span class="s2">] Running backward pass...&quot;</span><span class="p">)</span>
+    <span class="n">grad_output</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn_like</span><span class="p">(</span><span class="n">output</span><span class="p">)</span>
+    <span class="n">output</span><span class="o">.</span><span class="n">backward</span><span class="p">(</span><span class="n">grad_output</span><span class="p">)</span>
+
+    <span class="n">destroy_process_group</span><span class="p">()</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[Rank </span><span class="si">{</span><span class="n">local_rank</span><span class="si">}</span><span class="s2">] Done!&quot;</span><span class="p">)</span>
+
+
+<span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">&quot;__main__&quot;</span><span class="p">:</span>
+    <span class="n">main</span><span class="p">()</span>
+</pre></div>
+</div>
+</section>
+<section id="running-the-example">
+<h3>Running the Example<a class="headerlink" href="#running-the-example" title="Permalink to this heading">#</a></h3>
+<p>To run the example with 2 GPUs:</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="go">torchrun --nproc_per_node=2 mxfp8_expert_parallel_example.py</span>
+</pre></div>
+</div>
+<p>You can scale to more GPUs by adjusting <code class="code docutils literal notranslate"><span class="pre">--nproc_per_node</span></code> and ensuring <code class="code docutils literal notranslate"><span class="pre">num_experts</span></code> is divisible by <code class="code docutils literal notranslate"><span class="pre">world_size</span></code>.</p>
+</section>
+</section>
+<section id="microbenchmarks">
+<h2>Microbenchmarks<a class="headerlink" href="#microbenchmarks" title="Permalink to this heading">#</a></h2>
+<section id="comparison-against-full-bf16-baseline">
+<h3>Comparison Against Full BF16 Baseline<a class="headerlink" href="#comparison-against-full-bf16-baseline" title="Permalink to this heading">#</a></h3>
+<p>For reference, the table below shows the full end-to-end speedup when comparing MXFP8 expert parallelism against a complete bfloat16 baseline (bfloat16 all-to-all + bfloat16 grouped GEMMs):</p>
+<ul class="simple">
+<li><p><strong>Baseline (full bf16)</strong>: bfloat16 all-to-all + bfloat16 grouped MM</p></li>
+<li><p><strong>MXFP8 EP</strong>: MXFP8 all-to-all + MXFP8 grouped MM with <code class="code docutils literal notranslate"><span class="pre">wgrad_with_hp=True</span></code></p></li>
+</ul>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="go">Expert Parallelism Pipeline Benchmark Results</span>
+<span class="go">World Size: 8</span>
+<span class="go">========================================================================================================================</span>
+<span class="go">+----------+-------+--------------+---------------+---------------+----------------+---------------+---------------+----------------+---------------+-----------------+</span>
+<span class="go">|   tokens |   dim |   hidden_dim |   num_experts |   fwd_bf16_ms |   fwd_mxfp8_ms | fwd_speedup   |   bwd_bf16_ms |   bwd_mxfp8_ms | bwd_speedup   | total_speedup   |</span>
+<span class="go">+==========+=======+==============+===============+===============+================+===============+===============+================+===============+=================+</span>
+<span class="go">|   131072 |  8192 |         5120 |             8 |        18.037 |         12.145 | 1.49x         |        30.485 |         21.839 | 1.40x         | 1.43x           |</span>
+<span class="go">+----------+-------+--------------+---------------+---------------+----------------+---------------+---------------+----------------+---------------+-----------------+</span>
+<span class="go">|   131072 |  7168 |         2048 |             8 |         9.394 |          6.424 | 1.46x         |        13.762 |         10.306 | 1.34x         | 1.38x           |</span>
+<span class="go">+----------+-------+--------------+---------------+---------------+----------------+---------------+---------------+----------------+---------------+-----------------+</span>
+<span class="go">|   131072 |  2048 |         1408 |             8 |         3.368 |          2.952 | 1.14x         |         4.982 |          3.877 | 1.29x         | 1.22x           |</span>
+<span class="go">+----------+-------+--------------+---------------+---------------+----------------+---------------+---------------+----------------+---------------+-----------------+</span>
+</pre></div>
+</div>
+<p>Against a full bfloat16 baseline, MXFP8 expert parallelism achieves <strong>1.22-1.43x total speedup</strong>, with the largest models seeing up to <strong>1.43x speedup</strong>. This demonstrates the combined benefit of using MXFP8 for both communication (all-to-all) and computation (grouped matrix multiplication).</p>
+</section>
+<section id="comparison-against-bf16-all-to-alls-mxfp8-grouped-gemm">
+<h3>Comparison Against BF16 All-to-Alls + MXFP8 Grouped GEMM<a class="headerlink" href="#comparison-against-bf16-all-to-alls-mxfp8-grouped-gemm" title="Permalink to this heading">#</a></h3>
+<p>The table below shows expert parallelism pipeline benchmark results on a single node with 8xB200 GPUs connected via NVL8.
+Both configurations use MXFP8 grouped matrix multiplication with <code class="code docutils literal notranslate"><span class="pre">wgrad_with_hp=True</span></code>.
+The speedup comes from using MXFP8 for all-to-all communications:</p>
+<ul class="simple">
+<li><p><strong>Baseline (bf16)</strong>: bfloat16 all-to-all + MXFP8 grouped MM with <code class="code docutils literal notranslate"><span class="pre">wgrad_with_hp=True</span></code></p></li>
+<li><p><strong>MXFP8 EP</strong>: MXFP8 all-to-all + MXFP8 grouped MM with <code class="code docutils literal notranslate"><span class="pre">wgrad_with_hp=True</span></code></p></li>
+</ul>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="go">Expert Parallelism Pipeline Benchmark Results</span>
+<span class="go">World Size: 8</span>
+<span class="go">========================================================================================================================</span>
+<span class="go">+----------+-------+--------------+---------------+---------------+----------------+---------------+---------------+----------------+---------------+-----------------+</span>
+<span class="go">|   tokens |   dim |   hidden_dim |   num_experts |   fwd_bf16_ms |   fwd_mxfp8_ms | fwd_speedup   |   bwd_bf16_ms |   bwd_mxfp8_ms | bwd_speedup   | total_speedup   |</span>
+<span class="go">+==========+=======+==============+===============+===============+================+===============+===============+================+===============+=================+</span>
+<span class="go">|   131072 |  8192 |         5120 |             8 |        14.28  |         12.348 | 1.16x         |        24.812 |         21.897 | 1.13x         | 1.14x           |</span>
+<span class="go">+----------+-------+--------------+---------------+---------------+----------------+---------------+---------------+----------------+---------------+-----------------+</span>
+<span class="go">|   131072 |  7168 |         2048 |             8 |         8.283 |          6.4   | 1.29x         |        12.548 |         10.299 | 1.22x         | 1.25x           |</span>
+<span class="go">+----------+-------+--------------+---------------+---------------+----------------+---------------+---------------+----------------+---------------+-----------------+</span>
+<span class="go">|   131072 |  2048 |         1408 |             8 |         3.278 |          2.913 | 1.13x         |         4.934 |          3.881 | 1.27x         | 1.21x           |</span>
+<span class="go">+----------+-------+--------------+---------------+---------------+----------------+---------------+---------------+----------------+---------------+-----------------+</span>
+</pre></div>
+</div>
+<p>As shown, using MXFP8 for all-to-all communications achieves <strong>1.14-1.25x total speedup</strong> versus only quantizing directly before the grouped GEMMs.</p>
+<p>## Conclusion</p>
+<p>In this tutorial we demonstrated how to use TorchAO’s differentiable building blocks for MXFP8 MoE training with expert parallelism.</p>
+<p>For more details, see the [MXFP8 MoE training docs](<a class="github reference external" href="https://github.com/pytorch/ao/blob/main/torchao/prototype/moe_training/README.md">pytorch/ao</a>).</p>
+</section>
+</section>
+</section>
+
+
+                </article>
+              
+  </article>
+  
+              
+              
+                <footer class="bd-footer-article">
+                  <div class="footer-article-items footer-article__inner">
+  
+    <div class="footer-article-item">
+<div class="feedback">
+  
+<div class="rating">
+    Rate this Page
+    <div class="stars">
+        
+        <span class="star" data-behavior="tutorial-rating" data-count="1" data-value="1">★</span>
+        
+        <span class="star" data-behavior="tutorial-rating" data-count="2" data-value="2">★</span>
+        
+        <span class="star" data-behavior="tutorial-rating" data-count="3" data-value="3">★</span>
+        
+        <span class="star" data-behavior="tutorial-rating" data-count="4" data-value="4">★</span>
+        
+        <span class="star" data-behavior="tutorial-rating" data-count="5" data-value="5">★</span>
+        
+    </div>
+</div>
+
+  <div class="feedback-send">
+    <button class="feedback-btn"
+            onclick="openGitHubIssue()"
+            data-bs-title="Create a GitHub Issue"
+            data-bs-placement="bottom"
+            data-bs-toggle="tooltip"
+            data-gtm="feedback-btn-click">Send Feedback
+    </button>
+  </div>
+</div>
+
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="subclass_advanced.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Writing Your Own Quantized Tensor (advanced)</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="../contributing/index.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Contributing</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+
+<div class="footer-info">
+  <p class="copyright">
+    
+  </p>
+
+  <p class="theme-version">
+    Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.15.4.
+  </p>
+</div>
+</div>
+  
+</div>
+                </footer>
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="subclass_advanced.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Writing Your Own Quantized Tensor (advanced)</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="../contributing/index.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Contributing</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <div class="bd-sidebar-secondary bd-toc">
+<div class="sidebar-secondary-items sidebar-secondary__inner">
+    
+       <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#mxfp8-expert-parallel-apis">MXFP8 Expert Parallel APIs</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#training-with-torchtitan">Training with torchtitan</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#prerequisites">Prerequisites</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#id1">MXFP8 Expert Parallel Training</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#understanding-the-configuration">Understanding the Configuration</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#expected-output">Expected Output</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#recipe-selection-mxfp8-weight-gradient-with-high-precision">Recipe Selection: MXFP8 Weight Gradient with High Precision</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#combining-with-other-parallelism-strategies">Combining with Other Parallelism Strategies</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#training-with-torchao-directly">Training with torchao directly</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#id2">Prerequisites</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#complete-example">Complete Example</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#running-the-example">Running the Example</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#microbenchmarks">Microbenchmarks</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#comparison-against-full-bf16-baseline">Comparison Against Full BF16 Baseline</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#comparison-against-bf16-all-to-alls-mxfp8-grouped-gemm">Comparison Against BF16 All-to-Alls + MXFP8 Grouped GEMM</a></li>
+</ul>
+</li>
+</ul>
+  </nav></div>
+    
+       <div class="sidebar-secondary-item">
+
+  
+  <div class="tocsection editthispage">
+    <a href="https://github.com/pytorch/ao/edit/main/docs/source/eager_tutorials/mxfp8_expert_parallel_training.rst">
+      <i class="fa-solid fa-pencil"></i>
+      
+      
+        
+          Edit on GitHub
+        
+      
+    </a>
+  </div>
+</div>
+    
+       <div class="sidebar-secondary-item">
+    <div class="tocsection sourcelink">
+      <a href="../_sources/eager_tutorials/mxfp8_expert_parallel_training.rst.txt">
+        <i class="fa-solid fa-file-lines"></i> Show Source
+      </a>
+    </div>
+</div>
+    
+
+
+
+
+</div>
+</div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script src="../_static/scripts/bootstrap.js?digest=dfe6caa3a7d634c4db9b"></script>
+<script src="../_static/scripts/pydata-sphinx-theme.js?digest=dfe6caa3a7d634c4db9b"></script>
+
+  
+
+<div class="container-fluid docs-tutorials-resources" id="docs-tutorials-resources">
+  <div class="container">
+    <div class="row">
+      <div class="col-md-4">
+        <h2>Docs</h2>
+        <p>Access comprehensive developer documentation for PyTorch</p>
+        <a class="with-right-arrow" href="https://docs.pytorch.org/docs/stable/index.html">View Docs</a>
+      </div>
+
+      <div class="col-md-4">
+        <h2>Tutorials</h2>
+        <p>Get in-depth tutorials for beginners and advanced developers</p>
+        <a class="with-right-arrow" href="https://docs.pytorch.org/tutorials">View Tutorials</a>
+      </div>
+
+      <div class="col-md-4">
+        <h2>Resources</h2>
+        <p>Find development resources and get your questions answered</p>
+        <a class="with-right-arrow" href="https://pytorch.org/resources">View Resources</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+
+
+<footer class="site-footer">
+
+  <div class="container footer-container">
+
+    <div class="newsletter" id="newsletter">
+
+      <p class="newsletter__title is-style-max-width-800"><strong>Stay in touch</strong> for updates, event info, and
+        the latest news</p>
+
+
+      <script charset="utf-8" type="text/javascript" src="//js.hsforms.net/forms/embed/v2.js"></script>
+      <script>
+        hbspt.forms.create({
+          region: "na1",
+          portalId: "8112310",
+          formId: "2fb2231c-000b-4ec5-88a0-1ab242549c9e"
+        });
+      </script>
+
+
+      <p class="newsletter__privacy">By submitting this form, I consent to receive marketing emails from the LF and its
+        projects regarding their events, training, research, developments, and related announcements. I understand that
+        I can unsubscribe at any time using the links in the footers of the emails I receive. <a
+          href="https://www.linuxfoundation.org/privacy/">Privacy Policy</a>.</p>
+
+    </div>
+
+    <div class="lf-grid">
+      <ul class="social-links">
+        <li><a href="https://www.facebook.com/pytorch" target="_blank" title="PyTorch on Facebook">
+            <svg xmlns="http://www.w3.org/2000/svg" viewbox="-0.51 -0.26 26.45 26.45" aria-label="Facebook">
+              <path fill="currentColor"
+                d="M25.497 13.075c0-2.45-.698-4.848-2.011-6.911a12.765 12.765 0 0 0-5.398-4.73A12.671 12.671 0 0 0 11.008.38a12.705 12.705 0 0 0-6.529 2.95A12.827 12.827 0 0 0 .563 9.358a12.896 12.896 0 0 0-.07 7.201 12.831 12.831 0 0 0 3.801 6.103 12.709 12.709 0 0 0 6.471 3.078v-8.957H7.53v-3.708h3.235v-2.824c0-3.213 1.903-4.988 4.813-4.988.956.014 1.909.097 2.852.25V8.67h-1.607a1.83 1.83 0 0 0-1.518.497 1.854 1.854 0 0 0-.561 1.505v2.404h3.535l-.563 3.708h-2.97v8.957a12.725 12.725 0 0 0 7.697-4.337 12.87 12.87 0 0 0 3.054-8.328z" />
+            </svg>
+          </a></li>
+        <li><a href="https://twitter.com/pytorch" target="_blank" title="PyTorch on X">
+            <svg xmlns="http://www.w3.org/2000/svg" viewbox="0 0 300 300" aria-label="X">
+              <path fill="currentColor"
+                d="M178.57 127.15 290.27 0h-26.46l-97.03 110.38L89.34 0H0l117.13 166.93L0 300.25h26.46l102.4-116.59 81.8 116.59h89.34M36.01 19.54H76.66l187.13 262.13h-40.66" />
+            </svg>
+          </a></li>
+        <li><a href="https://www.youtube.com/pytorch" target="_blank" title="PyTorch on YouTube">
+            <svg xmlns="http://www.w3.org/2000/svg" viewbox="0.21 0.27 34.45 25.07" aria-label="YouTube">
+              <path fill="currentColor"
+                d="M33.729 6.084s-.327-2.33-1.317-3.356a4.691 4.691 0 0 0-3.32-1.432c-4.634-.34-11.589-.34-11.589-.34h-.014s-6.954 0-11.59.342a4.692 4.692 0 0 0-3.32 1.432c-.993 1.025-1.315 3.354-1.315 3.354a52.189 52.189 0 0 0-.331 5.473v2.566c.014 1.829.125 3.656.331 5.472 0 0 .322 2.33 1.316 3.36 1.26 1.345 2.916 1.3 3.653 1.445 2.65.26 11.263.34 11.263.34s6.96-.01 11.597-.353a4.691 4.691 0 0 0 3.32-1.432c.993-1.026 1.316-3.356 1.316-3.356.206-1.817.316-3.644.33-5.473v-2.57a52.26 52.26 0 0 0-.33-5.472zM14.076 17.232V7.729l8.951 4.768-8.95 4.735z" />
+            </svg>
+          </a></li>
+        <li><a href="https://www.linkedin.com/company/pytorch" target="_blank" title="PyTorch on LinkedIn">
+            <svg xmlns="http://www.w3.org/2000/svg" viewbox="-10.23 -10.23 531.96 531.96" aria-label="LinkedIn">
+              <rect width="512" height="512" rx="0" fill="currentColor" />
+              <circle fill="#000" cx="142" cy="138" r="37" />
+              <path stroke="#000" stroke-width="66" d="M244 194v198M142 194v198" />
+              <path fill="#000"
+                d="M276 282c0-20 13-40 36-40 24 0 33 18 33 45v105h66V279c0-61-32-89-76-89-34 0-51 19-59 32" />
+            </svg>
+          </a></li>
+        <li><a href="https://pytorch.slack.com" target="_blank" title="PyTorch Slack">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0.16 -0.03 21.19 21.19" aria-label="Slack">
+              <path fill="currentColor"
+                d="M4.896 13.27a2.147 2.147 0 0 1-2.141 2.142A2.147 2.147 0 0 1 .613 13.27c0-1.178.963-2.141 2.142-2.141h2.141v2.141zm1.08 0c0-1.178.962-2.141 2.141-2.141s2.142.963 2.142 2.141v5.363a2.147 2.147 0 0 1-2.142 2.141 2.147 2.147 0 0 1-2.141-2.142V13.27zm2.141-8.6a2.147 2.147 0 0 1-2.141-2.14c0-1.18.962-2.142 2.141-2.142s2.142.963 2.142 2.141v2.142H8.117zm0 1.08c1.179 0 2.141.962 2.141 2.141a2.147 2.147 0 0 1-2.141 2.142H2.755A2.147 2.147 0 0 1 .613 7.89c0-1.179.963-2.141 2.142-2.141h5.362zm8.599 2.141c0-1.179.963-2.141 2.141-2.141 1.179 0 2.143.962 2.143 2.14a2.147 2.147 0 0 1-2.142 2.142h-2.141V7.89zm-1.08 0a2.147 2.147 0 0 1-2.141 2.142 2.147 2.147 0 0 1-2.141-2.142V2.53c0-1.178.962-2.141 2.141-2.141s2.142.963 2.142 2.141v5.362zm-2.141 8.6c1.179 0 2.142.962 2.142 2.14a2.147 2.147 0 0 1-2.142 2.142 2.147 2.147 0 0 1-2.141-2.141V16.49h2.141zm0-1.08a2.147 2.147 0 0 1-2.141-2.141c0-1.179.962-2.142 2.141-2.142h5.362c1.179 0 2.142.963 2.142 2.142a2.147 2.147 0 0 1-2.142 2.142h-5.362z">
+              </path>
+            </svg>
+          </a></li>
+        <li><a href="https://pytorch.org/wechat" title="PyTorch on WeChat">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0.14 -0.17 38.02 33.02" aria-label="WeChat">
+              <path fill="currentColor"
+                d="M26.289 10.976a12.972 12.972 0 0 0-8.742 3.53 10.386 10.386 0 0 0-3.224 8.795c-1.326-.164-2.535-.345-3.75-.448a2.332 2.332 0 0 0-1.273.216c-1.18.666-2.311 1.418-3.652 2.255.246-1.112.405-2.087.687-3.024a1.15 1.15 0 0 0-.523-1.52C1.737 17.902.02 13.601 1.307 9.165c1.189-4.1 4.11-6.587 8.077-7.884A13.54 13.54 0 0 1 24.18 5.617a10.135 10.135 0 0 1 2.109 5.359zM10.668 9.594a1.564 1.564 0 0 0-2.095-1.472 1.52 1.52 0 0 0-.895 1.964 1.502 1.502 0 0 0 1.391.966 1.545 1.545 0 0 0 1.598-1.46v.002zm8.15-1.566a1.567 1.567 0 0 0-1.528 1.543 1.528 1.528 0 0 0 1.571 1.492 1.52 1.52 0 0 0 1.375-2.117 1.518 1.518 0 0 0-1.415-.919l-.003.001z">
+              </path>
+              <path fill="currentColor"
+                d="M33.914 32.137c-1.075-.478-2.062-1.196-3.11-1.306-1.049-.11-2.145.494-3.24.605a10.821 10.821 0 0 1-8.781-2.864c-4.682-4.33-4.013-10.97 1.403-14.518 4.811-3.154 11.874-2.102 15.268 2.273a8.671 8.671 0 0 1-1.002 12.095c-1.046.929-1.422 1.693-.751 2.917.102.257.174.525.213.798zM21.68 20.292a1.264 1.264 0 1 0 .01-2.528 1.264 1.264 0 0 0-.01 2.528zm7.887-2.526a1.266 1.266 0 0 0-1.256 1.21 1.247 1.247 0 1 0 1.256-1.21z">
+              </path>
+            </svg>
+          </a></li>
+      </ul>
+    </div>
+    
+    <div class="privacy-policy">
+      <div class="copyright">
+      
+        <p>
+          &copy; PyTorch. Copyright © The Linux Foundation®. All rights reserved. The Linux Foundation has registered
+          trademarks and uses trademarks. For more information, including terms of use, privacy policy, and trademark
+          usage, please see our <a href="https://www.linuxfoundation.org/legal/policies">Policies</a> page. <a
+            href="https://www.linuxfoundation.org/trademark-usage">Trademark Usage</a>. <a
+            href="http://www.linuxfoundation.org/privacy">Privacy Policy</a>.
+        </p>
+        
+      </div>
+    </div>
+
+
+  </div>
+</footer>
+
+<div class="cookie-banner-wrapper">
+  <div class="container">
+    <p class="gdpr-notice">To analyze traffic and optimize your experience, we serve cookies on this site. By clicking or navigating, you agree to allow our usage of cookies. As the current maintainers of this site, Facebook’s Cookies Policy applies. Learn more, including about available controls: <a href="https://www.facebook.com/policies/cookies/">Cookies Policy</a>.</p>
+    <img class="close-button" src="../_static/img/pytorch-x.svg">
+  </div>
+</div>
+  
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2024-present, torchao Contributors.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 5.3.0.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.15.4.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  <script type="application/ld+json">
+    {
+       "@context": "https://schema.org",
+       "@type": "Article",
+       "name": "MXFP8 Expert Parallel Training",
+       "headline": "MXFP8 Expert Parallel Training",
+       "description": "PyTorch Documentation. Explore PyTorch, an open-source machine learning library that accelerates the path from research prototyping to production deployment. Discover tutorials, API references, and guides to help you build and deploy deep learning models efficiently.",
+       "url": "/eager_tutorials/mxfp8_expert_parallel_training.html",
+       "articleBody": "MXFP8 Expert Parallel Training# Created On: Feb 09, 2026 | Last Updated On: Feb 09, 2026 This tutorial demonstrates how to train Mixture-of-Experts (MoE) models using MXFP8 (Microscaling FP8) with Expert Parallelism. MXFP8 expert parallel training enables efficient distributed training of large MoE models by: Sharding experts across GPUs with expert parallelism (EP) Using MXFP8 quantization during all-to-all communication and expert computation This approach achieves 10% - 25% tokens/second speedup for DeepSeekV3 16b training: +10% tokens/second on single node 8xB200 with NVLink intra-node networking for inter-device communication. +25% tokens/second on multi-node B200 cluster with IB inter-node networking and NVLink intra-node networking. In this tutorial, we will show 2 ways to use MXFP8 expert parallel training: Training with torchtitan, using torchtitan\u2019s native integration with torchao. Training with torchao directly, to integrate MXFP8 expert parallelism into your own training code. MXFP8 Expert Parallel APIs# The key torchao APIs for MXFP8 expert parallelism are located in torchao.prototype.moe_training.ep. These are all differentiable autograd functions which can be chained together: a2a_dispatch_mxfp8_fwd_hp_bwd: All-to-all token dispatch (MXFP8 forward pass, BF16 backward pass) permute_mxfp8_fwd_hp_bwd: Permute and pad tokens for MXFP8 computation (MXFP8 forward pass, BF16 backward pass) _to_mxfp8_then_scaled_grouped_mm: MXFP8 grouped GEMM for routed expert computation (accepts pre-quantized inputs, or dynamically quantizes high precision inputs). Produces bfloat16 output. unpermute_hp_fwd_mxfp8_bwd: Unpermute tokens back to original order (BF16 forward pass, MXFP8 backward pass) a2a_combine_hp_fwd_mxfp8_bwd: All-to-all token combine (BF16 forward pass, MXFP8 backward pass). Note the actual combine/aggregation op does not happen here, the naming is just to indicate it is intended to be used for the all2all immediatley preceding the aggregation. These autograd functions handle the communication and quantization patterns needed for efficient expert parallel training. Training with torchtitan# In this tutorial we\u2019ll train a DeepSeek-V3-16B model using torchtitan with torchao\u2019s MXFP8 expert parallel recipe. Torchtitan is PyTorch\u2019s official pre-training framework that is natively integrated with torchao. For MoE models, torchtitan supports expert parallelism combined with other forms of parallelism like FSDP and tensor parallelism. Prerequisites# (Recommended) Create a new virtual environment with conda or venv. Install PyTorch 2.10 or nightly build with CUDA 12.8+ support. Install torchao nightly build (required for CUDA 12.8+ support). Install torchtitan, including the \u201cdownloading a tokenizer\u201d step. You\u2019re now ready to start a training job with MXFP8 expert parallel! MXFP8 Expert Parallel Training# Run the following command from torchtitan root directory to launch a DeepSeek-V3-16B training job on 8 B200 GPUs with MXFP8 expert parallel training: CONFIG_FILE=/home/dev/torchtitan/torchtitan/models/deepseek_v3/train_configs/deepseek_v3_16b.toml ./run_train.sh \\ --metrics.log_freq=10 \\ --training.steps=1500 \\ --parallelism.data_parallel_shard_degree=8 \\ --parallelism.expert_parallel_degree=8 \\ --parallelism.tensor_parallel_degree=1 \\ --parallelism.expert_tensor_parallel_degree=1 \\ --training.seq_len=8192 \\ --activation_checkpoint.mode=full \\ --model.print_after_conversion \\ --training.local_batch_size=16 \\ --quantize.linear.mx.mxfp8_dim0_cast_kernel_choice=\"triton\" \\ --quantize.linear.mx.mxfp8_dim1_cast_kernel_choice=\"cuda\" \\ --quantize.grouped_mm.mx.fqns=\"experts\" \\ --quantize.grouped_mm.mx.recipe_name=\"mxfp8_wgrad_with_hp\" \\ --compile.enable \\ --compile.components=\"model,loss\" \\ --debug.moe_force_load_balance \\ --model.converters=\"quantize.grouped_mm.mx\" Understanding the Configuration# Let\u2019s break down the key parameters for MXFP8 expert parallel training: Parallelism Configuration: --parallelism.data_parallel_shard_degree=8: Use 8-way FSDP data parallelism --parallelism.expert_parallel_degree=8: Shard experts across 8 GPUs --parallelism.tensor_parallel_degree=1: No tensor parallelism (can be combined if needed) --parallelism.expert_tensor_parallel_degree=1: No expert-specific tensor parallelism MXFP8 Quantization Configuration: --quantize.grouped_mm.mx.fqns=\"experts\": Apply MXFP8 to expert layers only --quantize.grouped_mm.mx.recipe_name=\"mxfp8_wgrad_with_hp\": Use the weight-gradient recipe with high precision accumulation. This also automatically applies MXFP8 all-to-all the forward token dispatch, and MXFP8 all-to-all for the backward of combine. --quantize.linear.mx.mxfp8_dim0_cast_kernel_choice=\"triton\": Use Triton kernel for dimension 0 casting --quantize.linear.mx.mxfp8_dim1_cast_kernel_choice=\"cuda\": Use CUDA kernel for dimension 1 casting Other Important Settings: --model.converters=\"quantize.grouped_mm.mx\": Apply the grouped MM MXFP8 converter to the model --compile.enable --compile.components=\"model,loss\": Enable torch.compile for optimal performance --debug.moe_force_load_balance: Force balanced load distribution across experts (useful for debugging) Expected Output# You should see terminal output similar to this: [rank0]:[titan] 2026-01-29 10:15:32,145 - root - INFO - step: 1 loss: 11.8432 memory: 45.23GiB(47.65%) tps: 512 [rank0]:[titan] 2026-01-29 10:15:45,267 - root - INFO - step: 10 loss: 9.3421 memory: 48.91GiB(51.52%) tps: 21,734 [rank0]:[titan] 2026-01-29 10:15:58,891 - root - INFO - step: 20 loss: 7.8234 memory: 48.91GiB(51.52%) tps: 21,902 [rank0]:[titan] 2026-01-29 10:16:12,523 - root - INFO - step: 30 loss: 6.9123 memory: 48.91GiB(51.52%) tps: 21,511 Recipe Selection: MXFP8 Weight Gradient with High Precision# The mxfp8_wgrad_with_hp recipe is required for MoE training with expert parallelism. Key characteristics: Forward output: MXFP8 grouped GEMM Input gradient: MXFP8 grouped GEMM Weight gradient: BF16 grouped GEMM - this trades off some performance for improved numerical accuracy for weight gradients. This recipe is required for MXFP8 expert parallelism in the current prototype implementation. Optional note for the interested reader for why this is required: This is because the input activations come into the forward method pre-quantized along dim zero (1x32 scaling factors), for the out = input @ weight.transpose(-2,-1) grouped GEMM. When we save those input activations for the backward pass, they are scaled along a different dimension than what we need for the gradient of the weight computation, wgrad = grad_out.t() @ input, where they will be the right-hand side operand and thus need to be scaled along dim one (32x1 scaling factors). To support MXFP8 Grouped GEMM for the weight gradient, we would need to dequantize the input along dim 0 then requantize along dim 1. This (1) would add some overhead, and (2) could impact numerics, so for the v0 implementation of this feature, we stick with requiring wgrad_with_hp recipe which avoids this issue entirely by doing the weight gradient grouped GEMM in bfloat16. Combining with Other Parallelism Strategies# MXFP8 expert parallel can be combined with other parallelism techniques: With Tensor Parallelism: # Add tensor parallelism for larger models --parallelism.tensor_parallel_degree=2 \\ --parallelism.expert_parallel_degree=4 Given the trend toward granular experts and increased sparsity, where achieving good GEMM efficiency is already difficult, we recommend against applying tensor parallel to the routed experts, but other layers like attention or dense FFNs are fine. With Pipeline Parallelism: # Add pipeline parallelism (if supported by your model) --parallelism.pipeline_parallel_degree=2 See the torchtitan docs for more details. Important Notes MXFP8 expert parallel training requires a nightly build of torchao with CUDA 12.8+ support The wgrad_with_hp recipe is currently required for MXFP8 expert parallelism We recommend --compile.enable --compile.components=\"model,loss\" for competitive performance For benchmarking, lbalancing across experts is critical to ensure valid 1:1 comparisons - use --debug.moe_force_load_balance during development to ensure balanced workloads Training with torchao directly# In this tutorial we\u2019ll apply MXFP8 expert parallelism to a custom MoE layer using torchao APIs directly. You can use this workflow to integrate MXFP8 expert parallelism into your own custom training code. Prerequisites# (Recommended) Create a new virtual environment with conda or venv. Install torchao nightly build (required for CUDA 12.8+ support). You\u2019re now ready to integrate MXFP8 expert parallel primitives into your training code directly! Part 1: Defining a simplified MoE layer Using the TorchTitan MoE implementation as a reference, we define a simplified MoE layer without a real router (we will use fake token-expert affinity scores later). Key requirements: Expert weights must be implemented as a 3d nn.Parameter so we can use a grouped GEMM for computation. Use _to_mxfp8_then_scaled_grouped_mm from torchao.prototype.moe_training.scaled_grouped_mm to do the routed expert computation. class GroupedExperts(nn.Module): \"\"\"Grouped experts module that processes tokens with grouped matrix multiplication.\"\"\" def __init__(self, dim: int, hidden_dim: int, num_experts: int): super().__init__() self.num_experts = num_experts self.w1 = nn.Parameter(torch.empty(num_experts, hidden_dim, dim)) self.w2 = nn.Parameter(torch.empty(num_experts, dim, hidden_dim)) self.w3 = nn.Parameter(torch.empty(num_experts, hidden_dim, dim)) def forward( self, x: torch.Tensor, num_tokens_per_expert: torch.Tensor, ) -\u003e torch.Tensor: # Convert from DTensor to local tensor if needed (for EP) if isinstance(self.w1, DTensor): w1, w2, w3 = self.w1.to_local(), self.w2.to_local(), self.w3.to_local() else: w1, w2, w3 = self.w1, self.w2, self.w3 # Compute offsets for grouped matrix multiplication offsets = torch.cumsum(num_tokens_per_expert, dim=0, dtype=torch.int32) # Expert computation using MXFP8 grouped matrix multiplication. # Use this torchao autograd function that optionally accepts # MXTensor inputs (pre-quantized prior to the all2all - shown later) # to use MXFP8 grouped GEMM, for ~2x speedup over BF16 grouped GEMM! # The `wgrad_with_hp` recipe required for MXFP8 expert parallelism (more details later in the tutorial) from torchao.prototype.moe_training.scaled_grouped_mm import ( _to_mxfp8_then_scaled_grouped_mm as mxfp8_gmm, ) h = F.silu(mxfp8_gmm(x, w1.transpose(-2, -1), offs=offsets, wgrad_with_hp=True)) h = h * mxfp8_gmm(x, w3.transpose(-2, -1), offs=offsets, wgrad_with_hp=True) output = mxfp8_gmm(h, w2.transpose(-2, -1), offs=offsets, wgrad_with_hp=True) return output.type_as(x) class SimplifiedMoE(nn.Module): \"\"\"Simplified MoE layer for demonstration purposes.\"\"\" def __init__(self, dim: int, hidden_dim: int, num_experts: int): super().__init__() self.num_experts = num_experts self.experts = GroupedExperts(dim, hidden_dim, num_experts) def forward( self, routed_input: torch.Tensor, num_tokens_per_expert: torch.Tensor, ) -\u003e torch.Tensor: return self.experts(routed_input, num_tokens_per_expert) Part 2: MXFP8 Expert Parallelism Next, we will define a ParallelStyle subclass which uses torchao MXFP8 expert parallel autograd functions. # Use torchao mxfp8 autograd functions as building blocks # to define custom MXFP8 Expert Parallel implementation! from torchao.prototype.moe_training.ep import ( a2a_combine_hp_fwd_mxfp8_bwd, a2a_dispatch_mxfp8_fwd_hp_bwd, permute_mxfp8_fwd_hp_bwd, unpermute_hp_fwd_mxfp8_bwd, ) class MXFP8ExpertParallel(ParallelStyle): \"\"\"Custom ParallelStyle for MXFP8 Expert Parallelism.\"\"\" def __init__(self): super().__init__() self.input_splits = None self.output_splits = None self.input_shape = None self.permuted_indices = None def _partition_fn(self, name: str, mod: nn.Module, device_mesh: DeviceMesh) -\u003e None: \"\"\"Shard expert parameters along the expert dimension.\"\"\" for param_name, param in mod.named_parameters(recurse=False): # Experts are 3D parameters of shape (num_experts, ..., ...) # Shard along the first dimension (expert dimension) dist_param = nn.Parameter(distribute_tensor(param, device_mesh, [Shard(0)])) mod.register_parameter(param_name, dist_param) def _token_dispatch( self, mod: nn.Module, inputs: tuple, device_mesh: DeviceMesh ) -\u003e tuple[torch.Tensor, torch.Tensor]: \"\"\" Dispatch tokens to appropriate experts using MXFP8 all-to-all communication. This involves: 1. All-to-all to distribute tokens to the correct EP rank 2. Permutation to arrange tokens in the correct order for grouped computation 3. Padding to ensure token counts are multiples of MXFP8 block size (32) \"\"\" routed_input, num_tokens_per_expert = inputs ep_degree = device_mesh.shape[0] num_local_experts = num_tokens_per_expert.shape[0] // ep_degree # First all-to-all to calculate output splits from input splits with torch.no_grad(): num_tokens_per_expert_group = all_to_all_single( num_tokens_per_expert, None, None, group=device_mesh.get_group(), ) # Wait for async collective to complete num_tokens_per_expert_group = torch.ops._c10d_functional.wait_tensor( num_tokens_per_expert_group ) # Calculate input/output splits for all-to-all input_splits = ( num_tokens_per_expert.view(ep_degree, -1) .sum(dim=1) .to(torch.device(\"cpu\"), non_blocking=True) ) output_splits = ( num_tokens_per_expert_group.view(ep_degree, -1) .sum(dim=1) .to(torch.device(\"cpu\"), non_blocking=False) ) self.input_splits = input_splits.tolist() self.output_splits = output_splits.tolist() # Perform all-to-all token dispatch with MXFP8 forward pass # This torchao autograd function quantizes the high precision input activations/tokens, # and performs the expensive all-to-all token dispatch in MXFP8, producing MXTensor outputs # which the next step can consume! # Sending ~1/2 the bytes over the network = speedup! # In the backward pass, the incoming upstream gradients will be in BF16, and it routes these # output token gradients back to the device they came from. routed_input = a2a_dispatch_mxfp8_fwd_hp_bwd( routed_input, output_splits=self.output_splits, input_splits=self.input_splits, group_name=device_mesh.get_group().group_name, ) # Permute and pad token groups for MXFP8 computation # This torchao autograd function accepts MXTensor inputs produced by the MXFP8 all-to-all, # and does the token permutation and padding needed for MXFP8 grouped GEMM (seen in GroupedExperts above). # In the backward pass, the incoming upstream gradients will be the BF16 outputs of the MXFP8 grouped GEMM # backward pass, so the permutation backward pass also happens in BF16. ( self.input_shape, routed_input, self.permuted_indices, num_tokens_per_expert_group, _, ) = permute_mxfp8_fwd_hp_bwd( routed_input, num_tokens_per_expert_group, ep_degree, num_local_experts ) return routed_input, num_tokens_per_expert_group def _token_combine( self, mod: nn.Module, routed_output: torch.Tensor, device_mesh: DeviceMesh ) -\u003e torch.Tensor: \"\"\" Combine expert outputs and route tokens back using MXFP8 all-to-all communication. This involves: 1. Unpermute tokens back to post-dispatch layout 2. All-to-all to route tokens back to their original EP rank \"\"\" # Unpermute tokens # This torchao autograd function accepts the BF16 outputs of the MXFP8 grouped GEMM, so the # \"unpermutation\" step (putting tokens back in their original order and removing the padding) # happens in BF16 as well. # In the backward pass, the incoming upstream gradients will be the MXTensor outputs of the # MXFP8 all-to-all combine backward pass, so this unpermute autograd func accepts MXTensor # inputs and performs the reordering in MXFP8. routed_output = unpermute_hp_fwd_mxfp8_bwd( routed_output, self.permuted_indices, self.input_shape ) # Reverse all-to-all to route tokens back # This torchao autograd function receives BF16 inputs in the forward pass (from the unpermute step above), # and we do the forward all-to-all here for the combine step in BF16. We don\u0027t use MXFP8 here because: # 1. There is no opportunity to do a MXFP8 grouped GEMM for a big speedup on the other side, we\u0027ll have # to just immediately dequantize. This is still a net perf benefit in multi-node EP, however...: # 2. We would be introducing a new quantize/dequantize pair (not lossless!) that would not have been present in regular # MXFP8 training with BF16 all-to-alls, which has numerical implications that have not been evaluated yet. # We may support this in the future, but for this initial version, we stay in BF16 for this all-to-all. # In the backward pass, we DO quantize to MXFP8 (just moving the quantization for the MXFP8 grouped GEMM backward pass # EARLIER - before the all-to-all backward instead of right before the grouped GEMM kernel itself. # This is numerically equivalent, and much faster due to low precision comms!) routed_output = a2a_combine_hp_fwd_mxfp8_bwd( routed_output, output_splits=self.input_splits, # Swap to reverse the dispatch input_splits=self.output_splits, group_name=device_mesh.get_group().group_name, ) return routed_output def _apply(self, module: nn.Module, device_mesh: DeviceMesh) -\u003e nn.Module: \"\"\"Apply the parallel style to the module.\"\"\" return distribute_module( module, device_mesh, partition_fn=self._partition_fn, input_fn=self._token_dispatch, output_fn=self._token_combine, ) def apply_mxfp8_expert_parallel(moe_layer: SimplifiedMoE, ep_mesh: DeviceMesh): \"\"\"Apply MXFP8ExpertParallel to the MoE layer.\"\"\" experts_plan = MXFP8ExpertParallel() parallelize_module( module=moe_layer.experts, device_mesh=ep_mesh, parallelize_plan=experts_plan, ) Complete Example# Below is a complete example showing how to apply MXFP8 expert parallelism to a simplified MoE layer: #!/usr/bin/env python3 \"\"\" Standalone example of using MXFP8 Expert Parallel with a simplified MoE layer. Usage: torchrun --nproc_per_node=2 mxfp8_expert_parallel_example.py \"\"\" import os import torch import torch.nn as nn import torch.nn.functional as F from torch.distributed import init_process_group, destroy_process_group from torch.distributed._functional_collectives import all_to_all_single from torch.distributed.device_mesh import DeviceMesh from torch.distributed.tensor import DTensor, Shard, distribute_tensor, distribute_module from torch.distributed.tensor.parallel import ParallelStyle, parallelize_module from torchao.prototype.moe_training.ep import ( a2a_combine_hp_fwd_mxfp8_bwd, a2a_dispatch_mxfp8_fwd_hp_bwd, permute_mxfp8_fwd_hp_bwd, unpermute_hp_fwd_mxfp8_bwd, ) # ============================================================================ # Define MoE Components # ============================================================================ class GroupedExperts(nn.Module): \"\"\"Grouped experts module that processes tokens with grouped matrix multiplication.\"\"\" def __init__(self, dim: int, hidden_dim: int, num_experts: int): super().__init__() self.num_experts = num_experts self.w1 = nn.Parameter(torch.empty(num_experts, hidden_dim, dim)) self.w2 = nn.Parameter(torch.empty(num_experts, dim, hidden_dim)) self.w3 = nn.Parameter(torch.empty(num_experts, hidden_dim, dim)) def forward( self, x: torch.Tensor, num_tokens_per_expert: torch.Tensor, ) -\u003e torch.Tensor: from torchao.prototype.moe_training.scaled_grouped_mm import ( _to_mxfp8_then_scaled_grouped_mm as mxfp8_gmm, ) # Convert from DTensor to local tensor if needed (for EP) if isinstance(self.w1, DTensor): w1, w2, w3 = self.w1.to_local(), self.w2.to_local(), self.w3.to_local() else: w1, w2, w3 = self.w1, self.w2, self.w3 # Compute offsets for grouped matrix multiplication offsets = torch.cumsum(num_tokens_per_expert, dim=0, dtype=torch.int32) # Expert computation using MXFP8 grouped matrix multiplication # wgrad_with_hp recipe required for MXFP8 expert parallelism h = F.silu(mxfp8_gmm(x, w1.transpose(-2, -1), offs=offsets, wgrad_with_hp=True)) h = h * mxfp8_gmm(x, w3.transpose(-2, -1), offs=offsets, wgrad_with_hp=True) output = mxfp8_gmm(h, w2.transpose(-2, -1), offs=offsets, wgrad_with_hp=True) return output.type_as(x) class SimplifiedMoE(nn.Module): \"\"\"Simplified MoE layer for demonstration purposes.\"\"\" def __init__(self, dim: int, hidden_dim: int, num_experts: int): super().__init__() self.num_experts = num_experts self.experts = GroupedExperts(dim, hidden_dim, num_experts) def forward( self, routed_input: torch.Tensor, num_tokens_per_expert: torch.Tensor, ) -\u003e torch.Tensor: return self.experts(routed_input, num_tokens_per_expert) # ============================================================================ # MXFP8 Expert Parallel Implementation # ============================================================================ class MXFP8ExpertParallel(ParallelStyle): \"\"\"Custom ParallelStyle for MXFP8 Expert Parallelism.\"\"\" def __init__(self): super().__init__() self.input_splits = None self.output_splits = None self.input_shape = None self.permuted_indices = None # Use torchao MXFP8 EP autograd functions as building blocks self.a2a_dispatch_mxfp8_fwd_hp_bwd = a2a_dispatch_mxfp8_fwd_hp_bwd self.permute_mxfp8_fwd_hp_bwd = permute_mxfp8_fwd_hp_bwd self.unpermute_hp_fwd_mxfp8_bwd = unpermute_hp_fwd_mxfp8_bwd self.a2a_combine_hp_fwd_mxfp8_bwd = a2a_combine_hp_fwd_mxfp8_bwd def _partition_fn(self, name: str, mod: nn.Module, device_mesh: DeviceMesh) -\u003e None: \"\"\"Shard expert parameters along the expert dimension.\"\"\" for param_name, param in mod.named_parameters(recurse=False): # Experts are 3D parameters of shape (num_experts, ..., ...) # Shard along the first dimension (expert dimension) dist_param = nn.Parameter(distribute_tensor(param, device_mesh, [Shard(0)])) mod.register_parameter(param_name, dist_param) def _token_dispatch( self, mod: nn.Module, inputs: tuple, device_mesh: DeviceMesh ) -\u003e tuple[torch.Tensor, torch.Tensor]: \"\"\" Dispatch tokens to appropriate experts using MXFP8 all-to-all communication. This involves: 1. All-to-all to distribute tokens to the correct EP rank 2. Permutation to arrange tokens in the correct order for grouped computation 3. Padding to ensure token counts are multiples of MXFP8 block size (32) \"\"\" routed_input, num_tokens_per_expert = inputs ep_degree = device_mesh.shape[0] num_local_experts = num_tokens_per_expert.shape[0] // ep_degree # First all-to-all to calculate output splits from input splits with torch.no_grad(): num_tokens_per_expert_group = all_to_all_single( num_tokens_per_expert, None, None, group=device_mesh.get_group(), ) # Wait for async collective to complete num_tokens_per_expert_group = torch.ops._c10d_functional.wait_tensor( num_tokens_per_expert_group ) # Calculate input/output splits for all-to-all input_splits = ( num_tokens_per_expert.view(ep_degree, -1) .sum(dim=1) .to(torch.device(\"cpu\"), non_blocking=True) ) output_splits = ( num_tokens_per_expert_group.view(ep_degree, -1) .sum(dim=1) .to(torch.device(\"cpu\"), non_blocking=False) ) self.input_splits = input_splits.tolist() self.output_splits = output_splits.tolist() # Perform all-to-all token dispatch with MXFP8 forward pass routed_input = self.a2a_dispatch_mxfp8_fwd_hp_bwd( routed_input, output_splits=self.output_splits, input_splits=self.input_splits, group_name=device_mesh.get_group().group_name, ) # Permute and pad tokens for MXFP8 computation ( self.input_shape, routed_input, self.permuted_indices, num_tokens_per_expert_group, _, ) = self.permute_mxfp8_fwd_hp_bwd( routed_input, num_tokens_per_expert_group, ep_degree, num_local_experts ) return routed_input, num_tokens_per_expert_group def _token_combine( self, mod: nn.Module, routed_output: torch.Tensor, device_mesh: DeviceMesh ) -\u003e torch.Tensor: \"\"\" Combine expert outputs and route tokens back using MXFP8 all-to-all communication. This involves: 1. Unpermute tokens back to post-dispatch layout 2. All-to-all to route tokens back to their original EP rank \"\"\" # Unpermute tokens routed_output = self.unpermute_hp_fwd_mxfp8_bwd( routed_output, self.permuted_indices, self.input_shape ) # Reverse all-to-all to route tokens back routed_output = self.a2a_combine_hp_fwd_mxfp8_bwd( routed_output, output_splits=self.input_splits, # Swap to reverse the dispatch input_splits=self.output_splits, group_name=device_mesh.get_group().group_name, ) return routed_output def _apply(self, module: nn.Module, device_mesh: DeviceMesh) -\u003e nn.Module: \"\"\"Apply the parallel style to the module.\"\"\" return distribute_module( module, device_mesh, partition_fn=self._partition_fn, input_fn=self._token_dispatch, output_fn=self._token_combine, ) def apply_mxfp8_expert_parallel(moe_layer: SimplifiedMoE, ep_mesh: DeviceMesh): \"\"\"Apply MXFP8ExpertParallel to the MoE layer.\"\"\" experts_plan = MXFP8ExpertParallel() parallelize_module( module=moe_layer.experts, device_mesh=ep_mesh, parallelize_plan=experts_plan, ) # ============================================================================ # Main Example # ============================================================================ def main(): # Initialize distributed process group init_process_group(backend=\"nccl\") local_rank = int(os.environ[\"LOCAL_RANK\"]) world_size = int(os.environ[\"WORLD_SIZE\"]) device = torch.device(f\"cuda:{local_rank}\") torch.cuda.set_device(device) # Model configuration dim = 7168 hidden_dim = 2048 num_experts = 32 num_local_experts = num_experts // world_size batch_size = 16 seq_len = 8192 # Create device mesh for expert parallelism ep_mesh = DeviceMesh(\"cuda\", list(range(world_size)), mesh_dim_names=(\"ep\",)) # Create MoE layer moe = SimplifiedMoE(dim, hidden_dim, num_local_experts).to(device).to(torch.bfloat16) # Apply MXFP8 expert parallel print(f\"[Rank {local_rank}] Applying MXFP8 Expert Parallelism...\") apply_mxfp8_expert_parallel(moe, ep_mesh) # Create sample inputs (in practice, these come from the router) num_tokens = batch_size * seq_len routed_input = torch.randn(num_tokens, dim, device=device, dtype=torch.bfloat16) num_tokens_per_expert = torch.full( (num_local_experts,), num_tokens // num_local_experts, device=device, dtype=torch.int64, ) # Forward and backward pass print(f\"[Rank {local_rank}] Running forward pass...\") output = moe(routed_input, num_tokens_per_expert) print(f\"[Rank {local_rank}] Running backward pass...\") grad_output = torch.randn_like(output) output.backward(grad_output) destroy_process_group() print(f\"[Rank {local_rank}] Done!\") if __name__ == \"__main__\": main() Running the Example# To run the example with 2 GPUs: torchrun --nproc_per_node=2 mxfp8_expert_parallel_example.py You can scale to more GPUs by adjusting --nproc_per_node and ensuring num_experts is divisible by world_size. Microbenchmarks# Comparison Against Full BF16 Baseline# For reference, the table below shows the full end-to-end speedup when comparing MXFP8 expert parallelism against a complete bfloat16 baseline (bfloat16 all-to-all + bfloat16 grouped GEMMs): Baseline (full bf16): bfloat16 all-to-all + bfloat16 grouped MM MXFP8 EP: MXFP8 all-to-all + MXFP8 grouped MM with wgrad_with_hp=True Expert Parallelism Pipeline Benchmark Results World Size: 8 ======================================================================================================================== +----------+-------+--------------+---------------+---------------+----------------+---------------+---------------+----------------+---------------+-----------------+ | tokens | dim | hidden_dim | num_experts | fwd_bf16_ms | fwd_mxfp8_ms | fwd_speedup | bwd_bf16_ms | bwd_mxfp8_ms | bwd_speedup | total_speedup | +==========+=======+==============+===============+===============+================+===============+===============+================+===============+=================+ | 131072 | 8192 | 5120 | 8 | 18.037 | 12.145 | 1.49x | 30.485 | 21.839 | 1.40x | 1.43x | +----------+-------+--------------+---------------+---------------+----------------+---------------+---------------+----------------+---------------+-----------------+ | 131072 | 7168 | 2048 | 8 | 9.394 | 6.424 | 1.46x | 13.762 | 10.306 | 1.34x | 1.38x | +----------+-------+--------------+---------------+---------------+----------------+---------------+---------------+----------------+---------------+-----------------+ | 131072 | 2048 | 1408 | 8 | 3.368 | 2.952 | 1.14x | 4.982 | 3.877 | 1.29x | 1.22x | +----------+-------+--------------+---------------+---------------+----------------+---------------+---------------+----------------+---------------+-----------------+ Against a full bfloat16 baseline, MXFP8 expert parallelism achieves 1.22-1.43x total speedup, with the largest models seeing up to 1.43x speedup. This demonstrates the combined benefit of using MXFP8 for both communication (all-to-all) and computation (grouped matrix multiplication). Comparison Against BF16 All-to-Alls + MXFP8 Grouped GEMM# The table below shows expert parallelism pipeline benchmark results on a single node with 8xB200 GPUs connected via NVL8. Both configurations use MXFP8 grouped matrix multiplication with wgrad_with_hp=True. The speedup comes from using MXFP8 for all-to-all communications: Baseline (bf16): bfloat16 all-to-all + MXFP8 grouped MM with wgrad_with_hp=True MXFP8 EP: MXFP8 all-to-all + MXFP8 grouped MM with wgrad_with_hp=True Expert Parallelism Pipeline Benchmark Results World Size: 8 ======================================================================================================================== +----------+-------+--------------+---------------+---------------+----------------+---------------+---------------+----------------+---------------+-----------------+ | tokens | dim | hidden_dim | num_experts | fwd_bf16_ms | fwd_mxfp8_ms | fwd_speedup | bwd_bf16_ms | bwd_mxfp8_ms | bwd_speedup | total_speedup | +==========+=======+==============+===============+===============+================+===============+===============+================+===============+=================+ | 131072 | 8192 | 5120 | 8 | 14.28 | 12.348 | 1.16x | 24.812 | 21.897 | 1.13x | 1.14x | +----------+-------+--------------+---------------+---------------+----------------+---------------+---------------+----------------+---------------+-----------------+ | 131072 | 7168 | 2048 | 8 | 8.283 | 6.4 | 1.29x | 12.548 | 10.299 | 1.22x | 1.25x | +----------+-------+--------------+---------------+---------------+----------------+---------------+---------------+----------------+---------------+-----------------+ | 131072 | 2048 | 1408 | 8 | 3.278 | 2.913 | 1.13x | 4.934 | 3.881 | 1.27x | 1.21x | +----------+-------+--------------+---------------+---------------+----------------+---------------+---------------+----------------+---------------+-----------------+ As shown, using MXFP8 for all-to-all communications achieves 1.14-1.25x total speedup versus only quantizing directly before the grouped GEMMs. ## Conclusion In this tutorial we demonstrated how to use TorchAO\u2019s differentiable building blocks for MXFP8 MoE training with expert parallelism. For more details, see the [MXFP8 MoE training docs](pytorch/ao).",
+       "author": {
+         "@type": "Organization",
+         "name": "PyTorch Contributors",
+         "url": "https://pytorch.org"
+       },
+       "image": "https://pytorch.org/docs/stable/_static/img/pytorch_seo.png",
+       "mainEntityOfPage": {
+         "@type": "WebPage",
+         "@id": "/eager_tutorials/mxfp8_expert_parallel_training.html"
+       },
+       "datePublished": "Feb 09, 2026T00:00:00Z",
+       "dateModified": "Feb 09, 2026T00:00:00Z"
+     }
+ </script>
+  <script>
+    // Tutorials Call to action event tracking
+    $("[data-behavior='call-to-action-event']").on('click', function () {
+      fbq('trackCustom', "Download", {
+        tutorialTitle: $('h1:first').text(),
+        downloadLink: this.href,
+        tutorialLink: window.location.href,
+        downloadTitle: $(this).attr("data-response")
+      });
+      if (typeof gtag === 'function') {
+        gtag('event', 'click', {
+          'event_category': $(this).attr("data-response"),
+          'event_label': $("h1").first().text(),
+          'tutorial_link': window.location.href
+        });
+      }
+    });
+  </script>
+  
+  </body>
+</html>
