@@ -798,10 +798,14 @@ class TorchAOBaseTensor(torch.Tensor):
         that can be optional
 
     Note:
+        **Argument Order**
+
         Argument order in ``__init__`` and ``__new__`` of subclass of ``TorchAOBaseTensor`` should match exaclty with ``tensor_data_names`` + ``tensor_attribute_names`` + ``optional_tensor_data_names`` (if present) + ``optional_tensor_attribute_names`` (if present)
 
 
     Note:
+        **How to Get Predefined Util Functions**
+
         If ``tensor_data_names`` (torch.Tensor data attribute names) and ``tensor_attribute_names`` (non-torch.Tensor attribute names) are defined, there are some additional util
         functions that will be added, this includes:
 
@@ -821,7 +825,9 @@ class TorchAOBaseTensor(torch.Tensor):
 
         aten ops supported (``__torch_dispatch__``): ``aten.detach.default``, ``aten.clone.default``, ``aten.alias,default``, ``aten.contiguous.default``, ``aten.copy_.default``, ``aten._to_copy.default`` (enables ``t.to``)
 
-    Subclassing and Op Inheritance:
+    Note:
+        **Subclassing and Op Inheritance**
+
         Subclasses of ``TorchAOBaseTensor`` automatically inherit aten op (``__torch_dispatch__``)
         and torch function (``__torch_function__``) implementations from their parent classes.
         Each subclass gets its own independent dispatch tables, so registering a new op on a child
@@ -865,7 +871,9 @@ class TorchAOBaseTensor(torch.Tensor):
                 # child-specific implementation
                 ...
 
-    Safetensors Support:
+    Note:
+        **Safetensors Support**
+
         ``TorchAOBaseTensor`` subclasses can be serialized to and loaded from the
         `safetensors <https://huggingface.co/docs/safetensors>`_ format. Since safetensors
         only stores plain ``torch.Tensor`` objects, the serialization layer (in
