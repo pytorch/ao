@@ -58,22 +58,70 @@ EXPECTED_SIZES = {
 # Expected header format (first 64 bytes) from ARM source of truth
 # Format: [magic(6712), type(2), version(1), bit_width, min_chunk(32), max_chunk(128), zeros...]
 EXPECTED_HEADER_TEMPLATE = [
-    56, 26, 0, 0,  # magic = 6712 (0x1a38) little-endian
-    2, 0, 0, 0,    # type = 2 (embedding_xbit_universal)
-    1, 0, 0, 0,    # version = 1
-    0, 0, 0, 0,    # bit_width (placeholder, index 12)
-    32, 0, 0, 0,   # min_value_chunk_size = 32
-    -128, 0, 0, 0, # max_value_chunk_size = 128 (as int8: -128)
-    0, 0, 0, 0,    # padding
-    0, 0, 0, 0,
-    0, 0, 0, 0,
-    0, 0, 0, 0,
-    0, 0, 0, 0,
-    0, 0, 0, 0,
-    0, 0, 0, 0,
-    0, 0, 0, 0,
-    0, 0, 0, 0,
-    0, 0, 0, 0,
+    56,
+    26,
+    0,
+    0,  # magic = 6712 (0x1a38) little-endian
+    2,
+    0,
+    0,
+    0,  # type = 2 (embedding_xbit_universal)
+    1,
+    0,
+    0,
+    0,  # version = 1
+    0,
+    0,
+    0,
+    0,  # bit_width (placeholder, index 12)
+    32,
+    0,
+    0,
+    0,  # min_value_chunk_size = 32
+    -128,
+    0,
+    0,
+    0,  # max_value_chunk_size = 128 (as int8: -128)
+    0,
+    0,
+    0,
+    0,  # padding
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
 ]
 
 # Expected packed tensor outputs from ARM source of truth
@@ -105,11 +153,9 @@ class TestPackEmbedding(unittest.TestCase):
         num_embeddings = 16
         embedding_dim = 64
 
-        for bit_width in range(1,8):
+        for bit_width in range(1, 8):
             with self.subTest(bit_width=bit_width):
-                weight_qvals = create_weights(
-                    bit_width, num_embeddings, embedding_dim
-                )
+                weight_qvals = create_weights(bit_width, num_embeddings, embedding_dim)
 
                 pack_op = getattr(torch.ops.torchao, f"_pack_embedding_{bit_width}bit")
                 packed_weights = pack_op(weight_qvals)
@@ -142,11 +188,9 @@ class TestPackEmbedding(unittest.TestCase):
         num_embeddings = 16
         embedding_dim = 64
 
-        for bit_width in range(1,8):
+        for bit_width in range(1, 8):
             with self.subTest(bit_width=bit_width):
-                weight_qvals = create_weights(
-                    bit_width, num_embeddings, embedding_dim
-                )
+                weight_qvals = create_weights(bit_width, num_embeddings, embedding_dim)
 
                 pack_op = getattr(torch.ops.torchao, f"_pack_embedding_{bit_width}bit")
                 packed_weights = pack_op(weight_qvals)
