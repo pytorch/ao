@@ -924,7 +924,7 @@ class TorchAOBaseTensor(torch.Tensor):
 
         Once registered, Hugging Face Transformers users can use ``save_pretrained`` and
         ``push_to_hub`` with the default ``safe_serialization=True`` option. See
-        ``docs/source/eager_tutorials/torchao_hf_integration.md`` (section "Saving the Model")
+        https://docs.pytorch.org/ao/main/eager_tutorials/torchao_hf_integration.html#saving-the-model
         for a full end-to-end example.
 
     """
