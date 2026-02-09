@@ -821,41 +821,6 @@ class TorchAOBaseTensor(torch.Tensor):
 
         aten ops supported (``__torch_dispatch__``): ``aten.detach.default``, ``aten.clone.default``, ``aten.alias,default``, ``aten.contiguous.default``, ``aten.copy_.default``, ``aten._to_copy.default`` (enables ``t.to``)
 
-    Examples::
-
-        class MyTensor(TorchAOBaseTensor):
-            tensor_data_names = ["a", "b"]
-            tensor_attribute_names = ["c", "d"]
-            optional_tensor_data_names = ["e", "f"]
-            optional_tensor_attribute_names = ["g", "h"]
-
-
-            def __new__(
-                cls,
-                a: Tensor,
-                b: Tensor,
-                c: int,
-                d: str,
-                e: Optional[Tensor] = None,
-                f: Optional[Tensor] = None,
-                g: Optional[int] = None,
-                h: Optional[int] = None,
-            ):
-                pass
-
-            def __init__(
-                self,
-                a: Tensor,
-                b: Tensor,
-                c: int,
-                d: str,
-                e: Optional[Tensor] = None,
-                f: Optional[Tensor] = None,
-                g: Optional[int] = None,
-                h: Optional[int] = None,
-            ):
-                pass
-
     Subclassing and Op Inheritance:
         Subclasses of ``TorchAOBaseTensor`` automatically inherit aten op (``__torch_dispatch__``)
         and torch function (``__torch_function__``) implementations from their parent classes.
@@ -926,6 +891,41 @@ class TorchAOBaseTensor(torch.Tensor):
         ``push_to_hub`` with the default ``safe_serialization=True`` option. See
         https://docs.pytorch.org/ao/main/eager_tutorials/torchao_hf_integration.html#saving-the-model
         for a full end-to-end example.
+
+    Examples::
+
+        class MyTensor(TorchAOBaseTensor):
+            tensor_data_names = ["a", "b"]
+            tensor_attribute_names = ["c", "d"]
+            optional_tensor_data_names = ["e", "f"]
+            optional_tensor_attribute_names = ["g", "h"]
+
+
+            def __new__(
+                cls,
+                a: Tensor,
+                b: Tensor,
+                c: int,
+                d: str,
+                e: Optional[Tensor] = None,
+                f: Optional[Tensor] = None,
+                g: Optional[int] = None,
+                h: Optional[int] = None,
+            ):
+                pass
+
+            def __init__(
+                self,
+                a: Tensor,
+                b: Tensor,
+                c: int,
+                d: str,
+                e: Optional[Tensor] = None,
+                f: Optional[Tensor] = None,
+                g: Optional[int] = None,
+                h: Optional[int] = None,
+            ):
+                pass
 
     """
 
