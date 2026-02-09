@@ -823,7 +823,7 @@ class TorchAOBaseTensor(torch.Tensor):
 
     Examples::
 
-        class MyTensor(torch.Tensor):
+        class MyTensor(TorchAOBaseTensor):
             tensor_data_names = ["a", "b"]
             tensor_attribute_names = ["c", "d"]
             optional_tensor_data_names = ["e", "f"]
@@ -848,13 +848,84 @@ class TorchAOBaseTensor(torch.Tensor):
                 a: Tensor,
                 b: Tensor,
                 c: int,
-                d: str
+                d: str,
                 e: Optional[Tensor] = None,
                 f: Optional[Tensor] = None,
                 g: Optional[int] = None,
                 h: Optional[int] = None,
             ):
                 pass
+
+    Subclassing and Op Inheritance:
+        Subclasses of ``TorchAOBaseTensor`` automatically inherit aten op (``__torch_dispatch__``)
+        and torch function (``__torch_function__``) implementations from their parent classes.
+        Each subclass gets its own independent dispatch tables, so registering a new op on a child
+        does not affect the parent, and vice versa.
+
+        A child class can override an inherited op by registering its own implementation with
+        ``@ChildClass.implements(...)``. If no override is provided, the parent's implementation
+        is used automatically.
+
+        For multiple inheritance (e.g., ``class C(B, A)``), ops are inherited from all parents
+        following Python's MRO (Method Resolution Order), with later bases taking priority.
+
+        Example::
+
+            class Parent(TorchAOBaseTensor):
+                tensor_data_names = ["qdata"]
+                tensor_attribute_names = ["attr"]
+
+                def __new__(cls, qdata, attr):
+                    r = torch.Tensor._make_wrapper_subclass(cls, qdata.shape)
+                    r.qdata = qdata
+                    r.attr = attr
+                    return r
+
+                def __init__(self, qdata, attr):
+                    pass
+
+            @Parent.implements([torch.ops.aten.cat.default])
+            def parent_cat(func, types, args, kwargs):
+                # parent implementation
+                ...
+
+            # Child inherits Parent's aten.cat implementation automatically
+            class Child(Parent):
+                tensor_data_names = ["qdata"]
+                tensor_attribute_names = ["attr"]
+
+            # Optionally override an inherited op:
+            @Child.implements([torch.ops.aten.cat.default])
+            def child_cat(func, types, args, kwargs):
+                # child-specific implementation
+                ...
+
+    Safetensors Support:
+        ``TorchAOBaseTensor`` subclasses can be serialized to and loaded from the
+        `safetensors <https://huggingface.co/docs/safetensors>`_ format. Since safetensors
+        only stores plain ``torch.Tensor`` objects, the serialization layer (in
+        ``torchao.prototype.safetensors``) decomposes each tensor subclass into its
+        constituent plain tensors (from ``tensor_data_names``/``optional_tensor_data_names``)
+        plus JSON metadata (from ``tensor_attribute_names``/``optional_tensor_attribute_names``),
+        and reconstructs the subclass on load.
+
+        To add safetensors support for a new ``TorchAOBaseTensor`` subclass:
+
+        1. Define ``tensor_data_names``, ``tensor_attribute_names`` (and optionally
+           ``optional_tensor_data_names``, ``optional_tensor_attribute_names``) on the subclass,
+           which is already required for the other utility functions above.
+
+        2. Register the subclass in ``torchao/prototype/safetensors/safetensors_utils.py``:
+
+           - Add the class name string to ``ALLOWED_TENSORS_SUBCLASSES``.
+           - Add a ``"ClassName": ClassName`` entry to ``ALLOWED_CLASSES``.
+           - If the subclass has non-Tensor attributes with custom types (dataclasses, enums,
+             named tuples), add those types to ``ALLOWED_CLASSES`` as well.
+
+        Once registered, Hugging Face Transformers users can use ``save_pretrained`` and
+        ``push_to_hub`` with the default ``safe_serialization=True`` option. See
+        ``docs/source/eager_tutorials/torchao_hf_integration.md`` (section "Saving the Model")
+        for a full end-to-end example.
 
     """
 
