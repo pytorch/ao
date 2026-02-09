@@ -93,7 +93,7 @@ def register_qsdpa():
             input_nodes.append(attn_mask)
 
         # use template if machine has amx, only support uint8 for now
-        if torch._C._cpu._is_amx_tile_supported() and query.get_dtype() is torch.uint8:
+        if torch.cpu._is_amx_tile_supported() and query.get_dtype() is torch.uint8:
             CppInt8SdpaTemplate.add_choices(
                 choices=choices,
                 input_nodes=input_nodes,
