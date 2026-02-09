@@ -48,3 +48,4 @@ jobs:
         ./test/float8/test_everything_multi_gpu.sh
         ./test/prototype/mx_formats/test_mx_dtensor.sh
         ./test/prototype/mx_formats/test_mxfp8_allgather.sh
+        ./test/prototype/moe_training/test_distributed.sh

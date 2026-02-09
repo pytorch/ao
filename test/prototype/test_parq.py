@@ -55,6 +55,8 @@ _DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 class M(nn.Module):
+    _tied_weights_keys: dict[str, str] = {}
+
     def __init__(
         self, m=256, n=128, k=16, bias=False, embedding=True, tied_weights=False
     ):

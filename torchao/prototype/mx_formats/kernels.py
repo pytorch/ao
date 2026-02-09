@@ -1134,6 +1134,14 @@ if _triton_kernels_available:
             col_scale.view(torch.float8_e8m0fnu).squeeze(-1),
         )
 
+    @register_sharding(torch.ops.torchao.triton_to_mxfp8_dim0.default)
+    def custom_triton_to_mxfp8_dim0_sharding(x, inner_block_size=32):
+        replicate = ([Replicate(), Replicate()], [Replicate(), None])
+        shard_dim0 = ([Shard(0), Shard(0)], [Shard(0), None])
+        shard_dim1 = ([Shard(1), Shard(1)], [Shard(1), None])
+        acceptable_shardings = [replicate, shard_dim0, shard_dim1]
+        return acceptable_shardings
+
     @register_sharding(torch.ops.torchao.triton_to_mxfp8_dim1.default)
     def custom_triton_to_mxfp8_dim1_sharding(x, inner_block_size=32):
         replicate = ([Replicate(), Replicate()], [Replicate(), None])
