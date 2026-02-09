@@ -53,20 +53,11 @@ _VIEW_METHOD_OPS = [
 ]
 
 # Dynamo/FX sometimes carries ScalarType as an int enum (e.g. 24 for float8_e4m3fn).
-# For readability and comparisons, normalize back to torch.dtype when possible using _fallback_enum_to_dtype table.
+# For readability and comparisons, normalize back to torch.dtype when possible using _fallback_enum_to_dtype table,
+# which is from https://github.com/pytorch/pytorch/blob/main/torch/headeronly/core/ScalarType.h#L103-L149.
 _fallback_enum_to_dtype: dict[int, torch.dtype] = {
-    0: torch.uint8,
-    1: torch.int8,
-    2: torch.int16,
-    3: torch.int32,
-    4: torch.int64,
-    5: torch.float16,
     6: torch.float,
-    7: torch.double,
-    11: torch.bool,
-    15: torch.bfloat16,
     24: torch.float8_e4m3fn,
-    25: torch.float8_e5m2,
 }
 
 """
