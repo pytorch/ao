@@ -14,7 +14,6 @@ from torchao.kernel import int_scaled_matmul
 from torchao.quantization.granularity import (
     Granularity,
     PerRow,
-    PerTensor,
 )
 from torchao.quantization.quant_primitives import (
     MappingType,
@@ -148,24 +147,6 @@ class Int8Tensor(TorchAOBaseTensor):
             raise ValueError(
                 f"Invalid granularity type: {granularity}. "
                 f"Expected None, Granularity, or tuple/list of 2 Granularities."
-            )
-
-    @classmethod
-    def _validate_granularity(
-        cls,
-        granularity: Tuple[Granularity, Granularity],
-    ) -> None:
-        act_granularity, weight_granularity = granularity
-        supported = (PerTensor, PerRow)
-        if not isinstance(act_granularity, supported):
-            raise ValueError(
-                f"Unsupported activation granularity type: {type(act_granularity)}. "
-                f"Only PerTensor and PerRow are supported."
-            )
-        if not isinstance(weight_granularity, supported):
-            raise ValueError(
-                f"Unsupported weight granularity type: {type(weight_granularity)}. "
-                f"Only PerTensor and PerRow are supported."
             )
 
     @classmethod
