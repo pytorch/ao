@@ -116,6 +116,8 @@ class NVFP4DynamicActivationNVFP4WeightConfig(AOBaseConfig):
     Configuration parameters:
     - use_triton_kernel: bool, whether to use fused triton kernel for activation scaling (default: True)
     - use_dynamic_per_tensor_scale: bool, whether to dynamically compute per tensor scale (default: True)
+    - skip_scaling_with_global_scaling_factor: bool, whether to skip scaling with global scaling factor (default: False)
+    When skip_scaling_with_global_scaling_factor is set, we scale outside of this op.
     - Data: float4_e2m1fn_x2
     - Scales: float8_e4m3fn
     - Block size: 16 along the reduction dim
@@ -126,6 +128,7 @@ class NVFP4DynamicActivationNVFP4WeightConfig(AOBaseConfig):
 
     use_triton_kernel: bool = True
     use_dynamic_per_tensor_scale: bool = True
+    skip_scaling_with_global_scaling_factor: bool = False
 
     def __post_init__(self):
         # Validate PyTorch version
@@ -168,6 +171,7 @@ def _nvfp4_inference_linear_transform(
         is_swizzled_scales=True,
         use_triton_kernel=False,  # Always use traditional construction for weights
         act_quant_kwargs=act_quant_kwargs,
+        skip_scaling_with_global_scaling_factor=config.skip_scaling_with_global_scaling_factor,
     )
     # Set triton preference after construction
     quantized_weight.use_triton_kernel = config.use_triton_kernel

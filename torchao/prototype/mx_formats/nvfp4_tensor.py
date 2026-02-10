@@ -74,6 +74,7 @@ class NVFP4Tensor(TorchAOBaseTensor):
         "is_swizzled_scales",
         "use_triton_kernel",
         "act_quant_kwargs",
+        "skip_scaling_with_global_scaling_factor",
     ]
 
     def __new__(
@@ -87,6 +88,7 @@ class NVFP4Tensor(TorchAOBaseTensor):
         is_swizzled_scales=False,
         use_triton_kernel=False,
         act_quant_kwargs=None,
+        skip_scaling_with_global_scaling_factor=False,
     ):
         # FP4 tensor size handling two paths, contiguous or not
         new_size = qdata.size()
@@ -113,6 +115,7 @@ class NVFP4Tensor(TorchAOBaseTensor):
         self.is_swizzled_scales = is_swizzled_scales
         self.use_triton_kernel = use_triton_kernel
         self.act_quant_kwargs = act_quant_kwargs
+        self.skip_scaling_with_global_scaling_factor = skip_scaling_with_global_scaling_factor
         return self
 
     def __repr__(self):
@@ -130,6 +133,7 @@ class NVFP4Tensor(TorchAOBaseTensor):
         is_swizzled_scales: bool = False,
         use_triton_kernel: bool = False,
         act_quant_kwargs: Optional[QuantizeTensorToNVFP4Kwargs] = None,
+        skip_scaling_with_global_scaling_factor: bool = False,
     ):
         """Convert high precision tensor to NVFP4 format.
 
@@ -184,6 +188,7 @@ class NVFP4Tensor(TorchAOBaseTensor):
             is_swizzled_scales,
             use_triton_kernel,
             act_quant_kwargs,
+            skip_scaling_with_global_scaling_factor,
         )
 
     # Do not force the NVFP4Tensor type on the returned tensor
@@ -277,6 +282,7 @@ class NVFP4Tensor(TorchAOBaseTensor):
             and act_per_tensor_scale_equal
             and self.qdata.shape == src.qdata.shape
             and self.act_quant_kwargs == src.act_quant_kwargs
+            and self.skip_scaling_with_global_scaling_factor == src.skip_scaling_with_global_scaling_factor
         )
 
 
@@ -317,6 +323,7 @@ def nvfp4_to_copy(func, types, args, kwargs):
             tensor.is_swizzled_scales,
             tensor.use_triton_kernel,
             tensor.act_quant_kwargs,
+            tensor.skip_scaling_with_global_scaling_factor,
         )
         return res
 
@@ -348,6 +355,7 @@ def nvfp4_slice(func, types, args, kwargs):
         x.is_swizzled_scales,
         x.use_triton_kernel,
         x.act_quant_kwargs,
+        x.skip_scaling_with_global_scaling_factor,
     )
 
     return return_and_correct_aliasing(func, args, kwargs, result)
@@ -367,6 +375,7 @@ def nvfp4_t(func, types, args, kwargs):
         old.is_swizzled_scales,
         old.use_triton_kernel,
         old.act_quant_kwargs,
+        old.skip_scaling_with_global_scaling_factor,
     )
     return new
 
@@ -389,6 +398,7 @@ def nvfp4_transpose(func, types, args, kwargs):
         old.is_swizzled_scales,
         old.use_triton_kernel,
         old.act_quant_kwargs,
+        old.skip_scaling_with_global_scaling_factor,
     )
     return new
 
@@ -409,6 +419,7 @@ def nvfp4_view_op(func, types, args, kwargs):
         args[0].is_swizzled_scales,
         args[0].use_triton_kernel,
         args[0].act_quant_kwargs,
+        args[0].skip_scaling_with_global_scaling_factor,
     )
 
 
@@ -427,6 +438,7 @@ def nvfp4_select(func, types, args, kwargs):
         old.is_swizzled_scales,
         old.use_triton_kernel,
         old.act_quant_kwargs,
+        old.skip_scaling_with_global_scaling_factor,
     )
     return return_and_correct_aliasing(func, args, kwargs, new)
 
@@ -462,12 +474,20 @@ def _addmm_nvfp4_dispatch(
         b_scale = b.scale.t().view(N, K // b.block_size)
         b_scale_blocked = to_blocked(b_scale)
 
-    # Merge double quant scales into 1 scale for Scale_In^D
-    if a.per_tensor_scale is not None:
-        assert b.per_tensor_scale is not None
-        scale_result = a.per_tensor_scale * b.per_tensor_scale
+    # WAR: Skip global scaling factor if skip_scaling_with_global_scaling_factor is set of either a or b.
+    # NVFP4 _scaled_mm fails if using global scaling factor and bias.
+    # It even fails if only global scaling factor is provided.
+    # When skip_scaling_with_global_scaling_factor is set, we scale outside of this op.
+    # E.g. by fusing scaling into some following op.
+    if not a.skip_scaling_with_global_scaling_factor and not b.skip_scaling_with_global_scaling_factor:
+        # Merge double quant scales into 1 scale for Scale_In^D
+        if a.per_tensor_scale is not None:
+            assert b.per_tensor_scale is not None
+            scale_result = a.per_tensor_scale * b.per_tensor_scale
+        else:
+            assert b.per_tensor_scale is None and a.per_tensor_scale is None
+            scale_result = None
     else:
-        assert b.per_tensor_scale is None and a.per_tensor_scale is None
         scale_result = None
 
     # THIS IS A WORKAROUND FOR TWO ERRORS:
@@ -712,3 +732,4 @@ def nvfp4_quantize(
     # data_lp = pack_uint4(data_lp).view(torch.float4_e2m1fn_x2)
     data_lp = pack_uint4(data_lp)
     return out_scales, data_lp
+
