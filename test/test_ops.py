@@ -138,23 +138,27 @@ class TestOps(TestCase):
         torch.manual_seed(1234)
         device = "cpu"
         if input_dtype == torch.uint8:
-            q_scale = float(1.7907238006591797)
-            k_scale = float(1.8039721250534058)
-            v_scale = float(1.839004635810852)
-            a_scale = float(0.003919653594493866)
-            o_scale = float(1.8191684484481812)
-            q_zp = int(127)
-            k_zp = int(125)
-            v_zp = int(127)
-            a_zp = int(120)
-            o_zp = int(128)
+            q_scale, k_scale, v_scale = (
+                float(1.7907238006591797),
+                float(1.8039721250534058),
+                float(1.839004635810852),
+            )
+            a_scale, o_scale = float(0.003919653594493866), float(1.8191684484481812)
+            q_zp, k_zp, v_zp, a_zp, o_zp = (
+                int(127),
+                int(125),
+                int(127),
+                int(120),
+                int(128),
+            )
             atol, rtol = 1.0, 5e-6
         else:
-            q_scale = float(5.96875)
-            k_scale = float(5.78125)
-            v_scale = float(0.98046875)
-            a_scale = float(4.84375)
-            o_scale = float(3.171875)
+            q_scale, k_scale, v_scale = (
+                float(5.96875),
+                float(5.78125),
+                float(0.98046875),
+            )
+            a_scale, o_scale = float(4.84375), float(3.171875)
             atol, rtol = 0.125, 5e-6
         q_shape = [batch_size, q_seq_len, n_head, head_dim]
         kv_shape = [batch_size, kv_seq_len, n_head, head_dim]
@@ -163,12 +167,8 @@ class TestOps(TestCase):
         k = torch.randn(kv_shape, dtype=torch.float, device=device).transpose(1, 2)
         v = torch.randn(kv_shape, dtype=torch.float, device=device).transpose(1, 2)
         if input_dtype == torch.uint8:
-            q *= 100
-            k *= 100
-            v *= 100
-        q = q.to(input_dtype)
-        k = k.to(input_dtype)
-        v = v.to(input_dtype)
+            q, k, v = (t * 100 for t in (q, k, v))
+        q, k, v = (t.to(input_dtype) for t in (q, k, v))
         attn_mask = (
             torch.randn(mask_shape, dtype=mask_dtype, device=device)
             if mask_dtype is not None
@@ -181,69 +181,30 @@ class TestOps(TestCase):
             attn_mask.clone() if mask_dtype is not None else None,
         )
 
+        common_kwargs = dict(
+            dropout_p=0.0,
+            is_causal=False,
+            q_scale=q_scale,
+            k_scale=k_scale,
+            v_scale=v_scale,
+            a_scale=a_scale,
+            o_scale=o_scale,
+        )
+
         if input_dtype == torch.uint8:
+            common_kwargs.update(q_zp=q_zp, k_zp=k_zp, v_zp=v_zp, a_zp=a_zp, o_zp=o_zp)
             math_ref = self._scaled_dot_product_int8_op_ref(
-                q2,
-                k2,
-                v2,
-                attn_mask=attn_mask,
-                dropout_p=0.0,
-                is_causal=False,
-                q_scale=q_scale,
-                q_zp=q_zp,
-                k_scale=k_scale,
-                k_zp=k_zp,
-                v_scale=v_scale,
-                v_zp=v_zp,
-                a_scale=a_scale,
-                a_zp=a_zp,
-                o_scale=o_scale,
-                o_zp=o_zp,
+                q2, k2, v2, attn_mask=attn_mask, **common_kwargs
             )
             actual = torch.ops.torchao.qscaled_dot_product(
-                q,
-                k,
-                v,
-                attn_mask=attn_mask_2,
-                dropout_p=0.0,
-                is_causal=False,
-                q_scale=q_scale,
-                q_zp=q_zp,
-                k_scale=k_scale,
-                k_zp=k_zp,
-                v_scale=v_scale,
-                v_zp=v_zp,
-                a_scale=a_scale,
-                a_zp=a_zp,
-                o_scale=o_scale,
-                o_zp=o_zp,
+                q, k, v, attn_mask=attn_mask_2, **common_kwargs
             )
         else:
             math_ref = self._scaled_dot_product_fp8_op_ref(
-                q2,
-                k2,
-                v2,
-                attn_mask=attn_mask,
-                dropout_p=0.0,
-                is_causal=False,
-                q_scale=q_scale,
-                k_scale=k_scale,
-                v_scale=v_scale,
-                a_scale=a_scale,
-                o_scale=o_scale,
+                q2, k2, v2, attn_mask=attn_mask, **common_kwargs
             )
             actual = torch.ops.torchao.qscaled_dot_product(
-                q,
-                k,
-                v,
-                attn_mask=attn_mask_2,
-                dropout_p=0.0,
-                is_causal=False,
-                q_scale=q_scale,
-                k_scale=k_scale,
-                v_scale=v_scale,
-                a_scale=a_scale,
-                o_scale=o_scale,
+                q, k, v, attn_mask=attn_mask_2, **common_kwargs
             )
         self.assertEqual(actual.float(), math_ref.float(), atol=atol, rtol=rtol)
 
@@ -257,30 +218,34 @@ class TestOps(TestCase):
         reason="cpp kernels not built",
     )
     @parametrize("input_dtype", [torch.uint8, torch.float8_e4m3fn])
-    def test_quantized_scaled_dot_product_op_with_strided(
+    def test_quantized_scaled_dot_product_op_with_strided_inputs(
         self,
         input_dtype,
     ):
         torch.manual_seed(1234)
         device = "cpu"
         if input_dtype == torch.uint8:
-            q_scale = float(1.7907238006591797)
-            k_scale = float(1.8039721250534058)
-            v_scale = float(1.839004635810852)
-            a_scale = float(0.003919653594493866)
-            o_scale = float(1.8191684484481812)
-            q_zp = int(127)
-            k_zp = int(125)
-            v_zp = int(127)
-            a_zp = int(120)
-            o_zp = int(128)
+            q_scale, k_scale, v_scale = (
+                float(1.7907238006591797),
+                float(1.8039721250534058),
+                float(1.839004635810852),
+            )
+            a_scale, o_scale = float(0.003919653594493866), float(1.8191684484481812)
+            q_zp, k_zp, v_zp, a_zp, o_zp = (
+                int(127),
+                int(125),
+                int(127),
+                int(120),
+                int(128),
+            )
             atol, rtol = 1.0, 5e-6
         else:
-            q_scale = float(5.96875)
-            k_scale = float(5.78125)
-            v_scale = float(0.98046875)
-            a_scale = float(4.84375)
-            o_scale = float(3.171875)
+            q_scale, k_scale, v_scale = (
+                float(5.96875),
+                float(5.78125),
+                float(0.98046875),
+            )
+            a_scale, o_scale = float(4.84375), float(3.171875)
             atol, rtol = 0.125, 5e-6
         batch_size, seq_len, num_head, head_dim = 56, 100, 16, 32
         hidden_size = num_head * head_dim
@@ -290,86 +255,29 @@ class TestOps(TestCase):
         input_tensor = torch.randn(input_shape, dtype=torch.float, device=device)
         hidden_state = proj(input_tensor)
         q, k, v = torch.split(hidden_state, hidden_size, dim=-1)
-        q = q.view(*qkv_shape).transpose(1, 2)
-        k = k.view(*qkv_shape).transpose(1, 2)
-        v = v.view(*qkv_shape).transpose(1, 2)
+        q, k, v = (t.view(*qkv_shape).transpose(1, 2) for t in (q, k, v))
         if input_dtype == torch.uint8:
-            q = q * 100
-            k = k * 100
-            v = v * 100
-        q = q.to(input_dtype)
-        k = k.to(input_dtype)
-        v = v.to(input_dtype)
-        q2, k2, v2 = (
-            q.clone(),
-            k.clone(),
-            v.clone(),
-        )
+            q, k, v = (t * 100 for t in (q, k, v))
+        q, k, v = (t.to(input_dtype) for t in (q, k, v))
+        q2, k2, v2 = (t.clone() for t in (q, k, v))
 
+        common_kwargs = dict(
+            attn_mask=None,
+            dropout_p=0.0,
+            is_causal=False,
+            q_scale=q_scale,
+            k_scale=k_scale,
+            v_scale=v_scale,
+            a_scale=a_scale,
+            o_scale=o_scale,
+        )
         if input_dtype == torch.uint8:
-            math_ref = self._scaled_dot_product_int8_op_ref(
-                q2,
-                k2,
-                v2,
-                attn_mask=None,
-                dropout_p=0.0,
-                is_causal=False,
-                q_scale=q_scale,
-                q_zp=q_zp,
-                k_scale=k_scale,
-                k_zp=k_zp,
-                v_scale=v_scale,
-                v_zp=v_zp,
-                a_scale=a_scale,
-                a_zp=a_zp,
-                o_scale=o_scale,
-                o_zp=o_zp,
-            )
-            actual = torch.ops.torchao.qscaled_dot_product(
-                q,
-                k,
-                v,
-                attn_mask=None,
-                dropout_p=0.0,
-                is_causal=False,
-                q_scale=q_scale,
-                q_zp=q_zp,
-                k_scale=k_scale,
-                k_zp=k_zp,
-                v_scale=v_scale,
-                v_zp=v_zp,
-                a_scale=a_scale,
-                a_zp=a_zp,
-                o_scale=o_scale,
-                o_zp=o_zp,
-            )
+            common_kwargs.update(q_zp=q_zp, k_zp=k_zp, v_zp=v_zp, a_zp=a_zp, o_zp=o_zp)
+            math_ref = self._scaled_dot_product_int8_op_ref(q2, k2, v2, **common_kwargs)
+            actual = torch.ops.torchao.qscaled_dot_product(q, k, v, **common_kwargs)
         else:
-            math_ref = self._scaled_dot_product_fp8_op_ref(
-                q2,
-                k2,
-                v2,
-                attn_mask=None,
-                dropout_p=0.0,
-                is_causal=False,
-                q_scale=q_scale,
-                k_scale=k_scale,
-                v_scale=v_scale,
-                a_scale=a_scale,
-                o_scale=o_scale,
-            )
-            actual = torch.ops.torchao.qscaled_dot_product(
-                q,
-                k,
-                v,
-                attn_mask=None,
-                dropout_p=0.0,
-                is_causal=False,
-                q_scale=q_scale,
-                k_scale=k_scale,
-                v_scale=v_scale,
-                a_scale=a_scale,
-                o_scale=o_scale,
-            )
+            math_ref = self._scaled_dot_product_fp8_op_ref(q2, k2, v2, **common_kwargs)
+            actual = torch.ops.torchao.qscaled_dot_product(q, k, v, **common_kwargs)
         assert actual.transpose(1, 2).is_contiguous(), "Output is not contiguous!"
         self.assertEqual(actual.float(), math_ref.float(), atol=atol, rtol=rtol)
 
