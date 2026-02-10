@@ -277,7 +277,7 @@ This prototype is specifically designed to be used on MoE models using
 where expert weights are implemented as 3D nn.Parameters with `num_experts` as
 the leading dim.
 
-The `MoETrainingConfig` has a module handler registered to it which will
+The `GroupedMMConfig` has a module handler registered to it which will
 find all nn.Parameters whose parent module matches the module filter function,
 and swap their data tensor with a ScaledGroupedMMTensor.
 

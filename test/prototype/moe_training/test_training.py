@@ -14,7 +14,7 @@ if not torch.cuda.is_available() or torch.cuda.get_device_capability() < (8, 9):
 from torchao.float8.float8_utils import compute_error
 from torchao.prototype.moe_training.conversion_utils import (
     FP8GroupedMMRecipe,
-    MoETrainingConfig,
+    GroupedMMConfig,
     MXFP8GroupedMMRecipe,
 )
 from torchao.quantization.quant_api import quantize_
@@ -155,7 +155,7 @@ def test_moe_training(
         return False
 
     # quantize test model
-    config = MoETrainingConfig(recipe=recipe, kernel_preference=kernel_preference)
+    config = GroupedMMConfig(recipe=recipe, kernel_preference=kernel_preference)
     quantize_(model, config=config, filter_fn=moe_module_filter_fn)
 
     # validate that only the experts were converted

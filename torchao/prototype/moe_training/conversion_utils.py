@@ -36,14 +36,14 @@ class MXFP8GroupedMMRecipe(Enum):
 GroupedMMRecipe = Union[FP8GroupedMMRecipe, MXFP8GroupedMMRecipe]
 
 
-class MoETrainingConfig(AOBaseConfig):
+class GroupedMMConfig(AOBaseConfig):
     """
-    The MoETrainingConfig is specifically designed to be used on MoE models using
+    The GroupedMMConfig is specifically designed to be used on MoE models using
     `torch._grouped_mm` to implement expert computation in token-choice routing,
     where expert weights are implemented as 3D nn.Parameters wit `num_experts` as
     the leading dim.
 
-    MoETrainingConfig has a module handler registered to it which will
+    GroupedMMConfig has a module handler registered to it which will
     find all nn.Parameters whose parent module matches the module filter function,
     and swap their data tensor with a ScaledGroupedMMTensor.
 
@@ -67,17 +67,17 @@ class MoETrainingConfig(AOBaseConfig):
         self.kernel_preference = kernel_preference
 
 
-@register_quantize_module_handler(MoETrainingConfig)
+@register_quantize_module_handler(GroupedMMConfig)
 def _moe_training_transform(
     module: nn.Module,
-    config: MoETrainingConfig,
+    config: GroupedMMConfig,
 ) -> nn.Module:
     """
     Swaps `torch.nn.Parameter` data tensor with a ScaledGroupedMMTensor.
 
     Args:
         module: Module to modify.
-        config: MoETrainingConfig which defines how to perform the MoE training transform.
+        config: GroupedMMConfig which defines how to perform the MoE training transform.
 
     Returns:
      nn.Module: The modified module with swapped parameters.
@@ -90,7 +90,7 @@ def _swap_params(
     module: nn.Module,
     *,
     module_filter_fn: Optional[Callable[[nn.Module, str], bool]] = None,
-    config: Optional[MoETrainingConfig] = None,
+    config: Optional[GroupedMMConfig] = None,
 ) -> nn.Module:
     """
     Recurses through the nn.Module, recursively swapping the data tensor of

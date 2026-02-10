@@ -26,7 +26,7 @@ from torch.nn import functional as F
 from benchmarks.utils import bench_fwd_bwd_microseconds, profile_fwd_bwd
 from torchao.prototype.moe_training.conversion_utils import (
     FP8GroupedMMRecipe,
-    MoETrainingConfig,
+    GroupedMMConfig,
     MXFP8GroupedMMRecipe,
 )
 from torchao.quantization.quant_api import quantize_
@@ -115,7 +115,7 @@ def bench_moe_training_fsdp(recipe_name: str, enable_profile: bool, use_compile:
         return False
 
     # quantize test model
-    config = MoETrainingConfig(recipe=recipe)
+    config = GroupedMMConfig(recipe=recipe)
     quantize_(model, config=config, filter_fn=moe_module_filter_fn)
 
     # FSDP2
