@@ -13,10 +13,10 @@
 <meta property="og:type" content="website" />
 <meta property="og:url" content="http://pytorch.org/workflows/inference.html" />
 <meta property="og:site_name" content="torchao" />
-<meta property="og:description" content="For inference, we support dynamic and weight-only quantization of torch.nn.funtional.linear across various dtype configurations. The pseudocode is as follows: Quantization Techniques: See the API R..." />
+<meta property="og:description" content="For inference, we support dynamic and weight-only quantization of torch.nn.funtional.linear across various dtype configurations. The pseudocode is as follows: Inference Workflows: Below are the sta..." />
 <meta property="og:image" content="https://pytorch.org/assets/images/social-share.jpg" />
 <meta property="og:image:alt" content="torchao" />
-<meta name="description" content="For inference, we support dynamic and weight-only quantization of torch.nn.funtional.linear across various dtype configurations. The pseudocode is as follows: Quantization Techniques: See the API R..." />
+<meta name="description" content="For inference, we support dynamic and weight-only quantization of torch.nn.funtional.linear across various dtype configurations. The pseudocode is as follows: Inference Workflows: Below are the sta..." />
 
     <title>Quantized Inference &#8212; torchao main documentation</title>
   
@@ -1037,26 +1037,52 @@ The pseudocode is as follows:</p>
 <span class="n">output_bf16</span> <span class="o">=</span> <span class="n">input_bf16</span> <span class="o">@</span> <span class="n">weight_int4</span><span class="o">.</span><span class="n">t</span><span class="p">()</span>
 </pre></div>
 </div>
-<section id="quantization-techniques">
-<h2>Quantization Techniques<a class="headerlink" href="#quantization-techniques" title="Permalink to this heading">#</a></h2>
-<p>See the <a class="reference external" href="https://docs.pytorch.org/ao/main/api_reference/api_ref_quantization.html">API Reference documentation</a> for code examples and detailed documentation for each quantization config:</p>
-<ul class="simple">
-<li><p><strong>float8 weight configs</strong>: <code class="docutils literal notranslate"><span class="pre">Float8DynamicActivationFloat8WeightConfig</span></code>, <code class="docutils literal notranslate"><span class="pre">Float8WeightOnlyConfig</span></code></p></li>
-<li><p><strong>int8 weight configs</strong>: <code class="docutils literal notranslate"><span class="pre">Int8DynamicActivationInt8WeightConfig</span></code>, <code class="docutils literal notranslate"><span class="pre">Int8WeightOnlyConfig</span></code></p></li>
-<li><p><strong>int4 weight configs</strong>: <code class="docutils literal notranslate"><span class="pre">Int4WeightOnlyConfig</span></code>, <code class="docutils literal notranslate"><span class="pre">Float8DynamicActivationInt4WeightConfig</span></code>, <code class="docutils literal notranslate"><span class="pre">Int8DynamicActivationInt4WeightConfig</span></code></p></li>
-<li><p><strong>intx weight configs</strong>: <code class="docutils literal notranslate"><span class="pre">IntxWeightOnlyConfig</span></code>, <code class="docutils literal notranslate"><span class="pre">Int8DynamicActivationIntxWeightConfig</span></code></p></li>
-</ul>
-<p>Notes:</p>
-<ul class="simple">
-<li><p>The quantization error incurred by applying int4 quantization to your model can be fairly significant, so using external techniques like GPTQ may be necessary to obtain a usable model.</p></li>
-<li><p>Float8 quantization requires hardware with CUDA compute capability 8.9 or greater (e.g., H100).</p></li>
-<li><p>Third-party backend CI status:</p>
-<ul>
-<li><p>Ascend NPU(requires torch_npu ≥ 2.7.1)
-<a class="reference external" href="https://github.com/Ascend/Ascend-CI/actions/workflows/torchao.yml"><img alt="Ascend NPU" src="https://github.com/Ascend/Ascend-CI/actions/workflows/torchao.yml/badge.svg" /></a></p></li>
-</ul>
-</li>
-</ul>
+<section id="inference-workflows">
+<h2>Inference Workflows<a class="headerlink" href="#inference-workflows" title="Permalink to this heading">#</a></h2>
+<p>Below are the stable and near-stable inference workflows in torchao:</p>
+<div class="pst-scrollable-table-container"><table class="colwidths-auto table">
+<thead>
+<tr class="row-odd"><th class="head"><p>weight dtype</p></th>
+<th class="head"><p>act dtype</p></th>
+<th class="head"><p>summary</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>float8</p></td>
+<td><p>float8</p></td>
+<td><p><a class="reference internal" href="../api_reference/generated/torchao.quantization.Float8DynamicActivationFloat8WeightConfig.html#torchao.quantization.Float8DynamicActivationFloat8WeightConfig" title="torchao.quantization.Float8DynamicActivationFloat8WeightConfig"><code class="xref py py-class docutils literal notranslate"><span class="pre">Float8DynamicActivationFloat8WeightConfig</span></code></a>: Applies float8 dynamic symmetric quantization to both activations and weights. Requires CUDA ≥8.9, AMD MI300+, or Intel XPU. Supports <code class="docutils literal notranslate"><span class="pre">PerTensor</span></code> and <code class="docutils literal notranslate"><span class="pre">PerRow</span></code> granularity.</p></td>
+</tr>
+<tr class="row-odd"><td><p>float8</p></td>
+<td><p>bf16</p></td>
+<td><p><a class="reference internal" href="../api_reference/generated/torchao.quantization.Float8WeightOnlyConfig.html#torchao.quantization.Float8WeightOnlyConfig" title="torchao.quantization.Float8WeightOnlyConfig"><code class="xref py py-class docutils literal notranslate"><span class="pre">Float8WeightOnlyConfig</span></code></a>: Applies float8 weight-only symmetric per-channel quantization. Matmul computed in original precision.</p></td>
+</tr>
+<tr class="row-even"><td><p>int8</p></td>
+<td><p>int8</p></td>
+<td><p><a class="reference internal" href="../api_reference/generated/torchao.quantization.Int8DynamicActivationInt8WeightConfig.html#torchao.quantization.Int8DynamicActivationInt8WeightConfig" title="torchao.quantization.Int8DynamicActivationInt8WeightConfig"><code class="xref py py-class docutils literal notranslate"><span class="pre">Int8DynamicActivationInt8WeightConfig</span></code></a>: Applies int8 dynamic symmetric per-token activation and int8 per-channel weight quantization.</p></td>
+</tr>
+<tr class="row-odd"><td><p>int8</p></td>
+<td><p>bf16</p></td>
+<td><p><a class="reference internal" href="../api_reference/generated/torchao.quantization.Int8WeightOnlyConfig.html#torchao.quantization.Int8WeightOnlyConfig" title="torchao.quantization.Int8WeightOnlyConfig"><code class="xref py py-class docutils literal notranslate"><span class="pre">Int8WeightOnlyConfig</span></code></a>: Applies int8 weight-only symmetric per-channel quantization.</p></td>
+</tr>
+<tr class="row-even"><td><p>int4</p></td>
+<td><p>bf16</p></td>
+<td><p><a class="reference internal" href="../api_reference/generated/torchao.quantization.Int4WeightOnlyConfig.html#torchao.quantization.Int4WeightOnlyConfig" title="torchao.quantization.Int4WeightOnlyConfig"><code class="xref py py-class docutils literal notranslate"><span class="pre">Int4WeightOnlyConfig</span></code></a>: Applies int4 weight-only groupwise quantization. Supports group sizes 256, 128, 64, 32.</p></td>
+</tr>
+<tr class="row-odd"><td><p>int4</p></td>
+<td><p>float8</p></td>
+<td><p><a class="reference internal" href="../api_reference/generated/torchao.quantization.Float8DynamicActivationInt4WeightConfig.html#torchao.quantization.Float8DynamicActivationInt4WeightConfig" title="torchao.quantization.Float8DynamicActivationInt4WeightConfig"><code class="xref py py-class docutils literal notranslate"><span class="pre">Float8DynamicActivationInt4WeightConfig</span></code></a>: Applies float8 dynamic per-row activation and int4 per-group weight quantization. Group size 128 only.</p></td>
+</tr>
+<tr class="row-even"><td><p>intx</p></td>
+<td><p>bf16</p></td>
+<td><p><a class="reference internal" href="../api_reference/generated/torchao.quantization.IntxWeightOnlyConfig.html#torchao.quantization.IntxWeightOnlyConfig" title="torchao.quantization.IntxWeightOnlyConfig"><code class="xref py py-class docutils literal notranslate"><span class="pre">IntxWeightOnlyConfig</span></code></a>: Applies intx (1-8 bit) weight-only quantization. Supports groupwise and per-channel. Works with Linear and Conv2D.</p></td>
+</tr>
+<tr class="row-odd"><td><p>intx</p></td>
+<td><p>int8</p></td>
+<td><p><a class="reference internal" href="../api_reference/generated/torchao.quantization.Int8DynamicActivationIntxWeightConfig.html#torchao.quantization.Int8DynamicActivationIntxWeightConfig" title="torchao.quantization.Int8DynamicActivationIntxWeightConfig"><code class="xref py py-class docutils literal notranslate"><span class="pre">Int8DynamicActivationIntxWeightConfig</span></code></a>: Applies int8 dynamic per-token activation and intx (1-8 bit) weight quantization. CPU optimized.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
 </section>
 <section id="accuracy-benchmarks">
 <h2>Accuracy benchmarks<a class="headerlink" href="#accuracy-benchmarks" title="Permalink to this heading">#</a></h2>
@@ -1439,7 +1465,7 @@ vllm<span class="w"> </span>bench<span class="w"> </span>throughput<span class="
   </div>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#quantization-techniques">Quantization Techniques</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#inference-workflows">Inference Workflows</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#accuracy-benchmarks">Accuracy benchmarks</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#performance-benchmarks">Performance benchmarks</a><ul class="nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#nvidia-b200">NVIDIA B200</a></li>
@@ -1676,7 +1702,7 @@ vllm<span class="w"> </span>bench<span class="w"> </span>throughput<span class="
        "headline": "Quantized Inference",
        "description": "PyTorch Documentation. Explore PyTorch, an open-source machine learning library that accelerates the path from research prototyping to production deployment. Discover tutorials, API references, and guides to help you build and deploy deep learning models efficiently.",
        "url": "/workflows/inference.html",
-       "articleBody": "Quantized Inference# Created On: Feb 10, 2026 | Last Updated On: Feb 10, 2026 For inference, we support dynamic and weight-only quantization of torch.nn.funtional.linear across various dtype configurations. The pseudocode is as follows: # high precision (baseline) output_bf16 = input_bf16 @ weight_bf16.t() # dynamic quantization (shown for fp8 rowwise) output_bf16 = to_fp8(input_bf16) @ to_fp8(weight_fp8.t()) # weight-only quantization (shown for int4) output_bf16 = input_bf16 @ weight_int4.t() Quantization Techniques# See the API Reference documentation for code examples and detailed documentation for each quantization config: float8 weight configs: Float8DynamicActivationFloat8WeightConfig, Float8WeightOnlyConfig int8 weight configs: Int8DynamicActivationInt8WeightConfig, Int8WeightOnlyConfig int4 weight configs: Int4WeightOnlyConfig, Float8DynamicActivationInt4WeightConfig, Int8DynamicActivationInt4WeightConfig intx weight configs: IntxWeightOnlyConfig, Int8DynamicActivationIntxWeightConfig Notes: The quantization error incurred by applying int4 quantization to your model can be fairly significant, so using external techniques like GPTQ may be necessary to obtain a usable model. Float8 quantization requires hardware with CUDA compute capability 8.9 or greater (e.g., H100). Third-party backend CI status: Ascend NPU(requires torch_npu \u2265 2.7.1) Accuracy benchmarks# All the following benchmarks are for meta-llama/Llama-3.1-8B using lm-eval. weight activation wikitext-perplexity winogrande checkpoint size (GB) bfloat16 bfloat16 7.3315 0.7380 16.1 float8_rowwise float8_rowwise 7.4197 0.7388 9.1 int8_rowwise bfloat16 7.3451 0.7340 9.1 int8_rowwise int8_rowwise 7.4535 0.7285 9.1 mxfp8 mxfp8 7.6034 0.7316 9.32 nvfp4 nvfp4 8.4459 0.7135 6.05 To reproduce, run the following command: // on an H100 SKIP_VLLM=1 ./benchmarks/quantization/measure_accuracy_and_performance.sh h100 // on a B200 SKIP_VLLM=1 ./benchmarks/quantization/measure_accuracy_and_performance.sh b200 Performance benchmarks# All the following benchmarks are for meta-llama/Llama-3.1-8B using torch==2.9.0 and vllm==0.13.0. NVIDIA B200# weight activation prefill toks/s decode toks/s prefill_speedup decode_speedup bfloat16 bfloat16 59099.9 14380 1 1 mxfp8 mxfp8 TODO(https://github.com/pytorch/ao/issues/3549) - - - nvfp4 nvfp4 102786 15218.9 1.739 1.058 float8_rowwise float8_rowwise 69313.7 15984 1.173 1.112 NVIDIA H100# weight activation prefill toks/s decode toks/s prefill_speedup decode_speedup bfloat16 bfloat16 30946.5 6612 1 1 float8_rowwise float8_rowwise 45312.5 8025.95 1.464 1.214 int8_rowwwise bfloat16 28231.9 4309.8 0.912 0.652 int4 float8_rowwise TODO(https://github.com/pytorch/ao/issues/3550) - - - To reproduce these benchmarks, run // on an h100 SKIP_LM_EVAL=1 ./benchmarks/quantization/measure_accuracy_and_performance.sh h100 // on a b200 SKIP_LM_EVAL=1 ./benchmarks/quantization/measure_accuracy_and_performance.sh h100 // under the hood, the actual vllm benchmark is doing the following: // 1. prefill vllm bench throughput --num_prompts 32 --input_len 4096 --output_len 32 --max_model_len 4128 // 2. decode vllm bench throughput --num_prompts 128 --input_len 32 --output_len 2048 --max_model_len 2080 Other Available Quantization Techniques# Int8DynamicActivationIntxWeightConfig Quantization# We have kernels that do 8-bit dynamic quantization of activations and uintx groupwise quantization of weights. These kernels are experimental and can only be run on a device with an ARM CPU (e.g., a Mac computers with Apple silicon). The benchmarks below were run on an M1 Mac Pro, with 8 perf cores, and 2 efficiency cores, and 32GB of RAM. In all cases, torch.compile was used. Model Technique Tokens/Second Memory Bandwidth (GB/s) Peak Memory (GB) Model Size (GB) Llama-3.1-8B Base (bfloat16) 1.24 18.62 NA 15.01 int8_dynamic_activation_intx_weight-4-256-false 16.03 65.81 NA 4.11 int8_dynamic_activation_intx_weight-3-256-false 18.94 59.97 NA 3.17 You can try out these apis with the quantize_ api as above alongside the config Int8DynamicActivationIntxWeightConfig. An example can be found in torchao/_models/llama/generate.py. Codebook Quantization# The benchmarks below were run on a single NVIDIA-A6000 GPU. Model Technique wikitext-perplexity Tokens/Second Memory Bandwidth (GB/s) Peak Memory (GB) Model Size (GB) Llama-3-8B Base (bfloat16) 7.590 32.36 485.71 16.19 15.01 codebook-4-64 9.533 1.73 8.62 23.11 4.98 Llama-3.1-8B Base (bfloat16) 7.713 32.16 482.70 16.35 15.01 codebook-4-64 10.095 1.73 8.63 23.11 4.98 You try can out these apis with the quantize_ api as above alongside the config CodebookWeightOnlyConfig an example can be found in in torchao/_models/llama/generate.py.",
+       "articleBody": "Quantized Inference# Created On: Feb 10, 2026 | Last Updated On: Feb 10, 2026 For inference, we support dynamic and weight-only quantization of torch.nn.funtional.linear across various dtype configurations. The pseudocode is as follows: # high precision (baseline) output_bf16 = input_bf16 @ weight_bf16.t() # dynamic quantization (shown for fp8 rowwise) output_bf16 = to_fp8(input_bf16) @ to_fp8(weight_fp8.t()) # weight-only quantization (shown for int4) output_bf16 = input_bf16 @ weight_int4.t() Inference Workflows# Below are the stable and near-stable inference workflows in torchao: weight dtype act dtype summary float8 float8 Float8DynamicActivationFloat8WeightConfig: Applies float8 dynamic symmetric quantization to both activations and weights. Requires CUDA \u22658.9, AMD MI300+, or Intel XPU. Supports PerTensor and PerRow granularity. float8 bf16 Float8WeightOnlyConfig: Applies float8 weight-only symmetric per-channel quantization. Matmul computed in original precision. int8 int8 Int8DynamicActivationInt8WeightConfig: Applies int8 dynamic symmetric per-token activation and int8 per-channel weight quantization. int8 bf16 Int8WeightOnlyConfig: Applies int8 weight-only symmetric per-channel quantization. int4 bf16 Int4WeightOnlyConfig: Applies int4 weight-only groupwise quantization. Supports group sizes 256, 128, 64, 32. int4 float8 Float8DynamicActivationInt4WeightConfig: Applies float8 dynamic per-row activation and int4 per-group weight quantization. Group size 128 only. intx bf16 IntxWeightOnlyConfig: Applies intx (1-8 bit) weight-only quantization. Supports groupwise and per-channel. Works with Linear and Conv2D. intx int8 Int8DynamicActivationIntxWeightConfig: Applies int8 dynamic per-token activation and intx (1-8 bit) weight quantization. CPU optimized. Accuracy benchmarks# All the following benchmarks are for meta-llama/Llama-3.1-8B using lm-eval. weight activation wikitext-perplexity winogrande checkpoint size (GB) bfloat16 bfloat16 7.3315 0.7380 16.1 float8_rowwise float8_rowwise 7.4197 0.7388 9.1 int8_rowwise bfloat16 7.3451 0.7340 9.1 int8_rowwise int8_rowwise 7.4535 0.7285 9.1 mxfp8 mxfp8 7.6034 0.7316 9.32 nvfp4 nvfp4 8.4459 0.7135 6.05 To reproduce, run the following command: // on an H100 SKIP_VLLM=1 ./benchmarks/quantization/measure_accuracy_and_performance.sh h100 // on a B200 SKIP_VLLM=1 ./benchmarks/quantization/measure_accuracy_and_performance.sh b200 Performance benchmarks# All the following benchmarks are for meta-llama/Llama-3.1-8B using torch==2.9.0 and vllm==0.13.0. NVIDIA B200# weight activation prefill toks/s decode toks/s prefill_speedup decode_speedup bfloat16 bfloat16 59099.9 14380 1 1 mxfp8 mxfp8 TODO(https://github.com/pytorch/ao/issues/3549) - - - nvfp4 nvfp4 102786 15218.9 1.739 1.058 float8_rowwise float8_rowwise 69313.7 15984 1.173 1.112 NVIDIA H100# weight activation prefill toks/s decode toks/s prefill_speedup decode_speedup bfloat16 bfloat16 30946.5 6612 1 1 float8_rowwise float8_rowwise 45312.5 8025.95 1.464 1.214 int8_rowwwise bfloat16 28231.9 4309.8 0.912 0.652 int4 float8_rowwise TODO(https://github.com/pytorch/ao/issues/3550) - - - To reproduce these benchmarks, run // on an h100 SKIP_LM_EVAL=1 ./benchmarks/quantization/measure_accuracy_and_performance.sh h100 // on a b200 SKIP_LM_EVAL=1 ./benchmarks/quantization/measure_accuracy_and_performance.sh h100 // under the hood, the actual vllm benchmark is doing the following: // 1. prefill vllm bench throughput --num_prompts 32 --input_len 4096 --output_len 32 --max_model_len 4128 // 2. decode vllm bench throughput --num_prompts 128 --input_len 32 --output_len 2048 --max_model_len 2080 Other Available Quantization Techniques# Int8DynamicActivationIntxWeightConfig Quantization# We have kernels that do 8-bit dynamic quantization of activations and uintx groupwise quantization of weights. These kernels are experimental and can only be run on a device with an ARM CPU (e.g., a Mac computers with Apple silicon). The benchmarks below were run on an M1 Mac Pro, with 8 perf cores, and 2 efficiency cores, and 32GB of RAM. In all cases, torch.compile was used. Model Technique Tokens/Second Memory Bandwidth (GB/s) Peak Memory (GB) Model Size (GB) Llama-3.1-8B Base (bfloat16) 1.24 18.62 NA 15.01 int8_dynamic_activation_intx_weight-4-256-false 16.03 65.81 NA 4.11 int8_dynamic_activation_intx_weight-3-256-false 18.94 59.97 NA 3.17 You can try out these apis with the quantize_ api as above alongside the config Int8DynamicActivationIntxWeightConfig. An example can be found in torchao/_models/llama/generate.py. Codebook Quantization# The benchmarks below were run on a single NVIDIA-A6000 GPU. Model Technique wikitext-perplexity Tokens/Second Memory Bandwidth (GB/s) Peak Memory (GB) Model Size (GB) Llama-3-8B Base (bfloat16) 7.590 32.36 485.71 16.19 15.01 codebook-4-64 9.533 1.73 8.62 23.11 4.98 Llama-3.1-8B Base (bfloat16) 7.713 32.16 482.70 16.35 15.01 codebook-4-64 10.095 1.73 8.63 23.11 4.98 You try can out these apis with the quantize_ api as above alongside the config CodebookWeightOnlyConfig an example can be found in in torchao/_models/llama/generate.py.",
        "author": {
          "@type": "Organization",
          "name": "PyTorch Contributors",
