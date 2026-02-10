@@ -241,4 +241,10 @@ class MXLinear(torch.nn.Linear):
 
 @register_quantize_module_handler(MXLinearConfig)
 def _mx_linear_transform(module: torch.nn.Module, config: MXLinearConfig):
+    """Transform handler for MXLinearConfig.
+
+    This performs module replacement (nn.Linear -> MXLinear), not parameter-level
+    quantization. It should only be applied at the module level via FqnToConfig,
+    not on individual parameters.
+    """
     return MXLinear.from_float(module, config=config)

@@ -71,6 +71,7 @@ class GroupedMMConfig(AOBaseConfig):
 def _moe_training_transform(
     module: nn.Module,
     config: GroupedMMConfig,
+    parameter_name: Optional[str] = None,
 ) -> nn.Module:
     """
     Swaps `torch.nn.Parameter` data tensor with a ScaledGroupedMMTensor.
@@ -78,11 +79,13 @@ def _moe_training_transform(
     Args:
         module: Module to modify.
         config: GroupedMMConfig which defines how to perform the MoE training transform.
+        parameter_name: If specified, only transform this specific parameter. Otherwise transform all parameters.
 
     Returns:
      nn.Module: The modified module with swapped parameters.
     """
-    out = _swap_params(module, config=config)
+
+    out = _swap_params(module, config=config, target_parameter_name=parameter_name)
     return out
 
 
@@ -91,6 +94,7 @@ def _swap_params(
     *,
     module_filter_fn: Optional[Callable[[nn.Module, str], bool]] = None,
     config: Optional[GroupedMMConfig] = None,
+    target_parameter_name: Optional[str] = None,
 ) -> nn.Module:
     """
     Recurses through the nn.Module, recursively swapping the data tensor of
@@ -142,6 +146,11 @@ def _swap_params(
 
         if module_filter_fn is None or module_filter_fn(module, cur_fqn):
             for param_name, param in module.named_parameters(recurse=False):
+                if (
+                    target_parameter_name is not None
+                    and param_name != target_parameter_name
+                ):
+                    continue
                 if not isinstance(param.data, ScaledGroupedMMTensor):
                     new_param = nn.Parameter(
                         ScaledGroupedMMTensor(
