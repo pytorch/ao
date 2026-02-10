@@ -76,12 +76,6 @@ from torchao.prototype.dtypes.uintx.gemlite_layout import (
     _linear_fp_act_int4_weight_gemlite_check,
     _linear_fp_act_int4_weight_gemlite_impl,
 )
-from torchao.quantization.quant_primitives import (
-    ZeroPointDomain,
-    _dequantize_affine_no_zero_point,
-    _dequantize_affine_tinygemm,
-    dequantize_affine,
-)
 from torchao.utils import (
     fill_defaults,
 )
@@ -262,6 +256,13 @@ def _(func, types, args, kwargs):
 
 @implements_torch_function(torch.nn.functional.embedding)
 def _(func, types, args, kwargs):
+    from torchao.quantization.quant_primitives import (
+        ZeroPointDomain,
+        _dequantize_affine_no_zero_point,
+        _dequantize_affine_tinygemm,
+        dequantize_affine,
+    )
+
     if _embedding_q_dq_check(args, kwargs):
         return _embedding_q_dq_impl(args, kwargs)
 

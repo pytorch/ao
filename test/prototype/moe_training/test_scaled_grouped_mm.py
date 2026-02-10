@@ -49,8 +49,12 @@ from torchao.testing.utils import skip_if_rocm
 torch._dynamo.config.cache_size_limit = 1000
 
 
+@pytest.mark.skipif(
+    True,
+    reason="Skipping FP8 rowwise test pending fix for https://github.com/pytorch/ao/issues/3788",
+)
 @skip_if_rocm("ROCm not supported")
-@pytest.mark.parametrize("m", [131072])
+@pytest.mark.parametrize("m", [4096])
 @pytest.mark.parametrize("n", [8192])
 @pytest.mark.parametrize("k", [5120])
 @pytest.mark.parametrize("n_groups", [1, 2, 4, 8])

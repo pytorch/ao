@@ -494,14 +494,14 @@ def test_to_mx_from_mx_compile_numerics(elem_dtype, hp_dtype, all_zeros):
     x_mx_dq = to_dtype(
         x_mx.qdata,
         x_mx.scale,
-        x_mx._elem_dtype,
+        x_mx.elem_dtype,
         x_mx.block_size,
         hp_dtype,  # noqa: E501
     )
     x_mx_c_dq = to_dtype_c(
         x_mx_c.qdata,
         x_mx_c.scale,
-        x_mx_c._elem_dtype,
+        x_mx_c.elem_dtype,
         x_mx_c.block_size,
         hp_dtype,
     )
@@ -528,7 +528,7 @@ def test_to_mx_inductor_single_kernel():
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.skipIf(not is_sm_at_least_90(), "Need sm90+")
+@pytest.mark.skipif(not is_sm_at_least_90(), reason="Need sm90+")
 def test_index_select():
     """
     test that `x_0 = x[0]` works when `x` is a 3D `MXTensor`. This is

@@ -5,11 +5,10 @@
 # LICENSE file in the root directory of this source tree.
 
 import argparse
-import subprocess
 
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, TorchAoConfig
-from utils import string_to_config
+from utils import get_size_of_dir, string_to_config
 
 
 def quantize_model_and_save(model_id, quant_config, output_dir):
@@ -29,16 +28,6 @@ def quantize_model_and_save(model_id, quant_config, output_dir):
     quantized_model.save_pretrained(output_dir, safe_serialization=False)
     tokenizer.save_pretrained(output_dir, safe_serialization=False)
     return quantized_model, tokenizer
-
-
-def get_size_of_dir(model_output_dir):
-    # get dir size from shell, to skip complexity of dealing with tensor
-    # subclasses
-    result = subprocess.run(
-        ["du", "-sb", model_output_dir], capture_output=True, text=True
-    )
-    size = int(result.stdout.split()[0])
-    return size
 
 
 def run(

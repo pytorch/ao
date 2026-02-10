@@ -785,7 +785,7 @@ def _dequantize_if_mxtensor(
         return triton_mxfp8_dequant_dim0(
             tensor.qdata,
             tensor.scale.view(torch.uint8),  # Triton can't handle e8m0 directly yet
-            out_dtype=tensor._orig_dtype,
+            out_dtype=tensor.orig_dtype,
             scale_block_size=block_size,
         )
     return tensor

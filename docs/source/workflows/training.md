@@ -1,4 +1,28 @@
-# torchao.float8
+# Quantized Training
+
+For training, we support quantizing `torch.nn.Linear` layers (stable) and `torch._grouped_mm` ops (prototype).
+Specifically, we quantize the matrix multiplies in the forward and backward of a linear, as follows:
+
+```python
+# high precision (baseline)
+     output_bf16 =       input_bf16 @ weight_bf16.t()
+ grad_input_bf16 = grad_output_bf16 @ weight_bf16
+grad_weight_bf16 =   input_bf16.t() @ grad_output_bf16
+
+# quantized (via torchao APIs, shown for fp8_rowwise, pseudocode)
+     output_bf16 =       to_fp8(input_bf16) @ to_fp8(weight_bf16.t())
+ grad_input_bf16 = to_fp8(grad_output_bf16) @ to_fp8(weight_bf16)
+grad_weight_bf16 =   to_fp8(input_bf16.t()) @ to_fp8(grad_output_bf16)
+```
+
+We have various quantized training workflows:
+* [`torchao.float8`](float8-section) (stable) for float8 rowwise training for `torch.nn.Linear`.
+* [`torchao.prototype.mx_formats`](https://github.com/pytorch/ao/blob/main/torchao/prototype/mx_formats/README.md) (prototype) for mxfp8 training for `torch.nn.Linear`. This is on its way to stable.
+* [`torchao.prototype.moe_training`](https://github.com/pytorch/ao/blob/main/torchao/prototype/moe_training/README.md) (prototype) for mxfp8 training for `torch._grouped_mm` for MoEs. The API will be combined with the training APIs in `torchao.prototype.mx_formats` in the future.
+* [`torchao.prototype.quantized_training`](https://github.com/pytorch/ao/blob/main/torchao/prototype/quantized_training/README.md) (prototype) for int8 training for `torch.nn.functional.linear`. This is currently in prototype.
+
+(float8-section)=
+## float8
 
 This is a workflow for accelerating training with [float8](https://arxiv.org/pdf/2209.05433.pdf) in native PyTorch.
 With ``torch.compile`` on, we demonstrate e2e pretraining throughput speedups of up to [**1.5x at 512 GPU / 405B parameter count scale**](https://pytorch.org/blog/training-using-float8-fsdp2/),
@@ -6,7 +30,7 @@ and up to [**1.25x at 8 GPU / 8B parameter count scale**](#training-benchmarks).
 The codebase strives to stay small, hackable, debuggable with native PyTorch tooling
 and composable with key systems such as autograd, ```torch.compile``` and distributed.
 
-## Key features
+### Key features
 
 * e2e pretraining speedups of up to [**1.5x at 512 GPU / 405B parameter count scale**](https://pytorch.org/blog/training-using-float8-fsdp2/),
 and up to [**1.25x at 8 GPU / 8B parameter count scale**](#training-benchmarks), with performance and accuracy validated on up to [**2k GPUs**](https://pytorch.org/blog/accelerating-large-scale-training-and-convergence-with-pytorch-float8-rowwise-on-crusoe-2k-h200s/), via [torchtitan's float8 integration](https://github.com/pytorch/torchtitan/blob/main/docs/float8.md)
@@ -16,13 +40,13 @@ and up to [**1.25x at 8 GPU / 8B parameter count scale**](#training-benchmarks),
 
 ℹ️ <em>See the [feature tracker](https://github.com/pytorch/ao/issues/556) for upcoming features.</em>
 
-## Quick Start
+### Quick Start
 
 ```{literalinclude} ../examples/float8_training_example.py
 :language: python
 ```
 
-# e2e training benchmarks
+### e2e training benchmarks
 
 [Torchtitan](https://github.com/pytorch/torchtitan) was used to benchmark float8 training performance.
 
@@ -66,17 +90,17 @@ including [downloading a tokenizer](https://github.com/pytorch/torchtitan?tab=re
 
 See the float8 training benchmarking [guide](https://github.com/pytorch/ao/blob/main/torchao/benchmarks/float8/training/README.md) for more details.
 
-# Multi GPU User API
+### Multi GPU User API
 
 We compose with the `DTensor` based [distributed APIs](https://pytorch.org/docs/stable/distributed.tensor.parallel.html),
 such as FSDP, TP and SP. Please see the [torchtitan](https://github.com/pytorch/torchtitan/blob/main/docs/float8.md) repository for e2e examples
 on using `torchao.float8` in a distributed setting.
 
-# Performance
+### Performance
 
 A common question about float8 training is "when is float8 linear faster vs bfloat16?".  Given the M, K, N of the forward pass through your linear, you can reference the tables below for a microbenchmark based speedup estimate on NVIDIA H100:
 
-### tensorwise scaling
+#### tensorwise scaling
 
 <img width="753" height="773" alt="Image" src="https://github.com/user-attachments/assets/e46c671a-ed35-41b4-b17c-50caf1629ecb" />
 
@@ -85,7 +109,7 @@ A common question about float8 training is "when is float8 linear faster vs bflo
 python benchmarks/float8/float8_roofline.py your_output_filename.csv --shape_gen_name sweep
 ```
 
-### rowwise scaling
+#### rowwise scaling
 
 <img width="755" height="778" alt="Image" src="https://github.com/user-attachments/assets/7d70ba36-f480-459f-b5c0-797895332631" />
 
@@ -94,7 +118,7 @@ python benchmarks/float8/float8_roofline.py your_output_filename.csv --shape_gen
 python benchmarks/float8/float8_roofline.py your_output_filename.csv --shape_gen_name sweep --float8_recipe_name rowwise
 ```
 
-### rowwise_with_gw_hp scaling
+#### rowwise_with_gw_hp scaling
 
 <img width="750" height="797" alt="Image" src="https://github.com/user-attachments/assets/e4479abc-1aca-436d-a142-60e5e804ff10" />
 
@@ -103,7 +127,7 @@ python benchmarks/float8/float8_roofline.py your_output_filename.csv --shape_gen
 python benchmarks/float8/float8_roofline.py your_output_filename.csv --shape_gen_name sweep --float8_recipe_name rowwise_with_gw_hp
 ```
 
-## Derivation
+#### Derivation
 
 In a bf16 linear, assume all of the time is spent in gemms.  In a float8 linear, account for max_abs and casting overhead.  We want to know when
 
@@ -124,7 +148,7 @@ There are three observations we can make about the formula above:
 
 For small shapes, a combination of (2) and (3) leads to speedup < 1.  For medium shapes, (1) and (3) are of similar magnitude and the speedup depends on M, K, N and framework and compiler behavior.  For large shapes, (1) leads to speedup > 1.
 
-# Testing
+### Testing
 
 ```bash
 # run single-GPU unit tests
@@ -149,7 +173,7 @@ python test/float8/test_fsdp2/test_fsdp2.py
 ./test/float8/test_everything.sh
 ```
 
-# E2E training + inference flow
+### E2E training + inference flow
 
 The first step in the E2E is to train your model and save a checkpoint. The second step is to load the checkpoint and optionally apply inference quantization before serving the model.
 #### 1. Train model and save checkpoint
@@ -210,7 +234,7 @@ torch.save({
 
 There are 3 float8 inference quantization strategies that be used after training with float8: 1) weight only quantization, and 2) dynamic activation and weight quantization, and 3) static quantization.
 
-Below is an example of dynamic activation and weight quantization. For more details, examples, and inference benchmrks, see the [torchao inference docs](inference_quantization.md).
+Below is an example of dynamic activation and weight quantization. For more details, examples, and inference benchmrks, see the [torchao inference docs](inference.md).
 
 ```python
 import torch

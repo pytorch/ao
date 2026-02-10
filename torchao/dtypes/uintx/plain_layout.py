@@ -19,9 +19,6 @@ from torchao.dtypes.utils import AQTTensorImpl, Layout, PlainLayout
 from torchao.kernel import (
     int_scaled_matmul,
 )
-from torchao.quantization.quant_primitives import (
-    ZeroPointDomain,
-)
 from torchao.utils import fill_defaults
 
 aten = torch.ops.aten
@@ -230,6 +227,10 @@ def _aqt_is_int8_reduced_range(aqt):
 
 
 def _linear_fp_act_int8_weight_check(input_tensor, weight_tensor, bias):
+    from torchao.quantization.quant_primitives import (
+        ZeroPointDomain,
+    )
+
     return (
         # input is native float tensor
         not is_traceable_wrapper_subclass(input_tensor)
