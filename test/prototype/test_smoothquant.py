@@ -84,15 +84,19 @@ class TestSmoothQuant(unittest.TestCase):
         "base_config",
         [
             Int8DynamicActivationInt8WeightConfig(version=2),
-            Int8DynamicActivationInt8WeightConfig(version=2,granularity=PerRow()),
-            Int8DynamicActivationInt8WeightConfig(version=2,granularity=PerTensor()),
-            Int8DynamicActivationInt8WeightConfig(version=2,granularity=[PerRow(),PerTensor()]),
-            Int8DynamicActivationInt8WeightConfig(version=2,granularity=[PerTensor(),PerRow()]),
+            Int8DynamicActivationInt8WeightConfig(version=2, granularity=PerRow()),
+            Int8DynamicActivationInt8WeightConfig(version=2, granularity=PerTensor()),
+            Int8DynamicActivationInt8WeightConfig(
+                version=2, granularity=[PerRow(), PerTensor()]
+            ),
+            Int8DynamicActivationInt8WeightConfig(
+                version=2, granularity=[PerTensor(), PerRow()]
+            ),
             Int8StaticActivationInt8WeightConfig(),
             Int8StaticActivationInt8WeightConfig(granularity=PerRow()),
             Int8StaticActivationInt8WeightConfig(granularity=PerTensor()),
-            Int8StaticActivationInt8WeightConfig(granularity=[PerRow(),PerTensor()]),
-            Int8StaticActivationInt8WeightConfig(granularity=[PerTensor(),PerRow()]),
+            Int8StaticActivationInt8WeightConfig(granularity=[PerRow(), PerTensor()]),
+            Int8StaticActivationInt8WeightConfig(granularity=[PerTensor(), PerRow()]),
             # Note: float8_static_activation_float8_weight is broken after recent PyTorch update.
             # TODO(#1639): Fix for supporting more API in torchao/quantization/quant_api.py
         ],
