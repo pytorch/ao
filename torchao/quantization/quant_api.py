@@ -865,7 +865,10 @@ def _float8_dynamic_activation_int4_weight_transform(
     )
     int4_packing_format = config.int4_packing_format
 
-    assert int4_packing_format in ("preshuffled", "plain"), (
+    assert int4_packing_format in (
+        "preshuffled",
+        "plain",
+    ), (
         f"only preshuffled and plain int4_packing_format supported right now, got: {int4_packing_format}"
     )
     weight = module.weight
