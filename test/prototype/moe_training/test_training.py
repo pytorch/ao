@@ -13,8 +13,9 @@ if not torch.cuda.is_available() or torch.cuda.get_device_capability() < (8, 9):
 
 from torchao.float8.float8_utils import compute_error
 from torchao.prototype.moe_training.conversion_utils import (
-    MoEScalingType,
+    FP8GroupedMMRecipe,
     MoETrainingConfig,
+    MXFP8GroupedMMRecipe,
 )
 from torchao.quantization.quant_api import quantize_
 from torchao.quantization.quantize_.common import KernelPreference
@@ -39,21 +40,21 @@ torch._dynamo.config.cache_size_limit = 1000
     "recipe_config",
     [
         {
-            "recipe": MoEScalingType.FP8_ROWWISE,
+            "recipe": FP8GroupedMMRecipe.ROWWISE,
             "group_alignment_size": 16,
             "min_out_sqnr": 29.0,
             "min_input_grad_sqnr": 29.0,
             "min_param_grad_sqnr": 23.0,
         },
         {
-            "recipe": MoEScalingType.MXFP8,
+            "recipe": MXFP8GroupedMMRecipe.RCEIL,
             "group_alignment_size": 32,
             "min_out_sqnr": 28.0,
             "min_input_grad_sqnr": 29.0,
             "min_param_grad_sqnr": 21.0,
         },
         {
-            "recipe": MoEScalingType.MXFP8_WGRAD_WITH_HP,
+            "recipe": MXFP8GroupedMMRecipe.RCEIL_WGRAD_WITH_HP,
             "group_alignment_size": 32,
             "min_out_sqnr": 28.0,
             "min_input_grad_sqnr": 29.0,
@@ -84,7 +85,7 @@ def test_moe_training(
 
     if kernel_preference == KernelPreference.EMULATED:
         # FP8_ROWWISE doesn't support emulated mode
-        if recipe == MoEScalingType.FP8_ROWWISE:
+        if recipe == FP8GroupedMMRecipe.ROWWISE:
             pytest.skip(
                 "Skipping FP8 rowwise tests with kernel_preference=EMULATED, emulated mode only applies to MXFP8"
             )
@@ -96,7 +97,7 @@ def test_moe_training(
             )
 
     # FP8_ROWWISE hardware path requires SM90
-    if recipe == MoEScalingType.FP8_ROWWISE and torch.cuda.get_device_capability() != (
+    if recipe == FP8GroupedMMRecipe.ROWWISE and torch.cuda.get_device_capability() != (
         9,
         0,
     ):
@@ -108,8 +109,8 @@ def test_moe_training(
     if (
         recipe
         in (
-            MoEScalingType.MXFP8,
-            MoEScalingType.MXFP8_WGRAD_WITH_HP,
+            MXFP8GroupedMMRecipe.RCEIL,
+            MXFP8GroupedMMRecipe.RCEIL_WGRAD_WITH_HP,
         )
         and kernel_preference != KernelPreference.EMULATED
         and torch.cuda.get_device_capability()
@@ -154,7 +155,7 @@ def test_moe_training(
         return False
 
     # quantize test model
-    config = MoETrainingConfig(scaling_type=recipe, kernel_preference=kernel_preference)
+    config = MoETrainingConfig(recipe=recipe, kernel_preference=kernel_preference)
     quantize_(model, config=config, filter_fn=moe_module_filter_fn)
 
     # validate that only the experts were converted

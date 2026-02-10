@@ -472,7 +472,7 @@ Below is a complete example showing how to apply MXFP8 expert parallelism to a s
             x: torch.Tensor,
             num_tokens_per_expert: torch.Tensor,
         ) -> torch.Tensor:
-            from torchao.prototype.moe_training.scaled_grouped_mm import (
+            from torchao.prototype.moe_training.mxfp8_grouped_mm import (
                 _to_mxfp8_then_scaled_grouped_mm as mxfp8_gmm,
             )
 
@@ -747,7 +747,6 @@ Comparison Against BF16 All-to-Alls + MXFP8 Grouped GEMM
 
 The table below shows expert parallelism pipeline benchmark results on a single node with 8xB200 GPUs connected via NVL8.
 Both configurations use MXFP8 grouped matrix multiplication with :code:`wgrad_with_hp=True`.
-The speedup comes from using MXFP8 for all-to-all communications:
 
 * **Baseline (bf16)**: bfloat16 all-to-all + MXFP8 grouped MM with :code:`wgrad_with_hp=True`
 * **MXFP8 EP**: MXFP8 all-to-all + MXFP8 grouped MM with :code:`wgrad_with_hp=True`

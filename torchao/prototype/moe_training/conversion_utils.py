@@ -5,7 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 import logging
 from enum import Enum
-from typing import Callable, Optional
+from typing import Callable, Optional, Union
 
 from torch import nn
 
@@ -18,10 +18,22 @@ from torchao.quantization.transform_module import (
 logger: logging.Logger = logging.getLogger(__name__)
 
 
-class MoEScalingType(Enum):
-    FP8_ROWWISE = "fp8_rowwise"
-    MXFP8 = "mxfp8"
-    MXFP8_WGRAD_WITH_HP = "mxfp8_wgrad_with_hp"
+class FP8GroupedMMRecipe(Enum):
+    """FP8 recipes for grouped matrix multiplication."""
+
+    ROWWISE = "fp8_rowwise"
+
+
+class MXFP8GroupedMMRecipe(Enum):
+    """MXFP8 recipes for grouped matrix multiplication."""
+
+    # TODO: add floor variants
+    RCEIL = "rceil"
+    RCEIL_WGRAD_WITH_HP = "rceil_wgrad_with_hp"
+
+
+# Type alias for any grouped MM recipe
+GroupedMMRecipe = Union[FP8GroupedMMRecipe, MXFP8GroupedMMRecipe]
 
 
 class MoETrainingConfig(AOBaseConfig):
@@ -45,11 +57,13 @@ class MoETrainingConfig(AOBaseConfig):
 
     def __init__(
         self,
-        scaling_type: MoEScalingType = MoEScalingType.FP8_ROWWISE,
+        recipe: Union[
+            FP8GroupedMMRecipe, MXFP8GroupedMMRecipe
+        ] = FP8GroupedMMRecipe.ROWWISE,
         kernel_preference: KernelPreference = KernelPreference.AUTO,
     ):
         super().__init__()
-        self.scaling_type = scaling_type
+        self.recipe = recipe
         self.kernel_preference = kernel_preference
 
 
@@ -103,7 +117,7 @@ def _swap_params(
             )
         if not isinstance(module.data, ScaledGroupedMMTensor):
             new_data = ScaledGroupedMMTensor(
-                module.data, config.scaling_type, config.kernel_preference
+                module.data, config.recipe, config.kernel_preference
             )
             return nn.Parameter(new_data, requires_grad=module.requires_grad)
         return module
@@ -131,7 +145,7 @@ def _swap_params(
                 if not isinstance(param.data, ScaledGroupedMMTensor):
                     new_param = nn.Parameter(
                         ScaledGroupedMMTensor(
-                            param.data, config.scaling_type, config.kernel_preference
+                            param.data, config.recipe, config.kernel_preference
                         ),
                         requires_grad=param.requires_grad,
                     )

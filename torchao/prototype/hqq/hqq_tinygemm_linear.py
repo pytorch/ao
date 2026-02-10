@@ -12,10 +12,10 @@ device = "cuda"
 import copy
 
 import torch.nn.functional as F
-from hqq.core.quantize import Quantizer
-from hqq.core.utils import *  # noqa: F401, F403
 from torch import Tensor, nn
 
+from hqq.core.quantize import Quantizer
+from hqq.core.utils import *  # noqa: F401, F403
 from torchao.dtypes.utils import is_device
 from torchao.utils import check_cpu_version
 

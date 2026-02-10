@@ -54,8 +54,9 @@ if not torch.cuda.is_available() or torch.cuda.get_device_capability() < (8, 9):
 
 from torchao.float8.float8_utils import compute_error
 from torchao.prototype.moe_training.conversion_utils import (
-    MoEScalingType,
+    FP8GroupedMMRecipe,
     MoETrainingConfig,
+    MXFP8GroupedMMRecipe,
 )
 from torchao.quantization.quant_api import quantize_
 
@@ -137,21 +138,21 @@ def distributed_env():
     "recipe_config",
     [
         {
-            "recipe": MoEScalingType.FP8_ROWWISE,
+            "recipe": FP8GroupedMMRecipe.ROWWISE,
             "group_alignment_size": 16,
             "min_out_sqnr": 29.0,
             "min_input_grad_sqnr": 29.0,
             "min_param_grad_sqnr": 23.0,
         },
         {
-            "recipe": MoEScalingType.MXFP8,
+            "recipe": MXFP8GroupedMMRecipe.RCEIL,
             "group_alignment_size": 32,
             "min_out_sqnr": 27.0,
             "min_input_grad_sqnr": 29.0,
             "min_param_grad_sqnr": 21.0,
         },
         {
-            "recipe": MoEScalingType.MXFP8_WGRAD_WITH_HP,
+            "recipe": MXFP8GroupedMMRecipe.RCEIL_WGRAD_WITH_HP,
             "group_alignment_size": 32,
             "min_out_sqnr": 27.0,
             "min_input_grad_sqnr": 29.0,
@@ -180,7 +181,7 @@ def test_moe_training_parallel(
         recipe_config["min_param_grad_sqnr"],
     )
     assert torch.cuda.is_available()
-    if recipe == MoEScalingType.FP8_ROWWISE:
+    if recipe == FP8GroupedMMRecipe.ROWWISE:
         if torch.cuda.get_device_capability() != (9, 0):
             pytest.skip(
                 f"FP8 rowwise only supported on compute capability 9.0 and found {torch.cuda.get_device_capability()}"
@@ -188,7 +189,10 @@ def test_moe_training_parallel(
         if parallel_strategy == ParallelStrategy.EXPERT_TENSOR_PARALLEL:
             pytest.skip("FP8 rowwise with EP+TP currently not supported")
 
-    elif recipe in (MoEScalingType.MXFP8, MoEScalingType.MXFP8_WGRAD_WITH_HP):
+    elif recipe in (
+        MXFP8GroupedMMRecipe.RCEIL,
+        MXFP8GroupedMMRecipe.RCEIL_WGRAD_WITH_HP,
+    ):
         emulated = kernel_preference == KernelPreference.EMULATED
         if not emulated and torch.cuda.get_device_capability() != (
             10,

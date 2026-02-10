@@ -8,7 +8,7 @@ import argparse
 import itertools
 import logging
 from dataclasses import dataclass
-from typing import List
+from typing import List, Union
 
 import torch
 from tabulate import tabulate
@@ -20,7 +20,10 @@ from benchmarks.utils import (
     profile_fwd_bwd,
 )
 from torchao.prototype.moe_training import _quantize_then_scaled_grouped_mm
-from torchao.prototype.moe_training.conversion_utils import MoEScalingType
+from torchao.prototype.moe_training.conversion_utils import (
+    FP8GroupedMMRecipe,
+    MXFP8GroupedMMRecipe,
+)
 from torchao.prototype.moe_training.utils import generate_jagged_offs
 
 device = torch.device("cuda")
@@ -36,7 +39,7 @@ torch._dynamo.config.automatic_dynamic_shapes = False
 class ExperimentConfig:
     high_precision_dtype: torch.dtype
     MNKG: tuple[int]
-    recipe: MoEScalingType
+    recipe: Union[FP8GroupedMMRecipe, MXFP8GroupedMMRecipe]
 
 
 @dataclass(frozen=True)
@@ -58,37 +61,37 @@ class Experiment:
 def get_configs() -> List[ExperimentConfig]:
     MNKG_list = [
         # Llama4 16e with various experts per device (i.e., different EP degrees)
-        (16384, 8192, 5120, 1),
-        (16384, 8192, 5120, 2),
-        (16384, 8192, 5120, 4),
-        (16384, 8192, 5120, 8),
+        # (16384, 8192, 5120, 1),
+        # (16384, 8192, 5120, 2),
+        # (16384, 8192, 5120, 4),
+        # (16384, 8192, 5120, 8),
         (128000, 8192, 5120, 1),
         (128000, 8192, 5120, 2),
         (128000, 8192, 5120, 4),
         (128000, 8192, 5120, 8),
         # DSV3 236B with various experts per device (i.e., different EP degrees)
-        (16384, 1536, 5120, 1),
-        (16384, 1536, 5120, 2),
-        (16384, 1536, 5120, 4),
-        (16384, 1536, 5120, 8),
-        (128000, 1536, 5120, 1),
-        (128000, 1536, 5120, 2),
-        (128000, 1536, 5120, 4),
-        (128000, 1536, 5120, 8),
+        # (16384, 1536, 5120, 1),
+        # (16384, 1536, 5120, 2),
+        # (16384, 1536, 5120, 4),
+        # (16384, 1536, 5120, 8),
+        # (128000, 1536, 5120, 1),
+        # (128000, 1536, 5120, 2),
+        # (128000, 1536, 5120, 4),
+        # (128000, 1536, 5120, 8),
         # DSV3 671B with various experts per device (i.e., different EP degrees)
-        (16384, 2048, 7168, 1),
-        (16384, 2048, 7168, 2),
-        (16384, 2048, 7168, 4),
-        (16384, 2048, 7168, 8),
+        # (16384, 2048, 7168, 1),
+        # (16384, 2048, 7168, 2),
+        # (16384, 2048, 7168, 4),
+        # (16384, 2048, 7168, 8),
         (128000, 2048, 7168, 1),
         (128000, 2048, 7168, 2),
         (128000, 2048, 7168, 4),
         (128000, 2048, 7168, 8),
     ]
     recipes = [
-        MoEScalingType.FP8_ROWWISE,
-        MoEScalingType.MXFP8,
-        MoEScalingType.MXFP8_WGRAD_WITH_HP,
+        FP8GroupedMMRecipe.ROWWISE,
+        MXFP8GroupedMMRecipe.RCEIL,
+        MXFP8GroupedMMRecipe.RCEIL_WGRAD_WITH_HP,
     ]
     high_precision_dtypes = [torch.bfloat16]
     configs = []
@@ -131,7 +134,9 @@ def run_experiment(
     #   that occurs in the backward pass of the differentiable scaled grouped mm.
     # - the transposed tensor in col-major format with groups along the row dimension,
     #    which represents the right operand.
-    token_group_alignment_size = 32 if config.recipe == MoEScalingType.MXFP8 else 16
+    token_group_alignment_size = (
+        32 if config.recipe == MXFP8GroupedMMRecipe.RCEIL else 16
+    )
     offs = generate_jagged_offs(G, total_M, multiple_of=token_group_alignment_size)
 
     labels = torch.ones(
@@ -166,7 +171,7 @@ def run_experiment(
         A,
         B_t,
         offs,
-        scaling_type=config.recipe,
+        recipe=config.recipe,
         labels=labels,
         use_compile=args.compile,
         fullgraph=False,
@@ -177,7 +182,7 @@ def run_experiment(
             A,
             B_t,
             offs,
-            scaling_type=config.recipe,
+            recipe=config.recipe,
             labels=labels,
             use_compile=args.compile,
             profile_name="scaled_profile",
@@ -198,7 +203,7 @@ def run_experiment(
         A,
         B_t,
         offs,
-        scaling_type=config.recipe,
+        recipe=config.recipe,
         use_compile=args.compile,
         fullgraph=True,
     )
@@ -247,7 +252,7 @@ def main(args: argparse.Namespace):
     results = []
     for config in tqdm(configs):
         if (
-            config.recipe == MoEScalingType.FP8_ROWWISE
+            config.recipe == FP8GroupedMMRecipe.ROWWISE
             and torch.cuda.get_device_capability() != (9, 0)
         ):
             logging.warning(
@@ -256,7 +261,7 @@ def main(args: argparse.Namespace):
             continue
 
         elif (
-            config.recipe == MoEScalingType.MXFP8
+            config.recipe == MXFP8GroupedMMRecipe.RCEIL
             and torch.cuda.get_device_capability() != (10, 0)
         ):
             logging.warning(

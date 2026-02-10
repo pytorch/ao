@@ -66,7 +66,10 @@ from torch.nn import functional as F
 from torchao.prototype.moe_training import (
     _to_mxfp8_then_scaled_grouped_mm,
 )
-from torchao.prototype.moe_training.conversion_utils import MoEScalingType
+from torchao.prototype.moe_training.conversion_utils import (
+    FP8GroupedMMRecipe,
+    MXFP8GroupedMMRecipe,
+)
 from torchao.prototype.moe_training.utils import generate_jagged_offs
 
 num_groups, total_M, N, K = 8, 131072, 8192, 5120
@@ -221,12 +224,12 @@ To reproduce these benchmarks, on a B200 GPU machine, run the following commands
 
 Llama4 17b 16e shapes:
 ```bash
-CUDA_VISIBLE_DEVICES=6 python benchmarks/prototype/moe_training/bench_moe_layer.py --recipe mxfp8 --local_batch_size=16 --dim=5120 --hidden_dim=8192 --local_num_experts=8
+CUDA_VISIBLE_DEVICES=6 python benchmarks/prototype/moe_training/bench_moe_layer.py --recipe rceil --local_batch_size=16 --dim=5120 --hidden_dim=8192 --local_num_experts=8
 ```
 
 DeepSeekV3 671b shapes:
 ```bash
-CUDA_VISIBLE_DEVICES=6 python benchmarks/prototype/moe_training/bench_moe_layer.py --recipe mxfp8 --local_batch_size=16 --dim=7168 --hidden_dim=2048 --local_num_experts=8
+CUDA_VISIBLE_DEVICES=6 python benchmarks/prototype/moe_training/bench_moe_layer.py --recipe rceil --local_batch_size=16 --dim=7168 --hidden_dim=2048 --local_num_experts=8
 ```
 
 
