@@ -23,13 +23,20 @@ from torchao.quantization.quantize_.workflows import (
 )
 from torchao.quantization.utils import compute_error
 from torchao.sparsity import apply_fake_sparsity
-from torchao.utils import is_sm_at_least_90
+from torchao.utils import (
+    is_sm_at_least_90,
+    torch_version_at_least,
+)
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
 
 
+@unittest.skipIf(
+    not torch_version_at_least("2.10.0"),
+    "Need torch >= 2.10.0 for availability of ABI kernels",
+)
 class TestSparse2x4Float8Tensor(common_utils.TestCase):
     @unittest.skipIf(not is_sm_at_least_90(), "Need H100 to run")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
@@ -112,12 +119,22 @@ class TestSparse2x4Float8Tensor(common_utils.TestCase):
                 ),
             )
 
-            original = torch.ops.aten.to.dtype_layout(
+            original_by_to_dtype_layout = torch.ops.aten.to.dtype_layout(
                 model.weight,
                 dtype=torch.float,
                 layout=torch.strided,
             )
-            torch.testing.assert_close(expected, original, atol=1e-1, rtol=1e-1)
+            torch.testing.assert_close(
+                expected, original_by_to_dtype_layout, atol=1e-1, rtol=1e-1
+            )
+
+            original_by_to_dtype = torch.ops.aten.to.dtype(
+                model.weight,
+                torch.float,
+            )
+            torch.testing.assert_close(
+                expected, original_by_to_dtype, atol=1e-1, rtol=1e-1
+            )
 
 
 common_utils.instantiate_parametrized_tests(TestSparse2x4Float8Tensor)

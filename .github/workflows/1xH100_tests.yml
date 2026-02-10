@@ -25,9 +25,9 @@ jobs:
         include:
           - name: H100
             runs-on: linux.aws.h100
-            torch-spec: '--pre torch torchvision torchaudio fbgemm-gpu-genai --index-url https://download.pytorch.org/whl/nightly/cu126'
+            torch-spec: '--pre torch torchvision torchaudio mslk --index-url https://download.pytorch.org/whl/nightly/cu126'
             gpu-arch-type: "cuda"
-            gpu-arch-version: "12.4"
+            gpu-arch-version: "12.6"
     permissions:
       id-token: write
       contents: read
@@ -46,9 +46,13 @@ jobs:
         pip install uv
         pip install ${{ matrix.torch-spec }}
         uv pip install -r dev-requirements.txt
-        pip install . --no-build-isolation
+        pip install . --no-build-isolation -vv
         pytest test/integration --verbose -s
         pytest test/dtypes/test_affine_quantized_float.py --verbose -s
-        python test/quantization/quantize_/workflows/float8/test_float8_tensor.py
+        pytest test/quantization/quantize_/workflows/float8 --verbose -s
+        python test/quantization/quantize_/workflows/int4/test_int4_tensor.py
+        python test/quantization/quantize_/workflows/int4/test_int4_preshuffled_tensor.py
         ./test/float8/test_everything_single_gpu.sh
-        pytest test/prototype/mx_formats/ -s
+        pytest test/prototype/mx_formats/ --verbose -s
+        pytest test/prototype/moe_training/test_scaled_grouped_mm.py --verbose -s
+        pytest test/prototype/moe_training/test_training.py --verbose -s

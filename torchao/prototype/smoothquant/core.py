@@ -3,17 +3,14 @@
 #
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
-from enum import Enum
 from typing import Optional
 
 import torch
 import torch.nn.functional as F
 
-
-class SmoothQuantStep(str, Enum):
-    PREPARE = "prepare"
-    CONVERT = "convert"
-    PREPARE_FOR_LOADING = "prepare_for_loading"
+from torchao.quantization.quantize_.common import (
+    _choose_quant_func_and_quantize_tensor,
+)
 
 
 class SmoothQuantObserver(torch.nn.Module):
@@ -41,13 +38,14 @@ class SmoothQuantObserver(torch.nn.Module):
         self.inputs.append(input.to("cpu"))
         return input
 
-    def calculate_qparams(self):
+    def calculate_qparams(self, weight_quant_kwargs=None):
         assert self.inputs and len(self.inputs) > 0, (
             "calibrate observer first by running model on exemplar data"
         )
         inputs = [inp.to(self.device) for inp in self.inputs]
         acc = torch.cat(inputs, dim=0)
         # Reshape if needed: [batch, seq, features] -> [batch*seq, features]
+        example_input_for_quantization = acc
         if acc.ndim > 2:
             acc = acc.view(-1, acc.shape[-1])
 
@@ -57,12 +55,20 @@ class SmoothQuantObserver(torch.nn.Module):
 
         # Calculate smoothing factor
         if self.alpha is None:
-            return torch.ones_like(x_abs_max)
+            smoothing_factor = torch.ones_like(x_abs_max)
+        else:
+            eps = torch.finfo(torch.float32).eps
+            smoothing_factor = torch.pow(x_abs_max + eps, self.alpha) / torch.pow(
+                w_abs_max + eps, 1 - self.alpha
+            )
 
-        eps = torch.finfo(torch.float32).eps
-        return torch.pow(x_abs_max + eps, self.alpha) / torch.pow(
-            w_abs_max + eps, 1 - self.alpha
-        )
+        if weight_quant_kwargs is not None:
+            quant_smooth_activation = _choose_quant_func_and_quantize_tensor(
+                example_input_for_quantization / smoothing_factor, weight_quant_kwargs
+            )
+            return smoothing_factor, quant_smooth_activation.scale
+        else:
+            return smoothing_factor, None
 
 
 class SmoothQuantObservedLinear(torch.nn.Linear):
@@ -71,18 +77,18 @@ class SmoothQuantObservedLinear(torch.nn.Linear):
         in_features: int,
         out_features: int,
         obs: SmoothQuantObserver,
-        is_bias: bool = False,
+        has_bias: bool = False,
         device=None,
         dtype=None,
     ):
         super().__init__(
-            in_features, out_features, bias=is_bias, device=device, dtype=dtype
+            in_features, out_features, bias=has_bias, device=device, dtype=dtype
         )
         self.obs = obs
 
     def forward(self, input: torch.Tensor):
         input = self.obs(input)
-        return F.linear(input, self.weight)
+        return F.linear(input, self.weight, self.bias)
 
     @classmethod
     def from_float(cls, float_linear: torch.nn.Linear, obs: SmoothQuantObserver):
@@ -91,7 +97,7 @@ class SmoothQuantObservedLinear(torch.nn.Linear):
                 float_linear.in_features,
                 float_linear.out_features,
                 obs,
-                is_bias=float_linear.bias is not None,
+                has_bias=float_linear.bias is not None,
                 device=float_linear.weight.device,
                 dtype=float_linear.weight.dtype,
             )

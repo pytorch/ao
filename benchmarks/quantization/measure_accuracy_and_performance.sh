@@ -1,3 +1,9 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
+
 #!/bin/bash
 
 # measure_accuracy_and_performance.sh - Evaluate quantization recipe accuracy
@@ -118,6 +124,7 @@ else
   fi
 fi
 
+mkdir -p "$(dirname "$LOG_FILE")"
 rm -rf $LOG_FILE
 touch $LOG_FILE
 

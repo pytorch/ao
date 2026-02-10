@@ -3,6 +3,7 @@
 import copy
 import functools
 import itertools
+import math
 import operator
 from typing import Any
 
@@ -794,8 +795,9 @@ def _register_qconv_weight_prepack_pass(
             )
             with torch.utils._python_dispatch._disable_current_modes():
                 w_scale_tensor = torch.tensor([w_scale.args[1]])
-            match.graph.owning_module.register_buffer("w_scale", w_scale_tensor)
-            w_scale = match.graph.create_node("get_attr", "w_scale")
+            scale_name = f"{conv_node}_scale"
+            match.graph.owning_module.register_buffer(scale_name, w_scale_tensor)
+            w_scale = match.graph.create_node("get_attr", scale_name)
         graph = match.graph
         with graph.inserting_before(conv_node):
             # Insert weight prepack node and the QConv node
@@ -803,7 +805,7 @@ def _register_qconv_weight_prepack_pass(
                 qw,
                 w_scale,
                 x_scale.args[1] if is_fp8 else x_scale,
-                0,
+                0 if is_fp8 else x_zp,
                 stride,
                 padding,
                 dilation,
@@ -3048,6 +3050,102 @@ def _register_quantization_embeddingbag_pass():
                 )
 
 
+def _is_valid_concat_dq_q_pattern():
+    def _inner(match):
+        q_pattern_node = match.output_node()
+        dq_pattern_node = q_pattern_node.args[0]
+        assert q_pattern_node.target is quantized_decomposed.quantize_per_tensor.default
+        assert (
+            dq_pattern_node.target is quantized_decomposed.dequantize_per_tensor.default
+        )
+        # dq/q pattern_node args: (node, scale, zp, min, max, dtype)
+        for i in range(2, len(q_pattern_node.args)):
+            if not q_pattern_node.args[i] == dq_pattern_node.args[i]:
+                return False
+
+        q_scale = q_pattern_node.args[1]
+        dq_scale = dq_pattern_node.args[1]
+        if not math.isclose(q_scale, dq_scale, rel_tol=1e-5, abs_tol=1e-5):
+            return False
+
+        cat_node = dq_pattern_node.args[0]
+        if not cat_node.target is torch.ops.aten.cat.default:
+            return False
+
+        return True
+
+    return _inner
+
+
+def _register_concat_dequant_quant_pass(pattern, pass_number=3):
+    @register_freezing_graph_pattern(
+        pattern,
+        extra_check=_is_valid_concat_dq_q_pattern(),
+        pass_number=pass_number,
+    )
+    def concat_dq_q_fusion(match: Match, *args, **kwargs):
+        q_pattern_node = match.output_node()
+        dq_pattern_node = q_pattern_node.args[0]
+        cat_node = dq_pattern_node.args[0]
+
+        q_pattern_node.replace_all_uses_with(cat_node)
+        cat_node.meta.update(q_pattern_node.meta)
+
+        match.graph.erase_node(q_pattern_node)
+        match.graph.erase_node(dq_pattern_node)
+
+        counters["inductor"]["concat_dq_q_matcher_count"] += 1
+        counters["inductor"]["concat_dq_q_matcher_nodes"] += len(match.nodes)
+
+
+def _register_concat_dq_q_pattern():
+    r"""
+    match concat_dq_q patterns:
+
+            int8_inputs
+                 |
+                concat
+                /    \
+            dequant   extra
+               |
+            quant
+               |
+            quant_users
+
+    fuse concat_dq_q patterns into:
+
+            int8_inputs
+                 |
+                concat
+                /    \
+        quant_users   extra
+
+    This pattern exists in DLRMv2, and this fusion will improve performance, by removing redundant dq/q.
+
+    Due to exist extra concat users, it is difficult to directly match the entire pattern.
+    So we choose to match dq/q and check concat on extra_check.
+    """
+    dequantize_per_tensor_activation_pattern = CallFunction(
+        quantized_decomposed.dequantize_per_tensor.default,
+        Arg(),
+        Arg(),
+        Arg(),
+        Arg(),
+        Arg(),
+        Arg(),
+    )
+    quantized_op_output_pattern_pt2e = CallFunction(
+        quantized_decomposed.quantize_per_tensor.default,
+        dequantize_per_tensor_activation_pattern,
+        KeywordArg("o_inv_scale"),
+        KeywordArg("o_zp"),
+        KeywordArg("o_qmin"),
+        KeywordArg("o_qmax"),
+        KeywordArg("o_dtype"),
+    )
+    _register_concat_dequant_quant_pass(quantized_op_output_pattern_pt2e)
+
+
 @functools.lru_cache(None)
 def _register_quantization_weight_pack_pass():
     # Step 1: Dequant promotion for int8-mixed-fp32/bf16
@@ -3071,6 +3169,9 @@ def _register_quantization_weight_pack_pass():
         _register_qlinear_unary_fusion()
         _register_qlinear_binary_fusion()
         _register_quantization_embeddingbag_pass()
+
+    # Step 6: Fuse concat+dequant+quant
+    _register_concat_dq_q_pattern()
 
 
 def quant_lift_up(module_graph: torch.fx.graph.Graph):

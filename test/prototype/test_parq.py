@@ -45,7 +45,7 @@ from torchao.quantization.quant_api import (
 from torchao.quantization.quant_primitives import MappingType
 from torchao.quantization.quantize_.workflows import IntxUnpackedToInt8Tensor
 from torchao.utils import (
-    _is_fbgemm_gpu_genai_available,
+    _is_mslk_available,
     check_cpu_version,
     is_sm_at_least_90,
     torch_version_at_least,
@@ -55,12 +55,13 @@ _DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 class M(nn.Module):
-    _tied_weights_keys: list[str] = []
+    _tied_weights_keys: dict[str, str] = {}
 
     def __init__(
         self, m=256, n=128, k=16, bias=False, embedding=True, tied_weights=False
     ):
         nn.Module.__init__(self)
+        self._tied_weights_keys: dict[str, str] = {}
         self.embed_tokens = nn.Embedding(k, m) if embedding else nn.Identity()
         self.linear1 = nn.Linear(m, n, bias=bias)
         self.linear2 = nn.Linear(n, k, bias=bias)
@@ -70,10 +71,11 @@ class M(nn.Module):
         if embedding and tied_weights:
             assert self.embed_tokens.weight.shape == self.linear2.weight.shape
             self.tie_weights()
-            self._tied_weights_keys.append("linear2.weight")
+            self._tied_weights_keys["linear2.weight"] = "embed_tokens.weight"
 
-    def tie_weights(self):
-        self.linear2.weight = self.embed_tokens.weight
+    def tie_weights(self, **kwargs):
+        if isinstance(self.embed_tokens, nn.Embedding):
+            self.linear2.weight = self.embed_tokens.weight
 
     def example_inputs(self, device=None):
         if isinstance(self.embed_tokens, nn.Identity):
@@ -127,6 +129,8 @@ if TRANSFORMERS_AVAIL:
                 embedding=config.embedding,
                 tied_weights=config.tied_weights,
             )
+            # post_init sets up all_tied_weights_keys from _tied_weights_keys
+            self.post_init()
 
         def get_input_embeddings(self) -> nn.Module:
             return self.embed_tokens
@@ -332,9 +336,7 @@ class TestUnifTorchaoQuantizer(common_utils.TestCase):
 
     @unittest.skipIf(not torch_version_at_least("2.8.0"), "Need pytorch >= 2.8.0")
     @unittest.skipIf(not is_sm_at_least_90(), "Need sm >= 90")
-    @unittest.skipIf(
-        not _is_fbgemm_gpu_genai_available(), "Requires fbgemm-gpu-genai >= 1.2.0"
-    )
+    @unittest.skipIf(not _is_mslk_available(), "Requires mslk >= 1.0.0")
     @common_utils.parametrize("group_size", [32, 256])
     def test_int4_weight_only(self, group_size: int = 32):
         model = M(m=512, n=512).to(_DEVICE, dtype=torch.bfloat16)
@@ -369,9 +371,7 @@ class TestUnifTorchaoQuantizer(common_utils.TestCase):
 
     @unittest.skipIf(not torch_version_at_least("2.8.0"), "Need pytorch >= 2.8.0")
     @unittest.skipIf(not is_sm_at_least_90(), "Need sm >= 90")
-    @unittest.skipIf(
-        not _is_fbgemm_gpu_genai_available(), "Requires fbgemm-gpu-genai >= 1.2.0"
-    )
+    @unittest.skipIf(not _is_mslk_available(), "Requires mslk >= 1.0.0")
     def test_int4_weight_only_e2e(self, group_size: int = 32):
         model = M(m=512, n=512, embedding=False).to(torch.bfloat16).to(_DEVICE)
 
@@ -596,6 +596,7 @@ class TestInt8DynamicActivationTorchaoQuantizer(common_utils.TestCase):
 
 class TestTorchAoConfigIntegration(common_utils.TestCase):
     @unittest.skipIf(torch.backends.mps.is_available(), "MPS not supported")
+    @unittest.skipIf(torch.xpu.is_available(), "XPU not supported")
     @unittest.skipIf(not TRANSFORMERS_AVAIL, "Need transformers")
     def test_tied_weights_quantization(self, b: int = 4):
         config = MConfig(m=128, n=128, tied_weights=True)

@@ -100,12 +100,12 @@ class _PermuteMXFP8FwdHPBwd(torch.autograd.Function):
         mx_output = MXTensor(
             qdata_permuted,
             scales_permuted,
-            elem_dtype=mx_tensor._elem_dtype,
+            elem_dtype=mx_tensor.elem_dtype,
             block_size=mx_tensor.block_size,
-            orig_dtype=mx_tensor._orig_dtype,
+            orig_dtype=mx_tensor.orig_dtype,
             kernel_preference=mx_tensor.kernel_preference,
             act_quant_kwargs=mx_tensor.act_quant_kwargs,
-            is_swizzled_scales=mx_tensor._is_swizzled_scales,
+            is_swizzled_scales=mx_tensor.is_swizzled_scales,
         )
 
         # Save for backward

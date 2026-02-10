@@ -1403,8 +1403,6 @@ def choose_qparams_affine_with_min_max(
     eps: Optional[float] = None,
     scale_dtype: Optional[torch.dtype] = None,
     zero_point_dtype: Optional[torch.dtype] = None,
-    preserve_zero: bool = True,
-    zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """A variant of :func:`~torchao.quantization.quant_primitives.choose_qparams_affine`
     operator that pass in min_val and max_val directly instead of deriving these from a single input.
@@ -1416,8 +1414,6 @@ def choose_qparams_affine_with_min_max(
       difference: instead of passing in `input` Tensor and use that to calculate min_val/max_val
       and then scale/zero_point, we pass in min_val/max_val directly
     """
-    if zero_point_domain is None:
-        raise ValueError("Please use ZeroPointDomain.NONE instead of None")
     quant_min, quant_max = _get_and_check_qmin_qmax(target_dtype, quant_min, quant_max)
     assert mapping_type in [
         MappingType.SYMMETRIC,
@@ -1437,14 +1433,8 @@ def choose_qparams_affine_with_min_max(
     if eps is None:
         eps = torch.finfo(min_val.dtype).eps
 
-    scale_device = min_val.device
-
-    if preserve_zero:
-        min_val_neg = torch.min(min_val, torch.zeros_like(min_val))
-        max_val_pos = torch.max(max_val, torch.zeros_like(max_val))
-    else:
-        min_val_neg = min_val
-        max_val_pos = max_val
+    min_val_neg = torch.min(min_val, torch.zeros_like(min_val))
+    max_val_pos = torch.max(max_val, torch.zeros_like(max_val))
 
     if (
         mapping_type == MappingType.SYMMETRIC
@@ -1467,47 +1457,18 @@ def choose_qparams_affine_with_min_max(
             smax = max_val_pos / float(quant_max)
             mask = smin > smax
             scale = torch.where(mask, smin, smax)
-        # zeros
-        if not preserve_zero:
-            raise ValueError(
-                "preserve_zero == False is not supported for symmetric quantization"
-            )
-        if zero_point_domain == ZeroPointDomain.FLOAT:
-            # TODO INT should not be a valid ZeroPointDomain for symmetric quantization since
-            # symmetric quant doesn't have a zero_point
-            raise ValueError(
-                "zero_point_domain should be ZeroPointDomain.INT or ZeroPointDomain.NONE for symmetric quantization"
-            )
-        if zero_point_domain == ZeroPointDomain.NONE:
-            zero_point = None
-        else:
-            zero_point = torch.full_like(scale, int((quant_max + quant_min + 1) / 2))
+        zero_point = torch.full_like(scale, int((quant_max + quant_min + 1) / 2))
         scale = torch.clamp(scale, min=eps)
     else:
         assert mapping_type == MappingType.ASYMMETRIC
-        scale = (max_val_pos - min_val_neg) / torch.tensor(
-            float(quant_max - quant_min), dtype=scale_dtype, device=scale_device
-        )
+        scale = (max_val_pos - min_val_neg) / float(quant_max - quant_min)
         scale = torch.clamp(scale, min=eps)
-        if zero_point_domain == ZeroPointDomain.NONE:
-            zero_point = None
-        elif zero_point_domain == ZeroPointDomain.INT:
-            zero_point = quant_min - _Round.apply(min_val_neg / scale)
-            zero_point = torch.clamp(zero_point, quant_min, quant_max)
-            if zero_point_dtype is None:
-                zero_point_dtype = torch.int32
-        else:
-            assert zero_point_domain == ZeroPointDomain.FLOAT, (
-                "zero_point must be in FLOAT/INT/None domain for asymmetric quantization"
-            )
-            mid_point = (quant_max + quant_min + 1) / 2
-            # this is not preserving zero_point, this is converting to TensorCoreTiledFormat
-            # TODO move the conversion of zero_point out of quant_primitives
-            # and into TensorCoreTiledLayout.from_plain
-            zero_point = min_val_neg + scale * mid_point
+        zero_point = quant_min - _Round.apply(min_val_neg / scale)
+        zero_point = torch.clamp(zero_point, quant_min, quant_max)
+        if zero_point_dtype is None:
+            zero_point_dtype = torch.int32
 
-    if zero_point is not None:
-        zero_point = zero_point.to(dtype=zero_point_dtype)
+    zero_point = zero_point.to(dtype=zero_point_dtype)
     return scale.to(dtype=scale_dtype, device=min_val.device), zero_point
 
 
@@ -2275,32 +2236,25 @@ def _choose_scale_float8(
         tensor (torch.Tensor): Input tensor to be quantized.
         float8_dtype (torch.dtype): Data type of the quantized tensor (e.g., torch.float8_e4m3fn, torch.float8_e5m2).
         scale_dtype (torch.dtype): Data type of the scaling factor (e.g., torch.float32).
-        block_size (Optional[Tuple[int, ...]]): Block size for block-wise quantization. If None, tensorwise quantization is used.
+        block_size (Tuple[int, ...]): Block size for block-wise quantization. For per-tensor scaling, use block_size == tensor.shape.
         hp_value_lb (Optional[float]): the lower bound for high precision floating point value for calculating scale
         hp_value_ub (Optional[float]): the upper bound for high precision floating point value for calculating scale
     """
     quant_max = torch.finfo(float8_dtype).max
-    if len(block_size) == 0:
-        # tensorwise
-        max_abs = tensor.abs().max()
-        if hp_value_lb is not None or hp_value_ub is not None:
-            max_abs = torch.clamp(max_abs, min=hp_value_lb, max=hp_value_ub)
-        scale = max_abs / quant_max
-    else:
-        shape_for_reduction, reduction_dims = _get_reduction_params(
-            block_size, tensor.shape
-        )
-        tensor_reshaped = tensor.view(shape_for_reduction)
-        max_abs = tensor_reshaped.abs().amax(dim=reduction_dims, keepdim=True)
-        if hp_value_lb is not None or hp_value_ub is not None:
-            max_abs = torch.clamp(max_abs, min=hp_value_lb, max=hp_value_ub)
-        scale = max_abs / quant_max
-        # Reshape scale back to match the expected output shape
-        # The scale tensor should have the same shape as the input divided by block_size
-        output_shape = [
-            input_size // block_size[i] for i, input_size in enumerate(tensor.shape)
-        ]
-        scale = scale.reshape(output_shape)
+    shape_for_reduction, reduction_dims = _get_reduction_params(
+        block_size, tensor.shape
+    )
+    tensor_reshaped = tensor.view(shape_for_reduction)
+    max_abs = tensor_reshaped.abs().amax(dim=reduction_dims, keepdim=True)
+    if hp_value_lb is not None or hp_value_ub is not None:
+        max_abs = torch.clamp(max_abs, min=hp_value_lb, max=hp_value_ub)
+    scale = max_abs / quant_max
+    # Reshape scale back to match the expected output shape
+    # The scale tensor should have the same shape as the input divided by block_size
+    output_shape = [
+        input_size // block_size[i] for i, input_size in enumerate(tensor.shape)
+    ]
+    scale = scale.reshape(output_shape)
 
     if scale_dtype is not torch.float32:
         # Shielding for Version > 2.8

@@ -22,5 +22,5 @@
 - func: int7mm
   file: int7mm.metal
 
-- func: qmv_fast
-  file: qmv_fast.metal
+- func: qmv
+  file: qmv.metal

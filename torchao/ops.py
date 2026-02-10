@@ -11,28 +11,10 @@ from torch import Tensor
 
 lib = torch.library.Library("torchao", "FRAGMENT")
 lib.define(
-    "unpack_tensor_core_tiled_layout(Tensor packed_w, int inner_k_tiles) -> Tensor"
-)
-lib.define(
-    "dequantize_tensor_core_tiled_layout(Tensor packed_w, Tensor scales_and_zeros, int group_size, int inner_k_tiles) -> Tensor"
-)
-lib.define(
-    "rowwise_scaled_linear_cutlass_s8s4(Tensor input, Tensor input_scale, Tensor weight, Tensor weight_scale, Tensor? bias=None, ScalarType? out_dtype=None) -> Tensor"
-)
-lib.define(
-    "rowwise_scaled_linear_cutlass_s4s4(Tensor input, Tensor input_scale, Tensor weight, Tensor weight_scale, Tensor? bias=None, ScalarType? out_dtype=None) -> Tensor"
-)
-lib.define(
     "rowwise_scaled_linear_sparse_cutlass_f8f8(Tensor input, Tensor input_scale, Tensor weight, Tensor weight_meta, Tensor weight_scale, Tensor? bias=None, ScalarType? out_dtype=None) -> Tensor"
 )
 lib.define(
     "to_sparse_semi_structured_cutlass_sm9x_f8(Tensor weight) -> (Tensor, Tensor)"
-)
-lib.define(
-    "sparse24_sm90_sparsify(Tensor input, str metadata_fmt, str activation, str sp_selection_algo, *, ScalarType? dtype = None, Tensor? scale=None) -> (Tensor, Tensor)"
-)
-lib.define(
-    "sparse24_fp8_sm90_cutlass_gemm(Tensor a, Tensor a_mdata, Tensor b, *, Tensor? a_scale = None, Tensor? b_scale = None, int swizzle_size=8, str swizzle_axis='n', int sm_count=128) -> Tensor"
 )
 lib.define(
     "swizzle_mm(Tensor mat1, Tensor mat2, bool mat1_is_swizzled, bool mat2_is_swizzled) -> Tensor"
@@ -44,10 +26,6 @@ lib.define(
 # to honor the layout constraints for `b` in the two ops below.
 lib.define(
     "mx_fp8_bf16(Tensor a, Tensor b, Tensor a_scale, Tensor b_scale) -> Tensor",
-    tags=[torch._C.Tag.needs_fixed_stride_order],
-)
-lib.define(
-    "mx_fp4_bf16(Tensor a, Tensor b, Tensor a_scale, Tensor b_scale) -> Tensor",
     tags=[torch._C.Tag.needs_fixed_stride_order],
 )
 lib.define(
@@ -177,222 +155,6 @@ def _(
     return query
 
 
-def unpack_tensor_core_tiled_layout(packed_w: Tensor, inner_k_tiles: int) -> Tensor:
-    """
-    Unpacks weights that were packed with `torch.ops.aten._convert_weight_to_int4pack` to original tensor of shape `N x K`.
-
-    Assumes that the packed weights were generated with `torch.ops.aten._convert_weight_to_int4pack` with `inner_k_tiles = 2 | 4 | 8`"
-
-    Args:
-        packed_w: torch.tensor: 4D tensor with shape (N / 8) x (K / (inner_k_tiles * 16)) x 32 x inner_k_tiles, dtype is torch.int32
-        inner_k_tiles: int
-
-    Returns:
-        torch.tensor of shape is N x K, dtype is torch.int32
-
-    """
-    return torch.ops.torchao.unpack_tensor_core_tiled_layout.default(
-        packed_w=packed_w, inner_k_tiles=inner_k_tiles
-    )
-
-
-@register_custom_op("torchao::unpack_tensor_core_tiled_layout")
-def _(packed_w: Tensor, inner_k_tiles: int) -> Tensor:
-    torch._check(
-        packed_w.dim() == 4,
-        lambda: f"packed weight should be a 42d tensor, got {packed_w.dim()}D",
-    )
-    torch._check(
-        packed_w.dtype is torch.int32,
-        lambda: f"weight must be INT32, got {packed_w.dtype}",
-    )
-    torch._check(
-        inner_k_tiles == 2 or inner_k_tiles == 4 or inner_k_tiles == 8,
-        lambda: "inner_k_tiles must be 2, 4, or 8",
-    )
-    torch._check(packed_w.size(2) == 32, lambda: "packed weight must have 32 at dim 2")
-    torch._check(
-        packed_w.size(3) == inner_k_tiles / 2,
-        lambda: "packed weight must have inner_k_tiles/2 at dim 3",
-    )
-    N = packed_w.size(0) * 8
-    K = packed_w.size(1) * inner_k_tiles * 16
-
-    return torch.empty((N, K), dtype=torch.int32, device=packed_w.device)
-
-
-def dequantize_tensor_core_tiled_layout(
-    packed_w: Tensor, scales_and_zeros: Tensor, group_size: int, inner_k_tiles: int
-) -> Tensor:
-    """
-    Dequantizes by:
-    - Unpacking weights that were packed with `torch.ops.aten._convert_weight_to_int4pack` to original tensor of shape `N x K`
-    - Upcasting to bfloat16
-    - Dequantizing with the scales_and_zeros that were packed with `torchao.quantization.utils.pack_tinygemm_scales_and_zeros`
-
-    Assumes:
-    - packed weights were generated with `torch.ops.aten._convert_weight_to_int4pack` with `inner_k_tiles = 2 | 4 | 8`"
-    - packed scales_and_zeros were generated with `torchao.quantization.utils.pack_tinygemm_scales_and_zeros`
-    - qGroupSize is 32 | 64 | 128 | 256
-
-    Args:
-        packed_w: torch.tensor: 4D tensor with shape `(N / 8) x (K / (inner_k_tiles * 16)) x 32 x inner_k_tiles / 2`, dtype is torch.int32
-        scales_and_zeros: torch.tensor: 3D tensor with shape `numQGroups x N x 2`, dtype is torch.bfloat16 where numQGroups is K / qGroupSize
-        group_size: int
-        inner_k_tiles: int
-
-    Returns:
-        torch.tensor of shape is N x K, dtype is torch.bfloat16
-
-    """
-    return torch.ops.torchao.dequantize_tensor_core_tiled_layout.default(
-        packed_w, scales_and_zeros, group_size, inner_k_tiles
-    )
-
-
-@register_custom_op("torchao::dequantize_tensor_core_tiled_layout")
-def _(
-    packed_w: Tensor, scales_and_zeros: Tensor, group_size: int, inner_k_tiles: int
-) -> Tensor:
-    # packed_w preconditions
-    torch._check(
-        packed_w.dim() == 4,
-        lambda: f"packed weight should be a 4d tensor, got {packed_w.dim()}D",
-    )
-    torch._check(
-        packed_w.dtype is torch.int32,
-        lambda: f"weight must be INT32, got {packed_w.dtype}",
-    )
-    torch._check(
-        inner_k_tiles == 2 or inner_k_tiles == 4 or inner_k_tiles == 8,
-        lambda: "inner_k_tiles must be 2, 4, or 8",
-    )
-    torch._check(packed_w.size(2) == 32, lambda: "packed weight must have 32 at dim 2")
-    torch._check(
-        packed_w.size(3) == inner_k_tiles / 2,
-        lambda: "packed weight must have inner_k_tiles/2 at dim 3",
-    )
-    N = packed_w.size(0) * 8
-    K = packed_w.size(1) * inner_k_tiles * 16
-
-    # scales_and_zeros preconditions
-    torch._check(
-        scales_and_zeros.dtype is torch.bfloat16,
-        lambda: "scales_and_zeros must be bfloat16",
-    )
-    torch._check(
-        scales_and_zeros.dim() == 3,
-        lambda: "scales_and_zeros must be 3D, got {scales_and_zeros.dim()}",
-    )
-    torch._check(
-        group_size == 32 or group_size == 64 or group_size == 128 or group_size == 256,
-        lambda: "qGroupSize must be 32, 64, 128, or 256",
-    )
-    torch._check(
-        scales_and_zeros.size(0) == K // group_size,
-        lambda: "scales_and_zeros must have K // qGroupSize at dim 0",
-    )
-    torch._check(
-        scales_and_zeros.size(1) == N, lambda: "scales_and_zeros must have N at dim 1"
-    )
-    torch._check(
-        scales_and_zeros.size(2) == 2, lambda: "scales_and_zeros must have 2 at dim 2"
-    )
-
-    return torch.empty((N, K), dtype=torch.bfloat16, device=packed_w.device)
-
-
-def rowwise_scaled_linear_cutlass_s8s4(
-    input: Tensor,
-    input_scale: Tensor,
-    weight: Tensor,
-    weight_scale: Tensor,
-    bias: Optional[Tensor] = None,
-    out_dtype: Optional[torch.dtype] = None,
-) -> Tensor:
-    """
-    CUTLASS-based row-wise scaled W4A8 linear operator.
-    Args:
-        input: quantized input tensor, in row-major layout.
-        input_scale: scale factors for input tensor, has to be tensor of the same shape as the input tensor, minus the last dimension.
-        weight: quantized weight matrix, in row-major layout.
-        weight_scale: scale factors for weight tensor, one value per row of weight matrix (thus also tensor of the same shape as the weight tensor, minus the last dimension).
-        bias: an optional vector of size equal to number of rows of weight tensor, or None.
-        out_dtype: optional data type for output tensor.
-    Returns:
-        output: result tensor, in row-major layout.
-    """
-
-    return torch.ops.torchao.rowwise_scaled_linear_cutlass_s8s4.default(
-        input,
-        input_scale,
-        weight,
-        weight_scale,
-        bias,
-        out_dtype,
-    )
-
-
-@register_custom_op("torchao::rowwise_scaled_linear_cutlass_s8s4")
-def _(
-    input: Tensor,
-    input_scale: Tensor,
-    weight: Tensor,
-    weight_scale: Tensor,
-    bias: Optional[Tensor] = None,
-    out_dtype: Optional[torch.dtype] = None,
-) -> Tensor:
-    # No checks here, as detailed checks are performed by the
-    # operator itself.
-
-    dtype = out_dtype if out_dtype is not None else input_scale.dtype
-    device = input.device
-    return torch.empty((*input.shape[:-1], weight.shape[0]), dtype=dtype, device=device)
-
-
-def rowwise_scaled_linear_cutlass_s4s4(
-    input: Tensor,
-    input_scale: Tensor,
-    weight: Tensor,
-    weight_scale: Tensor,
-    bias: Optional[Tensor] = None,
-    out_dtype: Optional[torch.dtype] = None,
-) -> Tensor:
-    """
-    CUTLASS-based row-wise scaled W4A4 linear operator.
-    Args:
-        input: quantized input tensor, in row-major layout.
-        input_scale: scale factors for input tensor, has to be tensor of the same shape as the input tensor, minus the last dimension.
-        weight: quantized weight matrix, in row-major layout.
-        weight_scale: scale factors for weight tensor, one value per row of weight matrix (thus also tensor of the same shape as the weight tensor, minus the last dimension).
-        bias: an optional vector of size equal to number of rows of weight tensor, or None.
-        out_dtype: optional data type for output tensor.
-    Returns:
-        output: result tensor, in row-major layout.
-    """
-
-    return torch.ops.torchao.rowwise_scaled_linear_cutlass_s4s4.default(
-        input, input_scale, weight, weight_scale, bias, out_dtype
-    )
-
-
-@register_custom_op("torchao::rowwise_scaled_linear_cutlass_s4s4")
-def _(
-    input: Tensor,
-    input_scale: Tensor,
-    weight: Tensor,
-    weight_scale: Tensor,
-    bias: Optional[Tensor] = None,
-    out_dtype: Optional[torch.dtype] = None,
-) -> Tensor:
-    # No checks here, as detailed checks are performed by the
-    # operator itself.
-
-    dtype = out_dtype if out_dtype is not None else input_scale.dtype
-    device = input.device
-    return torch.empty((*input.shape[:-1], weight.shape[0]), dtype=dtype, device=device)
-
-
 def rowwise_scaled_linear_sparse_cutlass_f8f8(
     input: Tensor,
     input_scale: Tensor,
@@ -467,85 +229,11 @@ def _(
     )
 
 
-def sparse24_sm90_sparsify(
-    input_tensor: Tensor,
-    metadata_format: str,
-    activation: str,
-    algorithm: str,
-    dtype=None,
-    scale=None,
-) -> (Tensor, Tensor):
-    return torch.ops.torchao.sparse24_sm90_sparsify(
-        input_tensor, metadata_format, activation, algorithm, dtype=dtype, scale=scale
-    )
-
-
-@register_custom_op("torchao::sparse24_sm90_sparsify")
-def _(
-    input_tensor: Tensor,
-    metadata_format: str,
-    activation: str,
-    algorithm: str,
-    dtype=None,
-    scale=None,
-):
-    out_dtype = dtype if dtype is not None else input_tensor.dtype
-    return (
-        torch.empty(
-            (input_tensor.shape[0], input_tensor.shape[1] // 2),
-            dtype=out_dtype,
-            device=input_tensor.device,
-        ),
-        torch.empty(
-            (input_tensor.shape[0], input_tensor.shape[1] // 8),
-            dtype=torch.uint8,
-            device=input_tensor.device,
-        ),
-    )
-
-
-def sparse24_fp8_sm90_cutlass_gemm(
-    a: Tensor,
-    meta: Tensor,
-    b: Tensor,
-    a_scale: Optional[Tensor] = None,
-    b_scale: Optional[Tensor] = None,
-    swizzle_size: int = 8,
-    swizzle_axis: str = "n",
-    sm_count: int = 128,
-) -> Tensor:
-    return torch.ops.torchao.sparse24_fp8_sm90_cutlass_gemm(
-        a,
-        meta,
-        b,
-        a_scale=a_scale,
-        b_scale=b_scale,
-        swizzle_size=swizzle_size,
-        swizzle_axis=swizzle_axis,
-        sm_count=sm_count,
-    )
-
-
-@register_custom_op("torchao::sparse24_fp8_sm90_cutlass_gemm")
-def _(
-    a: Tensor,
-    meta: Tensor,
-    b: Tensor,
-    a_scale: Optional[Tensor] = None,
-    b_scale: Optional[Tensor] = None,
-    swizzle_size: int = 8,
-    swizzle_axis: str = "n",
-    sm_count: int = 128,
-):
-    return torch.empty((a.shape[0], b.shape[1]), dtype=torch.bfloat16, device=a.device)
-
-
 def swizzle_mm(
     mat1: Tensor, mat2: Tensor, mat1_is_swizzled: bool, mat2_is_swizzled: bool
 ) -> Tensor:
     """
     Similar to torch.mm but Tensor inputs can be SwizzleTensor instances.
-
     """
     return torch.ops.torchao.swizzle_mm.default(
         mat1, mat2, mat1_is_swizzled, mat2_is_swizzled
@@ -626,38 +314,6 @@ def _check_scale_dtypes(A_scale, B_scale):
 @register_custom_op("torchao::mx_fp8_bf16")
 def meta_mx_fp8_bf16(A: Tensor, B: Tensor, A_scale: Tensor, B_scale: Tensor):
     """Meta impl for mx_fp8_bf16"""
-    return torch.empty((A.size(0), B.size(1)), dtype=torch.bfloat16, device=A.device)
-
-
-def mx_fp4_bf16(A: Tensor, B: Tensor, A_scale: Tensor, B_scale: Tensor):
-    """Defines a matmul between two fp4 tensors w/ MX scales in E8MO and returns a bf16 tensor.
-
-    The expected format is fp4_e2m1 specified:
-    https://www.opencompute.org/documents/ocp-microscaling-formats-mx-v1-0-spec-final.pdf (Section 5.3.3)
-
-    Note: The mx scales are E8MO tensors stored in uint8 tensors (for now).
-        The layout of the scales is very particular, see:
-        https://docs.nvidia.com/cuda/cublas/index.html#d-block-scaling-factors-layout
-
-
-    Args:
-        A: fp4 tensor (2 fp4 elements are packed into 1 byte -> elem0|elem1)
-        B: fp4 tensor (2 fp4 elements are packed into 1 byte -> elem0|elem1)
-        A_scale: E8M0 scale tensor for A with groupsize=32 in swizzled layout
-        B_scale: E8M0 scale tensor for B with groupsize=32 in swizzled layout
-
-    Returns:
-        MXN bf16 Tensor
-
-    """
-    _check_scale_dtypes(A_scale, B_scale)
-    return torch.ops.torchao.mx_fp4_bf16.default(A, B, A_scale, B_scale)
-
-
-@register_custom_op("torchao::mx_fp4_bf16")
-def meta_mx_fp4_bf16(A: Tensor, B: Tensor, A_scale: Tensor, B_scale: Tensor):
-    """Meta impl for mx_fp4_bf16"""
-    # Assume that the contraction happens in the K dim thus M,N are perserved post bit pack
     return torch.empty((A.size(0), B.size(1)), dtype=torch.bfloat16, device=A.device)
 
 
