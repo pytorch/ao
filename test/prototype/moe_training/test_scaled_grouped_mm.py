@@ -35,9 +35,9 @@ from torchao.prototype.moe_training.conversion_utils import (
 from torchao.prototype.moe_training.mxfp8_grouped_mm import (
     _emulated_mxfp8_scaled_grouped_mm_2d_2d,
     _emulated_mxfp8_scaled_grouped_mm_2d_3d,
-    _quantize_then_scaled_grouped_mm,
     _to_mxfp8_then_scaled_grouped_mm,
 )
+from torchao.prototype.moe_training.tensor import _quantize_then_scaled_grouped_mm
 from torchao.prototype.moe_training.utils import (
     _to_mxfp8_per_group_colwise,
     _to_mxfp8_per_group_rowwise,

@@ -9,14 +9,6 @@ from typing import Optional
 
 import torch
 
-from torchao.prototype.moe_training.conversion_utils import (
-    FP8GroupedMMRecipe,
-    GroupedMMRecipe,
-    MXFP8GroupedMMRecipe,
-)
-from torchao.prototype.moe_training.fp8_grouped_mm import (
-    _to_fp8_rowwise_then_scaled_grouped_mm,
-)
 from torchao.prototype.moe_training.kernels.mxfp8 import (
     _mxfp8_cuda_kernels_available as _mxfp8_cuda_kernels_available_quant,
 )
@@ -54,56 +46,6 @@ _SM100_KERNELS_AVAILABLE = (
     and _mxfp8_cuda_kernels_available_mx
     and _triton_kernels_available
 )
-
-
-def _quantize_then_scaled_grouped_mm(
-    A: torch.Tensor,
-    B_t: torch.Tensor,
-    offs: Optional[torch.Tensor] = None,
-    out_dtype: Optional[torch.dtype] = torch.bfloat16,
-    recipe: GroupedMMRecipe = FP8GroupedMMRecipe.ROWWISE,
-    kernel_preference: KernelPreference = KernelPreference.AUTO,
-) -> torch.Tensor:
-    """
-    This function performs dynamic quantization with the given recipe
-    on the input tensors A and B, then performs a scaled grouped GEMM and returns the results.
-
-    Args:
-        A (bf16/float32 torch.Tensor): The first high-precision input tensor, which must be a 2D tensor of shape (M * num_groups, K)
-            and in row-major memory layout.
-        B_t (bf16/float32 torch.Tensor): The second high-precision input tensor which must be 3D, which must be shape (E, K, N)
-            and in column-major memory layout.
-        offs (int32 torch.Tensor): The offsets to use to mark the starting index of each group along dim0 of the A tensor.
-        out_dtype (Optional[torch.dtype]): The dtype of the output tensor. Currently only torch.bfloat16 is supported.
-        recipe (GroupedMMRecipe): The scaling recipe to use for quantization (FP8GroupedMMRecipe or MXFP8GroupedMMRecipe).
-        kernel_preference (KernelPreference): Kernel preference for quantization and compute. Only applies to MXFP8 scaling types.
-    """
-    # TODO: Remove logging once prototype is more mature. This is currently very useful for development and debugging.
-    if recipe == FP8GroupedMMRecipe.ROWWISE:
-        return _to_fp8_rowwise_then_scaled_grouped_mm(
-            A,
-            B_t,
-            offs,
-            out_dtype,
-        )
-    elif (
-        recipe == MXFP8GroupedMMRecipe.RCEIL
-        or recipe == MXFP8GroupedMMRecipe.RCEIL_WGRAD_WITH_HP
-    ):
-        block_size = 32
-        wgrad_with_hp = recipe == MXFP8GroupedMMRecipe.RCEIL_WGRAD_WITH_HP
-        return _to_mxfp8_then_scaled_grouped_mm(
-            A,
-            B_t,
-            offs,
-            block_size,
-            out_dtype,
-            kernel_preference=kernel_preference,
-            wgrad_with_hp=wgrad_with_hp,
-            scale_calculation_mode=ScaleCalculationMode.RCEIL,
-        )
-    else:
-        raise ValueError(f"Unsupported scaling type {recipe}")
 
 
 class _MXFP8GroupedMM(torch.autograd.Function):
