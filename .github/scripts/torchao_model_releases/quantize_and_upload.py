@@ -1003,7 +1003,7 @@ if __name__ == "__main__":
         "--device",
         type=str,
         default="cuda:0",
-        help="Device to run the model on (e.g., 'cuda', 'cuda:0', 'cpu'). Default is 'cuda:0'",
+        help="Device for model loading and quantization (e.g., 'cuda', 'cuda:0', 'cpu'). Default is 'cuda:0'",
     )
     args = parser.parse_args()
     quantize_and_upload(
