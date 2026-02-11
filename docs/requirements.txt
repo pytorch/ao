@@ -1,5 +1,5 @@
 sphinx==5.3.0
-pytorch-sphinx-theme2
+pytorch-sphinx-theme2==0.3.0
 sphinxcontrib.katex==0.8.6
 sphinxext-opengraph==0.9.1
 docutils==0.17.1  # Changed from 0.16 to match sphinx-tabs requirement
