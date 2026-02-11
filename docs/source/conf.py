@@ -180,7 +180,7 @@ switcher_version = "main" if not RELEASE else version
 html_theme_options = {
     # other options...
     "switcher": {
-        "json_url": "https://docs.pytorch.org/ao/",
+        "json_url": "https://github.com/pytorch/ao/blob/gh-pages/torchao-versions.json",
         "version_match": switcher_version,
     },
     "show_version_warning_banner": True,  # Adds a banner for non-preferred versions
