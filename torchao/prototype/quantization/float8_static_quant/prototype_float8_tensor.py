@@ -1041,6 +1041,26 @@ def _(func, types, args, kwargs):
     return return_and_correct_aliasing(func, args, kwargs, new_tensor)
 
 
+@implements_torch_function(torch.Tensor.t)
+def _(func, types, args, kwargs):
+    assert len(args) == 1
+    self = args[0]
+    assert len(self.block_size) == 2
+    new_tensor = self.__class__(
+        self.qdata.t(),
+        self.scale.t(),
+        act_quant_scale=self.act_quant_scale,
+        output_act_quant_scale=self.output_act_quant_scale,
+        block_size=(self.block_size[1], self.block_size[0]),
+        mm_config=self.mm_config,
+        act_quant_kwargs=self.act_quant_kwargs,
+        kernel_preference=self.kernel_preference,
+        dtype=self.dtype,
+        output_act_quant_kwargs=self.output_act_quant_kwargs,
+    )
+    return new_tensor
+
+
 @implements(aten.split.Tensor)
 def _(func, types, args, kwargs):
     tensor, split_size_or_sections, dim = args

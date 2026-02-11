@@ -72,6 +72,11 @@ class Int8DynamicActivationInt4WeightConfig(AOBaseConfig):
         `mapping_type`: quantization type for weight, controls the weight quantization is symmetric or asymmetric
         `act_mapping_type`: quantization type for activation, controls the activation quantization is symmetric or asymmetric
         `set_inductor_config`: if True, adjusts `torchinductor` settings to recommended values.
+
+    Example:
+
+    .. literalinclude:: ../../examples/inference/int8_dynamic_activation_int4_weight.py
+       :language: python
     """
 
     group_size: int = 32

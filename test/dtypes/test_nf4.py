@@ -35,13 +35,13 @@ if common_utils.SEED is None:
 
 import torchao
 from packaging import version
-from torchao.dtypes._nf4tensor_api import nf4_weight_only
 from torchao.dtypes.nf4tensor import (
     _INNER_TENSOR_NAMES_FOR_SHARDING,
     NF4Tensor,
     linear_nf4,
     to_nf4,
 )
+from torchao.prototype._nf4tensor_api import nf4_weight_only
 from torchao.testing.utils import skip_if_rocm
 from torchao.utils import get_current_accelerator_device, torch_version_at_least
 

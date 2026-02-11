@@ -74,7 +74,6 @@ class TestQuantFlow(TestCase):
             eps=torch.finfo(torch.float32).eps,
             scale_dtype=torch.float,
             zero_point_dtype=torch.int,
-            zero_point_domain=ZeroPointDomain.NONE,
         )
         example_inputs = [
             torch.randn(10, 2048),
@@ -93,12 +92,11 @@ class TestQuantFlow(TestCase):
             eps=torch.finfo(torch.float32).eps,
             scale_dtype=torch.float,
             zero_point_dtype=torch.int,
-            zero_point_domain=ZeroPointDomain.NONE,
         )
         for example_input in example_inputs:
             obs(example_input)
 
-        obs.calculate_qparams()
+        scale, _ = obs.calculate_qparams()  # ignore zero_point for symmetric quant
 
     def test_block_size_row_errors(self):
         obs = AffineQuantizedMinMaxObserver(
@@ -108,7 +106,6 @@ class TestQuantFlow(TestCase):
             eps=torch.finfo(torch.float32).eps,
             scale_dtype=torch.float,
             zero_point_dtype=torch.int,
-            zero_point_domain=ZeroPointDomain.NONE,
         )
         example_inputs = [
             torch.randn(10, 2048),
@@ -127,7 +124,6 @@ class TestQuantFlow(TestCase):
             eps=torch.finfo(torch.float32).eps,
             scale_dtype=torch.float,
             zero_point_dtype=torch.int,
-            zero_point_domain=ZeroPointDomain.NONE,
         )
         example_inputs = [
             torch.randn(10, 2048),
@@ -147,15 +143,13 @@ class TestQuantFlow(TestCase):
             eps=torch.finfo(torch.float32).eps,
             scale_dtype=torch.float,
             zero_point_dtype=torch.int,
-            zero_point_domain=ZeroPointDomain.NONE,
             steps=100,
             run_once=True,
         )
         example_input = torch.randn(10, 2048)
         obs(example_input)
 
-        scale, zero_point = obs.calculate_qparams()
-        self.assertIsNone(zero_point)
+        scale, _ = obs.calculate_qparams()  # ignore zero_point for symmetric quant
 
         minmax_obs = AffineQuantizedMinMaxObserver(
             MappingType.SYMMETRIC,
@@ -164,7 +158,6 @@ class TestQuantFlow(TestCase):
             eps=torch.finfo(torch.float32).eps,
             scale_dtype=torch.float,
             zero_point_dtype=torch.int,
-            zero_point_domain=ZeroPointDomain.NONE,
         )
         minmax_obs(example_input)
         min_val, max_val = minmax_obs.min_val, minmax_obs.max_val
@@ -181,12 +174,11 @@ class TestQuantFlow(TestCase):
             eps=torch.finfo(torch.float32).eps,
             scale_dtype=torch.float,
             zero_point_dtype=torch.int,
-            zero_point_domain=ZeroPointDomain.NONE,
         )
         example_input = torch.randn(10, 2048)
         obs(example_input)
         obs.set_qparams(torch.ones(2048))
-        scale, zero_point = obs.calculate_qparams()
+        scale, _ = obs.calculate_qparams()  # ignore zero_point for symmetric quant
         self.assertTrue(torch.allclose(scale, torch.ones(2048)))
 
     def test_keepdim_per_axis(self):
