@@ -1659,7 +1659,7 @@ class CppInt8SdpaTemplate(CppFlexAttentionTemplate):
 
         qSplitSize = min(qSize, q_split_size)
         try:
-            l2_cache_size = torch.cpu.get_capabilities()['l2_cache_size']
+            l2_cache_size = torch.cpu.get_capabilities()["l2_cache_size"]
         except AttributeError:
             l2_cache_size = torch._C._cpu._L2_cache_size()
         attn_size = qSplitSize * kvSize * 4 * num_threads
