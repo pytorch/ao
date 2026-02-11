@@ -6,11 +6,20 @@
 #pragma once
 
 #include <tuple>
+#include <string>
 
-#include <ATen/ATen.h>
-#include <ATen/core/Tensor.h>
-#include <ATen/cuda/CUDAUtils.h>
-#include <c10/util/Exception.h>
+#include <torch/csrc/stable/tensor.h>
+#include <torch/csrc/stable/library.h>
+#include <torch/csrc/stable/ops.h>
+#include <torch/csrc/stable/accelerator.h>
+#include <torch/csrc/stable/macros.h>
+#include <torch/csrc/inductor/aoti_torch/c/shim.h>
+#include <torch/headeronly/core/ScalarType.h>
+#include <torch/headeronly/core/Layout.h>
+#include <torch/headeronly/util/Exception.h>
+
+#include <cuda.h>  // For CUDA_VERSION
+#include <cuda_runtime.h>
 
 #if defined(TORCHAO_USE_CUTLASS) && !defined(_WIN32) &&                   \
     defined(CUDA_VERSION) && (CUDA_VERSION >= 12020)
@@ -18,7 +27,6 @@
 #endif
 
 #if defined(BUILD_TO_SPARSE_SEMI_STRUCTURED_CUTLASS_SM9X)
-#include <cuda_runtime.h>
 #include <cutlass/cutlass.h>
 #include <cutlass/detail/dependent_false.hpp>
 #include <cutlass/gemm/collective/builders/sm90_sparse_config.inl>
@@ -31,12 +39,16 @@
 
 #define OPERATOR_NAME "to_sparse_semi_structured_cutlass_sm9x"
 
+using torch::stable::Tensor;
+using torch::headeronly::Layout;
+namespace tsa = torch::stable::accelerator;
+
 namespace torchao {
 
 #if defined(BUILD_TO_SPARSE_SEMI_STRUCTURED_CUTLASS_SM9X)
 template<typename DtypeW>
-std::tuple<at::Tensor, at::Tensor>
-to_sparse_semi_structured_kernel_cutlass_sm9x(const at::Tensor& W) {
+std::tuple<Tensor, Tensor>
+to_sparse_semi_structured_kernel_cutlass_sm9x(const Tensor& W) {
   // The kernel doesn't check, but assumes instead, that the input
   // tensor is a structured sparse tensor.
 
@@ -85,9 +97,9 @@ to_sparse_semi_structured_kernel_cutlass_sm9x(const at::Tensor& W) {
   int k_meta = compressor_utility.get_metadata_k_physical();
 
   // Create result tensors.
-  at::Tensor W_compressed = W.new_empty({m, k_compressed});
-  at::Tensor W_meta =
-    W.new_empty({m_meta, k_meta}, at::TensorOptions().dtype(at::kByte));
+  Tensor W_compressed = torch::stable::new_empty(W, {m, k_compressed});
+  Tensor W_meta =
+    torch::stable::new_empty(W, {m_meta, k_meta}, torch::headeronly::ScalarType::Byte);
 
   cutlass::KernelHardwareInfo hw_info;
   hw_info.device_id = 0;
@@ -113,54 +125,64 @@ to_sparse_semi_structured_kernel_cutlass_sm9x(const at::Tensor& W) {
 
   // Allocate workspace for the compressor.
   const auto workspace_size = Compressor::get_workspace_size(arguments);
-  auto workspace = W.new_empty({(int64_t)workspace_size},
-                               at::TensorOptions().dtype(at::kByte));
+  Tensor workspace = torch::stable::new_empty(W, {(int64_t)workspace_size},
+                                              torch::headeronly::ScalarType::Byte);
+
+  // Get CUDA stream from the tensor's device.
+  int32_t device_idx = static_cast<int32_t>(W.get_device());
+  void* stream_ptr = nullptr;
+  aoti_torch_get_current_cuda_stream(device_idx, &stream_ptr);
+  cudaStream_t stream = static_cast<cudaStream_t>(stream_ptr);
 
   // Initialize compressor.
-  status = compressor_op.initialize(arguments, workspace.data_ptr(),
-                                    at::cuda::getCurrentCUDAStream());
+  status = compressor_op.initialize(arguments, workspace.data_ptr(), stream);
   CUTLASS_STATUS_CHECK(status, OPERATOR_NAME);
 
   // Perform compression.
-  status = compressor_op.run(at::cuda::getCurrentCUDAStream());
+  status = compressor_op.run(stream);
   CUTLASS_STATUS_CHECK(status, OPERATOR_NAME);
 
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
+  STD_CUDA_KERNEL_LAUNCH_CHECK();
 
   return std::make_tuple(W_compressed, W_meta);
 }
 
 template<typename DtypeW>
 void
-to_sparse_semi_structured_cutlass_sm9x_check_inputs(const at::Tensor& W) {
-  // Validate the input tensor layout.
-  TORCH_CHECK(W.dim() == 2, OPERATOR_NAME,
+to_sparse_semi_structured_cutlass_sm9x_check_inputs(const Tensor& W) {
+  // Validate the input tensor dim.
+  STD_TORCH_CHECK(W.dim() == 2, OPERATOR_NAME,
               " : Expected W argument to be 2D tensor,  got ", W.dim(),
               " dims");
-  TORCH_CHECK(W.layout() == at::Layout::Strided, OPERATOR_NAME,
-              " : Expected W argument to be strided, got layout ",W.layout());
+
+  // Validate the input tensor layout.
+  int32_t w_layout_int;
+  TORCH_ERROR_CODE_CHECK(aoti_torch_get_layout(W.get(), &w_layout_int));
+  auto w_layout = torch::stable::detail::to<Layout>(
+      torch::stable::detail::from(w_layout_int));
+  STD_TORCH_CHECK(w_layout == Layout::Strided, OPERATOR_NAME,
+              " : Expected W argument to be strided, got layout ", w_layout_int);
 
   // Validate the input tensor shape.
-  const auto W_sizes = W.sizes().vec();
-  TORCH_CHECK(W_sizes[1] % 8 == 0, OPERATOR_NAME,
+  STD_TORCH_CHECK(W.size(1) % 8 == 0, OPERATOR_NAME,
               " : Expected number of columns of the W argument to be ",
-              "divisible by 8, got ", W_sizes[1], " columns");
+              "divisible by 8, got ", W.size(1), " columns");
 
   // Validate the input tensor strides.
-  const auto W_strides = W.strides();
-  TORCH_CHECK(W_strides[1] == 1, OPERATOR_NAME,
+  STD_TORCH_CHECK(W.stride(1) == 1, OPERATOR_NAME,
               " : Expected W argument in row-major layout");
 }
 #endif
 
 template <typename DtypeW>
-std::tuple<at::Tensor, at::Tensor>
-to_sparse_semi_structured_cutlass_sm9x(const at::Tensor& W) {
+std::tuple<Tensor, Tensor>
+to_sparse_semi_structured_cutlass_sm9x(const Tensor& W) {
 #if defined(BUILD_TO_SPARSE_SEMI_STRUCTURED_CUTLASS_SM9X)
-  const auto dprops = at::cuda::getCurrentDeviceProperties();
+  // Get device properties using cached helper.
+  const auto dprops = get_device_prop();
   const auto is_sm9x = dprops->major == 9;
   if (!is_sm9x) {
-    TORCH_CHECK(false, OPERATOR_NAME,
+    STD_TORCH_CHECK(false, OPERATOR_NAME,
                 " : Operator not supported on SM", dprops->major, ".",
                 dprops->minor, " for given operands");
   }
@@ -171,8 +193,8 @@ to_sparse_semi_structured_cutlass_sm9x(const at::Tensor& W) {
   // Call the kernel.
   return to_sparse_semi_structured_kernel_cutlass_sm9x<DtypeW>(W);
 #else
-  TORCH_CHECK_NOT_IMPLEMENTED(false, OPERATOR_NAME);
-  return std::make_tuple(at::Tensor{}, at::Tensor{});
+  STD_TORCH_CHECK(false, OPERATOR_NAME, " : Not implemented");
+  return std::make_tuple(Tensor{}, Tensor{});
 #endif
 }
 

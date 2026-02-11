@@ -14,11 +14,6 @@ import torch
 
 from torchao.float8.float8_utils import is_row_major, pad_tensor_for_matmul
 from torchao.float8.types import FP8Granularity
-from torchao.quantization.granularity import (
-    PerBlock,
-    PerRow,
-    PerTensor,
-)
 from torchao.utils import (
     is_MI300,
     is_sm_at_least_89,
@@ -225,6 +220,10 @@ def _granularity_is_a_1_128_w_128_128(
         list[FP8Granularity],
     ],
 ) -> bool:
+    from torchao.quantization.granularity import (
+        PerBlock,
+    )
+
     return len(g) == 2 and g[0] == PerBlock([1, 128]) and g[1] == PerBlock([128, 128])
 
 
@@ -237,6 +236,11 @@ def _normalize_granularity(
         ]
     ],
 ) -> Tuple[FP8Granularity, FP8Granularity]:
+    from torchao.quantization.granularity import (
+        PerRow,
+        PerTensor,
+    )
+
     processed_granularity = None
     if granularity is None:
         processed_granularity = (PerTensor(), PerTensor())
@@ -276,6 +280,11 @@ def _check_hardware_support(
         AssertionError: If hardware doesn't support the requested granularity
         ValueError: If invalid granularity type is provided
     """
+    from torchao.quantization.granularity import (
+        PerRow,
+        PerTensor,
+    )
+
     is_per_tensor = isinstance(granularities[0], PerTensor) and isinstance(
         granularities[1], PerTensor
     )

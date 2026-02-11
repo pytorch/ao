@@ -17,19 +17,11 @@ from torchao.prototype.moe_training.conversion_utils import (
     MoETrainingConfig,
 )
 from torchao.quantization.quant_api import quantize_
+from torchao.quantization.quantize_.common import KernelPreference
 
+# Reference MoE implementation (copied from torchtitan to avoid external dependency)
+from .reference_moe import MoE, MoEArgs, set_token_group_alignment_size_m
 from .testing_utils import _validate_model_conversion
-
-# this test requires torchtitan
-try:
-    from torchtitan.models.moe import MoE, MoEArgs
-    from torchtitan.models.moe.utils import (
-        set_token_group_alignment_size_m,
-    )
-except ImportError:
-    pytest.skip(
-        "torchtitan not installed, skipping MoE tests.", allow_module_level=True
-    )
 
 # Needed since changing args to function causes recompiles
 torch._dynamo.config.cache_size_limit = 1000
@@ -40,6 +32,9 @@ torch._dynamo.config.cache_size_limit = 1000
     [["experts"]],
 )
 @pytest.mark.parametrize("compile", [False, True])
+@pytest.mark.parametrize(
+    "kernel_preference", [KernelPreference.AUTO, KernelPreference.EMULATED]
+)
 @pytest.mark.parametrize(
     "recipe_config",
     [
@@ -66,7 +61,12 @@ torch._dynamo.config.cache_size_limit = 1000
         },
     ],
 )
-def test_moe_training(target_fqns: list[str], compile: bool, recipe_config: dict):
+def test_moe_training(
+    target_fqns: list[str],
+    compile: bool,
+    kernel_preference: KernelPreference,
+    recipe_config: dict,
+):
     (
         recipe,
         group_alignment_size,
@@ -81,6 +81,21 @@ def test_moe_training(target_fqns: list[str], compile: bool, recipe_config: dict
         recipe_config["min_param_grad_sqnr"],
     )
     assert torch.cuda.is_available()
+
+    if kernel_preference == KernelPreference.EMULATED:
+        # FP8_ROWWISE doesn't support emulated mode
+        if recipe == MoEScalingType.FP8_ROWWISE:
+            pytest.skip(
+                "Skipping FP8 rowwise tests with kernel_preference=EMULATED, emulated mode only applies to MXFP8"
+            )
+
+        # Emulated mode with compile is not supported
+        if compile:
+            pytest.skip(
+                "Skipping compile=True with kernel_preference=EMULATED, not currently supported"
+            )
+
+    # FP8_ROWWISE hardware path requires SM90
     if recipe == MoEScalingType.FP8_ROWWISE and torch.cuda.get_device_capability() != (
         9,
         0,
@@ -89,15 +104,22 @@ def test_moe_training(target_fqns: list[str], compile: bool, recipe_config: dict
             f"Skipping FP8 rowwise tests, only supported on compute capability 9.0 and found {torch.cuda.get_device_capability()}"
         )
 
-    elif recipe in (
-        MoEScalingType.MXFP8,
-        MoEScalingType.MXFP8_WGRAD_WITH_HP,
-    ) and torch.cuda.get_device_capability() != (
-        10,
-        0,
+    # MXFP8 hardware path requires SM100
+    if (
+        recipe
+        in (
+            MoEScalingType.MXFP8,
+            MoEScalingType.MXFP8_WGRAD_WITH_HP,
+        )
+        and kernel_preference != KernelPreference.EMULATED
+        and torch.cuda.get_device_capability()
+        != (
+            10,
+            0,
+        )
     ):
         pytest.skip(
-            f"Skipping MXFP8 benchmarks, only supported on compute capability 10.0 and found {torch.cuda.get_device_capability()}"
+            f"Skipping MXFP8 hardware mode tests, only supported on compute capability 10.0 and found {torch.cuda.get_device_capability()}"
         )
 
     # Set token group alignment size. This is required so that
@@ -132,7 +154,7 @@ def test_moe_training(target_fqns: list[str], compile: bool, recipe_config: dict
         return False
 
     # quantize test model
-    config = MoETrainingConfig(scaling_type=recipe)
+    config = MoETrainingConfig(scaling_type=recipe, kernel_preference=kernel_preference)
     quantize_(model, config=config, filter_fn=moe_module_filter_fn)
 
     # validate that only the experts were converted

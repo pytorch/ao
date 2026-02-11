@@ -480,7 +480,7 @@ void launch_mx_block_rearrange_2d_M_groups_cuda(
     // Create TMA tensor map for input (chunk size = SF_ROWS × effective_chunk_width)
     // When scale_cols < chunk_width, use scale_cols as box width to avoid OOB issues
     const int effective_chunk_width = min(chunk_width, scale_cols);
-    alignas(64) CUtensorMap input_tensor_map = {};
+    alignas(128) CUtensorMap input_tensor_map = {};
     create_tensor_map(
         (void*)scales_ptr,
         input_tensor_map,

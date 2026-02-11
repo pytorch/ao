@@ -588,6 +588,11 @@ class Int8DynamicActivationIntxWeightConfig(AOBaseConfig):
             - opaque_torchao_auto: this format is optimized for CPU performance.
         `intx_choose_qparams_algorithm`: The algorithm to use for choosing the quantization parameters.
         `version`: version of the config to use, only subset of above args are valid based on version, see note for more details.
+
+    Example:
+
+    .. literalinclude:: ../../examples/inference/int8_dynamic_activation_intx_weight.py
+       :language: python
     """
 
     weight_dtype: torch.dtype = torch.int8
@@ -744,6 +749,11 @@ class Int4WeightOnlyConfig(AOBaseConfig):
          currently support TINYGEMM ("tinygemm") and HQQ ("hqq"), used in version 2 only
         `set_inductor_config`: if True, adjusts `torchinductor` settings to recommended values. used in both version 1 and 2
         `version`: version of the config to use, default is 2
+
+    Example:
+
+    .. literalinclude:: ../../examples/inference/int4_weight_only.py
+       :language: python
     """
 
     group_size: int = 128
@@ -842,6 +852,11 @@ class Float8DynamicActivationInt4WeightConfig(AOBaseConfig):
 
     Args:
         `int4_packing_format`: how the weight is packed, only preshuffled is supported
+
+    Example:
+
+    .. literalinclude:: ../../examples/inference/float8_dynamic_activation_int4_weight.py
+       :language: python
     """
 
     int4_packing_format: Int4PackingFormat = "preshuffled"
@@ -885,6 +900,11 @@ class Int8WeightOnlyConfig(AOBaseConfig):
             PerRow() for per-channel quantization, PerTensor() for per-tensor quantization.
         set_inductor_config: bool = True - If True, adjusts `torchinductor` settings to recommended values
             for better performance with this quantization scheme.
+
+    Example:
+
+    .. literalinclude:: ../../examples/inference/int8_weight_only.py
+       :language: python
     """
 
     group_size: Optional[int] = None
@@ -1043,6 +1063,11 @@ class Int8DynamicActivationInt8WeightConfig(AOBaseConfig):
         set_inductor_config: bool = True - If True, adjusts `torchinductor` settings to recommended values
             for better performance with this quantization scheme.
         version (int): the version of the config, version 1 is using AffineQuantizedTensor that we plan to deprecate/split, version 2 is using Int8Tensor
+
+    Example:
+
+    .. literalinclude:: ../../examples/inference/int8_dynamic_activation_int8_weight.py
+       :language: python
     """
 
     layout: Optional[Layout] = PlainLayout()
@@ -1280,6 +1305,11 @@ class Float8WeightOnlyConfig(AOBaseConfig):
 
     Note:
         The actual matmul will be computed in original precision of the weight tensor.
+
+    Example:
+
+    .. literalinclude:: ../../examples/inference/float8_weight_only.py
+       :language: python
     """
 
     weight_dtype: torch.dtype = e4m3_dtype
@@ -1398,6 +1428,10 @@ class Float8DynamicActivationFloat8WeightConfig(AOBaseConfig):
         set_inductor_config (bool): if True, adjusts `torchinductor` settings to recommended values.
         version (int): the version of the config, version 1 is deprecated, version 2 is using Float8Tensor (default)
 
+    Example:
+
+    .. literalinclude:: ../../examples/inference/float8_dynamic_activation_float8_weight.py
+       :language: python
     """
 
     activation_dtype: torch.dtype = e4m3_dtype
@@ -1644,6 +1678,11 @@ class IntxWeightOnlyConfig(AOBaseConfig):
         `intx_packing_format`: The format to use for the packed weight tensor (version 2 only).
         `intx_choose_qparams_algorithm`: The algorithm to use for choosing the quantization parameters.
         `version`: version of the config to use, only subset of above args are valid based on version, see note for more details.
+
+    Example:
+
+    .. literalinclude:: ../../examples/inference/intx_weight_only.py
+       :language: python
     """
 
     weight_dtype: torch.dtype = torch.int8

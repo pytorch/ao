@@ -16,8 +16,8 @@ for nbit in range(1, 8):
         activations: Tensor,
         packed_weights: Tensor,
         group_size: int,
-        scales: int,
-        zeros: int,
+        scales: Tensor,
+        zeros: Tensor,
     ):
         assert activations.dtype in [torch.float32, torch.float16, torch.bfloat16]
         assert activations.is_contiguous()
@@ -31,7 +31,7 @@ for nbit in range(1, 8):
         n = packed_weights.size(0)
 
         assert k % 8 == 0
-        assert n % 4 == 0
+        assert n % 4 == 0 or m == 1
 
         assert group_size in [32, 64, 128, 256]
 

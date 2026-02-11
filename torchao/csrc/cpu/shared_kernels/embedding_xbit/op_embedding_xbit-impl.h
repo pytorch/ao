@@ -8,6 +8,8 @@
 
 #if defined(TORCHAO_BUILD_CPU_AARCH64)
 #include <torchao/csrc/cpu/torch_free_kernels/aarch64/embedding/embedding.h>
+#else
+#include <torchao/csrc/cpu/torch_free_kernels/fallback/embedding/embedding.h>
 #endif // TORCHAO_BUILD_CPU_AARCH64
 
 #include <torchao/csrc/cpu/shared_kernels/embedding_xbit/packed_weights_header.h>
@@ -207,7 +209,13 @@ Tensor pack_embedding_cpu(const Tensor& weight_qvals) {
         weight_qvals.const_data_ptr<int8_t>(),
         idx);
 #else
-    TORCHAO_CHECK(false, "Unsupported platform");
+    torchao::kernels::cpu::fallback::embedding::pack_embedding_weight_qvals<
+        weight_nbit>(
+        out.mutable_data_ptr<int8_t>() +
+            torchao::ops::PackedWeightsHeader::size(),
+        embedding_dim,
+        weight_qvals.const_data_ptr<int8_t>(),
+        idx);
 #endif // defined(TORCHAO_BUILD_CPU_AARCH64)
   });
 

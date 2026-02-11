@@ -6,6 +6,7 @@ from torchao.float8.config import (
     CastConfig,
     Float8GemmConfig,
     Float8LinearConfig,
+    Float8LinearRecipeName,
     ScalingGranularity,
     ScalingType,
 )
@@ -40,6 +41,7 @@ __all__ = [
     "ScalingGranularity",
     "Float8GemmConfig",
     "Float8LinearConfig",
+    "Float8LinearRecipeName",
     "CastConfig",
     "ScalingGranularity",
     # top level UX

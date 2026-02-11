@@ -17,6 +17,15 @@ logger: logging.Logger = logging.getLogger()
 
 
 class ScalingType(enum.Enum):
+    """
+    Defines the type of scaling to use for casting to float8.
+
+    Values:
+
+    * ``DYNAMIC``: Compute scaling factor dynamically based on the tensor's values.
+    * ``DISABLED``: Skip scaling for this tensor, leave it in its original precision.
+    """
+
     DYNAMIC = "dynamic"
     # ScalingType.DISABLED means "skip scaling for this tensor, leave it in
     # its original precision.
@@ -32,7 +41,12 @@ class ScalingType(enum.Enum):
 
 class ScalingGranularity(enum.Enum):
     """
-    Defines the granularity of scaling strategies for casting to float8
+    Defines the granularity of scaling strategies for casting to float8.
+
+    Values:
+
+    * ``TENSORWISE``: A single scaling factor for the entire tensor.
+    * ``AXISWISE``: Scaling factors computed along one axis of the tensor (rowwise scaling).
     """
 
     # A single scaling factor for the entire tensor
@@ -78,7 +92,15 @@ e5m2_dtype = type_config.e5m2_dtype
 @dataclass(frozen=True)
 class CastConfig:
     """
-    Configuration for maybe casting a single tensor to float8
+    Configuration for casting a single tensor to float8.
+
+    Args:
+        scaling_type: The type of scaling to use. See :class:`ScalingType`.
+            Default: ``ScalingType.DYNAMIC``
+        scaling_granularity: The granularity of scaling. See :class:`ScalingGranularity`.
+            Default: ``ScalingGranularity.TENSORWISE``
+        target_dtype: The target float8 dtype (e.g., ``torch.float8_e4m3fn``).
+            Default: ``None`` (will be set based on the recipe)
     """
 
     scaling_type: ScalingType = ScalingType.DYNAMIC
@@ -103,6 +125,11 @@ class CastConfig:
 class Float8GemmConfig:
     """
     Configuration for a float8 gemm.
+
+    Args:
+        use_fast_accum: If True, use fast accumulation in lower precision.
+            This can improve performance but may reduce numerical accuracy.
+            Default: ``False``
     """
 
     # If True, fast accumulation in lower precision is used.
@@ -112,6 +139,20 @@ class Float8GemmConfig:
 
 # Pre-made recipes for common configurations
 class Float8LinearRecipeName(enum.Enum):
+    """
+    Pre-made recipes for common float8 training configurations.
+
+    Values:
+
+    * ``TENSORWISE``: Default, dynamic per-tensor scaling with the cuBLAS tensorwise kernel.
+      Fastest option.
+    * ``ROWWISE``: Dynamic rowwise scaling with the CUTLASS rowwise kernel.
+      Uses e4m3 for activations, weights, gradients. Scales are rounded (floor) to
+      the nearest power of two for increased accuracy.
+    * ``ROWWISE_WITH_GW_HP``: A modification on rowwise scaling with increased accuracy
+      for grad_weight by keeping grad_weight computation in high precision. Most accurate option.
+    """
+
     # Default, dynamic per-tensor scaling with the cuBLAS tensorwise kernel
     TENSORWISE = "tensorwise"
 

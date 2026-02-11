@@ -101,6 +101,11 @@ def convert_to_float8_training(
 
     Returns:
      nn.Module: The modified module with swapped linear layers.
+
+    Example:
+
+    .. literalinclude:: ../../examples/float8_training_example.py
+       :language: python
     """
     torch._C._log_api_usage_once("torchao.float8.convert_to_float8_training")
     if config is None:
