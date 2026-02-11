@@ -109,9 +109,10 @@ TORCHAO_ALWAYS_INLINE inline void pack_64_uint6_values(
     const uint8_t u2 = unpacked[i + 32];
     const uint8_t u3 = unpacked[i + 48];
 
-    packed[i] = (u0 & 0x3F) | ((u3 & 0x03) << 6);
-    packed[i + 16] = (u1 & 0x3F) | ((u3 & 0x0C) << 4);
-    packed[i + 32] = (u2 & 0x3F) | ((u3 & 0x30) << 2);
+    // Note: u0, u1, u2 are not masked - ARM stores raw value, unpacking extracts low 6 bits
+    packed[i] = u0 | ((u3 & 0x03) << 6);
+    packed[i + 16] = u1 | ((u3 & 0x0C) << 4);
+    packed[i + 32] = u2 | ((u3 & 0x30) << 2);
   }
 }
 
