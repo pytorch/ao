@@ -129,7 +129,7 @@ class TestQuantize(TestCase):
 
         created_pg = False
         if dist.is_available() and not dist.is_initialized():
-            store = dist.TCPStore("127.0.0.1", 29500, 1, True)
+            store = dist.FileStore(tempfile.mktemp(), 1)
             dist.init_process_group(
                 backend="gloo",
                 store=store,

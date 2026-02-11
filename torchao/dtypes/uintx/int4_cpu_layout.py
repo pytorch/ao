@@ -18,10 +18,6 @@ from torchao.dtypes.affine_quantized_tensor import (
     register_layout,
 )
 from torchao.dtypes.utils import AQTTensorImpl, Layout, is_device
-from torchao.quantization.quant_primitives import (
-    ZeroPointDomain,
-    _quantize_affine_tinygemm,
-)
 from torchao.utils import fill_defaults
 
 aten = torch.ops.aten
@@ -211,6 +207,9 @@ class Int4CPUAQTTensorImpl(AQTTensorImpl):
         return (1, groupsize)
 
     def get_plain(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        from torchao.quantization.quant_primitives import (
+            _quantize_affine_tinygemm,
+        )
         from torchao.quantization.utils import unpack_tinygemm_scales_and_zeros
 
         scale, zero = unpack_tinygemm_scales_and_zeros(self.scale_and_zero)
@@ -267,6 +266,10 @@ def _is_float(dtype):
 
 
 def _linear_fp_act_uint4_weight_cpu_check(input_tensor, weight_tensor, bias):
+    from torchao.quantization.quant_primitives import (
+        ZeroPointDomain,
+    )
+
     return (
         is_device(input_tensor.device.type, "cpu")
         and is_device(weight_tensor.device.type, "cpu")

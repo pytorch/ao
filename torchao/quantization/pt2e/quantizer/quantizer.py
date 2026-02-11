@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 # mypy: allow-untyped-defs
+import sys
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Callable, Optional, Union
@@ -93,7 +94,8 @@ input edge is the connection between input node and the node consuming the input
 output value is an fx Node
 """
 EdgeOrNode = Union[tuple[Node, Node], Node]
-EdgeOrNode.__module__ = "torchao.quantization.pt2e.quantizer.quantizer"
+if sys.version_info < (3, 14):
+    EdgeOrNode.__module__ = "torchao.quantization.pt2e.quantizer.quantizer"
 
 
 @dataclass(eq=True, frozen=True)

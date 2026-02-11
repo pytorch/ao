@@ -35,6 +35,10 @@ class TestLowBitQuantWeightsLinear(unittest.TestCase):
             (19, 256, 28, 256),
             (1, 1000, 28, 256),
             (19, 8, 36, 256),
+            # M = 1 and N % 4 != 0
+            (1, 8, 3, 32),
+            (1, 8, 10, 32),
+            (1, 640, 8198, 32),
         ]
     ]
 

@@ -7,15 +7,21 @@
 # Owner(s): ["oncall: quantization"]
 import contextlib
 import copy
+import functools
 import itertools
 import unittest
+from typing import NamedTuple
 
 import torch
 from torch._dynamo import config as dynamo_config
+from torch._dynamo.testing import make_test_cls_with_patches
 from torch._dynamo.utils import counters
 from torch._inductor import config
 from torch._inductor.test_case import TestCase, run_tests
-from torch._inductor.utils import run_and_get_code
+from torch._inductor.utils import (
+    run_and_get_code,
+    run_and_get_cpp_code,
+)
 from torch.testing._internal.common_quantization import (
     skipIfNoDynamoSupport,
     skipIfNoONEDNN,
@@ -24,26 +30,24 @@ from torch.testing._internal.common_quantization import (
 from torch.testing._internal.common_utils import (
     IS_FBCODE,
     IS_LINUX,
+    IS_MACOS,
+    IS_WINDOWS,
     IS_X86,
     TEST_ACL,
     instantiate_parametrized_tests,
     parametrize,
+    slowTest,
 )
 from torch.testing._internal.inductor_utils import (
     HAS_CPU,
     _check_has_dynamic_shape,
 )
 
-import torchao
 import torchao.quantization.pt2e.quantizer.x86_inductor_quantizer as xiq
-from torchao.quantization.pt2e.quantize_pt2e import (
-    convert_pt2e,
-    prepare_pt2e,
-    prepare_qat_pt2e,
-)
 from torchao.quantization.pt2e.quantizer.x86_inductor_quantizer import (
     X86InductorQuantizer,
 )
+from torchao.testing.pt2e.utils import _generate_ref_quantized_model, qdq_fp8
 from torchao.utils import torch_version_at_least
 
 # The dict value is match_nodes(computation_op+unary_op)
@@ -95,206 +99,6 @@ skipIfNoFloat8Support = unittest.skipIf(
 skipIfNoQConvFp8Support = unittest.skipIf(
     not torch_version_at_least("2.10.0.dev"), "QConv fp8 requires torch 2.10+"
 )
-
-
-def get_default_quantizer(is_qat, is_dynamic):
-    quantizer = X86InductorQuantizer()
-    quantizer.set_global(
-        xiq.get_default_x86_inductor_quantization_config(
-            is_qat=is_qat, is_dynamic=is_dynamic
-        )
-    )
-    return quantizer
-
-
-class FP8QDQLinear(torch.nn.Module):
-    def __init__(self, in_features, out_features, has_bias):
-        super().__init__()
-        self.qtype = torch.float8_e4m3fn
-        self.weight = torch.randn((out_features, in_features)).to(self.qtype)
-        self.weight_scale = 2.0
-        self.scale = 2.0
-        self.bias = None
-        if has_bias:
-            self.bias = torch.randn((out_features,))
-
-    def forward(self, input):
-        weight = torch.ops.torchao.dequantize_affine_float8_non_decomposed.default(
-            tensor=self.weight.data,
-            scale=torch.tensor([self.weight_scale]),
-            output_dtype=torch.float,
-        )
-
-        q_input = torch.ops.torchao.quantize_affine_float8_non_decomposed.default(
-            tensor=input,
-            scale=torch.tensor([self.scale]),
-            float8_dtype=self.qtype,
-        )
-        dq_input = torch.ops.torchao.dequantize_affine_float8_non_decomposed.default(
-            tensor=q_input,
-            scale=torch.tensor([self.scale]),
-            output_dtype=torch.float,
-        )
-
-        out = torch.nn.functional.linear(dq_input, weight, self.bias)
-        return out
-
-
-class FP8QDQConv2d(torch.nn.Module):
-    def __init__(
-        self,
-        in_channels,
-        out_channels,
-        kernel_size,
-        stride=1,
-        padding=0,
-        dilation=1,
-        groups=1,
-        bias=True,
-    ):
-        super().__init__()
-        self.qtype = torch.float8_e4m3fn
-        self.weight = torch.randn(
-            (out_channels, in_channels // groups, *kernel_size)
-        ).to(self.qtype)
-        self.weight_scale = 2.0
-        self.scale = 2.0
-        self.bias = None
-        if bias:
-            self.bias = torch.randn((out_channels,))
-        self.stride = stride
-        self.padding = padding
-        self.dilation = dilation
-        self.groups = groups
-
-    def forward(self, input):
-        weight = torch.ops.torchao.dequantize_affine_float8_non_decomposed.default(
-            tensor=self.weight.data,
-            scale=torch.tensor([self.weight_scale]),
-            output_dtype=torch.float,
-        )
-        q_input = torch.ops.torchao.quantize_affine_float8_non_decomposed.default(
-            tensor=input,
-            scale=torch.tensor([self.scale]),
-            float8_dtype=self.qtype,
-        )
-        dq_input = torch.ops.torchao.dequantize_affine_float8_non_decomposed.default(
-            tensor=q_input,
-            scale=torch.tensor([self.scale]),
-            output_dtype=torch.float,
-        )
-
-        return torch.nn.functional.conv2d(
-            dq_input,
-            weight,
-            self.bias,
-            self.stride,
-            self.padding,
-            self.dilation,
-            self.groups,
-        )
-
-
-def qdq(input, scale):
-    dtype = input.dtype
-    q_input = torch.ops.torchao.quantize_affine_float8_non_decomposed.default(
-        input,
-        torch.tensor([scale]),
-        torch.float8_e4m3fn,
-    )
-    dq_input = torch.ops.torchao.dequantize_affine_float8_non_decomposed.default(
-        q_input,
-        torch.tensor([scale]),
-        dtype,
-    )
-    return dq_input
-
-
-def fp8_convert_(model):
-    def generate_model_info(model):
-        from collections import namedtuple
-
-        mod_inst_info = namedtuple("ModInstInfo", ["name", "parent"])
-        parent_child_mod_dict = {}
-
-        def create_mod_info_recursion(parent):
-            for name, mod in parent.named_children():
-                parent_child_mod_dict[mod] = mod_inst_info(name=name, parent=parent)
-                create_mod_info_recursion(mod)
-
-        create_mod_info_recursion(model)
-        return parent_child_mod_dict
-
-    parent_child_mod_dict = generate_model_info(model)
-    for name, mod in model.named_modules():
-        mod_type_str = mod.__class__.__name__
-        if mod_type_str not in ["Linear", "Conv2d"]:
-            continue
-        param = mod.weight
-        xmax = torch.max(param)
-        weight_scale = xmax / torch.finfo(torch.float8_e4m3fn).max
-        mod.weight_scale = weight_scale
-        q_param = torch.clamp(
-            (param / weight_scale),
-            torch.finfo(torch.float8_e4m3fn).min,
-            torch.finfo(torch.float8_e4m3fn).max,
-        ).to(torch.float8_e4m3fn)
-        mod.weight.data = q_param
-        if mod_type_str in ["Linear"]:
-            patched_mod = FP8QDQLinear(mod.in_features, mod.out_features, False)
-            patched_mod.bias = mod.bias
-            patched_mod.weight_scale = weight_scale.item()
-            patched_mod.weight.data = q_param
-        elif mod_type_str in ["Conv2d"]:
-            patched_mod = FP8QDQConv2d(
-                mod.in_channels,
-                mod.out_channels,
-                mod.kernel_size,
-                mod.stride,
-                mod.padding,
-                mod.dilation,
-                mod.groups,
-                False,
-            )
-            patched_mod.bias = mod.bias
-            patched_mod.weight_scale = weight_scale.item()
-            patched_mod.weight.data = q_param
-
-        parent = parent_child_mod_dict[mod].parent
-        name = parent_child_mod_dict[mod].name
-        setattr(parent, name, patched_mod)
-
-
-def _generate_qdq_quantized_model(
-    mod,
-    inputs,
-    is_qat=False,
-    is_dynamic=False,
-    quantizer=None,
-    is_fp8=False,
-):
-    maybe_no_grad = contextlib.nullcontext() if is_qat else torch.no_grad()
-    with maybe_no_grad:
-        if is_fp8:
-            # fp8_convert_ not support dynamic and qat yet
-            assert not is_dynamic
-            assert not is_qat
-            fp8_convert_(mod)
-            return mod
-        else:
-            export_model = torch.export.export(mod, inputs, strict=True).module()
-            quantizer = (
-                quantizer if quantizer else get_default_quantizer(is_qat, is_dynamic)
-            )
-            prepare_model = (
-                prepare_qat_pt2e(export_model, quantizer)
-                if is_qat
-                else prepare_pt2e(export_model, quantizer)
-            )
-            prepare_model(*inputs)
-            torchao.quantization.pt2e.move_exported_model_to_eval(prepare_model)
-            convert_model = convert_pt2e(prepare_model)
-            return convert_model
 
 
 def cal_conv_generated_kernel_number(mod, input, dtype, dim=4, device="cpu"):
@@ -393,7 +197,7 @@ class TestPatternMatcherBase(TestCase):
             assert check_autocast == torch.float32
             maybe_autocast = contextlib.nullcontext()
         if check_quantization:
-            convert_model = _generate_qdq_quantized_model(
+            convert_model = _generate_ref_quantized_model(
                 mod, inputs, is_qat, is_dynamic, quantizer, is_fp8
             )
             with torch.no_grad(), maybe_autocast:
@@ -424,7 +228,7 @@ class TestPatternMatcherBase(TestCase):
         with torch.no_grad():
             clone_inputs = self._clone_inputs(inputs)
             if check_quantization:
-                mod = _generate_qdq_quantized_model(
+                mod = _generate_ref_quantized_model(
                     mod, inputs, quantizer=quantizer, is_fp8=is_fp8
                 )
             expected = mod(*inputs)
@@ -3106,6 +2910,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
     }
 )
 @unittest.skipIf(not torch_version_at_least("2.8.0"), "Requires torch 2.8+")
+@unittest.skipIf(torch.version.hip is not None, "Not applicable to ROCm")
 class TestDynamicPatternMatcher(TestPatternMatcherBase):
     def test_qconv2d_maxpool2d_linear_dynamic_cpu(self, include_ops=None):
         r"""
@@ -3233,13 +3038,13 @@ class TestDynamicPatternMatcher(TestPatternMatcherBase):
                 v = self.transpose_for_scores(v)
                 k = k.transpose(-1, -2)
                 if self.annotate_matmul:
-                    q = qdq(q, self.q_out_scale)
-                    k = qdq(k, self.k_out_scale)
+                    q = qdq_fp8(q, self.q_out_scale)
+                    k = qdq_fp8(k, self.k_out_scale)
                 scores = torch.matmul(q, k) / (self.input_dim**0.5)
                 attention = self.softmax(scores)
                 if self.annotate_matmul:
-                    attention = qdq(attention, self.attn_weights_scale)
-                    v = qdq(v, self.v_out_scale)
+                    attention = qdq_fp8(attention, self.attn_weights_scale)
+                    v = qdq_fp8(v, self.v_out_scale)
                 weighted = torch.matmul(attention, v)
                 weighted = weighted.permute(0, 2, 1, 3).contiguous()
                 weighted = weighted.reshape(
@@ -3472,6 +3277,247 @@ class TestDynamicPatternMatcher(TestPatternMatcherBase):
 
 
 instantiate_parametrized_tests(TestPatternMatcher)
+
+
+class CppWrapperTemplate:
+    pass
+
+
+class TestCppWrapper(TestCase):
+    device = "cpu"
+
+
+class DynamicShapesCppWrapperCpuTests(TestCase):
+    device = "cpu"
+
+
+test_failures_cpp_wrapper = {}
+
+
+def make_test_case(
+    name,
+    device,
+    tests,
+    condition=True,
+    slow=False,
+    func_inputs=None,
+    code_string_count=None,
+    test_build_separate=False,
+):
+    test_name = f"{name}_{device}" if device else name
+    if code_string_count is None:
+        code_string_count = {}
+
+    func = getattr(tests, test_name)
+    assert callable(func), "not a callable"
+    func = slowTest(func) if slow else func
+    new_test_name = f"{test_name}_separate" if test_build_separate else test_name
+
+    @config.patch(
+        cpp_wrapper=True,
+        cpp_wrapper_build_separate=test_build_separate,
+    )
+    def fn(self):
+        tests.setUpClass()
+        tests.setUp()
+        try:
+            with torch._C._PreserveDispatchKeyGuard():
+                torch._C._dispatch_tls_set_dispatch_key_included(
+                    torch._C.DispatchKey.Dense, True
+                )
+
+                _, code = run_and_get_cpp_code(
+                    func, *func_inputs if func_inputs else []
+                )
+                # If a test generates no code, skip the remaining checks.  This can
+                # happen for tests validating build-dependent features (e.g. datatypes
+                # that are available on some platforms and not others).
+                if code:
+                    if test_build_separate:
+                        self.assertIn("kernel_src", code)
+                    self.assertIn("CppWrapperCodeCache", code)
+                    self.assertTrue(
+                        all(
+                            code.count(string) == code_string_count[string]
+                            for string in code_string_count
+                        )
+                    )
+        finally:
+            tests.tearDown()
+            tests.tearDownClass()
+
+    fn.__name__ = new_test_name
+
+    fn.__dict__ = copy.deepcopy(func.__dict__)
+    if condition:
+        setattr(
+            CppWrapperTemplate,
+            new_test_name,
+            fn,
+        )
+
+
+def copy_tests(my_cls, other_cls, suffix, test_failures=None, xfail_prop=None):
+    for name, value in my_cls.__dict__.items():
+        if name.startswith("test_"):
+            # You cannot copy functions in Python, so we use closures here to
+            # create objects with different ids. Otherwise, unittest.skip
+            # would modify all methods sharing the same object id. Also, by
+            # using a default argument, we create a copy instead of a
+            # reference. Otherwise, we would lose access to the value.
+
+            @functools.wraps(value)
+            def new_test(self, value=value):
+                return value(self)
+
+            # Copy __dict__ which may contain test metadata
+            new_test.__dict__ = copy.deepcopy(value.__dict__)
+
+            if xfail_prop is not None and hasattr(value, xfail_prop):
+                new_test = unittest.expectedFailure(new_test)
+
+            tf = test_failures and test_failures.get(name)
+            if tf and suffix in tf.suffixes:
+                skip_func = (
+                    unittest.skip("Skipped!")
+                    if tf.is_skip
+                    else unittest.expectedFailure
+                )
+                new_test = skip_func(new_test)
+
+            setattr(other_cls, f"{name}_{suffix}", new_test)
+
+    # Special case convenience routine
+    if hasattr(my_cls, "is_dtype_supported"):
+        other_cls.is_dtype_supported = my_cls.is_dtype_supported
+
+
+def make_dynamic_cls(cls, xfail_prop="_expected_failure_dynamic"):
+    return make_test_cls_with_patches(
+        cls,
+        "DynamicShapes",
+        "_dynamic_shapes",
+        (torch._dynamo.config, "assume_static_by_default", False),
+        xfail_prop=xfail_prop,
+    )
+
+
+RUN_CPU = HAS_CPU and not IS_MACOS and torch.version.hip is None
+
+if RUN_CPU and torch_version_at_least("2.8.0"):
+
+    class BaseTest(NamedTuple):
+        name: str
+        device: str = "cpu"
+        tests: TestCase = TestCase()
+        condition: bool = True
+        slow: bool = False
+        func_inputs: list = None
+        code_string_count: dict = {}
+        test_build_separate: bool = False
+
+    for item in [
+        BaseTest(
+            "test_qconv2d",
+            "cpu",
+            TestPatternMatcher(),
+            condition=torch.backends.mkldnn.is_available() and not IS_WINDOWS,
+        ),
+        BaseTest(
+            "test_qconv2d_relu",
+            "cpu",
+            TestPatternMatcher(),
+            condition=torch.backends.mkldnn.is_available() and not IS_WINDOWS,
+        ),
+        BaseTest(
+            "test_qconv2d_add",
+            "cpu",
+            TestPatternMatcher(),
+            condition=torch.backends.mkldnn.is_available() and not IS_WINDOWS,
+        ),
+        BaseTest(
+            "test_qconv2d_add_relu",
+            "cpu",
+            TestPatternMatcher(),
+            condition=torch.backends.mkldnn.is_available() and not IS_WINDOWS,
+        ),
+        BaseTest(
+            "test_qconv2d_dequant_promotion",
+            "cpu",
+            TestPatternMatcher(),
+            condition=torch.backends.mkldnn.is_available() and not IS_WINDOWS,
+        ),
+        BaseTest(
+            "test_qconv2d_maxpool2d_linear_dynamic",
+            "cpu",
+            TestDynamicPatternMatcher(),
+            condition=torch.backends.mkldnn.is_available() and not IS_WINDOWS,
+            func_inputs=[
+                [
+                    "aoti_torch_cpu__qconv_pointwise_tensor",
+                    "torch.ops.quantized.max_pool2d",
+                    "aoti_torch_cpu__qlinear_pointwise_tensor",
+                ]
+            ],
+        ),
+        *[
+            BaseTest(
+                func,
+                "",
+                TestPatternMatcher(),
+                condition=torch.backends.mkldnn.is_available() and not IS_WINDOWS,
+            )
+            for func in dir(TestPatternMatcher())
+            if func.startswith("test_qlinear")
+        ],
+        BaseTest(
+            "test_qconv2d_with_concat",
+            "cpu",
+            TestPatternMatcher(),
+            condition=torch.backends.mkldnn.is_available() and not IS_WINDOWS,
+        ),
+        BaseTest(
+            "test_dynamic_qlinear",
+            "cpu",
+            TestPatternMatcher(),
+            condition=torch.backends.mkldnn.is_available() and not IS_WINDOWS,
+        ),
+        BaseTest(
+            "test_dynamic_qlinear_qat",
+            "cpu",
+            TestPatternMatcher(),
+            condition=torch.backends.mkldnn.is_available() and not IS_WINDOWS,
+        ),
+    ]:
+        make_test_case(
+            item.name,
+            item.device,
+            item.tests,
+            item.condition,
+            item.slow,
+            item.func_inputs,
+            item.code_string_count,
+            item.test_build_separate,
+        )
+
+    copy_tests(
+        CppWrapperTemplate,
+        TestCppWrapper,
+        "cpp_wrapper",
+        test_failures_cpp_wrapper,
+    )
+
+    DynamicShapesCppWrapperTemplate = make_dynamic_cls(CppWrapperTemplate)
+
+    copy_tests(
+        DynamicShapesCppWrapperTemplate,
+        DynamicShapesCppWrapperCpuTests,
+        "cpp_wrapper",
+        test_failures_cpp_wrapper,
+        xfail_prop="_expected_failure_dynamic_wrapper",
+    )
+
+
 if __name__ == "__main__":
     if IS_LINUX and HAS_CPU and torch.backends.mkldnn.is_available():
         # set weight_prepack = False to skip fusion passes in pytorch core
