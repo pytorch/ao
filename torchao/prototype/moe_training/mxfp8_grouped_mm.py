@@ -9,6 +9,7 @@ from typing import Optional
 
 import torch
 
+from torchao.prototype.moe_training.conversion_utils import MXFP8GroupedMMConfig
 from torchao.prototype.moe_training.kernels.mxfp8 import (
     _mxfp8_cuda_kernels_available as _mxfp8_cuda_kernels_available_quant,
 )
@@ -745,39 +746,49 @@ def _to_mxfp8_then_scaled_grouped_mm(
     A: torch.Tensor,
     B_t: torch.Tensor,
     offs: Optional[torch.Tensor] = None,
-    block_size: int = 32,
-    out_dtype: Optional[torch.dtype] = torch.bfloat16,
-    kernel_preference: KernelPreference = KernelPreference.AUTO,
-    wgrad_with_hp: bool = False,
-    scale_calculation_mode: ScaleCalculationMode = ScaleCalculationMode.RCEIL,
+    config: Optional[MXFP8GroupedMMConfig] = None,
+    block_size: Optional[int] = None,
+    out_dtype: Optional[torch.dtype] = None,
+    kernel_preference: Optional[KernelPreference] = None,
+    wgrad_with_hp: Optional[bool] = None,
+    scale_calculation_mode: Optional[ScaleCalculationMode] = None,
 ) -> torch.Tensor:
     """
     Differentiable mxfp8 grouped gemm with dynamic mxfp8 quantization.
 
     Args:
-        - A (bf16/float32 torch.Tensor): The first high-precision input tensor,
+        A (bf16/float32 torch.Tensor): The first high-precision input tensor,
             which must be a 2D tensor of shape (M * num_groups, K)
             and in row-major memory layout.
-        - B_t (bf16/float32 torch.Tensor): The second high-precision input tensor
+        B_t (bf16/float32 torch.Tensor): The second high-precision input tensor
             which must be 3D, which must be shape (G, K, N)
             and in "per group column-major memory" layout (i.e., strides of (N*K, 1, N)).
-        - offs (int32 torch.Tensor): The offsets to use to mark the end index of each group along the dim0 of the A tensor.
-        - block_size (int): The block size to use for mxpf8 quantization. Currently only 32 is supported.
-        - out_dtype (Optional[torch.dtype]): The dtype of the output tensor. Default is torch.bfloat16.
-        - kernel_preference (KernelPreference): Kernel preference (AUTO uses CUDA/Triton, EMULATED uses to_mx).
-        - wgrad_with_hp (bool): Whether to compute weight gradients in high precision.
-        - scale_calculation_mode (ScaleCalculationMode): The mode to use for scale calculation.
+        offs (int32 torch.Tensor): The offsets to use to mark the end index of each group along the dim0 of the A tensor.
+        config (MXFP8GroupedMMConfig): Configuration for MXFP8 grouped matmul quantization.
+        block_size (int): [DEPRECATED] Block size is always 32 for MXFP8, this parameter is ignored.
+        out_dtype (torch.dtype): [DEPRECATED] Use config.out_dtype instead.
+        kernel_preference (KernelPreference): [DEPRECATED] Use config.kernel_preference instead.
+        wgrad_with_hp (bool): [DEPRECATED] Use config.wgrad_with_hp instead.
+        scale_calculation_mode (ScaleCalculationMode): [DEPRECATED] Use config.scale_calculation_mode instead.
 
     Returns:
-        - out (torch.Tensor): The result of the mxpf8 scaled grouped gemm.
+        out (torch.Tensor): The result of the mxfp8 scaled grouped gemm.
     """
+    from torchao.prototype.moe_training.conversion_utils import MXFP8GroupedMMConfig
+
+    # Default config
+    if config is None:
+        config = MXFP8GroupedMMConfig()
+
+    # block_size is always 32 for MXFP8
+    block_size = 32
     return _MXFP8GroupedMM.apply(
         A,
         B_t,
         offs,
         block_size,
-        out_dtype,
-        kernel_preference,
-        wgrad_with_hp,
-        scale_calculation_mode,
+        config.out_dtype,
+        config.kernel_preference,
+        config.wgrad_with_hp,
+        config.scale_calculation_mode,
     )

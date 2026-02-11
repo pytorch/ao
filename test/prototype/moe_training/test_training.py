@@ -14,7 +14,7 @@ if not torch.cuda.is_available() or torch.cuda.get_device_capability() < (8, 9):
 from torchao.float8.float8_utils import compute_error
 from torchao.prototype.moe_training.conversion_utils import (
     FP8GroupedMMRecipe,
-    GroupedMMConfig,
+    MXFP8GroupedMMConfig,
     MXFP8GroupedMMRecipe,
 )
 from torchao.quantization.quant_api import quantize_
@@ -60,6 +60,13 @@ torch._dynamo.config.cache_size_limit = 1000
             "min_input_grad_sqnr": 29.0,
             "min_param_grad_sqnr": 25.0,
         },
+        {
+            "recipe": MXFP8GroupedMMRecipe.EMULATED_RCEIL,
+            "group_alignment_size": 32,
+            "min_out_sqnr": 27.0,
+            "min_input_grad_sqnr": 29.0,
+            "min_param_grad_sqnr": 21.0,
+        },
     ],
 )
 def test_moe_training(
@@ -83,18 +90,11 @@ def test_moe_training(
     )
     assert torch.cuda.is_available()
 
-    if kernel_preference == KernelPreference.EMULATED:
-        # FP8_ROWWISE doesn't support emulated mode
-        if recipe == FP8GroupedMMRecipe.ROWWISE:
-            pytest.skip(
-                "Skipping FP8 rowwise tests with kernel_preference=EMULATED, emulated mode only applies to MXFP8"
-            )
-
-        # Emulated mode with compile is not supported
-        if compile:
-            pytest.skip(
-                "Skipping compile=True with kernel_preference=EMULATED, not currently supported"
-            )
+    # Emulated mode with compile is not supported
+    if recipe == MXFP8GroupedMMRecipe.EMULATED_RCEIL and compile:
+        pytest.skip(
+            "Skipping compile=True with kernel_preference=EMULATED, not currently supported"
+        )
 
     # FP8_ROWWISE hardware path requires SM90
     if recipe == FP8GroupedMMRecipe.ROWWISE and torch.cuda.get_device_capability() != (
@@ -106,18 +106,12 @@ def test_moe_training(
         )
 
     # MXFP8 hardware path requires SM100
-    if (
-        recipe
-        in (
-            MXFP8GroupedMMRecipe.RCEIL,
-            MXFP8GroupedMMRecipe.RCEIL_WGRAD_WITH_HP,
-        )
-        and kernel_preference != KernelPreference.EMULATED
-        and torch.cuda.get_device_capability()
-        != (
-            10,
-            0,
-        )
+    if recipe in (
+        MXFP8GroupedMMRecipe.RCEIL,
+        MXFP8GroupedMMRecipe.RCEIL_WGRAD_WITH_HP,
+    ) and torch.cuda.get_device_capability() != (
+        10,
+        0,
     ):
         pytest.skip(
             f"Skipping MXFP8 hardware mode tests, only supported on compute capability 10.0 and found {torch.cuda.get_device_capability()}"
@@ -155,7 +149,7 @@ def test_moe_training(
         return False
 
     # quantize test model
-    config = GroupedMMConfig(recipe=recipe, kernel_preference=kernel_preference)
+    config = MXFP8GroupedMMConfig.from_recipe(recipe)
     quantize_(model, config=config, filter_fn=moe_module_filter_fn)
 
     # validate that only the experts were converted

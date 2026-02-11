@@ -4,12 +4,15 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 import logging
+from dataclasses import dataclass
 from enum import Enum
-from typing import Callable, Optional, Union
+from typing import Callable, Optional
 
+import torch
 from torch import nn
 
 from torchao.core.config import AOBaseConfig
+from torchao.prototype.mx_formats.config import ScaleCalculationMode
 from torchao.quantization.quantize_.common import KernelPreference
 from torchao.quantization.transform_module import (
     register_quantize_module_handler,
@@ -30,20 +33,47 @@ class MXFP8GroupedMMRecipe(Enum):
     # TODO: add floor variants
     RCEIL = "rceil"
     RCEIL_WGRAD_WITH_HP = "rceil_wgrad_with_hp"
-
-
-# Type alias for any grouped MM recipe
-GroupedMMRecipe = Union[FP8GroupedMMRecipe, MXFP8GroupedMMRecipe]
+    EMULATED_RCEIL = "emulated"
 
 
 class GroupedMMConfig(AOBaseConfig):
+    """Base configuration for grouped matrix multiplication. Not intended to be used directly."""
+
+    pass
+
+
+@dataclass
+class FP8GroupedMMConfig(GroupedMMConfig):
     """
-    The GroupedMMConfig is specifically designed to be used on MoE models using
+    Configuration for FP8 grouped matrix multiplication.
+
+    Currently, FP8 grouped matrix multiplication is only supported with a single recipe (FP8 rowwise),
+    and the configuration options are hardcoded in the implementation.
+
+    When more recipes and configuration options are added, this class will be expanded to include those options.
+    """
+
+    @classmethod
+    def from_recipe(
+        cls,
+        recipe: FP8GroupedMMRecipe,
+    ) -> "FP8GroupedMMConfig":
+        """Factory method to create a FP8GroupedMMConfig from a FP8GroupedMMRecipe."""
+        if recipe == FP8GroupedMMRecipe.ROWWISE:
+            return cls()
+        else:
+            raise ValueError(f"Unsupported FP8 recipe: {recipe}")
+
+
+@dataclass
+class MXFP8GroupedMMConfig(GroupedMMConfig):
+    """
+    The MXFP8GroupedMMConfig is specifically designed to be used on MoE models using
     `torch._grouped_mm` to implement expert computation in token-choice routing,
     where expert weights are implemented as 3D nn.Parameters wit `num_experts` as
     the leading dim.
 
-    GroupedMMConfig has a module handler registered to it which will
+    MXFP8GroupedMMConfig has a module handler registered to it which will
     find all nn.Parameters whose parent module matches the module filter function,
     and swap their data tensor with a ScaledGroupedMMTensor.
 
@@ -55,19 +85,77 @@ class GroupedMMConfig(AOBaseConfig):
     For all other ops, ScaledGroupedMMTensor behaves like a regular torch.Tensor.
     """
 
-    def __init__(
-        self,
-        recipe: Union[
-            FP8GroupedMMRecipe, MXFP8GroupedMMRecipe
-        ] = FP8GroupedMMRecipe.ROWWISE,
-        kernel_preference: KernelPreference = KernelPreference.AUTO,
-    ):
-        super().__init__()
-        self.recipe = recipe
-        self.kernel_preference = kernel_preference
+    # AUTO = Use best supported kernel for quantization ops and GEMMs (CUDA and Triton for quantizatoin, CUTLASS for MXFP8 grouped GEM
+    # EMULATED = Hardware agnostic mode that can be used for debugging or development on non-SM100 machines.
+    #            Uses PyTorch native quantization ops, then dequantizes and uses emulated MXFP8 grouped GEMMs implemented in PyTorch.
+    #            Not recommended for performance.
+    kernel_preference: KernelPreference = KernelPreference.AUTO
+
+    # Output dtype for the MXFP8 grouped GEMMs.
+    out_dtype: Optional[torch.dtype] = torch.bfloat16
+
+    # Whether to compute the gradient of the weights in high precision (True) or use MXFP8 (False).
+    wgrad_with_hp: bool = False
+
+    # Rounding mode to use when calculating the e8m0 scale factors.
+    scale_calculation_mode: ScaleCalculationMode = ScaleCalculationMode.RCEIL
+
+    @classmethod
+    def from_recipe(
+        cls,
+        recipe: MXFP8GroupedMMRecipe,
+    ) -> "MXFP8GroupedMMConfig":
+        """Factory method to create a MXFP8GroupedMMConfig from a MXFP8GroupedMMRecipe."""
+        if recipe == MXFP8GroupedMMRecipe.RCEIL:
+            return cls(
+                kernel_preference=KernelPreference.AUTO,
+                out_dtype=torch.bfloat16,
+                wgrad_with_hp=False,
+                scale_calculation_mode=ScaleCalculationMode.RCEIL,
+            )
+        elif recipe == MXFP8GroupedMMRecipe.RCEIL_WGRAD_WITH_HP:
+            return cls(
+                kernel_preference=KernelPreference.AUTO,
+                out_dtype=torch.bfloat16,
+                wgrad_with_hp=True,
+                scale_calculation_mode=ScaleCalculationMode.RCEIL,
+            )
+        elif recipe == MXFP8GroupedMMRecipe.EMULATED_RCEIL:
+            return cls(
+                kernel_preference=KernelPreference.EMULATED,
+                out_dtype=torch.bfloat16,
+                wgrad_with_hp=False,
+                scale_calculation_mode=ScaleCalculationMode.RCEIL,
+            )
+        else:
+            raise ValueError(f"Unsupported MXFP8 recipe: {recipe}")
+
+    def __eq__(self, other):
+        if isinstance(other, MXFP8GroupedMMConfig):
+            return (
+                self.kernel_preference == other.kernel_preference
+                and self.out_dtype == other.out_dtype
+                and self.wgrad_with_hp == other.wgrad_with_hp
+                and self.scale_calculation_mode == other.scale_calculation_mode
+            )
+        return NotImplemented
+
+    def __hash__(self):
+        return hash(
+            (
+                self.kernel_preference,
+                self.out_dtype,
+                self.wgrad_with_hp,
+                self.scale_calculation_mode,
+            )
+        )
 
 
-@register_quantize_module_handler(GroupedMMConfig)
+# Need for dynamo non-strict trace mode
+torch.utils._pytree.register_constant(MXFP8GroupedMMConfig)
+
+
+@register_quantize_module_handler(MXFP8GroupedMMConfig)
 def _moe_training_transform(
     module: nn.Module,
     config: GroupedMMConfig,
@@ -120,9 +208,7 @@ def _swap_params(
                 f"Does not support a root nn.Parameter with children: {module}"
             )
         if not isinstance(module.data, ScaledGroupedMMTensor):
-            new_data = ScaledGroupedMMTensor(
-                module.data, config.recipe, config.kernel_preference
-            )
+            new_data = ScaledGroupedMMTensor(module.data, config)
             return nn.Parameter(new_data, requires_grad=module.requires_grad)
         return module
 
@@ -153,9 +239,7 @@ def _swap_params(
                     continue
                 if not isinstance(param.data, ScaledGroupedMMTensor):
                     new_param = nn.Parameter(
-                        ScaledGroupedMMTensor(
-                            param.data, config.recipe, config.kernel_preference
-                        ),
+                        ScaledGroupedMMTensor(param.data, config),
                         requires_grad=param.requires_grad,
                     )
                     setattr(module, param_name, new_param)

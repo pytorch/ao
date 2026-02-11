@@ -14,8 +14,7 @@ import torch
 from torch import nn
 
 from torchao.prototype.moe_training.conversion_utils import (
-    FP8GroupedMMRecipe,
-    GroupedMMConfig,
+    MXFP8GroupedMMConfig,
     MXFP8GroupedMMRecipe,
 )
 from torchao.prototype.moe_training.tensor import ScaledGroupedMMTensor
@@ -62,8 +61,11 @@ def test_fqn_to_config_simple():
     config = FqnToConfig(
         fqn_to_config=OrderedDict(
             [
-                # Apply GroupedMMConfig to expert parameters
-                ("experts", GroupedMMConfig(recipe=FP8GroupedMMRecipe.ROWWISE)),
+                # Apply MXFP8GroupedMMConfig to expert parameters
+                (
+                    "experts",
+                    MXFP8GroupedMMConfig.from_recipe(MXFP8GroupedMMRecipe.RCEIL),
+                ),
                 # Apply MXLinearConfig to dense layers
                 (
                     "pre_moe",
@@ -87,7 +89,7 @@ def test_fqn_to_config_simple():
     assert isinstance(model.experts.w2.data, ScaledGroupedMMTensor), (
         "w2 should be ScaledGroupedMMTensor"
     )
-    assert model.experts.w1.data.recipe == FP8GroupedMMRecipe.ROWWISE
+    assert model.experts.w1.data.recipe == MXFP8GroupedMMRecipe.RCEIL
     assert isinstance(model.pre_moe, MXLinear), "pre_moe should be MXLinear"
     assert isinstance(model.post_moe, MXLinear), "post_moe should be MXLinear"
 
@@ -100,7 +102,10 @@ def test_fqn_to_config_with_regex():
     config = FqnToConfig(
         fqn_to_config=OrderedDict(
             [
-                ("re:.*experts.*", GroupedMMConfig(recipe=MXFP8GroupedMMRecipe.RCEIL)),
+                (
+                    "re:.*experts.*",
+                    MXFP8GroupedMMConfig.from_recipe(MXFP8GroupedMMRecipe.RCEIL),
+                ),
                 (
                     "re:^(pre_moe|post_moe)$",
                     MXLinearConfig(elem_dtype=torch.float8_e4m3fn, block_size=32),
@@ -131,7 +136,10 @@ def test_fqn_to_config_experts_only():
     config = FqnToConfig(
         fqn_to_config=OrderedDict(
             [
-                ("re:.*experts.*", GroupedMMConfig(recipe=FP8GroupedMMRecipe.ROWWISE)),
+                (
+                    "re:.*experts.*",
+                    MXFP8GroupedMMConfig.from_recipe(MXFP8GroupedMMRecipe.RCEIL),
+                ),
             ]
         )
     )
@@ -162,7 +170,10 @@ def test_fqn_to_config_selective_layers():
     config = FqnToConfig(
         fqn_to_config=OrderedDict(
             [
-                ("re:.*experts.*", GroupedMMConfig(recipe=FP8GroupedMMRecipe.ROWWISE)),
+                (
+                    "re:.*experts.*",
+                    MXFP8GroupedMMConfig.from_recipe(MXFP8GroupedMMRecipe.RCEIL),
+                ),
                 (
                     "pre_moe",
                     MXLinearConfig(elem_dtype=torch.float8_e4m3fn, block_size=32),
@@ -196,7 +207,9 @@ def test_fqn_to_config_mxfp8_wgrad_with_hp():
             [
                 (
                     "re:.*experts.*",
-                    GroupedMMConfig(recipe=MXFP8GroupedMMRecipe.RCEIL_WGRAD_WITH_HP),
+                    MXFP8GroupedMMConfig.from_recipe(
+                        MXFP8GroupedMMRecipe.RCEIL_WGRAD_WITH_HP
+                    ),
                 ),
                 (
                     "re:^(pre_moe|post_moe)$",
@@ -259,9 +272,17 @@ def test_fqn_to_config_specific_expert_params():
     config = FqnToConfig(
         fqn_to_config=OrderedDict(
             [
-                # we wouldn't normally mix fp8 and mxfp8, but just to test granular fqn selection is working
-                ("experts.w1", GroupedMMConfig(recipe=FP8GroupedMMRecipe.ROWWISE)),
-                ("experts.w2", GroupedMMConfig(recipe=MXFP8GroupedMMRecipe.RCEIL)),
+                # Apply different MXFP8 recipes to test granular fqn selection
+                (
+                    "experts.w1",
+                    MXFP8GroupedMMConfig.from_recipe(MXFP8GroupedMMRecipe.RCEIL),
+                ),
+                (
+                    "experts.w2",
+                    MXFP8GroupedMMConfig.from_recipe(
+                        MXFP8GroupedMMRecipe.RCEIL_WGRAD_WITH_HP
+                    ),
+                ),
                 (
                     "re:^(pre_moe|post_moe)$",
                     MXLinearConfig(elem_dtype=torch.float8_e4m3fn, block_size=32),
@@ -275,14 +296,14 @@ def test_fqn_to_config_specific_expert_params():
     assert isinstance(model.experts.w1.data, ScaledGroupedMMTensor), (
         "w1 should be ScaledGroupedMMTensor"
     )
-    assert model.experts.w1.data.recipe == FP8GroupedMMRecipe.ROWWISE, (
-        "w1 should use FP8 ROWWISE"
+    assert model.experts.w1.data.recipe == MXFP8GroupedMMRecipe.RCEIL, (
+        "w1 should use MXFP8 RCEIL"
     )
     assert isinstance(model.experts.w2.data, ScaledGroupedMMTensor), (
         "w2 should be ScaledGroupedMMTensor"
     )
-    assert model.experts.w2.data.recipe == MXFP8GroupedMMRecipe.RCEIL, (
-        "w2 should use MXFP8 RCEIL"
+    assert model.experts.w2.data.recipe == MXFP8GroupedMMRecipe.RCEIL_WGRAD_WITH_HP, (
+        "w2 should use MXFP8 RCEIL_WGRAD_WITH_HP"
     )
     assert isinstance(model.pre_moe, MXLinear), "pre_moe should be MXLinear"
     assert isinstance(model.post_moe, MXLinear), "post_moe should be MXLinear"
