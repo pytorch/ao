@@ -508,8 +508,8 @@ def get_extensions():
 
         if use_cpu_kernels and is_linux:
             if (
-                hasattr(torch.cpu, "_is_avx512_supported")
-                and torch.cpu._is_avx512_supported()
+                hasattr(torch._C._cpu, "_is_avx512_supported")
+                and torch._C._cpu._is_avx512_supported()
             ):
                 extra_compile_args["cxx"].extend(
                     [
@@ -520,8 +520,8 @@ def get_extensions():
                     ]
                 )
             if (
-                hasattr(torch.cpu, " _is_vnni_supported")
-                and torch.cpu._is_vnni_supported()
+                hasattr(torch._C._cpu, "_is_avx512_vnni_supported")
+                and torch._C._cpu._is_avx512_vnni_supported()
             ):
                 extra_compile_args["cxx"].extend(
                     [
