@@ -13,6 +13,13 @@ import unittest
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+# FA3 activation is needed when calling _fp8_fa3_sdpa directly (outside the
+# model-level API which handles it via the context manager in wrappers.py).
+from torch.nn.attention import (
+    activate_flash_attention_impl,
+    restore_flash_attention_impl,
+)
 from torch.testing._internal import common_utils
 from torch.testing._internal.common_utils import (
     TestCase,
@@ -28,14 +35,6 @@ from torchao.attention.fp8_fa3.attention import _fp8_fa3_sdpa
 from torchao.attention.fp8_fa3.quantization import _fp8_sdpa_quantize
 from torchao.attention.utils import _is_hopper
 from torchao.quantization.utils import compute_error
-
-# FA3 activation is needed when calling _fp8_fa3_sdpa directly (outside the
-# model-level API which handles it via the context manager in wrappers.py).
-from torch.nn.attention import (
-    activate_flash_attention_impl,
-    restore_flash_attention_impl,
-)
-
 
 _FP8_FA3_SKIP_MSG = "FP8 FA3 requires CUDA with Hopper (SM 9.x)"
 

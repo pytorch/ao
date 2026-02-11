@@ -215,9 +215,21 @@ def _qkv_phase2_kernel(
             tl.float32
         )
 
-        tl.store(q_out_ptr + base_offset + ptr_offset, (q * q_scale).to(tl.float8e4nv), mask=mask)
-        tl.store(k_out_ptr + base_offset + ptr_offset, (k * k_scale).to(tl.float8e4nv), mask=mask)
-        tl.store(v_out_ptr + base_offset + ptr_offset, (v * v_scale).to(tl.float8e4nv), mask=mask)
+        tl.store(
+            q_out_ptr + base_offset + ptr_offset,
+            (q * q_scale).to(tl.float8e4nv),
+            mask=mask,
+        )
+        tl.store(
+            k_out_ptr + base_offset + ptr_offset,
+            (k * k_scale).to(tl.float8e4nv),
+            mask=mask,
+        )
+        tl.store(
+            v_out_ptr + base_offset + ptr_offset,
+            (v * v_scale).to(tl.float8e4nv),
+            mask=mask,
+        )
 
 
 def _triton_qkv_quantize(
@@ -256,23 +268,51 @@ def _triton_qkv_quantize(
     v_descale = torch.empty(B, H, device=q.device, dtype=torch.float32)
 
     _qkv_phase1_kernel[(B, H, num_chunks)](
-        q, k, v, partial_max,
-        q.stride(0), q.stride(1), q.stride(2), q.stride(3),
-        S, D, chunk_size, num_chunks, H,
+        q,
+        k,
+        v,
+        partial_max,
+        q.stride(0),
+        q.stride(1),
+        q.stride(2),
+        q.stride(3),
+        S,
+        D,
+        chunk_size,
+        num_chunks,
+        H,
     )
 
     _qkv_reduce_kernel[(B, H)](
         partial_max,
-        q_scale, k_scale, v_scale,
-        q_descale, k_descale, v_descale,
-        H, num_chunks,
+        q_scale,
+        k_scale,
+        v_scale,
+        q_descale,
+        k_descale,
+        v_descale,
+        H,
+        num_chunks,
     )
 
     _qkv_phase2_kernel[(B, H, num_chunks)](
-        q, k, v, q_fp8, k_fp8, v_fp8,
-        q_scale, k_scale, v_scale,
-        q.stride(0), q.stride(1), q.stride(2), q.stride(3),
-        S, D, H, chunk_size,
+        q,
+        k,
+        v,
+        q_fp8,
+        k_fp8,
+        v_fp8,
+        q_scale,
+        k_scale,
+        v_scale,
+        q.stride(0),
+        q.stride(1),
+        q.stride(2),
+        q.stride(3),
+        S,
+        D,
+        H,
+        chunk_size,
     )
 
     return q_fp8, k_fp8, v_fp8, q_descale, k_descale, v_descale
@@ -392,7 +432,11 @@ def _single_phase2_kernel(
         x = tl.load(x_ptr + base_offset + ptr_offset, mask=mask, other=0.0).to(
             tl.float32
         )
-        tl.store(x_out_ptr + base_offset + ptr_offset, (x * scale).to(tl.float8e4nv), mask=mask)
+        tl.store(
+            x_out_ptr + base_offset + ptr_offset,
+            (x * scale).to(tl.float8e4nv),
+            mask=mask,
+        )
 
 
 def _triton_single_quantize(
@@ -412,17 +456,33 @@ def _triton_single_quantize(
     descale = torch.empty(B, H, device=x.device, dtype=torch.float32)
 
     _single_phase1_kernel[(B, H, num_chunks)](
-        x, partial_max,
-        x.stride(0), x.stride(1), x.stride(2), x.stride(3),
-        S, D, chunk_size, num_chunks, H,
+        x,
+        partial_max,
+        x.stride(0),
+        x.stride(1),
+        x.stride(2),
+        x.stride(3),
+        S,
+        D,
+        chunk_size,
+        num_chunks,
+        H,
     )
 
     _single_reduce_kernel[(B, H)](partial_max, scale, descale, H, num_chunks)
 
     _single_phase2_kernel[(B, H, num_chunks)](
-        x, x_fp8, scale,
-        x.stride(0), x.stride(1), x.stride(2), x.stride(3),
-        S, D, H, chunk_size,
+        x,
+        x_fp8,
+        scale,
+        x.stride(0),
+        x.stride(1),
+        x.stride(2),
+        x.stride(3),
+        S,
+        D,
+        H,
+        chunk_size,
     )
 
     return x_fp8, descale
@@ -569,8 +629,16 @@ def _kv_phase2_kernel(
             tl.float32
         )
 
-        tl.store(k_out_ptr + base_offset + ptr_offset, (k * k_scale).to(tl.float8e4nv), mask=mask)
-        tl.store(v_out_ptr + base_offset + ptr_offset, (v * v_scale).to(tl.float8e4nv), mask=mask)
+        tl.store(
+            k_out_ptr + base_offset + ptr_offset,
+            (k * k_scale).to(tl.float8e4nv),
+            mask=mask,
+        )
+        tl.store(
+            v_out_ptr + base_offset + ptr_offset,
+            (v * v_scale).to(tl.float8e4nv),
+            mask=mask,
+        )
 
 
 def _triton_kv_quantize(
@@ -596,23 +664,45 @@ def _triton_kv_quantize(
     v_descale = torch.empty(B, H, device=k.device, dtype=torch.float32)
 
     _kv_phase1_kernel[(B, H, num_chunks)](
-        k, v, partial_max,
-        k.stride(0), k.stride(1), k.stride(2), k.stride(3),
-        S, D, chunk_size, num_chunks, H,
+        k,
+        v,
+        partial_max,
+        k.stride(0),
+        k.stride(1),
+        k.stride(2),
+        k.stride(3),
+        S,
+        D,
+        chunk_size,
+        num_chunks,
+        H,
     )
 
     _kv_reduce_kernel[(B, H)](
         partial_max,
-        k_scale, v_scale,
-        k_descale, v_descale,
-        H, num_chunks,
+        k_scale,
+        v_scale,
+        k_descale,
+        v_descale,
+        H,
+        num_chunks,
     )
 
     _kv_phase2_kernel[(B, H, num_chunks)](
-        k, v, k_fp8, v_fp8,
-        k_scale, v_scale,
-        k.stride(0), k.stride(1), k.stride(2), k.stride(3),
-        S, D, H, chunk_size,
+        k,
+        v,
+        k_fp8,
+        v_fp8,
+        k_scale,
+        v_scale,
+        k.stride(0),
+        k.stride(1),
+        k.stride(2),
+        k.stride(3),
+        S,
+        D,
+        H,
+        chunk_size,
     )
 
     return k_fp8, v_fp8, k_descale, v_descale

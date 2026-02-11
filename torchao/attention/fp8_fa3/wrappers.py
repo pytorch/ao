@@ -8,9 +8,9 @@
 Internal: Wrappers for applying FP8 FA3 attention to models.
 """
 
+import warnings
 from contextlib import contextmanager
 from typing import Optional
-import warnings
 
 import torch.nn as nn
 import torch.nn.functional as F
