@@ -1,0 +1,23 @@
+[
+  {
+    "name": "main (unstable)",
+    "version": "main",
+    "url": "https://docs.pytorch.org/torchao/main/"
+  },
+  {
+    "name": "v0.16.0 (stable)",
+    "version": "0.16",
+    "url": "https://docs.pytorch.org/torchao/0.16/",
+    "preferred": true
+  },
+  {
+    "name": "v0.15.0",
+    "version": "0.15",
+    "url": "https://docs.pytorch.org/torchao/0.15/"
+  },
+  {
+    "name": "v0.14.0",
+    "version": "0.14",
+    "url": "https://docs.pytorch.org/torchao/0.14/"
+  }
+]
