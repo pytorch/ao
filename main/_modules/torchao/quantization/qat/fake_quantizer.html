@@ -70,6 +70,25 @@ window.addEventListener("load", () => mermaid.run());
 
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
+
+<!-- LLM/AI Agent: See /llms.txt for comprehensive navigation guidance -->
+<!-- Machine-readable LLM metadata -->
+<meta name="llm:site-type" content="documentation">
+<meta name="llm:framework" content="PyTorch">
+
+<meta name="llm:description" content="torchao.quantization.qat.fake_quantizer - Documentation for torchao, part of the PyTorch ecosystem.">
+
+
+
+
+
+<meta name="llm:navigation-file" content="/llms.txt">
+<meta name="llm:sitemap" content="/sitemap.xml">
+<meta name="llm:version" content="main">
+<meta name="llm:project" content="torchao">
+<meta name="llm:page-type" content="documentation">
+<link rel="alternate" type="text/plain" href="/llms.txt" title="LLM Navigation Guide">
+
 <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/list.js/2.3.1/list.min.js"></script>
 <script>
@@ -97,6 +116,32 @@ window.addEventListener("load", () => mermaid.run());
   });
 </script>
 <!-- Conditional CSS for header and footer height adjustment -->
+
+<style>
+  :root {
+    --header-height: 0px !important;
+    --header-height-desktop: 0px !important;
+  }
+  /* Ensure proper mobile layout when LF header is hidden */
+  @media (max-width: 960px) {
+    .bd-header {
+      top: 0 !important;
+      position: sticky !important;
+      z-index: 1020 !important;
+    }
+    .bd-main {
+      padding-top: 0 !important;
+      margin-top: 0 !important;
+    }
+    .bd-article-container {
+      padding-top: 0 !important;
+    }
+    .header-article__inner {
+      padding-top: 1rem !important;
+    }
+
+  }
+</style>
 
 
 <link rel="stylesheet" type="text/css" href="../../../../_static/css/theme.css" crossorigin="anonymous">
@@ -158,25 +203,112 @@ window.addEventListener("load", () => mermaid.run());
 <!-- End Facebook Pixel Code -->
 <!-- Repository configuration for tutorials -->
 
-<!-- Script to Fix scrolling -->
+
+<!-- Script to Fix scrolling with fast fixed-duration animation -->
 <script>
   document.addEventListener('DOMContentLoaded', function () {
-    // Fix anchor scrolling
+    const SCROLL_DURATION = 150; // Fixed duration in ms regardless of distance
+    let lockedTargetId = null; // Lock the TOC to this target until user scrolls manually
+    let isUpdatingToc = false; // Guard against infinite loops
+
+    function smoothScrollTo(targetY, duration, onComplete) {
+      const startY = window.pageYOffset;
+      const difference = targetY - startY;
+      const startTime = performance.now();
+
+      function step(currentTime) {
+        const elapsed = currentTime - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+        // Ease-out cubic for smooth deceleration
+        const easeOut = 1 - Math.pow(1 - progress, 3);
+        window.scrollTo(0, startY + difference * easeOut);
+        if (progress < 1) {
+          requestAnimationFrame(step);
+        } else if (onComplete) {
+          onComplete();
+        }
+      }
+      requestAnimationFrame(step);
+    }
+
+    function updateTocHighlight(targetId) {
+      if (isUpdatingToc) return; // Prevent infinite loop
+      isUpdatingToc = true;
+
+      // Find the TOC link that points to this target
+      const tocNav = document.querySelector('.bd-toc-nav');
+      if (!tocNav) {
+        isUpdatingToc = false;
+        return;
+      }
+
+      // Remove active class from all TOC items
+      tocNav.querySelectorAll('.nav-link').forEach(link => {
+        link.classList.remove('active');
+        link.parentElement.classList.remove('active');
+      });
+
+      // Add active class to the matching link
+      const matchingLink = tocNav.querySelector(`a[href="#${CSS.escape(targetId)}"]`);
+      if (matchingLink) {
+        matchingLink.classList.add('active');
+        matchingLink.parentElement.classList.add('active');
+      }
+
+      // Use setTimeout to reset the guard after the current call stack
+      setTimeout(function() {
+        isUpdatingToc = false;
+      }, 0);
+    }
+
+    // Watch for ScrollSpy trying to change the active state and override it
+    const tocNav = document.querySelector('.bd-toc-nav');
+    if (tocNav) {
+      const observer = new MutationObserver(function(mutations) {
+        if (lockedTargetId && !isUpdatingToc) {
+          // Force our target to stay highlighted
+          updateTocHighlight(lockedTargetId);
+        }
+      });
+      observer.observe(tocNav, {
+        attributes: true,
+        attributeFilter: ['class'],
+        subtree: true
+      });
+    }
+
+    // Release the lock when user scrolls manually (not programmatically)
+    window.addEventListener('wheel', function() {
+      lockedTargetId = null;
+    });
+    window.addEventListener('touchmove', function() {
+      lockedTargetId = null;
+    });
+
     document.querySelectorAll('a[href^="#"]').forEach(anchor => {
       anchor.addEventListener('click', function (e) {
-        e.preventDefault();
         const targetId = this.getAttribute('href').substring(1);
+        if (!targetId) return; // Skip empty hash links
         const targetElement = document.getElementById(targetId);
 
         if (targetElement) {
+          e.preventDefault();
+
+          // Lock the TOC to this target
+          lockedTargetId = targetId;
+
           const headerHeight =
             (document.querySelector('.header-holder') ? document.querySelector('.header-holder').offsetHeight : 0) +
             (document.querySelector('.bd-header') ? document.querySelector('.bd-header').offsetHeight : 0) + 20;
 
           const targetPosition = targetElement.getBoundingClientRect().top + window.pageYOffset - headerHeight;
-          window.scrollTo({
-            top: targetPosition,
-            behavior: 'smooth'
+
+          // Update TOC highlight immediately
+          updateTocHighlight(targetId);
+
+          smoothScrollTo(targetPosition, SCROLL_DURATION, function() {
+            // Keep it highlighted after scroll
+            updateTocHighlight(targetId);
           });
 
           // Update URL hash without scrolling
@@ -188,6 +320,8 @@ window.addEventListener("load", () => mermaid.run());
 </script>
 
 <script async src="https://cse.google.com/cse.js?cx=e65585f8c3ea1440e"></script>
+<!-- RunLLM Widget Configuration -->
+
 
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
@@ -195,350 +329,6 @@ window.addEventListener("load", () => mermaid.run());
   </head>
 
 <body data-feedback-url="" class="pytorch-body">
-  
-    <div class="container-fluid header-holder tutorials-header" id="header-holder">
-   <div class="header-container-wrapper">
-    <div class="header-container">
-      <a class="header-logo" href="https://pytorch.org/" aria-label="PyTorch"></a>
-
-      <div class="main-menu">
-        <ul>
-
-          <li class="main-menu-item">
-          <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
-              <a class="with-down-arrow">
-                <span>Learn</span>
-              </a>
-              <div class="resources-dropdown-menu">
-                <a class="nav-dropdown-item" href="https://pytorch.org/get-started/locally">
-                  <span class=dropdown-title>Get Started</span>
-                </a>
-                <a class="nav-dropdown-item" href="https://docs.pytorch.org/tutorials">
-                  <span class="dropdown-title">Tutorials</span>
-                </a>
-                <a class="nav-dropdown-item" href="https://pytorch.org/tutorials/beginner/basics/intro.html">
-                  <span class="dropdown-title">Learn the Basics</span>
-                </a>
-                <a class="nav-dropdown-item" href="https://pytorch.org/tutorials/recipes/recipes_index.html">
-                  <span class="dropdown-title">PyTorch Recipes</span>
-                </a>
-                <a class="nav-dropdown-item" href="https://pytorch.org/tutorials/beginner/introyt.html">
-                  <span class="dropdown-title">Intro to PyTorch - YouTube Series</span>
-                </a>
-                <a class="nav-dropdown-item" href="https://pytorch.org/webinars/">
-                  <span class="dropdown-title">Webinars</span>
-                </a>
-              </div>
-            </div>
-          </li>
-
-          <li class="main-menu-item">
-          <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
-              <a class="with-down-arrow">
-              <span>Community</span>
-              </a>
-              <div class="resources-dropdown-menu">
-                <a class="nav-dropdown-item" href="https://landscape.pytorch.org/" target="_blank">
-                  <span class="dropdown-title">Landscape</span>
-                </a>
-                <a class="nav-dropdown-item" href="https://pytorch.org/join-ecosystem">
-                  <span class="dropdown-title">Join the Ecosystem</span>
-                </a>
-                <a class="nav-dropdown-item" href="https://pytorch.org/community-hub/">
-                  <span class="dropdown-title">Community Hub</span>
-                </a>
-                <a class="nav-dropdown-item" href="https://discuss.pytorch.org/">
-                  <span class="dropdown-title">Forums</span>
-                </a>
-                <a class="nav-dropdown-item" href="https://pytorch.org/resources">
-                  <span class=dropdown-title>Developer Resources</span>
-                </a>
-                <a class="nav-dropdown-item" href="https://pytorch.org/contributor-awards/">
-                  <span class="dropdown-title">Contributor Awards</span>
-                </a>
-                <a class="nav-dropdown-item" href="https://pytorch.org/community-events/">
-                  <span class="dropdown-title">Community Events</span>
-                </a>
-                <a class="nav-dropdown-item" href="https://pytorch.org/programs/ambassadors/">
-                  <span class="dropdown-title">PyTorch Ambassadors</span>
-                </a>
-              </div>
-            </div>
-          </li>
-
-          <li class="main-menu-item">
-          <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
-              <a class="with-down-arrow">
-              <span>Projects</span>
-              </a>
-              <div class="resources-dropdown-menu">
-                <a class="nav-dropdown-item" href="https://pytorch.org/projects/pytorch/">
-                  <span class="dropdown-title">PyTorch</span>
-                </a>
-                <a class="nav-dropdown-item" href="https://pytorch.org/projects/vllm/">
-                  <span class="dropdown-title">vLLM</span>
-                </a>
-                <a class="nav-dropdown-item" href="https://pytorch.org/projects/deepspeed/">
-                  <span class="dropdown-title">DeepSpeed</span>
-                </a>
-                <a class="nav-dropdown-item" href="https://pytorch.org/projects/host-your-project/">
-                  <span class="dropdown-title">Host Your Project</span>
-                </a>
-                <a class="nav-dropdown-item" href="https://pytorch.org/projects/ray/">
-                  <span class="dropdown-title">RAY</span>
-                </a>
-              </div>
-            </div>
-          </li>
-
-          <li class="main-menu-item">
-            <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
-              <a class="with-down-arrow">
-              <span> Docs</span>
-              </a>
-              <div class="resources-dropdown-menu">
-                <a class="nav-dropdown-item" href="https://docs.pytorch.org/docs/stable/index.html">
-                  <span class="dropdown-title">PyTorch</span>
-                </a>
-                <a class="nav-dropdown-item" href="https://pytorch.org/domains">
-                  <span class="dropdown-title">Domains</span>
-                </a>
-              </div>
-            </div>
-          </li>
-
-          <li class="main-menu-item">
-            <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
-              <a class="with-down-arrow">
-              <span>Blogs & News</span>
-              </a>
-              <div class="resources-dropdown-menu">
-                <a class="nav-dropdown-item" href="https://pytorch.org/blog/">
-                  <span class="dropdown-title">Blog</span>
-                </a>
-                 <a class="nav-dropdown-item" href="https://pytorch.org/announcements">
-                  <span class="dropdown-title">Announcements</span>
-                </a>
-                <a class="nav-dropdown-item" href="https://pytorch.org/case-studies/">
-                  <span class="dropdown-title">Case Studies</span>
-                <a class="nav-dropdown-item" href="https://pytorch.org/events">
-                  <span class="dropdown-title">Events</span>
-                </a>
-                <a class="nav-dropdown-item" href="https://pytorch.org/newsletter">
-                  <span class="dropdown-title">Newsletter</span>
-                </a>
-            </div>
-          </li>
-
-          <li class="main-menu-item">
-            <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
-              <a class="with-down-arrow">
-              <span>About</span>
-              </a>
-              <div class="resources-dropdown-menu">
-                <a class="nav-dropdown-item" href="https://pytorch.org/foundation">
-                  <span class="dropdown-title">PyTorch Foundation</span>
-                </a>
-                <a class="nav-dropdown-item" href="https://pytorch.org/members">
-                  <span class="dropdown-title">Members</span>
-                </a>
-                <a class="nav-dropdown-item" href="https://pytorch.org/governing-board">
-                  <span class="dropdown-title">Governing Board</span>
-                </a>
-                <a class="nav-dropdown-item" href="https://pytorch.org/tac">
-                  <span class="dropdown-title">Technical Advisory Council</span>
-                </a>
-                <a class="nav-dropdown-item" href="https://pytorch.org/credits">
-                  <span class="dropdown-title">Cloud Credit Program</span>
-                </a>
-                <a class="nav-dropdown-item" href="https://pytorch.org/staff">
-                  <span class="dropdown-title">Staff</span>
-                </a>
-                <a class="nav-dropdown-item" href="https://pytorch.org/contact">
-                  <span class="dropdown-title">Contact</span>
-                </a>
-                <a class="nav-dropdown-item" href="https://pytorch.org/wp-content/uploads/2025/09/pytorch_brand_guide_091925a.pdf">
-                  <span class="dropdown-title">Brand Guidelines</span>
-                </a>
-              </div>
-            </div>
-          </li>
-
-          <li class="main-menu-item">
-            <div class="no-dropdown main-menu-button">
-              <a href="https://pytorch.org/join" data-cta="join">
-                JOIN
-              </a>
-            </div>
-          </li>
-        </ul>
-      </div>
-
-      <a class="main-menu-open-button" href="#" data-behavior="open-mobile-menu">
-        <i class="fa-solid fa-ellipsis"></i>
-      </a>
-    </div>
-  </div>
- </div>
-
- <!-- Begin Mobile Menu -->
-
-<div class="mobile-main-menu">
-  <div class="container-fluid">
-    <div class="header-container-wrapper">
-      <div class="mobile-main-menu-header-container">
-        <a class="main-menu-close-button" href="#" data-behavior="close-mobile-menu">
-        </a>
-      </div>
-    </div>
-  </div>
-
-  <div class="mobile-main-menu-links-container">
-    <div class="main-menu">
-      <ul>
-         <li class="resources-mobile-menu-title">
-           <a>Learn</a>
-         </li>
-         <ul class="resources-mobile-menu-items">
-           <li>
-             <a href="https://pytorch.org/get-started/locally">Get Started</a>
-           </li>
-           <li>
-             <a href="https://docs.pytorch.org/tutorials">Tutorials</a>
-           </li>
-           <li>
-             <a href="https://pytorch.org/tutorials/beginner/basics/intro.html">Learn the Basics</a>
-           </li>
-           <li>
-             <a href="https://pytorch.org/tutorials/recipes/recipes_index.html">PyTorch Recipes</a>
-           </li>
-           <li>
-             <a href="https://pytorch.org/tutorials/beginner/introyt.html">Introduction to PyTorch - YouTube Series</a>
-           </li>
-           <li>
-            <a href="https://pytorch.org/webinars/">Webinars</a>
-          </li>
-        </ul>
-         <li class="resources-mobile-menu-title">
-           <a>Community</a>
-         </li>
-         <ul class="resources-mobile-menu-items">
-          <li>
-            <a href="https://landscape.pytorch.org/">Landscape</a>
-          </li>
-          <li>
-             <a href="https://pytorch.org/join-ecosystem">Join the Ecosystem</a>
-           </li>
-           <li>
-             <a href="https://pytorch.org/community-hub/">Community Hub</a>
-           </li>
-           <li>
-             <a href="https://discuss.pytorch.org/">Forums</a>
-           </li>
-           <li>
-             <a href="https://pytorch.org/resources">Developer Resources</a>
-           </li>
-           <li>
-             <a href="https://pytorch.org/contributor-awards/">Contributor Awards</a>
-           </li>
-           <li>
-            <a href="https://pytorch.org/community-events/">Community Events</a>
-          </li>
-          <li>
-            <a href="https://pytorch.org/programs/ambassadors/">PyTorch Ambassadors</a>
-          </li>
-       </ul>
-
-         <li class="resources-mobile-menu-title">
-           <a>Projects</a>
-         </li>
-
-         <ul class="resources-mobile-menu-items">
-           <li>
-             <a href="https://pytorch.org/projects/pytorch/">PyTorch</a>
-           </li>
-
-           <li>
-             <a href="https://pytorch.org/projects/vllm/">vLLM</a>
-           </li>
-           <li>
-            <a href="https://pytorch.org/projects/deepspeed/">DeepSpeed</a>
-          </li>
-          <li>
-             <a href="https://pytorch.org/projects/host-your-project/">Host Your Project</a>
-           </li>
-         </ul>
-
-         <li class="resources-mobile-menu-title">
-           <a>Docs</a>
-         </li>
-
-         <ul class="resources-mobile-menu-items">
-          <li>
-            <a href="https://docs.pytorch.org/docs/stable/index.html">PyTorch</a>
-          </li>
-
-          <li>
-            <a href="https://pytorch.org/domains">Domains</a>
-          </li>
-        </ul>
-
-        <li class="resources-mobile-menu-title">
-          <a>Blog & News</a>
-        </li>
-
-         <ul class="resources-mobile-menu-items">
-          <li>
-            <a href="https://pytorch.org/blog/">Blog</a>
-          </li>
-          <li>
-            <a href="https://pytorch.org/announcements">Announcements</a>
-          </li>
-
-          <li>
-            <a href="https://pytorch.org/case-studies/">Case Studies</a>
-          </li>
-          <li>
-            <a href="https://pytorch.org/events">Events</a>
-          </li>
-          <li>
-             <a href="https://pytorch.org/newsletter">Newsletter</a>
-           </li>
-        </ul>
-
-        <li class="resources-mobile-menu-title">
-          <a>About</a>
-        </li>
-
-        <ul class="resources-mobile-menu-items">
-          <li>
-            <a href="https://pytorch.org/foundation">PyTorch Foundation</a>
-          </li>
-          <li>
-            <a href="https://pytorch.org/members">Members</a>
-          </li>
-          <li>
-            <a href="https://pytorch.org/governing-board">Governing Board</a>
-          </li>
-          <li>
-            <a href="https://pytorch.org/tac">Technical Advisory Council</a>
-         </li>
-         <li>
-             <a href="https://pytorch.org/credits">Cloud Credit Program</a>
-          </li>
-          <li>
-             <a href="https://pytorch.org/staff">Staff</a>
-          </li>
-          <li>
-             <a href="https://pytorch.org/contact">Contact</a>
-          </li>
-        </ul>
-      </ul>
-    </div>
-  </div>
-</div>
-
-<!-- End Mobile Menu -->
   
   
   
@@ -548,7 +338,7 @@ window.addEventListener("load", () => mermaid.run());
   
   
   <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
-  
+
   
   <div id="pst-scroll-pixel-helper"></div>
   
@@ -593,17 +383,53 @@ window.addEventListener("load", () => mermaid.run());
 
   
     <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+
 <div class="bd-header__inner bd-page-width">
   <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
     <span class="fa-solid fa-bars"></span>
   </button>
+
+  
+  <div class="navbar-header-items__mobile-logo">
+    
+
+
+
+
+
+
+
+  
+  
+  
+  
+
+
+<a class="navbar-brand logo" href="../../../../index.html">
+  
+    
+    <img src="../../../../_static/img/logo-dark.svg" class="logo__image only-light" alt="torchao - Home"/>
+    
+    
+    <script>document.write(`<img src="../../../../_static/img/logo-white.svg" class="logo__image only-dark" alt="torchao - Home"/>`);</script>
+    
+  
+</a>
+  </div>
+
   
   
   <div class=" navbar-header-items__start">
     
-      <div class="navbar-item">
+      
+      
+        
+        <div class="navbar-item desktop-only-version">
+          
   <a href="../../../../index.html" class="version">main</a>
-</div>
+
+        </div>
+      
     
   </div>
   
@@ -612,50 +438,290 @@ window.addEventListener("load", () => mermaid.run());
     <div class="me-auto navbar-header-items__center">
       
         <div class="navbar-item">
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 <nav>
   <ul class="bd-navbar-elements navbar-nav">
     
-<li class="nav-item ">
-  <a class="nav-link nav-internal" href="../../../../workflows/index.html">
-    Workflows
-  </a>
-</li>
+    
+      <li class="nav-item dropdown">
+        
+          
+          <div class="nav-item-with-toggle">
+            <a class="nav-link nav-internal" href="../../../../workflows/index.html">
+              Workflows
+            </a>
+          </div>
+          <ul class="dropdown-menu" id="dropdown-1">
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../../../workflows/training.html">
+                  Quantized Training
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../../../workflows/qat.html">
+                  Quantization-Aware Training (QAT)
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../../../workflows/inference.html">
+                  Quantized Inference
+                </a>
+              </li>
+            
+          </ul>
+        
+      </li>
+    
+      <li class="nav-item dropdown">
+        
+          
+          <div class="nav-item-with-toggle">
+            <a class="nav-link nav-internal" href="../../../../api_reference/index.html">
+              API Reference
+            </a>
+          </div>
+          <ul class="dropdown-menu" id="dropdown-2">
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../../../api_reference/api_ref_quantization.html">
+                  torchao.quantization
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../../../api_reference/api_ref_qat.html">
+                  torchao.quantization.qat
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../../../api_reference/api_ref_sparsity.html">
+                  torchao.sparsity
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../../../api_reference/api_ref_float8.html">
+                  torchao.float8
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../../../api_reference/api_ref_utils.html">
+                  torchao.utils
+                </a>
+              </li>
+            
+          </ul>
+        
+      </li>
+    
+      <li class="nav-item dropdown">
+        
+          
+          <div class="nav-item-with-toggle">
+            <a class="nav-link nav-internal" href="../../../../eager_tutorials/index.html">
+              Tutorials
+            </a>
+          </div>
+          <ul class="dropdown-menu" id="dropdown-3">
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../../../eager_tutorials/first_quantization_example.html">
+                  First Quantization Example
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../../../eager_tutorials/pretraining.html">
+                  (Part 1) Pre-training with float8
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../../../eager_tutorials/finetuning.html">
+                  (Part 2) Fine-tuning with QAT, QLoRA, and float8
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../../../eager_tutorials/serving.html">
+                  (Part 3) Serving on vLLM, SGLang, ExecuTorch
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../../../eager_tutorials/torchao_vllm_integration.html">
+                  Integration with VLLM: Architecture and Usage Guide
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../../../eager_tutorials/torchao_hf_integration.html">
+                  Hugging Face Integration
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../../../eager_tutorials/serialization.html">
+                  Serialization
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../../../eager_tutorials/static_quantization.html">
+                  Static Quantization
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../../../eager_tutorials/subclass_basic.html">
+                  Writing Your Own Quantized Tensor
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../../../eager_tutorials/subclass_advanced.html">
+                  Writing Your Own Quantized Tensor (advanced)
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../../../eager_tutorials/mxfp8_expert_parallel_training.html">
+                  MXFP8 Expert Parallel Training
+                </a>
+              </li>
+            
+          </ul>
+        
+      </li>
+    
+      <li class="nav-item dropdown">
+        
+          
+          <div class="nav-item-with-toggle">
+            <a class="nav-link nav-internal" href="../../../../contributing/index.html">
+              Contributing
+            </a>
+          </div>
+          <ul class="dropdown-menu" id="dropdown-4">
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../../../contributing/quantization_overview.html">
+                  Quantization Overview
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../../../contributing/contributor_guide.html">
+                  Contributor Guide
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../../../contributing/sparsity.html">
+                  Sparsity Overview
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../../../contributing/benchmarking_api_guide.html">
+                  Benchmarking API Guide
+                </a>
+              </li>
+            
+          </ul>
+        
+      </li>
+    
+      <li class="nav-item dropdown">
+        
+          
+          <div class="nav-item-with-toggle">
+            <a class="nav-link nav-internal" href="../../../../pt2e_quantization/index.html">
+              PT2E Quantization
+            </a>
+          </div>
+          <ul class="dropdown-menu" id="dropdown-5">
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../../../pt2e_quantization/pt2e_quant_ptq.html">
+                  PyTorch 2 Export Post Training Quantization
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../../../pt2e_quantization/pt2e_quant_qat.html">
+                  PyTorch 2 Export Quantization-Aware Training (QAT)
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../../../pt2e_quantization/pt2e_quant_x86_inductor.html">
+                  PyTorch 2 Export Quantization with X86 Backend through Inductor
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../../../pt2e_quantization/pt2e_quant_xpu_inductor.html">
+                  PyTorch 2 Export Quantization with Intel GPU Backend through Inductor
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../../../pt2e_quantization/pt2e_quant_openvino_inductor.html">
+                  PyTorch 2 Export Quantization for OpenVINO torch.compile Backend
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../../../pt2e_quantization/pt2e_quantizer.html">
+                  How to Write a Quantizer for PyTorch 2 Export Quantization
+                </a>
+              </li>
+            
+          </ul>
+        
+      </li>
+    
 
-
-<li class="nav-item ">
-  <a class="nav-link nav-internal" href="../../../../api_reference/index.html">
-    API Reference
-  </a>
-</li>
-
-
-<li class="nav-item ">
-  <a class="nav-link nav-internal" href="../../../../eager_tutorials/index.html">
-    Tutorials
-  </a>
-</li>
-
-
-<li class="nav-item ">
-  <a class="nav-link nav-internal" href="../../../../contributing/index.html">
-    Contributing
-  </a>
-</li>
-
-
-<li class="nav-item ">
-  <a class="nav-link nav-internal" href="../../../../pt2e_quantization/index.html">
-    PT2E Quantization
-  </a>
-</li>
-
+    
+    
   </ul>
-</nav></div>
+</nav>
+</div>
       
     </div>
     
     
     <div class="navbar-header-items__end">
+      
+      
+      
+        <div class="navbar-item"><!-- PyTorch.org site link - desktop only, two-line layout -->
+<!-- Note: The show_pytorch_org_link check is handled in layout.html's navbar_end block -->
+<a href="https://pytorch.org" class="pytorch-site-link nav-link nav-external" title="Go to PyTorch.org">
+  <span class="pytorch-site-link-text">
+    <span>Go to</span>
+    <span>pytorch.org <i class="fa-solid fa-arrow-up-right-from-square external-icon"></i></span>
+  </span>
+</a></div>
       
       
         <div class="navbar-item">
@@ -764,8 +830,22 @@ document.write(`
       <div class="bd-sidebar-primary bd-sidebar hide-on-wide">
         
 
+
+
+
   
   <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+    <div class="sidebar-header-items__start">
+      <div class="navbar-item">
+        
+  <a href="../../../../index.html" class="version">main</a>
+
+      </div>
+    </div>
+    
+
     
     
       <div class="sidebar-header-items__center">
@@ -773,45 +853,274 @@ document.write(`
           
           
             <div class="navbar-item">
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 <nav>
   <ul class="bd-navbar-elements navbar-nav">
     
-<li class="nav-item ">
-  <a class="nav-link nav-internal" href="../../../../workflows/index.html">
-    Workflows
-  </a>
-</li>
+    
+      <li class="nav-item dropdown">
+        
+          
+          <div class="nav-item-with-toggle">
+            <a class="nav-link nav-internal" href="../../../../workflows/index.html">
+              Workflows
+            </a>
+          </div>
+          <ul class="dropdown-menu" id="dropdown-1">
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../../../workflows/training.html">
+                  Quantized Training
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../../../workflows/qat.html">
+                  Quantization-Aware Training (QAT)
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../../../workflows/inference.html">
+                  Quantized Inference
+                </a>
+              </li>
+            
+          </ul>
+        
+      </li>
+    
+      <li class="nav-item dropdown">
+        
+          
+          <div class="nav-item-with-toggle">
+            <a class="nav-link nav-internal" href="../../../../api_reference/index.html">
+              API Reference
+            </a>
+          </div>
+          <ul class="dropdown-menu" id="dropdown-2">
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../../../api_reference/api_ref_quantization.html">
+                  torchao.quantization
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../../../api_reference/api_ref_qat.html">
+                  torchao.quantization.qat
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../../../api_reference/api_ref_sparsity.html">
+                  torchao.sparsity
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../../../api_reference/api_ref_float8.html">
+                  torchao.float8
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../../../api_reference/api_ref_utils.html">
+                  torchao.utils
+                </a>
+              </li>
+            
+          </ul>
+        
+      </li>
+    
+      <li class="nav-item dropdown">
+        
+          
+          <div class="nav-item-with-toggle">
+            <a class="nav-link nav-internal" href="../../../../eager_tutorials/index.html">
+              Tutorials
+            </a>
+          </div>
+          <ul class="dropdown-menu" id="dropdown-3">
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../../../eager_tutorials/first_quantization_example.html">
+                  First Quantization Example
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../../../eager_tutorials/pretraining.html">
+                  (Part 1) Pre-training with float8
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../../../eager_tutorials/finetuning.html">
+                  (Part 2) Fine-tuning with QAT, QLoRA, and float8
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../../../eager_tutorials/serving.html">
+                  (Part 3) Serving on vLLM, SGLang, ExecuTorch
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../../../eager_tutorials/torchao_vllm_integration.html">
+                  Integration with VLLM: Architecture and Usage Guide
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../../../eager_tutorials/torchao_hf_integration.html">
+                  Hugging Face Integration
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../../../eager_tutorials/serialization.html">
+                  Serialization
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../../../eager_tutorials/static_quantization.html">
+                  Static Quantization
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../../../eager_tutorials/subclass_basic.html">
+                  Writing Your Own Quantized Tensor
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../../../eager_tutorials/subclass_advanced.html">
+                  Writing Your Own Quantized Tensor (advanced)
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../../../eager_tutorials/mxfp8_expert_parallel_training.html">
+                  MXFP8 Expert Parallel Training
+                </a>
+              </li>
+            
+          </ul>
+        
+      </li>
+    
+      <li class="nav-item dropdown">
+        
+          
+          <div class="nav-item-with-toggle">
+            <a class="nav-link nav-internal" href="../../../../contributing/index.html">
+              Contributing
+            </a>
+          </div>
+          <ul class="dropdown-menu" id="dropdown-4">
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../../../contributing/quantization_overview.html">
+                  Quantization Overview
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../../../contributing/contributor_guide.html">
+                  Contributor Guide
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../../../contributing/sparsity.html">
+                  Sparsity Overview
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../../../contributing/benchmarking_api_guide.html">
+                  Benchmarking API Guide
+                </a>
+              </li>
+            
+          </ul>
+        
+      </li>
+    
+      <li class="nav-item dropdown">
+        
+          
+          <div class="nav-item-with-toggle">
+            <a class="nav-link nav-internal" href="../../../../pt2e_quantization/index.html">
+              PT2E Quantization
+            </a>
+          </div>
+          <ul class="dropdown-menu" id="dropdown-5">
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../../../pt2e_quantization/pt2e_quant_ptq.html">
+                  PyTorch 2 Export Post Training Quantization
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../../../pt2e_quantization/pt2e_quant_qat.html">
+                  PyTorch 2 Export Quantization-Aware Training (QAT)
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../../../pt2e_quantization/pt2e_quant_x86_inductor.html">
+                  PyTorch 2 Export Quantization with X86 Backend through Inductor
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../../../pt2e_quantization/pt2e_quant_xpu_inductor.html">
+                  PyTorch 2 Export Quantization with Intel GPU Backend through Inductor
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../../../pt2e_quantization/pt2e_quant_openvino_inductor.html">
+                  PyTorch 2 Export Quantization for OpenVINO torch.compile Backend
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../../../pt2e_quantization/pt2e_quantizer.html">
+                  How to Write a Quantizer for PyTorch 2 Export Quantization
+                </a>
+              </li>
+            
+          </ul>
+        
+      </li>
+    
 
-
-<li class="nav-item ">
-  <a class="nav-link nav-internal" href="../../../../api_reference/index.html">
-    API Reference
-  </a>
-</li>
-
-
-<li class="nav-item ">
-  <a class="nav-link nav-internal" href="../../../../eager_tutorials/index.html">
-    Tutorials
-  </a>
-</li>
-
-
-<li class="nav-item ">
-  <a class="nav-link nav-internal" href="../../../../contributing/index.html">
-    Contributing
-  </a>
-</li>
-
-
-<li class="nav-item ">
-  <a class="nav-link nav-internal" href="../../../../pt2e_quantization/index.html">
-    PT2E Quantization
-  </a>
-</li>
-
+    
+    
   </ul>
-</nav></div>
+</nav>
+</div>
           
         
       </div>
@@ -819,6 +1128,17 @@ document.write(`
     
     
       <div class="sidebar-header-items__end">
+        
+        
+          <div class="navbar-item"><!-- PyTorch.org site link - desktop only, two-line layout -->
+<!-- Note: The show_pytorch_org_link check is handled in layout.html's navbar_end block -->
+<a href="https://pytorch.org" class="pytorch-site-link nav-link nav-external" title="Go to PyTorch.org">
+  <span class="pytorch-site-link-text">
+    <span>Go to</span>
+    <span>pytorch.org <i class="fa-solid fa-arrow-up-right-from-square external-icon"></i></span>
+  </span>
+</a></div>
+        
         
           <div class="navbar-item">
   
@@ -911,10 +1231,10 @@ document.write(`
   
   <div class="sidebar-primary-items__end sidebar-primary__section">
   </div>
-  
-  <div id="rtd-footer-container"></div>
 
 
+
+<div id="rtd-footer-container"></div>
       </div>
       
       <main id="main-content" class="bd-main" role="main">
@@ -978,28 +1298,28 @@ document.write(`
 </div>
               
               
-  
+
 <div id="searchbox"></div>
-  <article class="bd-article" id="pytorch-article">
-    <!-- Hidden breadcrumb schema for SEO only -->
-    <div style="display:none;" itemscope itemtype="https://schema.org/BreadcrumbList">
-      
-      <div itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
-        <link itemprop="item" href="../../../index.html">
-        <meta itemprop="name" content="Module code">
-        <meta itemprop="position" content="1">
-      </div>
-      
-      <div itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
-        <meta itemprop="name" content="torchao.quantization.qat.fake_quantizer">
-        <meta itemprop="position" content="2">
-      </div>
+<div id="pytorch-article">
+  <!-- Hidden breadcrumb schema for SEO only -->
+  <div style="display:none;" itemscope itemtype="https://schema.org/BreadcrumbList">
+    
+    <div itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
+      <link itemprop="item" href="../../../index.html">
+      <meta itemprop="name" content="Module code">
+      <meta itemprop="position" content="1">
     </div>
+    
+    <div itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
+      <meta itemprop="name" content="torchao.quantization.qat.fake_quantizer">
+      <meta itemprop="position" content="2">
+    </div>
+  </div>
 
-    
-    
+  
+  
 
-    
+  
               
                 
 <div id="searchbox"></div>
@@ -1353,8 +1673,8 @@ document.write(`
 
                 </article>
               
-  </article>
-  
+</div>
+
               
               
                 <footer class="bd-footer-article">
@@ -1609,7 +1929,7 @@ document.write(`
        "@type": "Article",
        "name": "torchao.quantization.qat.fake_quantizer",
        "headline": "torchao.quantization.qat.fake_quantizer",
-       "description": "PyTorch Documentation. Explore PyTorch, an open-source machine learning library that accelerates the path from research prototyping to production deployment. Discover tutorials, API references, and guides to help you build and deploy deep learning models efficiently.",
+       "description": "PyTorch Documentation. Explore PyTorch, an open-source machine learning library that accelerates the path from research prototyping to production deployment.",
        "url": "/_modules/torchao/quantization/qat/fake_quantizer.html",
        "articleBody": "Source code for torchao.quantization.qat.fake_quantizer # Copyright (c) Meta Platforms, Inc. and affiliates. # All rights reserved. # This source code is licensed under the license found in the # LICENSE file in the root directory of this source tree. from typing import Optional import torch from torchao.quantization.granularity import ( PerAxis, PerGroup, PerRow, PerToken, ) from torchao.quantization.quant_primitives import ( _DTYPE_TO_BIT_WIDTH, _DTYPE_TO_QVALUE_BOUNDS, MappingType, _choose_scale_float8, _dequantize_affine_float8, _fake_quantize_affine, _quantize_affine_float8, _Round, choose_qparams_affine, ) from torchao.quantization.utils import ( _get_per_token_block_size, get_block_size, get_group_qparams_symmetric, get_groupwise_affine_qparams, ) from .fake_quantize_config import ( FakeQuantizeConfigBase, Float8FakeQuantizeConfig, Int4WeightFakeQuantizeConfig, IntxFakeQuantizeConfig, ) from .utils import ( _fake_quantize_per_channel_group, _fake_quantize_per_token, _log_deprecation_warning, ) [docs]class FakeQuantizerBase(torch.nn.Module): \"\"\" Generic module for applying fake quantization to a tensor, as specified in the config. \"\"\" config: FakeQuantizeConfigBase def __repr__(self) -\u003e str: \"\"\" Return a human readable representation of this `FakeQuantizer` with config details. \"\"\" return \"FakeQuantizer(%s)\" % self.config @staticmethod def from_config(config: FakeQuantizeConfigBase) -\u003e \"FakeQuantizerBase\": if isinstance(config, IntxFakeQuantizeConfig): return IntxFakeQuantizer(config) elif isinstance(config, Int4WeightFakeQuantizeConfig): return Int4WeightFakeQuantizer(config) elif isinstance(config, Float8FakeQuantizeConfig): return Float8FakeQuantizer(config) else: raise ValueError(f\"Unknown config type: {config}\") [docs]class Float8FakeQuantizer(FakeQuantizerBase): \"\"\" Generic module for applying float8 fake quantization to a tensor, as specified in the config. \"\"\" def __init__(self, config: Float8FakeQuantizeConfig): super().__init__() self.config = config torch._C._log_api_usage_once(\"torchao.quantization.qat.Float8FakeQuantizer\") [docs] def forward(self, x: torch.Tensor) -\u003e torch.Tensor: original_dtype = x.dtype block_size = get_block_size(x.shape, self.config.granularity) scale = _choose_scale_float8( x, block_size, self.config.dtype, hp_value_lb=self.config.hp_value_lb, hp_value_ub=self.config.hp_value_ub, ) q = _quantize_affine_float8(x, scale, self.config.dtype) dq = _dequantize_affine_float8(q, scale, original_dtype) return dq class Int4WeightFakeQuantizer(FakeQuantizerBase): \"\"\" Generic module for applying int4 fake quantization to a weight tensor, targeting the following MSLK kernels: torch.ops.mslk.f8i4bf16_shuffled torch.ops.mslk.bf16i4bf16_shuffled torch.ops.mslk.bf16i4bf16_rowwise \"\"\" def __init__(self, config: Int4WeightFakeQuantizeConfig): super().__init__() self.config = config torch._C._log_api_usage_once(\"torchao.quantization.qat.Int4WeightFakeQuantizer\") def forward(self, w: torch.Tensor) -\u003e torch.Tensor: if self.config.activation_dtype == torch.float8_e4m3fn: return self._fp8_activations_forward(w) elif self.config.activation_dtype == torch.bfloat16: return self._bf16_activations_forward(w) else: raise ValueError(f\"Unknown activation dtype {self.config.activation_dtype}\") def _fp8_activations_forward(self, w: torch.Tensor) -\u003e torch.Tensor: \"\"\" Apply int4 fake quantization to the weight tensor where the input activations are expected to be rowwise fp8, using the following as a reference: https://github.com/meta-pytorch/MSLK/blob/main/mslk/quantize/shuffle.py \"\"\" assert w.dim() == 2 assert self.config.activation_dtype == torch.float8_e4m3fn # First quantize weights to fp8 per row # This simulates the numerics of mslk.quantize.triton.fp8_quantize.quantize_fp8_row per_row_block_size = get_block_size(w.shape, PerRow()) fp8_scale = _choose_scale_float8( w, per_row_block_size, torch.float8_e4m3fn, hp_value_lb=1e-12, ) w_fp8 = _quantize_affine_float8(w, fp8_scale, torch.float8_e4m3fn) w_fp8 = _dequantize_affine_float8(w_fp8, fp8_scale, w.dtype) # Now quantize to int4 per group # This simulates the numerics of mslk.quantize.shuffle.int4_row_quantize eps = 1e-6 mslk_scale_quant_max = 8 w_fp8_grouped = w_fp8.view(w_fp8.shape[0], -1, self.config.group_size) max_abs = torch.amax(torch.abs(w_fp8_grouped), dim=-1, keepdim=False) scale = torch.clamp(max_abs / mslk_scale_quant_max, min=eps) zero_point = torch.zeros_like(scale) per_group_block_size = (1, self.config.group_size) fq = _fake_quantize_affine( w_fp8, per_group_block_size, scale, zero_point, quant_dtype=torch.int8, quant_min=-8, quant_max=7, ) return fq.to(w.dtype) def _bf16_activations_forward(self, w: torch.Tensor) -\u003e torch.Tensor: \"\"\" Apply int4 fake quantization to the weight tensor where the input activations are expected to be bf16, using the following as a reference: https://github.com/meta-pytorch/MSLK/blob/main/mslk/quantize/shuffle.py \"\"\" assert w.dim() == 2 assert self.config.activation_dtype == torch.bfloat16 eps = 1e-6 qmin, qmax = 0, 15 mslk_symmetric_qmax = 8 w_grouped = w.to(torch.float32).view(w.shape[0], -1, self.config.group_size) max_val = torch.amax(w_grouped, dim=-1, keepdim=True) min_val = torch.amin(w_grouped, dim=-1, keepdim=True) scale = torch.clamp(max_val - min_val, min=eps) / qmax zero_point = min_val + scale * mslk_symmetric_qmax fq = _Round.apply((w_grouped - min_val) / scale).clamp(qmin, qmax) fq = fq - mslk_symmetric_qmax fq = fq * scale + zero_point return fq.view(w.shape).to(w.dtype) [docs]class IntxFakeQuantizer(FakeQuantizerBase): \"\"\" Generic module for applying integer fake quantization to a tensor, as specified in the config. \"\"\" def __init__(self, config: IntxFakeQuantizeConfig): super().__init__() torch._C._log_api_usage_once(\"torchao.quantization.qat.IntxFakeQuantizer\") self.config = config self.enabled = True self.scale: Optional[torch.Tensor] = None self.zero_point: Optional[torch.Tensor] = None # For range learning only # TODO: make this configurable? self._scale_eps = 1e-9 self._initialized = False [docs] def forward(self, x: torch.Tensor) -\u003e torch.Tensor: \"\"\" Apply fake quantization to the tensor based on the bit-width, granularity, symmetry, and other properties specified in the config. \"\"\" if not self.enabled: return x if ( self.config.range_learning and not self._initialized and (self.scale is None or self.zero_point is None) ): raise ValueError( \"Scales and zero points must be initialized for range learning. \" \"Please call `torchao.quantization.qat.initialize_fake_quantizers` \" \"before initializing the optimizer and beginning training.\" ) if isinstance(self.config.granularity, PerToken): return self._per_token_forward(x) elif isinstance(self.config.granularity, (PerAxis, PerGroup)): return self._per_channel_or_group_forward(x) else: raise ValueError(\"Unknown granularity \u0027%s\u0027\" % self.config.granularity) def _per_token_forward(self, x: torch.Tensor) -\u003e torch.Tensor: \"\"\" Perform per token fake quantization on the tensor. \"\"\" if self.config.is_symmetric: raise NotImplementedError(\"Symmetric per token is not supported yet\") qmin, qmax = _DTYPE_TO_QVALUE_BOUNDS[self.config.dtype] if self._should_compute_qparams(): self.scale, self.zero_point = choose_qparams_affine( x, mapping_type=MappingType.ASYMMETRIC, block_size=_get_per_token_block_size(x), target_dtype=self.config.dtype, quant_min=qmin, quant_max=qmax, eps=self.config.eps, scale_dtype=self.config.scale_precision, zero_point_dtype=self.config.zero_point_precision, ) self._maybe_update_qparams_for_range_learning() return _fake_quantize_per_token(x, self.scale, self.zero_point, qmin, qmax) def _per_channel_or_group_forward(self, x: torch.Tensor) -\u003e torch.Tensor: \"\"\" Perform per channel or per group fake quantization on the tensor. We express per channel using per group where the group size is the size of the last dimension of the tensor. \"\"\" granularity = self.config.granularity scale_precision = self.config.scale_precision zero_point_precision = self.config.zero_point_precision zero_point_domain = self.config.zero_point_domain is_symmetric = self.config.is_symmetric # get group size if isinstance(granularity, PerAxis): assert granularity.axis == 0 group_size = x.size()[-1] elif isinstance(granularity, PerGroup): group_size = granularity.group_size else: raise ValueError(\"Unexpected granularity \u0027%s\u0027\" % granularity) # get scales and zero points # TODO: refactor this to use `choose_qparams_affine` if self._should_compute_qparams(): bit_width = _DTYPE_TO_BIT_WIDTH[self.config.dtype] if is_symmetric: (self.scale, self.zero_point) = get_group_qparams_symmetric( x, bit_width, group_size, scale_precision, eps=self.config.eps, ) else: (self.scale, self.zero_point) = get_groupwise_affine_qparams( x, bit_width, group_size, scale_precision, eps=self.config.eps, ) self.zero_point = self.zero_point.to(zero_point_precision) self._maybe_update_qparams_for_range_learning() qmin, qmax = _DTYPE_TO_QVALUE_BOUNDS[self.config.dtype] return _fake_quantize_per_channel_group( x, self.scale, self.zero_point, qmin, qmax, group_size, zero_point_domain, ) def _should_compute_qparams(self) -\u003e bool: \"\"\" Return whether we need to compute new scales and zero points. \"\"\" return self.config.is_dynamic or self.scale is None or self.zero_point is None def _maybe_update_qparams_for_range_learning(self) -\u003e None: \"\"\" If range learning is enabled, turn scales and zero points into trainable parameters. This function is idempotent and should only be called once. \"\"\" if ( not self.config.range_learning or isinstance(self.scale, torch.nn.Parameter) or isinstance(self.zero_point, torch.nn.Parameter) ): return scale, zero_point = self.scale, self.zero_point qmin, qmax = _DTYPE_TO_QVALUE_BOUNDS[self.config.dtype] # Stabilize range learning scale = torch.clamp(scale, min=self._scale_eps) self.scale = torch.nn.Parameter(scale, requires_grad=True) if self.config.is_symmetric: self.zero_point.zero_() else: zero_point = _Round.apply(zero_point) zero_point = torch.clamp(zero_point, qmin, qmax) self.zero_point = torch.nn.Parameter(zero_point, requires_grad=True) # For BC class FakeQuantizer(IntxFakeQuantizer): \"\"\" (Deprecated) Please use :class:`~torchao.quantization.qat.IntxFakeQuantizer` instead. \"\"\" def __init__(self, config: FakeQuantizeConfigBase): super().__init__(config) _log_deprecation_warning(self)",
        "author": {

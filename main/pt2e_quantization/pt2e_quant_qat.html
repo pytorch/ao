@@ -71,6 +71,25 @@
 
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
+
+<!-- LLM/AI Agent: See /llms.txt for comprehensive navigation guidance -->
+<!-- Machine-readable LLM metadata -->
+<meta name="llm:site-type" content="documentation">
+<meta name="llm:framework" content="PyTorch">
+
+<meta name="llm:description" content="PyTorch 2 Export Quantization-Aware Training (QAT) - Documentation for torchao, part of the PyTorch ecosystem.">
+
+
+
+
+
+<meta name="llm:navigation-file" content="/llms.txt">
+<meta name="llm:sitemap" content="/sitemap.xml">
+<meta name="llm:version" content="main">
+<meta name="llm:project" content="torchao">
+<meta name="llm:page-type" content="documentation">
+<link rel="alternate" type="text/plain" href="/llms.txt" title="LLM Navigation Guide">
+
 <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/list.js/2.3.1/list.min.js"></script>
 <script>
@@ -98,6 +117,32 @@
   });
 </script>
 <!-- Conditional CSS for header and footer height adjustment -->
+
+<style>
+  :root {
+    --header-height: 0px !important;
+    --header-height-desktop: 0px !important;
+  }
+  /* Ensure proper mobile layout when LF header is hidden */
+  @media (max-width: 960px) {
+    .bd-header {
+      top: 0 !important;
+      position: sticky !important;
+      z-index: 1020 !important;
+    }
+    .bd-main {
+      padding-top: 0 !important;
+      margin-top: 0 !important;
+    }
+    .bd-article-container {
+      padding-top: 0 !important;
+    }
+    .header-article__inner {
+      padding-top: 1rem !important;
+    }
+
+  }
+</style>
 
 
 <link rel="stylesheet" type="text/css" href="../_static/css/theme.css" crossorigin="anonymous">
@@ -159,25 +204,112 @@
 <!-- End Facebook Pixel Code -->
 <!-- Repository configuration for tutorials -->
 
-<!-- Script to Fix scrolling -->
+
+<!-- Script to Fix scrolling with fast fixed-duration animation -->
 <script>
   document.addEventListener('DOMContentLoaded', function () {
-    // Fix anchor scrolling
+    const SCROLL_DURATION = 150; // Fixed duration in ms regardless of distance
+    let lockedTargetId = null; // Lock the TOC to this target until user scrolls manually
+    let isUpdatingToc = false; // Guard against infinite loops
+
+    function smoothScrollTo(targetY, duration, onComplete) {
+      const startY = window.pageYOffset;
+      const difference = targetY - startY;
+      const startTime = performance.now();
+
+      function step(currentTime) {
+        const elapsed = currentTime - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+        // Ease-out cubic for smooth deceleration
+        const easeOut = 1 - Math.pow(1 - progress, 3);
+        window.scrollTo(0, startY + difference * easeOut);
+        if (progress < 1) {
+          requestAnimationFrame(step);
+        } else if (onComplete) {
+          onComplete();
+        }
+      }
+      requestAnimationFrame(step);
+    }
+
+    function updateTocHighlight(targetId) {
+      if (isUpdatingToc) return; // Prevent infinite loop
+      isUpdatingToc = true;
+
+      // Find the TOC link that points to this target
+      const tocNav = document.querySelector('.bd-toc-nav');
+      if (!tocNav) {
+        isUpdatingToc = false;
+        return;
+      }
+
+      // Remove active class from all TOC items
+      tocNav.querySelectorAll('.nav-link').forEach(link => {
+        link.classList.remove('active');
+        link.parentElement.classList.remove('active');
+      });
+
+      // Add active class to the matching link
+      const matchingLink = tocNav.querySelector(`a[href="#${CSS.escape(targetId)}"]`);
+      if (matchingLink) {
+        matchingLink.classList.add('active');
+        matchingLink.parentElement.classList.add('active');
+      }
+
+      // Use setTimeout to reset the guard after the current call stack
+      setTimeout(function() {
+        isUpdatingToc = false;
+      }, 0);
+    }
+
+    // Watch for ScrollSpy trying to change the active state and override it
+    const tocNav = document.querySelector('.bd-toc-nav');
+    if (tocNav) {
+      const observer = new MutationObserver(function(mutations) {
+        if (lockedTargetId && !isUpdatingToc) {
+          // Force our target to stay highlighted
+          updateTocHighlight(lockedTargetId);
+        }
+      });
+      observer.observe(tocNav, {
+        attributes: true,
+        attributeFilter: ['class'],
+        subtree: true
+      });
+    }
+
+    // Release the lock when user scrolls manually (not programmatically)
+    window.addEventListener('wheel', function() {
+      lockedTargetId = null;
+    });
+    window.addEventListener('touchmove', function() {
+      lockedTargetId = null;
+    });
+
     document.querySelectorAll('a[href^="#"]').forEach(anchor => {
       anchor.addEventListener('click', function (e) {
-        e.preventDefault();
         const targetId = this.getAttribute('href').substring(1);
+        if (!targetId) return; // Skip empty hash links
         const targetElement = document.getElementById(targetId);
 
         if (targetElement) {
+          e.preventDefault();
+
+          // Lock the TOC to this target
+          lockedTargetId = targetId;
+
           const headerHeight =
             (document.querySelector('.header-holder') ? document.querySelector('.header-holder').offsetHeight : 0) +
             (document.querySelector('.bd-header') ? document.querySelector('.bd-header').offsetHeight : 0) + 20;
 
           const targetPosition = targetElement.getBoundingClientRect().top + window.pageYOffset - headerHeight;
-          window.scrollTo({
-            top: targetPosition,
-            behavior: 'smooth'
+
+          // Update TOC highlight immediately
+          updateTocHighlight(targetId);
+
+          smoothScrollTo(targetPosition, SCROLL_DURATION, function() {
+            // Keep it highlighted after scroll
+            updateTocHighlight(targetId);
           });
 
           // Update URL hash without scrolling
@@ -189,6 +321,8 @@
 </script>
 
 <script async src="https://cse.google.com/cse.js?cx=e65585f8c3ea1440e"></script>
+<!-- RunLLM Widget Configuration -->
+
 
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
@@ -196,350 +330,6 @@
   </head>
 
 <body data-feedback-url="" class="pytorch-body">
-  
-    <div class="container-fluid header-holder tutorials-header" id="header-holder">
-   <div class="header-container-wrapper">
-    <div class="header-container">
-      <a class="header-logo" href="https://pytorch.org/" aria-label="PyTorch"></a>
-
-      <div class="main-menu">
-        <ul>
-
-          <li class="main-menu-item">
-          <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
-              <a class="with-down-arrow">
-                <span>Learn</span>
-              </a>
-              <div class="resources-dropdown-menu">
-                <a class="nav-dropdown-item" href="https://pytorch.org/get-started/locally">
-                  <span class=dropdown-title>Get Started</span>
-                </a>
-                <a class="nav-dropdown-item" href="https://docs.pytorch.org/tutorials">
-                  <span class="dropdown-title">Tutorials</span>
-                </a>
-                <a class="nav-dropdown-item" href="https://pytorch.org/tutorials/beginner/basics/intro.html">
-                  <span class="dropdown-title">Learn the Basics</span>
-                </a>
-                <a class="nav-dropdown-item" href="https://pytorch.org/tutorials/recipes/recipes_index.html">
-                  <span class="dropdown-title">PyTorch Recipes</span>
-                </a>
-                <a class="nav-dropdown-item" href="https://pytorch.org/tutorials/beginner/introyt.html">
-                  <span class="dropdown-title">Intro to PyTorch - YouTube Series</span>
-                </a>
-                <a class="nav-dropdown-item" href="https://pytorch.org/webinars/">
-                  <span class="dropdown-title">Webinars</span>
-                </a>
-              </div>
-            </div>
-          </li>
-
-          <li class="main-menu-item">
-          <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
-              <a class="with-down-arrow">
-              <span>Community</span>
-              </a>
-              <div class="resources-dropdown-menu">
-                <a class="nav-dropdown-item" href="https://landscape.pytorch.org/" target="_blank">
-                  <span class="dropdown-title">Landscape</span>
-                </a>
-                <a class="nav-dropdown-item" href="https://pytorch.org/join-ecosystem">
-                  <span class="dropdown-title">Join the Ecosystem</span>
-                </a>
-                <a class="nav-dropdown-item" href="https://pytorch.org/community-hub/">
-                  <span class="dropdown-title">Community Hub</span>
-                </a>
-                <a class="nav-dropdown-item" href="https://discuss.pytorch.org/">
-                  <span class="dropdown-title">Forums</span>
-                </a>
-                <a class="nav-dropdown-item" href="https://pytorch.org/resources">
-                  <span class=dropdown-title>Developer Resources</span>
-                </a>
-                <a class="nav-dropdown-item" href="https://pytorch.org/contributor-awards/">
-                  <span class="dropdown-title">Contributor Awards</span>
-                </a>
-                <a class="nav-dropdown-item" href="https://pytorch.org/community-events/">
-                  <span class="dropdown-title">Community Events</span>
-                </a>
-                <a class="nav-dropdown-item" href="https://pytorch.org/programs/ambassadors/">
-                  <span class="dropdown-title">PyTorch Ambassadors</span>
-                </a>
-              </div>
-            </div>
-          </li>
-
-          <li class="main-menu-item">
-          <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
-              <a class="with-down-arrow">
-              <span>Projects</span>
-              </a>
-              <div class="resources-dropdown-menu">
-                <a class="nav-dropdown-item" href="https://pytorch.org/projects/pytorch/">
-                  <span class="dropdown-title">PyTorch</span>
-                </a>
-                <a class="nav-dropdown-item" href="https://pytorch.org/projects/vllm/">
-                  <span class="dropdown-title">vLLM</span>
-                </a>
-                <a class="nav-dropdown-item" href="https://pytorch.org/projects/deepspeed/">
-                  <span class="dropdown-title">DeepSpeed</span>
-                </a>
-                <a class="nav-dropdown-item" href="https://pytorch.org/projects/host-your-project/">
-                  <span class="dropdown-title">Host Your Project</span>
-                </a>
-                <a class="nav-dropdown-item" href="https://pytorch.org/projects/ray/">
-                  <span class="dropdown-title">RAY</span>
-                </a>
-              </div>
-            </div>
-          </li>
-
-          <li class="main-menu-item">
-            <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
-              <a class="with-down-arrow">
-              <span> Docs</span>
-              </a>
-              <div class="resources-dropdown-menu">
-                <a class="nav-dropdown-item" href="https://docs.pytorch.org/docs/stable/index.html">
-                  <span class="dropdown-title">PyTorch</span>
-                </a>
-                <a class="nav-dropdown-item" href="https://pytorch.org/domains">
-                  <span class="dropdown-title">Domains</span>
-                </a>
-              </div>
-            </div>
-          </li>
-
-          <li class="main-menu-item">
-            <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
-              <a class="with-down-arrow">
-              <span>Blogs & News</span>
-              </a>
-              <div class="resources-dropdown-menu">
-                <a class="nav-dropdown-item" href="https://pytorch.org/blog/">
-                  <span class="dropdown-title">Blog</span>
-                </a>
-                 <a class="nav-dropdown-item" href="https://pytorch.org/announcements">
-                  <span class="dropdown-title">Announcements</span>
-                </a>
-                <a class="nav-dropdown-item" href="https://pytorch.org/case-studies/">
-                  <span class="dropdown-title">Case Studies</span>
-                <a class="nav-dropdown-item" href="https://pytorch.org/events">
-                  <span class="dropdown-title">Events</span>
-                </a>
-                <a class="nav-dropdown-item" href="https://pytorch.org/newsletter">
-                  <span class="dropdown-title">Newsletter</span>
-                </a>
-            </div>
-          </li>
-
-          <li class="main-menu-item">
-            <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
-              <a class="with-down-arrow">
-              <span>About</span>
-              </a>
-              <div class="resources-dropdown-menu">
-                <a class="nav-dropdown-item" href="https://pytorch.org/foundation">
-                  <span class="dropdown-title">PyTorch Foundation</span>
-                </a>
-                <a class="nav-dropdown-item" href="https://pytorch.org/members">
-                  <span class="dropdown-title">Members</span>
-                </a>
-                <a class="nav-dropdown-item" href="https://pytorch.org/governing-board">
-                  <span class="dropdown-title">Governing Board</span>
-                </a>
-                <a class="nav-dropdown-item" href="https://pytorch.org/tac">
-                  <span class="dropdown-title">Technical Advisory Council</span>
-                </a>
-                <a class="nav-dropdown-item" href="https://pytorch.org/credits">
-                  <span class="dropdown-title">Cloud Credit Program</span>
-                </a>
-                <a class="nav-dropdown-item" href="https://pytorch.org/staff">
-                  <span class="dropdown-title">Staff</span>
-                </a>
-                <a class="nav-dropdown-item" href="https://pytorch.org/contact">
-                  <span class="dropdown-title">Contact</span>
-                </a>
-                <a class="nav-dropdown-item" href="https://pytorch.org/wp-content/uploads/2025/09/pytorch_brand_guide_091925a.pdf">
-                  <span class="dropdown-title">Brand Guidelines</span>
-                </a>
-              </div>
-            </div>
-          </li>
-
-          <li class="main-menu-item">
-            <div class="no-dropdown main-menu-button">
-              <a href="https://pytorch.org/join" data-cta="join">
-                JOIN
-              </a>
-            </div>
-          </li>
-        </ul>
-      </div>
-
-      <a class="main-menu-open-button" href="#" data-behavior="open-mobile-menu">
-        <i class="fa-solid fa-ellipsis"></i>
-      </a>
-    </div>
-  </div>
- </div>
-
- <!-- Begin Mobile Menu -->
-
-<div class="mobile-main-menu">
-  <div class="container-fluid">
-    <div class="header-container-wrapper">
-      <div class="mobile-main-menu-header-container">
-        <a class="main-menu-close-button" href="#" data-behavior="close-mobile-menu">
-        </a>
-      </div>
-    </div>
-  </div>
-
-  <div class="mobile-main-menu-links-container">
-    <div class="main-menu">
-      <ul>
-         <li class="resources-mobile-menu-title">
-           <a>Learn</a>
-         </li>
-         <ul class="resources-mobile-menu-items">
-           <li>
-             <a href="https://pytorch.org/get-started/locally">Get Started</a>
-           </li>
-           <li>
-             <a href="https://docs.pytorch.org/tutorials">Tutorials</a>
-           </li>
-           <li>
-             <a href="https://pytorch.org/tutorials/beginner/basics/intro.html">Learn the Basics</a>
-           </li>
-           <li>
-             <a href="https://pytorch.org/tutorials/recipes/recipes_index.html">PyTorch Recipes</a>
-           </li>
-           <li>
-             <a href="https://pytorch.org/tutorials/beginner/introyt.html">Introduction to PyTorch - YouTube Series</a>
-           </li>
-           <li>
-            <a href="https://pytorch.org/webinars/">Webinars</a>
-          </li>
-        </ul>
-         <li class="resources-mobile-menu-title">
-           <a>Community</a>
-         </li>
-         <ul class="resources-mobile-menu-items">
-          <li>
-            <a href="https://landscape.pytorch.org/">Landscape</a>
-          </li>
-          <li>
-             <a href="https://pytorch.org/join-ecosystem">Join the Ecosystem</a>
-           </li>
-           <li>
-             <a href="https://pytorch.org/community-hub/">Community Hub</a>
-           </li>
-           <li>
-             <a href="https://discuss.pytorch.org/">Forums</a>
-           </li>
-           <li>
-             <a href="https://pytorch.org/resources">Developer Resources</a>
-           </li>
-           <li>
-             <a href="https://pytorch.org/contributor-awards/">Contributor Awards</a>
-           </li>
-           <li>
-            <a href="https://pytorch.org/community-events/">Community Events</a>
-          </li>
-          <li>
-            <a href="https://pytorch.org/programs/ambassadors/">PyTorch Ambassadors</a>
-          </li>
-       </ul>
-
-         <li class="resources-mobile-menu-title">
-           <a>Projects</a>
-         </li>
-
-         <ul class="resources-mobile-menu-items">
-           <li>
-             <a href="https://pytorch.org/projects/pytorch/">PyTorch</a>
-           </li>
-
-           <li>
-             <a href="https://pytorch.org/projects/vllm/">vLLM</a>
-           </li>
-           <li>
-            <a href="https://pytorch.org/projects/deepspeed/">DeepSpeed</a>
-          </li>
-          <li>
-             <a href="https://pytorch.org/projects/host-your-project/">Host Your Project</a>
-           </li>
-         </ul>
-
-         <li class="resources-mobile-menu-title">
-           <a>Docs</a>
-         </li>
-
-         <ul class="resources-mobile-menu-items">
-          <li>
-            <a href="https://docs.pytorch.org/docs/stable/index.html">PyTorch</a>
-          </li>
-
-          <li>
-            <a href="https://pytorch.org/domains">Domains</a>
-          </li>
-        </ul>
-
-        <li class="resources-mobile-menu-title">
-          <a>Blog & News</a>
-        </li>
-
-         <ul class="resources-mobile-menu-items">
-          <li>
-            <a href="https://pytorch.org/blog/">Blog</a>
-          </li>
-          <li>
-            <a href="https://pytorch.org/announcements">Announcements</a>
-          </li>
-
-          <li>
-            <a href="https://pytorch.org/case-studies/">Case Studies</a>
-          </li>
-          <li>
-            <a href="https://pytorch.org/events">Events</a>
-          </li>
-          <li>
-             <a href="https://pytorch.org/newsletter">Newsletter</a>
-           </li>
-        </ul>
-
-        <li class="resources-mobile-menu-title">
-          <a>About</a>
-        </li>
-
-        <ul class="resources-mobile-menu-items">
-          <li>
-            <a href="https://pytorch.org/foundation">PyTorch Foundation</a>
-          </li>
-          <li>
-            <a href="https://pytorch.org/members">Members</a>
-          </li>
-          <li>
-            <a href="https://pytorch.org/governing-board">Governing Board</a>
-          </li>
-          <li>
-            <a href="https://pytorch.org/tac">Technical Advisory Council</a>
-         </li>
-         <li>
-             <a href="https://pytorch.org/credits">Cloud Credit Program</a>
-          </li>
-          <li>
-             <a href="https://pytorch.org/staff">Staff</a>
-          </li>
-          <li>
-             <a href="https://pytorch.org/contact">Contact</a>
-          </li>
-        </ul>
-      </ul>
-    </div>
-  </div>
-</div>
-
-<!-- End Mobile Menu -->
   
   
   
@@ -549,7 +339,7 @@
   
   
   <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
-  
+
   
   <div id="pst-scroll-pixel-helper"></div>
   
@@ -594,17 +384,53 @@
 
   
     <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+
 <div class="bd-header__inner bd-page-width">
   <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
     <span class="fa-solid fa-bars"></span>
   </button>
+
+  
+  <div class="navbar-header-items__mobile-logo">
+    
+
+
+
+
+
+
+
+  
+  
+  
+  
+
+
+<a class="navbar-brand logo" href="../index.html">
+  
+    
+    <img src="../_static/img/logo-dark.svg" class="logo__image only-light" alt="torchao - Home"/>
+    
+    
+    <script>document.write(`<img src="../_static/img/logo-white.svg" class="logo__image only-dark" alt="torchao - Home"/>`);</script>
+    
+  
+</a>
+  </div>
+
   
   
   <div class=" navbar-header-items__start">
     
-      <div class="navbar-item">
+      
+      
+        
+        <div class="navbar-item desktop-only-version">
+          
   <a href="../index.html" class="version">main</a>
-</div>
+
+        </div>
+      
     
   </div>
   
@@ -613,50 +439,290 @@
     <div class="me-auto navbar-header-items__center">
       
         <div class="navbar-item">
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 <nav>
   <ul class="bd-navbar-elements navbar-nav">
     
-<li class="nav-item ">
-  <a class="nav-link nav-internal" href="../workflows/index.html">
-    Workflows
-  </a>
-</li>
+    
+      <li class="nav-item dropdown">
+        
+          
+          <div class="nav-item-with-toggle">
+            <a class="nav-link nav-internal" href="../workflows/index.html">
+              Workflows
+            </a>
+          </div>
+          <ul class="dropdown-menu" id="dropdown-1">
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../workflows/training.html">
+                  Quantized Training
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../workflows/qat.html">
+                  Quantization-Aware Training (QAT)
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../workflows/inference.html">
+                  Quantized Inference
+                </a>
+              </li>
+            
+          </ul>
+        
+      </li>
+    
+      <li class="nav-item dropdown">
+        
+          
+          <div class="nav-item-with-toggle">
+            <a class="nav-link nav-internal" href="../api_reference/index.html">
+              API Reference
+            </a>
+          </div>
+          <ul class="dropdown-menu" id="dropdown-2">
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../api_reference/api_ref_quantization.html">
+                  torchao.quantization
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../api_reference/api_ref_qat.html">
+                  torchao.quantization.qat
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../api_reference/api_ref_sparsity.html">
+                  torchao.sparsity
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../api_reference/api_ref_float8.html">
+                  torchao.float8
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../api_reference/api_ref_utils.html">
+                  torchao.utils
+                </a>
+              </li>
+            
+          </ul>
+        
+      </li>
+    
+      <li class="nav-item dropdown">
+        
+          
+          <div class="nav-item-with-toggle">
+            <a class="nav-link nav-internal" href="../eager_tutorials/index.html">
+              Tutorials
+            </a>
+          </div>
+          <ul class="dropdown-menu" id="dropdown-3">
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../eager_tutorials/first_quantization_example.html">
+                  First Quantization Example
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../eager_tutorials/pretraining.html">
+                  (Part 1) Pre-training with float8
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../eager_tutorials/finetuning.html">
+                  (Part 2) Fine-tuning with QAT, QLoRA, and float8
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../eager_tutorials/serving.html">
+                  (Part 3) Serving on vLLM, SGLang, ExecuTorch
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../eager_tutorials/torchao_vllm_integration.html">
+                  Integration with VLLM: Architecture and Usage Guide
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../eager_tutorials/torchao_hf_integration.html">
+                  Hugging Face Integration
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../eager_tutorials/serialization.html">
+                  Serialization
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../eager_tutorials/static_quantization.html">
+                  Static Quantization
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../eager_tutorials/subclass_basic.html">
+                  Writing Your Own Quantized Tensor
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../eager_tutorials/subclass_advanced.html">
+                  Writing Your Own Quantized Tensor (advanced)
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../eager_tutorials/mxfp8_expert_parallel_training.html">
+                  MXFP8 Expert Parallel Training
+                </a>
+              </li>
+            
+          </ul>
+        
+      </li>
+    
+      <li class="nav-item dropdown">
+        
+          
+          <div class="nav-item-with-toggle">
+            <a class="nav-link nav-internal" href="../contributing/index.html">
+              Contributing
+            </a>
+          </div>
+          <ul class="dropdown-menu" id="dropdown-4">
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../contributing/quantization_overview.html">
+                  Quantization Overview
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../contributing/contributor_guide.html">
+                  Contributor Guide
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../contributing/sparsity.html">
+                  Sparsity Overview
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../contributing/benchmarking_api_guide.html">
+                  Benchmarking API Guide
+                </a>
+              </li>
+            
+          </ul>
+        
+      </li>
+    
+      <li class="nav-item dropdown current active">
+        
+          
+          <div class="nav-item-with-toggle">
+            <a class="nav-link nav-internal active" href="index.html">
+              PT2E Quantization
+            </a>
+          </div>
+          <ul class="dropdown-menu" id="dropdown-5">
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="pt2e_quant_ptq.html">
+                  PyTorch 2 Export Post Training Quantization
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="#">
+                  PyTorch 2 Export Quantization-Aware Training (QAT)
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="pt2e_quant_x86_inductor.html">
+                  PyTorch 2 Export Quantization with X86 Backend through Inductor
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="pt2e_quant_xpu_inductor.html">
+                  PyTorch 2 Export Quantization with Intel GPU Backend through Inductor
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="pt2e_quant_openvino_inductor.html">
+                  PyTorch 2 Export Quantization for OpenVINO torch.compile Backend
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="pt2e_quantizer.html">
+                  How to Write a Quantizer for PyTorch 2 Export Quantization
+                </a>
+              </li>
+            
+          </ul>
+        
+      </li>
+    
 
-
-<li class="nav-item ">
-  <a class="nav-link nav-internal" href="../api_reference/index.html">
-    API Reference
-  </a>
-</li>
-
-
-<li class="nav-item ">
-  <a class="nav-link nav-internal" href="../eager_tutorials/index.html">
-    Tutorials
-  </a>
-</li>
-
-
-<li class="nav-item ">
-  <a class="nav-link nav-internal" href="../contributing/index.html">
-    Contributing
-  </a>
-</li>
-
-
-<li class="nav-item current active">
-  <a class="nav-link nav-internal" href="index.html">
-    PT2E Quantization
-  </a>
-</li>
-
+    
+    
   </ul>
-</nav></div>
+</nav>
+</div>
       
     </div>
     
     
     <div class="navbar-header-items__end">
+      
+      
+      
+        <div class="navbar-item"><!-- PyTorch.org site link - desktop only, two-line layout -->
+<!-- Note: The show_pytorch_org_link check is handled in layout.html's navbar_end block -->
+<a href="https://pytorch.org" class="pytorch-site-link nav-link nav-external" title="Go to PyTorch.org">
+  <span class="pytorch-site-link-text">
+    <span>Go to</span>
+    <span>pytorch.org <i class="fa-solid fa-arrow-up-right-from-square external-icon"></i></span>
+  </span>
+</a></div>
       
       
         <div class="navbar-item">
@@ -767,8 +833,22 @@ document.write(`
       <div class="bd-sidebar-primary bd-sidebar">
         
 
+
+
+
   
   <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+    <div class="sidebar-header-items__start">
+      <div class="navbar-item">
+        
+  <a href="../index.html" class="version">main</a>
+
+      </div>
+    </div>
+    
+
     
     
       <div class="sidebar-header-items__center">
@@ -776,45 +856,274 @@ document.write(`
           
           
             <div class="navbar-item">
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 <nav>
   <ul class="bd-navbar-elements navbar-nav">
     
-<li class="nav-item ">
-  <a class="nav-link nav-internal" href="../workflows/index.html">
-    Workflows
-  </a>
-</li>
+    
+      <li class="nav-item dropdown">
+        
+          
+          <div class="nav-item-with-toggle">
+            <a class="nav-link nav-internal" href="../workflows/index.html">
+              Workflows
+            </a>
+          </div>
+          <ul class="dropdown-menu" id="dropdown-1">
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../workflows/training.html">
+                  Quantized Training
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../workflows/qat.html">
+                  Quantization-Aware Training (QAT)
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../workflows/inference.html">
+                  Quantized Inference
+                </a>
+              </li>
+            
+          </ul>
+        
+      </li>
+    
+      <li class="nav-item dropdown">
+        
+          
+          <div class="nav-item-with-toggle">
+            <a class="nav-link nav-internal" href="../api_reference/index.html">
+              API Reference
+            </a>
+          </div>
+          <ul class="dropdown-menu" id="dropdown-2">
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../api_reference/api_ref_quantization.html">
+                  torchao.quantization
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../api_reference/api_ref_qat.html">
+                  torchao.quantization.qat
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../api_reference/api_ref_sparsity.html">
+                  torchao.sparsity
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../api_reference/api_ref_float8.html">
+                  torchao.float8
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../api_reference/api_ref_utils.html">
+                  torchao.utils
+                </a>
+              </li>
+            
+          </ul>
+        
+      </li>
+    
+      <li class="nav-item dropdown">
+        
+          
+          <div class="nav-item-with-toggle">
+            <a class="nav-link nav-internal" href="../eager_tutorials/index.html">
+              Tutorials
+            </a>
+          </div>
+          <ul class="dropdown-menu" id="dropdown-3">
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../eager_tutorials/first_quantization_example.html">
+                  First Quantization Example
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../eager_tutorials/pretraining.html">
+                  (Part 1) Pre-training with float8
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../eager_tutorials/finetuning.html">
+                  (Part 2) Fine-tuning with QAT, QLoRA, and float8
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../eager_tutorials/serving.html">
+                  (Part 3) Serving on vLLM, SGLang, ExecuTorch
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../eager_tutorials/torchao_vllm_integration.html">
+                  Integration with VLLM: Architecture and Usage Guide
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../eager_tutorials/torchao_hf_integration.html">
+                  Hugging Face Integration
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../eager_tutorials/serialization.html">
+                  Serialization
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../eager_tutorials/static_quantization.html">
+                  Static Quantization
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../eager_tutorials/subclass_basic.html">
+                  Writing Your Own Quantized Tensor
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../eager_tutorials/subclass_advanced.html">
+                  Writing Your Own Quantized Tensor (advanced)
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../eager_tutorials/mxfp8_expert_parallel_training.html">
+                  MXFP8 Expert Parallel Training
+                </a>
+              </li>
+            
+          </ul>
+        
+      </li>
+    
+      <li class="nav-item dropdown">
+        
+          
+          <div class="nav-item-with-toggle">
+            <a class="nav-link nav-internal" href="../contributing/index.html">
+              Contributing
+            </a>
+          </div>
+          <ul class="dropdown-menu" id="dropdown-4">
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../contributing/quantization_overview.html">
+                  Quantization Overview
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../contributing/contributor_guide.html">
+                  Contributor Guide
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../contributing/sparsity.html">
+                  Sparsity Overview
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../contributing/benchmarking_api_guide.html">
+                  Benchmarking API Guide
+                </a>
+              </li>
+            
+          </ul>
+        
+      </li>
+    
+      <li class="nav-item dropdown current active">
+        
+          
+          <div class="nav-item-with-toggle">
+            <a class="nav-link nav-internal active" href="index.html">
+              PT2E Quantization
+            </a>
+          </div>
+          <ul class="dropdown-menu" id="dropdown-5">
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="pt2e_quant_ptq.html">
+                  PyTorch 2 Export Post Training Quantization
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="#">
+                  PyTorch 2 Export Quantization-Aware Training (QAT)
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="pt2e_quant_x86_inductor.html">
+                  PyTorch 2 Export Quantization with X86 Backend through Inductor
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="pt2e_quant_xpu_inductor.html">
+                  PyTorch 2 Export Quantization with Intel GPU Backend through Inductor
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="pt2e_quant_openvino_inductor.html">
+                  PyTorch 2 Export Quantization for OpenVINO torch.compile Backend
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="pt2e_quantizer.html">
+                  How to Write a Quantizer for PyTorch 2 Export Quantization
+                </a>
+              </li>
+            
+          </ul>
+        
+      </li>
+    
 
-
-<li class="nav-item ">
-  <a class="nav-link nav-internal" href="../api_reference/index.html">
-    API Reference
-  </a>
-</li>
-
-
-<li class="nav-item ">
-  <a class="nav-link nav-internal" href="../eager_tutorials/index.html">
-    Tutorials
-  </a>
-</li>
-
-
-<li class="nav-item ">
-  <a class="nav-link nav-internal" href="../contributing/index.html">
-    Contributing
-  </a>
-</li>
-
-
-<li class="nav-item current active">
-  <a class="nav-link nav-internal" href="index.html">
-    PT2E Quantization
-  </a>
-</li>
-
+    
+    
   </ul>
-</nav></div>
+</nav>
+</div>
           
         
       </div>
@@ -822,6 +1131,17 @@ document.write(`
     
     
       <div class="sidebar-header-items__end">
+        
+        
+          <div class="navbar-item"><!-- PyTorch.org site link - desktop only, two-line layout -->
+<!-- Note: The show_pytorch_org_link check is handled in layout.html's navbar_end block -->
+<a href="https://pytorch.org" class="pytorch-site-link nav-link nav-external" title="Go to PyTorch.org">
+  <span class="pytorch-site-link-text">
+    <span>Go to</span>
+    <span>pytorch.org <i class="fa-solid fa-arrow-up-right-from-square external-icon"></i></span>
+  </span>
+</a></div>
+        
         
           <div class="navbar-item">
   
@@ -931,10 +1251,10 @@ document.write(`
   
   <div class="sidebar-primary-items__end sidebar-primary__section">
   </div>
-  
-  <div id="rtd-footer-container"></div>
 
 
+
+<div id="rtd-footer-container"></div>
       </div>
       
       <main id="main-content" class="bd-main" role="main">
@@ -998,28 +1318,28 @@ document.write(`
 </div>
               
               
-  
+
 <div id="searchbox"></div>
-  <article class="bd-article" id="pytorch-article">
-    <!-- Hidden breadcrumb schema for SEO only -->
-    <div style="display:none;" itemscope itemtype="https://schema.org/BreadcrumbList">
-      
-      <div itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
-        <link itemprop="item" href="index.html">
-        <meta itemprop="name" content="PT2E Quantization">
-        <meta itemprop="position" content="1">
-      </div>
-      
-      <div itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
-        <meta itemprop="name" content="PyTorch 2 Export Quantization-Aware Training (QAT)">
-        <meta itemprop="position" content="2">
-      </div>
+<div id="pytorch-article">
+  <!-- Hidden breadcrumb schema for SEO only -->
+  <div style="display:none;" itemscope itemtype="https://schema.org/BreadcrumbList">
+    
+    <div itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
+      <link itemprop="item" href="index.html">
+      <meta itemprop="name" content="PT2E Quantization">
+      <meta itemprop="position" content="1">
     </div>
+    
+    <div itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
+      <meta itemprop="name" content="PyTorch 2 Export Quantization-Aware Training (QAT)">
+      <meta itemprop="position" content="2">
+    </div>
+  </div>
 
-    
-    
+  
+  
 
-    
+  
               
                 
 <div id="searchbox"></div>
@@ -1027,7 +1347,7 @@ document.write(`
                   
   <section id="pytorch-2-export-quantization-aware-training-qat">
 <h1>PyTorch 2 Export Quantization-Aware Training (QAT)<a class="headerlink" href="#pytorch-2-export-quantization-aware-training-qat" title="Permalink to this heading">#</a></h1>
-<p class="date-info-last-verified" style="color: #6c6c6d; font-size: small;">Created On: Feb 10, 2026 | Last Updated On: Feb 10, 2026</p>
+<p class="date-info-last-verified" style="color: #6c6c6d; font-size: small;">Created On: Feb 12, 2026 | Last Updated On: Feb 12, 2026</p>
 <p><strong>Author</strong>: <a class="reference external" href="https://github.com/andrewor14">Andrew Or</a></p>
 <p>This tutorial shows how to perform quantization-aware training (QAT) in
 graph mode based on <a class="reference external" href="https://pytorch.org/docs/main/export.html">torch.export.export</a>.
@@ -1478,8 +1798,8 @@ inference with XNNPACK backend. For more detail, follow the
 
                 </article>
               
-  </article>
-  
+</div>
+
               
               
                 <footer class="bd-footer-article">
@@ -1823,9 +2143,9 @@ inference with XNNPACK backend. For more detail, follow the
        "@type": "Article",
        "name": "PyTorch 2 Export Quantization-Aware Training (QAT)",
        "headline": "PyTorch 2 Export Quantization-Aware Training (QAT)",
-       "description": "PyTorch Documentation. Explore PyTorch, an open-source machine learning library that accelerates the path from research prototyping to production deployment. Discover tutorials, API references, and guides to help you build and deploy deep learning models efficiently.",
+       "description": "PyTorch Documentation. Explore PyTorch, an open-source machine learning library that accelerates the path from research prototyping to production deployment.",
        "url": "/pt2e_quantization/pt2e_quant_qat.html",
-       "articleBody": "PyTorch 2 Export Quantization-Aware Training (QAT)# Created On: Feb 10, 2026 | Last Updated On: Feb 10, 2026 Author: Andrew Or This tutorial shows how to perform quantization-aware training (QAT) in graph mode based on torch.export.export. For more details about PyTorch 2 Export Quantization in general, refer to the post training quantization tutorial The PyTorch 2 Export QAT flow looks like the following\u2014it is similar to the post training quantization (PTQ) flow for the most part: import torch from torchao.quantization.pt2e.quantize_pt2e import ( prepare_qat_pt2e, convert_pt2e, ) from executorch.backends.xnnpack.quantizer.xnnpack_quantizer import ( get_symmetric_quantization_config, XNNPACKQuantizer, ) class M(torch.nn.Module): def __init__(self): super().__init__() self.linear = torch.nn.Linear(5, 10) def forward(self, x): return self.linear(x) example_inputs = (torch.randn(1, 5),) m = M() # Step 1. program capture # This is available for pytorch 2.6+, for more details on lower pytorch versions # please check `Export the model with torch.export` section m = torch.export.export(m, example_inputs).module() # we get a model with aten ops # Step 2. quantization-aware training # backend developer will write their own Quantizer and expose methods to allow # users to express how they want the model to be quantized quantizer = XNNPACKQuantizer().set_global(get_symmetric_quantization_config()) m = prepare_qat_pt2e(m, quantizer) # train omitted m = convert_pt2e(m) # we have a model with aten ops doing integer computations when possible # move the quantized model to eval mode, equivalent to `m.eval()` torchao.quantization.pt2e.move_exported_model_to_eval(m) Note that calling model.eval() or model.train() after program capture is not allowed, because these methods no longer correctly change the behavior of certain ops like dropout and batch normalization. Instead, please use torchao.quantization.pt2e.move_exported_model_to_eval() and torchao.quantization.pt2e.move_exported_model_to_train() (coming soon) respectively. Define Helper Functions and Prepare the Dataset# To run the code in this tutorial using the entire ImageNet dataset, first download ImageNet by following the instructions in ImageNet Data. Unzip the downloaded file into the data_path folder. Next, download the torchvision resnet18 model and rename it to data/resnet18_pretrained_float.pth. We\u2019ll start by doing the necessary imports, defining some helper functions and prepare the data. These steps are very similar to the ones defined in the static eager mode post training quantization tutorial: import os import sys import time import numpy as np import torch import torch.nn as nn from torch.utils.data import DataLoader import torchvision from torchvision import datasets from torchvision.models.resnet import resnet18 import torchvision.transforms as transforms # Set up warnings import warnings warnings.filterwarnings( action=\u0027ignore\u0027, category=DeprecationWarning, module=r\u0027.*\u0027 ) warnings.filterwarnings( action=\u0027default\u0027, module=r\u0027torchao.quantization.pt2e\u0027 ) # Specify random seed for repeatable results _ = torch.manual_seed(191009) class AverageMeter(object): \"\"\"Computes and stores the average and current value\"\"\" def __init__(self, name, fmt=\u0027:f\u0027): self.name = name self.fmt = fmt self.reset() def reset(self): self.val = 0 self.avg = 0 self.sum = 0 self.count = 0 def update(self, val, n=1): self.val = val self.sum += val * n self.count += n self.avg = self.sum / self.count def __str__(self): fmtstr = \u0027{name} {val\u0027 + self.fmt + \u0027} ({avg\u0027 + self.fmt + \u0027})\u0027 return fmtstr.format(**self.__dict__) def accuracy(output, target, topk=(1,)): \"\"\" Computes the accuracy over the k top predictions for the specified values of k. \"\"\" with torch.no_grad(): maxk = max(topk) batch_size = target.size(0) _, pred = output.topk(maxk, 1, True, True) pred = pred.t() correct = pred.eq(target.view(1, -1).expand_as(pred)) res = [] for k in topk: correct_k = correct[:k].reshape(-1).float().sum(0, keepdim=True) res.append(correct_k.mul_(100.0 / batch_size)) return res def evaluate(model, criterion, data_loader, device): torchao.quantization.pt2e.move_exported_model_to_eval(model) top1 = AverageMeter(\u0027Acc@1\u0027, \u0027:6.2f\u0027) top5 = AverageMeter(\u0027Acc@5\u0027, \u0027:6.2f\u0027) cnt = 0 with torch.no_grad(): for image, target in data_loader: image = image.to(device) target = target.to(device) output = model(image) loss = criterion(output, target) cnt += 1 acc1, acc5 = accuracy(output, target, topk=(1, 5)) top1.update(acc1[0], image.size(0)) top5.update(acc5[0], image.size(0)) print(\u0027\u0027) return top1, top5 def load_model(model_file): model = resnet18(pretrained=False) state_dict = torch.load(model_file, weights_only=True) model.load_state_dict(state_dict) return model def print_size_of_model(model): if isinstance(model, torch.jit.RecursiveScriptModule): torch.jit.save(model, \"temp.p\") else: torch.jit.save(torch.jit.script(model), \"temp.p\") print(\"Size (MB):\", os.path.getsize(\"temp.p\")/1e6) os.remove(\"temp.p\") def prepare_data_loaders(data_path): normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]) dataset = torchvision.datasets.ImageNet( data_path, split=\"train\", transform=transforms.Compose([ transforms.RandomResizedCrop(224), transforms.RandomHorizontalFlip(), transforms.ToTensor(), normalize, ])) dataset_test = torchvision.datasets.ImageNet( data_path, split=\"val\", transform=transforms.Compose([ transforms.Resize(256), transforms.CenterCrop(224), transforms.ToTensor(), normalize, ])) train_sampler = torch.utils.data.RandomSampler(dataset) test_sampler = torch.utils.data.SequentialSampler(dataset_test) data_loader = torch.utils.data.DataLoader( dataset, batch_size=train_batch_size, sampler=train_sampler) data_loader_test = torch.utils.data.DataLoader( dataset_test, batch_size=eval_batch_size, sampler=test_sampler) return data_loader, data_loader_test def train_one_epoch(model, criterion, optimizer, data_loader, device, ntrain_batches): # Note: do not call model.train() here, since this doesn\u0027t work on an exported model. # Instead, call `torchao.quantization.pt2e.move_exported_model_to_train(model)`, which will # be added in the near future top1 = AverageMeter(\u0027Acc@1\u0027, \u0027:6.2f\u0027) top5 = AverageMeter(\u0027Acc@5\u0027, \u0027:6.2f\u0027) avgloss = AverageMeter(\u0027Loss\u0027, \u00271.5f\u0027) cnt = 0 for image, target in data_loader: start_time = time.time() print(\u0027.\u0027, end = \u0027\u0027) cnt += 1 image, target = image.to(device), target.to(device) output = model(image) loss = criterion(output, target) optimizer.zero_grad() loss.backward() optimizer.step() acc1, acc5 = accuracy(output, target, topk=(1, 5)) top1.update(acc1[0], image.size(0)) top5.update(acc5[0], image.size(0)) avgloss.update(loss, image.size(0)) if cnt \u003e= ntrain_batches: print(\u0027Loss\u0027, avgloss.avg) print(\u0027Training: * Acc@1 {top1.avg:.3f} Acc@5 {top5.avg:.3f}\u0027 .format(top1=top1, top5=top5)) return print(\u0027Full imagenet train set: * Acc@1 {top1.global_avg:.3f} Acc@5 {top5.global_avg:.3f}\u0027 .format(top1=top1, top5=top5)) return data_path = \u0027~/.data/imagenet\u0027 saved_model_dir = \u0027data/\u0027 float_model_file = \u0027resnet18_pretrained_float.pth\u0027 train_batch_size = 32 eval_batch_size = 32 data_loader, data_loader_test = prepare_data_loaders(data_path) example_inputs = (next(iter(data_loader))[0]) criterion = nn.CrossEntropyLoss() float_model = load_model(saved_model_dir + float_model_file).to(\"cuda\") Export the model with torch.export# Here is how you can use torch.export to export the model: from torch.export import export example_inputs = (torch.rand(2, 3, 224, 224),) # for pytorch 2.6+ exported_model = torch.export.export(float_model, example_inputs).module() # for pytorch 2.5 and before # from torch._export import capture_pre_autograd_graph # exported_model = capture_pre_autograd_graph(model_to_quantize, example_inputs) # or, to capture with dynamic dimensions: # for pytorch 2.6+ dynamic_shapes = tuple( {0: torch.export.Dim(\"dim\")} if i == 0 else None for i in range(len(example_inputs)) ) exported_model = torch.export.export(float_model, example_inputs, dynamic_shapes=dynamic_shapes).module() # for pytorch 2.5 and before # dynamic_shape API may vary as well # from torch._export import dynamic_dim # example_inputs = (torch.rand(2, 3, 224, 224),) # exported_model = capture_pre_autograd_graph( # float_model, # example_inputs, # constraints=[dynamic_dim(example_inputs[0], 0)], # ) Import the Backend Specific Quantizer and Configure how to Quantize the Model# The following code snippets describe how to quantize the model: from executorch.backends.xnnpack.quantizer.xnnpack_quantizer import ( get_symmetric_quantization_config, XNNPACKQuantizer, ) quantizer = XNNPACKQuantizer() quantizer.set_global(get_symmetric_quantization_config(is_qat=True)) Quantizer is backend specific, and each Quantizer will provide their own way to allow users to configure their model. Note Check out our tutorial that describes how to write a new Quantizer. Prepare the Model for Quantization-Aware Training# prepare_qat_pt2e inserts fake quantizes in appropriate places in the model and performs the appropriate QAT \u201cfusions\u201d, such as Conv2d + BatchNorm2d, for better training accuracies. The fused operations are represented as a subgraph of ATen ops in the prepared graph. prepared_model = prepare_qat_pt2e(exported_model, quantizer) print(prepared_model) Note If your model contains batch normalization, the actual ATen ops you get in the graph depend on the model\u2019s device when you export the model. If the model is on CPU, then you\u2019ll get torch.ops.aten._native_batch_norm_legit. If the model is on CUDA, then you\u2019ll get torch.ops.aten.cudnn_batch_norm. However, this is not fundamental and may be subject to change in the future. Between these two ops, it has been shown that torch.ops.aten.cudnn_batch_norm provides better numerics on models like MobileNetV2. To get this op, either call model.cuda() before export, or run the following after prepare to manually swap the ops: for n in prepared_model.graph.nodes: if n.target == torch.ops.aten._native_batch_norm_legit.default: n.target = torch.ops.aten.cudnn_batch_norm.default prepared_model.recompile() In the future, we plan to consolidate the batch normalization ops such that the above will no longer be necessary. Training Loop# The training loop is similar to the ones in previous versions of QAT. To achieve better accuracies, you may optionally disable observers and updating batch normalization statistics after a certain number of epochs, or evaluate the QAT or the quantized model trained so far every N epochs. num_epochs = 10 num_train_batches = 20 num_eval_batches = 20 num_observer_update_epochs = 4 num_batch_norm_update_epochs = 3 num_epochs_between_evals = 2 # QAT takes time and one needs to train over a few epochs. # Train and check accuracy after each epoch for nepoch in range(num_epochs): train_one_epoch(prepared_model, criterion, optimizer, data_loader, \"cuda\", num_train_batches) # Optionally disable observer/batchnorm stats after certain number of epochs if epoch \u003e= num_observer_update_epochs: print(\"Disabling observer for subseq epochs, epoch = \", epoch) prepared_model.apply(torchao.quantization.pt2e.disable_observer) if epoch \u003e= num_batch_norm_update_epochs: print(\"Freezing BN for subseq epochs, epoch = \", epoch) for n in prepared_model.graph.nodes: # Args: input, weight, bias, running_mean, running_var, training, momentum, eps # We set the `training` flag to False here to freeze BN stats if n.target in [ torch.ops.aten._native_batch_norm_legit.default, torch.ops.aten.cudnn_batch_norm.default, ]: new_args = list(n.args) new_args[5] = False n.args = new_args prepared_model.recompile() # Check the quantized accuracy every N epochs # Note: If you wish to just evaluate the QAT model (not the quantized model), # then you can just call `torchao.quantization.pt2e.move_exported_model_to_eval/train`. # However, the latter API is not ready yet and will be available in the near future. if (nepoch + 1) % num_epochs_between_evals == 0: prepared_model_copy = copy.deepcopy(prepared_model) quantized_model = convert_pt2e(prepared_model_copy) top1, top5 = evaluate(quantized_model, criterion, data_loader_test, neval_batches=num_eval_batches) print(\u0027Epoch %d: Evaluation accuracy on %d images, %2.2f\u0027 % (nepoch, num_eval_batches * eval_batch_size, top1.avg)) Saving and Loading Model Checkpoints# Model checkpoints for the PyTorch 2 Export QAT flow are the same as in any other training flow. They are useful for pausing training and resuming it later, recovering from failed training runs, and performing inference on different machines at a later time. You can save model checkpoints during or after training as follows: checkpoint_path = \"/path/to/my/checkpoint_%s.pth\" % nepoch torch.save(prepared_model.state_dict(), \"checkpoint_path\") To load the checkpoints, you must export and prepare the model the exact same way it was initially exported and prepared. For example: from executorch.backends.xnnpack.quantizer.xnnpack_quantizer import ( get_symmetric_quantization_config, XNNPACKQuantizer, ) from torchvision.models.resnet import resnet18 example_inputs = (torch.rand(2, 3, 224, 224),) float_model = resnet18(pretrained=False) exported_model = torch.export.export(float_model, example_inputs).module() quantizer = XNNPACKQuantizer() quantizer.set_global(get_symmetric_quantization_config(is_qat=True)) prepared_model = prepare_qat_pt2e(exported_model, quantizer) prepared_model.load_state_dict(torch.load(checkpoint_path)) # resume training or perform inference Convert the Trained Model to a Quantized Model# convert_pt2e takes a calibrated model and produces a quantized model. Note that, before inference, you must first call torchao.quantization.pt2e.move_exported_model_to_eval() to ensure certain ops like dropout behave correctly in the eval graph. Otherwise, we would continue to incorrectly apply dropout in the forward pass during inference, for example. quantized_model = convert_pt2e(prepared_model) # move certain ops like dropout to eval mode, equivalent to `m.eval()` torchao.quantization.pt2e.move_exported_model_to_eval(m) print(quantized_model) top1, top5 = evaluate(quantized_model, criterion, data_loader_test, neval_batches=num_eval_batches) print(\u0027Final evaluation accuracy on %d images, %2.2f\u0027 % (num_eval_batches * eval_batch_size, top1.avg)) Conclusion# In this tutorial, we demonstrated how to run Quantization-Aware Training (QAT) flow in PyTorch 2 Export Quantization. After convert, the rest of the flow is the same as Post-Training Quantization (PTQ); the user can serialize/deserialize the model and further lower it to a backend that supports inference with XNNPACK backend. For more detail, follow the PTQ tutorial.",
+       "articleBody": "PyTorch 2 Export Quantization-Aware Training (QAT)# Created On: Feb 12, 2026 | Last Updated On: Feb 12, 2026 Author: Andrew Or This tutorial shows how to perform quantization-aware training (QAT) in graph mode based on torch.export.export. For more details about PyTorch 2 Export Quantization in general, refer to the post training quantization tutorial The PyTorch 2 Export QAT flow looks like the following\u2014it is similar to the post training quantization (PTQ) flow for the most part: import torch from torchao.quantization.pt2e.quantize_pt2e import ( prepare_qat_pt2e, convert_pt2e, ) from executorch.backends.xnnpack.quantizer.xnnpack_quantizer import ( get_symmetric_quantization_config, XNNPACKQuantizer, ) class M(torch.nn.Module): def __init__(self): super().__init__() self.linear = torch.nn.Linear(5, 10) def forward(self, x): return self.linear(x) example_inputs = (torch.randn(1, 5),) m = M() # Step 1. program capture # This is available for pytorch 2.6+, for more details on lower pytorch versions # please check `Export the model with torch.export` section m = torch.export.export(m, example_inputs).module() # we get a model with aten ops # Step 2. quantization-aware training # backend developer will write their own Quantizer and expose methods to allow # users to express how they want the model to be quantized quantizer = XNNPACKQuantizer().set_global(get_symmetric_quantization_config()) m = prepare_qat_pt2e(m, quantizer) # train omitted m = convert_pt2e(m) # we have a model with aten ops doing integer computations when possible # move the quantized model to eval mode, equivalent to `m.eval()` torchao.quantization.pt2e.move_exported_model_to_eval(m) Note that calling model.eval() or model.train() after program capture is not allowed, because these methods no longer correctly change the behavior of certain ops like dropout and batch normalization. Instead, please use torchao.quantization.pt2e.move_exported_model_to_eval() and torchao.quantization.pt2e.move_exported_model_to_train() (coming soon) respectively. Define Helper Functions and Prepare the Dataset# To run the code in this tutorial using the entire ImageNet dataset, first download ImageNet by following the instructions in ImageNet Data. Unzip the downloaded file into the data_path folder. Next, download the torchvision resnet18 model and rename it to data/resnet18_pretrained_float.pth. We\u2019ll start by doing the necessary imports, defining some helper functions and prepare the data. These steps are very similar to the ones defined in the static eager mode post training quantization tutorial: import os import sys import time import numpy as np import torch import torch.nn as nn from torch.utils.data import DataLoader import torchvision from torchvision import datasets from torchvision.models.resnet import resnet18 import torchvision.transforms as transforms # Set up warnings import warnings warnings.filterwarnings( action=\u0027ignore\u0027, category=DeprecationWarning, module=r\u0027.*\u0027 ) warnings.filterwarnings( action=\u0027default\u0027, module=r\u0027torchao.quantization.pt2e\u0027 ) # Specify random seed for repeatable results _ = torch.manual_seed(191009) class AverageMeter(object): \"\"\"Computes and stores the average and current value\"\"\" def __init__(self, name, fmt=\u0027:f\u0027): self.name = name self.fmt = fmt self.reset() def reset(self): self.val = 0 self.avg = 0 self.sum = 0 self.count = 0 def update(self, val, n=1): self.val = val self.sum += val * n self.count += n self.avg = self.sum / self.count def __str__(self): fmtstr = \u0027{name} {val\u0027 + self.fmt + \u0027} ({avg\u0027 + self.fmt + \u0027})\u0027 return fmtstr.format(**self.__dict__) def accuracy(output, target, topk=(1,)): \"\"\" Computes the accuracy over the k top predictions for the specified values of k. \"\"\" with torch.no_grad(): maxk = max(topk) batch_size = target.size(0) _, pred = output.topk(maxk, 1, True, True) pred = pred.t() correct = pred.eq(target.view(1, -1).expand_as(pred)) res = [] for k in topk: correct_k = correct[:k].reshape(-1).float().sum(0, keepdim=True) res.append(correct_k.mul_(100.0 / batch_size)) return res def evaluate(model, criterion, data_loader, device): torchao.quantization.pt2e.move_exported_model_to_eval(model) top1 = AverageMeter(\u0027Acc@1\u0027, \u0027:6.2f\u0027) top5 = AverageMeter(\u0027Acc@5\u0027, \u0027:6.2f\u0027) cnt = 0 with torch.no_grad(): for image, target in data_loader: image = image.to(device) target = target.to(device) output = model(image) loss = criterion(output, target) cnt += 1 acc1, acc5 = accuracy(output, target, topk=(1, 5)) top1.update(acc1[0], image.size(0)) top5.update(acc5[0], image.size(0)) print(\u0027\u0027) return top1, top5 def load_model(model_file): model = resnet18(pretrained=False) state_dict = torch.load(model_file, weights_only=True) model.load_state_dict(state_dict) return model def print_size_of_model(model): if isinstance(model, torch.jit.RecursiveScriptModule): torch.jit.save(model, \"temp.p\") else: torch.jit.save(torch.jit.script(model), \"temp.p\") print(\"Size (MB):\", os.path.getsize(\"temp.p\")/1e6) os.remove(\"temp.p\") def prepare_data_loaders(data_path): normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]) dataset = torchvision.datasets.ImageNet( data_path, split=\"train\", transform=transforms.Compose([ transforms.RandomResizedCrop(224), transforms.RandomHorizontalFlip(), transforms.ToTensor(), normalize, ])) dataset_test = torchvision.datasets.ImageNet( data_path, split=\"val\", transform=transforms.Compose([ transforms.Resize(256), transforms.CenterCrop(224), transforms.ToTensor(), normalize, ])) train_sampler = torch.utils.data.RandomSampler(dataset) test_sampler = torch.utils.data.SequentialSampler(dataset_test) data_loader = torch.utils.data.DataLoader( dataset, batch_size=train_batch_size, sampler=train_sampler) data_loader_test = torch.utils.data.DataLoader( dataset_test, batch_size=eval_batch_size, sampler=test_sampler) return data_loader, data_loader_test def train_one_epoch(model, criterion, optimizer, data_loader, device, ntrain_batches): # Note: do not call model.train() here, since this doesn\u0027t work on an exported model. # Instead, call `torchao.quantization.pt2e.move_exported_model_to_train(model)`, which will # be added in the near future top1 = AverageMeter(\u0027Acc@1\u0027, \u0027:6.2f\u0027) top5 = AverageMeter(\u0027Acc@5\u0027, \u0027:6.2f\u0027) avgloss = AverageMeter(\u0027Loss\u0027, \u00271.5f\u0027) cnt = 0 for image, target in data_loader: start_time = time.time() print(\u0027.\u0027, end = \u0027\u0027) cnt += 1 image, target = image.to(device), target.to(device) output = model(image) loss = criterion(output, target) optimizer.zero_grad() loss.backward() optimizer.step() acc1, acc5 = accuracy(output, target, topk=(1, 5)) top1.update(acc1[0], image.size(0)) top5.update(acc5[0], image.size(0)) avgloss.update(loss, image.size(0)) if cnt \u003e= ntrain_batches: print(\u0027Loss\u0027, avgloss.avg) print(\u0027Training: * Acc@1 {top1.avg:.3f} Acc@5 {top5.avg:.3f}\u0027 .format(top1=top1, top5=top5)) return print(\u0027Full imagenet train set: * Acc@1 {top1.global_avg:.3f} Acc@5 {top5.global_avg:.3f}\u0027 .format(top1=top1, top5=top5)) return data_path = \u0027~/.data/imagenet\u0027 saved_model_dir = \u0027data/\u0027 float_model_file = \u0027resnet18_pretrained_float.pth\u0027 train_batch_size = 32 eval_batch_size = 32 data_loader, data_loader_test = prepare_data_loaders(data_path) example_inputs = (next(iter(data_loader))[0]) criterion = nn.CrossEntropyLoss() float_model = load_model(saved_model_dir + float_model_file).to(\"cuda\") Export the model with torch.export# Here is how you can use torch.export to export the model: from torch.export import export example_inputs = (torch.rand(2, 3, 224, 224),) # for pytorch 2.6+ exported_model = torch.export.export(float_model, example_inputs).module() # for pytorch 2.5 and before # from torch._export import capture_pre_autograd_graph # exported_model = capture_pre_autograd_graph(model_to_quantize, example_inputs) # or, to capture with dynamic dimensions: # for pytorch 2.6+ dynamic_shapes = tuple( {0: torch.export.Dim(\"dim\")} if i == 0 else None for i in range(len(example_inputs)) ) exported_model = torch.export.export(float_model, example_inputs, dynamic_shapes=dynamic_shapes).module() # for pytorch 2.5 and before # dynamic_shape API may vary as well # from torch._export import dynamic_dim # example_inputs = (torch.rand(2, 3, 224, 224),) # exported_model = capture_pre_autograd_graph( # float_model, # example_inputs, # constraints=[dynamic_dim(example_inputs[0], 0)], # ) Import the Backend Specific Quantizer and Configure how to Quantize the Model# The following code snippets describe how to quantize the model: from executorch.backends.xnnpack.quantizer.xnnpack_quantizer import ( get_symmetric_quantization_config, XNNPACKQuantizer, ) quantizer = XNNPACKQuantizer() quantizer.set_global(get_symmetric_quantization_config(is_qat=True)) Quantizer is backend specific, and each Quantizer will provide their own way to allow users to configure their model. Note Check out our tutorial that describes how to write a new Quantizer. Prepare the Model for Quantization-Aware Training# prepare_qat_pt2e inserts fake quantizes in appropriate places in the model and performs the appropriate QAT \u201cfusions\u201d, such as Conv2d + BatchNorm2d, for better training accuracies. The fused operations are represented as a subgraph of ATen ops in the prepared graph. prepared_model = prepare_qat_pt2e(exported_model, quantizer) print(prepared_model) Note If your model contains batch normalization, the actual ATen ops you get in the graph depend on the model\u2019s device when you export the model. If the model is on CPU, then you\u2019ll get torch.ops.aten._native_batch_norm_legit. If the model is on CUDA, then you\u2019ll get torch.ops.aten.cudnn_batch_norm. However, this is not fundamental and may be subject to change in the future. Between these two ops, it has been shown that torch.ops.aten.cudnn_batch_norm provides better numerics on models like MobileNetV2. To get this op, either call model.cuda() before export, or run the following after prepare to manually swap the ops: for n in prepared_model.graph.nodes: if n.target == torch.ops.aten._native_batch_norm_legit.default: n.target = torch.ops.aten.cudnn_batch_norm.default prepared_model.recompile() In the future, we plan to consolidate the batch normalization ops such that the above will no longer be necessary. Training Loop# The training loop is similar to the ones in previous versions of QAT. To achieve better accuracies, you may optionally disable observers and updating batch normalization statistics after a certain number of epochs, or evaluate the QAT or the quantized model trained so far every N epochs. num_epochs = 10 num_train_batches = 20 num_eval_batches = 20 num_observer_update_epochs = 4 num_batch_norm_update_epochs = 3 num_epochs_between_evals = 2 # QAT takes time and one needs to train over a few epochs. # Train and check accuracy after each epoch for nepoch in range(num_epochs): train_one_epoch(prepared_model, criterion, optimizer, data_loader, \"cuda\", num_train_batches) # Optionally disable observer/batchnorm stats after certain number of epochs if epoch \u003e= num_observer_update_epochs: print(\"Disabling observer for subseq epochs, epoch = \", epoch) prepared_model.apply(torchao.quantization.pt2e.disable_observer) if epoch \u003e= num_batch_norm_update_epochs: print(\"Freezing BN for subseq epochs, epoch = \", epoch) for n in prepared_model.graph.nodes: # Args: input, weight, bias, running_mean, running_var, training, momentum, eps # We set the `training` flag to False here to freeze BN stats if n.target in [ torch.ops.aten._native_batch_norm_legit.default, torch.ops.aten.cudnn_batch_norm.default, ]: new_args = list(n.args) new_args[5] = False n.args = new_args prepared_model.recompile() # Check the quantized accuracy every N epochs # Note: If you wish to just evaluate the QAT model (not the quantized model), # then you can just call `torchao.quantization.pt2e.move_exported_model_to_eval/train`. # However, the latter API is not ready yet and will be available in the near future. if (nepoch + 1) % num_epochs_between_evals == 0: prepared_model_copy = copy.deepcopy(prepared_model) quantized_model = convert_pt2e(prepared_model_copy) top1, top5 = evaluate(quantized_model, criterion, data_loader_test, neval_batches=num_eval_batches) print(\u0027Epoch %d: Evaluation accuracy on %d images, %2.2f\u0027 % (nepoch, num_eval_batches * eval_batch_size, top1.avg)) Saving and Loading Model Checkpoints# Model checkpoints for the PyTorch 2 Export QAT flow are the same as in any other training flow. They are useful for pausing training and resuming it later, recovering from failed training runs, and performing inference on different machines at a later time. You can save model checkpoints during or after training as follows: checkpoint_path = \"/path/to/my/checkpoint_%s.pth\" % nepoch torch.save(prepared_model.state_dict(), \"checkpoint_path\") To load the checkpoints, you must export and prepare the model the exact same way it was initially exported and prepared. For example: from executorch.backends.xnnpack.quantizer.xnnpack_quantizer import ( get_symmetric_quantization_config, XNNPACKQuantizer, ) from torchvision.models.resnet import resnet18 example_inputs = (torch.rand(2, 3, 224, 224),) float_model = resnet18(pretrained=False) exported_model = torch.export.export(float_model, example_inputs).module() quantizer = XNNPACKQuantizer() quantizer.set_global(get_symmetric_quantization_config(is_qat=True)) prepared_model = prepare_qat_pt2e(exported_model, quantizer) prepared_model.load_state_dict(torch.load(checkpoint_path)) # resume training or perform inference Convert the Trained Model to a Quantized Model# convert_pt2e takes a calibrated model and produces a quantized model. Note that, before inference, you must first call torchao.quantization.pt2e.move_exported_model_to_eval() to ensure certain ops like dropout behave correctly in the eval graph. Otherwise, we would continue to incorrectly apply dropout in the forward pass during inference, for example. quantized_model = convert_pt2e(prepared_model) # move certain ops like dropout to eval mode, equivalent to `m.eval()` torchao.quantization.pt2e.move_exported_model_to_eval(m) print(quantized_model) top1, top5 = evaluate(quantized_model, criterion, data_loader_test, neval_batches=num_eval_batches) print(\u0027Final evaluation accuracy on %d images, %2.2f\u0027 % (num_eval_batches * eval_batch_size, top1.avg)) Conclusion# In this tutorial, we demonstrated how to run Quantization-Aware Training (QAT) flow in PyTorch 2 Export Quantization. After convert, the rest of the flow is the same as Post-Training Quantization (PTQ); the user can serialize/deserialize the model and further lower it to a backend that supports inference with XNNPACK backend. For more detail, follow the PTQ tutorial.",
        "author": {
          "@type": "Organization",
          "name": "PyTorch Contributors",
@@ -1836,8 +2156,8 @@ inference with XNNPACK backend. For more detail, follow the
          "@type": "WebPage",
          "@id": "/pt2e_quantization/pt2e_quant_qat.html"
        },
-       "datePublished": "Feb 10, 2026T00:00:00Z",
-       "dateModified": "Feb 10, 2026T00:00:00Z"
+       "datePublished": "Feb 12, 2026T00:00:00Z",
+       "dateModified": "Feb 12, 2026T00:00:00Z"
      }
  </script>
   <script>
