@@ -205,7 +205,7 @@ html_theme_options = {
     ],
     "use_edit_page_button": True,
     "navbar_center": "navbar-nav",
-    "navbar_start": ["version-switcher"],
+    "navbar_start": ["navbar-logo", "version-switcher"],
     "switcher": {
         "json_url": "https://raw.githubusercontent.com/pytorch/ao/gh-pages/torchao-versions.json",
         "version_match": switcher_version,
