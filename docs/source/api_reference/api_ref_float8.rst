@@ -7,7 +7,7 @@ torchao.float8
 .. currentmodule:: torchao.float8
 
 Main float8 training APIs
-----------------------
+-------------------------
 
 .. autosummary::
     :toctree: generated/
