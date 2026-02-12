@@ -423,4 +423,6 @@ def test_nvfp4_static_vs_dynamic_quantization():
     y_dynamic = m_dynamic(x)
     y_static = m_static(x)
 
-    torch.testing.assert_close(y_dynamic, y_static)
+    assert torch.equal(y_dynamic, y_static), (
+        "Expect dynamic and static quant result to be equal"
+    )

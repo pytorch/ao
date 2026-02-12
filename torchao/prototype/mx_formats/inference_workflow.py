@@ -199,22 +199,15 @@ class NVFP4DynamicActivationNVFP4WeightConfig(AOBaseConfig):
     step: Optional["QuantizationStep"] = None
 
     def __post_init__(self):
+        if isinstance(self.step, str):
+            self.step = QuantizationStep(self.step)
         # Validate PyTorch version
         if not torch_version_at_least("2.8.0"):
             raise RuntimeError(
                 "NVFP4DynamicActivationNVFP4WeightConfig requires PyTorch 2.8 or later"
             )
 
-        # Allow string step values for convenience
         if self.step is not None:
-            if isinstance(self.step, str):
-                self.step = self.step.lower()
-            all_step_values = [s.value for s in QuantizationStep]
-            if self.step not in all_step_values and self.step not in list(
-                QuantizationStep
-            ):
-                raise ValueError(f"{self.step} is not one of {all_step_values}")
-
             # Static quantization implies use_dynamic_per_tensor_scale=False
             self.use_dynamic_per_tensor_scale = False
 
