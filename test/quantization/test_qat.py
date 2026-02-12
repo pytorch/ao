@@ -309,6 +309,127 @@ class TestQAT(TestCase):
         )
         torch.testing.assert_close(out, out_ptq, atol=0, rtol=0)
 
+    def test_affine_fake_quantized_tensor_fsdp_all_gather_low_bit_roundtrip(self):
+        from torchao.quantization.qat.affine_fake_quantized_tensor import (
+            _to_affine_fake_quantized,
+        )
+
+        class _MPPolicy:
+            def __init__(self, param_dtype: torch.dtype):
+                self.param_dtype = param_dtype
+
+        torch.manual_seed(self.SEED)
+        x = torch.randn(8, 16, dtype=torch.float32)
+        block_size = (1, 4)
+        target_dtype = torch.int8
+        mp_policy = _MPPolicy(torch.bfloat16)
+
+        fq_tensor = _to_affine_fake_quantized(
+            x,
+            MappingType.SYMMETRIC,
+            block_size,
+            target_dtype,
+        )
+        (q_data,), metadata = fq_tensor.fsdp_pre_all_gather(
+            mesh=None, mp_policy=mp_policy
+        )
+        self.assertIn(q_data.dtype, (torch.int8, torch.uint8))
+        self.assertLess(
+            q_data.numel() * q_data.element_size(),
+            x.to(torch.bfloat16).numel() * x.to(torch.bfloat16).element_size(),
+        )
+
+        gathered_weight, _ = fq_tensor.fsdp_post_all_gather(
+            (q_data,),
+            metadata,
+            param_dtype=torch.bfloat16,
+        )
+        x_bf16 = x.to(torch.bfloat16)
+        scale, zero_point = choose_qparams_affine(
+            x_bf16,
+            MappingType.SYMMETRIC,
+            block_size,
+            target_dtype,
+        )
+        expected = dequantize_affine(
+            quantize_affine(
+                x_bf16,
+                block_size,
+                scale,
+                zero_point,
+                target_dtype,
+            ),
+            block_size,
+            scale,
+            zero_point,
+            target_dtype,
+            output_dtype=torch.bfloat16,
+        )
+        self.assertEqual(gathered_weight.dtype, torch.bfloat16)
+        torch.testing.assert_close(gathered_weight, expected, atol=0, rtol=0)
+
+        out = torch.empty_like(gathered_weight)
+        fq_tensor.fsdp_post_all_gather(
+            (q_data,),
+            metadata,
+            param_dtype=torch.bfloat16,
+            out=out,
+        )
+        torch.testing.assert_close(out, gathered_weight, atol=0, rtol=0)
+
+    def test_affine_fake_quantized_tensor_fsdp_all_gather_per_tensor_block_size(self):
+        from torchao.quantization.qat.affine_fake_quantized_tensor import (
+            _to_affine_fake_quantized,
+        )
+
+        class _MPPolicy:
+            def __init__(self, param_dtype: torch.dtype):
+                self.param_dtype = param_dtype
+
+        torch.manual_seed(self.SEED)
+        x = torch.randn(8, 16, dtype=torch.float32)
+        fq_tensor = _to_affine_fake_quantized(
+            x,
+            MappingType.SYMMETRIC,
+            x.shape,
+            torch.int8,
+        )
+        # FSDP will shard parameters before pre-all-gather; this exercises that shape change.
+        local_shard = torch.split(fq_tensor, 4, dim=0)[0]
+        self.assertEqual(local_shard.shape, (4, 16))
+
+        (q_data,), metadata = local_shard.fsdp_pre_all_gather(
+            mesh=None, mp_policy=_MPPolicy(torch.bfloat16)
+        )
+        gathered_weight, _ = local_shard.fsdp_post_all_gather(
+            (q_data,),
+            metadata,
+            param_dtype=torch.bfloat16,
+        )
+        x_local = x[:4].to(torch.bfloat16)
+        local_block_size = x_local.shape
+        scale, zero_point = choose_qparams_affine(
+            x_local,
+            MappingType.SYMMETRIC,
+            local_block_size,
+            torch.int8,
+        )
+        expected = dequantize_affine(
+            quantize_affine(
+                x_local,
+                local_block_size,
+                scale,
+                zero_point,
+                torch.int8,
+            ),
+            local_block_size,
+            scale,
+            zero_point,
+            torch.int8,
+            output_dtype=torch.bfloat16,
+        )
+        torch.testing.assert_close(gathered_weight, expected, atol=0, rtol=0)
+
     def _set_ptq_weight(
         self,
         ptq_linear: torch.nn.Module,
