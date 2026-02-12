@@ -162,15 +162,15 @@ class NVFP4DynamicActivationNVFP4WeightConfig(AOBaseConfig):
     This is a specialized configuration for NVIDIA's FP4 format.
     NVFP4 uses "double quantization" with two scale levels:
     - A global per_tensor_scale (float32)
-    - Per-block scales (float8_e4m3fn, block_size=16)
+    - Per-block scales (float8_e4m3fn, block_size=16), always dynamically calculated
 
     The activation per_tensor_scale can be determined in two ways:
 
-    1. Dynamic (default, step=None, use_dynamic_per_tensor_scale=True):
+    1. Dynamic per_tensor_scale (default, step=None, use_dynamic_per_tensor_scale=True):
         - Both weight and activation per_tensor_scale are computed at runtime
           from the tensor amax
 
-    2. Static via observer flow (step="prepare"/"convert"):
+    2. Static per_tensor_scale via observer flow (step="prepare"/"convert"):
         - Weight per_tensor_scale is computed from weight amax at convert time
         - Activation per_tensor_scale is determined statically during calibration:
           step="prepare" inserts observers, then after running calibration data,
@@ -178,6 +178,9 @@ class NVFP4DynamicActivationNVFP4WeightConfig(AOBaseConfig):
           per_tensor_scale into the quantized weight tensor
         - At inference, the static activation per_tensor_scale is read from the
           weight tensor instead of being computed dynamically
+        - Note: activations are still dynamically quantized to FP4 at runtime
+          using the static per_tensor_scale; only the per_tensor_scale computation
+          is static, not the quantization itself
 
     Note: When step is specified, use_dynamic_per_tensor_scale is automatically
     set to False.
