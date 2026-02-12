@@ -33,10 +33,14 @@ from torchao.attention import (
 )
 from torchao.attention.fp8_fa3.attention import _fp8_fa3_sdpa
 from torchao.attention.fp8_fa3.quantization import _fp8_sdpa_quantize
-from torchao.attention.utils import _is_hopper
+from torchao.attention.utils import _is_fa3_available, _is_hopper
 from torchao.quantization.utils import compute_error
 
-_FP8_FA3_SKIP_MSG = "FP8 FA3 requires CUDA with Hopper (SM 9.x)"
+_FP8_FA3_SKIP_MSG = (
+    "FP8 FA3 requires CUDA with Hopper (SM 9.x) and flash-attn installed"
+)
+
+_FP8_FA3_AVAILABLE = _is_hopper() and _is_fa3_available()
 
 
 # ---------------------------------------------------------------------------
@@ -47,14 +51,14 @@ class TestFP8FA3NumericalAccuracy(TestCase):
     """SQNR-based numerical accuracy tests for FP8 FA3 attention."""
 
     def setUp(self):
-        if _is_hopper():
+        if _FP8_FA3_AVAILABLE:
             activate_flash_attention_impl("FA3")
 
     def tearDown(self):
-        if _is_hopper():
+        if _FP8_FA3_AVAILABLE:
             restore_flash_attention_impl()
 
-    @unittest.skipIf(not _is_hopper(), _FP8_FA3_SKIP_MSG)
+    @unittest.skipIf(not _FP8_FA3_AVAILABLE, _FP8_FA3_SKIP_MSG)
     @common_utils.parametrize(
         "shape",
         [
@@ -84,7 +88,7 @@ class TestFP8FA3NumericalAccuracy(TestCase):
             f"for shape={shape}, dtype={dtype}",
         )
 
-    @unittest.skipIf(not _is_hopper(), _FP8_FA3_SKIP_MSG)
+    @unittest.skipIf(not _FP8_FA3_AVAILABLE, _FP8_FA3_SKIP_MSG)
     @common_utils.parametrize(
         "shape",
         [
@@ -114,7 +118,7 @@ class TestFP8FA3NumericalAccuracy(TestCase):
             f"for causal, shape={shape}, dtype={dtype}",
         )
 
-    @unittest.skipIf(not _is_hopper(), _FP8_FA3_SKIP_MSG)
+    @unittest.skipIf(not _FP8_FA3_AVAILABLE, _FP8_FA3_SKIP_MSG)
     @common_utils.parametrize("dtype", [torch.bfloat16, torch.float16])
     def test_sdpa_accuracy_cross_attention(self, dtype):
         """FP8 FA3 SDPA with different Q and K/V sequence lengths."""
@@ -138,7 +142,7 @@ class TestFP8FA3NumericalAccuracy(TestCase):
             f"SQNR {sqnr.item():.2f} dB below threshold for cross-attention",
         )
 
-    @unittest.skipIf(not _is_hopper(), _FP8_FA3_SKIP_MSG)
+    @unittest.skipIf(not _FP8_FA3_AVAILABLE, _FP8_FA3_SKIP_MSG)
     @common_utils.parametrize("dtype", [torch.bfloat16, torch.float16])
     def test_sdpa_output_dtype_matches_input(self, dtype):
         """Output dtype should match the input dtype."""
@@ -152,7 +156,7 @@ class TestFP8FA3NumericalAccuracy(TestCase):
 
         self.assertEqual(out.dtype, dtype)
 
-    @unittest.skipIf(not _is_hopper(), _FP8_FA3_SKIP_MSG)
+    @unittest.skipIf(not _FP8_FA3_AVAILABLE, _FP8_FA3_SKIP_MSG)
     def test_sdpa_output_no_nan(self):
         """Output should not contain NaN values."""
         B, H, S, D = 2, 8, 512, 64
@@ -174,14 +178,14 @@ class TestFP8FA3InputValidation(TestCase):
     """Input validation and error handling tests."""
 
     def setUp(self):
-        if _is_hopper():
+        if _FP8_FA3_AVAILABLE:
             activate_flash_attention_impl("FA3")
 
     def tearDown(self):
-        if _is_hopper():
+        if _FP8_FA3_AVAILABLE:
             restore_flash_attention_impl()
 
-    @unittest.skipIf(not _is_hopper(), _FP8_FA3_SKIP_MSG)
+    @unittest.skipIf(not _FP8_FA3_AVAILABLE, _FP8_FA3_SKIP_MSG)
     def test_attn_mask_raises(self):
         """attn_mask is not supported and should raise ValueError."""
         B, H, S, D = 1, 4, 128, 64
@@ -193,7 +197,7 @@ class TestFP8FA3InputValidation(TestCase):
         with self.assertRaises(ValueError, msg="attn_mask"):
             _fp8_fa3_sdpa(q, k, v, attn_mask=mask)
 
-    @unittest.skipIf(not _is_hopper(), _FP8_FA3_SKIP_MSG)
+    @unittest.skipIf(not _FP8_FA3_AVAILABLE, _FP8_FA3_SKIP_MSG)
     def test_dropout_raises(self):
         """dropout_p != 0.0 should raise ValueError."""
         B, H, S, D = 1, 4, 128, 64
@@ -204,7 +208,7 @@ class TestFP8FA3InputValidation(TestCase):
         with self.assertRaises(ValueError, msg="dropout_p"):
             _fp8_fa3_sdpa(q, k, v, dropout_p=0.1)
 
-    @unittest.skipIf(not _is_hopper(), _FP8_FA3_SKIP_MSG)
+    @unittest.skipIf(not _FP8_FA3_AVAILABLE, _FP8_FA3_SKIP_MSG)
     def test_wrong_dimensions(self):
         """Non-4D tensors should raise ValueError."""
         k_4d = torch.randn(1, 8, 128, 64, device="cuda", dtype=torch.bfloat16)
@@ -225,7 +229,7 @@ class TestFP8FA3InputValidation(TestCase):
         with self.assertRaises(ValueError, msg="4D"):
             _fp8_sdpa_quantize(q_5d, k_4d, v_4d)
 
-    @unittest.skipIf(not _is_hopper(), _FP8_FA3_SKIP_MSG)
+    @unittest.skipIf(not _FP8_FA3_AVAILABLE, _FP8_FA3_SKIP_MSG)
     def test_kv_shape_mismatch(self):
         """K and V must have the same shape."""
         B, H, D = 1, 8, 64
@@ -236,7 +240,7 @@ class TestFP8FA3InputValidation(TestCase):
         with self.assertRaises(ValueError, msg="K and V shape mismatch"):
             _fp8_sdpa_quantize(q, k, v)
 
-    @unittest.skipIf(not _is_hopper(), _FP8_FA3_SKIP_MSG)
+    @unittest.skipIf(not _FP8_FA3_AVAILABLE, _FP8_FA3_SKIP_MSG)
     def test_batch_size_mismatch(self):
         """Q and K must have the same batch size."""
         H, S, D = 8, 128, 64
@@ -247,7 +251,7 @@ class TestFP8FA3InputValidation(TestCase):
         with self.assertRaises(ValueError, msg="Batch size mismatch"):
             _fp8_sdpa_quantize(q, k, v)
 
-    @unittest.skipIf(not _is_hopper(), _FP8_FA3_SKIP_MSG)
+    @unittest.skipIf(not _FP8_FA3_AVAILABLE, _FP8_FA3_SKIP_MSG)
     def test_head_count_mismatch(self):
         """Q and K must have the same number of heads."""
         B, S, D = 1, 128, 64
@@ -258,7 +262,7 @@ class TestFP8FA3InputValidation(TestCase):
         with self.assertRaises(ValueError, msg="Head count mismatch"):
             _fp8_sdpa_quantize(q, k, v)
 
-    @unittest.skipIf(not _is_hopper(), _FP8_FA3_SKIP_MSG)
+    @unittest.skipIf(not _FP8_FA3_AVAILABLE, _FP8_FA3_SKIP_MSG)
     def test_head_dim_mismatch(self):
         """Q and K must have the same head dimension."""
         B, H, S = 1, 8, 128
@@ -324,7 +328,7 @@ class SimpleAttentionModel(nn.Module):
 class TestFP8FA3ModelAPI(TestCase):
     """API-level tests using apply_low_precision_attention on a model."""
 
-    @unittest.skipIf(not _is_hopper(), _FP8_FA3_SKIP_MSG)
+    @unittest.skipIf(not _FP8_FA3_AVAILABLE, _FP8_FA3_SKIP_MSG)
     @common_utils.parametrize("dtype", [torch.bfloat16, torch.float16])
     def test_apply_to_model_accuracy(self, dtype):
         """apply_low_precision_attention produces output close to original model."""
@@ -352,7 +356,7 @@ class TestFP8FA3ModelAPI(TestCase):
             f"SQNR {sqnr.item():.2f} dB below threshold for model-level test",
         )
 
-    @unittest.skipIf(not _is_hopper(), _FP8_FA3_SKIP_MSG)
+    @unittest.skipIf(not _FP8_FA3_AVAILABLE, _FP8_FA3_SKIP_MSG)
     def test_apply_returns_same_model(self):
         """apply_low_precision_attention should return the same model object."""
         model = SimpleAttentionModel(128, 4).to(device="cuda", dtype=torch.bfloat16)
@@ -360,7 +364,7 @@ class TestFP8FA3ModelAPI(TestCase):
         result = apply_low_precision_attention(model, config)
         self.assertIs(result, model)
 
-    @unittest.skipIf(not _is_hopper(), _FP8_FA3_SKIP_MSG)
+    @unittest.skipIf(not _FP8_FA3_AVAILABLE, _FP8_FA3_SKIP_MSG)
     def test_apply_does_not_modify_weights(self):
         """apply_low_precision_attention should not change model parameters."""
         embed_dim, num_heads = 128, 4
