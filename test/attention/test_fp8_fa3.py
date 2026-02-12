@@ -16,10 +16,20 @@ import torch.nn.functional as F
 
 # FA3 activation is needed when calling _fp8_fa3_sdpa directly (outside the
 # model-level API which handles it via the context manager in wrappers.py).
-from torch.nn.attention import (
-    activate_flash_attention_impl,
-    restore_flash_attention_impl,
-)
+# These APIs were added in a recent PyTorch version, so guard the import
+# following the same try/except pattern used in test_nf4.py (bitsandbytes)
+# and test_integration.py (gemlite).
+_has_fa3_activation_api = False
+try:
+    from torch.nn.attention import (
+        activate_flash_attention_impl,
+        restore_flash_attention_impl,
+    )
+
+    _has_fa3_activation_api = True
+except ImportError:
+    pass
+
 from torch.testing._internal import common_utils
 from torch.testing._internal.common_utils import (
     TestCase,
@@ -31,16 +41,20 @@ from torchao.attention import (
     LowPrecisionAttentionConfig,
     apply_low_precision_attention,
 )
-from torchao.attention.fp8_fa3.attention import _fp8_fa3_sdpa
-from torchao.attention.fp8_fa3.quantization import _fp8_sdpa_quantize
 from torchao.attention.utils import _is_fa3_available, _is_hopper
-from torchao.quantization.utils import compute_error
 
 _FP8_FA3_SKIP_MSG = (
-    "FP8 FA3 requires CUDA with Hopper (SM 9.x) and flash-attn installed"
+    "FP8 FA3 requires CUDA with Hopper (SM 9.x), flash-attn installed, "
+    "and a PyTorch version with FA3 activation APIs"
 )
 
-_FP8_FA3_AVAILABLE = _is_hopper() and _is_fa3_available()
+_FP8_FA3_AVAILABLE = _has_fa3_activation_api and _is_hopper() and _is_fa3_available()
+
+# Only import internal modules that depend on new PyTorch APIs when available.
+if _FP8_FA3_AVAILABLE:
+    from torchao.attention.fp8_fa3.attention import _fp8_fa3_sdpa
+    from torchao.attention.fp8_fa3.quantization import _fp8_sdpa_quantize
+    from torchao.quantization.utils import compute_error
 
 
 # ---------------------------------------------------------------------------
@@ -273,7 +287,7 @@ class TestFP8FA3InputValidation(TestCase):
         with self.assertRaises(ValueError, msg="Head dim mismatch"):
             _fp8_sdpa_quantize(q, k, v)
 
-    @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
+    @unittest.skipIf(not _FP8_FA3_AVAILABLE, _FP8_FA3_SKIP_MSG)
     def test_quantize_output_shapes(self):
         """Quantize should return correct shapes for fp8 tensors and descales."""
         B, H, S, D = 2, 8, 256, 64
