@@ -207,7 +207,7 @@ html_theme_options = {
     "navbar_center": "navbar-nav",
     # Option 1: version switcher
     "switcher": {
-        "json_url": "https://docs.pytorch.org/ao/torchao-versions.json",
+        "json_url": "https://github.com/pytorch/ao/blob/gh-pages/torchao-versions.json",
         "version_match": switcher_version,
     },
     "show_version_warning_banner": True,  # Adds a banner for non-preferred versions
