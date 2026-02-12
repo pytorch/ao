@@ -1,0 +1,18 @@
+sphinx-build -D plot_gallery=0 -b html "source" "build"/html
+Running Sphinx v5.3.0
+/Applications/anaconda3/lib/python3.12/site-packages/sphinx_tabs/__init__.py:3: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
+  __import__("pkg_resources").declare_namespace(__name__)
+torchao_version_docs: None
+Version: main
+Parsed external_urls: ['github', 'github_issues', 'contributing', 'docs', 'twitter']
+making output directory... done
+WARNING: The config value `plot_gallery' has type `str', defaults to `bool'.
+[autosummary] generating autosummary for: api_reference/api_ref_float8.rst, api_reference/api_ref_qat.rst, api_reference/api_ref_quantization.rst, api_reference/api_ref_sparsity.rst, api_reference/api_ref_utils.rst, api_reference/index.rst, contributing/benchmarking_api_guide.md, contributing/contributor_guide.rst, contributing/index.rst, contributing/quantization_overview.rst, ..., pt2e_quantization/pt2e_quant_openvino_inductor.rst, pt2e_quantization/pt2e_quant_ptq.rst, pt2e_quantization/pt2e_quant_qat.rst, pt2e_quantization/pt2e_quant_x86_inductor.rst, pt2e_quantization/pt2e_quant_xpu_inductor.rst, pt2e_quantization/pt2e_quantizer.rst, workflows/index.md, workflows/inference.md, workflows/qat.md, workflows/training.md
+
+Extension error (sphinx.ext.autosummary):
+Handler <function process_generate_options at 0x15c4a7c40> for event 'builder-inited' threw an exception (exception: no module named torchao.float8)
+Failed to import torchao.sparsity.
+Possible hints:
+* KeyError: 'torchao'
+* ModuleNotFoundError: No module named 'torchao'
+make: *** [html-noplot] Error 2

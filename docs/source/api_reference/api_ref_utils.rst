@@ -15,13 +15,13 @@ Tensor Subclass Utils
 
     TorchAOBaseTensor
 
-=====================================
-torchao.quantization.quantize_.common
-=====================================
+======================================
+torchao.quantization.quantize\_.common
+======================================
 
 .. currentmodule:: torchao.quantization.quantize_.common
 
-quantize_ API Common Utils
+quantize\_ API Common Utils
 --------------------------
 .. autosummary::
     :toctree: generated/

@@ -6,9 +6,9 @@ torchao.quantization.qat
 
 .. currentmodule:: torchao.quantization.qat
 
-Main Config for quantize_
+Main Config for quantize\_
 ---------------------------------------
-For a full example of how to use QAT with our main `quantize_` API,
+For a full example of how to use QAT with our main :func:`~torchao.quantization.quantize_` API,
 please refer to the `QAT README <https://github.com/pytorch/ao/blob/main/torchao/quantization/qat/README.md#quantize_-api-recommended>`__.
 
 .. autosummary::
