@@ -51,14 +51,14 @@ from torchao.float8.float8_utils import (
 from torchao.testing.training.test_utils import get_test_float8_linear_config
 from torchao.testing.utils import skip_if_rocm
 from torchao.utils import (
-    get_current_accelerator_device,
+    get_gpu_devices,
     is_MI300,
     is_ROCM,
     is_sm_at_least_89,
     is_sm_at_least_90,
 )
 
-_GPU_DEVICE = [str(get_current_accelerator_device())]
+_GPU_DEVICES = get_gpu_devices()
 
 random.seed(0)
 torch.manual_seed(0)
@@ -251,7 +251,7 @@ class TestFloat8TrainingTensor(TestCase):
         torch.cuda.is_available() and not is_sm_at_least_90(),
         "Requires CUDA capability >= 9.0",
     )
-    @parametrize("device", _GPU_DEVICE)
+    @parametrize("device", _GPU_DEVICES)
     def test_axiswise_gemm(self, a_shape, a_granularity, b_granularity, device):
         a = torch.randn(*a_shape, dtype=torch.bfloat16, device=device)
         b = torch.randn(64, 32, dtype=torch.bfloat16, device=device)
@@ -347,7 +347,7 @@ class TestFloat8Linear(TestCase):
     @parametrize("linear_bias", [False, True])
     @parametrize("use_ac", [False, True])
     @unittest.skipIf(not torch.accelerator.is_available(), "GPU not available")
-    @parametrize("device", _GPU_DEVICE)
+    @parametrize("device", _GPU_DEVICES)
     def test_linear_from_config_params(
         self,
         x_shape,
@@ -396,7 +396,7 @@ class TestFloat8Linear(TestCase):
         torch.cuda.is_available() and not is_sm_at_least_90(),
         "Requires CUDA capability >= 9.0",
     )
-    @parametrize("device", _GPU_DEVICE)
+    @parametrize("device", _GPU_DEVICES)
     def test_linear_from_recipe(
         self,
         recipe_name,
@@ -425,7 +425,7 @@ class TestFloat8Linear(TestCase):
         ],
     )
     @unittest.skipIf(not torch.accelerator.is_available(), "GPU not available")
-    @parametrize("device", _GPU_DEVICE)
+    @parametrize("device", _GPU_DEVICES)
     def test_autocast_outputs(
         self,
         emulate: bool,
@@ -486,7 +486,7 @@ class TestFloat8Linear(TestCase):
         torch.cuda.is_available() and not is_sm_at_least_89(),
         "CUDA with float8 support not available",
     )
-    @parametrize("device", _GPU_DEVICE)
+    @parametrize("device", _GPU_DEVICES)
     def test_inference_mode(self, device):
         x = torch.randn(32, 32, device=device)
         m = nn.Sequential(nn.Linear(32, 32)).to(device)
@@ -499,7 +499,7 @@ class TestFloat8Linear(TestCase):
         torch.cuda.is_available() and not is_sm_at_least_89(),
         "CUDA with float8 support not available",
     )
-    @parametrize("device", _GPU_DEVICE)
+    @parametrize("device", _GPU_DEVICES)
     def test_quantize(self, device):
         x = torch.randn(32, 32, device=device)
         m = nn.Sequential(nn.Linear(32, 32)).to(device)
@@ -523,7 +523,7 @@ class TestScaledMM(TestCase):
         torch.cuda.is_available() and not is_sm_at_least_89(),
         "CUDA with float8 support not available",
     )
-    @parametrize("device", _GPU_DEVICE)
+    @parametrize("device", _GPU_DEVICES)
     def test_scaled_mm_vs_emulated(self, base_dtype, use_fast_accum, device):
         torch.manual_seed(42)
         input_dtype = e4m3_dtype
@@ -567,7 +567,7 @@ class TestScaledMM(TestCase):
         torch.cuda.is_available() and not is_sm_at_least_89(),
         "CUDA with float8 support not available",
     )
-    @parametrize("device", _GPU_DEVICE)
+    @parametrize("device", _GPU_DEVICES)
     def test_different_configs_error(self, device):
         x_fp32 = torch.randn(16, 16, device=device)
         x_scale = torch.tensor(1.0, device=device)
@@ -609,7 +609,7 @@ class TestScaledMM(TestCase):
         torch.cuda.is_available() and not is_sm_at_least_89(),
         "CUDA with float8 support not available",
     )
-    @parametrize("device", _GPU_DEVICE)
+    @parametrize("device", _GPU_DEVICES)
     def test_pad_inner_dim(self, base_dtype, use_fast_accum, device):
         torch.manual_seed(42)
         input_dtype = e4m3_dtype
@@ -695,7 +695,7 @@ class TestNumerics(TestCase):
         ],
     )
     @unittest.skipIf(not torch.accelerator.is_available(), "GPU not available")
-    @parametrize("device", _GPU_DEVICE)
+    @parametrize("device", _GPU_DEVICES)
     def test_small_amax_float16(self, float8_dtype, device):
         # If we calculate scale naively with FP8_MAX_POS / amax,
         # the result may not be representable in fp16. Verify that
