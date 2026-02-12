@@ -1,5 +1,5 @@
 sphinx==7.2.6
-pytorch-sphinx-theme2==0.3.0
+pytorch-sphinx-theme2==0.4.3
 sphinxcontrib.katex==0.8.6
 sphinx-design==0.6.1
 sphinxext-opengraph==0.9.1
