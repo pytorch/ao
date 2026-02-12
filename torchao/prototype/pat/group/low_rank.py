@@ -26,6 +26,10 @@ class SVDGrouper(Grouper):
         if pack_dim is None and p.dim() > 2:
             p = p.flatten(start_dim=1)
 
+        # torch.linalg.svd does not support half-precision inputs
+        if self._p.dtype in (torch.bfloat16, torch.float16):
+            p = p.to(torch.float32)
+
         with use_deterministic_algorithms():
             (self.U, self.p, self.Vh) = torch.linalg.svd(p, full_matrices=False)
 
@@ -34,9 +38,9 @@ class SVDGrouper(Grouper):
     @torch.no_grad()
     def __exit__(self, exc_type, exc_val, exc_tb):
         self._p.copy_(
-            torch.linalg.multi_dot([self.U, torch.diag(self.p), self.Vh]).view(
-                self.orig_shape
-            )
+            torch.linalg.multi_dot([self.U, torch.diag(self.p), self.Vh])
+            .view(self.orig_shape)
+            .to(self._p.dtype)
         )
 
 

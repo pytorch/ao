@@ -19,17 +19,9 @@ class NMSGDOptimizer(PruneOptimizer):
     """
 
     def __init__(
-        self,
-        base_optimizer: Optimizer,
-        warmup_steps: int = 0,
-        reg_lambda: float = 0.0,
-        nm_gamma: float = 0.0,
+        self, base_optimizer: Optimizer, nm_gamma: float = 0.0, **kwargs
     ) -> None:
-        super().__init__(
-            base_optimizer=base_optimizer,
-            warmup_steps=warmup_steps,
-            reg_lambda=reg_lambda,
-        )
+        super().__init__(base_optimizer=base_optimizer, **kwargs)
         self.nm_gamma = nm_gamma
         for group in self.regularized_param_groups():
             group["gamma"] = self.nm_gamma

@@ -25,7 +25,6 @@ param_groups = [
         "params": weights",
         "group_type": "pat.group.Dim0Grouper",
         "prox_type": "pat.prox.ProxGroupLasso",
-        "reg_lambda": 2e-4,
     },
     {"params": others},
 ]
@@ -36,7 +35,7 @@ base_optimizer = torch.optim.SGD(
 )
 
 # create PruneOptimizer
-optimizer = PruneOptimizer(base_optimizer)
+optimizer = PruneOptimizer(base_optimizer, warmup_steps=10, reg_lambda=2e-4)
 ```
 
 After creating `PruneOptimizer`, one can use it as a regular PyTorch optimizer.
@@ -48,3 +47,15 @@ Pruning configs are dictionaries that define which parameter groups to prune and
 - parameter name (string): e.g., `blocks.0.attn.qkv.weight`
 - regex pattern (string): e.g., `:.*attn\.qkv\.weight`
 - module type and parameter name suffix ((class, string) tuple): e.g., `(torch.nn.Linear, 'weight')`
+
+## Unstructured pruning on 1.3B OLMo models
+
+The goal of the following experiments was to compare PAT pruned LLMs with "dense" models of equivalent nonzero parameter count. For example, a 1.3B model pruned to ~58% sparsity would be compared to a 760M model trained from scratch on the same token budget. The dense models have better inference efficiency than models with unstructured sparsity, but this is a good sanity check for PAT.
+
+We borrowed the setup from AllenAI's OLMo models. The table below is Table 1 of [this paper](https://arxiv.org/abs/2412.04403) from AllenAI. 
+<img src="https://github.com/user-attachments/assets/c66b8f3b-702d-478b-9a94-9718ea0b0583" style="width:80%" />
+
+The two plots show that the PAT pruned 1.3B models (blue curve) reach much better training loss and mean test accuracy on 8 reasoning benchmarks (ARC-Challenge, ARC-Easy, BoolQ, HellaSwag, OpenBookQA, PIQA, Social IQa, WinoGrande) across different sparsity levels.
+![](https://github.com/user-attachments/assets/b04347bd-6f16-44ca-85b9-8591349a9b31)
+![](https://github.com/user-attachments/assets/91820a7f-519b-4415-ba68-f510df1e18e9)
+

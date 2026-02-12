@@ -4,6 +4,7 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
+import sys
 from functools import partial
 
 from torch.optim import Optimizer
@@ -20,6 +21,7 @@ def build_prune_optimizer(
     base_optimizer: Optimizer,
     prune_reg_lambda: float,
     prune_warmup_steps: int = 0,
+    prune_healing_start_step: int = sys.maxsize,
     nm_gamma: float = 0.0,
 ) -> PruneOptimizer:
     if nm_gamma > 0:
@@ -30,5 +32,6 @@ def build_prune_optimizer(
     return prune_opt_cls(
         base_optimizer,
         warmup_steps=prune_warmup_steps,
+        healing_start_step=prune_healing_start_step,
         reg_lambda=prune_reg_lambda,
     )

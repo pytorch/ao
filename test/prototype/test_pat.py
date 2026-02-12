@@ -8,6 +8,7 @@ import random
 import unittest
 
 import torch
+import torch.nn.functional as F
 from torch import nn
 from torch.testing._internal import common_utils
 
@@ -20,7 +21,12 @@ from torchao.prototype.pat.group import (
     SVDGrouper,
 )
 from torchao.prototype.pat.layers.masked_layernorm import MaskedLayerNorm
-from torchao.prototype.pat.optim import ProxGroupLasso, ProxNuclearNorm, PruneOptimizer
+from torchao.prototype.pat.optim import (
+    ProxGroupLasso,
+    ProxLasso,
+    ProxNuclearNorm,
+    PruneOptimizer,
+)
 from torchao.prototype.pat.utils import get_param_groups
 
 
@@ -54,6 +60,25 @@ class MHADummyModel(nn.Module):
         attn_output, _ = self.mha(x, x, x)
         out = self.classifier(attn_output)
         return out
+
+
+class TwoLayerMLP(nn.Module):
+    def __init__(self, input_size, output_size, fc_multiplier: int = 4):
+        super(TwoLayerMLP, self).__init__()
+        middle_size = fc_multiplier * input_size
+        self.fc1 = torch.nn.Linear(input_size, middle_size)
+        self.fc2 = torch.nn.Linear(middle_size, output_size)
+
+    @staticmethod
+    def _linear_prune_config():
+        default_config = {"group_type": "ElemGrouper", "prox_type": "ProxLasso"}
+        return {(torch.nn.Linear, "weight"): default_config}
+
+    def forward(self, x):
+        x = self.fc1(x)
+        x = torch.relu(x)
+        x = self.fc2(x)
+        return x
 
 
 class TestQKGrouper(common_utils.TestCase):
@@ -268,10 +293,86 @@ class TestSVDGrouper(common_utils.TestCase):
             self.assertEqual(p.data_ptr(), grouper._p.data_ptr())
 
 
+class TestPruneOptimizer(common_utils.TestCase):
+    def __init__(self, methodName):
+        super(TestPruneOptimizer, self).__init__(methodName)
+        self.reg_lambda = 1.0
+        self.prox_map = ProxLasso(self.reg_lambda)
+
+    @staticmethod
+    def _optim_step(model, optimizer, dummy_input, label, step):
+        output = model(dummy_input[step : step + 1])
+        loss = F.cross_entropy(output, label[step : step + 1])
+
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+
+    @common_utils.parametrize("warmup_steps", [0, 5])
+    def test_warmup_steps(self, warmup_steps=0, total_steps=10):
+        model = TwoLayerMLP(input_size=10, output_size=2)
+        prune_config = model._linear_prune_config()
+        param_groups = get_param_groups(model, prune_config, verbose=False)
+        optimizer = PruneOptimizer(
+            torch.optim.SGD(param_groups, lr=0.1),
+            reg_lambda=self.reg_lambda,
+            warmup_steps=warmup_steps,
+        )
+
+        dummy_input = torch.randn(total_steps, 10)
+        label = torch.randint(0, 2, (total_steps,))
+        for step in range(total_steps):
+            self._optim_step(model, optimizer, dummy_input, label, step)
+            if step < warmup_steps:
+                for group in optimizer.regularized_param_groups():
+                    for p in group["params"]:
+                        assert "latent" in optimizer.state[p]
+            else:
+                for group in optimizer.regularized_param_groups():
+                    for p in group["params"]:
+                        # check that param magnitude is smaller than latent
+                        latent = optimizer.state[p]["latent"]
+                        self.assertTrue(
+                            torch.linalg.norm(p) < torch.linalg.norm(latent)
+                        )
+
+    @common_utils.parametrize("healing_start_step", [3, 5])
+    def test_healing_start_step(self, healing_start_step=5, total_steps=10):
+        model = TwoLayerMLP(input_size=10, output_size=2)
+        prune_config = model._linear_prune_config()
+        param_groups = get_param_groups(model, prune_config, verbose=False)
+        optimizer = PruneOptimizer(
+            torch.optim.AdamW(param_groups, lr=0.01),
+            reg_lambda=self.reg_lambda,
+            warmup_steps=0,
+            healing_start_step=healing_start_step,
+        )
+
+        dummy_input = torch.randn(total_steps, 10)
+        label = torch.randint(0, 2, (total_steps,))
+        prev_pruned_p_dct = {}
+        for step in range(total_steps):
+            self._optim_step(model, optimizer, dummy_input, label, step)
+            if step == healing_start_step:
+                for group in optimizer.regularized_param_groups():
+                    for p in group["params"]:
+                        if p.count_nonzero().item():
+                            prev_pruned_p_dct[p.data_ptr()] = p.clone().detach()
+            elif step > healing_start_step:
+                for group in optimizer.regularized_param_groups():
+                    for p in group["params"]:
+                        prev_pruned_p = prev_pruned_p_dct.get(p.data_ptr())
+                        if prev_pruned_p is not None:
+                            zero_mask = prev_pruned_p.eq(0)
+                            self.assertTrue(p.grad[zero_mask].eq(0).all())
+        self.assertFalse(prev_pruned_p is None)
+
+
 common_utils.instantiate_parametrized_tests(TestMaskedLayerNorm)
 common_utils.instantiate_parametrized_tests(TestQKGrouper)
 common_utils.instantiate_parametrized_tests(TestAttentionHeadGrouper)
 common_utils.instantiate_parametrized_tests(TestSVDGrouper)
+common_utils.instantiate_parametrized_tests(TestPruneOptimizer)
 
 if __name__ == "__main__":
     random.seed(0)

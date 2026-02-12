@@ -9,13 +9,11 @@ from typing import Union
 
 import torch
 from torch import Tensor
+from torch.distributed.tensor.experimental import local_map
+from torch.distributed.tensor.placement_types import Replicate
 
-from ..utils import HAS_DTENSOR, is_dtensor
+from ..distributed_utils import is_dtensor
 from .proxmap import ProxMap
-
-if HAS_DTENSOR:
-    from torch.distributed.tensor.experimental import local_map
-    from torch.distributed.tensor.placement_types import Replicate
 
 
 class ProxGroupLasso(ProxMap):

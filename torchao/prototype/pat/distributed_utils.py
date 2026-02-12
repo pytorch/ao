@@ -8,13 +8,7 @@ from typing import List
 
 from torch import Tensor
 from torch import distributed as dist
-
-try:
-    from torch.distributed.tensor import DTensor
-
-    HAS_DTENSOR = True
-except ImportError:
-    HAS_DTENSOR = False
+from torch.distributed.tensor import DTensor
 
 
 def is_main_process():
@@ -23,7 +17,7 @@ def is_main_process():
 
 
 def is_dtensor(x):
-    return HAS_DTENSOR and isinstance(x, DTensor)
+    return isinstance(x, DTensor)
 
 
 class NoopHandle:

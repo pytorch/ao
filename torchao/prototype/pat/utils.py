@@ -13,7 +13,7 @@ from typing import Any, Dict, Optional, Set, Tuple
 import torch
 from torch import nn
 
-from .distributed import is_main_process
+from .distributed_utils import is_main_process
 
 RE_PREFIX = ":"
 

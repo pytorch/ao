@@ -4,22 +4,26 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
+import sys
 from collections import defaultdict
 from collections.abc import Callable
 from typing import Any
 
 import torch
 from torch import Tensor
+from torch.distributed.tensor import distribute_tensor
+from torch.distributed.tensor.experimental import local_map
+from torch.distributed.tensor.placement_types import Partial, Replicate, Shard
 from torch.optim import Optimizer
+from torch.optim.optimizer import StateDict
 
-from ..utils import HAS_DTENSOR, instantiate_module, is_dtensor, is_main_process
-from ..utils.distributed import _maybe_async_aggregate, _sum_async_streams
-from ..utils.torch import get_index_linspace
-
-if HAS_DTENSOR:
-    from torch.distributed.tensor import distribute_tensor
-    from torch.distributed.tensor.experimental import local_map
-    from torch.distributed.tensor.placement_types import Partial, Replicate, Shard
+from ..distributed_utils import (
+    _maybe_async_aggregate,
+    _sum_async_streams,
+    is_dtensor,
+    is_main_process,
+)
+from ..utils import get_index_linspace, instantiate_module
 
 
 class PruneOptimizer(Optimizer):
@@ -28,24 +32,31 @@ class PruneOptimizer(Optimizer):
         - update the latent variables for QAT
     Other parameters:
         warmup_steps: int >= 0
+        healing_start_step: int > warmup_steps, or sys.maxsize to disable healing
+        reg_lambda: float >= 0, regularization strength for the prox map
     """
 
     def __init__(
         self,
         base_optimizer: Optimizer,
         warmup_steps: int = 0,
+        healing_start_step: int = sys.maxsize,
         reg_lambda: float = 0.0,
     ) -> None:
         # need to reconstruct these objects if loading checkpoint
         self.base_optimizer = base_optimizer
 
         # need to store these attributes in state_dict for checkpoint
+        assert warmup_steps < healing_start_step, (
+            f"Invalid {warmup_steps=} >= {healing_start_step=}"
+        )
         self.num_steps = 0
         self.warmup_steps = warmup_steps
+        self.healing_start_step = healing_start_step
 
         self.has_svd = False
         for group in self.regularized_param_groups():
-            group["gamma"] = 0.0
+            group.setdefault("gamma", 0.0)
             group.setdefault("reg_lambda", reg_lambda)
             if group.get("group_type", None) == "SVDGrouper":
                 self.has_svd = True
@@ -68,17 +79,34 @@ class PruneOptimizer(Optimizer):
         extra_repr = "\n  ".join(("(", base_optimizer))
         return f"{self.__class__.__name__} {extra_repr}\n)"
 
+    def __setstate__(self, state: dict[str, Any]) -> None:
+        self.base_optimizer.__setstate__(state)
+        for i, group in enumerate(self.regularized_param_groups()):
+            group.setdefault("gamma", 0.0)
+            group.setdefault("reg_lambda", 0.0)
+            if i == 0:
+                group.setdefault("num_steps", 0)
+
     @property
     def state(self) -> defaultdict[Tensor, Any]:  # pyre-ignore[3]
         return self._state if hasattr(self, "_state") else self.base_optimizer.state
 
     @torch._disable_dynamo
-    def state_dict(self) -> dict[str, Any]:
+    def state_dict(self) -> StateDict:
         return self.base_optimizer.state_dict()
 
     @torch._disable_dynamo
-    def load_state_dict(self, state_dict: dict[str, Any]) -> None:
+    def load_state_dict(self, state_dict: StateDict) -> None:
         self.base_optimizer.load_state_dict(state_dict)
+
+    @torch._disable_dynamo
+    def patch_state_dict(self, state_dict: StateDict) -> None:
+        """Fix missing state after calling torch.distributed.checkpoint.load"""
+        for i, group in enumerate(self.regularized_param_groups()):
+            state_group = state_dict["param_groups"][i]
+            for k in ("reg_lambda", "num_steps", "gamma"):
+                if k in state_group:
+                    group[k] = state_group[k]
 
     @property
     def num_steps(self) -> int:
@@ -149,6 +177,7 @@ class PruneOptimizer(Optimizer):
             if prox_kwargs["disable_vmap"]:
                 # Element- or layer-wise pruning
                 zero_elts = prox_map.apply_(grouper.p, gamma)
+                zeros_are_summed = zero_elts.dim() == 0
             else:
                 if not prox_kwargs["is_svd_grouper"] and is_dtensor(p):
                     if not torch.is_tensor(gamma):
@@ -158,8 +187,7 @@ class PruneOptimizer(Optimizer):
                     if grouper.in_dims is not None and gamma.dim() > 0:
                         # Shard gamma according to grouper.in_dims
                         gamma_placements = (Shard(grouper.in_dims),)
-                        if gamma.dim() <= grouper.in_dims:
-                            gamma = gamma.unsqueeze(0)
+                        gamma = gamma.unsqueeze(int(not grouper.in_dims))
                     gamma = distribute_tensor(
                         gamma,
                         device_mesh=p.device_mesh,
@@ -216,6 +244,15 @@ class PruneOptimizer(Optimizer):
         # AProx in practice: ensure shrinkage coefficient >= 1
         group["gamma"] += group["lr"]
 
+    def _init_latent_state(self):
+        """Initialize latent state for QAT if not already initialized."""
+        for group in self.regularized_param_groups():
+            for p in group["params"]:
+                state = self.state[p]
+                if p.grad is None or "latent" in state:
+                    continue
+                state["latent"] = p.detach().clone()
+
     @torch.no_grad()
     def step(self, closure: Callable[[], float] | None = None) -> float | None:
         """Performs a single optimization step.
@@ -224,9 +261,25 @@ class PruneOptimizer(Optimizer):
             closure (callable, optional): A closure that reevaluates the model
                 and returns the loss.
         """
-        if self.num_steps < self.warmup_steps:
-            # warmup stage: running the base optimizer only
+        # during healing, freeze pruned params by zeroing out their gradients
+        if self.num_steps >= self.healing_start_step:
+            for group in self.regularized_param_groups():
+                for p in group["params"]:
+                    if is_dtensor(p):
+                        local_map(
+                            lambda p_grad, mask: p_grad.masked_fill_(mask, 0),
+                            out_placements=(p.grad.placements,),
+                        )(p.grad, p.eq(0))
+                    else:
+                        p.grad.masked_fill_(p.eq(0), 0)
+
+        if (
+            self.num_steps < self.warmup_steps
+            or self.num_steps >= self.healing_start_step
+        ):
+            # run base optimizer only during warmup and healing periods
             loss = self.base_optimizer.step(closure=closure)  # pyre-ignore[6]
+            self._init_latent_state()
             self.num_steps += 1
             return loss
 
@@ -249,10 +302,10 @@ class PruneOptimizer(Optimizer):
 
         regularized_params = 0
         regularized_unfactored_size = 0
-        if torch.distributed.is_initialized():
+        dist_is_init = torch.distributed.is_initialized()
+        if dist_is_init:
             regularized_zeros_buf = []
             regularized_factored_size_buf = []
-
         regularized_zeros = 0
         regularized_factored_size = 0
 
@@ -305,9 +358,11 @@ class PruneOptimizer(Optimizer):
                     zero_elts, zeros_are_summed = self._apply_prox(
                         grouper, prox_map, p, sv_count=sv_count, **prox_kwargs
                     )
+
                     if zeros_are_summed:
                         state["sparsity_frac"] = zero_elts / grouper.p.numel()
                     else:
+                        assert dist_is_init, "Distributed must be initialized"
                         _maybe_async_aggregate(regularized_zeros_buf, zero_elts)
 
                     if torch.is_tensor(zero_elts):
@@ -396,7 +451,7 @@ class PruneOptimizer(Optimizer):
             for p in group["params"]:
                 if p.requires_grad:
                     state = self.state[p]
-                    if "latent" not in state:
-                        state["latent"] = p.detach().clone()
-                    else:
+                    try:
                         state["latent"].copy_(p)
+                    except KeyError:
+                        state["latent"] = p.detach().clone()
