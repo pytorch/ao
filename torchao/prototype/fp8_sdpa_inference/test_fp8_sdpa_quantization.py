@@ -317,20 +317,20 @@ if __name__ == "__main__":
     print("=" * 70)
     print()
 
-    # # Run numerical accuracy test first
-    # test_fp8_sdpa_numerical_accuracy()
-    # print()
+    # Run numerical accuracy test first
+    test_fp8_sdpa_numerical_accuracy()
+    print()
 
-    # # Run benchmark
-    # test_fp8_sdpa_benchmark()
-    # print()
+    # Run benchmark
+    test_fp8_sdpa_benchmark()
+    print()
 
     # # Run profiler
     # test_fp8_sdpa_profiler()
 
-    # Run Stable Diffusion test
-    print("Testing with Stable Diffusion...")
-    test_stable_diffusion_fp8_sdpa()
+    # # Run Stable Diffusion test
+    # print("Testing with Stable Diffusion...")
+    # test_stable_diffusion_fp8_sdpa()
 
-    print("Testing with Regular SDPA...")
-    test_stable_diffusion_regular_sdpa()
+    # print("Testing with Regular SDPA...")
+    # test_stable_diffusion_regular_sdpa()
