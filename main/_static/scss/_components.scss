@@ -8,7 +8,7 @@
   align-items: center;
   margin-bottom: 10px;
   font-size: 0.78em;
-  padding-top: 0px;
+  padding-top: 3px;
   font-weight: 700;
   white-space: nowrap;
   flex-shrink: 0;
@@ -143,15 +143,12 @@ a.btn {
   display: flex;
   align-items: center;
   justify-content: space-between;
-
-  @media (max-width: 767px) {
-    align-items: center;
-  }
+  align-items: flex-start;
 
   &__start,
   &__end {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     justify-content: space-between;
     flex-wrap: wrap;
   }
@@ -308,14 +305,14 @@ a.btn {
   .container {
     padding-left: 1.875rem;
     padding-right: 1.875rem;
-    max-width: 1400px;
+    max-width: 1240px;
   }
 
   .gdpr-notice {
     color: var(--pst-color-text-muted);
     margin-top: 1.5625rem;
     text-align: left;
-    max-width: 1600px;
+    max-width: 1440px;
 
     @media screen and (min-width: 768px) {
       width: 77%;

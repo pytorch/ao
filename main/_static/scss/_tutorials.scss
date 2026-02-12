@@ -2,10 +2,11 @@
 @use "variables" as *;
 
 // Tutorial cards styles
-// Hidden by default, shown by JS only when .sphx-glr-download-link-note.admonition.note is present
 .pytorch-call-to-action-links {
   padding-top: 0;
-  display: none;
+  display: -webkit-box;
+  display: -ms-flexbox;
+  display: flex;
   justify-content: space-around;
   margin: 0px;
 
@@ -121,13 +122,6 @@
 }
 
 #tutorial-cards-container {
-  // Wide screen - constrain width and left align
-  @media (min-width: 992px) {
-    max-width: 1100px;
-    margin-left: 0;
-    margin-right: auto;
-  }
-
   .filter-btn {
     color: var(--pst-color-text-base);
     border: 1px solid var(--pst-color-border);
@@ -364,13 +358,6 @@
 
   .tutorial-tags-container {
     width: 75%;
-
-    // Wide screen - constrain width and left align
-    @media (min-width: 992px) {
-      max-width: 1100px;
-      margin-left: 0;
-      margin-right: auto;
-    }
 
     &.active {
       width: 0;
