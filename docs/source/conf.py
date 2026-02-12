@@ -158,6 +158,26 @@ todo_include_todos = True
 # further.  For a list of options available for each theme, see the
 # documentation.
 #
+
+# version switcher: https://github.com/pytorch/pytorch_sphinx_theme/blob/pytorch_sphinx_theme2/pytorch_sphinx_theme2_migration_guide.md#version-switcher
+
+# Get a version of your package. Example for torch:
+import torchao
+
+torchao_version = str(torchao.__version__)
+
+version = "main (" + torchao_version + " )"
+release = "main"
+
+if RELEASE:
+    # Turn 1.11.0aHASH into 1.11
+    version = ".".join(torchao_version.split(".")[:2])
+    html_title = " ".join((project, version, "documentation"))
+    release = version
+
+# for the switcher, use:
+switcher_version = "main" if not RELEASE else version
+
 html_theme_options = {
     "navigation_with_keys": False,
     "analytics_id": "GTM-T8XT4PS",
@@ -185,9 +205,12 @@ html_theme_options = {
     ],
     "use_edit_page_button": True,
     "navbar_center": "navbar-nav",
-    # Option 2: Display version in navbar (since torchao is relatively new)
-    "navbar_start": ["pytorch_version"],
-    "display_version": True,
+    "navbar_start": ["version-switcher"],
+    "switcher": {
+        "json_url": "https://raw.githubusercontent.com/pytorch/ao/gh-pages/torchao-versions.json",
+        "version_match": switcher_version,
+    },
+    "show_version_warning_banner": True,  # Adds a banner for non-preferred versions
     "announcement": None,
 }
 
