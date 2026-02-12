@@ -29,7 +29,7 @@
 <link rel="preload" as="font" type="font/woff2" crossorigin href="../../_static/vendor/fontawesome/6.5.2/webfonts/fa-regular-400.woff2" />
 
     <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=03e43079" />
-    <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=36fba2ff" />
+    <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=b417fedc" />
     <link rel="stylesheet" type="text/css" href="../../_static/copybutton.css?v=76b2166b" />
     <link rel="stylesheet" type="text/css" href="../../_static/sphinx-design.min.css?v=95c83b7e" />
     <link rel="stylesheet" type="text/css" href="../../_static/sg_gallery.css?v=61a4c737" />
@@ -70,6 +70,7 @@ window.addEventListener("load", () => mermaid.run());
 
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
+
 <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/list.js/2.3.1/list.min.js"></script>
 <script>
@@ -97,6 +98,32 @@ window.addEventListener("load", () => mermaid.run());
   });
 </script>
 <!-- Conditional CSS for header and footer height adjustment -->
+
+<style>
+  :root {
+    --header-height: 0px !important;
+    --header-height-desktop: 0px !important;
+  }
+  /* Ensure proper mobile layout when LF header is hidden */
+  @media (max-width: 960px) {
+    .bd-header {
+      top: 0 !important;
+      position: sticky !important;
+      z-index: 1020 !important;
+    }
+    .bd-main {
+      padding-top: 0 !important;
+      margin-top: 0 !important;
+    }
+    .bd-article-container {
+      padding-top: 0 !important;
+    }
+    .header-article__inner {
+      padding-top: 1rem !important;
+    }
+
+  }
+</style>
 
 
 <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css" crossorigin="anonymous">
@@ -145,7 +172,7 @@ window.addEventListener("load", () => mermaid.run());
   fbq('track', 'PageView');
 </script>
 <script>
-  document.documentElement.setAttribute('data-version', 'main (0.17.0+git01006a7 )');
+  document.documentElement.setAttribute('data-version', 'main (0.17.0+gitf47b5a5 )');
 </script>
 <noscript>
   <img height="1" width="1" src="https://www.facebook.com/tr?id=243028289693773&ev=PageView&noscript=1" />
@@ -158,25 +185,112 @@ window.addEventListener("load", () => mermaid.run());
 <!-- End Facebook Pixel Code -->
 <!-- Repository configuration for tutorials -->
 
-<!-- Script to Fix scrolling -->
+
+<!-- Script to Fix scrolling with fast fixed-duration animation -->
 <script>
   document.addEventListener('DOMContentLoaded', function () {
-    // Fix anchor scrolling
+    const SCROLL_DURATION = 150; // Fixed duration in ms regardless of distance
+    let lockedTargetId = null; // Lock the TOC to this target until user scrolls manually
+    let isUpdatingToc = false; // Guard against infinite loops
+
+    function smoothScrollTo(targetY, duration, onComplete) {
+      const startY = window.pageYOffset;
+      const difference = targetY - startY;
+      const startTime = performance.now();
+
+      function step(currentTime) {
+        const elapsed = currentTime - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+        // Ease-out cubic for smooth deceleration
+        const easeOut = 1 - Math.pow(1 - progress, 3);
+        window.scrollTo(0, startY + difference * easeOut);
+        if (progress < 1) {
+          requestAnimationFrame(step);
+        } else if (onComplete) {
+          onComplete();
+        }
+      }
+      requestAnimationFrame(step);
+    }
+
+    function updateTocHighlight(targetId) {
+      if (isUpdatingToc) return; // Prevent infinite loop
+      isUpdatingToc = true;
+
+      // Find the TOC link that points to this target
+      const tocNav = document.querySelector('.bd-toc-nav');
+      if (!tocNav) {
+        isUpdatingToc = false;
+        return;
+      }
+
+      // Remove active class from all TOC items
+      tocNav.querySelectorAll('.nav-link').forEach(link => {
+        link.classList.remove('active');
+        link.parentElement.classList.remove('active');
+      });
+
+      // Add active class to the matching link
+      const matchingLink = tocNav.querySelector(`a[href="#${CSS.escape(targetId)}"]`);
+      if (matchingLink) {
+        matchingLink.classList.add('active');
+        matchingLink.parentElement.classList.add('active');
+      }
+
+      // Use setTimeout to reset the guard after the current call stack
+      setTimeout(function() {
+        isUpdatingToc = false;
+      }, 0);
+    }
+
+    // Watch for ScrollSpy trying to change the active state and override it
+    const tocNav = document.querySelector('.bd-toc-nav');
+    if (tocNav) {
+      const observer = new MutationObserver(function(mutations) {
+        if (lockedTargetId && !isUpdatingToc) {
+          // Force our target to stay highlighted
+          updateTocHighlight(lockedTargetId);
+        }
+      });
+      observer.observe(tocNav, {
+        attributes: true,
+        attributeFilter: ['class'],
+        subtree: true
+      });
+    }
+
+    // Release the lock when user scrolls manually (not programmatically)
+    window.addEventListener('wheel', function() {
+      lockedTargetId = null;
+    });
+    window.addEventListener('touchmove', function() {
+      lockedTargetId = null;
+    });
+
     document.querySelectorAll('a[href^="#"]').forEach(anchor => {
       anchor.addEventListener('click', function (e) {
-        e.preventDefault();
         const targetId = this.getAttribute('href').substring(1);
+        if (!targetId) return; // Skip empty hash links
         const targetElement = document.getElementById(targetId);
 
         if (targetElement) {
+          e.preventDefault();
+
+          // Lock the TOC to this target
+          lockedTargetId = targetId;
+
           const headerHeight =
             (document.querySelector('.header-holder') ? document.querySelector('.header-holder').offsetHeight : 0) +
             (document.querySelector('.bd-header') ? document.querySelector('.bd-header').offsetHeight : 0) + 20;
 
           const targetPosition = targetElement.getBoundingClientRect().top + window.pageYOffset - headerHeight;
-          window.scrollTo({
-            top: targetPosition,
-            behavior: 'smooth'
+
+          // Update TOC highlight immediately
+          updateTocHighlight(targetId);
+
+          smoothScrollTo(targetPosition, SCROLL_DURATION, function() {
+            // Keep it highlighted after scroll
+            updateTocHighlight(targetId);
           });
 
           // Update URL hash without scrolling
@@ -188,6 +302,8 @@ window.addEventListener("load", () => mermaid.run());
 </script>
 
 <script async src="https://cse.google.com/cse.js?cx=e65585f8c3ea1440e"></script>
+<!-- RunLLM Widget Configuration -->
+
 
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
@@ -195,350 +311,6 @@ window.addEventListener("load", () => mermaid.run());
   </head>
 
 <body data-feedback-url="" class="pytorch-body">
-  
-    <div class="container-fluid header-holder tutorials-header" id="header-holder">
-   <div class="header-container-wrapper">
-    <div class="header-container">
-      <a class="header-logo" href="https://pytorch.org/" aria-label="PyTorch"></a>
-
-      <div class="main-menu">
-        <ul>
-
-          <li class="main-menu-item">
-          <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
-              <a class="with-down-arrow">
-                <span>Learn</span>
-              </a>
-              <div class="resources-dropdown-menu">
-                <a class="nav-dropdown-item" href="https://pytorch.org/get-started/locally">
-                  <span class=dropdown-title>Get Started</span>
-                </a>
-                <a class="nav-dropdown-item" href="https://docs.pytorch.org/tutorials">
-                  <span class="dropdown-title">Tutorials</span>
-                </a>
-                <a class="nav-dropdown-item" href="https://pytorch.org/tutorials/beginner/basics/intro.html">
-                  <span class="dropdown-title">Learn the Basics</span>
-                </a>
-                <a class="nav-dropdown-item" href="https://pytorch.org/tutorials/recipes/recipes_index.html">
-                  <span class="dropdown-title">PyTorch Recipes</span>
-                </a>
-                <a class="nav-dropdown-item" href="https://pytorch.org/tutorials/beginner/introyt.html">
-                  <span class="dropdown-title">Intro to PyTorch - YouTube Series</span>
-                </a>
-                <a class="nav-dropdown-item" href="https://pytorch.org/webinars/">
-                  <span class="dropdown-title">Webinars</span>
-                </a>
-              </div>
-            </div>
-          </li>
-
-          <li class="main-menu-item">
-          <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
-              <a class="with-down-arrow">
-              <span>Community</span>
-              </a>
-              <div class="resources-dropdown-menu">
-                <a class="nav-dropdown-item" href="https://landscape.pytorch.org/" target="_blank">
-                  <span class="dropdown-title">Landscape</span>
-                </a>
-                <a class="nav-dropdown-item" href="https://pytorch.org/join-ecosystem">
-                  <span class="dropdown-title">Join the Ecosystem</span>
-                </a>
-                <a class="nav-dropdown-item" href="https://pytorch.org/community-hub/">
-                  <span class="dropdown-title">Community Hub</span>
-                </a>
-                <a class="nav-dropdown-item" href="https://discuss.pytorch.org/">
-                  <span class="dropdown-title">Forums</span>
-                </a>
-                <a class="nav-dropdown-item" href="https://pytorch.org/resources">
-                  <span class=dropdown-title>Developer Resources</span>
-                </a>
-                <a class="nav-dropdown-item" href="https://pytorch.org/contributor-awards/">
-                  <span class="dropdown-title">Contributor Awards</span>
-                </a>
-                <a class="nav-dropdown-item" href="https://pytorch.org/community-events/">
-                  <span class="dropdown-title">Community Events</span>
-                </a>
-                <a class="nav-dropdown-item" href="https://pytorch.org/programs/ambassadors/">
-                  <span class="dropdown-title">PyTorch Ambassadors</span>
-                </a>
-              </div>
-            </div>
-          </li>
-
-          <li class="main-menu-item">
-          <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
-              <a class="with-down-arrow">
-              <span>Projects</span>
-              </a>
-              <div class="resources-dropdown-menu">
-                <a class="nav-dropdown-item" href="https://pytorch.org/projects/pytorch/">
-                  <span class="dropdown-title">PyTorch</span>
-                </a>
-                <a class="nav-dropdown-item" href="https://pytorch.org/projects/vllm/">
-                  <span class="dropdown-title">vLLM</span>
-                </a>
-                <a class="nav-dropdown-item" href="https://pytorch.org/projects/deepspeed/">
-                  <span class="dropdown-title">DeepSpeed</span>
-                </a>
-                <a class="nav-dropdown-item" href="https://pytorch.org/projects/host-your-project/">
-                  <span class="dropdown-title">Host Your Project</span>
-                </a>
-                <a class="nav-dropdown-item" href="https://pytorch.org/projects/ray/">
-                  <span class="dropdown-title">RAY</span>
-                </a>
-              </div>
-            </div>
-          </li>
-
-          <li class="main-menu-item">
-            <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
-              <a class="with-down-arrow">
-              <span> Docs</span>
-              </a>
-              <div class="resources-dropdown-menu">
-                <a class="nav-dropdown-item" href="https://docs.pytorch.org/docs/stable/index.html">
-                  <span class="dropdown-title">PyTorch</span>
-                </a>
-                <a class="nav-dropdown-item" href="https://pytorch.org/domains">
-                  <span class="dropdown-title">Domains</span>
-                </a>
-              </div>
-            </div>
-          </li>
-
-          <li class="main-menu-item">
-            <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
-              <a class="with-down-arrow">
-              <span>Blogs & News</span>
-              </a>
-              <div class="resources-dropdown-menu">
-                <a class="nav-dropdown-item" href="https://pytorch.org/blog/">
-                  <span class="dropdown-title">Blog</span>
-                </a>
-                 <a class="nav-dropdown-item" href="https://pytorch.org/announcements">
-                  <span class="dropdown-title">Announcements</span>
-                </a>
-                <a class="nav-dropdown-item" href="https://pytorch.org/case-studies/">
-                  <span class="dropdown-title">Case Studies</span>
-                <a class="nav-dropdown-item" href="https://pytorch.org/events">
-                  <span class="dropdown-title">Events</span>
-                </a>
-                <a class="nav-dropdown-item" href="https://pytorch.org/newsletter">
-                  <span class="dropdown-title">Newsletter</span>
-                </a>
-            </div>
-          </li>
-
-          <li class="main-menu-item">
-            <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
-              <a class="with-down-arrow">
-              <span>About</span>
-              </a>
-              <div class="resources-dropdown-menu">
-                <a class="nav-dropdown-item" href="https://pytorch.org/foundation">
-                  <span class="dropdown-title">PyTorch Foundation</span>
-                </a>
-                <a class="nav-dropdown-item" href="https://pytorch.org/members">
-                  <span class="dropdown-title">Members</span>
-                </a>
-                <a class="nav-dropdown-item" href="https://pytorch.org/governing-board">
-                  <span class="dropdown-title">Governing Board</span>
-                </a>
-                <a class="nav-dropdown-item" href="https://pytorch.org/tac">
-                  <span class="dropdown-title">Technical Advisory Council</span>
-                </a>
-                <a class="nav-dropdown-item" href="https://pytorch.org/credits">
-                  <span class="dropdown-title">Cloud Credit Program</span>
-                </a>
-                <a class="nav-dropdown-item" href="https://pytorch.org/staff">
-                  <span class="dropdown-title">Staff</span>
-                </a>
-                <a class="nav-dropdown-item" href="https://pytorch.org/contact">
-                  <span class="dropdown-title">Contact</span>
-                </a>
-                <a class="nav-dropdown-item" href="https://pytorch.org/wp-content/uploads/2025/09/pytorch_brand_guide_091925a.pdf">
-                  <span class="dropdown-title">Brand Guidelines</span>
-                </a>
-              </div>
-            </div>
-          </li>
-
-          <li class="main-menu-item">
-            <div class="no-dropdown main-menu-button">
-              <a href="https://pytorch.org/join" data-cta="join">
-                JOIN
-              </a>
-            </div>
-          </li>
-        </ul>
-      </div>
-
-      <a class="main-menu-open-button" href="#" data-behavior="open-mobile-menu">
-        <i class="fa-solid fa-ellipsis"></i>
-      </a>
-    </div>
-  </div>
- </div>
-
- <!-- Begin Mobile Menu -->
-
-<div class="mobile-main-menu">
-  <div class="container-fluid">
-    <div class="header-container-wrapper">
-      <div class="mobile-main-menu-header-container">
-        <a class="main-menu-close-button" href="#" data-behavior="close-mobile-menu">
-        </a>
-      </div>
-    </div>
-  </div>
-
-  <div class="mobile-main-menu-links-container">
-    <div class="main-menu">
-      <ul>
-         <li class="resources-mobile-menu-title">
-           <a>Learn</a>
-         </li>
-         <ul class="resources-mobile-menu-items">
-           <li>
-             <a href="https://pytorch.org/get-started/locally">Get Started</a>
-           </li>
-           <li>
-             <a href="https://docs.pytorch.org/tutorials">Tutorials</a>
-           </li>
-           <li>
-             <a href="https://pytorch.org/tutorials/beginner/basics/intro.html">Learn the Basics</a>
-           </li>
-           <li>
-             <a href="https://pytorch.org/tutorials/recipes/recipes_index.html">PyTorch Recipes</a>
-           </li>
-           <li>
-             <a href="https://pytorch.org/tutorials/beginner/introyt.html">Introduction to PyTorch - YouTube Series</a>
-           </li>
-           <li>
-            <a href="https://pytorch.org/webinars/">Webinars</a>
-          </li>
-        </ul>
-         <li class="resources-mobile-menu-title">
-           <a>Community</a>
-         </li>
-         <ul class="resources-mobile-menu-items">
-          <li>
-            <a href="https://landscape.pytorch.org/">Landscape</a>
-          </li>
-          <li>
-             <a href="https://pytorch.org/join-ecosystem">Join the Ecosystem</a>
-           </li>
-           <li>
-             <a href="https://pytorch.org/community-hub/">Community Hub</a>
-           </li>
-           <li>
-             <a href="https://discuss.pytorch.org/">Forums</a>
-           </li>
-           <li>
-             <a href="https://pytorch.org/resources">Developer Resources</a>
-           </li>
-           <li>
-             <a href="https://pytorch.org/contributor-awards/">Contributor Awards</a>
-           </li>
-           <li>
-            <a href="https://pytorch.org/community-events/">Community Events</a>
-          </li>
-          <li>
-            <a href="https://pytorch.org/programs/ambassadors/">PyTorch Ambassadors</a>
-          </li>
-       </ul>
-
-         <li class="resources-mobile-menu-title">
-           <a>Projects</a>
-         </li>
-
-         <ul class="resources-mobile-menu-items">
-           <li>
-             <a href="https://pytorch.org/projects/pytorch/">PyTorch</a>
-           </li>
-
-           <li>
-             <a href="https://pytorch.org/projects/vllm/">vLLM</a>
-           </li>
-           <li>
-            <a href="https://pytorch.org/projects/deepspeed/">DeepSpeed</a>
-          </li>
-          <li>
-             <a href="https://pytorch.org/projects/host-your-project/">Host Your Project</a>
-           </li>
-         </ul>
-
-         <li class="resources-mobile-menu-title">
-           <a>Docs</a>
-         </li>
-
-         <ul class="resources-mobile-menu-items">
-          <li>
-            <a href="https://docs.pytorch.org/docs/stable/index.html">PyTorch</a>
-          </li>
-
-          <li>
-            <a href="https://pytorch.org/domains">Domains</a>
-          </li>
-        </ul>
-
-        <li class="resources-mobile-menu-title">
-          <a>Blog & News</a>
-        </li>
-
-         <ul class="resources-mobile-menu-items">
-          <li>
-            <a href="https://pytorch.org/blog/">Blog</a>
-          </li>
-          <li>
-            <a href="https://pytorch.org/announcements">Announcements</a>
-          </li>
-
-          <li>
-            <a href="https://pytorch.org/case-studies/">Case Studies</a>
-          </li>
-          <li>
-            <a href="https://pytorch.org/events">Events</a>
-          </li>
-          <li>
-             <a href="https://pytorch.org/newsletter">Newsletter</a>
-           </li>
-        </ul>
-
-        <li class="resources-mobile-menu-title">
-          <a>About</a>
-        </li>
-
-        <ul class="resources-mobile-menu-items">
-          <li>
-            <a href="https://pytorch.org/foundation">PyTorch Foundation</a>
-          </li>
-          <li>
-            <a href="https://pytorch.org/members">Members</a>
-          </li>
-          <li>
-            <a href="https://pytorch.org/governing-board">Governing Board</a>
-          </li>
-          <li>
-            <a href="https://pytorch.org/tac">Technical Advisory Council</a>
-         </li>
-         <li>
-             <a href="https://pytorch.org/credits">Cloud Credit Program</a>
-          </li>
-          <li>
-             <a href="https://pytorch.org/staff">Staff</a>
-          </li>
-          <li>
-             <a href="https://pytorch.org/contact">Contact</a>
-          </li>
-        </ul>
-      </ul>
-    </div>
-  </div>
-</div>
-
-<!-- End Mobile Menu -->
   
   
   
@@ -548,7 +320,7 @@ window.addEventListener("load", () => mermaid.run());
   
   
   <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
-  
+
   
   <div id="pst-scroll-pixel-helper"></div>
   
@@ -593,15 +365,79 @@ window.addEventListener("load", () => mermaid.run());
 
   
     <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+
 <div class="bd-header__inner bd-page-width">
   <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
     <span class="fa-solid fa-bars"></span>
   </button>
+
+  
+  <div class="navbar-header-items__mobile-logo">
+    
+
+
+
+
+
+
+
+  
+  
+  
+  
+
+
+<a class="navbar-brand logo" href="../../index.html">
+  
+    
+    <img src="../../_static/img/logo-dark.svg" class="logo__image only-light" alt="torchao - Home"/>
+    
+    
+    <script>document.write(`<img src="../../_static/img/logo-white.svg" class="logo__image only-dark" alt="torchao - Home"/>`);</script>
+    
+  
+</a>
+  </div>
+
   
   
   <div class=" navbar-header-items__start">
     
-      <div class="navbar-item">
+      
+      
+        <div class="navbar-item">
+          
+
+
+
+
+
+
+
+  
+  
+  
+  
+
+
+<a class="navbar-brand logo" href="../../index.html">
+  
+    
+    <img src="../../_static/img/logo-dark.svg" class="logo__image only-light" alt="torchao - Home"/>
+    
+    
+    <script>document.write(`<img src="../../_static/img/logo-white.svg" class="logo__image only-dark" alt="torchao - Home"/>`);</script>
+    
+  
+</a>
+        </div>
+      
+    
+      
+      
+        
+        <div class="navbar-item desktop-only-version">
+          
 <script>
 document.write(`
   <div class="version-switcher__container dropdown">
@@ -623,7 +459,9 @@ document.write(`
     </div>
   </div>
 `);
-</script></div>
+</script>
+        </div>
+      
     
   </div>
   
@@ -632,50 +470,290 @@ document.write(`
     <div class="me-auto navbar-header-items__center">
       
         <div class="navbar-item">
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 <nav>
   <ul class="bd-navbar-elements navbar-nav">
     
-<li class="nav-item ">
-  <a class="nav-link nav-internal" href="../../workflows/index.html">
-    Workflows
-  </a>
-</li>
+    
+      <li class="nav-item dropdown">
+        
+          
+          <div class="nav-item-with-toggle">
+            <a class="nav-link nav-internal" href="../../workflows/index.html">
+              Workflows
+            </a>
+          </div>
+          <ul class="dropdown-menu" id="dropdown-1">
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../workflows/training.html">
+                  Quantized Training
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../workflows/qat.html">
+                  Quantization-Aware Training (QAT)
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../workflows/inference.html">
+                  Quantized Inference
+                </a>
+              </li>
+            
+          </ul>
+        
+      </li>
+    
+      <li class="nav-item dropdown">
+        
+          
+          <div class="nav-item-with-toggle">
+            <a class="nav-link nav-internal" href="../../api_reference/index.html">
+              API Reference
+            </a>
+          </div>
+          <ul class="dropdown-menu" id="dropdown-2">
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../api_reference/api_ref_quantization.html">
+                  torchao.quantization
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../api_reference/api_ref_qat.html">
+                  torchao.quantization.qat
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../api_reference/api_ref_sparsity.html">
+                  torchao.sparsity
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../api_reference/api_ref_float8.html">
+                  torchao.float8
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../api_reference/api_ref_utils.html">
+                  torchao.core
+                </a>
+              </li>
+            
+          </ul>
+        
+      </li>
+    
+      <li class="nav-item dropdown">
+        
+          
+          <div class="nav-item-with-toggle">
+            <a class="nav-link nav-internal" href="../../eager_tutorials/index.html">
+              Tutorials
+            </a>
+          </div>
+          <ul class="dropdown-menu" id="dropdown-3">
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../eager_tutorials/first_quantization_example.html">
+                  First Quantization Example
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../eager_tutorials/pretraining.html">
+                  (Part 1) Pre-training with float8
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../eager_tutorials/finetuning.html">
+                  (Part 2) Fine-tuning with QAT, QLoRA, and float8
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../eager_tutorials/serving.html">
+                  (Part 3) Serving on vLLM, SGLang, ExecuTorch
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../eager_tutorials/torchao_vllm_integration.html">
+                  Integration with VLLM: Architecture and Usage Guide
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../eager_tutorials/torchao_hf_integration.html">
+                  Hugging Face Integration
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../eager_tutorials/serialization.html">
+                  Serialization
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../eager_tutorials/static_quantization.html">
+                  Static Quantization
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../eager_tutorials/subclass_basic.html">
+                  Writing Your Own Quantized Tensor
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../eager_tutorials/subclass_advanced.html">
+                  Writing Your Own Quantized Tensor (advanced)
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../eager_tutorials/mxfp8_expert_parallel_training.html">
+                  MXFP8 Expert Parallel Training
+                </a>
+              </li>
+            
+          </ul>
+        
+      </li>
+    
+      <li class="nav-item dropdown">
+        
+          
+          <div class="nav-item-with-toggle">
+            <a class="nav-link nav-internal" href="../../contributing/index.html">
+              Contributing
+            </a>
+          </div>
+          <ul class="dropdown-menu" id="dropdown-4">
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../contributing/quantization_overview.html">
+                  Quantization Overview
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../contributing/contributor_guide.html">
+                  Contributor Guide
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../contributing/sparsity.html">
+                  Sparsity Overview
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../contributing/benchmarking_api_guide.html">
+                  Benchmarking API Guide
+                </a>
+              </li>
+            
+          </ul>
+        
+      </li>
+    
+      <li class="nav-item dropdown">
+        
+          
+          <div class="nav-item-with-toggle">
+            <a class="nav-link nav-internal" href="../../pt2e_quantization/index.html">
+              PT2E Quantization
+            </a>
+          </div>
+          <ul class="dropdown-menu" id="dropdown-5">
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../pt2e_quantization/pt2e_quant_ptq.html">
+                  PyTorch 2 Export Post Training Quantization
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../pt2e_quantization/pt2e_quant_qat.html">
+                  PyTorch 2 Export Quantization-Aware Training (QAT)
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../pt2e_quantization/pt2e_quant_x86_inductor.html">
+                  PyTorch 2 Export Quantization with X86 Backend through Inductor
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../pt2e_quantization/pt2e_quant_xpu_inductor.html">
+                  PyTorch 2 Export Quantization with Intel GPU Backend through Inductor
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../pt2e_quantization/pt2e_quant_openvino_inductor.html">
+                  PyTorch 2 Export Quantization for OpenVINO torch.compile Backend
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../pt2e_quantization/pt2e_quantizer.html">
+                  How to Write a Quantizer for PyTorch 2 Export Quantization
+                </a>
+              </li>
+            
+          </ul>
+        
+      </li>
+    
 
-
-<li class="nav-item ">
-  <a class="nav-link nav-internal" href="../../api_reference/index.html">
-    API Reference
-  </a>
-</li>
-
-
-<li class="nav-item ">
-  <a class="nav-link nav-internal" href="../../eager_tutorials/index.html">
-    Tutorials
-  </a>
-</li>
-
-
-<li class="nav-item ">
-  <a class="nav-link nav-internal" href="../../contributing/index.html">
-    Contributing
-  </a>
-</li>
-
-
-<li class="nav-item ">
-  <a class="nav-link nav-internal" href="../../pt2e_quantization/index.html">
-    PT2E Quantization
-  </a>
-</li>
-
+    
+    
   </ul>
-</nav></div>
+</nav>
+</div>
       
     </div>
     
     
     <div class="navbar-header-items__end">
+      
+      
+      
+        <div class="navbar-item"><!-- PyTorch.org site link - desktop only, two-line layout -->
+<!-- Note: The show_pytorch_org_link check is handled in layout.html's navbar_end block -->
+<a href="https://pytorch.org" class="pytorch-site-link nav-link nav-external" data-bs-toggle="tooltip" data-bs-placement="bottom" data-bs-title="Go to PyTorch.org">
+  <span class="pytorch-site-link-text">
+    <span>Go to</span>
+    <span>pytorch.org <i class="fa-solid fa-arrow-up-right-from-square external-icon"></i></span>
+  </span>
+</a></div>
       
       
         <div class="navbar-item">
@@ -784,8 +862,42 @@ document.write(`
       <div class="bd-sidebar-primary bd-sidebar hide-on-wide">
         
 
+
+
+
   
   <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+    <div class="sidebar-header-items__start">
+      <div class="navbar-item">
+        
+<script>
+document.write(`
+  <div class="version-switcher__container dropdown">
+    <button id="pst-version-switcher-button-3"
+      type="button"
+      class="version-switcher__button btn btn-sm dropdown-toggle"
+      data-bs-toggle="dropdown"
+      aria-haspopup="listbox"
+      aria-controls="pst-version-switcher-list-3"
+      aria-label="Version switcher list"
+    >
+      Choose version  <!-- this text may get changed later by javascript -->
+      <span class="caret"></span>
+    </button>
+    <div id="pst-version-switcher-list-3"
+      class="version-switcher__menu dropdown-menu list-group-flush py-0"
+      role="listbox" aria-labelledby="pst-version-switcher-button-3">
+      <!-- dropdown will be populated by javascript on page load -->
+    </div>
+  </div>
+`);
+</script>
+      </div>
+    </div>
+    
+
     
     
       <div class="sidebar-header-items__center">
@@ -793,45 +905,274 @@ document.write(`
           
           
             <div class="navbar-item">
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 <nav>
   <ul class="bd-navbar-elements navbar-nav">
     
-<li class="nav-item ">
-  <a class="nav-link nav-internal" href="../../workflows/index.html">
-    Workflows
-  </a>
-</li>
+    
+      <li class="nav-item dropdown">
+        
+          
+          <div class="nav-item-with-toggle">
+            <a class="nav-link nav-internal" href="../../workflows/index.html">
+              Workflows
+            </a>
+          </div>
+          <ul class="dropdown-menu" id="dropdown-1">
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../workflows/training.html">
+                  Quantized Training
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../workflows/qat.html">
+                  Quantization-Aware Training (QAT)
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../workflows/inference.html">
+                  Quantized Inference
+                </a>
+              </li>
+            
+          </ul>
+        
+      </li>
+    
+      <li class="nav-item dropdown">
+        
+          
+          <div class="nav-item-with-toggle">
+            <a class="nav-link nav-internal" href="../../api_reference/index.html">
+              API Reference
+            </a>
+          </div>
+          <ul class="dropdown-menu" id="dropdown-2">
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../api_reference/api_ref_quantization.html">
+                  torchao.quantization
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../api_reference/api_ref_qat.html">
+                  torchao.quantization.qat
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../api_reference/api_ref_sparsity.html">
+                  torchao.sparsity
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../api_reference/api_ref_float8.html">
+                  torchao.float8
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../api_reference/api_ref_utils.html">
+                  torchao.core
+                </a>
+              </li>
+            
+          </ul>
+        
+      </li>
+    
+      <li class="nav-item dropdown">
+        
+          
+          <div class="nav-item-with-toggle">
+            <a class="nav-link nav-internal" href="../../eager_tutorials/index.html">
+              Tutorials
+            </a>
+          </div>
+          <ul class="dropdown-menu" id="dropdown-3">
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../eager_tutorials/first_quantization_example.html">
+                  First Quantization Example
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../eager_tutorials/pretraining.html">
+                  (Part 1) Pre-training with float8
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../eager_tutorials/finetuning.html">
+                  (Part 2) Fine-tuning with QAT, QLoRA, and float8
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../eager_tutorials/serving.html">
+                  (Part 3) Serving on vLLM, SGLang, ExecuTorch
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../eager_tutorials/torchao_vllm_integration.html">
+                  Integration with VLLM: Architecture and Usage Guide
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../eager_tutorials/torchao_hf_integration.html">
+                  Hugging Face Integration
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../eager_tutorials/serialization.html">
+                  Serialization
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../eager_tutorials/static_quantization.html">
+                  Static Quantization
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../eager_tutorials/subclass_basic.html">
+                  Writing Your Own Quantized Tensor
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../eager_tutorials/subclass_advanced.html">
+                  Writing Your Own Quantized Tensor (advanced)
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../eager_tutorials/mxfp8_expert_parallel_training.html">
+                  MXFP8 Expert Parallel Training
+                </a>
+              </li>
+            
+          </ul>
+        
+      </li>
+    
+      <li class="nav-item dropdown">
+        
+          
+          <div class="nav-item-with-toggle">
+            <a class="nav-link nav-internal" href="../../contributing/index.html">
+              Contributing
+            </a>
+          </div>
+          <ul class="dropdown-menu" id="dropdown-4">
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../contributing/quantization_overview.html">
+                  Quantization Overview
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../contributing/contributor_guide.html">
+                  Contributor Guide
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../contributing/sparsity.html">
+                  Sparsity Overview
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../contributing/benchmarking_api_guide.html">
+                  Benchmarking API Guide
+                </a>
+              </li>
+            
+          </ul>
+        
+      </li>
+    
+      <li class="nav-item dropdown">
+        
+          
+          <div class="nav-item-with-toggle">
+            <a class="nav-link nav-internal" href="../../pt2e_quantization/index.html">
+              PT2E Quantization
+            </a>
+          </div>
+          <ul class="dropdown-menu" id="dropdown-5">
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../pt2e_quantization/pt2e_quant_ptq.html">
+                  PyTorch 2 Export Post Training Quantization
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../pt2e_quantization/pt2e_quant_qat.html">
+                  PyTorch 2 Export Quantization-Aware Training (QAT)
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../pt2e_quantization/pt2e_quant_x86_inductor.html">
+                  PyTorch 2 Export Quantization with X86 Backend through Inductor
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../pt2e_quantization/pt2e_quant_xpu_inductor.html">
+                  PyTorch 2 Export Quantization with Intel GPU Backend through Inductor
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../pt2e_quantization/pt2e_quant_openvino_inductor.html">
+                  PyTorch 2 Export Quantization for OpenVINO torch.compile Backend
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../../pt2e_quantization/pt2e_quantizer.html">
+                  How to Write a Quantizer for PyTorch 2 Export Quantization
+                </a>
+              </li>
+            
+          </ul>
+        
+      </li>
+    
 
-
-<li class="nav-item ">
-  <a class="nav-link nav-internal" href="../../api_reference/index.html">
-    API Reference
-  </a>
-</li>
-
-
-<li class="nav-item ">
-  <a class="nav-link nav-internal" href="../../eager_tutorials/index.html">
-    Tutorials
-  </a>
-</li>
-
-
-<li class="nav-item ">
-  <a class="nav-link nav-internal" href="../../contributing/index.html">
-    Contributing
-  </a>
-</li>
-
-
-<li class="nav-item ">
-  <a class="nav-link nav-internal" href="../../pt2e_quantization/index.html">
-    PT2E Quantization
-  </a>
-</li>
-
+    
+    
   </ul>
-</nav></div>
+</nav>
+</div>
           
         
       </div>
@@ -839,6 +1180,17 @@ document.write(`
     
     
       <div class="sidebar-header-items__end">
+        
+        
+          <div class="navbar-item"><!-- PyTorch.org site link - desktop only, two-line layout -->
+<!-- Note: The show_pytorch_org_link check is handled in layout.html's navbar_end block -->
+<a href="https://pytorch.org" class="pytorch-site-link nav-link nav-external" data-bs-toggle="tooltip" data-bs-placement="bottom" data-bs-title="Go to PyTorch.org">
+  <span class="pytorch-site-link-text">
+    <span>Go to</span>
+    <span>pytorch.org <i class="fa-solid fa-arrow-up-right-from-square external-icon"></i></span>
+  </span>
+</a></div>
+        
         
           <div class="navbar-item">
   
@@ -931,10 +1283,10 @@ document.write(`
   
   <div class="sidebar-primary-items__end sidebar-primary__section">
   </div>
-  
-  <div id="rtd-footer-container"></div>
 
 
+
+<div id="rtd-footer-container"></div>
       </div>
       
       <main id="main-content" class="bd-main" role="main">
@@ -998,28 +1350,28 @@ document.write(`
 </div>
               
               
-  
+
 <div id="searchbox"></div>
-  <article class="bd-article" id="pytorch-article">
-    <!-- Hidden breadcrumb schema for SEO only -->
-    <div style="display:none;" itemscope itemtype="https://schema.org/BreadcrumbList">
-      
-      <div itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
-        <link itemprop="item" href="../index.html">
-        <meta itemprop="name" content="Module code">
-        <meta itemprop="position" content="1">
-      </div>
-      
-      <div itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
-        <meta itemprop="name" content="torchao.utils">
-        <meta itemprop="position" content="2">
-      </div>
+<div id="pytorch-article">
+  <!-- Hidden breadcrumb schema for SEO only -->
+  <div style="display:none;" itemscope itemtype="https://schema.org/BreadcrumbList">
+    
+    <div itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
+      <link itemprop="item" href="../index.html">
+      <meta itemprop="name" content="Module code">
+      <meta itemprop="position" content="1">
     </div>
+    
+    <div itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
+      <meta itemprop="name" content="torchao.utils">
+      <meta itemprop="position" content="2">
+    </div>
+  </div>
 
-    
-    
+  
+  
 
-    
+  
               
                 
 <div id="searchbox"></div>
@@ -2317,8 +2669,8 @@ document.write(`
 
                 </article>
               
-  </article>
-  
+</div>
+
               
               
                 <footer class="bd-footer-article">
@@ -2573,7 +2925,7 @@ document.write(`
        "@type": "Article",
        "name": "torchao.utils",
        "headline": "torchao.utils",
-       "description": "PyTorch Documentation. Explore PyTorch, an open-source machine learning library that accelerates the path from research prototyping to production deployment. Discover tutorials, API references, and guides to help you build and deploy deep learning models efficiently.",
+       "description": "PyTorch Documentation. Explore PyTorch, an open-source machine learning library that accelerates the path from research prototyping to production deployment.",
        "url": "/_modules/torchao/utils.html",
        "articleBody": "Source code for torchao.utils # Copyright (c) Meta Platforms, Inc. and affiliates. # All rights reserved. # # This source code is licensed under the BSD 3-Clause license found in the # LICENSE file in the root directory of this source tree. import functools import importlib import itertools import re import time from functools import reduce from importlib.metadata import version from math import gcd from typing import Any, Callable, Optional import torch import torch.nn.utils.parametrize as parametrize from torch.utils._python_dispatch import return_and_correct_aliasing __all__ = [ \"benchmark_model\", \"profiler_runner\", \"get_available_devices\", \"get_compute_capability\", \"benchmark_torch_function_in_microseconds\", \"find_multiple\", \"_register_custom_op\", \"get_model_size_in_bytes\", \"unwrap_tensor_subclass\", \"TorchAOBaseTensor\", \"is_cuda_version_at_least\", \"is_MI300\", \"is_sm_at_least_89\", \"is_sm_at_least_90\", \"is_sm_at_least_100\", \"is_package_at_least\", \"DummyModule\", ] # Referenced from: https://github.com/pytorch/pytorch/blob/9105d54c6b37099575c0059ef274c86c4dc80c57/torch/ao/quantization/utils.py#L711 @functools.cache def _assert_and_get_unique_device(module: torch.nn.Module) -\u003e Any: \"\"\" Returns the unique device for a module, or None if no device is found. Throws an error if multiple devices are detected. \"\"\" devices = {p.device for p in module.parameters()} | { p.device for p in module.buffers() } assert len(devices) \u003c= 1, ( \"prepare only works with cpu or single-device CUDA modules, \" f\"but got devices {devices}\" ) device = next(iter(devices)) if len(devices) \u003e 0 else None return device def benchmark_model(model, num_runs, args=(), kwargs=None, device_type=None): \"\"\"Benchmark model runs with `args` and `kwargs` both are optional\"\"\" if kwargs is None: kwargs = {} if device_type is None: assert isinstance(model, torch.nn.Module), ( \"Expecting `model` to be torch.nn.Module if device_type is not provided\" ) device_type = _assert_and_get_unique_device(model).type if device_type == \"cuda\": torch.cuda.synchronize() start_event = torch.cuda.Event(enable_timing=True) end_event = torch.cuda.Event(enable_timing=True) start_event.record() # benchmark for _ in range(num_runs): with torch.autograd.profiler.record_function(\"timed region\"): model(*args, **kwargs) end_event.record() torch.cuda.synchronize() return start_event.elapsed_time(end_event) / num_runs elif device_type == \"mps\": torch.mps.synchronize() start_event = torch.mps.event.Event(enable_timing=True) end_event = torch.mps.event.Event(enable_timing=True) start_event.record() # benchmark for _ in range(num_runs): with torch.autograd.profiler.record_function(\"timed region\"): model(*args, **kwargs) end_event.record() torch.mps.synchronize() return start_event.elapsed_time(end_event) / num_runs elif device_type == \"cpu\": torch.cpu.synchronize() start_time = time.time() # benchmark for _ in range(num_runs): with torch.autograd.profiler.record_function(\"timed region\"): model(*args, **kwargs) end_time = time.time() torch.cpu.synchronize() average_time_per_run = (end_time - start_time) / num_runs return average_time_per_run elif device_type == \"xpu\": torch.xpu.synchronize() start_event = torch.xpu.Event(enable_timing=True) end_event = torch.xpu.Event(enable_timing=True) start_event.record() # benchmark for _ in range(num_runs): with torch.autograd.profiler.record_function(\"timed region\"): model(*args, **kwargs) end_event.record() torch.xpu.synchronize() return start_event.elapsed_time(end_event) / num_runs def profiler_runner(path, fn, *args, **kwargs): with torch.profiler.profile( activities=[ torch.profiler.ProfilerActivity.CPU, torch.profiler.ProfilerActivity.CUDA, ], record_shapes=True, ) as prof: result = fn(*args, **kwargs) prof.export_chrome_trace(path) return result def get_available_devices(): devices = [\"cpu\"] if torch.cuda.is_available(): devices.append(\"cuda\") elif torch.xpu.is_available(): devices.append(\"xpu\") if torch.mps.is_available(): devices.append(\"mps\") return devices def get_current_accelerator_device(): assert torch.accelerator.is_available() return torch.accelerator.current_accelerator() def get_compute_capability(): if torch.cuda.is_available(): capability = torch.cuda.get_device_capability() return float(f\"{capability[0]}.{capability[1]}\") return 0.0 def compute_max_diff(output: torch.Tensor, output_ref: torch.Tensor) -\u003e torch.Tensor: return torch.mean(torch.abs(output - output_ref)) / torch.mean( torch.abs(output_ref) ) def benchmark_torch_function_in_microseconds(f, *args, **kwargs): import torch.utils.benchmark as benchmark # this avoids importing numpy when torchao module is loaded # Manual warmup f(*args, **kwargs) f(*args, **kwargs) t0 = benchmark.Timer( stmt=\"f(*args, **kwargs)\", globals={\"args\": args, \"kwargs\": kwargs, \"f\": f}, # noqa: E501 ) measurement = t0.blocked_autorange() return measurement.mean * 1e6 def find_multiple(n: int, *args: int) -\u003e int: k: int = reduce(lambda x, y: x * y // gcd(x, y), args + (1,)) # type: ignore[9] if n % k == 0: return n return n + k - (n % k) def _register_custom_op(lib, inductor_decomposed=True): \"\"\"This decorator is used to preserve some high level operators for torch.export.export while still allow them to be decomposed for inductor path requirement: make sure `fn.__name__[1:]` is the operator name you want to register NOTE: This should be applied at the top, after all other decorators have been applied NOTE: We haven\u0027t tested the case when `fn` accepts tensor subclass instance as input, e.g. uint4 tensor subclass instance, and we\u0027ll probably need to figure out what would make sense for downstream system (like executorch) to accept as well Example: lib = torch.library.Library(\"my_namespace\u0027, \"FRAGMENT\") register_custom_op = _register_custom_op(lib) @register_custom_op def _the_op_that_needs_to_be_preserved(...) ... # after this, `_the_op_that_needs_to_be_preserved` will be preserved as # torch.ops.my_namespace.the_op_that_needs_to_be_preserved operator after # torch.export.export \"\"\" from torch._inductor.decomposition import register_decomposition dispatch_key = ( \"CompositeImplicitAutograd\" if inductor_decomposed else \"CompositeExplicitAutograd\" ) def decorator(fn): from torch._library.infer_schema import infer_schema assert not any(c in fn.__name__ for c in \".\u003c\u003e\"), ( f\"Expecting op to be defined in normal functions, not lambda or local: {fn.__name__}\" ) op_name = fn.__name__ if op_name[0] == \"_\": op_name = op_name[1:] schema = op_name + infer_schema(fn, mutates_args={}) lib.define(schema) lib.impl(op_name, fn, dispatch_key) lib_namespace = lib.ns op = getattr(getattr(torch.ops, lib_namespace), op_name) if inductor_decomposed: register_decomposition([op])(fn) return op return decorator def _register_meta_op(lib, op_name): def decorator(fn): op = lib.impl(op_name, fn, \"Meta\") return op return decorator def get_model_size_in_bytes(model, ignore_embeddings=False): \"\"\" Returns the model size in bytes. The option to ignore embeddings is useful for models with disproportionately large embeddings compared to other model parameters that get quantized/sparsified. \"\"\" def flat_size(tensor): if hasattr(tensor, \"__tensor_flatten__\"): size = 0 # 0th element is a list of attributes that # hold tensors for attr_name in tensor.__tensor_flatten__()[0]: sub_tensor = getattr(tensor, attr_name) size += flat_size(sub_tensor) return size else: return tensor.numel() * tensor.element_size() model_size = 0 for name, child in model.named_children(): if not (isinstance(child, torch.nn.Embedding) and ignore_embeddings): for p in itertools.chain( child.parameters(recurse=False), child.buffers(recurse=False) ): model_size += flat_size(p) model_size += get_model_size_in_bytes(child, ignore_embeddings) return model_size class UnwrapTensorSubclass(torch.nn.Module): def forward(self, *tensors): todo = list(tensors) for tp, meta, inner_tensors in reversed(self.rebuild_stack): nb_tensor = len(inner_tensors) inner_tensors = {a: b for a, b in zip(inner_tensors, todo[-nb_tensor:])} todo = todo[nb_tensor:] rebuilt = tp.__tensor_unflatten__(inner_tensors, meta, None, None) todo.append(rebuilt) assert len(todo) == 1 return todo[0] def right_inverse(self, tensor): assert type(tensor) is not torch.Tensor rebuild_stack = [] plain_tensors = [] todo = [tensor] while todo: obj = todo.pop() inner_tensors, metadata = obj.__tensor_flatten__() rebuild_stack.append((type(obj), metadata, inner_tensors)) for attr_name in inner_tensors: val = getattr(obj, attr_name) if type(val) is torch.Tensor: plain_tensors.append(val) else: assert isinstance(val, torch.Tensor) todo.append(val) self.rebuild_stack = rebuild_stack return plain_tensors def unwrap_tensor_subclass(model, filter_fn=None): \"\"\"Unwraps (nested) tensor subclass in the model to plain tensors This is a workaround to make a model with tensor subclass to work with `torch.export.export` and `torch.aot_compile`, we hope this can be integrated into compile stack soon tracking issue: https://github.com/pytorch/ao/issues/345 \"\"\" for name, child in model.named_children(): # make sure child.weight is a tensor subclass if ( ( isinstance(child, torch.nn.Linear) or isinstance(child, torch.nn.Embedding) ) and hasattr(child, \"weight\") and type(child.weight) is not torch.Tensor and type(child.weight) is not torch.nn.Parameter and isinstance(child.weight, torch.Tensor) and issubclass(type(child.weight), torch.Tensor) and isinstance(child.weight, TorchAOBaseTensor) and not parametrize.is_parametrized(child) ): parametrize.register_parametrization( child, \"weight\", UnwrapTensorSubclass() ) unwrap_tensor_subclass(child) return model def _is_float8_type(dtype: torch.dtype) -\u003e bool: fp8_types = { torch.float8_e4m3fn, torch.float8_e4m3fnuz, torch.float8_e5m2, torch.float8_e5m2fnuz, } return dtype in fp8_types def parse_version(version_string): \"\"\" Parse version string representing pre-release with -1 Examples: \"2.5.0.dev20240708+cu121\" -\u003e [2, 5, -1], \"2.5.0\" -\u003e [2, 5, 0] \"\"\" # Check for pre-release indicators is_prerelease = bool(re.search(r\"(git|dev)\", version_string)) match = re.match(r\"(\\d+)\\.(\\d+)\\.(\\d+)\", version_string) if match: major, minor, patch = map(int, match.groups()) if is_prerelease: patch = -1 return [major, minor, patch] else: raise ValueError(f\"Invalid version string format: {version_string}\") def is_fbcode(): return not hasattr(torch.version, \"git_version\") def torch_version_at_least(min_version): if is_fbcode(): return True # Parser for local identifiers return parse_version(torch.__version__) \u003e= parse_version(min_version) \"\"\" Helper function for implementing aten op or torch function dispatch and dispatching to these implementations. \"\"\" def _implements(cls, aten_ops): \"\"\"Decorator for implementing aten ops like `torch.ops.aten.linear.default` for tensor subclass, the implemented functions are called in ``__torch_dispatch__`` callback for ``torch.Tensor`` subclasses Examples:: implements = MyTensor.implements @implements(torch.ops.aten.linear.default): def _(func, types, args, kwargs): ... \"\"\" if not hasattr(cls, \"_ATEN_OP_TABLE\"): cls._ATEN_OP_TABLE = {} if cls not in cls._ATEN_OP_TABLE: cls._ATEN_OP_TABLE[cls] = {} if not isinstance(aten_ops, (list, tuple)): aten_ops = [aten_ops] def decorator(func): for op in aten_ops: @functools.wraps(func) def wrapper(f, types, args, kwargs, _func=func): return _func(f, types, args, kwargs) cls._ATEN_OP_TABLE[cls][op] = wrapper return func return decorator def _implements_torch_function(cls, torch_fns): \"\"\"Decorator for implementing torch functions / ops like ``torch.nn.functional.linear``, ``torch.Tensor.t`` for the tensor subclass the implemented functions are called in ``__torch_function__`` callback for ``torch.Tensor`` subclasses Examples:: implements_torch_function = MyTensor.implements_torch_function @implements_torch_function(torch.nn.functional.linear): def _(func, types, args, kwargs): ... \"\"\" if not hasattr(cls, \"_TORCH_FN_TABLE\"): cls._TORCH_FN_TABLE = {} if cls not in cls._TORCH_FN_TABLE: cls._TORCH_FN_TABLE[cls] = {} if not isinstance(torch_fns, (list, tuple)): torch_fns = [torch_fns] def decorator(func): for fn in torch_fns: @functools.wraps(func) def wrapper(f, types, args, kwargs, _func=func): return _func(f, types, args, kwargs) cls._TORCH_FN_TABLE[cls][fn] = wrapper return func return decorator def _implements_common_tensor_ops(cls): implements = cls.implements implements_torch_function = cls.implements_torch_function aten = torch.ops.aten @implements(torch.ops.aten.to.dtype_layout) def _(func, types, args, kwargs): # only support kwargs for now assert len(args) == 1 self = args[0] # only support dtype, layout, and device for now for k in kwargs.keys(): assert k in [\"dtype\", \"layout\", \"device\"] # only support same dtype and layout # different dtype and layout has undefined behavior if \"dtype\" in kwargs: assert kwargs[\"dtype\"] == self.dtype if \"layout\" in kwargs: assert kwargs[\"layout\"] == self.layout # if device is the same, treat this like a no-op device = kwargs.get(\"device\") if device == self.device: return self new_tensor = args[0]._apply_fn_to_data(lambda x: func(x, device=device)) return return_and_correct_aliasing(func, args, kwargs, new_tensor) # This is called during _apply() to see if we can shallow # copy the content of one tensor into another. For now, # we only allow shallow copy if both tensors are of the # same type and have the same shape. @implements_torch_function(torch._has_compatible_shallow_copy_type) def _(func, types, args, kwargs): assert len(args) == 2 return type(args[0]) == type(args[1]) and args[0].shape == args[1].shape @implements_torch_function( [ torch.Tensor.contiguous, ] ) def _(func, types, args, kwargs): return args[0]._apply_fn_to_data(lambda x: func(x, *args[1:], **kwargs)) @implements( [ aten.detach.default, aten.clone.default, aten.alias.default, aten.contiguous.default, ] ) def _(func, types, args, kwargs): return return_and_correct_aliasing( func, args, kwargs, args[0]._apply_fn_to_data(lambda x: func(x, *args[1:], **kwargs)), ) def _same_metadata(self: TorchAOBaseTensor, src: TorchAOBaseTensor) -\u003e bool: _tensor_shape_match = all( getattr(self, t_name).shape == getattr(src, t_name).shape for t_name in self.tensor_data_names ) _optional_tensor_shape_match = True if hasattr(self, \"optional_tensor_data_names\"): # either both are None or both are not Tensors and the shape match _optional_tensor_shape_match = all( ( getattr(self, t_name).shape == getattr(src, t_name).shape if getattr(self, t_name) is not None else getattr(src, t_name) is None ) for t_name in self.optional_tensor_data_names ) _attr_match = all( getattr(self, a_name) == getattr(src, a_name) for a_name in self.tensor_attribute_names ) _optional_attr_match = True if hasattr(self, \"optional_tensor_attribute_names\"): _optional_attr_match = all( getattr(self, a_name) == getattr(src, a_name) for a_name in self.optional_tensor_attribute_names ) return ( type(self) == type(src) and self.shape == src.shape and _tensor_shape_match and _optional_tensor_shape_match and _attr_match and _optional_attr_match ) @implements(aten.copy_.default) def _(func, types, args, kwargs): self = args[0] src = args[1] if _same_metadata(self, src): self_tensors = self.__tensor_flatten__()[0] for tensor_name in self_tensors: getattr(self, tensor_name).copy_(getattr(src, tensor_name)) return raise ValueError( f\"Not supported args for copy_ due to metadata mismatch: {args[0], args[1]}\" ) @implements(aten._to_copy.default) def _(func, types, args, kwargs): self = args[0] if hasattr(self, \"tensor_data_names\") and hasattr( self, \"tensor_attribute_names\" ): kwargs = self._get_to_kwargs(*args[1:], **kwargs) device = kwargs.pop(\"device\") tensors = [ getattr(self, name).to(device) for name in self.tensor_data_names ] optional_tensors = [] if hasattr(self, \"optional_tensor_data_names\"): for tensor_data_name in self.optional_tensor_data_names: maybe_tensor = getattr(self, tensor_data_name) if maybe_tensor is not None: optional_tensors.append(maybe_tensor.to(device)) else: optional_tensors.append(None) # change device tensor_attributes = [ getattr(self, attr_name) if attr_name != \"device\" else device for attr_name in self.tensor_attribute_names ] optional_tensor_attributes = [] if hasattr(self, \"optional_tensor_attribute_names\"): optional_tensor_attributes = [ getattr(self, attr_name) if attr_name != \"device\" else device for attr_name in self.optional_tensor_attribute_names ] t = self.__class__( *tensors, *tensor_attributes, *optional_tensors, *optional_tensor_attributes, ) return return_and_correct_aliasing(func, args, kwargs, t) raise NotImplementedError( \"Subclasses must implement `aten._to_copy.default` or specify `tensor_data_names` and `tensor_attribute_names` for tensor class or tensor instance before using it\" ) def _torchao_base_tensor__setstate__(self, state): assert hasattr(self, \"tensor_data_names\") and hasattr( self, \"tensor_attribute_names\" ) torch._utils._set_obj_state(self, state) for optional_tensor_data_name in getattr(self, \"optional_tensor_data_names\", []): if optional_tensor_data_name not in self.__dict__ and not hasattr( self, optional_tensor_data_name ): setattr(self, optional_tensor_data_name, None) for optional_tensor_attribute_name in getattr( self, \"optional_tensor_attribute_names\", [] ): if optional_tensor_attribute_name not in self.__dict__ and not hasattr( self, optional_tensor_attribute_name ): setattr(self, optional_tensor_attribute_name, None) def _dispatch__torch_function__(cls, func, types, args=(), kwargs=None): \"\"\"Use this util function for a common `__torch_function__` implementation that dispatches to ops/functions registered with `_implements` class MyTensor(torch.Tensor): ... __torch_function__ = classmethod(_dispatch__torch_function__) \"\"\" kwargs = {} if kwargs is None else kwargs if ( hasattr(cls, \"_TORCH_FN_TABLE\") and cls in cls._TORCH_FN_TABLE and func in cls._TORCH_FN_TABLE[cls] ): return cls._TORCH_FN_TABLE[cls][func](func, types, args, kwargs) with torch._C.DisableTorchFunctionSubclass(): return func(*args, **kwargs) def _dispatch__torch_dispatch__(cls, func, types, args, kwargs): \"\"\"Use this util function for a common `__torch_dispatch__` implementation that dispatches to ops/functions registered with `_implements` class MyTensor(torch.Tensor): ... __torch_dispatch__ = classmethod(_dispatch__torch_dispatch__) \"\"\" if ( hasattr(cls, \"_ATEN_OP_TABLE\") and cls in cls._ATEN_OP_TABLE and func in cls._ATEN_OP_TABLE[cls] ): return cls._ATEN_OP_TABLE[cls][func](func, types, args, kwargs) arg_types = tuple(type(arg) for arg in args) kwarg_types = {k: type(arg) for k, arg in kwargs.items()} raise NotImplementedError( f\"{cls.__name__} dispatch: attempting to run unimplemented operator/function: {func=}, {types=}, {arg_types=}, {kwarg_types=}\" ) def _register_layout(tensor_class: Callable, layout_class: Callable): \"\"\" .. deprecated:: 0.15.1 This method is deprecated as of version 0.15.1 since it\u0027s part of the older tensor subclass development stack, for information about new dev stack, please check https://docs.pytorch.org/ao/main/quantization_overview.html and https://docs.pytorch.org/ao/main/contributor_guide.html Helper function for layout registrations, this is used to implement register_layout decorator for each tensor subclass, see aqt.py for example usage Args: tensor_class: Tensor subclass type layout_class: the class type of subclass of `Layout`, e.g. `PlainLayout` Returns: a decorator that registers the tensor impl constructor in the table \"\"\" # tensor_class._LAYOUT_CONSTRUCTOR_TABLE is a map from layout_class like TensorCoreTiledLayout # to tensor_impl class constructor like TensorCoreTiledAQTTensorImpl.from_plain that can construct a tensor_impl # from plain data like (quantized, unpacked) `data`, `scale`, `zero_point` if not hasattr(tensor_class, \"_LAYOUT_CONSTRUCTOR_TABLE\"): tensor_class._LAYOUT_CONSTRUCTOR_TABLE = {} def decorator(tensor_impl_class): tensor_class._LAYOUT_CONSTRUCTOR_TABLE[layout_class] = ( tensor_impl_class.from_plain ) # Allow serialization to work for models uses this tensor impl subclass torch.serialization.add_safe_globals([layout_class, tensor_impl_class]) return tensor_impl_class return decorator def _get_tensor_impl_constructor( tensor_class: Callable, layout_class: Callable ) -\u003e Callable: \"\"\" .. deprecated:: 0.15.1 This method is deprecated as of version 0.15.1 since it\u0027s part of the older tensor subclass development stack, for information about new dev stack, please check https://docs.pytorch.org/ao/main/quantization_overview.html and https://docs.pytorch.org/ao/main/contributor_guide.html Get TensorImpl class constructor (TensorImplClass.from_plain) for `tensor_class` based on `layout_class` `layout_class` means the class type of subclass of `Layout`, e.g. `PlainLayout` Args: tensor_class: Tensor subclass type layout_class: the class type of subclass of `Layout`, e.g. `PlainLayout` Returns: tensor impl subclass constructor for the layout_class \"\"\" if not hasattr(tensor_class, \"_LAYOUT_CONSTRUCTOR_TABLE\"): raise ValueError( f\"no registered tensor_impl class constructor for: {tensor_class}\" ) if layout_class not in tensor_class._LAYOUT_CONSTRUCTOR_TABLE: raise ValueError( f\"layout_name: {layout_class} is not supported yet for {tensor_class}\" ) return tensor_class._LAYOUT_CONSTRUCTOR_TABLE[layout_class] def _get_to_kwargs(self, *args, **kwargs): \"\"\"Helper function to get the device and dtype keyword args for `aten._to_copy.default` op only device and dtype are kept Returns: {\"device\": device, \"dtype\": dtype} \"\"\" # `torch._C._nn._parse_to` can\u0027t handle `layout` argument args = tuple(arg for arg in args if not isinstance(arg, torch.layout)) if \"layout\" in kwargs: kwargs.pop(\"layout\") # ignoring `non_blocking` and `memory_format` args since these are not # very useful for most of the tensor subclasses # if in the future there are use cases that need these, we\u0027d recommend # to override `_get_to_kwargs` and return these args device, dtype, _, _ = torch._C._nn._parse_to(*args, **kwargs) device = self.device if device is None else device dtype = self.dtype if dtype is None else dtype kwargs = { \"device\": device, \"dtype\": dtype, } return kwargs [docs] class TorchAOBaseTensor(torch.Tensor): r\"\"\"A util tensor subclass that provides commonly used functions new tensor subclass can inherit to get all the utility functions Attributes (defined by subclass of ``TorchAOBaseTensor``): * :attr:`tensor_data_names` (List[str]): list of names of all required tensor_data, order should match the `__init__` list of tensor subclass (optional to define to use ``TorchAOBaseTensor``, required for getting the util functions been defined (see Note section)) * :attr:`tensor_attribute_names` (List[str]): list of names of non-``Tensor`` attributes, order should match the ``__init__`` list of tensor subclass, following all the ``tensor_data_names`` arguments (optional to define to use ``TorchAOBaseTensor``, required for getting the util functions been defined (see Note section)) * :attr:`optional_tensor_data_names` (List[str]): it\u0027s not required to get the additional util functions been implemented, but this will be need if there are some optional ``Tensor`` data attributes, when defined, this will be a list of names of ``Tensor``s that can be optional * :attr:`optional_tensor_attribute_names` (List[str]): it\u0027s not required to get the additional util functions been implemented, but this will be need if there are some optional non-``Tensor`` attributes, when defined, this will be a list of names of attributes that can be optional Note: **Argument Order** Argument order in ``__init__`` and ``__new__`` of subclass of ``TorchAOBaseTensor`` should match exaclty with ``tensor_data_names`` + ``tensor_attribute_names`` + ``optional_tensor_data_names`` (if present) + ``optional_tensor_attribute_names`` (if present) Note: **How to Get Predefined Util Functions** If ``tensor_data_names`` (torch.Tensor data attribute names) and ``tensor_attribute_names`` (non-torch.Tensor attribute names) are defined, there are some additional util functions that will be added, this includes: ``__tensor_flatten__``: flattens a subclassed tensor instance, returns a ``tuple``, first element is tensor data names for valid tensor data, second element is a dict from attribute_name to non-``Tensor`` attributes ``__tensor_unflatten__``: takes a ``tensor_data_dict`` (a map from tensor name to ``Tensor``), and list of non-``Tensor`` attributes, returns a new instance of the subclassed tensor ``_apply_fn_to_data``: takes a function (``Tensor -\u003e Tensor``), applies function to all tensor data and recreate a new subclassed Tensor with the transformed tensor data ``__repr__``: the string representation of the subclassed tensor instance ``_same_metadata``: returns whether the metadata is the same between two instances of cls ``__setstate__``: when loading a serialized tensor subclass checkpoints, it sets the new optional tensor and tensor attribute that is saved in the old checkpoint to None, to maintain BC of old checkpoints when we add new optional tensor data or attributes to the tensor subclass torch function supported (``__torch_function__``): ``torch.Tensor.contiguous`` aten ops supported (``__torch_dispatch__``): ``aten.detach.default``, ``aten.clone.default``, ``aten.alias,default``, ``aten.contiguous.default``, ``aten.copy_.default``, ``aten._to_copy.default`` (enables ``t.to``) Note: **Subclassing and Op Inheritance** Subclasses of ``TorchAOBaseTensor`` automatically inherit aten op (``__torch_dispatch__``) and torch function (``__torch_function__``) implementations from their parent classes. Each subclass gets its own independent dispatch tables, so registering a new op on a child does not affect the parent, and vice versa. A child class can override an inherited op by registering its own implementation with ``@ChildClass.implements(...)``. If no override is provided, the parent\u0027s implementation is used automatically. For multiple inheritance (e.g., ``class C(B, A)``), ops are inherited from all parents following Python\u0027s MRO (Method Resolution Order), with later bases taking priority. Example:: class Parent(TorchAOBaseTensor): tensor_data_names = [\"qdata\"] tensor_attribute_names = [\"attr\"] def __new__(cls, qdata, attr): r = torch.Tensor._make_wrapper_subclass(cls, qdata.shape) r.qdata = qdata r.attr = attr return r def __init__(self, qdata, attr): pass @Parent.implements([torch.ops.aten.cat.default]) def parent_cat(func, types, args, kwargs): # parent implementation ... # Child inherits Parent\u0027s aten.cat implementation automatically class Child(Parent): tensor_data_names = [\"qdata\"] tensor_attribute_names = [\"attr\"] # Optionally override an inherited op: @Child.implements([torch.ops.aten.cat.default]) def child_cat(func, types, args, kwargs): # child-specific implementation ... Note: **Safetensors Support** ``TorchAOBaseTensor`` subclasses can be serialized to and loaded from the `safetensors \u003chttps://huggingface.co/docs/safetensors\u003e`_ format. Since safetensors only stores plain ``torch.Tensor`` objects, the serialization layer (in ``torchao.prototype.safetensors``) decomposes each tensor subclass into its constituent plain tensors (from ``tensor_data_names``/``optional_tensor_data_names``) plus JSON metadata (from ``tensor_attribute_names``/``optional_tensor_attribute_names``), and reconstructs the subclass on load. To add safetensors support for a new ``TorchAOBaseTensor`` subclass: 1. Define ``tensor_data_names``, ``tensor_attribute_names`` (and optionally ``optional_tensor_data_names``, ``optional_tensor_attribute_names``) on the subclass, which is already required for the other utility functions above. 2. Register the subclass in ``torchao/prototype/safetensors/safetensors_utils.py``: - Add the class name string to ``ALLOWED_TENSORS_SUBCLASSES``. - Add a ``\"ClassName\": ClassName`` entry to ``ALLOWED_CLASSES``. - If the subclass has non-Tensor attributes with custom types (dataclasses, enums, named tuples), add those types to ``ALLOWED_CLASSES`` as well. Once registered, Hugging Face Transformers users can use ``save_pretrained`` and ``push_to_hub`` with the default ``safe_serialization=True`` option. See https://docs.pytorch.org/ao/main/eager_tutorials/torchao_hf_integration.html#saving-the-model for a full end-to-end example. Examples:: class MyTensor(TorchAOBaseTensor): tensor_data_names = [\"a\", \"b\"] tensor_attribute_names = [\"c\", \"d\"] optional_tensor_data_names = [\"e\", \"f\"] optional_tensor_attribute_names = [\"g\", \"h\"] def __new__( cls, a: Tensor, b: Tensor, c: int, d: str, e: Optional[Tensor] = None, f: Optional[Tensor] = None, g: Optional[int] = None, h: Optional[int] = None, ): pass def __init__( self, a: Tensor, b: Tensor, c: int, d: str, e: Optional[Tensor] = None, f: Optional[Tensor] = None, g: Optional[int] = None, h: Optional[int] = None, ): pass \"\"\" @classmethod def __init_subclass__(cls, **kwargs): if \"_ATEN_OP_TABLE\" not in cls.__dict__: cls._ATEN_OP_TABLE = {} if \"_TORCH_FN_TABLE\" not in cls.__dict__: cls._TORCH_FN_TABLE = {} if cls not in cls._ATEN_OP_TABLE: cls._ATEN_OP_TABLE[cls] = {} if cls not in cls._TORCH_FN_TABLE: cls._TORCH_FN_TABLE[cls] = {} # define the common ops and __set_state__ for BC # if the tensor_data_names and tensor_attribute_names are defined if hasattr(cls, \"tensor_data_names\") and hasattr(cls, \"tensor_attribute_names\"): cls._implements_common_tensor_ops() cls.__setstate__ = _torchao_base_tensor__setstate__ # inherit the torch function and dispatch implementations from direct parent classes # e.g. for `class C(B, A)`, C.__bases__ == (B, A) for parent in cls.__bases__: parent_aten_table = getattr(parent, \"_ATEN_OP_TABLE\", None) if parent_aten_table and parent in parent_aten_table: # shallow-copy parent\u0027s per-class op mapping into child\u0027s per-class mapping cls._ATEN_OP_TABLE[cls].update(parent_aten_table[parent]) parent_torch_table = getattr(parent, \"_TORCH_FN_TABLE\", None) if parent_torch_table and parent in parent_torch_table: cls._TORCH_FN_TABLE[cls].update(parent_torch_table[parent]) implements = classmethod(_implements) implements_torch_function = classmethod(_implements_torch_function) _implements_common_tensor_ops = classmethod(_implements_common_tensor_ops) __torch_dispatch__ = classmethod(_dispatch__torch_dispatch__) __torch_function__ = classmethod(_dispatch__torch_function__) _get_to_kwargs = _get_to_kwargs # deprecated, will be removed later register_layout = classmethod(_register_layout) get_tensor_impl_constructor = classmethod(_get_tensor_impl_constructor) def __init__(self, *args, **kwargs): torch._C._log_api_usage_once(str(type(self))) def __tensor_flatten__(self): if hasattr(self, \"tensor_data_names\") and hasattr( self, \"tensor_attribute_names\" ): tensor_data_names = self.tensor_data_names.copy() if hasattr(self, \"optional_tensor_data_names\"): for tensor_data_name in self.optional_tensor_data_names: maybe_tensor = getattr(self, tensor_data_name) if maybe_tensor is not None: tensor_data_names.append(tensor_data_name) attr_dict = { attr: getattr(self, attr) for attr in self.tensor_attribute_names } if hasattr(self, \"optional_tensor_attribute_names\"): attr_dict = attr_dict | { attr: getattr(self, attr) for attr in self.optional_tensor_attribute_names } return tensor_data_names, attr_dict raise NotImplementedError( \"Subclasses should implement __tensor_flatten__ or specify `tensor_data_names` and `tensor_attribute_names` for tensor class before using it\" ) @classmethod def __tensor_unflatten__( cls, tensor_data_dict, tensor_attributes, outer_size, outer_stride ): if hasattr(cls, \"tensor_data_names\") and hasattr(cls, \"tensor_attribute_names\"): required_tensors = [ tensor_data_dict[name] for name in cls.tensor_data_names ] optional_tensor_dict = {} if hasattr(cls, \"optional_tensor_data_names\"): optional_tensor_dict = { tensor_data_name: tensor_data_dict.get(tensor_data_name, None) for tensor_data_name in cls.optional_tensor_data_names } required_attributes = [ tensor_attributes[name] for name in cls.tensor_attribute_names ] optional_attribute_dict = {} if hasattr(cls, \"optional_tensor_attribute_names\"): optional_attribute_dict = { name: tensor_attributes[name] for name in cls.optional_tensor_attribute_names } return cls( *required_tensors, *required_attributes, **optional_tensor_dict, **optional_attribute_dict, ) raise NotImplementedError( \"Subclasses should implement __tensor_unflatten__ or specify `tensor_data_names` and `tensor_attribute_names` for tensor class before using it\" ) def _apply_fn_to_data(self, fn): if hasattr(self, \"tensor_data_names\") and hasattr( self, \"tensor_attribute_names\" ): required_tensors = [ fn(getattr(self, attr)) for attr in self.tensor_data_names ] optional_tensor_dict = {} if hasattr(self, \"optional_tensor_data_names\"): for tensor_data_name in self.optional_tensor_data_names: maybe_tensor = getattr(self, tensor_data_name) if maybe_tensor is not None: optional_tensor_dict[tensor_data_name] = fn(maybe_tensor) else: optional_tensor_dict[tensor_data_name] = None required_attributes = [ getattr(self, attr) for attr in self.tensor_attribute_names ] optional_attribute_dict = {} if hasattr(self, \"optional_tensor_attribute_names\"): optional_attribute_dict = { attr_name: getattr(self, attr_name) for attr_name in self.optional_tensor_attribute_names } return self.__class__( *required_tensors, *required_attributes, **optional_tensor_dict, **optional_attribute_dict, ) raise NotImplementedError( \"Subclasses should implement _apply_fn_to_data or specify `tensor_data_names` and `tensor_attribute_names` for tensor class or tensor instance before using it\" ) def __repr__(self): if hasattr(self, \"tensor_data_names\") and hasattr( self, \"tensor_attribute_names\" ): repr_str = \"\" # required tensor data repr_str += f\"{self.tensor_data_names[0]}={getattr(self, self.tensor_data_names[0])}\" for tensor_data_name in self.tensor_data_names[1:]: repr_str += f\", {tensor_data_name}={getattr(self, tensor_data_name)}\" # required attributes for tensor_attribute_name in self.tensor_attribute_names: repr_str += ( f\", {tensor_attribute_name}={getattr(self, tensor_attribute_name)}\" ) # optional tensor data if hasattr(self, \"optional_tensor_data_names\"): for tensor_data_name in self.optional_tensor_data_names: repr_str += ( f\", {tensor_data_name}={getattr(self, tensor_data_name)}\" ) # optional tensor attributes if hasattr(self, \"optional_tensor_attribute_names\"): for tensor_attribute_name in self.optional_tensor_attribute_names: repr_str += f\", {tensor_attribute_name}={getattr(self, tensor_attribute_name)}\" return f\"{self.__class__.__name__}({repr_str})\" raise NotImplementedError( \"Subclasses must implement __repr__ or specify `tensor_data_names` and `tensor_attribute_names` for tensor class or tensor instance before using it\" ) [docs] def get_layout(self): \"\"\" .. deprecated:: 0.15.1 This method is deprecated as of version 0.15.1 since it\u0027s part of the older tensor subclass development stack, for information about new dev stack, please check https://docs.pytorch.org/ao/main/quantization_overview.html and https://docs.pytorch.org/ao/main/contributor_guide.html \"\"\" if not hasattr(self, \"_layout\"): return None return self._layout def fill_defaults(args, n, defaults_tail): \"\"\" __torch_dispatch__ doesn\u0027t guarantee the number of arguments you are passed (e.g., defaulted arguments are not passed); but usually it is convenient to pad out the arguments list with defaults. This function helps you do that. Args: args: the list of positional arguments passed to __torch_dispatch__ n: the number of arguments you are expecting to get defaults_tail: default values for the arguments, starting from the end of the list Example: \u003e\u003e\u003e fill_defaults([1, 2, 3], 5, [3, 4, 5]) [1, 2, 3, 4, 5] \u003e\u003e\u003e fill_defaults([1, 2, 3], 5, [None, None, None]) [1, 2, 3, None, None]] \"\"\" if n - len(defaults_tail) \u003e len(args): raise RuntimeError(\"not enough defaults to fill arguments\") r = list(args) for i in range(len(args), n): r.append(defaults_tail[i - n + len(defaults_tail)]) return r # Supported AMD GPU Models and their LLVM gfx Codes: # # | AMD GPU Model | LLVM gfx Code | # |---------------|------------------------| # | Navi4 | gfx1200, gfx1201 | # | MI300X | gfx940, gfx941, gfx942 | # | MI350 | gfx950 | def is_ROCM(): return torch.cuda.is_available() and torch.version.hip def is_MI300(): if is_ROCM(): mxArchName = [\"gfx940\", \"gfx941\", \"gfx942\"] archName = torch.cuda.get_device_properties(0).gcnArchName for arch in mxArchName: if arch in archName: return True return False def is_MI350(): if is_ROCM(): archName = torch.cuda.get_device_properties(0).gcnArchName if \"gfx950\" in archName: return True return False def is_Navi4(): if is_ROCM(): archName = torch.cuda.get_device_properties(0).gcnArchName if \"gfx1200\" or \"gfx1201\" in archName: return True return False def is_sm_version(major: int, minor: int) -\u003e bool: \"\"\"Check if the CUDA version is exactly major.minor\"\"\" is_cuda = torch.cuda.is_available() and torch.version.cuda return torch.cuda.get_device_capability() == (major, minor) if is_cuda else False def is_sm_at_least_89(): return ( torch.cuda.is_available() and torch.version.cuda and torch.cuda.get_device_capability() \u003e= (8, 9) ) def is_sm_at_least_90(): return ( torch.cuda.is_available() and torch.version.cuda and torch.cuda.get_device_capability() \u003e= (9, 0) ) # TODO(future PR): rename to 8_9, 9_0, 10_0 instead of 89, 10, 100 def is_sm_at_least_100(): return ( torch.cuda.is_available() and torch.version.cuda and torch.cuda.get_device_capability() \u003e= (10, 0) ) def is_cuda_version_at_least(major: int, minor: int) -\u003e bool: if not torch.cuda.is_available(): return False cuda_version = torch.version.cuda if cuda_version is None: return False cuda_major, cuda_minor = map(int, cuda_version.split(\".\")[:2]) return (cuda_major, cuda_minor) \u003e= (major, minor) def check_cpu_version(device, version=\"2.6.0\"): if isinstance(device, torch.device): device = device.type return device == \"cpu\" and torch_version_at_least(version) def check_xpu_version(device, version=\"2.8.0\"): if isinstance(device, torch.device): device = device.type return device == \"xpu\" and torch_version_at_least(version) def ceil_div(a, b): return (a + b - 1) // b def round_up(a: int, b: int) -\u003e int: return ceil_div(a, b) * b def is_package_at_least(package_name: str, min_version: str): package_exists = importlib.util.find_spec(package_name) is not None if not package_exists: return False return version(package_name) \u003e= min_version def _is_mslk_available(): has_mslk = importlib.util.find_spec(\"mslk\") is not None or is_fbcode() if not has_mslk: return False import mslk # noqa: F401 return True class DummyModule(torch.nn.Module): \"\"\"This is used because the TorchAO quantization functions tend to operate on modules so to apply the transform to a tensor, we can load a DummyModule with the target tensor and then apply the transformation to the module and then extract the transformed tensor. \"\"\" def __init__(self, weight: torch.Tensor, bias: Optional[torch.Tensor] = None): super().__init__() self.weight = weight self.bias = bias",
        "author": {
