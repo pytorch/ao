@@ -7,7 +7,7 @@
 #
 # To run these unit tests, use the following command:
 #
-# torchrun --nproc_per_node=${NUM_GPUS} -m pytest test_fsdp_tp.py
+# torchrun --nproc_per_node=${NUM_GPUS} -m pytest test_tp.py
 #
 #######################################################################
 
@@ -16,6 +16,8 @@ import os
 
 import pytest
 import torch
+
+from torchao.quantization.quantize_.common.kernel_preference import KernelPreference
 
 if torch.version.hip is not None:
     pytest.skip(
@@ -33,7 +35,9 @@ from torch.nn import functional as F
 
 try:
     from torch.distributed.tensor.parallel import (
+        ColwiseParallel,
         PrepareModuleInputOutput,
+        RowwiseParallel,
         parallelize_module,
     )
 except ImportError:
@@ -41,7 +45,6 @@ except ImportError:
         "torch version is too old, these tests require nightly build. Skipping MoE training tests.",
         allow_module_level=True,
     )
-
 
 # this feature requires CUDA and SM89+
 if not torch.cuda.is_available() or torch.cuda.get_device_capability() < (8, 9):
@@ -56,55 +59,78 @@ from torchao.prototype.moe_training.conversion_utils import (
 )
 from torchao.quantization.quant_api import quantize_
 
+from .reference_moe import MoE, MoEArgs, set_token_group_alignment_size_m
+from .reference_parallel_styles import (
+    ExpertParallel,
+    ExpertTensorParallel,
+    NoParallel,
+    TensorParallel,
+)
 from .testing_utils import _validate_model_conversion
 
-# this test requires torchtitan
-try:
-    from torchtitan.distributed.expert_parallel import (
-        ExpertParallel,
-        ExpertTensorParallel,
-        NoParallel,
-        TensorParallel,
-    )
-    from torchtitan.models.moe import MoE, MoEArgs
-    from torchtitan.models.moe.utils import set_token_group_alignment_size_m
-except ImportError:
-    pytest.skip(
-        "torchtitan not installed, skipping MoE tests.", allow_module_level=True
-    )
+
+class ParallelStrategy:
+    """Enum-like class for parallelization strategies."""
+
+    TENSOR_PARALLEL = "tensor_parallel"
+    EXPERT_PARALLEL = "expert_parallel"
+    EXPERT_TENSOR_PARALLEL = "expert_tensor_parallel"
+    FSDP = "fsdp"
+    FSDP_TP = "fsdp_tp"
 
 
 @pytest.fixture(scope="module")
-def device_mesh_2d() -> DeviceMesh:
+def distributed_env():
     """
     Fixture for setting up and tearing down the distributed environment
-    for the entire test module.
+    for the entire test module. Requires world_size of 4.
     """
     rank = int(os.environ["RANK"])
     world_size = int(os.environ["WORLD_SIZE"])
-    if not dist.is_initialized():
-        dist.init_process_group("nccl", rank=rank, world_size=world_size)
 
-    device_mesh = init_device_mesh(
-        "cuda",
-        (world_size // 2, 2),
-        mesh_dim_names=("dp", "tp"),
+    assert world_size == 4, (
+        f"This test requires world_size=4, but got world_size={world_size}. "
+        "Run with: torchrun --nproc_per_node=4 -m pytest test_distributed.py"
     )
 
     torch.manual_seed(1)
     torch.cuda.set_device(rank)
 
-    yield device_mesh
+    # Create meshes for different parallelization strategies:
+    # - tp_mesh: 1D mesh for tensor parallel only
+    # - ep_mesh: 1D mesh for expert parallel only
+    # - dp_mesh: 1D mesh for FSDP only
+    # - ep_tp_mesh: 2D mesh for combined EP and TP
+    # - dp_tp_mesh: 2D mesh for combined FSDP and TP
+    tp_mesh = init_device_mesh("cuda", (world_size,), mesh_dim_names=("tp",))
+    ep_mesh = init_device_mesh("cuda", (world_size,), mesh_dim_names=("ep",))
+    dp_mesh = init_device_mesh("cuda", (world_size,), mesh_dim_names=("dp",))
+    ep_tp_mesh = init_device_mesh("cuda", (2, 2), mesh_dim_names=("ep", "tp"))
+    dp_tp_mesh = init_device_mesh("cuda", (2, 2), mesh_dim_names=("dp", "tp"))
+
+    yield {
+        "tp_mesh": tp_mesh,
+        "ep_mesh": ep_mesh,
+        "dp_mesh": dp_mesh,
+        "ep_tp_mesh": ep_tp_mesh,
+        "dp_tp_mesh": dp_tp_mesh,
+    }
 
     dist.destroy_process_group()
 
 
 @pytest.mark.parametrize(
-    "target_fqns",
+    "parallel_strategy",
     [
-        ["experts"],
-        ["experts,shared_experts"],
+        ParallelStrategy.TENSOR_PARALLEL,
+        ParallelStrategy.EXPERT_PARALLEL,
+        ParallelStrategy.EXPERT_TENSOR_PARALLEL,
+        ParallelStrategy.FSDP,
+        ParallelStrategy.FSDP_TP,
     ],
+)
+@pytest.mark.parametrize(
+    "kernel_preference", [KernelPreference.AUTO, KernelPreference.EMULATED]
 )
 @pytest.mark.parametrize("compile", [False, True])
 @pytest.mark.parametrize(
@@ -115,22 +141,30 @@ def device_mesh_2d() -> DeviceMesh:
             "group_alignment_size": 16,
             "min_out_sqnr": 29.0,
             "min_input_grad_sqnr": 29.0,
-            "min_param_grad_sqnr": 22.0,
+            "min_param_grad_sqnr": 23.0,
         },
         {
             "recipe": MoEScalingType.MXFP8,
             "group_alignment_size": 32,
-            "min_out_sqnr": 28.0,
+            "min_out_sqnr": 27.0,
             "min_input_grad_sqnr": 29.0,
             "min_param_grad_sqnr": 21.0,
         },
+        {
+            "recipe": MoEScalingType.MXFP8_WGRAD_WITH_HP,
+            "group_alignment_size": 32,
+            "min_out_sqnr": 27.0,
+            "min_input_grad_sqnr": 29.0,
+            "min_param_grad_sqnr": 25.0,
+        },
     ],
 )
-def test_moe_training_fsdp_tp(
-    target_fqns: list[str],
+def test_moe_training_parallel(
+    parallel_strategy: str,
+    kernel_preference: KernelPreference,
     compile: bool,
     recipe_config: dict,
-    device_mesh_2d: DeviceMesh,
+    distributed_env: dict,
 ):
     (
         recipe,
@@ -146,25 +180,34 @@ def test_moe_training_fsdp_tp(
         recipe_config["min_param_grad_sqnr"],
     )
     assert torch.cuda.is_available()
-    if recipe == MoEScalingType.FP8_ROWWISE and torch.cuda.get_device_capability() != (
-        9,
-        0,
-    ):
-        pytest.skip(
-            f"Skipping FP8 rowwise tests, only supported on compute capability 9.0 and found {torch.cuda.get_device_capability()}"
-        )
+    if recipe == MoEScalingType.FP8_ROWWISE:
+        if torch.cuda.get_device_capability() != (9, 0):
+            pytest.skip(
+                f"FP8 rowwise only supported on compute capability 9.0 and found {torch.cuda.get_device_capability()}"
+            )
+        if parallel_strategy == ParallelStrategy.EXPERT_TENSOR_PARALLEL:
+            pytest.skip("FP8 rowwise with EP+TP currently not supported")
 
-    elif recipe == MoEScalingType.MXFP8 and torch.cuda.get_device_capability() != (
-        10,
-        0,
-    ):
-        pytest.skip(
-            f"Skipping MXFP8 benchmarks, only supported on compute capability 10.0 and found {torch.cuda.get_device_capability()}"
-        )
+    elif recipe in (MoEScalingType.MXFP8, MoEScalingType.MXFP8_WGRAD_WITH_HP):
+        emulated = kernel_preference == KernelPreference.EMULATED
+        if not emulated and torch.cuda.get_device_capability() != (
+            10,
+            0,
+        ):
+            pytest.skip(
+                f"Non-emulated mode only supported on compute capability 10.0 and found {torch.cuda.get_device_capability()}"
+            )
+        if emulated and compile:
+            pytest.skip("MXFP8 emulated mode does not support torch.compile")
 
     # set token group alignment size needed for GEMM (contraction dim stride must be 16 byte aligned)
     # or quantization ops (mxfp8 scaling groups are size 1x32)
     set_token_group_alignment_size_m(group_alignment_size)
+
+    # Get the appropriate meshes based on parallelization strategy
+    tp_mesh = distributed_env["tp_mesh"]
+    ep_mesh = distributed_env["ep_mesh"]
+    ep_tp_mesh = distributed_env["ep_tp_mesh"]
 
     # define model args
     model_args = MoEArgs(
@@ -187,6 +230,8 @@ def test_moe_training_fsdp_tp(
         assert torch.equal(param1, param2)
 
     # convert MoE to float8 training
+    target_fqns = "experts"
+
     def moe_module_filter_fn(mod: nn.Module, cur_fqn: str) -> bool:
         for target_fqn in target_fqns:
             if target_fqn in cur_fqn:
@@ -194,7 +239,7 @@ def test_moe_training_fsdp_tp(
         return False
 
     # quantize test model
-    config = MoETrainingConfig(scaling_type=recipe)
+    config = MoETrainingConfig(recipe, kernel_preference=kernel_preference)
     quantize_(model, config=config, filter_fn=moe_module_filter_fn)
 
     # validate that only the experts were converted
@@ -207,36 +252,61 @@ def test_moe_training_fsdp_tp(
         model = torch.compile(model, fullgraph=False)
         ref_model = torch.compile(ref_model, fullgraph=False)
 
-    # apply TP
-    apply_moe_ep_tp(model, tp_mesh=device_mesh_2d["tp"], ep_mesh=None, ep_tp_mesh=None)
-    apply_moe_ep_tp(
-        ref_model, tp_mesh=device_mesh_2d["tp"], ep_mesh=None, ep_tp_mesh=None
-    )
+    # Apply parallelization based on strategy
+    if parallel_strategy == ParallelStrategy.TENSOR_PARALLEL:
+        apply_moe_ep_tp(model, tp_mesh=tp_mesh, ep_mesh=None, ep_tp_mesh=None)
+        apply_moe_ep_tp(ref_model, tp_mesh=tp_mesh, ep_mesh=None, ep_tp_mesh=None)
+    elif parallel_strategy == ParallelStrategy.EXPERT_PARALLEL:
+        apply_moe_ep_tp(model, tp_mesh=None, ep_mesh=ep_mesh, ep_tp_mesh=None)
+        apply_moe_ep_tp(ref_model, tp_mesh=None, ep_mesh=ep_mesh, ep_tp_mesh=None)
+    elif parallel_strategy == ParallelStrategy.EXPERT_TENSOR_PARALLEL:
+        apply_moe_ep_tp(model, tp_mesh=tp_mesh, ep_mesh=ep_mesh, ep_tp_mesh=ep_tp_mesh)
+        apply_moe_ep_tp(
+            ref_model, tp_mesh=tp_mesh, ep_mesh=ep_mesh, ep_tp_mesh=ep_tp_mesh
+        )
+    elif parallel_strategy == ParallelStrategy.FSDP:
+        # FSDP only - use 1D dp mesh
+        dp_mesh = distributed_env["dp_mesh"]
+        fsdp_config = {"mesh": dp_mesh}
+        fully_shard(model, **fsdp_config)
+        fully_shard(ref_model, **fsdp_config)
+    elif parallel_strategy == ParallelStrategy.FSDP_TP:
+        # FSDP + TP - use 2D mesh with (dp, tp) dimensions
+        dp_tp_mesh = distributed_env["dp_tp_mesh"]
+        tp_submesh = dp_tp_mesh["tp"]
+        dp_submesh = dp_tp_mesh["dp"]
 
-    # apply FSDP2
-    fsdp_config = {"mesh": device_mesh_2d["dp"]}
-    fully_shard(model, **fsdp_config)
-    fully_shard(ref_model, **fsdp_config)
+        # First apply TP
+        apply_moe_ep_tp(model, tp_mesh=tp_submesh, ep_mesh=None, ep_tp_mesh=None)
+        apply_moe_ep_tp(ref_model, tp_mesh=tp_submesh, ep_mesh=None, ep_tp_mesh=None)
+
+        # Then apply FSDP
+        fsdp_config = {"mesh": dp_submesh}
+        fully_shard(model, **fsdp_config)
+        fully_shard(ref_model, **fsdp_config)
 
     # Rough validation that parallelization was applied properly.
-    assert isinstance(model.experts.w1.data, DTensor), (
-        "test model experts.w1 is not a DTensor"
-    )
-    assert isinstance(model.experts.w2.data, DTensor), (
-        "test model experts.w2 is not a DTensor"
-    )
-    assert isinstance(model.experts.w3.data, DTensor), (
-        "test model experts.w3 is not a DTensor"
-    )
-    assert isinstance(ref_model.experts.w1.data, DTensor), (
-        "ref model experts.w1 is not a DTensor"
-    )
-    assert isinstance(ref_model.experts.w2.data, DTensor), (
-        "ref model experts.w2 is not a DTensor"
-    )
-    assert isinstance(ref_model.experts.w3.data, DTensor), (
-        "ref model experts.w3 is not a DTensor"
-    )
+    # For pure FSDP, the weights are managed by FSDP and are not DTensors
+    # in the same way as when using parallelize_module.
+    if parallel_strategy != ParallelStrategy.FSDP:
+        assert isinstance(model.experts.w1.data, DTensor), (
+            "test model experts.w1 is not a DTensor"
+        )
+        assert isinstance(model.experts.w2.data, DTensor), (
+            "test model experts.w2 is not a DTensor"
+        )
+        assert isinstance(model.experts.w3.data, DTensor), (
+            "test model experts.w3 is not a DTensor"
+        )
+        assert isinstance(ref_model.experts.w1.data, DTensor), (
+            "ref model experts.w1 is not a DTensor"
+        )
+        assert isinstance(ref_model.experts.w2.data, DTensor), (
+            "ref model experts.w2 is not a DTensor"
+        )
+        assert isinstance(ref_model.experts.w3.data, DTensor), (
+            "ref model experts.w3 is not a DTensor"
+        )
 
     # inputs
     batch, seq = 8, 2048
@@ -290,7 +360,7 @@ def apply_moe_ep_tp(
         moe_layer_plan = {
             # input / output sharding on the seqlen dim
             # all-gather for input, reduce-scatter for output
-            "moe": PrepareModuleInputOutput(
+            "": PrepareModuleInputOutput(
                 input_layouts=(Shard(1),),
                 desired_input_layouts=(Replicate(),),
                 use_local_input=True,
@@ -298,9 +368,12 @@ def apply_moe_ep_tp(
                 desired_output_layouts=(Shard(1),),
             ),
             # replicate computation for the router
-            "moe.router.gate": NoParallel(),
-            # input Replicate, output Partial
-            "moe.shared_expert": TensorParallel(),
+            "router.gate": NoParallel(),
+            # shared_experts uses ColwiseParallel/RowwiseParallel for individual weights
+            # (unlike GroupedExperts which uses TensorParallel for the whole module)
+            "shared_experts.w1": ColwiseParallel(),
+            "shared_experts.w2": RowwiseParallel(output_layouts=Partial()),
+            "shared_experts.w3": ColwiseParallel(),
         }
         parallelize_module(
             module=model,
@@ -320,7 +393,7 @@ def apply_moe_ep_tp(
         experts_plan = ExpertParallel()
     else:
         experts_mesh = ep_tp_mesh
-        experts_plan = ExpertTensorParallel(tp_mesh=tp_mesh, ep_mesh=ep_mesh)
+        experts_plan = ExpertTensorParallel()
 
     parallelize_module(
         module=model.experts,
