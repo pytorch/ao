@@ -24,7 +24,7 @@ Other float8 training types
 
     Float8LinearConfig
     Float8LinearRecipeName
-    Float8GemmConfig
+    Float8GEMMConfig
     CastConfig
     ScalingType
     ScalingGranularity

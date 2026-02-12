@@ -14,6 +14,7 @@ Main Quantization APIs
     :nosignatures:
 
     quantize_
+    AOBaseConfig
     FqnToConfig
 
 Workflow Configs
@@ -58,7 +59,6 @@ intx weight configs
 
     IntxWeightOnlyConfig
     Int8DynamicActivationIntxWeightConfig
-
 
 .. currentmodule:: torchao.prototype.mx_formats
 

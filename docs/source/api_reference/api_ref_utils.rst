@@ -1,16 +1,5 @@
 .. _api_utils:
 
-=============
-torchao.core
-=============
-
-.. currentmodule:: torchao.core.config
-
-.. autosummary::
-    :toctree: generated/
-    :nosignatures:
-
-    AOBaseConfig
 
 =============
 torchao.utils
