@@ -277,3 +277,150 @@ class VLLMIntegrationTestCase(TorchAOIntegrationTestCase):
             use_dynamic_per_tensor_scale=False,
         )
         self._test_quantize_3d_param_similar_to_vllm(config)
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(
+    not torch_version_at_least("2.8.0"), reason="torch.compile requires PyTorch 2.8+"
+)
+@pytest.mark.skipif(
+    not is_sm_at_least_100(), reason="CUDA capability >= 10.0 required for NVFP4"
+)
+@pytest.mark.parametrize("bias", [True, False])
+@torch.no_grad()
+@skip_if_rocm("ROCm float4 gemm require gfx950")
+def test_nvfp4_static_quantization_flow(
+    bias: bool,
+):
+    """
+    Test the prepare -> calibrate -> convert static quantization flow for NVFP4.
+
+    This verifies that:
+    1. prepare step inserts NVFP4ObservedLinear
+    2. Calibration runs without error and tracks amax
+    3. convert step produces quantized weights with static activation scale
+    4. Inference produces reasonable results (SQNR check)
+    """
+    from torchao.prototype.mx_formats.inference_workflow import NVFP4ObservedLinear
+
+    in_features, out_features = 64, 256
+    batch_size = 128
+
+    m = nn.Sequential(
+        nn.Linear(
+            in_features, out_features, bias=bias, dtype=torch.bfloat16, device="cuda"
+        ),
+    )
+    m_ref = copy.deepcopy(m)
+
+    # Step 1: Prepare - insert observers
+    quantize_(
+        m,
+        NVFP4DynamicActivationNVFP4WeightConfig(step="prepare"),
+    )
+
+    # Verify observers were inserted
+    assert isinstance(m[0], NVFP4ObservedLinear)
+
+    # Step 2: Calibrate with representative data
+    calibration_data = [
+        torch.randn(batch_size, in_features, device="cuda", dtype=torch.bfloat16)
+        for _ in range(5)
+    ]
+    for data in calibration_data:
+        m(data)
+
+    # Step 3: Convert - extract scale and quantize
+    quantize_(
+        m,
+        NVFP4DynamicActivationNVFP4WeightConfig(step="convert"),
+    )
+
+    # Verify quantization was applied
+    from torchao.prototype.mx_formats.nvfp4_tensor import NVFP4Tensor
+
+    assert isinstance(m[0].weight, NVFP4Tensor), (
+        f"Expected NVFP4Tensor weight, got {type(m[0].weight)}"
+    )
+    assert m[0].weight.act_per_tensor_scale is not None, (
+        "Expected static act_per_tensor_scale to be set"
+    )
+    assert not m[0].weight.act_quant_kwargs.use_dynamic_per_tensor_scale, (
+        "Expected use_dynamic_per_tensor_scale=False for static quant"
+    )
+
+    # Step 4: Verify inference produces reasonable results
+    x = torch.randn(batch_size, in_features, device="cuda", dtype=torch.bfloat16)
+    y_ref = m_ref(x)
+    y_static = m(x)
+
+    sqnr = compute_error(y_ref, y_static)
+    SQNR_THRESHOLD = 15.0
+    assert sqnr >= SQNR_THRESHOLD, (
+        f"Got a sqnr of {sqnr} for NVFP4 static quant with bias={bias}"
+    )
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(
+    not torch_version_at_least("2.8.0"), reason="torch.compile requires PyTorch 2.8+"
+)
+@pytest.mark.skipif(
+    not is_sm_at_least_100(), reason="CUDA capability >= 10.0 required for NVFP4"
+)
+@torch.no_grad()
+@skip_if_rocm("ROCm float4 gemm require gfx950")
+def test_nvfp4_static_vs_dynamic_quantization():
+    """
+    Test that static quantization matches dynamic quantization when calibrated
+    on the same input. Since NVFP4 static quant only determines the activation
+    per_tensor_scale statically, calibrating on the exact test input should
+    produce the same per_tensor_scale as the dynamic path, yielding identical results.
+    """
+    in_features, out_features = 64, 256
+    batch_size = 128
+
+    m_dynamic = nn.Sequential(
+        nn.Linear(
+            in_features, out_features, bias=True, dtype=torch.bfloat16, device="cuda"
+        ),
+    )
+    m_static = copy.deepcopy(m_dynamic)
+
+    # Dynamic quantization
+    quantize_(
+        m_dynamic,
+        NVFP4DynamicActivationNVFP4WeightConfig(
+            use_triton_kernel=False,
+            use_dynamic_per_tensor_scale=True,
+        ),
+    )
+
+    # Create the test input upfront so we can use it for calibration too
+    x = torch.randn(batch_size, in_features, device="cuda", dtype=torch.bfloat16)
+
+    # Static quantization: prepare -> calibrate -> convert
+    quantize_(
+        m_static,
+        NVFP4DynamicActivationNVFP4WeightConfig(
+            step="prepare",
+            use_triton_kernel=False,
+        ),
+    )
+    # Calibrate with the same input used for testing
+    m_static(x)
+
+    quantize_(
+        m_static,
+        NVFP4DynamicActivationNVFP4WeightConfig(
+            step="convert",
+            use_triton_kernel=False,
+        ),
+    )
+
+    # Test inference - when calibrating on the same input, static and dynamic
+    # should produce the same result since the per_tensor_scale will match
+    y_dynamic = m_dynamic(x)
+    y_static = m_static(x)
+
+    torch.testing.assert_close(y_dynamic, y_static)
