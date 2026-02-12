@@ -5,6 +5,8 @@
 # LICENSE file in the root directory of this source tree.
 
 import copy
+from dataclasses import dataclass
+from typing import Callable, Optional, Set
 
 import pytest
 import torch
@@ -80,6 +82,137 @@ elem_dtypes = (
         (DTYPE_FP6_E2M3, DTYPE_FP6_E2M3, DTYPE_FP6_E2M3),
     ]
 )
+
+
+@dataclass(frozen=True)
+class KernelCompatibility:
+    sm_version: Optional[str] = None
+    sm_check: Optional[Callable[[], bool]] = (
+        None  # validation fn object, e.g. is_sm_at_least_89
+    )
+    min_cuda: Optional[tuple[int, int]] = None
+    allowed_scaling_modes: Optional[Set[ScaleCalculationMode]] = None
+    allow_bf16: Optional[bool] = None
+    allow_fp32: Optional[bool] = None
+
+
+def skip_test_cases_incompatible_with_kernel(
+    hp_dtype, scale_calculation_mode, cap: KernelCompatibility
+):
+    if cap.sm_check and not cap.sm_check():
+        pytest.skip(f"CUDA capability >= {cap.sm_version} required")
+    if cap.min_cuda and not is_cuda_version_at_least(*cap.min_cuda):
+        pytest.skip(f"CUDA version >= {cap.min_cuda[0]}.{cap.min_cuda[1]} required")
+    if (
+        cap.allowed_scaling_modes
+        and scale_calculation_mode not in cap.allowed_scaling_modes
+    ):
+        supported_modes = ", ".join(
+            sorted(mode.value.upper() for mode in cap.allowed_scaling_modes)
+        )
+        pytest.skip(f"this kernel only supports scaling modes: {supported_modes}")
+    if cap.allow_bf16 is False and hp_dtype == torch.bfloat16:
+        pytest.skip("bf16 not supported with this kernel")
+    if cap.allow_fp32 is False and hp_dtype == torch.float32:
+        pytest.skip("fp32 not supported with non-torch kernels")
+    return True
+
+
+KERNEL_COMPATIBILITY_MATRIX = {
+    MXFP8Dim0CastKernelChoice.TORCH: KernelCompatibility(
+        allow_bf16=True,
+        allow_fp32=True,
+    ),
+    MXFP8Dim0CastKernelChoice.TRITON: KernelCompatibility(
+        sm_version="10.0",
+        sm_check=is_sm_at_least_100,
+        allowed_scaling_modes={ScaleCalculationMode.FLOOR, ScaleCalculationMode.RCEIL},
+        allow_bf16=True,
+        allow_fp32=False,
+    ),
+    MXFP8Dim1CastKernelChoice.TORCH: KernelCompatibility(
+        allow_bf16=True,
+        allow_fp32=True,
+    ),
+    MXFP8Dim1CastKernelChoice.TRITON: KernelCompatibility(
+        sm_version="10.0",
+        sm_check=is_sm_at_least_100,
+        allowed_scaling_modes={ScaleCalculationMode.FLOOR, ScaleCalculationMode.RCEIL},
+        allow_bf16=True,
+        allow_fp32=False,
+    ),
+    MXFP8Dim1CastKernelChoice.CUDA: KernelCompatibility(
+        sm_version="10.0",
+        sm_check=is_sm_at_least_100,
+        min_cuda=(12, 8),
+        allowed_scaling_modes={ScaleCalculationMode.FLOOR, ScaleCalculationMode.RCEIL},
+        allow_fp32=False,
+    ),
+}
+
+
+@dataclass(frozen=True)
+class RecipeCompatibility:
+    sm_version: Optional[str] = None
+    sm_check: Optional[Callable[[], bool]] = None
+    allow_bias: Optional[bool] = None
+    allow_bf16: Optional[bool] = None
+    allow_non_torch_kernels: Optional[bool] = None
+
+
+def skip_test_cases_incompatible_with_recipe(
+    hp_dtype,
+    bias,
+    mxfp8_dim0_cast_kernel_choice,
+    mxfp8_dim1_cast_kernel_choice,
+    cap: RecipeCompatibility,
+):
+    if cap.sm_check and not cap.sm_check():
+        pytest.skip(f"CUDA capability >= {cap.sm_version} required for MX gemms")
+    if cap.allow_bias is False and bias:
+        # TODO(future PR): fix this, things are clearly broken with bias=True
+        pytest.skip("non-emulated recipes are broken with bias=True")
+    if cap.allow_bf16 is False and hp_dtype == torch.bfloat16:
+        pytest.skip("bf16 not supported with this recipe")
+    if cap.allow_non_torch_kernels is False and (
+        mxfp8_dim0_cast_kernel_choice != MXFP8Dim0CastKernelChoice.TORCH
+        or mxfp8_dim1_cast_kernel_choice != MXFP8Dim1CastKernelChoice.TORCH
+    ):
+        pytest.skip("non-torch kernels not supported with this recipe")
+    return True
+
+
+RECIPE_COMPATIBILITY_MATRIX = {
+    "mxfp8_emulated": RecipeCompatibility(
+        sm_version="8.9",
+        sm_check=is_sm_at_least_89,
+        allow_bias=True,
+        allow_bf16=False,
+        allow_non_torch_kernels=True,
+    ),
+    "mxfp4_emulated": RecipeCompatibility(
+        allow_bias=True,
+        allow_bf16=False,
+        allow_non_torch_kernels=False,
+    ),
+    "mxfp8_cublas": RecipeCompatibility(
+        sm_version="10.0",
+        sm_check=is_sm_at_least_100,
+        allow_bias=False,
+        # TODO(future PR): properly enable float32 + bfloat16 for every
+        # recipe, this needs a cleanup of out_dtype (needs to match in-hp-dtype, even
+        # if the underlying gemm kernel only supports bf16 output)
+        allow_bf16=True,
+        allow_non_torch_kernels=True,
+    ),
+    "mxfp4_cutlass": RecipeCompatibility(
+        sm_version="10.0",
+        sm_check=is_sm_at_least_100,
+        allow_bias=False,
+        allow_bf16=False,
+        allow_non_torch_kernels=False,
+    ),
+}
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
@@ -340,81 +473,17 @@ def test_linear_compile(
     """
     Verify that compile does not change numerics of MX linear fw + bw
     """
-    if recipe_name in ["mxfp8_emulated"]:
-        if not is_sm_at_least_89():
-            pytest.skip("CUDA capability >= 8.9 required for float8 in triton")
-
-    if recipe_name in ["mxfp8_cublas", "mxfp4_cutlass"]:
-        if not torch_version_at_least("2.8.0"):
-            pytest.skip("torch.compile requires PyTorch 2.8+")
-        if not is_sm_at_least_100():
-            pytest.skip("CUDA capability >= 10.0 required for MX gemms")
-
-    if bias and recipe_name in ["mxfp8_cublas", "mxfp4_cutlass"]:
-        # TODO(future PR): fix this, things are clearly broken with bias=True
-        pytest.skip("this test is broken for non-emulated recipes with bias=True")
-
-    if (
-        mxfp8_dim0_cast_kernel_choice != MXFP8Dim0CastKernelChoice.TORCH
-        or mxfp8_dim1_cast_kernel_choice != MXFP8Dim1CastKernelChoice.TORCH
-    ):
-        if recipe_name not in ("mxfp8_emulated", "mxfp8_cublas"):
-            pytest.skip("unsupported configuration")
-        if not is_sm_at_least_89():
-            pytest.skip("CUDA capability >= 8.9 required for float8 in triton")
-        if hp_dtype != torch.bfloat16:
-            pytest.skip("unsupported configuration")
-
-    if mxfp8_dim0_cast_kernel_choice == MXFP8Dim0CastKernelChoice.TRITON:
-        if scale_calculation_mode not in (
-            ScaleCalculationMode.FLOOR,
-            ScaleCalculationMode.RCEIL,
-        ):
-            pytest.skip(
-                "triton mxfp8 dim0 quantization kernels only support FLOOR and RCEIL scaling modes"
-            )
-        if not is_sm_at_least_100():
-            pytest.skip("triton mxfp8 dim0 quantization kernels require sm100")
-
-    if mxfp8_dim1_cast_kernel_choice == MXFP8Dim1CastKernelChoice.TRITON:
-        if scale_calculation_mode not in (
-            ScaleCalculationMode.FLOOR,
-            ScaleCalculationMode.RCEIL,
-        ):
-            pytest.skip(
-                "triton mxfp8 dim1 quantization kernels only support FLOOR and RCEIL scaling modes"
-            )
-        if not is_sm_at_least_100():
-            pytest.skip("triton mxfp8 dim1 quantization kernels require sm100")
-    elif mxfp8_dim1_cast_kernel_choice == MXFP8Dim1CastKernelChoice.CUDA:
-        if scale_calculation_mode not in (
-            ScaleCalculationMode.FLOOR,
-            ScaleCalculationMode.RCEIL,
-        ):
-            pytest.skip("unsupported configuration")
-        elif not is_sm_at_least_100():
-            pytest.skip("CUDA capability >= 10.0 required for MX dim1 cast cuda kernel")
-        elif not is_cuda_version_at_least(12, 8):
-            pytest.skip("CUDA version >= 12.8 required for MXFP8")
-
-    if hp_dtype == torch.bfloat16 and recipe_name != "mxfp8_cublas":
-        # TODO(future PR): properly enable float32 + bfloat16 for every
-        # recipe, this needs a cleanup of out_dtype (needs to match in-hp-dtype, even
-        # if the underlying gemm kernel only supports bf16 output)
-        pytest.skip("unsupported configuration")
-
-    if (
-        hp_dtype == torch.float32
-        and recipe_name == "mxfp8_emulated"
-        and mxfp8_dim0_cast_kernel_choice == MXFP8Dim0CastKernelChoice.TORCH
-        and mxfp8_dim1_cast_kernel_choice == MXFP8Dim1CastKernelChoice.TORCH
-        and not is_sm_at_least_100()
-    ):
-        # TODO(future): debug this
-        pytest.skip(
-            "there are currently accuracy issues with this configuration "
-            "on H100 and below"
+    for kernel in (mxfp8_dim0_cast_kernel_choice, mxfp8_dim1_cast_kernel_choice):
+        skip_test_cases_incompatible_with_kernel(
+            hp_dtype, scale_calculation_mode, cap=KERNEL_COMPATIBILITY_MATRIX[kernel]
         )
+    skip_test_cases_incompatible_with_recipe(
+        hp_dtype,
+        bias,
+        mxfp8_dim0_cast_kernel_choice,
+        mxfp8_dim1_cast_kernel_choice,
+        cap=RECIPE_COMPATIBILITY_MATRIX[recipe_name],
+    )
 
     M, K, N = 128, 256, 512
     input_shape = (M, K)
