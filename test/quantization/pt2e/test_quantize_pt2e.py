@@ -3258,6 +3258,9 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
         example_inputs = (torch.randn(3, 5), torch.zeros(5))
 
         m_export = torch.export.export(m, example_inputs).module()
+        # Compute reference output before quantization modifies the model
+        with torch.no_grad():
+            output_ref = m_export(*example_inputs)
         m_prepared = prepare_pt2e(m_export, quantizer)
 
         # Verify that scan combine_fn subgraph has observers inserted
@@ -3273,11 +3276,21 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
         self.assertIsNotNone(scan_combine_fn, "scan op not found in graph")
 
         # Check that observers are present in the combine_fn subgraph
-        has_observer = any(
-            node.op == "call_module" for node in scan_combine_fn.graph.nodes
-        )
-        self.assertTrue(
-            has_observer,
+        observer_count = 0
+        for node in scan_combine_fn.graph.nodes:
+            if node.op == "call_module":
+                self.assertTrue(
+                    node.target.startswith("activation_post_process_"),
+                    f"Unexpected call_module target: {node.target}",
+                )
+                obs_mod = getattr(scan_combine_fn, node.target)
+                from torchao.quantization.pt2e.observer import ObserverBase
+
+                self.assertIsInstance(obs_mod, ObserverBase)
+                observer_count += 1
+        self.assertGreater(
+            observer_count,
+            0,
             "No observers found in scan combine_fn subgraph after prepare",
         )
 
@@ -3329,10 +3342,14 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
             f"Found targets: {combine_fn_targets}",
         )
 
-        # Verify the model runs successfully
+        # Verify the model runs successfully and produces accurate results
         with torch.no_grad():
             output = m_converted(*example_inputs)
         self.assertEqual(output.shape, (3, 5))
+        from torch.ao.ns.fx.utils import compute_sqnr
+
+        sqnr = compute_sqnr(output_ref, output)
+        self.assertGreater(sqnr, 35, f"SQNR too low: {sqnr} dB")
 
 
 @skipIfNoQNNPACK
