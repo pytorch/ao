@@ -3,6 +3,8 @@ PyTorch 2 Export Quantization for OpenVINO torch.compile Backend
 
 **Authors**: `Daniil Lyakhov <https://github.com/daniil-lyakhov>`_,  `Aamir Nazir <https://github.com/anzr299>`_,  `Alexander Suslov <https://github.com/alexsu52>`_, `Yamini Nimmagadda <https://github.com/ynimmaga>`_, `Alexander Kozlov <https://github.com/AlexKoff88>`_
 
+.. _pt2e-openvino-prerequisites:
+
 Prerequisites
 --------------
 
