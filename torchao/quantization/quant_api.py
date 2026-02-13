@@ -1227,7 +1227,7 @@ def _validate_granularity_int8_static(
         )
 
     # Validate activation granularity for static quantization
-    if isinstance(act_granularity, PerRow) and act_granularity.dim != -1:
+    elif isinstance(act_granularity, PerRow) and act_granularity.dim != -1:
         raise ValueError(
             f"Int8StaticActivationInt8WeightConfig only supports PerRow(dim=-1) "
             f"for activation quantization, got PerRow(dim={act_granularity.dim}). "
