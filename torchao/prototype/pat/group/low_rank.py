@@ -44,25 +44,6 @@ class SVDGrouper(Grouper):
         )
 
 
-class QKSVDGrouper(PackedGrouperMixin, SVDGrouper):
-    def __init__(self, p: Tensor, pack_dim: int = 0):
-        super().__init__(p, 3, pack_dim)
-
-        self.qk_dim = self.embed_dim * 2
-        super(PackedGrouperMixin, self).__init__(
-            p[: self.qk_dim] if pack_dim == 0 else p[:, : self.qk_dim],
-            pack_dim=pack_dim,
-        )
-
-    @torch.no_grad()
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        p = torch.linalg.multi_dot([self.U, torch.diag(self.p), self.Vh])
-        if self.pack_dim == 0:
-            self._p[: self.qk_dim].copy_(p)
-        else:
-            self._p[:, : self.qk_dim].copy_(p)
-
-
 class PackedSVDGrouper(PackedGrouperMixin, SVDGrouper):
     """Wrapper around SVDGrouper to handle packed tensors."""
 

@@ -16,8 +16,6 @@ from torchao.prototype.pat.group import (
     AttentionHeadGrouperDim0,
     AttentionHeadGrouperDim1,
     PackedSVDGrouper,
-    QKGrouper,
-    QKSVDGrouper,
     SVDGrouper,
 )
 from torchao.prototype.pat.layers.masked_layernorm import MaskedLayerNorm
@@ -79,105 +77,6 @@ class TwoLayerMLP(nn.Module):
         x = torch.relu(x)
         x = self.fc2(x)
         return x
-
-
-class TestQKGrouper(common_utils.TestCase):
-    def __init__(self, methodName):
-        super(TestQKGrouper, self).__init__(methodName)
-        self.reg_lambda = 1.0
-        self.prox_map = ProxGroupLasso(self.reg_lambda)
-
-    @staticmethod
-    def _get_qk(p, embed_dim, qk_reg_index):
-        qk = p[:embed_dim] if qk_reg_index == 0 else p[embed_dim : (embed_dim * 2)]
-        return qk
-
-    def get_gamma(self, p):
-        """Heuristic that uses the mean of the group to set gamma."""
-        p_col = p[:, 0]
-        gamma = (1 - p_col.mean()) * torch.linalg.vector_norm(p_col)
-        gamma.div_(self.prox_map.tau(p_col))
-        return gamma
-
-    def _test_post_prune(self, p, qk_orig, embed_dim, qk_reg_index, gamma):
-        qk = self._get_qk(p, embed_dim, qk_reg_index)
-        nz_mask = qk.sum(dim=0).ne(0)
-        self.assertTrue(nz_mask.eq(0).any(), "No columns of Q/K were pruned")
-
-        # original columns that are <= gamma are pruned
-        expect_nz_mask = qk_orig.gt(gamma).all(dim=0)
-        torch.testing.assert_close(nz_mask > 1, expect_nz_mask, atol=0, rtol=0)
-
-    def _test_mha_inner(self, p, embed_dim, qk_reg_index):
-        qk_orig = self._get_qk(p, embed_dim, qk_reg_index).clone()
-        qk_no_prune = self._get_qk(p, embed_dim, int(not qk_reg_index)).clone()
-        v_orig = p[(embed_dim * 2) :].clone()
-        qk_pack_dim = 0
-        with QKGrouper(p, qk_pack_dim, qk_reg_index) as grouper:
-            self.assertTrue(grouper.p.equal(qk_orig))
-
-            gamma = self.get_gamma(grouper.p)
-            _ = torch.vmap(
-                self.prox_map.apply_, in_dims=(grouper.in_dims, None), out_dims=0
-            )(grouper.p, gamma)
-
-        self._test_post_prune(p, qk_orig, embed_dim, qk_reg_index, gamma)
-
-        # unregularized query or key was not modified
-        no_prune = self._get_qk(p, embed_dim, int(not qk_reg_index))
-        torch.testing.assert_close(no_prune, qk_no_prune, atol=0, rtol=0)
-
-        # value was not modified
-        v = p[(embed_dim * 2) :]
-        torch.testing.assert_close(v, v_orig, atol=0, rtol=0)
-
-    @common_utils.parametrize("embed_dim", [16, 64])
-    @common_utils.parametrize("num_heads", [2, 4])
-    @common_utils.parametrize("qk_reg_index", [0, 1])
-    def test_pytorch_mha(self, embed_dim=16, num_heads=4, qk_reg_index=0):
-        assert embed_dim % num_heads == 0, (
-            f"{embed_dim=} must be divisible by {num_heads=}"
-        )
-
-        # single in_proj_weight of shape (embed_dim * 3, embed_dim)
-        model = nn.MultiheadAttention(embed_dim, num_heads, bias=False)
-        p = model.in_proj_weight.detach()
-        self._test_mha_inner(p, embed_dim, qk_reg_index)
-
-    @common_utils.parametrize("qk_reg_index", [0, 1])
-    def test_e2e_optimizer(self, embed_dim=64, qk_reg_index=0):
-        n_cls = 3
-        model = MHADummyModel(embed_dim, num_heads=4, n_cls=n_cls)
-        prune_config = {
-            "mha.in_proj_weight": {
-                "group_type": "QKGrouper",
-                "prox_type": "ProxGroupLasso",
-                "qk_pack_dim": 0,
-                "qk_reg_index": qk_reg_index,
-            }
-        }
-        param_groups = get_param_groups(model, prune_config, verbose=False)
-        self.assertEqual(len(param_groups), 3)
-
-        p = model.mha.in_proj_weight.detach()
-        qk_orig = self._get_qk(p, embed_dim, qk_reg_index).clone()
-
-        # set lr to gamma since we run a single step
-        gamma = self.get_gamma(qk_orig)
-        optimizer = PruneOptimizer(
-            torch.optim.SGD(param_groups, lr=gamma), reg_lambda=self.reg_lambda
-        )
-
-        data = torch.randn(1, 8, embed_dim)
-        label = torch.arange(0, n_cls) * data.mean(axis=-1, keepdim=True)
-        output = model(data)
-        loss = nn.functional.mse_loss(output, label)
-
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
-
-        self._test_post_prune(p, qk_orig, embed_dim, qk_reg_index, gamma)
 
 
 class TestAttentionHeadGrouper(common_utils.TestCase):
@@ -250,22 +149,6 @@ class TestSVDGrouper(common_utils.TestCase):
         model = torch.nn.Linear(embed_dim, embed_dim)
         p = model.weight
         with SVDGrouper(p) as grouper:
-            gamma = grouper.p.mean()
-            p_orig = grouper.p.clone()
-            torch.vmap(
-                self.prox_map.apply_, in_dims=(grouper.in_dims, None), out_dims=0
-            )(grouper.p, gamma)
-            expect_nz_mask = p_orig.gt(gamma)
-            torch.testing.assert_close(grouper.p.ne(0), expect_nz_mask, atol=0, rtol=0)
-
-    @common_utils.parametrize("embed_dim", (16, 64))
-    @common_utils.parametrize("pack_dim", (0, 1))
-    def test_qk_grouper(self, embed_dim=16, pack_dim=0):
-        shape = [embed_dim, embed_dim]
-        shape[int(not pack_dim)] *= 3
-        model = torch.nn.Linear(*shape)
-        p = model.weight
-        with QKSVDGrouper(p, pack_dim=pack_dim) as grouper:
             gamma = grouper.p.mean()
             p_orig = grouper.p.clone()
             torch.vmap(
@@ -369,7 +252,6 @@ class TestPruneOptimizer(common_utils.TestCase):
 
 
 common_utils.instantiate_parametrized_tests(TestMaskedLayerNorm)
-common_utils.instantiate_parametrized_tests(TestQKGrouper)
 common_utils.instantiate_parametrized_tests(TestAttentionHeadGrouper)
 common_utils.instantiate_parametrized_tests(TestSVDGrouper)
 common_utils.instantiate_parametrized_tests(TestPruneOptimizer)

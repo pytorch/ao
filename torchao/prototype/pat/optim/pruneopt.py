@@ -18,10 +18,10 @@ from torch.optim import Optimizer
 from torch.optim.optimizer import StateDict
 
 from ..distributed_utils import (
+    _is_dtensor,
+    _is_main_process,
     _maybe_async_aggregate,
     _sum_async_streams,
-    is_dtensor,
-    is_main_process,
 )
 from ..utils import get_index_linspace, instantiate_module
 
@@ -136,11 +136,6 @@ class PruneOptimizer(Optimizer):
         grouper_kwargs = {}
         if group["group_type"].startswith("AttentionHeadGrouper"):
             grouper_kwargs["num_heads"] = group["num_heads"]
-        elif group["group_type"] == "QKGrouper":
-            if "qk_pack_dim" in group:
-                grouper_kwargs["qk_pack_dim"] = group["qk_pack_dim"]
-            if "qk_reg_index" in group:
-                grouper_kwargs["qk_reg_index"] = group["qk_reg_index"]
         elif group["group_type"] == "PackedSVDGrouper":
             grouper_kwargs["npack"] = group["npack"]
             if "pack_dim" in group:
@@ -179,7 +174,7 @@ class PruneOptimizer(Optimizer):
                 zero_elts = prox_map.apply_(grouper.p, gamma)
                 zeros_are_summed = zero_elts.dim() == 0
             else:
-                if not prox_kwargs["is_svd_grouper"] and is_dtensor(p):
+                if not prox_kwargs["is_svd_grouper"] and _is_dtensor(p):
                     if not torch.is_tensor(gamma):
                         gamma = torch.tensor(gamma, device=p.device)
 
@@ -208,7 +203,7 @@ class PruneOptimizer(Optimizer):
                         out_placements=[Partial()],
                         in_placements=(
                             p_in_placements,
-                            gamma.placements if is_dtensor(gamma) else None,
+                            gamma.placements if _is_dtensor(gamma) else None,
                         ),
                         redistribute_inputs=True,
                     )(grouper.p, gamma)
@@ -234,7 +229,7 @@ class PruneOptimizer(Optimizer):
                 dim = 0 if sv_count.dim() > 1 else None
                 sv_count.copy_(
                     (grouper.p != 0).to(torch.uint8).sum(dim=dim)
-                    if is_dtensor(p)
+                    if _is_dtensor(p)
                     else torch.count_nonzero(grouper.p, dim=dim)
                 )
 
@@ -265,7 +260,7 @@ class PruneOptimizer(Optimizer):
         if self.num_steps >= self.healing_start_step:
             for group in self.regularized_param_groups():
                 for p in group["params"]:
-                    if is_dtensor(p):
+                    if _is_dtensor(p):
                         local_map(
                             lambda p_grad, mask: p_grad.masked_fill_(mask, 0),
                             out_placements=(p.grad.placements,),
@@ -347,7 +342,7 @@ class PruneOptimizer(Optimizer):
 
                 # update the full tensor if sharded
                 sharded_p = None
-                if is_dtensor(p) and prox_kwargs["is_svd_grouper"]:
+                if _is_dtensor(p) and prox_kwargs["is_svd_grouper"]:
                     sharded_p = p
                     p = p.full_tensor()
 
@@ -410,13 +405,13 @@ class PruneOptimizer(Optimizer):
 
         self.num_steps += 1
 
-        if torch.distributed.is_initialized() and is_main_process():
+        if torch.distributed.is_initialized() and _is_main_process():
             regularized_zeros += _sum_async_streams(regularized_zeros_buf)
             regularized_factored_size += _sum_async_streams(
                 regularized_factored_size_buf
             )
 
-        if is_main_process():
+        if _is_main_process():
             self.relative_sparsity = (
                 regularized_zeros / regularized_params
                 if regularized_params > 0

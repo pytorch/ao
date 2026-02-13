@@ -13,12 +13,9 @@ from .group import (  # noqa: F401
     ElemGrouper,
     LayerGrouper,
     PackedSVDGrouper,
-    QKGrouper,
-    QKSVDGrouper,
     SVDGrouper,
 )
 from .optim import (  # noqa: F401
-    NMSGDOptimizer,
     ProxGroupLasso,
     ProxGroupLassoReduce,
     ProxLasso,

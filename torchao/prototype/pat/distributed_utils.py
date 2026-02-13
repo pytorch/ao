@@ -11,34 +11,34 @@ from torch import distributed as dist
 from torch.distributed.tensor import DTensor
 
 
-def is_main_process():
+def _is_main_process():
     rank = dist.get_rank() if dist.is_available() and dist.is_initialized() else 0
     return rank == 0
 
 
-def is_dtensor(x):
+def _is_dtensor(x):
     return isinstance(x, DTensor)
 
 
-class NoopHandle:
+class _NoopHandle:
     def wait(self):
         pass
 
 
 def _maybe_async_aggregate(
-    handle_buf: List[tuple[Tensor, dist.Work | NoopHandle]], input_tensor: Tensor
+    handle_buf: List[tuple[Tensor, dist.Work | _NoopHandle]], input_tensor: Tensor
 ) -> None:
-    if dist.is_initialized() and not is_dtensor(input_tensor):
+    if dist.is_initialized() and not _is_dtensor(input_tensor):
         handle = dist.reduce(input_tensor, dst=0, async_op=True)
         handle_buf.append((input_tensor, handle))
     else:
-        if is_dtensor(input_tensor):
+        if _is_dtensor(input_tensor):
             input_tensor = input_tensor.full_tensor()
-        if is_main_process():
-            handle_buf.append((input_tensor, NoopHandle()))
+        if _is_main_process():
+            handle_buf.append((input_tensor, _NoopHandle()))
 
 
-def _sum_async_streams(handle_buf: List[tuple[Tensor, dist.Work | NoopHandle]]) -> int:
+def _sum_async_streams(handle_buf: List[tuple[Tensor, dist.Work | _NoopHandle]]) -> int:
     assert isinstance(handle_buf, list), (
         f"Expected a list of async handles but got {type(handle_buf)}"
     )

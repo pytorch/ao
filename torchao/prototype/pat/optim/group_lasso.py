@@ -12,7 +12,7 @@ from torch import Tensor
 from torch.distributed.tensor.experimental import local_map
 from torch.distributed.tensor.placement_types import Replicate
 
-from ..distributed_utils import is_dtensor
+from ..distributed_utils import _is_dtensor
 from .proxmap import ProxMap
 
 
@@ -41,7 +41,7 @@ class ProxGroupLassoReduce(ProxGroupLasso):
         return p.square().sum()
 
     def _get_norm(self, p):
-        assert is_dtensor(p), f"Expected DTensor input but got {type(p)}"
+        assert _is_dtensor(p), f"Expected DTensor input but got {type(p)}"
         partial_norm = local_map(
             self.partial_norm,
             out_placements=(Replicate() for _ in p.placements),

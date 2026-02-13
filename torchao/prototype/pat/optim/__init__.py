@@ -5,13 +5,11 @@
 # LICENSE file in the root directory of this source tree.
 
 import sys
-from functools import partial
 
 from torch.optim import Optimizer
 
 from .group_lasso import ProxGroupLasso, ProxGroupLassoReduce  # noqa: F401
 from .lasso import ProxLasso  # noqa: F401
-from .nm_sgd import NMSGDOptimizer
 from .nuclear_norm import ProxNuclearNorm  # noqa: F401
 from .proxmap import ProxMap  # noqa: F401
 from .pruneopt import PruneOptimizer
@@ -24,11 +22,7 @@ def build_prune_optimizer(
     prune_healing_start_step: int = sys.maxsize,
     nm_gamma: float = 0.0,
 ) -> PruneOptimizer:
-    if nm_gamma > 0:
-        prune_opt_cls = partial(NMSGDOptimizer, nm_gamma=nm_gamma)
-    else:
-        prune_opt_cls = PruneOptimizer
-
+    prune_opt_cls = PruneOptimizer  # TODO: support other prune optimizers
     return prune_opt_cls(
         base_optimizer,
         warmup_steps=prune_warmup_steps,

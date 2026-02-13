@@ -13,7 +13,7 @@ from typing import Any, Dict, Optional, Set, Tuple
 import torch
 from torch import nn
 
-from .distributed_utils import is_main_process
+from .distributed_utils import _is_main_process
 
 RE_PREFIX = ":"
 
@@ -115,7 +115,7 @@ def get_param_groups(
     n_expect_params = len(list(model.parameters()))
     assert n_found_params == n_expect_params, f"{n_found_params=}, {n_expect_params=}"
 
-    if verbose and is_main_process():
+    if verbose and _is_main_process():
         for k, v in param_dict.items():
             print(f"{k}: {len(v['params'])} params")
     return param_groups
@@ -160,7 +160,7 @@ def insert_svd_modules_(model: nn.Module, optimizer: torch.optim.Optimizer):
                     ):
                         params_to_add[name] = value
 
-                    if is_main_process():
+                    if _is_main_process():
                         print(
                             f"{tuple(grouper.orig_shape)} -> "
                             f"{tuple(U.shape)}, {tuple(S.shape)}, {tuple(Vh.shape)}"
