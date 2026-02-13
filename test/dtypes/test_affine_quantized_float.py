@@ -29,6 +29,7 @@ from torchao.quantization.quant_primitives import (
 )
 from torchao.quantization.quantize_.common import KernelPreference
 from torchao.utils import (
+    _is_mslk_available,
     get_current_accelerator_device,
     is_sm_at_least_89,
     is_sm_at_least_90,
@@ -311,6 +312,7 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
         kernel preferences.
         """
         M, K, N = 128, 256, 512
+        mslk_available = _is_mslk_available()
 
         for kernel_pref in (KernelPreference.TORCH, KernelPreference.AUTO):
             # Reset compiler and create fresh model for each iteration
@@ -336,7 +338,7 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
 
             if granularity == PerRow():
                 if kernel_pref == KernelPreference.TORCH:
-                    # TORCH path: expect triton kernel + scaled_mm
+                    # TORCH path: one triton kernel for quantizing + scaled_mm
                     FileCheck().check("def call(").check_count(
                         ".run(", 1, exactly=True
                     ).run(code[0])
@@ -344,44 +346,51 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
                         "._scaled_mm(", 1, exactly=True
                     ).run(code[0])
                 else:  # AUTO
-                    # AUTO may use MSLK (torch ops) or scaled_mm depending on hardware
-                    # MSLK uses torch.ops.triton.quantize_fp8_row + torch.ops.mslk.*
-                    # which don't have .run() calls like triton kernels
-                    has_scaled_mm = "._scaled_mm(" in code[0]
-                    has_mslk = "mslk" in code[0]
-                    assert has_scaled_mm or has_mslk, (
-                        "Expected either scaled_mm or mslk kernel for PerRow AUTO"
-                    )
+                    # PerRow is not tensorwise-scaled, so the B200 guard in
+                    # _float8_addmm_impl does not apply. AUTO selects MSLK
+                    # on any SM90+ hardware when MSLK is available.
+                    if mslk_available:
+                        # MSLK path: uses torch.ops calls, no triton .run()
+                        FileCheck().check("def call(").check("mslk").run(code[0])
+                    else:
+                        # No MSLK: falls back to torch path (scaled_mm)
+                        FileCheck().check("def call(").check_count(
+                            "._scaled_mm(", 1, exactly=True
+                        ).run(code[0])
             else:
                 assert granularity == PerTensor(), "unsupported"
-                # three triton kernels for quantizing the activation:
-                # kernel 1: x_max_tmp = max(x, ...)
-                # kernel 2: x_max = max(x_max_tmp)
-                # kernel 3: x_float8 = to_float8(x, x_max)
-                FileCheck().check("def call(").check_count(
-                    ".run(", 3, exactly=True
-                ).run(code[0])
-                # For TORCH, expect scaled_mm. For AUTO, behavior differs by GPU:
                 if kernel_pref == KernelPreference.TORCH:
+                    # TORCH path: three triton kernels for quantizing the
+                    # activation + one scaled_mm call
+                    FileCheck().check("def call(").check_count(
+                        ".run(", 3, exactly=True
+                    ).run(code[0])
                     FileCheck().check("def call(").check_count(
                         "._scaled_mm(", 1, exactly=True
                     ).run(code[0])
                 else:  # AUTO
-                    # On B200+ hardware with per-tensor scales, AUTO should use scaled_mm
-                    # On non-B200 hardware, AUTO may select MSLK
+                    # PerTensor is tensorwise-scaled, so the B200 guard in
+                    # _float8_addmm_impl applies on SM100+.
                     if is_sm_at_least_100():
-                        # B200/GB200: expect scaled_mm for per-tensor scales
+                        # B200/GB200: AUTO avoids MSLK for per-tensor scales,
+                        # falls back to torch path (scaled_mm)
+                        FileCheck().check("def call(").check_count(
+                            ".run(", 3, exactly=True
+                        ).run(code[0])
                         FileCheck().check("def call(").check_count(
                             "._scaled_mm(", 1, exactly=True
                         ).run(code[0])
+                    elif mslk_available:
+                        # Non-B200 with MSLK: AUTO selects MSLK
+                        FileCheck().check("def call(").check("mslk").run(code[0])
                     else:
-                        # Non-B200: MSLK should be selected if available
-                        # This check is flexible since MSLK may not be installed
-                        has_scaled_mm = "._scaled_mm(" in code[0]
-                        has_mslk = "mslk" in code[0]
-                        assert has_scaled_mm or has_mslk, (
-                            "Expected either scaled_mm or mslk kernel"
-                        )
+                        # No MSLK: falls back to torch path (scaled_mm)
+                        FileCheck().check("def call(").check_count(
+                            ".run(", 3, exactly=True
+                        ).run(code[0])
+                        FileCheck().check("def call(").check_count(
+                            "._scaled_mm(", 1, exactly=True
+                        ).run(code[0])
 
 
 common_utils.instantiate_parametrized_tests(TestAffineQuantizedFloat8Compile)
