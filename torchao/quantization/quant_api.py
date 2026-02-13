@@ -1980,6 +1980,8 @@ def _fqn_to_config_handler(
                 if c is not None:
                     handler = _QUANTIZE_CONFIG_HANDLER[type(c)]
                     return handler(module, c)
+                else:
+                    return module
 
     # If no module_fqn or parameter_fqn matches, then we apply _default
     if not parameter_config_found:

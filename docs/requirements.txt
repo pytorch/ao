@@ -1,13 +1,12 @@
-sphinx==5.3.0
-pytorch-sphinx-theme2
+sphinx==7.2.6
+pytorch-sphinx-theme2==0.4.3
 sphinxcontrib.katex==0.8.6
+sphinx-design==0.6.1
 sphinxext-opengraph==0.9.1
-docutils==0.17.1  # Changed from 0.16 to match sphinx-tabs requirement
-sphinx-design==0.4.0
+docutils==0.20  # Changed from 0.16 to match sphinx-tabs requirement
 sphinxcontrib-mermaid==1.0.0
-myst-parser==0.18.1  # if want to contribute in markdown
 sphinx-gallery==0.11.1  # if hosting interactive tutorials
-sphinx-tabs==3.4.0
+sphinx-tabs==3.4.7
 sphinx-copybutton==0.5.2
 sphinx-sitemap==2.6.0
-myst-parser
+myst-parser==4.0.1  # if want to contribute in markdown
