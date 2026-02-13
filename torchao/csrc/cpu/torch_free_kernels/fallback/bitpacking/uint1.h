@@ -46,33 +46,6 @@ TORCHAO_ALWAYS_INLINE inline void unpack_8_uint1_values(
 }
 
 /**
- * @brief Packs 32 bytes (each a 1-bit value) into 4 bytes.
- * @param packed Pointer to the destination memory (4 bytes).
- * @param unpacked Pointer to the source memory (32 bytes).
- * @note This implementation mirrors the logic of the ARM NEON
- * `vec_pack_32_uint1_values` function to ensure compatibility.
- */
-TORCHAO_ALWAYS_INLINE inline void pack_32_uint1_values(
-    uint8_t* packed,
-    const uint8_t* unpacked) {
-  const uint8_t* unpacked0 = unpacked;
-  const uint8_t* unpacked1 = unpacked + 16;
-
-  for (int i = 0; i < 2; ++i) {
-    packed[i] = (unpacked0[i * 8 + 0] << 7) | (unpacked0[i * 8 + 1] << 6) |
-        (unpacked0[i * 8 + 2] << 5) | (unpacked0[i * 8 + 3] << 4) |
-        (unpacked0[i * 8 + 4] << 3) | (unpacked0[i * 8 + 5] << 2) |
-        (unpacked0[i * 8 + 6] << 1) | (unpacked0[i * 8 + 7] << 0);
-  }
-  for (int i = 0; i < 2; ++i) {
-    packed[i + 2] = (unpacked1[i * 8 + 0] << 7) | (unpacked1[i * 8 + 1] << 6) |
-        (unpacked1[i * 8 + 2] << 5) | (unpacked1[i * 8 + 3] << 4) |
-        (unpacked1[i * 8 + 4] << 3) | (unpacked1[i * 8 + 5] << 2) |
-        (unpacked1[i * 8 + 6] << 1) | (unpacked1[i * 8 + 7] << 0);
-  }
-}
-
-/**
  * @brief Packs 64 bytes (each a 1-bit value) into 8 bytes.
  * @param packed Pointer to the destination memory (8 bytes).
  * @param unpacked Pointer to the source memory (64 bytes).
@@ -99,7 +72,7 @@ TORCHAO_ALWAYS_INLINE inline void pack_64_uint1_values(
         (unpacked3[i + 8] << 0);
 
     // Assemble the final byte
-    packed[i] = (low_nibble & 0x0F) | (high_nibble_src << 4);
+    packed[i] = low_nibble | (high_nibble_src << 4);
   }
 }
 
