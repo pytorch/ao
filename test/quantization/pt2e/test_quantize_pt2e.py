@@ -14,7 +14,6 @@ import unittest
 
 import torch
 from torch import Tensor
-from torch.ao.ns.fx.utils import compute_sqnr
 from torch.ao.quantization import QConfigMapping
 from torch.ao.quantization.qconfig import (
     QConfig,
@@ -63,6 +62,7 @@ from torchao.quantization.pt2e.quantizer.composable_quantizer import (  # noqa: 
 from torchao.quantization.pt2e.quantizer.embedding_quantizer import (  # noqa: F811
     EmbeddingQuantizer,
 )
+from torchao.quantization.utils import compute_error
 from torchao.testing.model_architectures import ConvWithSharedWeightInExportedModel
 from torchao.testing.pt2e._xnnpack_quantizer import (
     XNNPACKQuantizer,
@@ -3346,7 +3346,7 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
         with torch.no_grad():
             output = m_converted(*example_inputs)
         self.assertEqual(output.shape, (3, 5))
-        sqnr = compute_sqnr(output_ref, output)
+        sqnr = compute_error(output_ref, output)
         self.assertGreater(sqnr, 35, f"SQNR too low: {sqnr} dB")
 
 
