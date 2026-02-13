@@ -16,7 +16,7 @@ from torch.nn.attention.experimental._scaled_dot_product_attention_quantized imp
     _scaled_dot_product_attention_quantized,
 )
 
-from torchao.attention.fp8_fa3.quantization import _fp8_sdpa_quantize
+from torchao.prototype.attention.fp8_fa3.quantization import _fp8_sdpa_quantize
 
 
 def _fp8_fa3_sdpa(

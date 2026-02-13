@@ -79,7 +79,7 @@ def _fp8_sdpa_quantize(
         return q_fp8, k_fp8, v_fp8, q_descale, k_descale, v_descale
     else:
         # In eager mode, use fused Triton kernels for better performance.
-        from torchao.attention.fp8_fa3.triton_qkv_quantization import (
+        from torchao.prototype.attention.fp8_fa3.triton_qkv_quantization import (
             triton_fp8_sdpa_quantize,
         )
 

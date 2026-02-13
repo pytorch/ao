@@ -12,8 +12,8 @@ from typing import Optional
 
 import torch.nn as nn
 
-from torchao.attention.config import AttentionBackend, LowPrecisionAttentionConfig
-from torchao.attention.utils import (
+from torchao.prototype.attention.config import AttentionBackend, LowPrecisionAttentionConfig
+from torchao.prototype.attention.utils import (
     _check_backend_available,
     _check_config_supported,
     _get_available_backend,
@@ -37,7 +37,7 @@ def apply_low_precision_attention(
 
     Example::
 
-        from torchao.attention import (
+        from torchao.prototype.attention import (
             LowPrecisionAttentionConfig,
             apply_low_precision_attention,
         )
@@ -88,7 +88,7 @@ def _wrap_model(
                 "FP8 attention with fused RoPE is not yet implemented."
             )
         else:
-            from torchao.attention.fp8_fa3.wrappers import (
+            from torchao.prototype.attention.fp8_fa3.wrappers import (
                 _wrap_model_with_fp8_fa3_attention,
             )
 

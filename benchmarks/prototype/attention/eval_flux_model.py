@@ -37,7 +37,7 @@ from datasets import load_dataset
 from diffusers import FluxPipeline
 from PIL import Image
 
-from torchao.attention import (
+from torchao.prototype.attention import (
     AttentionBackend,
     LowPrecisionAttentionConfig,
     apply_low_precision_attention,
