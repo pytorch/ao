@@ -55,68 +55,6 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
-class GemliteUIntXWeightOnlyConfig(AOBaseConfig):
-    """
-    applies weight only 4 or 8 bit integer quantization and utilizes the gemlite triton kernel and its associated weight packing format.
-    This only works for fp16 models. 8 bit quantization is symmetric, 4 bit quantization is asymmetric.
-
-    Args:
-        `group_size`: parameter for quantization, controls the granularity of quantization, smaller
-         size is more fine grained
-        `bit_width`: bit width of the quantized weight.
-        `packing_bitwidth`: bit width of the packed weight, should be 8 or 32. Can have performance impacts depending on hardware.
-        `mode`: if set to "dynamic", activations are quantized at runtime; default is "weight_only" (weight-only quantization).
-        `set_inductor_config`: if True, adjusts `torchinductor` settings to recommended values.
-    """
-
-    group_size: Optional[int] = 128
-    bit_width: int = 4
-    packing_bitwidth: Optional[int] = None
-    mode: Optional[str] = "weight_only"
-    set_inductor_config: bool = True
-
-    def __post_init__(self):
-        torch._C._log_api_usage_once(
-            "torchao.quantization.GemliteUIntXWeightOnlyConfig"
-        )
-        warnings.warn(
-            "`GemliteUIntXWeightOnlyConfig` will be deleted in a future release of torchao. Please see https://github.com/pytorch/ao/issues/2752 for more details."
-        )
-
-
-@register_quantize_module_handler(GemliteUIntXWeightOnlyConfig)
-def _gemlite_uintx_weight_only_transform(
-    module: torch.nn.Module, config: GemliteUIntXWeightOnlyConfig
-):
-    group_size = config.group_size
-    bit_width = config.bit_width
-    packing_bitwidth = config.packing_bitwidth
-    mode = config.mode
-    if config.set_inductor_config:
-        torchao.quantization.utils.recommended_inductor_config_setter()
-
-    weight = module.weight
-
-    from torchao.prototype.dtypes.uintx.gemlite_layout import get_gemlite_aqt_kwargs
-
-    use_hqq = True if bit_width == 4 else False
-    new_weight = to_affine_quantized_intx(
-        weight,
-        **get_gemlite_aqt_kwargs(
-            weight,
-            group_size=group_size,
-            bit_width=bit_width,
-            packing_bitwidth=packing_bitwidth,
-            mode=mode,
-            use_hqq=use_hqq,
-        ),
-    )
-    module.weight = torch.nn.Parameter(new_weight, requires_grad=False)
-    module.extra_repr = types.MethodType(_linear_extra_repr, module)
-    return module
-
-
-@dataclass
 class Float8StaticActivationFloat8WeightConfig(AOBaseConfig):
     """
     Configuration for applying float8 static symmetric quantization to both activation and weight.
