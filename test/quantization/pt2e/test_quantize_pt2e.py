@@ -14,6 +14,7 @@ import unittest
 
 import torch
 from torch import Tensor
+from torch.ao.ns.fx.utils import compute_sqnr
 from torch.ao.quantization import QConfigMapping
 from torch.ao.quantization.qconfig import (
     QConfig,
@@ -41,6 +42,7 @@ from torch.testing._internal.common_utils import (
 
 import torchao
 from torchao.quantization.pt2e import FROM_NODE_KEY, ObserverOrFakeQuantize, observer
+from torchao.quantization.pt2e.observer import ObserverBase
 from torchao.quantization.pt2e.quantize_pt2e import (
     convert_pt2e,
     prepare_pt2e,
@@ -3284,8 +3286,6 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
                     f"Unexpected call_module target: {node.target}",
                 )
                 obs_mod = getattr(scan_combine_fn, node.target)
-                from torchao.quantization.pt2e.observer import ObserverBase
-
                 self.assertIsInstance(obs_mod, ObserverBase)
                 observer_count += 1
         self.assertGreater(
@@ -3346,8 +3346,6 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
         with torch.no_grad():
             output = m_converted(*example_inputs)
         self.assertEqual(output.shape, (3, 5))
-        from torch.ao.ns.fx.utils import compute_sqnr
-
         sqnr = compute_sqnr(output_ref, output)
         self.assertGreater(sqnr, 35, f"SQNR too low: {sqnr} dB")
 
