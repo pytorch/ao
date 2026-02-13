@@ -175,7 +175,7 @@
   fbq('track', 'PageView');
 </script>
 <script>
-  document.documentElement.setAttribute('data-version', 'main (0.17.0+git04ece08 )');
+  document.documentElement.setAttribute('data-version', 'main (0.17.0+git348ef1e )');
 </script>
 <noscript>
   <img height="1" width="1" src="https://www.facebook.com/tr?id=243028289693773&ev=PageView&noscript=1" />
@@ -1441,7 +1441,7 @@ document.write(`
 <p>In this tutorial we’ll train a DeepSeek-V3-16B model using torchtitan with torchao’s MXFP8 expert parallel recipe.</p>
 <p><a class="reference external" href="https://github.com/pytorch/torchtitan/">Torchtitan</a> is PyTorch’s official pre-training framework that is natively integrated with torchao. For MoE models, torchtitan supports expert parallelism combined with other forms of parallelism like FSDP and tensor parallelism.</p>
 <section id="prerequisites">
-<h3>Prerequisites<a class="headerlink" href="#prerequisites" title="Link to this heading">#</a></h3>
+<span id="mxfp8-torchtitan-prerequisites"></span><h3>Prerequisites<a class="headerlink" href="#prerequisites" title="Link to this heading">#</a></h3>
 <ol class="arabic simple">
 <li><p>(Recommended) Create a new virtual environment with conda or venv.</p></li>
 <li><p><a class="reference external" href="https://pytorch.org/get-started/locally/">Install PyTorch</a> 2.10 or nightly build with CUDA 12.8+ support.</p></li>
@@ -1554,8 +1554,8 @@ we recommend against applying tensor parallel to the routed experts, but other l
 <h2>Training with torchao directly<a class="headerlink" href="#training-with-torchao-directly" title="Link to this heading">#</a></h2>
 <p>In this tutorial we’ll apply MXFP8 expert parallelism to a custom MoE layer using torchao APIs directly.</p>
 <p>You can use this workflow to integrate MXFP8 expert parallelism into your own custom training code.</p>
-<section id="id2">
-<h3>Prerequisites<a class="headerlink" href="#id2" title="Link to this heading">#</a></h3>
+<section id="mxfp8-torchao-prerequisites">
+<span id="id2"></span><h3>Prerequisites<a class="headerlink" href="#mxfp8-torchao-prerequisites" title="Link to this heading">#</a></h3>
 <ol class="arabic simple">
 <li><p>(Recommended) Create a new virtual environment with conda or venv.</p></li>
 <li><p><a class="reference external" href="https://github.com/pytorch/ao/tree/main?tab=readme-ov-file#installation">Install torchao</a> nightly build (required for CUDA 12.8+ support).</p></li>
@@ -2260,7 +2260,7 @@ The speedup comes from using MXFP8 for all-to-all communications:</p>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#training-with-torchao-directly">Training with torchao directly</a><ul class="nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#id2">Prerequisites</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#mxfp8-torchao-prerequisites">Prerequisites</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#complete-example">Complete Example</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#running-the-example">Running the Example</a></li>
 </ul>

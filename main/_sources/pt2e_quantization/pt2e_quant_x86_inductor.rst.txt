@@ -3,6 +3,8 @@ PyTorch 2 Export Quantization with X86 Backend through Inductor
 
 **Author**: `Leslie Fang <https://github.com/leslie-fang-intel>`_, `Weiwen Xia <https://github.com/Xia-Weiwen>`_, `Jiong Gong <https://github.com/jgong5>`_, `Jerry Zhang <https://github.com/jerryzh168>`_
 
+.. _pt2e-x86-prerequisites:
+
 Prerequisites
 ---------------
 
