@@ -1047,7 +1047,7 @@ def _float8_cutlass_quant_sparse(
     )
 
 
-def _validate_granularity(
+def _validate_granularity_int8_dynamic(
     act_granularity: Granularity,
     weight_granularity: Granularity,
 ) -> None:
@@ -1061,28 +1061,6 @@ def _validate_granularity(
         raise ValueError(
             f"Unsupported weight granularity type: {type(weight_granularity)}. "
             f"Only PerTensor and PerRow are supported."
-        )
-
-
-def _validate_granularity_int8_dynamic(
-    act_granularity: Granularity,
-    weight_granularity: Granularity,
-) -> None:
-    _validate_granularity(act_granularity, weight_granularity)
-
-
-def _validate_granularity_int8_static(
-    act_granularity: Granularity,
-    weight_granularity: Granularity,
-) -> None:
-    _validate_granularity(act_granularity, weight_granularity)
-
-    # Validate activation granularity for static quantization
-    if isinstance(act_granularity, PerRow) and act_granularity.dim != -1:
-        raise ValueError(
-            f"Int8StaticActivationInt8WeightConfig only supports PerRow(dim=-1) "
-            f"for activation quantization, got PerRow(dim={act_granularity.dim}). "
-            f"Per-feature activation quantization is not supported due to slicing limitations."
         )
 
 
@@ -1230,6 +1208,31 @@ def _int8_dynamic_activation_int8_weight_transform(
         module,
     )
     return module
+
+
+def _validate_granularity_int8_static(
+    act_granularity: Granularity,
+    weight_granularity: Granularity,
+) -> None:
+    supported = (PerTensor, PerRow)
+    if not isinstance(act_granularity, supported):
+        raise ValueError(
+            f"Unsupported activation granularity type: {type(act_granularity)}. "
+            f"Only PerTensor and PerRow are supported."
+        )
+    if not isinstance(weight_granularity, supported):
+        raise ValueError(
+            f"Unsupported weight granularity type: {type(weight_granularity)}. "
+            f"Only PerTensor and PerRow are supported."
+        )
+
+    # Validate activation granularity for static quantization
+    if isinstance(act_granularity, PerRow) and act_granularity.dim != -1:
+        raise ValueError(
+            f"Int8StaticActivationInt8WeightConfig only supports PerRow(dim=-1) "
+            f"for activation quantization, got PerRow(dim={act_granularity.dim}). "
+            f"Per-feature activation quantization is not supported due to slicing limitations."
+        )
 
 
 @dataclass
