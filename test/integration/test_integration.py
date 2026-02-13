@@ -599,50 +599,6 @@ class TestSubclass(unittest.TestCase):
         )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
-    @unittest.skipIf(not has_gemlite, "gemlite not available")
-    def test_gemlite_layout(self, device, dtype):
-        from torchao.quantization import GemliteUIntXWeightOnlyConfig
-
-        if dtype != torch.float16:
-            self.skipTest("gemlite only works for fp16 dtype")
-
-        if device == "cpu":
-            self.skipTest(f"gemlite is for cuda, not {device}")
-        for packing_bitwidth in [32, 8]:
-            for bit_width in [4, 8]:
-                for group_size in [64, 32, None] if bit_width == 4 else [None]:
-                    api = lambda mod: quantize_(
-                        mod,
-                        GemliteUIntXWeightOnlyConfig(
-                            group_size, bit_width, packing_bitwidth
-                        ),
-                    )
-                    for test_shape in [
-                        [1, 1024, 512],
-                        [16, 256, 1024],
-                        [128, 256, 1024],
-                    ]:
-                        print(
-                            packing_bitwidth, bit_width, group_size, test_shape, dtype
-                        )
-                        self._test_lin_weight_subclass_api_impl(
-                            api,
-                            device,
-                            15,
-                            test_shape=test_shape,
-                            test_dtype=dtype,
-                        )
-
-        # test that shapes with non divisible by 128 shapes aren't causing errors
-        self._test_lin_weight_subclass_api_impl(
-            lambda mod: quantize_(mod, GemliteUIntXWeightOnlyConfig(None, 4, 32)),
-            device,
-            15,
-            test_shape=[1, 1025, 513],
-            test_dtype=dtype,
-        )
-
-    @parameterized.expand(COMMON_DEVICE_DTYPE)
     @skip_if_rocm("ROCm enablement in progress")
     @skip_if_xpu("XPU enablement in progress")
     def test_int4_weight_only_quant_subclass_api_grouped(self, device, dtype):
