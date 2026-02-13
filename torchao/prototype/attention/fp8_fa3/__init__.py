@@ -7,12 +7,12 @@
 """
 Internal: FP8 attention implementation using FA3 backend.
 
-Use apply_low_precision_attention() from torchao.attention as the public API.
+Use apply_low_precision_attention() from torchao.prototype.attention as the public API.
 """
 
-from torchao.attention.fp8_fa3.attention import _fp8_fa3_sdpa
-from torchao.attention.fp8_fa3.quantization import _fp8_sdpa_quantize
-from torchao.attention.fp8_fa3.wrappers import (
+from torchao.prototype.attention.fp8_fa3.attention import _fp8_fa3_sdpa
+from torchao.prototype.attention.fp8_fa3.quantization import _fp8_sdpa_quantize
+from torchao.prototype.attention.fp8_fa3.wrappers import (
     _fp8_fa3_attention_context,
     _wrap_model_with_fp8_fa3_attention,
 )

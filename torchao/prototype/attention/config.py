@@ -48,7 +48,7 @@ class LowPrecisionAttentionConfig:
     use_hadamard: Optional[Literal["v", "qkv"]] = None
 
     def __post_init__(self):
-        # torch._C._log_api_usage_once("torchao.attention.LowPrecisionAttentionConfig")
+        # torch._C._log_api_usage_once("torchao.prototype.attention.LowPrecisionAttentionConfig")
 
         # Validate use_hadamard value
         if self.use_hadamard is not None and self.use_hadamard not in ("v", "qkv"):

@@ -36,12 +36,12 @@ from torch.testing._internal.common_utils import (
     run_tests,
 )
 
-from torchao.attention import (
+from torchao.prototype.attention import (
     AttentionBackend,
     LowPrecisionAttentionConfig,
     apply_low_precision_attention,
 )
-from torchao.attention.utils import _is_fa3_available, _is_hopper
+from torchao.prototype.attention.utils import _is_fa3_available, _is_hopper
 
 _FP8_FA3_SKIP_MSG = (
     "FP8 FA3 requires CUDA with Hopper (SM 9.x), flash-attn installed, "
@@ -52,8 +52,8 @@ _FP8_FA3_AVAILABLE = _has_fa3_activation_api and _is_hopper() and _is_fa3_availa
 
 # Only import internal modules that depend on new PyTorch APIs when available.
 if _FP8_FA3_AVAILABLE:
-    from torchao.attention.fp8_fa3.attention import _fp8_fa3_sdpa
-    from torchao.attention.fp8_fa3.quantization import _fp8_sdpa_quantize
+    from torchao.prototype.attention.fp8_fa3.attention import _fp8_fa3_sdpa
+    from torchao.prototype.attention.fp8_fa3.quantization import _fp8_sdpa_quantize
     from torchao.quantization.utils import compute_error
 
 

@@ -16,7 +16,7 @@ Backward pass is not supported by the underlying backends.
 
 Example::
 
-    from torchao.attention import (
+    from torchao.prototype.attention import (
         LowPrecisionAttentionConfig,
         apply_low_precision_attention,
     )
@@ -34,8 +34,8 @@ Example::
     output = model(inputs)
 """
 
-from torchao.attention.api import apply_low_precision_attention
-from torchao.attention.config import AttentionBackend, LowPrecisionAttentionConfig
+from torchao.prototype.attention.api import apply_low_precision_attention
+from torchao.prototype.attention.config import AttentionBackend, LowPrecisionAttentionConfig
 
 __all__ = [
     # Config

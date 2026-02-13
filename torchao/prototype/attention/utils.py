@@ -12,7 +12,7 @@ import importlib
 
 import torch
 
-from torchao.attention.config import AttentionBackend, LowPrecisionAttentionConfig
+from torchao.prototype.attention.config import AttentionBackend, LowPrecisionAttentionConfig
 
 
 def _is_hopper() -> bool:
