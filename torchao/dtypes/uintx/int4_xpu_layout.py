@@ -19,7 +19,6 @@ from torchao.dtypes.affine_quantized_tensor import (
     register_layout,
 )
 from torchao.dtypes.utils import AQTTensorImpl, Layout, is_device
-from torchao.quantization.quant_primitives import ZeroPointDomain
 from torchao.utils import (
     fill_defaults,
     torch_version_at_least,
@@ -39,6 +38,8 @@ def _aqt_is_xpu_layout_uint4(aqt):
 
 
 def _linear_bf16_act_uint4_weight_float_zero_check(input_tensor, weight_tensor, bias):
+    from torchao.quantization.quant_primitives import ZeroPointDomain
+
     return (
         # input is native bfloat16 tensor
         not is_traceable_wrapper_subclass(input_tensor)
@@ -97,6 +98,8 @@ def _linear_bf16_act_uint4_weight_float_zero_impl(input_tensor, weight_tensor, b
 
 
 def _linear_fp_act_uint4_weight_int8_zero_check(input_tensor, weight_tensor, bias):
+    from torchao.quantization.quant_primitives import ZeroPointDomain
+
     return (
         not is_traceable_wrapper_subclass(input_tensor)
         and

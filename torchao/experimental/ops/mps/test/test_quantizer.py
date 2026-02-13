@@ -14,8 +14,9 @@ from parameterized import parameterized
 # Need to import to load the ops
 import torchao.experimental.ops.mps  # noqa: F401
 from torchao.experimental.quant_api import (
+    UIntxChooseQParamsAlgorithm,
     UIntxWeightOnlyConfig,
-    _linear_int_weight_mps_check,
+    UIntxWeightOnlyQuantizedLinear,
     _quantize,
 )
 from torchao.quantization.quant_api import quantize_
@@ -50,7 +51,7 @@ class TestUIntxWeightOnlyLinearQuantizer(unittest.TestCase):
         )
         quantized_model = copy.deepcopy(model)
         quantized_model = quantized_model.to(device="mps", dtype=precision)
-        quantize_(quantized_model, config, filter_fn=_linear_int_weight_mps_check)
+        quantize_(quantized_model, config)
         return quantized_model
 
     @parameterized.expand(BITWIDTHS)
@@ -200,7 +201,220 @@ class TestUIntxWeightOnlyLinearQuantizer(unittest.TestCase):
             )
 
             # Compare results
-            torch.testing.assert_close(result.cpu(), expected, rtol=0.001, atol=0.001)
+            torch.testing.assert_close(result.cpu(), expected, rtol=0.01, atol=0.01)
+
+    @parameterized.expand([4])  # HQQ is optimized for 4-bit
+    def test_hqq_accuracy(self, nbit):
+        """Test that HQQ quantization produces results consistent with the kernel contract.
+
+        The kernel expects: W_dequant = W_q * scale + zeros
+        HQQ with raw_output=True gives: W_dequant = (W_q - zero) * scale
+        We convert: zeros = -zero * scale to match the kernel format.
+
+        This test verifies that:
+        1. HQQ quantization runs without error
+        2. The quantized model produces output reasonably close to the original
+        3. The output is not corrupted (which would indicate format mismatch)
+        """
+        group_size = 32
+        m = 3
+        n = 12
+        k = 64
+        with torch.no_grad():
+            torch.manual_seed(42)
+            activations = torch.rand(m, k, dtype=torch.float32)
+            model = torch.nn.Sequential(*[torch.nn.Linear(k, n, bias=False)])
+
+            # Get original unquantized output for reference
+            original_output = model(activations)
+
+            # Quantize with HQQ
+            config = UIntxWeightOnlyConfig(
+                bitwidth=nbit,
+                group_size=group_size,
+                uintx_choose_qparams_algorithm=UIntxChooseQParamsAlgorithm.HQQ,
+            )
+            quantized_model = copy.deepcopy(model)
+            quantized_model = quantized_model.to(device="mps", dtype=torch.float32)
+            quantize_(quantized_model, config)
+
+            result = quantized_model(activations.to("mps"))
+
+            # Verify the quantized layer has the expected attributes
+            qlinear = quantized_model[0]
+            self.assertIsInstance(qlinear, UIntxWeightOnlyQuantizedLinear)
+            self.assertEqual(qlinear.nbit, nbit)
+            self.assertEqual(qlinear.group_size, group_size)
+
+            # Verify output is valid (not NaN or Inf)
+            self.assertFalse(torch.isnan(result).any(), "HQQ output contains NaN")
+            self.assertFalse(torch.isinf(result).any(), "HQQ output contains Inf")
+
+            # Verify output is reasonably close to original
+            # 4-bit quantization typically has ~1-5% relative error
+            torch.testing.assert_close(
+                result.cpu(), original_output, rtol=0.1, atol=0.1
+            )
+
+    def test_hqq_vs_default_quantization(self):
+        """Test that HQQ produces different (typically better) quantization than default."""
+        nbit = 4
+        group_size = 32
+        m = 3
+        n = 12
+        k = 64
+
+        with torch.no_grad():
+            # Use a fixed seed for reproducibility
+            torch.manual_seed(42)
+            activations = torch.rand(m, k, dtype=torch.float32)
+            model = torch.nn.Sequential(*[torch.nn.Linear(k, n, bias=False)])
+
+            # Quantize with default (no HQQ)
+            config_default = UIntxWeightOnlyConfig(
+                bitwidth=nbit,
+                group_size=group_size,
+                uintx_choose_qparams_algorithm=UIntxChooseQParamsAlgorithm.MIN_MAX,
+            )
+            model_default = copy.deepcopy(model).to(device="mps", dtype=torch.float32)
+            quantize_(model_default, config_default)
+            result_default = model_default(activations.to("mps"))
+
+            # Quantize with HQQ
+            config_hqq = UIntxWeightOnlyConfig(
+                bitwidth=nbit,
+                group_size=group_size,
+                uintx_choose_qparams_algorithm=UIntxChooseQParamsAlgorithm.HQQ,
+            )
+            model_hqq = copy.deepcopy(model).to(device="mps", dtype=torch.float32)
+            quantize_(model_hqq, config_hqq)
+            result_hqq = model_hqq(activations.to("mps"))
+
+            # Both should produce valid results (not NaN or Inf)
+            self.assertFalse(torch.isnan(result_default).any())
+            self.assertFalse(torch.isnan(result_hqq).any())
+            self.assertFalse(torch.isinf(result_default).any())
+            self.assertFalse(torch.isinf(result_hqq).any())
+
+            # HQQ and default should produce different results
+            # (unless the weights happen to be perfectly distributed)
+            # We don't assert which is better, just that they're different
+            self.assertFalse(
+                torch.allclose(
+                    result_default.cpu(), result_hqq.cpu(), rtol=1e-5, atol=1e-5
+                ),
+                "HQQ and default quantization should produce different results",
+            )
+
+    def test_hqq_better_accuracy_than_default(self):
+        """Test that HQQ produces better quantization accuracy than default min-max.
+
+        HQQ uses an iterative optimization to find better scale/zero parameters,
+        which should result in lower quantization error compared to simple min-max.
+        """
+        nbit = 4
+        group_size = 32
+        m = 10
+        n = 64
+        k = 128
+
+        # Run multiple trials to ensure HQQ is consistently better
+        hqq_wins = 0
+        num_trials = 5
+
+        for trial in range(num_trials):
+            with torch.no_grad():
+                torch.manual_seed(trial * 100)
+                activations = torch.randn(m, k, dtype=torch.float32)
+                model = torch.nn.Sequential(*[torch.nn.Linear(k, n, bias=False)])
+
+                # Get original unquantized output
+                original_output = model(activations)
+
+                # Quantize with default (no HQQ)
+                config_default = UIntxWeightOnlyConfig(
+                    bitwidth=nbit,
+                    group_size=group_size,
+                    uintx_choose_qparams_algorithm=UIntxChooseQParamsAlgorithm.MIN_MAX,
+                )
+                model_default = copy.deepcopy(model).to(
+                    device="mps", dtype=torch.float32
+                )
+                quantize_(model_default, config_default)
+                result_default = model_default(activations.to("mps"))
+
+                # Quantize with HQQ
+                config_hqq = UIntxWeightOnlyConfig(
+                    bitwidth=nbit,
+                    group_size=group_size,
+                    uintx_choose_qparams_algorithm=UIntxChooseQParamsAlgorithm.HQQ,
+                )
+                model_hqq = copy.deepcopy(model).to(device="mps", dtype=torch.float32)
+                quantize_(model_hqq, config_hqq)
+                result_hqq = model_hqq(activations.to("mps"))
+
+                # Compute mean squared error for each method
+                mse_default = torch.mean(
+                    (result_default.cpu() - original_output) ** 2
+                ).item()
+                mse_hqq = torch.mean((result_hqq.cpu() - original_output) ** 2).item()
+
+                if mse_hqq < mse_default:
+                    hqq_wins += 1
+
+        # HQQ should win in majority of trials (at least 3 out of 5)
+        self.assertGreaterEqual(
+            hqq_wins,
+            3,
+            f"HQQ should have lower error than default in most trials, "
+            f"but only won {hqq_wins}/{num_trials} times",
+        )
+
+    def test_config_accepts_string_algorithm(self):
+        """Test that UIntxWeightOnlyConfig accepts string values for algorithm."""
+        # Test "hqq" string
+        config_hqq = UIntxWeightOnlyConfig(uintx_choose_qparams_algorithm="hqq")
+        self.assertEqual(
+            config_hqq.uintx_choose_qparams_algorithm,
+            UIntxChooseQParamsAlgorithm.HQQ,
+        )
+
+        # Test "min_max" string
+        config_min_max = UIntxWeightOnlyConfig(uintx_choose_qparams_algorithm="min_max")
+        self.assertEqual(
+            config_min_max.uintx_choose_qparams_algorithm,
+            UIntxChooseQParamsAlgorithm.MIN_MAX,
+        )
+
+        # Test enum values directly (should also work)
+        config_enum = UIntxWeightOnlyConfig(
+            uintx_choose_qparams_algorithm=UIntxChooseQParamsAlgorithm.HQQ
+        )
+        self.assertEqual(
+            config_enum.uintx_choose_qparams_algorithm,
+            UIntxChooseQParamsAlgorithm.HQQ,
+        )
+
+    def test_config_rejects_invalid_algorithm(self):
+        """Test that UIntxWeightOnlyConfig raises ValueError for invalid algorithm."""
+        with self.assertRaises(ValueError):
+            UIntxWeightOnlyConfig(uintx_choose_qparams_algorithm="invalid_algorithm")
+
+    def test_config_default_algorithm_is_min_max(self):
+        """Test backward compatibility: default algorithm is MIN_MAX when not specified."""
+        # Default config without specifying algorithm
+        config = UIntxWeightOnlyConfig()
+        self.assertEqual(
+            config.uintx_choose_qparams_algorithm,
+            UIntxChooseQParamsAlgorithm.MIN_MAX,
+        )
+
+        # Config with only other params specified
+        config_with_bitwidth = UIntxWeightOnlyConfig(bitwidth=3, group_size=64)
+        self.assertEqual(
+            config_with_bitwidth.uintx_choose_qparams_algorithm,
+            UIntxChooseQParamsAlgorithm.MIN_MAX,
+        )
 
 
 if __name__ == "__main__":

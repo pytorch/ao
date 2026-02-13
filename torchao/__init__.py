@@ -78,12 +78,15 @@ elif not ("+git" in __version__) and not ("unknown" in __version__):
         (_parse_version("0.15.0"), _parse_version("2.9.1")),
         (_parse_version("0.15.0"), _parse_version("2.10.0.dev")),
         # Built against torch 2.10.0
-        (_parse_version("0.15.1"), _parse_version("2.10.0")),
-        (_parse_version("0.15.1"), _parse_version("2.11.0.dev")),
-        # Current torchao version
+        (_parse_version("0.16.0"), _parse_version("2.10.0")),
+        (_parse_version("0.16.0"), _parse_version("2.11.0.dev")),
+        # current torchao version - to be deleted after version bump
         (_parse_version("0.16.0.dev"), _parse_version("2.9.1")),
         (_parse_version("0.16.0.dev"), _parse_version("2.10.0.dev")),
         (_parse_version("0.16.0.dev"), _parse_version("2.11.0.dev")),
+        # next torchao version
+        (_parse_version("0.17.0.dev"), _parse_version("2.10.0")),
+        (_parse_version("0.17.0.dev"), _parse_version("2.11.0.dev")),
     ]
 
     current_torch_version = _parse_version(torch.__version__)
@@ -126,16 +129,18 @@ else:
     except Exception as e:
         logger.debug(f"Skipping import of cpp extensions: {e}")
 
+# must import dtypes before quantization
+from . import dtypes  # noqa: I001
+
 from torchao.quantization import (
-    autoquant,
     quantize_,
 )
 
-from . import dtypes, optim, quantization, swizzle, testing
+from . import optim, quantization, swizzle, testing
 
 __all__ = [
     "dtypes",
-    "autoquant",
+    "autoquant",  # noqa: F405
     "optim",
     "quantize_",
     "swizzle",
@@ -143,3 +148,18 @@ __all__ = [
     "ops",
     "quantization",
 ]
+
+# Lazy imports to avoid CUDA initialization at import time
+_lazy_imports = {
+    "autoquant": "torchao.quantization.autoquant",
+}
+
+
+def __getattr__(name):
+    if name in _lazy_imports:
+        import importlib
+
+        module_path = _lazy_imports[name]
+        module = importlib.import_module(module_path)
+        return getattr(module, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

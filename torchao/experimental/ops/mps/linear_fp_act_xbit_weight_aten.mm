@@ -25,6 +25,7 @@ void check_linear_mps_args(
     int64_t group_size,
     const Tensor& S,
     const Tensor& Z) {
+  auto M = A.size(0);
   auto N = B.size(0);
   auto K = A.size(1);
 
@@ -47,7 +48,7 @@ void check_linear_mps_args(
 
   TORCH_CHECK(K % 8 == 0, __func__, ": expect K to be multiple of 8, got ", K);
 
-  TORCH_CHECK(N % 4 == 0, __func__, ": expect N to be multiple of 4, got ", N);
+  TORCH_CHECK(N % 4 == 0 || M == 1, __func__, ": expect N to be multiple of 4 when M != 1, got N=", N, " M=", M);
 
   TORCH_CHECK(
       group_size == 32 || group_size == 64 || group_size == 128 ||

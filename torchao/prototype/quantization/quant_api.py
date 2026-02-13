@@ -13,7 +13,6 @@ import logging
 import types
 import warnings
 from dataclasses import dataclass
-from enum import Enum
 from typing import Optional
 
 import torch
@@ -23,7 +22,6 @@ from torch import Tensor
 import torchao
 from torchao.core.config import AOBaseConfig
 from torchao.dtypes import (
-    CutlassInt4PackedLayout,
     Int8DynamicActInt4WeightCPULayout,
     PlainLayout,
     UintxLayout,
@@ -47,6 +45,7 @@ from torchao.quantization.quantize_.common import (
     KernelPreference,
     QuantizeTensorKwargs,
 )
+from torchao.quantization.quantize_.common.quantization_step import QuantizationStep
 from torchao.quantization.quantize_.workflows import (
     QuantizeTensorToFloat8Kwargs,
 )
@@ -69,10 +68,15 @@ class Int8DynamicActivationInt4WeightConfig(AOBaseConfig):
     Args:
         `group_size`: parameter for quantization, controls the granularity of quantization, smaller
          size is more fine grained
-        `layout`: layout type for quantized weight tensor, only supports `CutlassInt4PackedLayout()` for now
+        `layout`: layout type for quantized weight tensor
         `mapping_type`: quantization type for weight, controls the weight quantization is symmetric or asymmetric
         `act_mapping_type`: quantization type for activation, controls the activation quantization is symmetric or asymmetric
         `set_inductor_config`: if True, adjusts `torchinductor` settings to recommended values.
+
+    Example:
+
+    .. literalinclude:: ../../examples/inference/int8_dynamic_activation_int4_weight.py
+       :language: python
     """
 
     group_size: int = 32
@@ -120,9 +124,7 @@ def _int8_dynamic_activation_int4_weight_transform(
 
     # avoid circular import
     from torchao.quantization.quant_api import (
-        _int4_symm_cutlass_quant,
         _int8_asymm_per_token_quant,
-        _int8_symm_cutlass_quant,
         _int8_symm_per_token_quant,
         _uint8_asymm_per_token_quant,
     )
@@ -134,16 +136,11 @@ def _int8_dynamic_activation_int4_weight_transform(
         else:
             input_quant_func = _int8_asymm_per_token_quant
     elif act_mapping_type == MappingType.SYMMETRIC:
-        if isinstance(layout, CutlassInt4PackedLayout):
-            input_quant_func = _int8_symm_cutlass_quant
-        else:
-            input_quant_func = _int8_symm_per_token_quant
+        input_quant_func = _int8_symm_per_token_quant
     else:
         assert False, f"Unsupported activation mapping type: {act_mapping_type}"
 
-    if isinstance(layout, CutlassInt4PackedLayout):
-        weight = _int4_symm_cutlass_quant(weight)
-    elif isinstance(layout, Int8DynamicActInt4WeightCPULayout):
+    if isinstance(layout, Int8DynamicActInt4WeightCPULayout):
         weight = to_affine_quantized_intx(
             weight,
             mapping_type,
@@ -168,64 +165,6 @@ def _int8_dynamic_activation_int4_weight_transform(
             custom_zero_point=custom_zero_point,
         )
     weight = to_linear_activation_quantized(weight, input_quant_func)
-    module.weight = torch.nn.Parameter(weight, requires_grad=False)
-    module.extra_repr = types.MethodType(_linear_extra_repr, module)
-    return module
-
-
-@dataclass
-class Int4DynamicActivationInt4WeightConfig(AOBaseConfig):
-    """Applies int4 dynamic per token symmetric activation quantization and int4 per row weight symmetric quantization to linear
-
-    Args:
-        `layout`: layout type for quantized weight tensor, only supports `CutlassInt4PackedLayout()` for now
-        `mapping_type`: quantization type for weight, controls the weight quantization is symmetric or asymmetric
-        `act_mapping_type`: quantization type for activation, controls the activation quantization is symmetric or asymmetric
-        `set_inductor_config`: if True, adjusts `torchinductor` settings to recommended values.
-    """
-
-    layout: Layout = CutlassInt4PackedLayout()
-    mapping_type: MappingType = MappingType.SYMMETRIC
-    act_mapping_type: MappingType = MappingType.SYMMETRIC
-    set_inductor_config: bool = True
-
-    def __post_init__(self):
-        torch._C._log_api_usage_once(
-            "torchao.quantization.Int4DynamicActivationInt4WeightConfig"
-        )
-        warnings.warn(
-            "`Int4DynamicActivationInt4WeightConfig` will be deleted in a future release of torchao. Please see https://github.com/pytorch/ao/issues/2752 for more details."
-        )
-
-
-@register_quantize_module_handler(Int4DynamicActivationInt4WeightConfig)
-def _int4_dynamic_activation_int4_weight_transform(
-    module: torch.nn.Module, config: Int4DynamicActivationInt4WeightConfig
-) -> torch.nn.Module:
-    weight = module.weight
-    layout = config.layout
-    mapping_type = config.mapping_type
-    act_mapping_type = config.act_mapping_type
-    if config.set_inductor_config:
-        torchao.quantization.utils.recommended_inductor_config_setter()
-
-    if not isinstance(layout, CutlassInt4PackedLayout):
-        raise NotImplementedError(
-            f"Only CutlassInt4PackedLayout layout is supported. Received {layout}."
-        )
-    if mapping_type != MappingType.SYMMETRIC:
-        raise NotImplementedError("Only mapping_type=SYMMETRIC is supported.")
-    if act_mapping_type != MappingType.SYMMETRIC:
-        raise NotImplementedError("Only act_mapping_type=SYMMETRIC is supported.")
-
-    # avoid circular import
-    from torchao.quantization.quant_api import _int4_symm_cutlass_quant
-
-    weight = _int4_symm_cutlass_quant(weight)
-    weight = to_linear_activation_quantized(
-        weight,
-        _int4_symm_cutlass_quant,
-    )
     module.weight = torch.nn.Parameter(weight, requires_grad=False)
     module.extra_repr = types.MethodType(_linear_extra_repr, module)
     return module
@@ -309,7 +248,7 @@ class Float8StaticActivationFloat8WeightConfig(AOBaseConfig):
         - Provide act_quant_scale directly (step is not required)
 
     Args:
-        step (Optional[Float8StaticStep]): Specifies the step for the observer-based quantization process.
+        step (Optional[QuantizationStep]): Specifies the step for the observer-based quantization process.
             PREPARE: insert observers to linear
             CONVERT: convert the observed linear modules to linear modules with quantized weights
             Can use the corresponding string "prepare", "convert" for simplicity
@@ -346,7 +285,7 @@ class Float8StaticActivationFloat8WeightConfig(AOBaseConfig):
         quantize_(model, config)
     """
 
-    step: Optional["Float8StaticStep"] = None
+    step: Optional["QuantizationStep"] = None
     act_quant_scale: Optional[torch.Tensor] = None
     activation_dtype: torch.dtype = e4m3_dtype
     weight_dtype: torch.dtype = e4m3_dtype
@@ -368,9 +307,9 @@ class Float8StaticActivationFloat8WeightConfig(AOBaseConfig):
         if self.step is not None:
             if isinstance(self.step, str):
                 self.step = self.step.lower()
-            all_step_values = [s.value for s in Float8StaticStep]
+            all_step_values = [s.value for s in QuantizationStep]
             if self.step not in all_step_values and self.step not in list(
-                Float8StaticStep
+                QuantizationStep
             ):
                 raise ValueError(f"{self.step} is not one of {all_step_values}")
 
@@ -386,12 +325,6 @@ class Float8StaticActivationFloat8WeightConfig(AOBaseConfig):
             mm_config=self.mm_config,
             kernel_preference=self.kernel_preference,
         )
-
-
-# Float8 static quantization step enum
-class Float8StaticStep(str, Enum):
-    PREPARE = "prepare"
-    CONVERT = "convert"
 
 
 class Float8ObservedLinear(torch.nn.Linear):
@@ -574,7 +507,7 @@ def _float8_static_activation_float8_weight_transform(
     step = config.step
     granularity = config.granularity if config.granularity is not None else PerTensor()
 
-    if step == Float8StaticStep.PREPARE or step == "prepare":
+    if step == QuantizationStep.PREPARE or step == "prepare":
         # Handle Softmax modules
         if isinstance(module, torch.nn.Softmax):
             output_observer = AffineQuantizedMinMaxObserver(
@@ -584,6 +517,7 @@ def _float8_static_activation_float8_weight_transform(
                 eps=torch.finfo(torch.float32).eps,
                 scale_dtype=torch.float32,
                 zero_point_dtype=torch.float32,
+                keepdim=True,
             )
             return Float8ObservedSoftmax.from_float(module, output_observer)
 
@@ -596,6 +530,7 @@ def _float8_static_activation_float8_weight_transform(
             eps=torch.finfo(torch.float32).eps,
             scale_dtype=torch.float32,
             zero_point_dtype=torch.float32,
+            keepdim=True,
         )
         # Create output observer if quantize_and_dequantize_output is True
         output_observer = None
@@ -607,10 +542,11 @@ def _float8_static_activation_float8_weight_transform(
                 eps=torch.finfo(torch.float32).eps,
                 scale_dtype=torch.float32,
                 zero_point_dtype=torch.float32,
+                keepdim=True,
             )
         return Float8ObservedLinear.from_float(module, input_observer, output_observer)
 
-    elif step == Float8StaticStep.CONVERT or step == "convert":
+    elif step == QuantizationStep.CONVERT or step == "convert":
         # Handle observed Softmax modules
         if isinstance(module, Float8ObservedSoftmax):
             if module.output_act_obs is None:
@@ -621,8 +557,6 @@ def _float8_static_activation_float8_weight_transform(
 
             # Extract output scale from observer
             output_act_quant_scale, _ = module.output_act_obs.calculate_qparams()
-            if output_act_quant_scale.ndim == 0:
-                output_act_quant_scale = output_act_quant_scale.view(1, 1)
 
             output_act_quant_kwargs = QuantizeTensorToFloat8Kwargs(
                 float8_dtype=config.activation_dtype,
@@ -645,12 +579,7 @@ def _float8_static_activation_float8_weight_transform(
             return module
 
         # Extract activation scale from observer
-        # Scale needs to be 2D for 2D activation tensors
         act_quant_scale, _ = module.input_act_obs.calculate_qparams()
-        if act_quant_scale.ndim == 0:
-            # TODO: add keep_dim arg for `choose_qparams_affine_with_min_max`
-            # to avoid this workaround
-            act_quant_scale = act_quant_scale.view(1, 1)
 
         if config.set_inductor_config:
             torchao.quantization.utils.recommended_inductor_config_setter()
@@ -663,8 +592,6 @@ def _float8_static_activation_float8_weight_transform(
         output_act_quant_kwargs = None
         if module.output_act_obs is not None:
             output_act_quant_scale, _ = module.output_act_obs.calculate_qparams()
-            if output_act_quant_scale.ndim == 0:
-                output_act_quant_scale = output_act_quant_scale.view(1, 1)
             output_act_quant_kwargs = QuantizeTensorToFloat8Kwargs(
                 float8_dtype=activation_dtype,
                 granularity=granularity,
@@ -702,6 +629,7 @@ def _float8_static_activation_float8_weight_transform(
         )
         linear.weight = torch.nn.Parameter(quantized_tensor, requires_grad=False)
         linear.bias = module.bias
+        linear.extra_repr = types.MethodType(_linear_extra_repr, linear)
         return linear
 
     elif step is None:
@@ -751,11 +679,12 @@ def _float8_static_activation_float8_weight_transform(
         )
 
         module.weight = torch.nn.Parameter(quantized_tensor, requires_grad=False)
+        module.extra_repr = types.MethodType(_linear_extra_repr, module)
         return module
 
     else:
         raise ValueError(
-            f"Unexpected step: {step}. Expected one of {[s.value for s in Float8StaticStep]} or None."
+            f"Unexpected step: {step}. Expected one of {[s.value for s in QuantizationStep]} or None."
         )
 
 

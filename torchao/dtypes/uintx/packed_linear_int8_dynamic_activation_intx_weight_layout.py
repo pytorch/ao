@@ -14,14 +14,6 @@ from torch.utils._python_dispatch import return_and_correct_aliasing
 
 from torchao.dtypes.affine_quantized_tensor import register_layout
 from torchao.dtypes.utils import AQTTensorImpl, Layout
-from torchao.quantization.quant_primitives import (
-    _DTYPE_TO_BIT_WIDTH,
-    _DTYPE_TO_QVALUE_BOUNDS,
-    ZeroPointDomain,
-)
-from torchao.quantization.quantize_.workflows.intx.intx_opaque_tensor import (
-    _is_kernel_library_loaded,
-)
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.WARNING)
@@ -164,6 +156,13 @@ class PackedLinearInt8DynamicActivationIntxWeightAQTTensorImpl(AQTTensorImpl):
         *,
         validate_inputs: bool = True,
     ):
+        from torchao.quantization.quant_primitives import (
+            _DTYPE_TO_QVALUE_BOUNDS,
+        )
+        from torchao.quantization.quantize_.workflows.intx.intx_opaque_tensor import (
+            _is_kernel_library_loaded,
+        )
+
         assert isinstance(layout, PackedLinearInt8DynamicActivationIntxWeightLayout)
         assert layout.target in [t for t, _ in _TARGET_AND_STR], (
             f"Unexpected target: {layout.target}"
@@ -421,6 +420,12 @@ def make_packed_linear_int8_dynamic_activation_intx_weight_tensor(
     Constructs an AffineQuantizedTensor with PackedLinearInt8DynamicActivationIntxWeightLayout
     from plain data.
     """
+    from torchao.quantization.quant_primitives import (
+        _DTYPE_TO_BIT_WIDTH,
+        _DTYPE_TO_QVALUE_BOUNDS,
+        ZeroPointDomain,
+    )
+
     layout = PackedLinearInt8DynamicActivationIntxWeightLayout(target=target)
 
     bit_width = _DTYPE_TO_BIT_WIDTH[data_dtype]

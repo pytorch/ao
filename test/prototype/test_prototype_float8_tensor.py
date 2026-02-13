@@ -353,7 +353,8 @@ class TestFloat8StaticActivation(TorchAOIntegrationTestCase):
         act_quant_kwargs = config.get_act_quant_kwargs()
         self.assertIsNotNone(act_quant_kwargs)
 
-    def test_static_quant_with_output_quantization(self):
+    @common_utils.parametrize("input_shape", [(4, 64), (2, 4, 64)])
+    def test_static_quant_with_output_quantization(self, input_shape):
         """
         Test static quantization with output quantization enabled.
 
@@ -361,6 +362,8 @@ class TestFloat8StaticActivation(TorchAOIntegrationTestCase):
         1. An output observer is created during prepare step
         2. The output of the linear layer is quantized to float8 after scaled_mm
         3. The output is then dequantized back to original dtype
+
+        Tests both 2D (batch_size, input_dim) and 3D (batch_size, seq_len, input_dim) inputs.
         """
         torch.compiler.reset()
         torch.manual_seed(42)
@@ -371,7 +374,7 @@ class TestFloat8StaticActivation(TorchAOIntegrationTestCase):
         model = ToySingleLinearModel(
             input_dim=64, output_dim=32, dtype=dtype, device="cuda"
         ).eval()
-        example_inputs = model.example_inputs(batch_size=4)
+        example_inputs = (torch.randn(*input_shape, dtype=dtype, device="cuda"),)
 
         # Get reference output before quantization
         before_quant = model(*example_inputs)
@@ -428,6 +431,38 @@ class TestFloat8StaticActivation(TorchAOIntegrationTestCase):
             15,
             f"SQNR of compiled quantized vs original should be > 15 dB, got {error_compiled}",
         )
+
+    def test_create_tensor_out_of_inference_mode(self):
+        # Test https://github.com/pytorch/pytorch/issues/170419
+        dtype = self.dtype
+        linear = torch.nn.Linear(32, 48, bias=True, device="cuda", dtype=dtype)
+        linear.eval()
+        linear.requires_grad_(False)
+
+        # Get activation scale from dynamic quantization
+        input_tensor = torch.randn(16, 32, dtype=dtype, device="cuda")
+        dynamic_config = Float8DynamicActivationFloat8WeightConfig(
+            granularity=PerTensor()
+        )
+        linear_dynamic = copy.deepcopy(linear)
+        quantize_(linear_dynamic, dynamic_config)
+        quantized_input = _choose_quant_func_and_quantize_tensor(
+            input_tensor, linear_dynamic.weight.act_quant_kwargs
+        )
+
+        quantize_(
+            linear,
+            Float8StaticActivationFloat8WeightConfig(
+                act_quant_scale=quantized_input.scale.detach().clone(),
+                granularity=PerTensor(),
+            ),
+        )
+
+        # Forward pass inside inference_mode should work
+        with torch.inference_mode():
+            output = linear(input_tensor)
+            self.assertEqual(output.shape, (16, 48))
+            self.assertEqual(output.dtype, dtype)
 
     def test_static_quant_softmax(self):
         """

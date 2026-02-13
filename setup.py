@@ -8,6 +8,7 @@ import glob
 import json
 import os
 import pickle
+import re
 import subprocess
 import sys
 import time
@@ -147,6 +148,38 @@ from torch.utils.cpp_extension import (
     CUDAExtension,
     _get_cuda_arch_flags,
 )
+
+
+# Check if torch version is at least 2.10.0 (for stable ABI support)
+# util copied from torchao/utils.py
+def _parse_version(version_string):
+    """
+    Parse version string representing pre-release with -1
+
+    Examples: "2.5.0.dev20240708+cu121" -> [2, 5, -1], "2.5.0" -> [2, 5, 0]
+    """
+    # Check for pre-release indicators
+    is_prerelease = bool(re.search(r"(git|dev)", version_string))
+    match = re.match(r"(\d+)\.(\d+)\.(\d+)", version_string)
+    if match:
+        major, minor, patch = map(int, match.groups())
+        if is_prerelease:
+            patch = -1
+        return [major, minor, patch]
+    else:
+        raise ValueError(f"Invalid version string format: {version_string}")
+
+
+def _is_fbcode():
+    return not hasattr(torch.version, "git_version")
+
+
+def _torch_version_at_least(min_version):
+    if _is_fbcode():
+        return True
+
+    # Parser for local identifiers
+    return _parse_version(torch.__version__) >= _parse_version(min_version)
 
 
 def detect_hipify_v2():
@@ -474,10 +507,13 @@ def get_extensions():
         )
 
         if use_cpu_kernels and is_linux:
-            if (
-                hasattr(torch._C._cpu, "_is_avx512_supported")
-                and torch._C._cpu._is_avx512_supported()
-            ):
+            if hasattr(torch._C._cpu, "_is_avx512_supported"):
+                is_avx512_supported = torch._C._cpu._is_avx512_supported()
+            elif hasattr(torch.cpu, "_is_avx512_supported"):
+                is_avx512_supported = torch.cpu._is_avx512_supported()
+            else:
+                is_avx512_supported = False
+            if is_avx512_supported:
                 extra_compile_args["cxx"].extend(
                     [
                         "-DCPU_CAPABILITY_AVX512",
@@ -486,10 +522,13 @@ def get_extensions():
                         "-fopenmp",
                     ]
                 )
-            if (
-                hasattr(torch._C._cpu, "_is_avx512_vnni_supported")
-                and torch._C._cpu._is_avx512_vnni_supported()
-            ):
+            if hasattr(torch._C._cpu, "_is_avx512_vnni_supported"):
+                is_avx512_vnni_supported = torch._C._cpu._is_avx512_vnni_supported()
+            elif hasattr(torch.cpu, "_is_avx512_vnni_supported"):
+                is_avx512_vnni_supported = torch.cpu._is_avx512_vnni_supported()
+            else:
+                is_avx512_vnni_supported = False
+            if is_avx512_vnni_supported:
                 extra_compile_args["cxx"].extend(
                     [
                         "-DCPU_CAPABILITY_AVX512_VNNI",
@@ -511,7 +550,6 @@ def get_extensions():
             extra_compile_args["nvcc"].append("-g")
             extra_link_args.append("/DEBUG")
 
-    rocm_tiled_layout_supported = False
     if use_rocm:
         # naive search for hipblalst.h, if any found contain HIPBLASLT_ORDER_COL16 and VEC_EXT
         found_col16 = False
@@ -583,10 +621,6 @@ def get_extensions():
     rocm_source_dirs = [
         os.path.join(extensions_dir, "rocm", "swizzle"),
     ]
-    if rocm_tiled_layout_supported:
-        rocm_source_dirs.append(
-            os.path.join(extensions_dir, "cuda", "tensor_core_tiled_layout")
-        )
 
     # Collect all ROCm sources from the defined directories
     rocm_sources = []
@@ -652,20 +686,19 @@ def get_extensions():
         )
 
         build_for_sm90a, build_for_sm100a = get_cutlass_build_flags()
-        # Define sm90a sources
+
+        # Define sm90a sources that use stable ABI (requires torch >= 2.10.0)
         cutlass_90a_sources = [
-            os.path.join(
-                extensions_cuda_dir,
-                "rowwise_scaled_linear_sparse_cutlass",
-                "rowwise_scaled_linear_sparse_cutlass_f8f8.cu",
-            ),
             os.path.join(
                 extensions_cuda_dir,
                 "to_sparse_semi_structured_cutlass_sm9x",
                 "to_sparse_semi_structured_cutlass_sm9x_f8.cu",
             ),
-            os.path.join(extensions_cuda_dir, "activation24", "sparsify24.cu"),
-            os.path.join(extensions_cuda_dir, "activation24", "sparse_gemm.cu"),
+            os.path.join(
+                extensions_cuda_dir,
+                "rowwise_scaled_linear_sparse_cutlass",
+                "rowwise_scaled_linear_sparse_cutlass_f8f8.cu",
+            ),
         ]
         for dtypes in ["e4m3e4m3", "e4m3e5m2", "e5m2e4m3", "e5m2e5m2"]:
             cutlass_90a_sources.append(
@@ -675,6 +708,7 @@ def get_extensions():
                     "rowwise_scaled_linear_sparse_cutlass_" + dtypes + ".cu",
                 )
             )
+
         # Always remove sm90a sources from main sources
         sources = [s for s in sources if s not in cutlass_90a_sources]
 
@@ -738,16 +772,30 @@ def get_extensions():
             )
 
     # Only build the cutlass_90a extension if sm90a is in the architecture flags
+    # and if torch version >= 2.10
     if (
         cutlass_90a_sources is not None
         and len(cutlass_90a_sources) > 0
         and build_for_sm90a
+        and _torch_version_at_least("2.10.0")
     ):
         cutlass_90a_extra_compile_args = copy.deepcopy(extra_compile_args)
         # Only use sm90a architecture for these sources, ignoring other flags
-        cutlass_90a_extra_compile_args["nvcc"].append(
-            "-gencode=arch=compute_90a,code=sm_90a"
+        cutlass_90a_extra_compile_args["nvcc"].extend(
+            [
+                "-DUSE_CUDA",
+                "-gencode=arch=compute_90a,code=sm_90a",
+                "-DTORCH_TARGET_VERSION=0x020a000000000000",
+            ]
         )
+        # Add compile flags for stable ABI support (requires torch >= 2.10)
+        cutlass_90a_extra_compile_args["cxx"].extend(
+            [
+                "-DUSE_CUDA",
+                "-DTORCH_TARGET_VERSION=0x020a000000000000",
+            ]
+        )
+        # stable ABI cutlass_90a module
         ext_modules.append(
             extension(
                 "torchao._C_cutlass_90a",

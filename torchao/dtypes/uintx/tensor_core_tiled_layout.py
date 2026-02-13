@@ -19,11 +19,6 @@ from torchao.dtypes.affine_quantized_tensor import (
     register_layout,
 )
 from torchao.dtypes.utils import AQTTensorImpl, Layout, is_device
-from torchao.quantization.quant_primitives import (
-    ZeroPointDomain,
-    _get_reduction_params,
-    _quantize_affine_tinygemm,
-)
 from torchao.utils import (
     fill_defaults,
     find_multiple,
@@ -57,6 +52,10 @@ def _same_metadata(
 
 
 def _linear_bf16_act_uint4_weight_check(input_tensor, weight_tensor, bias):
+    from torchao.quantization.quant_primitives import (
+        ZeroPointDomain,
+    )
+
     return (
         # input is native bfloat16 tensor
         not is_traceable_wrapper_subclass(input_tensor)
@@ -142,6 +141,10 @@ class TensorCoreTiledLayout(Layout):
         zero_point: torch.Tensor,
         block_size: Tuple[int, ...],
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        from torchao.quantization.quant_primitives import (
+            _get_reduction_params,
+        )
+
         input = self.pre_process(input)
         orig_qparam_shape = scale.shape
         new_qparam_shape, reduction_dims = _get_reduction_params(
@@ -467,6 +470,9 @@ class TensorCoreTiledAQTTensorImpl(AQTTensorImpl):
         return tuple([*ones, groupsize])
 
     def get_plain(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        from torchao.quantization.quant_primitives import (
+            _quantize_affine_tinygemm,
+        )
         from torchao.quantization.utils import unpack_tinygemm_scales_and_zeros
 
         def dequant_4d(self):

@@ -3,7 +3,6 @@
 #
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
-from enum import Enum
 from typing import Optional
 
 import torch
@@ -12,12 +11,6 @@ import torch.nn.functional as F
 from torchao.quantization.quantize_.common import (
     _choose_quant_func_and_quantize_tensor,
 )
-
-
-class SmoothQuantStep(str, Enum):
-    PREPARE = "prepare"
-    CONVERT = "convert"
-    PREPARE_FOR_LOADING = "prepare_for_loading"
 
 
 class SmoothQuantObserver(torch.nn.Module):
@@ -84,18 +77,18 @@ class SmoothQuantObservedLinear(torch.nn.Linear):
         in_features: int,
         out_features: int,
         obs: SmoothQuantObserver,
-        is_bias: bool = False,
+        has_bias: bool = False,
         device=None,
         dtype=None,
     ):
         super().__init__(
-            in_features, out_features, bias=is_bias, device=device, dtype=dtype
+            in_features, out_features, bias=has_bias, device=device, dtype=dtype
         )
         self.obs = obs
 
     def forward(self, input: torch.Tensor):
         input = self.obs(input)
-        return F.linear(input, self.weight)
+        return F.linear(input, self.weight, self.bias)
 
     @classmethod
     def from_float(cls, float_linear: torch.nn.Linear, obs: SmoothQuantObserver):
@@ -104,7 +97,7 @@ class SmoothQuantObservedLinear(torch.nn.Linear):
                 float_linear.in_features,
                 float_linear.out_features,
                 obs,
-                is_bias=float_linear.bias is not None,
+                has_bias=float_linear.bias is not None,
                 device=float_linear.weight.device,
                 dtype=float_linear.weight.dtype,
             )

@@ -91,12 +91,12 @@ class _UnpermuteHPFwdMXFP8Bwd(torch.autograd.Function):
             grad_input = MXTensor(
                 qdata_permuted,
                 scales_permuted,
-                elem_dtype=grad_output._elem_dtype,
+                elem_dtype=grad_output.elem_dtype,
                 block_size=grad_output.block_size,
-                orig_dtype=grad_output._orig_dtype,
+                orig_dtype=grad_output.orig_dtype,
                 kernel_preference=grad_output.kernel_preference,
                 act_quant_kwargs=grad_output.act_quant_kwargs,
-                is_swizzled_scales=grad_output._is_swizzled_scales,
+                is_swizzled_scales=grad_output.is_swizzled_scales,
             )
         else:
             # BF16 tensor path: permute directly
