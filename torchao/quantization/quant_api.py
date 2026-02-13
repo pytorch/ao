@@ -48,7 +48,7 @@ from torchao.dtypes.uintx.packed_linear_int8_dynamic_activation_intx_weight_layo
     Target,
 )
 from torchao.dtypes.utils import Layout
-from torchao.float8.config import e4m3_dtype, e5m2_dtype
+from torchao.float8.config import e4m3_dtype
 from torchao.float8.float8_linear import Float8Linear
 from torchao.float8.inference import (
     Float8MMConfig,
@@ -104,7 +104,6 @@ from torchao.quantization.utils import (
 from torchao.utils import (
     is_MI300,
     is_sm_at_least_89,
-    is_sm_at_least_90,
 )
 
 from .granularity import (
@@ -147,7 +146,6 @@ __all__ = [
     "quantize_",
     "intx_quantization_aware_training",
     "Int8DynActInt4WeightQuantizer",
-    "Float8DynamicActivationFloat8SemiSparseWeightConfig",
     "ModuleFqnToConfig",
 ]
 
@@ -1578,63 +1576,6 @@ def _float8_dynamic_activation_float8_weight_transform(
         ),
         module,
     )
-    return module
-
-
-@dataclass
-class Float8DynamicActivationFloat8SemiSparseWeightConfig(AOBaseConfig):
-    """
-    Applies float8 dynamic quantization to activations and float8 quantization followed by compression to sparse semi-structured tensor to weights of linear layers.
-
-    Args:
-        `layout`: layout type for quantized weight tensor, only supports `CutlassSemiSparseLayout` at the moment.
-        `activation_dtype`: data type for quantized activation tensor.
-        `weight_dtype`: data type for quantized weight tensor.
-    """
-
-    layout: Layout = CutlassSemiSparseLayout()
-    activation_dtype: torch.dtype = e5m2_dtype
-    weight_dtype: torch.dtype = e4m3_dtype
-
-    def __post_init__(self):
-        torch._C._log_api_usage_once(
-            "torchao.quantization.Float8DynamicActivationFloat8SemiSparseWeightConfig"
-        )
-
-
-@register_quantize_module_handler(Float8DynamicActivationFloat8SemiSparseWeightConfig)
-def _float8_dynamic_activation_float8_semi_sparse_weight_transform(
-    module: torch.nn.Module, config: Float8DynamicActivationFloat8SemiSparseWeightConfig
-):
-    warnings.warn(
-        "Config Deprecation: Float8DynamicActivationFloat8SemiSparseWeightConfig is deprecated and will no longer be supported in a future release. "
-        "Please use Float8DynamicActivationFloat8WeightConfig with packing_format=Float8PackingFormat.SPARSE_CUTLASS and granularity=PerRow() instead. "
-        "See https://github.com/pytorch/ao/issues/3594 for more details"
-    )
-    assert is_sm_at_least_90(), "Float8 quantization is only supported on CUDA>=9.0"
-
-    if isinstance(module, Float8Linear):
-        module = _unwrap_float8_linear(module)
-
-    weight = module.weight
-    weight_dtype = config.weight_dtype
-    activation_dtype = config.activation_dtype
-    layout = config.layout
-
-    if not isinstance(layout, CutlassSemiSparseLayout):
-        raise NotImplementedError(
-            f"Only CutlassSemiSparseLayout layout is supported. Received {layout}."
-        )
-
-    weight = _float8_cutlass_quant_sparse(weight, weight_dtype)
-    weight = to_linear_activation_quantized(
-        weight,
-        _float8_cutlass_quant,
-        quant_kwargs={"target_dtype": activation_dtype},
-    )
-
-    module.weight = torch.nn.Parameter(weight, requires_grad=False)
-    module.extra_repr = types.MethodType(_linear_extra_repr, module)
     return module
 
 
