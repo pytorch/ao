@@ -175,7 +175,7 @@
   fbq('track', 'PageView');
 </script>
 <script>
-  document.documentElement.setAttribute('data-version', 'main (0.17.0+gita8a8ca9 )');
+  document.documentElement.setAttribute('data-version', 'main (0.17.0+gitcfbfa8b )');
 </script>
 <noscript>
   <img height="1" width="1" src="https://www.facebook.com/tr?id=243028289693773&ev=PageView&noscript=1" />
@@ -1423,14 +1423,14 @@ Specifically, we quantize the matrix multiplies in the forward and backward of a
 <span id="float8-section"></span><h2>float8<a class="headerlink" href="#float8" title="Link to this heading">#</a></h2>
 <p>This is a workflow for accelerating training with <a class="reference external" href="https://arxiv.org/pdf/2209.05433.pdf">float8</a> in native PyTorch.
 With <code class="docutils literal notranslate"><span class="pre">torch.compile</span></code> on, we demonstrate e2e pretraining throughput speedups of up to <a class="reference external" href="https://pytorch.org/blog/training-using-float8-fsdp2/"><strong>1.5x at 512 GPU / 405B parameter count scale</strong></a>,
-and up to <a class="reference internal" href="#training-benchmarks"><span class="xref myst"><strong>1.25x at 8 GPU / 8B parameter count scale</strong></span></a>.
+and up to <a class="reference internal" href="#training-benchmarks"><strong>1.25x at 8 GPU / 8B parameter count scale</strong></a>.
 The codebase strives to stay small, hackable, debuggable with native PyTorch tooling
 and composable with key systems such as autograd, <code class="docutils literal notranslate"><span class="pre">torch.compile</span></code> and distributed.</p>
 <section id="key-features">
 <h3>Key features<a class="headerlink" href="#key-features" title="Link to this heading">#</a></h3>
 <ul class="simple">
 <li><p>e2e pretraining speedups of up to <a class="reference external" href="https://pytorch.org/blog/training-using-float8-fsdp2/"><strong>1.5x at 512 GPU / 405B parameter count scale</strong></a>,
-and up to <a class="reference internal" href="#training-benchmarks"><span class="xref myst"><strong>1.25x at 8 GPU / 8B parameter count scale</strong></span></a>, with performance and accuracy validated on up to <a class="reference external" href="https://pytorch.org/blog/accelerating-large-scale-training-and-convergence-with-pytorch-float8-rowwise-on-crusoe-2k-h200s/"><strong>2k GPUs</strong></a>, via <a class="reference external" href="https://github.com/pytorch/torchtitan/blob/main/docs/float8.md">torchtitan’s float8 integration</a></p></li>
+and up to <a class="reference internal" href="#training-benchmarks"><strong>1.25x at 8 GPU / 8B parameter count scale</strong></a>, with performance and accuracy validated on up to <a class="reference external" href="https://pytorch.org/blog/accelerating-large-scale-training-and-convergence-with-pytorch-float8-rowwise-on-crusoe-2k-h200s/"><strong>2k GPUs</strong></a>, via <a class="reference external" href="https://github.com/pytorch/torchtitan/blob/main/docs/float8.md">torchtitan’s float8 integration</a></p></li>
 <li><p>seamless composability with <a class="reference external" href="https://docs.pytorch.org/docs/stable/torch.compiler.html">torch.compile</a>, <a class="reference external" href="https://docs.pytorch.org/docs/stable/distributed.tensor.html">DTensor</a>, <a class="reference external" href="https://dev-discuss.pytorch.org/t/enabling-float8-all-gather-in-fsdp2/2359">FSDP2 with float8 weight all-gather</a>, <a class="reference external" href="https://discuss.pytorch.org/t/distributed-w-torchtitan-introducing-async-tensor-parallelism-in-pytorch/209487">Async TP</a>, and <a class="reference external" href="https://pytorch.org/blog/activation-checkpointing-techniques/">PyTorch AC</a></p></li>
 <li><p>three recipes to trade off performance vs accuracy: <code class="docutils literal notranslate"><span class="pre">tensorwise</span></code> (fastest), <code class="docutils literal notranslate"><span class="pre">rowwise</span></code>, <code class="docutils literal notranslate"><span class="pre">rowwise_with_gw_hp</span></code> (most accurate)</p></li>
 <li><p>supports both NVIDIA and AMD hardware</p></li>
@@ -1489,7 +1489,7 @@ and up to <a class="reference internal" href="#training-benchmarks"><span class=
 </div>
 </section>
 <section id="e2e-training-benchmarks">
-<h3>e2e training benchmarks<a class="headerlink" href="#e2e-training-benchmarks" title="Link to this heading">#</a></h3>
+<span id="training-benchmarks"></span><h3>e2e training benchmarks<a class="headerlink" href="#e2e-training-benchmarks" title="Link to this heading">#</a></h3>
 <p><a class="reference external" href="https://github.com/pytorch/torchtitan">Torchtitan</a> was used to benchmark float8 training performance.</p>
 <section id="nvidia-h100">
 <h4>NVIDIA H100<a class="headerlink" href="#nvidia-h100" title="Link to this heading">#</a></h4>
