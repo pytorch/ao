@@ -63,7 +63,6 @@ from torchao.float8.inference import (
 from torchao.prototype.quantization.quant_api import (
     Float8StaticActivationFloat8WeightConfig,  # noqa: F401
     GemliteUIntXWeightOnlyConfig,  # noqa: F401
-    Int8DynamicActivationInt4WeightConfig,  # noqa: F401
     UIntXWeightOnlyConfig,  # noqa: F401
 )
 from torchao.quantization.linear_activation_weight_observed_tensor import (
@@ -570,9 +569,6 @@ class Int8DynamicActivationIntxWeightConfig(AOBaseConfig):
     More specifically, activations are dynamically quantized to 8-bits at a per-token granularity with scales/zeros.
     Weights are quantized with scales/zeros in a groupwise or channelwise manner using the number of bits specified by weight_dtype.
 
-    This layout is identical to Int8DynamicActivationInt4WeightConfig when weight_dtype is torch.int4 and other args
-    are the same.  However, this layout is more general and supports other weight dtypes.
-
     args:
         `weight_dtype`: The dtype to use for weight quantization.  Must be torch.intx, where 1 <= x <= 8.
        ` weight_granularity`: The granularity to use for weight quantization.  Must be PerGroup or PerAxis(axis=0).
@@ -596,7 +592,6 @@ class Int8DynamicActivationIntxWeightConfig(AOBaseConfig):
     weight_dtype: torch.dtype = torch.int8
     weight_granularity: Granularity = PerGroup(32)
     weight_mapping_type: MappingType = MappingType.SYMMETRIC
-    # TODO: add weight_scale_dtype to Int8DynamicActivationInt4WeightConfig
     weight_scale_dtype: Optional[torch.dtype] = None
     act_mapping_type: MappingType = MappingType.ASYMMETRIC
     intx_packing_format: IntxPackingFormat = IntxPackingFormat.UNPACKED_TO_INT8

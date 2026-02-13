@@ -34,7 +34,6 @@ from torchao.quantization.quant_api import (
     Float8WeightOnlyConfig,
     GemliteUIntXWeightOnlyConfig,
     Int4WeightOnlyConfig,
-    Int8DynamicActivationInt4WeightConfig,
     Int8DynamicActivationInt8WeightConfig,
     Int8WeightOnlyConfig,
     ModuleFqnToConfig,
@@ -67,9 +66,6 @@ configs = [
         int4_choose_qparams_algorithm="hqq",
         version=2,
     ),
-    Int8DynamicActivationInt4WeightConfig(
-        group_size=64,
-    ),
     Int8DynamicActivationInt8WeightConfig(),
     # Int8DynamicActivationInt8WeightConfig(layout=SemiSparseLayout()),
     Int8WeightOnlyConfig(
@@ -92,7 +88,7 @@ configs = [
     ModuleFqnToConfig(
         {
             "linear1": Int4WeightOnlyConfig(),
-            "linear2": Int8DynamicActivationInt4WeightConfig(),
+            "linear2": Int8DynamicActivationInt8WeightConfig(),
         }
     ),
     AWQConfig(

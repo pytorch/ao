@@ -72,7 +72,6 @@ from torchao.quantization.quant_api import (
     Float8DynamicActivationFloat8WeightConfig,
     Float8DynamicActivationInt4WeightConfig,
     Int4WeightOnlyConfig,
-    Int8DynamicActivationInt4WeightConfig,
     Int8DynamicActivationIntxWeightConfig,
     IntxWeightOnlyConfig,
 )
@@ -1243,7 +1242,7 @@ class TestQAT(TestCase):
         """
         Test that the correct errors are thrown if `QATConfig` is not instantiated properly.
         """
-        base_config = Int8DynamicActivationInt4WeightConfig(group_size=32)
+        base_config = Int4WeightOnlyConfig(group_size=32)
         fq_config = IntxFakeQuantizeConfig(torch.int8, "per_channel")
 
         # OK
@@ -1360,54 +1359,6 @@ class TestQAT(TestCase):
         # Only linear and embedding are supported currently
         with self.assertRaisesRegex(ValueError, "does not have QAT support"):
             quantize_(m, qat_config, lambda m, _: isinstance(m, torch.nn.ReLU))
-
-    def test_quantize_api_e2e(self):
-        """
-        Test that the following:
-
-            quantize_(model, QATConfig(Int8DynamicActivationInt4WeightConfig(), step="prepare"))
-            quantize_(model, QATConfig(Int8DynamicActivationInt4WeightConfig(), step="convert"))
-
-        can produce the same results as `Int8DynActInt4WeightQATQuantizer` prepare + convert.
-        """
-        from torchao.quantization.qat import (
-            Int8DynActInt4WeightQATQuantizer,
-        )
-
-        group_size = 16
-        torch.manual_seed(self.SEED)
-        m = M()
-        baseline_model = copy.deepcopy(m)
-
-        # Baseline prepare
-        baseline_quantizer = Int8DynActInt4WeightQATQuantizer(groupsize=group_size)
-        baseline_model = baseline_quantizer.prepare(baseline_model)
-
-        # quantize_ prepare
-        base_config = Int8DynamicActivationInt4WeightConfig(group_size=group_size)
-        quantize_(m, QATConfig(base_config, step="prepare"))
-
-        # Compare prepared values
-        torch.manual_seed(self.SEED)
-        x = m.example_inputs()
-        x2 = copy.deepcopy(x)
-        out = m(*x)
-        baseline_out = baseline_model(*x2)
-        torch.testing.assert_close(out, baseline_out, atol=0, rtol=0)
-
-        # Baseline convert
-        baseline_model = baseline_quantizer.convert(baseline_model)
-
-        # quantize_ convert
-        quantize_(m, QATConfig(base_config, step="convert"))
-
-        # Compare converted values
-        torch.manual_seed(self.SEED)
-        x = m.example_inputs()
-        x2 = copy.deepcopy(x)
-        out = m(*x)
-        baseline_out = baseline_model(*x2)
-        torch.testing.assert_close(out, baseline_out, atol=0, rtol=0)
 
     def test_fake_quantize_config_torch_intx(self):
         """
@@ -1731,57 +1682,6 @@ class TestQAT(TestCase):
         self.assertNotEqual(torch.count_nonzero(new_weight.grad), 0)
         self.assertFalse(torch.equal(new_weight, prev_weight))
 
-    def test_legacy_quantize_api_e2e(self):
-        """
-        Test that the following two APIs are numerically equivalent:
-
-        New API:
-            quantize_(model, QATConfig(Int8DynamicActivationInt4WeightConfig(), step="prepare"))
-            quantize_(model, QATConfig(Int8DynamicActivationInt4WeightConfig(), step="convert"))
-
-        Old API:
-            quantize_(model, IntXQuantizationAwareTrainingConfig(...))
-            quantize_(model, FromIntXQuantizationAwareTrainingConfig())
-            quantize_(model, Int8DynamicActivationInt4WeightConfig())
-        """
-        group_size = 16
-        torch.manual_seed(self.SEED)
-        m = M()
-        baseline_model = copy.deepcopy(m)
-
-        # Baseline prepare
-        act_config = IntxFakeQuantizeConfig(torch.int8, "per_token", is_symmetric=False)
-        weight_config = IntxFakeQuantizeConfig(TorchAODType.INT4, group_size=group_size)
-        old_qat_config = IntXQuantizationAwareTrainingConfig(act_config, weight_config)
-        quantize_(baseline_model, old_qat_config)
-
-        # QATConfig prepare
-        base_config = Int8DynamicActivationInt4WeightConfig(group_size=group_size)
-        quantize_(m, QATConfig(base_config, step="prepare"))
-
-        # Compare prepared values
-        torch.manual_seed(self.SEED)
-        x = m.example_inputs()
-        x2 = copy.deepcopy(x)
-        out = m(*x)
-        baseline_out = baseline_model(*x2)
-        torch.testing.assert_close(out, baseline_out, atol=0, rtol=0)
-
-        # Baseline convert
-        quantize_(baseline_model, FromIntXQuantizationAwareTrainingConfig())
-        quantize_(baseline_model, base_config)
-
-        # quantize_ convert
-        quantize_(m, QATConfig(base_config, step="convert"))
-
-        # Compare converted values
-        torch.manual_seed(self.SEED)
-        x = m.example_inputs()
-        x2 = copy.deepcopy(x)
-        out = m(*x)
-        baseline_out = baseline_model(*x2)
-        torch.testing.assert_close(out, baseline_out, atol=0, rtol=0)
-
     def test_qat_api_deprecation(self):
         """
         Test that the appropriate deprecation warning is logged exactly once per class.
@@ -1829,7 +1729,7 @@ class TestQAT(TestCase):
         baseline_model = copy.deepcopy(m)
 
         # Prepare swaps to FakeQuantizedLinear
-        quantize_(m, QATConfig(Int8DynamicActivationInt4WeightConfig(), step="prepare"))
+        quantize_(m, QATConfig(Int4WeightOnlyConfig(), step="prepare"))
         self.assertEqual(type(m.linear1), FakeQuantizedLinear)
         self.assertEqual(type(m.sub.linear), FakeQuantizedLinear)
         self.assertEqual(type(m.linear2), FakeQuantizedLinear)
@@ -1978,19 +1878,6 @@ class TestQAT(TestCase):
         self._test_quantize_api_against_ptq(
             Int4WeightOnlyConfig(version=version, int4_packing_format=packing_format),
             target_prepare_sqnr=45 if version == 2 else 12,
-            target_convert_sqnr=float("inf"),
-        )
-
-    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
-    def test_quantize_api_int8_int4(self):
-        """
-        Test the following:
-            quantize_(model, QATConfig(Int8DynamicActivationInt4WeightConfig(), step="prepare"))
-            quantize_(model, QATConfig(Int8DynamicActivationInt4WeightConfig(), step="convert"))
-        """
-        self._test_quantize_api_against_ptq(
-            Int8DynamicActivationInt4WeightConfig(group_size=32),
-            target_prepare_sqnr=30,
             target_convert_sqnr=float("inf"),
         )
 
@@ -2402,7 +2289,6 @@ class TestQAT(TestCase):
         "base_config_cls",
         [
             IntxWeightOnlyConfig,
-            Int8DynamicActivationInt4WeightConfig,
             Int8DynamicActivationIntxWeightConfig,
         ],
     )
@@ -2430,24 +2316,11 @@ class TestQAT(TestCase):
         scale1 = m.linear1.weight_fake_quantizer.scale
         scale2 = m.linear2.weight_fake_quantizer.scale
         sub_scale = m.sub.linear.weight_fake_quantizer.scale
-        if base_config_cls == Int8DynamicActivationInt4WeightConfig:
-            base_config = base_config_cls()
-            quantize_(m, QATConfig(base_config, step="convert"))
-            torch.testing.assert_close(
-                m.linear1.weight.original_weight_tensor.tensor_impl.scale, scale1
-            )
-            torch.testing.assert_close(
-                m.linear2.weight.original_weight_tensor.tensor_impl.scale, scale2
-            )
-            torch.testing.assert_close(
-                m.sub.linear.weight.original_weight_tensor.tensor_impl.scale, sub_scale
-            )
-        else:
-            base_config = base_config_cls(torch.int4, PerGroup(group_size))
-            quantize_(m, QATConfig(base_config, step="convert"))
-            torch.testing.assert_close(m.linear1.weight.scale, scale1)
-            torch.testing.assert_close(m.linear2.weight.scale, scale2)
-            torch.testing.assert_close(m.sub.linear.weight.scale, sub_scale)
+        base_config = base_config_cls(torch.int4, PerGroup(group_size))
+        quantize_(m, QATConfig(base_config, step="convert"))
+        torch.testing.assert_close(m.linear1.weight.scale, scale1)
+        torch.testing.assert_close(m.linear2.weight.scale, scale2)
+        torch.testing.assert_close(m.sub.linear.weight.scale, sub_scale)
 
     @unittest.skipIf(not _MXFP4_TORCH_AVAILABLE, "Need pytorch 2.8+ for MXFP4")
     @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")

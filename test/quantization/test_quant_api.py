@@ -26,7 +26,6 @@ from torchao.quantization import (
     Float8Tensor,
     Int4TilePackedTo4dTensor,
     IntxUnpackedToInt8Tensor,
-    LinearActivationQuantizedTensor,
     PerGroup,
 )
 from torchao.quantization.pt2e.quantize_pt2e import convert_pt2e, prepare_pt2e
@@ -40,7 +39,6 @@ from torchao.quantization.quant_api import (
     FqnToConfig,
     GemliteUIntXWeightOnlyConfig,
     Int4WeightOnlyConfig,
-    Int8DynamicActivationInt4WeightConfig,
     Int8DynamicActivationInt8WeightConfig,
     Int8DynamicActivationIntxWeightConfig,
     Int8WeightOnlyConfig,
@@ -261,46 +259,6 @@ class TestQuantFlow(TestCase):
         assert isinstance(m.linear2, Int8DynActInt4WeightLinear)
         m(*example_inputs)
 
-    # TODO: move to a separate test file
-    @common_utils.parametrize(
-        "mapping_type", [MappingType.SYMMETRIC, MappingType.SYMMETRIC_NO_CLIPPING_ERR]
-    )
-    def test_quantized_tensor_subclass_8da4w(self, mapping_type):
-        group_size = 32
-        m = ToyLinearModel().eval()
-        m_copy = copy.deepcopy(m)
-        example_inputs = m.example_inputs()
-        quantize_(
-            m,
-            Int8DynamicActivationInt4WeightConfig(
-                group_size=group_size, mapping_type=mapping_type
-            ),
-        )
-
-        assert isinstance(m.linear1.weight, LinearActivationQuantizedTensor)
-        assert isinstance(m.linear2.weight, LinearActivationQuantizedTensor)
-        assert isinstance(
-            m.linear1.weight.original_weight_tensor, AffineQuantizedTensor
-        )
-        assert isinstance(
-            m.linear2.weight.original_weight_tensor, AffineQuantizedTensor
-        )
-
-        # reference
-        from torchao.quantization.linear_quant_modules import Int8DynActInt4WeightLinear
-        from torchao.quantization.quant_api import Int8DynActInt4WeightQuantizer
-
-        quantizer = Int8DynActInt4WeightQuantizer(
-            groupsize=group_size, mapping_type=mapping_type
-        )
-        m_copy = quantizer.quantize(m_copy)
-        assert isinstance(m_copy.linear1, Int8DynActInt4WeightLinear)
-        assert isinstance(m_copy.linear2, Int8DynActInt4WeightLinear)
-
-        res = m(*example_inputs)
-        ref = m_copy(*example_inputs)
-        self.assertTrue(torch.equal(res, ref))
-
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test_quantized_tensor_subclass_save_load(self):
         m = ToyLinearModel().eval().to(torch.bfloat16)
@@ -388,7 +346,6 @@ class TestQuantFlow(TestCase):
             Float8WeightOnlyConfig(),
             Float8DynamicActivationFloat8WeightConfig(),
             Int8DynamicActivationInt8WeightConfig(),
-            Int8DynamicActivationInt4WeightConfig(),
             Int8WeightOnlyConfig(),
             GemliteUIntXWeightOnlyConfig(),
             UIntXWeightOnlyConfig(dtype=torch.uint4),
@@ -608,7 +565,6 @@ class TestQuantFlow(TestCase):
         """
         from torchao.quantization import (
             GemliteUIntXWeightOnlyConfig,
-            Int8DynamicActivationInt4WeightConfig,
             UIntXWeightOnlyConfig,
         )
 
@@ -618,7 +574,6 @@ class TestQuantFlow(TestCase):
         # Map from deprecated API to the args needed to instantiate it
         deprecated_apis_to_args = {
             GemliteUIntXWeightOnlyConfig: (),
-            Int8DynamicActivationInt4WeightConfig: (),
             UIntXWeightOnlyConfig: (torch.uint4,),
         }
 
