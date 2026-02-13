@@ -507,10 +507,13 @@ def get_extensions():
         )
 
         if use_cpu_kernels and is_linux:
-            if (
-                hasattr(torch._C._cpu, "_is_avx512_supported")
-                and torch._C._cpu._is_avx512_supported()
-            ):
+            if hasattr(torch._C._cpu, "_is_avx512_supported"):
+                is_avx512_supported = torch._C._cpu._is_avx512_supported()
+            elif hasattr(torch.cpu, "_is_avx512_supported"):
+                is_avx512_supported = torch.cpu._is_avx512_supported()
+            else:
+                is_avx512_supported = False
+            if is_avx512_supported:
                 extra_compile_args["cxx"].extend(
                     [
                         "-DCPU_CAPABILITY_AVX512",
@@ -519,10 +522,13 @@ def get_extensions():
                         "-fopenmp",
                     ]
                 )
-            if (
-                hasattr(torch._C._cpu, "_is_avx512_vnni_supported")
-                and torch._C._cpu._is_avx512_vnni_supported()
-            ):
+            if hasattr(torch._C._cpu, "_is_avx512_vnni_supported"):
+                is_avx512_vnni_supported = torch._C._cpu._is_avx512_vnni_supported()
+            elif hasattr(torch.cpu, "_is_avx512_vnni_supported"):
+                is_avx512_vnni_supported = torch.cpu._is_avx512_vnni_supported()
+            else:
+                is_avx512_vnni_supported = False
+            if is_avx512_vnni_supported:
                 extra_compile_args["cxx"].extend(
                     [
                         "-DCPU_CAPABILITY_AVX512_VNNI",
