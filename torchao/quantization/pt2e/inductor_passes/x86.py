@@ -1780,59 +1780,40 @@ def _register_smooth_quant_int_mm_pattern():
     # When torch.compile'ing with dynamic=True, the expand node and the two tailing reshape nodes exist
     # When torch.compile'ing with dynamic=False, they don't exist
     def get_pattern_no_bias(reshape_a: bool = True, convert_a: bool = False):
+        int_mm_pattern = CallFunction(
+            aten._int_mm.default,
+            CallFunction(
+                aten.reshape.default,
+                KeywordArg("a"),
+                KeywordArg("in_shape"),
+            )
+            if reshape_a
+            else KeywordArg("a"),
+            KeywordArg("b"),
+        )
+
+        mul_x_scale_pattern = CallFunction(
+            aten.mul.Tensor,
+            CallFunction(
+                prims.convert_element_type.default,
+                int_mm_pattern,
+                KeywordArg("x_scale_dtype"),
+            ),
+            KeywordArg("x_scale"),
+        )
+
         if convert_a:
-            # Pattern with extra convert_element_type nodes
-            return CallFunction(
-                aten.mul.Tensor,
-                CallFunction(
-                    prims.convert_element_type.default,
-                    CallFunction(
-                        aten.mul.Tensor,
-                        CallFunction(
-                            prims.convert_element_type.default,
-                            CallFunction(
-                                aten._int_mm.default,
-                                CallFunction(
-                                    aten.reshape.default,
-                                    KeywordArg("a"),
-                                    KeywordArg("in_shape"),
-                                )
-                                if reshape_a
-                                else KeywordArg("a"),
-                                KeywordArg("b"),
-                            ),
-                            KeywordArg("x_scale_dtype"),
-                        ),
-                        KeywordArg("x_scale"),
-                    ),
-                    KeywordArg("dtype"),
-                ),
-                KeywordArg("w_scale"),
+            mul_x_scale_pattern = CallFunction(
+                prims.convert_element_type.default,
+                mul_x_scale_pattern,
+                KeywordArg("dtype"),
             )
-        else:
-            return CallFunction(
-                aten.mul.Tensor,
-                CallFunction(
-                    aten.mul.Tensor,
-                    CallFunction(
-                        prims.convert_element_type.default,
-                        CallFunction(
-                            aten._int_mm.default,
-                            CallFunction(
-                                aten.reshape.default,
-                                KeywordArg("a"),
-                                KeywordArg("in_shape"),
-                            )
-                            if reshape_a
-                            else KeywordArg("a"),
-                            KeywordArg("b"),
-                        ),
-                        KeywordArg("x_scale_dtype"),
-                    ),
-                    KeywordArg("x_scale"),
-                ),
-                KeywordArg("w_scale"),
-            )
+
+        return CallFunction(
+            aten.mul.Tensor,
+            mul_x_scale_pattern,
+            KeywordArg("w_scale"),
+        )
 
     def _with_outer_reshape(pattern):
         return CallFunction(
@@ -1872,6 +1853,12 @@ def _register_smooth_quant_int_mm_pattern():
     pattern1_with_no_outer_or_act_reshape = get_pattern_no_bias(reshape_a=False)
 
     def _validate_pattern(match: Match):
+        # Valid node counts correspond to different pattern variations:
+        # 4: pattern1_with_no_outer_or_act_reshape (int_mm + convert + mul + mul)
+        # 6: pattern_no_bias_1 (reshape + int_mm + convert + mul + mul + reshape)
+        # 7: pattern_with_bias_1 (pattern_no_bias_1 + add)
+        # 8: pattern_no_bias_1_with_act_and_output_convert (pattern_no_bias_1 with act+output convert)
+        # 9: pattern_with_bias_1_with_act_and_output_convert (pattern_with_bias_1 with act+output convert)
         if len(match.nodes) not in [4, 6, 7, 8, 9]:
             return False
         # Make sure weight is a constant
@@ -1919,9 +1906,7 @@ def _register_smooth_quant_int_mm_pattern():
             x_scale = kwargs["x_scale"]
             w_scale = kwargs["w_scale"]
             x_shape = x.meta.get("tensor_meta").shape
-            dtype = kwargs.get("dtype")
-            if dtype is None:
-                dtype = x_scale_dtype
+            dtype = kwargs.get("dtype", x_scale_dtype)
             if has_free_symbols(x_shape):
                 # For dynamic shape case, we can't get activation shape ahead of runtime.
                 x_shape = None
