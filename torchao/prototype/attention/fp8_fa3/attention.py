@@ -5,21 +5,28 @@
 # LICENSE file in the root directory of this source tree.
 
 """
-Internal: FP8 scaled dot-product attention using FA3 backend.
+FP8 scaled dot-product attention using FA3 backend.
 """
 
 from typing import Optional
 
 import torch
 from torch.nn.attention import SDPBackend, sdpa_kernel
-from torch.nn.attention.experimental._scaled_dot_product_attention_quantized import (
-    _scaled_dot_product_attention_quantized,
-)
+
+_has_quantized_sdpa = False
+try:
+    from torch.nn.attention.experimental._scaled_dot_product_attention_quantized import (
+        _scaled_dot_product_attention_quantized,
+    )
+
+    _has_quantized_sdpa = True
+except ImportError:
+    pass
 
 from torchao.prototype.attention.fp8_fa3.quantization import _fp8_sdpa_quantize
 
 
-def _fp8_fa3_sdpa(
+def fp8_fa3_sdpa(
     query: torch.Tensor,
     key: torch.Tensor,
     value: torch.Tensor,
@@ -30,6 +37,12 @@ def _fp8_fa3_sdpa(
     enable_gqa: bool = False,
 ) -> torch.Tensor:
     """FP8 SDPA using FA3 backend. Quantizes Q, K, V to FP8 before attention."""
+    if not _has_quantized_sdpa:
+        raise RuntimeError(
+            "fp8_fa3_sdpa requires a PyTorch version with "
+            "torch.nn.attention.experimental._scaled_dot_product_attention_quantized. "
+            "Please upgrade PyTorch."
+        )
     if attn_mask is not None:
         raise ValueError("attn_mask not supported for FP8 FA3")
     if dropout_p != 0.0:

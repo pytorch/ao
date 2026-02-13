@@ -14,7 +14,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-# FA3 activation is needed when calling _fp8_fa3_sdpa directly (outside the
+# FA3 activation is needed when calling fp8_fa3_sdpa directly (outside the
 # model-level API which handles it via the context manager in wrappers.py).
 # These APIs were added in a recent PyTorch version, so guard the import
 # following the same try/except pattern used in test_nf4.py (bitsandbytes)
@@ -52,7 +52,7 @@ _FP8_FA3_AVAILABLE = _has_fa3_activation_api and _is_hopper() and _is_fa3_availa
 
 # Only import internal modules that depend on new PyTorch APIs when available.
 if _FP8_FA3_AVAILABLE:
-    from torchao.prototype.attention.fp8_fa3.attention import _fp8_fa3_sdpa
+    from torchao.prototype.attention.fp8_fa3.attention import fp8_fa3_sdpa
     from torchao.prototype.attention.fp8_fa3.quantization import _fp8_sdpa_quantize
     from torchao.quantization.utils import compute_error
 
@@ -92,7 +92,7 @@ class TestFP8FA3NumericalAccuracy(TestCase):
 
         with torch.no_grad():
             out_ref = F.scaled_dot_product_attention(q, k, v, is_causal=False)
-            out_fp8 = _fp8_fa3_sdpa(q, k, v, is_causal=False)
+            out_fp8 = fp8_fa3_sdpa(q, k, v, is_causal=False)
 
         sqnr = compute_error(out_ref, out_fp8)
         self.assertGreater(
@@ -122,7 +122,7 @@ class TestFP8FA3NumericalAccuracy(TestCase):
 
         with torch.no_grad():
             out_ref = F.scaled_dot_product_attention(q, k, v, is_causal=True)
-            out_fp8 = _fp8_fa3_sdpa(q, k, v, is_causal=True)
+            out_fp8 = fp8_fa3_sdpa(q, k, v, is_causal=True)
 
         sqnr = compute_error(out_ref, out_fp8)
         self.assertGreater(
@@ -146,7 +146,7 @@ class TestFP8FA3NumericalAccuracy(TestCase):
 
         with torch.no_grad():
             out_ref = F.scaled_dot_product_attention(q, k, v, is_causal=False)
-            out_fp8 = _fp8_fa3_sdpa(q, k, v, is_causal=False)
+            out_fp8 = fp8_fa3_sdpa(q, k, v, is_causal=False)
 
         self.assertEqual(out_fp8.shape, (B, H, S_q, D))
         sqnr = compute_error(out_ref, out_fp8)
@@ -166,7 +166,7 @@ class TestFP8FA3NumericalAccuracy(TestCase):
         v = torch.randn(B, H, S, D, device="cuda", dtype=dtype)
 
         with torch.no_grad():
-            out = _fp8_fa3_sdpa(q, k, v)
+            out = fp8_fa3_sdpa(q, k, v)
 
         self.assertEqual(out.dtype, dtype)
 
@@ -179,7 +179,7 @@ class TestFP8FA3NumericalAccuracy(TestCase):
         v = torch.randn(B, H, S, D, device="cuda", dtype=torch.bfloat16)
 
         with torch.no_grad():
-            out = _fp8_fa3_sdpa(q, k, v)
+            out = fp8_fa3_sdpa(q, k, v)
 
         self.assertFalse(torch.isnan(out).any())
 
@@ -209,7 +209,7 @@ class TestFP8FA3InputValidation(TestCase):
         mask = torch.ones(S, S, device="cuda", dtype=torch.bfloat16)
 
         with self.assertRaises(ValueError, msg="attn_mask"):
-            _fp8_fa3_sdpa(q, k, v, attn_mask=mask)
+            fp8_fa3_sdpa(q, k, v, attn_mask=mask)
 
     @unittest.skipIf(not _FP8_FA3_AVAILABLE, _FP8_FA3_SKIP_MSG)
     def test_dropout_raises(self):
@@ -220,7 +220,7 @@ class TestFP8FA3InputValidation(TestCase):
         v = torch.randn(B, H, S, D, device="cuda", dtype=torch.bfloat16)
 
         with self.assertRaises(ValueError, msg="dropout_p"):
-            _fp8_fa3_sdpa(q, k, v, dropout_p=0.1)
+            fp8_fa3_sdpa(q, k, v, dropout_p=0.1)
 
     @unittest.skipIf(not _FP8_FA3_AVAILABLE, _FP8_FA3_SKIP_MSG)
     def test_wrong_dimensions(self):
