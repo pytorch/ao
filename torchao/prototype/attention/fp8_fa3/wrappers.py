@@ -20,7 +20,7 @@ from torch.nn.attention import (
 )
 
 from torchao.prototype.attention.config import LowPrecisionAttentionConfig
-from torchao.prototype.attention.fp8_fa3.attention import _fp8_fa3_sdpa
+from torchao.prototype.attention.fp8_fa3.attention import fp8_fa3_sdpa
 
 _original_sdpa = F.scaled_dot_product_attention
 
@@ -61,7 +61,7 @@ def _fp8_fa3_attention_context(
                 enable_gqa=enable_gqa,
             )
 
-        return _fp8_fa3_sdpa(
+        return fp8_fa3_sdpa(
             query,
             key,
             value,
