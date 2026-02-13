@@ -57,12 +57,6 @@ from torchao.float8.inference import (
     _granularity_is_a_1_128_w_128_128,
     _normalize_granularity,
 )
-
-# for BC, make sure to keep the `noqa: F401` comments to prevent
-# ruff from removing "unused imports"
-from torchao.prototype.quantization.quant_api import (
-    UIntXWeightOnlyConfig,  # noqa: F401
-)
 from torchao.quantization.linear_activation_weight_observed_tensor import (
     LinearActivationWeightObservedTensor,
 )

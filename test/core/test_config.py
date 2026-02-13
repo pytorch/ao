@@ -36,7 +36,6 @@ from torchao.quantization.quant_api import (
     Int8DynamicActivationInt8WeightConfig,
     Int8WeightOnlyConfig,
     ModuleFqnToConfig,
-    UIntXWeightOnlyConfig,
     quantize_,
 )
 from torchao.quantization.quantize_.common.quantization_step import QuantizationStep
@@ -54,7 +53,6 @@ configs = [
     Float8WeightOnlyConfig(
         weight_dtype=torch.float8_e4m3fn,
     ),
-    UIntXWeightOnlyConfig(dtype=torch.uint1),
     Float8DynamicActivationInt4WeightConfig(),
     Int4WeightOnlyConfig(
         group_size=32,
@@ -69,11 +67,6 @@ configs = [
     # Int8DynamicActivationInt8WeightConfig(layout=SemiSparseLayout()),
     Int8WeightOnlyConfig(
         group_size=128,
-    ),
-    UIntXWeightOnlyConfig(
-        dtype=torch.uint3,
-        group_size=32,
-        use_hqq=True,
     ),
     # Sparsity configs
     SemiSparseWeightConfig(),
