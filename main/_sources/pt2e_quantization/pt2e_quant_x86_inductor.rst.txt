@@ -296,6 +296,8 @@ For example:
 
     TORCHINDUCTOR_FREEZING=1 python example_x86inductorquantizer_qat.py
 
+.. _pt2e_quant_x86_inductor-conclusion:
+
 Conclusion
 ------------
 
