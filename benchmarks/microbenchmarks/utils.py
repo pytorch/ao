@@ -14,7 +14,6 @@ from torch.utils.benchmark import Timer
 
 from torchao.core.config import AOBaseConfig
 from torchao.quantization import (
-    Float8DynamicActivationFloat8SemiSparseWeightConfig,
     Float8DynamicActivationFloat8WeightConfig,
     Float8WeightOnlyConfig,
     GemliteUIntXWeightOnlyConfig,
@@ -242,8 +241,6 @@ def string_to_config(
     elif "float8wo" in quantization:
         return Float8WeightOnlyConfig()
     elif "float8dq" in quantization:
-        if sparsity and "semi" in sparsity:
-            return Float8DynamicActivationFloat8SemiSparseWeightConfig()
         granularity = str(quantization.split("-")[-1])
         if granularity == "tensor":
             granularity = PerTensor()

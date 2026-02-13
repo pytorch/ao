@@ -52,7 +52,6 @@ from .observer import (
     AffineQuantizedObserverBase,
 )
 from .quant_api import (
-    Float8DynamicActivationFloat8SemiSparseWeightConfig,
     Float8DynamicActivationFloat8WeightConfig,
     Float8DynamicActivationInt4WeightConfig,
     Float8MMConfig,
@@ -129,7 +128,6 @@ __all__ = [
     "Float8WeightOnlyConfig",
     "Float8DynamicActivationFloat8WeightConfig",
     "Float8StaticActivationFloat8WeightConfig",
-    "Float8DynamicActivationFloat8SemiSparseWeightConfig",
     "UIntXWeightOnlyConfig",
     "IntxWeightOnlyConfig",
     "GemliteUIntXWeightOnlyConfig",
