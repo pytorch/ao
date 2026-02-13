@@ -173,7 +173,7 @@
   fbq('track', 'PageView');
 </script>
 <script>
-  document.documentElement.setAttribute('data-version', 'main (0.17.0+gitd4c1ba3 )');
+  document.documentElement.setAttribute('data-version', 'main (0.17.0+git04ece08 )');
 </script>
 <noscript>
   <img height="1" width="1" src="https://www.facebook.com/tr?id=243028289693773&ev=PageView&noscript=1" />
@@ -1472,12 +1472,44 @@ document.write(`
 <h1>NVFP4DynamicActivationNVFP4WeightConfig<a class="headerlink" href="#nvfp4dynamicactivationnvfp4weightconfig" title="Link to this heading">#</a></h1>
 <dl class="py class">
 <dt class="sig sig-object py" id="torchao.prototype.mx_formats.NVFP4DynamicActivationNVFP4WeightConfig">
-<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">torchao.prototype.mx_formats.</span></span><span class="sig-name descname"><span class="pre">NVFP4DynamicActivationNVFP4WeightConfig</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">use_triton_kernel</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">use_dynamic_per_tensor_scale</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/torchao/prototype/mx_formats/inference_workflow.html#NVFP4DynamicActivationNVFP4WeightConfig"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="reference external" href="https://github.com/pytorch/ao/blob/main/torchao/prototype/mx_formats/inference_workflow.py#L110"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#torchao.prototype.mx_formats.NVFP4DynamicActivationNVFP4WeightConfig" title="Link to this definition">#</a></dt>
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">torchao.prototype.mx_formats.</span></span><span class="sig-name descname"><span class="pre">NVFP4DynamicActivationNVFP4WeightConfig</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">use_triton_kernel</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">use_dynamic_per_tensor_scale</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">step</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">QuantizationStep</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/torchao/prototype/mx_formats/inference_workflow.html#NVFP4DynamicActivationNVFP4WeightConfig"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="reference external" href="https://github.com/pytorch/ao/blob/main/torchao/prototype/mx_formats/inference_workflow.py#L157"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#torchao.prototype.mx_formats.NVFP4DynamicActivationNVFP4WeightConfig" title="Link to this definition">#</a></dt>
 <dd><p>NVIDIA FP4 (NVFP4) Inference Quantization Configuration</p>
 <p>This is a specialized configuration for NVIDIA’s FP4 format.
-Configuration parameters:
+NVFP4 uses “double quantization” with two scale levels:
+- A global per_tensor_scale (float32)
+- Per-block scales (float8_e4m3fn, block_size=16), always dynamically calculated</p>
+<p>The activation per_tensor_scale can be determined in two ways:</p>
+<ol class="arabic simple">
+<li><dl class="simple">
+<dt>Dynamic per_tensor_scale (default, step=None, use_dynamic_per_tensor_scale=True):</dt><dd><ul class="simple">
+<li><p>Both weight and activation per_tensor_scale are computed at runtime
+from the tensor amax</p></li>
+</ul>
+</dd>
+</dl>
+</li>
+<li><dl class="simple">
+<dt>Static per_tensor_scale via observer flow (step=”prepare”/”convert”):</dt><dd><ul class="simple">
+<li><p>Weight per_tensor_scale is computed from weight amax at convert time</p></li>
+<li><p>Activation per_tensor_scale is determined statically during calibration:
+step=”prepare” inserts observers, then after running calibration data,
+step=”convert” extracts the observed amax and bakes the activation
+per_tensor_scale into the quantized weight tensor</p></li>
+<li><p>At inference, the static activation per_tensor_scale is read from the
+weight tensor instead of being computed dynamically</p></li>
+<li><p>Note: activation per-block scales are still computed dynamically at
+inference time</p></li>
+</ul>
+</dd>
+</dl>
+</li>
+</ol>
+<p>Note: When step is specified, use_dynamic_per_tensor_scale is automatically
+set to False.</p>
+<p>Configuration parameters:
 - use_triton_kernel: bool, whether to use fused triton kernel for activation scaling (default: True)
 - use_dynamic_per_tensor_scale: bool, whether to dynamically compute per tensor scale (default: True)
+- step: Optional[QuantizationStep], the quantization step for observer-based flow
 - Data: float4_e2m1fn_x2
 - Scales: float8_e4m3fn
 - Block size: 16 along the reduction dim</p>
@@ -1830,7 +1862,7 @@ must satisfy M % 128 == 0 and K % 64 == 0. Will automatically fallback when cons
        "headline": "NVFP4DynamicActivationNVFP4WeightConfig",
        "description": "PyTorch Documentation. Explore PyTorch, an open-source machine learning library that accelerates the path from research prototyping to production deployment.",
        "url": "/api_reference/generated/torchao.prototype.mx_formats.NVFP4DynamicActivationNVFP4WeightConfig.html",
-       "articleBody": "NVFP4DynamicActivationNVFP4WeightConfig# class torchao.prototype.mx_formats.NVFP4DynamicActivationNVFP4WeightConfig(use_triton_kernel: bool = True, use_dynamic_per_tensor_scale: bool = True)[source][source]# NVIDIA FP4 (NVFP4) Inference Quantization Configuration This is a specialized configuration for NVIDIA\u2019s FP4 format. Configuration parameters: - use_triton_kernel: bool, whether to use fused triton kernel for activation scaling (default: True) - use_dynamic_per_tensor_scale: bool, whether to dynamically compute per tensor scale (default: True) - Data: float4_e2m1fn_x2 - Scales: float8_e4m3fn - Block size: 16 along the reduction dim Note: Triton kernel only works with DYNAMIC mode and has constraints that input dimensions must satisfy M % 128 == 0 and K % 64 == 0. Will automatically fallback when constraints aren\u2019t met.",
+       "articleBody": "NVFP4DynamicActivationNVFP4WeightConfig# class torchao.prototype.mx_formats.NVFP4DynamicActivationNVFP4WeightConfig(use_triton_kernel: bool = True, use_dynamic_per_tensor_scale: bool = True, step: QuantizationStep | None = None)[source][source]# NVIDIA FP4 (NVFP4) Inference Quantization Configuration This is a specialized configuration for NVIDIA\u2019s FP4 format. NVFP4 uses \u201cdouble quantization\u201d with two scale levels: - A global per_tensor_scale (float32) - Per-block scales (float8_e4m3fn, block_size=16), always dynamically calculated The activation per_tensor_scale can be determined in two ways: Dynamic per_tensor_scale (default, step=None, use_dynamic_per_tensor_scale=True): Both weight and activation per_tensor_scale are computed at runtime from the tensor amax Static per_tensor_scale via observer flow (step=\u201dprepare\u201d/\u201dconvert\u201d): Weight per_tensor_scale is computed from weight amax at convert time Activation per_tensor_scale is determined statically during calibration: step=\u201dprepare\u201d inserts observers, then after running calibration data, step=\u201dconvert\u201d extracts the observed amax and bakes the activation per_tensor_scale into the quantized weight tensor At inference, the static activation per_tensor_scale is read from the weight tensor instead of being computed dynamically Note: activation per-block scales are still computed dynamically at inference time Note: When step is specified, use_dynamic_per_tensor_scale is automatically set to False. Configuration parameters: - use_triton_kernel: bool, whether to use fused triton kernel for activation scaling (default: True) - use_dynamic_per_tensor_scale: bool, whether to dynamically compute per tensor scale (default: True) - step: Optional[QuantizationStep], the quantization step for observer-based flow - Data: float4_e2m1fn_x2 - Scales: float8_e4m3fn - Block size: 16 along the reduction dim Note: Triton kernel only works with DYNAMIC mode and has constraints that input dimensions must satisfy M % 128 == 0 and K % 64 == 0. Will automatically fallback when constraints aren\u2019t met.",
        "author": {
          "@type": "Organization",
          "name": "PyTorch Contributors",
