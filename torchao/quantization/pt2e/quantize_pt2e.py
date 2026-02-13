@@ -113,7 +113,10 @@ def prepare_pt2e(
     )
     model.meta.update(original_graph_meta)
     model = _disallow_eval_train(model)
-    # Recursively prepare combine_fn subgraphs of scan ops
+    # Recursively prepare combine_fn subgraphs of scan ops.
+    # This is done after the top-level prepare since prepare() does not
+    # modify scan subgraphs (they are separate GraphModules), so ordering
+    # does not matter here.
     for node in model.graph.nodes:
         if node.op == "call_function" and node.target is torch.ops.higher_order.scan:
             scan_combine_fn_node = node.args[0]
