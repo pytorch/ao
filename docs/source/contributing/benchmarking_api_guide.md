@@ -208,6 +208,6 @@ python -m unittest discover benchmarks/microbenchmarks/test
 3. Test on multiple devices when possible
 4. Use consistent naming conventions for reproducibility
 
-For information on different use-cases for benchmarking, refer to [Benchmarking User Guide](benchmarking_user_guide.md)
+For information on different use-cases for benchmarking, refer to [Benchmarking User Guide](https://github.com/pytorch/ao/blob/main/README.md)
 
 For more detailed information about the framework components, see the README files in the `benchmarks/microbenchmarks/` directory.
