@@ -692,6 +692,43 @@ class TestFqnToConfig(TestCase):
         assert str(linear_model).startswith(expected_starting_str)
         assert str(linear_model.linear1.weight) in str(linear_model)
 
+    def test_fqn_to_config_regex_skip(self):
+        """Test that regex pattern with None config skips matching modules."""
+
+        class TestModel(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.time_embed = torch.nn.Sequential(
+                    torch.nn.Linear(128, 128), torch.nn.Linear(128, 128)
+                )
+                self.linear1 = torch.nn.Linear(128, 128)
+
+            def forward(self, x):
+                x = self.time_embed(x)
+                x = self.linear1(x)
+                return x
+
+        model = TestModel().eval()
+
+        cfg = FqnToConfig(
+            {
+                "re:.*time_embed.*": None,
+                "_default": Float8WeightOnlyConfig(),
+            }
+        )
+
+        quantize_(model, cfg, filter_fn=None)
+
+        # time_embed linears should NOT be quantized (regex matched with None)
+        for name, mod in model.time_embed.named_modules():
+            if isinstance(mod, torch.nn.Linear):
+                assert not isinstance(mod.weight, Float8Tensor), (
+                    f"time_embed.{name}.weight should not be quantized"
+                )
+
+        # linear1 should be quantized via _default
+        assert isinstance(model.linear1.weight, Float8Tensor)
+
     def test_quantize_param_fqn_exact(self):
         from transformers import AutoConfig
         from transformers.models.llama4.modeling_llama4 import Llama4TextMoe
