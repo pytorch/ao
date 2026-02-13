@@ -2,7 +2,6 @@ name: PR Label Check
 on:
   pull_request:
     types: [opened, labeled, unlabeled, synchronize]
-  workflow_dispatch:
 
 jobs:
   check-labels:
