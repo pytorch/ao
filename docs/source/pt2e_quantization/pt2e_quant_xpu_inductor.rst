@@ -256,6 +256,8 @@ script within the BFloat16 Autocast context.
             optimized_model(*example_inputs)
 
 
+.. _pt2e_quant_xpu_inductor-conclusion:
+
 Conclusion
 ------------
 

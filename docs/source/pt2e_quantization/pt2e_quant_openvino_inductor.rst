@@ -248,6 +248,8 @@ These advanced NNCF algorithms can be accessed via the NNCF `quantize_pt2e` API:
 For further details, please see the `documentation <https://openvinotoolkit.github.io/nncf/autoapi/nncf/experimental/torch/fx/index.html#nncf.experimental.torch.fx.quantize_pt2e>`_
 and a complete `example on Resnet18 quantization <https://github.com/openvinotoolkit/nncf/blob/develop/examples/post_training_quantization/torch_fx/resnet18/README.md>`_.
 
+.. _pt2e_quant_openvino_inductor-conclusion:
+
 Conclusion
 ------------
 
