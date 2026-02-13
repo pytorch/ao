@@ -3232,6 +3232,108 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
         result = m(*example_inputs)
         self.assertIsNotNone(result)
 
+    def test_scan_op_quantization(self):
+        """Test that prepare_pt2e and convert_pt2e correctly quantize ops
+        inside the combine_fn subgraph of torch._higher_order_ops.scan.
+        """
+        from torch._higher_order_ops.scan import scan
+
+        class ScanModel(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.linear = torch.nn.Linear(5, 5)
+
+            def forward(self, x, init):
+                # x: (seq_len, features), init: (features,)
+                def combine_fn(carry, x_slice):
+                    out = self.linear(x_slice)
+                    return carry + out, out
+
+                final_carry, outputs = scan(combine_fn, init=init, xs=x, dim=0)
+                return outputs
+
+        quantizer = XNNPACKQuantizer().set_global(get_symmetric_quantization_config())
+
+        m = ScanModel().eval()
+        example_inputs = (torch.randn(3, 5), torch.zeros(5))
+
+        m_export = torch.export.export(m, example_inputs).module()
+        m_prepared = prepare_pt2e(m_export, quantizer)
+
+        # Verify that scan combine_fn subgraph has observers inserted
+        scan_combine_fn = None
+        for node in m_prepared.graph.nodes:
+            if (
+                node.op == "call_function"
+                and node.target is torch.ops.higher_order.scan
+            ):
+                submod_node = node.args[0]
+                scan_combine_fn = m_prepared.get_submodule(submod_node.target)
+                break
+        self.assertIsNotNone(scan_combine_fn, "scan op not found in graph")
+
+        # Check that observers are present in the combine_fn subgraph
+        has_observer = any(
+            node.op == "call_module" for node in scan_combine_fn.graph.nodes
+        )
+        self.assertTrue(
+            has_observer,
+            "No observers found in scan combine_fn subgraph after prepare",
+        )
+
+        # Calibrate - use no_grad because scan's runtime re-traces the
+        # combine_fn and observers contain data-dependent branching
+        with torch.no_grad():
+            m_prepared(*example_inputs)
+
+        # Convert
+        m_converted = convert_pt2e(m_prepared)
+
+        # Verify that scan combine_fn subgraph has q/dq ops after conversion
+        scan_combine_fn_converted = None
+        for node in m_converted.graph.nodes:
+            if (
+                node.op == "call_function"
+                and node.target is torch.ops.higher_order.scan
+            ):
+                submod_node = node.args[0]
+                scan_combine_fn_converted = m_converted.get_submodule(
+                    submod_node.target
+                )
+                break
+        self.assertIsNotNone(
+            scan_combine_fn_converted,
+            "scan op not found in converted graph",
+        )
+
+        # Check that q/dq ops are present in the converted combine_fn subgraph
+        combine_fn_targets = {
+            node.target
+            for node in scan_combine_fn_converted.graph.nodes
+            if node.op == "call_function"
+        }
+        self.assertTrue(
+            torch.ops.quantized_decomposed.quantize_per_tensor.default
+            in combine_fn_targets
+            or torch.ops.quantized_decomposed.quantize_per_channel.default
+            in combine_fn_targets,
+            f"No quantize ops found in converted scan combine_fn subgraph. "
+            f"Found targets: {combine_fn_targets}",
+        )
+        self.assertTrue(
+            torch.ops.quantized_decomposed.dequantize_per_tensor.default
+            in combine_fn_targets
+            or torch.ops.quantized_decomposed.dequantize_per_channel.default
+            in combine_fn_targets,
+            f"No dequantize ops found in converted scan combine_fn subgraph. "
+            f"Found targets: {combine_fn_targets}",
+        )
+
+        # Verify the model runs successfully
+        with torch.no_grad():
+            output = m_converted(*example_inputs)
+        self.assertEqual(output.shape, (3, 5))
+
 
 @skipIfNoQNNPACK
 @unittest.skipIf(not torch_version_at_least("2.7.0"), "Requires torch 2.7+")

@@ -113,6 +113,16 @@ def prepare_pt2e(
     )
     model.meta.update(original_graph_meta)
     model = _disallow_eval_train(model)
+    # Recursively prepare combine_fn subgraphs of scan ops
+    for node in model.graph.nodes:
+        if node.op == "call_function" and node.target is torch.ops.higher_order.scan:
+            scan_combine_fn_node = node.args[0]
+            assert isinstance(scan_combine_fn_node, Node)
+            assert scan_combine_fn_node.op == "get_attr"
+            assert isinstance(scan_combine_fn_node.target, str)
+            scan_combine_fn = model.get_submodule(scan_combine_fn_node.target)
+            prepared_scan_combine_fn = prepare_pt2e(scan_combine_fn, quantizer)
+            setattr(model, scan_combine_fn_node.target, prepared_scan_combine_fn)
     return model
 
 
@@ -282,6 +292,22 @@ def convert_pt2e(
             f"please make sure you intend to pass argument {use_reference_representation} to convert_pt2e"
         )
     original_graph_meta = model.meta
+    # Recursively convert combine_fn subgraphs of scan ops before the
+    # top-level conversion, so that passes like DuplicateDQPass that
+    # recursively lint child graphs won't encounter stale observer refs.
+    for node in model.graph.nodes:
+        if node.op == "call_function" and node.target is torch.ops.higher_order.scan:
+            scan_combine_fn_node = node.args[0]
+            assert isinstance(scan_combine_fn_node, Node)
+            assert scan_combine_fn_node.op == "get_attr"
+            assert isinstance(scan_combine_fn_node.target, str)
+            scan_combine_fn = model.get_submodule(scan_combine_fn_node.target)
+            converted_scan_combine_fn = convert_pt2e(
+                scan_combine_fn,
+                use_reference_representation=use_reference_representation,
+                fold_quantize=fold_quantize,
+            )
+            setattr(model, scan_combine_fn_node.target, converted_scan_combine_fn)
     model = _convert_to_reference_decomposed_fx(model)
     model = _fold_conv_bn_qat(model)
 
