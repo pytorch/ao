@@ -35,7 +35,10 @@ Example::
 """
 
 from torchao.prototype.attention.api import apply_low_precision_attention
-from torchao.prototype.attention.config import AttentionBackend, LowPrecisionAttentionConfig
+from torchao.prototype.attention.config import (
+    AttentionBackend,
+    LowPrecisionAttentionConfig,
+)
 
 __all__ = [
     # Config
