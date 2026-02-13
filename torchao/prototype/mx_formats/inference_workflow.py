@@ -178,9 +178,8 @@ class NVFP4DynamicActivationNVFP4WeightConfig(AOBaseConfig):
           per_tensor_scale into the quantized weight tensor
         - At inference, the static activation per_tensor_scale is read from the
           weight tensor instead of being computed dynamically
-        - Note: activations are still dynamically quantized to FP4 at runtime
-          using the static per_tensor_scale; only the per_tensor_scale computation
-          is static, not the quantization itself
+        - Note: activation per-block scales are still computed dynamically at
+          inference time
 
     Note: When step is specified, use_dynamic_per_tensor_scale is automatically
     set to False.
