@@ -312,7 +312,6 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
         kernel preferences.
         """
         M, K, N = 128, 256, 512
-        mslk_available = _is_mslk_available()
 
         for kernel_pref in (KernelPreference.TORCH, KernelPreference.AUTO):
             # Reset compiler and create fresh model for each iteration
@@ -349,7 +348,7 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
                     # PerRow is not tensorwise-scaled, so the B200 guard in
                     # _float8_addmm_impl does not apply. AUTO selects MSLK
                     # on any SM90+ hardware when MSLK is available.
-                    if mslk_available:
+                    if _is_mslk_available():
                         # MSLK path: uses torch.ops calls, no triton .run()
                         FileCheck().check("def call(").check("mslk").run(code[0])
                     else:
@@ -380,7 +379,7 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
                         FileCheck().check("def call(").check_count(
                             "._scaled_mm(", 1, exactly=True
                         ).run(code[0])
-                    elif mslk_available:
+                    elif _is_mslk_available():
                         # Non-B200 with MSLK: AUTO selects MSLK
                         FileCheck().check("def call(").check("mslk").run(code[0])
                     else:
