@@ -208,7 +208,9 @@ class TestPatternMatcherBase(TestCase):
                 clone_inputs = self._clone_inputs(inputs)
                 expected = mod(*inputs)
                 actual = torch.compile(mod, **compile_options)(*clone_inputs)
-                torch.testing.assert_close(actual, expected, atol=atol, rtol=rtol)
+                torch.testing.assert_close(
+                    actual.float(), expected.float(), atol=atol, rtol=rtol
+                )
                 matcher_check_fn()
 
     def _test_code_common(
@@ -3226,6 +3228,16 @@ class TestDynamicPatternMatcher(TestPatternMatcherBase):
     )
     def test_int8_scaled_embedding_bag_with_output_quant(self):
         self._test_scaled_embedding_bag_helper(torch.int8, True)
+
+    @skipIfNoDynamoSupport
+    @skipIfNoONEDNN
+    @skipIfNoFloat8Support
+    @unittest.skipIf(
+        "CPU" not in torch._C._dispatch_dump("torchao::_scaled_embedding_bag"),
+        reason="cpp kernels not built",
+    )
+    def test_fp8_scaled_embedding_bag_with_output_quant(self):
+        self._test_scaled_embedding_bag_helper(torch.float8_e4m3fn, True)
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
