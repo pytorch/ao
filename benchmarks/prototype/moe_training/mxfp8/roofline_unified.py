@@ -41,6 +41,7 @@ from torchao.prototype.mx_formats.config import (
 )
 from torchao.prototype.mx_formats.kernels import triton_to_mxfp8_dim0
 from torchao.prototype.mx_formats.utils import _to_mxfp8_dim1_kernel_wrapper
+from torchao.quantization.quantize_.common import KernelPreference
 from torchao.testing.training.roofline_utils import (
     gpu_name_to_specs,
 )
@@ -448,8 +449,7 @@ def benchmark_mxfp8_grouped_mm_fwd_bwd(x, w_t, offs, labels, block_size=32):
     offs_arg = offs
     block_size_arg = block_size
     out_dtype = torch.bfloat16
-    emulated = False
-    use_triton_for_dim0_cast = True
+    kernel_preference = KernelPreference.AUTO
     wgrad_with_hp = False
     scale_calculation_mode = MoEScaleCalculationMode.RCEIL
 
@@ -460,8 +460,7 @@ def benchmark_mxfp8_grouped_mm_fwd_bwd(x, w_t, offs, labels, block_size=32):
             offs_arg,
             block_size_arg,
             out_dtype,
-            emulated,
-            use_triton_for_dim0_cast,
+            kernel_preference,
             wgrad_with_hp,
             scale_calculation_mode,
         )

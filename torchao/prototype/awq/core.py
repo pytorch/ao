@@ -3,7 +3,6 @@
 #
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
-from enum import Enum
 from typing import Optional
 
 import torch
@@ -14,14 +13,6 @@ from torchao.quantization.transform_module import (
     _QUANTIZE_CONFIG_HANDLER,
 )
 from torchao.utils import DummyModule
-
-
-# can switch to StrEnum (https://docs.python.org/3/library/enum.html#enum.StrEnum)
-# after python 3.10 is end of life (https://devguide.python.org/versions/)
-class AWQStep(str, Enum):
-    PREPARE = "prepare"
-    CONVERT = "convert"
-    PREPARE_FOR_LOADING = "prepare_for_loading"
 
 
 @torch.no_grad()

@@ -122,7 +122,14 @@ std::tuple<const std::string, DispatchFn> get_shader_func_and_dispatch(
     return std::make_tuple(
         std::string("qmv_fast_") + std::to_string(nbit) + "bit_" +
             std::to_string(qGroupSize) + "_" + std::string(type_str),
-        dispatch::dispatch_qmv_fast);
+        dispatch::dispatch_qmv);
+  }
+  if (M == 1) {
+    // qmv_impl handles generic N (any N, not just aligned) via guard logic
+    return std::make_tuple(
+        std::string("qmv_impl_") + std::to_string(nbit) + "bit_" +
+            std::to_string(qGroupSize) + "_" + std::string(type_str),
+        dispatch::dispatch_qmv);
   }
   return std::make_tuple(
       std::string(LowBitConfig<nbit>::func_prefix) + std::to_string(qGroupSize) +
@@ -144,7 +151,7 @@ void linear_lowbit_quant_weights_mps(
     int32_t N,
     const std::string_view type_str) {
   assert(K % 8 == 0);
-  assert(N % 4 == 0);
+  assert(N % 4 == 0 || M == 1);
   assert(
       qGroupSize == 32 || qGroupSize == 64 || qGroupSize == 128 ||
       qGroupSize == 256);

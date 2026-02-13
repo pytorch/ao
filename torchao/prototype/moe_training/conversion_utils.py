@@ -7,10 +7,10 @@ import logging
 from enum import Enum
 from typing import Callable, Optional
 
-import torch
 from torch import nn
 
 from torchao.core.config import AOBaseConfig
+from torchao.quantization.quantize_.common import KernelPreference
 from torchao.quantization.transform_module import (
     register_quantize_module_handler,
 )
@@ -46,12 +46,11 @@ class MoETrainingConfig(AOBaseConfig):
     def __init__(
         self,
         scaling_type: MoEScalingType = MoEScalingType.FP8_ROWWISE,
-        *,
-        float8_dtype: torch.dtype = torch.float8_e4m3fn,
+        kernel_preference: KernelPreference = KernelPreference.AUTO,
     ):
         super().__init__()
         self.scaling_type = scaling_type
-        self.float8_dtype = float8_dtype
+        self.kernel_preference = kernel_preference
 
 
 @register_quantize_module_handler(MoETrainingConfig)
@@ -104,7 +103,7 @@ def _swap_params(
             )
         if not isinstance(module.data, ScaledGroupedMMTensor):
             new_data = ScaledGroupedMMTensor(
-                module.data, config.scaling_type, config.float8_dtype
+                module.data, config.scaling_type, config.kernel_preference
             )
             return nn.Parameter(new_data, requires_grad=module.requires_grad)
         return module
@@ -132,7 +131,7 @@ def _swap_params(
                 if not isinstance(param.data, ScaledGroupedMMTensor):
                     new_param = nn.Parameter(
                         ScaledGroupedMMTensor(
-                            param.data, config.scaling_type, config.float8_dtype
+                            param.data, config.scaling_type, config.kernel_preference
                         ),
                         requires_grad=param.requires_grad,
                     )
