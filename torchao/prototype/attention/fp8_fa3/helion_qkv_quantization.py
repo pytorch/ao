@@ -20,11 +20,9 @@ Input/output format: [B, H, S, D]
 
 from typing import Optional, Tuple
 
-import torch
-
 import helion
 import helion.language as hl
-
+import torch
 
 # =============================================================================
 # Phase 1: Partial absmax computation
@@ -249,9 +247,15 @@ def helion_fp8_sdpa_quantize(
 
     # Phase 2: quantize
     qkv_phase2_helion(
-        q, k, v,
-        q_fp8, k_fp8, v_fp8,
-        q_scale, k_scale, v_scale,
+        q,
+        k,
+        v,
+        q_fp8,
+        k_fp8,
+        v_fp8,
+        q_scale,
+        k_scale,
+        v_scale,
     )
 
     return q_fp8, k_fp8, v_fp8, q_descale, k_descale, v_descale

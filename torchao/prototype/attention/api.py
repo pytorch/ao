@@ -12,7 +12,10 @@ from typing import Optional
 
 import torch.nn as nn
 
-from torchao.prototype.attention.config import AttentionBackend, LowPrecisionAttentionConfig
+from torchao.prototype.attention.config import (
+    AttentionBackend,
+    LowPrecisionAttentionConfig,
+)
 from torchao.prototype.attention.utils import (
     _check_backend_available,
     _check_config_supported,
