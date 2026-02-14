@@ -17,6 +17,7 @@ from torchao.prototype.quantization.float8_static_quant.prototype_float8_tensor 
     _choose_quant_func_and_quantize_tensor,
 )
 from torchao.prototype.quantization.quant_api import (
+    Float8ObservedLinear,
     Float8ObservedSoftmax,
     Float8QuantizedSoftmax,
     Float8StaticActivationFloat8WeightConfig,
@@ -26,10 +27,7 @@ from torchao.quantization import (
     quantize_,
 )
 from torchao.quantization.granularity import PerRow, PerTensor
-from torchao.quantization.quantize_.common import (
-    IsStaticQuantizationConfig,
-    ObservedLinear,
-)
+from torchao.quantization.quantize_.common import IsStaticQuantizationConfig
 from torchao.quantization.utils import compute_error
 from torchao.testing.model_architectures import ToySingleLinearModel, ToyTwoLinearModel
 from torchao.testing.utils import TorchAOIntegrationTestCase
@@ -304,8 +302,8 @@ class TestFloat8StaticActivation(TorchAOIntegrationTestCase):
         quantize_(model, Float8StaticActivationFloat8WeightConfig(step="prepare"))
 
         # Verify observers were inserted
-        self.assertIsInstance(model.linear1, ObservedLinear)
-        self.assertIsInstance(model.linear2, ObservedLinear)
+        self.assertIsInstance(model.linear1, Float8ObservedLinear)
+        self.assertIsInstance(model.linear2, Float8ObservedLinear)
 
         # Step 2: Calibrate with representative data
         for _ in range(10):
@@ -390,7 +388,7 @@ class TestFloat8StaticActivation(TorchAOIntegrationTestCase):
         )
 
         # Verify observers were inserted including output observers
-        self.assertIsInstance(model.linear1, ObservedLinear)
+        self.assertIsInstance(model.linear1, Float8ObservedLinear)
         self.assertIsNotNone(model.linear1.output_act_obs)
 
         # Step 2: Calibrate with representative data
@@ -502,7 +500,7 @@ class TestFloat8StaticActivation(TorchAOIntegrationTestCase):
         )
 
         # Verify observers were inserted
-        self.assertIsInstance(model.linear, ObservedLinear)
+        self.assertIsInstance(model.linear, Float8ObservedLinear)
         self.assertIsInstance(model.softmax, Float8ObservedSoftmax)
         self.assertIsNotNone(model.softmax.output_act_obs)
 
@@ -512,7 +510,7 @@ class TestFloat8StaticActivation(TorchAOIntegrationTestCase):
 
         # Filter function for convert step (matches observed modules)
         def observed_filter(module, fqn):
-            return isinstance(module, (ObservedLinear, Float8ObservedSoftmax))
+            return isinstance(module, (Float8ObservedLinear, Float8ObservedSoftmax))
 
         # Step 3: Convert observed model to quantized model
         quantize_(
