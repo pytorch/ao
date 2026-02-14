@@ -205,13 +205,14 @@ because we are not actually casting the fake quantized values.
 
 .. code:: py
 
-  from torchao.quantization import quantize_, Int4WeightOnlyConfig
+  from torchao.quantization import quantize_, Int8DynamicActivationIntxWeightConfig
   from torchao.quantization.qat import QATConfig
+  from torchao.quantization.granularity import PerGroup
 
   model = get_model()
 
   # prepare: swap `torch.nn.Linear` -> `FakeQuantizedLinear`
-  base_config = Int4WeightOnlyConfig(group_size=32)
+  base_config = Int8DynamicActivationIntxWeightConfig(weight_dtype=torch.int4, weight_granularity=PerGroup(32))
   quantize_(model, QATConfig(base_config, step="prepare"))
 
   # fine-tune
