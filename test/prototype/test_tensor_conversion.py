@@ -24,6 +24,7 @@ from torchao.quantization import (
 )
 from torchao.quantization.granularity import PerAxis, PerGroup
 from torchao.quantization.quant_api import (
+    Float8DynamicActivationInt4WeightConfig,
     Int4WeightOnlyConfig,
     Int8DynamicActivationIntxWeightConfig,
     IntxWeightOnlyConfig,
@@ -194,11 +195,19 @@ def test_aarch64_conversion(dtype, granularity, bit_width, lead_dim):
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA")
 @pytest.mark.skipif(not _is_mslk_available(), reason="Requires mslk >= 1.0.0")
-def test_int4_tensor_conversion():
+@pytest.mark.parametrize(
+    "config",
+    [
+        Int4WeightOnlyConfig(group_size=128),
+        Float8DynamicActivationInt4WeightConfig(int4_packing_format="plain"),
+    ],
+    ids=["int4wo", "fp8act_int4w"],
+)
+def test_int4_tensor_conversion(config):
     m = torch.nn.Sequential(
         torch.nn.Linear(256, 512, dtype=torch.bfloat16, device="cuda")
     )
-    quantize_(m, Int4WeightOnlyConfig(group_size=128))
+    quantize_(m, config)
     weight = m[0].weight
     assert isinstance(weight, Int4Tensor)
     example_inputs = (torch.randn(32, 256, dtype=torch.bfloat16, device="cuda"),)
@@ -209,7 +218,16 @@ def test_int4_tensor_conversion():
     after_conversion = m(*example_inputs)
     if is_sm_at_least_90():
         assert isinstance(m[0].weight, Int4PreshuffledTensor)
+        if isinstance(config, Float8DynamicActivationInt4WeightConfig):
+            # Not exactly equal due to:
+            # 1. fp8 quantization of group_scale in from_int4_tensor()
+            #    (group_scale.to(torch.float8_e4m3fn))
+            # 2. different GEMM kernel numerical characteristics
+            #    (f8i4bf16_rowwise vs f8i4bf16_shuffled)
+            sqnr = compute_error(before_conversion, after_conversion)
+            assert sqnr > 30, f"sqnr: {sqnr}"
+        else:
+            assert torch.equal(before_conversion, after_conversion)
     else:
         assert isinstance(m[0].weight, Int4Tensor)
-
-    assert torch.equal(before_conversion, after_conversion)
+        assert torch.equal(before_conversion, after_conversion)

@@ -851,7 +851,7 @@ class Float8DynamicActivationInt4WeightConfig(AOBaseConfig):
     and above and no benefits of making it bigger)
 
     Args:
-        `int4_packing_format`: how the weight is packed, only preshuffled is supported
+        `int4_packing_format`: how the weight is packed, supported values are "preshuffled" and "plain"
 
     Example:
 
@@ -872,17 +872,27 @@ def _float8_dynamic_activation_int4_weight_transform(
     )
     int4_packing_format = config.int4_packing_format
 
-    assert int4_packing_format == "preshuffled", (
-        f"only preshuffled int4_packing_format supported right now, got: {int4_packing_format}"
+    assert int4_packing_format in ("preshuffled", "plain"), (
+        f"only preshuffled and plain int4_packing_format supported right now, got: {int4_packing_format}"
     )
     weight = module.weight
     group_size = 128
     block_size = tuple([1 for _ in range(weight.ndim - 1)] + [group_size])
-    new_weight = Int4PreshuffledTensor.from_hp(
-        module.weight,
-        block_size,
-        activation_dtype=torch.float8_e4m3fn,
-    )
+
+    if int4_packing_format == "preshuffled":
+        new_weight = Int4PreshuffledTensor.from_hp(
+            module.weight,
+            block_size,
+            activation_dtype=torch.float8_e4m3fn,
+        )
+    else:
+        # plain format
+        new_weight = Int4Tensor.from_hp(
+            module.weight,
+            block_size,
+            activation_dtype=torch.float8_e4m3fn,
+        )
+
     module.weight = torch.nn.Parameter(new_weight, requires_grad=False)
     module.extra_repr = types.MethodType(_linear_extra_repr, module)
     return module
