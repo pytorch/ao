@@ -173,7 +173,7 @@
   fbq('track', 'PageView');
 </script>
 <script>
-  document.documentElement.setAttribute('data-version', 'main (0.17.0+git605ae1b )');
+  document.documentElement.setAttribute('data-version', 'main (0.17.0+git9cd4107 )');
 </script>
 <noscript>
   <img height="1" width="1" src="https://www.facebook.com/tr?id=243028289693773&ev=PageView&noscript=1" />
@@ -1479,7 +1479,7 @@ per group weight quantization to linear
 and above and no benefits of making it bigger)</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>int4_packing_format</strong> – how the weight is packed, only preshuffled is supported</p>
+<dd class="field-odd"><p><strong>int4_packing_format</strong> – how the weight is packed, supported values are “preshuffled” and “plain”</p>
 </dd>
 </dl>
 <p>Example:</p>
@@ -1838,7 +1838,7 @@ and above and no benefits of making it bigger)</p>
        "headline": "Float8DynamicActivationInt4WeightConfig",
        "description": "PyTorch Documentation. Explore PyTorch, an open-source machine learning library that accelerates the path from research prototyping to production deployment.",
        "url": "/api_reference/generated/torchao.quantization.Float8DynamicActivationInt4WeightConfig.html",
-       "articleBody": "Float8DynamicActivationInt4WeightConfig# class torchao.quantization.Float8DynamicActivationInt4WeightConfig(int4_packing_format: Int4PackingFormat = \u0027preshuffled\u0027)[source][source]# Configuration for apply float8 dynamic per row quantization and int4 per group weight quantization to linear (only group_size 128 is supported right now since underlying kernel used only supports 128 and above and no benefits of making it bigger) Parameters: int4_packing_format \u2013 how the weight is packed, only preshuffled is supported Example: import torch.nn as nn from torchao.quantization import Float8DynamicActivationInt4WeightConfig, quantize_ model = nn.Sequential(nn.Linear(2048, 2048, device=\"cuda\")) quantize_(model, Float8DynamicActivationInt4WeightConfig())",
+       "articleBody": "Float8DynamicActivationInt4WeightConfig# class torchao.quantization.Float8DynamicActivationInt4WeightConfig(int4_packing_format: Int4PackingFormat = \u0027preshuffled\u0027)[source][source]# Configuration for apply float8 dynamic per row quantization and int4 per group weight quantization to linear (only group_size 128 is supported right now since underlying kernel used only supports 128 and above and no benefits of making it bigger) Parameters: int4_packing_format \u2013 how the weight is packed, supported values are \u201cpreshuffled\u201d and \u201cplain\u201d Example: import torch.nn as nn from torchao.quantization import Float8DynamicActivationInt4WeightConfig, quantize_ model = nn.Sequential(nn.Linear(2048, 2048, device=\"cuda\")) quantize_(model, Float8DynamicActivationInt4WeightConfig())",
        "author": {
          "@type": "Organization",
          "name": "PyTorch Contributors",
