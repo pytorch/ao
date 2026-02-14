@@ -45,8 +45,6 @@ FP8_ACT_CONFIG = Float8DynamicActivationInt4WeightConfig(
 @unittest.skipIf(is_sm_at_least_100(), "MSLK kernel not compatible with sm100+")
 @unittest.skipIf(not _is_mslk_available(), "Requires mslk >= 1.0.0")
 class TestInt4Tensor(TorchAOIntegrationTestCase):
-    GPU_DEVICES = ["cuda"] if torch.cuda.is_available() else []
-
     @parametrize("config", [WEIGHT_ONLY_CONFIG, FP8_ACT_CONFIG])
     # sizes format: (M_shape, N, K) where input is (*M_shape, K) and linear is (K, N)
     @parametrize(
@@ -157,7 +155,8 @@ class TestInt4Tensor(TorchAOIntegrationTestCase):
     def test_to_device(self, config, sizes):
         M, N, K = sizes
         dtype = torch.bfloat16
-        for device in self.GPU_DEVICES:
+        gpu_devices = ["cuda"] if torch.cuda.is_available() else []
+        for device in gpu_devices:
             input_tensor = torch.randn(*M, K, dtype=dtype, device=device)
             linear = torch.nn.Linear(K, N, dtype=dtype)
             quantize_(linear, config)
