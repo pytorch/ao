@@ -20,7 +20,12 @@ from torchao.quantization import (
 )
 from torchao.quantization.granularity import PerRow, PerTensor
 from torchao.quantization.quant_primitives import MappingType
-from torchao.quantization.quantize_.common import ObservedLinear
+from torchao.quantization.quantize_.common import (
+    _choose_quant_func_and_quantize_tensor,
+)
+from torchao.quantization.quantize_.workflows.int8.int8_tensor import (
+    QuantizeTensorToInt8Kwargs,
+)
 from torchao.quantization.utils import compute_error, get_block_size
 from torchao.testing.model_architectures import ToyTwoLinearModel
 from torchao.testing.utils import TorchAOIntegrationTestCase
@@ -255,35 +260,69 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
             weight_cpu.dequantize(), weight_pinned.dequantize(), atol=0, rtol=0
         )
 
-    @common_utils.parametrize("granularity", [PerRow()])
-    def test_static_quantization(self, granularity):
-        """Test observer-based static quantization: prepare -> calibrate -> convert"""
-        M, K, N = 32, 64, 32
-        model = ToyTwoLinearModel(K, N, K, dtype=torch.bfloat16, device="cuda").eval()
 
-        # PREPARE
-        quantize_(
-            model,
-            Int8StaticActivationInt8WeightConfig(
-                step="prepare", granularity=granularity
-            ),
+@unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+@common_utils.instantiate_parametrized_tests
+class TestInt8StaticQuant(TorchAOIntegrationTestCase):
+    @common_utils.parametrize("granularity", [PerRow(), PerTensor()])
+    @common_utils.parametrize("dtype", [torch.bfloat16])
+    def test_static_activation_per_row_int8_weight(self, granularity, dtype):
+        torch.compiler.reset()
+
+        M, N, K = 128, 128, 128
+        input_tensor = torch.randn(M, K, dtype=dtype, device="cuda")
+
+        model = torch.nn.Linear(K, N, bias=False).eval().to(device="cuda", dtype=dtype)
+        model_static_quant = copy.deepcopy(model)
+        model_dynamic_quant = copy.deepcopy(model)
+
+        model_out_baseline = model(input_tensor)
+
+        dynamic_config = Int8DynamicActivationInt8WeightConfig(
+            version=2, granularity=granularity
+        )
+        quantize_(model_dynamic_quant, dynamic_config)
+
+        dynamic_out_eager = model_dynamic_quant(input_tensor)
+        sqnr_dynamic_eager = compute_error(model_out_baseline, dynamic_out_eager)
+
+        model_dynamic_quant = torch.compile(model_dynamic_quant, fullgraph=True)
+
+        dynamic_out_compile = model_dynamic_quant(input_tensor)
+        sqnr_dynamic_compile = compute_error(model_out_baseline, dynamic_out_compile)
+
+        # we use eager scales to calculate
+        int8_input = _choose_quant_func_and_quantize_tensor(
+            input_tensor, model_dynamic_quant.weight.act_quant_kwargs
         )
 
-        # CALIBRATE
-        for _ in range(5):
-            with torch.no_grad():
-                model(*model.example_inputs(batch_size=M))
+        static_config = Int8StaticActivationInt8WeightConfig(
+            act_quant_scale=int8_input.scale.detach().clone(),
+            granularity=granularity,
+        )
+        quantize_(model_static_quant, static_config)
 
-        # CONVERT
-        quantize_(model, Int8StaticActivationInt8WeightConfig(step="convert"))
+        static_out_eager = model_static_quant(input_tensor)
+        sqnr_static_eager = compute_error(model_out_baseline, static_out_eager)
 
-        # Verify quantized
-        self.assertNotIsInstance(model.linear1, ObservedLinear)
-        self.assertNotIsInstance(model.linear2, ObservedLinear)
+        model_static_quant = torch.compile(model_static_quant, fullgraph=True)
 
-        # Test inference
-        output = model(*model.example_inputs(batch_size=M))
-        self.assertEqual(output.shape, (M, K))
+        static_out_compile = model_static_quant(input_tensor)
+        sqnr_static_compile = compute_error(model_out_baseline, static_out_compile)
+
+        assert abs(sqnr_static_compile - sqnr_dynamic_compile) < 1, (
+            f"Static compile vs dynamic compile SQNR difference too large: "
+            f"static_compile={sqnr_static_compile} vs dynamic_compile={sqnr_dynamic_compile}, "
+            f"diff={abs(sqnr_static_compile - sqnr_dynamic_compile)}"
+        )
+        assert abs(sqnr_static_eager - sqnr_dynamic_eager) < 1, (
+            f"Static eager vs dynamic eager SQNR difference too large: "
+            f"static_eager={sqnr_static_eager} vs dynamic_eager={sqnr_dynamic_eager}, "
+            f"diff={abs(sqnr_static_eager - sqnr_dynamic_eager)}"
+        )
+        # eager numerics should match exactly
+        # for compile, we can't compare dynamic vs static because we may get slightly different qparams when fused
+        torch.testing.assert_close(dynamic_out_eager, static_out_eager)
 
     def test_static_activation_per_row_dim_0_not_supported(self):
         """Test that PerRow(dim=0) activation quantization raises an error.
@@ -293,55 +332,43 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
         """
         with self.assertRaises(ValueError) as cm:
             Int8StaticActivationInt8WeightConfig(
-                step="prepare",
                 granularity=PerRow(dim=0),  # This should fail
             )
 
         self.assertIn("PerRow(dim=-1)", str(cm.exception))
 
-    @common_utils.parametrize("granularity", [PerRow()])
+    @common_utils.parametrize("granularity", [PerRow(), PerTensor()])
     def test_static_act_quant_slice_and_select(self, granularity):
         """Test static activation quantization with slice and select operations.
 
-        This test validates that PerRow(dim=-1) works correctly with weight slicing.
-        Per-token activation quantization (PerRow(dim=-1)) should work with weight
-        slicing since act_quant_scale doesn't need to be sliced.
+        This test validates that PerRow(dim=-1) and PerTensor() work correctly
+        with weight slicing. Per-token activation quantization (PerRow(dim=-1))
+        should work with weight slicing since act_quant_scale doesn't need to be sliced.
         """
         N, K = 256, 512
         M = 32  # batch size
         dtype = torch.bfloat16
         device = "cuda"
 
-        model = torch.nn.Sequential(
-            torch.nn.Linear(K, N, bias=False, dtype=dtype, device=device)
-        )
+        linear = torch.nn.Linear(K, N, bias=False, dtype=dtype, device=device)
         input_tensor = torch.randn(M, K, dtype=dtype, device=device)
-
-        # PREPARE: Insert observer
-        quantize_(
-            model,
-            Int8StaticActivationInt8WeightConfig(
-                step="prepare",
+        int8_input = _choose_quant_func_and_quantize_tensor(
+            input_tensor,
+            QuantizeTensorToInt8Kwargs(
                 granularity=granularity,
-                act_mapping_type=MappingType.SYMMETRIC,
+                mapping_type=MappingType.SYMMETRIC,
             ),
         )
 
-        # CALIBRATE: Run forward passes to collect statistics
-        for _ in range(5):
-            with torch.no_grad():
-                model(input_tensor)
-
-        # CONVERT: Convert to quantized model
-        quantize_(
-            model,
-            Int8StaticActivationInt8WeightConfig(
-                step="convert",
-            ),
+        act_quant_scale = int8_input.scale.detach().clone()
+        static_config = Int8StaticActivationInt8WeightConfig(
+            act_quant_scale=act_quant_scale,
+            granularity=granularity,
+            act_mapping_type=MappingType.SYMMETRIC,
         )
+        quantize_(linear, static_config)
 
         # Verify the weight has the correct act_quant_scale
-        linear = model[0]
         original_weight = linear.weight
         original_act_quant_scale = original_weight.act_quant_scale
         assert original_act_quant_scale is not None

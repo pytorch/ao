@@ -85,7 +85,6 @@ from .quant_primitives import (
     dequantize_affine,
     quantize_affine,
 )
-from .quantize_.common import ObservedLinear
 from .quantize_.workflows import (
     Float8Tensor,
     Int4PlainInt32Tensor,
@@ -152,7 +151,6 @@ __all__ = [
     "to_weight_tensor_with_linear_activation_scale_metadata",
     "AffineQuantizedMinMaxObserver",
     "AffineQuantizedObserverBase",
-    "ObservedLinear",
     # quant primitive ops
     "choose_qparams_affine",
     "choose_qparams_affine_with_min_max",
