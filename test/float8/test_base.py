@@ -477,6 +477,43 @@ class TestFloat8Linear:
         with torch.no_grad():
             m(x)
 
+    @unittest.skip(
+        "TODO enable this test after https://github.com/pytorch/pytorch/pull/140967 lands in CI"
+    )
+    @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
+    @unittest.skipIf(not is_sm_at_least_89, "CUDA 8.9 not available")
+    @pytest.mark.parametrize(
+        "recipe_name",
+        [
+            Float8LinearRecipeName.ALL_TENSORWISE,
+            # TODO(future PR): enable axiswise recipes
+        ],
+    )
+    def test_zero_dim(self, recipe_name):
+        # Note: we only test M == 0 because we can assume that K == 0 and N == 0
+        # are not important
+        M, K, N = 0, 64, 128
+
+        x0_ref = torch.randn(M, K, device="cuda", dtype=torch.bfloat16).requires_grad_()
+        x0_fp8 = copy.deepcopy(x0_ref)
+        config = recipe_name_to_linear_config(recipe_name)
+
+        m_ref = nn.Sequential(nn.Linear(K, N, device="cuda", dtype=torch.bfloat16))
+        m_fp8 = copy.deepcopy(m_ref)
+        m_fp8 = convert_to_float8_training(m_fp8, config=config)
+
+        y_ref = m_ref(x0_ref)
+        y_ref.sum().backward()
+
+        y_fp8 = m_fp8(x0_fp8)
+        y_fp8.sum().backward()
+
+        assert torch.allclose(y_ref, y_fp8, rtol=0, atol=0)
+        assert torch.allclose(
+            m_ref[0].weight.grad, m_fp8[0].weight.grad, rtol=0, atol=0
+        )
+        assert torch.allclose(x0_ref.grad, x0_fp8.grad, rtol=0, atol=0)
+
 
 class TestScaledMM:
     @unittest.skipIf(
