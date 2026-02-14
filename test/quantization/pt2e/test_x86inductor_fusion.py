@@ -2780,10 +2780,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
             self.assertEqual(
                 counters["inductor"]["qlinear_weight_prepack_matcher_count"], 1
             )
-            if dynamic:
-                nodes_count = 10 if has_bias else 7
-            else:
-                nodes_count = 7 if has_bias else 6
+            nodes_count = 7 if has_bias else 6
             if counters["inductor"]["removed_pointless_view_pair"] == 0:
                 # Removing pointless view pairs affect how the pattern
                 # for this test is matched.
@@ -2902,6 +2899,85 @@ class TestPatternMatcher(TestPatternMatcherBase):
         )
         if test_for_pointwise_binary:
             self.assertEqual(counters["inductor"]["qlinear_binary_matcher_count"], 1)
+
+    @skipIfNoDynamoSupport
+    @skipIfNoONEDNN
+    @parametrize("has_bias", [True, False])
+    def test_int8_linear_with_dot_scaled_and_output_convert(self, has_bias):
+        r"""
+        This testcase tests Int8StaticActivationInt8WeightConfig
+        quantized linear with matmul convert and output convert.
+        This test uses bfloat16 input and float32 weight to trigger both convert operations.
+
+        The pattern should match:
+            pattern_no_bias_1_with_output_convert:
+                reshape -> _int_mm -> convert(to bfloat16) -> mul(x_scale) -> convert(to bfloat16 after mul with float32) -> mul(w_scale) -> reshape -> convert(output)
+        or
+            pattern_with_bias_1_with_output_convert:
+                pattern_no_bias_1_with_dot_scaled_convert -> add(bias) -> convert(output)
+
+        Expected node counts:
+            - 8 nodes for no bias: reshape + int_mm + convert + mul + convert(dot scaled) + mul + reshape + convert(output)
+            - 9 nodes for with bias: above + add
+        """
+
+        in_feature = 32
+        out_feature = 64
+
+        class Mod(torch.nn.Module):
+            def __init__(self, has_bias):
+                super().__init__()
+                self.linear = torch.nn.Linear(
+                    in_feature, out_feature, bias=has_bias, dtype=torch.float32
+                )
+
+            def forward(self, x):
+                return self.linear(x)
+
+        mod = Mod(has_bias=has_bias).eval()
+
+        from torchao.prototype.smoothquant import (
+            SmoothQuantConfig,
+        )
+        from torchao.quantization import (
+            Int8StaticActivationInt8WeightConfig,
+            quantize_,
+        )
+        from torchao.quantization.granularity import PerRow, PerTensor
+        from torchao.quantization.quantize_.common.quantization_step import (
+            QuantizationStep,
+        )
+
+        quant_config = SmoothQuantConfig(
+            base_config=Int8StaticActivationInt8WeightConfig(
+                granularity=(PerTensor(), PerRow()),
+            ),
+            step=QuantizationStep.PREPARE,
+            alpha=0.5,
+        )
+
+        quantize_(mod, quant_config)
+        calibration_inputs = torch.randn(2, 4, in_feature, dtype=torch.float32)
+        mod(calibration_inputs)
+        quant_config.step = QuantizationStep.CONVERT
+        quantize_(mod, quant_config)
+        inputs = torch.randn(2, 4, in_feature, dtype=torch.bfloat16)
+
+        def matcher_check_fn():
+            self.assertEqual(
+                counters["inductor"]["qlinear_weight_prepack_matcher_count"], 1
+            )
+            expected_nodes = 9 if has_bias else 8
+            if counters["inductor"]["removed_pointless_view_pair"] == 0:
+                self.assertEqual(
+                    counters["inductor"]["qlinear_weight_prepack_matcher_nodes"],
+                    expected_nodes,
+                )
+
+        with torch.no_grad():
+            counters.clear()
+            torch.compile(mod)(inputs)
+            matcher_check_fn()
 
 
 @dynamo_config.patch(
