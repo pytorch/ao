@@ -189,29 +189,52 @@ class Int4PreshuffledTensor(TorchAOBaseTensor):
         assert isinstance(tensor, Int4Tensor), (
             f"Only conversion from Int4Tensor is supportd, got: {tensor}"
         )
-        # currently Int4Tensor only supports weight only, we can extend it to fp8-int4 a bit later
         qdata = tensor.qdata
         group_scale = tensor.scale
-        group_zero = tensor.zero_point
         block_size = tensor.block_size
         original_shape = tensor.shape
-        row_scale = None
 
-        # Set scales to activation type.
-        group_scale = group_scale.to(torch.bfloat16)
-        group_zero = group_zero.to(torch.bfloat16)
-        # pack weights and scales into efficient preshuffled format
-        preshuffled_qdata, group_scale = torch.ops.mslk.preshuffle_i4(
-            qdata, group_scale
-        )
-        return Int4PreshuffledTensor(
-            qdata=preshuffled_qdata,
-            group_scale=group_scale,
-            block_size=block_size,
-            shape=original_shape,
-            group_zero=group_zero,
-            row_scale=row_scale,
-        )
+        if tensor.activation_dtype == torch.float8_e4m3fn:
+            # fp8 activation: compute row_scale and convert group_scale to fp8
+            # Int4Tensor uses symmetric quantization (zero_point = 0) for fp8,
+            # matching the preshuffled kernel's requirements.
+
+            # row_scale: per-channel max of abs(group_scale), shape (N,)
+            # Must be fp32 as required by the f8i4bf16_shuffled kernel
+            row_scale = group_scale.abs().amax(dim=0).to(torch.float32)
+            # normalize group_scale so it fits in fp8 range, then cast to fp8
+            fp8_group_scale = (group_scale / row_scale.unsqueeze(0)).to(
+                torch.float8_e4m3fn
+            )
+            # pack weights and scales into efficient preshuffled format
+            preshuffled_qdata, preshuffled_group_scale = torch.ops.mslk.preshuffle_i4(
+                qdata, fp8_group_scale
+            )
+            return Int4PreshuffledTensor(
+                qdata=preshuffled_qdata,
+                group_scale=preshuffled_group_scale,
+                block_size=block_size,
+                shape=original_shape,
+                group_zero=None,
+                row_scale=row_scale,
+            )
+        else:
+            # bf16 activation: use group_zero (zero_point), no row_scale
+            group_zero = tensor.zero_point
+            group_scale = group_scale.to(torch.bfloat16)
+            group_zero = group_zero.to(torch.bfloat16)
+            # pack weights and scales into efficient preshuffled format
+            preshuffled_qdata, group_scale = torch.ops.mslk.preshuffle_i4(
+                qdata, group_scale
+            )
+            return Int4PreshuffledTensor(
+                qdata=preshuffled_qdata,
+                group_scale=group_scale,
+                block_size=block_size,
+                shape=original_shape,
+                group_zero=group_zero,
+                row_scale=None,
+            )
 
 
 implements = Int4PreshuffledTensor.implements

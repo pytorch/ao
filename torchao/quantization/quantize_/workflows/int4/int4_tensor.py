@@ -20,8 +20,9 @@ aten = torch.ops.aten
 
 
 try:
-    from mslk.quantize.shuffle import int4_row_quantize_zp, pack_int4
+    from mslk.quantize.shuffle import int4_row_quantize, int4_row_quantize_zp, pack_int4
 except Exception:
+    int4_row_quantize = None
     int4_row_quantize_zp = None
     pack_int4 = None
 
@@ -29,6 +30,28 @@ try:
     from mslk.quantize.triton.fp8_quantize import quantize_fp8_row
 except Exception:
     quantize_fp8_row = None
+
+
+def _int4_symmetric_quantize(w, group_size):
+    """Symmetric int4 row quantization for fp8 activation path.
+
+    Wraps mslk's int4_row_quantize (symmetric, no zero_point) and adds
+    a zero_point tensor of zeros to match int4_row_quantize_zp's interface.
+    This ensures lossless conversion from Int4Tensor to Int4PreshuffledTensor
+    for fp8, since the preshuffled kernel also uses symmetric quantization.
+
+    Args:
+        w: 2D weight tensor (N, K)
+        group_size: quantization group size
+
+    Returns:
+        wq: quantized weight (N, K), int8 values in [-8, 7]
+        scale: per-group scale (K/group_size, N), float32
+        zero_point: zeros (K/group_size, N), float32
+    """
+    wq, scale = int4_row_quantize(w, group_size)
+    zero_point = torch.zeros_like(scale)
+    return wq, scale, zero_point
 
 
 class Int4Tensor(TorchAOBaseTensor):
@@ -128,15 +151,22 @@ class Int4Tensor(TorchAOBaseTensor):
         group_size = block_size[-1]
         original_shape = w.shape
 
+        # Use symmetric quantization for fp8 activation to match the
+        # preshuffled kernel's requirements (no zero_point needed)
+        if activation_dtype == torch.float8_e4m3fn:
+            quantize_fn = _int4_symmetric_quantize
+        else:
+            quantize_fn = int4_row_quantize_zp
+
         if w.ndim >= 3:
             wq, scale, zero_point = zip(
-                *[int4_row_quantize_zp(i, group_size) for i in w], strict=False
+                *[quantize_fn(i, group_size) for i in w], strict=False
             )
             wq = torch.stack([pack_int4(i) for i in wq], dim=0)
             scale = torch.stack(scale, dim=0)
             zero_point = torch.stack(zero_point, dim=0)
         else:
-            wq, scale, zero_point = int4_row_quantize_zp(w, group_size)
+            wq, scale, zero_point = quantize_fn(w, group_size)
             wq = pack_int4(wq)
 
         scale = scale.to(w.dtype)
