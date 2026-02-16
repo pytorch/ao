@@ -21,6 +21,8 @@ from torchao.prototype.mx_formats.kernels import pack_uint4
 from torchao.prototype.mx_formats.mx_tensor import (
     MXTensor,
     ScaleCalculationMode,
+    tensor_size_fp4x2_to_hp,
+    tensor_size_hp_to_fp4x2,
     to_dtype,
 )
 from torchao.prototype.mx_formats.utils import from_blocked, to_blocked
@@ -751,3 +753,35 @@ def test_swizzle(elem_dtype, transpose, shape):
     x_dq = x.dequantize(x.dtype)
     xs_dq = xs.dequantize(xs.dtype)
     torch.testing.assert_close(x_dq, xs_dq, atol=0, rtol=0)
+
+
+def test_shape_conversions():
+    B, M, K = 2, 32, 128
+
+    # 2D
+    x = torch.randn(M, K)
+    # 2D - contiguous
+    shape_fp4x2 = tensor_size_hp_to_fp4x2(x.shape, x.is_contiguous())
+    assert shape_fp4x2 == [M, K // 2]
+    shape_hp = tensor_size_fp4x2_to_hp(x.shape, x.is_contiguous())
+    assert shape_hp == [M, K * 2]
+    # 2D - transposed
+    x = x.t()
+    shape_fp4x2_t = tensor_size_hp_to_fp4x2(x.shape, x.is_contiguous())
+    assert shape_fp4x2_t == [K // 2, M]
+    shape_hp_t = tensor_size_fp4x2_to_hp(x.shape, x.is_contiguous())
+    assert shape_hp_t == [K * 2, M]
+
+    # 3D
+    x = torch.randn(B, M, K)
+    # 3D - contiguous
+    shape_fp4x2 = tensor_size_hp_to_fp4x2(x.shape, x.is_contiguous())
+    assert shape_fp4x2 == [B, M, K // 2]
+    shape_hp = tensor_size_fp4x2_to_hp(x.shape, x.is_contiguous())
+    assert shape_hp == [B, M, K * 2]
+    # 2D - transposed
+    x = x.transpose(-2, -1)
+    shape_fp4x2_t = tensor_size_hp_to_fp4x2(x.shape, x.is_contiguous())
+    assert shape_fp4x2_t == [B, K // 2, M]
+    shape_hp_t = tensor_size_fp4x2_to_hp(x.shape, x.is_contiguous())
+    assert shape_hp_t == [B, K * 2, M]
