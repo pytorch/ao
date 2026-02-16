@@ -624,8 +624,9 @@ if torch_version_at_least("2.7.0") and has_triton():
         # reshape back to original shape
         scales = scales.view(*orig_leading_dims, -1, padded_cols)
         xq = xq.view(*orig_leading_dims, -1, N // 2)
+        xq = xq.view(torch.float4_e2m1fn_x2)
 
-        return scales, xq.view(torch.uint8)
+        return scales, xq
 
     @triton_quantize_nvfp4.register_fake
     def _(x, per_tensor_scale=None):
@@ -639,7 +640,7 @@ if torch_version_at_least("2.7.0") and has_triton():
         scales = torch.empty(
             padded_rows, padded_cols, device=x.device, dtype=torch.float8_e4m3fn
         )
-        xq = torch.empty(M, N // 2, device=x.device, dtype=torch.uint8)
+        xq = torch.empty(M, N // 2, device=x.device, dtype=torch.float4_e2m1fn_x2)
         return scales, xq
 
     @triton_mx_block_rearrange.register_fake

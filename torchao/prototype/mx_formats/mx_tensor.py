@@ -331,6 +331,7 @@ def to_mx(
         data_lp = data_lp.reshape(orig_shape)
         data_lp = f32_to_f4_unpacked(data_lp)
         data_lp = pack_uint4(data_lp)
+        data_lp = data_lp.view(torch.float4_e2m1fn_x2)
     else:
         raise AssertionError("unsupported")
 
@@ -392,7 +393,7 @@ def to_dtype(
         data_hp = data_hp.to(target_dtype).reshape(orig_shape)
     elif elem_dtype == torch.float4_e2m1fn_x2:
         # fp4
-        f4_unpacked = unpack_uint4(data_lp)
+        f4_unpacked = unpack_uint4(data_lp.view(torch.uint8))
         # for now we only have a cast to f32
         # TODO(future PR): add cast directly to bf16
         f32 = f4_unpacked_to_f32(f4_unpacked)
@@ -493,6 +494,7 @@ class MXTensor(TorchAOBaseTensor):
             torch.float8_e4m3fn,
             torch.float8_e5m2,
             torch.uint8,
+            torch.float4_e2m1fn_x2,
         ), "unsupported"
         self.qdata = qdata
         self.scale = scale
