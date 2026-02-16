@@ -628,7 +628,7 @@ def _compute_wgrad(
             grad_output_t_data,  # (N, M)
             grad_output_t_scales,  # (N, M//block_size)
             input_act_t_data.transpose(-2, -1),  # (K, M) -> (M, K)
-            input_act_t_scales,  # (K, M//block_size) - reduction dim M trailing
+            input_act_t_scales,  # (K, M//block_size)
             offs=group_offsets,
             out_dtype=out_dtype,
             block_size=block_size,
@@ -902,7 +902,7 @@ def _emulated_mxfp8_scaled_grouped_mm_2d_2d(
     A_data: torch.Tensor,  # (M, K)
     A_scale: torch.Tensor,  # (M, K//block_size)
     B_data: torch.Tensor,  # (K, N)
-    B_scale: torch.Tensor,  # (N, K//block_size) - reduction dim trailing, matches 2d_3d API
+    B_scale: torch.Tensor,  # (N, K//block_size)
     offs: torch.Tensor,
     out_dtype: Optional[torch.dtype] = torch.bfloat16,
     block_size: int = 32,
@@ -962,12 +962,12 @@ def _emulated_mxfp8_scaled_grouped_mm_2d_2d(
         # B_group shape is (group_size, N)
         B_group = B_data[group_start_idx:group_end_idx, :]
 
-        # Scales shape is (N, group_size//block_size) - extract along second dim
+        # Scales shape is (N, group_size//block_size)
         scales = B_scale[:, scales_start_idx : scales_start_idx + scale_group_size]
 
         # Transpose B to get scaling group on rightmost dim, to make things easier
         # B_group_shape = (N, group_size)
-        # scales shape = (N, group_size//block_size) - already correct
+        # scales shape = (N, group_size//block_size)
         B_group = B_group.transpose(-2, -1)
 
         # Reshape B to be able to do per-scaling group multiplication
