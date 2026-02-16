@@ -12,6 +12,10 @@ from torch.testing._internal.common_utils import (
 )
 
 from torchao import quantize_
+from torchao.prototype.mx_formats.inference_workflow import (
+    MXDynamicActivationMXWeightConfig,
+    NVFP4DynamicActivationNVFP4WeightConfig,
+)
 from torchao.prototype.safetensors.safetensors_support import (
     flatten_tensor_state_dict,
     unflatten_tensor_state_dict,
@@ -25,36 +29,47 @@ from torchao.quantization.quant_api import (
     Int8WeightOnlyConfig,
     IntxWeightOnlyConfig,
 )
-from torchao.utils import get_available_devices, is_sm_at_least_89
+from torchao.utils import (
+    get_available_devices,
+    is_sm_at_least_89,
+    is_sm_at_least_100,
+    torch_version_at_least,
+)
 
 _DEVICES = get_available_devices()
 _DEVICE = _DEVICES[-1]
 
-# All test configs
 _ALL_TEST_CONFIGS = [
     (Float8DynamicActivationFloat8WeightConfig(granularity=PerRow()), False),
-    (Int4WeightOnlyConfig(), False),
-    (Int4WeightOnlyConfig(), True),
-    (Int4WeightOnlyConfig(int4_packing_format="tile_packed_to_4d"), False),
-    (Int4WeightOnlyConfig(int4_packing_format="plain_int32"), False),
     (IntxWeightOnlyConfig(), False),
     (Int8DynamicActivationIntxWeightConfig(), False),
     (Int8WeightOnlyConfig(version=2), False),
     (Int8DynamicActivationInt8WeightConfig(version=2), False),
 ]
 
-# XPU only supports plain_int32 for Int4WeightOnlyConfig, filter out other Int4 configs
-if _DEVICE == "xpu":
-    _TEST_CONFIGS = [
-        cfg
-        for cfg in _ALL_TEST_CONFIGS
-        if not (
-            isinstance(cfg[0], Int4WeightOnlyConfig)
-            and cfg[0].int4_packing_format != "plain_int32"
-        )
+# Int4WeightOnlyConfig with tinygemm uses sm90a CUTLASS kernels which are not
+# forward-compatible with sm100+
+if not is_sm_at_least_100():
+    _ALL_TEST_CONFIGS += [
+        (Int4WeightOnlyConfig(), False),
+        (Int4WeightOnlyConfig(), True),
+        (Int4WeightOnlyConfig(int4_packing_format="tile_packed_to_4d"), False),
     ]
-else:
-    _TEST_CONFIGS = _ALL_TEST_CONFIGS
+
+# plain_int32 only supports XPU
+if _DEVICE in ("xpu"):
+    _ALL_TEST_CONFIGS += [
+        (Int4WeightOnlyConfig(int4_packing_format="plain_int32"), False),
+    ]
+
+# MX and NVFP4 configs require torch >= 2.11
+if torch_version_at_least("2.11.0.dev"):
+    _ALL_TEST_CONFIGS += [
+        (MXDynamicActivationMXWeightConfig(), False),
+        (NVFP4DynamicActivationNVFP4WeightConfig(), False),
+    ]
+
+_TEST_CONFIGS = _ALL_TEST_CONFIGS
 
 
 def load_data(file_path: str, device: str):
@@ -87,7 +102,7 @@ class TestSafeTensors(TestCase):
             model[0].weight.act_pre_scale = torch.ones(
                 (1), dtype=torch.bfloat16, device=_DEVICE
             )
-        example_inputs = (torch.randn(2, 128, dtype=torch.bfloat16, device=_DEVICE),)
+        example_inputs = (torch.randn(128, 128, dtype=torch.bfloat16, device=_DEVICE),)
         ref_output = model(*example_inputs)
 
         with tempfile.NamedTemporaryFile() as f:
