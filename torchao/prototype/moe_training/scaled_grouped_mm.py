@@ -627,7 +627,7 @@ def _compute_wgrad(
         grad_weight = _emulated_mxfp8_scaled_grouped_mm_2d_2d(
             grad_output_t_data,  # (N, M)
             grad_output_t_scales,  # (N, M//block_size)
-            input_act_t_data.transpose(-2, -1),  # (K, M) -> (M, K)
+            input_act_t_data,  # (K, M)
             input_act_t_scales,  # (K, M//block_size)
             offs=group_offsets,
             out_dtype=out_dtype,
@@ -900,7 +900,7 @@ def _emulated_mxfp8_scaled_grouped_mm_2d_3d(
 def _emulated_mxfp8_scaled_grouped_mm_2d_2d(
     A_data: torch.Tensor,  # (M, K)
     A_scale: torch.Tensor,  # (M, K//block_size)
-    B_data: torch.Tensor,  # (K, N)
+    B_data: torch.Tensor,  # (N, K)
     B_scale: torch.Tensor,  # (N, K//block_size)
     offs: torch.Tensor,
     out_dtype: Optional[torch.dtype] = torch.bfloat16,
@@ -910,7 +910,7 @@ def _emulated_mxfp8_scaled_grouped_mm_2d_2d(
     assert B_data.ndim == 2, "B must be 2D"
 
     M, K = A_data.shape
-    _, N = B_data.shape
+    N, _ = B_data.shape
 
     # Dequantize A: (M, K) with scales (M, K//block_size)
     A_reshaped = A_data.reshape(M, K // block_size, block_size)
@@ -918,16 +918,16 @@ def _emulated_mxfp8_scaled_grouped_mm_2d_2d(
         A_reshaped.to(torch.bfloat16) * A_scale.unsqueeze(-1).to(torch.bfloat16)
     ).reshape(M, K)
 
-    # Dequantize B: (K, N) with scales (N, K//block_size)
-    # Transpose B_scale from (N, K//block_size) to (K//block_size, N) to align
-    # with the B_data layout (K, N) for vectorized dequantization.
-    B_scale_t = B_scale.transpose(-2, -1)  # (K//block_size, N)
-    B_reshaped = B_data.reshape(K // block_size, block_size, N)
+    # Dequantize B: (N, K) with scales (N, K//block_size)
+    B_reshaped = B_data.reshape(N, K // block_size, block_size)
     B_dequant = (
-        B_reshaped.to(torch.bfloat16) * B_scale_t.unsqueeze(1).to(torch.bfloat16)
-    ).reshape(K, N)
+        B_reshaped.to(torch.bfloat16) * B_scale.unsqueeze(-1).to(torch.bfloat16)
+    ).reshape(N, K)
 
-    out = torch._grouped_mm(A_dequant, B_dequant, offs=offs, out_dtype=out_dtype)
+    # Transpose B from (N, K) to (K, N) for matmul: A (M, K) @ B^T (K, N) = (M, N)
+    out = torch._grouped_mm(
+        A_dequant, B_dequant.transpose(-2, -1), offs=offs, out_dtype=out_dtype
+    )
     return out
 
 
