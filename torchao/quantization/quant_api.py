@@ -15,6 +15,7 @@ come along with it and because that is how we access the intended quantized
 and mixed GEMM kernels
 """
 
+import inspect
 import logging
 import re
 import types
@@ -1826,14 +1827,14 @@ class FqnToConfig(AOBaseConfig):
 # maintain BC
 ModuleFqnToConfig = FqnToConfig
 
-# for now, we need to keep track of what configs support custom param quantization.
-# Once we've updated all the transform functions to take in a custom_param kwarg, we can delete this object and the subsequent check
-# TODO see https://github.com/pytorch/ao/issues/3252 for more details
-CUSTOM_PARAM_QUANTIZATION_SUPPORTED_CONFIGS = {
-    Float8DynamicActivationFloat8WeightConfig,
-    Float8WeightOnlyConfig,
-    Int8WeightOnlyConfig,
-}
+
+def _handler_supports_fqn_quantization(
+    handler: Callable[[torch.nn.Module, AOBaseConfig], torch.nn.Module],
+) -> bool:
+    """
+    Returns True if the handler function has a "parameter_name" kwarg in its type signature, False otherwise.
+    """
+    return inspect.signature(handler).parameters.get("parameter_name", None) is not None
 
 
 def _fqn_to_config_handler(
@@ -1874,7 +1875,7 @@ def _fqn_to_config_handler(
                 top_level_params.pop(i)
             else:
                 handler = _QUANTIZE_CONFIG_HANDLER[type(c)]
-                if type(c) in CUSTOM_PARAM_QUANTIZATION_SUPPORTED_CONFIGS:
+                if _handler_supports_fqn_quantization(handler):
                     # may be more than one param specified, so don't return prematurely
                     module = handler(module, c, parameter_name=parameter_name)
                 else:
@@ -1899,7 +1900,7 @@ def _fqn_to_config_handler(
                 c = config.fqn_to_config[pattern]
                 if c is not None:
                     handler = _QUANTIZE_CONFIG_HANDLER[type(c)]
-                    if type(c) in CUSTOM_PARAM_QUANTIZATION_SUPPORTED_CONFIGS:
+                    if _handler_supports_fqn_quantization(handler):
                         # may be more than one param specified, so don't return prematurely
                         module = handler(module, c, parameter_name=parameter_name)
                     else:

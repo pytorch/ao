@@ -602,7 +602,9 @@ class TestFqnToConfig(TestCase):
             filter_fn=None,
         )
         assert str(custom_module).startswith("TestModule(x=Float8Tensor(")
-        assert str(custom_module.x) in str(custom_module)
+        # Check that the quantization type info (without full tensor data) is in the module repr
+        assert "Float8Tensor(" in str(custom_module)
+        assert "PerTensor()" in str(custom_module)
 
     def test_fqn_to_config_repr_linear(self):
         linear_model = ToyLinearModel().to(torch.bfloat16).cuda().eval()
@@ -622,8 +624,10 @@ class TestFqnToConfig(TestCase):
             "Linear(in_features=64, out_features=32, bias=False, weight=Float8Tensor("
         )
 
-        assert str(linear_model).startswith(expected_starting_str)
-        assert str(linear_model.linear1.weight) in str(linear_model)
+        assert str(linear_model.linear1).startswith(expected_starting_str)
+        # Check that the quantization type info (without full tensor data) is in the module repr
+        assert "Float8Tensor(" in str(linear_model)
+        assert "PerTensor()" in str(linear_model)
 
     def test_fqn_to_config_regex_skip(self):
         """Test that regex pattern with None config skips matching modules."""
@@ -855,20 +859,49 @@ class TestFqnToConfig(TestCase):
         assert not isinstance(model.linear2.bias, Float8Tensor)
 
     def test_unsupported_param_config_raises_not_implemented_error(self):
-        """Test that using an unsupported parameter config raises NotImplementedError."""
+        """Test that using an unsupported parameter config raises NotImplementedError.
+
+        This test creates a custom config whose handler does not have a 'parameter_name'
+        kwarg in its signature. This verifies that _handler_supports_fqn_quantization()
+        correctly identifies handlers that don't support parameter-level quantization.
+        """
+        from dataclasses import dataclass
+
+        from torchao.core.config import AOBaseConfig
+        from torchao.quantization.transform_module import (
+            register_quantize_module_handler,
+        )
+
+        # Create a custom config that doesn't support parameter quantization
+        @dataclass
+        class TestUnsupportedParamConfig(AOBaseConfig):
+            dummy: int = 1
+
+        # Register a handler WITHOUT parameter_name kwarg
+        @register_quantize_module_handler(TestUnsupportedParamConfig)
+        def _test_unsupported_param_transform(
+            module: torch.nn.Module,
+            config: TestUnsupportedParamConfig,
+        ) -> torch.nn.Module:
+            # This handler doesn't have parameter_name, so it can't support param quantization
+            return module
+
         # Create a simple model
         model = torch.nn.Sequential(torch.nn.Linear(10, 5).cuda().bfloat16())
 
-        # Create config with unsupported parameter handler
+        # Create config targeting a parameter (not a module)
         quant_config = FqnToConfig(
             {
-                "0.weight": Int4WeightOnlyConfig(),
+                "0.weight": TestUnsupportedParamConfig(),
             }
         )
 
-        # This should raise NotImplementedError
-        with self.assertRaises(NotImplementedError):
+        # This should raise NotImplementedError because the handler
+        # does not have 'parameter_name' in its signature
+        with self.assertRaises(NotImplementedError) as cm:
             quantize_(model, quant_config, filter_fn=None)
+
+        self.assertIn("does not yet support parameter quantization", str(cm.exception))
 
     def test_filter_fn_and_fqn_to_config_error(self):
         """Test that specifying non-default filter_fn and FqnToConfig raises ValueError."""
