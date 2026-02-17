@@ -464,20 +464,20 @@ class TestQuantFlow(TestCase):
         assert isinstance(model.linear2.weight, AffineQuantizedTensor)
         assert isinstance(model.linear2.weight._layout, PlainLayout)
 
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test_module_fqn_to_config_regex_basic(self):
         config1 = Int4WeightOnlyConfig(
             group_size=32, int4_packing_format="tile_packed_to_4d"
         )
         config = ModuleFqnToConfig({"re:linear.": config1})
-        model = ToyLinearModel().cuda().to(dtype=torch.bfloat16)
-        example_inputs = model.example_inputs(device="cuda", dtype=torch.bfloat16)
+        model = ToyLinearModel().to(_DEVICE).to(dtype=torch.bfloat16)
+        example_inputs = model.example_inputs(device=_DEVICE, dtype=torch.bfloat16)
         quantize_(model, config, filter_fn=None)
         model(*example_inputs)
         assert isinstance(model.linear1.weight, Int4TilePackedTo4dTensor)
         assert isinstance(model.linear2.weight, Int4TilePackedTo4dTensor)
 
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test_module_fqn_to_config_regex_precedence(self):
         """Testing that full path config takes precedence over
         regex config in ModuleFqnToConfig
@@ -487,14 +487,14 @@ class TestQuantFlow(TestCase):
         )
         config2 = IntxWeightOnlyConfig()
         config = ModuleFqnToConfig({"linear1": config1, "re:linear.": config2})
-        model = ToyLinearModel().cuda().to(dtype=torch.bfloat16)
-        example_inputs = model.example_inputs(device="cuda", dtype=torch.bfloat16)
+        model = ToyLinearModel().to(_DEVICE).to(dtype=torch.bfloat16)
+        example_inputs = model.example_inputs(device=_DEVICE, dtype=torch.bfloat16)
         quantize_(model, config, filter_fn=None)
         model(*example_inputs)
         assert isinstance(model.linear1.weight, Int4TilePackedTo4dTensor)
         assert isinstance(model.linear2.weight, IntxUnpackedToInt8Tensor)
 
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test_module_fqn_to_config_regex_precedence2(self):
         """Testing that full path config takes precedence over
         regex config in ModuleFqnToConfig, swapping
@@ -506,14 +506,14 @@ class TestQuantFlow(TestCase):
         )
         config2 = IntxWeightOnlyConfig()
         config = ModuleFqnToConfig({"re:linear.": config2, "linear1": config1})
-        model = ToyLinearModel().cuda().to(dtype=torch.bfloat16)
-        example_inputs = model.example_inputs(device="cuda", dtype=torch.bfloat16)
+        model = ToyLinearModel().to(_DEVICE).to(dtype=torch.bfloat16)
+        example_inputs = model.example_inputs(device=_DEVICE, dtype=torch.bfloat16)
         quantize_(model, config, filter_fn=None)
         model(*example_inputs)
         assert isinstance(model.linear1.weight, Int4TilePackedTo4dTensor)
         assert isinstance(model.linear2.weight, IntxUnpackedToInt8Tensor)
 
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test_module_fqn_to_config_regex_fullmatch(self):
         """Testing that we will only match the fqns that fully
         matches the regex
@@ -552,7 +552,7 @@ class TestQuantFlow(TestCase):
                 "linear3_full_match.bias": None,
             }
         )
-        model = M(dtype=torch.bfloat16, device="cuda")
+        model = M(dtype=torch.bfloat16, device=_DEVICE)
         example_inputs = model.example_inputs()
         quantize_(model, config, filter_fn=None)
         model(*example_inputs)

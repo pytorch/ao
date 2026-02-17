@@ -120,7 +120,7 @@ class Int4TilePackedTo4dTensor(TorchAOBaseTensor):
         # Validate kernel requirements
         orig_out_features, orig_in_features = hp_tensor.shape[-2:]
         # TODO: relax checks to enable quantizing in other platoforms and run in A100
-        if not torch.cuda.get_device_capability()[0] >= 8:
+        if torch.cuda.is_available() and not torch.cuda.get_device_capability()[0] >= 8:
             raise ValueError(
                 f"Cannot use tinygemm int4 kernel with a device of compute capability {torch.cuda.get_device_capability()}, the minimum compute capability is 8.0 for tensor core kernels."
             )
