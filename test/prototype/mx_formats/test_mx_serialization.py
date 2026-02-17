@@ -48,7 +48,7 @@ def test_serialization(recipe_name):
         else:
             assert recipe_name == "nvfp4", "unsupported"
             config = NVFP4DynamicActivationNVFP4WeightConfig(
-                quantize_kernel_preference=KernelPreference.TORCH,
+                quantize_kernel_preference=KernelPreference.AUTO,
                 use_dynamic_per_tensor_scale=False,
             )
 
