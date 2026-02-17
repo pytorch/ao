@@ -17,6 +17,10 @@ from tqdm import tqdm
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from torchao.prototype.gptq import GPTQConfig
+from torchao.prototype.mx_formats.inference_workflow import (
+    MXDynamicActivationMXWeightConfig,
+)
+from torchao.prototype.mx_formats.mx_tensor import MXTensor
 from torchao.quantization import Int4WeightOnlyConfig, Int8WeightOnlyConfig, quantize_
 from torchao.quantization.granularity import PerRow
 
@@ -177,6 +181,9 @@ def parse_args():
             "int8-rtn",
             "int8-gptq-sequential",
             "int8-gptq-nonsequential",
+            "mxfp8-rtn",
+            "mxfp8-gptq-sequential",
+            "mxfp8-gptq-nonsequential",
         ],
         help="Quantization method to use",
     )
@@ -240,6 +247,8 @@ def main():
         "int4-gptq-nonsequential",
         "int8-gptq-sequential",
         "int8-gptq-nonsequential",
+        "mxfp8-gptq-sequential",
+        "mxfp8-gptq-nonsequential",
     ]:
         output_dir += f"_{args.dataset_id}_n{args.num_calibration_samples}"
         output_dir += f"_damp{args.percdamp}_bs{args.gptq_block_size}"
@@ -259,19 +268,39 @@ def main():
         config = Int8WeightOnlyConfig(version=2, granularity=PerRow())
         quantize_(model, config, filter_fn=None)
 
+    elif args.quantization == "mxfp8-rtn":
+        print("Applying MXFP8 RTN (Round-To-Nearest) quantization...")
+        for module in model.modules():
+            if isinstance(module, torch.nn.Linear):
+                w = module.weight.data
+                if w.shape[-1] % 32 == 0:
+                    mx_tensor = MXTensor.to_mx(
+                        w, elem_dtype=torch.float8_e4m3fn, block_size=32
+                    )
+                    dequantized = mx_tensor.dequantize(output_dtype=w.dtype)
+                    module.weight = torch.nn.Parameter(dequantized, requires_grad=False)
+
     elif args.quantization in [
         "int4-gptq-sequential",
         "int4-gptq-nonsequential",
         "int8-gptq-sequential",
         "int8-gptq-nonsequential",
+        "mxfp8-gptq-sequential",
+        "mxfp8-gptq-nonsequential",
     ]:
         # Determine base config based on quantization type
         if "int4" in args.quantization:
             base_config = Int4WeightOnlyConfig(group_size=args.group_size)
             quant_type = "Int4"
-        else:  # int8
+        elif "int8" in args.quantization:
             base_config = Int8WeightOnlyConfig(granularity=PerRow(), version=2)
             quant_type = "Int8"
+        else:  # mxfp8
+            base_config = MXDynamicActivationMXWeightConfig(
+                activation_dtype=torch.float8_e4m3fn,
+                weight_dtype=torch.float8_e4m3fn,
+            )
+            quant_type = "MXFP8"
 
         # First application: wrap weights with GPTQObserverTensor (observe step)
         print(
@@ -358,9 +387,10 @@ def main():
         "--model_args",
         f"pretrained={output_dir}",
         "--tasks",
-        "leaderboard_bbh",
+        # "leaderboard_bbh",
+        "arc_challenge,arc_easy,hellaswag,piqa,winogrande",
         "--num_fewshot",
-        "3",
+        "0",
         "--batch_size",
         "auto",
     ]
