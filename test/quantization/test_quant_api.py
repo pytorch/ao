@@ -37,6 +37,7 @@ from torchao.quantization.quant_api import (
     Float8DynamicActivationFloat8WeightConfig,
     Float8WeightOnlyConfig,
     FqnToConfig,
+    GemliteUIntXWeightOnlyConfig,
     Int4WeightOnlyConfig,
     Int8DynamicActivationInt8WeightConfig,
     Int8DynamicActivationIntxWeightConfig,
@@ -346,6 +347,7 @@ class TestQuantFlow(TestCase):
             Float8DynamicActivationFloat8WeightConfig(),
             Int8DynamicActivationInt8WeightConfig(),
             Int8WeightOnlyConfig(),
+            GemliteUIntXWeightOnlyConfig(),
             UIntXWeightOnlyConfig(dtype=torch.uint4),
         ],
     )
@@ -364,8 +366,12 @@ class TestQuantFlow(TestCase):
             and not is_sm_at_least_89()
         ):
             return unittest.skip("requires CUDA capability 8.9 or greater")
+        elif isinstance(config, GemliteUIntXWeightOnlyConfig) and not has_gemlite:
+            return unittest.skip("gemlite not available")
 
         dtype = torch.bfloat16
+        if isinstance(config, GemliteUIntXWeightOnlyConfig):
+            dtype = torch.float16
 
         # set up inputs
         device = get_current_accelerator_device()
@@ -558,6 +564,7 @@ class TestQuantFlow(TestCase):
         Test that old config functions like `Int8DynamicActivationInt4WeightConfig` trigger deprecation warnings.
         """
         from torchao.quantization import (
+            GemliteUIntXWeightOnlyConfig,
             UIntXWeightOnlyConfig,
         )
 
@@ -566,6 +573,7 @@ class TestQuantFlow(TestCase):
 
         # Map from deprecated API to the args needed to instantiate it
         deprecated_apis_to_args = {
+            GemliteUIntXWeightOnlyConfig: (),
             UIntXWeightOnlyConfig: (torch.uint4,),
         }
 

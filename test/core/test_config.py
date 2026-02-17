@@ -32,6 +32,7 @@ from torchao.quantization.quant_api import (
     Float8DynamicActivationFloat8WeightConfig,
     Float8DynamicActivationInt4WeightConfig,
     Float8WeightOnlyConfig,
+    GemliteUIntXWeightOnlyConfig,
     Int4WeightOnlyConfig,
     Int8DynamicActivationInt8WeightConfig,
     Int8WeightOnlyConfig,
@@ -74,6 +75,10 @@ configs = [
         dtype=torch.uint3,
         group_size=32,
         use_hqq=True,
+    ),
+    GemliteUIntXWeightOnlyConfig(
+        group_size=128,  # Optional, has default of 64
+        bit_width=8,  # Optional, has default of 4
     ),
     # Sparsity configs
     SemiSparseWeightConfig(),
