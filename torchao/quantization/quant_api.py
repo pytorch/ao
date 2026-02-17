@@ -1086,7 +1086,7 @@ def _validate_granularity_int8(
 @dataclass
 class Int8DynamicActivationInt8WeightConfig(AOBaseConfig):
     """
-    Configuration for applying int8 dynamic symmetric per-token activation and int8 per-channel weight
+    Configuration for applying int8 dynamic per-token activation and int8 per-channel weight
     quantization to linear layers.
 
     Args:
@@ -1097,7 +1097,7 @@ class Int8DynamicActivationInt8WeightConfig(AOBaseConfig):
             activations and weights) or a tuple / list of two granularities (first for activations, second for weights).
             If None, defaults to PerRow for both. Only PerTensor and PerRow are supported.
         act_mapping_type: Optional[MappingType] = MappingType.SYMMETRIC - Mapping type for activation quantization.
-            SYMMETRIC uses symmetric quantization around zero.
+            SYMMETRIC and ASYMMETRIC are supported for version 2.
         weight_only_decode: bool = False - If True, only quantizes weights during forward pass and keeps activations
             in original precision during decode operations.
         set_inductor_config: bool = True - If True, adjusts `torchinductor` settings to recommended values
@@ -1181,9 +1181,6 @@ def _int8_dynamic_activation_int8_weight_quantize_tensor(weight, config):
         act_granularity, weight_granularity = Int8Tensor._normalize_granularity(
             config.granularity
         )
-        assert config.act_mapping_type == MappingType.SYMMETRIC, (
-            "asymmetric dynamic quant not supported currently"
-        )
         assert config.version == 2, f"Unexpected version: {config.version}"
 
         # TODO: Symmentric/Asymmetric choice for weight quantization
@@ -1232,20 +1229,22 @@ def _int8_dynamic_activation_int8_weight_transform(
 @dataclass
 class Int8StaticActivationInt8WeightConfig(AOBaseConfig):
     """
-    Configuration for applying int8 static symmetric quantization to both activation and weight
+    Configuration for applying int8 static quantization to both activation and weight
 
     Args:
         act_quant_scale (torch.Tensor): The scale tensor for activation quantization.
+        act_quant_zero_point (torch.Tensor): The zero_point tensor for activation quantization (asymmetric only).
         granularity (Optional[Union[Granularity, Tuple[Granularity, Granularity], List[Granularity]]] = PerRow()):
             The granularity for quantization. Can be either a single granularity (applied to both
             activations and weights) or a tuple / list of two granularities (first for activations, second for weights).
             If None, defaults to PerRow for both. Only PerTensor and PerRow are supported.
-        act_mapping_type (MappingType): The mapping type for activation quantization. only SYMMETRIC is supported currently
+        act_mapping_type (MappingType): The mapping type for activation quantization. SYMMETRIC and ASYMMETRIC are supported.
         set_inductor_config (bool): if True, adjusts `torchinductor` settings to recommended values.
         version (int): the version of the config
     """
 
     act_quant_scale: Optional[torch.Tensor] = None
+    act_quant_zero_point: Optional[torch.Tensor] = None
     granularity: Optional[
         Union[Granularity, Tuple[Granularity, Granularity], list[Granularity]]
     ] = PerRow()
@@ -1288,15 +1287,16 @@ def _int8_static_activation_int8_weight_transform(
     activation_granularity, weight_granularity = Int8Tensor._normalize_granularity(
         config.granularity
     )
-    assert config.act_mapping_type == MappingType.SYMMETRIC, (
-        "asymmetric static quant not supported currently"
-    )
     assert hasattr(module, parameter_name), (
         f"Expected module to have attribute `{parameter_name}` but not found"
     )
 
     if config.set_inductor_config:
         torchao.quantization.utils.recommended_inductor_config_setter()
+
+    act_quant_zero_point = None
+    if config.act_quant_zero_point is not None:
+        act_quant_zero_point = config.act_quant_zero_point.detach()
 
     quantized_tensor = Int8Tensor.from_hp(
         getattr(module, parameter_name),
@@ -1306,6 +1306,7 @@ def _int8_static_activation_int8_weight_transform(
             mapping_type=config.act_mapping_type,
         ),
         act_quant_scale=config.act_quant_scale.detach(),
+        act_quant_zero_point=act_quant_zero_point,
     )
 
     setattr(
