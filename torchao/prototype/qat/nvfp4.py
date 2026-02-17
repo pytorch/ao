@@ -1,3 +1,9 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
+
 from dataclasses import dataclass
 from typing import Optional
 
@@ -9,6 +15,7 @@ from torchao.prototype.mx_formats.nvfp4_tensor import (
     per_tensor_amax_to_scale,
 )
 from torchao.quantization.qat import FakeQuantizeConfigBase
+from torchao.quantization.quantize_.common.kernel_preference import KernelPreference
 
 
 @dataclass
@@ -23,12 +30,12 @@ class NVFP4FakeQuantizeConfig(FakeQuantizeConfigBase):
         use_per_tensor_scale (bool): Whether to use two-level per-tensor fp32 scaling
             after the initial fp8 (e4m3) block-wise scaling (default True)
         use_swizzled_scales (bool): Whether scales are stored in swizzled (blocked) format
-        use_triton_kernel (bool): Whether to use triton kernels during fake quantization
+        quantize_kernel_preference (KernelPreference): Kernel preference for quantization
     """
 
     use_per_tensor_scale: bool = True
     use_swizzled_scales: bool = False
-    use_triton_kernel: bool = False
+    quantize_kernel_preference: KernelPreference = KernelPreference.AUTO
 
 
 # TODO: support emulation on non-Blackwell GPUs
@@ -58,7 +65,7 @@ class _NVFP4QuantizedForwardFakeQuantizedBackward(torch.autograd.Function):
             _input,
             per_tensor_scale=per_tensor_scale,
             is_swizzled_scales=activation_config.use_swizzled_scales,
-            use_triton_kernel=activation_config.use_triton_kernel,
+            quantize_kernel_preference=activation_config.quantize_kernel_preference,
         )
 
         # quantize weights
@@ -71,12 +78,12 @@ class _NVFP4QuantizedForwardFakeQuantizedBackward(torch.autograd.Function):
             weight,
             per_tensor_scale=per_tensor_scale,
             is_swizzled_scales=weight_config.use_swizzled_scales,
-            use_triton_kernel=False,
+            quantize_kernel_preference=KernelPreference.TORCH,
         )
 
         # Follow `NVFP4DynamicActivationNVFP4WeightConfig`, always use traditional construction
-        # for weights and set `use_triton_kernel` afterwards
-        weight.use_triton_kernel = weight_config.use_triton_kernel
+        # for weights and set `quantize_kernel_preference` afterwards
+        weight.quantize_kernel_preference = weight_config.quantize_kernel_preference
 
         ctx.save_for_backward(_input, weight)
 

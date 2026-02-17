@@ -31,6 +31,7 @@ from torchao.quantization.quant_primitives import (
     TorchAODType,
     ZeroPointDomain,
 )
+from torchao.quantization.quantize_.common.kernel_preference import KernelPreference
 from torchao.quantization.quantize_.workflows import Int4PackingFormat
 from torchao.utils import _is_float8_type
 
@@ -446,12 +447,12 @@ def _infer_fake_quantize_configs(
         act_config = NVFP4FakeQuantizeConfig(
             use_per_tensor_scale=base_config.use_dynamic_per_tensor_scale,
             use_swizzled_scales=False,
-            use_triton_kernel=False,
+            quantize_kernel_preference=KernelPreference.AUTO,
         )
         weight_config = NVFP4FakeQuantizeConfig(
             use_per_tensor_scale=base_config.use_dynamic_per_tensor_scale,
             use_swizzled_scales=True,
-            use_triton_kernel=base_config.use_triton_kernel,
+            quantize_kernel_preference=base_config.quantize_kernel_preference,
         )
     elif isinstance(base_config, MXDynamicActivationMXWeightConfig):
         act_config = MXFakeQuantizeConfig(
