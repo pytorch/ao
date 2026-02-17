@@ -58,16 +58,12 @@ from torchao.float8.inference import (
     _granularity_is_a_1_128_w_128_128,
     _normalize_granularity,
 )
-    _normalize_granularity,
-)
 
 # for BC, make sure to keep the `noqa: F401` comments to prevent
 # ruff from removing "unused imports"
 from torchao.prototype.quantization.quant_api import (
     Float8StaticActivationFloat8WeightConfig,  # noqa: F401
     GemliteUIntXWeightOnlyConfig,  # noqa: F401
-)
-from torchao.quantization.linear_activation_weight_observed_tensor import (
 )
 from torchao.quantization.observer import AffineQuantizedObserverBase
 from torchao.quantization.quantize_.common import (
