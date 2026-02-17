@@ -21,8 +21,6 @@ from torch import Tensor
 import torchao
 from torchao.core.config import AOBaseConfig
 from torchao.dtypes import (
-    PlainLayout,
-    UintxLayout,
     to_affine_quantized_intx,
 )
 from torchao.float8.config import e4m3_dtype
@@ -31,9 +29,7 @@ from torchao.float8.inference import (
 )
 from torchao.quantization.granularity import Granularity, PerTensor
 from torchao.quantization.quant_primitives import (
-    _DTYPE_TO_QVALUE_BOUNDS,
     MappingType,
-    ZeroPointDomain,
 )
 from torchao.quantization.quantize_.common import (
     KernelPreference,
@@ -569,6 +565,3 @@ def _float8_static_activation_float8_weight_transform(
         raise ValueError(
             f"Unexpected step: {step}. Expected one of {[s.value for s in QuantizationStep]} or None."
         )
-
-
-@dataclass
