@@ -1765,26 +1765,33 @@ def _intx_weight_only_transform(
     module: torch.nn.Module,
     config: IntxWeightOnlyConfig,
     *,
+    parameter_name: str = "weight",
     custom_scale: Optional[torch.Tensor] = None,
     custom_zero_point: Optional[torch.Tensor] = None,
 ) -> torch.nn.Module:
-    assert hasattr(module, "weight"), (
-        "applying intx weight only quant requires module to have weight attribute"
-        + " but {module} does not have one"
+    assert hasattr(module, parameter_name), (
+        f"applying intx weight only quant requires module to have {parameter_name} attribute"
+        + f" but {module} does not have one"
     )
     new_weight = _intx_weight_only_quantize_tensor(
-        module.weight,
+        getattr(module, parameter_name),
         config,
         custom_scale=custom_scale,
         custom_zero_point=custom_zero_point,
     )
-    module.weight = torch.nn.Parameter(new_weight, requires_grad=False)
-
-    if isinstance(module, nn.Linear):
-        module.extra_repr = types.MethodType(_linear_extra_repr, module)
-    elif isinstance(module, nn.Embedding):
-        module.extra_repr = types.MethodType(_embedding_extra_repr, module)
-
+    setattr(
+        module,
+        parameter_name,
+        torch.nn.Parameter(new_weight, requires_grad=False),
+    )
+    module.extra_repr = types.MethodType(
+        partial(
+            _module_extra_repr,
+            original_extra_repr=module.extra_repr,
+            parameter_name=parameter_name,
+        ),
+        module,
+    )
     return module
 
 
