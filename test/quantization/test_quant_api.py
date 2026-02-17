@@ -36,6 +36,7 @@ from torchao.quantization.quant_api import (
     Float8DynamicActivationFloat8WeightConfig,
     Float8WeightOnlyConfig,
     FqnToConfig,
+    GemliteUIntXWeightOnlyConfig,
     Int4WeightOnlyConfig,
     Int8DynamicActivationInt8WeightConfig,
     Int8DynamicActivationIntxWeightConfig,
@@ -344,7 +345,20 @@ class TestQuantFlow(TestCase):
             Float8DynamicActivationFloat8WeightConfig(),
             Int8DynamicActivationInt8WeightConfig(),
             Int8WeightOnlyConfig(),
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
+    @common_utils.parametrize(
+        "config",
+        [
+            Float8WeightOnlyConfig(),
+            Float8DynamicActivationFloat8WeightConfig(),
+            Int8DynamicActivationInt8WeightConfig(),
+            Int8WeightOnlyConfig(),
+            GemliteUIntXWeightOnlyConfig(),
         ],
+    )
+    @skip_if_xpu("XPU enablement in progress")
+    @skip_if_rocm("ROCm enablement in progress")
+    def test_workflow_e2e_numerics(self, config):
     )
     @skip_if_xpu("XPU enablement in progress")
     @skip_if_rocm("ROCm enablement in progress")
@@ -361,8 +375,12 @@ class TestQuantFlow(TestCase):
             and not is_sm_at_least_89()
         ):
             return unittest.skip("requires CUDA capability 8.9 or greater")
+        elif isinstance(config, GemliteUIntXWeightOnlyConfig) and not has_gemlite:
+            return unittest.skip("gemlite not available")
 
         dtype = torch.bfloat16
+        if isinstance(config, GemliteUIntXWeightOnlyConfig):
+            dtype = torch.float16
 
         # set up inputs
         device = get_current_accelerator_device()
@@ -550,6 +568,8 @@ class TestQuantFlow(TestCase):
         assert isinstance(model.linear1.weight, Float8Tensor)
         assert not isinstance(model.linear2.weight, Float8Tensor)
 
+=======
+>>>>>>> c43c8cfbb (Remove UIntXWeightOnlyConfig)
 
 common_utils.instantiate_parametrized_tests(TestQuantFlow)
 
