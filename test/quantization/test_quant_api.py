@@ -345,20 +345,8 @@ class TestQuantFlow(TestCase):
             Float8DynamicActivationFloat8WeightConfig(),
             Int8DynamicActivationInt8WeightConfig(),
             Int8WeightOnlyConfig(),
-    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
-    @common_utils.parametrize(
-        "config",
-        [
-            Float8WeightOnlyConfig(),
-            Float8DynamicActivationFloat8WeightConfig(),
-            Int8DynamicActivationInt8WeightConfig(),
-            Int8WeightOnlyConfig(),
             GemliteUIntXWeightOnlyConfig(),
         ],
-    )
-    @skip_if_xpu("XPU enablement in progress")
-    @skip_if_rocm("ROCm enablement in progress")
-    def test_workflow_e2e_numerics(self, config):
     )
     @skip_if_xpu("XPU enablement in progress")
     @skip_if_rocm("ROCm enablement in progress")
