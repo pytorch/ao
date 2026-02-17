@@ -556,6 +556,7 @@ class TestQuantFlow(TestCase):
         assert isinstance(model.linear1.weight, Float8Tensor)
         assert not isinstance(model.linear2.weight, Float8Tensor)
 
+
 common_utils.instantiate_parametrized_tests(TestQuantFlow)
 
 
