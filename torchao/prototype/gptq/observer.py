@@ -29,9 +29,8 @@ class GPTQObserverTensor(TorchAOBaseTensor):
         self.hessian = hessian
         self.total_batches = total_batches
 
-    def update(self, input: torch.Tensor):
+    def update(self, input: torch.Tensor, quantize_activation=False):
         """Incrementally update Hessian matrix from input activations."""
-        # Move input to same device as hp_data and convert to float
         x = input.float().to(self.hp_data.device)
         shape = x.shape
 
