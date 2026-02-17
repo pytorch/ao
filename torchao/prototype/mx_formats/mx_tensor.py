@@ -367,14 +367,17 @@ def _mx_quantize_precomputed_scale(
         torch.bfloat16,
         torch.float,
     ), f"{data_hp.dtype} is not supported yet"
+    assert data_hp.shape[-1] % block_size == 0, (
+        f"the last dimension of shape {data_hp.shape} must be divisible by block_size {block_size}"
+    )
     assert data_hp.is_contiguous(), "unsupported"
     assert elem_dtype in SUPPORTED_ELEM_DTYPES, "unsupported"
+
     assert scale_e8m0_biased.dtype == torch.float8_e8m0fnu, (
         f"scale_e8m0_biased.dtype must be float8_e8m0fnu, got {scale_e8m0_biased.dtype}"
     )
 
     orig_shape = data_hp.shape
-    data_hp = data_hp.to(torch.float32)
     data_hp = data_hp.reshape(
         *orig_shape[:-1], orig_shape[-1] // block_size, block_size
     )
