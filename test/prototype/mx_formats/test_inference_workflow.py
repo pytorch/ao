@@ -404,7 +404,7 @@ def test_nvfp4_static_vs_dynamic_quantization():
     quantize_(
         m_dynamic,
         NVFP4DynamicActivationNVFP4WeightConfig(
-            quantize_kernel_preference=KernelPreference.TORCH,
+            quantize_kernel_preference=KernelPreference.AUTO,
             use_dynamic_per_tensor_scale=True,
         ),
     )
@@ -417,7 +417,7 @@ def test_nvfp4_static_vs_dynamic_quantization():
         m_static,
         NVFP4DynamicActivationNVFP4WeightConfig(
             step="prepare",
-            quantize_kernel_preference=KernelPreference.TORCH,
+            quantize_kernel_preference=KernelPreference.AUTO,
         ),
     )
     # Calibrate with the same input used for testing
@@ -427,7 +427,7 @@ def test_nvfp4_static_vs_dynamic_quantization():
         m_static,
         NVFP4DynamicActivationNVFP4WeightConfig(
             step="convert",
-            quantize_kernel_preference=KernelPreference.TORCH,
+            quantize_kernel_preference=KernelPreference.AUTO,
         ),
     )
 

@@ -432,6 +432,35 @@ class TestFloat8StaticActivation(TorchAOIntegrationTestCase):
             f"SQNR of compiled quantized vs original should be > 15 dB, got {error_compiled}",
         )
 
+    @common_utils.parametrize("granularity", [PerRow(), PerTensor()])
+    def test_module_path(self, granularity):
+        dtype = self.dtype
+        K, N = 32, 32
+        input_tensor = torch.randn(1, K, dtype=dtype, device="cuda")
+        linear = torch.nn.Linear(K, N, bias=False, dtype=dtype, device="cuda")
+
+        # Get activation scale from dynamic quantization
+        dynamic_config = Float8DynamicActivationFloat8WeightConfig(
+            granularity=granularity,
+        )
+        model_dynamic = copy.deepcopy(linear)
+        quantize_(model_dynamic, dynamic_config)
+
+        quantized_input = _choose_quant_func_and_quantize_tensor(
+            input_tensor, model_dynamic.weight.act_quant_kwargs
+        )
+
+        static_config = Float8StaticActivationFloat8WeightConfig(
+            act_quant_scale=quantized_input.scale.detach().clone(),
+            granularity=granularity,
+        )
+        quantize_(linear, static_config)
+
+        self.assertEqual(
+            str(type(linear.weight)),
+            "<class 'torchao.prototype.quantization.float8_static_quant.prototype_float8_tensor.PrototypeFloat8Tensor'>",
+        )
+
     def test_create_tensor_out_of_inference_mode(self):
         # Test https://github.com/pytorch/pytorch/issues/170419
         dtype = self.dtype
