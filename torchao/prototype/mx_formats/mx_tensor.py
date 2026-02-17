@@ -348,6 +348,101 @@ def to_mx(
     return scale_e8m0_biased, data_lp
 
 
+def _mx_quantize_precomputed_scale(
+    data_hp: torch.Tensor,
+    elem_dtype: Union[torch.dtype, str],
+    block_size: int,
+    scale_e8m0_biased: torch.Tensor,
+    is_swizzled_scales: bool = False,
+):
+    """
+    Like to_mx, but uses a precomputed e8m0 scale instead of computing one
+    from the data.  This is useful for GPTQ which computes the scale once
+    per group and then quantizes each column individually with that same
+    scale.
+
+    Returns (scale_e8m0_biased, data_lp) -- the same signature as to_mx.
+    """
+    assert data_hp.dtype in (
+        torch.bfloat16,
+        torch.float,
+    ), f"{data_hp.dtype} is not supported yet"
+    assert data_hp.shape[-1] % block_size == 0, (
+        f"the last dimension of shape {data_hp.shape} must be divisible by block_size {block_size}"
+    )
+    assert data_hp.is_contiguous(), "unsupported"
+    assert elem_dtype in SUPPORTED_ELEM_DTYPES, "unsupported"
+
+    assert scale_e8m0_biased.dtype == torch.float8_e8m0fnu, (
+        f"scale_e8m0_biased.dtype must be float8_e8m0fnu, got {scale_e8m0_biased.dtype}"
+    )
+
+    orig_shape = data_hp.shape
+    data_hp = data_hp.reshape(
+        *orig_shape[:-1], orig_shape[-1] // block_size, block_size
+    )
+
+    # Determine max_pos for saturated clamp
+    if elem_dtype == torch.float8_e4m3fn:
+        max_pos = F8E4M3_MAX
+    elif elem_dtype == torch.float8_e5m2:
+        max_pos = F8E5M2_MAX
+    elif elem_dtype == DTYPE_FP6_E2M3:
+        max_pos = F6_E2M3_MAX
+    elif elem_dtype == DTYPE_FP6_E3M2:
+        max_pos = F6_E3M2_MAX
+    elif elem_dtype == torch.float4_e2m1fn_x2:
+        max_pos = F4_E2M1_MAX
+    else:
+        raise AssertionError("unsupported element dtype")
+
+    # Convert e8m0 scale to fp32 using the same bit-shift pattern as to_mx.
+    # The scale needs an extra trailing dim for broadcasting against blocks.
+    scale_fp32 = (
+        torch.bitwise_left_shift(
+            scale_e8m0_biased.view(torch.uint8).to(torch.int32), MBITS_F32
+        )
+    ).view(torch.float32)
+    scale_fp32 = torch.clamp(scale_fp32, min=F32_MIN_NORMAL)
+    scale_fp32 = scale_fp32.unsqueeze(-1)
+
+    # Scale and saturated cast
+    data_lp = data_hp / scale_fp32
+
+    if (
+        elem_dtype in (torch.float8_e4m3fn, torch.float8_e5m2)
+        and not torch._dynamo.is_compiling()
+    ):
+        data_lp = torch.clamp(data_lp, min=-1 * max_pos, max=max_pos)
+
+    # Cast to target dtype
+    if elem_dtype in (torch.float8_e4m3fn, torch.float8_e5m2):
+        data_lp = data_lp.to(elem_dtype)
+        data_lp = data_lp.reshape(orig_shape)
+    elif elem_dtype == DTYPE_FP6_E2M3:
+        data_lp = f32_to_f6_e2m3_unpacked(data_lp)
+        data_lp = data_lp.reshape(orig_shape)
+    elif elem_dtype == DTYPE_FP6_E3M2:
+        data_lp = f32_to_f6_e3m2_unpacked(data_lp)
+        data_lp = data_lp.reshape(orig_shape)
+    elif elem_dtype == torch.float4_e2m1fn_x2:
+        data_lp = data_lp.reshape(orig_shape)
+        data_lp = f32_to_f4_unpacked(data_lp)
+        data_lp = pack_uint4(data_lp)
+    else:
+        raise AssertionError("unsupported")
+
+    # If user requested scale swizzling, do it here
+    if is_swizzled_scales:
+        leading_dims, M, K = orig_shape[:-2], orig_shape[-2], orig_shape[-1]
+        scale_shape = (math.prod(leading_dims) * M, K // block_size)
+        s = to_blocked(scale_e8m0_biased.view(scale_shape)).flatten()
+        scale_M, scale_K = hp_data_dims_to_swizzled_scale_dims_mx(M, K)
+        scale_e8m0_biased = s.view(*leading_dims, scale_M, scale_K)
+
+    return scale_e8m0_biased, data_lp
+
+
 def get_fp_scale(scale_e8m0):
     scale_e8m0 = scale_e8m0.view(torch.uint8)
     s_offset = scale_e8m0.to(torch.int16) - E8M0_EXPONENT_BIAS
@@ -551,6 +646,7 @@ class MXTensor(TorchAOBaseTensor):
         act_quant_kwargs: Optional[QuantizeTensorToMXKwargs] = None,
         is_swizzled_scales: bool = False,
         mxfp8_dim0_cast_kernel_choice: MXFP8Dim0CastKernelChoice = MXFP8Dim0CastKernelChoice.TORCH,
+        scale: Optional[torch.Tensor] = None,
     ):
         assert mxfp8_dim0_cast_kernel_choice in (
             MXFP8Dim0CastKernelChoice.TRITON,
@@ -559,22 +655,28 @@ class MXTensor(TorchAOBaseTensor):
             f"unsupported kernel choice for mxfp8_dim0_cast_kernel_choice: {mxfp8_dim0_cast_kernel_choice}"
         )
 
-        triton_kernel_supported = (
-            elem_dtype == torch.float8_e4m3fn and not is_swizzled_scales
-        )
-        if mxfp8_dim0_cast_kernel_choice == MXFP8Dim0CastKernelChoice.TRITON:
-            assert triton_kernel_supported, (
-                f"triton kernel unsupported for {data_hp.dtype=}, {elem_dtype=}, {scaling_mode=}, {is_swizzled_scales=}"
+        if scale is None:
+            triton_kernel_supported = (
+                elem_dtype == torch.float8_e4m3fn and not is_swizzled_scales
             )
-            data_lp, scale_e8m0_biased = triton_to_mxfp8_dim0(
-                data_hp,
-                inner_block_size=block_size,
-                scaling_mode=scaling_mode.value,
-            )
+            if mxfp8_dim0_cast_kernel_choice == MXFP8Dim0CastKernelChoice.TRITON:
+                assert triton_kernel_supported, (
+                    f"triton kernel unsupported for {data_hp.dtype=}, {elem_dtype=}, {scaling_mode=}, {is_swizzled_scales=}"
+                )
+                data_lp, scale_e8m0_biased = triton_to_mxfp8_dim0(
+                    data_hp,
+                    inner_block_size=block_size,
+                    scaling_mode=scaling_mode.value,
+                )
+            else:
+                scale_e8m0_biased, data_lp = to_mx(
+                    data_hp, elem_dtype, block_size, scaling_mode, is_swizzled_scales
+                )
         else:
-            scale_e8m0_biased, data_lp = to_mx(
-                data_hp, elem_dtype, block_size, scaling_mode, is_swizzled_scales
+            scale_e8m0_biased, data_lp = _mx_quantize_precomputed_scale(
+                data_hp, elem_dtype, block_size, scale, is_swizzled_scales
             )
+
         if isinstance(scale_e8m0_biased, DTensor):
             assert isinstance(data_lp, DTensor), "unsupported"
             local_scale_e8m0_biased = scale_e8m0_biased.to_local()

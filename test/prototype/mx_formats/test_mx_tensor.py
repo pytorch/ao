@@ -751,3 +751,41 @@ def test_swizzle(elem_dtype, transpose, shape):
     x_dq = x.dequantize(x.dtype)
     xs_dq = xs.dequantize(xs.dtype)
     torch.testing.assert_close(x_dq, xs_dq, atol=0, rtol=0)
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.parametrize("elem_dtype", [torch.float8_e4m3fn, torch.float8_e5m2])
+@pytest.mark.parametrize(
+    "shape,block_size",
+    [
+        ((128, 128), 32),
+        ((64, 256), 32),
+        ((32, 64), 4),
+    ],
+)
+def test_to_mx_precomputed_scale(elem_dtype, shape, block_size):
+    """Passing a precomputed scale to MXTensor.to_mx should produce the same
+    qdata and scale as letting to_mx compute the scale itself."""
+    data = torch.randn(shape, device="cuda", dtype=torch.bfloat16)
+
+    # Reference: let to_mx compute the scale from data
+    ref = MXTensor.to_mx(
+        data, elem_dtype, block_size, kernel_preference=KernelPreference.EMULATED
+    )
+
+    # Test: pass the reference scale back in as a precomputed scale with the same data
+    result = MXTensor.to_mx(
+        data,
+        elem_dtype,
+        block_size,
+        scale=ref.scale,
+        kernel_preference=KernelPreference.EMULATED,
+    )
+
+    # The scale stored in the result must match the one we passed in
+    torch.testing.assert_close(result.scale, ref.scale, atol=0, rtol=0)
+
+    # Round-trip dequantization must also match exactly
+    ref_dq = ref.dequantize(data.dtype)
+    result_dq = result.dequantize(data.dtype)
+    torch.testing.assert_close(result_dq, ref_dq, atol=0, rtol=0)
