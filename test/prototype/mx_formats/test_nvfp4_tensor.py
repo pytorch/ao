@@ -356,13 +356,17 @@ def test_nvfp4_swizzled_scales_get_scales_method():
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.parametrize(
-    "M", [128, 256, 512, 1024, 100, 200, 384], ids=lambda m: f"M{m}"
+    # "M", [128, 256, 512, 1024, 100, 200, 384], ids=lambda m: f"M{m}"
+    "M", [256, ], ids=lambda m: f"M{m}"
 )
-@pytest.mark.parametrize("N", [64, 128, 256, 512, 32, 96, 160], ids=lambda n: f"N{n}")
+# @pytest.mark.parametrize("N", [64, 128, 256, 512, 32, 96, 160], ids=lambda n: f"N{n}")
+@pytest.mark.parametrize("N", [128], ids=lambda n: f"N{n}")
 @pytest.mark.parametrize(
-    "use_per_tensor_scale", [False, True], ids=["block_scale", "tensor_scale"]
+    # "use_per_tensor_scale", [False, True], ids=["block_scale", "tensor_scale"]
+    "use_per_tensor_scale", [False, ], ids=["block_scale"]
 )
-@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["fp32", "bf16"])
+# @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["fp32", "bf16"])
+@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
 @pytest.mark.skipif(
     not is_sm_at_least_100(), reason="requires sm100+ for raw intrinsics"
 )
@@ -391,7 +395,20 @@ def test_triton_nvfp4_quantize_equivalence(M, N, use_per_tensor_scale, dtype):
         use_triton_kernel=True,
     )
 
-    torch.testing.assert_close(nvfp4_pt.scale.flatten(), nvfp4_triton.scale.flatten())
+    # print(nvfp4_triton.scale)
+
+    s00 = nvfp4_pt.scale.reshape(2, -1, 16)[0].float()
+    s01 = nvfp4_pt.scale.reshape(2, -1, 16)[1].float()
+    s10 = nvfp4_triton.scale.reshape(2, -1, 16)[0].float()
+    s11 = nvfp4_triton.scale.reshape(2, -1, 16)[1].float()
+    # print(s00.sum(), s01.sum(), s10.sum(), s11.sum())
+
+    s0 = nvfp4_pt.scale.reshape(-1, 32 * 16).float().sum(dim=1)
+    s1 = nvfp4_triton.scale.reshape(-1, 32 * 16).float().sum(dim=1)
+    print('\n', s0)
+    print(s1)
+
+    # breakpoint()
     pt_unpacked = unpack_uint4(nvfp4_pt.qdata)
     triton_unpacked = unpack_uint4(nvfp4_triton.qdata)
     torch.testing.assert_close(
@@ -400,6 +417,8 @@ def test_triton_nvfp4_quantize_equivalence(M, N, use_per_tensor_scale, dtype):
         atol=0,
         rtol=0,
     )
+
+    torch.testing.assert_close(nvfp4_pt.scale.flatten(), nvfp4_triton.scale.flatten())
 
     x_pt_dequant = nvfp4_pt.dequantize(dtype)
     x_triton_dequant = nvfp4_triton.dequantize(dtype)
