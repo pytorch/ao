@@ -343,12 +343,6 @@ def test_mxfp8_grouped_gemm_with_dq_fwd_bwd(
     kernel_preference,
     scale_mode,
 ):
-    # Emulated mode with compile is not supported
-    if kernel_preference == KernelPreference.EMULATED and use_compile:
-        pytest.skip(
-            "Skipping use_compile=True with kernel_preference=EMULATED, not currently supported"
-        )
-
     # MXFP8 hardware path requires SM100
     if kernel_preference != KernelPreference.EMULATED and not is_sm_version(10, 0):
         pytest.skip(

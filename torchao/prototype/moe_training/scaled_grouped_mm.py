@@ -897,7 +897,6 @@ def _emulated_mxfp8_scaled_grouped_mm_2d_3d(
     return out
 
 
-@torch.compiler.disable
 def _emulated_mxfp8_scaled_grouped_mm_2d_2d(
     A_data: torch.Tensor,  # (M, K)
     A_scale: torch.Tensor,  # (M, K//block_size)
@@ -909,88 +908,26 @@ def _emulated_mxfp8_scaled_grouped_mm_2d_2d(
 ) -> torch.Tensor:
     assert A_data.ndim == 2, "A must be 2D"
     assert B_data.ndim == 2, "B must be 2D"
-    A = torch.zeros(
-        A_data.shape,
-        dtype=torch.bfloat16,
-        device=A_data.device,
-        requires_grad=A_data.requires_grad,
-    )
-    B = torch.zeros(
-        B_data.shape,
-        dtype=torch.bfloat16,
-        device=B_data.device,
-        requires_grad=B_data.requires_grad,
-    )
 
-    # Dequantize input per each scaling group
-    scales_start_idx = 0
-    group_start_idx = 0
-    for group_end_idx in offs.tolist():
-        group_size = group_end_idx - group_start_idx
-        scale_group_size = group_size // block_size
-        if group_size == 0:
-            group_start_idx = group_end_idx
-            continue
+    M, K = A_data.shape
+    _, N = B_data.shape
 
-        # -- Dequantize A tensor
-        # A_group shape: (M, group_size)
-        # A_scale shape: (M, group_size//block_size)
-        A_group = A_data[:, group_start_idx:group_end_idx]
-        A_group_shape = A_group.shape
+    # Dequantize A: (M, K) with scales (M, K//block_size)
+    A_reshaped = A_data.reshape(M, K // block_size, block_size)
+    A_dequant = (
+        A_reshaped.to(torch.bfloat16) * A_scale.unsqueeze(-1).to(torch.bfloat16)
+    ).reshape(M, K)
 
-        # Get scales for this group.
-        # scales shape: (M, group_size//block_size)
-        scales = A_scale[:, scales_start_idx : scales_start_idx + scale_group_size]
+    # Dequantize B: (K, N) with scales (N, K//block_size)
+    # Transpose B_scale from (N, K//block_size) to (K//block_size, N) to align
+    # with the B_data layout (K, N) for vectorized dequantization.
+    B_scale_t = B_scale.transpose(-2, -1)  # (K//block_size, N)
+    B_reshaped = B_data.reshape(K // block_size, block_size, N)
+    B_dequant = (
+        B_reshaped.to(torch.bfloat16) * B_scale_t.unsqueeze(1).to(torch.bfloat16)
+    ).reshape(K, N)
 
-        # Reshape to be able to do per-scaling group multiplication
-        # A_group shape: (M, group_size//block_size, block_size)
-        # A_scale shape: (M, group_size//block_size, 1)
-        A_group = A_group.reshape(
-            *A_group.shape[:-1], A_group.shape[-1] // block_size, block_size
-        )
-        scales = scales.unsqueeze(-1)
-
-        # Rescale and cast to bfloat16
-        A_group = A_group.to(torch.bfloat16) * scales.to(torch.bfloat16)
-
-        # Reshape back to original shape and store in dequantized A buffer
-        # A shape: (M, group_size)
-        A_group = A_group.reshape(A_group_shape)
-        A[:, group_start_idx:group_end_idx] = A_group
-
-        # -- Dequantize B tensor
-        # B_group shape is (group_size, N)
-        B_group = B_data[group_start_idx:group_end_idx, :]
-
-        # Scales shape is (N, group_size//block_size)
-        scales = B_scale[:, scales_start_idx : scales_start_idx + scale_group_size]
-
-        # Transpose B to get scaling group on rightmost dim, to make things easier
-        # B_group_shape = (N, group_size)
-        # scales shape = (N, group_size//block_size)
-        B_group = B_group.transpose(-2, -1)
-
-        # Reshape B to be able to do per-scaling group multiplication
-        # B_group shape: (N, group_size//block_size, block_size)
-        # scales shape: (N, group_size//block_size, 1)
-        B_group = B_group.reshape(
-            *B_group.shape[:-1], B_group.shape[-1] // block_size, block_size
-        )
-        scales = scales.unsqueeze(-1)
-
-        # Cast to bf16 and perform scaling
-        B_group = B_group.to(torch.bfloat16) * scales.to(torch.bfloat16)
-
-        # Reshape back to (N, group_size) and transpose to (group_size, N)
-        B_group = B_group.reshape(B_group.shape[0], -1).transpose(-2, -1)
-        B[group_start_idx:group_end_idx, :] = B_group
-
-        # Increment group start and scale start indices
-        group_start_idx = group_end_idx
-        scales_start_idx += scale_group_size
-
-    # Perform bf16 grouped GEMM using dequantized A and B.
-    out = torch._grouped_mm(A, B, offs=offs, out_dtype=out_dtype)
+    out = torch._grouped_mm(A_dequant, B_dequant, offs=offs, out_dtype=out_dtype)
     return out
 
 
