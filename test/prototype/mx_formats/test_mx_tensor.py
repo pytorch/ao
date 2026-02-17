@@ -785,7 +785,7 @@ def test_to_mx_precomputed_scale(elem_dtype, shape, block_size):
     # The scale stored in the result must match the one we passed in
     torch.testing.assert_close(result.scale, ref.scale, atol=0, rtol=0)
 
-    # # Round-trip dequantization must also match exactly
-    # ref_dq = ref.dequantize(data.dtype)
-    # result_dq = result.dequantize(data.dtype)
-    # torch.testing.assert_close(result_dq, ref_dq, atol=0, rtol=0)
+    # Round-trip dequantization must also match exactly
+    ref_dq = ref.dequantize(data.dtype)
+    result_dq = result.dequantize(data.dtype)
+    torch.testing.assert_close(result_dq, ref_dq, atol=0, rtol=0)

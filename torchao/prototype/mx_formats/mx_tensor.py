@@ -643,7 +643,6 @@ class MXTensor(TorchAOBaseTensor):
         act_quant_kwargs: Optional[QuantizeTensorToMXKwargs] = None,
         is_swizzled_scales: bool = False,
         mxfp8_dim0_cast_kernel_choice: MXFP8Dim0CastKernelChoice = MXFP8Dim0CastKernelChoice.TORCH,
-        *,
         scale: Optional[torch.Tensor] = None,
     ):
         assert mxfp8_dim0_cast_kernel_choice in (
@@ -653,14 +652,7 @@ class MXTensor(TorchAOBaseTensor):
             f"unsupported kernel choice for mxfp8_dim0_cast_kernel_choice: {mxfp8_dim0_cast_kernel_choice}"
         )
 
-        orig_dtype = data_hp.dtype
-
-        if scale is not None:
-            # breakpoint()
-            scale_e8m0_biased, data_lp = _mx_quantize_precomputed_scale(
-                data_hp, elem_dtype, block_size, scale, is_swizzled_scales
-            )
-        else:
+        if scale is None:
             triton_kernel_supported = (
                 elem_dtype == torch.float8_e4m3fn and not is_swizzled_scales
             )
@@ -677,6 +669,10 @@ class MXTensor(TorchAOBaseTensor):
                 scale_e8m0_biased, data_lp = to_mx(
                     data_hp, elem_dtype, block_size, scaling_mode, is_swizzled_scales
                 )
+        else:
+            scale_e8m0_biased, data_lp = _mx_quantize_precomputed_scale(
+                data_hp, elem_dtype, block_size, scale, is_swizzled_scales
+            )
 
         if isinstance(scale_e8m0_biased, DTensor):
             assert isinstance(data_lp, DTensor), "unsupported"
@@ -687,7 +683,7 @@ class MXTensor(TorchAOBaseTensor):
                 local_scale_e8m0_biased,
                 elem_dtype,
                 block_size,
-                orig_dtype,
+                data_hp.dtype,
                 kernel_preference,
                 act_quant_kwargs,
                 is_swizzled_scales,
@@ -705,7 +701,7 @@ class MXTensor(TorchAOBaseTensor):
             scale_e8m0_biased,
             elem_dtype,
             block_size,
-            orig_dtype,
+            data_hp.dtype,
             kernel_preference,
             act_quant_kwargs,
             is_swizzled_scales,
