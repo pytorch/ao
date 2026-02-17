@@ -22,7 +22,6 @@ from torchao.quantization import (
     MappingType,
     PerRow,
     PerTensor,
-    UIntXWeightOnlyConfig,
 )
 from torchao.sparsity.sparse_api import BlockSparseWeightConfig, SemiSparseWeightConfig
 
@@ -191,30 +190,7 @@ def string_to_config(
             return Int8DynamicActivationInt8WeightConfig(weight_only_decode=True)
         else:
             return Int8DynamicActivationInt8WeightConfig()
-    if "uintx" in quantization:
-        # uintx-nbits-group_size, e.g. "uintx-2-64"
-        if "hqq" in quantization:
-            # uintx-nbits-group_size-hqq
-            use_hqq = True
-        else:
-            use_hqq = False
-        _quant_args = quantization.split("-")
-        nbits = int(_quant_args[1])
-        assert nbits >= 1 and nbits <= 8, "nbits must be 1 to 8"
-        _NBITS_TO_DTYPE = {
-            1: torch.uint1,
-            2: torch.uint2,
-            3: torch.uint3,
-            4: torch.uint4,
-            5: torch.uint5,
-            6: torch.uint6,
-            7: torch.uint7,
-            8: torch.uint8,
-        }
-        dtype = _NBITS_TO_DTYPE[nbits]
-        group_size = int(_quant_args[2])
-        return UIntXWeightOnlyConfig(dtype, group_size, use_hqq=use_hqq)
-    elif "int8_dynamic_activation_intx_weight" in quantization:
+    if "int8_dynamic_activation_intx_weight" in quantization:
         assert high_precision_dtype == torch.float32, (
             "int8_dynamic_activation_intx_weight requires using high_precision_dtype=torch.float32"
         )
