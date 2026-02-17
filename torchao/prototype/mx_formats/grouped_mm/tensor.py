@@ -18,13 +18,15 @@ from torch.distributed.fsdp import MixedPrecisionPolicy
 from torchao.prototype.moe_training.config import (
     FP8GroupedMMConfig,
     GroupedMMConfig,
-    MXFP8GroupedMMConfig,
 )
 from torchao.prototype.moe_training.fp8_grouped_mm import (
     _to_fp8_rowwise_then_scaled_grouped_mm,
 )
-from torchao.prototype.moe_training.mxfp8_grouped_mm import (
+from torchao.prototype.mx_formats.grouped_mm import (
     _to_mxfp8_then_scaled_grouped_mm,
+)
+from torchao.prototype.mx_formats.grouped_mm.config import (
+    MXFP8GroupedMMConfig,
 )
 
 logger: logging.Logger = logging.getLogger(__name__)

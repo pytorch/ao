@@ -14,12 +14,12 @@ from tabulate import tabulate
 from tqdm import tqdm
 
 from benchmarks.utils import benchmark_cuda_function_in_microseconds
-from torchao.prototype.moe_training.kernels.mxfp8 import (
+from torchao.prototype.moe_training.utils import generate_jagged_offs
+from torchao.prototype.mx_formats.grouped_mm.kernels import (
     mx_block_rearrange_2d_M_groups_cuda,
     torch_to_blocked_2d_M_groups,
     triton_mx_block_rearrange_2d_M_groups,
 )
-from torchao.prototype.moe_training.utils import generate_jagged_offs
 
 device = torch.device("cuda")
 

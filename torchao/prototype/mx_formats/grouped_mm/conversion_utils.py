@@ -36,7 +36,7 @@ def _swap_params(
     Returns:
      nn.Module: The modified module with swapped linear layers.
     """
-    from torchao.prototype.moe_training.tensor import ScaledGroupedMMTensor
+    from torchao.prototype.mx_formats.grouped_mm.tensor import ScaledGroupedMMTensor
 
     if isinstance(module, nn.Parameter) and (
         module_filter_fn is None or module_filter_fn(module, "")

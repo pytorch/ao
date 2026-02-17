@@ -95,7 +95,7 @@ class GroupedExperts(nn.Module):
             Output tensor of shape (num_tokens, dim)
         """
 
-        from torchao.prototype.moe_training.mxfp8_grouped_mm import (
+        from torchao.prototype.mx_formats.grouped_mm import (
             _to_mxfp8_then_scaled_grouped_mm as mxfp8_gmm,
         )
 

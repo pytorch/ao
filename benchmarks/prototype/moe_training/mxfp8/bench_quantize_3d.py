@@ -14,11 +14,11 @@ from tabulate import tabulate
 from tqdm import tqdm
 
 from benchmarks.utils import benchmark_cuda_function_in_microseconds
-from torchao.prototype.moe_training.kernels.mxfp8 import mxfp8_quantize_cuda_3d
-from torchao.prototype.moe_training.mxfp8_grouped_mm import (
+from torchao.prototype.mx_formats.config import ScaleCalculationMode
+from torchao.prototype.mx_formats.grouped_mm import (
     _to_mxfp8_dim1_3d,
 )
-from torchao.prototype.mx_formats.config import ScaleCalculationMode
+from torchao.prototype.mx_formats.grouped_mm.kernels import mxfp8_quantize_cuda_3d
 from torchao.prototype.mx_formats.mx_tensor import to_mx
 
 device = torch.device("cuda")

@@ -476,7 +476,7 @@ Below is a complete example showing how to apply MXFP8 expert parallelism to a s
             x: torch.Tensor,
             num_tokens_per_expert: torch.Tensor,
         ) -> torch.Tensor:
-            from torchao.prototype.moe_training.mxfp8_grouped_mm import (
+            from torchao.prototype.mx_formats.grouped_mm import  (
                 _to_mxfp8_then_scaled_grouped_mm as mxfp8_gmm,
             )
 

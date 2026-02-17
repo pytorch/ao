@@ -28,7 +28,7 @@ from torch.nn import functional as F
 from tqdm import tqdm
 
 from benchmarks.utils import profile_fn
-from torchao.prototype.moe_training.kernels.mxfp8.comms import (
+from torchao.prototype.mx_formats.grouped_mm.kernels.comms import (
     to_mxfp8_a2a_dequant,
 )
 

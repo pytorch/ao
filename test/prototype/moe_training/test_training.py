@@ -15,6 +15,8 @@ from torchao.float8.float8_utils import compute_error
 from torchao.prototype.moe_training.config import (
     FP8GroupedMMConfig,
     FP8GroupedMMRecipe,
+)
+from torchao.prototype.mx_formats.grouped_mm.config import (
     MXFP8GroupedMMConfig,
     MXFP8GroupedMMRecipe,
 )

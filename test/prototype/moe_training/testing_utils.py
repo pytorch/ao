@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 
-from torchao.prototype.moe_training.tensor import ScaledGroupedMMTensor
+from torchao.prototype.mx_formats.grouped_mm.tensor import ScaledGroupedMMTensor
 
 
 def _validate_model_conversion(

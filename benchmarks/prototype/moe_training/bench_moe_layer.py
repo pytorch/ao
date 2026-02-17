@@ -15,8 +15,8 @@ from torch import nn
 from torch.nn import functional as F
 
 from benchmarks.utils import bench_fwd_bwd_microseconds, profile_fwd_bwd
-from torchao.prototype.moe_training.config import (
-    FP8GroupedMMRecipe,
+from torchao.prototype.moe_training.config import FP8GroupedMMRecipe
+from torchao.prototype.mx_formats.grouped_mm.config import (
     MXFP8GroupedMMConfig,
     MXFP8GroupedMMRecipe,
 )

@@ -1,4 +1,4 @@
-from torchao.prototype.moe_training.kernels.mxfp8.quant import (
+from torchao.prototype.mx_formats.grouped_mm.kernels.quant import (
     _mxfp8_cuda_kernels_available,  # noqa: F401
     mx_block_rearrange_2d_M_groups_cuda,  # noqa: F401
     mxfp8_quantize_cuda_3d,  # noqa: F401

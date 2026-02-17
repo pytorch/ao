@@ -15,6 +15,7 @@ then
 pytest test/prototype/moe_training/test_kernels.py -s -v
 pytest test/prototype/moe_training/test_scaled_grouped_mm.py -s -v
 pytest test/prototype/moe_training/test_training.py -s -v
+pytest test/prototype/moe_training/test_fqn_to_config.py -s -v
 ./test/prototype/moe_training/test_distributed.sh -s -v
 fi
 

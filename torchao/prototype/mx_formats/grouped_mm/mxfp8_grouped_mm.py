@@ -9,21 +9,21 @@ from typing import Optional
 
 import torch
 
-from torchao.prototype.moe_training.kernels.mxfp8 import (
-    _mxfp8_cuda_kernels_available as _mxfp8_cuda_kernels_available_quant,
-)
-from torchao.prototype.moe_training.kernels.mxfp8 import (
-    mx_block_rearrange_2d_M_groups_cuda,
-    mxfp8_quantize_cuda_3d,
-    triton_mx_block_rearrange_2d_K_groups,
-    triton_mx_block_rearrange_per_group_3d,
-)
 from torchao.prototype.moe_training.utils import (
     conditional_nostrict_trace,
 )
 from torchao.prototype.mx_formats.config import (
     MXFP8Dim1CastKernelChoice,
     ScaleCalculationMode,
+)
+from torchao.prototype.mx_formats.grouped_mm.kernels import (
+    _mxfp8_cuda_kernels_available as _mxfp8_cuda_kernels_available_quant,
+)
+from torchao.prototype.mx_formats.grouped_mm.kernels import (
+    mx_block_rearrange_2d_M_groups_cuda,
+    mxfp8_quantize_cuda_3d,
+    triton_mx_block_rearrange_2d_K_groups,
+    triton_mx_block_rearrange_per_group_3d,
 )
 from torchao.prototype.mx_formats.kernels import (
     _mxfp8_cuda_kernels_available as _mxfp8_cuda_kernels_available_mx,

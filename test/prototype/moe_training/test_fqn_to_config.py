@@ -13,12 +13,12 @@ from collections import OrderedDict
 import torch
 from torch import nn
 
-from torchao.prototype.moe_training.config import (
+from torchao.prototype.mx_formats.config import MXLinearConfig, MXLinearRecipeName
+from torchao.prototype.mx_formats.grouped_mm.config import (
     MXFP8GroupedMMConfig,
     MXFP8GroupedMMRecipe,
 )
-from torchao.prototype.moe_training.tensor import ScaledGroupedMMTensor
-from torchao.prototype.mx_formats.config import MXLinearConfig, MXLinearRecipeName
+from torchao.prototype.mx_formats.grouped_mm.tensor import ScaledGroupedMMTensor
 from torchao.prototype.mx_formats.mx_linear import MXLinear
 from torchao.quantization import FqnToConfig
 from torchao.quantization.quant_api import quantize_

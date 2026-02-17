@@ -29,20 +29,22 @@ from torchao.float8.config import (
 from torchao.float8.float8_linear import matmul_with_hp_or_float8_args
 from torchao.float8.float8_training_tensor import LinearMMConfig
 from torchao.float8.float8_utils import compute_error, tensor_to_scale, to_fp8_saturated
-from torchao.prototype.moe_training.config import (
-    MXFP8GroupedMMConfig,
-    MXFP8GroupedMMRecipe,
-)
-from torchao.prototype.moe_training.mxfp8_grouped_mm import (
-    _emulated_mxfp8_scaled_grouped_mm_2d_2d,
-    _emulated_mxfp8_scaled_grouped_mm_2d_3d,
-    _to_mxfp8_then_scaled_grouped_mm,
-)
-from torchao.prototype.moe_training.tensor import _quantize_then_scaled_grouped_mm
 from torchao.prototype.moe_training.utils import (
     _to_mxfp8_per_group_colwise,
     _to_mxfp8_per_group_rowwise,
     generate_jagged_offs,
+)
+from torchao.prototype.mx_formats.grouped_mm.config import (
+    MXFP8GroupedMMConfig,
+    MXFP8GroupedMMRecipe,
+)
+from torchao.prototype.mx_formats.grouped_mm.mxfp8_grouped_mm import (
+    _emulated_mxfp8_scaled_grouped_mm_2d_2d,
+    _emulated_mxfp8_scaled_grouped_mm_2d_3d,
+    _to_mxfp8_then_scaled_grouped_mm,
+)
+from torchao.prototype.mx_formats.grouped_mm.tensor import (
+    _quantize_then_scaled_grouped_mm,
 )
 from torchao.prototype.mx_formats.mx_tensor import to_mx
 from torchao.quantization.quantize_.common import KernelPreference

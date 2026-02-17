@@ -22,7 +22,7 @@ from torch.testing._internal.common_utils import (
 from torchao.float8.float8_utils import (
     compute_error,
 )
-from torchao.prototype.moe_training.kernels.mxfp8.comms import (
+from torchao.prototype.mx_formats.grouped_mm.kernels.comms import (
     mxfp8_on_device_all_to_all_v,
     to_mxfp8_a2a_dequant,
 )

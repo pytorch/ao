@@ -18,26 +18,26 @@ import pandas as pd
 import torch
 from triton.testing import do_bench
 
-from torchao.prototype.moe_training.kernels.mxfp8 import (
+from torchao.prototype.moe_training.utils import generate_jagged_offs
+from torchao.prototype.mx_formats.config import (
+    MXFP8Dim1CastKernelChoice,
+    ScaleCalculationMode,
+)
+from torchao.prototype.mx_formats.grouped_mm import (
+    ScaleCalculationMode as MoEScaleCalculationMode,
+)
+from torchao.prototype.mx_formats.grouped_mm import (
+    _to_mxfp8_then_scaled_grouped_mm,
+)
+from torchao.prototype.mx_formats.grouped_mm.kernels import (
     mx_block_rearrange_2d_M_groups_cuda,
     torch_to_blocked_2d_M_groups,
     torch_to_blocked_per_group_3d,
     triton_mx_block_rearrange_2d_K_groups,
     triton_mx_block_rearrange_per_group_3d,
 )
-from torchao.prototype.moe_training.kernels.mxfp8.quant import (
+from torchao.prototype.mx_formats.grouped_mm.kernels.quant import (
     mxfp8_quantize_cuda_3d,
-)
-from torchao.prototype.moe_training.mxfp8_grouped_mm import (
-    ScaleCalculationMode as MoEScaleCalculationMode,
-)
-from torchao.prototype.moe_training.mxfp8_grouped_mm import (
-    _to_mxfp8_then_scaled_grouped_mm,
-)
-from torchao.prototype.moe_training.utils import generate_jagged_offs
-from torchao.prototype.mx_formats.config import (
-    MXFP8Dim1CastKernelChoice,
-    ScaleCalculationMode,
 )
 from torchao.prototype.mx_formats.kernels import triton_to_mxfp8_dim0
 from torchao.prototype.mx_formats.utils import _to_mxfp8_dim1_kernel_wrapper

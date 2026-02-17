@@ -20,7 +20,14 @@ from torchao.prototype.moe_training.kernels.jagged_float8_scales import (
     triton_fp8_per_group_colwise_scales,
     triton_fp8_per_group_rowwise_scales,
 )
-from torchao.prototype.moe_training.kernels.mxfp8 import (
+from torchao.prototype.moe_training.utils import (
+    _is_column_major,
+    generate_jagged_offs,
+    torch_to_3d_rowwise_float8_transpose_rhs,
+    torch_to_float8_per_group_colwise,
+    torch_to_float8_per_group_rowwise,
+)
+from torchao.prototype.mx_formats.grouped_mm.kernels import (
     mx_block_rearrange_2d_M_groups_cuda,
     mxfp8_quantize_cuda_3d,
     torch_to_blocked_2d_K_groups,
@@ -29,13 +36,6 @@ from torchao.prototype.moe_training.kernels.mxfp8 import (
     triton_mx_block_rearrange_2d_K_groups,
     triton_mx_block_rearrange_2d_M_groups,
     triton_mx_block_rearrange_per_group_3d,
-)
-from torchao.prototype.moe_training.utils import (
-    _is_column_major,
-    generate_jagged_offs,
-    torch_to_3d_rowwise_float8_transpose_rhs,
-    torch_to_float8_per_group_colwise,
-    torch_to_float8_per_group_rowwise,
 )
 from torchao.prototype.mx_formats.mx_tensor import ScaleCalculationMode, to_mx
 from torchao.testing.utils import skip_if_rocm
