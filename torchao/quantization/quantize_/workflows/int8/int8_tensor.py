@@ -212,21 +212,17 @@ class Int8Tensor(TorchAOBaseTensor):
             output_dtype=torch.int8,
         )
 
-        # Use mapping_type to determine whether zero_point is needed
-        # (avoid data-dependent zero_point.any() check which breaks torch.compile)
-        stored_zero_point = None
         if mapping_type == MappingType.ASYMMETRIC:
             assert zero_point is not None, (
                 "zero_point must not be None for asymmetric quantization"
             )
-            stored_zero_point = zero_point
 
         return cls(
             int_data,
             scale,
             block_size,
             hp_tensor.dtype,
-            zero_point=stored_zero_point,
+            zero_point=zero_point,
             act_quant_scale=act_quant_scale,
             act_quant_zero_point=act_quant_zero_point,
             act_pre_scale=act_pre_scale,
