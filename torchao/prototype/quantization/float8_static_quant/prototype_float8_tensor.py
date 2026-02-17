@@ -1149,7 +1149,5 @@ def _choose_quant_func_and_quantize_tensor(
     raise NotImplementedError(f"Quant kwargs not supported: {quant_kwargs}")
 
 
-PrototypeFloat8Tensor.__module__ = "torchao.quantization"
-
 # Allow a model with PrototypeFloat8Tensor weights to be loaded with `weights_only=True`
 torch.serialization.add_safe_globals([PrototypeFloat8Tensor])
