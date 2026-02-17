@@ -213,6 +213,14 @@ class NVFP4DynamicActivationNVFP4WeightConfig(AOBaseConfig):
             # Static quantization implies use_dynamic_per_tensor_scale=False
             self.use_dynamic_per_tensor_scale = False
 
+        if self.quantize_kernel_preference == KernelPreference.FLASHINFER:
+            if self.step is None and not self.use_dynamic_per_tensor_scale:
+                raise ValueError(
+                    "FLASHINFER kernel preference requires per_tensor_scale. "
+                    "Use step='prepare'/'convert' for static quantization, "
+                    "or set use_dynamic_per_tensor_scale=True."
+                )
+
 
 @register_quantize_module_handler(NVFP4DynamicActivationNVFP4WeightConfig)
 def _nvfp4_inference_linear_transform(

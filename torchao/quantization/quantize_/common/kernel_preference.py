@@ -34,6 +34,10 @@ class KernelPreference(str, Enum):
     """Use triton kernels
     """
 
+    FLASHINFER = "flashinfer"
+    """Use quantize kernels from flashinfer library, requires flashinfer library
+    """
+
     EMULATED = "emulated"
     """Emulates gemm_lowp(A, B) with gemm_fp32(A.dequantize(), B.dequantize()).
     Intended use cases are:

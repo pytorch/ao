@@ -33,7 +33,7 @@ from torchao.quantization.quantize_.common import (
     QuantizeTensorKwargs,
 )
 from torchao.quantization.quantize_.common.kernel_preference import KernelPreference
-from torchao.utils import TorchAOBaseTensor, fill_defaults
+from torchao.utils import TorchAOBaseTensor, _is_flashinfer_available, fill_defaults
 
 E4M3_EPS = torch.finfo(torch.float8_e4m3fn).tiny
 
@@ -153,6 +153,11 @@ class NVFP4Tensor(TorchAOBaseTensor):
 
         if quantize_kernel_preference == KernelPreference.TRITON:
             kernel_choice = "triton"
+        elif quantize_kernel_preference == KernelPreference.FLASHINFER:
+            assert _is_flashinfer_available(), (
+                "flashinfer is not installed, please install flashinfer to use FLASHINFER kernel preference"
+            )
+            kernel_choice = "flashinfer"
         elif quantize_kernel_preference in [
             KernelPreference.AUTO,
             KernelPreference.TORCH,
@@ -169,6 +174,25 @@ class NVFP4Tensor(TorchAOBaseTensor):
                 f"Triton kernel requires K (dim -1) to be divisible by 16, got {K}"
             )
             blockwise_scales, data_lp = triton_quantize_nvfp4(data_hp, per_tensor_scale)
+        elif kernel_choice == "flashinfer":
+            from flashinfer import SfLayout
+            from flashinfer import nvfp4_quantize as flashinfer_nvfp4_quantize
+
+            assert per_tensor_scale is not None, (
+                "flashinfer nvfp4_quantize requires per_tensor_scale"
+            )
+            assert is_swizzled_scales, (
+                "flashinfer nvfp4_quantize only supports swizzled scales"
+            )
+            # flashinfer uses global_sf = (F8E4M3_MAX * F4_E2M1_MAX) / amax
+            # which is 1 / per_tensor_scale
+            global_sf = 1.0 / per_tensor_scale
+            data_lp, blockwise_scales = flashinfer_nvfp4_quantize(
+                data_hp,
+                global_sf,
+                sfLayout=SfLayout.layout_128x4,
+                do_shuffle=False,
+            )
         elif kernel_choice == "torch":
             blockwise_scales, data_lp = nvfp4_quantize(
                 data_hp, block_size, per_tensor_scale

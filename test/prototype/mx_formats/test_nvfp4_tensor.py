@@ -23,6 +23,7 @@ from torchao.quantization.quantize_.common.kernel_preference import KernelPrefer
 from torchao.quantization.utils import compute_error
 from torchao.testing.utils import skip_if_rocm
 from torchao.utils import (
+    _is_flashinfer_available,
     is_sm_at_least_100,
     torch_version_at_least,
 )
@@ -428,7 +429,12 @@ def test_triton_nvfp4_quantize_equivalence(M, N, use_per_tensor_scale, dtype):
 @pytest.mark.parametrize("inpt_dtype", [torch.bfloat16, torch.float32])
 @pytest.mark.parametrize(
     "quantize_kernel_preference",
-    [KernelPreference.AUTO, KernelPreference.TRITON, KernelPreference.TORCH],
+    [
+        KernelPreference.AUTO,
+        KernelPreference.TRITON,
+        KernelPreference.TORCH,
+        KernelPreference.FLASHINFER,
+    ],
 )
 @pytest.mark.parametrize(
     "shapes",
@@ -466,6 +472,10 @@ def test_nvfp4_matmul_with_amax(
 
     if quant_type == "weight_only" and compile:
         pytest.skip("TODO: weight_only currently errors w/ compile")
+
+    if quantize_kernel_preference == KernelPreference.FLASHINFER:
+        if not _is_flashinfer_available():
+            pytest.skip("flashinfer not available")
 
     m, k, n = shapes
 
@@ -542,7 +552,12 @@ def test_nvfp4_to_copy():
 @pytest.mark.parametrize("transpose", [False, True])
 @pytest.mark.parametrize(
     "quantize_kernel_preference",
-    [KernelPreference.AUTO, KernelPreference.TORCH, KernelPreference.TRITON],
+    [
+        KernelPreference.AUTO,
+        KernelPreference.TORCH,
+        KernelPreference.TRITON,
+        KernelPreference.FLASHINFER,
+    ],
 )
 @pytest.mark.parametrize("is_swizzled_scales", [False, True])
 @pytest.mark.parametrize(
@@ -565,12 +580,21 @@ def test_scale_shape_matches_qdata(
         pytest.skip("CUDA capability >= 10.0 required for nvfp4 triton kernel")
     if quantize_kernel_preference == KernelPreference.TRITON and not is_swizzled_scales:
         pytest.skip("triton kernel requires swizzled scales")
+    if quantize_kernel_preference == KernelPreference.FLASHINFER:
+        if not _is_flashinfer_available():
+            pytest.skip("flashinfer not available")
+        if not is_swizzled_scales:
+            pytest.skip("flashinfer requires swizzled scales")
 
     block_size = 16
 
     x_hp = torch.randn(*shape, device="cuda")
+    per_tensor_scale = None
+    if quantize_kernel_preference == KernelPreference.FLASHINFER:
+        per_tensor_scale = per_tensor_amax_to_scale(torch.amax(torch.abs(x_hp)))
     x = NVFP4Tensor.to_nvfp4(
         x_hp,
+        per_tensor_scale=per_tensor_scale,
         is_swizzled_scales=is_swizzled_scales,
         quantize_kernel_preference=quantize_kernel_preference,
     )
@@ -623,3 +647,63 @@ def test_3d_transpose(dims, is_swizzled_scales):
     x_hp_t = x_hp.transpose(dims[0], dims[1])
     x_nvfp4_t = x_nvfp4.transpose(dims[0], dims[1])
     assert x_hp_t.shape == x_nvfp4_t.shape
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(
+    not torch_version_at_least("2.8.0"), reason="NVFP4 requires PyTorch 2.8+"
+)
+@pytest.mark.skipif(
+    not is_sm_at_least_100(), reason="CUDA capability >= 10.0 required for fp4"
+)
+@pytest.mark.parametrize(
+    "shape",
+    [
+        (128, 64),
+        (256, 128),
+        (128, 256),
+    ],
+)
+@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
+@torch.no_grad()
+def test_kernel_preference_numerical_equivalence(shape, dtype):
+    """Test different kernel preferences produce numerically equivalent results for NVFP4 quantization."""
+    torch.manual_seed(42)
+    M, K = shape
+    x = torch.randn(M, K, dtype=dtype, device="cuda")
+    per_tensor_scale = per_tensor_amax_to_scale(torch.amax(torch.abs(x)))
+
+    # Reference: TORCH kernel preference
+    nvfp4_ref = NVFP4Tensor.to_nvfp4(
+        x.clone(),
+        per_tensor_scale=per_tensor_scale,
+        is_swizzled_scales=True,
+        quantize_kernel_preference=KernelPreference.TORCH,
+    )
+    ref_dequant = nvfp4_ref.dequantize(dtype)
+
+    other_kernel_preferences = [KernelPreference.AUTO]
+
+    # Triton requires sm100+
+    if is_sm_at_least_100():
+        other_kernel_preferences.append(KernelPreference.TRITON)
+
+    # Flashinfer requires the library
+    if _is_flashinfer_available():
+        other_kernel_preferences.append(KernelPreference.FLASHINFER)
+
+    SQNR_THRESHOLD = 28.0
+    for kp in other_kernel_preferences:
+        nvfp4_other = NVFP4Tensor.to_nvfp4(
+            x.clone(),
+            per_tensor_scale=per_tensor_scale,
+            is_swizzled_scales=True,
+            quantize_kernel_preference=kp,
+        )
+        other_dequant = nvfp4_other.dequantize(dtype)
+
+        sqnr = compute_error(ref_dequant, other_dequant)
+        assert sqnr >= SQNR_THRESHOLD, (
+            f"SQNR {sqnr:.2f} < {SQNR_THRESHOLD} between TORCH and {kp}, "
+            f"{shape=}, {dtype=}"
+        )
