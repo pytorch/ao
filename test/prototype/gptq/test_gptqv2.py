@@ -14,34 +14,14 @@ from torchao.prototype.gptq import (
     GPTQConfig,
     gptq_quantize,
 )
-from torchao.prototype.gptq.observer import GPTQObserverTensor
+from torchao.prototype.gptq.observer import (
+    GPTQObserverTensor,
+    ObserverTensor,
+    _calculate_hessian,
+)
 from torchao.quantization import Int4WeightOnlyConfig, Int8WeightOnlyConfig, quantize_
 from torchao.quantization.granularity import PerRow
 from torchao.utils import _is_mslk_available
-
-
-def _calculate_hessian(inputs, device=None):
-    """Calculate Hessian matrix from input activations for GPTQ."""
-    H = 0
-    total_batches = 0
-
-    for inp in inputs:
-        # Setup x (activation tensor)
-        x = inp.float()
-        if device:
-            x = x.to(device)
-        shape = x.shape
-        n = 1 if len(shape) == 2 else shape[0]
-        x = x.reshape(-1, shape[-1])
-
-        # Update Hessian with running average
-        H *= total_batches / (total_batches + n)
-        total_batches += n
-
-        x = ((2 / total_batches) ** (1 / 2)) * x.t()
-        H += x.matmul(x.t())
-
-    return H
 
 
 class ToyLinearModel(torch.nn.Module):
@@ -74,10 +54,10 @@ class TestGPTQObserverTensor:
     def test_observer_tensor_creation(self):
         """Test that GPTQObserverTensor.from_hp() creates tensor with correct properties."""
         weight = torch.randn(32, 64, dtype=torch.float32, device="cuda")
-        observer = GPTQObserverTensor.from_hp(weight)
+        observer = ObserverTensor.from_hp(weight)
 
-        # Check it's an GPTQObserverTensor
-        assert isinstance(observer, GPTQObserverTensor)
+        # Check it's an ObserverTensor
+        assert isinstance(observer, ObserverTensor)
 
         # Check shape matches
         assert observer.shape == weight.shape
@@ -88,12 +68,7 @@ class TestGPTQObserverTensor:
 
         # Check hp_data is stored correctly
         torch.testing.assert_close(observer.hp_data, weight)
-
-        # Check hessian is initialized as None
-        assert observer.hessian is None
-
-        # Check total_batches is initialized as 0
-        assert observer.total_batches == 0
+        assert len(observer.observed_inputs) == 0
 
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA available")
     def test_observer_tensor_attributes(self):
@@ -232,23 +207,21 @@ class TestGPTQObserverTensor:
         # Apply GPTQConfig with observe step
         quantize_(linear, GPTQConfig(step="observe", base_config=base_config))
 
-        # Check weight is now an GPTQObserverTensor
-        assert isinstance(linear.weight, GPTQObserverTensor)
+        # Check weight is now an ObserverTensor
+        assert isinstance(linear.weight, ObserverTensor)
 
         # Check hp_data matches original weight
         torch.testing.assert_close(linear.weight.hp_data, original_weight)
 
-        # Check hessian is None initially
-        assert linear.weight.hessian is None
-        assert linear.weight.total_batches == 0
+        # Check observed_inputs is empty initially
+        assert len(linear.weight.observed_inputs) == 0
 
         # Perform a forward pass
         input_tensor = torch.randn(4, 64, dtype=torch.float32, device="cuda")
         output = linear(input_tensor)
 
-        # Check Hessian was initialized after forward pass
-        assert linear.weight.hessian is not None
-        assert linear.weight.total_batches == 1
+        # Check observed_inputs was initialized after forward pass
+        assert len(linear.weight.observed_inputs) == 1
 
         # Check output shape
         assert output.shape == (4, 32)
@@ -313,15 +286,15 @@ class TestGPTQFlow:
         linear = torch.nn.Linear(64, 32, bias=False).cuda().to(torch.bfloat16)
         original_weight = linear.weight.data.clone()
 
-        # Phase 1: Observation step - wrap as GPTQObserverTensor
+        # Phase 1: Observation step - wrap as ObserverTensor
         observe_config = GPTQConfig(
             step="observe",
             base_config=base_config,
         )
         quantize_(linear, observe_config)
 
-        # Verify weight is now an GPTQObserverTensor
-        assert isinstance(linear.weight, GPTQObserverTensor)
+        # Verify weight is now an ObserverTensor
+        assert isinstance(linear.weight, ObserverTensor)
         torch.testing.assert_close(linear.weight.hp_data, original_weight)
 
         # Run some forward passes for calibration
@@ -329,9 +302,7 @@ class TestGPTQFlow:
             input_tensor = torch.randn(4, 64, dtype=torch.bfloat16, device="cuda")
             _ = linear(input_tensor)
 
-        # Verify Hessian was computed
-        assert linear.weight.hessian is not None
-        assert linear.weight.total_batches > 0
+        assert len(linear.weight.observed_inputs) == 10
 
         # Phase 2: Convert step - apply GPTQ quantization
         convert_config = GPTQConfig(
