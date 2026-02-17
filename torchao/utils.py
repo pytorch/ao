@@ -1270,6 +1270,10 @@ def _is_mslk_available():
     return True
 
 
+def _is_flashinfer_available():
+    return importlib.util.find_spec("flashinfer") is not None or is_fbcode()
+
+
 class DummyModule(torch.nn.Module):
     """This is used because the TorchAO quantization functions tend to operate on modules so to apply the transform to a tensor, we can load a
     DummyModule with the target tensor and then apply the transformation to the module and then extract the transformed tensor.
