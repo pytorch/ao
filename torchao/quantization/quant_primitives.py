@@ -1474,7 +1474,7 @@ def choose_qparams_affine_with_min_max(
 
 @register_custom_op
 def _choose_qparams_affine(
-    input: Optional[torch.Tensor],
+    input: torch.Tensor,
     mapping_type: str,
     block_size: List[int],
     target_dtype: torch.dtype,
@@ -1572,7 +1572,7 @@ def _choose_qparams_affine(
 
 
 def _choose_qparams_gguf(
-    input: Optional[torch.Tensor],
+    input: torch.Tensor,
     block_size: List[int],
     target_dtype: torch.dtype,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
