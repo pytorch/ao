@@ -1,3 +1,9 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
+
 import dataclasses
 import enum
 import json
@@ -9,6 +15,7 @@ import torchao
 from torchao.prototype.mx_formats.config import ScaleCalculationMode
 from torchao.prototype.mx_formats.mx_tensor import MXTensor, QuantizeTensorToMXKwargs
 from torchao.prototype.mx_formats.nvfp4_tensor import (
+    NVFP4QuantizeKernelChoice,
     NVFP4Tensor,
     QuantizeTensorToNVFP4Kwargs,
 )
@@ -45,6 +52,7 @@ ALLOWED_CLASSES = {
     "QuantizeTensorToMXKwargs": QuantizeTensorToMXKwargs,
     "ScaleCalculationMode": ScaleCalculationMode,
     "NVFP4Tensor": NVFP4Tensor,
+    "NVFP4QuantizeKernelChoice": NVFP4QuantizeKernelChoice,
     "QuantizeTensorToNVFP4Kwargs": QuantizeTensorToNVFP4Kwargs,
 }
 
