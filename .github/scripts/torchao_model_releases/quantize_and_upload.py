@@ -19,7 +19,6 @@ if _transformers_version >= "5":
 
 _huggingface_hub_version = str(huggingface_hub.__version__)
 
-from torchao._models._eval import TransformerEvalWrapper
 from torchao.prototype.awq import (
     AWQConfig,
 )
@@ -782,6 +781,8 @@ def quantize_and_upload(
             quantize_(model, awq_config, filter_fn=filter_fn_skip_lmhead)
         else:
             quantize_(model, awq_config)
+
+        from torchao._models._eval import TransformerEvalWrapper
 
         TransformerEvalWrapper(
             model=model,
