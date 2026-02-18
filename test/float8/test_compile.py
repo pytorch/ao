@@ -37,12 +37,10 @@ from torchao.float8.float8_training_tensor import (
 )
 from torchao.testing.training.test_utils import get_test_float8_linear_config
 from torchao.utils import (
-    get_gpu_devices,
+    get_available_devices,
     is_sm_at_least_89,
     is_sm_at_least_90,
 )
-
-_GPU_DEVICES = get_gpu_devices()
 
 
 def _test_compile_base(
@@ -95,7 +93,7 @@ def _test_compile_base(
 @pytest.mark.parametrize("emulate", [False, True] if is_sm_at_least_89() else [True])
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
 @unittest.skipIf(not torch.accelerator.is_available(), "GPU not available")
-@pytest.mark.parametrize("device", _GPU_DEVICES)
+@pytest.mark.parametrize("device", get_available_devices(False))
 def test_eager_only(
     fullgraph,
     emulate: bool,
@@ -134,7 +132,7 @@ def test_eager_only(
 )
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
 @unittest.skipIf(not torch.accelerator.is_available(), "GPU not available")
-@pytest.mark.parametrize("device", _GPU_DEVICES)
+@pytest.mark.parametrize("device", get_available_devices(False))
 def test_aot_eager(
     fullgraph,
     emulate: bool,
@@ -182,7 +180,7 @@ def test_aot_eager(
     torch.cuda.is_available() and not is_sm_at_least_89(),
     "CUDA with float8 support not available",
 )
-@pytest.mark.parametrize("device", _GPU_DEVICES)
+@pytest.mark.parametrize("device", get_available_devices(False))
 def test_inductor_from_config_params(
     fullgraph,
     emulate: bool,
@@ -224,7 +222,7 @@ def test_inductor_from_config_params(
     torch.cuda.is_available() and not is_sm_at_least_90(),
     "CUDA with capability 9.0 or greater not available",
 )
-@pytest.mark.parametrize("device", _GPU_DEVICES)
+@pytest.mark.parametrize("device", get_available_devices(False))
 def test_inductor_from_recipe(recipe_name, device: torch.device):
     torch._dynamo.reset()
     config = Float8LinearConfig.from_recipe_name(recipe_name)
@@ -263,7 +261,7 @@ class TestGraphBreaks(DynamoTestCase):
         torch.cuda.is_available() and not is_sm_at_least_90(),
         "CUDA with capability 9.0 or greater not available",
     )
-    @parametrize("device", _GPU_DEVICES)
+    @parametrize("device", get_available_devices(False))
     def test_float8_with_graph_break_in_the_middle(self, device: torch.device):
         """Test that having Float8TrainingTensor object at the boundary of a subgraph"""
         cnts = CompileCounterWithBackend("inductor")
@@ -281,7 +279,7 @@ class TestGraphBreaks(DynamoTestCase):
         torch.cuda.is_available() and not is_sm_at_least_89(),
         "CUDA with float8 support not available",
     )
-    @parametrize("device", _GPU_DEVICES)
+    @parametrize("device", get_available_devices(False))
     def test_float8_graph_input(self, device: torch.device):
         # """Test that having Float8TrainingTensor object as a graph input"""
 
@@ -307,7 +305,7 @@ class TestGraphBreaks(DynamoTestCase):
         torch.cuda.is_available() and not is_sm_at_least_89(),
         "CUDA with float8 support not available",
     )
-    @parametrize("device", _GPU_DEVICES)
+    @parametrize("device", get_available_devices(False))
     def test_float8_graph_output(self, device: torch.device):
         """Test that having Float8TrainingTensor object as a graph output works"""
         cnts = CompileCounterWithBackend("inductor")
@@ -371,7 +369,7 @@ class capture_stderr(list):
     torch.cuda.is_available() and not is_sm_at_least_89(),
     "CUDA not available",
 )
-@pytest.mark.parametrize("device", _GPU_DEVICES)
+@pytest.mark.parametrize("device", get_available_devices(False))
 def test_dynamic_scale_numeric_parity(
     dtype: torch.dtype, round_scales_to_power_of_2: bool, device: torch.device
 ):
