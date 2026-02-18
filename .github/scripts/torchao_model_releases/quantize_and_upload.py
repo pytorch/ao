@@ -7,6 +7,7 @@
 import argparse
 from typing import List
 
+import huggingface_hub
 import torch
 import transformers
 from huggingface_hub import ModelCard, get_token, whoami
@@ -15,6 +16,8 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, TorchAoConfig
 _transformers_version = str(transformers.__version__)
 if _transformers_version >= "5":
     from transformers.quantizers.auto import get_hf_quantizer
+
+_huggingface_hub_version = str(huggingface_hub.__version__)
 
 from torchao._models._eval import TransformerEvalWrapper
 from torchao.prototype.awq import (
@@ -27,6 +30,7 @@ from torchao.prototype.mx_formats.inference_workflow import (
 from torchao.prototype.smoothquant import SmoothQuantConfig
 from torchao.quantization import (
     Float8DynamicActivationFloat8WeightConfig,
+    Float8DynamicActivationInt4WeightConfig,
     Int4WeightOnlyConfig,
     Int8DynamicActivationInt8WeightConfig,
     Int8DynamicActivationIntxWeightConfig,
@@ -233,6 +237,14 @@ tokenizer = AutoTokenizer.from_pretrained(model_id)
 _fp8_quant_code = """
 from torchao.quantization import Float8DynamicActivationFloat8WeightConfig, PerRow
 quant_config = Float8DynamicActivationFloat8WeightConfig(granularity=PerRow())
+quantization_config = TorchAoConfig(quant_type=quant_config)
+quantized_model = AutoModelForCausalLM.from_pretrained(model_to_quantize, device_map="{device}", torch_dtype=torch.bfloat16, quantization_config=quantization_config)
+tokenizer = AutoTokenizer.from_pretrained(model_id)
+"""
+
+_fp8_int4_quant_code = """
+from torchao.quantization import Float8DynamicActivationInt4WeightConfig
+quant_config = Float8DynamicActivationInt4WeightConfig(int4_packing_format="plain")
 quantization_config = TorchAoConfig(quant_type=quant_config)
 quantized_model = AutoModelForCausalLM.from_pretrained(model_to_quantize, device_map="{device}", torch_dtype=torch.bfloat16, quantization_config=quantization_config)
 tokenizer = AutoTokenizer.from_pretrained(model_id)
@@ -687,6 +699,9 @@ def quantize_and_upload(
 
     quant_to_config = {
         "FP8": Float8DynamicActivationFloat8WeightConfig(granularity=PerRow()),
+        "FP8-INT4": Float8DynamicActivationInt4WeightConfig(
+            int4_packing_format="plain"
+        ),
         "INT4": Int4WeightOnlyConfig(
             group_size=128,
             int4_packing_format="tile_packed_to_4d",
@@ -725,6 +740,7 @@ def quantize_and_upload(
 
     quant_to_quant_code = {
         "FP8": _fp8_quant_code,
+        "FP8-INT4": _fp8_int4_quant_code,
         "INT4": _int4_quant_code,
         "INT8-INT4": _int8_int4_quant_code,
         "INT8-INT4-HQQ": _int8_int4_hqq_quant_code,
@@ -908,16 +924,24 @@ def quantize_and_upload(
 
     # Push to hub
     if push_to_hub:
-        quantized_model.push_to_hub(
-            quantized_model_id, safe_serialization=safe_serialization
-        )
+        if _huggingface_hub_version < "1.4.1":
+            quantized_model.push_to_hub(
+                quantized_model_id, safe_serialization=safe_serialization
+            )
+        else:
+            quantized_model.push_to_hub(quantized_model_id)
+
         tokenizer.push_to_hub(quantized_model_id)
         if populate_model_card_template:
             card.push_to_hub(quantized_model_id)
     else:
-        quantized_model.save_pretrained(
-            quantized_model_id, safe_serialization=safe_serialization
-        )
+        if _huggingface_hub_version < "1.4.1":
+            quantized_model.save_pretrained(
+                quantized_model_id, safe_serialization=safe_serialization
+            )
+        else:
+            quantized_model.save_pretrained(quantized_model_id)
+
         tokenizer.save_pretrained(quantized_model_id)
 
     # Manual Testing
@@ -960,7 +984,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--quant",
         type=str,
-        help="Quantization method. Options are FP8, INT4, INT8-INT4, INT8-INT4-HQQ, AWQ-INT4, SmoothQuant-INT8-INT8, MXFP8, NVFP4",
+        help="Quantization method. Options are FP8, FP8-INT4, INT4, INT8-INT4, INT8-INT4-HQQ, AWQ-INT4, SmoothQuant-INT8-INT8, MXFP8, NVFP4",
     )
     parser.add_argument(
         "--tasks",
