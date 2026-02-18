@@ -10,19 +10,30 @@
 
 import re
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, Optional, Tuple
 
 import torch
+from torch.fx import Node
 from torch.nn import Module
 
+from torchao.quantization import PerAxis, PerGroup, PerTensor
+from torchao.quantization.pt2e._affine_quantization import (
+    AffineQuantizedMinMaxObserver,
+)
 from torchao.quantization.pt2e.observer import (
+    AffineQuantizedObserverBase,
     FixedQParamsObserver,
     HistogramObserver,
+    MappingType,
     MovingAverageMinMaxObserver,
     MovingAveragePerChannelMinMaxObserver,
+    ZeroPointDomain,
     _with_args,
     default_fixed_qparams_range_0to1_observer,
     default_fixed_qparams_range_neg1to1_observer,
+)
+from torchao.quantization.quant_primitives import (
+    _fake_quantize_affine,
 )
 
 __all__ = [
@@ -30,6 +41,7 @@ __all__ = [
     "FakeQuantize",
     "FixedQParamsFakeQuantize",
     "FusedMovingAvgObsFakeQuantize",
+    "AffineFakeQuantize",
     "disable_fake_quant",
     "disable_observer",
     "enable_fake_quant",
@@ -50,6 +62,9 @@ __all__ = [
     "default_fused_per_channel_wt_fake_quant",
     "fused_wt_fake_quant_range_neg_127_to_127",
     "fused_per_channel_wt_fake_quant_range_neg_127_to_127",
+    "default_affine_fake_quant",
+    "default_groupwise_fake_quant",
+    "default_affine_per_axis_fake_quant",
 ]
 
 
@@ -431,6 +446,171 @@ class FusedMovingAvgObsFakeQuantize(FakeQuantize):
         )
 
 
+class AffineFakeQuantize(FakeQuantize):
+    r"""Simulate quantize and dequantize with affine quantization in training time.
+
+    This fake quantize module supports all granularities including per-tensor,
+    per-axis, per-group, per-block, per-row, and per-token quantization through
+    the affine quantization primitives. It works with AffineQuantizedObserverBase
+    subclasses like AffineQuantizedMinMaxObserver and
+    AffineQuantizedMovingAverageMinMaxObserver.
+
+    The output of this module is given by::
+
+        x_out = fake_quantize_affine(x, block_size, scale, zero_point, ...)
+
+    Args:
+        observer (module): Module for observing statistics on input tensors and
+            calculating scale and zero-point. Must be a subclass of
+            AffineQuantizedObserverBase.
+        is_dynamic (bool): Whether this is for dynamic quantization.
+        **observer_kwargs: Arguments passed to the observer constructor.
+
+    Attributes:
+        activation_post_process (AffineQuantizedObserverBase): The observer instance.
+        scale (Tensor): The quantization scale.
+        zero_point (Tensor): The quantization zero point.
+        target_dtype (torch.dtype): The target quantized dtype.
+        quant_min (Optional[int]): Minimum quantization value.
+        quant_max (Optional[int]): Maximum quantization value.
+        zero_point_domain (ZeroPointDomain): Domain of the zero point.
+        mapping_type (MappingType): Mapping type for quantization.
+        is_dynamic (bool): Whether this is dynamic quantization.
+        block_size (Optional[Tuple[int, ...]]): Block size for groupwise quantization.
+
+    Example::
+
+        >>> # Per-tensor fake quantize
+        >>> fq = AffineFakeQuantize(
+        ...     observer=AffineQuantizedMinMaxObserver,
+        ...     mapping_type=MappingType.ASYMMETRIC,
+        ...     target_dtype=torch.uint8,
+        ...     granularity=PerTensor(),
+        ... )
+        >>> x = torch.randn(10, 20)
+        >>> y = fq(x)
+
+        >>> # Groupwise fake quantize
+        >>> fq = AffineFakeQuantize(
+        ...     observer=AffineQuantizedMinMaxObserver,
+        ...     mapping_type=MappingType.SYMMETRIC,
+        ...     target_dtype=torch.int8,
+        ...     granularity=PerGroup(128),
+        ... )
+        >>> x = torch.randn(10, 256)
+        >>> y = fq(x)
+    """
+
+    scale: torch.Tensor
+    zero_point: torch.Tensor
+
+    def __init__(
+        self,
+        observer=AffineQuantizedMinMaxObserver,
+        is_dynamic: bool = False,
+        **observer_kwargs,
+    ):
+        # Skip FakeQuantize.__init__ and call FakeQuantizeBase.__init__ directly,
+        # since AffineFakeQuantize uses AffineQuantizedObserverBase which is
+        # incompatible with FakeQuantize's observer setup (qscheme, dtype, etc.).
+        FakeQuantizeBase.__init__(self)
+
+        observer_kwargs["is_dynamic"] = is_dynamic
+        self.activation_post_process: AffineQuantizedObserverBase = observer(
+            **observer_kwargs
+        )
+
+        self.target_dtype = self.activation_post_process.target_dtype
+        self.quant_min = self.activation_post_process.quant_min
+        self.quant_max = self.activation_post_process.quant_max
+        self.zero_point_domain = self.activation_post_process.zero_point_domain
+        self.mapping_type = self.activation_post_process.mapping_type
+        self.granularity = self.activation_post_process.granularity
+        self.is_dynamic = is_dynamic
+
+        zero_point_dtype = (
+            torch.float
+            if self.zero_point_domain == ZeroPointDomain.FLOAT
+            else torch.int
+        )
+
+        self.register_buffer("scale", torch.tensor([1.0], dtype=torch.float))
+        self.register_buffer("zero_point", torch.tensor([0], dtype=zero_point_dtype))
+
+        self.block_size: Optional[Tuple[int, ...]] = None
+        self._initialized = False
+
+    @torch.jit.export
+    def calculate_qparams(self) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Calculate the quantization parameters (scale and zero_point)."""
+        return self.activation_post_process.calculate_qparams()
+
+    def forward(self, X: torch.Tensor) -> torch.Tensor:
+        if not self._initialized:
+            self.activation_post_process(X.detach())
+            self.block_size = self.activation_post_process.block_size
+            self._initialized = True
+        if self.observer_enabled[0] == 1:
+            self.activation_post_process(X.detach())
+            _scale, _zero_point = self.calculate_qparams()
+            _scale = _scale.to(self.scale.device)
+            _zero_point = _zero_point.to(self.zero_point.device)
+
+            if self.scale.shape != _scale.shape:
+                self.scale.resize_(_scale.shape)
+                self.zero_point.resize_(_zero_point.shape)
+
+            self.scale.copy_(_scale)
+            self.zero_point.copy_(_zero_point)
+
+            self.block_size = self.activation_post_process.block_size
+
+        if self.fake_quant_enabled[0] == 1:
+            assert self.block_size is not None, (
+                "block_size must be set before fake quantization. "
+                "Ensure the model is run at least one forward pass "
+                "with both observer and fake_quant disabled."
+            )
+            X = _fake_quantize_affine(
+                X,
+                self.block_size,
+                self.scale,
+                self.zero_point,
+                self.target_dtype,
+                self.quant_min,
+                self.quant_max,
+                self.zero_point_domain,
+            )
+        return X
+
+    @torch.jit.export
+    def extra_repr(self) -> str:
+        return (
+            f"fake_quant_enabled={self.fake_quant_enabled}, "
+            f"observer_enabled={self.observer_enabled}, "
+            f"quant_min={self.quant_min}, quant_max={self.quant_max}, "
+            f"target_dtype={self.target_dtype}, granularity={self.granularity}, "
+            f"mapping_type={self.mapping_type}, "
+            f"zero_point_domain={self.zero_point_domain}, "
+            f"scale={self.scale}, zero_point={self.zero_point}, "
+            f"block_size={self.block_size}"
+        )
+
+    def convert(self, model: torch.fx.GraphModule, observer_node: Node):
+        """
+        Converts the fake quantize node in the graph into its quantized representation.
+
+        This method delegates to the underlying activation_post_process (observer)'s
+        convert method, which handles the creation of quantize_affine/dequantize_affine
+        operations in the graph.
+
+        Args:
+            model: graph module to convert the fake quantize node in
+            observer_node: the fake quantize node to convert
+        """
+        self.activation_post_process.convert(model, observer_node)
+
+
 default_fake_quant = FakeQuantize.with_args(
     observer=MovingAverageMinMaxObserver,
     quant_min=0,
@@ -587,6 +767,39 @@ fused_per_channel_wt_fake_quant_range_neg_127_to_127 = (
 
 """
 Fused version of `default_per_channel_weight_fake_quant`, with the 8-bit values restricted to [-127, +127], excluding -128.
+"""
+
+
+# AffineFakeQuantize default configurations
+default_affine_fake_quant = AffineFakeQuantize.with_args(
+    observer=AffineQuantizedMinMaxObserver,
+    mapping_type=MappingType.ASYMMETRIC,
+    target_dtype=torch.uint8,
+    granularity=PerTensor(),
+)
+"""
+Default affine fake_quant for activations using per-tensor quantization.
+"""
+
+default_groupwise_fake_quant = AffineFakeQuantize.with_args(
+    observer=AffineQuantizedMinMaxObserver,
+    mapping_type=MappingType.SYMMETRIC,
+    target_dtype=torch.int8,
+    granularity=PerGroup(128),
+)
+"""
+Default groupwise fake_quant for weights with group_size=128.
+Useful for QAT with groupwise quantization.
+"""
+
+default_affine_per_axis_fake_quant = AffineFakeQuantize.with_args(
+    observer=AffineQuantizedMinMaxObserver,
+    mapping_type=MappingType.SYMMETRIC,
+    target_dtype=torch.int8,
+    granularity=PerAxis(0),
+)
+"""
+Default per-axis affine fake_quant for weights.
 """
 
 

@@ -25,9 +25,9 @@ jobs:
         include:
           - name: H100
             runs-on: linux.aws.h100
-            torch-spec: '--pre torch torchvision torchaudio mslk --index-url https://download.pytorch.org/whl/nightly/cu128'
+            torch-spec: '--pre torch torchvision torchaudio mslk --index-url https://download.pytorch.org/whl/nightly/cu126'
             gpu-arch-type: "cuda"
-            gpu-arch-version: "12.8"
+            gpu-arch-version: "12.6"
     permissions:
       id-token: write
       contents: read
@@ -47,6 +47,7 @@ jobs:
         pip install ${{ matrix.torch-spec }}
         pip install -U --pre flashinfer-python --index-url https://flashinfer.ai/whl/nightly/ --no-deps
         pip install apache-tvm-ffi
+        pip install nvidia-ml-py
         uv pip install -r dev-requirements.txt
         pip install . --no-build-isolation -vv
         pytest test/integration --verbose -s
