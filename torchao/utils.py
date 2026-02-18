@@ -1270,6 +1270,17 @@ def _is_mslk_available():
     return True
 
 
+def _is_flashinfer_available():
+    return (
+        # flashinfer-python
+        importlib.util.find_spec("flashinfer") is not None
+        # apache-tvm-ffi
+        and importlib.util.find_spec("tvm_ffi") is not None
+        # nvidia-ml-py
+        and importlib.util.find_spec("pynvml") is not None
+    ) or is_fbcode()
+
+
 class DummyModule(torch.nn.Module):
     """This is used because the TorchAO quantization functions tend to operate on modules so to apply the transform to a tensor, we can load a
     DummyModule with the target tensor and then apply the transformation to the module and then extract the transformed tensor.
