@@ -186,7 +186,7 @@ class NVFP4DynamicActivationNVFP4WeightConfig(AOBaseConfig):
     set to False.
 
     Configuration parameters:
-    - nvfp4_quantize_kernel_choice: NVFP4QuantizeKernelChoice, kernel preference for quantization (default: NVFP4QuantizeKernelChoice.TRITON)
+    - nvfp4_quantize_kernel_choice: NVFP4QuantizeKernelChoice, kernel choice for quantization (default: NVFP4QuantizeKernelChoice.TRITON)
     - use_dynamic_per_tensor_scale: bool, whether to dynamically compute per tensor scale (default: True)
     - step: Optional[QuantizationStep], the quantization step for observer-based flow
     - Data: float4_e2m1fn_x2
@@ -219,7 +219,7 @@ class NVFP4DynamicActivationNVFP4WeightConfig(AOBaseConfig):
         if self.nvfp4_quantize_kernel_choice == NVFP4QuantizeKernelChoice.FLASHINFER:
             if self.step is None and not self.use_dynamic_per_tensor_scale:
                 raise ValueError(
-                    "FLASHINFER kernel preference requires per_tensor_scale. "
+                    "FLASHINFER kernel choice requires per_tensor_scale. "
                     "Use step='prepare'/'convert' for static quantization, "
                     "or set use_dynamic_per_tensor_scale=True."
                 )

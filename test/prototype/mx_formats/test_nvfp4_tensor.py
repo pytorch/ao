@@ -369,8 +369,8 @@ def test_nvfp4_swizzled_scales_get_scales_method():
     not is_sm_at_least_100(), reason="requires sm100+ for raw intrinsics"
 )
 @torch.no_grad()
-def test_kernel_preference_numerical_equivalence(M, N, use_per_tensor_scale, dtype):
-    """Test that different kernel preferences produce numerically equivalent NVFP4 quantization results."""
+def test_kernel_choice_numerical_equivalence(M, N, use_per_tensor_scale, dtype):
+    """Test that different kernel choices produce numerically equivalent NVFP4 quantization results."""
 
     torch.manual_seed(42)
     x = torch.randn(M, N, dtype=dtype, device="cuda")
@@ -379,7 +379,7 @@ def test_kernel_preference_numerical_equivalence(M, N, use_per_tensor_scale, dty
     if use_per_tensor_scale:
         per_tensor_scale = per_tensor_amax_to_scale(torch.amax(torch.abs(x)))
 
-    # Reference: TORCH kernel preference
+    # Reference: TORCH kernel choice
     nvfp4_ref = NVFP4Tensor.to_nvfp4(
         x.clone(),
         per_tensor_scale=per_tensor_scale,
@@ -396,14 +396,14 @@ def test_kernel_preference_numerical_equivalence(M, N, use_per_tensor_scale, dty
 
     SQNR_THRESHOLD = 28.0
     for kc in other_kernel_choices:
-        nvfp4_triton = NVFP4Tensor.to_nvfp4(
+        nvfp4_other = NVFP4Tensor.to_nvfp4(
             x.clone(),
             per_tensor_scale=per_tensor_scale,
             is_swizzled_scales=True,
             nvfp4_quantize_kernel_choice=kc,
         )
 
-        # For kernel preferences that use the same quantization algorithm as TORCH
+        # For kernel choices that use the same quantization algorithm as TORCH
         # (TRITON should be bitwise identical), verify internal data matches exactly
         if kc == NVFP4QuantizeKernelChoice.TRITON:
             torch.testing.assert_close(
@@ -418,11 +418,11 @@ def test_kernel_preference_numerical_equivalence(M, N, use_per_tensor_scale, dty
                 rtol=0,
             )
 
-        # Verify dequantized values are numerically close for all kernel preferences
+        # Verify dequantized values are numerically close for all kernel choices
         other_dequant = nvfp4_other.dequantize(dtype)
         sqnr = compute_error(ref_dequant, other_dequant)
         assert sqnr >= SQNR_THRESHOLD, (
-            f"SQNR {sqnr:.2f} < {SQNR_THRESHOLD} between TORCH and {kp}, "
+            f"SQNR {sqnr:.2f} < {SQNR_THRESHOLD} between TORCH and {kc}, "
             f"M={M}, N={N}, use_per_tensor_scale={use_per_tensor_scale}, dtype={dtype}"
         )
 
@@ -441,7 +441,11 @@ def test_kernel_preference_numerical_equivalence(M, N, use_per_tensor_scale, dty
 @pytest.mark.parametrize("inpt_dtype", [torch.bfloat16, torch.float32])
 @pytest.mark.parametrize(
     "nvfp4_quantize_kernel_choice",
-    [NVFP4QuantizeKernelChoice.TRITON, NVFP4QuantizeKernelChoice.TORCH, NVFP4QuantizeKernelChoice.FLASHINFER],
+    [
+        NVFP4QuantizeKernelChoice.TRITON,
+        NVFP4QuantizeKernelChoice.TORCH,
+        NVFP4QuantizeKernelChoice.FLASHINFER,
+    ],
 )
 @pytest.mark.parametrize(
     "shapes",
@@ -559,7 +563,11 @@ def test_nvfp4_to_copy():
 @pytest.mark.parametrize("transpose", [False, True])
 @pytest.mark.parametrize(
     "nvfp4_quantize_kernel_choice",
-    [NVFP4QuantizeKernelChoice.TORCH, NVFP4QuantizeKernelChoice.TRITON, NVFP4QuantizeKernelChoice.FLASHINFER],
+    [
+        NVFP4QuantizeKernelChoice.TORCH,
+        NVFP4QuantizeKernelChoice.TRITON,
+        NVFP4QuantizeKernelChoice.FLASHINFER,
+    ],
 )
 @pytest.mark.parametrize("is_swizzled_scales", [False, True])
 @pytest.mark.parametrize(

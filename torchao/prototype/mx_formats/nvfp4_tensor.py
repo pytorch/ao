@@ -80,7 +80,7 @@ class NVFP4Tensor(TorchAOBaseTensor):
         block_size (int): Block size for quantization (fixed at 16)
         orig_dtype (torch.dtype): Original tensor dtype before quantization
         is_swizzled_scales (bool): Whether scales are stored in swizzled (blocked) format
-        nvfp4_quantize_kernel_choice (NVFP4QuantizeKernelChoice): Kernel preference for quantization
+        nvfp4_quantize_kernel_choice (NVFP4QuantizeKernelChoice): Kernel choice for quantization
     """
 
     tensor_data_names = ["qdata", "scale"]
@@ -160,7 +160,7 @@ class NVFP4Tensor(TorchAOBaseTensor):
             act_per_tensor_scale: Optional pre-computed absolute maximum for calibration for activation
                 If provided, uses per-tensor scaling. If None, uses block-wise scaling only.
             is_swizzled_scales: If True, store scales in swizzled format for faster matrix multiplication
-            nvfp4_quantize_kernel_choice: Kernel preference for quantization
+            nvfp4_quantize_kernel_choice: Kernel choice for quantization
             act_quant_kwargs: If specified, config for quantizing the activation
 
         Returns:
@@ -173,7 +173,7 @@ class NVFP4Tensor(TorchAOBaseTensor):
             kernel_choice = "triton"
         elif nvfp4_quantize_kernel_choice == NVFP4QuantizeKernelChoice.FLASHINFER:
             assert _is_flashinfer_available(), (
-                "flashinfer is not available, please install flashinfer-python, apache-tvm-ffi, and nvidia-ml-py to use FLASHINFER kernel preference"
+                "flashinfer is not available, please install flashinfer-python, apache-tvm-ffi, and nvidia-ml-py to use FLASHINFER kernel choice"
             )
             kernel_choice = "flashinfer"
         elif nvfp4_quantize_kernel_choice == NVFP4QuantizeKernelChoice.TORCH:
