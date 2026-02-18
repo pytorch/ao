@@ -11,7 +11,7 @@ from torchao.quantization.observer import AffineQuantizedMinMaxObserver
 
 # TODO: Build enum backend for more observers like AWQObserver, PerChannelHistogramObserver
 # User should be able to handle `act_obs` directly for easy customization
-class ObservedLinear(torch.nn.Linear):
+class ObservedTensor(torch.nn.Linear):
     """
     A linear module with an observer for static quantization.
 
@@ -59,7 +59,7 @@ class ObservedLinear(torch.nn.Linear):
         cls,
         float_linear: torch.nn.Linear,
         act_obs: "AffineQuantizedMinMaxObserver",
-    ) -> "ObservedLinear":
+    ) -> "ObservedTensor":
         """Create an observed linear from a float linear module."""
         observed_linear = cls(
             float_linear.in_features,
