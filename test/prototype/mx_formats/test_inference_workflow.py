@@ -17,6 +17,7 @@ from torchao.prototype.mx_formats.inference_workflow import (
     NVFP4DynamicActivationNVFP4WeightConfig,
     NVFP4WeightOnlyConfig,
 )
+from torchao.prototype.mx_formats.nvfp4_tensor import NVFP4QuantizeKernelChoice
 from torchao.quantization import quantize_
 from torchao.quantization.quantize_.common import KernelPreference
 from torchao.quantization.utils import compute_error
@@ -141,8 +142,8 @@ def test_inference_workflow_mx(
 @pytest.mark.parametrize("quant_type", ["dynamic", "weight_only"])
 @pytest.mark.parametrize("inpt_dtype", [torch.bfloat16, torch.float32])
 @pytest.mark.parametrize(
-    "quantize_kernel_preference",
-    [KernelPreference.AUTO, KernelPreference.TRITON, KernelPreference.TORCH],
+    "nvfp4_quantize_kernel_choice",
+    [NVFP4QuantizeKernelChoice.TORCH, NVFP4QuantizeKernelChoice.TRITON],
 )
 @pytest.mark.parametrize("use_dynamic_per_tensor_scale", [True, False])
 @pytest.mark.parametrize(
@@ -167,7 +168,7 @@ def test_inference_workflow_nvfp4(
     compile: bool,
     quant_type: str,
     inpt_dtype: torch.dtype,
-    quantize_kernel_preference: KernelPreference,
+    nvfp4_quantize_kernel_choice: NVFP4QuantizeKernelChoice,
     use_dynamic_per_tensor_scale: bool,
     shapes: tuple,
     use_inference_mode: bool,
@@ -184,20 +185,20 @@ def test_inference_workflow_nvfp4(
         pytest.skip("TODO: weight_only quant currently errors w/ compile")
     if (
         quant_type == "weight_only"
-        and quantize_kernel_preference == KernelPreference.TRITON
+        and nvfp4_quantize_kernel_choice == NVFP4QuantizeKernelChoice.TRITON
     ):
         pytest.skip("unsupported configuration")
 
     if use_inference_mode and (
         shapes != (128, 64, 256)
         or inpt_dtype != torch.bfloat16
-        or quantize_kernel_preference == KernelPreference.TRITON
+        or nvfp4_quantize_kernel_choice == NVFP4QuantizeKernelChoice.TRITON
     ):
         pytest.skip("skipping unnecessary tests for inference mode")
     if x_rank == 3 and (
         shapes != (128, 64, 256)
         or inpt_dtype != torch.bfloat16
-        or quantize_kernel_preference == KernelPreference.TRITON
+        or nvfp4_quantize_kernel_choice == NVFP4QuantizeKernelChoice.TRITON
     ):
         pytest.skip("skipping unnecessary tests for x_rank 3")
 
@@ -208,7 +209,7 @@ def test_inference_workflow_nvfp4(
 
     if quant_type == "dynamic":
         config = NVFP4DynamicActivationNVFP4WeightConfig(
-            quantize_kernel_preference=quantize_kernel_preference,
+            nvfp4_quantize_kernel_choice=nvfp4_quantize_kernel_choice,
             use_dynamic_per_tensor_scale=use_dynamic_per_tensor_scale,
         )
     else:
@@ -227,7 +228,7 @@ def test_inference_workflow_nvfp4(
     y_ref = m(x)
 
     if (
-        quantize_kernel_preference == KernelPreference.TRITON
+        nvfp4_quantize_kernel_choice == NVFP4QuantizeKernelChoice.TRITON
         and quant_type == "dynamic"
     ):
         with cuda_kernel_profiler("quantize_nvfp4_triton_kernel") as result:
@@ -404,7 +405,7 @@ def test_nvfp4_static_vs_dynamic_quantization():
     quantize_(
         m_dynamic,
         NVFP4DynamicActivationNVFP4WeightConfig(
-            quantize_kernel_preference=KernelPreference.AUTO,
+            nvfp4_quantize_kernel_choice=NVFP4QuantizeKernelChoice.TORCH,
             use_dynamic_per_tensor_scale=True,
         ),
     )
@@ -417,7 +418,7 @@ def test_nvfp4_static_vs_dynamic_quantization():
         m_static,
         NVFP4DynamicActivationNVFP4WeightConfig(
             step="prepare",
-            quantize_kernel_preference=KernelPreference.AUTO,
+            nvfp4_quantize_kernel_choice=NVFP4QuantizeKernelChoice.TORCH,
         ),
     )
     # Calibrate with the same input used for testing
@@ -427,7 +428,7 @@ def test_nvfp4_static_vs_dynamic_quantization():
         m_static,
         NVFP4DynamicActivationNVFP4WeightConfig(
             step="convert",
-            quantize_kernel_preference=KernelPreference.AUTO,
+            nvfp4_quantize_kernel_choice=NVFP4QuantizeKernelChoice.TORCH,
         ),
     )
 

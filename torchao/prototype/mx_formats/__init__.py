@@ -10,6 +10,7 @@ from torchao.prototype.mx_formats.inference_workflow import (
     NVFP4ObservedLinear,
     NVFP4WeightOnlyConfig,
 )
+from torchao.prototype.mx_formats.nvfp4_tensor import NVFP4QuantizeKernelChoice
 
 # import mx_linear here to register the quantize_ transform logic
 # ruff: noqa: I001
@@ -21,5 +22,6 @@ __all__ = [
     "MXDynamicActivationMXWeightConfig",
     "NVFP4DynamicActivationNVFP4WeightConfig",
     "NVFP4ObservedLinear",
+    "NVFP4QuantizeKernelChoice",
     "NVFP4WeightOnlyConfig",
 ]
