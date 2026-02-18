@@ -877,7 +877,7 @@ def _float8_dynamic_activation_int4_weight_transform(
     )
     weight = module.weight
     group_size = 128
-    block_size = tuple([1 for _ in range(weight.ndim - 1)] + [group_size])
+    block_size = list([1 for _ in range(weight.ndim - 1)] + [group_size])
 
     if int4_packing_format == "preshuffled":
         new_weight = Int4PreshuffledTensor.from_hp(
