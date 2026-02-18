@@ -10,12 +10,12 @@ from typing import Optional
 import torch
 
 from torchao.prototype.mx_formats.nvfp4_tensor import (
+    NVFP4QuantizeKernelChoice,
     NVFP4Tensor,
     _addmm_nvfp4_dispatch,
     per_tensor_amax_to_scale,
 )
 from torchao.quantization.qat import FakeQuantizeConfigBase
-from torchao.quantization.quantize_.common.kernel_preference import KernelPreference
 
 
 @dataclass
@@ -30,12 +30,14 @@ class NVFP4FakeQuantizeConfig(FakeQuantizeConfigBase):
         use_per_tensor_scale (bool): Whether to use two-level per-tensor fp32 scaling
             after the initial fp8 (e4m3) block-wise scaling (default True)
         use_swizzled_scales (bool): Whether scales are stored in swizzled (blocked) format
-        quantize_kernel_preference (KernelPreference): Kernel preference for quantization
+        nvfp4_quantize_kernel_choice (NVFP4QuantizeKernelChoice): Kernel preference for quantization
     """
 
     use_per_tensor_scale: bool = True
     use_swizzled_scales: bool = False
-    quantize_kernel_preference: KernelPreference = KernelPreference.AUTO
+    nvfp4_quantize_kernel_choice: NVFP4QuantizeKernelChoice = (
+        NVFP4QuantizeKernelChoice.TORCH
+    )
 
 
 # TODO: support emulation on non-Blackwell GPUs
@@ -65,7 +67,7 @@ class _NVFP4QuantizedForwardFakeQuantizedBackward(torch.autograd.Function):
             _input,
             per_tensor_scale=per_tensor_scale,
             is_swizzled_scales=activation_config.use_swizzled_scales,
-            quantize_kernel_preference=activation_config.quantize_kernel_preference,
+            nvfp4_quantize_kernel_choice=activation_config.nvfp4_quantize_kernel_choice,
         )
 
         # quantize weights
@@ -78,12 +80,12 @@ class _NVFP4QuantizedForwardFakeQuantizedBackward(torch.autograd.Function):
             weight,
             per_tensor_scale=per_tensor_scale,
             is_swizzled_scales=weight_config.use_swizzled_scales,
-            quantize_kernel_preference=KernelPreference.TORCH,
+            nvfp4_quantize_kernel_choice=NVFP4QuantizeKernelChoice.TORCH,
         )
 
         # Follow `NVFP4DynamicActivationNVFP4WeightConfig`, always use traditional construction
-        # for weights and set `quantize_kernel_preference` afterwards
-        weight.quantize_kernel_preference = weight_config.quantize_kernel_preference
+        # for weights and set `nvfp4_quantize_kernel_choice` afterwards
+        weight.nvfp4_quantize_kernel_choice = weight_config.nvfp4_quantize_kernel_choice
 
         ctx.save_for_backward(_input, weight)
 
