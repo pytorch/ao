@@ -1272,8 +1272,12 @@ def _is_mslk_available():
 
 def _is_flashinfer_available():
     return (
+        # flashinfer-python
         importlib.util.find_spec("flashinfer") is not None
+        # apache-tvm-ffi
         and importlib.util.find_spec("tvm_ffi") is not None
+        # nvidia-ml-py
+        and importlib.util.find_spec("pynvml") is not None
     ) or is_fbcode()
 
 
