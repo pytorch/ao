@@ -155,7 +155,7 @@ class NVFP4Tensor(TorchAOBaseTensor):
             kernel_choice = "triton"
         elif quantize_kernel_preference == KernelPreference.FLASHINFER:
             assert _is_flashinfer_available(), (
-                "flashinfer is not installed, please install flashinfer to use FLASHINFER kernel preference"
+                "flashinfer is not available, please install flashinfer-python and apache-tvm-ffi to use FLASHINFER kernel preference"
             )
             kernel_choice = "flashinfer"
         elif quantize_kernel_preference in [
