@@ -177,6 +177,8 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
             traced_outputs = traced_model(*example_inputs)
             prepared_model = prepare_pt2e(traced_model, XNNPACKQuantizer())
             prepared_outputs = prepared_model(*example_inputs)
+            # Expect all nodes to have their meta populated.
+            self.assertTrue(all(n.meta for n in prepared_model.graph.nodes))
             torch.testing.assert_close(ref_outputs, traced_outputs)
             torch.testing.assert_close(traced_outputs, prepared_outputs)
 
