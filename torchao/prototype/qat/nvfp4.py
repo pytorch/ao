@@ -30,7 +30,7 @@ class NVFP4FakeQuantizeConfig(FakeQuantizeConfigBase):
         use_per_tensor_scale (bool): Whether to use two-level per-tensor fp32 scaling
             after the initial fp8 (e4m3) block-wise scaling (default True)
         use_swizzled_scales (bool): Whether scales are stored in swizzled (blocked) format
-        nvfp4_quantize_kernel_choice (NVFP4QuantizeKernelChoice): Kernel preference for quantization
+        nvfp4_quantize_kernel_choice (NVFP4QuantizeKernelChoice): Kernel choice for quantize kernel
     """
 
     use_per_tensor_scale: bool = True
