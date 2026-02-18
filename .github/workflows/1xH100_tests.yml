@@ -45,7 +45,7 @@ jobs:
         python -m pip install --upgrade pip
         pip install uv
         pip install ${{ matrix.torch-spec }}
-        pip install flashinfer-python
+        pip install -U --pre flashinfer-python --index-url https://flashinfer.ai/whl/nightly/ --no-deps
         uv pip install -r dev-requirements.txt
         pip install . --no-build-isolation -vv
         pytest test/integration --verbose -s
