@@ -153,8 +153,6 @@ def get_available_devices(include_cpu=True):
         devices.append("mps")
     return devices
 
-def get_gpu_devices():
-    return get_available_devices(include_cpu=False)
 
 def get_current_accelerator_device():
     assert torch.accelerator.is_available()
