@@ -1271,7 +1271,10 @@ def _is_mslk_available():
 
 
 def _is_flashinfer_available():
-    return importlib.util.find_spec("flashinfer") is not None or is_fbcode()
+    return (
+        importlib.util.find_spec("flashinfer") is not None
+        and importlib.util.find_spec("tvm_ffi") is not None
+    ) or is_fbcode()
 
 
 class DummyModule(torch.nn.Module):
