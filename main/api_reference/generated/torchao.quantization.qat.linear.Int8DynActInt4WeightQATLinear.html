@@ -173,7 +173,7 @@
   fbq('track', 'PageView');
 </script>
 <script>
-  document.documentElement.setAttribute('data-version', 'main (0.17.0+git01b37b2 )');
+  document.documentElement.setAttribute('data-version', 'main (0.17.0+git920c502 )');
 </script>
 <noscript>
   <img height="1" width="1" src="https://www.facebook.com/tr?id=243028289693773&ev=PageView&noscript=1" />
@@ -1485,8 +1485,7 @@ quantized activations with int4 fake quantized grouped per channel weights.</p>
 </dd>
 </dl>
 <p>Note: we hardcode activation scales to use torch.fp32, but allow users to specify the weight scales (defaults to torch.fp32).
-To get an exact numerical match with Int8DynamicActivationInt4WeightConfig, users must use the same dtype for both the weights
-and the scales. Here scales_precision refers specifically to the weight scales only, not the activation scales.</p>
+Here scales_precision refers specifically to the weight scales only, not the activation scales.</p>
 </dd></dl>
 
 </section>
@@ -1834,7 +1833,7 @@ and the scales. Here scales_precision refers specifically to the weight scales o
        "headline": "Int8DynActInt4WeightQATLinear",
        "description": "PyTorch Documentation. Explore PyTorch, an open-source machine learning library that accelerates the path from research prototyping to production deployment.",
        "url": "/api_reference/generated/torchao.quantization.qat.linear.Int8DynActInt4WeightQATLinear.html",
-       "articleBody": "Int8DynActInt4WeightQATLinear# class torchao.quantization.qat.linear.Int8DynActInt4WeightQATLinear(in_features: int, out_features: int, bias: bool = False, device: device = None, groupsize: int = 256, precision: dtype = torch.float32, scales_precision: dtype = torch.float32)[source][source]# This module implements a linear layer with int8 dynamic per token fake quantized activations with int4 fake quantized grouped per channel weights. Parameters: groupsize \u2013 the number of elements in each quantized group for weights precision \u2013 precision of weights scales_precision \u2013 precision of per group scales and zero points Note: we hardcode activation scales to use torch.fp32, but allow users to specify the weight scales (defaults to torch.fp32). To get an exact numerical match with Int8DynamicActivationInt4WeightConfig, users must use the same dtype for both the weights and the scales. Here scales_precision refers specifically to the weight scales only, not the activation scales.",
+       "articleBody": "Int8DynActInt4WeightQATLinear# class torchao.quantization.qat.linear.Int8DynActInt4WeightQATLinear(in_features: int, out_features: int, bias: bool = False, device: device = None, groupsize: int = 256, precision: dtype = torch.float32, scales_precision: dtype = torch.float32)[source][source]# This module implements a linear layer with int8 dynamic per token fake quantized activations with int4 fake quantized grouped per channel weights. Parameters: groupsize \u2013 the number of elements in each quantized group for weights precision \u2013 precision of weights scales_precision \u2013 precision of per group scales and zero points Note: we hardcode activation scales to use torch.fp32, but allow users to specify the weight scales (defaults to torch.fp32). Here scales_precision refers specifically to the weight scales only, not the activation scales.",
        "author": {
          "@type": "Organization",
          "name": "PyTorch Contributors",
