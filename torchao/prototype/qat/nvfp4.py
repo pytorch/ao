@@ -13,6 +13,7 @@ from torchao.prototype.mx_formats.nvfp4_tensor import (
     NVFP4QuantizeKernelChoice,
     NVFP4Tensor,
     _addmm_nvfp4_dispatch,
+    _handle_use_triton_kernel,
     per_tensor_amax_to_scale,
 )
 from torchao.quantization.qat import FakeQuantizeConfigBase
@@ -38,6 +39,13 @@ class NVFP4FakeQuantizeConfig(FakeQuantizeConfigBase):
     nvfp4_quantize_kernel_choice: NVFP4QuantizeKernelChoice = (
         NVFP4QuantizeKernelChoice.TORCH
     )
+    use_triton_kernel: Optional[bool] = None
+
+    def __post_init__(self):
+        self.nvfp4_quantize_kernel_choice = _handle_use_triton_kernel(
+            self.use_triton_kernel, self.nvfp4_quantize_kernel_choice
+        )
+        self.use_triton_kernel = None
 
 
 # TODO: support emulation on non-Blackwell GPUs
