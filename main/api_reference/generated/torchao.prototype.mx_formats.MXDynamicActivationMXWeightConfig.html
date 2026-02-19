@@ -173,7 +173,7 @@
   fbq('track', 'PageView');
 </script>
 <script>
-  document.documentElement.setAttribute('data-version', 'main (0.17.0+git74c6d3d )');
+  document.documentElement.setAttribute('data-version', 'main (0.17.0+gitf8bbce5 )');
 </script>
 <noscript>
   <img height="1" width="1" src="https://www.facebook.com/tr?id=243028289693773&ev=PageView&noscript=1" />
@@ -1478,6 +1478,46 @@ document.write(`
 <p>Requirements:
 - NVIDIA SM100+ hardware (Blackwell or newer) is required for execution
 - PyTorch 2.5+ for proper serialization support</p>
+<p>Example (mxfp8):</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.prototype.mx_formats.inference_workflow</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">MXDynamicActivationMXWeightConfig</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization</span><span class="w"> </span><span class="kn">import</span> <span class="n">quantize_</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.quantize_.common</span><span class="w"> </span><span class="kn">import</span> <span class="n">KernelPreference</span>
+
+<span class="n">model</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">32</span><span class="p">,</span> <span class="mi">128</span><span class="p">,</span> <span class="n">bias</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="s2">&quot;cuda&quot;</span><span class="p">)</span>
+<span class="n">config</span> <span class="o">=</span> <span class="n">MXDynamicActivationMXWeightConfig</span><span class="p">(</span>
+    <span class="n">activation_dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float8_e4m3fn</span><span class="p">,</span>
+    <span class="n">weight_dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float8_e4m3fn</span><span class="p">,</span>
+    <span class="n">kernel_preference</span><span class="o">=</span><span class="n">KernelPreference</span><span class="o">.</span><span class="n">AUTO</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">quantize_</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">config</span><span class="o">=</span><span class="n">config</span><span class="p">)</span>
+<span class="n">model</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">fullgraph</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Example (mxfp4):</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.prototype.mx_formats.inference_workflow</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">MXDynamicActivationMXWeightConfig</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization</span><span class="w"> </span><span class="kn">import</span> <span class="n">quantize_</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.quantize_.common</span><span class="w"> </span><span class="kn">import</span> <span class="n">KernelPreference</span>
+
+<span class="n">model</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">32</span><span class="p">,</span> <span class="mi">128</span><span class="p">,</span> <span class="n">bias</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="s2">&quot;cuda&quot;</span><span class="p">)</span>
+<span class="n">config</span> <span class="o">=</span> <span class="n">MXDynamicActivationMXWeightConfig</span><span class="p">(</span>
+    <span class="n">activation_dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float4_e2m1fn_x2</span><span class="p">,</span>
+    <span class="n">weight_dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float4_e2m1fn_x2</span><span class="p">,</span>
+    <span class="n">kernel_preference</span><span class="o">=</span><span class="n">KernelPreference</span><span class="o">.</span><span class="n">AUTO</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">quantize_</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">config</span><span class="o">=</span><span class="n">config</span><span class="p">)</span>
+<span class="n">model</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">fullgraph</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+</pre></div>
+</div>
 </dd></dl>
 
 </section>
@@ -1825,7 +1865,7 @@ document.write(`
        "headline": "MXDynamicActivationMXWeightConfig",
        "description": "PyTorch Documentation. Explore PyTorch, an open-source machine learning library that accelerates the path from research prototyping to production deployment.",
        "url": "/api_reference/generated/torchao.prototype.mx_formats.MXDynamicActivationMXWeightConfig.html",
-       "articleBody": "MXDynamicActivationMXWeightConfig# class torchao.prototype.mx_formats.MXDynamicActivationMXWeightConfig(block_size: int = 32, activation_dtype: dtype = torch.float8_e4m3fn, weight_dtype: dtype = torch.float8_e4m3fn, kernel_preference: KernelPreference = KernelPreference.AUTO, scaling_mode: ScaleCalculationMode = ScaleCalculationMode.RCEIL)[source][source]# MX Format Inference Quantization This module provides support for running inference with float8 quantization using MX formats. Requirements: - NVIDIA SM100+ hardware (Blackwell or newer) is required for execution - PyTorch 2.5+ for proper serialization support",
+       "articleBody": "MXDynamicActivationMXWeightConfig# class torchao.prototype.mx_formats.MXDynamicActivationMXWeightConfig(block_size: int = 32, activation_dtype: dtype = torch.float8_e4m3fn, weight_dtype: dtype = torch.float8_e4m3fn, kernel_preference: KernelPreference = KernelPreference.AUTO, scaling_mode: ScaleCalculationMode = ScaleCalculationMode.RCEIL)[source][source]# MX Format Inference Quantization This module provides support for running inference with float8 quantization using MX formats. Requirements: - NVIDIA SM100+ hardware (Blackwell or newer) is required for execution - PyTorch 2.5+ for proper serialization support Example (mxfp8): import torch import torch.nn as nn from torchao.prototype.mx_formats.inference_workflow import ( MXDynamicActivationMXWeightConfig, ) from torchao.quantization import quantize_ from torchao.quantization.quantize_.common import KernelPreference model = nn.Linear(32, 128, bias=False, dtype=torch.bfloat16, device=\"cuda\") config = MXDynamicActivationMXWeightConfig( activation_dtype=torch.float8_e4m3fn, weight_dtype=torch.float8_e4m3fn, kernel_preference=KernelPreference.AUTO, ) quantize_(model, config=config) model = torch.compile(model, fullgraph=True) Example (mxfp4): import torch import torch.nn as nn from torchao.prototype.mx_formats.inference_workflow import ( MXDynamicActivationMXWeightConfig, ) from torchao.quantization import quantize_ from torchao.quantization.quantize_.common import KernelPreference model = nn.Linear(32, 128, bias=False, dtype=torch.bfloat16, device=\"cuda\") config = MXDynamicActivationMXWeightConfig( activation_dtype=torch.float4_e2m1fn_x2, weight_dtype=torch.float4_e2m1fn_x2, kernel_preference=KernelPreference.AUTO, ) quantize_(model, config=config) model = torch.compile(model, fullgraph=True)",
        "author": {
          "@type": "Organization",
          "name": "PyTorch Contributors",
