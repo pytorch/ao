@@ -26,6 +26,7 @@ from torchao.prototype.mx_formats.nvfp4_tensor import (
     NVFP4QuantizeKernelChoice,
     NVFP4Tensor,
     QuantizeTensorToNVFP4Kwargs,
+    _handle_use_triton_kernel,
     per_tensor_amax_to_scale,
 )
 from torchao.quantization.quant_api import _quantization_type
@@ -93,6 +94,16 @@ class MXDynamicActivationMXWeightConfig(AOBaseConfig):
     Requirements:
     - NVIDIA SM100+ hardware (Blackwell or newer) is required for execution
     - PyTorch 2.5+ for proper serialization support
+
+    Example (mxfp8):
+
+    .. literalinclude:: ../../examples/inference/mxfp8_dynamic_activation_mxfp8_weight.py
+       :language: python
+
+    Example (mxfp4):
+
+    .. literalinclude:: ../../examples/inference/mxfp4_dynamic_activation_mxfp4_weight.py
+       :language: python
     """
 
     block_size: int = 32
@@ -195,6 +206,11 @@ class NVFP4DynamicActivationNVFP4WeightConfig(AOBaseConfig):
 
     Note: Triton kernel only works with DYNAMIC mode and has constraints that input dimensions
     must satisfy M % 128 == 0 and K % 64 == 0. Will automatically fallback when constraints aren't met.
+
+    Example:
+
+    .. literalinclude:: ../../examples/inference/nvfp4_dynamic_activation_nvfp4_weight.py
+       :language: python
     """
 
     nvfp4_quantize_kernel_choice: NVFP4QuantizeKernelChoice = (
@@ -202,8 +218,14 @@ class NVFP4DynamicActivationNVFP4WeightConfig(AOBaseConfig):
     )
     use_dynamic_per_tensor_scale: bool = True
     step: Optional["QuantizationStep"] = None
+    use_triton_kernel: Optional[bool] = None
 
     def __post_init__(self):
+        self.nvfp4_quantize_kernel_choice = _handle_use_triton_kernel(
+            self.use_triton_kernel, self.nvfp4_quantize_kernel_choice
+        )
+        self.use_triton_kernel = None
+
         if isinstance(self.step, str):
             self.step = QuantizationStep(self.step)
         # Validate PyTorch version
@@ -328,6 +350,18 @@ def _nvfp4_inference_linear_transform(
 
 @dataclass
 class NVFP4WeightOnlyConfig(AOBaseConfig):
+    """
+    NVIDIA FP4 (NVFP4) Weight-Only Quantization Configuration
+
+    This configuration applies NVFP4 quantization to weights only, keeping activations
+    in their original precision.
+
+    Example:
+
+    .. literalinclude:: ../../examples/inference/nvfp4_weight_only.py
+       :language: python
+    """
+
     use_dynamic_per_tensor_scale: bool = True
 
     def __post_init__(self):

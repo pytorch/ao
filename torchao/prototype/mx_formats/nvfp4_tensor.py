@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import math
+import warnings
 from dataclasses import dataclass
 from enum import Enum
 from typing import Optional
@@ -41,10 +42,12 @@ aten = torch.ops.aten
 
 
 class NVFP4QuantizeKernelChoice(str, Enum):
-    """Enum for specifying the kernel used for NVFP4 quantization."""
+    """Enum for specifying the kernel used for quantizing a high precision
+    tensor (float32/bfloat16/float16) to nvfp4 tensor with blockwise quantization
+    """
 
     TORCH = "torch"
-    """Use torch native quantization kernel"""
+    """Use torch native quantization kernel implemented with torch ops"""
 
     TRITON = "triton"
     """Use triton quantization kernel"""
@@ -56,6 +59,33 @@ class NVFP4QuantizeKernelChoice(str, Enum):
 torch.serialization.add_safe_globals([NVFP4QuantizeKernelChoice])
 
 
+def _handle_use_triton_kernel(
+    use_triton_kernel: Optional[bool],
+    nvfp4_quantize_kernel_choice: NVFP4QuantizeKernelChoice,
+) -> NVFP4QuantizeKernelChoice:
+    """Handle deprecated use_triton_kernel parameter.
+
+    If use_triton_kernel is not None, it takes precedence over
+    nvfp4_quantize_kernel_choice and a deprecation warning is issued.
+    """
+    if use_triton_kernel is not None:
+        warnings.warn(
+            "`use_triton_kernel` is deprecated and will be removed after 0.17. "
+            "Please use `nvfp4_quantize_kernel_choice` instead. "
+            "`use_triton_kernel=True` is equivalent to "
+            "`nvfp4_quantize_kernel_choice=NVFP4QuantizeKernelChoice.TRITON`, "
+            "`use_triton_kernel=False` is equivalent to "
+            "`nvfp4_quantize_kernel_choice=NVFP4QuantizeKernelChoice.TORCH`.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        if use_triton_kernel:
+            return NVFP4QuantizeKernelChoice.TRITON
+        else:
+            return NVFP4QuantizeKernelChoice.TORCH
+    return nvfp4_quantize_kernel_choice
+
+
 @dataclass
 class QuantizeTensorToNVFP4Kwargs(QuantizeTensorKwargs):
     block_size: int = 16
@@ -64,6 +94,13 @@ class QuantizeTensorToNVFP4Kwargs(QuantizeTensorKwargs):
         NVFP4QuantizeKernelChoice.TORCH
     )
     use_dynamic_per_tensor_scale: bool = False
+    use_triton_kernel: Optional[bool] = None
+
+    def __post_init__(self):
+        self.nvfp4_quantize_kernel_choice = _handle_use_triton_kernel(
+            self.use_triton_kernel, self.nvfp4_quantize_kernel_choice
+        )
+        self.use_triton_kernel = None
 
 
 class NVFP4Tensor(TorchAOBaseTensor):
@@ -149,6 +186,7 @@ class NVFP4Tensor(TorchAOBaseTensor):
         is_swizzled_scales: bool = False,
         nvfp4_quantize_kernel_choice: NVFP4QuantizeKernelChoice = NVFP4QuantizeKernelChoice.TORCH,
         act_quant_kwargs: Optional[QuantizeTensorToNVFP4Kwargs] = None,
+        use_triton_kernel: Optional[bool] = None,
     ):
         """Convert high precision tensor to NVFP4 format.
 
@@ -169,30 +207,23 @@ class NVFP4Tensor(TorchAOBaseTensor):
         assert len(data_hp.shape) in (2, 3), "unsupported"
         leading_dims, M, K = data_hp.shape[:-2], data_hp.shape[-2], data_hp.shape[-1]
 
-        if nvfp4_quantize_kernel_choice == NVFP4QuantizeKernelChoice.TRITON:
-            kernel_choice = "triton"
-        elif nvfp4_quantize_kernel_choice == NVFP4QuantizeKernelChoice.FLASHINFER:
-            assert _is_flashinfer_available(), (
-                "flashinfer is not available, please install flashinfer-python, apache-tvm-ffi, and nvidia-ml-py to use FLASHINFER kernel choice"
-            )
-            kernel_choice = "flashinfer"
-        elif nvfp4_quantize_kernel_choice == NVFP4QuantizeKernelChoice.TORCH:
-            kernel_choice = "torch"
-        else:
-            raise ValueError(
-                f"Unsupported nvfp4_quantize_kernel_choice: {nvfp4_quantize_kernel_choice}"
-            )
+        nvfp4_quantize_kernel_choice = _handle_use_triton_kernel(
+            use_triton_kernel, nvfp4_quantize_kernel_choice
+        )
 
-        if kernel_choice == "triton":
+        if nvfp4_quantize_kernel_choice == NVFP4QuantizeKernelChoice.TRITON:
             assert is_swizzled_scales, "Triton kernel only supports swizzled scales"
             assert K % 16 == 0, (
                 f"Triton kernel requires K (dim -1) to be divisible by 16, got {K}"
             )
             blockwise_scales, data_lp = triton_quantize_nvfp4(data_hp, per_tensor_scale)
-        elif kernel_choice == "flashinfer":
+        elif nvfp4_quantize_kernel_choice == NVFP4QuantizeKernelChoice.FLASHINFER:
             from flashinfer import SfLayout
             from flashinfer import nvfp4_quantize as flashinfer_nvfp4_quantize
 
+            assert _is_flashinfer_available(), (
+                "flashinfer is not available, please install flashinfer-python, apache-tvm-ffi, and nvidia-ml-py to use FLASHINFER kernel choice"
+            )
             assert per_tensor_scale is not None, (
                 "flashinfer nvfp4_quantize requires per_tensor_scale"
             )
@@ -208,7 +239,7 @@ class NVFP4Tensor(TorchAOBaseTensor):
                 sfLayout=SfLayout.layout_128x4,
                 do_shuffle=False,
             )
-        elif kernel_choice == "torch":
+        elif nvfp4_quantize_kernel_choice == NVFP4QuantizeKernelChoice.TORCH:
             blockwise_scales, data_lp = nvfp4_quantize(
                 data_hp, block_size, per_tensor_scale
             )
@@ -217,6 +248,10 @@ class NVFP4Tensor(TorchAOBaseTensor):
                 blockwise_scales = to_blocked(
                     blockwise_scales.view(scale_shape)
                 ).flatten()
+        else:
+            raise ValueError(
+                f"Unsupported nvfp4_quantize_kernel_choice: {nvfp4_quantize_kernel_choice}"
+            )
 
         if is_swizzled_scales:
             scale_M, scale_K = hp_data_dims_to_swizzled_scale_dims_nvfp4(M, K)
