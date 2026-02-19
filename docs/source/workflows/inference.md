@@ -20,12 +20,16 @@ Below are the stable and near-stable inference workflows in torchao:
 
 | weight dtype | act dtype | summary |
 |--------------|-----------|---------|
-| float8 | float8 | {class}`~torchao.quantization.Float8DynamicActivationFloat8WeightConfig`: Applies float8 dynamic symmetric quantization to both activations and weights. Requires CUDA ≥8.9, AMD MI300+, or Intel XPU. Supports `PerTensor` and `PerRow` granularity. |
+| float8 | float8 | {class}`~torchao.quantization.Float8DynamicActivationFloat8WeightConfig`: Applies float8 dynamic symmetric quantization to both activations and weights. Requires CUDA ≥8.9, AMD MI350+, or Intel XPU. Supports `PerTensor` and `PerRow` granularity. |
 | float8 | bf16 | {class}`~torchao.quantization.Float8WeightOnlyConfig`: Applies float8 weight-only symmetric per-channel quantization. Matmul computed in original precision. |
 | int8 | int8 | {class}`~torchao.quantization.Int8DynamicActivationInt8WeightConfig`: Applies int8 dynamic symmetric per-token activation and int8 per-channel weight quantization. |
 | int8 | bf16 | {class}`~torchao.quantization.Int8WeightOnlyConfig`: Applies int8 weight-only symmetric per-channel quantization. |
+| mxfp8 | mxfp8 | {class}`~torchao.prototype.mx_formats.MXDynamicActivationMXWeightConfig`(prototype): Applies mxfp8 or mxfp4 dynamic quantization to activations and weights. Requires NVIDIA SM100+ (Blackwell) or AMD MI350+. |
 | int4 | bf16 | {class}`~torchao.quantization.Int4WeightOnlyConfig`: Applies int4 weight-only groupwise quantization. Supports group sizes 256, 128, 64, 32. |
 | int4 | float8 | {class}`~torchao.quantization.Float8DynamicActivationInt4WeightConfig`: Applies float8 dynamic per-row activation and int4 per-group weight quantization. Group size 128 only. |
+| nvfp4 | bf16 | {class}`~torchao.prototype.mx_formats.NVFP4WeightOnlyConfig`(prototype): Applies NVFP4 weight-only quantization. |
+| nvfp4 | nvfp4 | {class}`~torchao.prototype.mx_formats.NVFP4DynamicActivationNVFP4WeightConfig`(prototype): Applies NVFP4 dynamic quantization to activations and weights with double quantization (per-tensor + per-block scales). Requires NVIDIA SM100+ (Blackwell). |
+| mxfp4 | mxfp4 | {class}`~torchao.prototype.mx_formats.MXDynamicActivationMXWeightConfig`(prototype): Applies mxfp8 or mxfp4 dynamic quantization to activations and weights. Requires NVIDIA SM100+ (Blackwell) or AMD MI350+. |
 | intx | bf16 | {class}`~torchao.quantization.IntxWeightOnlyConfig`: Applies intx (1-8 bit) weight-only quantization. Supports groupwise and per-channel. Works with Linear and Conv2D. |
 | intx | int8 | {class}`~torchao.quantization.Int8DynamicActivationIntxWeightConfig`: Applies int8 dynamic per-token activation and intx (1-8 bit) weight quantization. CPU optimized. |
 
