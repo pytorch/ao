@@ -38,6 +38,21 @@ class MXFP8Dim1CastKernelChoice(Enum):
     TORCH = "torch"
 
 
+class QuantizeToNVFP4KernelChoice(str, Enum):
+    """Enum for specifying the kernel used for quantizing a high precision
+    tensor (float32/bfloat16/float16) to nvfp4 tensor with blockwise quantization
+    """
+
+    TORCH = "torch"
+    """Use torch native quantization kernel implemented with torch ops"""
+
+    TRITON = "triton"
+    """Use triton quantization kernel"""
+
+
+torch.serialization.add_safe_globals([QuantizeToNVFP4KernelChoice])
+
+
 # Pre-made recipes for common configurations
 class MXLinearRecipeName(Enum):
     MXFP8_EMULATED = "mxfp8_emulated"

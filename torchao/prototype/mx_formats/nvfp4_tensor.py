@@ -7,12 +7,12 @@
 import math
 import warnings
 from dataclasses import dataclass
-from enum import Enum
 from typing import Optional
 
 import torch
 from torch.utils._python_dispatch import return_and_correct_aliasing
 
+from torchao.prototype.mx_formats.config import QuantizeToNVFP4KernelChoice
 from torchao.prototype.mx_formats.constants import F4_E2M1_MAX, F8E4M3_MAX
 from torchao.prototype.mx_formats.kernels import (
     f4_unpacked_to_f32,
@@ -41,64 +41,46 @@ E4M3_EPS = torch.finfo(torch.float8_e4m3fn).tiny
 aten = torch.ops.aten
 
 
-class NVFP4QuantizeKernelChoice(str, Enum):
-    """Enum for specifying the kernel used for quantizing a high precision
-    tensor (float32/bfloat16/float16) to nvfp4 tensor with blockwise quantization
-    """
-
-    TORCH = "torch"
-    """Use torch native quantization kernel implemented with torch ops"""
-
-    TRITON = "triton"
-    """Use triton quantization kernel"""
-
-    FLASHINFER = "flashinfer"
-    """Use flashinfer quantization kernel, requires flashinfer-python, apache-tvm-ffi, and nvidia-ml-py"""
-
-
-torch.serialization.add_safe_globals([NVFP4QuantizeKernelChoice])
-
-
 def _handle_use_triton_kernel(
     use_triton_kernel: Optional[bool],
-    nvfp4_quantize_kernel_choice: NVFP4QuantizeKernelChoice,
-) -> NVFP4QuantizeKernelChoice:
+    quantize_to_nvfp4_kernel_choice: QuantizeToNVFP4KernelChoice,
+) -> QuantizeToNVFP4KernelChoice:
     """Handle deprecated use_triton_kernel parameter.
 
     If use_triton_kernel is not None, it takes precedence over
-    nvfp4_quantize_kernel_choice and a deprecation warning is issued.
+    quantize_to_nvfp4_kernel_choice and a deprecation warning is issued.
     """
     if use_triton_kernel is not None:
         warnings.warn(
             "`use_triton_kernel` is deprecated and will be removed after 0.17. "
-            "Please use `nvfp4_quantize_kernel_choice` instead. "
+            "Please use `quantize_to_nvfp4_kernel_choice` instead. "
             "`use_triton_kernel=True` is equivalent to "
-            "`nvfp4_quantize_kernel_choice=NVFP4QuantizeKernelChoice.TRITON`, "
+            "`quantize_to_nvfp4_kernel_choice=QuantizeToNVFP4KernelChoice.TRITON`, "
             "`use_triton_kernel=False` is equivalent to "
-            "`nvfp4_quantize_kernel_choice=NVFP4QuantizeKernelChoice.TORCH`.",
+            "`quantize_to_nvfp4_kernel_choice=QuantizeToNVFP4KernelChoice.TORCH`.",
             DeprecationWarning,
             stacklevel=2,
         )
         if use_triton_kernel:
-            return NVFP4QuantizeKernelChoice.TRITON
+            return QuantizeToNVFP4KernelChoice.TRITON
         else:
-            return NVFP4QuantizeKernelChoice.TORCH
-    return nvfp4_quantize_kernel_choice
+            return QuantizeToNVFP4KernelChoice.TORCH
+    return quantize_to_nvfp4_kernel_choice
 
 
 @dataclass
 class QuantizeTensorToNVFP4Kwargs(QuantizeTensorKwargs):
     block_size: int = 16
     is_swizzled_scales: bool = False
-    nvfp4_quantize_kernel_choice: NVFP4QuantizeKernelChoice = (
-        NVFP4QuantizeKernelChoice.TORCH
+    quantize_to_nvfp4_kernel_choice: QuantizeToNVFP4KernelChoice = (
+        QuantizeToNVFP4KernelChoice.TORCH
     )
     use_dynamic_per_tensor_scale: bool = False
     use_triton_kernel: Optional[bool] = None
 
     def __post_init__(self):
-        self.nvfp4_quantize_kernel_choice = _handle_use_triton_kernel(
-            self.use_triton_kernel, self.nvfp4_quantize_kernel_choice
+        self.quantize_to_nvfp4_kernel_choice = _handle_use_triton_kernel(
+            self.use_triton_kernel, self.quantize_to_nvfp4_kernel_choice
         )
         self.use_triton_kernel = None
 
@@ -117,7 +99,7 @@ class NVFP4Tensor(TorchAOBaseTensor):
         block_size (int): Block size for quantization (fixed at 16)
         orig_dtype (torch.dtype): Original tensor dtype before quantization
         is_swizzled_scales (bool): Whether scales are stored in swizzled (blocked) format
-        nvfp4_quantize_kernel_choice (NVFP4QuantizeKernelChoice): Kernel choice for quantization
+        quantize_to_nvfp4_kernel_choice (QuantizeToNVFP4KernelChoice): Kernel choice for quantization
     """
 
     tensor_data_names = ["qdata", "scale"]
@@ -128,7 +110,7 @@ class NVFP4Tensor(TorchAOBaseTensor):
     optional_tensor_data_names = ["per_tensor_scale", "act_per_tensor_scale"]
     optional_tensor_attribute_names = [
         "is_swizzled_scales",
-        "nvfp4_quantize_kernel_choice",
+        "quantize_to_nvfp4_kernel_choice",
         "act_quant_kwargs",
     ]
 
@@ -141,7 +123,7 @@ class NVFP4Tensor(TorchAOBaseTensor):
         per_tensor_scale=None,
         act_per_tensor_scale=None,
         is_swizzled_scales=False,
-        nvfp4_quantize_kernel_choice=NVFP4QuantizeKernelChoice.TORCH,
+        quantize_to_nvfp4_kernel_choice=QuantizeToNVFP4KernelChoice.TORCH,
         act_quant_kwargs=None,
     ):
         # FP4 tensor size handling two paths, contiguous or not
@@ -167,7 +149,7 @@ class NVFP4Tensor(TorchAOBaseTensor):
         self.per_tensor_scale = per_tensor_scale
         self.act_per_tensor_scale = act_per_tensor_scale
         self.is_swizzled_scales = is_swizzled_scales
-        self.nvfp4_quantize_kernel_choice = nvfp4_quantize_kernel_choice
+        self.quantize_to_nvfp4_kernel_choice = quantize_to_nvfp4_kernel_choice
         self.act_quant_kwargs = act_quant_kwargs
         return self
 
@@ -175,7 +157,7 @@ class NVFP4Tensor(TorchAOBaseTensor):
         return f"NVFP4Tensor: scale: {self.scale}, per_tensor_scale: {self.per_tensor_scale}, d: {self.qdata}, d_hp: {self.dequantize(self.orig_dtype)}"
 
     def _quantization_type(self):
-        return f"{self.is_swizzled_scales=}, {self.nvfp4_quantize_kernel_choice=}, {self.act_quant_kwargs=}"
+        return f"{self.is_swizzled_scales=}, {self.quantize_to_nvfp4_kernel_choice=}, {self.act_quant_kwargs=}"
 
     @staticmethod
     def to_nvfp4(
@@ -184,7 +166,7 @@ class NVFP4Tensor(TorchAOBaseTensor):
         per_tensor_scale: Optional[torch.Tensor] = None,
         act_per_tensor_scale: Optional[torch.Tensor] = None,
         is_swizzled_scales: bool = False,
-        nvfp4_quantize_kernel_choice: NVFP4QuantizeKernelChoice = NVFP4QuantizeKernelChoice.TORCH,
+        quantize_to_nvfp4_kernel_choice: QuantizeToNVFP4KernelChoice = QuantizeToNVFP4KernelChoice.TORCH,
         act_quant_kwargs: Optional[QuantizeTensorToNVFP4Kwargs] = None,
         use_triton_kernel: Optional[bool] = None,
     ):
@@ -198,7 +180,7 @@ class NVFP4Tensor(TorchAOBaseTensor):
             act_per_tensor_scale: Optional pre-computed absolute maximum for calibration for activation
                 If provided, uses per-tensor scaling. If None, uses block-wise scaling only.
             is_swizzled_scales: If True, store scales in swizzled format for faster matrix multiplication
-            nvfp4_quantize_kernel_choice: Kernel choice for quantization
+            quantize_to_nvfp4_kernel_choice: Kernel choice for quantization
             act_quant_kwargs: If specified, config for quantizing the activation
 
         Returns:
@@ -207,17 +189,17 @@ class NVFP4Tensor(TorchAOBaseTensor):
         assert len(data_hp.shape) in (2, 3), "unsupported"
         leading_dims, M, K = data_hp.shape[:-2], data_hp.shape[-2], data_hp.shape[-1]
 
-        nvfp4_quantize_kernel_choice = _handle_use_triton_kernel(
-            use_triton_kernel, nvfp4_quantize_kernel_choice
+        quantize_to_nvfp4_kernel_choice = _handle_use_triton_kernel(
+            use_triton_kernel, quantize_to_nvfp4_kernel_choice
         )
 
-        if nvfp4_quantize_kernel_choice == NVFP4QuantizeKernelChoice.TRITON:
+        if quantize_to_nvfp4_kernel_choice == QuantizeToNVFP4KernelChoice.TRITON:
             assert is_swizzled_scales, "Triton kernel only supports swizzled scales"
             assert K % 16 == 0, (
                 f"Triton kernel requires K (dim -1) to be divisible by 16, got {K}"
             )
             blockwise_scales, data_lp = triton_quantize_nvfp4(data_hp, per_tensor_scale)
-        elif nvfp4_quantize_kernel_choice == NVFP4QuantizeKernelChoice.FLASHINFER:
+        elif quantize_to_nvfp4_kernel_choice == QuantizeToNVFP4KernelChoice.FLASHINFER:
             from flashinfer import SfLayout
             from flashinfer import nvfp4_quantize as flashinfer_nvfp4_quantize
 
@@ -242,7 +224,7 @@ class NVFP4Tensor(TorchAOBaseTensor):
                 sfLayout=SfLayout.layout_128x4,
                 do_shuffle=False,
             )
-        elif nvfp4_quantize_kernel_choice == NVFP4QuantizeKernelChoice.TORCH:
+        elif quantize_to_nvfp4_kernel_choice == QuantizeToNVFP4KernelChoice.TORCH:
             blockwise_scales, data_lp = nvfp4_quantize(
                 data_hp, block_size, per_tensor_scale
             )
@@ -253,7 +235,7 @@ class NVFP4Tensor(TorchAOBaseTensor):
                 ).flatten()
         else:
             raise ValueError(
-                f"Unsupported nvfp4_quantize_kernel_choice: {nvfp4_quantize_kernel_choice}"
+                f"Unsupported quantize_to_nvfp4_kernel_choice: {quantize_to_nvfp4_kernel_choice}"
             )
 
         if is_swizzled_scales:
@@ -272,7 +254,7 @@ class NVFP4Tensor(TorchAOBaseTensor):
             per_tensor_scale,
             act_per_tensor_scale,
             is_swizzled_scales,
-            nvfp4_quantize_kernel_choice,
+            quantize_to_nvfp4_kernel_choice,
             act_quant_kwargs,
         )
 
@@ -405,7 +387,7 @@ def nvfp4_to_copy(func, types, args, kwargs):
             tensor.per_tensor_scale,
             tensor.act_per_tensor_scale,
             tensor.is_swizzled_scales,
-            tensor.nvfp4_quantize_kernel_choice,
+            tensor.quantize_to_nvfp4_kernel_choice,
             tensor.act_quant_kwargs,
         )
         return res
@@ -436,7 +418,7 @@ def nvfp4_slice(func, types, args, kwargs):
         x.per_tensor_scale,
         x.act_per_tensor_scale,
         x.is_swizzled_scales,
-        x.nvfp4_quantize_kernel_choice,
+        x.quantize_to_nvfp4_kernel_choice,
         x.act_quant_kwargs,
     )
 
@@ -455,7 +437,7 @@ def nvfp4_t(func, types, args, kwargs):
         old.per_tensor_scale,
         old.act_per_tensor_scale,
         old.is_swizzled_scales,
-        old.nvfp4_quantize_kernel_choice,
+        old.quantize_to_nvfp4_kernel_choice,
         old.act_quant_kwargs,
     )
     return new
@@ -477,7 +459,7 @@ def nvfp4_transpose(func, types, args, kwargs):
         old.per_tensor_scale,
         old.act_per_tensor_scale,
         old.is_swizzled_scales,
-        old.nvfp4_quantize_kernel_choice,
+        old.quantize_to_nvfp4_kernel_choice,
         old.act_quant_kwargs,
     )
     return new
@@ -497,7 +479,7 @@ def nvfp4_view_op(func, types, args, kwargs):
         args[0].per_tensor_scale,
         args[0].act_per_tensor_scale,
         args[0].is_swizzled_scales,
-        args[0].nvfp4_quantize_kernel_choice,
+        args[0].quantize_to_nvfp4_kernel_choice,
         args[0].act_quant_kwargs,
     )
 
@@ -515,7 +497,7 @@ def nvfp4_select(func, types, args, kwargs):
         old.per_tensor_scale,
         old.act_per_tensor_scale,
         old.is_swizzled_scales,
-        old.nvfp4_quantize_kernel_choice,
+        old.quantize_to_nvfp4_kernel_choice,
         old.act_quant_kwargs,
     )
     return return_and_correct_aliasing(func, args, kwargs, new)
@@ -640,7 +622,7 @@ def nvfp4_linear(func, types, args, kwargs):
             block_size=k.block_size,
             per_tensor_scale=per_tensor_scale,
             is_swizzled_scales=k.is_swizzled_scales,
-            nvfp4_quantize_kernel_choice=k.nvfp4_quantize_kernel_choice,
+            quantize_to_nvfp4_kernel_choice=k.quantize_to_nvfp4_kernel_choice,
         )
         res = _addmm_nvfp4_dispatch(input_tensor, weight_tensor.t(), func, bias=bias)
         res = res.reshape(*orig_shape[:-1], res.shape[-1])
@@ -674,7 +656,7 @@ def nvfp4_mm(func, types, args, kwargs):
                 block_size=k.block_size,
                 per_tensor_scale=per_tensor_scale,
                 is_swizzled_scales=k.is_swizzled_scales,
-                nvfp4_quantize_kernel_choice=k.nvfp4_quantize_kernel_choice,
+                quantize_to_nvfp4_kernel_choice=k.quantize_to_nvfp4_kernel_choice,
             )
         return _addmm_nvfp4_dispatch(input_tensor, weight_tensor, func)
 
@@ -707,7 +689,7 @@ def nvfp4_addmm(func, types, args, kwargs):
                 block_size=k.block_size,
                 per_tensor_scale=per_tensor_scale,
                 is_swizzled_scales=k.is_swizzled_scales,
-                nvfp4_quantize_kernel_choice=k.nvfp4_quantize_kernel_choice,
+                quantize_to_nvfp4_kernel_choice=k.quantize_to_nvfp4_kernel_choice,
             )
         return _addmm_nvfp4_dispatch(input_tensor, weight_tensor, func, bias=bias)
 
