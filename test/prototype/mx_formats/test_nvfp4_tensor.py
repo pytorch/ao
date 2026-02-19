@@ -598,6 +598,8 @@ def test_scale_shape_matches_qdata(
             pytest.skip("flashinfer not available")
         if not is_swizzled_scales:
             pytest.skip("flashinfer requires swizzled scales")
+        if shape[-1] % 64 != 0:
+            pytest.skip("flashinfer requires K to be divisible by 64")
 
     block_size = 16
 

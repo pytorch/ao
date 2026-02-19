@@ -230,6 +230,9 @@ class NVFP4Tensor(TorchAOBaseTensor):
             assert is_swizzled_scales, (
                 "flashinfer nvfp4_quantize only supports swizzled scales"
             )
+            assert K % 64 == 0, (
+                f"flashinfer nvfp4_quantize requires K (dim -1) to be divisible by 64, got {K}"
+            )
             # flashinfer uses global_sf = (F8E4M3_MAX * F4_E2M1_MAX) / amax
             # which is 1 / per_tensor_scale
             global_sf = 1.0 / per_tensor_scale

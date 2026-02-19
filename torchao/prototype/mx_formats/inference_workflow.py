@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import types
+import warnings
 from dataclasses import dataclass
 from typing import Optional
 
@@ -263,6 +264,15 @@ def _nvfp4_inference_linear_transform(
         raise RuntimeError(
             f"NVFP4 only supports weight shape with last 2 dims divisible by 16, got {weight.shape}"
         )
+    if (
+        config.nvfp4_quantize_kernel_choice == NVFP4QuantizeKernelChoice.FLASHINFER
+        and weight.shape[-1] % 64 != 0
+    ):
+        warnings.warn(
+            f"Skipping NVFP4 quantization for layer with K={weight.shape[-1]}: "
+            f"flashinfer requires K to be divisible by 64."
+        )
+        return module
 
     step = config.step
     if step == QuantizationStep.PREPARE or step == "prepare":
