@@ -310,8 +310,8 @@ def test_emulate_mxfp8_grouped_gemm_2d_2d(M, N, num_experts):
     out = _emulated_mxfp8_scaled_grouped_mm_2d_2d(
         grad_out_t_mx,
         grad_out_t_scale,
-        x_mx,
-        x_scale.transpose(-2, -1),  # (M//block_size, N) -> (N, M//block_size)
+        x_mx.transpose(-2, -1),  # (K, N) -> (N, K)
+        x_scale.transpose(-2, -1),  # (K//block_size, N) -> (N, K//block_size)
         offs=offs,
         out_dtype=torch.bfloat16,
         block_size=block_size,
@@ -343,12 +343,6 @@ def test_mxfp8_grouped_gemm_with_dq_fwd_bwd(
     kernel_preference,
     scale_mode,
 ):
-    # Emulated mode with compile is not supported
-    if kernel_preference == KernelPreference.EMULATED and use_compile:
-        pytest.skip(
-            "Skipping use_compile=True with kernel_preference=EMULATED, not currently supported"
-        )
-
     # MXFP8 hardware path requires SM100
     if kernel_preference != KernelPreference.EMULATED and not is_sm_version(10, 0):
         pytest.skip(
