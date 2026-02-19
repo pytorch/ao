@@ -50,7 +50,7 @@ optimizer = QuantOptimizer(
 ```python
 from torchao.quantization import (
     quantize_,
-    Int8DynamicActivationInt4WeightConfig,
+    Int4WeightOnlyConfig,
 )
 from torchao.quantization.qat import QATConfig
 
@@ -91,7 +91,7 @@ from torchao.quantization.qat import QATConfig, IntxFakeQuantizeConfig
 activation_config = IntxFakeQuantizeConfig(torch.int8, "per_token", is_symmetric=False)
 quantize_(self.model, QATConfig(activation_config, step="prepare"))
 ```
-For the convert stage, call `optimizer.torchao_convert(model)`. The resulting quantized model corresponds to `Int8DynamicActivationInt4WeightConfig` in torchao.
+For the convert stage, call `optimizer.torchao_convert(model)`. The resulting quantized model corresponds to `Int8DynamicActivationIntxWeightConfig` in torchao.
 
 ## QAT arguments
 
