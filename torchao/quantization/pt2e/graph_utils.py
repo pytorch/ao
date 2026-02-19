@@ -159,6 +159,8 @@ def _get_control_flow_submodules(
             control_flow_submodules.append(_get_submodule(graph_module, node, 0))
         if node.target is torch.ops.higher_order.scan:
             control_flow_submodules.append(_get_submodule(graph_module, node, 0))
+        if node.target is torch.ops.higher_order.while_loop:
+            control_flow_submodules.append(_get_submodule(graph_module, node, 1))
 
     return control_flow_submodules
 
