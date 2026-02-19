@@ -44,10 +44,10 @@ class QuantizeToNVFP4KernelChoice(str, Enum):
     """
 
     TORCH = "torch"
-    """Use torch native quantization kernel implemented with torch ops"""
+    """Use torch native high precision to nvfp4 quantize kernel implemented with torch ops"""
 
     TRITON = "triton"
-    """Use triton quantization kernel"""
+    """Use triton high precision to nvfp4 quantize kernel"""
 
 
 torch.serialization.add_safe_globals([QuantizeToNVFP4KernelChoice])
