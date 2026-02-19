@@ -10,7 +10,6 @@ import copy
 import gc
 import tempfile
 import unittest
-import warnings
 
 import torch
 from torch.testing._internal import common_utils
@@ -48,7 +47,6 @@ from torchao.quantization.quant_api import (
     PerTensor,
     Quantizer,
     TwoStepQuantizer,
-    UIntXWeightOnlyConfig,
     _replace_with_custom_fn_if_matches_filter,
 )
 from torchao.quantization.quant_primitives import MappingType
@@ -348,7 +346,6 @@ class TestQuantFlow(TestCase):
             Int8DynamicActivationInt8WeightConfig(),
             Int8WeightOnlyConfig(),
             GemliteUIntXWeightOnlyConfig(),
-            UIntXWeightOnlyConfig(dtype=torch.uint4),
         ],
     )
     @skip_if_xpu("XPU enablement in progress")
@@ -558,39 +555,6 @@ class TestQuantFlow(TestCase):
         model(*example_inputs)
         assert isinstance(model.linear1.weight, Float8Tensor)
         assert not isinstance(model.linear2.weight, Float8Tensor)
-
-    def test_config_deprecation(self):
-        """
-        Test that old config functions like `Int8DynamicActivationInt4WeightConfig` trigger deprecation warnings.
-        """
-        from torchao.quantization import (
-            GemliteUIntXWeightOnlyConfig,
-            UIntXWeightOnlyConfig,
-        )
-
-        # Reset deprecation warning state, otherwise we won't log warnings here
-        warnings.resetwarnings()
-
-        # Map from deprecated API to the args needed to instantiate it
-        deprecated_apis_to_args = {
-            GemliteUIntXWeightOnlyConfig: (),
-            UIntXWeightOnlyConfig: (torch.uint4,),
-        }
-
-        # Call each deprecated API twice
-        for cls, args in deprecated_apis_to_args.items():
-            with warnings.catch_warnings(record=True) as _warnings:
-                cls(*args)
-                cls(*args)
-
-                self.assertTrue(len(_warnings) == 1)
-                found_deprecated = False
-                for w in _warnings:
-                    if "will be deleted in a future release" in str(w.message):
-                        found_deprecated = True
-                    self.assertTrue(
-                        found_deprecated, f"did not find deprecated warning for {cls}"
-                    )
 
 
 common_utils.instantiate_parametrized_tests(TestQuantFlow)
