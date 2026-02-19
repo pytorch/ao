@@ -9,8 +9,8 @@ from typing import Optional
 
 import torch
 
+from torchao.prototype.mx_formats.config import QuantizeToNVFP4KernelChoice
 from torchao.prototype.mx_formats.nvfp4_tensor import (
-    NVFP4QuantizeKernelChoice,
     NVFP4Tensor,
     _addmm_nvfp4_dispatch,
     _handle_use_triton_kernel,
@@ -31,19 +31,19 @@ class NVFP4FakeQuantizeConfig(FakeQuantizeConfigBase):
         use_per_tensor_scale (bool): Whether to use two-level per-tensor fp32 scaling
             after the initial fp8 (e4m3) block-wise scaling (default True)
         use_swizzled_scales (bool): Whether scales are stored in swizzled (blocked) format
-        nvfp4_quantize_kernel_choice (NVFP4QuantizeKernelChoice): Kernel choice for quantize kernel
+        quantize_to_nvfp4_kernel_choice (QuantizeToNVFP4KernelChoice): Kernel choice for quantize kernel
     """
 
     use_per_tensor_scale: bool = True
     use_swizzled_scales: bool = False
-    nvfp4_quantize_kernel_choice: NVFP4QuantizeKernelChoice = (
-        NVFP4QuantizeKernelChoice.TORCH
+    quantize_to_nvfp4_kernel_choice: QuantizeToNVFP4KernelChoice = (
+        QuantizeToNVFP4KernelChoice.TORCH
     )
     use_triton_kernel: Optional[bool] = None
 
     def __post_init__(self):
-        self.nvfp4_quantize_kernel_choice = _handle_use_triton_kernel(
-            self.use_triton_kernel, self.nvfp4_quantize_kernel_choice
+        self.quantize_to_nvfp4_kernel_choice = _handle_use_triton_kernel(
+            self.use_triton_kernel, self.quantize_to_nvfp4_kernel_choice
         )
         self.use_triton_kernel = None
 
@@ -75,7 +75,7 @@ class _NVFP4QuantizedForwardFakeQuantizedBackward(torch.autograd.Function):
             _input,
             per_tensor_scale=per_tensor_scale,
             is_swizzled_scales=activation_config.use_swizzled_scales,
-            nvfp4_quantize_kernel_choice=activation_config.nvfp4_quantize_kernel_choice,
+            quantize_to_nvfp4_kernel_choice=activation_config.quantize_to_nvfp4_kernel_choice,
         )
 
         # quantize weights
@@ -88,12 +88,14 @@ class _NVFP4QuantizedForwardFakeQuantizedBackward(torch.autograd.Function):
             weight,
             per_tensor_scale=per_tensor_scale,
             is_swizzled_scales=weight_config.use_swizzled_scales,
-            nvfp4_quantize_kernel_choice=NVFP4QuantizeKernelChoice.TORCH,
+            quantize_to_nvfp4_kernel_choice=QuantizeToNVFP4KernelChoice.TORCH,
         )
 
         # Follow `NVFP4DynamicActivationNVFP4WeightConfig`, always use traditional construction
-        # for weights and set `nvfp4_quantize_kernel_choice` afterwards
-        weight.nvfp4_quantize_kernel_choice = weight_config.nvfp4_quantize_kernel_choice
+        # for weights and set `quantize_to_nvfp4_kernel_choice` afterwards
+        weight.quantize_to_nvfp4_kernel_choice = (
+            weight_config.quantize_to_nvfp4_kernel_choice
+        )
 
         ctx.save_for_backward(_input, weight)
 

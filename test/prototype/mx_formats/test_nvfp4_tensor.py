@@ -9,11 +9,11 @@ import pytest
 import torch
 import torch.nn.functional as F
 
+from torchao.prototype.mx_formats.config import QuantizeToNVFP4KernelChoice
 from torchao.prototype.mx_formats.constants import (
     F4_E2M1_MAX,
 )
 from torchao.prototype.mx_formats.nvfp4_tensor import (
-    NVFP4QuantizeKernelChoice,
     NVFP4Tensor,
     QuantizeTensorToNVFP4Kwargs,
     per_tensor_amax_to_scale,
@@ -382,14 +382,14 @@ def test_triton_nvfp4_quantize_equivalence(M, N, use_per_tensor_scale, dtype):
         x.clone(),
         per_tensor_scale=per_tensor_scale,
         is_swizzled_scales=True,
-        nvfp4_quantize_kernel_choice=NVFP4QuantizeKernelChoice.TORCH,
+        quantize_to_nvfp4_kernel_choice=QuantizeToNVFP4KernelChoice.TORCH,
     )
 
     nvfp4_triton = NVFP4Tensor.to_nvfp4(
         x.clone(),
         per_tensor_scale=per_tensor_scale,
         is_swizzled_scales=True,
-        nvfp4_quantize_kernel_choice=NVFP4QuantizeKernelChoice.TRITON,
+        quantize_to_nvfp4_kernel_choice=QuantizeToNVFP4KernelChoice.TRITON,
     )
 
     torch.testing.assert_close(nvfp4_pt.scale.flatten(), nvfp4_triton.scale.flatten())
@@ -427,8 +427,8 @@ def test_triton_nvfp4_quantize_equivalence(M, N, use_per_tensor_scale, dtype):
 @pytest.mark.parametrize("bias", [True, False])
 @pytest.mark.parametrize("inpt_dtype", [torch.bfloat16, torch.float32])
 @pytest.mark.parametrize(
-    "nvfp4_quantize_kernel_choice",
-    [NVFP4QuantizeKernelChoice.TRITON, NVFP4QuantizeKernelChoice.TORCH],
+    "quantize_to_nvfp4_kernel_choice",
+    [QuantizeToNVFP4KernelChoice.TRITON, QuantizeToNVFP4KernelChoice.TORCH],
 )
 @pytest.mark.parametrize(
     "shapes",
@@ -454,7 +454,7 @@ def test_nvfp4_matmul_with_amax(
     compile: bool,
     bias: bool,
     inpt_dtype: torch.dtype,
-    nvfp4_quantize_kernel_choice: NVFP4QuantizeKernelChoice,
+    quantize_to_nvfp4_kernel_choice: QuantizeToNVFP4KernelChoice,
     shapes: tuple,
 ):
     # DYNAMIC mode requires SM100+, but WEIGHT_ONLY works on older GPUs
@@ -491,13 +491,13 @@ def test_nvfp4_matmul_with_amax(
         A,
         per_tensor_scale=a_scale,
         is_swizzled_scales=True,
-        nvfp4_quantize_kernel_choice=nvfp4_quantize_kernel_choice,
+        quantize_to_nvfp4_kernel_choice=quantize_to_nvfp4_kernel_choice,
     )
     B_nvfp4 = NVFP4Tensor.to_nvfp4(
         B,
         per_tensor_scale=b_scale,
         is_swizzled_scales=True,
-        nvfp4_quantize_kernel_choice=nvfp4_quantize_kernel_choice,
+        quantize_to_nvfp4_kernel_choice=quantize_to_nvfp4_kernel_choice,
         act_quant_kwargs=act_quant_kwargs,
     )
 
@@ -529,7 +529,7 @@ def test_nvfp4_to_copy():
     assert x.act_per_tensor_scale is None
     assert y.act_per_tensor_scale is None
     assert x.block_size == y.block_size
-    assert x.nvfp4_quantize_kernel_choice == y.nvfp4_quantize_kernel_choice
+    assert x.quantize_to_nvfp4_kernel_choice == y.quantize_to_nvfp4_kernel_choice
     assert x.act_quant_kwargs == y.act_quant_kwargs
     assert x.dtype == torch.float32
     assert y.dtype == torch.bfloat16
@@ -541,8 +541,8 @@ def test_nvfp4_to_copy():
 )
 @pytest.mark.parametrize("transpose", [False, True])
 @pytest.mark.parametrize(
-    "nvfp4_quantize_kernel_choice",
-    [NVFP4QuantizeKernelChoice.TORCH, NVFP4QuantizeKernelChoice.TRITON],
+    "quantize_to_nvfp4_kernel_choice",
+    [QuantizeToNVFP4KernelChoice.TORCH, QuantizeToNVFP4KernelChoice.TRITON],
 )
 @pytest.mark.parametrize("is_swizzled_scales", [False, True])
 @pytest.mark.parametrize(
@@ -556,15 +556,15 @@ def test_nvfp4_to_copy():
     ),
 )
 def test_scale_shape_matches_qdata(
-    transpose, nvfp4_quantize_kernel_choice, is_swizzled_scales, shape
+    transpose, quantize_to_nvfp4_kernel_choice, is_swizzled_scales, shape
 ):
     if (
-        nvfp4_quantize_kernel_choice == NVFP4QuantizeKernelChoice.TRITON
+        quantize_to_nvfp4_kernel_choice == QuantizeToNVFP4KernelChoice.TRITON
         and not is_sm_at_least_100()
     ):
         pytest.skip("CUDA capability >= 10.0 required for nvfp4 triton kernel")
     if (
-        nvfp4_quantize_kernel_choice == NVFP4QuantizeKernelChoice.TRITON
+        quantize_to_nvfp4_kernel_choice == QuantizeToNVFP4KernelChoice.TRITON
         and not is_swizzled_scales
     ):
         pytest.skip("triton kernel requires swizzled scales")
@@ -575,7 +575,7 @@ def test_scale_shape_matches_qdata(
     x = NVFP4Tensor.to_nvfp4(
         x_hp,
         is_swizzled_scales=is_swizzled_scales,
-        nvfp4_quantize_kernel_choice=nvfp4_quantize_kernel_choice,
+        quantize_to_nvfp4_kernel_choice=quantize_to_nvfp4_kernel_choice,
     )
 
     if len(shape) == 2:

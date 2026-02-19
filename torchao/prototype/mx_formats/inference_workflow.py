@@ -14,6 +14,7 @@ from torch import Tensor
 
 from torchao.core.config import AOBaseConfig
 from torchao.prototype.mx_formats.config import (
+    QuantizeToNVFP4KernelChoice,
     _validate_elem_dtype,
     _validate_kernel_preference,
 )
@@ -23,7 +24,6 @@ from torchao.prototype.mx_formats.mx_tensor import (
     ScaleCalculationMode,
 )
 from torchao.prototype.mx_formats.nvfp4_tensor import (
-    NVFP4QuantizeKernelChoice,
     NVFP4Tensor,
     QuantizeTensorToNVFP4Kwargs,
     _handle_use_triton_kernel,
@@ -197,7 +197,7 @@ class NVFP4DynamicActivationNVFP4WeightConfig(AOBaseConfig):
     set to False.
 
     Configuration parameters:
-    - nvfp4_quantize_kernel_choice: NVFP4QuantizeKernelChoice, kernel preference for quantization (default: NVFP4QuantizeKernelChoice.TRITON)
+    - quantize_to_nvfp4_kernel_choice: QuantizeToNVFP4KernelChoice, kernel preference for quantization (default: QuantizeToNVFP4KernelChoice.TRITON)
     - use_dynamic_per_tensor_scale: bool, whether to dynamically compute per tensor scale (default: True)
     - step: Optional[QuantizationStep], the quantization step for observer-based flow
     - Data: float4_e2m1fn_x2
@@ -213,16 +213,16 @@ class NVFP4DynamicActivationNVFP4WeightConfig(AOBaseConfig):
        :language: python
     """
 
-    nvfp4_quantize_kernel_choice: NVFP4QuantizeKernelChoice = (
-        NVFP4QuantizeKernelChoice.TRITON
+    quantize_to_nvfp4_kernel_choice: QuantizeToNVFP4KernelChoice = (
+        QuantizeToNVFP4KernelChoice.TRITON
     )
     use_dynamic_per_tensor_scale: bool = True
     step: Optional["QuantizationStep"] = None
     use_triton_kernel: Optional[bool] = None
 
     def __post_init__(self):
-        self.nvfp4_quantize_kernel_choice = _handle_use_triton_kernel(
-            self.use_triton_kernel, self.nvfp4_quantize_kernel_choice
+        self.quantize_to_nvfp4_kernel_choice = _handle_use_triton_kernel(
+            self.use_triton_kernel, self.quantize_to_nvfp4_kernel_choice
         )
         self.use_triton_kernel = None
 
@@ -274,7 +274,7 @@ def _nvfp4_inference_linear_transform(
 
         act_quant_kwargs = QuantizeTensorToNVFP4Kwargs(
             use_dynamic_per_tensor_scale=False,
-            nvfp4_quantize_kernel_choice=config.nvfp4_quantize_kernel_choice,
+            quantize_to_nvfp4_kernel_choice=config.quantize_to_nvfp4_kernel_choice,
             is_swizzled_scales=True,
         )
 
@@ -283,11 +283,11 @@ def _nvfp4_inference_linear_transform(
             per_tensor_scale=weight_per_tensor_scale,
             act_per_tensor_scale=act_per_tensor_scale.detach(),
             is_swizzled_scales=True,
-            nvfp4_quantize_kernel_choice=NVFP4QuantizeKernelChoice.TORCH,  # Always use traditional construction for weights
+            quantize_to_nvfp4_kernel_choice=QuantizeToNVFP4KernelChoice.TORCH,  # Always use traditional construction for weights
             act_quant_kwargs=act_quant_kwargs,
         )
-        quantized_weight.nvfp4_quantize_kernel_choice = (
-            config.nvfp4_quantize_kernel_choice
+        quantized_weight.quantize_to_nvfp4_kernel_choice = (
+            config.quantize_to_nvfp4_kernel_choice
         )
 
         # Create new Linear (not observed) with quantized weight
@@ -316,7 +316,7 @@ def _nvfp4_inference_linear_transform(
 
         act_quant_kwargs = QuantizeTensorToNVFP4Kwargs(
             use_dynamic_per_tensor_scale=config.use_dynamic_per_tensor_scale,
-            nvfp4_quantize_kernel_choice=config.nvfp4_quantize_kernel_choice,
+            quantize_to_nvfp4_kernel_choice=config.quantize_to_nvfp4_kernel_choice,
             is_swizzled_scales=True,
         )
 
@@ -324,11 +324,11 @@ def _nvfp4_inference_linear_transform(
             weight,
             per_tensor_scale=per_tensor_scale,
             is_swizzled_scales=True,
-            nvfp4_quantize_kernel_choice=NVFP4QuantizeKernelChoice.TORCH,  # Always use traditional construction for weights
+            quantize_to_nvfp4_kernel_choice=QuantizeToNVFP4KernelChoice.TORCH,  # Always use traditional construction for weights
             act_quant_kwargs=act_quant_kwargs,
         )
-        quantized_weight.nvfp4_quantize_kernel_choice = (
-            config.nvfp4_quantize_kernel_choice
+        quantized_weight.quantize_to_nvfp4_kernel_choice = (
+            config.quantize_to_nvfp4_kernel_choice
         )
         module.weight = torch.nn.Parameter(quantized_weight, requires_grad=False)
         module.extra_repr = types.MethodType(_linear_extra_repr, module)

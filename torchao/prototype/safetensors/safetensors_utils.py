@@ -12,10 +12,12 @@ from typing import Any, Dict
 import torch
 
 import torchao
-from torchao.prototype.mx_formats.config import ScaleCalculationMode
+from torchao.prototype.mx_formats.config import (
+    QuantizeToNVFP4KernelChoice,
+    ScaleCalculationMode,
+)
 from torchao.prototype.mx_formats.mx_tensor import MXTensor, QuantizeTensorToMXKwargs
 from torchao.prototype.mx_formats.nvfp4_tensor import (
-    NVFP4QuantizeKernelChoice,
     NVFP4Tensor,
     QuantizeTensorToNVFP4Kwargs,
 )
@@ -52,7 +54,7 @@ ALLOWED_CLASSES = {
     "QuantizeTensorToMXKwargs": QuantizeTensorToMXKwargs,
     "ScaleCalculationMode": ScaleCalculationMode,
     "NVFP4Tensor": NVFP4Tensor,
-    "NVFP4QuantizeKernelChoice": NVFP4QuantizeKernelChoice,
+    "QuantizeToNVFP4KernelChoice": QuantizeToNVFP4KernelChoice,
     "QuantizeTensorToNVFP4Kwargs": QuantizeTensorToNVFP4Kwargs,
 }
 
