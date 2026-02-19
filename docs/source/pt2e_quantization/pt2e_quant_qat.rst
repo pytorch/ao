@@ -474,6 +474,8 @@ to incorrectly apply dropout in the forward pass during inference, for example.
 .. TODO: add results here
 
 
+.. _pt2e_quant_qat-conclusion:
+
 Conclusion
 --------------
 

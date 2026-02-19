@@ -45,6 +45,9 @@ jobs:
         python -m pip install --upgrade pip
         pip install uv
         pip install ${{ matrix.torch-spec }}
+        pip install -U --pre flashinfer-python --index-url https://flashinfer.ai/whl/nightly/ --no-deps
+        pip install apache-tvm-ffi
+        pip install nvidia-ml-py
         uv pip install -r dev-requirements.txt
         pip install . --no-build-isolation -vv
         pytest test/integration --verbose -s
@@ -55,3 +58,4 @@ jobs:
         ./test/float8/test_everything_single_gpu.sh
         pytest test/prototype/mx_formats/ --verbose -s
         pytest test/prototype/moe_training/test_scaled_grouped_mm.py --verbose -s
+        pytest test/prototype/moe_training/test_training.py --verbose -s
