@@ -65,13 +65,16 @@ class GPTQConfig(AOBaseConfig):
     Args:
         step: Either "observe" or "convert"
         base_config: Base quantization configuration that determines the target dtype.
-            Use Int4WeightOnlyConfig() for int4 or Int8WeightOnlyConfig() for int8.
+            Use Int4WeightOnlyConfig() for int4, Int8WeightOnlyConfig() for int8,
+            or MXDynamicActivationMXWeightConfig() for MX formats (mxfp8/mxfp4).
         percdamp: Damping factor for Hessian diagonal (default: 0.01)
         gptq_quantize_block_size: Block size for GPTQ algorithm (default: 256)
     """
 
     step: str = "observe"  # "observe" or "convert"
-    base_config: Union[Int4WeightOnlyConfig, Int8WeightOnlyConfig] = None
+    base_config: Union[
+        Int4WeightOnlyConfig, Int8WeightOnlyConfig, MXDynamicActivationMXWeightConfig
+    ] = None
     percdamp: float = 0.01
     gptq_quantize_block_size: int = 256
 
@@ -252,7 +255,7 @@ def gptq_quantize(H: torch.Tensor, W: torch.Tensor, config: GPTQConfig):
         config: GPTQ configuration
 
     Returns:
-        Int4Tensor or Int8Tensor: Quantized weight matrix
+        Quantized weight matrix (Int4Tensor, Int8Tensor, or dequantized MXTensor)
     """
     assert W.dim() == 2
     gptq_quantize_block_size = config.gptq_quantize_block_size
