@@ -6,8 +6,6 @@
 
 
 import argparse
-import gc
-import subprocess
 import time
 from typing import Any, List, Optional
 
@@ -184,6 +182,9 @@ def parse_args():
             "mxfp8-rtn",
             "mxfp8-gptq-sequential",
             "mxfp8-gptq-nonsequential",
+            "mxfp4-rtn",
+            "mxfp4-gptq-sequential",
+            "mxfp4-gptq-nonsequential",
         ],
         help="Quantization method to use",
     )
@@ -249,6 +250,8 @@ def main():
         "int8-gptq-nonsequential",
         "mxfp8-gptq-sequential",
         "mxfp8-gptq-nonsequential",
+        "mxfp4-gptq-sequential",
+        "mxfp4-gptq-nonsequential",
     ]:
         output_dir += f"_{args.dataset_id}_n{args.num_calibration_samples}"
         output_dir += f"_damp{args.percdamp}_bs{args.gptq_block_size}"
@@ -280,6 +283,18 @@ def main():
                     dequantized = mx_tensor.dequantize(output_dtype=w.dtype)
                     module.weight = torch.nn.Parameter(dequantized, requires_grad=False)
 
+    elif args.quantization == "mxfp4-rtn":
+        print("Applying MXFP4 RTN (Round-To-Nearest) quantization...")
+        for module in model.modules():
+            if isinstance(module, torch.nn.Linear):
+                w = module.weight.data
+                if w.shape[-1] % 32 == 0:
+                    mx_tensor = MXTensor.to_mx(
+                        w, elem_dtype=torch.float4_e2m1fn_x2, block_size=32
+                    )
+                    dequantized = mx_tensor.dequantize(output_dtype=w.dtype)
+                    module.weight = torch.nn.Parameter(dequantized, requires_grad=False)
+
     elif args.quantization in [
         "int4-gptq-sequential",
         "int4-gptq-nonsequential",
@@ -287,6 +302,8 @@ def main():
         "int8-gptq-nonsequential",
         "mxfp8-gptq-sequential",
         "mxfp8-gptq-nonsequential",
+        "mxfp4-gptq-sequential",
+        "mxfp4-gptq-nonsequential",
     ]:
         # Determine base config based on quantization type
         if "int4" in args.quantization:
@@ -295,6 +312,12 @@ def main():
         elif "int8" in args.quantization:
             base_config = Int8WeightOnlyConfig(granularity=PerRow(), version=2)
             quant_type = "Int8"
+        elif "mxfp4" in args.quantization:
+            base_config = MXDynamicActivationMXWeightConfig(
+                activation_dtype=torch.float4_e2m1fn_x2,
+                weight_dtype=torch.float4_e2m1fn_x2,
+            )
+            quant_type = "MXFP4"
         else:  # mxfp8
             base_config = MXDynamicActivationMXWeightConfig(
                 activation_dtype=torch.float8_e4m3fn,
@@ -365,43 +388,8 @@ def main():
     model.save_pretrained(output_dir, safe_serialization=False)
 
     print("DONE!")
-
-    # Clear GPU memory before running lm_eval
-    print("\nClearing GPU memory...")
-    del model
-    del tokenizer
-    gc.collect()
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
-    print("GPU memory cleared.")
-
-    # Run lm_eval on the saved model
-    print(f"\n{'=' * 60}")
-    print("Running lm_eval on the quantized model...")
-    print(f"{'=' * 60}\n")
-
-    lm_eval_cmd = [
-        "lm_eval",
-        "--model",
-        "hf",
-        "--model_args",
-        f"pretrained={output_dir}",
-        "--tasks",
-        # "leaderboard_bbh",
-        "arc_challenge,arc_easy,hellaswag,piqa,winogrande",
-        "--num_fewshot",
-        "0",
-        "--batch_size",
-        "auto",
-    ]
-
-    print(f"Running command: {' '.join(lm_eval_cmd)}")
-    try:
-        subprocess.run(lm_eval_cmd, check=True)
-    except subprocess.CalledProcessError as e:
-        print(f"lm_eval failed with error: {e}")
-    except FileNotFoundError:
-        print("lm_eval not found. Please install it with: pip install lm-eval")
+    print("\nTo evaluate, run:")
+    print(f"  python -m torchao.prototype.gptq.gptq_eval {output_dir}")
 
 
 if __name__ == "__main__":
