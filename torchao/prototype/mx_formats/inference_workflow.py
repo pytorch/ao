@@ -239,7 +239,10 @@ class NVFP4DynamicActivationNVFP4WeightConfig(AOBaseConfig):
             # Static quantization implies use_dynamic_per_tensor_scale=False
             self.use_dynamic_per_tensor_scale = False
 
-        if self.quantize_to_nvfp4_kernel_choice == QuantizeToNVFP4KernelChoice.FLASHINFER:
+        if (
+            self.quantize_to_nvfp4_kernel_choice
+            == QuantizeToNVFP4KernelChoice.FLASHINFER
+        ):
             if self.step is None and not self.use_dynamic_per_tensor_scale:
                 raise ValueError(
                     "FLASHINFER kernel choice requires per_tensor_scale. "
