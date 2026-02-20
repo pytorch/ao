@@ -5,7 +5,6 @@
 # LICENSE file in the root directory of this source tree.
 
 import math
-import warnings
 from dataclasses import dataclass
 from typing import Optional
 
@@ -42,29 +41,30 @@ aten = torch.ops.aten
 
 
 def _handle_use_triton_kernel(
-    use_triton_kernel: Optional[bool],
+    use_triton_kernel: bool,
     quantize_to_nvfp4_kernel_choice: QuantizeToNVFP4KernelChoice,
 ) -> QuantizeToNVFP4KernelChoice:
     """Handle deprecated use_triton_kernel parameter.
 
-    If use_triton_kernel is not None, it takes precedence over
-    quantize_to_nvfp4_kernel_choice and a deprecation warning is issued.
+    Raises an exception if use_triton_kernel does not match
+    quantize_to_nvfp4_kernel_choice.
     """
-    if use_triton_kernel is not None:
-        warnings.warn(
+    expected = (
+        QuantizeToNVFP4KernelChoice.TRITON
+        if use_triton_kernel
+        else QuantizeToNVFP4KernelChoice.TORCH
+    )
+    if expected != quantize_to_nvfp4_kernel_choice:
+        raise ValueError(
+            f"`use_triton_kernel={use_triton_kernel}` does not match "
+            f"`quantize_to_nvfp4_kernel_choice={quantize_to_nvfp4_kernel_choice}`. "
             "`use_triton_kernel` is deprecated and will be removed after 0.17. "
             "Please use `quantize_to_nvfp4_kernel_choice` instead. "
             "`use_triton_kernel=True` is equivalent to "
             "`quantize_to_nvfp4_kernel_choice=QuantizeToNVFP4KernelChoice.TRITON`, "
             "`use_triton_kernel=False` is equivalent to "
-            "`quantize_to_nvfp4_kernel_choice=QuantizeToNVFP4KernelChoice.TORCH`.",
-            DeprecationWarning,
-            stacklevel=2,
+            "`quantize_to_nvfp4_kernel_choice=QuantizeToNVFP4KernelChoice.TORCH`."
         )
-        if use_triton_kernel:
-            return QuantizeToNVFP4KernelChoice.TRITON
-        else:
-            return QuantizeToNVFP4KernelChoice.TORCH
     return quantize_to_nvfp4_kernel_choice
 
 
@@ -76,13 +76,12 @@ class QuantizeTensorToNVFP4Kwargs(QuantizeTensorKwargs):
         QuantizeToNVFP4KernelChoice.TORCH
     )
     use_dynamic_per_tensor_scale: bool = False
-    use_triton_kernel: Optional[bool] = None
+    use_triton_kernel: bool = False
 
     def __post_init__(self):
         self.quantize_to_nvfp4_kernel_choice = _handle_use_triton_kernel(
             self.use_triton_kernel, self.quantize_to_nvfp4_kernel_choice
         )
-        self.use_triton_kernel = None
 
 
 class NVFP4Tensor(TorchAOBaseTensor):
@@ -168,7 +167,7 @@ class NVFP4Tensor(TorchAOBaseTensor):
         is_swizzled_scales: bool = False,
         quantize_to_nvfp4_kernel_choice: QuantizeToNVFP4KernelChoice = QuantizeToNVFP4KernelChoice.TORCH,
         act_quant_kwargs: Optional[QuantizeTensorToNVFP4Kwargs] = None,
-        use_triton_kernel: Optional[bool] = None,
+        use_triton_kernel: bool = False,
     ):
         """Convert high precision tensor to NVFP4 format.
 

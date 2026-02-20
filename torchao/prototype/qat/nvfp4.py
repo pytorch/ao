@@ -39,13 +39,12 @@ class NVFP4FakeQuantizeConfig(FakeQuantizeConfigBase):
     quantize_to_nvfp4_kernel_choice: QuantizeToNVFP4KernelChoice = (
         QuantizeToNVFP4KernelChoice.TORCH
     )
-    use_triton_kernel: Optional[bool] = None
+    use_triton_kernel: bool = False
 
     def __post_init__(self):
         self.quantize_to_nvfp4_kernel_choice = _handle_use_triton_kernel(
             self.use_triton_kernel, self.quantize_to_nvfp4_kernel_choice
         )
-        self.use_triton_kernel = None
 
 
 # TODO: support emulation on non-Blackwell GPUs

@@ -218,13 +218,12 @@ class NVFP4DynamicActivationNVFP4WeightConfig(AOBaseConfig):
     )
     use_dynamic_per_tensor_scale: bool = True
     step: Optional["QuantizationStep"] = None
-    use_triton_kernel: Optional[bool] = None
+    use_triton_kernel: bool = True
 
     def __post_init__(self):
         self.quantize_to_nvfp4_kernel_choice = _handle_use_triton_kernel(
             self.use_triton_kernel, self.quantize_to_nvfp4_kernel_choice
         )
-        self.use_triton_kernel = None
 
         if isinstance(self.step, str):
             self.step = QuantizationStep(self.step)
