@@ -142,6 +142,74 @@ EXPECTED_PACKED_TENSORS = {
 class TestPackEmbedding(unittest.TestCase):
     """Tests for the _pack_embedding_Xbit ops."""
 
+    def test_embedding_roundtrip(self) -> None:
+        """Test that pack -> embed roundtrip produces correct dequantized values.
+
+        This verifies that:
+        1. Pack the quantized weights
+        2. Retrieve embeddings via the embedding op
+        3. The dequantized output matches: (qval - zero) * scale
+        """
+        num_embeddings = 16
+        embedding_dim = 32
+        group_size = 32
+
+        for bit_width in range(1, 8):
+            with self.subTest(bit_width=bit_width):
+                # Embedding kernels expect signed quantized values in
+                # [-(1 << (bit_width-1)), (1 << (bit_width-1)) - 1]
+                # The pack/unpack functions add/subtract a shift of (1 << (bit_width-1))
+                # to convert between signed and unsigned representations internally.
+                min_val = -(1 << (bit_width - 1))
+                max_val = (1 << (bit_width - 1)) - 1
+
+                torch.manual_seed(42)
+                weight_qvals = torch.randint(
+                    min_val,
+                    max_val + 1,
+                    (num_embeddings, embedding_dim),
+                    dtype=torch.int8,
+                )
+
+                num_groups = embedding_dim // group_size
+                weight_scales = (
+                    torch.rand(num_embeddings, num_groups, dtype=torch.float32) + 0.1
+                )
+                weight_zeros = torch.zeros(num_embeddings, num_groups, dtype=torch.int8)
+
+                pack_op = getattr(torch.ops.torchao, f"_pack_embedding_{bit_width}bit")
+                packed_weights = pack_op(weight_qvals)
+
+                embedding_op = getattr(torch.ops.torchao, f"_embedding_{bit_width}bit")
+                indices = torch.arange(num_embeddings, dtype=torch.int64)
+
+                output = embedding_op(
+                    packed_weights,
+                    num_embeddings,
+                    embedding_dim,
+                    weight_scales,
+                    weight_zeros,
+                    indices,
+                )
+
+                self.assertEqual(output.shape, (num_embeddings, embedding_dim))
+                self.assertEqual(output.dtype, torch.float32)
+
+                expected = torch.zeros(
+                    num_embeddings, embedding_dim, dtype=torch.float32
+                )
+                for i in range(num_embeddings):
+                    for g in range(num_groups):
+                        start = g * group_size
+                        end = start + group_size
+                        scale = weight_scales[i, g]
+                        zero = weight_zeros[i, g].float()
+                        expected[i, start:end] = (
+                            weight_qvals[i, start:end].float() - zero
+                        ) * scale
+
+                torch.testing.assert_close(output, expected, rtol=1e-5, atol=1e-5)
+
     def test_pack_embedding_size_and_header(self) -> None:
         """Test that packed weights have correct size and header format.
 
