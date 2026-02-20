@@ -309,8 +309,7 @@ class Int8DynActInt4WeightQATLinear(FakeQuantizedLinear):
         scales_precision: precision of per group scales and zero points
 
     Note: we hardcode activation scales to use torch.fp32, but allow users to specify the weight scales (defaults to torch.fp32).
-    To get an exact numerical match with Int8DynamicActivationInt4WeightConfig, users must use the same dtype for both the weights
-    and the scales. Here scales_precision refers specifically to the weight scales only, not the activation scales.
+    Here scales_precision refers specifically to the weight scales only, not the activation scales.
     """
 
     def __init__(
