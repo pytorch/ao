@@ -14,11 +14,11 @@ from tabulate import tabulate
 from tqdm import tqdm
 from triton.testing import do_bench
 
-from torchao.prototype.moe_training.kernels.jagged_float8_scales import (
+from torchao.prototype.fp8_grouped_mm.kernels.jagged_float8_scales import (
     triton_fp8_per_group_colwise_scales,
     triton_fp8_per_group_rowwise_scales,
 )
-from torchao.prototype.moe_training.utils import (
+from torchao.prototype.fp8_grouped_mm.utils import (
     generate_jagged_offs,
     torch_to_float8_per_group_rowwise,
 )

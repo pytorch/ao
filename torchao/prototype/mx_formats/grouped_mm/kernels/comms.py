@@ -7,7 +7,7 @@ from torch.distributed._functional_collectives import (
     all_to_all_single,
 )
 
-from torchao.prototype.moe_training.kernels.triton_utils import (
+from torchao.prototype.fp8_grouped_mm.kernels.triton_utils import (
     blockwise_barrier,
     sync_threads,
 )

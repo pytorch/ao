@@ -9,7 +9,7 @@ from typing import Optional
 
 import torch
 
-from torchao.prototype.moe_training.utils import (
+from torchao.prototype.fp8_grouped_mm.utils import (
     conditional_nostrict_trace,
 )
 from torchao.prototype.mx_formats.config import (

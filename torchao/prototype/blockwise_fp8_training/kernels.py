@@ -11,7 +11,7 @@ import triton
 import triton.language as tl
 from torch.library import triton_op, wrap_triton
 
-from torchao.prototype.moe_training.utils import (
+from torchao.prototype.fp8_grouped_mm.utils import (
     _is_column_major,
     _is_row_major,
 )

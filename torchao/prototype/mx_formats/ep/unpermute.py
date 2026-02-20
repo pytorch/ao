@@ -6,7 +6,7 @@
 
 import torch
 
-from torchao.prototype.moe_training.utils import conditional_nostrict_trace
+from torchao.prototype.fp8_grouped_mm.utils import conditional_nostrict_trace
 from torchao.prototype.mx_formats.mx_tensor import MXTensor
 
 

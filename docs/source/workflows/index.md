@@ -6,7 +6,7 @@ This page provides an overview of the various workflows available in torchao.
 
 * Training: our main training workflow is [float8 quantized training](training.md). We 
   also have three prototype quantized training workflows: {ref}`mxfp8 dense <mx-section>`,
-  [mxfp8 MoE](https://github.com/pytorch/ao/tree/main/torchao/prototype/moe_training#mxfp8-moe-training),
+  [mxfp8 MoE](https://github.com/pytorch/ao/tree/main/torchao/prototype/fp8_grouped_mm#mxfp8-moe-training),
   [int8 dense](https://github.com/pytorch/ao/tree/main/torchao/prototype/quantized_training)
 * QAT: the [QAT documentation](qat.md) for details on how to use quantization-aware training to improve model accuracy after quantization.
 * Inference: See the [inference quantization documentation](inference.md) for an overview of quantization for inference workflows.
@@ -25,7 +25,7 @@ This page provides an overview of the various workflows available in torchao.
 | A100 | int8 | bfloat16 | ⚪ | 🟢 [(link)](qat.md) | ⚪ | 🟢 [(link)](inference.md) |
 | A100 | int8 | int8 | 🟡 [(link)](https://github.com/pytorch/ao/tree/main/torchao/prototype/quantized_training) | 🟢 [(link)](qat.md) | ⚪ | 🟢 [(link)](inference.md) |
 | B200 | nvfp4 | nvfp4 | 🟠 | 🟡 [(link)](https://github.com/pytorch/ao/blob/main/torchao/prototype/qat/nvfp4.py) | ⚪ |  🟡 {class}`(link) <torchao.prototype.mx_formats.NVFP4DynamicActivationNVFP4WeightConfig>` |
-| B200 | mxfp8 | mxfp8 | 🟡 {ref}`(dense) <mx-section>`, [(moe)](https://github.com/pytorch/ao/tree/main/torchao/prototype/moe_training) | ⚪ | ⚪ | 🟡 {class}`(link) <torchao.prototype.mx_formats.MXDynamicActivationMXWeightConfig>` |
+| B200 | mxfp8 | mxfp8 | 🟡 {ref}`(dense) <mx-section>`, [(moe)](https://github.com/pytorch/ao/tree/main/torchao/prototype/fp8_grouped_mm) | ⚪ | ⚪ | 🟡 {class}`(link) <torchao.prototype.mx_formats.MXDynamicActivationMXWeightConfig>` |
 | B200 | mxfp4 | mxfp4 | ⚪ not supported | 🟠 | 🟠 | 🟡 {class}`(link) <torchao.prototype.mx_formats.MXDynamicActivationMXWeightConfig>` |
 | H100 | float8 128x128 (blockwise) | float8 1x128 | 🟠 | ⚪ | ⚪ | 🟡 |
 
@@ -39,7 +39,7 @@ This page provides an overview of the various workflows available in torchao.
 
 | recommended hardware | weight | activation | quantized training | QAT | PTQ data algorithms | quantized inference |
 | -------- | ------ | ---------- | ------------------ | --- | ------------------- | ------------------- |
-| MI350x | mxfp8 | mxfp8 | 🟡 {ref}`(dense) <mx-section>`, [(moe)](https://github.com/pytorch/ao/tree/main/torchao/prototype/moe_training) | ⚪ | ⚪ | 🟡 {class}`(link) <torchao.prototype.mx_formats.MXDynamicActivationMXWeightConfig>` |
+| MI350x | mxfp8 | mxfp8 | 🟡 {ref}`(dense) <mx-section>`, [(moe)](https://github.com/pytorch/ao/tree/main/torchao/prototype/fp8_grouped_mm) | ⚪ | ⚪ | 🟡 {class}`(link) <torchao.prototype.mx_formats.MXDynamicActivationMXWeightConfig>` |
 | MI350x | mxfp4 | mxfp4 | ⚪ not supported | 🟠 | 🟠 | 🟡 {class}`(link) <torchao.prototype.mx_formats.MXDynamicActivationMXWeightConfig>` |
 
 ### Intel

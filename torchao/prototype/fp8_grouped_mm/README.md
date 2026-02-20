@@ -17,7 +17,7 @@
 ## Overview
 This prototype provides:
 
-1. Quantized building block for low precision MoE training: [_to_mxfp8_then_scaled_grouped_mm](https://github.com/pytorch/ao/blob/53b5efdac921a38fd15e8d3ac8191c3927140287/torchao/prototype/moe_training/scaled_grouped_mm.py#L677). It is a differentiable drop-in replacement for `torch._grouped_mm` that dynamically quantizes inputs using the given recipe, performs a scaled grouped GEMM, then returns the results in original precision. See runnable [example](#torchao_scaled_grouped_mm-example-forward--backward-pass) of a forward and backward pass below.
+1. Quantized building block for low precision MoE training: [_to_mxfp8_then_scaled_grouped_mm](https://github.com/pytorch/ao/blob/53b5efdac921a38fd15e8d3ac8191c3927140287/torchao/prototype/fp8_grouped_mm/scaled_grouped_mm.py#L677). It is a differentiable drop-in replacement for `torch._grouped_mm` that dynamically quantizes inputs using the given recipe, performs a scaled grouped GEMM, then returns the results in original precision. See runnable [example](#torchao_scaled_grouped_mm-example-forward--backward-pass) of a forward and backward pass below.
     - Using MXFP8 on a B200 GPU, this provides:
         - **~1.4x - 1.8x speedups** over bfloat16 `torch._grouped_mm` for Llama4 Scout shapes
         - **~1.19 - 1.6x speedups** over bfloat16 `torch._grouped_mm` for DeepSeekV3 671b shapes
@@ -63,10 +63,10 @@ Training and model configurations for this run:
 ```python
 import torch
 from torch.nn import functional as F
-from torchao.prototype.moe_training import (
+from torchao.prototype.fp8_grouped_mm import (
     _to_mxfp8_then_scaled_grouped_mm,
 )
-from torchao.prototype.moe_training.utils import generate_jagged_offs
+from torchao.prototype.fp8_grouped_mm.utils import generate_jagged_offs
 
 num_groups, total_M, N, K = 8, 131072, 8192, 5120
 
@@ -99,7 +99,7 @@ loss.backward()
 ## Benchmarks
 
 ### Autograd function 
-Forward + backward pass benchmarks for the [autograd function](https://github.com/pytorch/ao/blob/8bb433e989ad6f7ee0920f946d3a9be7f14be8c7/torchao/prototype/moe_training/scaled_grouped_mm.py#L284) powering MXFP8 MoE training.
+Forward + backward pass benchmarks for the [autograd function](https://github.com/pytorch/ao/blob/8bb433e989ad6f7ee0920f946d3a9be7f14be8c7/torchao/prototype/fp8_grouped_mm/scaled_grouped_mm.py#L284) powering MXFP8 MoE training.
 
 #### Llama4 Scout shapes 
 

@@ -18,7 +18,7 @@ grad_weight_bf16 =   to_fp8(input_bf16.t()) @ to_fp8(grad_output_bf16)
 We have various quantized training workflows:
 * [`torchao.float8`](float8-section) (stable) for float8 rowwise training for `torch.nn.Linear`.
 * [`torchao.prototype.mx_formats`](mx-section) (prototype) for mxfp8 training for `torch.nn.Linear`. This is on its way to stable.
-* [`torchao.prototype.moe_training`](https://github.com/pytorch/ao/blob/main/torchao/prototype/moe_training/README.md) (prototype) for mxfp8 training for `torch._grouped_mm` for MoEs. The API will be combined with the training APIs in `torchao.prototype.mx_formats` in the future.
+* [`torchao.prototype.fp8_grouped_mm`](https://github.com/pytorch/ao/blob/main/torchao/prototype/fp8_grouped_mm/README.md) (prototype) for mxfp8 training for `torch._grouped_mm` for MoEs. The API will be combined with the training APIs in `torchao.prototype.mx_formats` in the future.
 * [`torchao.prototype.quantized_training`](https://github.com/pytorch/ao/blob/main/torchao/prototype/quantized_training/README.md) (prototype) for int8 training for `torch.nn.functional.linear`. This is currently in prototype.
 
 (float8-section)=
@@ -297,7 +297,7 @@ in native PyTorch.
 
 #### planned improvements
 
-* mxfp8 support for grouped_gemm and all2all for MoE training (see https://github.com/pytorch/ao/tree/main/torchao/prototype/moe_training ).
+* mxfp8 support for grouped_gemm and all2all for MoE training (see https://github.com/pytorch/ao/tree/main/torchao/prototype/fp8_grouped_mm ).
 * mxfp8, nvfp4, mxfp4 performance optimizations for inference
 * polish the nvpf4 QAT recipe, and enable mxfp4 QAT
 * blocked formats for faster training

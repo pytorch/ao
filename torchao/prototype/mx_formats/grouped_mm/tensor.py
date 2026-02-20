@@ -15,15 +15,6 @@ from torch.distributed._tensor import DTensor
 from torch.distributed.device_mesh import DeviceMesh
 from torch.distributed.fsdp import MixedPrecisionPolicy
 
-from torchao.prototype.moe_training.config import (
-    FP8GroupedMMConfig,
-)
-from torchao.prototype.moe_training.fp8_grouped_mm import (
-    _to_fp8_rowwise_then_scaled_grouped_mm,
-)
-from torchao.prototype.mx_formats.grouped_mm import (
-    _to_mxfp8_then_scaled_grouped_mm,
-)
 from torchao.prototype.mx_formats.grouped_mm.config import (
     GroupedMMConfig,
     MXFP8GroupedMMConfig,
@@ -259,6 +250,14 @@ def _quantize_then_scaled_grouped_mm(
         offs (int32 torch.Tensor): The offsets to use to mark the starting index of each group along dim0 of the A tensor.
         config (MXFP8GroupedMMConfig): Configuration for grouped matmul quantization.
     """
+    from torchao.prototype.fp8_grouped_mm.config import FP8GroupedMMConfig
+    from torchao.prototype.fp8_grouped_mm.fp8_grouped_mm import (
+        _to_fp8_rowwise_then_scaled_grouped_mm,
+    )
+    from torchao.prototype.mx_formats.grouped_mm import (
+        _to_mxfp8_then_scaled_grouped_mm,
+    )
+
     # Dispatch based on derived dtype
     if isinstance(config, FP8GroupedMMConfig):
         return _to_fp8_rowwise_then_scaled_grouped_mm(

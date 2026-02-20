@@ -196,7 +196,7 @@ we define a simplified MoE layer without a real router (we will use fake token-e
 Key requirements:
 
 * Expert weights must be implemented as a 3d nn.Parameter so we can use a grouped GEMM for computation.
-* Use :code:`_to_mxfp8_then_scaled_grouped_mm` from :code:`torchao.prototype.moe_training.scaled_grouped_mm` to do the routed expert computation.
+* Use :code:`_to_mxfp8_then_scaled_grouped_mm` from :code:`torchao.prototype.fp8_grouped_mm.scaled_grouped_mm` to do the routed expert computation.
 
 .. code:: py
 
@@ -231,7 +231,7 @@ Key requirements:
             # MXTensor inputs (pre-quantized prior to the all2all - shown later)
             # to use MXFP8 grouped GEMM, for ~2x speedup over BF16 grouped GEMM!
             # The `wgrad_with_hp` recipe required for MXFP8 expert parallelism (more details later in the tutorial)
-            from torchao.prototype.moe_training.scaled_grouped_mm import (
+            from torchao.prototype.fp8_grouped_mm.scaled_grouped_mm import (
                 _to_mxfp8_then_scaled_grouped_mm as mxfp8_gmm,
             )
             h = F.silu(mxfp8_gmm(x, w1.transpose(-2, -1), offs=offsets, wgrad_with_hp=True))
@@ -777,4 +777,4 @@ As shown, using MXFP8 for all-to-all communications achieves **1.14-1.25x total 
 
 In this tutorial we demonstrated how to use TorchAO's differentiable building blocks for MXFP8 MoE training with expert parallelism.
 
-For more details, see the [MXFP8 MoE training docs](https://github.com/pytorch/ao/blob/main/torchao/prototype/moe_training/README.md).
+For more details, see the [MXFP8 MoE training docs](https://github.com/pytorch/ao/blob/main/torchao/prototype/fp8_grouped_mm/README.md).

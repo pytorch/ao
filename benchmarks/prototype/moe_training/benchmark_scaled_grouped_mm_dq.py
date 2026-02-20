@@ -19,12 +19,12 @@ from benchmarks.utils import (
     bench_fwd_microseconds,
     profile_fwd_bwd,
 )
-from torchao.prototype.moe_training import _quantize_then_scaled_grouped_mm
-from torchao.prototype.moe_training.config import (
+from torchao.prototype.fp8_grouped_mm import _quantize_then_scaled_grouped_mm
+from torchao.prototype.fp8_grouped_mm.config import (
     FP8GroupedMMConfig,
     FP8GroupedMMRecipe,
 )
-from torchao.prototype.moe_training.utils import generate_jagged_offs
+from torchao.prototype.fp8_grouped_mm.utils import generate_jagged_offs
 from torchao.prototype.mx_formats.grouped_mm.config import (
     MXFP8GroupedMMConfig,
     MXFP8GroupedMMRecipe,

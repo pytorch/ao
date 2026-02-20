@@ -12,15 +12,15 @@ import torch
 if not (torch.cuda.is_available() and torch.cuda.get_device_capability()[0] >= 9):
     pytest.skip("Unsupported PyTorch version", allow_module_level=True)
 
-from torchao.prototype.moe_training.kernels.float8_rowwise import (
+from torchao.prototype.fp8_grouped_mm.kernels.float8_rowwise import (
     triton_fp8_rowwise_3d_transpose_rhs,
     triton_fp8_rowwise_3d_transpose_rhs_fused_reduction,
 )
-from torchao.prototype.moe_training.kernels.jagged_float8_scales import (
+from torchao.prototype.fp8_grouped_mm.kernels.jagged_float8_scales import (
     triton_fp8_per_group_colwise_scales,
     triton_fp8_per_group_rowwise_scales,
 )
-from torchao.prototype.moe_training.utils import (
+from torchao.prototype.fp8_grouped_mm.utils import (
     _is_column_major,
     generate_jagged_offs,
     torch_to_3d_rowwise_float8_transpose_rhs,

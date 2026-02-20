@@ -17,7 +17,7 @@ from tqdm import tqdm
 from benchmarks.utils import benchmark_cuda_function_in_microseconds
 from torchao.float8.config import ScalingGranularity
 from torchao.float8.float8_utils import tensor_to_scale, to_fp8_saturated
-from torchao.prototype.moe_training.utils import generate_jagged_offs
+from torchao.prototype.fp8_grouped_mm.utils import generate_jagged_offs
 from torchao.prototype.mx_formats.grouped_mm.kernels import (
     torch_to_blocked_2d_M_groups,
     torch_to_blocked_per_group_3d,

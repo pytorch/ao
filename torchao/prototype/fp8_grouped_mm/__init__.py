@@ -9,7 +9,9 @@ __all__ = [
 
 def __getattr__(name: str):
     if name == "_to_fp8_rowwise_then_scaled_grouped_mm":
-        mod = _importlib.import_module("torchao.prototype.moe_training.fp8_grouped_mm")
+        mod = _importlib.import_module(
+            "torchao.prototype.fp8_grouped_mm.fp8_grouped_mm"
+        )
         return mod._to_fp8_rowwise_then_scaled_grouped_mm
     if name == "_to_mxfp8_then_scaled_grouped_mm":
         mod = _importlib.import_module(

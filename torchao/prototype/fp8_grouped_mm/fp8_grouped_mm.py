@@ -10,11 +10,11 @@ import torch
 
 from torchao.float8.config import ScalingGranularity
 from torchao.float8.float8_utils import tensor_to_scale, to_fp8_saturated
-from torchao.prototype.moe_training.kernels import (
+from torchao.prototype.fp8_grouped_mm.kernels import (
     triton_fp8_per_group_colwise_scales,
     triton_fp8_rowwise_3d_transpose_rhs,
 )
-from torchao.prototype.moe_training.utils import _is_column_major
+from torchao.prototype.fp8_grouped_mm.utils import _is_column_major
 
 
 def _to_fp8_rowwise_then_scaled_grouped_mm(

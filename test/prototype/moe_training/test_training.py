@@ -12,7 +12,7 @@ if not torch.cuda.is_available() or torch.cuda.get_device_capability() < (8, 9):
     )
 
 from torchao.float8.float8_utils import compute_error
-from torchao.prototype.moe_training.config import (
+from torchao.prototype.fp8_grouped_mm.config import (
     FP8GroupedMMConfig,
     FP8GroupedMMRecipe,
 )

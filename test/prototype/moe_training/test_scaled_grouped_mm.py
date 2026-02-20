@@ -29,7 +29,7 @@ from torchao.float8.config import (
 from torchao.float8.float8_linear import matmul_with_hp_or_float8_args
 from torchao.float8.float8_training_tensor import LinearMMConfig
 from torchao.float8.float8_utils import compute_error, tensor_to_scale, to_fp8_saturated
-from torchao.prototype.moe_training.utils import (
+from torchao.prototype.fp8_grouped_mm.utils import (
     _to_mxfp8_per_group_colwise,
     _to_mxfp8_per_group_rowwise,
     generate_jagged_offs,

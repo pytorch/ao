@@ -9,7 +9,7 @@ import triton
 import triton.language as tl
 from torch.library import triton_op, wrap_triton
 
-from torchao.prototype.moe_training.utils import conditional_nostrict_trace
+from torchao.prototype.fp8_grouped_mm.utils import conditional_nostrict_trace
 from torchao.prototype.mx_formats.mx_tensor import MXTensor
 
 from .kernels import generate_permute_indices

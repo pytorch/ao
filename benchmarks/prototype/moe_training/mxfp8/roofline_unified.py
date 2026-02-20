@@ -18,7 +18,7 @@ import pandas as pd
 import torch
 from triton.testing import do_bench
 
-from torchao.prototype.moe_training.utils import generate_jagged_offs
+from torchao.prototype.fp8_grouped_mm.utils import generate_jagged_offs
 from torchao.prototype.mx_formats.config import (
     MXFP8Dim1CastKernelChoice,
     ScaleCalculationMode,
