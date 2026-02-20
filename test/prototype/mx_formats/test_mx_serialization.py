@@ -12,6 +12,7 @@ import pytest
 import torch
 import torch.nn as nn
 
+from torchao.prototype.mx_formats.config import QuantizeToNVFP4KernelChoice
 from torchao.prototype.mx_formats.inference_workflow import (
     MXDynamicActivationMXWeightConfig,
     NVFP4DynamicActivationNVFP4WeightConfig,
@@ -48,7 +49,7 @@ def test_serialization(recipe_name):
         else:
             assert recipe_name == "nvfp4", "unsupported"
             config = NVFP4DynamicActivationNVFP4WeightConfig(
-                use_triton_kernel=False,
+                quantize_to_nvfp4_kernel_choice=QuantizeToNVFP4KernelChoice.TORCH,
                 use_dynamic_per_tensor_scale=False,
             )
 

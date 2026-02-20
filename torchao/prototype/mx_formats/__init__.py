@@ -1,6 +1,7 @@
 from torchao.prototype.mx_formats.config import (
     MXLinearConfig,
     MXLinearRecipeName,
+    QuantizeToNVFP4KernelChoice,
 )
 
 # Note: Prototype and subject to change
@@ -21,5 +22,6 @@ __all__ = [
     "MXDynamicActivationMXWeightConfig",
     "NVFP4DynamicActivationNVFP4WeightConfig",
     "NVFP4ObservedLinear",
+    "QuantizeToNVFP4KernelChoice",
     "NVFP4WeightOnlyConfig",
 ]

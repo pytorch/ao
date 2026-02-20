@@ -12,6 +12,7 @@ import torch
 import torch.nn as nn
 from torch.profiler import ProfilerActivity, profile
 
+from torchao.prototype.mx_formats.config import QuantizeToNVFP4KernelChoice
 from torchao.prototype.mx_formats.inference_workflow import (
     MXDynamicActivationMXWeightConfig,
     NVFP4DynamicActivationNVFP4WeightConfig,
@@ -140,7 +141,10 @@ def test_inference_workflow_mx(
 @pytest.mark.parametrize("compile", [True, False])
 @pytest.mark.parametrize("quant_type", ["dynamic", "weight_only"])
 @pytest.mark.parametrize("inpt_dtype", [torch.bfloat16, torch.float32])
-@pytest.mark.parametrize("use_triton_kernel", [True, False])
+@pytest.mark.parametrize(
+    "quantize_to_nvfp4_kernel_choice",
+    [QuantizeToNVFP4KernelChoice.TORCH, QuantizeToNVFP4KernelChoice.TRITON],
+)
 @pytest.mark.parametrize("use_dynamic_per_tensor_scale", [True, False])
 @pytest.mark.parametrize(
     "shapes",
@@ -164,7 +168,7 @@ def test_inference_workflow_nvfp4(
     compile: bool,
     quant_type: str,
     inpt_dtype: torch.dtype,
-    use_triton_kernel: bool,
+    quantize_to_nvfp4_kernel_choice: QuantizeToNVFP4KernelChoice,
     use_dynamic_per_tensor_scale: bool,
     shapes: tuple,
     use_inference_mode: bool,
@@ -179,15 +183,22 @@ def test_inference_workflow_nvfp4(
         pytest.skip("CUDA capability >= 10.0 required for DYNAMIC float4 gemm")
     if quant_type == "weight_only" and compile:
         pytest.skip("TODO: weight_only quant currently errors w/ compile")
-    if quant_type == "weight_only" and use_triton_kernel:
+    if (
+        quant_type == "weight_only"
+        and quantize_to_nvfp4_kernel_choice == QuantizeToNVFP4KernelChoice.TRITON
+    ):
         pytest.skip("unsupported configuration")
 
     if use_inference_mode and (
-        shapes != (128, 64, 256) or inpt_dtype != torch.bfloat16 or use_triton_kernel
+        shapes != (128, 64, 256)
+        or inpt_dtype != torch.bfloat16
+        or quantize_to_nvfp4_kernel_choice == QuantizeToNVFP4KernelChoice.TRITON
     ):
         pytest.skip("skipping unnecessary tests for inference mode")
     if x_rank == 3 and (
-        shapes != (128, 64, 256) or inpt_dtype != torch.bfloat16 or use_triton_kernel
+        shapes != (128, 64, 256)
+        or inpt_dtype != torch.bfloat16
+        or quantize_to_nvfp4_kernel_choice == QuantizeToNVFP4KernelChoice.TRITON
     ):
         pytest.skip("skipping unnecessary tests for x_rank 3")
 
@@ -198,7 +209,7 @@ def test_inference_workflow_nvfp4(
 
     if quant_type == "dynamic":
         config = NVFP4DynamicActivationNVFP4WeightConfig(
-            use_triton_kernel=use_triton_kernel,
+            quantize_to_nvfp4_kernel_choice=quantize_to_nvfp4_kernel_choice,
             use_dynamic_per_tensor_scale=use_dynamic_per_tensor_scale,
         )
     else:
@@ -216,7 +227,10 @@ def test_inference_workflow_nvfp4(
 
     y_ref = m(x)
 
-    if use_triton_kernel and quant_type == "dynamic":
+    if (
+        quantize_to_nvfp4_kernel_choice == QuantizeToNVFP4KernelChoice.TRITON
+        and quant_type == "dynamic"
+    ):
         with cuda_kernel_profiler("quantize_nvfp4_triton_kernel") as result:
             y_mx = m_mx(x)
         assert result["found"], "Expected quantize_nvfp4 kernel to be found"
@@ -391,7 +405,7 @@ def test_nvfp4_static_vs_dynamic_quantization():
     quantize_(
         m_dynamic,
         NVFP4DynamicActivationNVFP4WeightConfig(
-            use_triton_kernel=False,
+            quantize_to_nvfp4_kernel_choice=QuantizeToNVFP4KernelChoice.TORCH,
             use_dynamic_per_tensor_scale=True,
         ),
     )
@@ -404,7 +418,7 @@ def test_nvfp4_static_vs_dynamic_quantization():
         m_static,
         NVFP4DynamicActivationNVFP4WeightConfig(
             step="prepare",
-            use_triton_kernel=False,
+            quantize_to_nvfp4_kernel_choice=QuantizeToNVFP4KernelChoice.TORCH,
         ),
     )
     # Calibrate with the same input used for testing
@@ -414,7 +428,7 @@ def test_nvfp4_static_vs_dynamic_quantization():
         m_static,
         NVFP4DynamicActivationNVFP4WeightConfig(
             step="convert",
-            use_triton_kernel=False,
+            quantize_to_nvfp4_kernel_choice=QuantizeToNVFP4KernelChoice.TORCH,
         ),
     )
 
