@@ -49,6 +49,9 @@ class QuantizeToNVFP4KernelChoice(str, Enum):
     TRITON = "triton"
     """Use triton high precision to nvfp4 quantize kernel"""
 
+    FLASHINFER = "flashinfer"
+    """Use flashinfer bf16 to nvfp4 quantize kernel"""
+
 
 torch.serialization.add_safe_globals([QuantizeToNVFP4KernelChoice])
 
