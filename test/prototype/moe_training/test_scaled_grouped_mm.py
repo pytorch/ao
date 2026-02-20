@@ -29,13 +29,16 @@ from torchao.float8.config import (
 from torchao.float8.float8_linear import matmul_with_hp_or_float8_args
 from torchao.float8.float8_training_tensor import LinearMMConfig
 from torchao.float8.float8_utils import compute_error, tensor_to_scale, to_fp8_saturated
-from torchao.prototype.moe_training.conversion_utils import MoEScalingType
-from torchao.prototype.moe_training.scaled_grouped_mm import (
+from torchao.prototype.moe_training.config import (
+    MXFP8GroupedMMConfig,
+    MXFP8GroupedMMRecipe,
+)
+from torchao.prototype.moe_training.mxfp8_grouped_mm import (
     _emulated_mxfp8_scaled_grouped_mm_2d_2d,
     _emulated_mxfp8_scaled_grouped_mm_2d_3d,
-    _quantize_then_scaled_grouped_mm,
     _to_mxfp8_then_scaled_grouped_mm,
 )
+from torchao.prototype.moe_training.tensor import _quantize_then_scaled_grouped_mm
 from torchao.prototype.moe_training.utils import (
     _to_mxfp8_per_group_colwise,
     _to_mxfp8_per_group_rowwise,
@@ -83,12 +86,12 @@ def test_valid_scaled_grouped_mm_2d_3d(m, n, k, n_groups):
     b_t = b.contiguous().transpose(-2, -1).requires_grad_(True)
 
     # Compute output.
+    config = MXFP8GroupedMMConfig.from_recipe(MXFP8GroupedMMRecipe.MXFP8_EMULATED_RCEIL)
     out = _quantize_then_scaled_grouped_mm(
         a,
         b_t,
         offs=offs,
-        out_dtype=out_dtype,
-        scaling_type=MoEScalingType.FP8_ROWWISE,
+        config=config,
     )
 
     # Validate result.
@@ -125,7 +128,6 @@ def test_K_or_N_dim_not_multiple_of_16(m, n, k):
     # - Last 2 dims of B must be divisible by 16.
     if n % 16 == 0 and k % 16 == 0:
         return
-    out_dtype = torch.bfloat16
     device = "cuda"
     n_groups = 4
     a = torch.randn(
@@ -148,16 +150,12 @@ def test_K_or_N_dim_not_multiple_of_16(m, n, k):
     b_t = b.transpose(-2, -1)
     b_t = b_t.transpose(-2, -1).contiguous().transpose(-2, -1)
 
+    config = MXFP8GroupedMMConfig.from_recipe(MXFP8GroupedMMRecipe.MXFP8_EMULATED_RCEIL)
     offs = torch.arange(m, n_groups * m + 1, m, device="cuda", dtype=torch.int32)
 
     # Compute output.
     with pytest.raises(AssertionError):
-        _quantize_then_scaled_grouped_mm(
-            a,
-            b_t,
-            offs=offs,
-            out_dtype=out_dtype,
-        )
+        _quantize_then_scaled_grouped_mm(a, b_t, offs=offs, config=config)
 
 
 def compute_reference_forward(
