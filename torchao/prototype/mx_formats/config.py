@@ -47,7 +47,7 @@ class MXLinearRecipeName(Enum):
     MXFP4_CUTLASS = "mxfp4_cutlass"
 
 
-# register as pytree constant so we can use dynamo nonstrict trace in torchao.prototype.moe_training.ep
+# register as pytree constant so we can use dynamo nonstrict trace in torchao.prototype.mx_formats.expert_parallel
 @register_as_pytree_constant
 class ScaleCalculationMode(Enum):
     """

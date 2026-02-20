@@ -20,7 +20,7 @@ In this tutorial, we will show 2 ways to use MXFP8 expert parallel training:
 MXFP8 Expert Parallel APIs
 --------------------------
 
-The key torchao APIs for MXFP8 expert parallelism are located in :code:`torchao.prototype.moe_training.ep`.
+The key torchao APIs for MXFP8 expert parallelism are located in :code:`torchao.prototype.mx_formats.expert_parallel`.
 
 These are all differentiable autograd functions which can be chained together:
 
@@ -265,7 +265,7 @@ which uses torchao MXFP8 expert parallel autograd functions.
 
     # Use torchao mxfp8 autograd functions as building blocks
     # to define custom MXFP8 Expert Parallel implementation!
-    from torchao.prototype.moe_training.ep import (
+    from torchao.prototype.mx_formats.expert_parallel import (
         a2a_combine_hp_fwd_mxfp8_bwd,
         a2a_dispatch_mxfp8_fwd_hp_bwd,
         permute_mxfp8_fwd_hp_bwd,
@@ -449,7 +449,7 @@ Below is a complete example showing how to apply MXFP8 expert parallelism to a s
     from torch.distributed.tensor import DTensor, Shard, distribute_tensor, distribute_module
     from torch.distributed.tensor.parallel import ParallelStyle, parallelize_module
 
-    from torchao.prototype.moe_training.ep import (
+    from torchao.prototype.mx_formats.expert_parallel import (
         a2a_combine_hp_fwd_mxfp8_bwd,
         a2a_dispatch_mxfp8_fwd_hp_bwd,
         permute_mxfp8_fwd_hp_bwd,

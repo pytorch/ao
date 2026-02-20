@@ -19,7 +19,7 @@ from torch.testing._internal.common_distributed import MultiProcessTestCase
 from torch.testing._internal.common_utils import run_tests
 
 from test.prototype.moe_training.testing_utils import generate_split_sizes
-from torchao.prototype.moe_training.ep import a2a_dispatch_mxfp8_fwd_hp_bwd
+from torchao.prototype.mx_formats.expert_parallel import a2a_dispatch_mxfp8_fwd_hp_bwd
 from torchao.prototype.mx_formats.mx_tensor import MXTensor
 from torchao.quantization.utils import compute_error
 from torchao.utils import is_sm_at_least_100

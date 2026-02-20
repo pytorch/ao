@@ -11,7 +11,7 @@ from typing import Optional
 import torch
 from torch import nn
 
-from torchao.prototype.moe_training.config import GroupedMMConfig
+from torchao.core.config import AOBaseConfig
 from torchao.prototype.mx_formats.config import ScaleCalculationMode
 from torchao.quantization.quantize_.common import KernelPreference
 from torchao.quantization.transform_module import register_quantize_module_handler
@@ -27,7 +27,13 @@ class MXFP8GroupedMMRecipe(Enum):
     MXFP8_EMULATED_RCEIL = "mxfp8_emulated_rceil"
 
 
-# register as pytree constant so we can use dynamo nonstrict trace in torchao.prototype.moe_training.ep
+class GroupedMMConfig(AOBaseConfig):
+    """Base configuration for grouped matrix multiplication. Not intended to be used directly."""
+
+    pass
+
+
+# register as pytree constant so we can use dynamo nonstrict trace in torchao.prototype.mx_formats.expert_parallel
 @register_as_pytree_constant
 @dataclass
 class MXFP8GroupedMMConfig(GroupedMMConfig):

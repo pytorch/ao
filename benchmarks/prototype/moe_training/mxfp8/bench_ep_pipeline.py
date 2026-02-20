@@ -30,14 +30,14 @@ repo_root = Path(__file__).resolve().parent.parent.parent.parent.parent
 sys.path.insert(0, str(repo_root))
 
 from benchmarks.utils import profile_fn
-from torchao.prototype.moe_training.ep import (
+from torchao.prototype.mx_formats.expert_parallel import (
     a2a_combine_hp_fwd_mxfp8_bwd,
     a2a_dispatch_mxfp8_fwd_hp_bwd,
     permute_mxfp8_fwd_hp_bwd,
     unpermute_hp_fwd_mxfp8_bwd,
 )
-from torchao.prototype.moe_training.ep.permute import _permute_bf16
-from torchao.prototype.moe_training.ep.unpermute import _unpermute_bf16
+from torchao.prototype.mx_formats.expert_parallel.permute import _permute_bf16
+from torchao.prototype.mx_formats.expert_parallel.unpermute import _unpermute_bf16
 from torchao.prototype.mx_formats.grouped_mm import (
     _to_mxfp8_then_scaled_grouped_mm,
 )

@@ -15,6 +15,7 @@ def __getattr__(name: str):
         mod = _importlib.import_module(
             "torchao.prototype.mx_formats.grouped_mm.mxfp8_grouped_mm"
         )
+        mod = _importlib.import_module("torchao.prototype.mx_formats.grouped_mm")
         return mod._to_mxfp8_then_scaled_grouped_mm
     if name == "_quantize_then_scaled_grouped_mm":
         mod = _importlib.import_module("torchao.prototype.mx_formats.grouped_mm.tensor")

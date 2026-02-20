@@ -10,8 +10,8 @@ if not (
 ):
     pytest.skip("Test requires CUDA 12.8+ with SM >= 100", allow_module_level=True)
 
-from torchao.prototype.moe_training.ep import permute_mxfp8_fwd_hp_bwd
-from torchao.prototype.moe_training.ep.permute import _permute_bf16
+from torchao.prototype.mx_formats.expert_parallel import permute_mxfp8_fwd_hp_bwd
+from torchao.prototype.mx_formats.expert_parallel.permute import _permute_bf16
 from torchao.prototype.mx_formats.mx_tensor import MXTensor
 from torchao.quantization.utils import compute_error
 
