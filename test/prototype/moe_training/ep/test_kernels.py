@@ -16,8 +16,8 @@ if not (
 ):
     pytest.skip("Test requires CUDA 12.8+ with SM >= 100", allow_module_level=True)
 
-from torchao.prototype.moe_training.ep.kernels import generate_permute_indices
-from torchao.prototype.moe_training.ep.permute import _triton_permute_bwd
+from torchao.prototype.mx_formats.ep.kernels import generate_permute_indices
+from torchao.prototype.mx_formats.ep.permute import _triton_permute_bwd
 
 
 @pytest.mark.parametrize(

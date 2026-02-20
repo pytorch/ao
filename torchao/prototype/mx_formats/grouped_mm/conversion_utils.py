@@ -8,7 +8,7 @@ from typing import Callable, Optional
 
 from torch import nn
 
-from torchao.prototype.moe_training.config import (
+from torchao.prototype.mx_formats.grouped_mm.config import (
     GroupedMMConfig,
 )
 

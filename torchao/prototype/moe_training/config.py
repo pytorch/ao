@@ -11,14 +11,8 @@ from typing import Optional
 import torch
 from torch import nn
 
-from torchao.core.config import AOBaseConfig
+from torchao.prototype.mx_formats.grouped_mm.config import GroupedMMConfig
 from torchao.quantization.transform_module import register_quantize_module_handler
-
-
-class GroupedMMConfig(AOBaseConfig):
-    """Base configuration for grouped matrix multiplication. Not intended to be used directly."""
-
-    pass
 
 
 class FP8GroupedMMRecipe(Enum):

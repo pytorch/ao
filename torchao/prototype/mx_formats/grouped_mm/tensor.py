@@ -17,7 +17,6 @@ from torch.distributed.fsdp import MixedPrecisionPolicy
 
 from torchao.prototype.moe_training.config import (
     FP8GroupedMMConfig,
-    GroupedMMConfig,
 )
 from torchao.prototype.moe_training.fp8_grouped_mm import (
     _to_fp8_rowwise_then_scaled_grouped_mm,
@@ -26,6 +25,7 @@ from torchao.prototype.mx_formats.grouped_mm import (
     _to_mxfp8_then_scaled_grouped_mm,
 )
 from torchao.prototype.mx_formats.grouped_mm.config import (
+    GroupedMMConfig,
     MXFP8GroupedMMConfig,
 )
 

@@ -132,7 +132,7 @@ class GroupedExperts(nn.Module):
 # ============================================================================
 
 # requires torchao nightly build for CUDA 12.8+
-from torchao.prototype.moe_training.ep import (
+from torchao.prototype.mx_formats.ep import (
     a2a_combine_hp_fwd_mxfp8_bwd,
     a2a_dispatch_mxfp8_fwd_hp_bwd,
     permute_mxfp8_fwd_hp_bwd,
