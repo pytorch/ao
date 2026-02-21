@@ -21,8 +21,11 @@ from torchao.prototype.moe_training.kernels.jagged_float8_scales import (
     triton_fp8_per_group_rowwise_scales,
 )
 from torchao.prototype.moe_training.kernels.mxfp8 import (
+    _mxfp8_cuda_kernels_available,
+    fused_pad_token_groups_cuda,
     mx_block_rearrange_2d_M_groups_cuda,
     mxfp8_quantize_cuda_3d,
+    torch_pad_token_groups,
     torch_to_blocked_2d_K_groups,
     torch_to_blocked_2d_M_groups,
     torch_to_blocked_per_group_3d,
@@ -405,3 +408,47 @@ def test_cuda_mx_dim1_3d_numerics(E, N, K, input_dtype, scaling_mode):
     # Check quantized values
     torch.testing.assert_close(y_d1, y_d1_ref, rtol=0, atol=0)
     assert y_d1.stride() == y_d1_ref.stride(), "quantized tensor strides do not match"
+
+
+@pytest.mark.skipif(
+    not _mxfp8_cuda_kernels_available,
+    reason="CUDA kernel requires sm_100 and CUDA 12.8+",
+)
+@skip_if_rocm("ROCm enablement in progress")
+@pytest.mark.parametrize("num_tokens", [128, 157, 4096])
+@pytest.mark.parametrize("dim", [7168])
+@pytest.mark.parametrize("num_groups", [1, 2, 4, 8])
+@pytest.mark.parametrize("alignment_size", [32])
+@pytest.mark.parametrize("dtype", [torch.bfloat16])
+def test_cuda_fused_pad_token_groups(
+    num_tokens: int, dim: int, num_groups: int, alignment_size: int, dtype: torch.dtype
+):
+    """Test fused_pad_token_groups_cuda kernel for padding token groups to alignment."""
+    device = "cuda"
+
+    # Create input activations
+    inputs = torch.randn(num_tokens, dim, dtype=dtype, device=device)
+
+    # Generate group offsets (end indices for each group)
+    group_offsets = generate_jagged_offs(
+        num_groups, num_tokens, multiple_of=1, device=device
+    )
+
+    # Get reference output
+    ref_padded_tokens, ref_padded_offsets = torch_pad_token_groups(
+        inputs, group_offsets, alignment_size
+    )
+
+    # Run CUDA kernel
+    kernel_padded_tokens, kernel_padded_offsets = fused_pad_token_groups_cuda(
+        inputs, group_offsets, alignment_size
+    )
+
+    # All implementations now use the same upper bound output size
+    # Verify outputs match
+    assert torch.allclose(ref_padded_tokens, kernel_padded_tokens, rtol=0, atol=1e-5), (
+        "Padded tokens do not match"
+    )
+    assert torch.equal(ref_padded_offsets, kernel_padded_offsets), (
+        "Padded group offsets do not match"
+    )
