@@ -12,10 +12,7 @@ import importlib
 
 import torch
 
-from torchao.prototype.attention.config import (
-    AttentionBackend,
-    LowPrecisionAttentionConfig,
-)
+from torchao.prototype.attention.config import AttentionBackend
 
 
 def _is_hopper() -> bool:
@@ -91,21 +88,3 @@ def _check_backend_available(backend: AttentionBackend) -> None:
             )
     else:
         raise ValueError(f"Unknown backend: {backend}")
-
-
-def _check_config_supported(
-    config: LowPrecisionAttentionConfig, backend: AttentionBackend
-) -> None:
-    """
-    Check if the config options are supported by the backend.
-
-    Args:
-        config: The configuration to check.
-        backend: The backend to check against.
-
-    Raises:
-        ValueError: If an option is not supported by the backend.
-    """
-    if config.fuse_rope:
-        if backend not in (AttentionBackend.FP8_FA3):
-            raise ValueError("fuse_rope requires FP8_FA3 backend")

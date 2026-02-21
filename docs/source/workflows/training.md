@@ -46,6 +46,7 @@ and up to [**1.25x at 8 GPU / 8B parameter count scale**](#training-benchmarks),
 :language: python
 ```
 
+(training-benchmarks)=
 ### e2e training benchmarks
 
 [Torchtitan](https://github.com/pytorch/torchtitan) was used to benchmark float8 training performance.

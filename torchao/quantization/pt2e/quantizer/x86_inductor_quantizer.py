@@ -1631,7 +1631,7 @@ class X86InductorQuantizer(Quantizer):
 import torch._inductor.config
 
 from torchao.quantization.pt2e.inductor_passes.lowering import (
-    _register_dequantize_fp8_lowering,
+    _register_quantize_dequantize_fp8_lowering,
 )
 from torchao.quantization.pt2e.inductor_passes.x86 import (
     _register_quantization_weight_pack_pass,
@@ -1642,4 +1642,4 @@ from torchao.utils import torch_version_at_least
 if torch_version_at_least("2.8.0"):
     torch._inductor.config.pre_grad_custom_pass = quant_lift_up
     _register_quantization_weight_pack_pass()
-    _register_dequantize_fp8_lowering()
+    _register_quantize_dequantize_fp8_lowering()

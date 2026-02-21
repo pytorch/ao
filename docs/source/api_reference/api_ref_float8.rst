@@ -1,4 +1,4 @@
-.. _api_quantization:
+.. _api_float8:
 
 ====================
 torchao.float8

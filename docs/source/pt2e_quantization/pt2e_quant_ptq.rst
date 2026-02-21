@@ -591,6 +591,8 @@ to get a model that runs on real devices, we'll need to lower the model.
 For example, for the models that run on edge devices, we can lower with delegation and ExecuTorch runtime
 operators.
 
+.. _pt2e_quant_ptq-conclusion:
+
 Conclusion
 --------------
 

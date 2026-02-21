@@ -5,24 +5,32 @@
 # LICENSE file in the root directory of this source tree.
 
 """
-Benchmark script for evaluating FP8 attention accuracy on FLUX.1-schnell.
+Benchmark script for evaluating attention backends on FLUX.1-schnell.
 
-Compares regular inference with low-precision FP8 attention using LPIPS
-(perceptual similarity). Uses DrawBench dataset for standardized prompt
-evaluation.
+Compares two selectable attention backends using LPIPS (perceptual similarity).
+Uses DrawBench dataset for standardized prompt evaluation.
+
+Available backends:
+    fa2      - Flash Attention 2 (default SDPA)
+    fa3      - Flash Attention 3
+    fa3_fp8  - Flash Attention 3 with FP8 quantization (fused RoPE + FP8 SDPA)
+    fa4      - Flash Attention 4
 
 Usage:
-    # Default (auto-selected backend), 50 prompts
-    python eval_flux_sdpa.py --num_prompts 50
+    # Compare FA3 vs FA3 FP8 (default)
+    python eval_flux_model.py --debug_prompt "A red car"
 
-    # With torch.compile
-    python eval_flux_sdpa.py --compile
+    # Compare FA2 vs FA3
+    python eval_flux_model.py --baseline fa2 --test fa3
+
+    # Compare FA3 vs FA4
+    python eval_flux_model.py --baseline fa3 --test fa4
 
     # Full benchmark with 200 prompts
-    python eval_flux_sdpa.py --num_prompts 200
+    python eval_flux_model.py --num_prompts 200
 
-    # Debug with single prompt
-    python eval_flux_sdpa.py --debug_prompt "A photo of an astronaut riding a horse"
+    # With torch.compile
+    python eval_flux_model.py --compile
 """
 
 import argparse
@@ -36,25 +44,62 @@ import torch
 from datasets import load_dataset
 from diffusers import FluxPipeline
 from PIL import Image
-
-from torchao.prototype.attention import (
-    AttentionBackend,
-    LowPrecisionAttentionConfig,
-    apply_low_precision_attention,
+from torch.nn.attention import (
+    activate_flash_attention_impl,
+    restore_flash_attention_impl,
 )
 
+from torchao.prototype.attention import apply_low_precision_attention
+
 # =============================================================================
-# Configuration
+# Backend Configuration
 # =============================================================================
 
-# Modify this config to change the low-precision attention behavior.
-# Default: None (auto-selects the best available backend).
-# Example: LowPrecisionAttentionConfig(backend=AttentionBackend.FP8_FA3)
-ATTENTION_CONFIG = LowPrecisionAttentionConfig(backend=AttentionBackend.FP8_FA3)
+BACKENDS = {
+    "fa2": {"flash_impl": None, "fp8": False},
+    "fa3": {"flash_impl": "FA3", "fp8": False},
+    "fa3_fp8": {"flash_impl": "FA3", "fp8": True},
+    "fa4": {"flash_impl": "FA4", "fp8": False},
+}
 
 IMAGE_SIZE = (512, 512)  # (width, height) - resize for consistent LPIPS
 RANDOM_SEED = 42
 MODEL_ID = "black-forest-labs/FLUX.1-schnell"
+
+
+def setup_backend(pipe, backend_name, compile_flag, orig_transformer):
+    """Set up a backend for a benchmark phase.
+
+    For FP8 backends (fa3_fp8): applies low-precision attention which
+    handles compilation and the fusion pass internally.
+
+    For other backends: optionally compiles if compile_flag is set.
+
+    Args:
+        pipe: The diffusion pipeline.
+        backend_name: Name of the backend.
+        compile_flag: Whether --compile was passed.
+        orig_transformer: The original (uncompiled) transformer.
+
+    Returns:
+        flash_impl to pass to generate_image (None for FP8 backends
+        since FA3 is managed internally by the wrapper).
+    """
+    cfg = BACKENDS[backend_name]
+    pipe.transformer = orig_transformer
+
+    if cfg["fp8"]:
+        print(f"Applying low-precision FP8 attention ({backend_name})...")
+        pipe.transformer = apply_low_precision_attention(pipe.transformer)
+        # Return the flash impl (e.g. "FA3") so generate_image activates it
+        # for the entire pipe() call.  This keeps non-transformer SDPA calls
+        # (VAE, text encoder) consistent with the baseline FA3 backend.
+        return cfg["flash_impl"]
+    else:
+        if compile_flag:
+            print(f"Compiling transformer with torch.compile ({backend_name})...")
+            pipe.transformer = torch.compile(pipe.transformer)
+        return cfg["flash_impl"]
 
 
 # =============================================================================
@@ -85,16 +130,23 @@ def generate_image(
     seed: int,
     device: str,
     num_inference_steps: int,
+    flash_impl: Optional[str] = None,
 ) -> Image.Image:
     """Generate an image from a prompt with deterministic seed."""
     generator = torch.Generator(device=device).manual_seed(seed)
 
-    image = pipe(
-        prompt=prompt,
-        num_inference_steps=num_inference_steps,
-        guidance_scale=3.5,
-        generator=generator,
-    ).images[0]
+    if flash_impl:
+        activate_flash_attention_impl(flash_impl)
+    try:
+        image = pipe(
+            prompt=prompt,
+            num_inference_steps=num_inference_steps,
+            guidance_scale=3.5,
+            generator=generator,
+        ).images[0]
+    finally:
+        if flash_impl:
+            restore_flash_attention_impl()
 
     if IMAGE_SIZE is not None:
         image = image.resize(IMAGE_SIZE, Image.BICUBIC)
@@ -109,6 +161,8 @@ def generate_image(
 
 @torch.inference_mode()
 def run_benchmark(
+    baseline_backend: str = "fa3",
+    test_backend: str = "fa3_fp8",
     num_prompts: int = 50,
     num_inference_steps: int = 20,
     debug_prompt: Optional[str] = None,
@@ -116,20 +170,21 @@ def run_benchmark(
     compile: bool = False,
 ):
     """
-    Run the FP8 attention accuracy benchmark on FLUX.1-schnell.
+    Run the attention backend benchmark on FLUX.1-schnell.
 
     Args:
-        num_prompts: Number of prompts to use (50 or 200 recommended)
-        num_inference_steps: Number of diffusion steps per image
-        debug_prompt: If specified, use only this prompt (for debugging)
-        warmup_iters: Number of warmup iterations before benchmarking
-        compile: If True, wrap the model with torch.compile
+        baseline_backend: Baseline attention backend name.
+        test_backend: Test attention backend name.
+        num_prompts: Number of prompts to use (50 or 200 recommended).
+        num_inference_steps: Number of diffusion steps per image.
+        debug_prompt: If specified, use only this prompt (for debugging).
+        warmup_iters: Number of warmup iterations before benchmarking.
+        compile: If True, wrap the model with torch.compile.
     """
-    config_str = str(ATTENTION_CONFIG) if ATTENTION_CONFIG is not None else "auto"
     compile_str = " + torch.compile" if compile else ""
     print("=" * 80)
-    print("FP8 Attention Benchmark for FLUX.1-schnell")
-    print(f"Config: {config_str}{compile_str}")
+    print("Attention Backend Benchmark for FLUX.1-schnell")
+    print(f"Baseline: {baseline_backend}  |  Test: {test_backend}{compile_str}")
     print("=" * 80)
 
     torch.manual_seed(RANDOM_SEED)
@@ -167,34 +222,44 @@ def run_benchmark(
 
     orig_transformer = pipe.transformer
 
-    # ----- Optionally compile for baseline -----
     if compile:
-        print("\nCompiling transformer and vae.decode with torch.compile...")
-        pipe.transformer = torch.compile(orig_transformer)
         pipe.vae.decode = torch.compile(pipe.vae.decode)
 
-    # ----- Warmup -----
-    print(f"\nWarming up with {warmup_iters} iterations...")
+    # ----- Phase 1: Baseline backend -----
+    print("\n" + "-" * 80)
+    print(f"Phase 1: Generating images ({baseline_backend})")
+    print("-" * 80)
+
+    baseline_flash_impl = setup_backend(
+        pipe, baseline_backend, compile, orig_transformer
+    )
+
+    print(f"Warming up {baseline_backend} with {warmup_iters} iterations...")
     warmup_prompt = prompts[0]
     for i in range(warmup_iters):
         _ = generate_image(
-            pipe, warmup_prompt, RANDOM_SEED, device, num_inference_steps
+            pipe,
+            warmup_prompt,
+            RANDOM_SEED,
+            device,
+            num_inference_steps,
+            flash_impl=baseline_flash_impl,
         )
         print(f"  Warmup {i + 1}/{warmup_iters} complete")
-
-    # ----- Generate baseline images -----
-    print("\n" + "-" * 80)
-    print("Phase 1: Generating baseline images (regular SDPA)")
-    print("-" * 80)
 
     baseline_data = []
     baseline_times = []
 
     for idx, prompt in enumerate(prompts):
-        print(f"[{idx + 1}/{len(prompts)}] Generating baseline: {prompt[:50]}...")
+        print(f"[{idx + 1}/{len(prompts)}] {baseline_backend}: {prompt[:50]}...")
         t0 = time.time()
         baseline_img = generate_image(
-            pipe, prompt, RANDOM_SEED, device, num_inference_steps
+            pipe,
+            prompt,
+            RANDOM_SEED,
+            device,
+            num_inference_steps,
+            flash_impl=baseline_flash_impl,
         )
         t1 = time.time()
 
@@ -204,52 +269,55 @@ def run_benchmark(
 
     avg_baseline_time = sum(baseline_times) / len(baseline_times)
     print(
-        f"\nBaseline generation complete. Avg time per image: {avg_baseline_time:.2f}s"
+        f"\n{baseline_backend} complete. Avg time per image: {avg_baseline_time:.2f}s"
     )
 
-    # ----- Apply low-precision attention -----
+    # ----- Phase 2: Test backend -----
     print("\n" + "-" * 80)
-    print("Phase 2: Generating FP8 attention images")
+    print(f"Phase 2: Generating images ({test_backend})")
     print("-" * 80)
 
-    if compile:
-        print("Restoring original transformer before applying FP8 attention...")
-        pipe.transformer = orig_transformer
+    test_flash_impl = setup_backend(
+        pipe, test_backend, compile, orig_transformer
+    )
 
-    print(f"Applying low-precision attention (config: {config_str})...")
-    apply_low_precision_attention(pipe.transformer, ATTENTION_CONFIG)
-
-    if compile:
-        print("\nCompiling FP8 attention transformer with torch.compile...")
-        pipe.transformer = torch.compile(pipe.transformer)
-
-    # Warmup FP8 path
-    print(f"Warming up FP8 attention with {warmup_iters} iterations...")
+    print(f"Warming up {test_backend} with {warmup_iters} iterations...")
     for i in range(warmup_iters):
         _ = generate_image(
-            pipe, warmup_prompt, RANDOM_SEED, device, num_inference_steps
+            pipe,
+            warmup_prompt,
+            RANDOM_SEED,
+            device,
+            num_inference_steps,
+            flash_impl=test_flash_impl,
         )
-        print(f"  FP8 warmup {i + 1}/{warmup_iters} complete")
+        print(f"  Warmup {i + 1}/{warmup_iters} complete")
 
-    # Generate FP8 images and compute LPIPS
     lpips_values = []
-    fp8_times = []
+    test_times = []
 
     for idx, (prompt, baseline_tensor) in enumerate(baseline_data):
-        print(f"[{idx + 1}/{len(prompts)}] Generating FP8 attention: {prompt[:50]}...")
+        print(f"[{idx + 1}/{len(prompts)}] {test_backend}: {prompt[:50]}...")
 
         t0 = time.time()
-        fp8_img = generate_image(pipe, prompt, RANDOM_SEED, device, num_inference_steps)
+        test_img = generate_image(
+            pipe,
+            prompt,
+            RANDOM_SEED,
+            device,
+            num_inference_steps,
+            flash_impl=test_flash_impl,
+        )
         t1 = time.time()
-        fp8_times.append(t1 - t0)
+        test_times.append(t1 - t0)
 
-        fp8_tensor = pil_to_lpips_tensor(fp8_img, device)
-        lpips_value = loss_fn(baseline_tensor, fp8_tensor).item()
+        test_tensor = pil_to_lpips_tensor(test_img, device)
+        lpips_value = loss_fn(baseline_tensor, test_tensor).item()
         lpips_values.append(lpips_value)
 
         print(f"    LPIPS: {lpips_value:.4f}, Time: {t1 - t0:.2f}s")
 
-    avg_fp8_time = sum(fp8_times) / len(fp8_times)
+    avg_test_time = sum(test_times) / len(test_times)
 
     # ----- Results -----
     print("\n" + "=" * 80)
@@ -268,12 +336,13 @@ def run_benchmark(
     print(f"  Max LPIPS:     {max_lpips:.4f}")
 
     print("\nTiming Statistics:")
-    print(f"  Avg baseline time:      {avg_baseline_time:.2f}s per image")
-    print(f"  Avg FP8 attention time: {avg_fp8_time:.2f}s per image")
-    print(f"  Speedup:                {avg_baseline_time / avg_fp8_time:.2f}x")
+    print(f"  Avg {baseline_backend} time:  {avg_baseline_time:.2f}s per image")
+    print(f"  Avg {test_backend} time: {avg_test_time:.2f}s per image")
+    print(f"  Speedup:                {avg_baseline_time / avg_test_time:.2f}x")
 
     print("\nBenchmark Configuration:")
-    print(f"  Attention config:  {config_str}")
+    print(f"  Baseline backend:  {baseline_backend}")
+    print(f"  Test backend:      {test_backend}")
     print(f"  torch.compile:     {compile}")
     print(f"  Model:             {MODEL_ID}")
     print(f"  Prompts tested:    {len(prompts)}")
@@ -287,14 +356,28 @@ def run_benchmark(
         "std_lpips": std_lpips,
         "min_lpips": min_lpips,
         "max_lpips": max_lpips,
-        "speedup": avg_baseline_time / avg_fp8_time,
+        "speedup": avg_baseline_time / avg_test_time,
         "lpips_values": lpips_values,
     }
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Benchmark FP8 attention accuracy on FLUX.1-schnell"
+        description="Benchmark attention backends on FLUX.1-schnell"
+    )
+    parser.add_argument(
+        "--baseline",
+        type=str,
+        default="fa3",
+        choices=list(BACKENDS.keys()),
+        help="Baseline attention backend",
+    )
+    parser.add_argument(
+        "--test",
+        type=str,
+        default="fa3_fp8",
+        choices=list(BACKENDS.keys()),
+        help="Test attention backend",
     )
     parser.add_argument(
         "--num_prompts",
@@ -323,12 +406,14 @@ def main():
     parser.add_argument(
         "--compile",
         action="store_true",
-        help="Wrap the model with torch.compile for both baseline and FP8 modes",
+        help="Wrap the model with torch.compile for both backends",
     )
 
     args = parser.parse_args()
 
     run_benchmark(
+        baseline_backend=args.baseline,
+        test_backend=args.test,
         num_prompts=args.num_prompts,
         num_inference_steps=args.num_inference_steps,
         debug_prompt=args.debug_prompt,

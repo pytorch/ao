@@ -734,6 +734,11 @@ def fold_bn_weights_into_conv_node(
         _assign_attr(fused_bias, m, bias_attr_name, _AttrKind.PARAMETER)
         with m.graph.inserting_before(conv_node):
             get_bias_node = m.graph.get_attr(bias_attr_name)
+        if "val" in conv_node.meta:
+            get_bias_node.meta["val"] = conv_node.meta["val"].fake_mode.from_tensor(
+                fused_bias,
+                static_shapes=True,
+            )
         # NOTE: here we assume the bias of conv is not quantized!
         conv_args[2] = get_bias_node
     conv_node.args = tuple(conv_args)
