@@ -3,10 +3,11 @@ from torch.nn import functional as F
 from triton.testing import do_bench
 
 
-def bench_fwd_bwd_microseconds(
-    fn, *args, labels=None, use_compile=False, fullgraph=True, **kwargs
-):
-    assert labels is not None
+def bench_fwd_bwd_microseconds(fn, *args, use_compile=False, fullgraph=True, **kwargs):
+    # Run once to get output shape for labels
+    with torch.no_grad():
+        out_sample = fn(*args, **kwargs)
+    labels = torch.ones_like(out_sample)
 
     def fwd_bwd(*args, **kwargs):
         out = fn(*args, **kwargs)
@@ -40,13 +41,16 @@ def bench_fwd_microseconds(fn, *args, use_compile=False, fullgraph=True, **kwarg
 def profile_fwd_bwd(
     fn,
     *args,
-    labels=None,
     use_compile=False,
     fullgraph=True,
     profile_name="profile",
     **kwargs,
 ):
-    assert labels is not None
+    # Run once to get output shape for labels
+    with torch.no_grad():
+        out_sample = fn(*args, **kwargs)
+    labels = torch.ones_like(out_sample)
+
     fn = torch.compile(fn, fullgraph=fullgraph) if use_compile else fn
     wait, warmup, active = 1, 3, 1
     total_steps = wait + warmup + active
