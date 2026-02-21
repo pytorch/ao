@@ -30,6 +30,8 @@ See the torchtitan `docs <https://github.com/pytorch/torchtitan>`__ for addition
 You can use this workflow to get started quickly with a "batteries included" experience. Users commonly
 fork torchtitan and build on top of it when they're ready.
 
+.. _pretraining-torchtitan-prerequisites:
+
 Prerequisites
 ================
 
@@ -131,6 +133,8 @@ Pre-training with torchao directly
 In this tutorial we'll pre-train a toy model using torchao APIs directly.
 
 You can use this workflow to integrate torchao into your own custom pre-training code directly.
+
+.. _pretraining-torchao-prerequisites:
 
 Prerequisites
 ================

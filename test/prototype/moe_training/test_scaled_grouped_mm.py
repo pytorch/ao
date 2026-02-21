@@ -311,7 +311,7 @@ def test_emulate_mxfp8_grouped_gemm_2d_2d(M, N, num_experts):
         grad_out_t_mx,
         grad_out_t_scale,
         x_mx,
-        x_scale,
+        x_scale.transpose(-2, -1),  # (M//block_size, N) -> (N, M//block_size)
         offs=offs,
         out_dtype=torch.bfloat16,
         block_size=block_size,
