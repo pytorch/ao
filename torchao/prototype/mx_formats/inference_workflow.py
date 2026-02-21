@@ -6,8 +6,11 @@
 
 import types
 from dataclasses import dataclass
+from typing import Optional
 
 import torch
+import torch.nn.functional as F
+from torch import Tensor
 
 from torchao.core.config import AOBaseConfig
 from torchao.prototype.mx_formats.config import (
@@ -26,6 +29,7 @@ from torchao.prototype.mx_formats.nvfp4_tensor import (
 )
 from torchao.quantization.quant_api import _quantization_type
 from torchao.quantization.quantize_.common.kernel_preference import KernelPreference
+from torchao.quantization.quantize_.common.quantization_step import QuantizationStep
 from torchao.quantization.transform_module import (
     register_quantize_module_handler,
 )
@@ -33,6 +37,49 @@ from torchao.utils import (
     is_sm_at_least_100,
     torch_version_at_least,
 )
+
+
+class NVFP4ObservedLinear(torch.nn.Linear):
+    """A linear module with an observer for NVFP4 static quantization.
+
+    During calibration, this module tracks the per-tensor absolute maximum (amax)
+    of the input activations. After calibration, the amax is converted to a
+    per_tensor_scale using per_tensor_amax_to_scale() during the convert step.
+
+    The block-level dynamic quantization remains unchanged - only the global
+    per_tensor_scale is determined statically.
+    """
+
+    def __init__(
+        self,
+        in_features: int,
+        out_features: int,
+        bias: bool = True,
+        device=None,
+        dtype=None,
+    ):
+        super().__init__(in_features, out_features, bias, device, dtype)
+        self.amax = torch.tensor(0.0, device=device)
+
+    def forward(self, input: Tensor) -> Tensor:
+        with torch.no_grad():
+            input_amax = torch.max(torch.abs(input))
+            self.amax = torch.max(self.amax.to(input.device), input_amax)
+        output = F.linear(input, self.weight, self.bias)
+        return output
+
+    @classmethod
+    def from_float(cls, float_linear: torch.nn.Linear) -> "NVFP4ObservedLinear":
+        observed_linear = cls(
+            float_linear.in_features,
+            float_linear.out_features,
+            bias=float_linear.bias is not None,
+            device=float_linear.weight.device,
+            dtype=float_linear.weight.dtype,
+        )
+        observed_linear.weight = float_linear.weight
+        observed_linear.bias = float_linear.bias
+        return observed_linear
 
 
 @dataclass
@@ -113,9 +160,34 @@ class NVFP4DynamicActivationNVFP4WeightConfig(AOBaseConfig):
     NVIDIA FP4 (NVFP4) Inference Quantization Configuration
 
     This is a specialized configuration for NVIDIA's FP4 format.
+    NVFP4 uses "double quantization" with two scale levels:
+    - A global per_tensor_scale (float32)
+    - Per-block scales (float8_e4m3fn, block_size=16), always dynamically calculated
+
+    The activation per_tensor_scale can be determined in two ways:
+
+    1. Dynamic per_tensor_scale (default, step=None, use_dynamic_per_tensor_scale=True):
+        - Both weight and activation per_tensor_scale are computed at runtime
+          from the tensor amax
+
+    2. Static per_tensor_scale via observer flow (step="prepare"/"convert"):
+        - Weight per_tensor_scale is computed from weight amax at convert time
+        - Activation per_tensor_scale is determined statically during calibration:
+          step="prepare" inserts observers, then after running calibration data,
+          step="convert" extracts the observed amax and bakes the activation
+          per_tensor_scale into the quantized weight tensor
+        - At inference, the static activation per_tensor_scale is read from the
+          weight tensor instead of being computed dynamically
+        - Note: activation per-block scales are still computed dynamically at
+          inference time
+
+    Note: When step is specified, use_dynamic_per_tensor_scale is automatically
+    set to False.
+
     Configuration parameters:
     - use_triton_kernel: bool, whether to use fused triton kernel for activation scaling (default: True)
     - use_dynamic_per_tensor_scale: bool, whether to dynamically compute per tensor scale (default: True)
+    - step: Optional[QuantizationStep], the quantization step for observer-based flow
     - Data: float4_e2m1fn_x2
     - Scales: float8_e4m3fn
     - Block size: 16 along the reduction dim
@@ -126,54 +198,117 @@ class NVFP4DynamicActivationNVFP4WeightConfig(AOBaseConfig):
 
     use_triton_kernel: bool = True
     use_dynamic_per_tensor_scale: bool = True
+    step: Optional["QuantizationStep"] = None
 
     def __post_init__(self):
+        if isinstance(self.step, str):
+            self.step = QuantizationStep(self.step)
         # Validate PyTorch version
         if not torch_version_at_least("2.8.0"):
             raise RuntimeError(
                 "NVFP4DynamicActivationNVFP4WeightConfig requires PyTorch 2.8 or later"
             )
 
+        if self.step is not None:
+            # Static quantization implies use_dynamic_per_tensor_scale=False
+            self.use_dynamic_per_tensor_scale = False
+
 
 @register_quantize_module_handler(NVFP4DynamicActivationNVFP4WeightConfig)
 def _nvfp4_inference_linear_transform(
     module: torch.nn.Linear, config: NVFP4DynamicActivationNVFP4WeightConfig
 ):
-    """Quantization handler for NVFP4DynamicActivationNVFP4WeightConfig"""
-    assert is_sm_at_least_100(), (
-        "NVFP4 DYNAMIC mode is only supported on sm100+ machines"
-    )
+    """Quantization handler for NVFP4DynamicActivationNVFP4WeightConfig
 
+    Behavior depends on the step:
+    - PREPARE: Insert NVFP4ObservedLinear to collect activation statistics
+    - CONVERT: Extract amax from observer, compute static per_tensor_scale, quantize
+    - None (default): Original dynamic quantization behavior
+    """
     weight = module.weight
-
     if weight.shape[-2] % 16 != 0 or weight.shape[-1] % 16 != 0:
         raise RuntimeError(
             f"NVFP4 only supports weight shape with last 2 dims divisible by 16, got {weight.shape}"
         )
 
-    per_tensor_scale = None
-    if config.use_dynamic_per_tensor_scale:
+    step = config.step
+    if step == QuantizationStep.PREPARE or step == "prepare":
+        return NVFP4ObservedLinear.from_float(module)
+
+    elif step == QuantizationStep.CONVERT or step == "convert":
+        if not isinstance(module, NVFP4ObservedLinear):
+            return module
+
+        # Compute activation per_tensor_scale from observed amax
+        act_per_tensor_scale = per_tensor_amax_to_scale(module.amax)
+
+        # Weight quantization (same as dynamic path)
+
         tensor_amax = torch.max(torch.abs(weight))
-        per_tensor_scale = per_tensor_amax_to_scale(tensor_amax)
+        weight_per_tensor_scale = per_tensor_amax_to_scale(tensor_amax)
 
-    act_quant_kwargs = QuantizeTensorToNVFP4Kwargs(
-        use_dynamic_per_tensor_scale=config.use_dynamic_per_tensor_scale,
-        use_triton_kernel=config.use_triton_kernel,
-        is_swizzled_scales=True,
-    )
+        act_quant_kwargs = QuantizeTensorToNVFP4Kwargs(
+            use_dynamic_per_tensor_scale=False,
+            use_triton_kernel=config.use_triton_kernel,
+            is_swizzled_scales=True,
+        )
 
-    quantized_weight = NVFP4Tensor.to_nvfp4(
-        weight,
-        per_tensor_scale=per_tensor_scale,
-        is_swizzled_scales=True,
-        use_triton_kernel=False,  # Always use traditional construction for weights
-        act_quant_kwargs=act_quant_kwargs,
-    )
-    # Set triton preference after construction
-    quantized_weight.use_triton_kernel = config.use_triton_kernel
-    module.weight = torch.nn.Parameter(quantized_weight, requires_grad=False)
-    module.extra_repr = types.MethodType(_linear_extra_repr, module)
-    return module
+        quantized_weight = NVFP4Tensor.to_nvfp4(
+            weight,
+            per_tensor_scale=weight_per_tensor_scale,
+            act_per_tensor_scale=act_per_tensor_scale.detach(),
+            is_swizzled_scales=True,
+            use_triton_kernel=False,  # Always use traditional construction for weights
+            act_quant_kwargs=act_quant_kwargs,
+        )
+        quantized_weight.use_triton_kernel = config.use_triton_kernel
+
+        # Create new Linear (not observed) with quantized weight
+        linear = torch.nn.Linear(
+            module.in_features,
+            module.out_features,
+            bias=module.bias is not None,
+            device=module.weight.device,
+            dtype=module.weight.dtype,
+        )
+        linear.weight = torch.nn.Parameter(quantized_weight, requires_grad=False)
+        linear.bias = module.bias
+        linear.extra_repr = types.MethodType(_linear_extra_repr, linear)
+        return linear
+
+    elif step is None:
+        # Dynamic quantization
+        assert is_sm_at_least_100(), (
+            "NVFP4 DYNAMIC mode is only supported on sm100+ machines"
+        )
+
+        per_tensor_scale = None
+        if config.use_dynamic_per_tensor_scale:
+            tensor_amax = torch.max(torch.abs(weight))
+            per_tensor_scale = per_tensor_amax_to_scale(tensor_amax)
+
+        act_quant_kwargs = QuantizeTensorToNVFP4Kwargs(
+            use_dynamic_per_tensor_scale=config.use_dynamic_per_tensor_scale,
+            use_triton_kernel=config.use_triton_kernel,
+            is_swizzled_scales=True,
+        )
+
+        quantized_weight = NVFP4Tensor.to_nvfp4(
+            weight,
+            per_tensor_scale=per_tensor_scale,
+            is_swizzled_scales=True,
+            use_triton_kernel=False,  # Always use traditional construction for weights
+            act_quant_kwargs=act_quant_kwargs,
+        )
+        quantized_weight.use_triton_kernel = config.use_triton_kernel
+        module.weight = torch.nn.Parameter(quantized_weight, requires_grad=False)
+        module.extra_repr = types.MethodType(_linear_extra_repr, module)
+        return module
+
+    else:
+        raise ValueError(
+            f"Unexpected step: {step}. Expected one of {[s.value for s in QuantizationStep]} or None."
+        )
 
 
 @dataclass

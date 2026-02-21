@@ -40,6 +40,16 @@ INT8_TEST_CONFIGS = [
     Int8DynamicActivationInt8WeightConfig(
         version=2, granularity=PerRow(), act_mapping_type=MappingType.SYMMETRIC
     ),
+    Int8DynamicActivationInt8WeightConfig(
+        version=2,
+        granularity=(PerTensor(), PerRow()),
+        act_mapping_type=MappingType.SYMMETRIC,
+    ),
+    Int8DynamicActivationInt8WeightConfig(
+        version=2,
+        granularity=(PerRow(), PerTensor()),
+        act_mapping_type=MappingType.SYMMETRIC,
+    ),
 ]
 
 

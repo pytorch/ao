@@ -5,7 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 """
-Internal: FP8 quantization for attention inputs.
+FP8 quantization for attention inputs.
 """
 
 from typing import Tuple
@@ -70,7 +70,7 @@ def _fp8_sdpa_quantize(
     if q.shape[3] != k.shape[3]:
         raise ValueError(f"Head dim mismatch: {q.shape[3]} vs {k.shape[3]}")
 
-    if False:
+    if torch.compiler.is_compiling():
         # Under torch.compile, use the PyTorch primitives path which the
         # compiler can trace and optimize.
         q_fp8, q_descale = _quantize_per_head(q)
@@ -79,8 +79,71 @@ def _fp8_sdpa_quantize(
         return q_fp8, k_fp8, v_fp8, q_descale, k_descale, v_descale
     else:
         # In eager mode, use fused Helion kernels for better performance.
-        from torchao.prototype.attention.fp8_fa3.helion_qkv_quantization import (
-            helion_fp8_sdpa_quantize,
+        from torchao.prototype.attention.fp8_fa3.triton_qkv_quantization import (
+            triton_fp8_sdpa_quantize,
         )
 
-        return helion_fp8_sdpa_quantize(q, k, v)
+        return triton_fp8_sdpa_quantize(q, k, v)
+
+
+def _fp8_rope_sdpa_quantize(
+    q: torch.Tensor,
+    k: torch.Tensor,
+    v: torch.Tensor,
+    cos: torch.Tensor,
+    sin: torch.Tensor,
+) -> Tuple[
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+]:
+    """Fused RoPE + FP8 quantization for Q, K, V.
+
+    Applies RoPE to Q and K, quantizes all three to FP8 with per-head scaling,
+    and transforms the layout from [B, S, H, D] to [B, H, S, D].
+
+    Args:
+        q: Query tensor of shape [B, S, H, D] in bf16/fp16.
+        k: Key tensor of shape [B, S, H, D] in bf16/fp16.
+        v: Value tensor of shape [B, S, H, D] in bf16/fp16.
+        cos: Cosine frequencies for RoPE, shape [S, D].
+        sin: Sine frequencies for RoPE, shape [S, D].
+
+    Returns:
+        q_fp8, k_fp8, v_fp8: Quantized tensors in float8_e4m3fn, shape [B, H, S, D].
+        q_descale, k_descale, v_descale: Descale factors of shape [B, H] in fp32.
+    """
+    if q.dim() != 4:
+        raise ValueError(f"Expected 4D tensor for q, got {q.dim()}D")
+    if k.dim() != 4:
+        raise ValueError(f"Expected 4D tensor for k, got {k.dim()}D")
+    if v.dim() != 4:
+        raise ValueError(f"Expected 4D tensor for v, got {v.dim()}D")
+    if k.shape != v.shape:
+        raise ValueError(f"K and V shape mismatch: {k.shape} vs {v.shape}")
+    if q.shape[0] != k.shape[0]:
+        raise ValueError(f"Batch size mismatch: {q.shape[0]} vs {k.shape[0]}")
+    if q.shape[2] != k.shape[2]:
+        raise ValueError(f"Head count mismatch: {q.shape[2]} vs {k.shape[2]}")
+    if q.shape[3] != k.shape[3]:
+        raise ValueError(f"Head dim mismatch: {q.shape[3]} vs {k.shape[3]}")
+    if q.shape[3] % 2 != 0:
+        raise ValueError(f"Head dimension D must be even for RoPE, got D={q.shape[3]}")
+    if cos.dim() != 2:
+        raise ValueError(f"Expected 2D cos tensor [S, D], got {cos.dim()}D")
+    if sin.dim() != 2:
+        raise ValueError(f"Expected 2D sin tensor [S, D], got {sin.dim()}D")
+    S, D = q.shape[1], q.shape[3]
+    if cos.shape != (S, D):
+        raise ValueError(f"Expected cos shape [{S}, {D}], got {cos.shape}")
+    if sin.shape != (S, D):
+        raise ValueError(f"Expected sin shape [{S}, {D}], got {sin.shape}")
+
+    from torchao.prototype.attention.fp8_fa3.triton_rope_qkv_quantization import (
+        triton_fp8_rope_sdpa_quantize,
+    )
+
+    return triton_fp8_rope_sdpa_quantize(q, k, v, cos, sin)
