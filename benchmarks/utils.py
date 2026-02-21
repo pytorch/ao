@@ -94,6 +94,10 @@ def profile_fn(fn, *args, profile_name="profile", distributed=False, **kwargs):
             # Save profiler results
             prof.export_chrome_trace(f"{profile_name}.json")
             print(f"Saved: {profile_name}.json")
+    else:
+        # Save profiler results for non-distributed runs
+        prof.export_chrome_trace(f"{profile_name}.json")
+        print(f"Saved: {profile_name}.json")
 
 
 def benchmark_cuda_function_in_microseconds(f, *args, **kwargs):
