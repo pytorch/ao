@@ -44,6 +44,8 @@ In this tutorial we'll train a DeepSeek-V3-16B model using torchtitan with torch
 
 `Torchtitan <https://github.com/pytorch/torchtitan/>`__ is PyTorch's official pre-training framework that is natively integrated with torchao. For MoE models, torchtitan supports expert parallelism combined with other forms of parallelism like FSDP and tensor parallelism.
 
+.. _mxfp8-torchtitan-prerequisites:
+
 Prerequisites
 ^^^^^^^^^^^^^
 
@@ -175,6 +177,8 @@ Training with torchao directly
 In this tutorial we'll apply MXFP8 expert parallelism to a custom MoE layer using torchao APIs directly.
 
 You can use this workflow to integrate MXFP8 expert parallelism into your own custom training code.
+
+.. _mxfp8-torchao-prerequisites:
 
 Prerequisites
 ^^^^^^^^^^^^^

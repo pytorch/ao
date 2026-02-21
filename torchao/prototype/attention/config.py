@@ -35,8 +35,6 @@ class LowPrecisionAttentionConfig:
     Args:
         backend: Attention backend to use. If None (default), automatically
             selected based on hardware capabilities.
-        fuse_rope: If True, fuse RoPE (rotary positional embeddings) into
-            the quantization kernel. Default: False
         use_hadamard: Apply Hadamard transform. Options:
             - None: No Hadamard transform (default)
             - "v": Apply Hadamard to V only
@@ -44,18 +42,11 @@ class LowPrecisionAttentionConfig:
     """
 
     backend: Optional[AttentionBackend] = None
-    fuse_rope: bool = False
     use_hadamard: Optional[Literal["v", "qkv"]] = None
 
     def __post_init__(self):
-        # torch._C._log_api_usage_once("torchao.prototype.attention.LowPrecisionAttentionConfig")
-
         # Validate use_hadamard value
         if self.use_hadamard is not None and self.use_hadamard not in ("v", "qkv"):
             raise ValueError(
                 f"use_hadamard must be None, 'v', or 'qkv', got {self.use_hadamard!r}"
             )
-
-        # Hadamard requires RoPE fusion
-        if self.use_hadamard is not None and not self.fuse_rope:
-            raise ValueError("use_hadamard requires fuse_rope=True")

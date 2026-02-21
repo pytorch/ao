@@ -16,21 +16,10 @@ Backward pass is not supported by the underlying backends.
 
 Example::
 
-    from torchao.prototype.attention import (
-        LowPrecisionAttentionConfig,
-        apply_low_precision_attention,
-    )
+    from torchao.prototype.attention import apply_low_precision_attention
 
     model = MyTransformer()
-
-    # Simple usage - auto-selects backend and uses basic FP8
-    apply_low_precision_attention(model)
-
-    # With options
-    config = LowPrecisionAttentionConfig(fuse_rope=True)
-    apply_low_precision_attention(model, config)
-
-    model = torch.compile(model)
+    model = apply_low_precision_attention(model)
     output = model(inputs)
 """
 
