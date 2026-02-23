@@ -1787,36 +1787,39 @@ def _register_smooth_quant_int_mm_pattern():
 
     # When torch.compile'ing with dynamic=True, the expand node and the two tailing reshape nodes exist
     # When torch.compile'ing with dynamic=False, they don't exist
-    def get_pattern_no_bias(expand_a_scale: bool, reshape_a: bool = True):
-        return CallFunction(
+    def get_pattern_no_bias(reshape_a: bool = True, convert_a: bool = False):
+        int_mm_pattern = CallFunction(
+            aten._int_mm.default,
+            CallFunction(
+                aten.reshape.default,
+                KeywordArg("a"),
+                KeywordArg("in_shape"),
+            )
+            if reshape_a
+            else KeywordArg("a"),
+            KeywordArg("b"),
+        )
+
+        mul_x_scale_pattern = CallFunction(
             aten.mul.Tensor,
             CallFunction(
-                aten.mul.Tensor,
-                CallFunction(
-                    prims.convert_element_type.default,
-                    CallFunction(
-                        aten._int_mm.default,
-                        CallFunction(
-                            aten.reshape.default,
-                            KeywordArg("a"),
-                            KeywordArg("in_shape"),
-                        )
-                        if reshape_a
-                        else KeywordArg("a"),
-                        KeywordArg("b"),
-                    ),
-                    KeywordArg("dtype"),
-                ),
-                (
-                    CallFunction(
-                        aten.expand.default,
-                        KeywordArg("x_scale"),
-                        Arg(),
-                    )
-                    if expand_a_scale
-                    else KeywordArg("x_scale")
-                ),
+                prims.convert_element_type.default,
+                int_mm_pattern,
+                KeywordArg("x_scale_dtype"),
             ),
+            KeywordArg("x_scale"),
+        )
+
+        if convert_a:
+            mul_x_scale_pattern = CallFunction(
+                prims.convert_element_type.default,
+                mul_x_scale_pattern,
+                KeywordArg("dtype"),
+            )
+
+        return CallFunction(
+            aten.mul.Tensor,
+            mul_x_scale_pattern,
             KeywordArg("w_scale"),
         )
 
@@ -1825,27 +1828,29 @@ def _register_smooth_quant_int_mm_pattern():
             aten.reshape.default, pattern, KeywordArg("out_shape_no_bias")
         )
 
-    # for torch.compile(dynamic=False)
-    pattern_no_bias_1 = _with_outer_reshape(get_pattern_no_bias(expand_a_scale=False))
+    pattern_no_bias_1 = _with_outer_reshape(get_pattern_no_bias())
+    pattern_no_bias_1_with_matmul_convert = _with_outer_reshape(
+        get_pattern_no_bias(convert_a=True)
+    )
+    pattern_no_bias_1_with_output_convert = CallFunction(
+        prims.convert_element_type.default,
+        pattern_no_bias_1_with_matmul_convert,
+        KeywordArg("dtype"),
+    )
     pattern_with_bias_1 = CallFunction(
         aten.add.Tensor,
         pattern_no_bias_1,
         KeywordArg("bias"),
     )
-    # for torch.compile(dynamic=True)
-    pattern_no_bias_2 = _with_outer_reshape(get_pattern_no_bias(expand_a_scale=True))
-    pattern_with_bias_2 = CallFunction(
-        aten.reshape.default,
-        CallFunction(
-            aten.reshape.default,
-            CallFunction(
-                aten.add.Tensor,
-                pattern_no_bias_2,
-                KeywordArg("bias"),
-            ),
-            Arg(),
-        ),
-        KeywordArg("out_shape_with_bias"),
+    pattern_with_bias_1_with_matmul_convert = CallFunction(
+        aten.add.Tensor,
+        pattern_no_bias_1_with_matmul_convert,
+        KeywordArg("bias"),
+    )
+    pattern_with_bias_1_with_output_convert = CallFunction(
+        prims.convert_element_type.default,
+        pattern_with_bias_1_with_matmul_convert,
+        KeywordArg("dtype"),
     )
 
     # The following patterns are for torchao Int8DynamicActivationInt8WeightConfig linear,
@@ -1853,15 +1858,16 @@ def _register_smooth_quant_int_mm_pattern():
     # In practice, though, they may also match smooth-quant pattern when a 2D input shape would be used.
     # Since add is not currently being used as a oneDNN post-op, but is unfused, we don't need these patterns with bias.
     # Ideally, we should add mul + add post-op support in ATen int8 oneDNN linear op.
-    pattern1_with_no_outer_or_act_reshape = get_pattern_no_bias(
-        expand_a_scale=False, reshape_a=False
-    )
-    pattern2_with_no_outer_or_act_reshape = get_pattern_no_bias(
-        expand_a_scale=True, reshape_a=False
-    )
+    pattern1_with_no_outer_or_act_reshape = get_pattern_no_bias(reshape_a=False)
 
     def _validate_pattern(match: Match):
-        if len(match.nodes) not in [4, 5, 6, 7, 10]:
+        # Valid node counts correspond to different pattern variations:
+        # 4: pattern1_with_no_outer_or_act_reshape (int_mm + convert + mul + mul)
+        # 6: pattern_no_bias_1 (reshape + int_mm + convert + mul + mul + reshape)
+        # 7: pattern_with_bias_1 (pattern_no_bias_1 + add)
+        # 8: pattern_no_bias_1_with_output_convert (pattern_no_bias_1 with dot scaled + output convert)
+        # 9: pattern_with_bias_1_with_output_convert (pattern_with_bias_1 with dot scaled + output convert)
+        if len(match.nodes) not in [4, 6, 7, 8, 9]:
             return False
         # Make sure weight is a constant
         aten_int_mm_node = filter_nodes(match.nodes, aten._int_mm.default)[0]
@@ -1887,12 +1893,11 @@ def _register_smooth_quant_int_mm_pattern():
         return True
 
     pattern_to_pass_number = {
-        pattern_no_bias_2: 0,
-        pattern_with_bias_2: 0,
+        pattern_with_bias_1_with_output_convert: 0,
+        pattern_with_bias_1: 0,
+        pattern_no_bias_1_with_output_convert: 1,
         pattern_no_bias_1: 1,
-        pattern_with_bias_1: 1,
         pattern1_with_no_outer_or_act_reshape: 2,
-        pattern2_with_no_outer_or_act_reshape: 2,
     }
     for pattern, pass_number in pattern_to_pass_number.items():
 
@@ -1905,10 +1910,11 @@ def _register_smooth_quant_int_mm_pattern():
             bias = kwargs.get("bias", None)
             x = kwargs["a"]
             weight = kwargs["b"]
-            dtype = kwargs["dtype"]
+            x_scale_dtype = kwargs["x_scale_dtype"]
             x_scale = kwargs["x_scale"]
             w_scale = kwargs["w_scale"]
             x_shape = x.meta.get("tensor_meta").shape
+            dtype = kwargs.get("dtype", x_scale_dtype)
             if has_free_symbols(x_shape):
                 # For dynamic shape case, we can't get activation shape ahead of runtime.
                 x_shape = None
