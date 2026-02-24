@@ -151,6 +151,70 @@ def _to_mx_rceil(
     return exponent, data_lp
 
 
+def to_mx(
+    data_hp: torch.Tensor,
+    elem_dtype: Union[torch.dtype, str],
+    block_size: int,
+    scaling_mode: ScaleCalculationMode = ScaleCalculationMode.FLOOR,
+    is_swizzled_scales: bool = False,
+    scale: Optional[torch.Tensor] = None,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """
+    Takes a high precision tensor and converts to MX scale and raw data, in
+    naive layout (scale and raw data are separate tensors).
+    """
+    assert data_hp.dtype in (
+        torch.bfloat16,
+        torch.float,
+    ), f"{data_hp.dtype} is not supported yet"
+    # TODO(future PR): consider supporting padding
+    assert data_hp.shape[-1] % block_size == 0, (
+        f"the last dimension of shape {data_hp.shape} must be divisible by block_size {block_size}"
+    )
+    assert data_hp.is_contiguous(), "unsupported"
+    assert elem_dtype in SUPPORTED_ELEM_DTYPES, "unsupported"
+
+    if scale is None:
+        # dynamic path, calculate the scale on the fly
+        scale_e8m0_biased = calculate_scale(
+            data_hp, elem_dtype, block_size, scaling_mode
+        )
+        data_lp = to_mx_with_precomputed_scale(
+            data_hp, scale_e8m0_biased, elem_dtype, block_size
+        )
+        scale_e8m0_biased = scale_e8m0_biased.view(torch.float8_e8m0fnu)
+        scale_e8m0_biased = scale_e8m0_biased.squeeze(-1)
+
+        # if user requested scale swizzling, do it here
+        if is_swizzled_scales:
+            orig_shape = data_hp.shape
+            leading_dims, M, K = orig_shape[:-2], orig_shape[-2], orig_shape[-1]
+            scale_shape = (math.prod(leading_dims) * M, K // block_size)
+            scale = to_blocked(scale_e8m0_biased.view(scale_shape)).flatten()
+            scale_M, scale_K = hp_data_dims_to_swizzled_scale_dims_mx(M, K)
+            scale_e8m0_biased = scale.view(*leading_dims, scale_M, scale_K)
+
+    else:
+        # static path, use the precomputed scale
+        if is_swizzled_scales:
+            orig_shape = data_hp.shape
+            M, K = orig_shape[-2], orig_shape[-1]
+            unswizzled = from_blocked(
+                scale.view(torch.uint8).flatten(),
+                M,
+                K // block_size,
+            )
+            scale_e8m0_biased = unswizzled.unsqueeze(-1)
+        else:
+            scale_e8m0_biased = scale.view(torch.uint8).unsqueeze(-1)
+        data_lp = to_mx_with_precomputed_scale(
+            data_hp, scale_e8m0_biased, elem_dtype, block_size
+        )
+        scale_e8m0_biased = scale
+
+    return scale_e8m0_biased, data_lp
+
+
 def _get_elem_dtype_params(
     elem_dtype: Union[torch.dtype, str],
 ) -> tuple[int, int, float]:
@@ -355,69 +419,6 @@ def to_mx_with_precomputed_scale(
         raise AssertionError("unsupported")
 
     return data_lp
-
-
-def to_mx(
-    data_hp: torch.Tensor,
-    elem_dtype: Union[torch.dtype, str],
-    block_size: int,
-    scaling_mode: ScaleCalculationMode = ScaleCalculationMode.FLOOR,
-    is_swizzled_scales: bool = False,
-    scale: Optional[torch.Tensor] = None,
-) -> tuple[torch.Tensor, torch.Tensor]:
-    """
-    Takes a high precision tensor and converts to MX scale and raw data, in
-    naive layout (scale and raw data are separate tensors).
-    """
-    assert data_hp.dtype in (
-        torch.bfloat16,
-        torch.float,
-    ), f"{data_hp.dtype} is not supported yet"
-    # TODO(future PR): consider supporting padding
-    assert data_hp.shape[-1] % block_size == 0, (
-        f"the last dimension of shape {data_hp.shape} must be divisible by block_size {block_size}"
-    )
-    assert data_hp.is_contiguous(), "unsupported"
-    assert elem_dtype in SUPPORTED_ELEM_DTYPES, "unsupported"
-
-    if scale is None:
-        # dynamic path, calculate the scale on the fly
-        scale_e8m0_biased = calculate_scale(
-            data_hp, elem_dtype, block_size, scaling_mode
-        )
-        data_lp = to_mx_with_precomputed_scale(
-            data_hp, scale_e8m0_biased, elem_dtype, block_size
-        )
-        scale_e8m0_biased = scale_e8m0_biased.view(torch.float8_e8m0fnu)
-        scale_e8m0_biased = scale_e8m0_biased.squeeze(-1)
-
-        # if user requested scale swizzling, do it here
-        if is_swizzled_scales:
-            orig_shape = data_hp.shape
-            leading_dims, M, K = orig_shape[:-2], orig_shape[-2], orig_shape[-1]
-            scale_shape = (math.prod(leading_dims) * M, K // block_size)
-            scale = to_blocked(scale_e8m0_biased.view(scale_shape)).flatten()
-            scale_M, scale_K = hp_data_dims_to_swizzled_scale_dims_mx(M, K)
-            scale_e8m0_biased = scale.view(*leading_dims, scale_M, scale_K)
-    else:
-        # static path, use the precomputed scale
-        if is_swizzled_scales:
-            orig_shape = data_hp.shape
-            M, K = orig_shape[-2], orig_shape[-1]
-            unswizzled = from_blocked(
-                scale.view(torch.uint8).flatten(),
-                M,
-                K // block_size,
-            )
-            scale_e8m0_biased = unswizzled.unsqueeze(-1)
-        else:
-            scale_e8m0_biased = scale.view(torch.uint8).unsqueeze(-1)
-        data_lp = to_mx_with_precomputed_scale(
-            data_hp, scale_e8m0_biased, elem_dtype, block_size
-        )
-        scale_e8m0_biased = scale
-
-    return scale_e8m0_biased, data_lp
 
 
 def get_fp_scale(scale_e8m0):
