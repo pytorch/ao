@@ -182,36 +182,6 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
             torch.testing.assert_close(ref_outputs, traced_outputs)
             torch.testing.assert_close(traced_outputs, prepared_outputs)
 
-    def test_linear_bn_fusion(self):
-        N = 8
-        for M in [16, 32]:
-            for bias in [True, False]:
-                m = torch.nn.Sequential(
-                    torch.nn.Linear(N, M, bias=bias),
-                    torch.nn.BatchNorm1d(M),
-                )
-                m.eval()
-                example_inputs = (torch.randn(4, N),)
-                ref_outputs = m(*example_inputs)
-                traced_model = torch.export.export(
-                    m, example_inputs, strict=True
-                ).module()
-                traced_outputs = traced_model(*example_inputs)
-                prepared_model = prepare_pt2e(traced_model, XNNPACKQuantizer())
-                prepared_outputs = prepared_model(*example_inputs)
-                torch.testing.assert_close(ref_outputs, traced_outputs)
-                torch.testing.assert_close(traced_outputs, prepared_outputs)
-                # Verify BN nodes are removed from the graph
-                for node in prepared_model.graph.nodes:
-                    self.assertNotEqual(
-                        node.target,
-                        torch.ops.aten._native_batch_norm_legit_no_training.default,
-                    )
-                    self.assertNotEqual(
-                        node.target,
-                        torch.ops.aten.batch_norm.default,
-                    )
-
     def test_wo_annotate_conv_output_quantizer(self):
         # TODO: use OP_TO_ANNOTATOR
         class BackendAQuantizer(Quantizer):

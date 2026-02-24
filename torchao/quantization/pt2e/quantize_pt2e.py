@@ -23,7 +23,6 @@ from torchao.quantization.pt2e.quantizer import (  # noqa: F401
 from torchao.quantization.pt2e.utils import (
     _disallow_eval_train,
     _fuse_conv_bn_,
-    _fuse_linear_bn_,
     _get_node_name_to_scope,
 )
 
@@ -103,7 +102,6 @@ def prepare_pt2e(
     # to be quantized before fusion
     # TODO: (maybe) rewrite this with subgraph_rewriter
     _fuse_conv_bn_(model)
-    _fuse_linear_bn_(model)
     model = quantizer.transform_for_annotation(model)
     quantizer.annotate(model)
     quantizer.validate(model)
