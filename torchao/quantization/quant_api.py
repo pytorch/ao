@@ -15,6 +15,7 @@ come along with it and because that is how we access the intended quantized
 and mixed GEMM kernels
 """
 
+import inspect
 import logging
 import re
 import types
@@ -48,7 +49,7 @@ from torchao.dtypes.uintx.packed_linear_int8_dynamic_activation_intx_weight_layo
     Target,
 )
 from torchao.dtypes.utils import Layout
-from torchao.float8.config import e4m3_dtype, e5m2_dtype
+from torchao.float8.config import e4m3_dtype
 from torchao.float8.float8_linear import Float8Linear
 from torchao.float8.inference import (
     Float8MMConfig,
@@ -63,8 +64,6 @@ from torchao.float8.inference import (
 from torchao.prototype.quantization.quant_api import (
     Float8StaticActivationFloat8WeightConfig,  # noqa: F401
     GemliteUIntXWeightOnlyConfig,  # noqa: F401
-    Int8DynamicActivationInt4WeightConfig,  # noqa: F401
-    UIntXWeightOnlyConfig,  # noqa: F401
 )
 from torchao.quantization.linear_activation_weight_observed_tensor import (
     LinearActivationWeightObservedTensor,
@@ -104,7 +103,6 @@ from torchao.quantization.utils import (
 from torchao.utils import (
     is_MI300,
     is_sm_at_least_89,
-    is_sm_at_least_90,
 )
 
 from .granularity import (
@@ -147,7 +145,6 @@ __all__ = [
     "quantize_",
     "intx_quantization_aware_training",
     "Int8DynActInt4WeightQuantizer",
-    "Float8DynamicActivationFloat8SemiSparseWeightConfig",
     "ModuleFqnToConfig",
 ]
 
@@ -572,9 +569,6 @@ class Int8DynamicActivationIntxWeightConfig(AOBaseConfig):
     More specifically, activations are dynamically quantized to 8-bits at a per-token granularity with scales/zeros.
     Weights are quantized with scales/zeros in a groupwise or channelwise manner using the number of bits specified by weight_dtype.
 
-    This layout is identical to Int8DynamicActivationInt4WeightConfig when weight_dtype is torch.int4 and other args
-    are the same.  However, this layout is more general and supports other weight dtypes.
-
     args:
         `weight_dtype`: The dtype to use for weight quantization.  Must be torch.intx, where 1 <= x <= 8.
        ` weight_granularity`: The granularity to use for weight quantization.  Must be PerGroup or PerAxis(axis=0).
@@ -598,7 +592,6 @@ class Int8DynamicActivationIntxWeightConfig(AOBaseConfig):
     weight_dtype: torch.dtype = torch.int8
     weight_granularity: Granularity = PerGroup(32)
     weight_mapping_type: MappingType = MappingType.SYMMETRIC
-    # TODO: add weight_scale_dtype to Int8DynamicActivationInt4WeightConfig
     weight_scale_dtype: Optional[torch.dtype] = None
     act_mapping_type: MappingType = MappingType.ASYMMETRIC
     intx_packing_format: IntxPackingFormat = IntxPackingFormat.UNPACKED_TO_INT8
@@ -851,7 +844,7 @@ class Float8DynamicActivationInt4WeightConfig(AOBaseConfig):
     and above and no benefits of making it bigger)
 
     Args:
-        `int4_packing_format`: how the weight is packed, only preshuffled is supported
+        `int4_packing_format`: how the weight is packed, supported values are "preshuffled" and "plain"
 
     Example:
 
@@ -872,17 +865,30 @@ def _float8_dynamic_activation_int4_weight_transform(
     )
     int4_packing_format = config.int4_packing_format
 
-    assert int4_packing_format == "preshuffled", (
-        f"only preshuffled int4_packing_format supported right now, got: {int4_packing_format}"
+    assert int4_packing_format in (
+        "preshuffled",
+        "plain",
+    ), (
+        f"only preshuffled and plain int4_packing_format supported right now, got: {int4_packing_format}"
     )
     weight = module.weight
     group_size = 128
-    block_size = tuple([1 for _ in range(weight.ndim - 1)] + [group_size])
-    new_weight = Int4PreshuffledTensor.from_hp(
-        module.weight,
-        block_size,
-        activation_dtype=torch.float8_e4m3fn,
-    )
+    block_size = list([1 for _ in range(weight.ndim - 1)] + [group_size])
+
+    if int4_packing_format == "preshuffled":
+        new_weight = Int4PreshuffledTensor.from_hp(
+            module.weight,
+            block_size,
+            activation_dtype=torch.float8_e4m3fn,
+        )
+    else:
+        # plain format
+        new_weight = Int4Tensor.from_hp(
+            module.weight,
+            block_size,
+            activation_dtype=torch.float8_e4m3fn,
+        )
+
     module.weight = torch.nn.Parameter(new_weight, requires_grad=False)
     module.extra_repr = types.MethodType(_linear_extra_repr, module)
     return module
@@ -1047,6 +1053,32 @@ def _float8_cutlass_quant_sparse(
     )
 
 
+def _validate_granularity_int8(
+    act_granularity: Granularity,
+    weight_granularity: Granularity,
+) -> None:
+    supported = (PerTensor, PerRow)
+    if not isinstance(act_granularity, supported):
+        raise ValueError(
+            f"Unsupported activation granularity type: {type(act_granularity)}. "
+            f"Only PerTensor and PerRow are supported."
+        )
+
+    # Validate activation granularity - PerRow must use dim=-1 (per-token)
+    if isinstance(act_granularity, PerRow) and act_granularity.dim != -1:
+        raise ValueError(
+            f"Only PerRow(dim=-1) is supported for activation quantization, "
+            f"got PerRow(dim={act_granularity.dim}). "
+            f"Per-feature activation quantization is not supported due to slicing limitations."
+        )
+
+    if not isinstance(weight_granularity, supported):
+        raise ValueError(
+            f"Unsupported weight granularity type: {type(weight_granularity)}. "
+            f"Only PerTensor and PerRow are supported."
+        )
+
+
 @dataclass
 class Int8DynamicActivationInt8WeightConfig(AOBaseConfig):
     """
@@ -1056,6 +1088,10 @@ class Int8DynamicActivationInt8WeightConfig(AOBaseConfig):
     Args:
         layout: Optional[Layout] = PlainLayout() - Tensor layout for the quantized weights. Controls how the
             quantized data is stored and accessed.
+        granularity: Optional[Union[Granularity, Tuple[Granularity, Granularity], List[Granularity]]] = PerRow()
+            The granularity for quantization. Can be either a single granularity (applied to both
+            activations and weights) or a tuple / list of two granularities (first for activations, second for weights).
+            If None, defaults to PerRow for both. Only PerTensor and PerRow are supported.
         act_mapping_type: Optional[MappingType] = MappingType.SYMMETRIC - Mapping type for activation quantization.
             SYMMETRIC uses symmetric quantization around zero.
         weight_only_decode: bool = False - If True, only quantizes weights during forward pass and keeps activations
@@ -1073,7 +1109,9 @@ class Int8DynamicActivationInt8WeightConfig(AOBaseConfig):
     layout: Optional[Layout] = PlainLayout()
     act_mapping_type: Optional[MappingType] = MappingType.SYMMETRIC
     weight_only_decode: bool = False
-    granularity: Granularity = PerRow()
+    granularity: Optional[
+        Union[Granularity, Tuple[Granularity, Granularity], list[Granularity]]
+    ] = PerRow()
     set_inductor_config: bool = True
     version: int = 1
 
@@ -1081,6 +1119,11 @@ class Int8DynamicActivationInt8WeightConfig(AOBaseConfig):
         torch._C._log_api_usage_once(
             "torchao.quantization.Int8DynamicActivationInt8WeightConfig"
         )
+        if self.version == 2:
+            act_granularity, weight_granularity = Int8Tensor._normalize_granularity(
+                self.granularity
+            )
+            _validate_granularity_int8(act_granularity, weight_granularity)
 
 
 def _int8_dynamic_activation_int8_weight_quantize_tensor(weight, config):
@@ -1131,12 +1174,9 @@ def _int8_dynamic_activation_int8_weight_quantize_tensor(weight, config):
         )
         quantized_weight = to_linear_activation_quantized(new_weight, input_quant_func)
     else:
-        assert config.granularity in {PerRow(), PerTensor()}, (
-            "Only PerRow and PerTensor are supported"
+        act_granularity, weight_granularity = Int8Tensor._normalize_granularity(
+            config.granularity
         )
-        weight_granularity = config.granularity
-        act_granularity = config.granularity
-
         assert config.act_mapping_type == MappingType.SYMMETRIC, (
             "asymmetric dynamic quant not supported currently"
         )
@@ -1192,14 +1232,19 @@ class Int8StaticActivationInt8WeightConfig(AOBaseConfig):
 
     Args:
         act_quant_scale (torch.Tensor): The scale tensor for activation quantization.
-        granularity (Granularity): The granularity of quantization. PerRow() and PerTensor() are supported currently
+        granularity (Optional[Union[Granularity, Tuple[Granularity, Granularity], List[Granularity]]] = PerRow()):
+            The granularity for quantization. Can be either a single granularity (applied to both
+            activations and weights) or a tuple / list of two granularities (first for activations, second for weights).
+            If None, defaults to PerRow for both. Only PerTensor and PerRow are supported.
         act_mapping_type (MappingType): The mapping type for activation quantization. only SYMMETRIC is supported currently
         set_inductor_config (bool): if True, adjusts `torchinductor` settings to recommended values.
         version (int): the version of the config
     """
 
     act_quant_scale: Optional[torch.Tensor] = None
-    granularity: Granularity = PerRow()
+    granularity: Optional[
+        Union[Granularity, Tuple[Granularity, Granularity], list[Granularity]]
+    ] = PerRow()
     act_mapping_type: Optional[MappingType] = MappingType.SYMMETRIC
     set_inductor_config: bool = True
     version: int = 1
@@ -1208,14 +1253,10 @@ class Int8StaticActivationInt8WeightConfig(AOBaseConfig):
         torch._C._log_api_usage_once(
             "torchao.quantization.Int8StaticActivationInt8WeightConfig"
         )
-
-        # Validate activation granularity for static quantization
-        if isinstance(self.granularity, PerRow) and self.granularity.dim != -1:
-            raise ValueError(
-                f"Int8StaticActivationInt8WeightConfig only supports PerRow(dim=-1) "
-                f"for activation quantization, got PerRow(dim={self.granularity.dim}). "
-                f"Per-feature activation quantization is not supported due to slicing limitations."
-            )
+        act_granularity, weight_granularity = Int8Tensor._normalize_granularity(
+            self.granularity
+        )
+        _validate_granularity_int8(act_granularity, weight_granularity)
 
     def get_act_quant_kwargs(self) -> QuantizeTensorToInt8Kwargs:
         """Get the activation quantization kwargs for static quantization.
@@ -1223,8 +1264,12 @@ class Int8StaticActivationInt8WeightConfig(AOBaseConfig):
         Returns:
             QuantizeTensorToInt8Kwargs with the configured granularity and mapping type.
         """
+        act_granularity, weight_granularity = Int8Tensor._normalize_granularity(
+            self.granularity
+        )
+
         return QuantizeTensorToInt8Kwargs(
-            granularity=self.granularity,
+            granularity=act_granularity,
             mapping_type=self.act_mapping_type,
         )
 
@@ -1236,8 +1281,8 @@ def _int8_static_activation_int8_weight_transform(
     *,
     parameter_name="weight",
 ):
-    assert config.granularity in {PerRow(), PerTensor()}, (
-        "Only PerRow and PerTensor is supported currently"
+    activation_granularity, weight_granularity = Int8Tensor._normalize_granularity(
+        config.granularity
     )
     assert config.act_mapping_type == MappingType.SYMMETRIC, (
         "asymmetric static quant not supported currently"
@@ -1248,9 +1293,6 @@ def _int8_static_activation_int8_weight_transform(
 
     if config.set_inductor_config:
         torchao.quantization.utils.recommended_inductor_config_setter()
-
-    activation_granularity = config.granularity
-    weight_granularity = config.granularity
 
     quantized_tensor = Int8Tensor.from_hp(
         getattr(module, parameter_name),
@@ -1581,63 +1623,6 @@ def _float8_dynamic_activation_float8_weight_transform(
     return module
 
 
-@dataclass
-class Float8DynamicActivationFloat8SemiSparseWeightConfig(AOBaseConfig):
-    """
-    Applies float8 dynamic quantization to activations and float8 quantization followed by compression to sparse semi-structured tensor to weights of linear layers.
-
-    Args:
-        `layout`: layout type for quantized weight tensor, only supports `CutlassSemiSparseLayout` at the moment.
-        `activation_dtype`: data type for quantized activation tensor.
-        `weight_dtype`: data type for quantized weight tensor.
-    """
-
-    layout: Layout = CutlassSemiSparseLayout()
-    activation_dtype: torch.dtype = e5m2_dtype
-    weight_dtype: torch.dtype = e4m3_dtype
-
-    def __post_init__(self):
-        torch._C._log_api_usage_once(
-            "torchao.quantization.Float8DynamicActivationFloat8SemiSparseWeightConfig"
-        )
-
-
-@register_quantize_module_handler(Float8DynamicActivationFloat8SemiSparseWeightConfig)
-def _float8_dynamic_activation_float8_semi_sparse_weight_transform(
-    module: torch.nn.Module, config: Float8DynamicActivationFloat8SemiSparseWeightConfig
-):
-    warnings.warn(
-        "Config Deprecation: Float8DynamicActivationFloat8SemiSparseWeightConfig is deprecated and will no longer be supported in a future release. "
-        "Please use Float8DynamicActivationFloat8WeightConfig with packing_format=Float8PackingFormat.SPARSE_CUTLASS and granularity=PerRow() instead. "
-        "See https://github.com/pytorch/ao/issues/3594 for more details"
-    )
-    assert is_sm_at_least_90(), "Float8 quantization is only supported on CUDA>=9.0"
-
-    if isinstance(module, Float8Linear):
-        module = _unwrap_float8_linear(module)
-
-    weight = module.weight
-    weight_dtype = config.weight_dtype
-    activation_dtype = config.activation_dtype
-    layout = config.layout
-
-    if not isinstance(layout, CutlassSemiSparseLayout):
-        raise NotImplementedError(
-            f"Only CutlassSemiSparseLayout layout is supported. Received {layout}."
-        )
-
-    weight = _float8_cutlass_quant_sparse(weight, weight_dtype)
-    weight = to_linear_activation_quantized(
-        weight,
-        _float8_cutlass_quant,
-        quant_kwargs={"target_dtype": activation_dtype},
-    )
-
-    module.weight = torch.nn.Parameter(weight, requires_grad=False)
-    module.extra_repr = types.MethodType(_linear_extra_repr, module)
-    return module
-
-
 def _adjust_scale_dtype_in_intx_unpacked_tensor(
     intx_unpacked_tensor: IntxUnpackedToInt8Tensor,
     hp_tensor: torch.Tensor,
@@ -1890,14 +1875,14 @@ class FqnToConfig(AOBaseConfig):
 # maintain BC
 ModuleFqnToConfig = FqnToConfig
 
-# for now, we need to keep track of what configs support custom param quantization.
-# Once we've updated all the transform functions to take in a custom_param kwarg, we can delete this object and the subsequent check
-# TODO see https://github.com/pytorch/ao/issues/3252 for more details
-CUSTOM_PARAM_QUANTIZATION_SUPPORTED_CONFIGS = {
-    Float8DynamicActivationFloat8WeightConfig,
-    Float8WeightOnlyConfig,
-    Int8WeightOnlyConfig,
-}
+
+def _handler_supports_fqn_quantization(
+    handler: Callable[[torch.nn.Module, AOBaseConfig], torch.nn.Module],
+) -> bool:
+    """
+    Returns True if the handler function has a "parameter_name" kwarg in its type signature, False otherwise.
+    """
+    return inspect.signature(handler).parameters.get("parameter_name", None) is not None
 
 
 def _fqn_to_config_handler(
@@ -1938,7 +1923,7 @@ def _fqn_to_config_handler(
                 top_level_params.pop(i)
             else:
                 handler = _QUANTIZE_CONFIG_HANDLER[type(c)]
-                if type(c) in CUSTOM_PARAM_QUANTIZATION_SUPPORTED_CONFIGS:
+                if _handler_supports_fqn_quantization(handler):
                     # may be more than one param specified, so don't return prematurely
                     module = handler(module, c, parameter_name=parameter_name)
                 else:
@@ -1963,7 +1948,7 @@ def _fqn_to_config_handler(
                 c = config.fqn_to_config[pattern]
                 if c is not None:
                     handler = _QUANTIZE_CONFIG_HANDLER[type(c)]
-                    if type(c) in CUSTOM_PARAM_QUANTIZATION_SUPPORTED_CONFIGS:
+                    if _handler_supports_fqn_quantization(handler):
                         # may be more than one param specified, so don't return prematurely
                         module = handler(module, c, parameter_name=parameter_name)
                     else:
@@ -1980,6 +1965,8 @@ def _fqn_to_config_handler(
                 if c is not None:
                     handler = _QUANTIZE_CONFIG_HANDLER[type(c)]
                     return handler(module, c)
+                else:
+                    return module
 
     # If no module_fqn or parameter_fqn matches, then we apply _default
     if not parameter_config_found:

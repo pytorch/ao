@@ -28,10 +28,10 @@ from torchao.prototype.moe_training.kernels.mxfp8 import (
 from torchao.prototype.moe_training.kernels.mxfp8.quant import (
     mxfp8_quantize_cuda_3d,
 )
-from torchao.prototype.moe_training.scaled_grouped_mm import (
+from torchao.prototype.moe_training.mxfp8_grouped_mm import (
     ScaleCalculationMode as MoEScaleCalculationMode,
 )
-from torchao.prototype.moe_training.scaled_grouped_mm import (
+from torchao.prototype.moe_training.mxfp8_grouped_mm import (
     _to_mxfp8_then_scaled_grouped_mm,
 )
 from torchao.prototype.moe_training.utils import generate_jagged_offs

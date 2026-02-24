@@ -135,17 +135,25 @@ Tensor embedding_out_cpu(
     }
     TORCHAO_CHECK(index >= 0 && index < num_embeddings, "index out of bounds");
 #if defined(TORCHAO_BUILD_CPU_AARCH64)
-    torchao::kernels::cpu::aarch64::embedding::embedding<weight_nbit>(
-        out.mutable_data_ptr<float>() + idx * embedding_dim,
-        embedding_dim,
-        group_size,
-        packed_weight_qvals.const_data_ptr<int8_t>() +
-            torchao::ops::PackedWeightsHeader::size(),
-        weight_scales.const_data_ptr<float>(),
-        weight_zeros_ptr,
-        index);
+      torchao::kernels::cpu::aarch64::embedding::embedding<weight_nbit>(
+          out.mutable_data_ptr<float>() + idx * embedding_dim,
+          embedding_dim,
+          group_size,
+          packed_weight_qvals.const_data_ptr<int8_t>() +
+              torchao::ops::PackedWeightsHeader::size(),
+          weight_scales.const_data_ptr<float>(),
+          weight_zeros_ptr,
+          index);
 #else
-    TORCHAO_CHECK(false, "Unsupported platform");
+      torchao::kernels::cpu::fallback::embedding::embedding<weight_nbit>(
+          out.mutable_data_ptr<float>() + idx * embedding_dim,
+          embedding_dim,
+          group_size,
+          packed_weight_qvals.const_data_ptr<int8_t>() +
+              torchao::ops::PackedWeightsHeader::size(),
+          weight_scales.const_data_ptr<float>(),
+          weight_zeros_ptr,
+          index);
 #endif // TORCHAO_BUILD_CPU_AARCH64
   });
 

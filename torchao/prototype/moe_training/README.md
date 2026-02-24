@@ -66,7 +66,6 @@ from torch.nn import functional as F
 from torchao.prototype.moe_training import (
     _to_mxfp8_then_scaled_grouped_mm,
 )
-from torchao.prototype.moe_training.conversion_utils import MoEScalingType
 from torchao.prototype.moe_training.utils import generate_jagged_offs
 
 num_groups, total_M, N, K = 8, 131072, 8192, 5120
@@ -78,7 +77,7 @@ B = torch.randn(num_groups, N, K, dtype=torch.bfloat16, device="cuda", requires_
 # Token group offsets computed by router in actual MoE layer
 offs = generate_jagged_offs(num_groups, total_M, device="cuda")
 
-# Forward and backward example
+# Forward and backward example (uses default MXFP8 settings)
 out = _to_mxfp8_then_scaled_grouped_mm(
         A,
         B.transpose(-2, -1),
@@ -221,12 +220,12 @@ To reproduce these benchmarks, on a B200 GPU machine, run the following commands
 
 Llama4 17b 16e shapes:
 ```bash
-CUDA_VISIBLE_DEVICES=6 python benchmarks/prototype/moe_training/bench_moe_layer.py --recipe mxfp8 --local_batch_size=16 --dim=5120 --hidden_dim=8192 --local_num_experts=8
+CUDA_VISIBLE_DEVICES=6 python benchmarks/prototype/moe_training/bench_moe_layer.py --recipe mxfp8_rceil --local_batch_size=16 --dim=5120 --hidden_dim=8192 --local_num_experts=8
 ```
 
 DeepSeekV3 671b shapes:
 ```bash
-CUDA_VISIBLE_DEVICES=6 python benchmarks/prototype/moe_training/bench_moe_layer.py --recipe mxfp8 --local_batch_size=16 --dim=7168 --hidden_dim=2048 --local_num_experts=8
+CUDA_VISIBLE_DEVICES=6 python benchmarks/prototype/moe_training/bench_moe_layer.py --recipe mxfp8_rceil --local_batch_size=16 --dim=7168 --hidden_dim=2048 --local_num_experts=8
 ```
 
 
@@ -274,14 +273,14 @@ This prototype is specifically designed to be used on MoE models using
 where expert weights are implemented as 3D nn.Parameters with `num_experts` as
 the leading dim.
 
-The `MoETrainingConfig` has a module handler registered to it which will
+The `MXFP8GroupedMMConfig` has a module handler registered to it which will
 find all nn.Parameters whose parent module matches the module filter function,
 and swap their data tensor with a ScaledGroupedMMTensor.
 
 The ScaledGroupedMMTensor is a tensor subclass which overrides the
 `torch._grouped_mm` op by dispatching to a differentiable scaled grouped mm,
-which performs dynamic float8 rowwise quantization on scaled grouped GEMM
-operands in both the forward and backward pass.
+which performs dynamic quantization on scaled grouped GEMM operands in both 
+the forward and backward pass, based on the quantization config (FP8/MXFP8/etc).
 
 For all other ops, ScaledGroupedMMTensor behaves like a regular torch.Tensor.
 

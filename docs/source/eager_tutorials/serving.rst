@@ -395,6 +395,8 @@ Results (H100 machine)
 | serving (num_prompts=1000) | 66.68 req/s         | 80.53 req/s (1.21x speedup)  |
 +----------------------------+---------------------+------------------------------+
 
+.. _serving-conclusion:
+
 Conclusion
 ---------
 
