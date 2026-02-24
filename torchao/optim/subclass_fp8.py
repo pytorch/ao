@@ -34,11 +34,19 @@ def quantize_fp8(input: Tensor, block_size: int):
 class OptimStateFp8(TorchAOBaseTensor):
     tensor_attrs = ["codes", "scale"]
 
+    # dtype only acts as an appearance dtype to work with the rest of PyTorch
     @staticmethod
-    def __new__(cls, codes: Tensor, scale: Tensor):
-        return Tensor._make_wrapper_subclass(cls, codes.shape, device=codes.device)
+    def __new__(
+        cls,
+        codes: Tensor,
+        scale: Tensor,
+        dtype: torch.dtype | None = None,
+    ):
+        return Tensor._make_wrapper_subclass(
+            cls, codes.shape, device=codes.device, dtype=dtype
+        )
 
-    def __init__(self, codes: Tensor, scale: Tensor):
+    def __init__(self, codes: Tensor, scale: Tensor, dtype: torch.dtype | None = None):
         """Create quantized FP8 optimizer state.
 
         Args
@@ -56,7 +64,7 @@ class OptimStateFp8(TorchAOBaseTensor):
         self.block_size = codes.numel() // scale.numel()
 
     def __tensor_flatten__(self):
-        return self.tensor_attrs, []
+        return self.tensor_attrs, [self.dtype]
 
     @classmethod
     def __tensor_unflatten__(
@@ -75,15 +83,22 @@ class OptimStateFp8(TorchAOBaseTensor):
         return float_data.view(self.codes.shape)
 
     @classmethod
-    def zeros(cls, shape, block_size: int = 256, device=None):
+    def zeros(
+        cls,
+        shape,
+        block_size: int = 256,
+        device: torch.types.Device = None,
+        dtype: torch.dtype | None = None,
+    ):
         codes = torch.zeros(shape, dtype=DTYPE, device=device)
         scale = torch.zeros(codes.numel() // block_size, device=device)
-        return cls(codes, scale)
+        return cls(codes, scale, dtype=dtype)
 
     def __repr__(self):
         return (
             f"{self.__class__.__name__}(block_size={self.block_size}, "
-            f"shape={tuple(self.shape)}, device={self.device}, requires_grad={self.requires_grad})"
+            f"shape={tuple(self.shape)}, dtype={self.dtype}, device={self.device}, "
+            f"requires_grad={self.requires_grad})"
         )
 
 
@@ -110,11 +125,13 @@ def _(func, types, args, kwargs):
 
 @OptimStateFp8.implements(aten._to_copy.default)
 def _(func, types, args, kwargs):
-    # ignore dtype
+    # only change the appearance dtype
+    dtype = kwargs.get("dtype", args[0].dtype)
     device = kwargs.get("device", None)
     out = OptimStateFp8(
         args[0].codes.to(device=device),
         args[0].scale.to(device=device),
+        dtype=dtype,
     )
     return return_and_correct_aliasing(func, args, kwargs, out)
 

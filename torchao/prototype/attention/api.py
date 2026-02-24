@@ -184,6 +184,14 @@ def _setup_fp8_fa3(
         finally:
             inductor_config.pre_grad_custom_pass = old_pass
 
+    # Disable the KV cache so torch.compile traces the prefill path
+    # without DynamicCache.update() (which inserts torch.cat nodes that
+    # block RoPE fusion).  HF models default use_cache=True for
+    # generation, but for prefill-only compiled inference the cache adds
+    # no value and prevents the fusion pass from detecting RoPE on K.
+    if hasattr(model, "config") and getattr(model.config, "use_cache", False):
+        model.config.use_cache = False
+
     # Clear stale Dynamo caches to ensure fresh compilation.
     torch._dynamo.reset()
 

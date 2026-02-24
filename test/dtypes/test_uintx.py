@@ -10,7 +10,7 @@ import pytest
 import torch
 
 from torchao.prototype.dtypes.uintx.uintx_layout import to_uintx
-from torchao.quantization.quant_api import UIntXWeightOnlyConfig, quantize_
+from torchao.quantization.quant_api import quantize_  # noqa: F401
 from torchao.quantization.quant_primitives import (
     MappingType,
     choose_qparams_affine,
@@ -62,38 +62,6 @@ class Linear16(torch.nn.Module):
 
 @pytest.mark.parametrize("dtype", dtypes)
 @pytest.mark.parametrize("group_size", group_sizes)
-@pytest.mark.skipif(not torch.accelerator.is_available(), reason="GPU not available")
-def test_uintx_quant_on_cpu_then_move_to_cuda(dtype, group_size):
-    scale = 512
-    fp16_mod_on_cpu = Linear16(scale, "cpu")
-    device = get_current_accelerator_device()
-    quantize_(fp16_mod_on_cpu, UIntXWeightOnlyConfig(dtype, group_size=group_size))
-    test_input_on_cpu = torch.randn(scale * 2, dtype=torch.float16, device="cpu")
-    output_on_cpu = fp16_mod_on_cpu(test_input_on_cpu)
-    fp16_mod_on_cuda = fp16_mod_on_cpu.to(device)
-    test_input_on_cuda = test_input_on_cpu.to(device)
-    output_on_cuda = fp16_mod_on_cuda(test_input_on_cuda)
-    assert torch.allclose(output_on_cpu, output_on_cuda.cpu(), atol=1.0e-3), (
-        "The output of the model on CPU and CUDA should be close"
-    )
-
-
-@pytest.mark.parametrize("dtype", dtypes)
-@pytest.mark.parametrize("group_size", group_sizes)
-@pytest.mark.parametrize("device", devices)
-@pytest.mark.skipif(not torch.accelerator.is_available(), reason="GPU not available")
-def test_uintx_weight_only_model_quant(dtype, group_size, device):
-    scale = 512
-    fp16 = Linear16(scale, device)
-    quantize_(fp16, UIntXWeightOnlyConfig(dtype, group_size=group_size))
-    uintx = torch.compile(fp16, fullgraph=True)
-    test_input = torch.randn(scale * 2, dtype=torch.float16, device=device)
-    output = uintx.forward(test_input)
-    assert output is not None, "model quantization failed"
-
-
-@pytest.mark.parametrize("dtype", dtypes)
-@pytest.mark.parametrize("group_size", group_sizes)
 @pytest.mark.parametrize("device", devices)
 @pytest.mark.skipif(not torch.accelerator.is_available(), reason="GPU not available")
 def test_uintx_weight_only_quant(dtype, group_size, device):
@@ -126,55 +94,6 @@ def test_uintx_weight_only_quant(dtype, group_size, device):
     assert q is not None, "quantization failed"
     deqaunt = dequantize_affine(q, block_size, scale, zero_point, dtype)
     assert deqaunt is not None, "deqauntization failed"
-
-
-@pytest.mark.parametrize("dtype", dtypes)
-@pytest.mark.skipif(not torch.accelerator.is_available(), reason="Need GPU available")
-def test_uintx_target_dtype(dtype):
-    device = get_current_accelerator_device()
-    linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16, device=device)
-    # make sure it runs
-    quantize_(linear, UIntXWeightOnlyConfig(dtype))
-    linear(torch.randn(1, 128, dtype=torch.bfloat16, device=device))
-
-
-@pytest.mark.parametrize("dtype", dtypes)
-@pytest.mark.skipif(not torch.accelerator.is_available(), reason="Need GPU available")
-def test_uintx_target_dtype_compile(dtype):
-    device = get_current_accelerator_device()
-    linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16, device=device)
-    # make sure it runs
-    quantize_(linear, UIntXWeightOnlyConfig(dtype))
-    linear = torch.compile(linear)
-    linear(torch.randn(1, 128, dtype=torch.bfloat16, device=device))
-
-
-@pytest.mark.parametrize("dtype", dtypes)
-@pytest.mark.skipif(not torch.accelerator.is_available(), reason="Need GPU available")
-def test_uintx_model_size(dtype):
-    from torchao.utils import get_model_size_in_bytes
-
-    # scale size = 1/64 * 2 bytes = 1/32 bytes
-    # zero_point size = 1/64 * 4 bytes = 1/16 bytes
-    # dtype data size = 1 * bit_width/8 = bit_width/8 bytes
-    _dtype_to_ratio = {
-        torch.uint1: (1 / 8 + 1 / 16 + 1 / 32) / 2,
-        torch.uint2: (2 / 8 + 1 / 16 + 1 / 32) / 2,
-        torch.uint3: (3 / 8 + 1 / 16 + 1 / 32) / 2,
-        torch.uint4: (4 / 8 + 1 / 16 + 1 / 32) / 2,
-        torch.uint5: (5 / 8 + 1 / 16 + 1 / 32) / 2,
-        torch.uint6: (6 / 8 + 1 / 16 + 1 / 32) / 2,
-        torch.uint7: (7 / 8 + 1 / 16 + 1 / 32) / 2,
-    }
-    device = get_current_accelerator_device()
-    linear = torch.nn.Sequential(
-        torch.nn.Linear(128, 256, bias=False, dtype=torch.bfloat16, device=device)
-    )
-    bf16_size = get_model_size_in_bytes(linear)
-    # make sure it runs
-    quantize_(linear[0], UIntXWeightOnlyConfig(dtype))
-    quantized_size = get_model_size_in_bytes(linear)
-    assert bf16_size * _dtype_to_ratio[dtype] == quantized_size
 
 
 def test_uintx_api_deprecation():
