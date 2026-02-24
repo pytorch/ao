@@ -24,7 +24,7 @@ class FP8GroupedMMRecipe(Enum):
     FP8_ROWWISE = "fp8_rowwise"
 
 
-class MXFP8GroupedMMRecipe(Enum):
+class MXFP8TrainingRecipe(Enum):
     """MXFP8 recipes for grouped matrix multiplication."""
 
     # TODO: add floor variants
@@ -33,14 +33,19 @@ class MXFP8GroupedMMRecipe(Enum):
     MXFP8_EMULATED_RCEIL = "mxfp8_emulated_rceil"
 
 
-class GroupedMMConfig(AOBaseConfig):
-    """Base configuration for grouped matrix multiplication. Not intended to be used directly."""
+class TrainingBaseConfig(AOBaseConfig):
+    """
+    Base configuration for low precision training. Not intended to be used directly.
+
+    Purpose is to support generic model conversion function for linear and grouped gemm
+    low precision training.
+    """
 
     pass
 
 
 @dataclass
-class FP8GroupedMMConfig(GroupedMMConfig):
+class FP8GroupedMMConfig(TrainingBaseConfig):
     """
     Configuration for FP8 grouped matrix multiplication.
     """
@@ -67,23 +72,19 @@ class FP8GroupedMMConfig(GroupedMMConfig):
 # register as pytree constant so we can use dynamo nonstrict trace in torchao.prototype.moe_training.ep
 @register_as_pytree_constant
 @dataclass
-class MXFP8GroupedMMConfig(GroupedMMConfig):
+class MXFP8TrainingConfig(TrainingBaseConfig):
     """
-    The MXFP8GroupedMMConfig is specifically designed to be used on MoE models using
-    `torch._grouped_mm` to implement expert computation in token-choice routing,
-    where expert weights are implemented as 3D nn.Parameters wit `num_experts` as
-    the leading dim.
+    The MXFP8TrainingConfig defines the MXFP8 training config for nn.Linear layers
+    and grouped GEMM ops.
 
-    MXFP8GroupedMMConfig has a module handler registered to it which will
+    MXFP8TrainingConfig has a module handler registered to it which will
     find all nn.Parameters whose parent module matches the module filter function,
-    and swap their data tensor with a ScaledGroupedMMTensor.
+    and swap their data tensor with a MXFP8TrainingTensor.
 
-    The ScaledGroupedMMTensor is a tensor subclass which overrides the
-    `torch._grouped_mm` op by dispatching to a differentiable scaled grouped mm,
-    which performs dynamic quantization on scaled grouped GEMM operands in both
-    the forward and backward pass, based on the quantization config (FP8/MXFP8/etc).
+    The MXFP8TrainingTensor dispatches matmul and grouped gemm ops to custom
+    autograd functions which dynamically quantize inputs to MXFP8.
 
-    For all other ops, ScaledGroupedMMTensor behaves like a regular torch.Tensor.
+    For all other ops, MXFP8TrainingTensor behaves like a regular torch.Tensor.
     """
 
     # AUTO = Use best supported kernel for quantization ops and GEMMs (CUDA and Triton for quantizatoin, CUTLASS for MXFP8 grouped GEM
@@ -104,24 +105,24 @@ class MXFP8GroupedMMConfig(GroupedMMConfig):
     @classmethod
     def from_recipe(
         cls,
-        recipe: MXFP8GroupedMMRecipe,
-    ) -> "MXFP8GroupedMMConfig":
-        """Factory method to create a MXFP8GroupedMMConfig from a MXFP8GroupedMMRecipe."""
-        if recipe == MXFP8GroupedMMRecipe.MXFP8_RCEIL:
+        recipe: MXFP8TrainingRecipe,
+    ) -> "MXFP8TrainingConfig":
+        """Factory method to create a MXFP8TrainingConfig from a MXFP8TrainingRecipe."""
+        if recipe == MXFP8TrainingRecipe.MXFP8_RCEIL:
             return cls(
                 kernel_preference=KernelPreference.AUTO,
                 out_dtype=torch.bfloat16,
                 wgrad_with_hp=False,
                 scale_calculation_mode=ScaleCalculationMode.RCEIL,
             )
-        elif recipe == MXFP8GroupedMMRecipe.MXFP8_RCEIL_WGRAD_WITH_HP:
+        elif recipe == MXFP8TrainingRecipe.MXFP8_RCEIL_WGRAD_WITH_HP:
             return cls(
                 kernel_preference=KernelPreference.AUTO,
                 out_dtype=torch.bfloat16,
                 wgrad_with_hp=True,
                 scale_calculation_mode=ScaleCalculationMode.RCEIL,
             )
-        elif recipe == MXFP8GroupedMMRecipe.MXFP8_EMULATED_RCEIL:
+        elif recipe == MXFP8TrainingRecipe.MXFP8_EMULATED_RCEIL:
             return cls(
                 kernel_preference=KernelPreference.EMULATED,
                 out_dtype=torch.bfloat16,
@@ -132,7 +133,7 @@ class MXFP8GroupedMMConfig(GroupedMMConfig):
             raise ValueError(f"Unsupported MXFP8 recipe: {recipe}")
 
     def __eq__(self, other):
-        if isinstance(other, MXFP8GroupedMMConfig):
+        if isinstance(other, MXFP8TrainingConfig):
             return (
                 self.kernel_preference == other.kernel_preference
                 and self.out_dtype == other.out_dtype
@@ -152,19 +153,18 @@ class MXFP8GroupedMMConfig(GroupedMMConfig):
         )
 
 
-@register_quantize_module_handler(FP8GroupedMMConfig)
-@register_quantize_module_handler(MXFP8GroupedMMConfig)
+@register_quantize_module_handler(MXFP8TrainingConfig)
 def _moe_training_transform(
     module: nn.Module,
-    config: GroupedMMConfig,
+    config: TrainingBaseConfig,
     parameter_name: Optional[str] = None,
 ) -> nn.Module:
     """
-    Swaps `torch.nn.Parameter` data tensor with a ScaledGroupedMMTensor.
+    Swaps `torch.nn.Parameter` data tensor with a MXFP8TrainingTensor.
 
     Args:
         module: Module to modify.
-        config: GroupedMMConfig which defines how to perform the MoE training transform.
+        config: TrainingBaseConfig which defines how to perform the training transform (i.e., convert linears and grouped GEMMs)
         parameter_name: If specified, only transform this specific parameter. Otherwise transform all parameters.
 
     Returns:
