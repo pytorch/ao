@@ -18,6 +18,7 @@ Available backends:
     fa3      - Flash Attention 3
     fa3_fp8  - Flash Attention 3 with FP8 quantization (fused RoPE + FP8 SDPA)
     fa4      - Flash Attention 4
+    fa4_fp8  - Flash Attention 4 with FP8 quantization (fused RoPE + FP8 SDPA)
 
 Usage:
     # Default: FA3 vs FA3 FP8
@@ -45,7 +46,11 @@ from torch.nn.attention import (
 )
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from torchao.prototype.attention import apply_low_precision_attention
+from torchao.prototype.attention import (
+    AttentionBackend,
+    LowPrecisionAttentionConfig,
+    apply_low_precision_attention,
+)
 
 # =============================================================================
 # Backend Configuration
@@ -65,12 +70,19 @@ BACKENDS = {
     "fa3_fp8": {
         "flash_impl": "FA3",
         "fp8": True,
+        "fp8_backend": AttentionBackend.FP8_FA3,
         "label": "FA3 FP8",
     },
     "fa4": {
         "flash_impl": "FA4",
         "fp8": False,
         "label": "FA4 BF16",
+    },
+    "fa4_fp8": {
+        "flash_impl": "FA4",
+        "fp8": True,
+        "fp8_backend": AttentionBackend.FP8_FA4,
+        "label": "FA4 FP8",
     },
 }
 
@@ -107,10 +119,9 @@ def setup_backend(orig_model, backend_name, compile_flag):
 
     if cfg["fp8"]:
         print(f"  Applying low-precision FP8 attention ({backend_name})...")
-        model = apply_low_precision_attention(orig_model)
-        # FP8 wrapper handles FA3 activation internally; returning None
-        # avoids double activation/restore mismatch.
-        return model, None
+        fp8_config = LowPrecisionAttentionConfig(backend=cfg["fp8_backend"])
+        model = apply_low_precision_attention(orig_model, fp8_config)
+        return model, cfg["flash_impl"]
     else:
         if compile_flag:
             print(f"  Compiling model with torch.compile ({backend_name})...")

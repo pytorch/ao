@@ -5,7 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 """
-FP8 scaled dot-product attention using FA3 backend.
+FP8 scaled dot-product attention using FA4 backend.
 """
 
 from typing import Optional
@@ -29,7 +29,7 @@ from torchao.prototype.attention.quantization import (
 )
 
 
-def fp8_fa3_sdpa(
+def fp8_fa4_sdpa(
     query: torch.Tensor,
     key: torch.Tensor,
     value: torch.Tensor,
@@ -39,17 +39,17 @@ def fp8_fa3_sdpa(
     scale: Optional[float] = None,
     enable_gqa: bool = False,
 ) -> torch.Tensor:
-    """FP8 SDPA using FA3 backend. Quantizes Q, K, V to FP8 before attention."""
+    """FP8 SDPA using FA4 backend. Quantizes Q, K, V to FP8 before attention."""
     if not _has_quantized_sdpa:
         raise RuntimeError(
-            "fp8_fa3_sdpa requires a PyTorch version with "
+            "fp8_fa4_sdpa requires a PyTorch version with "
             "torch.nn.attention.experimental._scaled_dot_product_attention_quantized. "
             "Please upgrade PyTorch."
         )
     if attn_mask is not None:
-        raise ValueError("attn_mask not supported for FP8 FA3")
+        raise ValueError("attn_mask not supported for FP8 FA4")
     if dropout_p != 0.0:
-        raise ValueError(f"dropout_p must be 0.0 for FP8 FA3, got {dropout_p}")
+        raise ValueError(f"dropout_p must be 0.0 for FP8 FA4, got {dropout_p}")
 
     input_dtype = query.dtype
 
@@ -72,7 +72,7 @@ def fp8_fa3_sdpa(
     return out.to(input_dtype)
 
 
-def fp8_fa3_rope_sdpa(
+def fp8_fa4_rope_sdpa(
     query: torch.Tensor,
     key: torch.Tensor,
     value: torch.Tensor,
@@ -85,7 +85,7 @@ def fp8_fa3_rope_sdpa(
     enable_gqa: bool = False,
     rope_interleaved: bool = False,
 ) -> torch.Tensor:
-    """FP8 SDPA with fused RoPE using FA3 backend.
+    """FP8 SDPA with fused RoPE using FA4 backend.
 
     Applies RoPE to Q and K, quantizes Q, K, V to FP8, and runs attention
     in a single fused operation. Also transforms the layout from
@@ -102,20 +102,22 @@ def fp8_fa3_rope_sdpa(
         is_causal: Whether to apply causal masking.
         scale: Scaling factor for attention. If None, uses 1/sqrt(D).
         enable_gqa: Whether to enable grouped query attention.
+        rope_interleaved: If True, uses interleaved RoPE (paired elements adjacent).
+            If False, uses NeoX half-split RoPE. Default: False.
 
     Returns:
         Attention output of shape [B, H, S, D] in the input dtype.
     """
     if not _has_quantized_sdpa:
         raise RuntimeError(
-            "fp8_fa3_rope_sdpa requires a PyTorch version with "
+            "fp8_fa4_rope_sdpa requires a PyTorch version with "
             "torch.nn.attention.experimental._scaled_dot_product_attention_quantized. "
             "Please upgrade PyTorch."
         )
     if attn_mask is not None:
-        raise ValueError("attn_mask not supported for FP8 FA3")
+        raise ValueError("attn_mask not supported for FP8 FA4")
     if dropout_p != 0.0:
-        raise ValueError(f"dropout_p must be 0.0 for FP8 FA3, got {dropout_p}")
+        raise ValueError(f"dropout_p must be 0.0 for FP8 FA4, got {dropout_p}")
 
     input_dtype = query.dtype
 
