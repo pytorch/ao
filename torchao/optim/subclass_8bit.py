@@ -40,11 +40,28 @@ def get_qmap_unsigned():
 class OptimState8bit(TorchAOBaseTensor):
     tensor_attrs = ["codes", "scale", "qmap"]
 
+    # dtype only acts as an appearance dtype to work with the rest of PyTorch
     @staticmethod
-    def __new__(cls, codes: Tensor, scale: Tensor, qmap: Tensor, signed: bool):
-        return Tensor._make_wrapper_subclass(cls, codes.shape, device=codes.device)
+    def __new__(
+        cls,
+        codes: Tensor,
+        scale: Tensor,
+        qmap: Tensor,
+        signed: bool,
+        dtype: torch.dtype | None = None,
+    ):
+        return Tensor._make_wrapper_subclass(
+            cls, codes.shape, device=codes.device, dtype=dtype
+        )
 
-    def __init__(self, codes: Tensor, scale: Tensor, qmap: Tensor, signed: bool):
+    def __init__(
+        self,
+        codes: Tensor,
+        scale: Tensor,
+        qmap: Tensor,
+        signed: bool,
+        dtype: torch.dtype | None = None,
+    ):
         """Create quantized 8-bit optimizer state as proposed in https://arxiv.org/abs/2110.02861
 
         Args
@@ -67,7 +84,7 @@ class OptimState8bit(TorchAOBaseTensor):
         self.block_size = codes.numel() // scale.numel()
 
     def __tensor_flatten__(self):
-        return self.tensor_attrs, [self.signed]
+        return self.tensor_attrs, [self.signed, self.dtype]
 
     @classmethod
     def __tensor_unflatten__(
@@ -84,17 +101,25 @@ class OptimState8bit(TorchAOBaseTensor):
         return float_data
 
     @classmethod
-    def zeros(cls, shape, signed: bool = True, block_size: int = 256, device=None):
+    def zeros(
+        cls,
+        shape,
+        signed: bool = True,
+        block_size: int = 256,
+        device: torch.types.Device = None,
+        dtype: torch.dtype | None = None,
+    ):
         codes = torch.zeros(shape, dtype=torch.uint8, device=device)
         scale = torch.zeros(codes.numel() // block_size, device=device)
         qmap_list = get_qmap_signed() if signed else get_qmap_unsigned()
         qmap = torch.tensor(qmap_list, dtype=torch.float32, device=device)
-        return cls(codes, scale, qmap, signed)
+        return cls(codes, scale, qmap, signed, dtype=dtype)
 
     def __repr__(self):
         return (
             f"{self.__class__.__name__}(signed={self.signed}, block_size={self.block_size}, "
-            f"shape={tuple(self.shape)}, device={self.device}, requires_grad={self.requires_grad})"
+            f"shape={tuple(self.shape)}, dtype={self.dtype}, device={self.device}, "
+            f"requires_grad={self.requires_grad})"
         )
 
 
@@ -123,13 +148,15 @@ def _(func, types, args, kwargs):
 
 @OptimState8bit.implements(aten._to_copy.default)
 def _(func, types, args, kwargs):
-    # ignore dtype
+    # only change the appearance dtype
+    dtype = kwargs.get("dtype", args[0].dtype)
     device = kwargs.get("device", None)
     out = OptimState8bit(
         args[0].codes.to(device=device),
         args[0].scale.to(device=device),
         args[0].qmap.to(device=device),
         args[0].signed,
+        dtype=dtype,
     )
     return return_and_correct_aliasing(func, args, kwargs, out)
 
