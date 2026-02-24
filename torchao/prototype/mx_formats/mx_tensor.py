@@ -168,23 +168,6 @@ def _get_elem_dtype_params(
         raise AssertionError("unsupported element dtype")
 
 
-def _validate_mx_input(
-    data_hp: torch.Tensor,
-    elem_dtype: Union[torch.dtype, str],
-    block_size: int,
-):
-    assert data_hp.dtype in (
-        torch.bfloat16,
-        torch.float,
-    ), f"{data_hp.dtype} is not supported yet"
-    # TODO(future PR): consider supporting padding
-    assert data_hp.shape[-1] % block_size == 0, (
-        f"the last dimension of shape {data_hp.shape} must be divisible by block_size {block_size}"
-    )
-    assert data_hp.is_contiguous(), "unsupported"
-    assert elem_dtype in SUPPORTED_ELEM_DTYPES, "unsupported"
-
-
 def calculate_scale(
     data_hp: torch.Tensor,
     elem_dtype: Union[torch.dtype, str],
@@ -198,7 +181,6 @@ def calculate_scale(
         scale as float8_e8m0fnu tensor with shape
         (*data_hp.shape[:-1], data_hp.shape[-1] // block_size).
     """
-    _validate_mx_input(data_hp, elem_dtype, block_size)
     target_max_pow2, mbits, max_pos = _get_elem_dtype_params(elem_dtype)
 
     data_hp = data_hp.reshape(
@@ -308,7 +290,6 @@ def to_mx_with_precomputed_scale(
     Returns:
         (scale_e8m0, data_lp) tuple.
     """
-    _validate_mx_input(data_hp, elem_dtype, block_size)
     assert scale_e8m0.dtype == torch.float8_e8m0fnu, (
         f"scale_e8m0.dtype must be float8_e8m0fnu, got {scale_e8m0.dtype}"
     )
@@ -350,14 +331,20 @@ def to_mx_with_precomputed_scale(
     # cast to target dtype
     if elem_dtype in (torch.float8_e4m3fn, torch.float8_e5m2):
         data_lp = data_lp.to(elem_dtype)
+        # need to reshape at the end to help inductor fuse things
         data_lp = data_lp.reshape(orig_shape)
     elif elem_dtype == DTYPE_FP6_E2M3:
         data_lp = f32_to_f6_e2m3_unpacked(data_lp)
+        # need to reshape at the end to help inductor fuse things
         data_lp = data_lp.reshape(orig_shape)
     elif elem_dtype == DTYPE_FP6_E3M2:
         data_lp = f32_to_f6_e3m2_unpacked(data_lp)
+        # need to reshape at the end to help inductor fuse things
         data_lp = data_lp.reshape(orig_shape)
     elif elem_dtype == torch.float4_e2m1fn_x2:
+        # can't reshape at the end without handling it in the packing code,
+        # punt until later since we'll need to rethink the torch.compile
+        # approach for fp4x2 in any case
         data_lp = data_lp.reshape(orig_shape)
         data_lp = f32_to_f4_unpacked(data_lp)
         data_lp = pack_uint4(data_lp)
@@ -390,6 +377,17 @@ def to_mx(
     Takes a high precision tensor and converts to MX scale and raw data, in
     naive layout (scale and raw data are separate tensors).
     """
+    assert data_hp.dtype in (
+        torch.bfloat16,
+        torch.float,
+    ), f"{data_hp.dtype} is not supported yet"
+    # TODO(future PR): consider supporting padding
+    assert data_hp.shape[-1] % block_size == 0, (
+        f"the last dimension of shape {data_hp.shape} must be divisible by block_size {block_size}"
+    )
+    assert data_hp.is_contiguous(), "unsupported"
+    assert elem_dtype in SUPPORTED_ELEM_DTYPES, "unsupported"
+
     if scale is None:
         scale = calculate_scale(data_hp, elem_dtype, block_size, scaling_mode)
     return to_mx_with_precomputed_scale(
