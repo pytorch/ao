@@ -34,6 +34,7 @@ from torchao.quantization.qat import (
 )
 from torchao.quantization.quant_api import (
     Float8DynamicActivationFloat8WeightConfig,
+    Float8DynamicActivationInt4WeightConfig,
     Float8WeightOnlyConfig,
     FqnToConfig,
     GemliteUIntXWeightOnlyConfig,
@@ -1040,6 +1041,7 @@ class TestFqnToConfig(TestCase):
     def test_fqn_to_config_non_weight_param(self):
         configs = [
             Int4WeightOnlyConfig(group_size=128),
+            Float8DynamicActivationInt4WeightConfig(),
             Int8WeightOnlyConfig(),
             Int8StaticActivationInt8WeightConfig(),
             Float8WeightOnlyConfig(),
