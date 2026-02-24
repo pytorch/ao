@@ -237,7 +237,9 @@ class Adam8bit(_AdamBase):
 
     @staticmethod
     def _subclass_zeros(p: Tensor, signed: bool, block_size: int):
-        return OptimState8bit.zeros(p.shape, signed, block_size, p.device)
+        return OptimState8bit.zeros(
+            p.shape, signed, block_size, p.device, dtype=p.dtype
+        )
 
 
 class Adam4bit(_AdamBase):
@@ -268,7 +270,9 @@ class Adam4bit(_AdamBase):
 
     @staticmethod
     def _subclass_zeros(p: Tensor, signed: bool, block_size: int):
-        return OptimState4bit.zeros(p.shape, signed, block_size, p.device)
+        return OptimState4bit.zeros(
+            p.shape, signed, block_size, p.device, dtype=p.dtype
+        )
 
 
 class AdamFp8(_AdamBase):
@@ -299,7 +303,7 @@ class AdamFp8(_AdamBase):
 
     @staticmethod
     def _subclass_zeros(p: Tensor, signed: bool, block_size: int):
-        return OptimStateFp8.zeros(p.shape, block_size, p.device)
+        return OptimStateFp8.zeros(p.shape, block_size, p.device, dtype=p.dtype)
 
 
 class AdamW8bit(_AdamBase):
@@ -330,7 +334,9 @@ class AdamW8bit(_AdamBase):
 
     @staticmethod
     def _subclass_zeros(p: Tensor, signed: bool, block_size: int):
-        return OptimState8bit.zeros(p.shape, signed, block_size, p.device)
+        return OptimState8bit.zeros(
+            p.shape, signed, block_size, p.device, dtype=p.dtype
+        )
 
 
 class AdamW4bit(_AdamBase):
@@ -361,7 +367,9 @@ class AdamW4bit(_AdamBase):
 
     @staticmethod
     def _subclass_zeros(p: Tensor, signed: bool, block_size: int):
-        return OptimState4bit.zeros(p.shape, signed, block_size, p.device)
+        return OptimState4bit.zeros(
+            p.shape, signed, block_size, p.device, dtype=p.dtype
+        )
 
 
 class AdamWFp8(_AdamBase):
@@ -392,7 +400,7 @@ class AdamWFp8(_AdamBase):
 
     @staticmethod
     def _subclass_zeros(p: Tensor, signed: bool, block_size: int):
-        return OptimStateFp8.zeros(p.shape, block_size, p.device)
+        return OptimStateFp8.zeros(p.shape, block_size, p.device, dtype=p.dtype)
 
 
 class _AdamW(_AdamBase):

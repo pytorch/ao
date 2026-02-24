@@ -75,6 +75,7 @@ def _fp8_fa3_rope_sdpa_custom_op(
     is_causal: bool = False,
     scale: float = 0.0,
     enable_gqa: bool = False,
+    rope_interleaved: bool = False,
 ) -> torch.Tensor:
     """Custom op wrapper around fp8_fa3_rope_sdpa.
 
@@ -89,6 +90,7 @@ def _fp8_fa3_rope_sdpa_custom_op(
                "use default (1/sqrt(D))" because custom_op doesn't support
                Optional[float], and scale=0.0 would never be a valid real scale.
         enable_gqa: Whether to enable grouped query attention.
+        rope_interleaved: Whether to use interleaved (FLUX) or NeoX (LLaMA) RoPE.
 
     Returns:
         Attention output [B, H, S, D] in the input dtype.
@@ -107,6 +109,7 @@ def _fp8_fa3_rope_sdpa_custom_op(
         is_causal=is_causal,
         scale=actual_scale,
         enable_gqa=enable_gqa,
+        rope_interleaved=rope_interleaved,
     )
 
 
@@ -120,6 +123,7 @@ def _fp8_fa3_rope_sdpa_fake(
     is_causal: bool = False,
     scale: float = 0.0,
     enable_gqa: bool = False,
+    rope_interleaved: bool = False,
 ) -> torch.Tensor:
     """FakeTensor implementation: tells the compiler the output shape and dtype.
 
@@ -217,6 +221,7 @@ class RoPEMatch:
     pre_rope_input: Node
     cos_node: Node
     sin_node: Node
+    rope_interleaved: bool  # True = FLUX interleaved, False = NeoX half-split
 
 
 # ============================================================================
@@ -246,21 +251,96 @@ def _is_op(node: Node, *targets) -> bool:
     return False
 
 
+def _get_fake_tensor(node: Node) -> Optional[torch.Tensor]:
+    """Get the FakeTensor metadata from a node.
+
+    During torch.compile, FX nodes carry FakeTensor metadata that tells us
+    the shape and dtype of the tensor each node produces without running real
+    computation.  The metadata key varies by pass level:
+      - Pre-grad (Dynamo) level: ``node.meta["example_value"]``
+      - Post-grad (ATen/Inductor) level: ``node.meta["val"]``
+
+    Returns:
+        The FakeTensor, or None if metadata is unavailable.
+    """
+    for key in ("val", "example_value"):
+        if key in node.meta:
+            val = node.meta[key]
+            if isinstance(val, torch.Tensor):
+                return val
+    return None
+
+
 def _get_node_shape(node: Node) -> Optional[Tuple[int, ...]]:
     """Get the output tensor shape from a node's FakeTensor metadata.
-
-    During torch.compile, FX nodes carry FakeTensor metadata in
-    node.meta["val"]. This tells us the shape and dtype of the tensor
-    that each node produces, without running real computation.
 
     Returns:
         The shape as a tuple of ints, or None if metadata is unavailable.
     """
-    if "val" in node.meta:
-        val = node.meta["val"]
-        if isinstance(val, torch.Tensor):
-            return tuple(val.shape)
+    fake = _get_fake_tensor(node)
+    if fake is not None:
+        return tuple(fake.shape)
     return None
+
+
+def _reshape_cos_sin_to_2d(
+    graph: Graph,
+    cos_node: Node,
+    sin_node: Node,
+    insert_before: Node,
+) -> Optional[Tuple[Node, Node]]:
+    """Reshape cos/sin nodes to 2D [S, D] if they have leading size-1 dims.
+
+    HuggingFace models produce cos/sin with shape [B, S, D] (or even
+    [1, 1, S, D]) from their rotary embeddings, but our fused kernel
+    expects [S, D].  This function checks compatibility and inserts
+    view nodes into the graph if reshaping is needed.
+
+    Args:
+        graph: The FX graph to insert reshape nodes into.
+        cos_node: The cos frequencies node.
+        sin_node: The sin frequencies node.
+        insert_before: Insert any new nodes before this node.
+
+    Returns:
+        (cos_2d, sin_2d) nodes with shape [S, D], or None if the shapes
+        are incompatible (e.g., a leading dim > 1).
+    """
+    cos_shape = _get_node_shape(cos_node)
+    sin_shape = _get_node_shape(sin_node)
+
+    # If metadata is unavailable, skip validation and pass through as-is.
+    if cos_shape is None or sin_shape is None:
+        return cos_node, sin_node
+
+    # Already 2D — no reshaping needed.
+    if len(cos_shape) == 2 and len(sin_shape) == 2:
+        return cos_node, sin_node
+
+    # Check that all leading dims are 1 (broadcastable to any batch size).
+    for name, shape in [("cos", cos_shape), ("sin", sin_shape)]:
+        if len(shape) < 2:
+            logger.debug("RoPE %s has fewer than 2 dims: shape=%s", name, shape)
+            return None
+        for dim in shape[:-2]:
+            if dim != 1:
+                logger.debug(
+                    "RoPE %s has non-unit leading dim: shape=%s", name, shape,
+                )
+                return None
+
+    # Insert view nodes to reshape to [S, D].
+    s, d = cos_shape[-2], cos_shape[-1]
+    with graph.inserting_before(insert_before):
+        cos_2d = graph.call_function(
+            torch.ops.aten.view.default,
+            args=(cos_node, [s, d]),
+        )
+        sin_2d = graph.call_function(
+            torch.ops.aten.view.default,
+            args=(sin_node, [s, d]),
+        )
+    return cos_2d, sin_2d
 
 
 def _trace_through_views(node: Node) -> Node:
@@ -406,6 +486,64 @@ def _unwrap_transpose(node: Node) -> Optional[Node]:
     return None
 
 
+def _unwrap_repeat_kv(node: Node) -> Optional[Node]:
+    """Unwrap a repeat_kv (GQA head repetition) pattern to get the original tensor.
+
+    HuggingFace's repeat_kv expands KV heads for GQA compatibility:
+        x[:, :, None, :, :].expand(B, nkv, n_rep, S, D).reshape(B, nkv*n_rep, S, D)
+
+    In the FX graph this appears as: reshape ← expand ← getitem(unsqueeze).
+    This function detects that pattern and returns the pre-repetition tensor.
+
+    Args:
+        node: A graph node that might be the output of repeat_kv.
+
+    Returns:
+        The pre-repetition tensor node, or None if not a repeat_kv pattern.
+    """
+    if not isinstance(node, Node):
+        return None
+
+    # Step 1: Must be reshape or view — merges (nkv, n_rep) → (nkv*n_rep).
+    if not _is_op(
+        node,
+        torch.ops.aten.reshape.default,
+        torch.ops.aten.view.default,
+        "reshape",
+        "view",
+    ):
+        return None
+
+    inner = node.args[0] if node.args else None
+    if not isinstance(inner, Node):
+        return None
+
+    # Step 2: Input must be expand — broadcasts the rep dim.
+    if not _is_op(
+        inner,
+        torch.ops.aten.expand.default,
+        "expand",
+    ):
+        return None
+
+    inner2 = inner.args[0] if inner.args else None
+    if not isinstance(inner2, Node):
+        return None
+
+    # Step 3: Input to expand must add a size-1 dim (unsqueeze-like).
+    # This can be getitem with None indexing or aten.unsqueeze.
+    if _is_op(inner2, torch.ops.aten.unsqueeze.default, "unsqueeze"):
+        return inner2.args[0] if inner2.args else None
+
+    if inner2.op == "call_function" and inner2.target is operator.getitem:
+        # e.g., x[:, :, None, :, :] — getitem with None in the index tuple.
+        if len(inner2.args) >= 2 and isinstance(inner2.args[1], tuple):
+            if any(i is None for i in inner2.args[1]):
+                return inner2.args[0] if inner2.args else None
+
+    return None
+
+
 # ============================================================================
 # Section 5: SDPA Detection and Parameter Extraction
 # ============================================================================
@@ -430,39 +568,96 @@ def _is_sdpa_node(node: Node) -> bool:
     )
 
 
-def _sdpa_is_fusible(node: Node) -> bool:
-    """Check if an SDPA node is compatible with our FP8 rope fused kernel.
+def _is_causal_mask(attn_mask_node: Node, is_causal: bool) -> bool:
+    """Detect if attn_mask is a materialized causal mask from HuggingFace.
 
-    Our fused kernel has restrictions:
-      - No attention mask (attn_mask must be None)
-      - No dropout (dropout_p must be 0.0)
+    During torch.compile, HF materializes causal masks as 4D bool tensors
+    (shape [B, 1, Q, KV] where Q == KV) and sets is_causal=False. This
+    function detects that pattern so we can strip the mask and restore
+    is_causal=True.
+    """
+    if is_causal:
+        # Already marked causal — no stripping needed.
+        return False
 
-    The SDPA function signature is:
-        sdpa(query, key, value, attn_mask=None, dropout_p=0.0,
-             is_causal=False, scale=None, enable_gqa=False)
+    if not isinstance(attn_mask_node, Node):
+        return False
 
-    In the FX graph, some of these may be positional args or kwargs.
+    fake = _get_fake_tensor(attn_mask_node)
+    if fake is None:
+        return False
 
-    Args:
-        node: An SDPA node (already verified by _is_sdpa_node).
+    if fake.dtype != torch.bool:
+        return False
+
+    shape = fake.shape
+    if len(shape) < 2:
+        return False
+
+    # Q_len == KV_len: full-context causal mask (not a sliding window
+    # or cross-attention mask).
+    return shape[-2] == shape[-1]
+
+
+def _sdpa_is_fusible(node: Node) -> Tuple[bool, bool]:
+    """Check if an SDPA node is compatible with our FP8 fused kernel.
 
     Returns:
-        True if this SDPA call is compatible with our fused kernel.
+        (is_fusible, needs_mask_strip) where needs_mask_strip indicates
+        the attn_mask is a materialized causal mask that should be
+        stripped (set to None) with is_causal set to True.
     """
     args = node.args
     kwargs = node.kwargs
 
-    # attn_mask (arg index 3): must be None.
+    # attn_mask (arg index 3): must be None or a detectable causal mask.
     attn_mask = args[3] if len(args) > 3 else kwargs.get("attn_mask", None)
+
+    # is_causal (arg index 5, default False).
+    is_causal = args[5] if len(args) > 5 else kwargs.get("is_causal", False)
+
+    needs_mask_strip = False
     if attn_mask is not None:
-        return False
+        if _is_causal_mask(attn_mask, is_causal):
+            needs_mask_strip = True
+        else:
+            return False, False
 
     # dropout_p (arg index 4): must be 0.0.
     dropout_p = args[4] if len(args) > 4 else kwargs.get("dropout_p", 0.0)
     if dropout_p != 0.0:
-        return False
+        return False, False
 
-    return True
+    return True, needs_mask_strip
+
+
+def _strip_causal_mask(node: Node) -> None:
+    """Strip a materialized causal mask from an SDPA node.
+
+    Sets attn_mask=None and is_causal=True in the node's args/kwargs.
+    """
+    args = list(node.args)
+    kwargs = dict(node.kwargs)
+
+    # Set attn_mask (index 3) to None
+    if len(args) > 3:
+        args[3] = None
+    elif "attn_mask" in kwargs:
+        kwargs["attn_mask"] = None
+
+    # Set is_causal (index 5) to True
+    if len(args) > 5:
+        args[5] = True
+    elif "is_causal" in kwargs:
+        kwargs["is_causal"] = True
+    else:
+        # is_causal wasn't in args or kwargs; add to kwargs
+        kwargs["is_causal"] = True
+
+    node.args = tuple(args)
+    node.kwargs = kwargs
+
+    logger.info("Stripped causal mask from SDPA node: %s", node.name)
 
 
 def _get_sdpa_params(node: Node) -> Tuple[bool, float, bool]:
@@ -840,7 +1035,7 @@ def _detect_interleaved_rotation(node: Node) -> Optional[Node]:
     return source_x if isinstance(source_x, Node) else None
 
 
-def _detect_rotation(node: Node) -> Optional[Node]:
+def _detect_rotation(node: Node) -> Optional[Tuple[Node, bool]]:
     """Detect any supported rotation pattern used in RoPE.
 
     Tries:
@@ -851,15 +1046,16 @@ def _detect_rotation(node: Node) -> Optional[Node]:
         node: A node to check.
 
     Returns:
-        The source tensor x (the input to the rotation), or None.
+        (source_tensor, is_interleaved) or None.
+        is_interleaved=False for NeoX half-split, True for FLUX interleaved.
     """
     result = _detect_rotate_half(node)
     if result is not None:
-        return result
+        return result, False  # NeoX half-split
 
     result = _detect_interleaved_rotation(node)
     if result is not None:
-        return result
+        return result, True  # Interleaved
 
     return None
 
@@ -921,9 +1117,10 @@ def _detect_neox_rope(node: Node) -> Optional[RoPEMatch]:
             rot_unwrapped = _trace_through_views(rot_candidate)
 
             # Check if rot_unwrapped is the output of a rotation(x).
-            x_from_rotate = _detect_rotation(rot_unwrapped)
-            if x_from_rotate is None:
+            rotation_result = _detect_rotation(rot_unwrapped)
+            if rotation_result is None:
                 continue
+            x_from_rotate, is_interleaved = rotation_result
 
             # Now match x_mul as (x * cos) where x == x_from_rotate.
             x_a, x_b = x_mul.args[0], x_mul.args[1]
@@ -950,6 +1147,7 @@ def _detect_neox_rope(node: Node) -> Optional[RoPEMatch]:
                     pre_rope_input=x_from_rotate,
                     cos_node=cos_source,
                     sin_node=sin_source,
+                    rope_interleaved=is_interleaved,
                 )
 
         return None
@@ -1012,6 +1210,7 @@ def _replace_with_fused_op(
     is_causal: bool,
     scale: float,
     enable_gqa: bool,
+    rope_interleaved: bool,
 ) -> None:
     """Replace an SDPA node (and its RoPE + transpose predecessors) with the fused op.
 
@@ -1034,6 +1233,7 @@ def _replace_with_fused_op(
         is_causal: Whether causal masking is enabled.
         scale: Attention scale factor (0.0 = use default 1/sqrt(D)).
         enable_gqa: Whether grouped query attention is enabled.
+        rope_interleaved: Whether to use interleaved (FLUX) or NeoX (LLaMA) RoPE.
     """
     # Insert the fused op node right before the old SDPA node in the graph.
     # This ensures all input nodes are defined before our new node.
@@ -1045,6 +1245,7 @@ def _replace_with_fused_op(
                 "is_causal": is_causal,
                 "scale": scale,
                 "enable_gqa": enable_gqa,
+                "rope_interleaved": rope_interleaved,
             },
         )
 
@@ -1150,9 +1351,13 @@ def rope_sdpa_fusion_pass(graph: Graph) -> None:
 
     for sdpa_node in sdpa_nodes:
         # Check if this SDPA call is compatible with our fused kernel.
-        if not _sdpa_is_fusible(sdpa_node):
+        is_fusible, needs_mask_strip = _sdpa_is_fusible(sdpa_node)
+        if not is_fusible:
             logger.debug("Skipping non-fusible SDPA: %s", sdpa_node.name)
             continue
+
+        if needs_mask_strip:
+            _strip_causal_mask(sdpa_node)
 
         # Extract is_causal, scale, and enable_gqa to pass through to the fused op.
         is_causal, scale, enable_gqa = _get_sdpa_params(sdpa_node)
@@ -1214,24 +1419,17 @@ def rope_sdpa_fusion_pass(graph: Graph) -> None:
                     )
                     continue
 
-                # Validate cos/sin shapes if metadata is available.
-                # The fused kernel expects [S, D] cos/sin.
-                cos_shape = _get_node_shape(q_rope.cos_node)
-                sin_shape = _get_node_shape(q_rope.sin_node)
-                if cos_shape is not None and len(cos_shape) != 2:
+                # Validate and reshape cos/sin to [S, D] for the fused kernel.
+                cos_sin = _reshape_cos_sin_to_2d(
+                    graph, q_rope.cos_node, q_rope.sin_node, sdpa_node,
+                )
+                if cos_sin is None:
                     logger.debug(
-                        "Pattern A: cos is not 2D (shape=%s), skipping: %s",
-                        cos_shape,
+                        "Pattern A: cos/sin shape incompatible, skipping: %s",
                         sdpa_node.name,
                     )
                     continue
-                if sin_shape is not None and len(sin_shape) != 2:
-                    logger.debug(
-                        "Pattern A: sin is not 2D (shape=%s), skipping: %s",
-                        sin_shape,
-                        sdpa_node.name,
-                    )
-                    continue
+                cos_2d, sin_2d = cos_sin
 
                 _replace_with_fused_op(
                     graph=graph,
@@ -1239,11 +1437,12 @@ def rope_sdpa_fusion_pass(graph: Graph) -> None:
                     pre_rope_q=pre_rope_q,
                     pre_rope_k=pre_rope_k,
                     v_input=v_pre_transpose,
-                    cos_node=q_rope.cos_node,
-                    sin_node=q_rope.sin_node,
+                    cos_node=cos_2d,
+                    sin_node=sin_2d,
                     is_causal=is_causal,
                     scale=scale,
                     enable_gqa=enable_gqa,
+                    rope_interleaved=q_rope.rope_interleaved,
                 )
                 fused_count += 1
                 continue  # Move to next SDPA node.
@@ -1255,18 +1454,36 @@ def rope_sdpa_fusion_pass(graph: Graph) -> None:
         # This is the HuggingFace-style layout where the tensor is first
         # transposed to [B, H, S, D], then RoPE is applied in that layout.
         #
-        # Data flow:
+        # Data flow (non-GQA):
         #   Q: q [B,S,H,D] -> transpose -> q_t [B,H,S,D]
         #                   -> RoPE -> q_roped [B,H,S,D] -> SDPA
         #   K: (same as Q)
         #   V: v [B,S,H,D] -> transpose -> v_t [B,H,S,D] -> SDPA
         #
+        # Data flow (GQA with repeat_kv):
+        #   Q: (same as non-GQA, Q has all heads)
+        #   K: k [B,S,Hkv,D] -> transpose -> RoPE -> repeat_kv -> SDPA
+        #   V: v [B,S,Hkv,D] -> transpose -> repeat_kv -> SDPA
+        #
         # Detection: detect RoPE directly on SDPA's Q/K inputs (no
         # transpose between RoPE and SDPA), then trace the RoPE's inner
         # input backward through a transpose to find the [B,S,H,D] source.
+        # For GQA, unwrap repeat_kv on K/V first, then detect RoPE.
 
+        # Try to detect RoPE on Q (always direct, no repeat_kv on Q).
         q_rope = _detect_rope(_trace_through_views(q_node))
+
+        # Try to detect RoPE on K. For GQA models, K may go through
+        # repeat_kv (reshape←expand←unsqueeze) after RoPE. Try direct
+        # detection first, then try unwrapping repeat_kv.
         k_rope = _detect_rope(_trace_through_views(k_node))
+        gqa_unwrapped = False
+        if k_rope is None:
+            k_pre_repeat = _unwrap_repeat_kv(k_node)
+            if k_pre_repeat is not None:
+                k_rope = _detect_rope(_trace_through_views(k_pre_repeat))
+                if k_rope is not None:
+                    gqa_unwrapped = True
 
         if q_rope is not None and k_rope is not None:
             # RoPE detected directly on SDPA inputs (no intervening transpose).
@@ -1280,43 +1497,50 @@ def rope_sdpa_fusion_pass(graph: Graph) -> None:
             if q_bshd is not None and k_bshd is not None:
                 # Found the [B, S, H, D] sources for Q and K.
 
-                # V must also have a transpose we can unwrap.
-                if v_pre_transpose is None:
+                # For V: if GQA was unwrapped on K, V also has repeat_kv.
+                # Unwrap repeat_kv on V first, then unwrap transpose.
+                v_for_fusion = v_node
+                if gqa_unwrapped:
+                    v_pre_repeat = _unwrap_repeat_kv(v_node)
+                    if v_pre_repeat is not None:
+                        v_for_fusion = v_pre_repeat
+
+                v_bshd = _unwrap_transpose(v_for_fusion)
+                if v_bshd is None:
                     logger.debug(
                         "Pattern B: V has no transpose, skipping: %s",
                         sdpa_node.name,
                     )
                     continue
 
-                # Validate cos/sin shapes.
-                cos_shape = _get_node_shape(q_rope.cos_node)
-                sin_shape = _get_node_shape(q_rope.sin_node)
-                if cos_shape is not None and len(cos_shape) != 2:
+                # Validate and reshape cos/sin to [S, D] for the fused kernel.
+                cos_sin = _reshape_cos_sin_to_2d(
+                    graph, q_rope.cos_node, q_rope.sin_node, sdpa_node,
+                )
+                if cos_sin is None:
                     logger.debug(
-                        "Pattern B: cos is not 2D (shape=%s), skipping: %s",
-                        cos_shape,
+                        "Pattern B: cos/sin shape incompatible, skipping: %s",
                         sdpa_node.name,
                     )
                     continue
-                if sin_shape is not None and len(sin_shape) != 2:
-                    logger.debug(
-                        "Pattern B: sin is not 2D (shape=%s), skipping: %s",
-                        sin_shape,
-                        sdpa_node.name,
-                    )
-                    continue
+                cos_2d, sin_2d = cos_sin
+
+                # When we unwrapped repeat_kv, the fused kernel must handle
+                # GQA natively since K/V now have fewer heads than Q.
+                fused_enable_gqa = True if gqa_unwrapped else enable_gqa
 
                 _replace_with_fused_op(
                     graph=graph,
                     sdpa_node=sdpa_node,
                     pre_rope_q=q_bshd,
                     pre_rope_k=k_bshd,
-                    v_input=v_pre_transpose,
-                    cos_node=q_rope.cos_node,
-                    sin_node=q_rope.sin_node,
+                    v_input=v_bshd,
+                    cos_node=cos_2d,
+                    sin_node=sin_2d,
                     is_causal=is_causal,
                     scale=scale,
-                    enable_gqa=enable_gqa,
+                    enable_gqa=fused_enable_gqa,
+                    rope_interleaved=q_rope.rope_interleaved,
                 )
                 fused_count += 1
                 continue
