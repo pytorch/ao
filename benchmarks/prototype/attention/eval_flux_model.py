@@ -15,6 +15,7 @@ Available backends:
     fa3      - Flash Attention 3
     fa3_fp8  - Flash Attention 3 with FP8 quantization (fused RoPE + FP8 SDPA)
     fa4      - Flash Attention 4
+    fa4_fp8  - Flash Attention 4 with FP8 quantization (fused RoPE + FP8 SDPA)
 
 Usage:
     # Compare FA3 vs FA3 FP8 (default)
@@ -49,7 +50,11 @@ from torch.nn.attention import (
     restore_flash_attention_impl,
 )
 
-from torchao.prototype.attention import apply_low_precision_attention
+from torchao.prototype.attention import (
+    AttentionBackend,
+    LowPrecisionAttentionConfig,
+    apply_low_precision_attention,
+)
 
 # =============================================================================
 # Backend Configuration
@@ -58,8 +63,9 @@ from torchao.prototype.attention import apply_low_precision_attention
 BACKENDS = {
     "fa2": {"flash_impl": None, "fp8": False},
     "fa3": {"flash_impl": "FA3", "fp8": False},
-    "fa3_fp8": {"flash_impl": "FA3", "fp8": True},
+    "fa3_fp8": {"flash_impl": "FA3", "fp8": True, "fp8_backend": AttentionBackend.FP8_FA3},
     "fa4": {"flash_impl": "FA4", "fp8": False},
+    "fa4_fp8": {"flash_impl": "FA4", "fp8": True, "fp8_backend": AttentionBackend.FP8_FA4},
 }
 
 IMAGE_SIZE = (512, 512)  # (width, height) - resize for consistent LPIPS
@@ -90,11 +96,12 @@ def setup_backend(pipe, backend_name, compile_flag, orig_transformer):
 
     if cfg["fp8"]:
         print(f"Applying low-precision FP8 attention ({backend_name})...")
-        pipe.transformer = apply_low_precision_attention(pipe.transformer)
-        # Return None — the FP8 wrapper handles FA3 internally via the
-        # fusion pass.  Activating FA3 globally would conflict with the
-        # custom op dispatch.
-        return None
+        fp8_config = LowPrecisionAttentionConfig(backend=cfg["fp8_backend"])
+        pipe.transformer = apply_low_precision_attention(pipe.transformer, fp8_config)
+        # Return the flash impl (e.g. "FA3") so generate_image activates it
+        # for the entire pipe() call.  This keeps non-transformer SDPA calls
+        # (VAE, text encoder) consistent with the baseline FA3 backend.
+        return cfg["flash_impl"]
     else:
         if compile_flag:
             print(f"Compiling transformer with torch.compile ({backend_name})...")
