@@ -92,6 +92,7 @@ def _fp8_rope_sdpa_quantize(
     v: torch.Tensor,
     cos: torch.Tensor,
     sin: torch.Tensor,
+    rope_interleaved: bool = False,
 ) -> Tuple[
     torch.Tensor,
     torch.Tensor,
@@ -105,16 +106,22 @@ def _fp8_rope_sdpa_quantize(
     Applies RoPE to Q and K, quantizes all three to FP8 with per-head scaling,
     and transforms the layout from [B, S, H, D] to [B, H, S, D].
 
+    Supports GQA where Q has more heads than K/V (H_q = groups * H_kv).
+    For GQA, Q is quantized with per-KV-group scaling so that q_descale
+    has shape [B, H_kv] as required by FA3's quantized SDPA kernel.
+
     Args:
-        q: Query tensor of shape [B, S, H, D] in bf16/fp16.
-        k: Key tensor of shape [B, S, H, D] in bf16/fp16.
-        v: Value tensor of shape [B, S, H, D] in bf16/fp16.
+        q: Query tensor of shape [B, S, H_q, D] in bf16/fp16.
+        k: Key tensor of shape [B, S, H_kv, D] in bf16/fp16.
+        v: Value tensor of shape [B, S, H_kv, D] in bf16/fp16.
         cos: Cosine frequencies for RoPE, shape [S, D].
         sin: Sine frequencies for RoPE, shape [S, D].
 
     Returns:
-        q_fp8, k_fp8, v_fp8: Quantized tensors in float8_e4m3fn, shape [B, H, S, D].
-        q_descale, k_descale, v_descale: Descale factors of shape [B, H] in fp32.
+        q_fp8: Quantized query, shape [B, H_q, S, D] in float8_e4m3fn.
+        k_fp8: Quantized key, shape [B, H_kv, S, D] in float8_e4m3fn.
+        v_fp8: Quantized value, shape [B, H_kv, S, D] in float8_e4m3fn.
+        q_descale, k_descale, v_descale: Descale factors, shape [B, H_kv] in fp32.
     """
     if q.dim() != 4:
         raise ValueError(f"Expected 4D tensor for q, got {q.dim()}D")
@@ -126,8 +133,10 @@ def _fp8_rope_sdpa_quantize(
         raise ValueError(f"K and V shape mismatch: {k.shape} vs {v.shape}")
     if q.shape[0] != k.shape[0]:
         raise ValueError(f"Batch size mismatch: {q.shape[0]} vs {k.shape[0]}")
-    if q.shape[2] != k.shape[2]:
-        raise ValueError(f"Head count mismatch: {q.shape[2]} vs {k.shape[2]}")
+    if q.shape[2] % k.shape[2] != 0:
+        raise ValueError(
+            f"Q head count ({q.shape[2]}) must be a multiple of K head count ({k.shape[2]})"
+        )
     if q.shape[3] != k.shape[3]:
         raise ValueError(f"Head dim mismatch: {q.shape[3]} vs {k.shape[3]}")
     if q.shape[3] % 2 != 0:
@@ -146,4 +155,4 @@ def _fp8_rope_sdpa_quantize(
         triton_fp8_rope_sdpa_quantize,
     )
 
-    return triton_fp8_rope_sdpa_quantize(q, k, v, cos, sin)
+    return triton_fp8_rope_sdpa_quantize(q, k, v, cos, sin, rope_interleaved=rope_interleaved)

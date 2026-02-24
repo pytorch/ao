@@ -35,7 +35,14 @@ __all__ = [
     "is_sm_at_least_100",
     "is_package_at_least",
     "DummyModule",
+    "register_as_pytree_constant",
 ]
+
+
+def register_as_pytree_constant(cls):
+    """Decorator to register a class as a pytree constant for dynamo non-strict trace mode."""
+    torch.utils._pytree.register_constant(cls)
+    return cls
 
 
 # Referenced from: https://github.com/pytorch/pytorch/blob/9105d54c6b37099575c0059ef274c86c4dc80c57/torch/ao/quantization/utils.py#L711
@@ -1268,6 +1275,17 @@ def _is_mslk_available():
     import mslk  # noqa: F401
 
     return True
+
+
+def _is_flashinfer_available():
+    return (
+        # flashinfer-python
+        importlib.util.find_spec("flashinfer") is not None
+        # apache-tvm-ffi
+        and importlib.util.find_spec("tvm_ffi") is not None
+        # nvidia-ml-py
+        and importlib.util.find_spec("pynvml") is not None
+    ) or is_fbcode()
 
 
 class DummyModule(torch.nn.Module):

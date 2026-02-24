@@ -368,23 +368,11 @@ def _infer_fake_quantize_configs(
         Float8DynamicActivationFloat8WeightConfig,
         Float8DynamicActivationInt4WeightConfig,
         Int4WeightOnlyConfig,
-        Int8DynamicActivationInt4WeightConfig,
         Int8DynamicActivationIntxWeightConfig,
         IntxWeightOnlyConfig,
     )
 
-    if isinstance(base_config, Int8DynamicActivationInt4WeightConfig):
-        act_config = IntxFakeQuantizeConfig(
-            dtype=torch.int8,
-            granularity="per_token",
-            is_symmetric=base_config.act_mapping_type == MappingType.SYMMETRIC,
-        )
-        weight_config = IntxFakeQuantizeConfig(
-            dtype=torch.int4,
-            group_size=base_config.group_size,
-            is_symmetric=base_config.mapping_type == MappingType.SYMMETRIC,
-        )
-    elif isinstance(base_config, Int4WeightOnlyConfig):
+    if isinstance(base_config, Int4WeightOnlyConfig):
         act_config = None
         if base_config.version == 2:
             supported_packing_formats = [
