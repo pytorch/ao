@@ -72,8 +72,8 @@ from torchao.prototype.mx_formats.kernels import (
 )
 from torchao.prototype.mx_formats.utils import (
     _swizzle_aware_slice,
-    ceil_div,
     from_blocked,
+    hp_data_dims_to_swizzled_scale_dims_mx,
     to_blocked,
 )
 from torchao.quantization.quantize_.common import (
@@ -174,65 +174,72 @@ def to_mx(
     assert data_hp.is_contiguous(), "unsupported"
     assert elem_dtype in SUPPORTED_ELEM_DTYPES, "unsupported"
 
-    # Step 1: obtain the scale in uint8 format for quantization
-    if scale is None:
-        scale_e8m0_uint8 = compute_mx_scale(
-            data_hp, elem_dtype, block_size, scaling_mode
-        )
+    # Set X to be the largest power-of-two less than or equal to
+    # max_abs(v), divided by the largest power of two representable
+    # in the element data type, and get the mbits at the same time
+    if elem_dtype == torch.float8_e4m3fn:
+        target_max_pow2 = F8E4M3_MAX_POW2
+        mbits = MBITS_F8_E4M3
+        max_pos = F8E4M3_MAX
+    elif elem_dtype == torch.float8_e5m2:
+        target_max_pow2 = F8E5M2_MAX_POW2
+        mbits = MBITS_F8_E5M2
+        max_pos = F8E5M2_MAX
+    elif elem_dtype == DTYPE_FP6_E2M3:
+        target_max_pow2 = F6_E2M3_MAX_POW2
+        mbits = MBITS_F6_E2M3
+        max_pos = F6_E2M3_MAX
+    elif elem_dtype == DTYPE_FP6_E3M2:
+        target_max_pow2 = F6_E3M2_MAX_POW2
+        mbits = MBITS_F6_E3M2
+        max_pos = F6_E3M2_MAX
+    elif elem_dtype == torch.float4_e2m1fn_x2:
+        target_max_pow2 = F4_E2M1_MAX_POW2
+        mbits = MBITS_F4_E2M1
+        max_pos = F4_E2M1_MAX
     else:
-        # scale provided, so use that
+        raise AssertionError("unsupported element dtype")
+
+    if scale is None:
+        # dynamic quant case, compute the scale
+        scale_e8m0_uint8 = compute_mx_scale(
+            data_hp, target_max_pow2, mbits, max_pos, block_size, scaling_mode
+        )
+        data_lp = scale_and_cast_hp_data(
+            data_hp, scale_e8m0_uint8, elem_dtype, max_pos, block_size
+        )
+        scale_out = scale_e8m0_uint8.view(torch.float8_e8m0fnu).squeeze(-1)
         if is_swizzled_scales:
-            # unswizzle the scale
+            orig_shape = data_hp.shape
+            leading_dims, M, K = orig_shape[:-2], orig_shape[-2], orig_shape[-1]
+            scale_shape = (math.prod(leading_dims) * M, K // block_size)
+            scale = to_blocked(scale_out.view(scale_shape)).flatten()
+            scale_M, scale_K = hp_data_dims_to_swizzled_scale_dims_mx(M, K)
+            scale_out = scale.view(*leading_dims, scale_M, scale_K)
+
+    else:
+        # static quant case, use the given scale
+        if is_swizzled_scales:
             M, K = data_hp.shape[-2], data_hp.shape[-1]
             unswizzled = from_blocked(
-                scale.view(torch.uint8).flatten(),
-                M,
-                K // block_size,
+                scale.view(torch.uint8).flatten(), M, K // block_size
             )
             scale_e8m0_uint8 = unswizzled.unsqueeze(-1)
         else:
             scale_e8m0_uint8 = scale.view(torch.uint8).unsqueeze(-1)
-
-    # Step 2: quantize the data using the scale
-    data_lp = scale_and_cast_hp_data(data_hp, scale_e8m0_uint8, elem_dtype, block_size)
-
-    # Step 3: format the output scale
-    if scale is not None:
+        data_lp = scale_and_cast_hp_data(
+            data_hp, scale_e8m0_uint8, elem_dtype, max_pos, block_size
+        )
         scale_out = scale
-    else:
-        scale_out = scale_e8m0_uint8.view(torch.float8_e8m0fnu).squeeze(-1)
-        if is_swizzled_scales:
-            leading_dims = data_hp.shape[:-2]
-            scale_2d = scale_out.view(-1, scale_out.shape[-1])
-            blocked = to_blocked(scale_2d).flatten()
-            swizzled_M = 32 * ceil_div(scale_2d.shape[0], 128)
-            swizzled_K = 16 * ceil_div(scale_2d.shape[1], 4)
-            scale_out = blocked.view(*leading_dims, swizzled_M, swizzled_K)
 
     return scale_out, data_lp
 
 
-def _get_elem_dtype_params(
-    elem_dtype: Union[torch.dtype, str],
-) -> tuple[int, int, float]:
-    """Returns (target_max_pow2, mbits, max_pos) for the given MX element dtype."""
-    if elem_dtype == torch.float8_e4m3fn:
-        return F8E4M3_MAX_POW2, MBITS_F8_E4M3, F8E4M3_MAX
-    elif elem_dtype == torch.float8_e5m2:
-        return F8E5M2_MAX_POW2, MBITS_F8_E5M2, F8E5M2_MAX
-    elif elem_dtype == DTYPE_FP6_E2M3:
-        return F6_E2M3_MAX_POW2, MBITS_F6_E2M3, F6_E2M3_MAX
-    elif elem_dtype == DTYPE_FP6_E3M2:
-        return F6_E3M2_MAX_POW2, MBITS_F6_E3M2, F6_E3M2_MAX
-    elif elem_dtype == torch.float4_e2m1fn_x2:
-        return F4_E2M1_MAX_POW2, MBITS_F4_E2M1, F4_E2M1_MAX
-    else:
-        raise AssertionError("unsupported element dtype")
-
-
 def compute_mx_scale(
     data_hp: torch.Tensor,
-    elem_dtype: Union[torch.dtype, str],
+    target_max_pow2: int,
+    mbits: int,
+    max_pos: float,
     block_size: int,
     scaling_mode: ScaleCalculationMode = ScaleCalculationMode.FLOOR,
 ) -> torch.Tensor:
@@ -240,10 +247,9 @@ def compute_mx_scale(
     Computes the MX E8M0 block scale for the given high-precision data.
 
     Returns:
-        scale as float8_e8m0fnu tensor with shape
-        (*data_hp.shape[:-1], data_hp.shape[-1] // block_size).
+        scale as uint8 tensor with shape
+        (*data_hp.shape[:-1], data_hp.shape[-1] // block_size, 1).
     """
-    target_max_pow2, mbits, max_pos = _get_elem_dtype_params(elem_dtype)
 
     data_hp = data_hp.reshape(
         *data_hp.shape[:-1], data_hp.shape[-1] // block_size, block_size
@@ -332,8 +338,9 @@ def scale_and_cast_hp_data(
     data_hp: torch.Tensor,
     scale_e8m0_biased: torch.Tensor,
     elem_dtype: Union[torch.dtype, str],
+    max_pos: float,
     block_size: int,
-) -> tuple[torch.Tensor, torch.Tensor]:
+) -> torch.Tensor:
     """
     Takes high-precision data and a precomputed E8M0 scale, and quantizes
     the data to the target MX element dtype.
@@ -341,17 +348,17 @@ def scale_and_cast_hp_data(
     Args:
         data_hp: High-precision input tensor.
         scale_e8m0_biased: Precomputed scale in uint8 format,
-            shape (*data_hp.shape[:-1], data_hp.shape[-1] // block_size).
+            shape (*data_hp.shape[:-1], data_hp.shape[-1] // block_size, 1).
         elem_dtype: Target element dtype.
+        max_pos: Maximum representable positive value of elem_dtype.
         block_size: MX block size.
 
     Returns:
-        (scale_e8m0, data_lp) tuple.
+        Quantized data tensor.
     """
     assert scale_e8m0_biased.dtype == torch.uint8, (
         f"scale_e8m0_biased.dtype must be uint8, got {scale_e8m0_biased.dtype}"
     )
-    _, _, max_pos = _get_elem_dtype_params(elem_dtype)
 
     orig_shape = data_hp.shape
     data_hp = data_hp.reshape(
