@@ -39,7 +39,7 @@ from torchao.prototype.moe_training.ep import (
 )
 from torchao.prototype.moe_training.ep.permute import _permute_bf16
 from torchao.prototype.moe_training.ep.unpermute import _unpermute_bf16
-from torchao.prototype.moe_training.scaled_grouped_mm import (
+from torchao.prototype.moe_training.mxfp8_grouped_mm import (
     _to_mxfp8_then_scaled_grouped_mm,
 )
 

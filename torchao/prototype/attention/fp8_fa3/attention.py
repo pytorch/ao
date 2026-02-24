@@ -83,6 +83,7 @@ def fp8_fa3_rope_sdpa(
     is_causal: bool = False,
     scale: Optional[float] = None,
     enable_gqa: bool = False,
+    rope_interleaved: bool = False,
 ) -> torch.Tensor:
     """FP8 SDPA with fused RoPE using FA3 backend.
 
@@ -119,7 +120,8 @@ def fp8_fa3_rope_sdpa(
     input_dtype = query.dtype
 
     q_fp8, k_fp8, v_fp8, descale_q, descale_k, descale_v = _fp8_rope_sdpa_quantize(
-        query, key, value, cos, sin
+        query, key, value, cos, sin,
+        rope_interleaved=rope_interleaved,
     )
 
     with sdpa_kernel(SDPBackend.FLASH_ATTENTION):
