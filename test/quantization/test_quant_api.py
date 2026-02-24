@@ -1044,6 +1044,7 @@ class TestFqnToConfig(TestCase):
             Float8DynamicActivationInt4WeightConfig(),
             Int8WeightOnlyConfig(),
             Int8DynamicActivationInt8WeightConfig(),
+            Int8DynamicActivationIntxWeightConfig(),
             Int8StaticActivationInt8WeightConfig(),
             Float8WeightOnlyConfig(),
             Float8DynamicActivationFloat8WeightConfig(granularity=PerTensor()),
