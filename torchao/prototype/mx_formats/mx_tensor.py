@@ -264,14 +264,12 @@ def calculate_scale(
             scale_e8m0_biased,
         )
 
-    scale_e8m0_biased = scale_e8m0_biased.view(torch.float8_e8m0fnu)
-    scale_e8m0_biased = scale_e8m0_biased.squeeze(-1)
     return scale_e8m0_biased
 
 
 def to_mx_with_precomputed_scale(
     data_hp: torch.Tensor,
-    scale_e8m0: torch.Tensor,
+    scale_e8m0_biased: torch.Tensor,
     elem_dtype: Union[torch.dtype, str],
     block_size: int,
     is_swizzled_scales: bool = False,
@@ -282,7 +280,7 @@ def to_mx_with_precomputed_scale(
 
     Args:
         data_hp: High-precision input tensor.
-        scale_e8m0: Precomputed scale in float8_e8m0fnu format,
+        scale_e8m0_biased: Precomputed scale in uint8 format,
             shape (*data_hp.shape[:-1], data_hp.shape[-1] // block_size).
         elem_dtype: Target element dtype.
         block_size: MX block size.
@@ -291,8 +289,8 @@ def to_mx_with_precomputed_scale(
     Returns:
         (scale_e8m0, data_lp) tuple.
     """
-    assert scale_e8m0.dtype == torch.float8_e8m0fnu, (
-        f"scale_e8m0.dtype must be float8_e8m0fnu, got {scale_e8m0.dtype}"
+    assert scale_e8m0_biased.dtype == torch.uint8, (
+        f"scale_e8m0_biased.dtype must be uint8, got {scale_e8m0_biased.dtype}"
     )
     _, _, max_pos = _get_elem_dtype_params(elem_dtype)
 
@@ -301,8 +299,6 @@ def to_mx_with_precomputed_scale(
         *orig_shape[:-1], orig_shape[-1] // block_size, block_size
     )
     data_hp = data_hp.to(torch.float32)
-
-    scale_e8m0_biased = scale_e8m0.view(torch.uint8).unsqueeze(-1)
 
     # For now, calculate the scale in floating point.
     # For now, use `torch.bitwise_left_shift` instead of `<<` to support DTensor
@@ -358,18 +354,7 @@ def to_mx_with_precomputed_scale(
     else:
         raise AssertionError("unsupported")
 
-    scale_e8m0_biased = scale_e8m0_biased.view(torch.float8_e8m0fnu)
-    scale_e8m0_biased = scale_e8m0_biased.squeeze(-1)
-
-    # if user requested scale swizzling, do it here
-    if is_swizzled_scales:
-        leading_dims, M, K = orig_shape[:-2], orig_shape[-2], orig_shape[-1]
-        scale_shape = (math.prod(leading_dims) * M, K // block_size)
-        scale = to_blocked(scale_e8m0_biased.view(scale_shape)).flatten()
-        scale_M, scale_K = hp_data_dims_to_swizzled_scale_dims_mx(M, K)
-        scale_e8m0_biased = scale.view(*leading_dims, scale_M, scale_K)
-
-    return scale_e8m0_biased, data_lp
+    return data_lp
 
 
 def to_mx(
@@ -396,10 +381,33 @@ def to_mx(
     assert elem_dtype in SUPPORTED_ELEM_DTYPES, "unsupported"
 
     if scale is None:
-        scale = calculate_scale(data_hp, elem_dtype, block_size, scaling_mode)
-    return to_mx_with_precomputed_scale(
-        data_hp, scale, elem_dtype, block_size, is_swizzled_scales
-    )
+        # dynamic path, calculate the scale on the fly
+        scale_e8m0_biased = calculate_scale(
+            data_hp, elem_dtype, block_size, scaling_mode
+        )
+        data_lp = to_mx_with_precomputed_scale(
+            data_hp, scale_e8m0_biased, elem_dtype, block_size
+        )
+        scale_e8m0_biased = scale_e8m0_biased.view(torch.float8_e8m0fnu)
+        scale_e8m0_biased = scale_e8m0_biased.squeeze(-1)
+
+        # if user requested scale swizzling, do it here
+        if is_swizzled_scales:
+            orig_shape = data_hp.shape
+            leading_dims, M, K = orig_shape[:-2], orig_shape[-2], orig_shape[-1]
+            scale_shape = (math.prod(leading_dims) * M, K // block_size)
+            scale = to_blocked(scale_e8m0_biased.view(scale_shape)).flatten()
+            scale_M, scale_K = hp_data_dims_to_swizzled_scale_dims_mx(M, K)
+            scale_e8m0_biased = scale.view(*leading_dims, scale_M, scale_K)
+    else:
+        # static path, use the precomputed scale, we view here isntead of .to because it has already been converted to uint8 earlier
+        scale_e8m0_biased = scale.view(torch.uint8).unsqueeze(-1)
+        data_lp = to_mx_with_precomputed_scale(
+            data_hp, scale_e8m0_biased, elem_dtype, block_size
+        )
+        scale_e8m0_biased = scale
+
+    return scale_e8m0_biased, data_lp
 
 
 def get_fp_scale(scale_e8m0):
