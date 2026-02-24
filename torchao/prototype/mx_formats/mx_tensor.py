@@ -56,7 +56,6 @@ from torchao.prototype.mx_formats.constants import (
     F8E5M2_MAX,
     F8E5M2_MAX_POW2,
     F32_EXP_BIAS,
-    F32_MIN_NORMAL,
     SUPPORTED_ELEM_DTYPES,
 )
 from torchao.prototype.mx_formats.kernels import (
@@ -383,24 +382,18 @@ def to_mx_with_precomputed_scale(
 
     scale_e8m0_biased = scale_e8m0.view(torch.uint8).unsqueeze(-1)
 
-    # For now, calculate the scale in floating point.
-    # For now, use `torch.bitwise_left_shift` instead of `<<` to support DTensor
-    # See https://github.com/pytorch/pytorch/issues/156533.
-    scale_fp32 = (
-        torch.bitwise_left_shift(scale_e8m0_biased.to(torch.int32), MBITS_F32)
-    ).view(torch.float32)
-
-    # Today, 2**-127 returns 0 in compile+inductor+triton because it is in the
-    # float32 denormal range. For now, manually adjust the fp scale. This is
-    # relevant if all of the incoming block values are zeroes.
-    # See https://github.com/pytorch/pytorch/issues/125557 for details.
-    # Note: it would be more correct to set the minimum to 2**-127, but this
-    # does not work in triton either as it looks like subnormal value handling
-    # has some gaps.  So, for now just set to the minimum normal value.
-    scale_fp32 = torch.clamp(scale_fp32, min=F32_MIN_NORMAL)
+    # Compute the inverse scale (descale) in floating point.
+    # When the biased exponent is 0 (i.e. scale = 2^-127, in the float32
+    # denormal range), use descale = 1.0 to avoid triton issues with
+    # subnormal values (see https://github.com/pytorch/pytorch/issues/125557).
+    descale_fp = torch.where(
+        scale_e8m0_biased == 0,
+        1.0,
+        torch.exp2(E8M0_EXPONENT_BIAS - scale_e8m0_biased.to(torch.float32)),
+    )
 
     # scale and saturated cast the data elements to max of target dtype
-    data_lp = data_hp / scale_fp32
+    data_lp = data_hp * descale_fp
 
     return _cast_data_lp_and_finalize(
         data_lp,
@@ -419,37 +412,14 @@ def to_mx(
     block_size: int,
     scaling_mode: ScaleCalculationMode = ScaleCalculationMode.FLOOR,
     is_swizzled_scales: bool = False,
+    scale: Optional[torch.Tensor] = None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """
     Takes a high precision tensor and converts to MX scale and raw data, in
     naive layout (scale and raw data are separate tensors).
     """
-    if scaling_mode == ScaleCalculationMode.RCEIL:
-        # RCEIL jointly computes scale and quantized data for correct
-        # handling of denormal float32 inputs (exponent == 0 edge case).
-        _validate_mx_input(data_hp, elem_dtype, block_size)
-        _, _, max_pos = _get_elem_dtype_params(elem_dtype)
-
-        orig_shape = data_hp.shape
-        data_hp = data_hp.reshape(
-            *orig_shape[:-1], orig_shape[-1] // block_size, block_size
-        )
-        max_abs = torch.amax(torch.abs(data_hp), -1).unsqueeze(-1)
-        data_hp = data_hp.to(torch.float32)
-        max_abs = max_abs.to(torch.float32)
-
-        scale_e8m0_biased, data_lp = _to_mx_rceil(data_hp, max_abs, max_pos)
-        return _cast_data_lp_and_finalize(
-            data_lp,
-            scale_e8m0_biased,
-            elem_dtype,
-            orig_shape,
-            block_size,
-            is_swizzled_scales,
-            max_pos,
-        )
-
-    scale = calculate_scale(data_hp, elem_dtype, block_size, scaling_mode)
+    if scale is None:
+        scale = calculate_scale(data_hp, elem_dtype, block_size, scaling_mode)
     return to_mx_with_precomputed_scale(
         data_hp, scale, elem_dtype, block_size, is_swizzled_scales
     )
@@ -680,18 +650,14 @@ class MXTensor(TorchAOBaseTensor):
                 scaling_mode=scaling_mode.value,
             )
         else:
-            if scale is not None:
-                scale_e8m0_biased, data_lp = to_mx_with_precomputed_scale(
-                    data_hp, scale, elem_dtype, block_size, is_swizzled_scales
-                )
-            else:
-                scale_e8m0_biased, data_lp = to_mx(
-                    data_hp,
-                    elem_dtype,
-                    block_size,
-                    scaling_mode,
-                    is_swizzled_scales,
-                )
+            scale_e8m0_biased, data_lp = to_mx(
+                data_hp,
+                elem_dtype,
+                block_size,
+                scaling_mode,
+                is_swizzled_scales,
+                scale=scale,
+            )
         if isinstance(scale_e8m0_biased, DTensor):
             assert isinstance(data_lp, DTensor), "unsupported"
             local_scale_e8m0_biased = scale_e8m0_biased.to_local()
