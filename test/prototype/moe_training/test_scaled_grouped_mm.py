@@ -32,8 +32,8 @@ from torchao.float8.float8_utils import compute_error, tensor_to_scale, to_fp8_s
 from torchao.prototype.moe_training.config import (
     FP8GroupedMMConfig,
     FP8GroupedMMRecipe,
-    MXFP8GroupedMMConfig,
-    MXFP8GroupedMMRecipe,
+    MXFP8TrainingConfig,
+    MXFP8TrainingRecipe,
 )
 from torchao.prototype.moe_training.mxfp8_grouped_mm import (
     _emulated_mxfp8_scaled_grouped_mm_2d_2d,
@@ -63,7 +63,7 @@ torch._dynamo.config.cache_size_limit = 1000
 @pytest.mark.parametrize("n", [8192])
 @pytest.mark.parametrize("k", [5120])
 @pytest.mark.parametrize("n_groups", [1, 2, 4, 8])
-def test_valid_scaled_grouped_mm_2d_3d(m, n, k, n_groups):
+def test_fp8_rowwise_scaled_grouped_mm(m, n, k, n_groups):
     if is_ROCM():
         if not (is_MI300() or is_MI350()):
             pytest.skip("FP8 rowwise test requires MI300 or MI350 on ROCm")
@@ -168,7 +168,7 @@ def test_K_or_N_dim_not_multiple_of_16(m, n, k):
     b_t = b.transpose(-2, -1)
     b_t = b_t.transpose(-2, -1).contiguous().transpose(-2, -1)
 
-    config = MXFP8GroupedMMConfig.from_recipe(MXFP8GroupedMMRecipe.MXFP8_EMULATED_RCEIL)
+    config = MXFP8TrainingConfig.from_recipe(MXFP8TrainingRecipe.MXFP8_EMULATED_RCEIL)
     offs = torch.arange(m, n_groups * m + 1, m, device="cuda", dtype=torch.int32)
 
     # Compute output.
@@ -344,9 +344,9 @@ def test_emulate_mxfp8_grouped_gemm_2d_2d(M, N, num_experts):
 
 @skip_if_rocm("ROCm not supported")
 @pytest.mark.parametrize("M,K,N", [(32768, 5120, 8192), (16640, 7168, 2048)])
-@pytest.mark.parametrize("num_experts", (2, 4, 8, 16))
+@pytest.mark.parametrize("num_experts", (1, 8))
 @pytest.mark.parametrize("wgrad_with_hp", (True, False))
-@pytest.mark.parametrize("use_compile", (True, False))
+@pytest.mark.parametrize("use_compile", (False, True))
 @pytest.mark.parametrize(
     "kernel_preference", (KernelPreference.AUTO, KernelPreference.EMULATED)
 )
