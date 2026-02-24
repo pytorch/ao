@@ -4,7 +4,7 @@
 #include <torchao/csrc/cpu/torch_free_kernels/aarch64/bitpacking/bitpack.h>
 #include <torchao/csrc/cpu/torch_free_kernels/aarch64/lut/lut.h>
 #include <torchao/csrc/cpu/torch_free_kernels/macro.h>
-#include <torchao/csrc/cpu/torch_free_kernels/aarch64/packing/utils.h>
+#include <torchao/csrc/cpu/torch_free_kernels/weight_packing/weight_packing.h>
 #include <cassert>
 #include <cstdint>
 #include <cstring>
@@ -14,7 +14,6 @@
 namespace torchao::kernels::cpu::aarch64::linear::groupwise_lowbit_weight_lut::
     weight_packing {
 namespace lut_utils = torchao::lut;
-namespace packing_utils = torchao::packing;
 
 /**
  * @brief Calculates the exact buffer size in bytes for packed weights.
@@ -195,7 +194,7 @@ TORCHAO_ALWAYS_INLINE inline void pack_weights(
               kr_);
         }
       }
-      packing_utils::pack_values(
+      torchao::weight_packing::pack_values(
           tmp_buffer.data(), padded_tile.data(), nr_, kr_, sr_);
       const uint8_t* buffer = tmp_buffer.data();
       torchao::bitpacking::vec_pack_128_uintx_values<weight_nbit_>(

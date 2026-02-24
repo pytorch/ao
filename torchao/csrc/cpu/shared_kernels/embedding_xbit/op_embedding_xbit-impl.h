@@ -10,6 +10,7 @@
 #include <torchao/csrc/cpu/torch_free_kernels/aarch64/embedding/embedding.h>
 #else
 #include <torchao/csrc/cpu/torch_free_kernels/fallback/embedding/embedding.h>
+#include <torchao/csrc/cpu/torch_free_kernels/fallback/linear/channelwise_8bit_activation_groupwise_lowbit_weight.h>
 #endif // TORCHAO_BUILD_CPU_AARCH64
 
 #include <torchao/csrc/cpu/shared_kernels/embedding_xbit/packed_weights_header.h>
@@ -317,7 +318,18 @@ Tensor shared_embedding_out_cpu(
             format.has_bias,
             index);
 #else
-    TORCHAO_CHECK(false, "Unsupported platform");
+    torchao::kernels::cpu::fallback::linear::
+        channelwise_8bit_activation_groupwise_lowbit_weight::
+            shared_embedding<weight_nbit, nr, kr, sr>(
+                out.mutable_data_ptr<float>() + idx * k,
+                packed_weights.const_data_ptr<int8_t>() +
+                    torchao::ops::PackedWeightsHeader::size(),
+                n,
+                k,
+                group_size,
+                format.has_weight_zeros,
+                format.has_bias,
+                index);
 #endif // TORCHAO_BUILD_CPU_AARCH64
   });
 
