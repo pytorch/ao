@@ -42,7 +42,6 @@ from torchao.dtypes.nf4tensor import (
     to_nf4,
 )
 from torchao.prototype._nf4tensor_api import nf4_weight_only
-from torchao.testing.utils import skip_if_rocm
 from torchao.utils import get_current_accelerator_device, torch_version_at_least
 
 bnb_available = False
@@ -125,7 +124,6 @@ class TestNF4Linear(TestCase):
     @unittest.skipIf(
         torch_version_at_least("2.7.0"), reason="Failing in CI"
     )  # TODO: fix this
-    @skip_if_rocm("ROCm enablement in progress")
     @parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
     def test_reconstruction_qlora_vs_bnb(self, dtype: torch.dtype):
         # From https://github.com/drisspg/transformer_nuggets/blob/f05afad68ad9086d342268f46a7f344617a02314/test/test_qlora.py#L65C1-L81C47
@@ -148,7 +146,6 @@ class TestNF4Linear(TestCase):
 
     @unittest.skipIf(not bnb_available, "Need bnb availble")
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
-    @skip_if_rocm("ROCm enablement in progress")
     @unittest.skipIf(
         torch_version_at_least("2.7.0"), reason="Failing in CI"
     )  # TODO: fix this
@@ -265,11 +262,12 @@ class TestNF4Linear(TestCase):
         _ = torch.nn.functional.linear(inp, a)
         _ = torch.nn.functional.linear(inp, a_nf4)
 
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     @parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
     def test_smoketest_linear_compile(self, dtype: torch.dtype):
         if (
-            torch.cuda.is_available()
+            not torch.version.hip
+            and torch.cuda.is_available()
             and torch.cuda.get_device_capability() < (8, 0)
             and dtype == torch.bfloat16
         ):
