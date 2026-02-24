@@ -72,8 +72,8 @@ from torchao.prototype.mx_formats.kernels import (
 )
 from torchao.prototype.mx_formats.utils import (
     _swizzle_aware_slice,
+    ceil_div,
     from_blocked,
-    hp_data_dims_to_swizzled_scale_dims_mx,
     to_blocked,
 )
 from torchao.quantization.quantize_.common import (
@@ -174,45 +174,42 @@ def to_mx(
     assert data_hp.is_contiguous(), "unsupported"
     assert elem_dtype in SUPPORTED_ELEM_DTYPES, "unsupported"
 
+    # Step 1: obtain the scale in uint8 format for quantization
     if scale is None:
-        # dynamic path, calculate the scale on the fly
-        scale_e8m0_biased = calculate_scale(
+        scale_e8m0_uint8 = compute_mx_scale(
             data_hp, elem_dtype, block_size, scaling_mode
         )
-        data_lp = to_mx_with_precomputed_scale(
-            data_hp, scale_e8m0_biased, elem_dtype, block_size
-        )
-        scale_e8m0_biased = scale_e8m0_biased.view(torch.float8_e8m0fnu)
-        scale_e8m0_biased = scale_e8m0_biased.squeeze(-1)
-
-        # if user requested scale swizzling, do it here
-        if is_swizzled_scales:
-            orig_shape = data_hp.shape
-            leading_dims, M, K = orig_shape[:-2], orig_shape[-2], orig_shape[-1]
-            scale_shape = (math.prod(leading_dims) * M, K // block_size)
-            scale = to_blocked(scale_e8m0_biased.view(scale_shape)).flatten()
-            scale_M, scale_K = hp_data_dims_to_swizzled_scale_dims_mx(M, K)
-            scale_e8m0_biased = scale.view(*leading_dims, scale_M, scale_K)
-
     else:
-        # static path, use the precomputed scale
+        # scale provided, so use that
         if is_swizzled_scales:
-            orig_shape = data_hp.shape
-            M, K = orig_shape[-2], orig_shape[-1]
+            # unswizzle the scale
+            M, K = data_hp.shape[-2], data_hp.shape[-1]
             unswizzled = from_blocked(
                 scale.view(torch.uint8).flatten(),
                 M,
                 K // block_size,
             )
-            scale_e8m0_biased = unswizzled.unsqueeze(-1)
+            scale_e8m0_uint8 = unswizzled.unsqueeze(-1)
         else:
-            scale_e8m0_biased = scale.view(torch.uint8).unsqueeze(-1)
-        data_lp = to_mx_with_precomputed_scale(
-            data_hp, scale_e8m0_biased, elem_dtype, block_size
-        )
-        scale_e8m0_biased = scale
+            scale_e8m0_uint8 = scale.view(torch.uint8).unsqueeze(-1)
 
-    return scale_e8m0_biased, data_lp
+    # Step 2: quantize the data using the scale
+    data_lp = scale_and_cast_hp_data(data_hp, scale_e8m0_uint8, elem_dtype, block_size)
+
+    # Step 3: format the output scale
+    if scale is not None:
+        scale_out = scale
+    else:
+        scale_out = scale_e8m0_uint8.view(torch.float8_e8m0fnu).squeeze(-1)
+        if is_swizzled_scales:
+            leading_dims = data_hp.shape[:-2]
+            scale_2d = scale_out.view(-1, scale_out.shape[-1])
+            blocked = to_blocked(scale_2d).flatten()
+            swizzled_M = 32 * ceil_div(scale_2d.shape[0], 128)
+            swizzled_K = 16 * ceil_div(scale_2d.shape[1], 4)
+            scale_out = blocked.view(*leading_dims, swizzled_M, swizzled_K)
+
+    return scale_out, data_lp
 
 
 def _get_elem_dtype_params(
@@ -233,7 +230,7 @@ def _get_elem_dtype_params(
         raise AssertionError("unsupported element dtype")
 
 
-def calculate_scale(
+def compute_mx_scale(
     data_hp: torch.Tensor,
     elem_dtype: Union[torch.dtype, str],
     block_size: int,
@@ -331,12 +328,11 @@ def calculate_scale(
     return scale_e8m0_biased
 
 
-def to_mx_with_precomputed_scale(
+def scale_and_cast_hp_data(
     data_hp: torch.Tensor,
     scale_e8m0_biased: torch.Tensor,
     elem_dtype: Union[torch.dtype, str],
     block_size: int,
-    is_swizzled_scales: bool = False,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """
     Takes high-precision data and a precomputed E8M0 scale, and quantizes
@@ -348,7 +344,6 @@ def to_mx_with_precomputed_scale(
             shape (*data_hp.shape[:-1], data_hp.shape[-1] // block_size).
         elem_dtype: Target element dtype.
         block_size: MX block size.
-        is_swizzled_scales: Whether to swizzle the output scales.
 
     Returns:
         (scale_e8m0, data_lp) tuple.
