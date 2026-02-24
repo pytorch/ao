@@ -400,8 +400,18 @@ def to_mx(
             scale_M, scale_K = hp_data_dims_to_swizzled_scale_dims_mx(M, K)
             scale_e8m0_biased = scale.view(*leading_dims, scale_M, scale_K)
     else:
-        # static path, use the precomputed scale, we view here isntead of .to because it has already been converted to uint8 earlier
-        scale_e8m0_biased = scale.view(torch.uint8).unsqueeze(-1)
+        # static path, use the precomputed scale
+        if is_swizzled_scales:
+            orig_shape = data_hp.shape
+            M, K = orig_shape[-2], orig_shape[-1]
+            unswizzled = from_blocked(
+                scale.view(torch.uint8).flatten(),
+                M,
+                K // block_size,
+            )
+            scale_e8m0_biased = unswizzled.unsqueeze(-1)
+        else:
+            scale_e8m0_biased = scale.view(torch.uint8).unsqueeze(-1)
         data_lp = to_mx_with_precomputed_scale(
             data_hp, scale_e8m0_biased, elem_dtype, block_size
         )
