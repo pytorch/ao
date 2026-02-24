@@ -23,8 +23,8 @@ from torchao.prototype.moe_training import _quantize_then_scaled_grouped_mm
 from torchao.prototype.moe_training.config import (
     FP8GroupedMMConfig,
     FP8GroupedMMRecipe,
-    MXFP8GroupedMMConfig,
-    MXFP8GroupedMMRecipe,
+    MXFP8TrainingConfig,
+    MXFP8TrainingRecipe,
 )
 from torchao.prototype.moe_training.utils import generate_jagged_offs
 
@@ -41,7 +41,7 @@ torch._dynamo.config.automatic_dynamic_shapes = False
 class ExperimentConfig:
     high_precision_dtype: torch.dtype
     MNKG: tuple[int]
-    recipe: Union[FP8GroupedMMRecipe, MXFP8GroupedMMRecipe]
+    recipe: Union[FP8GroupedMMRecipe, MXFP8TrainingRecipe]
 
 
 @dataclass(frozen=True)
@@ -91,9 +91,8 @@ def get_configs() -> List[ExperimentConfig]:
         (128000, 2048, 7168, 8),
     ]
     recipes = [
-        FP8GroupedMMRecipe.FP8_ROWWISE,
-        MXFP8GroupedMMRecipe.MXFP8_RCEIL,
-        MXFP8GroupedMMRecipe.MXFP8_RCEIL_WGRAD_WITH_HP,
+        MXFP8TrainingRecipe.MXFP8_RCEIL,
+        MXFP8TrainingRecipe.MXFP8_RCEIL_WGRAD_WITH_HP,
     ]
     high_precision_dtypes = [torch.bfloat16]
     configs = []
@@ -172,7 +171,7 @@ def run_experiment(
     if isinstance(config.recipe, FP8GroupedMMRecipe):
         quant_config = FP8GroupedMMConfig.from_recipe(config.recipe)
     else:
-        quant_config = MXFP8GroupedMMConfig.from_recipe(config.recipe)
+        quant_config = MXFP8TrainingConfig.from_recipe(config.recipe)
 
     # fwd_bwd scaled benchmark + profiling
     scaled_fwd_bwd_us = bench_fwd_bwd_microseconds(
@@ -270,8 +269,8 @@ def main(args: argparse.Namespace):
             continue
 
         elif config.recipe in (
-            MXFP8GroupedMMRecipe.MXFP8_RCEIL,
-            MXFP8GroupedMMRecipe.MXFP8_RCEIL_WGRAD_WITH_HP,
+            MXFP8TrainingRecipe.MXFP8_RCEIL,
+            MXFP8TrainingRecipe.MXFP8_RCEIL_WGRAD_WITH_HP,
         ) and torch.cuda.get_device_capability() != (10, 0):
             logging.warning(
                 f"Skipping MXFP8 benchmarks, only supported on compute capability 10.0 and found {torch.cuda.get_device_capability()}"

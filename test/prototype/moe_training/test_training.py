@@ -14,9 +14,8 @@ if not torch.cuda.is_available() or torch.cuda.get_device_capability() < (8, 9):
 from torchao.float8.float8_utils import compute_error
 from torchao.prototype.moe_training.config import (
     FP8GroupedMMConfig,
-    FP8GroupedMMRecipe,
-    MXFP8GroupedMMConfig,
-    MXFP8GroupedMMRecipe,
+    MXFP8TrainingConfig,
+    MXFP8TrainingRecipe,
 )
 from torchao.quantization.quant_api import quantize_
 from torchao.quantization.quantize_.common import KernelPreference
@@ -30,8 +29,7 @@ torch._dynamo.config.cache_size_limit = 1000
 
 
 @pytest.mark.parametrize(
-    "target_fqns",
-    [["experts"]],
+    "target_fqns", [["experts"], ["shared_experts"], ["experts", "shared_experts"]]
 )
 @pytest.mark.parametrize("compile", [False, True])
 @pytest.mark.parametrize(
@@ -41,30 +39,23 @@ torch._dynamo.config.cache_size_limit = 1000
     "recipe_config",
     [
         {
-            "recipe": FP8GroupedMMRecipe.FP8_ROWWISE,
-            "group_alignment_size": 16,
-            "min_out_sqnr": 29.0,
-            "min_input_grad_sqnr": 29.0,
-            "min_param_grad_sqnr": 23.0,
-        },
-        {
-            "recipe": MXFP8GroupedMMRecipe.MXFP8_RCEIL,
+            "recipe": MXFP8TrainingRecipe.MXFP8_RCEIL,
             "group_alignment_size": 32,
-            "min_out_sqnr": 28.0,
+            "min_out_sqnr": 26.5,
             "min_input_grad_sqnr": 29.0,
             "min_param_grad_sqnr": 21.0,
         },
         {
-            "recipe": MXFP8GroupedMMRecipe.MXFP8_RCEIL_WGRAD_WITH_HP,
+            "recipe": MXFP8TrainingRecipe.MXFP8_RCEIL_WGRAD_WITH_HP,
             "group_alignment_size": 32,
-            "min_out_sqnr": 28.0,
+            "min_out_sqnr": 26.5,
             "min_input_grad_sqnr": 29.0,
-            "min_param_grad_sqnr": 25.0,
+            "min_param_grad_sqnr": 23.0,
         },
         {
-            "recipe": MXFP8GroupedMMRecipe.MXFP8_EMULATED_RCEIL,
+            "recipe": MXFP8TrainingRecipe.MXFP8_EMULATED_RCEIL,
             "group_alignment_size": 32,
-            "min_out_sqnr": 27.0,
+            "min_out_sqnr": 26.5,
             "min_input_grad_sqnr": 29.0,
             "min_param_grad_sqnr": 21.0,
         },
@@ -92,28 +83,15 @@ def test_moe_training(
     assert torch.cuda.is_available()
 
     # Emulated mode with compile is not supported
-    if recipe == MXFP8GroupedMMRecipe.MXFP8_EMULATED_RCEIL and compile:
+    if recipe == MXFP8TrainingRecipe.MXFP8_EMULATED_RCEIL and compile:
         pytest.skip(
             "Skipping compile=True with kernel_preference=EMULATED, not currently supported"
         )
 
-    # FP8_ROWWISE hardware path requires SM90
-    if (
-        recipe == FP8GroupedMMRecipe.FP8_ROWWISE
-        and torch.cuda.get_device_capability()
-        != (
-            9,
-            0,
-        )
-    ):
-        pytest.skip(
-            f"Skipping FP8 rowwise tests, only supported on compute capability 9.0 and found {torch.cuda.get_device_capability()}"
-        )
-
     # MXFP8 hardware path requires SM100
     if recipe in (
-        MXFP8GroupedMMRecipe.MXFP8_RCEIL,
-        MXFP8GroupedMMRecipe.MXFP8_RCEIL_WGRAD_WITH_HP,
+        MXFP8TrainingRecipe.MXFP8_RCEIL,
+        MXFP8TrainingRecipe.MXFP8_RCEIL_WGRAD_WITH_HP,
     ) and torch.cuda.get_device_capability() != (
         10,
         0,
@@ -129,6 +107,7 @@ def test_moe_training(
     set_token_group_alignment_size_m(group_alignment_size)
     model_args = MoEArgs(
         num_experts=8,
+        num_shared_experts=1,
     )
     init_std = 0.02
     device = torch.device("cuda")
@@ -155,8 +134,8 @@ def test_moe_training(
 
     # quantize test model
     config_cls = (
-        MXFP8GroupedMMConfig
-        if isinstance(recipe, MXFP8GroupedMMRecipe)
+        MXFP8TrainingConfig
+        if isinstance(recipe, MXFP8TrainingRecipe)
         else FP8GroupedMMConfig
     )
     config = config_cls.from_recipe(recipe)

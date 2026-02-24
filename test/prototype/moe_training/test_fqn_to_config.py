@@ -14,10 +14,10 @@ import torch
 from torch import nn
 
 from torchao.prototype.moe_training.config import (
-    MXFP8GroupedMMConfig,
-    MXFP8GroupedMMRecipe,
+    MXFP8TrainingConfig,
+    MXFP8TrainingRecipe,
 )
-from torchao.prototype.moe_training.tensor import ScaledGroupedMMTensor
+from torchao.prototype.moe_training.tensor import MXFP8TrainingTensor
 from torchao.prototype.mx_formats.config import MXLinearConfig, MXLinearRecipeName
 from torchao.prototype.mx_formats.mx_linear import MXLinear
 from torchao.quantization import FqnToConfig
@@ -61,10 +61,10 @@ def test_fqn_to_config_simple():
     config = FqnToConfig(
         fqn_to_config=OrderedDict(
             [
-                # Apply MXFP8GroupedMMConfig to expert parameters
+                # Apply MXFP8TrainingConfig to expert parameters
                 (
                     "experts",
-                    MXFP8GroupedMMConfig.from_recipe(MXFP8GroupedMMRecipe.MXFP8_RCEIL),
+                    MXFP8TrainingConfig.from_recipe(MXFP8TrainingRecipe.MXFP8_RCEIL),
                 ),
                 # Apply MXLinearConfig to dense layers
                 (
@@ -87,14 +87,14 @@ def test_fqn_to_config_simple():
     quantize_(model, config, filter_fn=None)
 
     # Verify transformations
-    assert isinstance(model.experts.w1.data, ScaledGroupedMMTensor), (
-        "w1 should be ScaledGroupedMMTensor"
+    assert isinstance(model.experts.w1.data, MXFP8TrainingTensor), (
+        "w1 should be MXFP8TrainingTensor"
     )
-    assert isinstance(model.experts.w2.data, ScaledGroupedMMTensor), (
-        "w2 should be ScaledGroupedMMTensor"
+    assert isinstance(model.experts.w2.data, MXFP8TrainingTensor), (
+        "w2 should be MXFP8TrainingTensor"
     )
-    assert model.experts.w1.data.config == MXFP8GroupedMMConfig.from_recipe(
-        MXFP8GroupedMMRecipe.MXFP8_RCEIL
+    assert model.experts.w1.data.config == MXFP8TrainingConfig.from_recipe(
+        MXFP8TrainingRecipe.MXFP8_RCEIL
     )
     assert isinstance(model.pre_moe, MXLinear), "pre_moe should be MXLinear"
     assert isinstance(model.post_moe, MXLinear), "post_moe should be MXLinear"
@@ -110,7 +110,7 @@ def test_fqn_to_config_with_regex():
             [
                 (
                     "re:.*experts.*",
-                    MXFP8GroupedMMConfig.from_recipe(MXFP8GroupedMMRecipe.MXFP8_RCEIL),
+                    MXFP8TrainingConfig.from_recipe(MXFP8TrainingRecipe.MXFP8_RCEIL),
                 ),
                 (
                     "re:^(pre_moe|post_moe)$",
@@ -125,14 +125,14 @@ def test_fqn_to_config_with_regex():
     quantize_(model, config, filter_fn=None)
 
     # Verify transformations
-    assert isinstance(model.experts.w1.data, ScaledGroupedMMTensor), (
-        "w1 should be ScaledGroupedMMTensor"
+    assert isinstance(model.experts.w1.data, MXFP8TrainingTensor), (
+        "w1 should be MXFP8TrainingTensor"
     )
-    assert model.experts.w1.data.config == MXFP8GroupedMMConfig.from_recipe(
-        MXFP8GroupedMMRecipe.MXFP8_RCEIL
+    assert model.experts.w1.data.config == MXFP8TrainingConfig.from_recipe(
+        MXFP8TrainingRecipe.MXFP8_RCEIL
     )
-    assert isinstance(model.experts.w2.data, ScaledGroupedMMTensor), (
-        "w2 should be ScaledGroupedMMTensor"
+    assert isinstance(model.experts.w2.data, MXFP8TrainingTensor), (
+        "w2 should be MXFP8TrainingTensor"
     )
     assert isinstance(model.pre_moe, MXLinear), "pre_moe should be MXLinear"
     assert isinstance(model.post_moe, MXLinear), "post_moe should be MXLinear"
@@ -148,7 +148,7 @@ def test_fqn_to_config_experts_only():
             [
                 (
                     "re:.*experts.*",
-                    MXFP8GroupedMMConfig.from_recipe(MXFP8GroupedMMRecipe.MXFP8_RCEIL),
+                    MXFP8TrainingConfig.from_recipe(MXFP8TrainingRecipe.MXFP8_RCEIL),
                 ),
             ]
         )
@@ -157,11 +157,11 @@ def test_fqn_to_config_experts_only():
     quantize_(model, config, filter_fn=None)
 
     # Verify transformations
-    assert isinstance(model.experts.w1.data, ScaledGroupedMMTensor), (
-        "w1 should be ScaledGroupedMMTensor"
+    assert isinstance(model.experts.w1.data, MXFP8TrainingTensor), (
+        "w1 should be MXFP8TrainingTensor"
     )
-    assert isinstance(model.experts.w2.data, ScaledGroupedMMTensor), (
-        "w2 should be ScaledGroupedMMTensor"
+    assert isinstance(model.experts.w2.data, MXFP8TrainingTensor), (
+        "w2 should be MXFP8TrainingTensor"
     )
     # Dense layers should remain unchanged
     assert isinstance(model.pre_moe, nn.Linear) and not isinstance(
@@ -182,7 +182,7 @@ def test_fqn_to_config_selective_layers():
             [
                 (
                     "re:.*experts.*",
-                    MXFP8GroupedMMConfig.from_recipe(MXFP8GroupedMMRecipe.MXFP8_RCEIL),
+                    MXFP8TrainingConfig.from_recipe(MXFP8TrainingRecipe.MXFP8_RCEIL),
                 ),
                 (
                     "pre_moe",
@@ -197,11 +197,11 @@ def test_fqn_to_config_selective_layers():
     quantize_(model, config, filter_fn=None)
 
     # Verify transformations
-    assert isinstance(model.experts.w1.data, ScaledGroupedMMTensor), (
-        "w1 should be ScaledGroupedMMTensor"
+    assert isinstance(model.experts.w1.data, MXFP8TrainingTensor), (
+        "w1 should be MXFP8TrainingTensor"
     )
-    assert isinstance(model.experts.w2.data, ScaledGroupedMMTensor), (
-        "w2 should be ScaledGroupedMMTensor"
+    assert isinstance(model.experts.w2.data, MXFP8TrainingTensor), (
+        "w2 should be MXFP8TrainingTensor"
     )
     assert isinstance(model.pre_moe, MXLinear), "pre_moe should be MXLinear"
     # post_moe should remain unchanged
@@ -219,8 +219,8 @@ def test_fqn_to_config_mxfp8_wgrad_with_hp():
             [
                 (
                     "re:.*experts.*",
-                    MXFP8GroupedMMConfig.from_recipe(
-                        MXFP8GroupedMMRecipe.MXFP8_RCEIL_WGRAD_WITH_HP
+                    MXFP8TrainingConfig.from_recipe(
+                        MXFP8TrainingRecipe.MXFP8_RCEIL_WGRAD_WITH_HP
                     ),
                 ),
                 (
@@ -236,14 +236,14 @@ def test_fqn_to_config_mxfp8_wgrad_with_hp():
     quantize_(model, config, filter_fn=None)
 
     # Verify transformations
-    assert isinstance(model.experts.w1.data, ScaledGroupedMMTensor), (
-        "w1 should be ScaledGroupedMMTensor"
+    assert isinstance(model.experts.w1.data, MXFP8TrainingTensor), (
+        "w1 should be MXFP8TrainingTensor"
     )
-    assert model.experts.w1.data.config == MXFP8GroupedMMConfig.from_recipe(
-        MXFP8GroupedMMRecipe.MXFP8_RCEIL_WGRAD_WITH_HP
+    assert model.experts.w1.data.config == MXFP8TrainingConfig.from_recipe(
+        MXFP8TrainingRecipe.MXFP8_RCEIL_WGRAD_WITH_HP
     ), "w1 should use RCEIL_WGRAD_WITH_HP recipe"
-    assert isinstance(model.experts.w2.data, ScaledGroupedMMTensor), (
-        "w2 should be ScaledGroupedMMTensor"
+    assert isinstance(model.experts.w2.data, MXFP8TrainingTensor), (
+        "w2 should be MXFP8TrainingTensor"
     )
     assert isinstance(model.pre_moe, MXLinear), "pre_moe should be MXLinear"
     assert isinstance(model.post_moe, MXLinear), "post_moe should be MXLinear"
@@ -270,10 +270,10 @@ def test_fqn_to_config_dense_only():
     quantize_(model, config, filter_fn=None)
 
     # Verify only Linear layers were transformed
-    assert not isinstance(model.experts.w1.data, ScaledGroupedMMTensor), (
+    assert not isinstance(model.experts.w1.data, MXFP8TrainingTensor), (
         "w1 should remain regular tensor"
     )
-    assert not isinstance(model.experts.w2.data, ScaledGroupedMMTensor), (
+    assert not isinstance(model.experts.w2.data, MXFP8TrainingTensor), (
         "w2 should remain regular tensor"
     )
     assert isinstance(model.pre_moe, MXLinear), "pre_moe should be MXLinear"
@@ -291,12 +291,12 @@ def test_fqn_to_config_specific_expert_params():
                 # Apply different MXFP8 recipes to test granular fqn selection
                 (
                     "experts.w1",
-                    MXFP8GroupedMMConfig.from_recipe(MXFP8GroupedMMRecipe.MXFP8_RCEIL),
+                    MXFP8TrainingConfig.from_recipe(MXFP8TrainingRecipe.MXFP8_RCEIL),
                 ),
                 (
                     "experts.w2",
-                    MXFP8GroupedMMConfig.from_recipe(
-                        MXFP8GroupedMMRecipe.MXFP8_RCEIL_WGRAD_WITH_HP
+                    MXFP8TrainingConfig.from_recipe(
+                        MXFP8TrainingRecipe.MXFP8_RCEIL_WGRAD_WITH_HP
                     ),
                 ),
                 (
@@ -311,17 +311,17 @@ def test_fqn_to_config_specific_expert_params():
     quantize_(model, config, filter_fn=None)
 
     # Verify different recipes were applied
-    assert isinstance(model.experts.w1.data, ScaledGroupedMMTensor), (
-        "w1 should be ScaledGroupedMMTensor"
+    assert isinstance(model.experts.w1.data, MXFP8TrainingTensor), (
+        "w1 should be MXFP8TrainingTensor"
     )
-    assert model.experts.w1.data.config == MXFP8GroupedMMConfig.from_recipe(
-        MXFP8GroupedMMRecipe.MXFP8_RCEIL
+    assert model.experts.w1.data.config == MXFP8TrainingConfig.from_recipe(
+        MXFP8TrainingRecipe.MXFP8_RCEIL
     ), "w1 should use MXFP8 RCEIL"
-    assert isinstance(model.experts.w2.data, ScaledGroupedMMTensor), (
-        "w2 should be ScaledGroupedMMTensor"
+    assert isinstance(model.experts.w2.data, MXFP8TrainingTensor), (
+        "w2 should be MXFP8TrainingTensor"
     )
-    assert model.experts.w2.data.config == MXFP8GroupedMMConfig.from_recipe(
-        MXFP8GroupedMMRecipe.MXFP8_RCEIL_WGRAD_WITH_HP
+    assert model.experts.w2.data.config == MXFP8TrainingConfig.from_recipe(
+        MXFP8TrainingRecipe.MXFP8_RCEIL_WGRAD_WITH_HP
     ), "w2 should use MXFP8 RCEIL_WGRAD_WITH_HP"
     assert isinstance(model.pre_moe, MXLinear), "pre_moe should be MXLinear"
     assert isinstance(model.post_moe, MXLinear), "post_moe should be MXLinear"
