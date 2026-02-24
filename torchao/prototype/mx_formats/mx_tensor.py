@@ -56,6 +56,7 @@ from torchao.prototype.mx_formats.constants import (
     F8E5M2_MAX,
     F8E5M2_MAX_POW2,
     F32_EXP_BIAS,
+    F32_MIN_NORMAL,
     SUPPORTED_ELEM_DTYPES,
 )
 from torchao.prototype.mx_formats.kernels import (
@@ -303,18 +304,24 @@ def to_mx_with_precomputed_scale(
 
     scale_e8m0_biased = scale_e8m0.view(torch.uint8).unsqueeze(-1)
 
-    # Compute the inverse scale (descale) in floating point.
-    # When the biased exponent is 0 (i.e. scale = 2^-127, in the float32
-    # denormal range), use descale = 1.0 to avoid triton issues with
-    # subnormal values (see https://github.com/pytorch/pytorch/issues/125557).
-    descale_fp = torch.where(
-        scale_e8m0_biased == 0,
-        1.0,
-        torch.exp2(E8M0_EXPONENT_BIAS - scale_e8m0_biased.to(torch.float32)),
-    )
+    # For now, calculate the scale in floating point.
+    # For now, use `torch.bitwise_left_shift` instead of `<<` to support DTensor
+    # See https://github.com/pytorch/pytorch/issues/156533.
+    scale_fp32 = (
+        torch.bitwise_left_shift(scale_e8m0_biased.to(torch.int32), MBITS_F32)
+    ).view(torch.float32)
+
+    # Today, 2**-127 returns 0 in compile+inductor+triton because it is in the
+    # float32 denormal range. For now, manually adjust the fp scale. This is
+    # relevant if all of the incoming block values are zeroes.
+    # See https://github.com/pytorch/pytorch/issues/125557 for details.
+    # Note: it would be more correct to set the minimum to 2**-127, but this
+    # does not work in triton either as it looks like subnormal value handling
+    # has some gaps.  So, for now just set to the minimum normal value.
+    scale_fp32 = torch.clamp(scale_fp32, min=F32_MIN_NORMAL)
 
     # scale and saturated cast the data elements to max of target dtype
-    data_lp = data_hp * descale_fp
+    data_lp = data_hp / scale_fp32
 
     if (
         elem_dtype in (torch.float8_e4m3fn, torch.float8_e5m2)
