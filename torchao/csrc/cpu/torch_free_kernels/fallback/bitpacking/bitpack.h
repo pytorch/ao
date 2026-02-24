@@ -15,6 +15,7 @@
 #include <torchao/csrc/cpu/torch_free_kernels/fallback/bitpacking/uint6.h>
 #include <torchao/csrc/cpu/torch_free_kernels/fallback/bitpacking/uint7.h>
 #include <cassert>
+#include <cstring>
 
 namespace torchao::kernels::cpu::fallback::bitpacking {
 namespace internal {
@@ -31,7 +32,6 @@ inline void pack_128_uint_values(
     const uint8_t* unpacked_values) {
   static_assert(nbit >= 1 && nbit <= 8, "nbit must be between 1 and 8");
 
-  // Dispatch to the correct packing function
   if constexpr (nbit == 1) {
     pack_128_uint1_values(packed, unpacked_values);
   } else if constexpr (nbit == 2) {
@@ -52,10 +52,81 @@ inline void pack_128_uint_values(
   } else if constexpr (nbit == 7) {
     pack_128_uint7_values(packed, unpacked_values);
   } else if constexpr (nbit == 8) {
-    // For 8-bit, it's a direct memory copy
-    for (int i = 0; i < 128; ++i) {
-      packed[i] = unpacked_values[i];
-    }
+    std::memcpy(packed, unpacked_values, 128);
+  }
+}
+
+/**
+ * @brief Packs 64 unsigned 8-bit integers into a packed format of 'nbit' bits.
+ *
+ * @tparam nbit The number of bits to pack each value into (1-8).
+ * @param packed Pointer to the destination memory for the packed data.
+ * @param unpacked_values Pointer to the source memory with 64 uint8_t values.
+ */
+template <int nbit>
+inline void pack_64_uint_values(
+    uint8_t* packed,
+    const uint8_t* unpacked_values) {
+  static_assert(nbit >= 1 && nbit <= 8, "nbit must be between 1 and 8");
+
+  if constexpr (nbit == 1) {
+    pack_64_uint1_values(packed, unpacked_values);
+  } else if constexpr (nbit == 2) {
+    pack_64_uint2_values(packed, unpacked_values);
+  } else if constexpr (nbit == 3) {
+    pack_64_uint3_values(packed, unpacked_values);
+  } else if constexpr (nbit == 4) {
+    pack_32_uint4_values(packed, unpacked_values);
+    pack_32_uint4_values(packed + 16, unpacked_values + 32);
+  } else if constexpr (nbit == 5) {
+    pack_64_uint5_values(packed, unpacked_values);
+  } else if constexpr (nbit == 6) {
+    pack_64_uint6_values(packed, unpacked_values);
+  } else if constexpr (nbit == 7) {
+    pack_64_uint7_values(packed, unpacked_values);
+  } else if constexpr (nbit == 8) {
+    std::memcpy(packed, unpacked_values, 64);
+  }
+}
+
+/**
+ * @brief Packs 32 unsigned 8-bit integers into a packed format of 'nbit' bits.
+ *
+ * @tparam nbit The number of bits to pack each value into (1-8).
+ * @param packed Pointer to the destination memory for the packed data.
+ * @param unpacked_values Pointer to the source memory with 32 uint8_t values.
+ */
+template <int nbit>
+inline void pack_32_uint_values(
+    uint8_t* packed,
+    const uint8_t* unpacked_values) {
+  static_assert(nbit >= 1 && nbit <= 8, "nbit must be between 1 and 8");
+
+  if constexpr (nbit == 1) {
+    pack_32_uint1_values(packed, unpacked_values);
+  } else if constexpr (nbit == 2) {
+    pack_32_uint2_values(packed, unpacked_values);
+  } else if constexpr (nbit == 3) {
+    pack_8_uint3_values(packed, unpacked_values);
+    pack_8_uint3_values(packed + 3, unpacked_values + 8);
+    pack_8_uint3_values(packed + 6, unpacked_values + 16);
+    pack_8_uint3_values(packed + 9, unpacked_values + 24);
+  } else if constexpr (nbit == 4) {
+    pack_32_uint4_values(packed, unpacked_values);
+  } else if constexpr (nbit == 5) {
+    pack_8_uint5_values(packed, unpacked_values);
+    pack_8_uint5_values(packed + 5, unpacked_values + 8);
+    pack_8_uint5_values(packed + 10, unpacked_values + 16);
+    pack_8_uint5_values(packed + 15, unpacked_values + 24);
+  } else if constexpr (nbit == 6) {
+    pack_32_uint6_values(packed, unpacked_values);
+  } else if constexpr (nbit == 7) {
+    pack_8_uint7_values(packed, unpacked_values);
+    pack_8_uint7_values(packed + 7, unpacked_values + 8);
+    pack_8_uint7_values(packed + 14, unpacked_values + 16);
+    pack_8_uint7_values(packed + 21, unpacked_values + 24);
+  } else if constexpr (nbit == 8) {
+    std::memcpy(packed, unpacked_values, 32);
   }
 }
 /**
@@ -72,7 +143,6 @@ inline void unpack_128_uint_values(
     const uint8_t* packed) {
   static_assert(nbit >= 1 && nbit <= 8, "nbit must be between 1 and 8");
 
-  // Dispatch to the correct unpacking function, writing directly to the output.
   if constexpr (nbit == 1) {
     unpack_128_uint1_values(unpacked_values, packed);
   } else if constexpr (nbit == 2) {
@@ -93,10 +163,7 @@ inline void unpack_128_uint_values(
   } else if constexpr (nbit == 7) {
     unpack_128_uint7_values(unpacked_values, packed);
   } else if constexpr (nbit == 8) {
-    // For 8-bit, it's a direct memory copy
-    for (int i = 0; i < 128; ++i) {
-      unpacked_values[i] = packed[i];
-    }
+    std::memcpy(unpacked_values, packed, 128);
   }
 }
 
@@ -144,6 +211,188 @@ inline void unpack_128_lowbit_int_values(
     }
   } else { // nbit == 8
     for (int i = 0; i < 128; ++i) {
+      unpacked[i] = static_cast<int8_t>(temp_unpacked[i]);
+    }
+  }
+}
+
+/**
+ * @brief Packs 64 signed 8-bit integers into a packed format of 'nbit' bits.
+ *
+ * @tparam nbit The number of bits to pack each value into (1-8).
+ * @param packed Pointer to the destination memory.
+ * @param unpacked Pointer to the source memory containing 64 int8_t values.
+ */
+template <int nbit>
+inline void pack_64_lowbit_int_values(
+    uint8_t* packed,
+    const int8_t* unpacked) {
+  // 1. Convert signed input to a temporary buffer of unsigned values.
+  uint8_t temp_unpacked[64];
+  if constexpr (nbit < 8) {
+    const int8_t shift = 1 << (nbit - 1);
+    for (int i = 0; i < 64; ++i) {
+      temp_unpacked[i] = static_cast<uint8_t>(unpacked[i] + shift);
+    }
+  } else { // nbit == 8
+    for (int i = 0; i < 64; ++i) {
+      temp_unpacked[i] = static_cast<uint8_t>(unpacked[i]);
+    }
+  }
+
+  // 2. Call the generalized uint packing function.
+  pack_64_uint_values<nbit>(packed, temp_unpacked);
+}
+
+/**
+ * @brief Packs 32 signed 8-bit integers into a packed format of 'nbit' bits.
+ *
+ * @tparam nbit The number of bits to pack each value into (1-8).
+ * @param packed Pointer to the destination memory.
+ * @param unpacked Pointer to the source memory containing 32 int8_t values.
+ */
+template <int nbit>
+inline void pack_32_lowbit_int_values(
+    uint8_t* packed,
+    const int8_t* unpacked) {
+  // 1. Convert signed input to a temporary buffer of unsigned values.
+  uint8_t temp_unpacked[32];
+  if constexpr (nbit < 8) {
+    const int8_t shift = 1 << (nbit - 1);
+    for (int i = 0; i < 32; ++i) {
+      temp_unpacked[i] = static_cast<uint8_t>(unpacked[i] + shift);
+    }
+  } else { // nbit == 8
+    for (int i = 0; i < 32; ++i) {
+      temp_unpacked[i] = static_cast<uint8_t>(unpacked[i]);
+    }
+  }
+
+  // 2. Call the generalized uint packing function.
+  pack_32_uint_values<nbit>(packed, temp_unpacked);
+}
+
+/**
+ * @brief Unpacks 'nbit' data into 64 unsigned 8-bit integers.
+ *
+ * @tparam nbit The number of bits per value in the packed format (1-8).
+ * @param unpacked_values Pointer to the destination memory (64 uint8_t values).
+ * @param packed Pointer to the source packed data.
+ */
+template <int nbit>
+inline void unpack_64_uint_values(
+    uint8_t* unpacked_values,
+    const uint8_t* packed) {
+  static_assert(nbit >= 1 && nbit <= 8, "nbit must be between 1 and 8");
+
+  if constexpr (nbit == 1) {
+    unpack_64_uint1_values(unpacked_values, packed);
+  } else if constexpr (nbit == 2) {
+    unpack_64_uint2_values(unpacked_values, packed);
+  } else if constexpr (nbit == 3) {
+    unpack_64_uint3_values(unpacked_values, packed);
+  } else if constexpr (nbit == 4) {
+    unpack_32_uint4_values(unpacked_values, packed);
+    unpack_32_uint4_values(unpacked_values + 32, packed + 16);
+  } else if constexpr (nbit == 5) {
+    unpack_64_uint5_values(unpacked_values, packed);
+  } else if constexpr (nbit == 6) {
+    unpack_64_uint6_values(unpacked_values, packed);
+  } else if constexpr (nbit == 7) {
+    unpack_64_uint7_values(unpacked_values, packed);
+  } else if constexpr (nbit == 8) {
+    std::memcpy(unpacked_values, packed, 64);
+  }
+}
+
+/**
+ * @brief Unpacks 'nbit' data into 32 unsigned 8-bit integers.
+ *
+ * @tparam nbit The number of bits per value in the packed format (1-8).
+ * @param unpacked_values Pointer to the destination memory (32 uint8_t values).
+ * @param packed Pointer to the source packed data.
+ */
+template <int nbit>
+inline void unpack_32_uint_values(
+    uint8_t* unpacked_values,
+    const uint8_t* packed) {
+  static_assert(nbit >= 1 && nbit <= 8, "nbit must be between 1 and 8");
+
+  if constexpr (nbit == 1) {
+    unpack_32_uint1_values(unpacked_values, packed);
+  } else if constexpr (nbit == 2) {
+    unpack_32_uint2_values(unpacked_values, packed);
+  } else if constexpr (nbit == 3) {
+    unpack_8_uint3_values(unpacked_values, packed);
+    unpack_8_uint3_values(unpacked_values + 8, packed + 3);
+    unpack_8_uint3_values(unpacked_values + 16, packed + 6);
+    unpack_8_uint3_values(unpacked_values + 24, packed + 9);
+  } else if constexpr (nbit == 4) {
+    unpack_32_uint4_values(unpacked_values, packed);
+  } else if constexpr (nbit == 5) {
+    unpack_8_uint5_values(unpacked_values, packed);
+    unpack_8_uint5_values(unpacked_values + 8, packed + 5);
+    unpack_8_uint5_values(unpacked_values + 16, packed + 10);
+    unpack_8_uint5_values(unpacked_values + 24, packed + 15);
+  } else if constexpr (nbit == 6) {
+    unpack_32_uint6_values(unpacked_values, packed);
+  } else if constexpr (nbit == 7) {
+    unpack_8_uint7_values(unpacked_values, packed);
+    unpack_8_uint7_values(unpacked_values + 8, packed + 7);
+    unpack_8_uint7_values(unpacked_values + 16, packed + 14);
+    unpack_8_uint7_values(unpacked_values + 24, packed + 21);
+  } else if constexpr (nbit == 8) {
+    std::memcpy(unpacked_values, packed, 32);
+  }
+}
+
+/**
+ * @brief Unpacks 'nbit' data into 64 signed 8-bit integers.
+ *
+ * @tparam nbit The number of bits per value in the packed format (1-8).
+ * @param unpacked Pointer to the destination memory (64 int8_t values).
+ * @param packed Pointer to the source packed data.
+ */
+template <int nbit>
+inline void unpack_64_lowbit_int_values(
+    int8_t* unpacked,
+    const uint8_t* packed) {
+  uint8_t temp_unpacked[64];
+  unpack_64_uint_values<nbit>(temp_unpacked, packed);
+
+  if constexpr (nbit < 8) {
+    const int8_t unshift = -(1 << (nbit - 1));
+    for (int i = 0; i < 64; ++i) {
+      unpacked[i] = static_cast<int8_t>(temp_unpacked[i]) + unshift;
+    }
+  } else {
+    for (int i = 0; i < 64; ++i) {
+      unpacked[i] = static_cast<int8_t>(temp_unpacked[i]);
+    }
+  }
+}
+
+/**
+ * @brief Unpacks 'nbit' data into 32 signed 8-bit integers.
+ *
+ * @tparam nbit The number of bits per value in the packed format (1-8).
+ * @param unpacked Pointer to the destination memory (32 int8_t values).
+ * @param packed Pointer to the source packed data.
+ */
+template <int nbit>
+inline void unpack_32_lowbit_int_values(
+    int8_t* unpacked,
+    const uint8_t* packed) {
+  uint8_t temp_unpacked[32];
+  unpack_32_uint_values<nbit>(temp_unpacked, packed);
+
+  if constexpr (nbit < 8) {
+    const int8_t unshift = -(1 << (nbit - 1));
+    for (int i = 0; i < 32; ++i) {
+      unpacked[i] = static_cast<int8_t>(temp_unpacked[i]) + unshift;
+    }
+  } else {
+    for (int i = 0; i < 32; ++i) {
       unpacked[i] = static_cast<int8_t>(temp_unpacked[i]);
     }
   }

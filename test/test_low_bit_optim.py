@@ -274,6 +274,32 @@ class TestOptim(TestCase):
             tensor[offset : offset * 2].dequantize(),
         )
 
+    @parametrize("subclass", [OptimState4bit, OptimState8bit, OptimStateFp8])
+    @parametrize("device", _DEVICES)
+    def test_subclass_appearance_dtype(self, subclass, device):
+        shape = (1024,)
+
+        # default creation should be FP32
+        tensor = subclass.zeros(shape, device=device)
+        self.assertEqual(tensor.dtype, torch.float32)
+
+        # dtype casting
+        tensor_bf16 = tensor.to(torch.bfloat16)
+        self.assertEqual(tensor_bf16.dtype, torch.bfloat16)
+
+        # moving to another device should preserve dtype
+        if not tensor_bf16.is_cpu:
+            tensor_bf16_cpu = tensor_bf16.cpu()
+            self.assertEqual(tensor_bf16_cpu.dtype, torch.bfloat16)
+
+        # recast to FP32
+        tensor_fp32_recast = tensor_bf16.to(torch.float32)
+        self.assertEqual(tensor_fp32_recast.dtype, torch.float32)
+
+        # direct BF16 creation
+        tensor_bf16 = subclass.zeros(shape, device=device, dtype=torch.bfloat16)
+        self.assertEqual(tensor_bf16.dtype, torch.bfloat16)
+
     @pytest.mark.skipif(bnb is None, reason="bitsandbytes is not available")
     @pytest.mark.skipif(
         not torch.cuda.is_available(),

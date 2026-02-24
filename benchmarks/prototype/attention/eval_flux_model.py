@@ -91,10 +91,10 @@ def setup_backend(pipe, backend_name, compile_flag, orig_transformer):
     if cfg["fp8"]:
         print(f"Applying low-precision FP8 attention ({backend_name})...")
         pipe.transformer = apply_low_precision_attention(pipe.transformer)
-        # Return the flash impl (e.g. "FA3") so generate_image activates it
-        # for the entire pipe() call.  This keeps non-transformer SDPA calls
-        # (VAE, text encoder) consistent with the baseline FA3 backend.
-        return cfg["flash_impl"]
+        # Return None — the FP8 wrapper handles FA3 internally via the
+        # fusion pass.  Activating FA3 globally would conflict with the
+        # custom op dispatch.
+        return None
     else:
         if compile_flag:
             print(f"Compiling transformer with torch.compile ({backend_name})...")

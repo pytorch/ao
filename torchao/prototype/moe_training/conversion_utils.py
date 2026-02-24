@@ -4,79 +4,23 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 import logging
-from enum import Enum
 from typing import Callable, Optional
 
 from torch import nn
 
-from torchao.core.config import AOBaseConfig
-from torchao.quantization.quantize_.common import KernelPreference
-from torchao.quantization.transform_module import (
-    register_quantize_module_handler,
+from torchao.prototype.moe_training.config import (
+    GroupedMMConfig,
 )
 
 logger: logging.Logger = logging.getLogger(__name__)
-
-
-class MoEScalingType(Enum):
-    FP8_ROWWISE = "fp8_rowwise"
-    MXFP8 = "mxfp8"
-    MXFP8_WGRAD_WITH_HP = "mxfp8_wgrad_with_hp"
-
-
-class MoETrainingConfig(AOBaseConfig):
-    """
-    The MoETrainingConfig is specifically designed to be used on MoE models using
-    `torch._grouped_mm` to implement expert computation in token-choice routing,
-    where expert weights are implemented as 3D nn.Parameters wit `num_experts` as
-    the leading dim.
-
-    MoETrainingConfig has a module handler registered to it which will
-    find all nn.Parameters whose parent module matches the module filter function,
-    and swap their data tensor with a ScaledGroupedMMTensor.
-
-    The ScaledGroupedMMTensor is a tensor subclass which overrides the
-    `torch._grouped_mm` op by dispatching to a differentiable scaled grouped mm,
-    which performs dynamic float8 rowwise quantization on scaled grouped GEMM
-    operands in both the forward and backward pass.
-
-    For all other ops, ScaledGroupedMMTensor behaves like a regular torch.Tensor.
-    """
-
-    def __init__(
-        self,
-        scaling_type: MoEScalingType = MoEScalingType.FP8_ROWWISE,
-        kernel_preference: KernelPreference = KernelPreference.AUTO,
-    ):
-        super().__init__()
-        self.scaling_type = scaling_type
-        self.kernel_preference = kernel_preference
-
-
-@register_quantize_module_handler(MoETrainingConfig)
-def _moe_training_transform(
-    module: nn.Module,
-    config: MoETrainingConfig,
-) -> nn.Module:
-    """
-    Swaps `torch.nn.Parameter` data tensor with a ScaledGroupedMMTensor.
-
-    Args:
-        module: Module to modify.
-        config: MoETrainingConfig which defines how to perform the MoE training transform.
-
-    Returns:
-     nn.Module: The modified module with swapped parameters.
-    """
-    out = _swap_params(module, config=config)
-    return out
 
 
 def _swap_params(
     module: nn.Module,
     *,
     module_filter_fn: Optional[Callable[[nn.Module, str], bool]] = None,
-    config: Optional[MoETrainingConfig] = None,
+    config: Optional[GroupedMMConfig] = None,
+    target_parameter_name: Optional[str] = None,
 ) -> nn.Module:
     """
     Recurses through the nn.Module, recursively swapping the data tensor of
@@ -102,9 +46,7 @@ def _swap_params(
                 f"Does not support a root nn.Parameter with children: {module}"
             )
         if not isinstance(module.data, ScaledGroupedMMTensor):
-            new_data = ScaledGroupedMMTensor(
-                module.data, config.scaling_type, config.kernel_preference
-            )
+            new_data = ScaledGroupedMMTensor(module.data, config)
             return nn.Parameter(new_data, requires_grad=module.requires_grad)
         return module
 
@@ -128,11 +70,14 @@ def _swap_params(
 
         if module_filter_fn is None or module_filter_fn(module, cur_fqn):
             for param_name, param in module.named_parameters(recurse=False):
+                if (
+                    target_parameter_name is not None
+                    and param_name != target_parameter_name
+                ):
+                    continue
                 if not isinstance(param.data, ScaledGroupedMMTensor):
                     new_param = nn.Parameter(
-                        ScaledGroupedMMTensor(
-                            param.data, config.scaling_type, config.kernel_preference
-                        ),
+                        ScaledGroupedMMTensor(param.data, config),
                         requires_grad=param.requires_grad,
                     )
                     setattr(module, param_name, new_param)

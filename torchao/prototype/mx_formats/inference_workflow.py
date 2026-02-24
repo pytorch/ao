@@ -92,6 +92,16 @@ class MXDynamicActivationMXWeightConfig(AOBaseConfig):
     Requirements:
     - NVIDIA SM100+ hardware (Blackwell or newer) is required for execution
     - PyTorch 2.5+ for proper serialization support
+
+    Example (mxfp8):
+
+    .. literalinclude:: ../../examples/inference/mxfp8_dynamic_activation_mxfp8_weight.py
+       :language: python
+
+    Example (mxfp4):
+
+    .. literalinclude:: ../../examples/inference/mxfp4_dynamic_activation_mxfp4_weight.py
+       :language: python
     """
 
     block_size: int = 32
@@ -194,6 +204,11 @@ class NVFP4DynamicActivationNVFP4WeightConfig(AOBaseConfig):
 
     Note: Triton kernel only works with DYNAMIC mode and has constraints that input dimensions
     must satisfy M % 128 == 0 and K % 64 == 0. Will automatically fallback when constraints aren't met.
+
+    Example:
+
+    .. literalinclude:: ../../examples/inference/nvfp4_dynamic_activation_nvfp4_weight.py
+       :language: python
     """
 
     use_triton_kernel: bool = True
@@ -313,6 +328,18 @@ def _nvfp4_inference_linear_transform(
 
 @dataclass
 class NVFP4WeightOnlyConfig(AOBaseConfig):
+    """
+    NVIDIA FP4 (NVFP4) Weight-Only Quantization Configuration
+
+    This configuration applies NVFP4 quantization to weights only, keeping activations
+    in their original precision.
+
+    Example:
+
+    .. literalinclude:: ../../examples/inference/nvfp4_weight_only.py
+       :language: python
+    """
+
     use_dynamic_per_tensor_scale: bool = True
 
     def __post_init__(self):
