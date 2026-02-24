@@ -524,9 +524,9 @@ def tensor_size_fp4x2_to_hp(orig_size, is_contiguous):
 class MXTensor(TorchAOBaseTensor):
     tensor_data_names = ["qdata", "scale"]
     tensor_attribute_names = [
-        "elem_dtype",
+        "_elem_dtype",
         "block_size",
-        "orig_dtype",
+        "_orig_dtype",
         "kernel_preference",
         "act_quant_kwargs",
         "is_swizzled_scales",
@@ -573,9 +573,9 @@ class MXTensor(TorchAOBaseTensor):
         ), "unsupported"
         self.qdata = qdata
         self.scale = scale
-        self.elem_dtype = elem_dtype
+        self._elem_dtype = elem_dtype
         self.block_size = block_size
-        self.orig_dtype = orig_dtype
+        self._orig_dtype = orig_dtype
         self.kernel_preference = kernel_preference
         self.act_quant_kwargs = act_quant_kwargs
         self.is_swizzled_scales = is_swizzled_scales
@@ -583,10 +583,10 @@ class MXTensor(TorchAOBaseTensor):
 
     def __repr__(self):
         # TODO better elem dtype print for fp4
-        return f"MXTensor: elem_dtype: {self.elem_dtype}, s_e8m0: {self.scale}, d: {self.qdata}, act_quant_kwargs: {self.act_quant_kwargs}, is_swizzled_scales={self.is_swizzled_scales}"  # noqa: E501
+        return f"MXTensor: elem_dtype: {self._elem_dtype}, s_e8m0: {self.scale}, d: {self.qdata}, act_quant_kwargs: {self.act_quant_kwargs}, is_swizzled_scales={self.is_swizzled_scales}"  # noqa: E501
 
     def _quantization_type(self):
-        return f"{self.elem_dtype=}, {self.block_size=}, {self.orig_dtype=}, {self.kernel_preference=}, {self.act_quant_kwargs=}"
+        return f"{self._elem_dtype=}, {self.block_size=}, {self._orig_dtype=}, {self.kernel_preference=}, {self.act_quant_kwargs=}"
 
     def dequantize(self, output_dtype: Optional[torch.dtype] = None) -> torch.Tensor:
         if output_dtype is None:
@@ -610,7 +610,7 @@ class MXTensor(TorchAOBaseTensor):
         return to_dtype(
             self.qdata,
             scale,
-            self.elem_dtype,
+            self._elem_dtype,
             self.block_size,
             output_dtype,
         )
@@ -763,8 +763,8 @@ def _addmm_mx_dispatch(
             b_scale = b.scale.t().view(N, K // b.block_size)
             b_scale_block = to_blocked(b_scale)
 
-        if a.elem_dtype == torch.float8_e4m3fn:
-            assert b.elem_dtype == torch.float8_e4m3fn
+        if a._elem_dtype == torch.float8_e4m3fn:
+            assert b._elem_dtype == torch.float8_e4m3fn
             res = torch._scaled_mm(
                 a.qdata,
                 b.qdata,
@@ -774,8 +774,8 @@ def _addmm_mx_dispatch(
                 out_dtype=torch.bfloat16,
             )
         else:
-            assert a.elem_dtype == torch.float4_e2m1fn_x2
-            assert b.elem_dtype == torch.float4_e2m1fn_x2
+            assert a._elem_dtype == torch.float4_e2m1fn_x2
+            assert b._elem_dtype == torch.float4_e2m1fn_x2
             if not torch_version_at_least("2.10.0"):
                 raise RuntimeError(
                     "MXFP4 matmul requires PyTorch 2.10.0 or later for F.scaled_mm support"
@@ -797,8 +797,8 @@ def _addmm_mx_dispatch(
     else:
         assert gemm_choice == KernelPreference.EMULATED, "unimplemented"
         # emulated MX gemm
-        a_hp = a.dequantize(a.orig_dtype)
-        b_hp = b.dequantize(b.orig_dtype)
+        a_hp = a.dequantize(a._orig_dtype)
+        b_hp = b.dequantize(b._orig_dtype)
         # assert memory layout we expect to be required in hardware
         assert a_hp.is_contiguous()
         assert b_hp.t().is_contiguous()
@@ -858,9 +858,9 @@ def mx_t(func, types, args, kwargs):
     new = MXTensor(
         old.qdata.t(),
         old.scale.t(),
-        old.elem_dtype,
+        old._elem_dtype,
         old.block_size,
-        old.orig_dtype,
+        old._orig_dtype,
         old.kernel_preference,
         old.act_quant_kwargs,
         old.is_swizzled_scales,
@@ -880,7 +880,7 @@ def mx_cast_up_op(func, types, args, kwargs):
 
     def unwrap(x):
         if isinstance(x, MXTensor):
-            return x.dequantize(x.orig_dtype)
+            return x.dequantize(x._orig_dtype)
         return x
 
     new_args = tree_map(unwrap, args)
@@ -892,16 +892,16 @@ def mx_cast_up_op(func, types, args, kwargs):
 def mx_view_op(func, types, args, kwargs):
     data = args[0].qdata
     new_size = args[1]
-    if args[0].elem_dtype == torch.float4_e2m1fn_x2:
+    if args[0]._elem_dtype == torch.float4_e2m1fn_x2:
         # special case fp4 as we pack two elements per byte
         new_size = tensor_size_hp_to_fp4x2(new_size, data.is_contiguous())
     new_data = func(data, new_size, *args[2:], **kwargs)
     return MXTensor(
         new_data,
         args[0].scale,
-        args[0].elem_dtype,
+        args[0]._elem_dtype,
         args[0].block_size,
-        args[0].orig_dtype,
+        args[0]._orig_dtype,
         args[0].kernel_preference,
         args[0].act_quant_kwargs,
         args[0].is_swizzled_scales,
@@ -924,9 +924,9 @@ def mx_slice(func, types, args, kwargs):
         MXTensor(
             sliced_data,
             sliced_scale,
-            x.elem_dtype,
+            x._elem_dtype,
             x.block_size,
-            x.orig_dtype,
+            x._orig_dtype,
             x.kernel_preference,
             x.act_quant_kwargs,
             x.is_swizzled_scales,
@@ -958,9 +958,9 @@ def mx_select(func, types, args, kwargs):
     new_mx_tensor = old_mx_tensor.__class__(
         old_mx_tensor.qdata[index],
         old_mx_tensor.scale[index],
-        old_mx_tensor.elem_dtype,
+        old_mx_tensor._elem_dtype,
         old_mx_tensor.block_size,
-        old_mx_tensor.orig_dtype,
+        old_mx_tensor._orig_dtype,
         old_mx_tensor.kernel_preference,
         old_mx_tensor.act_quant_kwargs,
         old_mx_tensor.is_swizzled_scales,
@@ -1007,9 +1007,9 @@ def mx_all_gather(func, types, args, kwargs):
     return MXTensor(
         gathered_qdata,
         gathered_scale,
-        mx_tensor.elem_dtype,
+        mx_tensor._elem_dtype,
         mx_tensor.block_size,
-        mx_tensor.orig_dtype,
+        mx_tensor._orig_dtype,
         mx_tensor.kernel_preference,
         mx_tensor.act_quant_kwargs,
         mx_tensor.is_swizzled_scales,
@@ -1038,9 +1038,9 @@ def mx_wait_tensor(func, types, args, kwargs):
     return MXTensor(
         waited_qdata,
         waited_scale,
-        mx_tensor.elem_dtype,
+        mx_tensor._elem_dtype,
         mx_tensor.block_size,
-        mx_tensor.orig_dtype,
+        mx_tensor._orig_dtype,
         mx_tensor.kernel_preference,
         mx_tensor.act_quant_kwargs,
         mx_tensor.is_swizzled_scales,
