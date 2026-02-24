@@ -535,7 +535,7 @@ class MXTensor(TorchAOBaseTensor):
     def __new__(
         cls,
         qdata,
-        scale,
+        scale_e8m0_bits,
         elem_dtype,
         block_size,
         orig_dtype,
@@ -563,8 +563,8 @@ class MXTensor(TorchAOBaseTensor):
             dtype=orig_dtype,
             device=qdata.device,
         )
-        assert scale.dtype == torch.float8_e8m0fnu, (
-            f"scale.dtype must be `torch.float8_e8m0fnu`, got {scale.dtype}"
+        assert scale_e8m0_bits.dtype == torch.float8_e8m0fnu, (
+            f"scale_e8m0_bits.dtype must be `torch.float8_e8m0fnu`, got {scale_e8m0_bits.dtype}"
         )
         assert qdata.dtype in (
             torch.float8_e4m3fn,
@@ -572,7 +572,7 @@ class MXTensor(TorchAOBaseTensor):
             torch.uint8,
         ), "unsupported"
         self.qdata = qdata
-        self.scale = scale
+        self.scale = scale_e8m0_bits
         self._elem_dtype = elem_dtype
         self.block_size = block_size
         self._orig_dtype = orig_dtype
