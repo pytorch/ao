@@ -286,66 +286,6 @@ def calculate_scale(
     return scale_e8m0_biased
 
 
-def _cast_data_lp_and_finalize(
-    data_lp: torch.Tensor,
-    scale_e8m0_biased: torch.Tensor,
-    elem_dtype: Union[torch.dtype, str],
-    orig_shape: tuple,
-    block_size: int,
-    is_swizzled_scales: bool,
-    max_pos: float,
-) -> tuple[torch.Tensor, torch.Tensor]:
-    """Casts scaled float32 data to target elem_dtype, reshapes, and
-    finalizes the scale (squeeze + optional swizzle)."""
-    if (
-        elem_dtype in (torch.float8_e4m3fn, torch.float8_e5m2)
-        and not torch._dynamo.is_compiling()
-    ):
-        # As of 20250317, the Pytorch eager mode cast to `torch.float8_e4m3fn`
-        # is unsaturated. This cast is saturated in triton. If we are compute bound,
-        # we see a speedup if we remove this redundant clamp if we are compiling
-        # to triton.
-        # TODO(#1912): make the saturated cast work in eager mode and remove this
-        # workaround.
-        data_lp = torch.clamp(data_lp, min=-1 * max_pos, max=max_pos)
-
-    # cast to target dtype
-    if elem_dtype in (torch.float8_e4m3fn, torch.float8_e5m2):
-        data_lp = data_lp.to(elem_dtype)
-        # need to reshape at the end to help inductor fuse things
-        data_lp = data_lp.reshape(orig_shape)
-    elif elem_dtype == DTYPE_FP6_E2M3:
-        data_lp = f32_to_f6_e2m3_unpacked(data_lp)
-        # need to reshape at the end to help inductor fuse things
-        data_lp = data_lp.reshape(orig_shape)
-    elif elem_dtype == DTYPE_FP6_E3M2:
-        data_lp = f32_to_f6_e3m2_unpacked(data_lp)
-        # need to reshape at the end to help inductor fuse things
-        data_lp = data_lp.reshape(orig_shape)
-    elif elem_dtype == torch.float4_e2m1fn_x2:
-        # can't reshape at the end without handling it in the packing code,
-        # punt until later since we'll need to rethink the torch.compile
-        # approach for fp4x2 in any case
-        data_lp = data_lp.reshape(orig_shape)
-        data_lp = f32_to_f4_unpacked(data_lp)
-        data_lp = pack_uint4(data_lp)
-    else:
-        raise AssertionError("unsupported")
-
-    scale_e8m0_biased = scale_e8m0_biased.view(torch.float8_e8m0fnu)
-    scale_e8m0_biased = scale_e8m0_biased.squeeze(-1)
-
-    # if user requested scale swizzling, do it here
-    if is_swizzled_scales:
-        leading_dims, M, K = orig_shape[:-2], orig_shape[-2], orig_shape[-1]
-        scale_shape = (math.prod(leading_dims) * M, K // block_size)
-        scale = to_blocked(scale_e8m0_biased.view(scale_shape)).flatten()
-        scale_M, scale_K = hp_data_dims_to_swizzled_scale_dims_mx(M, K)
-        scale_e8m0_biased = scale.view(*leading_dims, scale_M, scale_K)
-
-    return scale_e8m0_biased, data_lp
-
-
 def to_mx_with_precomputed_scale(
     data_hp: torch.Tensor,
     scale_e8m0: torch.Tensor,
@@ -395,15 +335,47 @@ def to_mx_with_precomputed_scale(
     # scale and saturated cast the data elements to max of target dtype
     data_lp = data_hp * descale_fp
 
-    return _cast_data_lp_and_finalize(
-        data_lp,
-        scale_e8m0_biased,
-        elem_dtype,
-        orig_shape,
-        block_size,
-        is_swizzled_scales,
-        max_pos,
-    )
+    if (
+        elem_dtype in (torch.float8_e4m3fn, torch.float8_e5m2)
+        and not torch._dynamo.is_compiling()
+    ):
+        # As of 20250317, the Pytorch eager mode cast to `torch.float8_e4m3fn`
+        # is unsaturated. This cast is saturated in triton. If we are compute bound,
+        # we see a speedup if we remove this redundant clamp if we are compiling
+        # to triton.
+        # TODO(#1912): make the saturated cast work in eager mode and remove this
+        # workaround.
+        data_lp = torch.clamp(data_lp, min=-1 * max_pos, max=max_pos)
+
+    # cast to target dtype
+    if elem_dtype in (torch.float8_e4m3fn, torch.float8_e5m2):
+        data_lp = data_lp.to(elem_dtype)
+        data_lp = data_lp.reshape(orig_shape)
+    elif elem_dtype == DTYPE_FP6_E2M3:
+        data_lp = f32_to_f6_e2m3_unpacked(data_lp)
+        data_lp = data_lp.reshape(orig_shape)
+    elif elem_dtype == DTYPE_FP6_E3M2:
+        data_lp = f32_to_f6_e3m2_unpacked(data_lp)
+        data_lp = data_lp.reshape(orig_shape)
+    elif elem_dtype == torch.float4_e2m1fn_x2:
+        data_lp = data_lp.reshape(orig_shape)
+        data_lp = f32_to_f4_unpacked(data_lp)
+        data_lp = pack_uint4(data_lp)
+    else:
+        raise AssertionError("unsupported")
+
+    scale_e8m0_biased = scale_e8m0_biased.view(torch.float8_e8m0fnu)
+    scale_e8m0_biased = scale_e8m0_biased.squeeze(-1)
+
+    # if user requested scale swizzling, do it here
+    if is_swizzled_scales:
+        leading_dims, M, K = orig_shape[:-2], orig_shape[-2], orig_shape[-1]
+        scale_shape = (math.prod(leading_dims) * M, K // block_size)
+        scale = to_blocked(scale_e8m0_biased.view(scale_shape)).flatten()
+        scale_M, scale_K = hp_data_dims_to_swizzled_scale_dims_mx(M, K)
+        scale_e8m0_biased = scale.view(*leading_dims, scale_M, scale_K)
+
+    return scale_e8m0_biased, data_lp
 
 
 def to_mx(
