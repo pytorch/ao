@@ -55,7 +55,7 @@ from torchao.testing.pt2e._xnnpack_quantizer import (
     XNNPACKQuantizer,
     get_symmetric_quantization_config,
 )
-from torchao.testing.utils import skip_if_rocm, skip_if_xpu
+from torchao.testing.utils import skip_if_xpu
 from torchao.utils import (
     get_current_accelerator_device,
     is_sm_at_least_89,
@@ -349,7 +349,6 @@ class TestQuantFlow(TestCase):
         ],
     )
     @skip_if_xpu("XPU enablement in progress")
-    @skip_if_rocm("ROCm enablement in progress")
     def test_workflow_e2e_numerics(self, config):
         """
         Simple test of e2e Int4WeightOnlyConfig workflow, comparing numerics

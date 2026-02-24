@@ -29,7 +29,7 @@ from torchao.quantization import (
     quantize_,
 )
 from torchao.quantization.quant_primitives import MappingType
-from torchao.testing.utils import skip_if_no_gemlite, skip_if_rocm
+from torchao.testing.utils import skip_if_no_gemlite
 from torchao.utils import (
     check_cpu_version,
     check_xpu_version,
@@ -169,11 +169,12 @@ class TestAffineQuantized(TestCase):
 
         deregister_aqt_quantized_linear_dispatch(dispatch_condition)
 
-    @skip_if_rocm("ROCm enablement in progress")
     @unittest.skipIf(len(GPU_DEVICES) == 0, "Need GPU available")
     def test_print_quantized_module(self):
         for device in self.GPU_DEVICES:
-            apply_quant_list = get_quantization_functions(True, True, device, True)
+            apply_quant_list = get_quantization_functions(
+                is_cusparselt_available, True, device, True
+            )
             for apply_quant in apply_quant_list:
                 linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16, device=device)
                 if isinstance(apply_quant, AOBaseConfig):
@@ -254,7 +255,6 @@ class TestAffineQuantizedBasic(TestCase):
 
     @common_utils.parametrize("device", COMMON_DEVICES)
     @common_utils.parametrize("dtype", COMMON_DTYPES)
-    @skip_if_rocm("ROCm enablement in progress")
     def test_flatten_unflatten(self, device, dtype):
         if device == "cuda" and dtype == torch.bfloat16 and is_fbcode():
             raise unittest.SkipTest("TODO: Failing for cuda + bfloat16 in fbcode")
