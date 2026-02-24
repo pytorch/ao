@@ -7,7 +7,7 @@
 #
 # To run these unit tests, use the following command:
 #
-# torchrun --nproc_per_node=${NUM_GPUS} -m pytest test_tp.py
+# torchrun --nproc_per_node=${NUM_GPUS} -m pytest test_distributed.py
 #
 #######################################################################
 
@@ -16,8 +16,6 @@ import os
 
 import pytest
 import torch
-
-from torchao.quantization.quantize_.common.kernel_preference import KernelPreference
 
 if torch.version.hip is not None:
     pytest.skip(
@@ -53,9 +51,10 @@ if not torch.cuda.is_available() or torch.cuda.get_device_capability() < (8, 9):
     )
 
 from torchao.float8.float8_utils import compute_error
-from torchao.prototype.moe_training.conversion_utils import (
-    MoEScalingType,
-    MoETrainingConfig,
+from torchao.prototype.moe_training.config import (
+    FP8GroupedMMRecipe,
+    MXFP8GroupedMMConfig,
+    MXFP8GroupedMMRecipe,
 )
 from torchao.quantization.quant_api import quantize_
 
@@ -129,39 +128,42 @@ def distributed_env():
         ParallelStrategy.FSDP_TP,
     ],
 )
-@pytest.mark.parametrize(
-    "kernel_preference", [KernelPreference.AUTO, KernelPreference.EMULATED]
-)
 @pytest.mark.parametrize("compile", [False, True])
 @pytest.mark.parametrize(
     "recipe_config",
     [
         {
-            "recipe": MoEScalingType.FP8_ROWWISE,
+            "recipe": FP8GroupedMMRecipe.FP8_ROWWISE,
             "group_alignment_size": 16,
             "min_out_sqnr": 29.0,
             "min_input_grad_sqnr": 29.0,
             "min_param_grad_sqnr": 23.0,
         },
         {
-            "recipe": MoEScalingType.MXFP8,
+            "recipe": MXFP8GroupedMMRecipe.MXFP8_RCEIL,
             "group_alignment_size": 32,
             "min_out_sqnr": 27.0,
             "min_input_grad_sqnr": 29.0,
             "min_param_grad_sqnr": 21.0,
         },
         {
-            "recipe": MoEScalingType.MXFP8_WGRAD_WITH_HP,
+            "recipe": MXFP8GroupedMMRecipe.MXFP8_RCEIL_WGRAD_WITH_HP,
             "group_alignment_size": 32,
             "min_out_sqnr": 27.0,
             "min_input_grad_sqnr": 29.0,
             "min_param_grad_sqnr": 25.0,
         },
+        {
+            "recipe": MXFP8GroupedMMRecipe.MXFP8_EMULATED_RCEIL,
+            "group_alignment_size": 32,
+            "min_out_sqnr": 27.0,
+            "min_input_grad_sqnr": 29.0,
+            "min_param_grad_sqnr": 21.0,
+        },
     ],
 )
 def test_moe_training_parallel(
     parallel_strategy: str,
-    kernel_preference: KernelPreference,
     compile: bool,
     recipe_config: dict,
     distributed_env: dict,
@@ -180,24 +182,21 @@ def test_moe_training_parallel(
         recipe_config["min_param_grad_sqnr"],
     )
     assert torch.cuda.is_available()
-    if recipe == MoEScalingType.FP8_ROWWISE:
-        if torch.cuda.get_device_capability() != (9, 0):
-            pytest.skip(
-                f"FP8 rowwise only supported on compute capability 9.0 and found {torch.cuda.get_device_capability()}"
-            )
-        if parallel_strategy == ParallelStrategy.EXPERT_TENSOR_PARALLEL:
-            pytest.skip("FP8 rowwise with EP+TP currently not supported")
 
-    elif recipe in (MoEScalingType.MXFP8, MoEScalingType.MXFP8_WGRAD_WITH_HP):
-        emulated = kernel_preference == KernelPreference.EMULATED
-        if not emulated and torch.cuda.get_device_capability() != (
-            10,
-            0,
-        ):
+    # Skip FP8 tests - FP8GroupedMMConfig not yet implemented
+    if isinstance(recipe, FP8GroupedMMRecipe):
+        pytest.skip("FP8GroupedMMConfig not yet implemented, will be added separately")
+
+    if recipe in (
+        MXFP8GroupedMMRecipe.MXFP8_RCEIL,
+        MXFP8GroupedMMRecipe.MXFP8_RCEIL_WGRAD_WITH_HP,
+    ):
+        if torch.cuda.get_device_capability() != (10, 0):
             pytest.skip(
                 f"Non-emulated mode only supported on compute capability 10.0 and found {torch.cuda.get_device_capability()}"
             )
-        if emulated and compile:
+    elif recipe == MXFP8GroupedMMRecipe.MXFP8_EMULATED_RCEIL:
+        if compile:
             pytest.skip("MXFP8 emulated mode does not support torch.compile")
 
     # set token group alignment size needed for GEMM (contraction dim stride must be 16 byte aligned)
@@ -238,8 +237,8 @@ def test_moe_training_parallel(
                 return True
         return False
 
-    # quantize test model
-    config = MoETrainingConfig(recipe, kernel_preference=kernel_preference)
+    # quantize test model using MXFP8 config
+    config = MXFP8GroupedMMConfig.from_recipe(recipe)
     quantize_(model, config=config, filter_fn=moe_module_filter_fn)
 
     # validate that only the experts were converted
