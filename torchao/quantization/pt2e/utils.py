@@ -584,7 +584,13 @@ def _is_connected(source: torch.fx.Node, dest: torch.fx.Node) -> bool:
 def _get_tensor_constant_from_node(node, m):
     if node is None:
         return None
-    assert node.op == "get_attr"
+    if node.op == "placeholder":
+        raise ValueError(
+            "Expected get_attr node, got placeholder. "
+            "If working with an ExportedProgram, make sure you are using .module()"
+        )
+    if node.op != "get_attr":
+        raise ValueError(f"Expected get_attr node, got {node.op}")
     target_atoms = node.target.split(".")
     attr_itr = m
     for i, atom in enumerate(target_atoms):
