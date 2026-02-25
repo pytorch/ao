@@ -37,6 +37,8 @@ from dataclasses import dataclass
 from typing import Optional, Tuple
 
 import torch
+import torch.nn as nn
+import torch.nn.functional as F
 from torch.fx import Graph, Node
 
 logger = logging.getLogger(__name__)
@@ -573,39 +575,106 @@ def _is_sdpa_node(node: Node) -> bool:
     )
 
 
-def _is_causal_mask(attn_mask_node: Node, is_causal: bool) -> bool:
-    """Detect if attn_mask is a materialized causal mask from HuggingFace.
+def _is_lower_triangular_bool_mask(mask: torch.Tensor) -> bool:
+    """Check if a real tensor is a bool, square lower-triangular (causal) mask.
 
-    During torch.compile, HF materializes causal masks as 4D bool tensors
-    (shape [B, 1, Q, KV] where Q == KV) and sets is_causal=False. This
-    function detects that pattern so we can strip the mask and restore
-    is_causal=True.
+    Compares the mask against ``torch.tril(torch.ones(...))``.  Returns
+    ``True`` only when the mask is boolean, the last two dimensions are
+    square, and every element matches the canonical causal pattern.
     """
-    if is_causal:
-        # Already marked causal — no stripping needed.
+    if mask.dtype != torch.bool:
         return False
 
-    if not isinstance(attn_mask_node, Node):
+    if mask.ndim < 2:
         return False
 
-    fake = _get_fake_tensor(attn_mask_node)
-    if fake is None:
+    q_len, kv_len = mask.shape[-2], mask.shape[-1]
+    if q_len != kv_len:
         return False
 
-    if fake.dtype != torch.bool:
+    # Build reference causal mask on the same device / shape and compare.
+    ref = torch.tril(torch.ones(q_len, kv_len, dtype=torch.bool, device=mask.device))
+    # Broadcast: mask may be [B, 1, Q, KV] or [B, H, Q, KV]; ref is [Q, KV].
+    return torch.equal(mask.broadcast_to(mask.shape), ref.expand_as(mask))
+
+
+def detect_causal_mask(model: nn.Module, sample_input_ids=None) -> bool:
+    """Run one forward pass to detect whether the model uses causal masks.
+
+    This pre-flight check monkey-patches ``F.scaled_dot_product_attention``
+    to inspect every ``attn_mask`` argument.  It returns ``True`` only when
+    **all** masks observed during the forward pass are lower-triangular
+    boolean causal masks (i.e. safe to strip and replace with
+    ``is_causal=True``).
+
+    Args:
+        model: The model to probe.  Must expose ``model.config.vocab_size``
+            for automatic dummy-input generation.
+        sample_input_ids: Optional ``[B, S]`` int tensor of input IDs.
+            If ``None``, a ``[1, 16]`` tensor of random token IDs is
+            created automatically.
+
+    Returns:
+        ``True`` if every SDPA call used a causal mask (safe to strip),
+        ``False`` otherwise (conservatively disables mask stripping).
+    """
+    # Resolve device from model parameters.
+    try:
+        device = next(model.parameters()).device
+    except StopIteration:
         return False
 
-    shape = fake.shape
-    if len(shape) < 2:
+    # Build dummy input_ids if not provided.
+    if sample_input_ids is None:
+        vocab_size = getattr(getattr(model, "config", None), "vocab_size", None)
+        if vocab_size is None:
+            return False
+        sample_input_ids = torch.randint(0, vocab_size, (1, 16), device=device)
+
+    all_causal: list[bool] = []
+    saw_any_mask = False
+
+    original_sdpa = F.scaled_dot_product_attention
+
+    def _hook(*args, **kwargs):
+        nonlocal saw_any_mask
+        # Extract attn_mask (positional arg 3 or kwarg).
+        attn_mask = args[3] if len(args) > 3 else kwargs.get("attn_mask", None)
+        is_causal = kwargs.get("is_causal", False) if len(args) <= 5 else args[5]
+
+        if attn_mask is not None and not is_causal:
+            saw_any_mask = True
+            all_causal.append(_is_lower_triangular_bool_mask(attn_mask))
+
+        return original_sdpa(*args, **kwargs)
+
+    F.scaled_dot_product_attention = _hook
+    try:
+        with torch.no_grad():
+            model(sample_input_ids)
+    except Exception:
+        logger.debug("detect_causal_mask: forward pass failed", exc_info=True)
+        return False
+    finally:
+        F.scaled_dot_product_attention = original_sdpa
+
+    if not saw_any_mask:
+        # No masks observed — nothing to strip.
         return False
 
-    # Q_len == KV_len: full-context causal mask (not a sliding window
-    # or cross-attention mask).
-    return shape[-2] == shape[-1]
+    return all(all_causal)
 
 
-def _sdpa_is_fusible(node: Node) -> Tuple[bool, bool]:
+def _sdpa_is_fusible(node: Node, strip_causal_mask: bool = False) -> Tuple[bool, bool]:
     """Check if an SDPA node is compatible with our FP8 fused kernel.
+
+    Args:
+        node: The SDPA FX graph node to check.
+        strip_causal_mask: If ``True``, the pre-flight ``detect_causal_mask``
+            confirmed that every mask is a causal mask, so nodes with a
+            mask and ``is_causal=False`` can be stripped.  If ``False``
+            (default), any node that carries a mask is considered
+            non-fusible.
 
     Returns:
         (is_fusible, needs_mask_strip) where needs_mask_strip indicates
@@ -615,7 +684,7 @@ def _sdpa_is_fusible(node: Node) -> Tuple[bool, bool]:
     args = node.args
     kwargs = node.kwargs
 
-    # attn_mask (arg index 3): must be None or a detectable causal mask.
+    # attn_mask (arg index 3): must be None or a validated causal mask.
     attn_mask = args[3] if len(args) > 3 else kwargs.get("attn_mask", None)
 
     # is_causal (arg index 5, default False).
@@ -623,7 +692,7 @@ def _sdpa_is_fusible(node: Node) -> Tuple[bool, bool]:
 
     needs_mask_strip = False
     if attn_mask is not None:
-        if _is_causal_mask(attn_mask, is_causal):
+        if not is_causal and strip_causal_mask and isinstance(attn_mask, Node):
             needs_mask_strip = True
         else:
             return False, False
@@ -1316,7 +1385,9 @@ def _replace_sdpa_with_fp8(
 # ============================================================================
 
 
-def rope_sdpa_fusion_pass(graph: Graph, *, fuse_rope: bool = True) -> None:
+def rope_sdpa_fusion_pass(
+    graph: Graph, *, fuse_rope: bool = True, strip_causal_mask: bool = False
+) -> None:
     """Main entry point: detect and replace SDPA patterns in the FX graph.
 
     This function is called by torch.compile as a pre-grad custom pass
@@ -1342,6 +1413,10 @@ def rope_sdpa_fusion_pass(graph: Graph, *, fuse_rope: bool = True) -> None:
             patterns (Patterns A and B).  If False, skip RoPE detection
             and replace all fusible SDPA nodes with the non-rope FP8
             SDPA kernel only.
+        strip_causal_mask: If True, the pre-flight ``detect_causal_mask``
+            confirmed that every attention mask is a materialized causal
+            mask, so SDPA nodes carrying a mask can have it stripped and
+            replaced with ``is_causal=True``.
     """
     # Collect SDPA nodes upfront. We snapshot the list before modifying
     # the graph to avoid iterator invalidation issues.
@@ -1356,7 +1431,9 @@ def rope_sdpa_fusion_pass(graph: Graph, *, fuse_rope: bool = True) -> None:
 
     for sdpa_node in sdpa_nodes:
         # Check if this SDPA call is compatible with our fused kernel.
-        is_fusible, needs_mask_strip = _sdpa_is_fusible(sdpa_node)
+        is_fusible, needs_mask_strip = _sdpa_is_fusible(
+            sdpa_node, strip_causal_mask=strip_causal_mask
+        )
         if not is_fusible:
             logger.debug("Skipping non-fusible SDPA: %s", sdpa_node.name)
             continue

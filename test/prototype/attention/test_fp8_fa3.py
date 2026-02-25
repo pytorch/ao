@@ -107,35 +107,29 @@ class TestFP8FA3NumericalAccuracy(TestCase):
 # RoPE helpers
 # ---------------------------------------------------------------------------
 def _generate_rope_cos_sin(S, D, device, dtype=torch.float32):
-    """Generate cos/sin frequencies for RoPE testing."""
+    """Generate cos/sin frequencies for RoPE testing (NeoX half-split format)."""
     freqs = 1.0 / (10000.0 ** (torch.arange(0, D, 2, dtype=torch.float32) / D))
     positions = torch.arange(S, dtype=torch.float32)
     angles = torch.outer(positions, freqs)  # [S, D/2]
-    cos = torch.cos(angles).repeat_interleave(2, dim=-1).to(device=device, dtype=dtype)
-    sin = torch.sin(angles).repeat_interleave(2, dim=-1).to(device=device, dtype=dtype)
+    cos_half = torch.cos(angles)
+    sin_half = torch.sin(angles)
+    cos = torch.cat([cos_half, cos_half], dim=-1).to(device=device, dtype=dtype)
+    sin = torch.cat([sin_half, sin_half], dim=-1).to(device=device, dtype=dtype)
     return cos, sin
 
 
 def _apply_rope_ref(x, cos, sin):
-    """Reference RoPE: x is [B, S, H, D], cos/sin are [S, D]."""
+    """Reference NeoX half-split RoPE: x is [B, S, H, D], cos/sin are [S, D]."""
     D = x.shape[-1]
-    x_pairs = x.float().reshape(*x.shape[:-1], D // 2, 2)
-    x_real = x_pairs[..., 0]
-    x_imag = x_pairs[..., 1]
-
-    cos_pairs = cos.float().reshape(cos.shape[0], D // 2, 2)
-    sin_pairs = sin.float().reshape(sin.shape[0], D // 2, 2)
-    # [S, D/2] -> [1, S, 1, D/2] for broadcasting with [B, S, H, D/2]
-    cos_r = cos_pairs[:, :, 0].unsqueeze(0).unsqueeze(2)
-    sin_r = sin_pairs[:, :, 0].unsqueeze(0).unsqueeze(2)
-    cos_i = cos_pairs[:, :, 1].unsqueeze(0).unsqueeze(2)
-    sin_i = sin_pairs[:, :, 1].unsqueeze(0).unsqueeze(2)
-
-    out_real = x_real * cos_r - x_imag * sin_r
-    out_imag = x_real * sin_i + x_imag * cos_i
-
-    out = torch.stack([out_real, out_imag], dim=-1).reshape_as(x)
-    return out.to(x.dtype)
+    D_HALF = D // 2
+    x_first = x[..., :D_HALF].float()
+    x_second = x[..., D_HALF:].float()
+    # [S, D_HALF] -> [1, S, 1, D_HALF] for broadcasting with [B, S, H, D_HALF]
+    cos_half = cos[:, :D_HALF].float().unsqueeze(0).unsqueeze(2)
+    sin_half = sin[:, :D_HALF].float().unsqueeze(0).unsqueeze(2)
+    out_first = x_first * cos_half - x_second * sin_half
+    out_second = x_second * cos_half + x_first * sin_half
+    return torch.cat([out_first, out_second], dim=-1).to(x.dtype)
 
 
 # ---------------------------------------------------------------------------
