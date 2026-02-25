@@ -36,20 +36,16 @@ if torch_version_at_least("2.7.0") and has_triton():
         torch.float64: tl.float64,
     }
 
-    block_sizes = [32]  # [16, 32, 64]
-    block_sizes_iter = [128]  # [64, 128, 256]
-    num_warps = [4]
-    num_stages = [3]
     kernel_configs_2D = [
         triton.Config(
             {"BLOCK_SIZE": block_size, "BLOCK_SIZE_ITER": block_size_iter},
             num_warps=warps,
             num_stages=stages,
         )
-        for block_size in block_sizes
-        for block_size_iter in block_sizes_iter
-        for warps in num_warps
-        for stages in num_stages
+        for block_size in [32, 64]
+        for block_size_iter in [64, 128]
+        for warps in [4, 8]
+        for stages in [2, 3]
     ]
 
     @torch.library.custom_op(
