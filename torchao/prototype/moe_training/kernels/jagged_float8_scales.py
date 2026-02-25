@@ -36,17 +36,26 @@ if torch_version_at_least("2.7.0") and has_triton():
         torch.float64: tl.float64,
     }
 
-    kernel_configs_2D = [
-        triton.Config(
-            {"BLOCK_SIZE": block_size, "BLOCK_SIZE_ITER": block_size_iter},
-            num_warps=warps,
-            num_stages=stages,
-        )
-        for block_size in [32, 64]
-        for block_size_iter in [64, 128]
-        for warps in [4, 8]
-        for stages in [2, 3]
-    ]
+    if torch.version.hip is not None:
+        kernel_configs_2D = [
+            triton.Config(
+                {"BLOCK_SIZE": block_size, "BLOCK_SIZE_ITER": block_size_iter},
+                num_warps=warps,
+                num_stages=stages,
+            )
+            for block_size in [32, 64]
+            for block_size_iter in [64, 128]
+            for warps in [4, 8]
+            for stages in [2, 3]
+        ]
+    else:
+        kernel_configs_2D = [
+            triton.Config(
+                {"BLOCK_SIZE": 32, "BLOCK_SIZE_ITER": 128},
+                num_warps=4,
+                num_stages=3,
+            )
+        ]
 
     @torch.library.custom_op(
         "torchao::triton_fp8_per_group_rowwise_scales", mutates_args={}
