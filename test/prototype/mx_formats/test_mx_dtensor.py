@@ -4,7 +4,7 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 """
-Test numerics of manually defined float16 TP vs mxfp8 TP of toy models
+Test numerics of manually defined float16 TP vs mxfp4 TP of toy models
 
 Note: for now, this does not run in CI.
 TODO(future): make this run in CI
@@ -15,7 +15,7 @@ import os
 import pytest
 import torch
 
-from torchao.utils import is_sm_at_least_100, torch_version_at_least
+from torchao.utils import torch_version_at_least
 
 if not torch_version_at_least("2.7.0"):
     pytest.skip("Unsupported PyTorch version", allow_module_level=True)
@@ -25,7 +25,6 @@ from torch.distributed.device_mesh import DeviceMesh, init_device_mesh
 from tqdm import tqdm
 
 from torchao.prototype.mx_formats import MXLinearConfig
-from torchao.prototype.mx_formats.config import MXFP8Dim1CastKernelChoice
 from torchao.prototype.mx_formats.mx_tensor import MXTensor
 from torchao.testing.training.dtensor_utils import (
     _test_lowp_mlp_tensor_parallelism_base,
@@ -44,36 +43,38 @@ def setup_distributed():
     return device_mesh
 
 
-def _test_dtensor_cast_to_mxfp8(mesh: DeviceMesh, size=4):
+def _test_dtensor_cast_to_mxfp4(mesh: DeviceMesh, size=4):
     device = mesh.device_type
 
     x_fp32 = torch.rand(size, size, device=device)
-    x_fp8 = MXTensor.to_mx(x_fp32, torch.float8_e4m3fn, block_size=size // 2)
+    x_fp4 = MXTensor.to_mx(x_fp32, torch.float4_e2m1fn_x2, block_size=size // 2)
 
     dist_x_fp32 = distribute_tensor(x_fp32, mesh, [Shard(0)])
-    dist_x_fp8 = MXTensor.to_mx(dist_x_fp32, torch.float8_e4m3fn, block_size=size // 2)
-    assert isinstance(dist_x_fp8, DTensor)
+    dist_x_fp4 = MXTensor.to_mx(
+        dist_x_fp32, torch.float4_e2m1fn_x2, block_size=size // 2
+    )
+    assert isinstance(dist_x_fp4, DTensor)
 
     # Verify that the result of to_mx with DTensor matches the slice of the
     # result of to_mx without DTensor. This will fail on numeric op mismatches.
     local_rank = torch.distributed.get_rank()
     world_size = torch.distributed.get_world_size()
     assert size % world_size == 0, "unsupported"
-    x_fp8_fp32 = x_fp8.dequantize(torch.float32)
+    x_fp4_fp32 = x_fp4.dequantize(torch.float32)
     rows_per_slice = size // world_size
     slice_start = local_rank * rows_per_slice
     slice_end = (local_rank + 1) * rows_per_slice
-    x_fp8_fp32_slice = x_fp8_fp32[slice_start:slice_end]
+    x_fp4_fp32_slice = x_fp4_fp32[slice_start:slice_end]
     torch.testing.assert_close(
-        x_fp8_fp32_slice,
-        dist_x_fp8.to_local().dequantize(torch.float32),
+        x_fp4_fp32_slice,
+        dist_x_fp4.to_local().dequantize(torch.float32),
         atol=0,
         rtol=0,
     )
 
 
-def _test_mxfp8_mlp_tensor_parallelism(mesh: DeviceMesh, size=128):
-    config = MXLinearConfig.from_recipe_name("mxfp8_emulated")
+def _test_mxfp4_mlp_tensor_parallelism(mesh: DeviceMesh, size=128):
+    config = MXLinearConfig.from_recipe_name("mxfp4_emulated")
     config.block_size = 32
     _test_lowp_mlp_tensor_parallelism_base(
         mesh, config, size, compile=False, allgather_in_lowp=False
@@ -83,38 +84,12 @@ def _test_mxfp8_mlp_tensor_parallelism(mesh: DeviceMesh, size=128):
     )
 
 
-def _test_mxfp8_mlp_tensor_parallelism_dim1_triton(mesh: DeviceMesh, size=128):
-    config = MXLinearConfig.from_recipe_name("mxfp8_emulated")
-    config.block_size = 32
-    config.mxfp8_dim1_cast_kernel_choice = MXFP8Dim1CastKernelChoice.TRITON
-    _test_lowp_mlp_tensor_parallelism_base(
-        mesh, config, size, compile=False, allgather_in_lowp=False
-    )
-    # TODO(future PR): enable compile here, currently seeing
-    # https://www.internalfb.com/phabricator/paste/view/P1851219639
-    # _test_lowp_mlp_tensor_parallelism_base(
-    #     mesh, config, size, compile=True, allgather_in_lowp=False
-    # )
-
-
-def _test_mxfp8_mlp_tensor_parallelism_dim1_cuda(mesh: DeviceMesh, size=128):
-    config = MXLinearConfig.from_recipe_name("mxfp8_emulated")
-    config.block_size = 32
-    config.mxfp8_dim1_cast_kernel_choice = MXFP8Dim1CastKernelChoice.CUDA
-    _test_lowp_mlp_tensor_parallelism_base(
-        mesh, config, size, compile=False, allgather_in_lowp=False
-    )
-
-
 if __name__ == "__main__":
     device_mesh = setup_distributed()
     tests = [
-        _test_dtensor_cast_to_mxfp8,
-        _test_mxfp8_mlp_tensor_parallelism,
+        _test_dtensor_cast_to_mxfp4,
+        _test_mxfp4_mlp_tensor_parallelism,
     ]
-    if is_sm_at_least_100():
-        tests.append(_test_mxfp8_mlp_tensor_parallelism_dim1_triton)
-        tests.append(_test_mxfp8_mlp_tensor_parallelism_dim1_cuda)
 
     for test in tqdm(tests, desc="Running tests"):
         try:

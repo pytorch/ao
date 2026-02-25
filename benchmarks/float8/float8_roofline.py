@@ -253,10 +253,7 @@ def run(
     print(f"enable_fusion_modeling: {enable_fusion_modeling}")
 
     assert mx_recipe_name in (
-        # real mxfp8_cublas recipe
-        "mxfp8_cublas",
-        # real mxfp8_cublas_rceil recipe
-        "mxfp8_cublas_rceil",
+        None,
         # modeling of what mxfp8 with 32x32 block size and without gemm
         # operand layout restrictions would look like
         "mxfp8_32x32_flexible_gemm_layout",
