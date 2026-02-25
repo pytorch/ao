@@ -168,7 +168,9 @@ def rope_single_phase1_kernel(
 
         # Load input pairs (each element loaded exactly once)
         x_first = tl.load(x_ptr + in_offset_first, mask=mask, other=0.0).to(tl.float32)
-        x_second = tl.load(x_ptr + in_offset_second, mask=mask, other=0.0).to(tl.float32)
+        x_second = tl.load(x_ptr + in_offset_second, mask=mask, other=0.0).to(
+            tl.float32
+        )
 
         # Load cos/sin — both elements in a NeoX pair share the same
         # rotation angle.  cos[j] == cos[j+D/2] in LLaMA's frequency
@@ -319,11 +321,11 @@ def single_reduce_kernel(
 @triton.jit
 def group_reduce_kernel(
     partial_max_ptr,  # [B * H_q * num_chunks]
-    scale_ptr,        # [B, H_kv]
-    descale_ptr,      # [B, H_kv]
+    scale_ptr,  # [B, H_kv]
+    descale_ptr,  # [B, H_kv]
     H_q,
     H_kv,
-    groups,           # H_q // H_kv
+    groups,  # H_q // H_kv
     num_chunks,
 ):
     """
@@ -574,9 +576,15 @@ def triton_fp8_rope_sdpa_quantize(
     assert q.dim() == 4, f"Expected 4D tensor [B, S, H, D], got {q.dim()}D"
     assert k.dim() == 4, f"Expected 4D tensor [B, S, H, D], got {k.dim()}D"
     assert v.dim() == 4, f"Expected 4D tensor [B, S, H, D], got {v.dim()}D"
-    assert k.shape == v.shape, f"K and V must have the same shape, got {k.shape} vs {v.shape}"
-    assert q.shape[0] == k.shape[0], f"Batch size mismatch: {q.shape[0]} vs {k.shape[0]}"
-    assert q.shape[1] == k.shape[1], f"Sequence length mismatch: {q.shape[1]} vs {k.shape[1]}"
+    assert k.shape == v.shape, (
+        f"K and V must have the same shape, got {k.shape} vs {v.shape}"
+    )
+    assert q.shape[0] == k.shape[0], (
+        f"Batch size mismatch: {q.shape[0]} vs {k.shape[0]}"
+    )
+    assert q.shape[1] == k.shape[1], (
+        f"Sequence length mismatch: {q.shape[1]} vs {k.shape[1]}"
+    )
     assert q.shape[3] == k.shape[3], f"Head dim mismatch: {q.shape[3]} vs {k.shape[3]}"
     assert q.shape[2] % k.shape[2] == 0, (
         f"Q heads ({q.shape[2]}) must be a multiple of K heads ({k.shape[2]})"
@@ -713,12 +721,8 @@ def triton_fp8_rope_sdpa_quantize(
         q_partial_max, q_scale, q_descale, H_q, H_kv, groups, num_chunks
     )
     # K, V: per-head reduce
-    single_reduce_kernel[(B, H_kv)](
-        k_partial_max, k_scale, k_descale, H_kv, num_chunks
-    )
-    single_reduce_kernel[(B, H_kv)](
-        v_partial_max, v_scale, v_descale, H_kv, num_chunks
-    )
+    single_reduce_kernel[(B, H_kv)](k_partial_max, k_scale, k_descale, H_kv, num_chunks)
+    single_reduce_kernel[(B, H_kv)](v_partial_max, v_scale, v_descale, H_kv, num_chunks)
 
     # ---- Phase 2: Quantize Q from intermediate ----
     # Q scale is [B, H_kv]; each group of `groups` Q heads shares one scale.

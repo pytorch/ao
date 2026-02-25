@@ -23,6 +23,9 @@ class AttentionBackend(str, Enum):
     FP8_FA3 = "fa3"
     """FlashAttention 3 via PyTorch core. Requires SM90+ (Hopper)."""
 
+    FP8_FA4 = "fa4"
+    """FlashAttention 4 via PyTorch core. Requires SM90+ (Hopper) or SM100+ (Blackwell)."""
+
 
 @dataclass
 class LowPrecisionAttentionConfig:
@@ -39,10 +42,16 @@ class LowPrecisionAttentionConfig:
             - None: No Hadamard transform (default)
             - "v": Apply Hadamard to V only
             - "qkv": Apply Hadamard to Q, K, and V
+        fuse_rope: If True (default), the compilation pass fuses RoPE +
+            FP8 quantization + SDPA into a single kernel.  If False,
+            only SDPA is replaced with its FP8 equivalent (e.g.,
+            ``fp8_fa3_sdpa``); RoPE and transpose ops remain in the
+            graph and are compiled normally by Inductor.
     """
 
     backend: Optional[AttentionBackend] = None
     use_hadamard: Optional[Literal["v", "qkv"]] = None
+    fuse_rope: bool = True
 
     def __post_init__(self):
         # Validate use_hadamard value
