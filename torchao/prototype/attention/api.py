@@ -8,6 +8,7 @@
 User-facing API for low-precision attention.
 """
 
+from functools import partial
 from typing import Optional
 
 import torch
@@ -107,6 +108,11 @@ def apply_low_precision_attention(
     Args:
         model: The model to apply low-precision attention to.
             Must not already be compiled with ``torch.compile``.
+            For models that use KV caching (e.g., HuggingFace models
+            with ``config.use_cache=True``), the caller should disable
+            KV caching before calling this function.  The
+            ``DynamicCache.update()`` calls insert ``torch.cat`` nodes
+            that block the RoPE + SDPA fusion pass.
         config: Configuration for low-precision attention.
             If None, uses default config (auto backend selection).
 
@@ -128,8 +134,7 @@ def apply_low_precision_attention(
     # Guard: already wrapped.
     if isinstance(model, _LowPrecisionAttentionWrapper):
         raise RuntimeError(
-            "apply_low_precision_attention has already been applied "
-            "to this module."
+            "apply_low_precision_attention has already been applied to this module."
         )
 
     # Guard: already compiled.
@@ -175,22 +180,16 @@ def _setup_fp8_fa3(
         rope_sdpa_fusion_pass,
     )
 
+    pass_fn = partial(rope_sdpa_fusion_pass, fuse_rope=config.fuse_rope)
+
     def fp8_attention_backend(gm, example_inputs):
         """Custom Inductor backend that applies the RoPE + FP8 fusion pass."""
         old_pass = inductor_config.pre_grad_custom_pass
-        inductor_config.pre_grad_custom_pass = rope_sdpa_fusion_pass
+        inductor_config.pre_grad_custom_pass = pass_fn
         try:
             return compile_fx(gm, example_inputs)
         finally:
             inductor_config.pre_grad_custom_pass = old_pass
-
-    # Disable the KV cache so torch.compile traces the prefill path
-    # without DynamicCache.update() (which inserts torch.cat nodes that
-    # block RoPE fusion).  HF models default use_cache=True for
-    # generation, but for prefill-only compiled inference the cache adds
-    # no value and prevents the fusion pass from detecting RoPE on K.
-    if hasattr(model, "config") and getattr(model.config, "use_cache", False):
-        model.config.use_cache = False
 
     # Clear stale Dynamo caches to ensure fresh compilation.
     torch._dynamo.reset()

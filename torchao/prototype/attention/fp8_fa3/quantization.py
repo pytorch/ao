@@ -155,4 +155,6 @@ def _fp8_rope_sdpa_quantize(
         triton_fp8_rope_sdpa_quantize,
     )
 
-    return triton_fp8_rope_sdpa_quantize(q, k, v, cos, sin, rope_interleaved=rope_interleaved)
+    return triton_fp8_rope_sdpa_quantize(
+        q, k, v, cos, sin, rope_interleaved=rope_interleaved
+    )

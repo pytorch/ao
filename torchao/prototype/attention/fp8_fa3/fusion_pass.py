@@ -32,10 +32,9 @@ Supported layout patterns:
 """
 
 import logging
+import operator
 from dataclasses import dataclass
 from typing import Optional, Tuple
-
-import operator
 
 import torch
 from torch.fx import Graph, Node
@@ -325,7 +324,9 @@ def _reshape_cos_sin_to_2d(
         for dim in shape[:-2]:
             if dim != 1:
                 logger.debug(
-                    "RoPE %s has non-unit leading dim: shape=%s", name, shape,
+                    "RoPE %s has non-unit leading dim: shape=%s",
+                    name,
+                    shape,
                 )
                 return None
 
@@ -375,8 +376,14 @@ def _trace_through_views(node: Node) -> Node:
         ):
             current = current.args[0]
         elif current.op == "call_method" and current.target in (
-            "unsqueeze", "clone", "contiguous", "expand",
-            "to", "float", "half", "bfloat16",
+            "unsqueeze",
+            "clone",
+            "contiguous",
+            "expand",
+            "to",
+            "float",
+            "half",
+            "bfloat16",
         ):
             # Python method calls: tensor.to(dtype), tensor.float(), etc.
             current = current.args[0]
@@ -385,9 +392,7 @@ def _trace_through_views(node: Node) -> Node:
             and current.target is operator.getitem
             and len(current.args) >= 2
             and isinstance(current.args[1], tuple)
-            and all(
-                i is None or i == slice(None) for i in current.args[1]
-            )
+            and all(i is None or i == slice(None) for i in current.args[1])
         ):
             # Trace through indexing that only adds dimensions (unsqueeze-like).
             # e.g., cos[None, :, None, :] = (None, slice(None), None, slice(None))
@@ -810,9 +815,7 @@ def _detect_rotate_half(cat_node: Node) -> Optional[Node]:
     return _match_rotate_half_slices(neg_input, pos_part)
 
 
-def _match_rotate_half_slices(
-    neg_input: Node, pos_part: Node
-) -> Optional[Node]:
+def _match_rotate_half_slices(neg_input: Node, pos_part: Node) -> Optional[Node]:
     """Match the slice patterns in rotate_half.
 
     Handles:
@@ -851,9 +854,7 @@ def _match_rotate_half_slices(
         return slice_neg_source
 
     # Try Dynamo getitem pattern: operator.getitem(x, (..., slice(s, e)))
-    if _is_op(neg_input, operator.getitem) and _is_op(
-        pos_part, operator.getitem
-    ):
+    if _is_op(neg_input, operator.getitem) and _is_op(pos_part, operator.getitem):
         slice_neg_source = neg_input.args[0]
         slice_pos_source = pos_part.args[0]
 
@@ -1315,7 +1316,7 @@ def _replace_sdpa_with_fp8(
 # ============================================================================
 
 
-def rope_sdpa_fusion_pass(graph: Graph) -> None:
+def rope_sdpa_fusion_pass(graph: Graph, *, fuse_rope: bool = True) -> None:
     """Main entry point: detect and replace SDPA patterns in the FX graph.
 
     This function is called by torch.compile as a pre-grad custom pass
@@ -1337,6 +1338,10 @@ def rope_sdpa_fusion_pass(graph: Graph) -> None:
 
     Args:
         graph: The FX graph to transform (modified in-place).
+        fuse_rope: If True (default), attempt to detect and fuse RoPE
+            patterns (Patterns A and B).  If False, skip RoPE detection
+            and replace all fusible SDPA nodes with the non-rope FP8
+            SDPA kernel only.
     """
     # Collect SDPA nodes upfront. We snapshot the list before modifying
     # the graph to avoid iterator invalidation issues.
@@ -1368,185 +1373,198 @@ def rope_sdpa_fusion_pass(graph: Graph) -> None:
             continue
         q_node, k_node, v_node = qkv
 
-        # V always needs its transpose unwrapped for the fused kernel.
-        # The fused kernel expects V in [B, S, H, D] layout.
-        v_pre_transpose = _unwrap_transpose(v_node)
-
         # ----------------------------------------------------------------
-        # Try Pattern A: RoPE -> transpose -> SDPA
+        # Try RoPE fusion (Pattern A and Pattern B)
         # ----------------------------------------------------------------
-        #
-        # This is the FLUX-style layout where RoPE operates on the
-        # "natural" [B, S, H, D] layout, then the result is transposed
-        # to [B, H, S, D] for SDPA.
-        #
-        # Data flow:
-        #   Q: pre_rope_q [B,S,H,D] -> RoPE -> q_roped [B,S,H,D]
-        #                            -> transpose -> q_t [B,H,S,D] -> SDPA
-        #   K: (same as Q)
-        #   V: v [B,S,H,D] -> transpose -> v_t [B,H,S,D] -> SDPA
-        #
-        # Detection: unwrap transpose on Q/K, then detect RoPE.
+        # When fuse_rope is False, skip RoPE detection entirely and fall
+        # through to the non-rope FP8 SDPA replacement below.
 
-        q_pre_transpose = _unwrap_transpose(q_node)
-        k_pre_transpose = _unwrap_transpose(k_node)
+        if fuse_rope:
+            # V always needs its transpose unwrapped for the fused kernel.
+            # The fused kernel expects V in [B, S, H, D] layout.
+            v_pre_transpose = _unwrap_transpose(v_node)
 
-        if q_pre_transpose is not None and k_pre_transpose is not None:
-            # Q and K both go through transpose before SDPA.
-            # Trace through dtype casts (e.g., .to(bf16)) between transpose
-            # and RoPE. FLUX computes RoPE in float32, then casts back.
-            q_pre_cast = _trace_through_views(q_pre_transpose)
-            k_pre_cast = _trace_through_views(k_pre_transpose)
+            # ------------------------------------------------------------
+            # Try Pattern A: RoPE -> transpose -> SDPA
+            # ------------------------------------------------------------
+            #
+            # This is the FLUX-style layout where RoPE operates on the
+            # "natural" [B, S, H, D] layout, then the result is transposed
+            # to [B, H, S, D] for SDPA.
+            #
+            # Data flow:
+            #   Q: pre_rope_q [B,S,H,D] -> RoPE -> q_roped [B,S,H,D]
+            #                            -> transpose -> q_t [B,H,S,D] -> SDPA
+            #   K: (same as Q)
+            #   V: v [B,S,H,D] -> transpose -> v_t [B,H,S,D] -> SDPA
+            #
+            # Detection: unwrap transpose on Q/K, then detect RoPE.
 
-            q_rope = _detect_rope(q_pre_cast)
-            k_rope = _detect_rope(k_pre_cast)
+            q_pre_transpose = _unwrap_transpose(q_node)
+            k_pre_transpose = _unwrap_transpose(k_node)
+
+            if q_pre_transpose is not None and k_pre_transpose is not None:
+                # Q and K both go through transpose before SDPA.
+                # Trace through dtype casts (e.g., .to(bf16)) between transpose
+                # and RoPE. FLUX computes RoPE in float32, then casts back.
+                q_pre_cast = _trace_through_views(q_pre_transpose)
+                k_pre_cast = _trace_through_views(k_pre_transpose)
+
+                q_rope = _detect_rope(q_pre_cast)
+                k_rope = _detect_rope(k_pre_cast)
+
+                if q_rope is not None and k_rope is not None:
+                    # Both Q and K have RoPE applied before the transpose.
+
+                    # Trace pre_rope_input through dtype casts (e.g., .float())
+                    # to get the original bf16 tensor. FLUX computes RoPE in
+                    # float32 (x.float() * cos + rotate_half(x.float()) * sin),
+                    # but the fused kernel expects the bf16 input.
+                    pre_rope_q = _trace_through_views(q_rope.pre_rope_input)
+                    pre_rope_k = _trace_through_views(k_rope.pre_rope_input)
+
+                    # V must also have a transpose we can unwrap.
+                    if v_pre_transpose is None:
+                        logger.debug(
+                            "Pattern A: V has no transpose, skipping: %s",
+                            sdpa_node.name,
+                        )
+                        continue
+
+                    # Validate and reshape cos/sin to [S, D] for the fused kernel.
+                    cos_sin = _reshape_cos_sin_to_2d(
+                        graph,
+                        q_rope.cos_node,
+                        q_rope.sin_node,
+                        sdpa_node,
+                    )
+                    if cos_sin is None:
+                        logger.debug(
+                            "Pattern A: cos/sin shape incompatible, skipping: %s",
+                            sdpa_node.name,
+                        )
+                        continue
+                    cos_2d, sin_2d = cos_sin
+
+                    _replace_with_fused_op(
+                        graph=graph,
+                        sdpa_node=sdpa_node,
+                        pre_rope_q=pre_rope_q,
+                        pre_rope_k=pre_rope_k,
+                        v_input=v_pre_transpose,
+                        cos_node=cos_2d,
+                        sin_node=sin_2d,
+                        is_causal=is_causal,
+                        scale=scale,
+                        enable_gqa=enable_gqa,
+                        rope_interleaved=q_rope.rope_interleaved,
+                    )
+                    fused_count += 1
+                    continue  # Move to next SDPA node.
+
+            # ------------------------------------------------------------
+            # Try Pattern B: transpose -> RoPE -> SDPA
+            # ------------------------------------------------------------
+            #
+            # This is the HuggingFace-style layout where the tensor is first
+            # transposed to [B, H, S, D], then RoPE is applied in that layout.
+            #
+            # Data flow (non-GQA):
+            #   Q: q [B,S,H,D] -> transpose -> q_t [B,H,S,D]
+            #                   -> RoPE -> q_roped [B,H,S,D] -> SDPA
+            #   K: (same as Q)
+            #   V: v [B,S,H,D] -> transpose -> v_t [B,H,S,D] -> SDPA
+            #
+            # Data flow (GQA with repeat_kv):
+            #   Q: (same as non-GQA, Q has all heads)
+            #   K: k [B,S,Hkv,D] -> transpose -> RoPE -> repeat_kv -> SDPA
+            #   V: v [B,S,Hkv,D] -> transpose -> repeat_kv -> SDPA
+            #
+            # Detection: detect RoPE directly on SDPA's Q/K inputs (no
+            # transpose between RoPE and SDPA), then trace the RoPE's inner
+            # input backward through a transpose to find the [B,S,H,D] source.
+            # For GQA, unwrap repeat_kv on K/V first, then detect RoPE.
+
+            # Try to detect RoPE on Q (always direct, no repeat_kv on Q).
+            q_rope = _detect_rope(_trace_through_views(q_node))
+
+            # Try to detect RoPE on K. For GQA models, K may go through
+            # repeat_kv (reshape←expand←unsqueeze) after RoPE. Try direct
+            # detection first, then try unwrapping repeat_kv.
+            k_rope = _detect_rope(_trace_through_views(k_node))
+            gqa_unwrapped = False
+            if k_rope is None:
+                k_pre_repeat = _unwrap_repeat_kv(k_node)
+                if k_pre_repeat is not None:
+                    k_rope = _detect_rope(_trace_through_views(k_pre_repeat))
+                    if k_rope is not None:
+                        gqa_unwrapped = True
 
             if q_rope is not None and k_rope is not None:
-                # Both Q and K have RoPE applied before the transpose.
+                # RoPE detected directly on SDPA inputs (no intervening transpose).
+                # The RoPE's pre_rope_input is in [B, H, S, D] (post-transpose).
+                # We need to trace it back through dtype casts (e.g., .float())
+                # and the transpose to get the original [B, S, H, D] bf16 tensor
+                # for our fused kernel.
+                q_bshd = _unwrap_transpose(_trace_through_views(q_rope.pre_rope_input))
+                k_bshd = _unwrap_transpose(_trace_through_views(k_rope.pre_rope_input))
 
-                # Trace pre_rope_input through dtype casts (e.g., .float())
-                # to get the original bf16 tensor. FLUX computes RoPE in
-                # float32 (x.float() * cos + rotate_half(x.float()) * sin),
-                # but the fused kernel expects the bf16 input.
-                pre_rope_q = _trace_through_views(q_rope.pre_rope_input)
-                pre_rope_k = _trace_through_views(k_rope.pre_rope_input)
+                if q_bshd is not None and k_bshd is not None:
+                    # Found the [B, S, H, D] sources for Q and K.
 
-                # V must also have a transpose we can unwrap.
-                if v_pre_transpose is None:
-                    logger.debug(
-                        "Pattern A: V has no transpose, skipping: %s",
-                        sdpa_node.name,
+                    # For V: if GQA was unwrapped on K, V also has repeat_kv.
+                    # Unwrap repeat_kv on V first, then unwrap transpose.
+                    v_for_fusion = v_node
+                    if gqa_unwrapped:
+                        v_pre_repeat = _unwrap_repeat_kv(v_node)
+                        if v_pre_repeat is not None:
+                            v_for_fusion = v_pre_repeat
+
+                    v_bshd = _unwrap_transpose(v_for_fusion)
+                    if v_bshd is None:
+                        logger.debug(
+                            "Pattern B: V has no transpose, skipping: %s",
+                            sdpa_node.name,
+                        )
+                        continue
+
+                    # Validate and reshape cos/sin to [S, D] for the fused kernel.
+                    cos_sin = _reshape_cos_sin_to_2d(
+                        graph,
+                        q_rope.cos_node,
+                        q_rope.sin_node,
+                        sdpa_node,
                     )
-                    continue
+                    if cos_sin is None:
+                        logger.debug(
+                            "Pattern B: cos/sin shape incompatible, skipping: %s",
+                            sdpa_node.name,
+                        )
+                        continue
+                    cos_2d, sin_2d = cos_sin
 
-                # Validate and reshape cos/sin to [S, D] for the fused kernel.
-                cos_sin = _reshape_cos_sin_to_2d(
-                    graph, q_rope.cos_node, q_rope.sin_node, sdpa_node,
-                )
-                if cos_sin is None:
-                    logger.debug(
-                        "Pattern A: cos/sin shape incompatible, skipping: %s",
-                        sdpa_node.name,
+                    # When we unwrapped repeat_kv, the fused kernel must handle
+                    # GQA natively since K/V now have fewer heads than Q.
+                    fused_enable_gqa = True if gqa_unwrapped else enable_gqa
+
+                    _replace_with_fused_op(
+                        graph=graph,
+                        sdpa_node=sdpa_node,
+                        pre_rope_q=q_bshd,
+                        pre_rope_k=k_bshd,
+                        v_input=v_bshd,
+                        cos_node=cos_2d,
+                        sin_node=sin_2d,
+                        is_causal=is_causal,
+                        scale=scale,
+                        enable_gqa=fused_enable_gqa,
+                        rope_interleaved=q_rope.rope_interleaved,
                     )
+                    fused_count += 1
                     continue
-                cos_2d, sin_2d = cos_sin
-
-                _replace_with_fused_op(
-                    graph=graph,
-                    sdpa_node=sdpa_node,
-                    pre_rope_q=pre_rope_q,
-                    pre_rope_k=pre_rope_k,
-                    v_input=v_pre_transpose,
-                    cos_node=cos_2d,
-                    sin_node=sin_2d,
-                    is_causal=is_causal,
-                    scale=scale,
-                    enable_gqa=enable_gqa,
-                    rope_interleaved=q_rope.rope_interleaved,
-                )
-                fused_count += 1
-                continue  # Move to next SDPA node.
 
         # ----------------------------------------------------------------
-        # Try Pattern B: transpose -> RoPE -> SDPA
-        # ----------------------------------------------------------------
-        #
-        # This is the HuggingFace-style layout where the tensor is first
-        # transposed to [B, H, S, D], then RoPE is applied in that layout.
-        #
-        # Data flow (non-GQA):
-        #   Q: q [B,S,H,D] -> transpose -> q_t [B,H,S,D]
-        #                   -> RoPE -> q_roped [B,H,S,D] -> SDPA
-        #   K: (same as Q)
-        #   V: v [B,S,H,D] -> transpose -> v_t [B,H,S,D] -> SDPA
-        #
-        # Data flow (GQA with repeat_kv):
-        #   Q: (same as non-GQA, Q has all heads)
-        #   K: k [B,S,Hkv,D] -> transpose -> RoPE -> repeat_kv -> SDPA
-        #   V: v [B,S,Hkv,D] -> transpose -> repeat_kv -> SDPA
-        #
-        # Detection: detect RoPE directly on SDPA's Q/K inputs (no
-        # transpose between RoPE and SDPA), then trace the RoPE's inner
-        # input backward through a transpose to find the [B,S,H,D] source.
-        # For GQA, unwrap repeat_kv on K/V first, then detect RoPE.
-
-        # Try to detect RoPE on Q (always direct, no repeat_kv on Q).
-        q_rope = _detect_rope(_trace_through_views(q_node))
-
-        # Try to detect RoPE on K. For GQA models, K may go through
-        # repeat_kv (reshape←expand←unsqueeze) after RoPE. Try direct
-        # detection first, then try unwrapping repeat_kv.
-        k_rope = _detect_rope(_trace_through_views(k_node))
-        gqa_unwrapped = False
-        if k_rope is None:
-            k_pre_repeat = _unwrap_repeat_kv(k_node)
-            if k_pre_repeat is not None:
-                k_rope = _detect_rope(_trace_through_views(k_pre_repeat))
-                if k_rope is not None:
-                    gqa_unwrapped = True
-
-        if q_rope is not None and k_rope is not None:
-            # RoPE detected directly on SDPA inputs (no intervening transpose).
-            # The RoPE's pre_rope_input is in [B, H, S, D] (post-transpose).
-            # We need to trace it back through dtype casts (e.g., .float())
-            # and the transpose to get the original [B, S, H, D] bf16 tensor
-            # for our fused kernel.
-            q_bshd = _unwrap_transpose(_trace_through_views(q_rope.pre_rope_input))
-            k_bshd = _unwrap_transpose(_trace_through_views(k_rope.pre_rope_input))
-
-            if q_bshd is not None and k_bshd is not None:
-                # Found the [B, S, H, D] sources for Q and K.
-
-                # For V: if GQA was unwrapped on K, V also has repeat_kv.
-                # Unwrap repeat_kv on V first, then unwrap transpose.
-                v_for_fusion = v_node
-                if gqa_unwrapped:
-                    v_pre_repeat = _unwrap_repeat_kv(v_node)
-                    if v_pre_repeat is not None:
-                        v_for_fusion = v_pre_repeat
-
-                v_bshd = _unwrap_transpose(v_for_fusion)
-                if v_bshd is None:
-                    logger.debug(
-                        "Pattern B: V has no transpose, skipping: %s",
-                        sdpa_node.name,
-                    )
-                    continue
-
-                # Validate and reshape cos/sin to [S, D] for the fused kernel.
-                cos_sin = _reshape_cos_sin_to_2d(
-                    graph, q_rope.cos_node, q_rope.sin_node, sdpa_node,
-                )
-                if cos_sin is None:
-                    logger.debug(
-                        "Pattern B: cos/sin shape incompatible, skipping: %s",
-                        sdpa_node.name,
-                    )
-                    continue
-                cos_2d, sin_2d = cos_sin
-
-                # When we unwrapped repeat_kv, the fused kernel must handle
-                # GQA natively since K/V now have fewer heads than Q.
-                fused_enable_gqa = True if gqa_unwrapped else enable_gqa
-
-                _replace_with_fused_op(
-                    graph=graph,
-                    sdpa_node=sdpa_node,
-                    pre_rope_q=q_bshd,
-                    pre_rope_k=k_bshd,
-                    v_input=v_bshd,
-                    cos_node=cos_2d,
-                    sin_node=sin_2d,
-                    is_causal=is_causal,
-                    scale=scale,
-                    enable_gqa=fused_enable_gqa,
-                    rope_interleaved=q_rope.rope_interleaved,
-                )
-                fused_count += 1
-                continue
-
-        # ----------------------------------------------------------------
-        # No RoPE detected — replace with non-rope FP8 SDPA
+        # No RoPE detected (or fuse_rope=False) — replace with non-rope FP8 SDPA
         # ----------------------------------------------------------------
         #
         # This SDPA node doesn't have RoPE on its Q/K inputs (or the RoPE
