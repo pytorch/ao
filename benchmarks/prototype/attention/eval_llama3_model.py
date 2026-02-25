@@ -40,8 +40,10 @@ import math
 
 import torch
 import torch._dynamo
+import torch._inductor.config as inductor_config
 import torch.nn.functional as F
 from datasets import load_dataset
+from torch._inductor.compile_fx import compile_fx
 from torch.nn.attention import (
     activate_flash_attention_impl,
     restore_flash_attention_impl,
@@ -52,6 +54,12 @@ from torchao.prototype.attention import (
     AttentionBackend,
     LowPrecisionAttentionConfig,
     apply_low_precision_attention,
+)
+from torchao.prototype.attention.fusion_utils import (
+    _is_sdpa_node,
+    _sdpa_is_fusible,
+    _strip_causal_mask,
+    detect_causal_mask,
 )
 
 # =============================================================================
@@ -101,6 +109,48 @@ def cleanup_gpu():
     torch._dynamo.reset()
 
 
+def _make_strip_causal_mask_pass(strip_causal_mask: bool):
+    """Create a pre-grad pass that strips HF's materialized causal masks from SDPA nodes.
+
+    During torch.compile, HuggingFace materializes causal masks as 4D bool
+    tensors and passes them to SDPA with is_causal=False.  This forces the
+    math backend instead of flash attention.  This pass detects those masks,
+    removes them, and sets is_causal=True so flash attention can be used.
+
+    Args:
+        strip_causal_mask: Result of ``detect_causal_mask`` pre-flight check.
+    """
+
+    def _strip_causal_mask_pass(graph):
+        for node in graph.nodes:
+            if _is_sdpa_node(node):
+                _, needs_strip = _sdpa_is_fusible(
+                    node, strip_causal_mask=strip_causal_mask
+                )
+                if needs_strip:
+                    _strip_causal_mask(node)
+        graph.eliminate_dead_code()
+
+    return _strip_causal_mask_pass
+
+
+def _compile_with_mask_strip(model):
+    """Compile a model with the causal mask stripping pass."""
+    strip_causal_mask = detect_causal_mask(model)
+    pass_fn = _make_strip_causal_mask_pass(strip_causal_mask)
+
+    def mask_strip_backend(gm, example_inputs):
+        old_pass = inductor_config.pre_grad_custom_pass
+        inductor_config.pre_grad_custom_pass = pass_fn
+        try:
+            return compile_fx(gm, example_inputs)
+        finally:
+            inductor_config.pre_grad_custom_pass = old_pass
+
+    torch._dynamo.reset()
+    return torch.compile(model, backend=mask_strip_backend)
+
+
 def setup_backend(orig_model, backend_name, compile_flag, fuse_rope=True):
     """Set up a backend for a benchmark phase.
 
@@ -113,10 +163,13 @@ def setup_backend(orig_model, backend_name, compile_flag, fuse_rope=True):
     compilation and the fusion pass internally.
 
     For other backends: optionally compiles if compile_flag is set.
+    When compiling, a custom pre-grad pass strips HF's materialized causal
+    masks so SDPA dispatches to flash attention instead of the math backend.
 
     Also manages ``config.use_cache``: FP8 backends need it disabled
     (DynamicCache.update() inserts torch.cat that blocks RoPE fusion),
-    and non-FP8 backends restore it so the model behaves normally.
+    and non-FP8 backends also disable it when compiling (the causal mask
+    stripping pass assumes no KV cache).
 
     Args:
         orig_model: The original (uncompiled, unwrapped) model.
@@ -143,12 +196,15 @@ def setup_backend(orig_model, backend_name, compile_flag, fuse_rope=True):
         model = apply_low_precision_attention(orig_model, fp8_config)
         return model, cfg["flash_impl"]
     else:
-        # Restore use_cache in case a prior FP8 setup disabled it.
-        orig_model.config.use_cache = True
         if compile_flag:
             print(f"  Compiling model with torch.compile ({backend_name})...")
-            model = torch.compile(orig_model)
+            # Disable KV cache so the causal mask stripping pass works
+            # (DynamicCache generates masks that block flash attention).
+            orig_model.config.use_cache = False
+            model = _compile_with_mask_strip(orig_model)
             return model, cfg["flash_impl"]
+        # Restore use_cache in case a prior setup disabled it.
+        orig_model.config.use_cache = True
         return orig_model, cfg["flash_impl"]
 
 
