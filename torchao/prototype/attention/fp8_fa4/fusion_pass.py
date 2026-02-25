@@ -152,7 +152,9 @@ def _fp8_fa4_sdpa_fake(
 # ============================================================================
 
 
-def rope_sdpa_fusion_pass(graph: Graph, *, fuse_rope: bool = True) -> None:
+def rope_sdpa_fusion_pass(
+    graph: Graph, *, fuse_rope: bool = True, strip_causal_mask: bool = False
+) -> None:
     """FA4-specific fusion pass: detects and replaces SDPA patterns with FA4 ops.
 
     This is the entry point registered as a pre-grad custom pass via
@@ -165,6 +167,10 @@ def rope_sdpa_fusion_pass(graph: Graph, *, fuse_rope: bool = True) -> None:
             patterns (Patterns A and B).  If False, skip RoPE detection
             and replace all fusible SDPA nodes with the non-rope FP8
             SDPA kernel only.
+        strip_causal_mask: If True, the pre-flight ``detect_causal_mask``
+            confirmed that every attention mask is a materialized causal
+            mask, so SDPA nodes carrying a mask can have it stripped and
+            replaced with ``is_causal=True``.
     """
     _shared_fusion_pass(
         graph,
@@ -173,4 +179,5 @@ def rope_sdpa_fusion_pass(graph: Graph, *, fuse_rope: bool = True) -> None:
         max_head_dim=256,
         backend_name="FA4",
         fuse_rope=fuse_rope,
+        strip_causal_mask=strip_causal_mask,
     )
