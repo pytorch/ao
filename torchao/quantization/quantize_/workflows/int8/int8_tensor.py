@@ -4,14 +4,17 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import List, Optional, Tuple, Union
 
 import torch
 from torch.utils._python_dispatch import return_and_correct_aliasing
 
 from torchao.float8.inference import _slice_scale_for_dimension
 from torchao.kernel import int_scaled_matmul
-from torchao.quantization.granularity import Granularity
+from torchao.quantization.granularity import (
+    Granularity,
+    PerRow,
+)
 from torchao.quantization.quant_primitives import (
     MappingType,
     choose_qparams_affine,
@@ -25,7 +28,10 @@ from torchao.quantization.quantize_.common import (
 from torchao.quantization.utils import get_block_size
 from torchao.utils import TorchAOBaseTensor, fill_defaults
 
-__all__ = ["Int8Tensor", "QuantizeTensorToInt8Kwargs"]
+__all__ = [
+    "Int8Tensor",
+    "QuantizeTensorToInt8Kwargs",
+]
 
 aten = torch.ops.aten
 
@@ -114,6 +120,34 @@ class Int8Tensor(TorchAOBaseTensor):
             f"device={self.device}, "
             f"dtype={self.dtype})"
         )
+
+    @classmethod
+    def _normalize_granularity(
+        cls,
+        granularity: Optional[
+            Union[
+                Granularity,
+                Tuple[Granularity, Granularity],
+                list[Granularity],
+            ]
+        ],
+    ) -> Tuple[Granularity, Granularity]:
+        if granularity is None:
+            return (PerRow(), PerRow())
+        elif isinstance(granularity, Granularity):
+            return (granularity, granularity)
+        elif isinstance(granularity, (tuple, list)):
+            if len(granularity) == 2:
+                return tuple(granularity)
+            else:
+                raise ValueError(
+                    f"Granularity tuple/list must have exactly 2 elements, got {len(granularity)}: {granularity}"
+                )
+        else:
+            raise ValueError(
+                f"Invalid granularity type: {granularity}. "
+                f"Expected None, Granularity, or tuple/list of 2 Granularities."
+            )
 
     @classmethod
     def from_hp(
