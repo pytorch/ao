@@ -25,6 +25,7 @@ from torchao.quantization.transform_module import (
 from torchao.utils import DummyModule
 
 from .core import (
+    RunningAbsMaxSmoothQuantObserver,
     SmoothQuantObservedLinear,
     SmoothQuantObserver,
 )
@@ -49,6 +50,7 @@ class SmoothQuantConfig(AOBaseConfig):
     base_config: AOBaseConfig
     step: QuantizationStep
     alpha: Optional[float] = 0.5
+    use_running_absmax: bool = False
 
     def __post_init__(self):
         self.step = self.step.lower() if isinstance(self.step, str) else self.step.value
@@ -65,8 +67,14 @@ def _smooth_quant_transform(
     step = config.step
     base_config = config.base_config
 
+    observer_cls = (
+        RunningAbsMaxSmoothQuantObserver
+        if config.use_running_absmax
+        else SmoothQuantObserver
+    )
+
     if step == QuantizationStep.PREPARE:
-        observer = SmoothQuantObserver(
+        observer = observer_cls(
             weight=module.weight,
             alpha=config.alpha,
         )
@@ -74,7 +82,7 @@ def _smooth_quant_transform(
 
     if step == QuantizationStep.PREPARE_FOR_LOADING:
         # loading from pre-quantized checkpoint
-        observer = SmoothQuantObserver(
+        observer = observer_cls(
             weight=module.weight,
             alpha=config.alpha,
         )
