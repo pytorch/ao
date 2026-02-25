@@ -42,7 +42,6 @@ def run(
     assert recipe in (
         "tensorwise",
         "rowwise",
-        "mxfp8_cublas",
         "mxfp4_cutlass",
         "nvfp4",
     ), "unsupported"
