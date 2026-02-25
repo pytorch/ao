@@ -22,6 +22,7 @@ from torchao.quantization.quant_primitives import (
     quantize_affine,
 )
 from torchao.quantization.quantize_.common import (
+    KernelPreference,
     QuantizeTensorKwargs,
     _choose_quant_func_and_quantize_tensor,
 )
@@ -49,6 +50,7 @@ class QuantizeTensorToInt8Kwargs(QuantizeTensorKwargs):
     mapping_type: MappingType = MappingType.SYMMETRIC
 
 
+# TODO: scaled_int8_mm (Triton) to support PerTensor granularity
 class Int8Tensor(TorchAOBaseTensor):
     """
     int8 quantized tensor with plain layout.
@@ -62,6 +64,7 @@ class Int8Tensor(TorchAOBaseTensor):
     Non-Tensor Attributes:
         granularity: the granularity for quantization (e.g., PerRow(), PerTensor())
         act_quant_kwargs: flags for dynamic activation quantization
+        kernel_preference: Kernel preference for matmul - TORCH, TRITON, or AUTO
     """
 
     tensor_data_names = ["qdata", "scale"]
@@ -69,6 +72,7 @@ class Int8Tensor(TorchAOBaseTensor):
     tensor_attribute_names = ["block_size", "dtype"]
     optional_tensor_attribute_names = [
         "act_quant_kwargs",
+        "kernel_preference",
     ]
 
     def __new__(
@@ -80,6 +84,7 @@ class Int8Tensor(TorchAOBaseTensor):
         act_quant_scale: Optional[torch.Tensor] = None,
         act_pre_scale: Optional[torch.Tensor] = None,
         act_quant_kwargs: Optional[QuantizeTensorToInt8Kwargs] = None,
+        kernel_preference: KernelPreference = KernelPreference.AUTO,
     ):
         kwargs = {
             "device": qdata.device,
@@ -97,6 +102,7 @@ class Int8Tensor(TorchAOBaseTensor):
         act_quant_scale: Optional[torch.Tensor] = None,
         act_pre_scale: Optional[torch.Tensor] = None,
         act_quant_kwargs: Optional[QuantizeTensorToInt8Kwargs] = None,
+        kernel_preference: KernelPreference = KernelPreference.AUTO,
     ):
         super().__init__()
         self.qdata = qdata
@@ -106,6 +112,7 @@ class Int8Tensor(TorchAOBaseTensor):
         self.act_quant_kwargs = act_quant_kwargs
         self.act_quant_scale = act_quant_scale
         self.act_pre_scale = act_pre_scale
+        self.kernel_preference = kernel_preference
 
     def __repr__(self):
         return (
@@ -116,6 +123,7 @@ class Int8Tensor(TorchAOBaseTensor):
             f"act_quant_scale={self.act_quant_scale}, "
             f"act_pre_scale={self.act_pre_scale}, "
             f"block_size={self.block_size}, "
+            f"kernel_preference={self.kernel_preference}, "
             f"shape={self.shape}, "
             f"device={self.device}, "
             f"dtype={self.dtype})"
@@ -159,6 +167,7 @@ class Int8Tensor(TorchAOBaseTensor):
         act_quant_kwargs: Optional[QuantizeTensorToInt8Kwargs] = None,
         act_quant_scale: Optional[torch.Tensor] = None,
         act_pre_scale: Optional[torch.Tensor] = None,
+        kernel_preference: KernelPreference = KernelPreference.AUTO,
     ):
         """Create Int8Tensor from high-precision tensor"""
         block_size = get_block_size(hp_tensor.shape, granularity)
@@ -203,6 +212,7 @@ class Int8Tensor(TorchAOBaseTensor):
             act_quant_scale=act_quant_scale,
             act_pre_scale=act_pre_scale,
             act_quant_kwargs=act_quant_kwargs,
+            kernel_preference=kernel_preference,
         )
 
     def dequantize(self, output_dtype: Optional[torch.dtype] = None) -> torch.Tensor:
@@ -267,16 +277,44 @@ def _(func, types, args, kwargs):
         w_scales = weight_tensor.scale
 
         tmp = x_vals_int8.reshape(-1, x_vals_int8.shape[-1])
-        # Cast FP16 scale to float to avoid overflow in int_scaled_matmul
-        intermediate_dtype = (
-            torch.float if x_scales.dtype == torch.half else x_scales.dtype
-        )
-        y_dot_scaled = int_scaled_matmul(
-            tmp, w_vals_int8_t, x_scales.reshape(-1, 1).to(intermediate_dtype)
-        ).to(output_dtype)
-        y = (y_dot_scaled * w_scales.flatten()).reshape(
-            *x_vals_int8.shape[:-1], y_dot_scaled.shape[-1]
-        )
+
+        kernel_choice = None
+        if weight_tensor.kernel_preference == KernelPreference.AUTO:
+            # AUTO: prefer Triton on CUDA for rowwise scaled tensors
+            is_rowwise = tuple(weight_tensor.block_size) == (1,) * (
+                weight_tensor.dim() - 1
+            ) + (weight_tensor.shape[-1],)
+            kernel_choice = (
+                "triton" if tmp.device.type == "cuda" and is_rowwise else "torch"
+            )
+        elif weight_tensor.kernel_preference == KernelPreference.TRITON:
+            kernel_choice = "triton"
+        elif weight_tensor.kernel_preference == KernelPreference.TORCH:
+            kernel_choice = "torch"
+        else:
+            raise ValueError(
+                f"Unsupported kernel_preference: {weight_tensor.kernel_preference}"
+            )
+
+        if kernel_choice == "triton":
+            # Triton kernel handles both row and col scaling directly
+            y = torch.ops.torchao.scaled_int8_mm(
+                tmp,
+                w_vals_int8_t,
+                x_scales.reshape(-1, 1),
+                w_scales.reshape(-1, 1) if w_scales.numel() > 1 else w_scales,
+            )
+        elif kernel_choice == KernelPreference.TORCH:
+            # PyTorch kernel only applies row scaling, apply col scaling separately
+            intermediate_dtype = (
+                torch.float if x_scales.dtype == torch.half else x_scales.dtype
+            )
+            y_dot_scaled = int_scaled_matmul(
+                tmp, w_vals_int8_t, x_scales.reshape(-1, 1).to(intermediate_dtype)
+            ).to(output_dtype)
+            y = y_dot_scaled * w_scales.flatten()
+
+        y = y.reshape(*x_vals_int8.shape[:-1], y.shape[-1])
 
     else:
         # FP × INT8 (weight-only)
@@ -338,8 +376,7 @@ def _(func, types, args, kwargs):
             block_size,
             self.dtype,
             act_quant_kwargs=self.act_quant_kwargs,
-            act_quant_scale=self.act_quant_scale,
-            act_pre_scale=self.act_pre_scale,
+            kernel_preference=self.kernel_preference,
         ),
     )
 
@@ -378,6 +415,7 @@ def _(func, types, args, kwargs):
         args[0].dtype,
         act_quant_scale=pinned_act_quant_scale,
         act_quant_kwargs=args[0].act_quant_kwargs,
+        kernel_preference=args[0].kernel_preference,
     )
 
 
@@ -397,9 +435,10 @@ def _(func, types, args, kwargs):
         old_int8_tensor.scale[index],
         old_int8_tensor.block_size[1:],
         old_int8_tensor.dtype,
-        old_int8_tensor.act_quant_scale,
-        old_int8_tensor.act_pre_scale,
-        old_int8_tensor.act_quant_kwargs,
+        act_quant_scale=old_int8_tensor.act_quant_scale,
+        act_pre_scale=old_int8_tensor.act_pre_scale,
+        act_quant_kwargs=old_int8_tensor.act_quant_kwargs,
+        kernel_preference=old_int8_tensor.kernel_preference,
     )
     return return_and_correct_aliasing(func, args, kwargs, new_int8_tensor)
 

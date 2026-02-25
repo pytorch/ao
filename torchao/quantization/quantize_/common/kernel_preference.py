@@ -30,6 +30,10 @@ class KernelPreference(str, Enum):
     """Use quantize and quantized mm kernels from mslk library, requires mslk library
     """
 
+    TRITON = "triton"
+    """Use Triton kernels for quantization and matrix multiplication
+    """
+
     EMULATED = "emulated"
     """Emulates gemm_lowp(A, B) with gemm_fp32(A.dequantize(), B.dequantize()).
     Intended use cases are:
