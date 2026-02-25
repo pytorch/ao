@@ -15,6 +15,7 @@ Available backends:
     fa3      - Flash Attention 3
     fa3_fp8  - Flash Attention 3 with FP8 quantization (fused RoPE + FP8 SDPA)
     fa4      - Flash Attention 4
+    fa4_fp8  - Flash Attention 4 with FP8 quantization (fused RoPE + FP8 SDPA)
 
 Usage:
     # Compare FA3 vs FA3 FP8 (default)
@@ -34,13 +35,14 @@ Usage:
 """
 
 import argparse
+import gc
 import random
-import time
 from typing import Optional
 
 import lpips
 import numpy as np
 import torch
+import torch._dynamo
 from datasets import load_dataset
 from diffusers import FluxPipeline
 from PIL import Image
@@ -49,7 +51,11 @@ from torch.nn.attention import (
     restore_flash_attention_impl,
 )
 
-from torchao.prototype.attention import apply_low_precision_attention
+from torchao.prototype.attention import (
+    AttentionBackend,
+    LowPrecisionAttentionConfig,
+    apply_low_precision_attention,
+)
 
 # =============================================================================
 # Backend Configuration
@@ -58,8 +64,17 @@ from torchao.prototype.attention import apply_low_precision_attention
 BACKENDS = {
     "fa2": {"flash_impl": None, "fp8": False},
     "fa3": {"flash_impl": "FA3", "fp8": False},
-    "fa3_fp8": {"flash_impl": "FA3", "fp8": True},
+    "fa3_fp8": {
+        "flash_impl": "FA3",
+        "fp8": True,
+        "fp8_backend": AttentionBackend.FP8_FA3,
+    },
     "fa4": {"flash_impl": "FA4", "fp8": False},
+    "fa4_fp8": {
+        "flash_impl": "FA4",
+        "fp8": True,
+        "fp8_backend": AttentionBackend.FP8_FA4,
+    },
 }
 
 IMAGE_SIZE = (512, 512)  # (width, height) - resize for consistent LPIPS
@@ -67,7 +82,14 @@ RANDOM_SEED = 42
 MODEL_ID = "black-forest-labs/FLUX.1-schnell"
 
 
-def setup_backend(pipe, backend_name, compile_flag, orig_transformer):
+def cleanup_gpu():
+    """Free GPU memory between benchmark phases."""
+    gc.collect()
+    torch.cuda.empty_cache()
+    torch._dynamo.reset()
+
+
+def setup_backend(pipe, backend_name, compile_flag, orig_transformer, fuse_rope=True):
     """Set up a backend for a benchmark phase.
 
     For FP8 backends (fa3_fp8): applies low-precision attention which
@@ -80,6 +102,7 @@ def setup_backend(pipe, backend_name, compile_flag, orig_transformer):
         backend_name: Name of the backend.
         compile_flag: Whether --compile was passed.
         orig_transformer: The original (uncompiled) transformer.
+        fuse_rope: Whether to fuse RoPE into the FP8 kernel (FP8 backends only).
 
     Returns:
         flash_impl to pass to generate_image (None for FP8 backends
@@ -90,11 +113,15 @@ def setup_backend(pipe, backend_name, compile_flag, orig_transformer):
 
     if cfg["fp8"]:
         print(f"Applying low-precision FP8 attention ({backend_name})...")
-        pipe.transformer = apply_low_precision_attention(pipe.transformer)
-        # Return None — the FP8 wrapper handles FA3 internally via the
-        # fusion pass.  Activating FA3 globally would conflict with the
-        # custom op dispatch.
-        return None
+        fp8_config = LowPrecisionAttentionConfig(
+            backend=cfg["fp8_backend"],
+            fuse_rope=fuse_rope,
+        )
+        pipe.transformer = apply_low_precision_attention(pipe.transformer, fp8_config)
+        # Return the flash impl (e.g. "FA3") so generate_image activates it
+        # for the entire pipe() call.  This keeps non-transformer SDPA calls
+        # (VAE, text encoder) consistent with the baseline FA3 backend.
+        return cfg["flash_impl"]
     else:
         if compile_flag:
             print(f"Compiling transformer with torch.compile ({backend_name})...")
@@ -168,6 +195,7 @@ def run_benchmark(
     debug_prompt: Optional[str] = None,
     warmup_iters: int = 2,
     compile: bool = False,
+    fuse_rope: bool = True,
 ):
     """
     Run the attention backend benchmark on FLUX.1-schnell.
@@ -180,6 +208,8 @@ def run_benchmark(
         debug_prompt: If specified, use only this prompt (for debugging).
         warmup_iters: Number of warmup iterations before benchmarking.
         compile: If True, wrap the model with torch.compile.
+        fuse_rope: If True (default), fuse RoPE into the FP8 kernel.
+            If False, only replace SDPA with FP8 (skip RoPE fusion).
     """
     compile_str = " + torch.compile" if compile else ""
     print("=" * 80)
@@ -231,7 +261,11 @@ def run_benchmark(
     print("-" * 80)
 
     baseline_flash_impl = setup_backend(
-        pipe, baseline_backend, compile, orig_transformer
+        pipe,
+        baseline_backend,
+        compile,
+        orig_transformer,
+        fuse_rope=fuse_rope,
     )
 
     print(f"Warming up {baseline_backend} with {warmup_iters} iterations...")
@@ -248,11 +282,14 @@ def run_benchmark(
         print(f"  Warmup {i + 1}/{warmup_iters} complete")
 
     baseline_data = []
-    baseline_times = []
+    baseline_times_ms = []
 
     for idx, prompt in enumerate(prompts):
         print(f"[{idx + 1}/{len(prompts)}] {baseline_backend}: {prompt[:50]}...")
-        t0 = time.time()
+        start_event = torch.cuda.Event(enable_timing=True)
+        end_event = torch.cuda.Event(enable_timing=True)
+
+        start_event.record()
         baseline_img = generate_image(
             pipe,
             prompt,
@@ -261,16 +298,22 @@ def run_benchmark(
             num_inference_steps,
             flash_impl=baseline_flash_impl,
         )
-        t1 = time.time()
+        end_event.record()
+        torch.cuda.synchronize()
+        elapsed_ms = start_event.elapsed_time(end_event)
 
         baseline_tensor = pil_to_lpips_tensor(baseline_img, device)
-        baseline_data.append((prompt, baseline_tensor))
-        baseline_times.append(t1 - t0)
+        # Store tensors on CPU to free GPU memory for the test phase.
+        baseline_data.append((prompt, baseline_tensor.cpu()))
+        baseline_times_ms.append(elapsed_ms)
 
-    avg_baseline_time = sum(baseline_times) / len(baseline_times)
+    avg_baseline_ms = sum(baseline_times_ms) / len(baseline_times_ms)
     print(
-        f"\n{baseline_backend} complete. Avg time per image: {avg_baseline_time:.2f}s"
+        f"\n{baseline_backend} complete. Avg time per image: {avg_baseline_ms:.1f} ms"
     )
+
+    # ----- Cleanup before test phase -----
+    cleanup_gpu()
 
     # ----- Phase 2: Test backend -----
     print("\n" + "-" * 80)
@@ -278,7 +321,11 @@ def run_benchmark(
     print("-" * 80)
 
     test_flash_impl = setup_backend(
-        pipe, test_backend, compile, orig_transformer
+        pipe,
+        test_backend,
+        compile,
+        orig_transformer,
+        fuse_rope=fuse_rope,
     )
 
     print(f"Warming up {test_backend} with {warmup_iters} iterations...")
@@ -294,12 +341,15 @@ def run_benchmark(
         print(f"  Warmup {i + 1}/{warmup_iters} complete")
 
     lpips_values = []
-    test_times = []
+    test_times_ms = []
 
-    for idx, (prompt, baseline_tensor) in enumerate(baseline_data):
+    for idx, (prompt, baseline_tensor_cpu) in enumerate(baseline_data):
         print(f"[{idx + 1}/{len(prompts)}] {test_backend}: {prompt[:50]}...")
 
-        t0 = time.time()
+        start_event = torch.cuda.Event(enable_timing=True)
+        end_event = torch.cuda.Event(enable_timing=True)
+
+        start_event.record()
         test_img = generate_image(
             pipe,
             prompt,
@@ -308,16 +358,18 @@ def run_benchmark(
             num_inference_steps,
             flash_impl=test_flash_impl,
         )
-        t1 = time.time()
-        test_times.append(t1 - t0)
+        end_event.record()
+        torch.cuda.synchronize()
+        elapsed_ms = start_event.elapsed_time(end_event)
+        test_times_ms.append(elapsed_ms)
 
         test_tensor = pil_to_lpips_tensor(test_img, device)
-        lpips_value = loss_fn(baseline_tensor, test_tensor).item()
+        lpips_value = loss_fn(baseline_tensor_cpu.to(device), test_tensor).item()
         lpips_values.append(lpips_value)
 
-        print(f"    LPIPS: {lpips_value:.4f}, Time: {t1 - t0:.2f}s")
+        print(f"    LPIPS: {lpips_value:.4f}, Time: {elapsed_ms:.1f} ms")
 
-    avg_test_time = sum(test_times) / len(test_times)
+    avg_test_ms = sum(test_times_ms) / len(test_times_ms)
 
     # ----- Results -----
     print("\n" + "=" * 80)
@@ -336,9 +388,9 @@ def run_benchmark(
     print(f"  Max LPIPS:     {max_lpips:.4f}")
 
     print("\nTiming Statistics:")
-    print(f"  Avg {baseline_backend} time:  {avg_baseline_time:.2f}s per image")
-    print(f"  Avg {test_backend} time: {avg_test_time:.2f}s per image")
-    print(f"  Speedup:                {avg_baseline_time / avg_test_time:.2f}x")
+    print(f"  Avg {baseline_backend} time:  {avg_baseline_ms:.1f} ms per image")
+    print(f"  Avg {test_backend} time: {avg_test_ms:.1f} ms per image")
+    print(f"  Speedup:                {avg_baseline_ms / avg_test_ms:.2f}x")
 
     print("\nBenchmark Configuration:")
     print(f"  Baseline backend:  {baseline_backend}")
@@ -356,7 +408,7 @@ def run_benchmark(
         "std_lpips": std_lpips,
         "min_lpips": min_lpips,
         "max_lpips": max_lpips,
-        "speedup": avg_baseline_time / avg_test_time,
+        "speedup": avg_baseline_ms / avg_test_ms,
         "lpips_values": lpips_values,
     }
 
@@ -408,6 +460,11 @@ def main():
         action="store_true",
         help="Wrap the model with torch.compile for both backends",
     )
+    parser.add_argument(
+        "--no_fuse_rope",
+        action="store_true",
+        help="Skip RoPE fusion in FP8 backends (only replace SDPA with FP8)",
+    )
 
     args = parser.parse_args()
 
@@ -419,6 +476,7 @@ def main():
         debug_prompt=args.debug_prompt,
         warmup_iters=args.warmup_iters,
         compile=args.compile,
+        fuse_rope=not args.no_fuse_rope,
     )
 
 

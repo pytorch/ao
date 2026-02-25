@@ -18,6 +18,7 @@ Available backends:
     fa3      - Flash Attention 3
     fa3_fp8  - Flash Attention 3 with FP8 quantization (fused RoPE + FP8 SDPA)
     fa4      - Flash Attention 4
+    fa4_fp8  - Flash Attention 4 with FP8 quantization (fused RoPE + FP8 SDPA)
 
 Usage:
     # Default: FA3 vs FA3 FP8
@@ -34,9 +35,11 @@ Usage:
 """
 
 import argparse
+import gc
 import math
 
 import torch
+import torch._dynamo
 import torch.nn.functional as F
 from datasets import load_dataset
 from torch.nn.attention import (
@@ -45,7 +48,11 @@ from torch.nn.attention import (
 )
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from torchao.prototype.attention import apply_low_precision_attention
+from torchao.prototype.attention import (
+    AttentionBackend,
+    LowPrecisionAttentionConfig,
+    apply_low_precision_attention,
+)
 
 # =============================================================================
 # Backend Configuration
@@ -65,12 +72,19 @@ BACKENDS = {
     "fa3_fp8": {
         "flash_impl": "FA3",
         "fp8": True,
+        "fp8_backend": AttentionBackend.FP8_FA3,
         "label": "FA3 FP8",
     },
     "fa4": {
         "flash_impl": "FA4",
         "fp8": False,
         "label": "FA4 BF16",
+    },
+    "fa4_fp8": {
+        "flash_impl": "FA4",
+        "fp8": True,
+        "fp8_backend": AttentionBackend.FP8_FA4,
+        "label": "FA4 FP8",
     },
 }
 
@@ -80,7 +94,14 @@ DEFAULT_MODEL_ID = "meta-llama/Llama-3.1-8B"
 SEQ_LENGTHS = [1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072]
 
 
-def setup_backend(orig_model, backend_name, compile_flag):
+def cleanup_gpu():
+    """Free GPU memory between benchmark phases."""
+    gc.collect()
+    torch.cuda.empty_cache()
+    torch._dynamo.reset()
+
+
+def setup_backend(orig_model, backend_name, compile_flag, fuse_rope=True):
     """Set up a backend for a benchmark phase.
 
     All backends use the HuggingFace SDPA attention path (the model must
@@ -93,10 +114,15 @@ def setup_backend(orig_model, backend_name, compile_flag):
 
     For other backends: optionally compiles if compile_flag is set.
 
+    Also manages ``config.use_cache``: FP8 backends need it disabled
+    (DynamicCache.update() inserts torch.cat that blocks RoPE fusion),
+    and non-FP8 backends restore it so the model behaves normally.
+
     Args:
         orig_model: The original (uncompiled, unwrapped) model.
         backend_name: Name of the backend.
         compile_flag: Whether --compile was passed.
+        fuse_rope: Whether to fuse RoPE into the FP8 kernel (FP8 backends only).
 
     Returns:
         (model, flash_impl) where model is the model to use for this phase
@@ -107,11 +133,18 @@ def setup_backend(orig_model, backend_name, compile_flag):
 
     if cfg["fp8"]:
         print(f"  Applying low-precision FP8 attention ({backend_name})...")
-        model = apply_low_precision_attention(orig_model)
-        # FP8 wrapper handles FA3 activation internally; returning None
-        # avoids double activation/restore mismatch.
-        return model, None
+        # Disable KV cache: DynamicCache.update() torch.cat nodes block
+        # the RoPE + SDPA fusion pass required by FP8 compilation.
+        orig_model.config.use_cache = False
+        fp8_config = LowPrecisionAttentionConfig(
+            backend=cfg["fp8_backend"],
+            fuse_rope=fuse_rope,
+        )
+        model = apply_low_precision_attention(orig_model, fp8_config)
+        return model, cfg["flash_impl"]
     else:
+        # Restore use_cache in case a prior FP8 setup disabled it.
+        orig_model.config.use_cache = True
         if compile_flag:
             print(f"  Compiling model with torch.compile ({backend_name})...")
             model = torch.compile(orig_model)
@@ -157,9 +190,7 @@ def compute_perplexity(model, chunks, device, flash_impl) -> float:
             labels = chunk[:, 1:]
 
             logits = model(input_ids).logits
-            loss = F.cross_entropy(
-                logits.view(-1, logits.size(-1)), labels.reshape(-1)
-            )
+            loss = F.cross_entropy(logits.view(-1, logits.size(-1)), labels.reshape(-1))
             total_loss += loss.item()
     finally:
         if flash_impl:
@@ -170,8 +201,13 @@ def compute_perplexity(model, chunks, device, flash_impl) -> float:
 
 
 def benchmark_runtime(
-    model, seq_len, vocab_size, device, flash_impl,
-    num_warmup, num_iters,
+    model,
+    seq_len,
+    vocab_size,
+    device,
+    flash_impl,
+    num_warmup,
+    num_iters,
 ) -> float:
     """Benchmark forward-pass latency at a given sequence length. Returns median ms."""
     input_ids = torch.randint(0, vocab_size, (1, seq_len), device=device)
@@ -184,12 +220,8 @@ def benchmark_runtime(
             model(input_ids)
         torch.cuda.synchronize()
 
-        start_events = [
-            torch.cuda.Event(enable_timing=True) for _ in range(num_iters)
-        ]
-        end_events = [
-            torch.cuda.Event(enable_timing=True) for _ in range(num_iters)
-        ]
+        start_events = [torch.cuda.Event(enable_timing=True) for _ in range(num_iters)]
+        end_events = [torch.cuda.Event(enable_timing=True) for _ in range(num_iters)]
 
         for i in range(num_iters):
             start_events[i].record()
@@ -199,6 +231,8 @@ def benchmark_runtime(
     finally:
         if flash_impl:
             restore_flash_attention_impl()
+
+    del input_ids
 
     times = [s.elapsed_time(e) for s, e in zip(start_events, end_events)]
     times.sort()
@@ -219,6 +253,7 @@ def run_benchmark(
     num_warmup: int = 3,
     perplexity_seq_len: int = 2048,
     compile: bool = False,
+    fuse_rope: bool = True,
 ):
     baseline_label = BACKENDS[baseline_backend]["label"]
     test_label = BACKENDS[test_backend]["label"]
@@ -226,9 +261,7 @@ def run_benchmark(
 
     print("=" * 80)
     print("Attention Backend Benchmark for LLaMA 3")
-    print(
-        f"  Baseline: {baseline_label}  |  Test: {test_label}{compile_str}"
-    )
+    print(f"  Baseline: {baseline_label}  |  Test: {test_label}{compile_str}")
     print(f"  Model: {model_id}")
     print(f"  Device: {torch.cuda.get_device_name()}")
     print("=" * 80)
@@ -256,9 +289,7 @@ def run_benchmark(
     # Phase 1: Perplexity
     # =====================================================================
     print("\n" + "=" * 80)
-    print(
-        f"Phase 1: Perplexity (WikiText-2 test, seq_len={perplexity_seq_len})"
-    )
+    print(f"Phase 1: Perplexity (WikiText-2 test, seq_len={perplexity_seq_len})")
     print("=" * 80)
 
     chunks = load_wikitext2_tokens(tokenizer, perplexity_seq_len)
@@ -266,46 +297,68 @@ def run_benchmark(
     # --- Baseline perplexity ---
     print(f"\n  Computing perplexity with {baseline_label}...")
     baseline_model, baseline_flash = setup_backend(
-        orig_model, baseline_backend, compile,
+        orig_model,
+        baseline_backend,
+        compile,
+        fuse_rope=fuse_rope,
     )
     baseline_ppl = compute_perplexity(
-        baseline_model, chunks, device, baseline_flash,
+        baseline_model,
+        chunks,
+        device,
+        baseline_flash,
     )
     print(f"  {baseline_label} perplexity: {baseline_ppl:.2f}")
 
     # --- Test perplexity ---
     print(f"\n  Computing perplexity with {test_label}...")
     test_model, test_flash = setup_backend(
-        orig_model, test_backend, compile,
+        orig_model,
+        test_backend,
+        compile,
+        fuse_rope=fuse_rope,
     )
     test_ppl = compute_perplexity(
-        test_model, chunks, device, test_flash,
+        test_model,
+        chunks,
+        device,
+        test_flash,
     )
     print(f"  {test_label} perplexity: {test_ppl:.2f}")
 
     print(f"\n  Delta: {test_ppl - baseline_ppl:+.2f}")
+
+    del baseline_model, test_model, chunks
+    cleanup_gpu()
 
     # =====================================================================
     # Phase 2: Runtime
     # =====================================================================
     print("\n" + "=" * 80)
     print(
-        f"Phase 2: Runtime "
-        f"({num_runtime_iters} iters, {num_warmup} warmup per seq_len)"
+        f"Phase 2: Runtime ({num_runtime_iters} iters, {num_warmup} warmup per seq_len)"
     )
     print("=" * 80)
 
     # --- Baseline runtime (all sequence lengths) ---
     print(f"\n  Running baseline ({baseline_label})...")
     baseline_model, baseline_flash = setup_backend(
-        orig_model, baseline_backend, compile,
+        orig_model,
+        baseline_backend,
+        compile,
+        fuse_rope=fuse_rope,
     )
     baseline_runtimes = {}
     for S in SEQ_LENGTHS:
         try:
             ms = benchmark_runtime(
-                baseline_model, S, vocab_size, device, baseline_flash,
-                num_warmup, num_runtime_iters,
+                baseline_model,
+                S,
+                vocab_size,
+                device,
+                baseline_flash,
+                num_warmup,
+                num_runtime_iters,
             )
             baseline_runtimes[S] = ms
             print(f"    seq_len={S:>6}: {ms:.1f} ms")
@@ -315,17 +368,28 @@ def run_benchmark(
             break
         torch.cuda.empty_cache()
 
+    del baseline_model
+    cleanup_gpu()
+
     # --- Test runtime (all sequence lengths) ---
     print(f"\n  Running test ({test_label})...")
     test_model, test_flash = setup_backend(
-        orig_model, test_backend, compile,
+        orig_model,
+        test_backend,
+        compile,
+        fuse_rope=fuse_rope,
     )
     test_runtimes = {}
     for S in baseline_runtimes:
         try:
             ms = benchmark_runtime(
-                test_model, S, vocab_size, device, test_flash,
-                num_warmup, num_runtime_iters,
+                test_model,
+                S,
+                vocab_size,
+                device,
+                test_flash,
+                num_warmup,
+                num_runtime_iters,
             )
             test_runtimes[S] = ms
             print(f"    seq_len={S:>6}: {ms:.1f} ms")
@@ -363,18 +427,16 @@ def run_benchmark(
                 f"{test_ms:>{col_w}.1f} | "
                 f"{speedup:>7.2f}x"
             )
-            runtime_results.append({
-                "seq_len": S,
-                "baseline_ms": baseline_ms,
-                "test_ms": test_ms,
-                "speedup": speedup,
-            })
-        else:
-            print(
-                f"{S:>8} | "
-                f"{baseline_ms:>{col_w}.1f} | "
-                f"{'OOM':>{col_w}} |"
+            runtime_results.append(
+                {
+                    "seq_len": S,
+                    "baseline_ms": baseline_ms,
+                    "test_ms": test_ms,
+                    "speedup": speedup,
+                }
             )
+        else:
+            print(f"{S:>8} | {baseline_ms:>{col_w}.1f} | {'OOM':>{col_w}} |")
 
     print("-" * len(header))
 
@@ -388,9 +450,7 @@ def run_benchmark(
     print(f"  Test     ({test_label}) perplexity: {test_ppl:.2f}")
     print(f"  Perplexity delta: {test_ppl - baseline_ppl:+.2f}")
     if runtime_results:
-        avg_speedup = (
-            sum(r["speedup"] for r in runtime_results) / len(runtime_results)
-        )
+        avg_speedup = sum(r["speedup"] for r in runtime_results) / len(runtime_results)
         print(f"  Avg runtime speedup: {avg_speedup:.2f}x")
     print("=" * 80)
 
@@ -448,6 +508,11 @@ def main():
         action="store_true",
         help="Wrap the model with torch.compile (applies to non-FP8 backends)",
     )
+    parser.add_argument(
+        "--no_fuse_rope",
+        action="store_true",
+        help="Skip RoPE fusion in FP8 backends (only replace SDPA with FP8)",
+    )
     args = parser.parse_args()
 
     run_benchmark(
@@ -458,6 +523,7 @@ def main():
         num_warmup=args.num_warmup,
         perplexity_seq_len=args.perplexity_seq_len,
         compile=args.compile,
+        fuse_rope=not args.no_fuse_rope,
     )
 
 

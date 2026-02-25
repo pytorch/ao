@@ -78,8 +78,8 @@ def _fp8_sdpa_quantize(
         v_fp8, v_descale = _quantize_per_head(v)
         return q_fp8, k_fp8, v_fp8, q_descale, k_descale, v_descale
     else:
-        # In eager mode, use fused Helion kernels for better performance.
-        from torchao.prototype.attention.fp8_fa3.triton_qkv_quantization import (
+        # In eager mode, use fused Triton kernels for better performance.
+        from torchao.prototype.attention.quantization.triton_qkv_quantization import (
             triton_fp8_sdpa_quantize,
         )
 
@@ -151,8 +151,10 @@ def _fp8_rope_sdpa_quantize(
     if sin.shape != (S, D):
         raise ValueError(f"Expected sin shape [{S}, {D}], got {sin.shape}")
 
-    from torchao.prototype.attention.fp8_fa3.triton_rope_qkv_quantization import (
+    from torchao.prototype.attention.quantization.triton_rope_qkv_quantization import (
         triton_fp8_rope_sdpa_quantize,
     )
 
-    return triton_fp8_rope_sdpa_quantize(q, k, v, cos, sin, rope_interleaved=rope_interleaved)
+    return triton_fp8_rope_sdpa_quantize(
+        q, k, v, cos, sin, rope_interleaved=rope_interleaved
+    )
