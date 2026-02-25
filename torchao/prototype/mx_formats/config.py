@@ -16,7 +16,7 @@ from torchao.prototype.mx_formats.constants import (
     SUPPORTED_ELEM_DTYPES,
 )
 from torchao.quantization.quantize_.common.kernel_preference import KernelPreference
-from torchao.utils import is_ROCM
+from torchao.utils import is_ROCM, register_as_pytree_constant
 
 
 class MXFP8Dim0CastKernelChoice(Enum):
@@ -47,6 +47,8 @@ class MXLinearRecipeName(Enum):
     MXFP4_CUTLASS = "mxfp4_cutlass"
 
 
+# register as pytree constant so we can use dynamo nonstrict trace in torchao.prototype.moe_training.ep
+@register_as_pytree_constant
 class ScaleCalculationMode(Enum):
     """
     Enum representing the different methods for calculating MX block scaling.
@@ -81,11 +83,6 @@ class ScaleCalculationMode(Enum):
 
     def __hash__(self):
         return hash(self.value)
-
-
-# Register ScaleCalculationMode with pytree so torch.compile can handle it
-# as a function argument in @torch._dynamo.nonstrict_trace functions.
-torch.utils._pytree.register_constant(ScaleCalculationMode)
 
 
 def _validate_elem_dtype(elem_dtype):
