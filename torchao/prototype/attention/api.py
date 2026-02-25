@@ -8,6 +8,7 @@
 User-facing API for low-precision attention.
 """
 
+from functools import partial
 from typing import Optional
 
 import torch
@@ -38,8 +39,8 @@ class _LowPrecisionAttentionWrapper(nn.Module):
        module (via ``@torch._dynamo.disable`` on ``forward``), creating a
        graph-break boundary that preserves the internal compilation with
        the fusion pass.
-    2. Manages FA3 activation/deactivation around each forward call so
-       Dynamo traces correctly on the first (lazy-compilation) call.
+    2. Manages flash attention activation/deactivation around each forward
+       call so Dynamo traces correctly on the first (lazy-compilation) call.
 
     The wrapper proxies attribute access to the original (uncompiled)
     module, so model-specific attributes (e.g., ``config``) remain
@@ -48,7 +49,12 @@ class _LowPrecisionAttentionWrapper(nn.Module):
     correctly through the standard ``nn.Module`` machinery.
     """
 
-    def __init__(self, compiled_mod: nn.Module, orig_mod: nn.Module):
+    def __init__(
+        self,
+        compiled_mod: nn.Module,
+        orig_mod: nn.Module,
+        flash_impl_name: str,
+    ):
         super().__init__()
         # Registered as a submodule so nn.Module traversal methods
         # (parameters, to, eval, ...) reach the real weights.
@@ -56,6 +62,7 @@ class _LowPrecisionAttentionWrapper(nn.Module):
         # Stored outside _modules to avoid double-counting parameters
         # (the compiled module wraps the same _orig_mod).
         object.__setattr__(self, "_compiled_mod", compiled_mod)
+        object.__setattr__(self, "_flash_impl_name", flash_impl_name)
 
     # ------------------------------------------------------------------
     # Attribute proxy
@@ -76,11 +83,12 @@ class _LowPrecisionAttentionWrapper(nn.Module):
     @torch._dynamo.disable
     def forward(self, *args, **kwargs):
         compiled_mod = object.__getattribute__(self, "_compiled_mod")
-        # Activate FA3 so the first-call Dynamo trace sees the correct
-        # SDPA dispatch.  On subsequent calls the compiled graph is
-        # cached and FA3 activation is a harmless no-op for the fused
-        # custom ops (they select the backend internally).
-        activate_flash_attention_impl("FA3")
+        flash_impl_name = object.__getattribute__(self, "_flash_impl_name")
+        # Activate the appropriate flash attention impl so the first-call
+        # Dynamo trace sees the correct SDPA dispatch. On subsequent calls
+        # the compiled graph is cached and activation is a harmless no-op
+        # for the fused custom ops (they select the backend internally).
+        activate_flash_attention_impl(flash_impl_name)
         try:
             return compiled_mod(*args, **kwargs)
         finally:
@@ -107,6 +115,11 @@ def apply_low_precision_attention(
     Args:
         model: The model to apply low-precision attention to.
             Must not already be compiled with ``torch.compile``.
+            For models that use KV caching (e.g., HuggingFace models
+            with ``config.use_cache=True``), the caller should disable
+            KV caching before calling this function.  The
+            ``DynamicCache.update()`` calls insert ``torch.cat`` nodes
+            that block the RoPE + SDPA fusion pass.
         config: Configuration for low-precision attention.
             If None, uses default config (auto backend selection).
 
@@ -128,8 +141,7 @@ def apply_low_precision_attention(
     # Guard: already wrapped.
     if isinstance(model, _LowPrecisionAttentionWrapper):
         raise RuntimeError(
-            "apply_low_precision_attention has already been applied "
-            "to this module."
+            "apply_low_precision_attention has already been applied to this module."
         )
 
     # Guard: already compiled.
@@ -152,6 +164,9 @@ def apply_low_precision_attention(
     if backend == AttentionBackend.FP8_FA3:
         return _setup_fp8_fa3(model, config)
 
+    if backend == AttentionBackend.FP8_FA4:
+        return _setup_fp8_fa4(model, config)
+
     raise ValueError(f"Unknown backend: {backend}")
 
 
@@ -159,7 +174,7 @@ def _setup_fp8_fa3(
     model: nn.Module,
     config: LowPrecisionAttentionConfig,
 ) -> nn.Module:
-    """Compile *model* with the RoPE + FP8 fusion pass and wrap it."""
+    """Compile *model* with the RoPE + FP8 fusion pass (FA3) and wrap it."""
     if config.use_hadamard == "qkv":
         raise NotImplementedError(
             "FP8 attention with Hadamard on QKV is not yet implemented."
@@ -175,22 +190,16 @@ def _setup_fp8_fa3(
         rope_sdpa_fusion_pass,
     )
 
+    pass_fn = partial(rope_sdpa_fusion_pass, fuse_rope=config.fuse_rope)
+
     def fp8_attention_backend(gm, example_inputs):
         """Custom Inductor backend that applies the RoPE + FP8 fusion pass."""
         old_pass = inductor_config.pre_grad_custom_pass
-        inductor_config.pre_grad_custom_pass = rope_sdpa_fusion_pass
+        inductor_config.pre_grad_custom_pass = pass_fn
         try:
             return compile_fx(gm, example_inputs)
         finally:
             inductor_config.pre_grad_custom_pass = old_pass
-
-    # Disable the KV cache so torch.compile traces the prefill path
-    # without DynamicCache.update() (which inserts torch.cat nodes that
-    # block RoPE fusion).  HF models default use_cache=True for
-    # generation, but for prefill-only compiled inference the cache adds
-    # no value and prevents the fusion pass from detecting RoPE on K.
-    if hasattr(model, "config") and getattr(model.config, "use_cache", False):
-        model.config.use_cache = False
 
     # Clear stale Dynamo caches to ensure fresh compilation.
     torch._dynamo.reset()
@@ -198,4 +207,44 @@ def _setup_fp8_fa3(
     # Compile with our custom backend (fusion pass is baked in).
     compiled = torch.compile(model, backend=fp8_attention_backend)
 
-    return _LowPrecisionAttentionWrapper(compiled, model)
+    return _LowPrecisionAttentionWrapper(compiled, model, flash_impl_name="FA3")
+
+
+def _setup_fp8_fa4(
+    model: nn.Module,
+    config: LowPrecisionAttentionConfig,
+) -> nn.Module:
+    """Compile *model* with the RoPE + FP8 fusion pass (FA4) and wrap it."""
+    if config.use_hadamard == "qkv":
+        raise NotImplementedError(
+            "FP8 attention with Hadamard on QKV is not yet implemented."
+        )
+    elif config.use_hadamard == "v":
+        raise NotImplementedError(
+            "FP8 attention with Hadamard on V is not yet implemented."
+        )
+
+    from torch._inductor.compile_fx import compile_fx
+
+    from torchao.prototype.attention.fp8_fa4.fusion_pass import (
+        rope_sdpa_fusion_pass,
+    )
+
+    pass_fn = partial(rope_sdpa_fusion_pass, fuse_rope=config.fuse_rope)
+
+    def fp8_attention_backend(gm, example_inputs):
+        """Custom Inductor backend that applies the RoPE + FP8 fusion pass."""
+        old_pass = inductor_config.pre_grad_custom_pass
+        inductor_config.pre_grad_custom_pass = pass_fn
+        try:
+            return compile_fx(gm, example_inputs)
+        finally:
+            inductor_config.pre_grad_custom_pass = old_pass
+
+    # Clear stale Dynamo caches to ensure fresh compilation.
+    torch._dynamo.reset()
+
+    # Compile with our custom backend (fusion pass is baked in).
+    compiled = torch.compile(model, backend=fp8_attention_backend)
+
+    return _LowPrecisionAttentionWrapper(compiled, model, flash_impl_name="FA4")
