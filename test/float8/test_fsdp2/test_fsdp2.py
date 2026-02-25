@@ -31,7 +31,12 @@ from torch.testing._internal.distributed._tensor.common_dtensor import (
     TransformerBlock,
 )
 
-from torchao.float8.config import CastConfig, Float8LinearConfig, ScalingType
+from torchao.float8.config import (
+    CastConfig,
+    Float8LinearConfig,
+    ScalingType,
+    e4m3_dtype,
+)
 from torchao.float8.float8_linear_utils import convert_to_float8_training
 from torchao.float8.float8_scaling_utils import hp_tensor_to_float8_dynamic
 from torchao.float8.float8_training_tensor import GemmInputRole
@@ -40,13 +45,10 @@ from torchao.testing.training.fsdp2_utils import (
     check_parity_bf16_mp,
     check_parity_no_mp,
 )
-from torchao.utils import is_sm_at_least_89
+from torchao.utils import is_MI300, is_MI350, is_sm_at_least_89
 
-if not is_sm_at_least_89():
-    pytest.skip("Unsupported CUDA device capability version", allow_module_level=True)
-
-if torch.version.hip is not None:
-    pytest.skip("ROCm enablement in progress", allow_module_level=True)
+if not (is_sm_at_least_89() or is_MI300() or is_MI350()):
+    pytest.skip("Requires FP8-capable GPU (CUDA SM89+, MI300, or MI350)", allow_module_level=True)
 
 
 class TestFloat8Common:
@@ -336,7 +338,7 @@ class Test2DParallelMultiThread(FSDPTestMultiThread, TestFloat8Common):
             hp_tensor = torch.randn(768, 32, device="cuda")
             hp_tensor_to_float8_dynamic(
                 hp_tensor,
-                torch.float8_e4m3fn,
+                e4m3_dtype,
                 Float8LinearConfig(
                     cast_config_weight=CastConfig(scaling_type=ScalingType.DYNAMIC),
                 ),

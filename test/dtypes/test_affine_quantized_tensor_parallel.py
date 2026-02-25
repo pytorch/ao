@@ -36,9 +36,6 @@ try:
 except ModuleNotFoundError:
     has_gemlite = False
 
-if torch.version.hip is not None:
-    pytest.skip("Skipping the test in ROCm", allow_module_level=True)
-
 
 class TestAffineQuantizedTensorParallel(DTensorTestBase):
     """Basic test case for tensor subclasses"""
@@ -196,8 +193,10 @@ common_utils.instantiate_parametrized_tests(TestInt4woAffineQuantizedTensorParal
 common_utils.instantiate_parametrized_tests(TestGemliteLayoutTensorParallel)
 common_utils.instantiate_parametrized_tests(TestInt8dqAffineQuantizedTensorParallel)
 
-# Run only on H100
-if torch.cuda.is_available() and torch.cuda.get_device_capability() >= (9, 0):
+# Float8 TP requires FP8-capable hardware (H100+ on CUDA, MI300+ on ROCm)
+from torchao.utils import is_MI300, is_MI350, is_sm_at_least_90
+
+if torch.cuda.is_available() and (is_sm_at_least_90() or is_MI300() or is_MI350()):
 
     class TestFloat8woAffineQuantizedTensorParallel(TestAffineQuantizedTensorParallel):
         QUANT_METHOD_FN = staticmethod(Float8WeightOnlyConfig)
