@@ -709,21 +709,32 @@ def _int8_dynamic_activation_intx_weight_transform(
     module: torch.nn.Module,
     config: Int8DynamicActivationIntxWeightConfig,
     *,
+    parameter_name: str = "weight",
     custom_scale: Optional[torch.Tensor] = None,
     custom_zero_point: Optional[torch.Tensor] = None,
 ) -> torch.nn.Module:
     new_weight, new_bias = _int8_dynamic_activation_intx_weight_quantize_tensor(
-        module.weight,
+        getattr(module, parameter_name),
         module.bias,
         config,
         custom_scale=custom_scale,
         custom_zero_point=custom_zero_point,
     )
-    module.weight = torch.nn.Parameter(new_weight, requires_grad=False)
+    setattr(
+        module,
+        parameter_name,
+        torch.nn.Parameter(new_weight, requires_grad=False),
+    )
     if new_bias is None:
         module.bias = None
-    if isinstance(module, nn.Linear):
-        module.extra_repr = types.MethodType(_linear_extra_repr, module)
+    module.extra_repr = types.MethodType(
+        partial(
+            _module_extra_repr,
+            original_extra_repr=module.extra_repr,
+            parameter_name=parameter_name,
+        ),
+        module,
+    )
     return module
 
 
