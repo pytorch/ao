@@ -907,14 +907,14 @@ def _float8_dynamic_activation_int4_weight_transform(
 
     if int4_packing_format == "preshuffled":
         new_weight = Int4PreshuffledTensor.from_hp(
-            module.weight,
+            weight,
             block_size,
             activation_dtype=torch.float8_e4m3fn,
         )
     else:
         # plain format
         new_weight = Int4Tensor.from_hp(
-            module.weight,
+            weight,
             block_size,
             activation_dtype=torch.float8_e4m3fn,
         )
