@@ -53,8 +53,6 @@ class Int8Tensor(TorchAOBaseTensor):
     """
     int8 quantized tensor with plain layout.
 
-    Supports both symmetric and asymmetric quantization.
-
     Tensor Attributes:
         qdata: (N, K) or (B, N, K) int8 quantized weight data (2D or 3D)
         scale: scale factors for dequantization
