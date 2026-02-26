@@ -38,8 +38,8 @@ if torch_version_at_least("2.7.0") and has_triton():
                 num_warps=warps,
                 num_stages=stages,
             )
-            for block_size_n in [64, 128]
-            for block_size_k in [128]
+            for block_size_n in [64, 128, 256]
+            for block_size_k in [64, 128]
             for warps in [4, 8]
             for stages in [2, 4]
         ]
@@ -284,10 +284,10 @@ if torch_version_at_least("2.7.0") and has_triton():
                 num_warps=warps,
                 num_stages=stages,
             )
-            for block_size_n in [32, 64]
-            for block_size_k in [128]
+            for block_size_n in [32, 64, 128]
+            for block_size_k in [64, 128]
             for warps in [4, 8]
-            for stages in [3, 6]
+            for stages in [2, 4, 6]
         ]
     else:
         reduction_kernel_configs_2D = [

@@ -111,6 +111,7 @@ if torch_version_at_least("2.7.0") and has_triton():
             scales_buffer,
             m,
             k,
+            n_groups,
             hp_tensor.stride(0),
             hp_tensor.stride(1),
             output_buffer.stride(0),
@@ -150,7 +151,7 @@ if torch_version_at_least("2.7.0") and has_triton():
     # so the kernel is easily interpretable in a standalone fasion.
     # The tokens per expert will vary per iteration, so don't want
     # to recompile on `token` dim (K, in this case) changes.
-    @triton.autotune(configs=kernel_configs_2D, key=["M"])
+    @triton.autotune(configs=kernel_configs_2D, key=["M", "N_GROUPS"])
     @triton.jit
     def _triton_fp8_per_group_rowwise_scales_kernel(
         input_ptr,
@@ -159,6 +160,7 @@ if torch_version_at_least("2.7.0") and has_triton():
         scales_ptr,
         M: int,
         K: int,
+        N_GROUPS: int,
         stride_input_row: int,
         stride_input_col: int,
         stride_output_row: int,
@@ -302,6 +304,7 @@ if torch_version_at_least("2.7.0") and has_triton():
             scales_buffer,
             k,
             n,
+            n_groups,
             hp_tensor.stride(0),
             hp_tensor.stride(1),
             output_buffer.stride(0),
@@ -339,7 +342,7 @@ if torch_version_at_least("2.7.0") and has_triton():
     # before the calculation `grad_B = grad_output_t @ input`.
     # The tokens per expert will vary per iteration, so don't want
     # to recompile on `token` dim (M) changes.
-    @triton.autotune(configs=kernel_configs_2D, key=["K"])
+    @triton.autotune(configs=kernel_configs_2D, key=["K", "N_GROUPS"])
     @triton.jit
     def _triton_fp8_per_group_colwise_scales_kernel(
         input_ptr,
@@ -348,6 +351,7 @@ if torch_version_at_least("2.7.0") and has_triton():
         scales_ptr,
         K: int,
         N: int,
+        N_GROUPS: int,
         stride_input_row: int,
         stride_input_col: int,
         stride_output_row: int,
