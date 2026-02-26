@@ -20,6 +20,7 @@ from torchao.prototype.moe_training.config import (
 )
 from torchao.quantization.quant_api import quantize_
 from torchao.quantization.quantize_.common import KernelPreference
+from torchao.utils import is_MI300, is_MI350, is_ROCM
 
 # Reference MoE implementation (copied from torchtitan to avoid external dependency)
 from .reference_moe import MoE, MoEArgs, set_token_group_alignment_size_m
@@ -97,18 +98,16 @@ def test_moe_training(
             "Skipping compile=True with kernel_preference=EMULATED, not currently supported"
         )
 
-    # FP8_ROWWISE hardware path requires SM90
-    if (
-        recipe == FP8GroupedMMRecipe.FP8_ROWWISE
-        and torch.cuda.get_device_capability()
-        != (
-            9,
-            0,
-        )
-    ):
-        pytest.skip(
-            f"Skipping FP8 rowwise tests, only supported on compute capability 9.0 and found {torch.cuda.get_device_capability()}"
-        )
+    # FP8_ROWWISE hardware path requires SM90 (CUDA) or MI300/MI350 (ROCm)
+    if recipe == FP8GroupedMMRecipe.FP8_ROWWISE:
+        if is_ROCM():
+            if not (is_MI300() or is_MI350()):
+                pytest.skip("FP8 rowwise test requires MI300 or MI350 on ROCm")
+        else:
+            if torch.cuda.get_device_capability() != (9, 0):
+                pytest.skip(
+                    f"Skipping FP8 rowwise tests, only supported on compute capability 9.0 and found {torch.cuda.get_device_capability()}"
+                )
 
     # MXFP8 hardware path requires SM100
     if recipe in (
