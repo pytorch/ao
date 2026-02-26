@@ -1076,9 +1076,7 @@ class TestFqnToConfig(TestCase):
     def test_float8_dynamic_activation_int4_weight_quantizes_correct_param(self):
         """Regression test: _float8_dynamic_activation_int4_weight_transform must
         quantize the parameter identified by parameter_name, not module.weight."""
-        model = torch.nn.Sequential(
-            torch.nn.Linear(128, 128).to(torch.bfloat16).cuda()
-        )
+        model = torch.nn.Sequential(torch.nn.Linear(128, 128).to(torch.bfloat16).cuda())
         # Register a custom parameter with distinct values from weight
         custom_data = torch.randn(128, 128, dtype=torch.bfloat16, device="cuda")
         model[0].register_parameter(
@@ -1095,7 +1093,8 @@ class TestFqnToConfig(TestCase):
         # weight must be completely untouched (same object)
         assert model[0].weight.data_ptr() == model[0].weight.data_ptr()
         torch.testing.assert_close(
-            model[0].weight, original_weight,
+            model[0].weight,
+            original_weight,
             msg="weight should be unchanged after quantizing custom_param",
         )
 
