@@ -19,19 +19,8 @@ from torchao.prototype.gptq.observer import (
     ObserverTensor,
     _calculate_hessian,
 )
-from torchao.prototype.mx_formats.inference_workflow import (
-    MXDynamicActivationMXWeightConfig,
-)
-
-# MXFP8 imports
-from torchao.quantization import (
-    Float8DynamicActivationFloat8WeightConfig,
-    Int4WeightOnlyConfig,
-    Int8WeightOnlyConfig,
-    quantize_,
-)
+from torchao.quantization import Int4WeightOnlyConfig, Int8WeightOnlyConfig, quantize_
 from torchao.quantization.granularity import PerRow
-from torchao.quantization.quantize_.common import KernelPreference
 from torchao.utils import _is_mslk_available
 
 
@@ -218,82 +207,24 @@ class TestGPTQObserverTensor:
         # Apply GPTQConfig with observe step
         quantize_(linear, GPTQConfig(step="observe", base_config=base_config))
 
-        # Check weight is now a GPTQObserverTensor
-        assert isinstance(linear.weight, GPTQObserverTensor)
+        # Check weight is now an ObserverTensor
+        assert isinstance(linear.weight, ObserverTensor)
 
         # Check hp_data matches original weight
         torch.testing.assert_close(linear.weight.hp_data, original_weight)
 
-        # Check hessian is not initialized yet
-        assert linear.weight.hessian is None
-        assert linear.weight.total_batches == 0
+        # Check observed_inputs is empty initially
+        assert len(linear.weight.observed_inputs) == 0
 
         # Perform a forward pass
         input_tensor = torch.randn(4, 64, dtype=torch.float32, device="cuda")
         output = linear(input_tensor)
 
-        # Check Hessian was initialized after forward pass
-        assert linear.weight.hessian is not None
-        assert linear.weight.total_batches > 0
+        # Check observed_inputs was initialized after forward pass
+        assert len(linear.weight.observed_inputs) == 1
 
         # Check output shape
         assert output.shape == (4, 32)
-
-    @pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA available")
-    def test_gptq_observer_with_quantize_fn(self):
-        """Test that GPTQObserverTensor applies quantize_fn during Hessian computation."""
-        in_features = 64
-        out_features = 32
-
-        weight = torch.randn(
-            out_features, in_features, dtype=torch.float32, device="cuda"
-        )
-
-        call_count = [0]
-
-        def dummy_quantize_fn(x):
-            call_count[0] += 1
-            return x * 0.5
-
-        observer = GPTQObserverTensor.from_hp(weight, quantize_fn=dummy_quantize_fn)
-
-        input_tensor = torch.randn(4, in_features, dtype=torch.float32, device="cuda")
-        output = F.linear(input_tensor, observer)
-
-        assert output.shape == (4, out_features)
-        assert call_count[0] == 1
-        assert observer.hessian is not None
-        assert observer.total_batches > 0
-
-    @pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA available")
-    def test_gptq_observer_quantize_fn_hessian_matches_manual(self):
-        """Test that Hessian from quantize_fn-equipped GPTQObserverTensor matches manual computation."""
-        in_features = 32
-        out_features = 16
-
-        weight = torch.randn(
-            out_features, in_features, dtype=torch.float32, device="cuda"
-        )
-
-        def quantize_fn(x):
-            return torch.round(x * 4) / 4  # simple rounding quantization
-
-        observer = GPTQObserverTensor.from_hp(weight, quantize_fn=quantize_fn)
-
-        activations_raw = []
-        for _ in range(5):
-            inp = torch.randn(4, in_features, dtype=torch.float32, device="cuda")
-            activations_raw.append(inp)
-            F.linear(inp, observer)
-
-        # Hessian computed manually with quantize_fn applied to raw activations
-        hessian_manual = _calculate_hessian(
-            activations_raw, device="cuda", quantize_fn=quantize_fn
-        )
-
-        torch.testing.assert_close(
-            observer.hessian, hessian_manual, rtol=1e-4, atol=1e-5
-        )
 
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA available")
     def test_hessian_incremental_update(self):
@@ -355,15 +286,15 @@ class TestGPTQFlow:
         linear = torch.nn.Linear(64, 32, bias=False).cuda().to(torch.bfloat16)
         original_weight = linear.weight.data.clone()
 
-        # Phase 1: Observation step - wrap as GPTQObserverTensor
+        # Phase 1: Observation step - wrap as ObserverTensor
         observe_config = GPTQConfig(
             step="observe",
             base_config=base_config,
         )
         quantize_(linear, observe_config)
 
-        # Verify weight is now a GPTQObserverTensor
-        assert isinstance(linear.weight, GPTQObserverTensor)
+        # Verify weight is now an ObserverTensor
+        assert isinstance(linear.weight, ObserverTensor)
         torch.testing.assert_close(linear.weight.hp_data, original_weight)
 
         # Run some forward passes for calibration
@@ -371,8 +302,7 @@ class TestGPTQFlow:
             input_tensor = torch.randn(4, 64, dtype=torch.bfloat16, device="cuda")
             _ = linear(input_tensor)
 
-        assert linear.weight.hessian is not None
-        assert linear.weight.total_batches > 0
+        assert len(linear.weight.observed_inputs) == 10
 
         # Phase 2: Convert step - apply GPTQ quantization
         convert_config = GPTQConfig(
@@ -606,96 +536,6 @@ class TestGPTQFlow:
             assert sqnr_gptq > 25, f"GPTQ SQNR: {sqnr_gptq} is too low"
         elif isinstance(base_config, Int8WeightOnlyConfig):
             assert sqnr_gptq > 30, f"GPTQ SQNR: {sqnr_gptq} is too low"
-        assert sqnr_gptq > sqnr_rtn, (
-            f"GPTQ SQNR: {sqnr_gptq} is not better than RTN SQNR: {sqnr_rtn}"
-        )
-
-
-class TestGPTQMXFP8:
-    """Test suite for MXFP8 GPTQ support."""
-
-    @pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA available")
-    def test_mxfp8_gptq_sqnr(self):
-        """End-to-end SQNR test: GPTQ should produce better quality than RTN.
-
-        Compares the output SQNR (Signal-to-Quantization-Noise Ratio) of:
-        - GPTQ: Hessian-aware quantization with error propagation
-        - RTN: Naive round-to-nearest quantization (using MXTensor.to_mx directly)
-
-        Since MXTensor weight-only dispatch is not yet available, we dequantize
-        the quantized weights back to bfloat16 before running the forward pass.
-        This isolates the weight quantization quality comparison.
-        """
-        torch.manual_seed(43)
-
-        # Use dimensions divisible by block_size=32
-        model = ToyLinearModel(m=512, n=2048, k=1024).cuda().to(torch.bfloat16)
-
-        # Create calibration and test inputs
-        calibration_inputs = [
-            torch.randn(4, 512, dtype=torch.bfloat16, device="cuda") for _ in range(10)
-        ]
-        test_input = calibration_inputs[0]
-
-        # Get baseline output (full precision)
-        out = model(test_input)
-
-        # Make copies for comparison
-        model_rtn = copy.deepcopy(model)
-        model_gptq = copy.deepcopy(model)
-        model_float8 = copy.deepcopy(model)
-
-        # --- Float8 weight-only RTN baseline ---
-        quantize_(
-            model_float8,
-            Float8DynamicActivationFloat8WeightConfig(granularity=PerRow()),
-        )
-        out_float8 = model_float8(test_input)
-
-        # --- MXFP8 RTN baseline ---
-        base_config = MXDynamicActivationMXWeightConfig(
-            activation_dtype=torch.float8_e4m3fn,
-            weight_dtype=torch.float8_e4m3fn,
-            kernel_preference=KernelPreference.EMULATED,
-        )
-        quantize_(model_rtn, base_config)
-        out_rtn = model_rtn(test_input)
-
-        # --- MXFP8 GPTQ ---
-        # Phase 1: Observe (should create QuantizedObserverTensor for MX configs)
-        observe_config = GPTQConfig(step="observe", base_config=base_config)
-        quantize_(model_gptq, observe_config)
-
-        # Verify GPTQObserverTensor with quantize_fn is used for MX configs
-        for module in model_gptq.modules():
-            if isinstance(module, torch.nn.Linear):
-                assert isinstance(module.weight, GPTQObserverTensor)
-                assert module.weight.quantize_fn is not None
-
-        # Run calibration
-        for inp in calibration_inputs:
-            model_gptq(inp)
-
-        # Phase 2: Convert
-        convert_config = GPTQConfig(step="convert", base_config=base_config)
-        quantize_(model_gptq, convert_config)
-        out_gptq = model_gptq(test_input)
-
-        # Compare using SQNR
-        from torchao.quantization.utils import compute_error
-
-        sqnr_float8 = compute_error(out_float8, out)
-        sqnr_rtn = compute_error(out_rtn, out)
-        sqnr_gptq = compute_error(out_gptq, out)
-
-        print(
-            f"Float8 RTN SQNR: {sqnr_float8}, "
-            f"MXFP8 RTN SQNR: {sqnr_rtn}, "
-            f"MXFP8 GPTQ SQNR: {sqnr_gptq}"
-        )
-
-        # MXFP8 has good precision (8-bit float), so SQNR should be high
-        assert sqnr_gptq > 25, f"MXFP8 GPTQ SQNR: {sqnr_gptq} is too low"
         assert sqnr_gptq > sqnr_rtn, (
             f"GPTQ SQNR: {sqnr_gptq} is not better than RTN SQNR: {sqnr_rtn}"
         )
