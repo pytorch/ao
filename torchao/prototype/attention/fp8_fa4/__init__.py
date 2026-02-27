@@ -11,10 +11,14 @@ Use apply_low_precision_attention() from torchao.prototype.attention as the publ
 For lower-level access, use fp8_fa4_sdpa() directly.
 """
 
-from torchao.prototype.attention.fp8_fa4.attention import fp8_fa4_sdpa
+from torchao.prototype.attention.fp8_fa4.attention import (
+    fp8_fa4_rope_sdpa,
+    fp8_fa4_sdpa,
+)
 from torchao.prototype.attention.quantization import _fp8_sdpa_quantize
 
 __all__ = [
     "fp8_fa4_sdpa",
+    "fp8_fa4_rope_sdpa",
     "_fp8_sdpa_quantize",
 ]

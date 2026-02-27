@@ -7,15 +7,15 @@
 """
 Shared FX graph pattern detection and fusion utilities for low-precision attention.
 
-This module contains backend-agnostic code used by both FA3 and FA4 fusion passes:
+This module contains backend-agnostic code used by the fusion passes:
   - RoPE pattern detection (NeoX/LLaMA and FLUX interleaved variants)
   - SDPA node detection and parameter extraction
   - Transpose detection and unwrapping
   - Parameterized graph surgery and main fusion pass logic
 
-Backend-specific fusion passes (fp8_fa3/fusion_pass.py, fp8_fa4/fusion_pass.py)
-register their own custom ops and call the shared ``rope_sdpa_fusion_pass``
-with references to those ops.
+Backend-specific fusion passes (e.g., fp8_fa3/fusion_pass.py) register
+their own custom ops and call the shared ``rope_sdpa_fusion_pass`` with
+references to those ops.
 """
 
 import logging
@@ -432,14 +432,28 @@ def _is_lower_triangular_bool_mask(mask: torch.Tensor) -> bool:
     return torch.equal(mask.broadcast_to(mask.shape), ref.expand_as(mask))
 
 
-def detect_causal_mask(model: nn.Module, sample_input_ids=None) -> bool:
+def detect_causal_mask(
+    model: nn.Module,
+    sample_input_ids=None,
+    flash_impl_name: str | None = None,
+) -> bool:
     """Run one forward pass to detect whether the model uses causal masks.
 
     This pre-flight check monkey-patches ``F.scaled_dot_product_attention``
-    to inspect every ``attn_mask`` argument.  It returns ``True`` only when
-    **all** masks observed during the forward pass are lower-triangular
-    boolean causal masks (i.e. safe to strip and replace with
-    ``is_causal=True``).
+    to inspect every ``attn_mask`` argument.  It returns ``True`` when
+    either of the following holds for **every** SDPA call during the
+    forward pass:
+
+    1. The call carries a materialized lower-triangular boolean causal
+       mask (i.e. safe to strip and replace with ``is_causal=True``), or
+    2. The call already uses ``is_causal=True`` with no mask tensor.
+
+    Case 2 is important because some frameworks (e.g. HuggingFace
+    transformers >= 5.x) skip mask materialization in eager mode when
+    ``is_causal=True`` is sufficient, but **do** materialize the mask
+    during ``torch.compile`` tracing.  Without handling this case the
+    fusion pass would see materialized masks in the compiled graph but
+    ``strip_causal_mask`` would be ``False``, blocking all fusions.
 
     Args:
         model: The model to probe.  Must expose ``model.config.vocab_size``
@@ -447,11 +461,21 @@ def detect_causal_mask(model: nn.Module, sample_input_ids=None) -> bool:
         sample_input_ids: Optional ``[B, S]`` int tensor of input IDs.
             If ``None``, a ``[1, 16]`` tensor of random token IDs is
             created automatically.
+        flash_impl_name: Flash attention implementation to activate during
+            the probe forward pass (e.g. ``"FA3"``, ``"FA4"``).  Required
+            on hardware where the default SDPA backend may not support the
+            model (e.g. Blackwell without FA4 activated).
 
     Returns:
-        ``True`` if every SDPA call used a causal mask (safe to strip),
-        ``False`` otherwise (conservatively disables mask stripping).
+        ``True`` if every SDPA call used causal attention (safe to strip
+        masks that appear during compilation), ``False`` otherwise
+        (conservatively disables mask stripping).
     """
+    from torch.nn.attention import (
+        activate_flash_attention_impl,
+        restore_flash_attention_impl,
+    )
+
     # Resolve device from model parameters.
     try:
         device = next(model.parameters()).device
@@ -466,23 +490,30 @@ def detect_causal_mask(model: nn.Module, sample_input_ids=None) -> bool:
         sample_input_ids = torch.randint(0, vocab_size, (1, 16), device=device)
 
     all_causal: list[bool] = []
-    saw_any_mask = False
+    saw_any_sdpa = False
 
     original_sdpa = F.scaled_dot_product_attention
 
     def _hook(*args, **kwargs):
-        nonlocal saw_any_mask
+        nonlocal saw_any_sdpa
+        saw_any_sdpa = True
         # Extract attn_mask (positional arg 3 or kwarg).
         attn_mask = args[3] if len(args) > 3 else kwargs.get("attn_mask", None)
         is_causal = kwargs.get("is_causal", False) if len(args) <= 5 else args[5]
 
         if attn_mask is not None and not is_causal:
-            saw_any_mask = True
             all_causal.append(_is_lower_triangular_bool_mask(attn_mask))
+        elif attn_mask is None and is_causal:
+            # The framework skipped mask materialization and used
+            # is_causal=True directly.  This is equivalent to a causal
+            # mask and is safe to strip during compilation.
+            all_causal.append(True)
 
         return original_sdpa(*args, **kwargs)
 
     F.scaled_dot_product_attention = _hook
+    if flash_impl_name is not None:
+        activate_flash_attention_impl(flash_impl_name)
     try:
         with torch.no_grad():
             model(sample_input_ids)
@@ -491,9 +522,11 @@ def detect_causal_mask(model: nn.Module, sample_input_ids=None) -> bool:
         return False
     finally:
         F.scaled_dot_product_attention = original_sdpa
+        if flash_impl_name is not None:
+            restore_flash_attention_impl()
 
-    if not saw_any_mask:
-        # No masks observed — nothing to strip.
+    if not saw_any_sdpa:
+        # No SDPA calls observed at all.
         return False
 
     return all(all_causal)
