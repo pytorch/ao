@@ -70,20 +70,11 @@ def _fp8_sdpa_quantize(
     if q.shape[3] != k.shape[3]:
         raise ValueError(f"Head dim mismatch: {q.shape[3]} vs {k.shape[3]}")
 
-    if torch.compiler.is_compiling():
-        # Under torch.compile, use the PyTorch primitives path which the
-        # compiler can trace and optimize.
-        q_fp8, q_descale = _quantize_per_head(q)
-        k_fp8, k_descale = _quantize_per_head(k)
-        v_fp8, v_descale = _quantize_per_head(v)
-        return q_fp8, k_fp8, v_fp8, q_descale, k_descale, v_descale
-    else:
-        # In eager mode, use fused Triton kernels for better performance.
-        from torchao.prototype.attention.quantization.triton_qkv_quantization import (
-            triton_fp8_sdpa_quantize,
-        )
+    from torchao.prototype.attention.quantization.triton_qkv_quantization import (
+        triton_fp8_sdpa_quantize,
+    )
 
-        return triton_fp8_sdpa_quantize(q, k, v)
+    return triton_fp8_sdpa_quantize(q, k, v)
 
 
 def _fp8_rope_sdpa_quantize(

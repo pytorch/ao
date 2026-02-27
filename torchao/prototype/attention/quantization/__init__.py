@@ -7,8 +7,7 @@
 """
 Shared FP8 quantization kernels for low-precision attention backends.
 
-This module provides backend-agnostic FP8 quantization for Q, K, V tensors,
-used by both FA3 and FA4 backends.
+This module provides backend-agnostic FP8 quantization for Q, K, V tensors.
 """
 
 from torchao.prototype.attention.quantization.quantization import (

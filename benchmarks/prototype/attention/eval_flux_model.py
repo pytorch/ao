@@ -89,7 +89,7 @@ def cleanup_gpu():
     torch._dynamo.reset()
 
 
-def setup_backend(pipe, backend_name, compile_flag, orig_transformer, fuse_rope=True):
+def setup_backend(pipe, backend_name, compile_flag, orig_transformer, fuse_rope=False):
     """Set up a backend for a benchmark phase.
 
     For FP8 backends (fa3_fp8): applies low-precision attention which
@@ -118,6 +118,9 @@ def setup_backend(pipe, backend_name, compile_flag, orig_transformer, fuse_rope=
             fuse_rope=fuse_rope,
         )
         pipe.transformer = apply_low_precision_attention(pipe.transformer, fp8_config)
+        if compile_flag:
+            print(f"Compiling transformer with torch.compile ({backend_name})...")
+            pipe.transformer = torch.compile(pipe.transformer)
         # Return the flash impl (e.g. "FA3") so generate_image activates it
         # for the entire pipe() call.  This keeps non-transformer SDPA calls
         # (VAE, text encoder) consistent with the baseline FA3 backend.
@@ -195,7 +198,7 @@ def run_benchmark(
     debug_prompt: Optional[str] = None,
     warmup_iters: int = 2,
     compile: bool = False,
-    fuse_rope: bool = True,
+    fuse_rope: bool = False,
 ):
     """
     Run the attention backend benchmark on FLUX.1-schnell.
@@ -461,9 +464,9 @@ def main():
         help="Wrap the model with torch.compile for both backends",
     )
     parser.add_argument(
-        "--no_fuse_rope",
+        "--fuse_rope",
         action="store_true",
-        help="Skip RoPE fusion in FP8 backends (only replace SDPA with FP8)",
+        help="Fuse RoPE into the FP8 kernel (compile path, off by default)",
     )
 
     args = parser.parse_args()
@@ -476,7 +479,7 @@ def main():
         debug_prompt=args.debug_prompt,
         warmup_iters=args.warmup_iters,
         compile=args.compile,
-        fuse_rope=not args.no_fuse_rope,
+        fuse_rope=args.fuse_rope,
     )
 
 

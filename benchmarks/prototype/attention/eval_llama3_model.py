@@ -55,7 +55,7 @@ from torchao.prototype.attention import (
     LowPrecisionAttentionConfig,
     apply_low_precision_attention,
 )
-from torchao.prototype.attention.fusion_utils import (
+from torchao.prototype.attention.shared_utils.fusion_utils import (
     _is_sdpa_node,
     _sdpa_is_fusible,
     _strip_causal_mask,
@@ -99,7 +99,7 @@ BACKENDS = {
 RANDOM_SEED = 42
 DEFAULT_MODEL_ID = "meta-llama/Llama-3.1-8B"
 
-SEQ_LENGTHS = [1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072]
+SEQ_LENGTHS = [1024, 2048, 4096, 8192, 16384, 32768]  # , 65536, 131072]
 
 
 def cleanup_gpu():
@@ -134,9 +134,9 @@ def _make_strip_causal_mask_pass(strip_causal_mask: bool):
     return _strip_causal_mask_pass
 
 
-def _compile_with_mask_strip(model):
+def _compile_with_mask_strip(model, flash_impl_name=None):
     """Compile a model with the causal mask stripping pass."""
-    strip_causal_mask = detect_causal_mask(model)
+    strip_causal_mask = detect_causal_mask(model, flash_impl_name=flash_impl_name)
     pass_fn = _make_strip_causal_mask_pass(strip_causal_mask)
 
     def mask_strip_backend(gm, example_inputs):
@@ -151,7 +151,7 @@ def _compile_with_mask_strip(model):
     return torch.compile(model, backend=mask_strip_backend)
 
 
-def setup_backend(orig_model, backend_name, compile_flag, fuse_rope=True):
+def setup_backend(orig_model, backend_name, compile_flag, fuse_rope=False):
     """Set up a backend for a benchmark phase.
 
     All backends use the HuggingFace SDPA attention path (the model must
@@ -194,6 +194,9 @@ def setup_backend(orig_model, backend_name, compile_flag, fuse_rope=True):
             fuse_rope=fuse_rope,
         )
         model = apply_low_precision_attention(orig_model, fp8_config)
+        if compile_flag:
+            print(f"  Compiling model with torch.compile ({backend_name})...")
+            model = torch.compile(model)
         return model, cfg["flash_impl"]
     else:
         if compile_flag:
@@ -201,7 +204,9 @@ def setup_backend(orig_model, backend_name, compile_flag, fuse_rope=True):
             # Disable KV cache so the causal mask stripping pass works
             # (DynamicCache generates masks that block flash attention).
             orig_model.config.use_cache = False
-            model = _compile_with_mask_strip(orig_model)
+            model = _compile_with_mask_strip(
+                orig_model, flash_impl_name=cfg["flash_impl"]
+            )
             return model, cfg["flash_impl"]
         # Restore use_cache in case a prior setup disabled it.
         orig_model.config.use_cache = True
@@ -309,7 +314,7 @@ def run_benchmark(
     num_warmup: int = 3,
     perplexity_seq_len: int = 2048,
     compile: bool = False,
-    fuse_rope: bool = True,
+    fuse_rope: bool = False,
 ):
     baseline_label = BACKENDS[baseline_backend]["label"]
     test_label = BACKENDS[test_backend]["label"]
@@ -565,9 +570,9 @@ def main():
         help="Wrap the model with torch.compile (applies to non-FP8 backends)",
     )
     parser.add_argument(
-        "--no_fuse_rope",
+        "--fuse_rope",
         action="store_true",
-        help="Skip RoPE fusion in FP8 backends (only replace SDPA with FP8)",
+        help="Fuse RoPE into the FP8 kernel (compile path, off by default)",
     )
     args = parser.parse_args()
 
@@ -579,7 +584,7 @@ def main():
         num_warmup=args.num_warmup,
         perplexity_seq_len=args.perplexity_seq_len,
         compile=args.compile,
-        fuse_rope=not args.no_fuse_rope,
+        fuse_rope=args.fuse_rope,
     )
 
 
