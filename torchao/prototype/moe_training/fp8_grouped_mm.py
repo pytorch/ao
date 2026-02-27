@@ -254,4 +254,4 @@ class _Float8GroupedMM(torch.autograd.Function):
             out_dtype=out_dtype,
             use_fast_accum=True,
         )
-        return grad_A, grad_B.transpose(-2, -1), None, None, None, None
+        return grad_A, grad_B.transpose(-2, -1), None, None, None
