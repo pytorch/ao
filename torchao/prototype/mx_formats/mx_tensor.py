@@ -103,54 +103,6 @@ class QuantizeTensorToMXKwargs(QuantizeTensorKwargs):
     is_swizzled_scales: bool = False
 
 
-def _to_mx_rceil(
-    data_hp: torch.Tensor,
-    max_abs: torch.Tensor,
-    max_pos: float,
-) -> tuple[torch.Tensor, torch.Tensor]:
-    """
-    A prototype implementation of MXFP scale factor derivation method described in
-    https://docs.nvidia.com/cuda/cublas/#d-block-quantization
-
-    For Nvidia GPU with Blackwell+ architecture, the scale factor derivation method
-    could be accelerated by the `cvt.rp.satfinite.ue8m0x2.f32` instruction.
-
-    Args:
-        data_hp: High precision data.
-        max_abs: Maximum absolute value for data_hp along specified dimension/block_size.
-        max_pos: The maximum value of the low precision data type.
-
-    Returns:
-        exponent: The biased exponent with dtype E8M0 in uint8 container.
-        data_lp: The targeted low precision data, in high precision container
-            (requires cast to low precision data type).
-    """
-    descale = max_abs / max_pos
-    # TODO: nan/inf needs to be set for any value
-    # of nan/inf in input not just amax.
-    exponent = torch.where(
-        torch.isnan(descale),
-        0xFF,  # Handle biased exponent for nan
-        # NOTE: descale < (torch.finfo(torch.float32).smallest_normal / 2) is handled through clamping
-        (
-            torch.clamp(
-                torch.ceil(torch.log2(descale)),
-                min=-E8M0_EXPONENT_BIAS,
-                max=E8M0_EXPONENT_BIAS,
-            )
-            + E8M0_EXPONENT_BIAS
-        ).to(torch.uint8),
-    )
-
-    descale_fp = torch.where(
-        exponent == 0, 1.0, torch.exp2(E8M0_EXPONENT_BIAS - exponent.to(torch.float32))
-    )
-
-    # scale and saturated cast the data elements to max of target dtype
-    data_lp = torch.clamp(data_hp * descale_fp, min=-1 * max_pos, max=max_pos)
-    return exponent, data_lp
-
-
 def to_mx(
     data_hp: torch.Tensor,
     elem_dtype: Union[torch.dtype, str],
@@ -207,7 +159,12 @@ def to_mx(
             data_hp, target_max_pow2, mbits, max_pos, block_size, scaling_mode
         )
         data_lp = scale_and_cast_hp_data(
-            data_hp, scale_e8m0_uint8, elem_dtype, max_pos, block_size
+            data_hp,
+            scale_e8m0_uint8,
+            elem_dtype,
+            max_pos,
+            block_size,
+            scaling_mode,
         )
         scale_out = scale_e8m0_uint8.view(torch.float8_e8m0fnu).squeeze(-1)
         if is_swizzled_scales:
@@ -230,7 +187,12 @@ def to_mx(
                 scale_e8m0_uint8.flatten(), M, K // block_size
             )
         data_lp = scale_and_cast_hp_data(
-            data_hp, scale_e8m0_uint8.unsqueeze(-1), elem_dtype, max_pos, block_size
+            data_hp,
+            scale_e8m0_uint8.unsqueeze(-1),
+            elem_dtype,
+            max_pos,
+            block_size,
+            scaling_mode,
         )
         scale_out = scale
 
@@ -275,7 +237,25 @@ def compute_mx_scale(
     max_abs = max_abs.to(torch.float32)
 
     if scaling_mode == ScaleCalculationMode.RCEIL:
-        scale_e8m0_biased, _ = _to_mx_rceil(data_hp, max_abs, max_pos)
+        # RCEIL scale derivation as described in
+        # https://docs.nvidia.com/cuda/cublas/#d-block-quantization
+        # For Blackwell+ GPUs this can be accelerated by the
+        # cvt.rp.satfinite.ue8m0x2.f32 instruction.
+        descale = max_abs / max_pos
+        scale_e8m0_biased = torch.where(
+            torch.isnan(descale),
+            0xFF,  # Handle biased exponent for nan
+            # NOTE: descale < (torch.finfo(torch.float32).smallest_normal / 2)
+            # is handled through clamping
+            (
+                torch.clamp(
+                    torch.ceil(torch.log2(descale)),
+                    min=-E8M0_EXPONENT_BIAS,
+                    max=E8M0_EXPONENT_BIAS,
+                )
+                + E8M0_EXPONENT_BIAS
+            ).to(torch.uint8),
+        )
     else:
         assert data_hp.dtype is torch.float32
         hp_int_dtype = torch.int32
@@ -342,6 +322,7 @@ def scale_and_cast_hp_data(
     elem_dtype: Union[torch.dtype, str],
     max_pos: float,
     block_size: int,
+    scaling_mode: ScaleCalculationMode,
 ) -> torch.Tensor:
     """
     Takes high-precision data and a precomputed E8M0 scale, and quantizes
@@ -354,6 +335,8 @@ def scale_and_cast_hp_data(
         elem_dtype: Target element dtype.
         max_pos: Maximum representable positive value of elem_dtype.
         block_size: MX block size.
+        scaling_mode: Scale calculation mode, affects how the scale is
+            reconstructed for data scaling.
 
     Returns:
         Quantized data tensor.
@@ -368,24 +351,36 @@ def scale_and_cast_hp_data(
     )
     data_hp = data_hp.to(torch.float32)
 
-    # For now, calculate the scale in floating point.
-    # For now, use `torch.bitwise_left_shift` instead of `<<` to support DTensor
-    # See https://github.com/pytorch/pytorch/issues/156533.
-    scale_fp32 = (
-        torch.bitwise_left_shift(scale_e8m0_biased.to(torch.int32), MBITS_F32)
-    ).view(torch.float32)
+    if scaling_mode == ScaleCalculationMode.RCEIL:
+        descale_fp = torch.where(
+            scale_e8m0_biased == 0xFF,
+            0.0,
+            torch.where(
+                scale_e8m0_biased == 0,
+                1.0,
+                torch.exp2(E8M0_EXPONENT_BIAS - scale_e8m0_biased.to(torch.float32)),
+            ),
+        )
+        data_lp = torch.clamp(data_hp * descale_fp, min=-1 * max_pos, max=max_pos)
+    else:
+        # For now, calculate the scale in floating point.
+        # For now, use `torch.bitwise_left_shift` instead of `<<` to support DTensor
+        # See https://github.com/pytorch/pytorch/issues/156533.
+        scale_fp32 = (
+            torch.bitwise_left_shift(scale_e8m0_biased.to(torch.int32), MBITS_F32)
+        ).view(torch.float32)
 
-    # Today, 2**-127 returns 0 in compile+inductor+triton because it is in the
-    # float32 denormal range. For now, manually adjust the fp scale. This is
-    # relevant if all of the incoming block values are zeroes.
-    # See https://github.com/pytorch/pytorch/issues/125557 for details.
-    # Note: it would be more correct to set the minimum to 2**-127, but this
-    # does not work in triton either as it looks like subnormal value handling
-    # has some gaps.  So, for now just set to the minimum normal value.
-    scale_fp32 = torch.clamp(scale_fp32, min=F32_MIN_NORMAL)
+        # Today, 2**-127 returns 0 in compile+inductor+triton because it is in the
+        # float32 denormal range. For now, manually adjust the fp scale. This is
+        # relevant if all of the incoming block values are zeroes.
+        # See https://github.com/pytorch/pytorch/issues/125557 for details.
+        # Note: it would be more correct to set the minimum to 2**-127, but this
+        # does not work in triton either as it looks like subnormal value handling
+        # has some gaps.  So, for now just set to the minimum normal value.
+        scale_fp32 = torch.clamp(scale_fp32, min=F32_MIN_NORMAL)
 
-    # scale and saturated cast the data elements to max of target dtype
-    data_lp = data_hp / scale_fp32
+        # scale and saturated cast the data elements to max of target dtype
+        data_lp = data_hp / scale_fp32
 
     if (
         elem_dtype in (torch.float8_e4m3fn, torch.float8_e5m2)
