@@ -19,6 +19,13 @@ except:
     pack_int4 = None
 
 from torchao.core.config import AOBaseConfig
+from torchao.prototype.mx_formats.inference_workflow import (
+    MXDynamicActivationMXWeightConfig,
+)
+from torchao.prototype.mx_formats.mx_tensor import (
+    MXTensor,
+    to_mx,
+)
 from torchao.quantization import Int4Tensor, Int8Tensor
 from torchao.quantization.granularity import PerRow
 from torchao.quantization.quant_api import (
@@ -26,6 +33,7 @@ from torchao.quantization.quant_api import (
     Int8WeightOnlyConfig,
     _module_extra_repr,
 )
+from torchao.quantization.quantize_.common.kernel_preference import KernelPreference
 from torchao.quantization.transform_module import register_quantize_module_handler
 from torchao.quantization.utils import get_block_size
 
@@ -34,6 +42,7 @@ from .observer import GPTQObserverTensor
 CONFIG_TO_TORCHAO_BASE_TENSOR = {
     Int4WeightOnlyConfig: Int4Tensor,
     Int8WeightOnlyConfig: Int8Tensor,
+    MXDynamicActivationMXWeightConfig: MXTensor,
 }
 
 
@@ -42,7 +51,7 @@ class GPTQConfig(AOBaseConfig):
     """Config for GPTQ quantization
 
     GPTQ uses a two-step process:
-    - step="observe": Wraps weights as GPTQObserverTensor to collect Hessian information
+    - step="observe": Wraps weights as ObserverTensor to collect input activations
     - step="convert": Applies GPTQ quantization using the collected observations
 
     Note: By default, the "observe" step uses unquantized weights during forward passes.
@@ -56,13 +65,16 @@ class GPTQConfig(AOBaseConfig):
     Args:
         step: Either "observe" or "convert"
         base_config: Base quantization configuration that determines the target dtype.
-            Use Int4WeightOnlyConfig() for int4 or Int8WeightOnlyConfig() for int8.
+            Use Int4WeightOnlyConfig() for int4, Int8WeightOnlyConfig() for int8,
+            or MXDynamicActivationMXWeightConfig() for MX formats (mxfp8/mxfp4).
         percdamp: Damping factor for Hessian diagonal (default: 0.01)
         gptq_quantize_block_size: Block size for GPTQ algorithm (default: 256)
     """
 
     step: str = "observe"  # "observe" or "convert"
-    base_config: Union[Int4WeightOnlyConfig, Int8WeightOnlyConfig] = None
+    base_config: Union[
+        Int4WeightOnlyConfig, Int8WeightOnlyConfig, MXDynamicActivationMXWeightConfig
+    ] = None
     percdamp: float = 0.01
     gptq_quantize_block_size: int = 256
 
@@ -84,8 +96,24 @@ def _gptq_config_transform(
     tensor = getattr(module, parameter_name)
 
     if config.step == "observe":
-        # Observation phase: wrap as GPTQObserverTensor
-        new_tensor = GPTQObserverTensor.from_hp(tensor)
+        # Observation phase: wrap as GPTQObserverTensor which incrementally
+        # computes the Hessian during forward passes.
+        # For MX dynamic activation configs, pass a quantize_fn so that
+        # activation quantization noise is captured during observation.
+        quantize_fn = None
+        if isinstance(config.base_config, MXDynamicActivationMXWeightConfig):
+            base = config.base_config
+
+            def quantize_fn(x):
+                mx = MXTensor.to_mx(
+                    x.to(torch.bfloat16),
+                    base.activation_dtype,
+                    block_size=base.block_size,
+                    kernel_preference=KernelPreference.EMULATED,
+                )
+                return mx.dequantize(torch.float)
+
+        new_tensor = GPTQObserverTensor.from_hp(tensor, quantize_fn=quantize_fn)
         setattr(module, parameter_name, nn.Parameter(new_tensor, requires_grad=False))
         module.extra_repr = types.MethodType(
             partial(
@@ -97,7 +125,7 @@ def _gptq_config_transform(
         )
         return module
     elif config.step == "convert":
-        # Quantization phase: tensor should be an GPTQObserverTensor
+        # Quantization phase: tensor should be a GPTQObserverTensor
         if not isinstance(tensor, GPTQObserverTensor):
             raise ValueError(
                 f"Expected {parameter_name} to be GPTQObserverTensor in 'convert' step, "
@@ -105,13 +133,12 @@ def _gptq_config_transform(
             )
 
         # Validate that observations were recorded
-        if tensor.hessian is None:
+        if tensor.hessian is None or tensor.total_batches == 0:
             raise ValueError(
                 f"No observations recorded for {parameter_name}. "
-                f"Hessian is None. Did you run forward passes during the observe step?"
+                f"Hessian is empty. Did you run forward passes during the observe step?"
             )
 
-        # Use pre-computed Hessian directly
         hessian = tensor.hessian
         new_tensor = gptq_quantize(hessian, tensor.hp_data, config)
         new_quantized_tensor = nn.Parameter(new_tensor, requires_grad=False)
@@ -225,7 +252,7 @@ def gptq_quantize(H: torch.Tensor, W: torch.Tensor, config: GPTQConfig):
         config: GPTQ configuration
 
     Returns:
-        Int4Tensor or Int8Tensor: Quantized weight matrix
+        Quantized weight matrix (Int4Tensor, Int8Tensor, or dequantized MXTensor)
     """
     assert W.dim() == 2
     gptq_quantize_block_size = config.gptq_quantize_block_size
@@ -242,6 +269,10 @@ def gptq_quantize(H: torch.Tensor, W: torch.Tensor, config: GPTQConfig):
         block_size = get_block_size(W.shape, base_config.granularity)
         block_size = list(block_size)
         group_size = block_size[-1]
+    elif isinstance(base_config, MXDynamicActivationMXWeightConfig):
+        group_size = base_config.block_size
+        block_size = [1, group_size]
+        mx_elem_dtype = base_config.weight_dtype
 
     assert group_size > 0
 
@@ -295,6 +326,17 @@ def gptq_quantize(H: torch.Tensor, W: torch.Tensor, config: GPTQConfig):
                         ],
                         base_config.granularity,
                     )
+                elif isinstance(base_config, MXDynamicActivationMXWeightConfig):
+                    # Compute MX scale for this group of columns
+                    group_data = W_quantize_block[
+                        :, group_start - block_start : group_end - block_start
+                    ]
+                    mx_scale_e8m0, _ = to_mx(
+                        group_data.contiguous(),
+                        mx_elem_dtype,
+                        group_size,
+                    )
+                    group_qparams.append(mx_scale_e8m0)
 
             # Quantize each column and propagate errors to subsequent columns
             for i in range(group_start - block_start, group_end - block_start):
@@ -311,6 +353,26 @@ def gptq_quantize(H: torch.Tensor, W: torch.Tensor, config: GPTQConfig):
                         scale=quantized_tensor.scale,
                     )
                     dq = q.dequantize(output_dtype=torch.float)
+                elif isinstance(base_config, MXDynamicActivationMXWeightConfig):
+                    # Quantize and dequantize the single column directly
+                    # using the precomputed per-row MX scale.
+                    # Pad w from [N, 1] to [N, group_size] so that
+                    # _mx_quantize_precomputed_scale and to_dtype can
+                    # reshape along the block dimension correctly.
+                    # has shape constraints on
+                    w_padded = torch.zeros(
+                        w.shape[0], group_size, dtype=w.dtype, device=w.device
+                    )
+                    w_padded[:, 0:1] = w
+                    test = MXTensor.to_mx(
+                        w_padded,
+                        mx_elem_dtype,
+                        group_size,
+                        kernel_preference=KernelPreference.EMULATED,
+                        is_swizzled_scales=False,
+                        scale=mx_scale_e8m0,
+                    )
+                    dq = test.dequantize(torch.float)[:, 0:1]
 
                 err1 = (w - dq) / Hinv_quantize_block[i, i]
                 W_quantize_block[:, i:] -= err1.matmul(
@@ -340,7 +402,17 @@ def gptq_quantize(H: torch.Tensor, W: torch.Tensor, config: GPTQConfig):
         result = Int8Tensor.from_hp(
             W, granularity=base_config.granularity, scale=quantized_tensor.scale
         )
-
+    elif isinstance(base_config, MXDynamicActivationMXWeightConfig):
+        scale = torch.cat(group_qparams, dim=1)
+        result = MXTensor.to_mx(
+            W,
+            base_config.weight_dtype,
+            block_size=base_config.block_size,
+            kernel_preference=KernelPreference.EMULATED,
+            act_quant_kwargs=None,
+            is_swizzled_scales=False,
+            scale=scale,
+        ).dequantize(torch.bfloat16)
     return result
 
 
