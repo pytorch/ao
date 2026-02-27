@@ -404,7 +404,6 @@ def gptq_quantize(H: torch.Tensor, W: torch.Tensor, config: GPTQConfig):
         )
     elif isinstance(base_config, MXDynamicActivationMXWeightConfig):
         scale = torch.cat(group_qparams, dim=1)
-        # Convert weight to MX Tensor
         result = MXTensor.to_mx(
             W,
             base_config.weight_dtype,

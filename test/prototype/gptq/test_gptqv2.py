@@ -22,8 +22,6 @@ from torchao.prototype.gptq.observer import (
 from torchao.prototype.mx_formats.inference_workflow import (
     MXDynamicActivationMXWeightConfig,
 )
-
-# MXFP8 imports
 from torchao.quantization import (
     Float8DynamicActivationFloat8WeightConfig,
     Int4WeightOnlyConfig,
