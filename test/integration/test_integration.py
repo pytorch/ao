@@ -281,7 +281,6 @@ class PythonQuantUtilOpUnitTest(unittest.TestCase):
             self._test_per_token_linear_impl("cpu", dtype)
 
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
-    @skip_if_rocm("ROCm enablement in progress")
     def test_per_token_linear_cuda(self):
         device = get_current_accelerator_device()
         for dtype in (torch.float32, torch.float16, torch.bfloat16):
@@ -591,7 +590,6 @@ class TestSubclass(unittest.TestCase):
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @torch._inductor.config.patch({"freezing": True})
-    @skip_if_rocm("Test flaky on ROCm, under investigation")
     def test_int8_weight_only_quant_with_freeze(self, device, dtype):
         torch._dynamo.reset()
         self._test_lin_weight_subclass_api_impl(
@@ -643,7 +641,7 @@ class TestSubclass(unittest.TestCase):
         )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
-    @skip_if_rocm("ROCm enablement in progress")
+    @skip_if_rocm("_weight_int4pack_mm scale layout incompatible with ROCm")
     @skip_if_xpu("XPU enablement in progress")
     def test_int4_weight_only_quant_subclass_api_grouped(self, device, dtype):
         if dtype != torch.bfloat16:
