@@ -341,7 +341,7 @@ def insert_observers_(
         input_observer = AffineQuantizedMinMaxObserver(
             MappingType.SYMMETRIC,
             torch.float8_e4m3fn,
-            granularity_type=PerTensor(),
+            granularity=PerTensor(),
             eps=torch.finfo(torch.float32).eps,
             scale_dtype=torch.float,
             zero_point_dtype=torch.int,
