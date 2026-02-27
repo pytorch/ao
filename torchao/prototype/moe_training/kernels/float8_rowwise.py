@@ -207,7 +207,16 @@ if torch_version_at_least("2.7.0") and has_triton():
             + k_offs[None, :] * stride_scales_dim1
         )
         scales_mask = k_offs[None, :] < K
-        tl.atomic_min(scales_ptr + scales_offs, scales[None, :], mask=scales_mask)
+        # AMD GPUs need relaxed semantics for better performance
+        if tl.constexpr(torch.version.hip is not None):
+            tl.atomic_min(
+                scales_ptr + scales_offs,
+                scales[None, :],
+                mask=scales_mask,
+                sem="relaxed",
+            )
+        else:
+            tl.atomic_min(scales_ptr + scales_offs, scales[None, :], mask=scales_mask)
 
     @triton.autotune(configs=atomic_kernel_configs_2D, key=["num_elements"])
     @triton.jit
