@@ -22,6 +22,9 @@ from torchao.prototype.attention.config import (
     AttentionBackend,
     LowPrecisionAttentionConfig,
 )
+from torchao.prototype.attention.shared_utils.wrapper import (
+    _LowPrecisionAttentionWrapper,
+)
 from torchao.prototype.attention.utils import (
     _check_backend_available,
     _get_available_backend,
@@ -35,15 +38,21 @@ def apply_low_precision_attention(
     """
     Apply low-precision attention to a model.
 
-    Compiles the model with a custom backend that fuses
-    RoPE + FP8 quantization + SDPA into optimized kernels.  The
-    returned module is fully encapsulated: no global state is modified,
-    and the caller does **not** need to call ``torch.compile`` or
-    ``activate_flash_attention_impl`` separately.
+    Depending on the configuration, the model is either:
+    - **Monkey-patch path** (``fuse_rope=False``, default): wraps the model
+      so that ``F.scaled_dot_product_attention`` is replaced with the FP8
+      backend at call time.  No ``torch.compile`` is needed.
+    - **Compile path** (``fuse_rope=True``): compiles the model with a
+      custom Inductor backend that fuses RoPE + FP8 quantization + SDPA
+      into optimized kernels.
+
+    In both cases, the returned wrapper manages flash attention activation
+    internally — callers do **not** need to call
+    ``activate_flash_attention_impl`` / ``restore_flash_attention_impl``.
 
     The returned wrapper creates a graph-break boundary, so if the
     caller later applies ``torch.compile`` to a parent model, the inner
-    compilation (with the fusion pass) is preserved.
+    module is preserved.
 
     Args:
         model: The model to apply low-precision attention to.
@@ -57,7 +66,7 @@ def apply_low_precision_attention(
             If None, uses default config (auto backend selection).
 
     Returns:
-        A wrapped module with low-precision attention compiled in.
+        A wrapped module with low-precision attention applied.
 
     Raises:
         RuntimeError: If the model is already compiled or already
@@ -69,8 +78,14 @@ def apply_low_precision_attention(
 
         model = MyTransformer()
         model = apply_low_precision_attention(model)
-        output = model(inputs)  # First call triggers compilation
+        output = model(inputs)  # flash activation managed internally
     """
+    # Guard: already wrapped.
+    if isinstance(model, _LowPrecisionAttentionWrapper):
+        raise RuntimeError(
+            "apply_low_precision_attention has already been applied to this module."
+        )
+
     # Guard: already compiled.
     if isinstance(model, torch._dynamo.OptimizedModule):
         raise RuntimeError(
@@ -89,17 +104,13 @@ def apply_low_precision_attention(
         _check_backend_available(backend)
 
     if backend == AttentionBackend.FP8_FA3:
-        from torchao.prototype.attention.fp8_fa3.setup import (
-            _LowPrecisionAttentionWrapper,
-            setup_fp8_fa3,
-        )
-
-        # Guard: already wrapped.
-        if isinstance(model, _LowPrecisionAttentionWrapper):
-            raise RuntimeError(
-                "apply_low_precision_attention has already been applied to this module."
-            )
+        from torchao.prototype.attention.fp8_fa3.setup import setup_fp8_fa3
 
         return setup_fp8_fa3(model, config)
+
+    if backend == AttentionBackend.FP8_FA4:
+        from torchao.prototype.attention.fp8_fa4.setup import setup_fp8_fa4
+
+        return setup_fp8_fa4(model, config)
 
     raise ValueError(f"Unknown backend: {backend}")

@@ -5,16 +5,16 @@
 # LICENSE file in the root directory of this source tree.
 
 """
-FP8 scaled dot-product attention using FA3 backend.
+FP8 scaled dot-product attention using FA4 backend.
 
 This is a thin wrapper around the shared implementation in
-``shared_utils/attention.py``.  It exists so that the FA3 backend has
-a named entry point (``fp8_fa3_sdpa``) and backend-specific error messages.
+``shared_utils/attention.py``.  It exists so that the FA4 backend has
+a named entry point (``fp8_fa4_sdpa``) and backend-specific error messages.
 
 .. important::
 
     When using this function directly (not through
-    ``apply_low_precision_attention``), you **must** activate the FA3
+    ``apply_low_precision_attention``), you **must** activate the FA4
     flash attention implementation yourself::
 
         from torch.nn.attention import (
@@ -22,9 +22,9 @@ a named entry point (``fp8_fa3_sdpa``) and backend-specific error messages.
             restore_flash_attention_impl,
         )
 
-        activate_flash_attention_impl("FA3")
+        activate_flash_attention_impl("FA4")
         try:
-            out = fp8_fa3_sdpa(q, k, v, is_causal=True)
+            out = fp8_fa4_sdpa(q, k, v, is_causal=True)
         finally:
             restore_flash_attention_impl()
 
@@ -35,16 +35,10 @@ a named entry point (``fp8_fa3_sdpa``) and backend-specific error messages.
 from functools import partial
 
 from torchao.prototype.attention.shared_utils.attention import (
-    _fp8_rope_sdpa,
     _fp8_sdpa,
 )
 
-fp8_fa3_sdpa = partial(_fp8_sdpa, backend_name="FA3")
-fp8_fa3_sdpa.__doc__ = _fp8_sdpa.__doc__
-fp8_fa3_sdpa.__name__ = "fp8_fa3_sdpa"
-fp8_fa3_sdpa.__qualname__ = "fp8_fa3_sdpa"
-
-fp8_fa3_rope_sdpa = partial(_fp8_rope_sdpa, backend_name="FA3")
-fp8_fa3_rope_sdpa.__doc__ = _fp8_rope_sdpa.__doc__
-fp8_fa3_rope_sdpa.__name__ = "fp8_fa3_rope_sdpa"
-fp8_fa3_rope_sdpa.__qualname__ = "fp8_fa3_rope_sdpa"
+fp8_fa4_sdpa = partial(_fp8_sdpa, backend_name="FA4")
+fp8_fa4_sdpa.__doc__ = _fp8_sdpa.__doc__
+fp8_fa4_sdpa.__name__ = "fp8_fa4_sdpa"
+fp8_fa4_sdpa.__qualname__ = "fp8_fa4_sdpa"

@@ -5,9 +5,9 @@
 # LICENSE file in the root directory of this source tree.
 
 """
-FP8 FA3 backend setup.
+FP8 FA4 backend setup.
 
-Thin wrapper around the shared ``setup_fp8_backend``, binding the FA3
+Thin wrapper around the shared ``setup_fp8_backend``, binding the FA4
 attention function.
 """
 
@@ -17,20 +17,24 @@ from torchao.prototype.attention.config import LowPrecisionAttentionConfig
 from torchao.prototype.attention.shared_utils.setup import setup_fp8_backend
 
 
-def setup_fp8_fa3(
+def _compile_not_available(model, config):
+    raise NotImplementedError(
+        "FA4 RoPE fusion (fuse_rope=True) is not yet available. "
+        "Use fuse_rope=False (default) for the monkey-patch path."
+    )
+
+
+def setup_fp8_fa4(
     model: nn.Module,
     config: LowPrecisionAttentionConfig,
 ) -> nn.Module:
-    """Set up FP8 FA3 attention on *model* and wrap it."""
-    from torchao.prototype.attention.fp8_fa3.attention import fp8_fa3_sdpa
-    from torchao.prototype.attention.fp8_fa3.fusion_pass import (
-        compile_with_fp8_fusion,
-    )
+    """Set up FP8 FA4 attention on *model* and wrap it."""
+    from torchao.prototype.attention.fp8_fa4.attention import fp8_fa4_sdpa
 
     return setup_fp8_backend(
         model,
         config,
-        flash_impl_name="FA3",
-        sdpa_fn=fp8_fa3_sdpa,
-        compile_fn=compile_with_fp8_fusion,
+        flash_impl_name="FA4",
+        sdpa_fn=fp8_fa4_sdpa,
+        compile_fn=_compile_not_available,
     )
