@@ -40,7 +40,9 @@ from torchao.prototype.moe_training.utils import (
     _to_mxfp8_per_group_rowwise,
     generate_jagged_offs,
 )
-from torchao.prototype.mx_formats.mx_tensor import to_mx
+from torchao.prototype.mx_formats.config import ScaleCalculationMode
+from torchao.prototype.mx_formats.kernels import triton_to_mxfp8_dim0
+from torchao.prototype.mx_formats.mx_tensor import MXTensor, to_mx
 from torchao.testing.utils import skip_if_rocm
 
 
@@ -367,4 +369,138 @@ def test_mxfp8_grouped_gemm_with_dq_fwd_bwd(
     sqnr = compute_error(w_t_ref.grad, w_t.grad)
     assert sqnr >= min_weight_grad_sqnr, (
         f"Weight grad sqnr {sqnr} is too low, must be >= {min_weight_grad_sqnr}"
+    )
+
+
+def _build_prequantized_a(
+    A: torch.Tensor,
+    block_size: int,
+    use_triton_for_dim0_cast: bool,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    if use_triton_for_dim0_cast:
+        return triton_to_mxfp8_dim0(
+            A,
+            inner_block_size=block_size,
+        )
+    A_scale, A_data = to_mx(
+        A,
+        elem_dtype=torch.float8_e4m3fn,
+        block_size=block_size,
+        scaling_mode=ScaleCalculationMode.RCEIL,
+    )
+    return A_data, A_scale
+
+
+@skip_if_rocm("ROCm not supported")
+@pytest.mark.parametrize("use_triton_for_dim0_cast", (True, False))
+def test_mxfp8_grouped_gemm_prequantized_tuple_matches_dynamic(
+    use_triton_for_dim0_cast: bool,
+):
+    block_size = 32
+    M, K, N, num_experts = 4096, 1024, 2048, 8
+    x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda", requires_grad=True)
+    w = torch.randn(
+        num_experts,
+        N,
+        K,
+        dtype=torch.bfloat16,
+        device="cuda",
+    )
+    w_t = w.transpose(-2, -1).requires_grad_(True)
+    offs = generate_jagged_offs(num_experts, M, multiple_of=block_size)
+
+    x_ref = x.detach().clone().requires_grad_(True)
+    w_t_ref = w_t.detach().clone().requires_grad_(True)
+
+    A_data, A_scale = _build_prequantized_a(
+        x.detach(),
+        block_size,
+        use_triton_for_dim0_cast,
+    )
+    out = _to_mxfp8_then_scaled_grouped_mm(
+        x,
+        w_t,
+        offs,
+        block_size,
+        torch.bfloat16,
+        use_triton_for_dim0_cast=use_triton_for_dim0_cast,
+        prequantized_A=(A_data, A_scale),
+    )
+    out_ref = _to_mxfp8_then_scaled_grouped_mm(
+        x_ref,
+        w_t_ref,
+        offs,
+        block_size,
+        torch.bfloat16,
+        use_triton_for_dim0_cast=use_triton_for_dim0_cast,
+    )
+
+    output_sqnr = compute_error(out_ref, out)
+    min_output_sqnr = 60.0
+    assert output_sqnr >= min_output_sqnr, (
+        f"Output sqnr {output_sqnr} is too low, must be >= {min_output_sqnr}"
+    )
+
+    labels = torch.ones_like(out_ref)
+    F.mse_loss(out_ref, labels).backward()
+    F.mse_loss(out, labels).backward()
+
+    input_grad_sqnr = compute_error(x_ref.grad, x.grad)
+    min_input_grad_sqnr = 40.0
+    assert input_grad_sqnr >= min_input_grad_sqnr, (
+        f"Input grad sqnr {input_grad_sqnr} is too low, must be >= {min_input_grad_sqnr}"
+    )
+
+    weight_grad_sqnr = compute_error(w_t_ref.grad, w_t.grad)
+    min_weight_grad_sqnr = 40.0
+    assert weight_grad_sqnr >= min_weight_grad_sqnr, (
+        f"Weight grad sqnr {weight_grad_sqnr} is too low, must be >= {min_weight_grad_sqnr}"
+    )
+
+
+@skip_if_rocm("ROCm not supported")
+def test_mxfp8_grouped_gemm_mxtensor_activation_forward():
+    block_size = 32
+    M, K, N, num_experts = 4096, 1024, 2048, 8
+    x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
+    w = torch.randn(
+        num_experts,
+        N,
+        K,
+        dtype=torch.bfloat16,
+        device="cuda",
+    )
+    w_t = w.transpose(-2, -1)
+    offs = generate_jagged_offs(num_experts, M, multiple_of=block_size)
+
+    x_mx = MXTensor.to_mx(
+        x,
+        elem_dtype=torch.float8_e4m3fn,
+        block_size=block_size,
+        scaling_mode=ScaleCalculationMode.RCEIL,
+        is_swizzled_scales=False,
+    )
+    out_mx = _to_mxfp8_then_scaled_grouped_mm(
+        x_mx,
+        w_t,
+        offs,
+        block_size,
+        torch.bfloat16,
+        use_triton_for_dim0_cast=False,
+        scale_calculation_mode=ScaleCalculationMode.RCEIL,
+    )
+    out_ref = _to_mxfp8_then_scaled_grouped_mm(
+        x,
+        w_t,
+        offs,
+        block_size,
+        torch.bfloat16,
+        use_triton_for_dim0_cast=False,
+        scale_calculation_mode=ScaleCalculationMode.RCEIL,
+    )
+
+    output_sqnr = compute_error(out_ref, out_mx)
+    min_output_sqnr = 60.0
+    assert output_sqnr >= min_output_sqnr, (
+        f"Output sqnr {output_sqnr} is too low, must be >= {min_output_sqnr}"
     )

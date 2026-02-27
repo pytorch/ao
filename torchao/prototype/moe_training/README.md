@@ -50,6 +50,9 @@ out = _to_mxfp8_then_scaled_grouped_mm(
         B.transpose(-2, -1),
         offs,
 )
+# Optional: pass pre-quantized activations with:
+# _to_mxfp8_then_scaled_grouped_mm(A, B_t, offs, prequantized_A=(A_qdata, A_scale))
+# or pass A directly as an MXTensor.
 
 # (Fake labels for demonstration purposes)
 labels = torch.ones_like(out)

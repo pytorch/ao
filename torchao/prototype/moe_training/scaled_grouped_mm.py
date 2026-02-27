@@ -5,7 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import logging
-from typing import Optional
+from typing import Optional, Tuple
 
 import torch
 
@@ -31,10 +31,122 @@ from torchao.prototype.mx_formats.config import (
     ScaleCalculationMode,
 )
 from torchao.prototype.mx_formats.kernels import triton_to_mxfp8_dim0
-from torchao.prototype.mx_formats.mx_tensor import to_mx
+from torchao.prototype.mx_formats.mx_tensor import MXTensor, to_dtype, to_mx
 from torchao.prototype.mx_formats.utils import _to_mxfp8_dim1_kernel_wrapper
 
 logger: logging.Logger = logging.getLogger(__name__)
+
+
+def _use_emulated_mxfp8_grouped_mm(exc: RuntimeError) -> bool:
+    error_message = str(exc)
+    return (
+        "Both scale_a and scale_b must be float (fp32) tensors." in error_message
+        or "torch._scaled_grouped_mm is only supported on CUDA devices with compute capability = 9.0"
+        in error_message
+    )
+
+
+def _normalize_prequantized_mxfp8_input_a(
+    A: torch.Tensor,
+    block_size: int,
+    prequantized_A: Optional[Tuple[torch.Tensor, torch.Tensor]],
+) -> Tuple[Optional[torch.Tensor], Optional[torch.Tensor]]:
+    if isinstance(A, MXTensor):
+        assert A._elem_dtype == torch.float8_e4m3fn, (
+            f"Expected MXTensor with elem_dtype float8_e4m3fn, but got {A._elem_dtype}"
+        )
+        assert A._block_size == block_size, (
+            f"Expected MXTensor block_size={block_size}, but got {A._block_size}"
+        )
+        assert not A._is_swizzled_scales, (
+            "MXTensor input scales must be unswizzled for grouped GEMM"
+        )
+        A_data = A.qdata
+        A_scale = A.scale
+    elif prequantized_A is not None:
+        A_data, A_scale = prequantized_A
+    else:
+        return None, None
+
+    assert A_data.ndim == 2, "Pre-quantized A data must be 2D"
+    assert A_scale.ndim == 2, "Pre-quantized A scale must be 2D"
+    assert A_data.dtype == torch.float8_e4m3fn, (
+        f"Expected pre-quantized A data dtype float8_e4m3fn, but got {A_data.dtype}"
+    )
+    assert A_scale.dtype in (torch.float8_e8m0fnu, torch.uint8), (
+        "Expected pre-quantized A scale dtype to be float8_e8m0fnu or uint8"
+    )
+    if A_scale.dtype == torch.uint8:
+        A_scale = A_scale.view(torch.float8_e8m0fnu)
+
+    assert A_data.shape[0] == A.shape[0] and A_data.shape[1] == A.shape[1], (
+        f"Expected pre-quantized A data shape to match input A shape {A.shape}, got {A_data.shape}"
+    )
+    assert A_scale.shape[0] == A.shape[0], (
+        f"Expected pre-quantized A scale dim0 to be {A.shape[0]}, got {A_scale.shape[0]}"
+    )
+    assert A_scale.shape[1] == A.shape[1] // block_size, (
+        f"Expected pre-quantized A scale dim1 to be {A.shape[1] // block_size}, got {A_scale.shape[1]}"
+    )
+
+    return A_data, A_scale
+
+
+def _iter_group_ranges(
+    offs: torch.Tensor,
+    total_rows: int,
+    expected_num_groups: int,
+):
+    offs_list = offs.detach().cpu().tolist()
+    assert len(offs_list) == expected_num_groups, (
+        f"Expected {expected_num_groups} groups, got {len(offs_list)} in offs"
+    )
+
+    group_start = 0
+    for group_end in offs_list:
+        assert group_end >= group_start, (
+            f"Invalid offs: group end {group_end} is before start {group_start}"
+        )
+        assert group_end <= total_rows, (
+            f"Invalid offs: group end {group_end} exceeds total rows {total_rows}"
+        )
+        yield group_start, group_end
+        group_start = group_end
+
+    assert group_start == total_rows, (
+        f"Expected last offset to be total rows {total_rows}, got {group_start}"
+    )
+
+
+def _emulated_grouped_mm_2d_3d(
+    A: torch.Tensor,
+    B_t: torch.Tensor,
+    offs: Optional[torch.Tensor],
+    out_dtype: Optional[torch.dtype],
+) -> torch.Tensor:
+    assert offs is not None, "offs must be provided for grouped mm emulation"
+    assert A.ndim == 2, f"A must be 2D, got {A.ndim}"
+    assert B_t.ndim == 3, f"B_t must be 3D, got {B_t.ndim}"
+    assert A.shape[1] == B_t.shape[1], (
+        f"Inner dimensions must match, got A={A.shape}, B_t={B_t.shape}"
+    )
+
+    M = A.shape[0]
+    E, K, N = B_t.shape
+    assert K == A.shape[1], f"Expected K={A.shape[1]} in B_t, got {K}"
+    mm_out_dtype = A.dtype if out_dtype is None else out_dtype
+    out = torch.empty((M, N), device=A.device, dtype=mm_out_dtype)
+
+    for expert_idx, (group_start, group_end) in enumerate(
+        _iter_group_ranges(offs, M, E)
+    ):
+        if group_end == group_start:
+            continue
+        out[group_start:group_end] = torch.matmul(
+            A[group_start:group_end],
+            B_t[expert_idx],
+        ).to(mm_out_dtype)
+    return out
 
 
 def _quantize_then_scaled_grouped_mm(
@@ -66,7 +178,7 @@ def _quantize_then_scaled_grouped_mm(
         )
     elif scaling_type == MoEScalingType.MXFP8:
         block_size = 32  # TODO: should we make this configurable? plumb it through in a config somehow?
-        return _MXFP8GroupedMM.apply(
+        return _to_mxfp8_then_scaled_grouped_mm(
             A,
             B_t,
             offs,
@@ -292,9 +404,10 @@ class _MXFP8GroupedMM(torch.autograd.Function):
         offs: Optional[torch.Tensor] = None,
         block_size: int = 32,
         out_dtype: Optional[torch.dtype] = torch.bfloat16,
-        emulated: bool = False,
         use_triton_for_dim0_cast: bool = False,
         scale_calculation_mode: ScaleCalculationMode = ScaleCalculationMode.RCEIL,
+        A_data: Optional[torch.Tensor] = None,
+        A_scale: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         # torchao _quantize_then_scaled_grouped_mm only supports A=2D and B=3D.
         assert A.ndim == 2, "A must be 2D"
@@ -304,24 +417,28 @@ class _MXFP8GroupedMM(torch.autograd.Function):
 
         # A_data shape: (M, K)
         # A_scale shape: (M, K//block_size)
+        if A_data is None or A_scale is None:
+            if use_triton_for_dim0_cast:
+                A_data, A_scale = triton_to_mxfp8_dim0(
+                    A,
+                    inner_block_size=block_size,
+                )
+            else:
+                A_scale, A_data = to_mx(
+                    A,
+                    elem_dtype=torch.float8_e4m3fn,
+                    block_size=block_size,
+                    scaling_mode=scale_calculation_mode,
+                )
+
+        # B_data shape: (E, N, K)
+        # B_scale shape: (E, N, K//block_size)
         if use_triton_for_dim0_cast:
-            A_data, A_scale = triton_to_mxfp8_dim0(
-                A,
-                inner_block_size=block_size,
-            )
-            # B_data shape: (E, N, K)
-            # B_scale shape: (E, N, K//block_size)
             B_data, B_scales = triton_to_mxfp8_dim0(
                 B_t.transpose(-2, -1),
                 inner_block_size=block_size,
             )
         else:
-            A_scale, A_data = to_mx(
-                A,
-                elem_dtype=torch.float8_e4m3fn,
-                block_size=block_size,
-                scaling_mode=scale_calculation_mode,
-            )
             B_scales, B_data = to_mx(
                 B_t.transpose(-2, -1),
                 elem_dtype=torch.float8_e4m3fn,
@@ -338,19 +455,33 @@ class _MXFP8GroupedMM(torch.autograd.Function):
 
         # output = input @ weight.T
         # output shape: (M, N)
-        out = torch._scaled_grouped_mm(
-            A_data,
-            B_data.transpose(-2, -1),
-            A_scales_blocked,
-            B_scales_blocked,
-            offs=offs,
-            out_dtype=out_dtype,
-        )
+        try:
+            out = torch._scaled_grouped_mm(
+                A_data,
+                B_data.transpose(-2, -1),
+                A_scales_blocked,
+                B_scales_blocked,
+                offs=offs,
+                out_dtype=out_dtype,
+            )
+            ctx.use_emulated_path = False
+        except RuntimeError as exc:
+            if not _use_emulated_mxfp8_grouped_mm(exc):
+                raise
+            out = _emulated_mxfp8_scaled_grouped_mm_2d_3d(
+                A_data,
+                A_scale,
+                B_data,
+                B_scales,
+                offs=offs,
+                out_dtype=out_dtype,
+                block_size=block_size,
+            )
+            ctx.use_emulated_path = True
 
         ctx.save_for_backward(A, B_t, offs)
         ctx.block_size = block_size
         ctx.out_dtype = out_dtype
-        ctx.emulated = emulated
         ctx.use_triton_for_dim0_cast = use_triton_for_dim0_cast
         ctx.scale_calculation_mode = scale_calculation_mode
         return out
@@ -362,6 +493,39 @@ class _MXFP8GroupedMM(torch.autograd.Function):
         out_dtype = ctx.out_dtype
         use_triton_for_dim0_cast = ctx.use_triton_for_dim0_cast
         scale_calculation_mode = ctx.scale_calculation_mode
+
+        if isinstance(A, MXTensor):
+            A = to_dtype(
+                A.qdata,
+                A.scale,
+                torch.float8_e4m3fn,
+                block_size,
+                A.dtype,
+            )
+
+        if ctx.use_emulated_path:
+            B = B_t.transpose(-2, -1).contiguous()
+            grad_dtype = grad_out.dtype if out_dtype is None else out_dtype
+            grad_A = _emulated_grouped_mm_2d_3d(
+                grad_out,
+                B,
+                offs,
+                grad_dtype,
+            )
+            E, N, _ = B.shape
+            grad_B = torch.empty((E, N, A.shape[1]), device=A.device, dtype=grad_dtype)
+            for expert_idx, (group_start, group_end) in enumerate(
+                _iter_group_ranges(offs, A.shape[0], E)
+            ):
+                if group_end == group_start:
+                    grad_B[expert_idx].zero_()
+                    continue
+                grad_B[expert_idx] = torch.matmul(
+                    grad_out[group_start:group_end].transpose(0, 1),
+                    A[group_start:group_end],
+                ).to(grad_dtype)
+            grad_B_t = grad_B.transpose(-2, -1)
+            return grad_A, grad_B_t, None, None, None, None, None, None, None
 
         # grad_out_data shape: (M, N)
         # grad_out_scale shape: (M, N//block_size)
@@ -457,7 +621,7 @@ class _MXFP8GroupedMM(torch.autograd.Function):
         )
         # grad_B_t shape =  (E,K,N)
         grad_B_t = grad_B.transpose(-2, -1)
-        return grad_A, grad_B_t, None, None, None, None
+        return grad_A, grad_B_t, None, None, None, None, None, None, None
 
 
 def _to_mxfp8_dim1_3d(
@@ -564,7 +728,7 @@ def _emulated_mxfp8_scaled_grouped_mm_2d_3d(
     B_t = B.reshape(E, N, K).transpose(-2, -1)
 
     # Perform bf16 grouped GEMM.
-    out = torch._grouped_mm(A, B_t, offs=offs, out_dtype=out_dtype)
+    out = _emulated_grouped_mm_2d_3d(A, B_t, offs, out_dtype)
     return out
 
 
@@ -669,6 +833,39 @@ def round_up(x, y):
     return ((x + y - 1) // y) * y
 
 
+def _to_mxfp8_then_scaled_grouped_mm(
+    A: torch.Tensor,
+    B_t: torch.Tensor,
+    offs: Optional[torch.Tensor] = None,
+    block_size: int = 32,
+    out_dtype: Optional[torch.dtype] = torch.bfloat16,
+    use_triton_for_dim0_cast: bool = False,
+    scale_calculation_mode: ScaleCalculationMode = ScaleCalculationMode.RCEIL,
+    *,
+    prequantized_A: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
+) -> torch.Tensor:
+    """Differentiable grouped GEMM with dynamic or pre-quantized MXFP8 activations.
+
+    `A` can be either a high-precision tensor or an `MXTensor` with unswizzled
+    scales. Alternatively, pre-quantized activations can be provided through
+    `prequantized_A=(qdata, scale)` while keeping `A` as the high-precision
+    tensor used for gradient computation.
+    """
+    A_data, A_scale = _normalize_prequantized_mxfp8_input_a(
+        A, block_size, prequantized_A
+    )
+    return _MXFP8GroupedMM.apply(
+        A,
+        B_t,
+        offs,
+        block_size,
+        out_dtype,
+        use_triton_for_dim0_cast,
+        scale_calculation_mode,
+        A_data,
+        A_scale,
+    )
+
+
 # Aliases for convenience/clarity
-_to_mxfp8_then_scaled_grouped_mm = _MXFP8GroupedMM.apply
 _to_fp8_rowwise_then_scaled_grouped_mm = _Float8GroupedMM.apply
