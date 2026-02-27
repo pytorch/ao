@@ -8,9 +8,12 @@ from enum import Enum
 
 import torch
 
+from torchao.utils import register_as_pytree_constant
+
 
 # can switch to StrEnum (https://docs.python.org/3/library/enum.html#enum.StrEnum)
 # after python 3.10 is end of life (https://devguide.python.org/versions/)
+@register_as_pytree_constant
 class KernelPreference(str, Enum):
     """Enum for specifying the groups of kernels that's used for quantization, matrix multiplication
     or other compute ops for quantized tensor

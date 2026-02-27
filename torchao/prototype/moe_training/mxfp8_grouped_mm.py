@@ -15,8 +15,10 @@ from torchao.prototype.moe_training.kernels.mxfp8 import (
 from torchao.prototype.moe_training.kernels.mxfp8 import (
     mx_block_rearrange_2d_M_groups_cuda,
     mxfp8_quantize_cuda_3d,
+    torch_pad_token_groups,
     triton_mx_block_rearrange_2d_K_groups,
     triton_mx_block_rearrange_per_group_3d,
+    triton_pad_token_groups,
 )
 from torchao.prototype.moe_training.utils import (
     conditional_nostrict_trace,
@@ -158,6 +160,18 @@ class _MXFP8GroupedMM(torch.autograd.Function):
                 "only `wgrad_with_hp` recipe is supported for pre-quantized inputs, support for other recipes is still in progress"
             )
 
+        # Save original M before padding
+        original_M = input_act.shape[0]
+
+        # Conditionally pad token groups if not aligned to block_size
+        if not _groups_aligned(group_offsets, alignment_size=block_size):
+            input_act, group_offsets = pad_token_groups(
+                input_act,
+                group_offsets,
+                alignment_size=block_size,
+                kernel_preference=kernel_preference,
+            )
+
         # Quantize input activations along dim0
         # input_act_data shape: (M, K)
         # input_act_scales shape: (M, K//block_size)
@@ -215,6 +229,7 @@ class _MXFP8GroupedMM(torch.autograd.Function):
         ctx.kernel_preference = kernel_preference
         ctx.wgrad_with_hp = wgrad_with_hp
         ctx.scale_calculation_mode = scale_calculation_mode
+        ctx.original_M = original_M
 
         return output
 
@@ -236,6 +251,7 @@ class _MXFP8GroupedMM(torch.autograd.Function):
         kernel_preference = ctx.kernel_preference
         wgrad_with_hp = ctx.wgrad_with_hp
         scale_calculation_mode = ctx.scale_calculation_mode
+        original_M = ctx.original_M
 
         # Check SM100 kernel availability when not using emulated mode
         emulated = kernel_preference == KernelPreference.EMULATED
@@ -266,6 +282,11 @@ class _MXFP8GroupedMM(torch.autograd.Function):
             wgrad_with_hp,
             kernel_preference,
         )
+
+        # Unpad grad_input to original shape
+        if grad_input.shape[0] > original_M:
+            grad_input = grad_input[:original_M]
+
         return grad_input, grad_weight_t, None, None, None, None, None, None
 
 
@@ -713,6 +734,33 @@ def _emulated_mxfp8_scaled_grouped_mm_2d_2d(
         A_dequant, B_dequant.transpose(-2, -1), offs=offs, out_dtype=out_dtype
     )
     return out
+
+
+def _groups_aligned(
+    group_offsets: torch.Tensor, alignment_size: int = 32
+) -> torch.Tensor:
+    group_sizes = torch.diff(
+        group_offsets, prepend=torch.zeros((1,), device=group_offsets.device)
+    )
+    groups_aligned = ((group_sizes % alignment_size) == 0).all()
+    return groups_aligned
+
+
+def pad_token_groups(
+    input_act: torch.Tensor,
+    group_offsets: torch.Tensor,
+    alignment_size: int = 32,
+    kernel_preference: KernelPreference = KernelPreference.AUTO,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    if kernel_preference == KernelPreference.EMULATED or True:
+        padded_input_act, padded_group_offsets = torch_pad_token_groups(
+            input_act, group_offsets, alignment_size=alignment_size
+        )
+    else:
+        padded_input_act, padded_group_offsets = triton_pad_token_groups(
+            input_act, group_offsets, alignment_size=alignment_size
+        )
+    return padded_input_act, padded_group_offsets
 
 
 def round_up(x, y):

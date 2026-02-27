@@ -245,10 +245,301 @@ def compute_blocked_scale_offsets_for_K_groups(
     return group_sizes, starting_col_after_padding
 
 
+def torch_pad_token_groups(
+    inputs: torch.Tensor, group_offsets: torch.Tensor, alignment_size: int
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Reference PyTorch implementation for padding token groups to alignment.
+
+    Args:
+        inputs: Input tensor of shape (num_tokens, dim)
+        group_offsets: Group end offsets of shape (num_groups,)
+        alignment_size: Alignment size to pad each group to
+
+    Returns:
+        padded_tokens: Padded tokens tensor
+        padded_group_offsets: New group offsets after padding
+    """
+    num_tokens, dim = inputs.shape
+
+    padded_groups = []
+    padded_offsets = []
+    current_offset = 0
+    group_start = 0
+
+    for group_end in group_offsets.tolist():
+        group_size = group_end - group_start
+
+        # Extract group tokens
+        group_tokens = inputs[group_start:group_end]
+
+        # Calculate padding needed
+        padded_size = (
+            (group_size + alignment_size - 1) // alignment_size
+        ) * alignment_size
+        padding_needed = padded_size - group_size
+
+        # Pad the group
+        if padding_needed > 0:
+            padding = torch.zeros(
+                padding_needed, dim, dtype=inputs.dtype, device=inputs.device
+            )
+            padded_group = torch.cat([group_tokens, padding], dim=0)
+        else:
+            padded_group = group_tokens
+
+        padded_groups.append(padded_group)
+        current_offset += padded_size
+        padded_offsets.append(current_offset)
+        group_start = group_end
+
+    padded_tokens = torch.cat(padded_groups, dim=0)
+    padded_group_offsets = torch.tensor(
+        padded_offsets, dtype=group_offsets.dtype, device=inputs.device
+    )
+    return padded_tokens, padded_group_offsets
+
+
 if torch_version_at_least("2.7.0") and has_triton():
     import triton
     import triton.language as tl
     from torch.library import triton_op, wrap_triton
+
+    def triton_pad_token_groups(
+        inputs: torch.Tensor, group_end_offsets: torch.Tensor, alignment_size: int = 32
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        assert inputs.ndim == 2, "input activations must be 2d"
+        num_tokens, dim = inputs.shape
+
+        # Append a row of zeros for padding
+        inputs_with_padding = torch.vstack(
+            [inputs, torch.zeros(1, dim, dtype=inputs.dtype, device=inputs.device)]
+        )
+
+        # Compute group sizes using torch operations (no d2h sync)
+        group_sizes = torch.diff(
+            group_end_offsets,
+            prepend=torch.zeros(
+                1, dtype=group_end_offsets.dtype, device=group_end_offsets.device
+            ),
+        )
+
+        # Compute padded sizes (align to alignment_size)
+        padded_sizes = (
+            (group_sizes + alignment_size - 1) // alignment_size
+        ) * alignment_size
+
+        # Compute padded offsets using cumsum
+        padded_group_end_offsets = torch.cumsum(padded_sizes, 0)
+        padded_group_start_offsets = padded_group_end_offsets - padded_sizes
+
+        indices_with_padding = triton_padded_indices(
+            inputs_with_padding,
+            group_end_offsets,
+            padded_group_start_offsets,
+            padded_group_end_offsets,
+            num_tokens,
+            alignment_size=alignment_size,
+        )
+        padded_tokens = inputs_with_padding[indices_with_padding, :]
+        return padded_tokens, padded_group_end_offsets
+
+    from torch.library import custom_op
+
+    @custom_op("torchao::triton_padded_indices", mutates_args=())
+    def triton_padded_indices(
+        inputs_with_padding: torch.Tensor,
+        group_end_offsets: torch.Tensor,
+        padded_group_start_offsets: torch.Tensor,
+        padded_group_end_offsets: torch.Tensor,
+        num_tokens: int,
+        alignment_size: int = 32,
+    ) -> torch.Tensor:
+        num_groups = group_end_offsets.shape[0]
+
+        # allocate indices buffer (upper bound size - no sync needed)
+        max_output_rows = num_tokens + num_groups * alignment_size
+        indices_with_padding = torch.empty(
+            max_output_rows, dtype=torch.int32, device=inputs_with_padding.device
+        )
+
+        grid = lambda meta: (
+            (max_output_rows + meta["ROWS_PER_BLOCK"] - 1) // meta["ROWS_PER_BLOCK"],
+        )
+        generate_padded_indices_kernel[grid](
+            indices_with_padding,
+            group_end_offsets,
+            padded_group_start_offsets,
+            padded_group_end_offsets,
+            num_tokens,
+            max_output_rows,
+            num_groups=num_groups,
+        )
+        return indices_with_padding
+
+    @triton_padded_indices.register_fake
+    def _fake_triton_padded_indices(
+        inputs_with_padding: torch.Tensor,
+        group_end_offsets: torch.Tensor,
+        padded_group_start_offsets: torch.Tensor,
+        padded_group_end_offsets: torch.Tensor,
+        num_tokens: int,
+        alignment_size: int = 32,
+    ) -> torch.Tensor:
+        num_groups = group_end_offsets.shape[0]
+
+        # allocate indices buffer (upper bound size - no sync needed)
+        max_output_rows = num_tokens + num_groups * alignment_size
+        indices_with_padding = torch.empty(
+            max_output_rows, dtype=torch.int32, device=inputs_with_padding.device
+        )
+        return indices_with_padding
+
+    @triton.autotune(
+        configs=[
+            triton.Config({"ROWS_PER_BLOCK": 128}),
+            triton.Config({"ROWS_PER_BLOCK": 64}),
+            triton.Config({"ROWS_PER_BLOCK": 32}),
+            triton.Config({"ROWS_PER_BLOCK": 16}),
+        ],
+        key=["dim"],
+    )
+    @triton.jit
+    def copy_rows_to_padded_kernel(
+        inputs,
+        group_offsets,
+        padded_group_start_offsets,
+        padded_tokens,
+        num_tokens,
+        dim,
+        num_groups: tl.constexpr,
+        ROWS_PER_BLOCK: tl.constexpr,
+        MAX_MODEL_DIM: tl.constexpr,
+    ):
+        """
+        Stage 2: Each block handles ROWS_PER_BLOCK rows.
+        No loops - vectorized group finding and data copy.
+        """
+        block_id = tl.program_id(0)
+
+        row_start = block_id * ROWS_PER_BLOCK
+        row_offs = row_start + tl.arange(0, ROWS_PER_BLOCK)
+
+        group_indexes = tl.arange(0, num_groups)
+        group_ends = tl.load(group_offsets + group_indexes)
+        padded_group_starts = tl.load(padded_group_start_offsets + group_indexes)
+
+        # find which group each row belongs to (vectorized for all rows)
+        row_offs = row_start + tl.arange(0, ROWS_PER_BLOCK)
+        in_group = row_offs[:, None] < group_ends[None, :]
+        group_id_per_row = tl.min(
+            tl.where(in_group, group_indexes[None, :], num_groups), axis=1
+        )
+
+        # (ROWS_PER_BLOCK, num_groups) mask indicating which group each row belongs to
+        row_in_group_mask = group_id_per_row[:, None] == group_indexes[None, :]
+
+        # load all group starts
+        group_starts_all = tl.load(
+            group_offsets + group_indexes - 1, mask=group_indexes > 0, other=0
+        )
+        group_start_per_row = tl.sum(
+            tl.where(row_in_group_mask, group_starts_all[None, :], 0), axis=1
+        )
+        padded_start_per_row = tl.sum(
+            tl.where(row_in_group_mask, padded_group_starts[None, :], 0), axis=1
+        )
+
+        # calculate output rows for all rows at once
+        offset_in_group = row_offs - group_start_per_row
+        output_rows = padded_start_per_row + offset_in_group
+
+        # 2D load/store
+        col_offs = tl.arange(0, MAX_MODEL_DIM)
+        input_offs = row_offs[:, None] * dim + col_offs[None, :]
+        output_offs = output_rows[:, None] * dim + col_offs[None, :]
+        mask_2d = (row_offs[:, None] < num_tokens) & (col_offs[None, :] < dim)
+
+        data = tl.load(inputs + input_offs, mask=mask_2d, other=0.0)
+        tl.store(padded_tokens + output_offs, data, mask=mask_2d)
+
+    @triton.autotune(
+        configs=[
+            triton.Config({"ROWS_PER_BLOCK": 128}),
+            triton.Config({"ROWS_PER_BLOCK": 64}),
+            triton.Config({"ROWS_PER_BLOCK": 32}),
+            triton.Config({"ROWS_PER_BLOCK": 16}),
+        ],
+        key=["max_output_rows"],
+    )
+    @triton.jit
+    def generate_padded_indices_kernel(
+        indices,
+        group_offsets,
+        padded_group_start_offsets,
+        padded_group_offsets,
+        num_tokens,
+        max_output_rows,
+        num_groups: tl.constexpr,
+        ROWS_PER_BLOCK: tl.constexpr,
+    ):
+        """
+        Generate indices for padded output. For each output position:
+        - If it's real data, store the source row index
+        - If it's padding, store -1 (maps to zero row)
+        """
+        block_id = tl.program_id(0)
+        row_start = block_id * ROWS_PER_BLOCK
+
+        # Load all group information once
+        group_indexes = tl.arange(0, num_groups)
+        group_ends = tl.load(group_offsets + group_indexes)
+        padded_group_starts = tl.load(padded_group_start_offsets + group_indexes)
+        padded_group_ends = tl.load(padded_group_offsets + group_indexes)
+        group_starts = tl.load(
+            group_offsets + group_indexes - 1, mask=group_indexes > 0, other=0
+        )
+
+        # Output rows we're processing
+        output_rows = row_start + tl.arange(0, ROWS_PER_BLOCK)
+
+        # Find which group each output row belongs to
+        in_group = output_rows[:, None] < padded_group_ends[None, :]
+        group_id_per_row = tl.min(
+            tl.where(in_group, group_indexes[None, :], num_groups), axis=1
+        )
+
+        # Create mask for which group each row belongs to
+        row_in_group_mask = group_id_per_row[:, None] == group_indexes[None, :]
+
+        # Get group boundaries for each row
+        group_start_per_row = tl.sum(
+            tl.where(row_in_group_mask, group_starts[None, :], 0), axis=1
+        )
+        padded_start_per_row = tl.sum(
+            tl.where(row_in_group_mask, padded_group_starts[None, :], 0), axis=1
+        )
+        group_end_per_row = tl.sum(
+            tl.where(row_in_group_mask, group_ends[None, :], 0), axis=1
+        )
+
+        # Calculate offset within padded group
+        offset_in_padded_group = output_rows - padded_start_per_row
+
+        # Calculate corresponding source row
+        source_rows = group_start_per_row + offset_in_padded_group
+
+        # Determine if this is real data or padding
+        # Real data: source_rows < group_end_per_row
+        # Padding: source_rows >= group_end_per_row
+        is_real_data = source_rows < group_end_per_row
+
+        # Set indices: -1 for padding, source_row for real data
+        result_indices = tl.where(is_real_data, source_rows, -1)
+
+        # Store results
+        mask = output_rows < max_output_rows
+        tl.store(indices + output_rows, result_indices, mask=mask)
 
     @triton_op("torchao::triton_mx_block_rearrange_2d_M_groups", mutates_args={})
     def triton_mx_block_rearrange_2d_M_groups(
@@ -346,7 +637,7 @@ if torch_version_at_least("2.7.0") and has_triton():
 
         # Calculate this group's start row after blocked format padding, by doing a prefix sum
         # of each previous group's padded size.
-        output_group_start_row = _blocked_group_start_idx(
+        output_group_start_row = _start_index_after_padding(
             group_pid, orig_offsets, num_groups, 128
         )
 
@@ -608,7 +899,7 @@ if torch_version_at_least("2.7.0") and has_triton():
 
         # Calculate this group's start row after blocked format padding, by doing a prefix sum
         # of each previous group's padded size.
-        output_group_start_col = _blocked_group_start_idx(
+        output_group_start_col = _start_index_after_padding(
             group_pid, orig_offsets, num_groups, 4
         )
 
@@ -684,7 +975,7 @@ if torch_version_at_least("2.7.0") and has_triton():
         return dest_indices_flat
 
     @triton.jit
-    def _blocked_group_start_idx(
+    def _start_index_after_padding(
         group_pid,
         orig_offsets,
         num_groups: tl.constexpr,
@@ -708,6 +999,15 @@ if torch_version_at_least("2.7.0") and has_triton():
         return group_start_idx
 
 else:
+
+    def triton_pad_token_groups(
+        inputs: torch.Tensor,
+        group_offsets: torch.Tensor,
+        alignment_size: int = 32,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        raise NotImplementedError(
+            "triton_pad_token_groups requires torch 2.7.0+ and triton installed"
+        )
 
     def triton_mx_block_rearrange_2d_M_groups(
         scales_tensor: torch.Tensor,
