@@ -13,6 +13,7 @@
 #include <torchao/csrc/cpu/shared_kernels/linear_8bit_act_xbit_weight/linear_8bit_act_xbit_weight.h>
 #include <torchao/csrc/cpu/shared_kernels/internal/memory.h>
 #include <torchao/csrc/cpu/shared_kernels/internal/parallel.h>
+#include <torchao/csrc/cpu/torch_free_kernels/weight_packing/weight_packing.h>
 
 #if defined(TORCHAO_ENABLE_KLEIDI)
 #include <torchao/csrc/cpu/torch_free_kernels/aarch64/kleidi/kai_matmul_clamp_f32_qai8dxp_qsi4c32p.h>
@@ -47,9 +48,9 @@ UKernelConfig get_ukernel_config() {
       weight_nbit,
       has_weight_zeros,
       has_bias,
-      &kernel::packed_weights_size,
-      &kernel::packed_weights_offset,
-      &kernel::pack_weights<weight_nbit, nr, kr, sr>,
+      &torchao::weight_packing::packed_weights_size,
+      &torchao::weight_packing::packed_weights_offset,
+      &torchao::weight_packing::pack_weights<weight_nbit, nr, kr, sr>,
       /*linear_configs*/ {});
 
   uk.linear_configs[0] = UKernelConfig::linear_config_type{

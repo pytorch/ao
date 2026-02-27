@@ -8,8 +8,8 @@
 
 #include <gtest/gtest.h>
 #include <torchao/csrc/cpu/torch_free_kernels/aarch64/embedding/embedding.h>
-#include <torchao/csrc/cpu/torch_free_kernels/aarch64/linear/channelwise_8bit_activation_groupwise_lowbit_weight/pack_weights.h>
 #include <torchao/csrc/cpu/torch_free_kernels/aarch64/tests/test_utils.h>
+#include <torchao/csrc/cpu/torch_free_kernels/weight_packing/weight_packing.h>
 #include <vector>
 
 float kTol = 0.0001;
@@ -69,27 +69,28 @@ void test_shared_embedding(
   bool has_bias = false;
   float* bias = nullptr;
   std::vector<char> packed_weights(
-      torchao::kernels::cpu::aarch64::linear::
-          channelwise_8bit_activation_groupwise_lowbit_weight::weight_packing::
-              packed_weights_size(
-                  n,
-                  k,
-                  group_size,
-                  weight_nbit,
-                  has_weight_zeros,
-                  has_bias,
-                  nr));
-  torchao::kernels::cpu::aarch64::linear::
-      channelwise_8bit_activation_groupwise_lowbit_weight::weight_packing::
-          pack_weights<weight_nbit, nr, kr, sr>(
-              packed_weights.data(),
-              n,
-              k,
-              group_size,
-              test_case.weight_qvals.data(),
-              test_case.weight_scales.data(),
-              has_weight_zeros ? test_case.weight_zeros.data() : nullptr,
-              bias);
+      torchao::weight_packing::packed_weights_size(
+          n,
+          k,
+          group_size,
+          weight_nbit,
+          has_weight_zeros,
+          has_bias,
+          nr,
+          kr,
+          sr));
+  torchao::weight_packing::pack_weights<weight_nbit, nr, kr, sr>(
+      packed_weights.data(),
+      n,
+      k,
+      group_size,
+      test_case.weight_qvals.data(),
+      test_case.weight_scales.data(),
+      has_weight_zeros ? test_case.weight_zeros.data() : nullptr,
+      bias,
+      nr,
+      kr,
+      sr);
 
   // Call shared_embedding
   auto output = std::vector<float>(num_embeddings * embedding_dim, 0.0);
