@@ -30,6 +30,8 @@ from torchao.float8.float8_linear import matmul_with_hp_or_float8_args
 from torchao.float8.float8_training_tensor import LinearMMConfig
 from torchao.float8.float8_utils import compute_error, tensor_to_scale, to_fp8_saturated
 from torchao.prototype.moe_training.config import (
+    FP8GroupedMMConfig,
+    FP8GroupedMMRecipe,
     MXFP8GroupedMMConfig,
     MXFP8GroupedMMRecipe,
 )
@@ -47,6 +49,7 @@ from torchao.prototype.moe_training.utils import (
 from torchao.prototype.mx_formats.mx_tensor import to_mx
 from torchao.quantization.quantize_.common import KernelPreference
 from torchao.testing.utils import skip_if_rocm
+from torchao.utils import is_MI300, is_MI350, is_ROCM
 
 # Needed since changing args to function causes recompiles
 torch._dynamo.config.cache_size_limit = 1000
@@ -56,14 +59,18 @@ torch._dynamo.config.cache_size_limit = 1000
     True,
     reason="Skipping FP8 rowwise test pending fix for https://github.com/pytorch/ao/issues/3788",
 )
-@skip_if_rocm("ROCm not supported")
 @pytest.mark.parametrize("m", [4096])
 @pytest.mark.parametrize("n", [8192])
 @pytest.mark.parametrize("k", [5120])
 @pytest.mark.parametrize("n_groups", [1, 2, 4, 8])
 def test_valid_scaled_grouped_mm_2d_3d(m, n, k, n_groups):
-    if not is_sm_version(9, 0):
-        pytest.skip("Skipping FP8 rowwise test, requires sm90")
+    if is_ROCM():
+        if not (is_MI300() or is_MI350()):
+            pytest.skip("FP8 rowwise test requires MI300 or MI350 on ROCm")
+    else:
+        if not is_sm_version(9, 0):
+            pytest.skip("FP8 rowwise test requires SM 9.0 on CUDA")
+
     out_dtype = torch.bfloat16
     device = "cuda"
     a = torch.randn(
@@ -86,7 +93,7 @@ def test_valid_scaled_grouped_mm_2d_3d(m, n, k, n_groups):
     b_t = b.contiguous().transpose(-2, -1).requires_grad_(True)
 
     # Compute output.
-    config = MXFP8GroupedMMConfig.from_recipe(MXFP8GroupedMMRecipe.MXFP8_EMULATED_RCEIL)
+    config = FP8GroupedMMConfig.from_recipe(FP8GroupedMMRecipe.FP8_ROWWISE)
     out = _quantize_then_scaled_grouped_mm(
         a,
         b_t,
@@ -105,15 +112,26 @@ def test_valid_scaled_grouped_mm_2d_3d(m, n, k, n_groups):
         out_dtype,
         offs,
     )
-    assert torch.equal(out, ref_out)
 
     # Run backward pass.
     out.sum().backward()
     ref_out.sum().backward()
 
     # Validate gradients.
-    assert torch.equal(a.grad, ref_a.grad)
-    assert torch.equal(b_t.grad, ref_b_t.grad)
+    if is_ROCM():
+        # ROCm: reference vs tested path use different backends:
+        # - `torch._scaled_mm` uses hipBLASLt
+        # - `_quantize_then_scaled_grouped_mm` uses CK
+        # Different backends can use different kernel implementations / accumulation order, so the
+        # outputs can differ slightly and we need tolerance.
+        # On MI300/MI325 we need rtol=atol=1e-2 for this FP8 test to pass.
+        assert torch.allclose(out, ref_out, rtol=1e-2, atol=1e-2)
+        assert torch.allclose(a.grad, ref_a.grad, rtol=1e-2, atol=1e-2)
+        assert torch.allclose(b_t.grad, ref_b_t.grad, rtol=1e-2, atol=1e-2)
+    else:
+        assert torch.equal(out, ref_out)
+        assert torch.equal(a.grad, ref_a.grad)
+        assert torch.equal(b_t.grad, ref_b_t.grad)
 
 
 @skip_if_rocm("ROCm not supported")
@@ -180,7 +198,7 @@ def compute_reference_forward(
         round_scales_to_power_of_2=float8_config.round_scales_to_power_of_2,
     )
     A_scaled = A.to(torch.float32) * A_scales
-    A_fp8 = to_fp8_saturated(A_scaled, torch.float8_e4m3fn)
+    A_fp8 = to_fp8_saturated(A_scaled, float8_config.cast_config_input.target_dtype)
 
     # Convert B^t to fp8.
     B_t_scales = tensor_to_scale(
@@ -193,7 +211,7 @@ def compute_reference_forward(
     B_t_scaled = B_t.to(torch.float32) * B_t_scales
     B_t_fp8 = to_fp8_saturated(
         B_t_scaled,
-        torch.float8_e4m3fn,
+        float8_config.cast_config_input.target_dtype,
     )
 
     # Split A and result into chunks, one for each group.
@@ -231,8 +249,12 @@ def compute_reference_forward(
             LinearMMConfig(),
             float8_config,
         )
-        assert torch.equal(result1, ref_group_result1)
-        assert torch.equal(result2, ref_group_result2)
+        if is_ROCM():
+            assert torch.allclose(result1, ref_group_result1, rtol=1e-2, atol=1e-2)
+            assert torch.allclose(result2, ref_group_result2, rtol=1e-2, atol=1e-2)
+        else:
+            assert torch.equal(result1, ref_group_result1)
+            assert torch.equal(result2, ref_group_result2)
         outputs.append(ref_group_result2)
 
     # Concatenate the outputs and verify the full result is correct.
