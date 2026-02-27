@@ -12,10 +12,22 @@ from torchao.utils import TorchAOBaseTensor
 
 
 class ObserverTensor(TorchAOBaseTensor):
+    """Wraps a weight tensor to observe input activations during forward passes.
+
+    Optionally accepts a quantize_fn that is applied to each input before saving,
+    so the Hessian reflects quantized activation noise at inference time (e.g. for
+    dynamic quantization schemes like MXFP8/MXFP4).
+    """
+
     tensor_data_names = ["hp_data"]
     tensor_attribute_names = ["observed_inputs"]
 
-    def __new__(cls, hp_data: torch.Tensor, observed_inputs: List[torch.Tensor]):
+    def __new__(
+        cls,
+        hp_data: torch.Tensor,
+        observed_inputs: List[torch.Tensor],
+        quantize_fn=None,
+    ):
         shape = hp_data.shape
         kwargs = {}
         kwargs["device"] = hp_data.device
@@ -23,18 +35,25 @@ class ObserverTensor(TorchAOBaseTensor):
         kwargs["requires_grad"] = False
         return torch.Tensor._make_wrapper_subclass(cls, shape, **kwargs)  # type: ignore[attr-defined]
 
-    def __init__(self, hp_data: torch.Tensor, observed_inputs: List[torch.Tensor]):
+    def __init__(
+        self,
+        hp_data: torch.Tensor,
+        observed_inputs: List[torch.Tensor],
+        quantize_fn=None,
+    ):
         super().__init__()
         self.hp_data = hp_data
         self.observed_inputs = observed_inputs
+        self.quantize_fn = quantize_fn
 
-    # TODO
     def update(self, input: torch.Tensor):
+        if self.quantize_fn is not None:
+            input = self.quantize_fn(input)
         self.observed_inputs.append(input.cpu())
 
     @classmethod
-    def from_hp(cls, hp_tensor: torch.Tensor):
-        return cls(hp_tensor, [])
+    def from_hp(cls, hp_tensor: torch.Tensor, quantize_fn=None):
+        return cls(hp_tensor, [], quantize_fn)
 
 
 implements = ObserverTensor.implements
@@ -70,11 +89,20 @@ def _(func, types, args, kwargs):
 
 
 class GPTQObserverTensor(ObserverTensor):
+    """ObserverTensor that incrementally computes the Hessian during observation.
+
+    Unlike the base ObserverTensor which stores all inputs and computes the Hessian
+    at convert time, this computes the Hessian on-the-fly during forward passes,
+    avoiding the need to store all activations in memory.
+    """
+
     tensor_data_names = ["hp_data"]
     optional_tensor_data_names = ["hessian"]
     tensor_attribute_names = ["total_batches"]
 
-    def __new__(cls, hp_data: torch.Tensor, total_batches: int, hessian=None):
+    def __new__(
+        cls, hp_data: torch.Tensor, total_batches: int, hessian=None, quantize_fn=None
+    ):
         shape = hp_data.shape
         kwargs = {}
         kwargs["device"] = hp_data.device
@@ -82,19 +110,23 @@ class GPTQObserverTensor(ObserverTensor):
         kwargs["requires_grad"] = False
         return torch.Tensor._make_wrapper_subclass(cls, shape, **kwargs)  # type: ignore[attr-defined]
 
-    def __init__(self, hp_data: torch.Tensor, total_batches: int, hessian=None):
+    def __init__(
+        self, hp_data: torch.Tensor, total_batches: int, hessian=None, quantize_fn=None
+    ):
         super(ObserverTensor).__init__()
         self.hp_data = hp_data
         self.hessian = hessian
         self.total_batches = total_batches
+        self.quantize_fn = quantize_fn
 
     def update(self, input: torch.Tensor):
         """Incrementally update Hessian matrix from input activations."""
-        # Move input to same device as hp_data and convert to float
+        if self.quantize_fn is not None:
+            input = self.quantize_fn(input)
+
         x = input.float().to(self.hp_data.device)
         shape = x.shape
 
-        # Calculate batch size
         n = 1 if len(shape) == 2 else shape[0]
         x = x.reshape(-1, shape[-1])
 
@@ -114,13 +146,12 @@ class GPTQObserverTensor(ObserverTensor):
 
         self.total_batches += n
 
-        # Update Hessian: x = ((2 / total_batches) ** (1 / 2)) * x.t()
         x = ((2 / self.total_batches) ** (1 / 2)) * x.t()
         self.hessian += x.matmul(x.t())
 
     @classmethod
-    def from_hp(cls, hp_tensor):
-        return GPTQObserverTensor(hp_tensor, 0, None)
+    def from_hp(cls, hp_tensor, quantize_fn=None):
+        return GPTQObserverTensor(hp_tensor, 0, None, quantize_fn)
 
 
 def _calculate_hessian(inputs, device=None, quantize_fn=None):

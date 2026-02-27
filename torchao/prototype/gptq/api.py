@@ -37,7 +37,7 @@ from torchao.quantization.quantize_.common.kernel_preference import KernelPrefer
 from torchao.quantization.transform_module import register_quantize_module_handler
 from torchao.quantization.utils import get_block_size
 
-from .observer import ObserverTensor, _calculate_hessian
+from .observer import GPTQObserverTensor
 
 CONFIG_TO_TORCHAO_BASE_TENSOR = {
     Int4WeightOnlyConfig: Int4Tensor,
@@ -65,13 +65,16 @@ class GPTQConfig(AOBaseConfig):
     Args:
         step: Either "observe" or "convert"
         base_config: Base quantization configuration that determines the target dtype.
-            Use Int4WeightOnlyConfig() for int4 or Int8WeightOnlyConfig() for int8.
+            Use Int4WeightOnlyConfig() for int4, Int8WeightOnlyConfig() for int8,
+            or MXDynamicActivationMXWeightConfig() for MX formats (mxfp8/mxfp4).
         percdamp: Damping factor for Hessian diagonal (default: 0.01)
         gptq_quantize_block_size: Block size for GPTQ algorithm (default: 256)
     """
 
     step: str = "observe"  # "observe" or "convert"
-    base_config: Union[Int4WeightOnlyConfig, Int8WeightOnlyConfig] = None
+    base_config: Union[
+        Int4WeightOnlyConfig, Int8WeightOnlyConfig, MXDynamicActivationMXWeightConfig
+    ] = None
     percdamp: float = 0.01
     gptq_quantize_block_size: int = 256
 
@@ -93,34 +96,10 @@ def _gptq_config_transform(
     tensor = getattr(module, parameter_name)
 
     if config.step == "observe":
-        # Observation phase: wrap as ObserverTensor
-        new_tensor = ObserverTensor.from_hp(tensor)
-        setattr(module, parameter_name, nn.Parameter(new_tensor, requires_grad=False))
-        module.extra_repr = types.MethodType(
-            partial(
-                _module_extra_repr,
-                original_extra_repr=module.extra_repr,
-                parameter_name=parameter_name,
-            ),
-            module,
-        )
-        return module
-    elif config.step == "convert":
-        # Quantization phase: tensor should be an ObserverTensor
-        if not isinstance(tensor, ObserverTensor):
-            raise ValueError(
-                f"Expected {parameter_name} to be ObserverTensor in 'convert' step, "
-                f"but got {type(tensor)}. Did you run the 'observe' step first?"
-            )
-
-        # Validate that observations were recorded
-        if len(tensor.observed_inputs) == 0:
-            raise ValueError(
-                f"No observations recorded for {parameter_name}. "
-                f"observed_inputs is empty. Did you run forward passes during the observe step?"
-            )
-
-        # Build activation quantize function if using MX dynamic activation config
+        # Observation phase: wrap as GPTQObserverTensor which incrementally
+        # computes the Hessian during forward passes.
+        # For MX dynamic activation configs, pass a quantize_fn so that
+        # activation quantization noise is captured during observation.
         quantize_fn = None
         if isinstance(config.base_config, MXDynamicActivationMXWeightConfig):
             base = config.base_config
@@ -134,12 +113,33 @@ def _gptq_config_transform(
                 )
                 return mx.dequantize(torch.float)
 
-        # Compute Hessian from observed inputs
-        hessian = _calculate_hessian(
-            tensor.observed_inputs,
-            device=tensor.hp_data.device,
-            quantize_fn=quantize_fn,
+        new_tensor = GPTQObserverTensor.from_hp(tensor, quantize_fn=quantize_fn)
+        setattr(module, parameter_name, nn.Parameter(new_tensor, requires_grad=False))
+        module.extra_repr = types.MethodType(
+            partial(
+                _module_extra_repr,
+                original_extra_repr=module.extra_repr,
+                parameter_name=parameter_name,
+            ),
+            module,
         )
+        return module
+    elif config.step == "convert":
+        # Quantization phase: tensor should be a GPTQObserverTensor
+        if not isinstance(tensor, GPTQObserverTensor):
+            raise ValueError(
+                f"Expected {parameter_name} to be GPTQObserverTensor in 'convert' step, "
+                f"but got {type(tensor)}. Did you run the 'observe' step first?"
+            )
+
+        # Validate that observations were recorded
+        if tensor.hessian is None or tensor.total_batches == 0:
+            raise ValueError(
+                f"No observations recorded for {parameter_name}. "
+                f"Hessian is empty. Did you run forward passes during the observe step?"
+            )
+
+        hessian = tensor.hessian
         new_tensor = gptq_quantize(hessian, tensor.hp_data, config)
         new_quantized_tensor = nn.Parameter(new_tensor, requires_grad=False)
         setattr(module, parameter_name, new_quantized_tensor)
@@ -252,7 +252,7 @@ def gptq_quantize(H: torch.Tensor, W: torch.Tensor, config: GPTQConfig):
         config: GPTQ configuration
 
     Returns:
-        Int4Tensor or Int8Tensor: Quantized weight matrix
+        Quantized weight matrix (Int4Tensor, Int8Tensor, or dequantized MXTensor)
     """
     assert W.dim() == 2
     gptq_quantize_block_size = config.gptq_quantize_block_size
@@ -404,7 +404,6 @@ def gptq_quantize(H: torch.Tensor, W: torch.Tensor, config: GPTQConfig):
         )
     elif isinstance(base_config, MXDynamicActivationMXWeightConfig):
         scale = torch.cat(group_qparams, dim=1)
-        # Convert weight to MX Tensor
         result = MXTensor.to_mx(
             W,
             base_config.weight_dtype,
