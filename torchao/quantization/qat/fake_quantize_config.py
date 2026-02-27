@@ -82,9 +82,9 @@ class Float8FakeQuantizeConfig(FakeQuantizeConfigBase):
 class Int4WeightFakeQuantizeConfig(FakeQuantizeConfigBase):
     """
     Config for pint4 weight fake quantization that targets the numerics in the following preshuffled kernel:
-        torch.ops.fbgemm.f8i4bf16_shuffled
-        torch.ops.fbgemm.bf16i4bf16_shuffled
-        torch.ops.fbgemm.bf16i4bf16_rowwise
+        torch.ops.mslk.f8i4bf16_shuffled
+        torch.ops.mslk.bf16i4bf16_shuffled
+        torch.ops.mslk.bf16i4bf16_rowwise
 
     Currently this only supports float8 input activations. It is expected to be used in conjunction with
     :class:`~torchao.quantization.Float8DynamicActivationInt4WeightConfig`. In the future, we may extend
@@ -357,33 +357,22 @@ def _infer_fake_quantize_configs(
     # TODO: rewrite using registration API so we don't need to import here
     # avoid circular imports
     from torchao.prototype.mx_formats import (
-        NVFP4InferenceConfig,
-        NVFP4MMConfig,
+        MXDynamicActivationMXWeightConfig,
+        NVFP4DynamicActivationNVFP4WeightConfig,
     )
     from torchao.prototype.qat import (
+        MXFakeQuantizeConfig,
         NVFP4FakeQuantizeConfig,
     )
     from torchao.quantization import (
         Float8DynamicActivationFloat8WeightConfig,
         Float8DynamicActivationInt4WeightConfig,
         Int4WeightOnlyConfig,
-        Int8DynamicActivationInt4WeightConfig,
         Int8DynamicActivationIntxWeightConfig,
         IntxWeightOnlyConfig,
     )
 
-    if isinstance(base_config, Int8DynamicActivationInt4WeightConfig):
-        act_config = IntxFakeQuantizeConfig(
-            dtype=torch.int8,
-            granularity="per_token",
-            is_symmetric=base_config.act_mapping_type == MappingType.SYMMETRIC,
-        )
-        weight_config = IntxFakeQuantizeConfig(
-            dtype=torch.int4,
-            group_size=base_config.group_size,
-            is_symmetric=base_config.mapping_type == MappingType.SYMMETRIC,
-        )
-    elif isinstance(base_config, Int4WeightOnlyConfig):
+    if isinstance(base_config, Int4WeightOnlyConfig):
         act_config = None
         if base_config.version == 2:
             supported_packing_formats = [
@@ -441,19 +430,29 @@ def _infer_fake_quantize_configs(
             group_size=128,
             activation_dtype=e4m3_dtype,
         )
-    elif isinstance(base_config, NVFP4InferenceConfig):
-        if NVFP4MMConfig.DYNAMIC:
-            act_config = NVFP4FakeQuantizeConfig(
-                use_per_tensor_scale=base_config.use_dynamic_per_tensor_scale,
-                use_swizzled_scales=False,
-                use_triton_kernel=False,
-            )
-        else:
-            act_config = None
+    elif isinstance(base_config, NVFP4DynamicActivationNVFP4WeightConfig):
+        act_config = NVFP4FakeQuantizeConfig(
+            use_per_tensor_scale=base_config.use_dynamic_per_tensor_scale,
+            use_swizzled_scales=False,
+            use_triton_kernel=False,
+        )
         weight_config = NVFP4FakeQuantizeConfig(
             use_per_tensor_scale=base_config.use_dynamic_per_tensor_scale,
             use_swizzled_scales=True,
             use_triton_kernel=base_config.use_triton_kernel,
+        )
+    elif isinstance(base_config, MXDynamicActivationMXWeightConfig):
+        act_config = MXFakeQuantizeConfig(
+            dtype=base_config.activation_dtype,
+            block_size=base_config.block_size,
+            scaling_mode=base_config.scaling_mode,
+            kernel_preference=base_config.kernel_preference,
+        )
+        weight_config = MXFakeQuantizeConfig(
+            dtype=base_config.weight_dtype,
+            block_size=base_config.block_size,
+            scaling_mode=base_config.scaling_mode,
+            kernel_preference=base_config.kernel_preference,
         )
     elif isinstance(base_config, Int8DynamicActivationIntxWeightConfig):
         assert base_config.version >= 2, "Only version 2+ is supported"

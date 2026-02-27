@@ -20,10 +20,38 @@ aten = torch.ops.aten
 
 
 try:
-    from fbgemm_gpu.experimental.gen_ai.quantize import int4_row_quantize_zp, pack_int4
-except:
+    from mslk.quantize.shuffle import int4_row_quantize, int4_row_quantize_zp, pack_int4
+except Exception:
+    int4_row_quantize = None
     int4_row_quantize_zp = None
     pack_int4 = None
+
+try:
+    from mslk.quantize.triton.fp8_quantize import quantize_fp8_row
+except Exception:
+    quantize_fp8_row = None
+
+
+def _int4_symmetric_quantize(w, group_size):
+    """Symmetric int4 row quantization for fp8 activation path.
+
+    Wraps mslk's int4_row_quantize (symmetric, no zero_point) and adds
+    a zero_point tensor of zeros to match int4_row_quantize_zp's interface.
+    This ensures lossless conversion from Int4Tensor to Int4PreshuffledTensor
+    for fp8, since the preshuffled kernel also uses symmetric quantization.
+
+    Args:
+        w: 2D weight tensor (N, K)
+        group_size: quantization group size
+
+    Returns:
+        wq: quantized weight (N, K), int8 values in [-8, 7]
+        scale: per-group scale (K/group_size, N), float32
+        zero_point: zeros (K/group_size, N), float32
+    """
+    wq, scale = int4_row_quantize(w, group_size)
+    zero_point = torch.zeros_like(scale)
+    return wq, scale, zero_point
 
 
 class Int4Tensor(TorchAOBaseTensor):
@@ -45,11 +73,16 @@ class Int4Tensor(TorchAOBaseTensor):
         act_pre_scale (Optional[Tensor]): Optional scale for activation Tensor, if present,
                we'll multiply activation Tensor with act_pre_scale before applying dynamic
                quantization to activation or running quantized mm op
+
+    Optional Non-Tensor Attributes:
+        activation_dtype (Optional[dtype]): the dtype for activation tensor during matmul
+               (torch.bfloat16 or torch.float8_e4m3fn). Defaults to torch.bfloat16 if not specified.
     """
 
     tensor_data_names = ["qdata", "scale", "zero_point"]
     tensor_attribute_names = ["block_size", "shape"]
     optional_tensor_data_names = ["act_pre_scale"]
+    optional_tensor_attribute_names = ["activation_dtype"]
 
     def __new__(
         cls,
@@ -59,6 +92,7 @@ class Int4Tensor(TorchAOBaseTensor):
         block_size: List[int],
         shape: torch.Size,
         act_pre_scale: Optional[torch.Tensor] = None,
+        activation_dtype: Optional[torch.dtype] = None,
     ):
         kwargs = {}
         kwargs["device"] = qdata.device
@@ -74,16 +108,20 @@ class Int4Tensor(TorchAOBaseTensor):
         block_size: List[int],
         shape: torch.Size,
         act_pre_scale: Optional[torch.Tensor] = None,
+        activation_dtype: Optional[torch.dtype] = None,
     ):
         super().__init__()
         self.qdata = qdata
         self.scale = scale
         self.zero_point = zero_point
         self.block_size = block_size
+        self.activation_dtype = (
+            activation_dtype if activation_dtype is not None else torch.bfloat16
+        )
         self.act_pre_scale = act_pre_scale
 
     def _quantization_type(self):
-        s = f"shape={self.shape}, block_size={self.block_size}, device={self.device}"
+        s = f"shape={self.shape}, block_size={self.block_size}, device={self.device}, activation_dtype={self.activation_dtype}"
         if self.act_pre_scale is not None:
             s += f", act_pre_scale.shape={self.act_pre_scale.shape}"
         return s
@@ -93,12 +131,18 @@ class Int4Tensor(TorchAOBaseTensor):
         cls,
         w: torch.Tensor,
         block_size: List[int],
+        activation_dtype: torch.dtype = torch.bfloat16,
     ):
         assert len(block_size) == w.ndim, (
             f"Expecting the length of block_size to be equal to the dimension of the weight, got {block_size=} and {w.ndim=}"
         )
         if int4_row_quantize_zp is None:
-            raise ImportError("Requires fbgemm-gpu-genai >= 1.2.0")
+            raise ImportError("Requires mslk >= 1.0.0")
+
+        _SUPPORTED_DTYPE = {torch.bfloat16, torch.float8_e4m3fn}
+        assert activation_dtype in _SUPPORTED_DTYPE, (
+            f"activation dtype {activation_dtype} is not supported, supported ones are: {_SUPPORTED_DTYPE}"
+        )
 
         assert all(x == 1 for x in block_size[:-1]) and block_size[-1] != 1, (
             "Only groupwise quant is supported right now"
@@ -107,15 +151,22 @@ class Int4Tensor(TorchAOBaseTensor):
         group_size = block_size[-1]
         original_shape = w.shape
 
+        # Use symmetric quantization for fp8 activation to match the
+        # preshuffled kernel's requirements (no zero_point needed)
+        if activation_dtype == torch.float8_e4m3fn:
+            quantize_fn = _int4_symmetric_quantize
+        else:
+            quantize_fn = int4_row_quantize_zp
+
         if w.ndim >= 3:
             wq, scale, zero_point = zip(
-                *[int4_row_quantize_zp(i, group_size) for i in w], strict=False
+                *[quantize_fn(i, group_size) for i in w], strict=False
             )
             wq = torch.stack([pack_int4(i) for i in wq], dim=0)
             scale = torch.stack(scale, dim=0)
             zero_point = torch.stack(zero_point, dim=0)
         else:
-            wq, scale, zero_point = int4_row_quantize_zp(w, group_size)
+            wq, scale, zero_point = quantize_fn(w, group_size)
             wq = pack_int4(wq)
 
         scale = scale.to(w.dtype)
@@ -127,6 +178,7 @@ class Int4Tensor(TorchAOBaseTensor):
             zero_point=zero_point,
             block_size=block_size,
             shape=original_shape,
+            activation_dtype=activation_dtype,
             act_pre_scale=None,
         )
 
@@ -158,12 +210,25 @@ def _(func, types, args, kwargs):
     orig_out_features = weight_tensor.shape[-2]
 
     input_tensor = input_tensor.reshape(-1, input_tensor.shape[-1])
-    res = torch.ops.fbgemm.bf16i4bf16_rowwise(
-        input_tensor,
-        weight_tensor.qdata,
-        weight_tensor.scale,
-        weight_tensor.zero_point,
-    )
+    if weight_tensor.activation_dtype == torch.float8_e4m3fn:
+        # Dynamically quantize activation to fp8 and use f8i4bf16_rowwise kernel
+        xq, x_scale = quantize_fp8_row(input_tensor)
+        res = torch.ops.mslk.f8i4bf16_rowwise(
+            xq,
+            weight_tensor.qdata,
+            x_scale,
+            weight_tensor.scale,
+            weight_tensor.zero_point,
+        )
+    else:
+        # bf16 activation path
+        res = torch.ops.mslk.bf16i4bf16_rowwise(
+            input_tensor,
+            weight_tensor.qdata,
+            weight_tensor.scale,
+            weight_tensor.zero_point,
+        )
+
     res = res.reshape(*orig_act_size[:-1], orig_out_features)
     if bias is not None:
         res = res + bias
@@ -176,6 +241,9 @@ def _(func, types, args, kwargs):
         args[0],
         args[1],
     )
+    assert weight_tensor.activation_dtype == torch.bfloat16, (
+        "Only bf16 activation is supported for torch.bmm"
+    )
     assert weight_tensor.qdata.is_contiguous(), "Expected qdata to be contiguous"
     assert weight_tensor.scale.is_contiguous(), "Expected scale to be contiguous"
     assert weight_tensor.zero_point.is_contiguous(), (
@@ -184,12 +252,14 @@ def _(func, types, args, kwargs):
 
     orig_act_size = input_tensor.size()
     orig_out_features = weight_tensor.shape[-2]
-    res = torch.ops.fbgemm.bf16i4bf16_rowwise_batched(
+    # bf16 activation path
+    res = torch.ops.mslk.bf16i4bf16_rowwise_batched(
         input_tensor,
         weight_tensor.qdata,
         weight_tensor.scale,
         weight_tensor.zero_point,
     )
+
     res = res.reshape(*orig_act_size[:-1], orig_out_features)
     return res
 
@@ -249,6 +319,7 @@ def _(func, types, args, kwargs):
                 block_size=self.block_size,
                 shape=self.shape,
                 act_pre_scale=self.act_pre_scale,
+                activation_dtype=self.activation_dtype,
             ),
         )
 
@@ -263,6 +334,7 @@ def _(func, types, args, kwargs):
     qdata = aten.slice.Tensor(self.qdata, dim, start_pw, end_pw, step)
     scale = aten.slice.Tensor(self.scale, sz_dim, start_sz, end_sz, step)
     zero_point = aten.slice.Tensor(self.zero_point, sz_dim, start_sz, end_sz, step)
+
     packed_shape0, packed_shape1 = qdata.shape
     new_shape = (packed_shape0, packed_shape1 * 2)
     new = Int4Tensor(
@@ -272,6 +344,7 @@ def _(func, types, args, kwargs):
         self.block_size,
         new_shape,
         act_pre_scale=self.act_pre_scale,
+        activation_dtype=self.activation_dtype,
     )
     return return_and_correct_aliasing(func, args, kwargs, new)
 
@@ -293,6 +366,9 @@ def _(func, types, args, kwargs):
         raise ValueError("Cannot concatenate empty list of tensors")
 
     tensor_0 = tensors[0]
+    assert tensor_0.activation_dtype == torch.bfloat16, (
+        "Only bf16 activation is supported for aten.cat"
+    )
     dim = dim % tensor_0.ndim
 
     # Validate that all tensors have compatible properties
@@ -301,6 +377,7 @@ def _(func, types, args, kwargs):
         assert tensor_0.scale.ndim == tensors[i].scale.ndim
         assert tensor_0.zero_point.ndim == tensors[i].zero_point.ndim
         assert tensor_0.block_size == tensors[i].block_size
+        assert tensor_0.activation_dtype == tensors[i].activation_dtype
 
     qdatas = [t.qdata for t in tensors]
     scales = [t.scale for t in tensors]
@@ -348,6 +425,7 @@ def _(func, types, args, kwargs):
         cat_zero_point,
         tensor_0.block_size,
         new_shape,
+        activation_dtype=tensor_0.activation_dtype,
         act_pre_scale=tensor_0.act_pre_scale,
     )
     return return_and_correct_aliasing(func, args, kwargs, new)
@@ -356,6 +434,9 @@ def _(func, types, args, kwargs):
 @implements(aten.transpose.int)
 def _(func, types, args, kwargs):
     self, dim0, dim1 = args
+    assert self.activation_dtype == torch.bfloat16, (
+        "Only bf16 activation is supported for aten.transpose"
+    )
 
     # Transpose the quantized data
     qdata = self.qdata.transpose(dim0, dim1).contiguous()
@@ -373,7 +454,9 @@ def _(func, types, args, kwargs):
         scale = self.scale.transpose(remapped_dim0, remapped_dim1)
         zero_point = self.zero_point.transpose(remapped_dim0, remapped_dim1)
     else:
-        assert scale.ndim == 2, f"Only support ndim == 2 or 3, got: {scale.ndim}"
+        assert self.scale.ndim == 2, (
+            f"Only support ndim == 2 or 3, got: {self.scale.ndim}"
+        )
         remapped_dim0 = 1 - dim0
         remapped_dim1 = 1 - dim1
         scale = self.scale.transpose(remapped_dim0, remapped_dim1)
@@ -393,6 +476,7 @@ def _(func, types, args, kwargs):
         zero_point,
         block_size,
         new_shape,
+        activation_dtype=self.activation_dtype,
         act_pre_scale=self.act_pre_scale,
     )
     return return_and_correct_aliasing(func, args, kwargs, new)
@@ -401,6 +485,9 @@ def _(func, types, args, kwargs):
 @implements(aten.view.default)
 def _(func, types, args, kwargs):
     self, size = args
+    assert self.activation_dtype == torch.bfloat16, (
+        "Only bf16 activation is supported for aten.view"
+    )
     original_shape = self.shape
     original_packing_dim = None
     for i in range(len(original_shape)):
@@ -482,6 +569,7 @@ def _(func, types, args, kwargs):
         zero_point,
         block_size,
         shape,
+        activation_dtype=self.activation_dtype,
         act_pre_scale=self.act_pre_scale,
     )
     return return_and_correct_aliasing(func, args, kwargs, new)
@@ -490,6 +578,9 @@ def _(func, types, args, kwargs):
 @implements(aten.squeeze.dim)
 def _(func, types, args, kwargs):
     self, dim = args
+    assert self.activation_dtype == torch.bfloat16, (
+        "Only bf16 activation is supported for aten.squeeze"
+    )
 
     # Squeeze qdata
     qdata = self.qdata.squeeze(dim=dim)
@@ -524,6 +615,7 @@ def _(func, types, args, kwargs):
         zero_point,
         new_block_size,
         new_shape,
+        activation_dtype=self.activation_dtype,
         act_pre_scale=self.act_pre_scale,
     )
     return return_and_correct_aliasing(func, args, kwargs, new)

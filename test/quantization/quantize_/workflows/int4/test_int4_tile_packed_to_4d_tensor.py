@@ -258,6 +258,42 @@ class TestInt4TilePackedTo4dTensor(TorchAOIntegrationTestCase):
         # making sure activation pre scaling is successfully applied to the activation
         self.assertTrue(compute_error(original * _ACT_PRE_SCALE, quantized) > 20)
 
+    @parametrize("config", [INT4_CONFIG, INT4_HQQ_CONFIG])
+    def test_select(self, config):
+        """Test aten.select.int for MoE expert selection on 3D weight tensors."""
+        dtype = torch.bfloat16
+        device = "cuda"
+
+        num_experts = 4
+        out_features = 1024
+        in_features = 2048
+        group_size = config.group_size
+
+        # Create a 3D weight tensor simulating MoE experts
+        hp_tensor = torch.randn(
+            num_experts, out_features, in_features, dtype=dtype, device=device
+        )
+        block_size = [1, 1, group_size]
+
+        # Quantize the 3D tensor
+        qt = Int4TilePackedTo4dTensor.from_hp(hp_tensor, block_size)
+
+        # Select expert at index 0
+        selected_qt = torch.select(qt, 0, 0)
+        selected_hp = Int4TilePackedTo4dTensor.from_hp(
+            torch.select(hp_tensor, 0, 0), [1, group_size]
+        )
+
+        # Verify shape is reduced from 3D to 2D
+        self.assertEqual(selected_qt.shape, selected_hp.shape)
+        self.assertEqual(selected_qt.block_size, selected_hp.block_size)
+
+        # Verify qdata and scale_and_zero are correctly indexed
+        torch.testing.assert_close(selected_qt.qdata, selected_hp.qdata, atol=0, rtol=0)
+        torch.testing.assert_close(
+            selected_qt.scale_and_zero, selected_hp.scale_and_zero, atol=0, rtol=0
+        )
+
     @parametrize("group_size", [32, 64, 128])
     def test_different_group_sizes(self, group_size):
         """Test with different group sizes"""

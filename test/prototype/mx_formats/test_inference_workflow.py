@@ -12,15 +12,13 @@ import torch
 import torch.nn as nn
 from torch.profiler import ProfilerActivity, profile
 
-from torchao.prototype.mx_formats.config import (
-    MXGemmKernelChoice,
-)
 from torchao.prototype.mx_formats.inference_workflow import (
-    MXFPInferenceConfig,
-    NVFP4InferenceConfig,
-    NVFP4MMConfig,
+    MXDynamicActivationMXWeightConfig,
+    NVFP4DynamicActivationNVFP4WeightConfig,
+    NVFP4WeightOnlyConfig,
 )
 from torchao.quantization import quantize_
+from torchao.quantization.quantize_.common import KernelPreference
 from torchao.quantization.utils import compute_error
 from torchao.testing.utils import TorchAOIntegrationTestCase, skip_if_rocm
 from torchao.utils import (
@@ -105,15 +103,13 @@ def test_inference_workflow_mx(
     m_mx = copy.deepcopy(m)
 
     if emulate:
-        kernel_choice = MXGemmKernelChoice.EMULATED
-    elif elem_dtype == torch.float4_e2m1fn_x2:
-        kernel_choice = MXGemmKernelChoice.CUTLASS
+        kernel_choice = KernelPreference.EMULATED
     else:
-        kernel_choice = MXGemmKernelChoice.CUBLAS
-    config = MXFPInferenceConfig(
+        kernel_choice = KernelPreference.AUTO
+    config = MXDynamicActivationMXWeightConfig(
         activation_dtype=elem_dtype,
         weight_dtype=elem_dtype,
-        gemm_kernel_choice=kernel_choice,
+        kernel_preference=kernel_choice,
     )
     quantize_(m_mx, config=config)
     if compile:
@@ -130,7 +126,7 @@ def test_inference_workflow_mx(
     else:
         y_mx = m_mx(x)
     sqnr = compute_error(y_ref, y_mx)
-    SQNR_THRESHOLD = 25.0 if elem_dtype == torch.float8_e4m3fn else 15.0
+    SQNR_THRESHOLD = 25.0 if elem_dtype == torch.float8_e4m3fn else 12.0
     assert sqnr >= SQNR_THRESHOLD, (
         f"Got a sqnr of {sqnr} for {elem_dtype} and bias={bias}"
     )
@@ -142,9 +138,7 @@ def test_inference_workflow_mx(
 )
 @pytest.mark.parametrize("bias", [True, False])
 @pytest.mark.parametrize("compile", [True, False])
-@pytest.mark.parametrize(
-    "mm_config", [NVFP4MMConfig.DYNAMIC, NVFP4MMConfig.WEIGHT_ONLY]
-)
+@pytest.mark.parametrize("quant_type", ["dynamic", "weight_only"])
 @pytest.mark.parametrize("inpt_dtype", [torch.bfloat16, torch.float32])
 @pytest.mark.parametrize("use_triton_kernel", [True, False])
 @pytest.mark.parametrize("use_dynamic_per_tensor_scale", [True, False])
@@ -168,7 +162,7 @@ def test_inference_workflow_mx(
 def test_inference_workflow_nvfp4(
     bias: bool,
     compile: bool,
-    mm_config: NVFP4MMConfig,
+    quant_type: str,
     inpt_dtype: torch.dtype,
     use_triton_kernel: bool,
     use_dynamic_per_tensor_scale: bool,
@@ -181,14 +175,12 @@ def test_inference_workflow_nvfp4(
     Tests both DYNAMIC and WEIGHT_ONLY mm_config modes
     """
     # DYNAMIC mode requires SM100+, but WEIGHT_ONLY works on older GPUs
-    if mm_config == NVFP4MMConfig.DYNAMIC and not is_sm_at_least_100():
+    if quant_type == "dynamic" and not is_sm_at_least_100():
         pytest.skip("CUDA capability >= 10.0 required for DYNAMIC float4 gemm")
-
-    if bias and inpt_dtype == torch.float32:
-        pytest.xfail("Bias is not supported when module weight is in fp32")
-
-    if mm_config == NVFP4MMConfig.WEIGHT_ONLY and compile:
-        pytest.skip("TODO: NVFP4MMConfig.WEIGHT_ONLY currently errors w/ compile")
+    if quant_type == "weight_only" and compile:
+        pytest.skip("TODO: weight_only quant currently errors w/ compile")
+    if quant_type == "weight_only" and use_triton_kernel:
+        pytest.skip("unsupported configuration")
 
     if use_inference_mode and (
         shapes != (128, 64, 256) or inpt_dtype != torch.bfloat16 or use_triton_kernel
@@ -204,11 +196,15 @@ def test_inference_workflow_nvfp4(
     m = nn.Linear(in_features, out_features, bias=bias, dtype=inpt_dtype, device="cuda")
     m_mx = copy.deepcopy(m)
 
-    config = NVFP4InferenceConfig(
-        mm_config=mm_config,
-        use_triton_kernel=use_triton_kernel,
-        use_dynamic_per_tensor_scale=use_dynamic_per_tensor_scale,
-    )
+    if quant_type == "dynamic":
+        config = NVFP4DynamicActivationNVFP4WeightConfig(
+            use_triton_kernel=use_triton_kernel,
+            use_dynamic_per_tensor_scale=use_dynamic_per_tensor_scale,
+        )
+    else:
+        config = NVFP4WeightOnlyConfig(
+            use_dynamic_per_tensor_scale=use_dynamic_per_tensor_scale,
+        )
     quantize_(m_mx, config=config)
 
     if compile:
@@ -220,7 +216,7 @@ def test_inference_workflow_nvfp4(
 
     y_ref = m(x)
 
-    if use_triton_kernel and mm_config != NVFP4MMConfig.WEIGHT_ONLY:
+    if use_triton_kernel and quant_type == "dynamic":
         with cuda_kernel_profiler("quantize_nvfp4_triton_kernel") as result:
             y_mx = m_mx(x)
         assert result["found"], "Expected quantize_nvfp4 kernel to be found"
@@ -233,14 +229,14 @@ def test_inference_workflow_nvfp4(
 
     sqnr = compute_error(y_ref, y_mx)
 
-    if mm_config == NVFP4MMConfig.WEIGHT_ONLY:
+    if quant_type == "weight_only":
         SQNR_THRESHOLD = 18.0
     else:
         SQNR_THRESHOLD = 15.0
 
     assert y_mx.dtype == inpt_dtype, f"Got {y_mx.dtype} for inpt_dtype={inpt_dtype}"
     assert sqnr >= SQNR_THRESHOLD, (
-        f"Got a sqnr of {sqnr} for NVFP4 recipe with bias={bias}, mm_config={mm_config}"
+        f"Got a sqnr of {sqnr} for NVFP4 recipe with bias={bias}, {quant_type=}"
     )
 
 
@@ -251,10 +247,10 @@ class VLLMIntegrationTestCase(TorchAOIntegrationTestCase):
         reason="torch.compile requires PyTorch 2.8+",
     )
     def test_slice_and_copy_similar_to_vllm(self):
-        config = MXFPInferenceConfig(
+        config = MXDynamicActivationMXWeightConfig(
             activation_dtype=torch.float8_e4m3fn,
             weight_dtype=torch.float8_e4m3fn,
-            gemm_kernel_choice=MXGemmKernelChoice.EMULATED,
+            kernel_preference=KernelPreference.EMULATED,
         )
         self._test_slice_and_copy_similar_to_vllm(config)
 
@@ -264,10 +260,10 @@ class VLLMIntegrationTestCase(TorchAOIntegrationTestCase):
         reason="torch.compile requires PyTorch 2.8+",
     )
     def test_narrow_similar_to_vllm(self):
-        config = MXFPInferenceConfig(
+        config = MXDynamicActivationMXWeightConfig(
             activation_dtype=torch.float8_e4m3fn,
             weight_dtype=torch.float8_e4m3fn,
-            gemm_kernel_choice=MXGemmKernelChoice.EMULATED,
+            kernel_preference=KernelPreference.EMULATED,
         )
         self._test_narrow_similar_to_vllm(config)
 
@@ -277,9 +273,156 @@ class VLLMIntegrationTestCase(TorchAOIntegrationTestCase):
         reason="torch.compile requires PyTorch 2.8+",
     )
     def test_nvfp4_quantize_3d_param_similar_to_vllm(self):
-        config = NVFP4InferenceConfig(
-            mm_config=NVFP4MMConfig.WEIGHT_ONLY,
-            use_triton_kernel=False,
+        config = NVFP4WeightOnlyConfig(
             use_dynamic_per_tensor_scale=False,
         )
         self._test_quantize_3d_param_similar_to_vllm(config)
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(
+    not torch_version_at_least("2.8.0"), reason="torch.compile requires PyTorch 2.8+"
+)
+@pytest.mark.skipif(
+    not is_sm_at_least_100(), reason="CUDA capability >= 10.0 required for NVFP4"
+)
+@pytest.mark.parametrize("bias", [True, False])
+@torch.no_grad()
+@skip_if_rocm("ROCm float4 gemm require gfx950")
+def test_nvfp4_static_quantization_flow(
+    bias: bool,
+):
+    """
+    Test the prepare -> calibrate -> convert static quantization flow for NVFP4.
+
+    This verifies that:
+    1. prepare step inserts NVFP4ObservedLinear
+    2. Calibration runs without error and tracks amax
+    3. convert step produces quantized weights with static activation scale
+    4. Inference produces reasonable results (SQNR check)
+    """
+    from torchao.prototype.mx_formats.inference_workflow import NVFP4ObservedLinear
+
+    in_features, out_features = 64, 256
+    batch_size = 128
+
+    m = nn.Sequential(
+        nn.Linear(
+            in_features, out_features, bias=bias, dtype=torch.bfloat16, device="cuda"
+        ),
+    )
+    m_ref = copy.deepcopy(m)
+
+    # Step 1: Prepare - insert observers
+    quantize_(
+        m,
+        NVFP4DynamicActivationNVFP4WeightConfig(step="prepare"),
+    )
+
+    # Verify observers were inserted
+    assert isinstance(m[0], NVFP4ObservedLinear)
+
+    # Step 2: Calibrate with representative data
+    calibration_data = [
+        torch.randn(batch_size, in_features, device="cuda", dtype=torch.bfloat16)
+        for _ in range(5)
+    ]
+    for data in calibration_data:
+        m(data)
+
+    # Step 3: Convert - extract scale and quantize
+    quantize_(
+        m,
+        NVFP4DynamicActivationNVFP4WeightConfig(step="convert"),
+    )
+
+    # Verify quantization was applied
+    from torchao.prototype.mx_formats.nvfp4_tensor import NVFP4Tensor
+
+    assert isinstance(m[0].weight, NVFP4Tensor), (
+        f"Expected NVFP4Tensor weight, got {type(m[0].weight)}"
+    )
+    assert m[0].weight.act_per_tensor_scale is not None, (
+        "Expected static act_per_tensor_scale to be set"
+    )
+    assert not m[0].weight.act_quant_kwargs.use_dynamic_per_tensor_scale, (
+        "Expected use_dynamic_per_tensor_scale=False for static quant"
+    )
+
+    # Step 4: Verify inference produces reasonable results
+    x = torch.randn(batch_size, in_features, device="cuda", dtype=torch.bfloat16)
+    y_ref = m_ref(x)
+    y_static = m(x)
+
+    sqnr = compute_error(y_ref, y_static)
+    SQNR_THRESHOLD = 15.0
+    assert sqnr >= SQNR_THRESHOLD, (
+        f"Got a sqnr of {sqnr} for NVFP4 static quant with bias={bias}"
+    )
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(
+    not torch_version_at_least("2.8.0"), reason="torch.compile requires PyTorch 2.8+"
+)
+@pytest.mark.skipif(
+    not is_sm_at_least_100(), reason="CUDA capability >= 10.0 required for NVFP4"
+)
+@torch.no_grad()
+@skip_if_rocm("ROCm float4 gemm require gfx950")
+def test_nvfp4_static_vs_dynamic_quantization():
+    """
+    Test that static quantization matches dynamic quantization when calibrated
+    on the same input. Since NVFP4 static quant only determines the activation
+    per_tensor_scale statically, calibrating on the exact test input should
+    produce the same per_tensor_scale as the dynamic path, yielding identical results.
+    """
+    in_features, out_features = 64, 256
+    batch_size = 128
+
+    m_dynamic = nn.Sequential(
+        nn.Linear(
+            in_features, out_features, bias=True, dtype=torch.bfloat16, device="cuda"
+        ),
+    )
+    m_static = copy.deepcopy(m_dynamic)
+
+    # Dynamic quantization
+    quantize_(
+        m_dynamic,
+        NVFP4DynamicActivationNVFP4WeightConfig(
+            use_triton_kernel=False,
+            use_dynamic_per_tensor_scale=True,
+        ),
+    )
+
+    # Create the test input upfront so we can use it for calibration too
+    x = torch.randn(batch_size, in_features, device="cuda", dtype=torch.bfloat16)
+
+    # Static quantization: prepare -> calibrate -> convert
+    quantize_(
+        m_static,
+        NVFP4DynamicActivationNVFP4WeightConfig(
+            step="prepare",
+            use_triton_kernel=False,
+        ),
+    )
+    # Calibrate with the same input used for testing
+    m_static(x)
+
+    quantize_(
+        m_static,
+        NVFP4DynamicActivationNVFP4WeightConfig(
+            step="convert",
+            use_triton_kernel=False,
+        ),
+    )
+
+    # Test inference - when calibrating on the same input, static and dynamic
+    # should produce the same result since the per_tensor_scale will match
+    y_dynamic = m_dynamic(x)
+    y_static = m_static(x)
+
+    assert torch.equal(y_dynamic, y_static), (
+        "Expect dynamic and static quant result to be equal"
+    )

@@ -39,6 +39,7 @@ class _NVFP4QuantizedForwardFakeQuantizedBackward(torch.autograd.Function):
     """
 
     @staticmethod
+    @torch.amp.custom_fwd(device_type="cuda")
     def forward(
         ctx,
         _input: torch.Tensor,
@@ -73,7 +74,7 @@ class _NVFP4QuantizedForwardFakeQuantizedBackward(torch.autograd.Function):
             use_triton_kernel=False,
         )
 
-        # Follow `NVFP4InferenceConfig`, always use traditional construction
+        # Follow `NVFP4DynamicActivationNVFP4WeightConfig`, always use traditional construction
         # for weights and set `use_triton_kernel` afterwards
         weight.use_triton_kernel = weight_config.use_triton_kernel
 
@@ -87,12 +88,13 @@ class _NVFP4QuantizedForwardFakeQuantizedBackward(torch.autograd.Function):
         )
 
     @staticmethod
+    @torch.amp.custom_bwd(device_type="cuda")
     def backward(ctx, grad_output: torch.Tensor) -> torch.Tensor:
         _input, weight = ctx.saved_tensors
         assert isinstance(_input, NVFP4Tensor)
         assert isinstance(weight, NVFP4Tensor)
-        _input = _input.to_dtype(_input._orig_dtype)
-        weight = weight.to_dtype(weight._orig_dtype)
+        _input = _input.dequantize(_input.orig_dtype)
+        weight = weight.dequantize(weight.orig_dtype)
         grad_input = torch.mm(grad_output, weight)
         grad_weight = torch.mm(grad_output.t(), _input)
         return grad_input, grad_weight, None, None, None
@@ -112,9 +114,9 @@ class NVFP4FakeQuantizedLinear(torch.nn.Linear):
     Example usage::
 
         from torchao.quantization import quantize_
-        from torchao.prototype.mx_formats import NVFP4InferenceConfig
+        from torchao.prototype.mx_formats import NVFP4DynamicActivationNVFP4WeightConfig
 
-        base_config = NVFP4InferenceConfig()
+        base_config = NVFP4DynamicActivationNVFP4WeightConfig()
         quantize_(model, QATConfig(base_config, step="prepare"))
         # Model contains `NVFP4FakeQuantizedLinear` now
 
@@ -161,6 +163,22 @@ class NVFP4FakeQuantizedLinear(torch.nn.Linear):
             return fq.view(batch_size, -1, fq.shape[-1])
         else:
             return fq
+
+    def to_linear(self) -> torch.nn.Linear:
+        new_linear = torch.nn.Linear(
+            self.in_features,
+            self.out_features,
+            self.bias is not None,
+            device=self.weight.device,
+            dtype=self.weight.dtype,
+        )
+        # In distributed training, the model may be instantiated
+        # on the meta device, in which case there is no need to
+        # copy the weights, and doing so will result in an error
+        if self.weight.device != torch.device("meta"):
+            new_linear.weight = self.weight
+            new_linear.bias = self.bias
+        return new_linear
 
     @classmethod
     def from_linear(

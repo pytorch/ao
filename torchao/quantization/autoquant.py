@@ -3,6 +3,8 @@
 #
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
+import warnings
+
 import torch
 import torch.nn.functional as F
 from torch.utils._python_dispatch import return_and_correct_aliasing
@@ -11,7 +13,6 @@ import torchao
 from torchao.dtypes import (
     AffineQuantizedTensor,
     Float8Layout,
-    MarlinSparseLayout,
     PlainLayout,
     SemiSparseLayout,
     TensorCoreTiledLayout,
@@ -640,7 +641,7 @@ class AQInt4G32WeightOnlyQuantizedLinearWeight(
         input_quant_func = None
 
         # NOTE: we only convert activation dtype and weight dtype here
-        # because the kernel implementation for both TensorCoreTiledLayout and MarlinSparseLayout
+        # because the kernel implementation for both TensorCoreTiledLayout
         # can work with multiple bias dtypes (by converting bias to the dtype of activation)
         if (
             isinstance(_layout, TensorCoreTiledLayout)
@@ -648,9 +649,6 @@ class AQInt4G32WeightOnlyQuantizedLinearWeight(
         ):
             weight = weight.to(torch.bfloat16)
             input_quant_func = _to_bfloat16
-        elif isinstance(_layout, MarlinSparseLayout) and weight.dtype != torch.float16:
-            weight = weight.to(torch.float16)
-            input_quant_func = _to_float16
         else:
             input_quant_func = _identity
 
@@ -664,12 +662,6 @@ class AQInt4G32WeightOnlyQuantizedLinearWeight(
         preserve_zero = False
         zero_point_dtype = torch.bfloat16
         zero_point_domain = ZeroPointDomain.FLOAT
-
-        if isinstance(_layout, MarlinSparseLayout):
-            mapping_type = MappingType.SYMMETRIC
-            preserve_zero = True
-            zero_point_domain = ZeroPointDomain.INT
-            use_hqq = False
 
         weight = to_affine_quantized_intx(
             weight,
@@ -709,13 +701,6 @@ class AQInt4G256WeightOnlyQuantizedLinearWeight(
     group_size: int = 256
 
 
-class AQInt4G128WeightOnlyQuantizedMarlinSparseLinearWeight(
-    AQInt4G32WeightOnlyQuantizedLinearWeight
-):
-    group_size: int = 128
-    aq_layout: Layout = MarlinSparseLayout()
-
-
 class AQGemliteInt4G32WeightOnlyQuantizedLinearWeight(
     LinearActivationQuantizedTensor, AQMixin
 ):
@@ -724,7 +709,7 @@ class AQGemliteInt4G32WeightOnlyQuantizedLinearWeight(
     @classmethod
     def from_float(cls, weight):
         from torchao.dtypes import to_affine_quantized_intx
-        from torchao.dtypes.uintx.gemlite_layout import get_gemlite_aqt_kwargs
+        from torchao.prototype.dtypes.uintx.gemlite_layout import get_gemlite_aqt_kwargs
 
         if weight.dtype != torch.float16:
             weight = weight.to(torch.float16)
@@ -1082,7 +1067,6 @@ OTHER_AUTOQUANT_CLASS_LIST = [
 DEFAULT_SPARSE_AUTOQUANT_CLASS_LIST = [
     AQDefaultLinearWeight,
     # TODO: investigate why there are some problems when adding sparse kernels for sam2
-    AQInt4G128WeightOnlyQuantizedMarlinSparseLinearWeight,
     # some errors when calling cusparse kernels when running on sam2
     AQInt8DynamicallyQuantizedSemiSparseLinearWeight,
 ]
@@ -1259,6 +1243,12 @@ def autoquant(
         model(*example_input2)
         model.finalize_autoquant()
     """
+    warnings.warn(
+        "torchao.autoquant is deprecated and will be removed in a future release. "
+        "For more information, see: https://github.com/pytorch/ao/issues/3739",
+        FutureWarning,
+        stacklevel=2,
+    )
     torch._C._log_api_usage_once("torchao.quantization.autoquant")
 
     if set_inductor_config:

@@ -10,10 +10,12 @@ import unittest
 
 import torch
 
+from torchao.quantization.granularity import PerRow
 from torchao.quantization.quant_primitives import (
     MappingType,
     ZeroPointDomain,
     _choose_qparams_affine_tinygemm,
+    _choose_qparams_and_quantize_scale_only_sinq,
     _choose_scale_float8,
     _fake_quantize_affine,
     _fake_quantize_affine_cachemask,
@@ -27,6 +29,7 @@ from torchao.quantization.quant_primitives import (
 # TODO: remove test for utils?
 from torchao.quantization.utils import (
     _quantize_activation_per_token_absmax,
+    get_block_size,
     get_group_qparams_symmetric,
     groupwise_affine_dequantize_tensor_from_qparams,
     groupwise_affine_quantize_tensor_from_qparams,
@@ -34,6 +37,7 @@ from torchao.quantization.utils import (
 from torchao.utils import (
     check_cpu_version,
     check_xpu_version,
+    get_current_accelerator_device,
     is_fbcode,
 )
 
@@ -590,16 +594,18 @@ class TestQuantPrimitives(unittest.TestCase):
         self.assertEqual(scale, eps)
 
     @unittest.skipIf(
-        not torch.cuda.is_available(), "skipping when cuda is not available"
+        not torch.accelerator.is_available(), "skipping when gpu is not available"
     )
     def test_get_group_qparams_symmetric_memory(self):
         """Check the memory usage of the op"""
-        weight = torch.randn(1024, 1024).to(device="cuda")
-        original_mem_use = torch.cuda.memory_allocated()
+        device = get_current_accelerator_device()
+        weight = torch.randn(1024, 1024).to(device=device)
+        device_module = torch.get_device_module(device)
+        original_mem_use = device_module.memory_allocated()
         n_bit = 4
         groupsize = 128
         (scale_ao, _) = get_group_qparams_symmetric(weight, n_bit, groupsize)
-        after_choose_qparams_mem_use = torch.cuda.memory_allocated()
+        after_choose_qparams_mem_use = device_module.memory_allocated()
         self.assertTrue(after_choose_qparams_mem_use < 1.2 * original_mem_use)
 
     def test_raises(self):
@@ -817,6 +823,45 @@ class TestQuantPrimitives(unittest.TestCase):
         self.assertEqual(new_scale5.shape, torch.Size([3, 2, 8]))
         self.assertEqual(new_scale5.unique(dim=-1).shape, torch.Size([3, 2, 2]))
 
+    def test_choose_qparams_and_quantize_scale_only_sinq(self):
+        """Test SINQ quantization produces valid outputs and accuracy."""
+        torch.manual_seed(self.SEED)
+        input = torch.randn(128, 256, dtype=torch.float32)
+        group_size = 64
+        qmin = -(2 ** (4 - 1))
+        qmax = 2 ** (4 - 1) - 1
+
+        # Run SINQ
+        qdata, scale_row, scale_col = _choose_qparams_and_quantize_scale_only_sinq(
+            input,
+            group_size=group_size,
+            qmin=qmin,
+            qmax=qmax,
+            niter=20,
+        )
+
+        # Check quantized weight is producible
+        self.assertEqual(qdata.dtype, torch.int8)
+        self.assertEqual(qdata.shape, input.shape)
+        self.assertTrue((qdata >= qmin).all() and (qdata <= qmax).all())
+
+        # Check scale factors are producible
+        num_groups = input.shape[1] // group_size
+        self.assertEqual(scale_row.shape, (input.shape[0], num_groups))
+        self.assertEqual(scale_col.shape, (input.shape[1],))
+        self.assertTrue((scale_row > 0).all() and (scale_col > 0).all())
+
+        # Check weight transform with 2-scale factor is applicable
+        qdata_fp32 = qdata.to(torch.float32)
+        qdata_reshaped = qdata_fp32.reshape(-1, group_size)
+        scale_row_expanded = scale_row.reshape(-1, 1)
+        scale_col_reshaped = scale_col.reshape(num_groups, group_size)
+        scale_col_expanded = scale_col_reshaped.repeat(input.shape[0], 1)
+        reconstructed = (
+            qdata_reshaped * scale_row_expanded * scale_col_expanded
+        ).reshape(input.shape)
+        self.assertFalse(torch.isnan(reconstructed).any())
+
     def test_float8_blockwise_scaling(self):
         M, K = 512, 1024
         hp_tensor = torch.randn(M, K, dtype=torch.float)
@@ -843,6 +888,29 @@ class TestQuantPrimitives(unittest.TestCase):
 
         torch.testing.assert_close(scale, ref_scale, atol=0, rtol=0)
         torch.testing.assert_close(data.float(), ref_data.float(), atol=0, rtol=0)
+
+    def test_float8_rowwise_scaling_3d_weight_axis_1(self):
+        """
+        Test scaling a weight with shape (B, K, N) and row-major memory layout
+        across the K dimension.
+        """
+
+        B, K, N = 8, 16, 32
+        hp_tensor = torch.randn(B, K, N, dtype=torch.float)
+
+        granularity = PerRow(1)
+        block_size = get_block_size(hp_tensor.shape, granularity)
+        scale = _choose_scale_float8(
+            hp_tensor,
+            float8_dtype=torch.float8_e4m3fn,
+            block_size=block_size,
+            hp_value_lb=None,
+            hp_value_ub=None,
+        )
+        data = _quantize_affine_float8(hp_tensor, scale, torch.float8_e4m3fn)
+
+        assert scale.shape == (B, 1, N)
+        assert data.shape == (B, K, N)
 
 
 if __name__ == "__main__":

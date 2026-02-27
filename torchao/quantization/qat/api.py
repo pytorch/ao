@@ -62,18 +62,17 @@ class QATConfig(AOBaseConfig):
 
         from torchao.quantization import (
             quantize_,
-            Int8DynamicActivationInt4WeightConfig,
+            Int4WeightOnlyConfig,
         )
         from torchao.quantization.qat import QATConfig
 
-        base_config = Int8DynamicActivationInt4WeightConfig(group_size=32)
+        base_config = Int4WeightOnlyConfig(group_size=32)
         quantize_(model, QATConfig(base_config, step="prepare"))
         train_loop(model)
         quantize_(model, QATConfig(base_config, step="convert"))
 
     Currently only the following are supported as base configs:
 
-        - :class:`~torchao.quantization.Int8DynamicActivationInt4WeightConfig`
         - :class:`~torchao.quantization.Int4WeightOnlyConfig`
 
     The second way to use this config involves specifying the fake quantization
@@ -198,6 +197,15 @@ def _qat_config_transform(
     modules to the corresponding built-in `torch.nn.Module`s, then apply the
     base config directly to quantize the module.
     """
+    # TODO: rewrite this using a registration API so
+    # specific quantization schemes do not leak here
+    from torchao.prototype.qat import (
+        MXFakeQuantizeConfig,
+        MXFakeQuantizedLinear,
+        NVFP4FakeQuantizeConfig,
+        NVFP4FakeQuantizedLinear,
+    )
+
     # Prepare step
     # Swap nn.Linear -> FakeQuantizedLinear
     # Swap nn.Embedding -> FakeQuantizedEmbedding
@@ -210,18 +218,18 @@ def _qat_config_transform(
             act_config = config.activation_config
             weight_config = config.weight_config
         if isinstance(module, torch.nn.Linear):
-            # TODO: rewrite this using a registration API so
-            # specific quantization schemes do not leak here
-            from torchao.prototype.qat import (
-                NVFP4FakeQuantizeConfig,
-                NVFP4FakeQuantizedLinear,
-            )
-
             if isinstance(weight_config, NVFP4FakeQuantizeConfig):
                 assert act_config is None or isinstance(
                     act_config, NVFP4FakeQuantizeConfig
                 )
                 return NVFP4FakeQuantizedLinear.from_linear(
+                    module, act_config, weight_config
+                )
+            elif isinstance(weight_config, MXFakeQuantizeConfig):
+                assert act_config is None or isinstance(
+                    act_config, MXFakeQuantizeConfig
+                )
+                return MXFakeQuantizedLinear.from_linear(
                     module, act_config, weight_config
                 )
             else:
@@ -245,17 +253,25 @@ def _qat_config_transform(
         assert config.weight_config is None, "unexpected `weight_config`"
 
         # Ignore unrelated modules
-        if not isinstance(module, (FakeQuantizedLinear, FakeQuantizedEmbedding)):
+        if not isinstance(
+            module,
+            (
+                FakeQuantizedLinear,
+                FakeQuantizedEmbedding,
+                MXFakeQuantizedLinear,
+                NVFP4FakeQuantizedLinear,
+            ),
+        ):
             return module
 
         # Optionally pass custom scales and zero points to base config handler
         # This is only for range learning and only applies to weights
         kwargs = {}
         has_custom_scale_and_zero_point = False
-        weight_config = module.weight_fake_quantizer.config
         if (
-            isinstance(weight_config, IntxFakeQuantizeConfig)
-            and weight_config.range_learning
+            hasattr(module, "weight_fake_quantizer")
+            and isinstance(module.weight_fake_quantizer.config, IntxFakeQuantizeConfig)
+            and module.weight_fake_quantizer.config.range_learning
         ):
             kwargs["custom_scale"] = module.weight_fake_quantizer.scale
             kwargs["custom_zero_point"] = module.weight_fake_quantizer.zero_point
@@ -265,7 +281,10 @@ def _qat_config_transform(
         # Swap FakeQuantizedEmbedding -> nn.Embedding
         # Then apply the base config's transform function to quantize the model
         # If there is no base config, then simply perform the module swap
-        if isinstance(module, FakeQuantizedLinear):
+        if isinstance(
+            module,
+            (FakeQuantizedLinear, MXFakeQuantizedLinear, NVFP4FakeQuantizedLinear),
+        ):
             module = module.to_linear()
         elif isinstance(module, FakeQuantizedEmbedding):
             module = module.to_embedding()

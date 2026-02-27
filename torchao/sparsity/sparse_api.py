@@ -105,7 +105,6 @@ def sparsify_(
     Currently, we support three options for sparsity:
         - semi-structured (2:4) sparsity with `semi_sparse_weight`
         - int8 dynamic quantization + 2:4 sparsity with `layout=SemiSparseLayout`
-        - int4 weight-only quantization + 2:4 sparsity with `layout=SparseMarlinLayout`
 
     Args:
         model (torch.nn.Module): input model

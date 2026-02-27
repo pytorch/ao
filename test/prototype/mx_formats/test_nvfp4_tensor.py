@@ -12,9 +12,6 @@ import torch.nn.functional as F
 from torchao.prototype.mx_formats.constants import (
     F4_E2M1_MAX,
 )
-from torchao.prototype.mx_formats.inference_workflow import (
-    NVFP4MMConfig,
-)
 from torchao.prototype.mx_formats.nvfp4_tensor import (
     NVFP4Tensor,
     QuantizeTensorToNVFP4Kwargs,
@@ -71,7 +68,7 @@ def test_nvfp4_reconstruction(dtype, shape, use_per_tensor_scale):
 
     reconstructed_amax = x_nvfp4.get_hp_scales().view(shape[0], -1, 1) * F4_E2M1_MAX
     max_abs = torch.amax(
-        torch.abs(x.reshape(shape[0], -1, x_nvfp4._block_size)), dim=-1
+        torch.abs(x.reshape(shape[0], -1, x_nvfp4.block_size)), dim=-1
     ).unsqueeze(-1)
 
     assert_sqnr_gt_threshold(max_abs, reconstructed_amax, 30.0)
@@ -120,13 +117,13 @@ def test_nvfp4_reconstruction(dtype, shape, use_per_tensor_scale):
 def test_nvfp4_swizzled_scales_construction(is_swizzled_scales, shape):
     """
     Test that NVFP4Tensor can be constructed with swizzled scales and
-    that the _is_swizzled_scales flag is set correctly.
+    that the is_swizzled_scales flag is set correctly.
     """
 
     data = torch.randn(*shape, device="cuda", dtype=torch.bfloat16)
 
     tensor = NVFP4Tensor.to_nvfp4(data, is_swizzled_scales=is_swizzled_scales)
-    assert tensor._is_swizzled_scales == is_swizzled_scales
+    assert tensor.is_swizzled_scales == is_swizzled_scales
     reconstructed = tensor.dequantize(torch.bfloat16)
     assert reconstructed.shape == data.shape
 
@@ -170,7 +167,7 @@ def test_nvfp4_swizzled_scales_slicing(slice_dim, slice_spec):
     data = torch.randn(M, K, device="cuda", dtype=torch.bfloat16)
 
     tensor = NVFP4Tensor.to_nvfp4(data, is_swizzled_scales=True)
-    assert tensor._is_swizzled_scales == True
+    assert tensor.is_swizzled_scales == True
 
     if slice_dim == 0:
         sliced_tensor = tensor[slice_spec, :]
@@ -178,7 +175,7 @@ def test_nvfp4_swizzled_scales_slicing(slice_dim, slice_spec):
         sliced_tensor = tensor[:, slice_spec]
 
     # Verify sliced tensor maintains swizzled state
-    assert sliced_tensor._is_swizzled_scales == True
+    assert sliced_tensor.is_swizzled_scales == True
 
     # Verify sliced tensor can be dequantized
     sliced_reconstructed = sliced_tensor.dequantize(torch.bfloat16)
@@ -308,8 +305,8 @@ def test_nvfp4_swizzled_scales_serialization():
     tensor_list, ctx = original_tensor.__tensor_flatten__()
 
     # Verify swizzled flag is preserved in context
-    assert "_is_swizzled_scales" in ctx
-    assert ctx["_is_swizzled_scales"] == True
+    assert "is_swizzled_scales" in ctx
+    assert ctx["is_swizzled_scales"] == True
 
     # Test deserialization
     inner_tensors = {}
@@ -321,7 +318,7 @@ def test_nvfp4_swizzled_scales_serialization():
     )
 
     # Verify the swizzled state is preserved
-    assert reconstructed_tensor._is_swizzled_scales == True
+    assert reconstructed_tensor.is_swizzled_scales == True
 
     # Verify functionality is preserved
     original_dq = original_tensor.dequantize(torch.bfloat16)
@@ -422,7 +419,8 @@ def test_triton_nvfp4_quantize_equivalence(M, N, use_per_tensor_scale, dtype):
 )
 @pytest.mark.parametrize("use_gelu", [True, False])
 @pytest.mark.parametrize(
-    "mm_config", [NVFP4MMConfig.DYNAMIC, NVFP4MMConfig.WEIGHT_ONLY]
+    "quant_type",
+    ["dynamic", "weight_only"],
 )
 @pytest.mark.parametrize("compile", [False])
 @pytest.mark.parametrize("bias", [True, False])
@@ -448,7 +446,7 @@ def test_triton_nvfp4_quantize_equivalence(M, N, use_per_tensor_scale, dtype):
 )
 def test_nvfp4_matmul_with_amax(
     use_gelu: bool,
-    mm_config: NVFP4MMConfig,
+    quant_type: str,
     compile: bool,
     bias: bool,
     inpt_dtype: torch.dtype,
@@ -456,14 +454,14 @@ def test_nvfp4_matmul_with_amax(
     shapes: tuple,
 ):
     # DYNAMIC mode requires SM100+, but WEIGHT_ONLY works on older GPUs
-    if mm_config == NVFP4MMConfig.DYNAMIC and not is_sm_at_least_100():
+    if quant_type == "dynamic" and not is_sm_at_least_100():
         pytest.skip("CUDA capability >= 10.0 required for DYNAMIC float4 gemm")
 
     if bias and inpt_dtype == torch.float32:
         pytest.xfail("Bias is not supported when module weight is in fp32")
 
-    if mm_config == NVFP4MMConfig.WEIGHT_ONLY and compile:
-        pytest.skip("TODO: NVFP4MMConfig.WEIGHT_ONLY currently errors w/ compile")
+    if quant_type == "weight_only" and compile:
+        pytest.skip("TODO: weight_only currently errors w/ compile")
 
     m, k, n = shapes
 
@@ -483,7 +481,7 @@ def test_nvfp4_matmul_with_amax(
     a_scale = per_tensor_amax_to_scale(torch.amax(torch.abs(A)))
     b_scale = per_tensor_amax_to_scale(torch.amax(torch.abs(B)))
     act_quant_kwargs = None
-    if mm_config == NVFP4MMConfig.DYNAMIC:
+    if quant_type == "dynamic":
         act_quant_kwargs = QuantizeTensorToNVFP4Kwargs()
     A_nvfp4 = NVFP4Tensor.to_nvfp4(
         A,
@@ -509,7 +507,7 @@ def test_nvfp4_matmul_with_amax(
     sqnr = compute_error(C_ref, C_nvfp4)
     SQNR_THRESHOLD = 16.0
     assert sqnr >= SQNR_THRESHOLD, (
-        f"SQNR {sqnr:.2f} < {SQNR_THRESHOLD}, use_gelu={use_gelu}, mm_config={mm_config}, compile={compile}, bias={bias}"
+        f"SQNR {sqnr:.2f} < {SQNR_THRESHOLD}, use_gelu={use_gelu}, {quant_type=}, compile={compile}, bias={bias}"
     )
 
 
@@ -526,7 +524,7 @@ def test_nvfp4_to_copy():
     assert y.per_tensor_scale is None
     assert x.act_per_tensor_scale is None
     assert y.act_per_tensor_scale is None
-    assert x._block_size == y._block_size
+    assert x.block_size == y.block_size
     assert x.use_triton_kernel == y.use_triton_kernel
     assert x.act_quant_kwargs == y.act_quant_kwargs
     assert x.dtype == torch.float32

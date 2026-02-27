@@ -12,19 +12,19 @@ import torch
 from torch._inductor.utils import run_and_get_code
 from torch.testing import FileCheck
 
-from torchao.prototype.mx_formats.config import MXGemmKernelChoice
 from torchao.prototype.mx_formats.constants import (
     DTYPE_FP6_E2M3,
     DTYPE_FP6_E3M2,
     SUPPORTED_ELEM_DTYPES,
 )
-from torchao.prototype.mx_formats.kernels import pack_uint4, pack_uint6
+from torchao.prototype.mx_formats.kernels import pack_uint4
 from torchao.prototype.mx_formats.mx_tensor import (
     MXTensor,
     ScaleCalculationMode,
     to_dtype,
 )
 from torchao.prototype.mx_formats.utils import from_blocked, to_blocked
+from torchao.quantization.quantize_.common import KernelPreference
 from torchao.quantization.utils import compute_error
 from torchao.utils import (
     is_sm_at_least_89,
@@ -343,14 +343,10 @@ def test_exponent_nan_in(elem_dtype):
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
-@pytest.mark.parametrize("pack_fp6", [False, True])
-def test_exponent_nan_out(elem_dtype, pack_fp6):
+def test_exponent_nan_out(elem_dtype):
     """
     If block exponent value is NaN, the MX tensor block value is NaN
     """
-    if pack_fp6 and elem_dtype not in (DTYPE_FP6_E2M3, DTYPE_FP6_E3M2):
-        pytest.skip("invalid configuration")
-
     scale_e8m0 = torch.tensor(
         [float("nan"), 1.0], dtype=torch.float8_e8m0fnu, device="cuda"
     )
@@ -365,9 +361,6 @@ def test_exponent_nan_out(elem_dtype, pack_fp6):
         data_bits = torch.tensor(
             [0, 1, 2, 3, 4, 5, 6, 7], dtype=torch.uint8, device="cuda"
         )  # noqa: E501
-        if pack_fp6:
-            data_bits = data_bits.reshape(-1, block_size)
-            data_bits = pack_uint6(data_bits)
     elif elem_dtype == torch.float4_e2m1fn_x2:
         data_bits = torch.tensor(
             [0, 1, 2, 3, 4, 5, 6, 7], dtype=torch.uint8, device="cuda"
@@ -382,8 +375,7 @@ def test_exponent_nan_out(elem_dtype, pack_fp6):
         elem_dtype,
         block_size,
         torch.float,
-        MXGemmKernelChoice.EMULATED,
-        pack_fp6,
+        KernelPreference.EMULATED,
         None,
         False,
     )
@@ -467,21 +459,6 @@ def test_clone():
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.parametrize("elem_dtype", [DTYPE_FP6_E2M3, DTYPE_FP6_E3M2])
-@pytest.mark.parametrize("pack_fp6", [False, True])
-def test_fp6_packing(elem_dtype, pack_fp6):
-    x = torch.randn(1, 2, 4, device="cuda")
-    block_size = 4
-    x_mx = MXTensor.to_mx(x, elem_dtype, block_size, pack_fp6=pack_fp6)
-    if pack_fp6:
-        expected_packed_shape = torch.Size([*x.shape[:-1], 3 * x.shape[-1] // 4])
-    else:
-        expected_packed_shape = x.shape
-
-    assert x_mx.qdata.shape == expected_packed_shape
-
-
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
 @pytest.mark.parametrize("hp_dtype", [torch.float32, torch.bfloat16])
 @pytest.mark.parametrize("all_zeros", [False, True])
@@ -514,22 +491,19 @@ def test_to_mx_from_mx_compile_numerics(elem_dtype, hp_dtype, all_zeros):
 
     to_dtype_c = torch.compile(to_dtype, fullgraph=True)
 
-    pack_fp6 = False
     x_mx_dq = to_dtype(
         x_mx.qdata,
         x_mx.scale,
-        x_mx._elem_dtype,
-        x_mx._block_size,
+        x_mx.elem_dtype,
+        x_mx.block_size,
         hp_dtype,  # noqa: E501
-        pack_fp6,
     )
     x_mx_c_dq = to_dtype_c(
         x_mx_c.qdata,
         x_mx_c.scale,
-        x_mx_c._elem_dtype,
-        x_mx_c._block_size,
+        x_mx_c.elem_dtype,
+        x_mx_c.block_size,
         hp_dtype,
-        pack_fp6,
     )
     torch.testing.assert_close(x_mx_dq, x_mx_c_dq, atol=0, rtol=0)
 
@@ -554,7 +528,7 @@ def test_to_mx_inductor_single_kernel():
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.skipIf(not is_sm_at_least_90(), "Need sm90+")
+@pytest.mark.skipif(not is_sm_at_least_90(), reason="Need sm90+")
 def test_index_select():
     """
     test that `x_0 = x[0]` works when `x` is a 3D `MXTensor`. This is

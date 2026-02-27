@@ -12,7 +12,7 @@ import torch
 from torchao.quantization.quantize_.workflows.int4.int4_tensor import Int4Tensor
 from torchao.utils import (
     TorchAOBaseTensor,
-    _is_fbgemm_gpu_genai_available,
+    _is_mslk_available,
 )
 
 __all__ = [
@@ -22,15 +22,12 @@ __all__ = [
 aten = torch.ops.aten
 
 
-if not _is_fbgemm_gpu_genai_available():
+if not _is_mslk_available():
     quantize_int4_preshuffle = None
     quantize_fp8_row = None
-    pack_int4 = None
 else:
-    from fbgemm_gpu.experimental.gen_ai.quantize import (
-        quantize_fp8_row,
-        quantize_int4_preshuffle,
-    )
+    from mslk.quantize.shuffle import quantize_int4_preshuffle
+    from mslk.quantize.triton.fp8_quantize import quantize_fp8_row
 
 
 class Int4PreshuffledTensor(TorchAOBaseTensor):
@@ -39,7 +36,7 @@ class Int4PreshuffledTensor(TorchAOBaseTensor):
 
     Tensor Attributes:
         qdata: preshuffled and packed int4 weight, either 2D (N, K/2) or 3D (B, N, K/2), last dimension is packed
-               preshuffling is specific to fbgemm kernels, see Note for motivation, detailed layout doc is WIP
+               preshuffling is specific to mslk kernels, see Note for motivation, detailed layout doc is WIP
         for bf16 activation:
             group_scale: (K/group_size, N) for 2D Tensor, (B, K/group_size, N) for 3D Tensor, where B is batch size,
                    dtype is the same as the original Tensor dtype
@@ -55,7 +52,7 @@ class Int4PreshuffledTensor(TorchAOBaseTensor):
         block_size: the block size for quantization, representing the granularity, for example groupwise quantization will have block_size (1, group_size)
         shape: shape of the original Tensor
 
-    Note on Details for preshuffle for fbgemm kernel:
+    Note on Details for preshuffle for mslk kernel:
 
       We use WGMMA instruction for efficient matrix multiplication in H100 Tensor Core.
       To address a major inefficiency in how WGMMA tiles are loaded into shared memory before
@@ -138,7 +135,7 @@ class Int4PreshuffledTensor(TorchAOBaseTensor):
         )
 
         if quantize_int4_preshuffle is None:
-            raise ImportError("Requires fbgemm-gpu-genai >= 1.2.0")
+            raise ImportError("Requires mslk >= 1.0.0")
 
         assert all(x == 1 for x in block_size[:-1]) and block_size[-1] != 1, (
             "Only groupwise quant is supported right now"
@@ -192,29 +189,52 @@ class Int4PreshuffledTensor(TorchAOBaseTensor):
         assert isinstance(tensor, Int4Tensor), (
             f"Only conversion from Int4Tensor is supportd, got: {tensor}"
         )
-        # currently Int4Tensor only supports weight only, we can extend it to fp8-int4 a bit later
         qdata = tensor.qdata
         group_scale = tensor.scale
-        group_zero = tensor.zero_point
         block_size = tensor.block_size
         original_shape = tensor.shape
-        row_scale = None
 
-        # Set scales to activation type.
-        group_scale = group_scale.to(torch.bfloat16)
-        group_zero = group_zero.to(torch.bfloat16)
-        # pack weights and scales into efficient preshuffled format
-        preshuffled_qdata, group_scale = torch.ops.fbgemm.preshuffle_i4(
-            qdata, group_scale
-        )
-        return Int4PreshuffledTensor(
-            qdata=preshuffled_qdata,
-            group_scale=group_scale,
-            block_size=block_size,
-            shape=original_shape,
-            group_zero=group_zero,
-            row_scale=row_scale,
-        )
+        if tensor.activation_dtype == torch.float8_e4m3fn:
+            # fp8 activation: compute row_scale and convert group_scale to fp8
+            # Int4Tensor uses symmetric quantization (zero_point = 0) for fp8,
+            # matching the preshuffled kernel's requirements.
+
+            # row_scale: per-channel max of abs(group_scale), shape (N,)
+            # Must be fp32 as required by the f8i4bf16_shuffled kernel
+            row_scale = group_scale.abs().amax(dim=0).to(torch.float32)
+            # normalize group_scale so it fits in fp8 range, then cast to fp8
+            fp8_group_scale = (group_scale / row_scale.unsqueeze(0)).to(
+                torch.float8_e4m3fn
+            )
+            # pack weights and scales into efficient preshuffled format
+            preshuffled_qdata, preshuffled_group_scale = torch.ops.mslk.preshuffle_i4(
+                qdata, fp8_group_scale
+            )
+            return Int4PreshuffledTensor(
+                qdata=preshuffled_qdata,
+                group_scale=preshuffled_group_scale,
+                block_size=block_size,
+                shape=original_shape,
+                group_zero=None,
+                row_scale=row_scale,
+            )
+        else:
+            # bf16 activation: use group_zero (zero_point), no row_scale
+            group_zero = tensor.zero_point
+            group_scale = group_scale.to(torch.bfloat16)
+            group_zero = group_zero.to(torch.bfloat16)
+            # pack weights and scales into efficient preshuffled format
+            preshuffled_qdata, group_scale = torch.ops.mslk.preshuffle_i4(
+                qdata, group_scale
+            )
+            return Int4PreshuffledTensor(
+                qdata=preshuffled_qdata,
+                group_scale=group_scale,
+                block_size=block_size,
+                shape=original_shape,
+                group_zero=group_zero,
+                row_scale=None,
+            )
 
 
 implements = Int4PreshuffledTensor.implements
@@ -237,7 +257,7 @@ def _(func, types, args, kwargs):
     if weight_tensor.group_zero is not None:
         # bf16 activation
         group_zero = weight_tensor.group_zero.contiguous()
-        res = torch.ops.fbgemm.bf16i4bf16_shuffled(
+        res = torch.ops.mslk.bf16i4bf16_shuffled(
             input_tensor, wq, group_scale, group_zero
         )
     else:
@@ -245,9 +265,7 @@ def _(func, types, args, kwargs):
         assert weight_tensor.row_scale is not None
         row_scale = weight_tensor.row_scale.contiguous()
         xq, x_scale = quantize_fp8_row(input_tensor)
-        res = torch.ops.fbgemm.f8i4bf16_shuffled(
-            xq, wq, x_scale, row_scale, group_scale
-        )
+        res = torch.ops.mslk.f8i4bf16_shuffled(xq, wq, x_scale, row_scale, group_scale)
 
     res = res.reshape(*orig_input_size[:-1], orig_out_features)
     if bias is not None:
@@ -269,7 +287,7 @@ def _(func, types, args, kwargs):
     if weight_tensor.group_zero is not None:
         # bfloat16 activation
         group_zero = weight_tensor.group_zero.contiguous()
-        res = torch.ops.fbgemm.bf16i4bf16_shuffled_batched(
+        res = torch.ops.mslk.bf16i4bf16_shuffled_batched(
             input_tensor, wq, group_scale, group_zero
         )
     else:
@@ -277,13 +295,13 @@ def _(func, types, args, kwargs):
         assert weight_tensor.row_scale is not None
         row_scale = weight_tensor.row_scale.contiguous()
         xq, x_scale = quantize_fp8_row(input_tensor)
-        # From: https://github.com/pytorch/FBGEMM/blob/ba8f2b7adb90e096cff8818716f7cc3587030f70/fbgemm_gpu/experimental/gen_ai/bench/quantize_ops.py#L1654
+        # From: https://github.com/meta-pytorch/MSLK/blob/cdc8e712ca324f896faa44f84421e292b09b4e49/bench/gemm/gemm_ops.py#L1945-L1968
         assert xq.dim() == 3
         B, M, _ = xq.shape
         _, N, _ = wq.shape
         res = torch.empty((B, M, N), device=xq.device, dtype=torch.bfloat16)
         for i in range(B):
-            res[i] = torch.ops.fbgemm.f8i4bf16_shuffled(
+            res[i] = torch.ops.mslk.f8i4bf16_shuffled(
                 xq[i], wq[i], x_scale[i], row_scale[i], group_scale[i]
             )
 

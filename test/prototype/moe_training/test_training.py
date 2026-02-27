@@ -12,24 +12,22 @@ if not torch.cuda.is_available() or torch.cuda.get_device_capability() < (8, 9):
     )
 
 from torchao.float8.float8_utils import compute_error
-from torchao.prototype.moe_training.conversion_utils import (
-    MoEScalingType,
-    MoETrainingConfig,
+from torchao.prototype.moe_training.config import (
+    FP8GroupedMMConfig,
+    FP8GroupedMMRecipe,
+    MXFP8GroupedMMConfig,
+    MXFP8GroupedMMRecipe,
 )
 from torchao.quantization.quant_api import quantize_
+from torchao.quantization.quantize_.common import KernelPreference
+from torchao.utils import is_MI300, is_MI350, is_ROCM
 
+# Reference MoE implementation (copied from torchtitan to avoid external dependency)
+from .reference_moe import MoE, MoEArgs, set_token_group_alignment_size_m
 from .testing_utils import _validate_model_conversion
 
-# this test requires torchtitan
-try:
-    from torchtitan.models.moe import MoE, MoEArgs
-    from torchtitan.models.moe.utils import (
-        set_token_group_alignment_size_m,
-    )
-except ImportError:
-    pytest.skip(
-        "torchtitan not installed, skipping MoE tests.", allow_module_level=True
-    )
+# Needed since changing args to function causes recompiles
+torch._dynamo.config.cache_size_limit = 1000
 
 
 @pytest.mark.parametrize(
@@ -38,25 +36,47 @@ except ImportError:
 )
 @pytest.mark.parametrize("compile", [False, True])
 @pytest.mark.parametrize(
+    "kernel_preference", [KernelPreference.AUTO, KernelPreference.EMULATED]
+)
+@pytest.mark.parametrize(
     "recipe_config",
     [
         {
-            "recipe": MoEScalingType.FP8_ROWWISE,
+            "recipe": FP8GroupedMMRecipe.FP8_ROWWISE,
             "group_alignment_size": 16,
             "min_out_sqnr": 29.0,
             "min_input_grad_sqnr": 29.0,
             "min_param_grad_sqnr": 23.0,
         },
         {
-            "recipe": MoEScalingType.MXFP8,
+            "recipe": MXFP8GroupedMMRecipe.MXFP8_RCEIL,
             "group_alignment_size": 32,
             "min_out_sqnr": 28.0,
             "min_input_grad_sqnr": 29.0,
             "min_param_grad_sqnr": 21.0,
         },
+        {
+            "recipe": MXFP8GroupedMMRecipe.MXFP8_RCEIL_WGRAD_WITH_HP,
+            "group_alignment_size": 32,
+            "min_out_sqnr": 28.0,
+            "min_input_grad_sqnr": 29.0,
+            "min_param_grad_sqnr": 25.0,
+        },
+        {
+            "recipe": MXFP8GroupedMMRecipe.MXFP8_EMULATED_RCEIL,
+            "group_alignment_size": 32,
+            "min_out_sqnr": 27.0,
+            "min_input_grad_sqnr": 29.0,
+            "min_param_grad_sqnr": 21.0,
+        },
     ],
 )
-def test_moe_training(target_fqns: list[str], compile: bool, recipe_config: dict):
+def test_moe_training(
+    target_fqns: list[str],
+    compile: bool,
+    kernel_preference: KernelPreference,
+    recipe_config: dict,
+):
     (
         recipe,
         group_alignment_size,
@@ -71,20 +91,34 @@ def test_moe_training(target_fqns: list[str], compile: bool, recipe_config: dict
         recipe_config["min_param_grad_sqnr"],
     )
     assert torch.cuda.is_available()
-    if recipe == MoEScalingType.FP8_ROWWISE and torch.cuda.get_device_capability() != (
-        9,
-        0,
-    ):
+
+    # Emulated mode with compile is not supported
+    if recipe == MXFP8GroupedMMRecipe.MXFP8_EMULATED_RCEIL and compile:
         pytest.skip(
-            f"Skipping FP8 rowwise tests, only supported on compute capability 9.0 and found {torch.cuda.get_device_capability()}"
+            "Skipping compile=True with kernel_preference=EMULATED, not currently supported"
         )
 
-    elif recipe == MoEScalingType.MXFP8 and torch.cuda.get_device_capability() != (
+    # FP8_ROWWISE hardware path requires SM90 (CUDA) or MI300/MI350 (ROCm)
+    if recipe == FP8GroupedMMRecipe.FP8_ROWWISE:
+        if is_ROCM():
+            if not (is_MI300() or is_MI350()):
+                pytest.skip("FP8 rowwise test requires MI300 or MI350 on ROCm")
+        else:
+            if torch.cuda.get_device_capability() != (9, 0):
+                pytest.skip(
+                    f"Skipping FP8 rowwise tests, only supported on compute capability 9.0 and found {torch.cuda.get_device_capability()}"
+                )
+
+    # MXFP8 hardware path requires SM100
+    if recipe in (
+        MXFP8GroupedMMRecipe.MXFP8_RCEIL,
+        MXFP8GroupedMMRecipe.MXFP8_RCEIL_WGRAD_WITH_HP,
+    ) and torch.cuda.get_device_capability() != (
         10,
         0,
     ):
         pytest.skip(
-            f"Skipping MXFP8 benchmarks, only supported on compute capability 10.0 and found {torch.cuda.get_device_capability()}"
+            f"Skipping MXFP8 hardware mode tests, only supported on compute capability 10.0 and found {torch.cuda.get_device_capability()}"
         )
 
     # Set token group alignment size. This is required so that
@@ -119,7 +153,12 @@ def test_moe_training(target_fqns: list[str], compile: bool, recipe_config: dict
         return False
 
     # quantize test model
-    config = MoETrainingConfig(scaling_type=recipe)
+    config_cls = (
+        MXFP8GroupedMMConfig
+        if isinstance(recipe, MXFP8GroupedMMRecipe)
+        else FP8GroupedMMConfig
+    )
+    config = config_cls.from_recipe(recipe)
     quantize_(model, config=config, filter_fn=moe_module_filter_fn)
 
     # validate that only the experts were converted

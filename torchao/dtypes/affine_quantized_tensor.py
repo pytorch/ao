@@ -3,9 +3,11 @@
 #
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
+from __future__ import annotations
+
 import logging
 import math
-from typing import Optional, Tuple, Union
+from typing import TYPE_CHECKING, Optional, Tuple, Union
 
 import torch
 
@@ -14,28 +16,14 @@ from torchao.dtypes.utils import (
     Layout,
     PlainLayout,
 )
-from torchao.quantization.quant_primitives import (
-    FP8_TYPES,
-    MappingType,
-    ZeroPointDomain,
-    _choose_qparams_affine_dont_preserve_zero,
-    _choose_qparams_affine_floatx,
-    _choose_qparams_affine_tinygemm,
-    _choose_qparams_and_quantize_affine_hqq,
-    _choose_scale_float8,
-    _dequantize_affine_float8,
-    _dequantize_affine_floatx,
-    _dequantize_affine_no_zero_point,
-    _dequantize_affine_tinygemm,
-    _quantize_affine_float8,
-    _quantize_affine_floatx,
-    _quantize_affine_no_zero_point,
-    _quantize_affine_tinygemm,
-    choose_qparams_affine,
-    dequantize_affine,
-    quantize_affine,
-)
 from torchao.utils import TorchAOBaseTensor
+
+if TYPE_CHECKING:
+    from torchao.quantization.quant_primitives import MappingType, ZeroPointDomain
+
+# Sentinel value for default zero_point_domain argument
+# We can't use None because ZeroPointDomain.NONE is a valid value
+_DEFAULT_ZPD = object()
 
 logger = logging.getLogger(__name__)
 aten = torch.ops.aten
@@ -47,7 +35,6 @@ __all__ = [
     "to_affine_quantized_floatx",
     "to_affine_quantized_intx_static",
     "to_affine_quantized_floatx_static",
-    "to_affine_quantized_fpx",
 ]
 
 
@@ -88,10 +75,14 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         shape: torch.Size,
         quant_min: Optional[Union[int, float]] = None,
         quant_max: Optional[Union[int, float]] = None,
-        zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
+        zero_point_domain: ZeroPointDomain = _DEFAULT_ZPD,  # type: ignore[assignment]
         dtype=None,
         strides=None,
     ):
+        from torchao.quantization.quant_primitives import ZeroPointDomain
+
+        if zero_point_domain is _DEFAULT_ZPD:
+            zero_point_domain = ZeroPointDomain.INT
         if zero_point_domain is None:
             raise ValueError("please use ZeroPointDomain.NONE instead of None")
         kwargs = {}
@@ -112,10 +103,14 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         shape: torch.Size,
         quant_min: Optional[Union[int, float]] = None,
         quant_max: Optional[Union[int, float]] = None,
-        zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
+        zero_point_domain: ZeroPointDomain = _DEFAULT_ZPD,  # type: ignore[assignment]
         dtype=None,
         strides=None,
     ):
+        from torchao.quantization.quant_primitives import ZeroPointDomain
+
+        if zero_point_domain is _DEFAULT_ZPD:
+            zero_point_domain = ZeroPointDomain.INT
         torch._C._log_api_usage_once(str(type(self)))
         self.tensor_impl = tensor_impl
         self.block_size = block_size
@@ -133,21 +128,20 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         return f"shape={self.shape}, block_size={self.block_size}, device={self.device}, _layout={self._layout}, tensor_impl_dtype={self.tensor_impl.dtype}, quant_min={self.quant_min}, quant_max={self.quant_max}"
 
     def dequantize(self, output_dtype: Optional[torch.dtype] = None) -> torch.Tensor:
+        from torchao.quantization.quant_primitives import (
+            ZeroPointDomain,
+            _dequantize_affine_float8,
+            _dequantize_affine_no_zero_point,
+            _dequantize_affine_tinygemm,
+            dequantize_affine,
+        )
+
         if output_dtype is None:
             output_dtype = self.dtype
 
-        from torchao.dtypes.floatx import Float8Layout, FloatxTensorCoreLayout
+        from torchao.dtypes.floatx import Float8Layout
 
-        if isinstance(self._layout, FloatxTensorCoreLayout):
-            int_data, scale = self.tensor_impl.get_plain()
-            return _dequantize_affine_floatx(
-                int_data,
-                scale,
-                self._layout.ebits,
-                self._layout.mbits,
-                output_dtype=output_dtype,
-            )
-        elif isinstance(self._layout, Float8Layout):
+        if isinstance(self._layout, Float8Layout):
             data, scale, _ = self.tensor_impl.get_plain()
             return _dequantize_affine_float8(data, scale, output_dtype)
         else:
@@ -242,7 +236,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         scale_dtype: Optional[torch.dtype] = None,
         zero_point_dtype: Optional[torch.dtype] = None,
         preserve_zero: bool = True,
-        zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
+        zero_point_domain: ZeroPointDomain = _DEFAULT_ZPD,  # type: ignore[assignment]
         _layout: Layout = PlainLayout(),
         use_hqq: bool = False,
         *,
@@ -250,6 +244,21 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         custom_zero_point: Optional[torch.Tensor] = None,
     ):
         """Convert a high precision tensor to an integer affine quantized tensor."""
+        from torchao.quantization.quant_primitives import (
+            MappingType,
+            ZeroPointDomain,
+            _choose_qparams_affine_dont_preserve_zero,
+            _choose_qparams_affine_tinygemm,
+            _choose_qparams_and_quantize_affine_hqq,
+            _quantize_affine_no_zero_point,
+            _quantize_affine_tinygemm,
+            choose_qparams_affine,
+            quantize_affine,
+        )
+
+        if zero_point_domain is _DEFAULT_ZPD:
+            zero_point_domain = ZeroPointDomain.INT
+
         original_shape = input_float.shape
         input_float = _layout.pre_process(input_float)
 
@@ -392,10 +401,19 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         target_dtype: torch.dtype,
         quant_min: Optional[int] = None,
         quant_max: Optional[int] = None,
-        zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
+        zero_point_domain: ZeroPointDomain = _DEFAULT_ZPD,  # type: ignore[assignment]
         _layout: Layout = PlainLayout(),
     ):
         """Create an integer AffineQuantizedTensor from a high precision tensor using static parameters."""
+        from torchao.quantization.quant_primitives import (
+            ZeroPointDomain,
+            _quantize_affine_no_zero_point,
+            _quantize_affine_tinygemm,
+            quantize_affine,
+        )
+
+        if zero_point_domain is _DEFAULT_ZPD:
+            zero_point_domain = ZeroPointDomain.INT
         if zero_point_domain is None:
             raise ValueError("please use ZeroPointDomain.NONE instead of None")
         elif zero_point_domain is ZeroPointDomain.NONE and zero_point is not None:
@@ -466,6 +484,12 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         scale_dtype: Optional[torch.dtype] = None,
     ):
         """Convert a high precision tensor to a float8 quantized tensor."""
+        from torchao.quantization.quant_primitives import (
+            FP8_TYPES,
+            _choose_scale_float8,
+            _quantize_affine_float8,
+        )
+
         if target_dtype in FP8_TYPES:
             original_shape = input_float.shape
             input_float = _layout.pre_process(input_float)
@@ -500,6 +524,12 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         scale_dtype: torch.dtype = torch.float32,
     ):
         """Create a float8 AffineQuantizedTensor from a high precision tensor using static parameters."""
+        from torchao.quantization.quant_primitives import (
+            FP8_TYPES,
+            ZeroPointDomain,
+            _quantize_affine_float8,
+        )
+
         if target_dtype in FP8_TYPES:
             original_shape = input_float.shape
             input_float, scale, zero_point = _layout.pre_process_static(
@@ -531,36 +561,6 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
             raise NotImplementedError(
                 f"Unsupported dtype {target_dtype} for from_hp_to_floatx_static"
             )
-
-    @classmethod
-    def from_hp_to_fpx(
-        cls,
-        input_float: torch.Tensor,
-        _layout: Layout,
-    ):
-        """Create a floatx AffineQuantizedTensor from a high precision tensor. Floatx is represented as ebits and mbits, and supports the representation of float1-float7."""
-        from torchao.dtypes.floatx import FloatxTensorCoreLayout
-
-        assert isinstance(_layout, FloatxTensorCoreLayout), (
-            f"Only FloatxTensorCoreLayout is supported for floatx, got {_layout}"
-        )
-        original_shape = input_float.shape
-        input_float = _layout.pre_process(input_float)
-        # per axis quantization, where axis = 1
-        block_size = list(input_float.shape)
-        block_size[1] = 1
-
-        ebits, mbits = _layout.ebits, _layout.mbits
-        # Note: these ops are hardcoded to have per axis quantization (axis=1) right now
-        scale = _choose_qparams_affine_floatx(input_float, ebits, mbits)
-        floatx_unpacked = _quantize_affine_floatx(input_float, scale, ebits, mbits)
-        floatx_packed, scale, _ = _layout.post_process(
-            floatx_unpacked, scale, None, block_size
-        )
-
-        tensor_impl_ctr = get_tensor_impl_constructor(type(_layout))
-        tensor_impl = tensor_impl_ctr(floatx_packed, scale, None, _layout)
-        return cls(tensor_impl, block_size, original_shape, dtype=input_float.dtype)
 
     @property
     def _layout(self) -> Layout:
@@ -617,8 +617,6 @@ to_affine_quantized_intx = AffineQuantizedTensor.from_hp_to_intx
 to_affine_quantized_intx_static = AffineQuantizedTensor.from_hp_to_intx_static
 to_affine_quantized_floatx = AffineQuantizedTensor.from_hp_to_floatx
 to_affine_quantized_floatx_static = AffineQuantizedTensor.from_hp_to_floatx_static
-# experimental will be merged in to floatx
-to_affine_quantized_fpx = AffineQuantizedTensor.from_hp_to_fpx
 
 # Allow a model with AffineQuantizedTensor weights to be loaded with `weights_only=True`
 torch.serialization.add_safe_globals([AffineQuantizedTensor])

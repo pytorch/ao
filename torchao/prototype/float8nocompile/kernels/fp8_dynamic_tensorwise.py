@@ -473,7 +473,11 @@ def _amax_atomic(
     block_mask = block_offs < num_elements
     vals = tl.load(input_ptr + block_offs, mask=block_mask).to(input_dtype)
     block_amax = tl.max(tl.abs(vals))
-    tl.atomic_max(amax_ptr, block_amax)
+    # AMD GPUs need relaxed semantics for better performance
+    if tl.constexpr(torch.version.hip is not None):
+        tl.atomic_max(amax_ptr, block_amax, sem="relaxed")
+    else:
+        tl.atomic_max(amax_ptr, block_amax)
 
 
 @triton.jit

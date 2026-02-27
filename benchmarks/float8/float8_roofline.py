@@ -67,7 +67,7 @@ from torchao.testing.training.roofline_utils import (
     get_float8_mem_sympy,
     get_gemm_time_sympy,
 )
-from torchao.utils import is_MI300
+from torchao.utils import is_MI300, round_up
 
 
 class LNLinearSigmoid(torch.nn.Module):
@@ -166,19 +166,38 @@ def get_gemm_times(
         if torch.version.hip and torch.cuda.is_available() and is_MI300():
             e4m3_dtype = torch.float8_e4m3fnuz
         d1, d2, d3 = e4m3_dtype, e4m3_dtype, torch.bfloat16
-        # TODO(future PR): create more realistic tensors here for more accurate
-        # gemm benchmarking
-        A = torch.zeros(M, K, device=device, dtype=d1)
-        B = torch.zeros(K, N, device=device, dtype=d2).t().contiguous().t()
+        finfo = torch.finfo(e4m3_dtype)
+        A = torch.empty(M, K, device=device).uniform_(finfo.min, finfo.max).to(d1)
+        B = (
+            torch.empty(K, N, device=device)
+            .uniform_(finfo.min, finfo.max)
+            .to(d2)
+            .t()
+            .contiguous()
+            .t()
+        )
         if float8_recipe_name == "tensorwise":
             scale_a = torch.tensor([1.0], device=device)
             scale_b = torch.tensor([1.0], device=device)
         elif float8_recipe_name in ("rowwise", "rowwise_with_gw_hp"):
-            scale_a = torch.ones(M, 1, device=device)
-            scale_b = torch.ones(1, N, device=device)
+            scale_a = torch.randn(M, 1, device=device)
+            scale_b = torch.randn(1, N, device=device)
         elif mx_recipe_name in ("mxfp8_cublas", "mxfp8_cublas_rceil"):
-            scale_a = torch.ones(M, K // 32, device=device, dtype=torch.float8_e8m0fnu)
-            scale_b = torch.ones(N, K // 32, device=device, dtype=torch.float8_e8m0fnu)
+            M_rounded = round_up(M, 128)
+            K_rounded = round_up(K // 32, 4)
+            N_rounded = round_up(N, 128)
+            scale_a = torch.randint(
+                0,
+                255,
+                (M_rounded, K_rounded),
+                device=device,
+            ).to(torch.float8_e8m0fnu)
+            scale_b = torch.randint(
+                0,
+                255,
+                (N_rounded, K_rounded),
+                device=device,
+            ).to(torch.float8_e8m0fnu)
         else:
             assert False, f"unsupported {float8_recipe_name=} {mx_recipe_name=}"
 
@@ -416,6 +435,12 @@ def run(
             m_fp8_dyn = torch.compile(m_fp8_dyn)
             b_fp8_e2e_time_s = get_gpu_kernel_time(m_fp8_dyn, x, grad_output)
 
+        # Calculate e2e speedup if benchmarks were run, otherwise -1
+        if b_bf16_e2e_time_s > 0 and b_fp8_e2e_time_s > 0:
+            b_fp8_e2e_speedup = b_bf16_e2e_time_s / b_fp8_e2e_time_s
+        else:
+            b_fp8_e2e_speedup = -1
+
         results.append(
             [
                 M_val,
@@ -435,7 +460,7 @@ def run(
                 # benchmarks - e2e, and speedup
                 b_bf16_e2e_time_s,
                 b_fp8_e2e_time_s,
-                b_bf16_e2e_time_s / (b_fp8_e2e_time_s + 1e-20),
+                b_fp8_e2e_speedup,
                 # gemm ratios
                 rb_bf16_gemm_ratio,
                 rb_fp8_gemm_ratio,

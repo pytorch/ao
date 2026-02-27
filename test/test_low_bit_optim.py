@@ -119,6 +119,45 @@ class TestQuantize(TestCase):
         # must cast BF16 tensor back to FP32 so that .mean() is accurate
         torch.testing.assert_close(x_rep_bf16.float().mean(1), x, atol=3e-5, rtol=3e-5)
 
+    @parametrize("device", _DEVICES)
+    @parametrize("compile", [False, True])
+    def test_bf16_stochastic_round_dtensor(self, device, compile):
+        pytest.importorskip("torch.distributed")
+        import torch.distributed as dist
+        from torch.distributed.device_mesh import init_device_mesh
+        from torch.distributed.tensor import DTensor, Replicate
+
+        created_pg = False
+        if dist.is_available() and not dist.is_initialized():
+            store = dist.FileStore(tempfile.mktemp(), 1)
+            dist.init_process_group(
+                backend="gloo",
+                store=store,
+                rank=0,
+                world_size=1,
+            )
+            created_pg = True
+
+        try:
+            torch.manual_seed(common_utils.SEED)
+            x = torch.rand(32, device=device) * 100
+            x_rep = x.view(-1, 1).repeat(1, 100_000)
+
+            func = torch.compile(
+                _fp32_to_bf16_sr, fullgraph=True, dynamic=False, disable=not compile
+            )
+            out_plain = func(x_rep)
+
+            mesh = init_device_mesh(device, (1,))
+            x_dt = DTensor.from_local(x_rep, mesh, [Replicate()], run_check=False)
+            out_dt = func(x_dt)
+
+            assert isinstance(out_dt, DTensor)
+            torch.testing.assert_close(out_dt.to_local(), out_plain)
+        finally:
+            if created_pg:
+                dist.destroy_process_group()
+
 
 class TestOptim(TestCase):
     @parametrize(
@@ -234,6 +273,32 @@ class TestOptim(TestCase):
             tensor.dequantize()[offset : offset * 2],
             tensor[offset : offset * 2].dequantize(),
         )
+
+    @parametrize("subclass", [OptimState4bit, OptimState8bit, OptimStateFp8])
+    @parametrize("device", _DEVICES)
+    def test_subclass_appearance_dtype(self, subclass, device):
+        shape = (1024,)
+
+        # default creation should be FP32
+        tensor = subclass.zeros(shape, device=device)
+        self.assertEqual(tensor.dtype, torch.float32)
+
+        # dtype casting
+        tensor_bf16 = tensor.to(torch.bfloat16)
+        self.assertEqual(tensor_bf16.dtype, torch.bfloat16)
+
+        # moving to another device should preserve dtype
+        if not tensor_bf16.is_cpu:
+            tensor_bf16_cpu = tensor_bf16.cpu()
+            self.assertEqual(tensor_bf16_cpu.dtype, torch.bfloat16)
+
+        # recast to FP32
+        tensor_fp32_recast = tensor_bf16.to(torch.float32)
+        self.assertEqual(tensor_fp32_recast.dtype, torch.float32)
+
+        # direct BF16 creation
+        tensor_bf16 = subclass.zeros(shape, device=device, dtype=torch.bfloat16)
+        self.assertEqual(tensor_bf16.dtype, torch.bfloat16)
 
     @pytest.mark.skipif(bnb is None, reason="bitsandbytes is not available")
     @pytest.mark.skipif(
@@ -419,8 +484,8 @@ class TestOptim(TestCase):
         for p1, p2 in zip(model1.parameters(), model2.parameters()):
             torch.testing.assert_close(p2, p1)
 
-    def test_optim_bf16_stochastic_round_correctness(self):
-        device = "cuda" if torch.cuda.is_available() else "cpu"
+    @parametrize("device", _DEVICES)
+    def test_optim_bf16_stochastic_round_correctness(self, device):
         torch.manual_seed(2024)
         model1 = nn.Sequential(nn.Linear(32, 1024), nn.ReLU(), nn.Linear(1024, 128))
         model1.to(device)

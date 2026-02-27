@@ -34,7 +34,8 @@ def unflatten_tensor_state_dict(
             '_data': {
                 'block_size': [1,32],
                 ...
-            }
+            },
+            '_tensor_data_names': ['qdata', 'scale']
         }
         '0.bias': {
             '_type': 'torch.Tensor',
@@ -66,12 +67,15 @@ def unflatten_tensor_state_dict(
 
     tensor_names = json.loads(metadata["tensor_names"])
     result = {}
-
+    leftover_state_dict = tensors_data_dict.copy()
     for tensor_name in tensor_names:
+        processed_tensors = []
+
         module_fqn, weight_name = tensor_name.rsplit(".", 1)
 
         prefix = f"{module_fqn}._{weight_name}_"
         tensor_tensors = {}
+
         for key, value in combined_data.items():
             if key.startswith(prefix):
                 # Remove the prefix
@@ -79,20 +83,35 @@ def unflatten_tensor_state_dict(
 
         tensor_metadata = json.loads(metadata.get(tensor_name))
         tensor_type = tensor_metadata.get("_type")
+        complete_tensor_data_names = tensor_metadata.get("_tensor_data_names")
 
         if tensor_type in ALLOWED_TENSORS_SUBCLASSES:
-            if not tensor_tensors:
-                # we allow the option of loading in state_dict info for a single tensor
-                # if tensor state dict info is not loaded in yet, we wait for it to be provided
-                # in a future call
+            # if not all tensor data is present (ie missing qdata) we wait for it
+            # to be loaded in from a future call
+            if not len(tensor_tensors) is len(complete_tensor_data_names):
                 continue
             tensor_metadata["_data"].update(tensor_tensors)
             result[tensor_name] = object_from_dict(tensor_metadata)
+
+            for suffix in complete_tensor_data_names:
+                processed_tensors.append(prefix + suffix)
         elif tensor_type == torch.Tensor.__name__:
+            # we allow the option of loading in state_dict info for a single tensor
+            # if tensor state dict info is not loaded in yet, we wait for it to be provided
+            # in a future call
+            if tensor_name not in tensors_data_dict.keys():
+                continue
             result[tensor_name] = tensors_data_dict[tensor_name]
+            processed_tensors.append(
+                tensor_name
+            )  # add here because key for torch.Tensor has no prefix
         else:
             raise ValueError(f"Unsupported tensor type: {tensor_type}")
-    return result
+
+        for tensor_name in processed_tensors:
+            del leftover_state_dict[tensor_name]
+
+    return result, leftover_state_dict
 
 
 def flatten_tensor_state_dict(
@@ -125,7 +144,8 @@ def flatten_tensor_state_dict(
             '_data': {
                 'block_size': [1,32],
                 ...
-            }
+            },
+            '_tensor_data_names': ['qdata', 'scale']
         }
         '0.bias': {
             '_type': 'torch.Tensor',

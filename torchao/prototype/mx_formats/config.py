@@ -15,26 +15,22 @@ from torchao.prototype.mx_formats.constants import (
     DTYPE_TO_SHORT_STR,
     SUPPORTED_ELEM_DTYPES,
 )
+from torchao.quantization.quantize_.common.kernel_preference import KernelPreference
+from torchao.utils import is_ROCM, register_as_pytree_constant
 
 
-class MXGemmKernelChoice(Enum):
-    # always available - MX operands are dequantized and a high precision
-    # gemm is run
-    EMULATED = "emulated"
+class MXFP8Dim0CastKernelChoice(Enum):
+    """
+    Defines which kernel to use for mxfp8 casting along dim0.
+    """
 
-    # available only when CUDA capability is greater than or equal to 10.0
-    CUTLASS = "cutlass"
-
-    # available only when CUDA capability is greater than or equal to 10.0
-    # available on recent versions of PyTorch nightly, with https://github.com/pytorch/pytorch/pull/147548
-    # note: torch.compile does not work yet, see https://github.com/pytorch/pytorch/issues/147873
-    CUBLAS = "cublas"
+    TRITON = "triton"
+    TORCH = "torch"
 
 
 class MXFP8Dim1CastKernelChoice(Enum):
     """
-    Defines which kernel to use for mxfp8 casting. Currently custom casting kernels are
-    only for scaling along dim1, and torch native code is always used for scaling along dim0.
+    Defines which kernel to use for mxfp8 casting along dim1.
     """
 
     TRITON = "triton"
@@ -51,6 +47,8 @@ class MXLinearRecipeName(Enum):
     MXFP4_CUTLASS = "mxfp4_cutlass"
 
 
+# register as pytree constant so we can use dynamo nonstrict trace in torchao.prototype.moe_training.ep
+@register_as_pytree_constant
 class ScaleCalculationMode(Enum):
     """
     Enum representing the different methods for calculating MX block scaling.
@@ -78,6 +76,14 @@ class ScaleCalculationMode(Enum):
     CEIL = "ceil"
     EVEN = "even"
 
+    def __eq__(self, other):
+        if isinstance(other, ScaleCalculationMode):
+            return self.value == other.value
+        return NotImplemented
+
+    def __hash__(self):
+        return hash(self.value)
+
 
 def _validate_elem_dtype(elem_dtype):
     assert elem_dtype in SUPPORTED_ELEM_DTYPES, (
@@ -85,33 +91,43 @@ def _validate_elem_dtype(elem_dtype):
     )
 
 
-def _validate_gemm_kernel_choice(gemm_kernel_choice, block_size, elem_dtype):
-    if gemm_kernel_choice == MXGemmKernelChoice.CUTLASS:
-        assert block_size == 32, (
-            f"block_size must be 32 to use the CUTLASS MX gemm kernels, got {block_size}"
-        )
-        valid_dtypes = [torch.float8_e4m3fn, torch.float4_e2m1fn_x2]
-        assert elem_dtype in valid_dtypes, (
-            f"elem_dtype must be one of {valid_dtypes} to use the CUTLASS MX gemm kernels, got {elem_dtype}"
-        )
-    elif gemm_kernel_choice == MXGemmKernelChoice.CUBLAS:
-        assert block_size in [16, 32], (
-            f"block_size must be in [16, 32] to use the cuBLAS MX gemm kernels, got {block_size}"
-        )
-        valid_dtypes = [torch.float8_e4m3fn, torch.float4_e2m1fn_x2]
-        assert elem_dtype in valid_dtypes, (
-            f"elem_dtype must be one of {valid_dtypes} to use the CUTLASS MX gemm kernels, got {elem_dtype}"
+def _validate_kernel_preference(kernel_preference, block_size, elem_dtype):
+    if kernel_preference == KernelPreference.AUTO:
+        if elem_dtype in (torch.float8_e4m3fn, torch.float4_e2m1fn_x2):
+            assert block_size == 32, f"block_size must be 32, got {block_size}"
+        else:
+            raise AssertionError(
+                f"unsupported {kernel_preference=}, {block_size=}, {elem_dtype=}"
+            )
+    else:
+        assert kernel_preference == KernelPreference.EMULATED, (
+            f"unsupported {kernel_preference=}, {block_size=}, {elem_dtype=}"
         )
 
 
-def _validate_mxfp8_cast_kernel_choice(
-    mxfp8_cast_kernel_choice, scale_calculation_mode
+def _validate_mxfp8_dim0_cast_kernel_choice(
+    mxfp8_dim0_cast_kernel_choice, scale_calculation_mode
 ):
-    if mxfp8_cast_kernel_choice == MXFP8Dim1CastKernelChoice.TRITON:
-        assert scale_calculation_mode == ScaleCalculationMode.FLOOR, (
+    if mxfp8_dim0_cast_kernel_choice == MXFP8Dim0CastKernelChoice.TRITON:
+        assert scale_calculation_mode in (
+            ScaleCalculationMode.FLOOR,
+            ScaleCalculationMode.RCEIL,
+        ), (
+            f"unsupported ScaleCalculationMode value {scale_calculation_mode} for dim0 triton cast"
+        )
+
+
+def _validate_mxfp8_dim1_cast_kernel_choice(
+    mxfp8_dim1_cast_kernel_choice, scale_calculation_mode
+):
+    if mxfp8_dim1_cast_kernel_choice == MXFP8Dim1CastKernelChoice.TRITON:
+        assert scale_calculation_mode in (
+            ScaleCalculationMode.FLOOR,
+            ScaleCalculationMode.RCEIL,
+        ), (
             f"unsupported ScaleCalculationMode value {scale_calculation_mode} for dim1 triton cast"
         )
-    elif mxfp8_cast_kernel_choice == MXFP8Dim1CastKernelChoice.CUDA:
+    elif mxfp8_dim1_cast_kernel_choice == MXFP8Dim1CastKernelChoice.CUDA:
         assert scale_calculation_mode in (
             ScaleCalculationMode.FLOOR,
             ScaleCalculationMode.RCEIL,
@@ -135,14 +151,21 @@ class MXLinearConfig(AOBaseConfig):
     elem_dtype_weight_override: Optional[Any] = None
     elem_dtype_grad_output_override: Optional[Any] = None
 
-    # defines the gemm kernel choice, if the chosen kernel is not supported
+    # defines the kernel preference, if the chosen kernel is not supported
     # on the given hardware an exception will be thrown
-    gemm_kernel_choice: MXGemmKernelChoice = MXGemmKernelChoice.EMULATED
+    kernel_preference: KernelPreference = KernelPreference.EMULATED
 
-    # define which kernel to use for mxfp8 casting
+    # define which kernel to use for mxfp8 casting along dim0
     # TODO(1945): remove this config option once torch.compile gives us
     # a fast kernel
-    mxfp8_cast_kernel_choice: MXFP8Dim1CastKernelChoice = (
+    mxfp8_dim0_cast_kernel_choice: MXFP8Dim0CastKernelChoice = (
+        MXFP8Dim0CastKernelChoice.TORCH
+    )
+
+    # define which kernel to use for mxfp8 casting along dim1
+    # TODO(1945): remove this config option once torch.compile gives us
+    # a fast kernel
+    mxfp8_dim1_cast_kernel_choice: MXFP8Dim1CastKernelChoice = (
         MXFP8Dim1CastKernelChoice.TORCH
     )
 
@@ -150,17 +173,20 @@ class MXLinearConfig(AOBaseConfig):
 
     def __post_init__(self):
         _validate_elem_dtype(self.elem_dtype)
-        _validate_gemm_kernel_choice(
-            self.gemm_kernel_choice, self.block_size, self.elem_dtype
+        _validate_kernel_preference(
+            self.kernel_preference, self.block_size, self.elem_dtype
         )
         if self.elem_dtype_weight_override is not None:
             _validate_elem_dtype(self.elem_dtype_weight_override)
-            assert self.gemm_kernel_choice == MXGemmKernelChoice.EMULATED, "unsupported"
+            assert self.kernel_preference == KernelPreference.EMULATED, "unsupported"
         if self.elem_dtype_grad_output_override is not None:
             _validate_elem_dtype(self.elem_dtype_grad_output_override)
-            assert self.gemm_kernel_choice == MXGemmKernelChoice.EMULATED, "unsupported"
-        _validate_mxfp8_cast_kernel_choice(
-            self.mxfp8_cast_kernel_choice, self.scale_calculation_mode
+            assert self.kernel_preference == KernelPreference.EMULATED, "unsupported"
+        _validate_mxfp8_dim0_cast_kernel_choice(
+            self.mxfp8_dim0_cast_kernel_choice, self.scale_calculation_mode
+        )
+        _validate_mxfp8_dim1_cast_kernel_choice(
+            self.mxfp8_dim1_cast_kernel_choice, self.scale_calculation_mode
         )
 
     @staticmethod
@@ -182,13 +208,24 @@ class MXLinearConfig(AOBaseConfig):
             return MXLinearConfig()
         elif recipe_name is MXLinearRecipeName.MXFP8_CUBLAS:
             return MXLinearConfig(
-                gemm_kernel_choice=MXGemmKernelChoice.CUBLAS,
-                mxfp8_cast_kernel_choice=MXFP8Dim1CastKernelChoice.CUDA,
+                kernel_preference=KernelPreference.AUTO,
+                mxfp8_dim0_cast_kernel_choice=MXFP8Dim0CastKernelChoice.TORCH,
+                mxfp8_dim1_cast_kernel_choice=(
+                    MXFP8Dim1CastKernelChoice.TRITON
+                    if is_ROCM()
+                    else MXFP8Dim1CastKernelChoice.CUDA
+                ),
             )
         elif recipe_name is MXLinearRecipeName.MXFP8_CUBLAS_RCEIL:
             return MXLinearConfig(
-                gemm_kernel_choice=MXGemmKernelChoice.CUBLAS,
-                mxfp8_cast_kernel_choice=MXFP8Dim1CastKernelChoice.CUDA,
+                kernel_preference=KernelPreference.AUTO,
+                mxfp8_dim0_cast_kernel_choice=MXFP8Dim0CastKernelChoice.TORCH,
+                # Quantization kernels with RCEIL are not supported on ROCm. Fallback to torch.
+                mxfp8_dim1_cast_kernel_choice=(
+                    MXFP8Dim1CastKernelChoice.TORCH
+                    if is_ROCM()
+                    else MXFP8Dim1CastKernelChoice.CUDA
+                ),
                 scale_calculation_mode=ScaleCalculationMode.RCEIL,
             )
         elif recipe_name is MXLinearRecipeName.MXFP4_EMULATED:
@@ -196,7 +233,7 @@ class MXLinearConfig(AOBaseConfig):
         elif recipe_name is MXLinearRecipeName.MXFP4_CUTLASS:
             return MXLinearConfig(
                 elem_dtype=torch.float4_e2m1fn_x2,
-                gemm_kernel_choice=MXGemmKernelChoice.CUTLASS,
+                kernel_preference=KernelPreference.AUTO,
             )
         else:
             raise AssertionError(f"unknown recipe_name {recipe_name}")
@@ -212,8 +249,9 @@ class MXLinearConfig(AOBaseConfig):
             )
         if self.elem_dtype_grad_output_override is not None:
             s += f", lp_go_override={DTYPE_TO_SHORT_STR[self.elem_dtype_grad_output_override]}"
-        s += f", kernel={self.gemm_kernel_choice.value}"
-        s += f", mxfp8_cast_kernel_choice={self.mxfp8_cast_kernel_choice.value}"
+        s += f", kernel={self.kernel_preference.value}"
+        s += f", mxfp8_dim0_cast_kernel_choice={self.mxfp8_dim0_cast_kernel_choice.value}"
+        s += f", mxfp8_dim1_cast_kernel_choice={self.mxfp8_dim1_cast_kernel_choice.value}"
         if self.scale_calculation_mode != ScaleCalculationMode.FLOOR:
             s += f", scale_calculation_mode={self.scale_calculation_mode}"
         return s

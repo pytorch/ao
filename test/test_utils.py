@@ -4,7 +4,6 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 import unittest
-import warnings
 from unittest.mock import patch
 
 import torch
@@ -36,55 +35,6 @@ class TestTorchVersion(unittest.TestCase):
                     expected_result,
                     f"Failed for torch.__version__={torch_version}, comparing with {compare_version}",
                 )
-
-    def test_torch_version_deprecation(self):
-        """
-        Test that TORCH_VERSION_AT_LEAST* and TORCH_VERSION_AFTER*
-        trigger deprecation warnings on use, not on import.
-        """
-        # Reset deprecation warning state, otherwise we won't log warnings here
-        warnings.resetwarnings()
-
-        # Importing and referencing should not trigger deprecation warning
-        with warnings.catch_warnings(record=True) as _warnings:
-            from torchao.utils import (
-                TORCH_VERSION_AFTER_2_2,
-                TORCH_VERSION_AFTER_2_3,
-                TORCH_VERSION_AFTER_2_4,
-                TORCH_VERSION_AFTER_2_5,
-                TORCH_VERSION_AT_LEAST_2_2,
-                TORCH_VERSION_AT_LEAST_2_3,
-                TORCH_VERSION_AT_LEAST_2_4,
-                TORCH_VERSION_AT_LEAST_2_5,
-                TORCH_VERSION_AT_LEAST_2_6,
-                TORCH_VERSION_AT_LEAST_2_7,
-                TORCH_VERSION_AT_LEAST_2_8,
-            )
-
-            deprecated_api_to_name = [
-                (TORCH_VERSION_AT_LEAST_2_8, "TORCH_VERSION_AT_LEAST_2_8"),
-                (TORCH_VERSION_AT_LEAST_2_7, "TORCH_VERSION_AT_LEAST_2_7"),
-                (TORCH_VERSION_AT_LEAST_2_6, "TORCH_VERSION_AT_LEAST_2_6"),
-                (TORCH_VERSION_AT_LEAST_2_5, "TORCH_VERSION_AT_LEAST_2_5"),
-                (TORCH_VERSION_AT_LEAST_2_4, "TORCH_VERSION_AT_LEAST_2_4"),
-                (TORCH_VERSION_AT_LEAST_2_3, "TORCH_VERSION_AT_LEAST_2_3"),
-                (TORCH_VERSION_AT_LEAST_2_2, "TORCH_VERSION_AT_LEAST_2_2"),
-                (TORCH_VERSION_AFTER_2_5, "TORCH_VERSION_AFTER_2_5"),
-                (TORCH_VERSION_AFTER_2_4, "TORCH_VERSION_AFTER_2_4"),
-                (TORCH_VERSION_AFTER_2_3, "TORCH_VERSION_AFTER_2_3"),
-                (TORCH_VERSION_AFTER_2_2, "TORCH_VERSION_AFTER_2_2"),
-            ]
-            self.assertEqual(len(_warnings), 0)
-
-        # Accessing the boolean value should trigger deprecation warning
-        with warnings.catch_warnings(record=True) as _warnings:
-            for api, name in deprecated_api_to_name:
-                num_warnings_before = len(_warnings)
-                if api:
-                    pass
-                regex = f"{name} is deprecated and will be removed"
-                self.assertEqual(len(_warnings), num_warnings_before + 1)
-                self.assertIn(regex, str(_warnings[-1].message))
 
 
 class TestTorchAOBaseTensor(unittest.TestCase):
@@ -391,6 +341,237 @@ class TestTorchAOBaseTensor(unittest.TestCase):
         self.assertEqual(
             counter["calls"], 2, "Expected fake_linear to be called via aten.t.default"
         )
+
+    def test_subclassing(self):
+        counters = {"parent": 0}
+
+        class Parent(TorchAOBaseTensor):
+            tensor_data_names = ["qdata"]
+            tensor_attribute_names = ["attr"]
+
+            def __new__(cls, qdata, attr):
+                r = torch.Tensor._make_wrapper_subclass(cls, qdata.shape)
+                r.qdata = qdata
+                r.attr = attr
+                return r
+
+            def __init__(self, qdata, attr):
+                pass
+
+        @Parent.implements([torch.ops.aten.cat.default])
+        def parent_cat(func, types, args, kwargs):
+            counters["parent"] += 1
+
+        class Child(Parent):
+            tensor_data_names = ["qdata"]
+            tensor_attribute_names = ["attr"]
+
+        # Call via Child
+        t1 = Child(torch.randn(2, 3), "a")
+        t2 = Child(torch.randn(2, 3), "b")
+        torch.ops.aten.cat.default([t1, t2], 0)
+
+        self.assertEqual(counters["parent"], 1)
+
+        # Add new op to Parent after Child exists
+        @Parent.implements([torch.ops.aten.relu.default])
+        def parent_relu(func, types, args, kwargs):
+            pass
+
+        # Child should not see it
+        with self.assertRaises(RuntimeError):
+            torch.ops.aten.relu.default(t1)
+
+    def test_subclassing_with_real_op(self):
+        counter = {"calls": 0}
+
+        class Parent(TorchAOBaseTensor):
+            tensor_data_names = ["qdata"]
+            tensor_attribute_names = ["attr"]
+
+            def __new__(cls, qdata, attr):
+                r = torch.Tensor._make_wrapper_subclass(cls, qdata.shape)
+                r.qdata = qdata
+                r.attr = attr
+                return r
+
+            def __init__(self, qdata, attr):
+                pass
+
+        @Parent.implements([torch.ops.aten.cat.default])
+        def parent_cat(func, types, args, kwargs):
+            counter["calls"] += 1
+
+        class Child(Parent):
+            tensor_data_names = ["qdata"]
+            tensor_attribute_names = ["attr"]
+
+        t1 = Child(torch.randn(2, 3), "a")
+        t2 = Child(torch.randn(2, 3), "b")
+
+        torch.ops.aten.cat.default([t1, t2], 0)
+
+        self.assertEqual(counter["calls"], 1)
+
+    def test_op_overwrite(self):
+        counters = {"parent": 0, "child": 0}
+
+        class Parent(TorchAOBaseTensor):
+            tensor_data_names = ["qdata"]
+            tensor_attribute_names = ["attr"]
+
+            def __new__(cls, qdata, attr):
+                r = torch.Tensor._make_wrapper_subclass(cls, qdata.shape)
+                r.qdata = qdata
+                r.attr = attr
+                return r
+
+            def __init__(self, qdata, attr):
+                pass
+
+        @Parent.implements([torch.ops.aten.cat.default])
+        def parent_cat(func, types, args, kwargs):
+            counters["parent"] += 1
+
+        class Child(Parent):
+            tensor_data_names = ["qdata"]
+            tensor_attribute_names = ["attr"]
+
+        @Child.implements([torch.ops.aten.cat.default])
+        def child_cat(func, types, args, kwargs):
+            counters["child"] += 1
+
+        # Parent instance should call parent implementation
+        p1 = Parent(torch.randn(2, 3), "a")
+        p2 = Parent(torch.randn(2, 3), "b")
+        torch.ops.aten.cat.default([p1, p2], 0)
+
+        self.assertEqual(counters["parent"], 1)
+        self.assertEqual(counters["child"], 0)
+
+        # Child instance should call child implementation
+        c1 = Child(torch.randn(2, 3), "a")
+        c2 = Child(torch.randn(2, 3), "b")
+        torch.ops.aten.cat.default([c1, c2], 0)
+
+        self.assertEqual(counters["parent"], 1)
+        self.assertEqual(counters["child"], 1)
+
+    def test_multiple_inheritance(self):
+        counters = {"A": 0, "B": 0}
+
+        class A(TorchAOBaseTensor):
+            tensor_data_names = ["a"]
+            tensor_attribute_names = ["b"]
+
+            def __new__(cls, a, b):
+                r = torch.Tensor._make_wrapper_subclass(cls, a.shape)
+                r.a = a
+                r.b = b
+                return r
+
+            def __init__(self, a, b):
+                pass
+
+        @A.implements([torch.ops.aten.neg.default])
+        def a_neg(func, types, args, kwargs):
+            counters["A"] += 1
+
+        class B(TorchAOBaseTensor):
+            tensor_data_names = ["a"]
+            tensor_attribute_names = ["b"]
+
+            def __new__(cls, a, b):
+                r = torch.Tensor._make_wrapper_subclass(cls, a.shape)
+                r.a = a
+                r.b = b
+                return r
+
+            def __init__(self, a, b):
+                pass
+
+        @B.implements([torch.ops.aten.neg.default])
+        def b_neg(func, types, args, kwargs):
+            counters["B"] += 1
+
+        class C(A, B):
+            tensor_data_names = ["a"]
+            tensor_attribute_names = ["b"]
+
+        t = C(torch.randn(3), "x")
+        torch.ops.aten.neg.default(t)
+
+        self.assertEqual(counters["A"], 0)
+        self.assertEqual(counters["B"], 1)
+
+    def test_multiple_inheritance_with_child_override(self):
+        counters = {"A": 0, "B": 0, "C": 0}
+
+        class A(TorchAOBaseTensor):
+            tensor_data_names = ["a"]
+            tensor_attribute_names = ["b"]
+
+            def __new__(cls, a, b):
+                r = torch.Tensor._make_wrapper_subclass(cls, a.shape)
+                r.a = a
+                r.b = b
+                return r
+
+            def __init__(self, a, b):
+                pass
+
+        @A.implements([torch.ops.aten.neg.default])
+        def a_neg(func, types, args, kwargs):
+            counters["A"] += 1
+
+        class B(TorchAOBaseTensor):
+            tensor_data_names = ["a"]
+            tensor_attribute_names = ["b"]
+
+            def __new__(cls, a, b):
+                r = torch.Tensor._make_wrapper_subclass(cls, a.shape)
+                r.a = a
+                r.b = b
+                return r
+
+            def __init__(self, a, b):
+                pass
+
+        @B.implements([torch.ops.aten.neg.default])
+        def b_neg(func, types, args, kwargs):
+            counters["B"] += 1
+
+        class C(A, B):
+            tensor_data_names = ["a"]
+            tensor_attribute_names = ["b"]
+
+        @C.implements([torch.ops.aten.neg.default])
+        def c_neg(func, types, args, kwargs):
+            counters["C"] += 1
+
+        # Instance of A, A impl
+        a = A(torch.randn(3), "x")
+        torch.ops.aten.neg.default(a)
+
+        self.assertEqual(counters["A"], 1)
+        self.assertEqual(counters["B"], 0)
+        self.assertEqual(counters["C"], 0)
+
+        # Instance of B, B impl
+        b = B(torch.randn(3), "x")
+        torch.ops.aten.neg.default(b)
+
+        self.assertEqual(counters["A"], 1)
+        self.assertEqual(counters["B"], 1)
+        self.assertEqual(counters["C"], 0)
+
+        # Instance of C, C impl only
+        c = C(torch.randn(3), "x")
+        torch.ops.aten.neg.default(c)
+
+        self.assertEqual(counters["A"], 1)
+        self.assertEqual(counters["B"], 1)
+        self.assertEqual(counters["C"], 1)
 
 
 if __name__ == "__main__":

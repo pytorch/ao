@@ -22,6 +22,9 @@
 #include <omp.h>
 #include <torch/all.h>
 #include <torch/csrc/autograd/function.h>
+#include <iostream>
+#include <fstream>
+#include <string>
 
 namespace torchao {
 
@@ -830,7 +833,7 @@ inline void _fp8_exp_reduce_sum_quant_fusion_kernel(
   for (; i < vec_size * (size / vec_size); i += vec_size) {
     auto tmp0 = at::vec::Vectorized<float>::loadu(a + i);
     auto tmp1 = tmp0 - vec_max;
-    auto tmp2 = tmp1.exp_u20();
+    auto tmp2 = tmp1.fexp_u20();
     vec_tmp_sum += tmp2;
     auto tmp3 = tmp2 * vec_scale;
     auto tmp4 = at::vec::clamp(tmp3, vec_min_val, vec_max_val);
@@ -839,7 +842,7 @@ inline void _fp8_exp_reduce_sum_quant_fusion_kernel(
   if (i < size) {
     auto tmp0 = at::vec::Vectorized<float>::loadu(a + i, size - i);
     auto tmp1 = tmp0 - vec_max;
-    auto tmp2 = tmp1.exp_u20();
+    auto tmp2 = tmp1.fexp_u20();
     vec_tmp_sum = at::vec::Vectorized<float>::set(vec_tmp_sum, vec_tmp_sum + tmp2, size - i);
     auto tmp3 = tmp2 * vec_scale;
     auto tmp4 = at::vec::clamp(tmp3, vec_min_val, vec_max_val);
@@ -878,7 +881,7 @@ inline void _fp8_dequant_quant_fusion_kernel(
   }
 }
 
-// UINT8 - one parallel loop with u8u8s32 GEMM 
+// UINT8 - one parallel loop with u8u8s32 GEMM
 template <typename scalar_t, typename mask_t,
           int64_t q_split_size, int64_t kv_split_size,
           bool use_one_parallel_loop,
@@ -1912,36 +1915,22 @@ fp8_sdpa_fused_kernel_impl(
   }
 
   // Reorder K, V
-  at::Tensor tranpose_t_reorder = at::empty(
-    {num_thread, kvSplitSize, headSize},
-    c10::CppTypeToScalarType<scalar_t>::value);
-  scalar_t* transpose_buffer_ptr = tranpose_t_reorder.data_ptr<scalar_t>();
   at::parallel_for(0, batchSize * num_head * kvSlice, 1, [&](int64_t begin, int64_t end) {
       int ompIdx = at::get_thread_num();
       int64_t i = 0, j = 0, l = 0, n = 0;
-      scalar_t* transpose_ptr = transpose_buffer_ptr + ompIdx * kvSplitSize * headSize;
       at::native::data_index_init(begin, i, batchSize, j, num_head, l, kvSlice);
       for ([[maybe_unused]] auto z : c10::irange(begin, end)) {
         n = l * kvSplitSize;
         int64_t kvBlockSize = std::min(kvSplitSize, kvSize - n);
 
-        // transpose [kvBlockSize, headSize] -> [headSize, kvBlockSize]
-        at::native::utils::transpose<uint8_t>(
-            kvBlockSize,
-            headSize,
-            /* src */ reinterpret_cast<const uint8_t*>(k_data + i * kStrideB + j * kStrideH + n * kStrideN),
-            /* ld_src */ kStrideN,
-            /* dst */ reinterpret_cast<uint8_t*>(transpose_ptr),
-            /* ld_dst */ kvBlockSize);
-
-        // Pack [headSize, kvBlockSize]
-        at::vec::pack_vnni4(
-          /* src */ reinterpret_cast<const uint8_t*>(transpose_ptr),
+        // transpose and pack [kvBlockSize, headSize] -> [headSize, kvBlockSize]
+        at::vec::transpose_pack_vnni4(
+          /* src */ reinterpret_cast<const uint8_t*>(k_data + i * kStrideB + j * kStrideH + n * kStrideN),
           /* dst */ reinterpret_cast<uint8_t*>(key_reorder_ptr + i * num_head * eheadSize * kvSize +
                   j * eheadSize * kvSize + n * eheadSize),
-          /* ld_src */ kvBlockSize,
-          /* K */ headSize,
-          /* N */ kvBlockSize);
+          /* ld_src */ kStrideN,
+          /* K */ kvBlockSize,
+          /* N */ headSize);
 
         // Pack [kvBlockSize, headSize]
         at::vec::pack_vnni4(
@@ -2199,6 +2188,34 @@ int8_sdpa_fused_kernel_impl(
       AT_PRIVATE_CASE_TYPE_USING_HINT(                     \
           at::ScalarType::Half, mask_t, __VA_ARGS__))
 
+// at::cpu::L2_cache_size is removed from torch:
+// https://github.com/pytorch/pytorch/commit/c5aa299b048da269e1165216a1ef3cb06edb413d
+// This kernel is only built on Linux, no need to consider cross-platform compatibility here.
+int get_l2_cache_size_linux() {
+    // The path to the L2 cache size file for CPU core 0
+    std::string path = "/sys/devices/system/cpu/cpu0/cache/index2/size";
+    std::ifstream size_file(path);
+    std::string size_str;
+
+    if (size_file.is_open()) {
+        getline(size_file, size_str);
+        size_file.close();
+
+        // The size read from sysfs is typically a number followed by 'K' for Kilobytes
+        // We can parse it and convert to bytes if needed.
+        // For simplicity, we assume it's in KB and return the integer value.
+        try {
+            int size_kb = std::stoi(size_str);
+            return size_kb * 1024; // Convert KB to bytes
+        } catch (const std::exception& e) {
+            std::cerr << "Error parsing cache size: " << e.what() << std::endl;
+        }
+    } else {
+        std::cerr << "Could not open " << path << " - maybe not on Linux or path is different?" << std::endl;
+    }
+    return -1; // Error
+}
+
 void int8_sdpa_fused_kernel(
     const at::Tensor& output,
     const at::Tensor& query,
@@ -2232,7 +2249,7 @@ void int8_sdpa_fused_kernel(
   // Heuristic to decide whether to use one parallel loop or not
   //    true: one parallel loop for sum+packing+core
   //    false: three parallel loops for sum, packing, core
-  uint32_t l2_cache_size = at::cpu::L2_cache_size();
+  uint32_t l2_cache_size = get_l2_cache_size_linux();
   int64_t num_thread = at::get_num_threads();
   int64_t attn_size = q_split_size * kv_seq_len * sizeof(int32_t) * num_thread;
   bool use_one_parallel_loop = (batchSize * num_head > num_thread) &&
@@ -2330,26 +2347,26 @@ void fp8_sdpa_fused_kernel(
   if (q_seq_len >= 768) {
     q_split_size = 256;
   } else if (q_seq_len >= 192) {
-    q_split_size = 64;
+    q_split_size = 128;
   }
 
   if (!attn_mask.has_value()) {
     if (q_split_size == 256) {
-      fp8_sdpa_fused_kernel_impl<at::Float8_e4m3fn, float, 256, 64>(
+      fp8_sdpa_fused_kernel_impl<at::Float8_e4m3fn, float, 256, 512>(
         output, query, key, value,
         dropout_p, is_causal, attn_mask, scale,
         q_scale, k_scale,
         v_scale, a_scale,
         o_scale);
-    } else if (q_split_size == 64) {
-      fp8_sdpa_fused_kernel_impl<at::Float8_e4m3fn, float, 64, 64>(
+    } else if (q_split_size == 128) {
+      fp8_sdpa_fused_kernel_impl<at::Float8_e4m3fn, float, 128, 512>(
         output, query, key, value,
         dropout_p, is_causal, attn_mask, scale,
         q_scale, k_scale,
         v_scale, a_scale,
         o_scale);
     } else {
-      fp8_sdpa_fused_kernel_impl<at::Float8_e4m3fn, float, 32, 64>(
+      fp8_sdpa_fused_kernel_impl<at::Float8_e4m3fn, float, 32, 512>(
         output, query, key, value,
         dropout_p, is_causal, attn_mask, scale,
         q_scale, k_scale,
@@ -2359,21 +2376,21 @@ void fp8_sdpa_fused_kernel(
   } else {
     AT_DISPATCH_MASK_TYPES(attn_mask.value().scalar_type(), "sdpa_mask", [&]() {
       if (q_split_size == 256) {
-        fp8_sdpa_fused_kernel_impl<at::Float8_e4m3fn, mask_t, 256, 64>(
+        fp8_sdpa_fused_kernel_impl<at::Float8_e4m3fn, mask_t, 256, 512>(
           output, query, key, value,
           dropout_p, is_causal, attn_mask, scale,
           q_scale, k_scale,
           v_scale, a_scale,
           o_scale);
-      } else if (q_split_size == 64) {
-        fp8_sdpa_fused_kernel_impl<at::Float8_e4m3fn, mask_t, 64, 64>(
+      } else if (q_split_size == 128) {
+        fp8_sdpa_fused_kernel_impl<at::Float8_e4m3fn, mask_t, 128, 512>(
           output, query, key, value,
           dropout_p, is_causal, attn_mask, scale,
           q_scale, k_scale,
           v_scale, a_scale,
           o_scale);
       } else {
-        fp8_sdpa_fused_kernel_impl<at::Float8_e4m3fn, mask_t, 32, 64>(
+        fp8_sdpa_fused_kernel_impl<at::Float8_e4m3fn, mask_t, 32, 512>(
           output, query, key, value,
           dropout_p, is_causal, attn_mask, scale,
           q_scale, k_scale,

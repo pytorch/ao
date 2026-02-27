@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 # this benchmarking script is a modified version of the original script from: https://github.com/drisspg/transformer_nuggets/blob/main/transformer_nuggets/utils/benchmark.py
 
+import itertools
 from dataclasses import dataclass
 from typing import List
 
@@ -14,9 +15,10 @@ from tqdm import tqdm
 
 from benchmarks.utils import benchmark_cuda_function_in_microseconds
 from torchao.prototype.moe_training.kernels.mxfp8 import mxfp8_quantize_cuda_3d
-from torchao.prototype.moe_training.scaled_grouped_mm import (
+from torchao.prototype.moe_training.mxfp8_grouped_mm import (
     _to_mxfp8_dim1_3d,
 )
+from torchao.prototype.mx_formats.config import ScaleCalculationMode
 from torchao.prototype.mx_formats.mx_tensor import to_mx
 
 device = torch.device("cuda")
@@ -28,6 +30,7 @@ torch._dynamo.config.cache_size_limit = 1000
 @dataclass(frozen=True)
 class ExperimentConfig:
     input_shape: tuple[int]
+    scaling_mode: ScaleCalculationMode
 
 
 @dataclass(frozen=True)
@@ -49,20 +52,22 @@ class Experiment:
 
 
 def get_configs() -> List[ExperimentConfig]:
-    # Llama4 shapes. Input activations are scaled along K dim.
     input_shapes = [
+        # Llama4 and DeepSeekV3 671b shapes
         (1, 8192, 5120),
-        (2, 8192, 5120),
-        (4, 8192, 5120),
+        (1, 7168, 2048),
         (8, 8192, 5120),
-        (16, 8192, 5120),
-        (64, 8192, 5120),
+        (8, 7168, 2048),
+        (32, 7168, 2048),
+        (32, 8192, 5120),
     ]
+    round_modes = [ScaleCalculationMode.FLOOR, ScaleCalculationMode.RCEIL]
     configs = []
-    for shape in input_shapes:
+    for shape, scaling_mode in itertools.product(input_shapes, round_modes):
         configs.append(
             ExperimentConfig(
                 input_shape=shape,
+                scaling_mode=scaling_mode,
             )
         )
     return configs
@@ -107,6 +112,8 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
     time_cuda_2d_us = benchmark_cuda_function_in_microseconds(
         using_cuda_2d_c,
         input_tensor,
+        block_size=block_size,
+        scaling_mode=config.scaling_mode,
     )
 
     # bench 3d cuda kernel
@@ -114,6 +121,8 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
     time_cuda_3d_us = benchmark_cuda_function_in_microseconds(
         mxfp8_quantize_cuda_3d,
         input_tensor,
+        block_size=block_size,
+        scaling_mode=str(config.scaling_mode.value),
     )
 
     # mem bw calculations
@@ -146,24 +155,26 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
 def print_results(experiments: List[Experiment]):
     headers = [
         "input_shape",
-        "to_mx_us",
-        "cuda_2d_us",
+        "scaling_mode",
         "cuda_3d_us",
-        "to_mx_gbps",
-        "cuda_2d_gbps",
+        "cuda_2d_us",
+        "to_mx_us",
         "cuda_3d_gbps",
+        "cuda_2d_gbps",
+        "to_mx_gbps",
     ]
     rows = []
     for experiment in experiments:
         rows.append(
             [
                 str(experiment.config.input_shape),
-                experiment.result.to_mx_us,
-                experiment.result.cuda_2d_us,
+                str(experiment.config.scaling_mode),
                 experiment.result.cuda_3d_us,
-                round(experiment.result.to_mx_gbps, 3),
-                round(experiment.result.cuda_2d_gbps, 3),
+                experiment.result.cuda_2d_us,
+                experiment.result.to_mx_us,
                 round(experiment.result.cuda_3d_gbps, 3),
+                round(experiment.result.cuda_2d_gbps, 3),
+                round(experiment.result.to_mx_gbps, 3),
             ]
         )
     print(tabulate(rows, headers=headers))

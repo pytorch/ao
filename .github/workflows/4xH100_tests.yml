@@ -40,6 +40,7 @@ jobs:
         conda create -n venv python=3.10 -y
         conda activate venv
         export PATH=/opt/rh/devtoolset-10/root/usr/bin/:$PATH
+        export NCCL_NVLS_ENABLE=0
         python -m pip install --upgrade pip
         pip install uv
         pip install ${{ matrix.torch-spec }}
@@ -47,3 +48,5 @@ jobs:
         pip install . --no-build-isolation
         ./test/float8/test_everything_multi_gpu.sh
         ./test/prototype/mx_formats/test_mx_dtensor.sh
+        ./test/prototype/mx_formats/test_mxfp8_allgather.sh
+        ./test/prototype/moe_training/test_distributed.sh

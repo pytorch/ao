@@ -14,19 +14,14 @@ from torch.utils.benchmark import Timer
 
 from torchao.core.config import AOBaseConfig
 from torchao.quantization import (
-    Float8DynamicActivationFloat8SemiSparseWeightConfig,
     Float8DynamicActivationFloat8WeightConfig,
     Float8WeightOnlyConfig,
-    FPXWeightOnlyConfig,
     GemliteUIntXWeightOnlyConfig,
-    Int4WeightOnlyConfig,
-    Int8DynamicActivationInt4WeightConfig,
     Int8DynamicActivationInt8WeightConfig,
     Int8WeightOnlyConfig,
     MappingType,
     PerRow,
     PerTensor,
-    UIntXWeightOnlyConfig,
 )
 from torchao.sparsity.sparse_api import BlockSparseWeightConfig, SemiSparseWeightConfig
 
@@ -195,67 +190,7 @@ def string_to_config(
             return Int8DynamicActivationInt8WeightConfig(weight_only_decode=True)
         else:
             return Int8DynamicActivationInt8WeightConfig()
-    if "int4wo" in quantization:
-        use_hqq = False
-        if "hqq" in quantization:
-            use_hqq = True
-        group_size = int(quantization.split("-")[1])
-        assert group_size in [
-            32,
-            64,
-            128,
-            256,
-        ], f"int4wo group_size needs to be one of [32,64,128,256] but got {group_size}"
-        return Int4WeightOnlyConfig(group_size=group_size, use_hqq=use_hqq, version=1)
-    elif "int8adq-int4w-symm" in quantization:
-        from torchao.dtypes import CutlassInt4PackedLayout
-
-        return Int8DynamicActivationInt4WeightConfig(
-            group_size=None,
-            mapping_type=MappingType.SYMMETRIC,
-            act_mapping_type=MappingType.SYMMETRIC,
-            layout=CutlassInt4PackedLayout(),
-        )
-    if "marlin" in quantization:
-        if "qqq" in quantization:
-            from torchao.dtypes import MarlinQQQLayout
-
-            return Int8DynamicActivationInt4WeightConfig(
-                group_size=128,
-                mapping_type=MappingType.SYMMETRIC,
-                act_mapping_type=MappingType.SYMMETRIC,
-                layout=MarlinQQQLayout(),
-            )
-        elif sparsity is not None and ("semi" in sparsity or "2:4" in sparsity):
-            from torchao.dtypes import MarlinSparseLayout
-
-            return Int4WeightOnlyConfig(layout=MarlinSparseLayout(), version=1)
-    if "fp6" in quantization:
-        return FPXWeightOnlyConfig(3, 2)
-    elif "uintx" in quantization:
-        # uintx-nbits-group_size, e.g. "uintx-2-64"
-        if "hqq" in quantization:
-            # uintx-nbits-group_size-hqq
-            use_hqq = True
-        else:
-            use_hqq = False
-        _quant_args = quantization.split("-")
-        nbits = int(_quant_args[1])
-        assert nbits >= 1 and nbits <= 8, "nbits must be 1 to 8"
-        _NBITS_TO_DTYPE = {
-            1: torch.uint1,
-            2: torch.uint2,
-            3: torch.uint3,
-            4: torch.uint4,
-            5: torch.uint5,
-            6: torch.uint6,
-            7: torch.uint7,
-            8: torch.uint8,
-        }
-        dtype = _NBITS_TO_DTYPE[nbits]
-        group_size = int(_quant_args[2])
-        return UIntXWeightOnlyConfig(dtype, group_size, use_hqq=use_hqq)
-    elif "int8_dynamic_activation_intx_weight" in quantization:
+    if "int8_dynamic_activation_intx_weight" in quantization:
         assert high_precision_dtype == torch.float32, (
             "int8_dynamic_activation_intx_weight requires using high_precision_dtype=torch.float32"
         )
@@ -282,8 +217,6 @@ def string_to_config(
     elif "float8wo" in quantization:
         return Float8WeightOnlyConfig()
     elif "float8dq" in quantization:
-        if sparsity and "semi" in sparsity:
-            return Float8DynamicActivationFloat8SemiSparseWeightConfig()
         granularity = str(quantization.split("-")[-1])
         if granularity == "tensor":
             granularity = PerTensor()

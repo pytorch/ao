@@ -5,6 +5,8 @@
 // LICENSE file in the root directory of this source tree.
 
 // clang-format off
+#include <torch/csrc/inductor/aoti_torch/c/shim.h>
+#include <torch/csrc/inductor/aoti_torch/utils.h>
 #include <torch/library.h>
 #include <ATen/native/mps/OperationUtils.h>
 #include <torchao/experimental/kernels/mps/src/lowbit.h>
@@ -23,6 +25,7 @@ void check_linear_mps_args(
     int64_t group_size,
     const Tensor& S,
     const Tensor& Z) {
+  auto M = A.size(0);
   auto N = B.size(0);
   auto K = A.size(1);
 
@@ -45,7 +48,7 @@ void check_linear_mps_args(
 
   TORCH_CHECK(K % 8 == 0, __func__, ": expect K to be multiple of 8, got ", K);
 
-  TORCH_CHECK(N % 4 == 0, __func__, ": expect N to be multiple of 4, got ", N);
+  TORCH_CHECK(N % 4 == 0 || M == 1, __func__, ": expect N to be multiple of 4 when M != 1, got N=", N, " M=", M);
 
   TORCH_CHECK(
       group_size == 32 || group_size == 64 || group_size == 128 ||
@@ -239,3 +242,44 @@ TORCH_LIBRARY_IMPL(torchao, Meta, m) {
 }
 
 } // namespace torchao::kernels::mps::lowbit::aten
+
+
+// c-shim wrappers for AOTInductor
+// Check out TestUIntxWeightOnlyLinearQuantizer.test_export_accuracy on how to use it
+#define DECLARE_LINEAR_FP_ACT_WEIGHT_FUNCTION(BITS) \
+extern "C" { \
+    AOTI_TORCH_EXPORT AOTITorchError aoti_torch_mps__linear_fp_act_##BITS##bit_weight( \
+        AtenTensorHandle A, \
+        AtenTensorHandle B, \
+        int64_t group_size, \
+        AtenTensorHandle S, \
+        AtenTensorHandle Z, \
+        AtenTensorHandle* ret) { \
+        AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({ \
+            auto op_handle = \
+                c10::Dispatcher::singleton() \
+                    .findSchemaOrThrow("torchao::_linear_fp_act_" #BITS "bit_weight", "") \
+                    .typed<at::Tensor( \
+                        const at::Tensor& A, \
+                        const at::Tensor& B, \
+                        int64_t group_size, \
+                        const at::Tensor& S, \
+                        const at::Tensor& Z)>(); \
+            auto tmp_result = op_handle.call( \
+                torch::aot_inductor::resolve_tensor_dispatch_flags(A), \
+                torch::aot_inductor::resolve_tensor_dispatch_flags(B), \
+                group_size, \
+                torch::aot_inductor::resolve_tensor_dispatch_flags(S), \
+                torch::aot_inductor::resolve_tensor_dispatch_flags(Z)); \
+            *ret = torch::aot_inductor::new_tensor_handle(std::move(tmp_result)); \
+        }); \
+    } \
+}
+
+DECLARE_LINEAR_FP_ACT_WEIGHT_FUNCTION(1)
+DECLARE_LINEAR_FP_ACT_WEIGHT_FUNCTION(2)
+DECLARE_LINEAR_FP_ACT_WEIGHT_FUNCTION(3)
+DECLARE_LINEAR_FP_ACT_WEIGHT_FUNCTION(4)
+DECLARE_LINEAR_FP_ACT_WEIGHT_FUNCTION(5)
+DECLARE_LINEAR_FP_ACT_WEIGHT_FUNCTION(6)
+DECLARE_LINEAR_FP_ACT_WEIGHT_FUNCTION(7)
