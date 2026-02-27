@@ -63,9 +63,9 @@ class BackendConfig:
     name: str
     flash_impl: str  # "FA3" or "FA4"
     attention_backend: AttentionBackend
-    sdpa_fn: Callable  # fp8_fa{3,4}_sdpa
-    rope_sdpa_fn: Callable  # fp8_fa{3,4}_rope_sdpa
-    available_eager: bool  # Can run direct sdpa/rope_sdpa calls
+    sdpa_fn: Callable  # fp8_fa3_sdpa
+    rope_sdpa_fn: Callable  # fp8_fa3_rope_sdpa, or None if not yet available
+    available_eager: bool  # Can run direct sdpa calls
     available_compiled: bool  # Can run via apply_low_precision_attention
     skip_msg: str
 
@@ -73,9 +73,8 @@ class BackendConfig:
 def _probe_eager_quantized_sdpa(sdpa_fn, flash_impl: str) -> bool:
     """Try a tiny quantized SDPA call to verify the backend works in eager mode.
 
-    Both FA3 and FA4 use _scaled_dot_product_attention_quantized internally,
-    which may require a specific flash impl activation. This probe catches
-    mismatches (e.g., FA4 on a PyTorch build that only accepts FA3 activation).
+    FA3 uses _scaled_dot_product_attention_quantized internally,
+    which requires FA3 activation. This probe catches mismatches.
     """
     try:
         activate_flash_attention_impl(flash_impl)
@@ -118,7 +117,7 @@ def _build_backend_configs() -> List[BackendConfig]:
             sdpa_fn=sdpa_fn,
             rope_sdpa_fn=rope_sdpa_fn,
             available_eager=eager_ok,
-            available_compiled=fa3_available,
+            available_compiled=eager_ok,
             skip_msg=(
                 "FP8 FA3 requires Hopper (SM 9.x), flash-attn installed, "
                 "and PyTorch with FA3 activation APIs"
@@ -152,7 +151,7 @@ def _build_backend_configs() -> List[BackendConfig]:
             sdpa_fn=sdpa_fn,
             rope_sdpa_fn=rope_sdpa_fn,
             available_eager=eager_ok,
-            available_compiled=fa4_available,
+            available_compiled=eager_ok,
             skip_msg=(
                 "FP8 FA4 requires Hopper (SM 9.x) or Blackwell (SM 10.x), "
                 "flash-attn with FA4 support installed, "
@@ -235,7 +234,7 @@ class SimpleAttentionModel(nn.Module):
 # ---------------------------------------------------------------------------
 @common_utils.instantiate_parametrized_tests
 class TestFP8SDPANumericalAccuracy(TestCase):
-    """SQNR-based numerical accuracy tests for FP8 SDPA (all backends)."""
+    """SQNR-based numerical accuracy tests for FP8 SDPA."""
 
     def setUp(self):
         self._active_backend = None
@@ -328,6 +327,8 @@ class TestFP8RopeSDPANumericalAccuracy(TestCase):
             )
 
         for backend in _EAGER_BACKENDS:
+            if backend.rope_sdpa_fn is None:
+                continue  # Backend doesn't support fused RoPE yet
             self._activate(backend)
             with torch.no_grad():
                 out_fp8 = backend.rope_sdpa_fn(q, k, v, cos, sin, is_causal=False)
@@ -352,7 +353,8 @@ class TestFP8ModelAPI(TestCase):
 
     @unittest.skipIf(not _ANY_COMPILED_AVAILABLE, _NO_COMPILED_SKIP_MSG)
     @common_utils.parametrize("dtype", [torch.bfloat16, torch.float16])
-    def test_apply_to_model_accuracy(self, dtype):
+    @common_utils.parametrize("fuse_rope", [True, False])
+    def test_apply_to_model_accuracy(self, dtype, fuse_rope):
         """apply_low_precision_attention produces output close to original model."""
         embed_dim, num_heads = 256, 8
         model = SimpleAttentionModel(embed_dim, num_heads).to(
@@ -374,8 +376,11 @@ class TestFP8ModelAPI(TestCase):
             test_model.load_state_dict(model.state_dict())
             test_model.eval()
 
-            config = LowPrecisionAttentionConfig(backend=backend.attention_backend)
-            apply_low_precision_attention(test_model, config)
+            config = LowPrecisionAttentionConfig(
+                backend=backend.attention_backend,
+                fuse_rope=fuse_rope,
+            )
+            test_model = apply_low_precision_attention(test_model, config)
 
             with torch.no_grad():
                 out_fp8 = test_model(x)
@@ -384,7 +389,8 @@ class TestFP8ModelAPI(TestCase):
             self.assertGreater(
                 sqnr.item(),
                 20.0,
-                f"[{backend.name}] SQNR {sqnr.item():.2f} dB below threshold "
+                f"[{backend.name}, fuse_rope={fuse_rope}] SQNR "
+                f"{sqnr.item():.2f} dB below threshold "
                 f"for model-level test, dtype={dtype}",
             )
 

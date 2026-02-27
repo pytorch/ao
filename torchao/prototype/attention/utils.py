@@ -111,7 +111,6 @@ def _check_backend_available(backend: AttentionBackend) -> None:
         if not _is_fa3_available():
             raise RuntimeError(
                 "FP8_FA3 backend requires the flash-attn package with FA3 support. "
-                "Install it with: pip install flash-attn"
             )
 
     elif backend == AttentionBackend.FP8_FA4:
@@ -129,7 +128,6 @@ def _check_backend_available(backend: AttentionBackend) -> None:
             raise RuntimeError(
                 "FP8_FA4 backend requires the flash-attn package with FA4 support "
                 "(flash_attn.cute.interface). "
-                "Install it with: pip install flash-attn"
             )
 
     else:
