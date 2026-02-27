@@ -54,10 +54,8 @@ def _get_available_backend() -> AttentionBackend:
     # FA3 requires exactly Hopper (SM 9.x) and flash_attn_interface
     if _is_hopper() and _is_fa3_available():
         return AttentionBackend.FP8_FA3
-    else:
-        raise RuntimeError(
-            f"No compatible backend for SM{capability[0]}{capability[1]}."
-        )
+
+    raise RuntimeError(f"No compatible backend for SM{capability[0]}{capability[1]}.")
 
 
 def _check_backend_available(backend: AttentionBackend) -> None:
@@ -84,7 +82,7 @@ def _check_backend_available(backend: AttentionBackend) -> None:
         if not _is_fa3_available():
             raise RuntimeError(
                 "FP8_FA3 backend requires the flash-attn package with FA3 support. "
-                "Install it with: pip install flash-attn"
             )
+
     else:
         raise ValueError(f"Unknown backend: {backend}")
