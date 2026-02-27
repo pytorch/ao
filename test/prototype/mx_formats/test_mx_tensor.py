@@ -756,28 +756,47 @@ def test_swizzle(elem_dtype, transpose, shape):
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.parametrize("elem_dtype", [torch.float8_e4m3fn, torch.float8_e5m2])
 @pytest.mark.parametrize(
+    "scaling_mode",
+    [
+        ScaleCalculationMode.FLOOR,
+        ScaleCalculationMode.EVEN,
+        ScaleCalculationMode.CEIL,
+        ScaleCalculationMode.RCEIL,
+    ],
+)
+@pytest.mark.parametrize("is_swizzled_scales", [False, True])
+@pytest.mark.parametrize(
     "shape,block_size",
     [
         ((128, 128), 32),
         ((64, 256), 32),
-        ((32, 64), 4),
+        ((32, 64), 32),
     ],
 )
-def test_to_mx_precomputed_scale(elem_dtype, shape, block_size):
+def test_to_mx_precomputed_scale(
+    elem_dtype, scaling_mode, is_swizzled_scales, shape, block_size
+):
     """Passing a precomputed scale to MXTensor.to_mx should produce the same
     qdata and scale as letting to_mx compute the scale itself."""
     data = torch.randn(shape, device="cuda", dtype=torch.bfloat16)
 
     # Reference: let to_mx compute the scale from data
     ref = MXTensor.to_mx(
-        data, elem_dtype, block_size, kernel_preference=KernelPreference.EMULATED
+        data_hp=data,
+        elem_dtype=elem_dtype,
+        block_size=block_size,
+        scaling_mode=scaling_mode,
+        is_swizzled_scales=is_swizzled_scales,
+        kernel_preference=KernelPreference.EMULATED,
     )
 
     # Test: pass the reference scale back in as a precomputed scale with the same data
     result = MXTensor.to_mx(
-        data,
-        elem_dtype,
-        block_size,
+        data_hp=data,
+        elem_dtype=elem_dtype,
+        block_size=block_size,
+        scaling_mode=scaling_mode,
+        is_swizzled_scales=is_swizzled_scales,
         scale=ref.scale,
         kernel_preference=KernelPreference.EMULATED,
     )
