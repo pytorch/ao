@@ -23,10 +23,14 @@ def setup_fp8_fa3(
 ) -> nn.Module:
     """Set up FP8 FA3 attention on *model* and wrap it."""
     from torchao.prototype.attention.fp8_fa3.attention import fp8_fa3_sdpa
+    from torchao.prototype.attention.fp8_fa3.fusion_pass import (
+        compile_with_fp8_fusion,
+    )
 
     return setup_fp8_backend(
         model,
         config,
         flash_impl_name="FA3",
         sdpa_fn=fp8_fa3_sdpa,
+        compile_fn=compile_with_fp8_fusion,
     )

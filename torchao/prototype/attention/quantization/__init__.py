@@ -11,9 +11,11 @@ This module provides backend-agnostic FP8 quantization for Q, K, V tensors.
 """
 
 from torchao.prototype.attention.quantization.quantization import (
+    _fp8_rope_sdpa_quantize,
     _fp8_sdpa_quantize,
 )
 
 __all__ = [
     "_fp8_sdpa_quantize",
+    "_fp8_rope_sdpa_quantize",
 ]
