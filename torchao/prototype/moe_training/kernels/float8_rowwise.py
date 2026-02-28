@@ -33,21 +33,26 @@ if torch_version_at_least("2.7.0") and has_triton():
         torch.float64: tl.float64,
     }
 
-    block_sizes_n = [128]  # large dim (output_features)
-    block_sizes_k = [128]  # small dim (input_features)
-    num_warps = [4]
-    num_stages = [4]
-    atomic_kernel_configs_2D = [
-        triton.Config(
-            {"BLOCK_SIZE_N": block_size_n, "BLOCK_SIZE_K": block_size_k},
-            num_warps=warps,
-            num_stages=stages,
-        )
-        for block_size_n in block_sizes_n
-        for block_size_k in block_sizes_k
-        for warps in num_warps
-        for stages in num_stages
-    ]
+    if torch.version.hip is not None:
+        atomic_kernel_configs_2D = [
+            triton.Config(
+                {"BLOCK_SIZE_N": block_size_n, "BLOCK_SIZE_K": block_size_k},
+                num_warps=warps,
+                num_stages=stages,
+            )
+            for block_size_n in [64, 128, 256]
+            for block_size_k in [64, 128]
+            for warps in [4, 8]
+            for stages in [2, 4]
+        ]
+    else:
+        atomic_kernel_configs_2D = [
+            triton.Config(
+                {"BLOCK_SIZE_N": 128, "BLOCK_SIZE_K": 128},
+                num_warps=4,
+                num_stages=4,
+            )
+        ]
 
     @torch.library.custom_op(
         "torchao::triton_fp8_rowwise_transpose_rhs", mutates_args={}
@@ -283,23 +288,26 @@ if torch_version_at_least("2.7.0") and has_triton():
         output_mask = (n_offs[:, None] < N) & (k_offs[None, :] < K)
         tl.store(output_ptr + output_offs, output_data, mask=output_mask)
 
-    block_sizes_n = [
-        64,
-    ]  # large dim (output_features)
-    block_sizes_k = [128]  # small dim (input_features)
-    num_warps = [8]
-    num_stages = [6]
-    reduction_kernel_configs_2D = [
-        triton.Config(
-            {"BLOCK_SIZE_N": block_size_n, "BLOCK_SIZE_K": block_size_k},
-            num_warps=warps,
-            num_stages=stages,
-        )
-        for block_size_n in block_sizes_n
-        for block_size_k in block_sizes_k
-        for warps in num_warps
-        for stages in num_stages
-    ]
+    if torch.version.hip is not None:
+        reduction_kernel_configs_2D = [
+            triton.Config(
+                {"BLOCK_SIZE_N": block_size_n, "BLOCK_SIZE_K": block_size_k},
+                num_warps=warps,
+                num_stages=stages,
+            )
+            for block_size_n in [32, 64, 128]
+            for block_size_k in [64, 128]
+            for warps in [4, 8]
+            for stages in [2, 4, 6]
+        ]
+    else:
+        reduction_kernel_configs_2D = [
+            triton.Config(
+                {"BLOCK_SIZE_N": 64, "BLOCK_SIZE_K": 128},
+                num_warps=8,
+                num_stages=6,
+            )
+        ]
 
     @triton.autotune(configs=reduction_kernel_configs_2D, key=["K", "N"])
     @triton.jit
