@@ -17,6 +17,8 @@ Available backends:
     fa2      - Flash Attention 2 (default SDPA)
     fa3      - Flash Attention 3
     fa3_fp8  - Flash Attention 3 with FP8 quantization (fused RoPE + FP8 SDPA)
+    fa4      - Flash Attention 4
+    fa4_fp8  - Flash Attention 4 with FP8 quantization (fused RoPE + FP8 SDPA)
 
 Usage:
     # Default: FA3 vs FA3 FP8
@@ -24,6 +26,9 @@ Usage:
 
     # FA2 vs FA3
     python eval_llama3_model.py --baseline fa2 --test fa3
+
+    # FA3 vs FA4
+    python eval_llama3_model.py --baseline fa3 --test fa4
 
     # With torch.compile (applies to non-FP8 backends)
     python eval_llama3_model.py --compile
@@ -76,6 +81,17 @@ BACKENDS = {
         "fp8": True,
         "fp8_backend": AttentionBackend.FP8_FA3,
         "label": "FA3 FP8",
+    },
+    "fa4": {
+        "flash_impl": "FA4",
+        "fp8": False,
+        "label": "FA4 BF16",
+    },
+    "fa4_fp8": {
+        "flash_impl": "FA4",
+        "fp8": True,
+        "fp8_backend": AttentionBackend.FP8_FA4,
+        "label": "FA4 FP8",
     },
 }
 
