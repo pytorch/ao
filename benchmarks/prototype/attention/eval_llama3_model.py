@@ -8,8 +8,8 @@
 Benchmark script for evaluating attention backends on LLaMA 3.
 
 Two-phase benchmark:
-  Phase 1 (Perplexity): Evaluates quality on WikiText-2 test set at a fixed
-      sequence length, comparing baseline and test backends.
+  Phase 1 (Perplexity): Evaluates quality on WikiText-2 test set using lm_eval,
+      comparing baseline and test backends.
   Phase 2 (Runtime): Measures forward-pass latency across sequence lengths
       from 1K to 128K tokens using random token IDs.
 
@@ -31,13 +31,12 @@ Usage:
 
 import argparse
 import gc
-import math
 
 import torch
 import torch._dynamo
 import torch._inductor.config as inductor_config
-import torch.nn.functional as F
-from datasets import load_dataset
+from lm_eval import evaluator
+from lm_eval.models.huggingface import HFLM
 from torch._inductor.compile_fx import compile_fx
 from torch.nn.attention import (
     activate_flash_attention_impl,
@@ -81,7 +80,6 @@ BACKENDS = {
 }
 
 RANDOM_SEED = 42
-DEFAULT_MODEL_ID = "meta-llama/Llama-3.1-8B"
 
 SEQ_LENGTHS = [1024, 2048, 4096, 8192, 16384, 32768]  # , 65536, 131072]
 
@@ -202,47 +200,27 @@ def setup_backend(orig_model, backend_name, compile_flag, fuse_rope=False):
 # =============================================================================
 
 
-def load_wikitext2_tokens(tokenizer, seq_len: int):
-    """Load WikiText-2 test set, tokenize, and chunk into fixed-length segments."""
-    dataset = load_dataset("wikitext", "wikitext-2-raw-v1", split="test")
-    text = "\n\n".join([t for t in dataset["text"] if t.strip()])
-    tokens = tokenizer(text, return_tensors="pt")["input_ids"].squeeze(0)
+def evaluate_perplexity(model, tokenizer, flash_impl) -> float:
+    """Evaluate perplexity on WikiText-2 using lm_eval.
 
-    # Chunk into non-overlapping segments of (seq_len + 1) so we have
-    # seq_len input tokens and 1 target token for each chunk.
-    n_chunks = tokens.size(0) // (seq_len + 1)
-    tokens = tokens[: n_chunks * (seq_len + 1)]
-    chunks = tokens.view(n_chunks, seq_len + 1)
-
-    print(
-        f"  WikiText-2 test: {tokens.numel()} tokens, "
-        f"{n_chunks} chunks of {seq_len} tokens"
-    )
-    return chunks
-
-
-def compute_perplexity(model, chunks, device, flash_impl) -> float:
-    """Compute perplexity over chunked token sequences."""
-    total_loss = 0.0
-    n_chunks = chunks.size(0)
-
+    For FP8 backends, the model wrapper handles flash activation internally.
+    For non-FP8 backends, flash activation is set for the duration of the
+    evaluation so that lm_eval's internal forward calls use the correct kernel.
+    """
     if flash_impl:
         activate_flash_attention_impl(flash_impl)
     try:
-        for i in range(n_chunks):
-            chunk = chunks[i].unsqueeze(0).to(device)
-            input_ids = chunk[:, :-1]
-            labels = chunk[:, 1:]
-
-            logits = model(input_ids).logits
-            loss = F.cross_entropy(logits.view(-1, logits.size(-1)), labels.reshape(-1))
-            total_loss += loss.item()
+        results = evaluator.simple_evaluate(
+            HFLM(pretrained=model, tokenizer=tokenizer),
+            tasks=["wikitext"],
+            batch_size=1,
+        )
     finally:
         if flash_impl:
             restore_flash_attention_impl()
 
-    avg_loss = total_loss / n_chunks
-    return math.exp(avg_loss)
+    ppl = results["results"]["wikitext"]["word_perplexity,none"]
+    return ppl
 
 
 def benchmark_runtime(
@@ -291,12 +269,11 @@ def benchmark_runtime(
 
 @torch.inference_mode()
 def run_benchmark(
-    model_id: str = DEFAULT_MODEL_ID,
+    model_id: str,
     baseline_backend: str = "fa3",
     test_backend: str = "fa3_fp8",
     num_runtime_iters: int = 10,
     num_warmup: int = 3,
-    perplexity_seq_len: int = 2048,
     compile: bool = False,
     fuse_rope: bool = False,
 ):
@@ -334,10 +311,8 @@ def run_benchmark(
     # Phase 1: Perplexity
     # =====================================================================
     print("\n" + "=" * 80)
-    print(f"Phase 1: Perplexity (WikiText-2 test, seq_len={perplexity_seq_len})")
+    print("Phase 1: Perplexity (WikiText-2 via lm_eval)")
     print("=" * 80)
-
-    chunks = load_wikitext2_tokens(tokenizer, perplexity_seq_len)
 
     # --- Baseline perplexity ---
     print(f"\n  Computing perplexity with {baseline_label}...")
@@ -347,12 +322,7 @@ def run_benchmark(
         compile,
         fuse_rope=fuse_rope,
     )
-    baseline_ppl = compute_perplexity(
-        baseline_model,
-        chunks,
-        device,
-        baseline_flash,
-    )
+    baseline_ppl = evaluate_perplexity(baseline_model, tokenizer, baseline_flash)
     print(f"  {baseline_label} perplexity: {baseline_ppl:.2f}")
 
     # --- Test perplexity ---
@@ -363,17 +333,12 @@ def run_benchmark(
         compile,
         fuse_rope=fuse_rope,
     )
-    test_ppl = compute_perplexity(
-        test_model,
-        chunks,
-        device,
-        test_flash,
-    )
+    test_ppl = evaluate_perplexity(test_model, tokenizer, test_flash)
     print(f"  {test_label} perplexity: {test_ppl:.2f}")
 
     print(f"\n  Delta: {test_ppl - baseline_ppl:+.2f}")
 
-    del baseline_model, test_model, chunks
+    del baseline_model, test_model
     cleanup_gpu()
 
     # =====================================================================
@@ -513,7 +478,7 @@ def main():
     parser.add_argument(
         "--model_id",
         type=str,
-        default=DEFAULT_MODEL_ID,
+        default="meta-llama/Llama-3.1-8B",
         help="HuggingFace model ID",
     )
     parser.add_argument(
@@ -543,12 +508,6 @@ def main():
         help="Number of warmup iterations per sequence length",
     )
     parser.add_argument(
-        "--perplexity_seq_len",
-        type=int,
-        default=2048,
-        help="Sequence length for perplexity evaluation",
-    )
-    parser.add_argument(
         "--compile",
         action="store_true",
         help="Wrap the model with torch.compile (applies to non-FP8 backends)",
@@ -566,7 +525,6 @@ def main():
         test_backend=args.test,
         num_runtime_iters=args.num_runtime_iters,
         num_warmup=args.num_warmup,
-        perplexity_seq_len=args.perplexity_seq_len,
         compile=args.compile,
         fuse_rope=args.fuse_rope,
     )
