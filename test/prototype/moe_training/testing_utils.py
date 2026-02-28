@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 
-from torchao.prototype.moe_training.tensor import ScaledGroupedMMTensor
+from torchao.prototype.moe_training.tensor import MXFP8TrainingTensor
 
 
 def _validate_model_conversion(
@@ -16,7 +16,7 @@ def _validate_model_conversion(
 
         # check current module params
         for param_name, param in module.named_parameters(recurse=False):
-            is_converted_type = isinstance(param, ScaledGroupedMMTensor)
+            is_converted_type = isinstance(param, MXFP8TrainingTensor)
             if is_converted_type:
                 assert is_allowed_module, (
                     f"Module {cur_fqn} is not in target_fqns, but has converted param {param_name}."
