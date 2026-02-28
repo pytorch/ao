@@ -50,6 +50,12 @@ INT8_TEST_CONFIGS = [
         granularity=(PerRow(), PerTensor()),
         act_mapping_type=MappingType.SYMMETRIC,
     ),
+    Int8DynamicActivationInt8WeightConfig(
+        version=2, granularity=PerTensor(), act_mapping_type=MappingType.ASYMMETRIC
+    ),
+    Int8DynamicActivationInt8WeightConfig(
+        version=2, granularity=PerRow(), act_mapping_type=MappingType.ASYMMETRIC
+    ),
 ]
 
 
@@ -266,7 +272,12 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
 class TestInt8StaticQuant(TorchAOIntegrationTestCase):
     @common_utils.parametrize("granularity", [PerRow(), PerTensor()])
     @common_utils.parametrize("dtype", [torch.bfloat16])
-    def test_static_activation_per_row_int8_weight(self, granularity, dtype):
+    @common_utils.parametrize(
+        "act_mapping_type", [MappingType.SYMMETRIC, MappingType.ASYMMETRIC]
+    )
+    def test_static_activation_per_row_int8_weight(
+        self, granularity, dtype, act_mapping_type
+    ):
         torch.compiler.reset()
 
         M, N, K = 128, 128, 128
@@ -279,7 +290,7 @@ class TestInt8StaticQuant(TorchAOIntegrationTestCase):
         model_out_baseline = model(input_tensor)
 
         dynamic_config = Int8DynamicActivationInt8WeightConfig(
-            version=2, granularity=granularity
+            version=2, granularity=granularity, act_mapping_type=act_mapping_type
         )
         quantize_(model_dynamic_quant, dynamic_config)
 
@@ -296,9 +307,15 @@ class TestInt8StaticQuant(TorchAOIntegrationTestCase):
             input_tensor, model_dynamic_quant.weight.act_quant_kwargs
         )
 
+        act_quant_zero_point = None
+        if int8_input.zero_point is not None:
+            act_quant_zero_point = int8_input.zero_point.detach().clone()
+
         static_config = Int8StaticActivationInt8WeightConfig(
             act_quant_scale=int8_input.scale.detach().clone(),
+            act_quant_zero_point=act_quant_zero_point,
             granularity=granularity,
+            act_mapping_type=act_mapping_type,
         )
         quantize_(model_static_quant, static_config)
 
