@@ -22,6 +22,7 @@ PyTorch ops that the compiler can decompose. Registering them as
 nodes with known output shapes/dtypes (via ``register_fake``).
 """
 
+import warnings
 from functools import partial
 from typing import Callable, NamedTuple
 
@@ -244,6 +245,16 @@ def make_compile_fn(
                 return compile_fx(gm, example_inputs)
             finally:
                 inductor_config.pre_grad_custom_pass = old_pass
+
+        warnings.warn(
+            "Low-precision attention with fuse_rope=True uses "
+            "torch._inductor.config.pre_grad_custom_pass to fuse "
+            "RoPE + FP8 quantization + SDPA in the FX graph. "
+            "The pre-grad IR is an unstable internal API that may "
+            "change across PyTorch versions.",
+            UserWarning,
+            stacklevel=4,
+        )
 
         torch._dynamo.reset()
         return torch.compile(model, backend=fp8_attention_backend)
