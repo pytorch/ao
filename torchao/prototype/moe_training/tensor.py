@@ -264,6 +264,7 @@ def _quantize_then_scaled_grouped_mm(
             B_t,
             offs,
             config.out_dtype,
+            config.float8_dtype,
         )
     elif isinstance(config, MXFP8GroupedMMConfig):
         return _to_mxfp8_then_scaled_grouped_mm(

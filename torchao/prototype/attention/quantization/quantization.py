@@ -12,35 +12,6 @@ from typing import Tuple
 
 import torch
 
-from torchao.quantization.quant_primitives import (
-    _choose_scale_float8,
-    _quantize_affine_float8,
-)
-
-
-def _quantize_per_head(
-    tensor: torch.Tensor,
-) -> Tuple[torch.Tensor, torch.Tensor]:
-    """Quantize tensor to FP8 with per-head scaling. Returns (tensor_fp8, descale)."""
-    B, H, S, D = tensor.shape
-    block_size = [1, 1, S, D]
-
-    descale = _choose_scale_float8(
-        tensor,
-        block_size=block_size,
-        float8_dtype=torch.float8_e4m3fn,
-        scale_dtype=torch.float32,
-    )
-
-    tensor_fp8 = _quantize_affine_float8(
-        tensor,
-        scale=descale,
-        float8_dtype=torch.float8_e4m3fn,
-    )
-
-    descale = descale.squeeze(-1).squeeze(-1)
-    return tensor_fp8, descale
-
 
 def _fp8_sdpa_quantize(
     q: torch.Tensor,
@@ -65,8 +36,10 @@ def _fp8_sdpa_quantize(
         raise ValueError(f"K and V shape mismatch: {k.shape} vs {v.shape}")
     if q.shape[0] != k.shape[0]:
         raise ValueError(f"Batch size mismatch: {q.shape[0]} vs {k.shape[0]}")
-    if q.shape[1] != k.shape[1]:
-        raise ValueError(f"Head count mismatch: {q.shape[1]} vs {k.shape[1]}")
+    if q.shape[1] % k.shape[1] != 0:
+        raise ValueError(
+            f"Q head count ({q.shape[1]}) must be a multiple of K head count ({k.shape[1]})"
+        )
     if q.shape[3] != k.shape[3]:
         raise ValueError(f"Head dim mismatch: {q.shape[3]} vs {k.shape[3]}")
 

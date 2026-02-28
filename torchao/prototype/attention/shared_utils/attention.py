@@ -18,17 +18,21 @@ named wrappers around these functions.
 from typing import Optional
 
 import torch
-from torch.nn.attention import SDPBackend, sdpa_kernel
 
-_has_quantized_sdpa = False
-try:
+from torchao.utils import torch_version_at_least
+
+_TORCH_VERSION_AT_LEAST_2_11 = torch_version_at_least("2.11.0")
+
+if _TORCH_VERSION_AT_LEAST_2_11:
+    from torch.nn.attention import SDPBackend, sdpa_kernel
     from torch.nn.attention.experimental._scaled_dot_product_attention_quantized import (
         _scaled_dot_product_attention_quantized,
     )
 
-    _has_quantized_sdpa = True
-except ImportError:
-    pass
+_MIN_VERSION_ERROR = (
+    "Low-precision attention requires PyTorch 2.11+. "
+    "Please update your PyTorch version."
+)
 
 from torchao.prototype.attention.quantization import (
     _fp8_sdpa_quantize,
@@ -88,12 +92,8 @@ def _fp8_sdpa(
     Returns:
         Attention output of shape [B, H, S, D] in the input dtype.
     """
-    if not _has_quantized_sdpa:
-        raise RuntimeError(
-            f"fp8_{backend_name.lower()}_sdpa requires a PyTorch version with "
-            "torch.nn.attention.experimental._scaled_dot_product_attention_quantized. "
-            "Please upgrade PyTorch."
-        )
+    if not _TORCH_VERSION_AT_LEAST_2_11:
+        raise RuntimeError(_MIN_VERSION_ERROR)
     if attn_mask is not None:
         raise ValueError(f"attn_mask not supported for FP8 {backend_name}")
     if dropout_p != 0.0:
