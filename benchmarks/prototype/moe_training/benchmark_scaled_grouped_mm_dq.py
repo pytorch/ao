@@ -27,6 +27,7 @@ from torchao.prototype.moe_training.config import (
     MXFP8GroupedMMRecipe,
 )
 from torchao.prototype.moe_training.utils import generate_jagged_offs
+from torchao.utils import is_MI300, is_MI350, is_ROCM
 
 device = torch.device("cuda")
 
@@ -260,14 +261,19 @@ def main(args: argparse.Namespace):
     configs = get_configs()
     results = []
     for config in tqdm(configs):
-        if (
-            config.recipe == FP8GroupedMMRecipe.FP8_ROWWISE
-            and torch.cuda.get_device_capability() != (9, 0)
-        ):
-            logging.warning(
-                f"Skipping FP8 rowwise benchmarks, only supported on compute capability 9.0 and found {torch.cuda.get_device_capability()}"
-            )
-            continue
+        if config.recipe == FP8GroupedMMRecipe.FP8_ROWWISE:
+            if is_ROCM():
+                if not (is_MI300() or is_MI350()):
+                    logging.warning(
+                        "Skipping FP8 rowwise benchmarks, requires MI300 or MI350 on ROCm"
+                    )
+                    continue
+            else:
+                if torch.cuda.get_device_capability() != (9, 0):
+                    logging.warning(
+                        f"Skipping FP8 rowwise benchmarks, only supported on compute capability 9.0 and found {torch.cuda.get_device_capability()}"
+                    )
+                    continue
 
         elif config.recipe in (
             MXFP8GroupedMMRecipe.MXFP8_RCEIL,

@@ -24,10 +24,27 @@ import torch
 import torch._dynamo
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.nn.attention import (
-    activate_flash_attention_impl,
-    restore_flash_attention_impl,
+
+from torchao.utils import torch_version_at_least
+
+_TORCH_VERSION_AT_LEAST_2_11 = torch_version_at_least("2.11.0")
+
+if _TORCH_VERSION_AT_LEAST_2_11:
+    from torch.nn.attention import (
+        activate_flash_attention_impl,
+        restore_flash_attention_impl,
+    )
+
+_MIN_VERSION_ERROR = (
+    "Low-precision attention requires PyTorch 2.11+. "
+    "Please update your PyTorch version."
 )
+
+
+def _check_min_torch_version():
+    if not _TORCH_VERSION_AT_LEAST_2_11:
+        raise RuntimeError(_MIN_VERSION_ERROR)
+
 
 # ============================================================================
 # Base wrapper
@@ -83,6 +100,7 @@ class _FP8FlashAttentionCompiledWrapper(_LowPrecisionAttentionWrapper):
         orig_mod: nn.Module,
         flash_impl_name: str,
     ):
+        _check_min_torch_version()
         super().__init__(orig_mod)
         # Stored outside _modules to avoid double-counting parameters
         # (the compiled module wraps the same _orig_mod).
@@ -118,6 +136,7 @@ class _FP8FlashAttentionMonkeyPatchWrapper(_LowPrecisionAttentionWrapper):
         flash_impl_name: str,
         sdpa_patch_fn: Callable,
     ):
+        _check_min_torch_version()
         super().__init__(orig_mod)
         object.__setattr__(self, "_flash_impl_name", flash_impl_name)
         object.__setattr__(self, "_sdpa_patch_fn", sdpa_patch_fn)
