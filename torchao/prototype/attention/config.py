@@ -20,7 +20,7 @@ class AttentionBackend(str, Enum):
     Different backends have different hardware requirements and capabilities.
     """
 
-    FP8_FA3 = "fa3"
+    FP8_FA3 = "FP8_FA3"
     """FlashAttention 3 via PyTorch core. Requires SM90+ (Hopper)."""
 
 
