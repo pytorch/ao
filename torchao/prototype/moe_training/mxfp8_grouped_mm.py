@@ -5,7 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import logging
-from typing import Optional
+from typing import Optional, Tuple
 
 import torch
 
@@ -48,6 +48,54 @@ _SM100_KERNELS_AVAILABLE = (
 )
 
 
+def _normalize_prequantized_mxfp8_input_a(
+    input_act: torch.Tensor,
+    block_size: int,
+    prequantized_A: Optional[Tuple[torch.Tensor, torch.Tensor]],
+) -> Tuple[Optional[torch.Tensor], Optional[torch.Tensor]]:
+    if isinstance(input_act, MXTensor):
+        assert input_act.elem_dtype == torch.float8_e4m3fn, (
+            f"Expected MXTensor with elem_dtype float8_e4m3fn, but got {input_act.elem_dtype}"
+        )
+        assert input_act.block_size == block_size, (
+            f"Expected MXTensor block_size={block_size}, but got {input_act.block_size}"
+        )
+        assert not input_act.is_swizzled_scales, (
+            "MXTensor input scales must be unswizzled for grouped GEMM"
+        )
+        input_act_data = input_act.qdata
+        input_act_scales = input_act.scale
+    elif prequantized_A is not None:
+        input_act_data, input_act_scales = prequantized_A
+    else:
+        return None, None
+
+    assert input_act_data.ndim == 2, "Pre-quantized input_act data must be 2D"
+    assert input_act_scales.ndim == 2, "Pre-quantized input_act scale must be 2D"
+    assert input_act_data.dtype == torch.float8_e4m3fn, (
+        f"Expected pre-quantized input_act data dtype float8_e4m3fn, but got {input_act_data.dtype}"
+    )
+    assert input_act_scales.dtype in (torch.float8_e8m0fnu, torch.uint8), (
+        "Expected pre-quantized input_act scale dtype to be float8_e8m0fnu or uint8"
+    )
+    if input_act_scales.dtype == torch.uint8:
+        input_act_scales = input_act_scales.view(torch.float8_e8m0fnu)
+
+    assert input_act_data.shape == input_act.shape, (
+        f"Expected pre-quantized input_act data shape to match input_act shape {input_act.shape}, "
+        f"got {input_act_data.shape}"
+    )
+    assert input_act_scales.shape[0] == input_act.shape[0], (
+        f"Expected pre-quantized input_act scale dim0 to be {input_act.shape[0]}, "
+        f"got {input_act_scales.shape[0]}"
+    )
+    assert input_act_scales.shape[1] == input_act.shape[1] // block_size, (
+        f"Expected pre-quantized input_act scale dim1 to be {input_act.shape[1] // block_size}, "
+        f"got {input_act_scales.shape[1]}"
+    )
+    return input_act_data, input_act_scales
+
+
 # Aliases for convenience/clarity
 @conditional_nostrict_trace
 def _to_mxfp8_then_scaled_grouped_mm(
@@ -59,6 +107,8 @@ def _to_mxfp8_then_scaled_grouped_mm(
     kernel_preference: KernelPreference = KernelPreference.AUTO,
     wgrad_with_hp: bool = False,
     scale_calculation_mode: ScaleCalculationMode = ScaleCalculationMode.RCEIL,
+    *,
+    prequantized_A: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
 ) -> torch.Tensor:
     """
     Differentiable mxfp8 grouped gemm with dynamic mxfp8 quantization.
@@ -76,12 +126,18 @@ def _to_mxfp8_then_scaled_grouped_mm(
         kernel_preference (KernelPreference): Kernel preference (AUTO uses CUDA/Triton, EMULATED uses to_mx). Defaults to KernelPreference.AUTO.
         wgrad_with_hp (bool): Whether to compute weight gradient in high precision. Defaults to False.
         scale_calculation_mode (ScaleCalculationMode): Mode for scale calculation (RCEIL, FLOOR, etc.). Defaults to ScaleCalculationMode.RCEIL.
+        prequantized_A (Optional[Tuple[torch.Tensor, torch.Tensor]]): Optional `(qdata, scale)` for pre-quantized
+            input activations. If `A` is already an `MXTensor`, this argument is ignored. Tuple
+            prequantization assumes the high-precision `A` is still passed for backward.
 
     Returns:
         out (torch.Tensor): The result of the mxfp8 scaled grouped gemm.
     """
     # block_size is always 32 for MXFP8
     block_size = 32
+    input_act_data, input_act_scales = _normalize_prequantized_mxfp8_input_a(
+        A, block_size, prequantized_A
+    )
     return _MXFP8GroupedMM.apply(
         A,
         B_t,
@@ -91,6 +147,8 @@ def _to_mxfp8_then_scaled_grouped_mm(
         kernel_preference,
         wgrad_with_hp,
         scale_calculation_mode,
+        input_act_data,
+        input_act_scales,
     )
 
 
@@ -114,6 +172,8 @@ class _MXFP8GroupedMM(torch.autograd.Function):
         kernel_preference: KernelPreference = KernelPreference.AUTO,
         wgrad_with_hp: bool = False,
         scale_calculation_mode: ScaleCalculationMode = ScaleCalculationMode.RCEIL,
+        input_act_data: Optional[torch.Tensor] = None,
+        input_act_scales: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """
         Forward pass: Quantize inputs and perform grouped GEMM.
@@ -155,15 +215,18 @@ class _MXFP8GroupedMM(torch.autograd.Function):
         )
         if isinstance(input_act, MXTensor):
             assert wgrad_with_hp, (
-                "only `wgrad_with_hp` recipe is supported for pre-quantized inputs, support for other recipes is still in progress"
+                "only `wgrad_with_hp` recipe is supported for MXTensor inputs because "
+                "backward needs the high-precision activations to quantize along dim1 "
+                "for weight gradients"
             )
 
         # Quantize input activations along dim0
         # input_act_data shape: (M, K)
         # input_act_scales shape: (M, K//block_size)
-        input_act_data, input_act_scales = _extract_or_quantize_dim0(
-            input_act, block_size, kernel_preference, scale_calculation_mode
-        )
+        if input_act_data is None or input_act_scales is None:
+            input_act_data, input_act_scales = _extract_or_quantize_dim0(
+                input_act, block_size, kernel_preference, scale_calculation_mode
+            )
 
         # Quantize expert weights along dim0 (after transposing from (E, K, N) to (E, N, K))
         # weight_data shape: (E, N, K)
@@ -266,7 +329,18 @@ class _MXFP8GroupedMM(torch.autograd.Function):
             wgrad_with_hp,
             kernel_preference,
         )
-        return grad_input, grad_weight_t, None, None, None, None, None, None
+        return (
+            grad_input,
+            grad_weight_t,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
 
 
 def _compute_dgrad(
