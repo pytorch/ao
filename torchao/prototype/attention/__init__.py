@@ -14,6 +14,8 @@ quantization strategies and different PyTorch core attention backends.
 Note: Low-precision attention only supports inference (forward pass).
 Backward pass is not supported by the underlying backends.
 
+Note: apply_low_precision_attention replaces all F.scaled_dot_product_attention calls
+
 Example::
 
     from torchao.prototype.attention import apply_low_precision_attention
