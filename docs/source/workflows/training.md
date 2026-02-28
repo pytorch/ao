@@ -266,7 +266,7 @@ with torch.inference_mode():
 ## mxfp8
 
 e2e training with mxfp8 from the [MX OCP spec](https://www.opencompute.org/documents/ocp-microscaling-formats-mx-v1-0-spec-final-pdf)
-in native PyTorch.  
+in native PyTorch.
 
 > :warning: We are currently in prototype.  Use nightly versions of PyTorch and torchao (or build from source) for best results.
 
@@ -350,7 +350,7 @@ scale_calculation_mode = ScaleCalculationMode.FLOOR
 
 m = torch.nn.Sequential(torch.nn.Linear(32, 32)).cuda()
 config = MXLinearConfig(
-    elem_dtype=torch.float8_e4m3fn,
+    elem_dtype=torch.float4_e2m1fn_x2,
     block_size=32,
     kernel_preference=kernel_preference,
     scale_calculation_mode=scale_calculation_mode,
