@@ -10,15 +10,18 @@ Wrapper classes for low-precision attention modules.
 Class hierarchy::
 
     _LowPrecisionAttentionWrapper          (base: orig_mod proxy, isinstance target)
+    ├── _FP8FlashAttentionCompiledWrapper   (compile path: @dynamo.disable, flash activation)
     └── _FP8FlashAttentionMonkeyPatchWrapper (monkey-patch path: SDPA swap, flash activation)
 
 The base class is intentionally minimal — it handles ``_orig_mod``
 registration and attribute proxying.  Backend-specific concerns (flash
-activation, SDPA monkey-patching) live in subclasses.
+activation, SDPA monkey-patching, dynamo guards) live in subclasses.
 """
 
 from typing import Callable
 
+import torch
+import torch._dynamo
 import torch.nn as nn
 import torch.nn.functional as F
 
@@ -76,8 +79,44 @@ class _LowPrecisionAttentionWrapper(nn.Module):
 
 
 # ============================================================================
-# FP8 Flash Attention wrapper (monkey-patch path)
+# FP8 Flash Attention wrappers
 # ============================================================================
+
+
+class _FP8FlashAttentionCompiledWrapper(_LowPrecisionAttentionWrapper):
+    """Wrapper for the compile path (``fuse_rope=True``).
+
+    The inner module has already been compiled with a custom Inductor
+    backend (the FP8 fusion pass).  ``@torch._dynamo.disable`` on
+    ``forward`` prevents an outer ``torch.compile`` from re-tracing the
+    internally-compiled graph.
+
+    Flash attention is activated/restored around each forward call.
+    """
+
+    def __init__(
+        self,
+        compiled_mod: nn.Module,
+        orig_mod: nn.Module,
+        flash_impl_name: str,
+    ):
+        _check_min_torch_version()
+        super().__init__(orig_mod)
+        # Stored outside _modules to avoid double-counting parameters
+        # (the compiled module wraps the same _orig_mod).
+        object.__setattr__(self, "_compiled_mod", compiled_mod)
+        object.__setattr__(self, "_flash_impl_name", flash_impl_name)
+
+    @torch._dynamo.disable
+    def forward(self, *args, **kwargs):
+        compiled_mod = object.__getattribute__(self, "_compiled_mod")
+        flash_impl_name = object.__getattribute__(self, "_flash_impl_name")
+
+        activate_flash_attention_impl(flash_impl_name)
+        try:
+            return compiled_mod(*args, **kwargs)
+        finally:
+            restore_flash_attention_impl()
 
 
 class _FP8FlashAttentionMonkeyPatchWrapper(_LowPrecisionAttentionWrapper):
