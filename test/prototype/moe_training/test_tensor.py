@@ -15,10 +15,10 @@ if not (torch_version_at_least("2.7.0") and torch.cuda.is_available()):
     pytest.skip("CUDA and PyTorch 2.7.0+ required", allow_module_level=True)
 
 from torchao.prototype.moe_training.config import (
-    MXFP8TrainingConfig,
+    MXFP8TrainingOpConfig,
     MXFP8TrainingRecipe,
 )
-from torchao.prototype.moe_training.tensor import MXFP8TrainingTensor
+from torchao.prototype.moe_training.tensor import MXFP8TrainingWeightWrapperTensor
 from torchao.quantization.utils import compute_error
 
 
@@ -29,7 +29,7 @@ def test_mxfp8_training_tensor_ops_fwd_bwd(op_name, batch_size):
     if op_name == "mm" and batch_size is not None:
         pytest.skip("mm doesn't support batching")
 
-    config = MXFP8TrainingConfig.from_recipe(MXFP8TrainingRecipe.MXFP8_EMULATED_RCEIL)
+    config = MXFP8TrainingOpConfig.from_recipe(MXFP8TrainingRecipe.MXFP8_EMULATED_RCEIL)
 
     # Create input tensors - dimensions must be divisible by 32
     # Use larger sizes for better SQNR, especially with bias in linear ops
@@ -59,7 +59,7 @@ def test_mxfp8_training_tensor_ops_fwd_bwd(op_name, batch_size):
         result_ref = F.linear(A_ref, B_ref, bias)
 
     # MXFP8 computation
-    B_mxfp8 = MXFP8TrainingTensor(B, config)
+    B_mxfp8 = MXFP8TrainingWeightWrapperTensor(B, config)
 
     if op_name == "mm":
         result_mxfp8 = torch.mm(A, B_mxfp8)
@@ -71,7 +71,7 @@ def test_mxfp8_training_tensor_ops_fwd_bwd(op_name, batch_size):
     # Validate forward pass
     assert result_mxfp8.shape == result_ref.shape, "Shape mismatch"
     assert result_mxfp8.dtype == torch.bfloat16, "Dtype should be bfloat16"
-    assert not isinstance(result_mxfp8, MXFP8TrainingTensor), (
+    assert not isinstance(result_mxfp8, MXFP8TrainingWeightWrapperTensor), (
         "Result should be unwrapped"
     )
 
@@ -113,31 +113,37 @@ def test_mxfp8_training_tensor_ops_fwd_bwd(op_name, batch_size):
 
 
 def test_mxfp8_training_tensor_ops_preserve_subclass():
-    config = MXFP8TrainingConfig.from_recipe(MXFP8TrainingRecipe.MXFP8_EMULATED_RCEIL)
+    config = MXFP8TrainingOpConfig.from_recipe(MXFP8TrainingRecipe.MXFP8_EMULATED_RCEIL)
 
     B = torch.randn(64, 32, dtype=torch.bfloat16, device="cuda")
-    B_mxfp8 = MXFP8TrainingTensor(B, config)
+    B_mxfp8 = MXFP8TrainingWeightWrapperTensor(B, config)
 
     # view
     result = B_mxfp8.view(32, 64)
-    assert isinstance(result, MXFP8TrainingTensor), "view should preserve subclass"
+    assert isinstance(result, MXFP8TrainingWeightWrapperTensor), (
+        "view should preserve subclass"
+    )
 
     # transpose.int
     result = B_mxfp8.transpose(0, 1)
-    assert isinstance(result, MXFP8TrainingTensor), (
+    assert isinstance(result, MXFP8TrainingWeightWrapperTensor), (
         "transpose.int should preserve subclass"
     )
 
     # transpose.default
     result = B_mxfp8.t()
-    assert isinstance(result, MXFP8TrainingTensor), (
+    assert isinstance(result, MXFP8TrainingWeightWrapperTensor), (
         "transpose.default should preserve subclass"
     )
 
     # clone
     result = B_mxfp8.clone()
-    assert isinstance(result, MXFP8TrainingTensor), "clone should preserve subclass"
+    assert isinstance(result, MXFP8TrainingWeightWrapperTensor), (
+        "clone should preserve subclass"
+    )
 
     # slice
     result = B_mxfp8[:32, :]
-    assert isinstance(result, MXFP8TrainingTensor), "slice should preserve subclass"
+    assert isinstance(result, MXFP8TrainingWeightWrapperTensor), (
+        "slice should preserve subclass"
+    )

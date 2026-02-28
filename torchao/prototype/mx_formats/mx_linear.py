@@ -173,17 +173,10 @@ class mx_mm(torch.autograd.Function):
             mxfp8_dim0_cast_kernel_choice=mxfp8_dim0_cast_kernel_choice,
         )
 
-        if mxfp8_dim1_cast_kernel_choice != MXFP8Dim1CastKernelChoice.TORCH:
-            weight_mx_dim1 = _to_mxfp8_dim1_kernel_wrapper(
-                weight_hp,
-                block_size,
-                w_elem_dtype,
-                weight_hp.dtype,
-                kernel_preference,
-                mxfp8_dim1_cast_kernel_choice,
-                scale_calculation_mode,
-            )
-        else:
+        if (
+            kernel_preference == KernelPreference.EMULATED
+            or mxfp8_dim1_cast_kernel_choice == MXFP8Dim1CastKernelChoice.TORCH
+        ):
             weight_hp_t_c = weight_hp.t().contiguous()
             weight_mx_dim1 = MXTensor.to_mx(
                 weight_hp_t_c,
@@ -193,6 +186,17 @@ class mx_mm(torch.autograd.Function):
                 scaling_mode=scale_calculation_mode,
                 mxfp8_dim0_cast_kernel_choice=mxfp8_dim0_cast_kernel_choice,
             )
+        else:
+            weight_mx_dim1 = _to_mxfp8_dim1_kernel_wrapper(
+                weight_hp,
+                block_size,
+                w_elem_dtype,
+                weight_hp.dtype,
+                kernel_preference,
+                mxfp8_dim1_cast_kernel_choice,
+                scale_calculation_mode,
+            )
+
         grad_input = torch.mm(grad_output_mx_dim0, weight_mx_dim1.t())
         grad_input = grad_input.reshape(
             *grad_output_orig_shape[:-1], grad_input.shape[-1]
@@ -203,7 +207,7 @@ class mx_mm(torch.autograd.Function):
             # Compute grad_weight in high precision if wgrad_with_hp is True
             grad_weight = torch.mm(grad_output_hp_r.t(), input_hp_r)
         else:
-            # Compute grad_weight with MXFP8 quantization
+            # input_t @ grad_output = grad_weight
             if mxfp8_dim1_cast_kernel_choice != MXFP8Dim1CastKernelChoice.TORCH:
                 grad_output_mx_dim1 = _to_mxfp8_dim1_kernel_wrapper(
                     grad_output_hp_r,

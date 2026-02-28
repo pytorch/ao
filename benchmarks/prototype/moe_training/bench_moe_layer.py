@@ -16,8 +16,8 @@ from torch.nn import functional as F
 
 from benchmarks.utils import bench_fwd_bwd_microseconds, profile_fwd_bwd
 from torchao.prototype.moe_training.config import (
-    FP8GroupedMMRecipe,
-    MXFP8TrainingConfig,
+    Float8TrainingRecipe,
+    MXFP8TrainingOpConfig,
     MXFP8TrainingRecipe,
 )
 from torchao.quantization.quant_api import quantize_
@@ -58,7 +58,7 @@ def bench_moe_training_fsdp(args: argparse.Namespace):
 
     # Map recipe name to enum
     if recipe_name == "fp8_rowwise":
-        recipe = FP8GroupedMMRecipe.FP8_ROWWISE
+        recipe = Float8TrainingRecipe.FP8_ROWWISE
     elif recipe_name == "mxfp8_rceil":
         recipe = MXFP8TrainingRecipe.MXFP8_RCEIL
     elif recipe_name == "mxfp8_rceil_wgrad_with_hp":
@@ -68,7 +68,7 @@ def bench_moe_training_fsdp(args: argparse.Namespace):
 
     # Check hardware requirements
     if (
-        recipe == FP8GroupedMMRecipe.FP8_ROWWISE
+        recipe == Float8TrainingRecipe.FP8_ROWWISE
         and torch.cuda.get_device_capability()
         != (
             9,
@@ -127,7 +127,7 @@ def bench_moe_training_fsdp(args: argparse.Namespace):
         return False
 
     # quantize test model
-    config = MXFP8TrainingConfig.from_recipe(recipe)
+    config = MXFP8TrainingOpConfig.from_recipe(recipe)
     quantize_(model, config=config, filter_fn=moe_module_filter_fn)
 
     # inputs

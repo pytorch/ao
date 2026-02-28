@@ -18,7 +18,7 @@ from torchao.quantization.transform_module import register_quantize_module_handl
 from torchao.utils import is_MI300, register_as_pytree_constant
 
 
-class FP8GroupedMMRecipe(Enum):
+class Float8TrainingRecipe(Enum):
     """FP8 recipes for grouped matrix multiplication."""
 
     FP8_ROWWISE = "fp8_rowwise"
@@ -33,7 +33,7 @@ class MXFP8TrainingRecipe(Enum):
     MXFP8_EMULATED_RCEIL = "mxfp8_emulated_rceil"
 
 
-class TrainingBaseConfig(AOBaseConfig):
+class TrainingOpBaseConfig(AOBaseConfig):
     """
     Base configuration for low precision training. Not intended to be used directly.
 
@@ -45,7 +45,7 @@ class TrainingBaseConfig(AOBaseConfig):
 
 
 @dataclass
-class FP8GroupedMMConfig(TrainingBaseConfig):
+class Float8TrainingOpConfig(TrainingOpBaseConfig):
     """
     Configuration for FP8 grouped matrix multiplication.
     """
@@ -60,10 +60,10 @@ class FP8GroupedMMConfig(TrainingBaseConfig):
     @classmethod
     def from_recipe(
         cls,
-        recipe: FP8GroupedMMRecipe,
-    ) -> "FP8GroupedMMConfig":
-        """Factory method to create a FP8GroupedMMConfig from a FP8GroupedMMRecipe."""
-        if recipe == FP8GroupedMMRecipe.FP8_ROWWISE:
+        recipe: Float8TrainingRecipe,
+    ) -> "Float8TrainingOpConfig":
+        """Factory method to create a Float8TrainingOpConfig from a Float8TrainingRecipe."""
+        if recipe == Float8TrainingRecipe.FP8_ROWWISE:
             return cls()
         else:
             raise ValueError(f"Unsupported FP8 recipe: {recipe}")
@@ -72,19 +72,19 @@ class FP8GroupedMMConfig(TrainingBaseConfig):
 # register as pytree constant so we can use dynamo nonstrict trace in torchao.prototype.moe_training.ep
 @register_as_pytree_constant
 @dataclass
-class MXFP8TrainingConfig(TrainingBaseConfig):
+class MXFP8TrainingOpConfig(TrainingOpBaseConfig):
     """
-    The MXFP8TrainingConfig defines the MXFP8 training config for nn.Linear layers
+    The MXFP8TrainingOpConfig defines the MXFP8 training config for nn.Linear layers
     and grouped GEMM ops.
 
-    MXFP8TrainingConfig has a module handler registered to it which will
+    MXFP8TrainingOpConfig has a module handler registered to it which will
     find all nn.Parameters whose parent module matches the module filter function,
-    and swap their data tensor with a MXFP8TrainingTensor.
+    and swap their data tensor with a MXFP8TrainingWeightWrapperTensor.
 
-    The MXFP8TrainingTensor dispatches matmul and grouped gemm ops to custom
+    The MXFP8TrainingWeightWrapperTensor dispatches matmul and grouped gemm ops to custom
     autograd functions which dynamically quantize inputs to MXFP8.
 
-    For all other ops, MXFP8TrainingTensor behaves like a regular torch.Tensor.
+    For all other ops, MXFP8TrainingWeightWrapperTensor behaves like a regular torch.Tensor.
     """
 
     # AUTO = Use best supported kernel for quantization ops and GEMMs (CUDA and Triton for quantizatoin, CUTLASS for MXFP8 grouped GEM
@@ -106,8 +106,8 @@ class MXFP8TrainingConfig(TrainingBaseConfig):
     def from_recipe(
         cls,
         recipe: MXFP8TrainingRecipe,
-    ) -> "MXFP8TrainingConfig":
-        """Factory method to create a MXFP8TrainingConfig from a MXFP8TrainingRecipe."""
+    ) -> "MXFP8TrainingOpConfig":
+        """Factory method to create a MXFP8TrainingOpConfig from a MXFP8TrainingRecipe."""
         if recipe == MXFP8TrainingRecipe.MXFP8_RCEIL:
             return cls(
                 kernel_preference=KernelPreference.AUTO,
@@ -133,7 +133,7 @@ class MXFP8TrainingConfig(TrainingBaseConfig):
             raise ValueError(f"Unsupported MXFP8 recipe: {recipe}")
 
     def __eq__(self, other):
-        if isinstance(other, MXFP8TrainingConfig):
+        if isinstance(other, MXFP8TrainingOpConfig):
             return (
                 self.kernel_preference == other.kernel_preference
                 and self.out_dtype == other.out_dtype
@@ -153,18 +153,20 @@ class MXFP8TrainingConfig(TrainingBaseConfig):
         )
 
 
-@register_quantize_module_handler(MXFP8TrainingConfig)
+@register_quantize_module_handler(Float8TrainingOpConfig)
+@register_quantize_module_handler(MXFP8TrainingOpConfig)
 def _moe_training_transform(
     module: nn.Module,
-    config: TrainingBaseConfig,
+    config: TrainingOpBaseConfig,
     parameter_name: Optional[str] = None,
 ) -> nn.Module:
     """
-    Swaps `torch.nn.Parameter` data tensor with a MXFP8TrainingTensor.
+    Swaps `torch.nn.Parameter` data tensor with the appropriate training tensor
+    subclass (Float8TrainingWeightWrapperTensor or MXFP8TrainingWeightWrapperTensor) based on the config type.
 
     Args:
         module: Module to modify.
-        config: TrainingBaseConfig which defines how to perform the training transform (i.e., convert linears and grouped GEMMs)
+        config: TrainingOpBaseConfig which defines how to perform the training transform (i.e., convert linears and grouped GEMMs)
         parameter_name: If specified, only transform this specific parameter. Otherwise transform all parameters.
 
     Returns:

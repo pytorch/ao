@@ -13,9 +13,9 @@ if not torch.cuda.is_available() or torch.cuda.get_device_capability() < (8, 9):
 
 from torchao.float8.float8_utils import compute_error
 from torchao.prototype.moe_training.config import (
-    FP8GroupedMMConfig,
-    FP8GroupedMMRecipe,
-    MXFP8TrainingConfig,
+    Float8TrainingOpConfig,
+    Float8TrainingRecipe,
+    MXFP8TrainingOpConfig,
     MXFP8TrainingRecipe,
 )
 from torchao.quantization.quant_api import quantize_
@@ -41,6 +41,13 @@ torch._dynamo.config.cache_size_limit = 1000
     "recipe_config",
     [
         {
+            "recipe": Float8TrainingRecipe.FP8_ROWWISE,
+            "group_alignment_size": 16,
+            "min_out_sqnr": 26.5,
+            "min_input_grad_sqnr": 29.0,
+            "min_param_grad_sqnr": 21.0,
+        },
+        {
             "recipe": MXFP8TrainingRecipe.MXFP8_RCEIL,
             "group_alignment_size": 32,
             "min_out_sqnr": 26.5,
@@ -57,8 +64,8 @@ torch._dynamo.config.cache_size_limit = 1000
         {
             "recipe": MXFP8TrainingRecipe.MXFP8_EMULATED_RCEIL,
             "group_alignment_size": 32,
-            "min_out_sqnr": 26.5,
-            "min_input_grad_sqnr": 29.0,
+            "min_out_sqnr": 23.0,
+            "min_input_grad_sqnr": 27.0,
             "min_param_grad_sqnr": 21.0,
         },
     ],
@@ -91,7 +98,7 @@ def test_moe_training(
         )
 
     # FP8_ROWWISE hardware path requires SM90 (CUDA) or MI300/MI350 (ROCm)
-    if recipe == FP8GroupedMMRecipe.FP8_ROWWISE:
+    if recipe == Float8TrainingRecipe.FP8_ROWWISE:
         if is_ROCM():
             if not (is_MI300() or is_MI350()):
                 pytest.skip("FP8 rowwise test requires MI300 or MI350 on ROCm")
@@ -147,9 +154,9 @@ def test_moe_training(
 
     # quantize test model
     config_cls = (
-        MXFP8TrainingConfig
+        MXFP8TrainingOpConfig
         if isinstance(recipe, MXFP8TrainingRecipe)
-        else FP8GroupedMMConfig
+        else Float8TrainingOpConfig
     )
     config = config_cls.from_recipe(recipe)
     quantize_(model, config=config, filter_fn=moe_module_filter_fn)

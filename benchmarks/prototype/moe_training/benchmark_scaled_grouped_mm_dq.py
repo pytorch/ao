@@ -19,14 +19,16 @@ from benchmarks.utils import (
     bench_fwd_microseconds,
     profile_fwd_bwd,
 )
-from torchao.prototype.moe_training import _quantize_then_scaled_grouped_mm
 from torchao.prototype.moe_training.config import (
-    FP8GroupedMMConfig,
-    FP8GroupedMMRecipe,
-    MXFP8TrainingConfig,
+    Float8TrainingOpConfig,
+    Float8TrainingRecipe,
+    MXFP8TrainingOpConfig,
     MXFP8TrainingRecipe,
 )
-from torchao.prototype.moe_training.utils import generate_jagged_offs
+from torchao.prototype.moe_training.utils import (
+    _quantize_then_scaled_grouped_mm,
+    generate_jagged_offs,
+)
 from torchao.utils import is_MI300, is_MI350, is_ROCM
 
 device = torch.device("cuda")
@@ -42,7 +44,7 @@ torch._dynamo.config.automatic_dynamic_shapes = False
 class ExperimentConfig:
     high_precision_dtype: torch.dtype
     MNKG: tuple[int]
-    recipe: Union[FP8GroupedMMRecipe, MXFP8TrainingRecipe]
+    recipe: Union[Float8TrainingRecipe, MXFP8TrainingRecipe]
 
 
 @dataclass(frozen=True)
@@ -137,7 +139,7 @@ def run_experiment(
     # - the transposed tensor in col-major format with groups along the row dimension,
     #    which represents the right operand.
     token_group_alignment_size = (
-        16 if config.recipe == FP8GroupedMMRecipe.FP8_ROWWISE else 32
+        16 if config.recipe == Float8TrainingRecipe.FP8_ROWWISE else 32
     )
 
     offs = generate_jagged_offs(G, total_M, multiple_of=token_group_alignment_size)
@@ -169,10 +171,10 @@ def run_experiment(
         )
 
     # Create config object from recipe
-    if isinstance(config.recipe, FP8GroupedMMRecipe):
-        quant_config = FP8GroupedMMConfig.from_recipe(config.recipe)
+    if isinstance(config.recipe, Float8TrainingRecipe):
+        quant_config = Float8TrainingOpConfig.from_recipe(config.recipe)
     else:
-        quant_config = MXFP8TrainingConfig.from_recipe(config.recipe)
+        quant_config = MXFP8TrainingOpConfig.from_recipe(config.recipe)
 
     # fwd_bwd scaled benchmark + profiling
     scaled_fwd_bwd_us = bench_fwd_bwd_microseconds(
@@ -260,7 +262,7 @@ def main(args: argparse.Namespace):
     configs = get_configs()
     results = []
     for config in tqdm(configs):
-        if config.recipe == FP8GroupedMMRecipe.FP8_ROWWISE:
+        if config.recipe == Float8TrainingRecipe.FP8_ROWWISE:
             if is_ROCM():
                 if not (is_MI300() or is_MI350()):
                     logging.warning(

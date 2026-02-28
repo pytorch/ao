@@ -11,7 +11,10 @@ from typing import Any, Optional, Union
 import torch
 
 from torchao.core.config import AOBaseConfig
-from torchao.prototype.mx_formats.constants import DTYPE_TO_SHORT_STR
+from torchao.prototype.mx_formats.constants import (
+    DTYPE_TO_SHORT_STR,
+    SUPPORTED_ELEM_DTYPES,
+)
 from torchao.quantization.quantize_.common.kernel_preference import KernelPreference
 from torchao.utils import register_as_pytree_constant
 
@@ -80,17 +83,19 @@ class ScaleCalculationMode(Enum):
 
 
 def _validate_elem_dtype(elem_dtype):
-    assert elem_dtype == torch.float4_e2m1fn_x2, (
-        f"elem_dtype: expected torch.float4_e2m1fn_x2, got {elem_dtype}"
+    assert elem_dtype in SUPPORTED_ELEM_DTYPES, (
+        f"elem_dtype: expected one of {SUPPORTED_ELEM_DTYPES}, got {elem_dtype}"
     )
 
 
 def _validate_kernel_preference(kernel_preference, block_size, elem_dtype):
     if kernel_preference == KernelPreference.AUTO:
-        assert elem_dtype == torch.float4_e2m1fn_x2, (
-            f"unsupported {kernel_preference=}, {block_size=}, {elem_dtype=}"
-        )
-        assert block_size == 32, f"block_size must be 32, got {block_size}"
+        if elem_dtype in (torch.float8_e4m3fn, torch.float4_e2m1fn_x2):
+            assert block_size == 32, f"block_size must be 32, got {block_size}"
+        else:
+            raise AssertionError(
+                f"unsupported {kernel_preference=}, {block_size=}, {elem_dtype=}"
+            )
     else:
         assert kernel_preference == KernelPreference.EMULATED, (
             f"unsupported {kernel_preference=}, {block_size=}, {elem_dtype=}"
