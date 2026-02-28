@@ -14,8 +14,6 @@ Available backends:
     fa2      - BF16 SDPA with FlashAttention 2 (PyTorch default)
     fa3      - BF16 SDPA with FlashAttention 3
     fa3_fp8  - FP8 SDPA with FlashAttention 3 (includes quantization kernels)
-    fa4      - BF16 SDPA with FlashAttention 4
-    fa4_fp8  - FP8 SDPA with FlashAttention 4 (includes quantization kernels)
 
 Usage:
     # Default: FA2 vs FA3+FP8
@@ -24,11 +22,8 @@ Usage:
     # FA3 bf16 vs FA3 fp8
     python benchmarks/prototype/attention/benchmark_sdpa.py --baseline fa3 --test fa3_fp8
 
-    # FA2 vs FA4
-    python benchmarks/prototype/attention/benchmark_sdpa.py --baseline fa2 --test fa4
-
     # With causal masking
-    python benchmarks/prototype/attention/benchmark_sdpa.py --baseline fa3 --test fa4 --causal
+    python benchmarks/prototype/attention/benchmark_sdpa.py --baseline fa3 --test fa3_fp8 --causal
 """
 
 import argparse
@@ -45,16 +40,13 @@ from torch.nn.attention import (
 )
 
 from torchao.prototype.attention.fp8_fa3.attention import fp8_fa3_sdpa
-from torchao.prototype.attention.fp8_fa4.attention import fp8_fa4_sdpa
 
-BACKENDS = ["fa2", "fa3", "fa3_fp8", "fa4", "fa4_fp8"]
+BACKENDS = ["fa2", "fa3", "fa3_fp8"]
 
 BACKEND_LABELS = {
     "fa2": "FA2 BF16",
     "fa3": "FA3 BF16",
     "fa3_fp8": "FA3 FP8",
-    "fa4": "FA4 BF16",
-    "fa4_fp8": "FA4 FP8",
 }
 
 
@@ -63,15 +55,13 @@ def _activate_backend(backend: str):
     """Context manager that activates the appropriate flash attention impl."""
     if backend in ("fa3", "fa3_fp8"):
         activate_flash_attention_impl("FA3")
-    elif backend in ("fa4", "fa4_fp8"):
-        activate_flash_attention_impl("FA4")
     else:
         # fa2 is the default, no activation needed
         pass
     try:
         yield
     finally:
-        if backend in ("fa3", "fa3_fp8", "fa4", "fa4_fp8"):
+        if backend in ("fa3", "fa3_fp8"):
             restore_flash_attention_impl()
 
 
@@ -79,8 +69,6 @@ def _run_attention(backend: str, q, k, v, is_causal: bool):
     """Run a single attention call for the given backend."""
     if backend == "fa3_fp8":
         return fp8_fa3_sdpa(q, k, v, is_causal=is_causal)
-    elif backend == "fa4_fp8":
-        return fp8_fa4_sdpa(q, k, v, is_causal=is_causal)
     else:
         with sdpa_kernel(SDPBackend.FLASH_ATTENTION):
             return F.scaled_dot_product_attention(q, k, v, is_causal=is_causal)
