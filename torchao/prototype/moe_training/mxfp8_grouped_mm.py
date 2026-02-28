@@ -127,7 +127,8 @@ def _to_mxfp8_then_scaled_grouped_mm(
         wgrad_with_hp (bool): Whether to compute weight gradient in high precision. Defaults to False.
         scale_calculation_mode (ScaleCalculationMode): Mode for scale calculation (RCEIL, FLOOR, etc.). Defaults to ScaleCalculationMode.RCEIL.
         prequantized_A (Optional[Tuple[torch.Tensor, torch.Tensor]]): Optional `(qdata, scale)` for pre-quantized
-            input activations. If `A` is already an `MXTensor`, this argument is ignored.
+            input activations. If `A` is already an `MXTensor`, this argument is ignored. Tuple
+            prequantization assumes the high-precision `A` is still passed for backward.
 
     Returns:
         out (torch.Tensor): The result of the mxfp8 scaled grouped gemm.
@@ -212,6 +213,12 @@ class _MXFP8GroupedMM(torch.autograd.Function):
         assert out_dtype in (torch.bfloat16, torch.float32), (
             "out_dtype must be bfloat16 or float32"
         )
+        if isinstance(input_act, MXTensor):
+            assert wgrad_with_hp, (
+                "only `wgrad_with_hp` recipe is supported for MXTensor inputs because "
+                "backward needs the high-precision activations to quantize along dim1 "
+                "for weight gradients"
+            )
 
         # Quantize input activations along dim0
         # input_act_data shape: (M, K)

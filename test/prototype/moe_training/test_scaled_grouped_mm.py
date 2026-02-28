@@ -559,3 +559,39 @@ def test_mxfp8_grouped_gemm_mxtensor_activation_forward():
     assert output_sqnr >= min_output_sqnr, (
         f"Output sqnr {output_sqnr} is too low, must be >= {min_output_sqnr}"
     )
+
+
+@skip_if_rocm("ROCm not supported")
+def test_mxfp8_grouped_gemm_mxtensor_requires_wgrad_with_hp():
+    block_size = 32
+    M, K, N, num_experts = 1024, 1024, 2048, 4
+    x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
+    w = torch.randn(
+        num_experts,
+        N,
+        K,
+        dtype=torch.bfloat16,
+        device="cuda",
+    )
+    w_t = w.transpose(-2, -1)
+    offs = generate_jagged_offs(num_experts, M, multiple_of=block_size)
+
+    x_mx = MXTensor.to_mx(
+        x,
+        elem_dtype=torch.float8_e4m3fn,
+        block_size=block_size,
+        scaling_mode=ScaleCalculationMode.RCEIL,
+        is_swizzled_scales=False,
+    )
+
+    with pytest.raises(AssertionError, match="wgrad_with_hp"):
+        _to_mxfp8_then_scaled_grouped_mm(
+            x_mx,
+            w_t,
+            offs=offs,
+            block_size=block_size,
+            out_dtype=torch.bfloat16,
+            kernel_preference=KernelPreference.EMULATED,
+            wgrad_with_hp=False,
+            scale_calculation_mode=ScaleCalculationMode.RCEIL,
+        )
