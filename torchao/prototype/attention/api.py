@@ -42,17 +42,33 @@ def apply_low_precision_attention(
     - **Monkey-patch path** (``fuse_rope=False``, default): wraps the model
       so that ``F.scaled_dot_product_attention`` is replaced with the FP8
       backend at call time.  No ``torch.compile`` is needed.
-    - **Compile path** (``fuse_rope=True``): compiles the model with a
-      custom Inductor backend that fuses RoPE + FP8 quantization + SDPA
-      into optimized kernels.
+    - **Compile path** (``fuse_rope=True``): internally calls
+      ``torch.compile`` with a custom Inductor backend to fuse
+      RoPE + FP8 quantization + SDPA into optimized kernels.
+      See *Compile path details* below.
 
-    In both cases, the returned wrapper manages flash attention activation
-    internally — callers do **not** need to call
-    ``activate_flash_attention_impl`` / ``restore_flash_attention_impl``.
+    The returned wrapper uses ``@torch._dynamo.disable`` on its
+    ``forward`` method, creating a graph-break boundary.  If the caller
+    later applies ``torch.compile`` to a parent model, the inner
+    compiled graph is preserved and will not be re-traced.
 
-    The returned wrapper creates a graph-break boundary, so if the
-    caller later applies ``torch.compile`` to a parent model, the inner
-    module is preserved.
+    **Compile path details** (``fuse_rope=True``):
+
+    The compile path uses several ``torch.compile`` internals:
+
+    1. ``torch.compile(model, backend=...)`` with a custom backend that
+       wraps ``torch._inductor.compile_fx.compile_fx``.
+    2. A **pre-grad custom FX pass**
+       (``torch._inductor.config.pre_grad_custom_pass``) that
+       pattern-matches RoPE and SDPA nodes in the FX graph and replaces
+       them with fused custom ops.
+    3. ``torch.library.custom_op`` with ``register_fake`` to register
+       the fused Triton kernels as opaque ops with known output
+       shapes/dtypes.
+
+    The pre-grad IR is an unstable internal API that may change across
+    PyTorch versions.  A ``UserWarning`` is emitted when this path is
+    used.
 
     Args:
         model: The model to apply low-precision attention to.
