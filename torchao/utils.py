@@ -148,8 +148,10 @@ def profiler_runner(path, fn, *args, **kwargs):
     return result
 
 
-def get_available_devices():
-    devices = ["cpu"]
+def get_available_devices(include_cpu=True):
+    devices = []
+    if include_cpu:
+        devices.append("cpu")
     if torch.cuda.is_available():
         devices.append("cuda")
     elif torch.xpu.is_available():
