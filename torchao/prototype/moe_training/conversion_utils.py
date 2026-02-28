@@ -9,7 +9,7 @@ from typing import Callable, Optional
 from torch import nn
 
 from torchao.prototype.moe_training.config import (
-    GroupedMMConfig,
+    TrainingBaseConfig,
 )
 
 logger: logging.Logger = logging.getLogger(__name__)
@@ -19,12 +19,12 @@ def _swap_params(
     module: nn.Module,
     *,
     module_filter_fn: Optional[Callable[[nn.Module, str], bool]] = None,
-    config: Optional[GroupedMMConfig] = None,
+    config: Optional[TrainingBaseConfig] = None,
     target_parameter_name: Optional[str] = None,
 ) -> nn.Module:
     """
     Recurses through the nn.Module, recursively swapping the data tensor of
-    each nn.Parameter with a ScaledGroupedMMTensor. Only applies if the module
+    each nn.Parameter with a TorchAOTrainingTensor. Only applies if the module
     passed the module_filter_fn, if specified.
 
     Args:
@@ -36,7 +36,7 @@ def _swap_params(
     Returns:
      nn.Module: The modified module with swapped linear layers.
     """
-    from torchao.prototype.moe_training.tensor import ScaledGroupedMMTensor
+    from torchao.prototype.moe_training.tensor import TorchAOTrainingTensor
 
     if isinstance(module, nn.Parameter) and (
         module_filter_fn is None or module_filter_fn(module, "")
@@ -45,8 +45,8 @@ def _swap_params(
             raise AssertionError(
                 f"Does not support a root nn.Parameter with children: {module}"
             )
-        if not isinstance(module.data, ScaledGroupedMMTensor):
-            new_data = ScaledGroupedMMTensor(module.data, config)
+        if not isinstance(module.data, TorchAOTrainingTensor):
+            new_data = TorchAOTrainingTensor(module.data, config)
             return nn.Parameter(new_data, requires_grad=module.requires_grad)
         return module
 
@@ -67,7 +67,6 @@ def _swap_params(
                 new_fqn = f"{cur_fqn}.{child_module_name}"
 
             post_order_traversal(child_module, new_fqn, module)
-
         if module_filter_fn is None or module_filter_fn(module, cur_fqn):
             for param_name, param in module.named_parameters(recurse=False):
                 if (
@@ -75,14 +74,14 @@ def _swap_params(
                     and param_name != target_parameter_name
                 ):
                     continue
-                if not isinstance(param.data, ScaledGroupedMMTensor):
+                if not isinstance(param.data, TorchAOTrainingTensor):
                     new_param = nn.Parameter(
-                        ScaledGroupedMMTensor(param.data, config),
+                        TorchAOTrainingTensor(param.data, config),
                         requires_grad=param.requires_grad,
                     )
                     setattr(module, param_name, new_param)
                     logger.info(
-                        f"Swapped {cur_fqn}.{param_name} to ScaledGroupedMMTensor"
+                        f"Swapped {cur_fqn}.{param_name} to TorchAOTrainingTensor"
                     )
 
     post_order_traversal(root_module)

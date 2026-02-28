@@ -98,10 +98,10 @@ loss.backward()
 
 ## Benchmarks
 
-### Autograd function 
+### Autograd function
 Forward + backward pass benchmarks for the [autograd function](https://github.com/pytorch/ao/blob/8bb433e989ad6f7ee0920f946d3a9be7f14be8c7/torchao/prototype/moe_training/scaled_grouped_mm.py#L284) powering MXFP8 MoE training.
 
-#### Llama4 Scout shapes 
+#### Llama4 Scout shapes
 
 * `G` (number of groups/experts per device) varies from 1 to 8 to simulate different degrees of expert parallelism
 
@@ -273,16 +273,16 @@ This prototype is specifically designed to be used on MoE models using
 where expert weights are implemented as 3D nn.Parameters with `num_experts` as
 the leading dim.
 
-The `MXFP8GroupedMMConfig` has a module handler registered to it which will
+The `MXFP8TrainingConfig` has a module handler registered to it which will
 find all nn.Parameters whose parent module matches the module filter function,
-and swap their data tensor with a ScaledGroupedMMTensor.
+and swap their data tensor with a TorchAOTrainingTensor.
 
-The ScaledGroupedMMTensor is a tensor subclass which overrides the
+The TorchAOTrainingTensor is a tensor subclass which overrides the
 `torch._grouped_mm` op by dispatching to a differentiable scaled grouped mm,
-which performs dynamic quantization on scaled grouped GEMM operands in both 
+which performs dynamic quantization on scaled grouped GEMM operands in both
 the forward and backward pass, based on the quantization config (FP8/MXFP8/etc).
 
-For all other ops, ScaledGroupedMMTensor behaves like a regular torch.Tensor.
+For all other ops, TorchAOTrainingTensor behaves like a regular torch.Tensor.
 
 ## Limitations
 - The new CUDA kernel for MXFP8 quantization of the non-transposed expert weights in the backwards pass does not support TP yet.

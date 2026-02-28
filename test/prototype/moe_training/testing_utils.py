@@ -1,13 +1,16 @@
 import torch
 from torch import nn
 
-from torchao.prototype.moe_training.tensor import ScaledGroupedMMTensor
+from torchao.prototype.moe_training.tensor import TorchAOTrainingTensor
 
 
 def _validate_model_conversion(
     root_module: nn.Module,
     target_fqns: list[str],
 ):
+    # type hints still let a regular str be passed in, led to annoying bug, just assert here to be safe
+    assert isinstance(target_fqns, list), "target_fqns must be a list of strings."
+
     def _recursive_validate(
         module: nn.Module,
         cur_fqn: str,
@@ -16,7 +19,7 @@ def _validate_model_conversion(
 
         # check current module params
         for param_name, param in module.named_parameters(recurse=False):
-            is_converted_type = isinstance(param, ScaledGroupedMMTensor)
+            is_converted_type = isinstance(param, TorchAOTrainingTensor)
             if is_converted_type:
                 assert is_allowed_module, (
                     f"Module {cur_fqn} is not in target_fqns, but has converted param {param_name}."

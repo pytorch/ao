@@ -11,12 +11,15 @@ from typing import Any, Optional, Union
 import torch
 
 from torchao.core.config import AOBaseConfig
-from torchao.prototype.mx_formats.constants import (
-    DTYPE_TO_SHORT_STR,
-    SUPPORTED_ELEM_DTYPES,
-)
+from torchao.prototype.mx_formats.constants import DTYPE_TO_SHORT_STR
 from torchao.quantization.quantize_.common.kernel_preference import KernelPreference
-from torchao.utils import is_ROCM, register_as_pytree_constant
+from torchao.utils import register_as_pytree_constant
+
+
+# Pre-made recipes for common configurations
+class MXLinearRecipeName(Enum):
+    MXFP4_EMULATED = "mxfp4_emulated"
+    MXFP4_CUTLASS = "mxfp4_cutlass"
 
 
 class MXFP8Dim0CastKernelChoice(Enum):
@@ -36,15 +39,6 @@ class MXFP8Dim1CastKernelChoice(Enum):
     TRITON = "triton"
     CUDA = "cuda"
     TORCH = "torch"
-
-
-# Pre-made recipes for common configurations
-class MXLinearRecipeName(Enum):
-    MXFP8_EMULATED = "mxfp8_emulated"
-    MXFP8_CUBLAS = "mxfp8_cublas"
-    MXFP8_CUBLAS_RCEIL = "mxfp8_cublas_rceil"
-    MXFP4_EMULATED = "mxfp4_emulated"
-    MXFP4_CUTLASS = "mxfp4_cutlass"
 
 
 # register as pytree constant so we can use dynamo nonstrict trace in torchao.prototype.moe_training.ep
@@ -86,53 +80,20 @@ class ScaleCalculationMode(Enum):
 
 
 def _validate_elem_dtype(elem_dtype):
-    assert elem_dtype in SUPPORTED_ELEM_DTYPES, (
-        f"elem_dtype: expected one of {SUPPORTED_ELEM_DTYPES}, got {elem_dtype}"
+    assert elem_dtype == torch.float4_e2m1fn_x2, (
+        f"elem_dtype: expected torch.float4_e2m1fn_x2, got {elem_dtype}"
     )
 
 
 def _validate_kernel_preference(kernel_preference, block_size, elem_dtype):
     if kernel_preference == KernelPreference.AUTO:
-        if elem_dtype in (torch.float8_e4m3fn, torch.float4_e2m1fn_x2):
-            assert block_size == 32, f"block_size must be 32, got {block_size}"
-        else:
-            raise AssertionError(
-                f"unsupported {kernel_preference=}, {block_size=}, {elem_dtype=}"
-            )
+        assert elem_dtype == torch.float4_e2m1fn_x2, (
+            f"unsupported {kernel_preference=}, {block_size=}, {elem_dtype=}"
+        )
+        assert block_size == 32, f"block_size must be 32, got {block_size}"
     else:
         assert kernel_preference == KernelPreference.EMULATED, (
             f"unsupported {kernel_preference=}, {block_size=}, {elem_dtype=}"
-        )
-
-
-def _validate_mxfp8_dim0_cast_kernel_choice(
-    mxfp8_dim0_cast_kernel_choice, scale_calculation_mode
-):
-    if mxfp8_dim0_cast_kernel_choice == MXFP8Dim0CastKernelChoice.TRITON:
-        assert scale_calculation_mode in (
-            ScaleCalculationMode.FLOOR,
-            ScaleCalculationMode.RCEIL,
-        ), (
-            f"unsupported ScaleCalculationMode value {scale_calculation_mode} for dim0 triton cast"
-        )
-
-
-def _validate_mxfp8_dim1_cast_kernel_choice(
-    mxfp8_dim1_cast_kernel_choice, scale_calculation_mode
-):
-    if mxfp8_dim1_cast_kernel_choice == MXFP8Dim1CastKernelChoice.TRITON:
-        assert scale_calculation_mode in (
-            ScaleCalculationMode.FLOOR,
-            ScaleCalculationMode.RCEIL,
-        ), (
-            f"unsupported ScaleCalculationMode value {scale_calculation_mode} for dim1 triton cast"
-        )
-    elif mxfp8_dim1_cast_kernel_choice == MXFP8Dim1CastKernelChoice.CUDA:
-        assert scale_calculation_mode in (
-            ScaleCalculationMode.FLOOR,
-            ScaleCalculationMode.RCEIL,
-        ), (
-            f"unsupported ScaleCalculationMode value {scale_calculation_mode} for dim1 cuda cast"
         )
 
 
@@ -144,7 +105,7 @@ class MXLinearConfig(AOBaseConfig):
     block_size: int = 32
 
     # element dtype, used for activations, weights and gradients
-    elem_dtype: Any = torch.float8_e4m3fn
+    elem_dtype: Any = torch.float4_e2m1fn_x2
 
     # overrides for element dtype for weights and gradients
     # TODO(future PR): refactor to make this cleaner
@@ -155,21 +116,15 @@ class MXLinearConfig(AOBaseConfig):
     # on the given hardware an exception will be thrown
     kernel_preference: KernelPreference = KernelPreference.EMULATED
 
-    # define which kernel to use for mxfp8 casting along dim0
-    # TODO(1945): remove this config option once torch.compile gives us
-    # a fast kernel
+    scale_calculation_mode: ScaleCalculationMode = ScaleCalculationMode.FLOOR
+
+    # kernel choices for mxfp8 casting (kept for compatibility with mx_mm autograd func)
     mxfp8_dim0_cast_kernel_choice: MXFP8Dim0CastKernelChoice = (
         MXFP8Dim0CastKernelChoice.TORCH
     )
-
-    # define which kernel to use for mxfp8 casting along dim1
-    # TODO(1945): remove this config option once torch.compile gives us
-    # a fast kernel
     mxfp8_dim1_cast_kernel_choice: MXFP8Dim1CastKernelChoice = (
         MXFP8Dim1CastKernelChoice.TORCH
     )
-
-    scale_calculation_mode: ScaleCalculationMode = ScaleCalculationMode.FLOOR
 
     def __post_init__(self):
         _validate_elem_dtype(self.elem_dtype)
@@ -182,12 +137,6 @@ class MXLinearConfig(AOBaseConfig):
         if self.elem_dtype_grad_output_override is not None:
             _validate_elem_dtype(self.elem_dtype_grad_output_override)
             assert self.kernel_preference == KernelPreference.EMULATED, "unsupported"
-        _validate_mxfp8_dim0_cast_kernel_choice(
-            self.mxfp8_dim0_cast_kernel_choice, self.scale_calculation_mode
-        )
-        _validate_mxfp8_dim1_cast_kernel_choice(
-            self.mxfp8_dim1_cast_kernel_choice, self.scale_calculation_mode
-        )
 
     @staticmethod
     def from_recipe_name(
@@ -204,35 +153,10 @@ class MXLinearConfig(AOBaseConfig):
             )
             recipe_name = MXLinearRecipeName(recipe_name)
 
-        if recipe_name is MXLinearRecipeName.MXFP8_EMULATED:
+        if recipe_name is MXLinearRecipeName.MXFP4_EMULATED:
             return MXLinearConfig()
-        elif recipe_name is MXLinearRecipeName.MXFP8_CUBLAS:
-            return MXLinearConfig(
-                kernel_preference=KernelPreference.AUTO,
-                mxfp8_dim0_cast_kernel_choice=MXFP8Dim0CastKernelChoice.TORCH,
-                mxfp8_dim1_cast_kernel_choice=(
-                    MXFP8Dim1CastKernelChoice.TRITON
-                    if is_ROCM()
-                    else MXFP8Dim1CastKernelChoice.CUDA
-                ),
-            )
-        elif recipe_name is MXLinearRecipeName.MXFP8_CUBLAS_RCEIL:
-            return MXLinearConfig(
-                kernel_preference=KernelPreference.AUTO,
-                mxfp8_dim0_cast_kernel_choice=MXFP8Dim0CastKernelChoice.TORCH,
-                # Quantization kernels with RCEIL are not supported on ROCm. Fallback to torch.
-                mxfp8_dim1_cast_kernel_choice=(
-                    MXFP8Dim1CastKernelChoice.TORCH
-                    if is_ROCM()
-                    else MXFP8Dim1CastKernelChoice.CUDA
-                ),
-                scale_calculation_mode=ScaleCalculationMode.RCEIL,
-            )
-        elif recipe_name is MXLinearRecipeName.MXFP4_EMULATED:
-            return MXLinearConfig(elem_dtype=torch.float4_e2m1fn_x2)
         elif recipe_name is MXLinearRecipeName.MXFP4_CUTLASS:
             return MXLinearConfig(
-                elem_dtype=torch.float4_e2m1fn_x2,
                 kernel_preference=KernelPreference.AUTO,
             )
         else:
@@ -250,8 +174,6 @@ class MXLinearConfig(AOBaseConfig):
         if self.elem_dtype_grad_output_override is not None:
             s += f", lp_go_override={DTYPE_TO_SHORT_STR[self.elem_dtype_grad_output_override]}"
         s += f", kernel={self.kernel_preference.value}"
-        s += f", mxfp8_dim0_cast_kernel_choice={self.mxfp8_dim0_cast_kernel_choice.value}"
-        s += f", mxfp8_dim1_cast_kernel_choice={self.mxfp8_dim1_cast_kernel_choice.value}"
         if self.scale_calculation_mode != ScaleCalculationMode.FLOOR:
             s += f", scale_calculation_mode={self.scale_calculation_mode}"
         return s

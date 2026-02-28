@@ -17,8 +17,8 @@ from torch.nn import functional as F
 from benchmarks.utils import bench_fwd_bwd_microseconds, profile_fwd_bwd
 from torchao.prototype.moe_training.config import (
     FP8GroupedMMRecipe,
-    MXFP8GroupedMMConfig,
-    MXFP8GroupedMMRecipe,
+    MXFP8TrainingConfig,
+    MXFP8TrainingRecipe,
 )
 from torchao.quantization.quant_api import quantize_
 
@@ -60,11 +60,13 @@ def bench_moe_training_fsdp(args: argparse.Namespace):
     if recipe_name == "fp8_rowwise":
         recipe = FP8GroupedMMRecipe.FP8_ROWWISE
     elif recipe_name == "mxfp8_rceil":
-        recipe = MXFP8GroupedMMRecipe.MXFP8_RCEIL
+        recipe = MXFP8TrainingRecipe.MXFP8_RCEIL
     elif recipe_name == "mxfp8_rceil_wgrad_with_hp":
-        recipe = MXFP8GroupedMMRecipe.MXFP8_RCEIL_WGRAD_WITH_HP
+        recipe = MXFP8TrainingRecipe.MXFP8_RCEIL_WGRAD_WITH_HP
     else:
         raise ValueError(f"Unknown recipe: {recipe_name}")
+
+    # Check hardware requirements
     if (
         recipe == FP8GroupedMMRecipe.FP8_ROWWISE
         and torch.cuda.get_device_capability()
@@ -78,8 +80,8 @@ def bench_moe_training_fsdp(args: argparse.Namespace):
         )
         return
 
-    elif (
-        recipe == MXFP8GroupedMMRecipe.MXFP8_RCEIL
+    if (
+        recipe == MXFP8TrainingRecipe.MXFP8_RCEIL
         and torch.cuda.get_device_capability()
         != (
             10,
@@ -110,7 +112,7 @@ def bench_moe_training_fsdp(args: argparse.Namespace):
     model = copy.deepcopy(ref_model)
 
     # Token group alignment size must be 16 for fp8 rowwise training
-    alignment_size = 32 if recipe == MXFP8GroupedMMRecipe.MXFP8_RCEIL else 16
+    alignment_size = 32 if recipe == MXFP8TrainingRecipe.MXFP8_RCEIL else 16
     set_token_group_alignment_size_m(alignment_size)
 
     # assert starting params are identical for both models
@@ -125,7 +127,7 @@ def bench_moe_training_fsdp(args: argparse.Namespace):
         return False
 
     # quantize test model
-    config = MXFP8GroupedMMConfig.from_recipe(recipe)
+    config = MXFP8TrainingConfig.from_recipe(recipe)
     quantize_(model, config=config, filter_fn=moe_module_filter_fn)
 
     # inputs
