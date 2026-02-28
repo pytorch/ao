@@ -23,6 +23,9 @@ class AttentionBackend(str, Enum):
     FP8_FA3 = "FP8_FA3"
     """FlashAttention 3 via PyTorch core. Requires SM90+ (Hopper)."""
 
+    FP8_FA4 = "FP8_FA4"
+    """FlashAttention 4 via PyTorch core. Requires SM90+ (Hopper) or SM100+ (Blackwell)."""
+
 
 @dataclass
 class LowPrecisionAttentionConfig:

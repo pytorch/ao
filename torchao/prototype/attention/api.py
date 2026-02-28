@@ -124,4 +124,9 @@ def apply_low_precision_attention(
 
         return setup_fp8_fa3(model, config)
 
+    if backend == AttentionBackend.FP8_FA4:
+        from torchao.prototype.attention.fp8_fa4.setup import setup_fp8_fa4
+
+        return setup_fp8_fa4(model, config)
+
     raise ValueError(f"Unknown backend: {backend}")
