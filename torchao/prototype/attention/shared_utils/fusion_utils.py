@@ -471,6 +471,14 @@ def detect_causal_mask(
         masks that appear during compilation), ``False`` otherwise
         (conservatively disables mask stripping).
     """
+    from torchao.utils import torch_version_at_least
+
+    if not torch_version_at_least("2.11.0"):
+        raise RuntimeError(
+            "Low-precision attention requires PyTorch 2.11+. "
+            "Please update your PyTorch version."
+        )
+
     from torch.nn.attention import (
         activate_flash_attention_impl,
         restore_flash_attention_impl,
