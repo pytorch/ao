@@ -15,7 +15,7 @@ from torchao.core.config import AOBaseConfig
 from torchao.prototype.mx_formats.config import ScaleCalculationMode
 from torchao.quantization.quantize_.common import KernelPreference
 from torchao.quantization.transform_module import register_quantize_module_handler
-from torchao.utils import register_as_pytree_constant
+from torchao.utils import is_MI300, register_as_pytree_constant
 
 
 class FP8GroupedMMRecipe(Enum):
@@ -45,6 +45,10 @@ class FP8GroupedMMConfig(GroupedMMConfig):
     Configuration for FP8 grouped matrix multiplication.
     """
 
+    # Float8 dtype for the FP8 grouped GEMMs.
+    float8_dtype: torch.dtype = (
+        torch.float8_e4m3fnuz if is_MI300() else torch.float8_e4m3fn
+    )
     # Output dtype for the FP8 grouped GEMMs.
     out_dtype: Optional[torch.dtype] = torch.bfloat16
 
