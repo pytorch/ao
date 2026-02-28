@@ -7,7 +7,7 @@
 # a reference implementation is available at
 # https://github.com/microsoft/unilm/blob/master/bitnet/The-Era-of-1-bit-LLMs__Training_Tips_Code_FAQ.pdf
 
-from typing import Any, Optional, Tuple
+from typing import Any, Literal, Optional, Tuple
 
 import torch
 import torch.distributed as dist
@@ -23,7 +23,7 @@ from torchao.quantization.transform_module import (
 )
 from torchao.utils import TorchAOBaseTensor
 
-from .int8 import quantize_int8_rowwise
+from .int8 import quantize_int8_rowwise, quantize_int8_tensorwise
 
 if has_triton():
     from .int8_mm import scaled_int8_mm
@@ -241,7 +241,17 @@ class _BitNetTrainingLinear(torch.autograd.Function):
 
 
 class BitNetTrainingConfig(AOBaseConfig):
-    pass
+    """Configuration for BitNet training.
+
+    Args:
+        scaling_method: Method for computing scale values
+            - "row": Use separate scale for each row (not recommended for BitNet)
+            - "tensor": Use single scale for entire tensor (default for BitNet)
+    """
+    
+    def __init__(self, scaling_method: Literal["row", "tensor"] = "tensor"):
+        super().__init__()
+        self.scaling_method = scaling_method
 
 
 # for bc
