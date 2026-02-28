@@ -21,18 +21,15 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-# Flash attention activation APIs are needed when calling fp8 sdpa directly
-# (outside the model-level API which handles it internally).
-_has_flash_activation_api = False
-try:
+from torchao.utils import torch_version_at_least
+
+_TORCH_VERSION_AT_LEAST_2_11 = torch_version_at_least("2.11.0")
+
+if _TORCH_VERSION_AT_LEAST_2_11:
     from torch.nn.attention import (
         activate_flash_attention_impl,
         restore_flash_attention_impl,
     )
-
-    _has_flash_activation_api = True
-except ImportError:
-    pass
 
 from torch.testing._internal import common_utils
 from torch.testing._internal.common_utils import (
@@ -96,7 +93,9 @@ def _build_backend_configs() -> List[BackendConfig]:
     configs = []
 
     # FA3: Hopper only
-    fa3_available = _has_flash_activation_api and _is_hopper() and _is_fa3_available()
+    fa3_available = (
+        _TORCH_VERSION_AT_LEAST_2_11 and _is_hopper() and _is_fa3_available()
+    )
     if fa3_available:
         from torchao.prototype.attention.fp8_fa3.attention import (
             fp8_fa3_rope_sdpa,
@@ -127,7 +126,7 @@ def _build_backend_configs() -> List[BackendConfig]:
 
     # FA4: Hopper or Blackwell
     fa4_available = (
-        _has_flash_activation_api
+        _TORCH_VERSION_AT_LEAST_2_11
         and (_is_hopper() or _is_blackwell())
         and _is_fa4_available()
     )
