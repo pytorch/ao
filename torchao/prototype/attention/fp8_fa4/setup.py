@@ -8,7 +8,7 @@
 FP8 FA4 backend setup.
 
 Thin wrapper around the shared ``setup_fp8_backend``, binding the FA4
-attention function.
+attention function and FA4 compile helper.
 """
 
 import torch.nn as nn
@@ -17,24 +17,20 @@ from torchao.prototype.attention.config import LowPrecisionAttentionConfig
 from torchao.prototype.attention.shared_utils.setup import setup_fp8_backend
 
 
-def _compile_not_available(model, config):
-    raise NotImplementedError(
-        "FA4 RoPE fusion (fuse_rope=True) is not yet available. "
-        "Use fuse_rope=False (default) for the monkey-patch path."
-    )
-
-
 def setup_fp8_fa4(
     model: nn.Module,
     config: LowPrecisionAttentionConfig,
 ) -> nn.Module:
     """Set up FP8 FA4 attention on *model* and wrap it."""
     from torchao.prototype.attention.fp8_fa4.attention import fp8_fa4_sdpa
+    from torchao.prototype.attention.fp8_fa4.fusion_pass import (
+        compile_with_fp8_fusion,
+    )
 
     return setup_fp8_backend(
         model,
         config,
         flash_impl_name="FA4",
         sdpa_fn=fp8_fa4_sdpa,
-        compile_fn=_compile_not_available,
+        compile_fn=compile_with_fp8_fusion,
     )

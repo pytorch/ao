@@ -131,12 +131,15 @@ def _build_backend_configs() -> List[BackendConfig]:
         and _is_fa4_available()
     )
     if fa4_available:
-        from torchao.prototype.attention.fp8_fa4.attention import fp8_fa4_sdpa
+        from torchao.prototype.attention.fp8_fa4.attention import (
+            fp8_fa4_rope_sdpa,
+            fp8_fa4_sdpa,
+        )
 
-        sdpa_fn = fp8_fa4_sdpa
+        sdpa_fn, rope_sdpa_fn = fp8_fa4_sdpa, fp8_fa4_rope_sdpa
         eager_ok = _probe_eager_quantized_sdpa(sdpa_fn, "FA4")
     else:
-        sdpa_fn = None
+        sdpa_fn = rope_sdpa_fn = None
         eager_ok = False
 
     configs.append(
@@ -145,7 +148,7 @@ def _build_backend_configs() -> List[BackendConfig]:
             flash_impl="FA4",
             attention_backend=AttentionBackend.FP8_FA4,
             sdpa_fn=sdpa_fn,
-            rope_sdpa_fn=None,  # FA4 rope not yet available
+            rope_sdpa_fn=rope_sdpa_fn,
             available_eager=eager_ok,
             available_compiled=eager_ok,
             skip_msg=(
