@@ -1,4 +1,5 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
+# Copyright (c) 2026 Arm Limited and/or its affiliates.
 # All rights reserved.
 #
 # This source code is licensed under the license found in the
@@ -16,12 +17,25 @@ function(target_link_torchao_parallel_backend target_name torchao_parallel_backe
 
         set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${_OMP_CXX_COMPILE_FLAGS}" PARENT_SCOPE)
 
-        find_package(Torch REQUIRED)
-        include_directories("${TORCH_INCLUDE_DIRS}")
-        target_link_libraries(${target_name} PRIVATE "${TORCH_LIBRARIES}")
-
         target_compile_definitions(${target_name} PRIVATE TORCHAO_PARALLEL_ATEN=1 AT_PARALLEL_OPENMP=1 INTRA_OP_PARALLEL=1)
-        target_link_libraries(${target_name} PRIVATE ${TORCH_INSTALL_PREFIX}/lib/libomp${CMAKE_SHARED_LIBRARY_SUFFIX})
+
+        if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)$")
+            set(_TORCH_LIBDIR "${TORCH_INSTALL_PREFIX}/lib")
+            find_library(_TORCH_OMP_RUNTIME
+                NAMES
+                gomp libgomp.so.1 libgomp.so
+                omp  libomp.so.1  libomp.so
+                HINTS "${_TORCH_LIBDIR}"
+                NO_DEFAULT_PATH
+            )
+            if(_TORCH_OMP_RUNTIME)
+                target_link_libraries(${target_name} PRIVATE "${_TORCH_OMP_RUNTIME}")
+            else()
+                target_link_libraries(${target_name} PRIVATE ${TORCH_INSTALL_PREFIX}/lib/libomp${CMAKE_SHARED_LIBRARY_SUFFIX})
+            endif()
+        else()
+            target_link_libraries(${target_name} PRIVATE ${TORCH_INSTALL_PREFIX}/lib/libomp${CMAKE_SHARED_LIBRARY_SUFFIX})
+        endif()
 
     elseif(TORCHAO_PARALLEL_BACKEND_TOUPPER STREQUAL "EXECUTORCH")
         message(STATUS "Building with TORCHAO_PARALLEL_BACKEND=TORCHAO_PARALLEL_EXECUTORCH")
