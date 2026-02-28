@@ -57,7 +57,7 @@ torch._dynamo.config.cache_size_limit = 1000
 
 @pytest.mark.skipif(
     True,
-    reason="Skipping FP8 rowwise test pending fix for https://github.com/pytorch/ao/issues/3788",
+    reason="Skipping FP8 rowwise test pending fix for https://github.com/pytorch/ao/issues/3957",
 )
 @pytest.mark.parametrize("m", [4096])
 @pytest.mark.parametrize("n", [8192])
