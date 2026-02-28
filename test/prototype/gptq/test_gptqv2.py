@@ -229,8 +229,8 @@ class TestGPTQObserverTensor:
         linear = torch.nn.Linear(64, 32, bias=False).cuda()
         original_weight = linear.weight.data.clone()
 
-        # Apply GPTQConfig with observe step
-        quantize_(linear, GPTQConfig(step="observe", base_config=base_config))
+        # Apply GPTQConfig with prepare step
+        quantize_(linear, GPTQConfig(step="prepare", base_config=base_config))
 
         # Check weight is now an GPTQObserverTensor
         assert isinstance(linear.weight, GPTQObserverTensor)
@@ -315,7 +315,7 @@ class TestGPTQFlow:
 
         # Phase 1: Observation step - wrap as GPTQObserverTensor
         observe_config = GPTQConfig(
-            step="observe",
+            step="prepare",
             base_config=base_config,
         )
         quantize_(linear, observe_config)
@@ -539,11 +539,11 @@ class TestGPTQFlow:
         quantize_(model2, base_config)
         out_rtn = model2(test_input)
 
-        # Apply GPTQ observe step
-        gptqnew_config = GPTQConfig(step="observe", base_config=base_config)
+        # Apply GPTQ prepare step
+        gptqnew_config = GPTQConfig(step="prepare", base_config=base_config)
         quantize_(model, gptqnew_config)
 
-        # Run calibration
+        # Run calibration (observation)
         for inp in calibration_inputs:
             model(inp)
 
