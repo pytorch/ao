@@ -41,6 +41,13 @@ torch._dynamo.config.cache_size_limit = 1000
     "recipe_config",
     [
         {
+            "recipe": FP8GroupedMMRecipe.FP8_ROWWISE,
+            "group_alignment_size": 16,
+            "min_out_sqnr": 26.5,
+            "min_input_grad_sqnr": 29.0,
+            "min_param_grad_sqnr": 21.0,
+        },
+        {
             "recipe": MXFP8TrainingRecipe.MXFP8_RCEIL,
             "group_alignment_size": 32,
             "min_out_sqnr": 26.5,

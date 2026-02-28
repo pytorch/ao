@@ -1,11 +1,16 @@
 import random
 import warnings
-from typing import Tuple
+from typing import Optional, Tuple
 
 import torch
 
 from torchao.float8.config import ScalingGranularity
 from torchao.float8.float8_utils import tensor_to_scale, to_fp8_saturated
+from torchao.prototype.moe_training.config import (
+    FP8GroupedMMConfig,
+    MXFP8TrainingConfig,
+    TrainingBaseConfig,
+)
 from torchao.prototype.mx_formats.mx_tensor import to_mx
 from torchao.utils import torch_version_at_least
 
@@ -355,3 +360,50 @@ def conditional_nostrict_trace(fn):
         "please use torch 2.7.0+ for torch.compile support on mxfp8 expert parallel autograd functions."
     )
     return fn
+
+
+# dispatching helper for ScaledGroupedMMTensor
+def _quantize_then_scaled_grouped_mm(
+    A: torch.Tensor,
+    B_t: torch.Tensor,
+    config: TrainingBaseConfig,
+    offs: Optional[torch.Tensor] = None,
+) -> torch.Tensor:
+    from torchao.prototype.moe_training import (
+        _to_fp8_rowwise_then_scaled_grouped_mm,
+        _to_mxfp8_then_scaled_grouped_mm,
+    )
+
+    """
+    This function performs dynamic quantization with the given config
+    on the input tensors A and B, then performs a scaled grouped GEMM and returns the results.
+
+    Args:
+        A (bf16/float32 torch.Tensor): The first high-precision input tensor, which must be a 2D tensor of shape (M * num_groups, K)
+            and in row-major memory layout.
+        B_t (bf16/float32 torch.Tensor): The second high-precision input tensor which must be 3D, which must be shape (E, K, N)
+            and in column-major memory layout.
+        offs (int32 torch.Tensor): The offsets to use to mark the starting index of each group along dim0 of the A tensor.
+        config (TrainingBaseConfig): Configuration for quantization recipe, etc
+    """
+    # Dispatch based on derived dtype
+    if isinstance(config, FP8GroupedMMConfig):
+        return _to_fp8_rowwise_then_scaled_grouped_mm(
+            A,
+            B_t,
+            offs,
+            config.out_dtype,
+            config.float8_dtype,
+        )
+    elif isinstance(config, MXFP8TrainingConfig):
+        return _to_mxfp8_then_scaled_grouped_mm(
+            A,
+            B_t,
+            offs,
+            out_dtype=config.out_dtype,
+            kernel_preference=config.kernel_preference,
+            wgrad_with_hp=config.wgrad_with_hp,
+            scale_calculation_mode=config.scale_calculation_mode,
+        )
+    else:
+        raise ValueError(f"Unsupported config type: {type(config)}")

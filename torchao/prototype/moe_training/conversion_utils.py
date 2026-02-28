@@ -24,7 +24,7 @@ def _swap_params(
 ) -> nn.Module:
     """
     Recurses through the nn.Module, recursively swapping the data tensor of
-    each nn.Parameter with a MXFP8TrainingTensor. Only applies if the module
+    each nn.Parameter with a TorchAOTrainingTensor. Only applies if the module
     passed the module_filter_fn, if specified.
 
     Args:
@@ -36,7 +36,7 @@ def _swap_params(
     Returns:
      nn.Module: The modified module with swapped linear layers.
     """
-    from torchao.prototype.moe_training.tensor import MXFP8TrainingTensor
+    from torchao.prototype.moe_training.tensor import TorchAOTrainingTensor
 
     if isinstance(module, nn.Parameter) and (
         module_filter_fn is None or module_filter_fn(module, "")
@@ -45,8 +45,8 @@ def _swap_params(
             raise AssertionError(
                 f"Does not support a root nn.Parameter with children: {module}"
             )
-        if not isinstance(module.data, MXFP8TrainingTensor):
-            new_data = MXFP8TrainingTensor(module.data, config)
+        if not isinstance(module.data, TorchAOTrainingTensor):
+            new_data = TorchAOTrainingTensor(module.data, config)
             return nn.Parameter(new_data, requires_grad=module.requires_grad)
         return module
 
@@ -74,14 +74,14 @@ def _swap_params(
                     and param_name != target_parameter_name
                 ):
                     continue
-                if not isinstance(param.data, MXFP8TrainingTensor):
+                if not isinstance(param.data, TorchAOTrainingTensor):
                     new_param = nn.Parameter(
-                        MXFP8TrainingTensor(param.data, config),
+                        TorchAOTrainingTensor(param.data, config),
                         requires_grad=param.requires_grad,
                     )
                     setattr(module, param_name, new_param)
                     logger.info(
-                        f"Swapped {cur_fqn}.{param_name} to MXFP8TrainingTensor"
+                        f"Swapped {cur_fqn}.{param_name} to TorchAOTrainingTensor"
                     )
 
     post_order_traversal(root_module)

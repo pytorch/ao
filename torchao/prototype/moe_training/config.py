@@ -79,12 +79,12 @@ class MXFP8TrainingConfig(TrainingBaseConfig):
 
     MXFP8TrainingConfig has a module handler registered to it which will
     find all nn.Parameters whose parent module matches the module filter function,
-    and swap their data tensor with a MXFP8TrainingTensor.
+    and swap their data tensor with a TorchAOTrainingTensor.
 
-    The MXFP8TrainingTensor dispatches matmul and grouped gemm ops to custom
+    The TorchAOTrainingTensor dispatches matmul and grouped gemm ops to custom
     autograd functions which dynamically quantize inputs to MXFP8.
 
-    For all other ops, MXFP8TrainingTensor behaves like a regular torch.Tensor.
+    For all other ops, TorchAOTrainingTensor behaves like a regular torch.Tensor.
     """
 
     # AUTO = Use best supported kernel for quantization ops and GEMMs (CUDA and Triton for quantizatoin, CUTLASS for MXFP8 grouped GEM
@@ -153,6 +153,7 @@ class MXFP8TrainingConfig(TrainingBaseConfig):
         )
 
 
+@register_quantize_module_handler(FP8GroupedMMConfig)
 @register_quantize_module_handler(MXFP8TrainingConfig)
 def _moe_training_transform(
     module: nn.Module,
@@ -160,7 +161,7 @@ def _moe_training_transform(
     parameter_name: Optional[str] = None,
 ) -> nn.Module:
     """
-    Swaps `torch.nn.Parameter` data tensor with a MXFP8TrainingTensor.
+    Swaps `torch.nn.Parameter` data tensor with a TorchAOTrainingTensor.
 
     Args:
         module: Module to modify.

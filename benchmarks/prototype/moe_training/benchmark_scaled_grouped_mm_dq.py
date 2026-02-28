@@ -19,14 +19,16 @@ from benchmarks.utils import (
     bench_fwd_microseconds,
     profile_fwd_bwd,
 )
-from torchao.prototype.moe_training import _quantize_then_scaled_grouped_mm
 from torchao.prototype.moe_training.config import (
     FP8GroupedMMConfig,
     FP8GroupedMMRecipe,
     MXFP8TrainingConfig,
     MXFP8TrainingRecipe,
 )
-from torchao.prototype.moe_training.utils import generate_jagged_offs
+from torchao.prototype.moe_training.utils import (
+    _quantize_then_scaled_grouped_mm,
+    generate_jagged_offs,
+)
 from torchao.utils import is_MI300, is_MI350, is_ROCM
 
 device = torch.device("cuda")

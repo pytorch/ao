@@ -16,16 +16,10 @@ from torch.distributed.device_mesh import DeviceMesh
 from torch.distributed.fsdp import MixedPrecisionPolicy
 
 from torchao.prototype.moe_training.config import (
-    FP8GroupedMMConfig,
     MXFP8TrainingConfig,
     TrainingBaseConfig,
 )
-from torchao.prototype.moe_training.fp8_grouped_mm import (
-    _to_fp8_rowwise_then_scaled_grouped_mm,
-)
-from torchao.prototype.moe_training.mxfp8_grouped_mm import (
-    _to_mxfp8_then_scaled_grouped_mm,
-)
+from torchao.prototype.moe_training.utils import _quantize_then_scaled_grouped_mm
 from torchao.prototype.mx_formats.mx_linear import _to_mxfp8_then_scaled_mm
 from torchao.utils import TorchAOBaseTensor
 
@@ -49,15 +43,14 @@ _ops_to_preserve_subclass = {
 }
 
 
-class MXFP8TrainingTensor(TorchAOBaseTensor):
+class TorchAOTrainingTensor(TorchAOBaseTensor):
     """
-    MXFP8TrainingTensor is a simple tensor subclass that wraps a regular tensor
-    and overrides mm and grouped_mm ops, dispatching to autograd functions that
-    dynamically quantize the op inputs to MXFP8:
-    differentiable _quantize_then_scaled_grouped_mm autograd function.
+    A subclass of torch.Tensor that overrides the grouped_mm and linear ops
+    to use dynamic quantization then low precision grouped_mm/linear op,
+    based on the training config.
     """
 
-    config: MXFP8TrainingConfig = None
+    config: TrainingBaseConfig = None
     grouped_mm_func_name = "_grouped_mm"
     mm_func_names = ("mm", "matmul", "linear")
     offs_arg_name = "offs"
@@ -66,7 +59,7 @@ class MXFP8TrainingTensor(TorchAOBaseTensor):
     def __new__(
         cls,
         tensor: torch.Tensor,
-        config: MXFP8TrainingConfig,
+        config: TrainingBaseConfig,
     ):
         self = torch.Tensor._make_wrapper_subclass(
             cls,
@@ -86,7 +79,7 @@ class MXFP8TrainingTensor(TorchAOBaseTensor):
     def __init__(
         self,
         tensor: torch.Tensor,
-        config: MXFP8TrainingConfig,
+        config: TrainingBaseConfig,
     ):
         self._data = tensor
         self.config = config
@@ -103,44 +96,52 @@ class MXFP8TrainingTensor(TorchAOBaseTensor):
             # used for shared experts. This is basically the grouped_mm
             # kernel handling a bmm.
             A, B = args[0], args[1]
-            assert not isinstance(A, MXFP8TrainingTensor), (
-                "A should not be a MXFP8TrainingTensor"
+
+            assert not isinstance(A, TorchAOTrainingTensor), (
+                "A should not be a TorchAOTrainingTensor"
             )
-            assert isinstance(B, MXFP8TrainingTensor), (
-                "B should be a MXFP8TrainingTensor"
+
+            assert isinstance(B, TorchAOTrainingTensor), (
+                "B should be a TorchAOTrainingTensor"
             )
+
             config = B.config
             A_is_2d = A.ndim == 2
             B_is_2d_or_3d = B.ndim == 2 or B.ndim == 3
             offs = kwargs.get(cls.offs_arg_name, None)
+
             if A_is_2d and B_is_2d_or_3d and offs is not None:
-                return _to_mxfp8_then_scaled_grouped_mm(
+                return _quantize_then_scaled_grouped_mm(
                     A,
                     B,
-                    offs,
-                    out_dtype=config.out_dtype,
-                    kernel_preference=config.kernel_preference,
-                    wgrad_with_hp=config.wgrad_with_hp,
-                    scale_calculation_mode=config.scale_calculation_mode,
+                    offs=offs,
+                    config=config,
                 )
 
         # linear op override
         elif func.__name__ in cls.mm_func_names:
             A, B = args[0], args[1]
-            assert not isinstance(A, MXFP8TrainingTensor), (
-                "A should not be a MXFP8TrainingTensor"
+            assert not isinstance(A, TorchAOTrainingTensor), (
+                "A should not be a TorchAOTrainingTensor"
             )
-            assert isinstance(B, MXFP8TrainingTensor), (
-                "B should be a MXFP8TrainingTensor"
+
+            assert isinstance(B, TorchAOTrainingTensor), (
+                "B should be a TorchAOTrainingTensor"
             )
+
             config = B.config
-            return _to_mxfp8_then_scaled_mm(
-                A,
-                B,
-                kernel_preference=config.kernel_preference,
-                scale_calculation_mode=config.scale_calculation_mode,
-                wgrad_with_hp=config.wgrad_with_hp,
-            )
+
+            if isinstance(config, MXFP8TrainingConfig):
+                return _to_mxfp8_then_scaled_mm(
+                    A,
+                    B,
+                    kernel_preference=config.kernel_preference,
+                    scale_calculation_mode=config.scale_calculation_mode,
+                    wgrad_with_hp=config.wgrad_with_hp,
+                )
+            else:
+                # TODO: support fp8 linear
+                raise ValueError(f"unknown config type {type(config)}")
 
         # Disable torch_function by hand because we don't want
         # the wrapping behavior of the super() impl, go directly to dispatch
@@ -158,20 +159,20 @@ class MXFP8TrainingTensor(TorchAOBaseTensor):
                 config = t.config
             else:
                 assert t.config == config, (
-                    "All MXFP8TrainingTensor instances must have the same config"
+                    "All TorchAOTrainingTensor instances must have the same config"
                 )
             return t._data
 
         args_unwrapped, kwargs_unwrapped = pytree.tree_map_only(
-            MXFP8TrainingTensor, unwrap, (args, kwargs or {})
+            TorchAOTrainingTensor, unwrap, (args, kwargs or {})
         )
         assert config is not None, (
-            f"__torch_dispatch__ called on {func.__name__} without any MXFP8TrainingTensor arguments"
+            f"__torch_dispatch__ called on {func.__name__} without any TorchAOTrainingTensor arguments"
         )
 
         # detach is special case
         if func == torch.ops.aten.detach.default:
-            return MXFP8TrainingTensor(args_unwrapped[0], config)
+            return TorchAOTrainingTensor(args_unwrapped[0], config)
 
         # perform op
         out = func(*args_unwrapped, **kwargs_unwrapped)
@@ -180,15 +181,15 @@ class MXFP8TrainingTensor(TorchAOBaseTensor):
         if func not in _ops_to_preserve_subclass:
             return out
 
-        # wrap outputs back into MXFP8TrainingTensor for ops that do preserve subclass
+        # wrap outputs back into TorchAOTrainingTensor for ops that do preserve subclass
         return pytree.tree_map_only(
             torch.Tensor,
-            lambda x: MXFP8TrainingTensor(x, config),
+            lambda x: TorchAOTrainingTensor(x, config),
             out,
         )
 
     def __repr__(self):
-        return f"MXFP8TrainingTensor(data={self._data}, config={self.config})"
+        return f"TorchAOTrainingTensor(data={self._data}, config={self.config})"
 
     def __tensor_flatten__(self):
         metadata = {
@@ -198,7 +199,7 @@ class MXFP8TrainingTensor(TorchAOBaseTensor):
 
     @staticmethod
     def __tensor_unflatten__(inner_tensors, flatten_spec, outer_size, outer_stride):
-        return MXFP8TrainingTensor(
+        return TorchAOTrainingTensor(
             inner_tensors["_data"],
             flatten_spec["config"],
         )
@@ -229,17 +230,17 @@ class MXFP8TrainingTensor(TorchAOBaseTensor):
 
         # For training step 1+, out=unsharded param.
         if out is not None:
-            if isinstance(out, MXFP8TrainingTensor):
+            if isinstance(out, TorchAOTrainingTensor):
                 out_data = out._data
                 out.config = self.config
             elif isinstance(out, DTensor) and isinstance(
-                out._local_tensor, MXFP8TrainingTensor
+                out._local_tensor, TorchAOTrainingTensor
             ):
                 out_data = out._local_tensor._data
                 out._local_tensor.config = self.config
             else:
                 raise RuntimeError(
-                    f"expect out to be MXFP8TrainingTensor or DTensor with local_tensor=ScaledGroupedMM, but got {type(out)}"
+                    f"expect out to be TorchAOTrainingTensor or DTensor with local_tensor=ScaledGroupedMM, but got {type(out)}"
                 )
 
             # If `data` (all gather outputs) is already in the mixed precision policy param_dtype,
@@ -258,49 +259,7 @@ class MXFP8TrainingTensor(TorchAOBaseTensor):
 
             return
 
-        # For training step 0, out=None, so we need to return a new MXFP8TrainingTensor.
-        output = MXFP8TrainingTensor(data, self.config)
+        # For training step 0, out=None, so we need to return a new TorchAOTrainingTensor.
+        output = TorchAOTrainingTensor(data, self.config)
         inner_tensors = (data,)
         return output, inner_tensors
-
-
-# dispatching helper for MXFP8TrainingTensor
-def _quantize_then_scaled_grouped_mm(
-    A: torch.Tensor,
-    B_t: torch.Tensor,
-    config: TrainingBaseConfig,
-    offs: Optional[torch.Tensor] = None,
-) -> torch.Tensor:
-    """
-    This function performs dynamic quantization with the given config
-    on the input tensors A and B, then performs a scaled grouped GEMM and returns the results.
-
-    Args:
-        A (bf16/float32 torch.Tensor): The first high-precision input tensor, which must be a 2D tensor of shape (M * num_groups, K)
-            and in row-major memory layout.
-        B_t (bf16/float32 torch.Tensor): The second high-precision input tensor which must be 3D, which must be shape (E, K, N)
-            and in column-major memory layout.
-        offs (int32 torch.Tensor): The offsets to use to mark the starting index of each group along dim0 of the A tensor.
-        config (MXFP8TrainingConfig): Configuration for grouped matmul quantization.
-    """
-    # Dispatch based on derived dtype
-    if isinstance(config, FP8GroupedMMConfig):
-        return _to_fp8_rowwise_then_scaled_grouped_mm(
-            A,
-            B_t,
-            offs,
-            config.out_dtype,
-            config.float8_dtype,
-        )
-    elif isinstance(config, MXFP8TrainingConfig):
-        return _to_mxfp8_then_scaled_grouped_mm(
-            A,
-            B_t,
-            offs,
-            out_dtype=config.out_dtype,
-            kernel_preference=config.kernel_preference,
-            wgrad_with_hp=config.wgrad_with_hp,
-            scale_calculation_mode=config.scale_calculation_mode,
-        )
-    else:
-        raise ValueError(f"Unsupported config type: {type(config)}")
