@@ -1072,6 +1072,49 @@ class TestFqnToConfig(TestCase):
                     f"weight should be unchanged for {type(config).__name__}"
                 )
 
+    @unittest.skipUnless(torch.cuda.is_available(), "CUDA required")
+    def test_float8_dynamic_activation_int4_weight_quantizes_correct_param(self):
+        """Regression test: _float8_dynamic_activation_int4_weight_transform must
+        quantize the parameter identified by parameter_name, not module.weight."""
+        model = torch.nn.Sequential(torch.nn.Linear(128, 128).to(torch.bfloat16).cuda())
+        # Register a custom parameter with distinct values from weight
+        custom_data = torch.randn(128, 128, dtype=torch.bfloat16, device="cuda")
+        model[0].register_parameter(
+            "custom_param",
+            torch.nn.Parameter(custom_data.clone()),
+        )
+        original_weight = model[0].weight.clone()
+        original_custom = model[0].custom_param.clone()
+
+        config = Float8DynamicActivationInt4WeightConfig()
+        quant_config = FqnToConfig({"0.custom_param": config})
+        quantize_(model, quant_config, filter_fn=None)
+
+        # weight must be completely untouched (same object)
+        assert model[0].weight.data_ptr() == model[0].weight.data_ptr()
+        torch.testing.assert_close(
+            model[0].weight,
+            original_weight,
+            msg="weight should be unchanged after quantizing custom_param",
+        )
+
+        # custom_param must have been replaced (quantized)
+        assert model[0].custom_param is not model[0].weight, (
+            "custom_param should not be the same object as weight"
+        )
+
+        # Dequantize custom_param and verify it approximates the original
+        # custom data, NOT the original weight data
+        dequantized = model[0].custom_param.dequantize().to(original_custom.dtype)
+        custom_error = (dequantized - original_custom).abs().mean()
+        weight_error = (dequantized - original_weight).abs().mean()
+        assert custom_error < weight_error, (
+            f"Dequantized custom_param should be closer to original custom_param "
+            f"(error={custom_error:.4f}) than to original weight "
+            f"(error={weight_error:.4f}). "
+            f"This indicates the wrong tensor was quantized."
+        )
+
     def test_fqn_config_module_config_and_fqn_config_both_specified(self):
         with self.assertRaises(ValueError):
             FqnToConfig(

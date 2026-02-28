@@ -301,9 +301,9 @@ def swap_conv2d_1x1_to_linear(model, filter_fn=None):
         return PermuteSandwich(lin)
 
     if filter_fn is None:
-        filter_fn = lambda mod, *args: isinstance(
-            mod, torch.nn.Conv2d
-        ) and mod.kernel_size == (1, 1)
+        filter_fn = lambda mod, *args: (
+            isinstance(mod, torch.nn.Conv2d) and mod.kernel_size == (1, 1)
+        )
 
     _replace_with_custom_fn_if_matches_filter(
         model, replace_conv2d_1x1, filter_fn=filter_fn
@@ -907,14 +907,14 @@ def _float8_dynamic_activation_int4_weight_transform(
 
     if int4_packing_format == "preshuffled":
         new_weight = Int4PreshuffledTensor.from_hp(
-            module.weight,
+            weight,
             block_size,
             activation_dtype=torch.float8_e4m3fn,
         )
     else:
         # plain format
         new_weight = Int4Tensor.from_hp(
-            module.weight,
+            weight,
             block_size,
             activation_dtype=torch.float8_e4m3fn,
         )
