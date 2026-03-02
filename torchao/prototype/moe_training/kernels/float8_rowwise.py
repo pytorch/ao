@@ -469,6 +469,23 @@ if torch_version_at_least("2.7.0") and has_triton():
         return output_buffer, scales_buffer
 
     # ── Autotune configs for 2D fused rowwise scale+cast kernel ─────────
+    #
+    # This kernel fuses the 3-kernel FP8 quantization sequence used in the
+    # forward pass of _Float8GroupedMM into a single kernel launch:
+    #   Original: tensor_to_scale() + A * scales + to_fp8_saturated()
+    #   Fused:    single two-pass kernel (absmax reduction + scale-and-cast)
+    #
+    # The kernel uses a two-pass approach over each row:
+    #   Pass 1: Compute per-row absmax (reduction over K dimension)
+    #   Pass 2: Apply scale and cast to FP8 (elementwise over K dimension)
+    # The second pass benefits from L2 cache reuse since the same data was
+    # just loaded in pass 1, avoiding a full re-read from HBM.
+    #
+    # Grid: one program per row (M programs total), each iterating over K
+    # in blocks of BLOCK_SIZE_K. This is efficient because:
+    #   - Each row's scale is independent (no cross-row synchronization)
+    #   - K dimension (hidden dim, e.g., 2048) fits well in a few blocks
+    #   - Row-major input means contiguous K-dimension access
     if torch.version.hip is not None:
         fused_2d_kernel_configs = [
             triton.Config(
@@ -510,17 +527,42 @@ if torch_version_at_least("2.7.0") and has_triton():
         EPS: tl.constexpr,
     ):
         """
-        Fused kernel that computes per-row scales and casts a 2D tensor to FP8
-        in a single kernel launch with two passes.
+        Fused kernel that computes per-row absmax scale and casts a 2D tensor
+        to FP8 in a single kernel launch.
 
-        Each program handles one row of the input tensor.
+        This replaces three separate kernel launches:
+          1. tensor_to_scale: reduction over K to find per-row absmax, then
+             compute scale = FP8_MAX / absmax
+          2. A * scales: elementwise multiply input by scale
+          3. to_fp8_saturated: clamp to FP8 range and cast dtype
 
-        Pass 1: Iterate over K blocks to compute row-wise absmax.
-        Pass 2: Iterate again to apply scale and cast to FP8.
+        Two-pass approach (one program per row):
+          Pass 1: Iterate over K in blocks to compute row-wise absmax.
+          Pass 2: Iterate again to multiply by scale, clamp, and cast to FP8.
+
+        The second pass reads the same data that was just loaded in pass 1,
+        which is likely still in L2 cache, reducing HBM traffic compared to
+        running 3 separate kernels that each read the full tensor.
+
+        Args:
+            input_ptr: Pointer to input tensor of shape (M, K).
+            stride_input_row/col: Strides for input tensor (supports any layout).
+            output_ptr: Pointer to output FP8 tensor of shape (M, K).
+            stride_output_row/col: Strides for output tensor.
+            scales_ptr: Pointer to output scales of shape (M,), one per row.
+            M: Number of rows.
+            K: Number of columns (reduction dimension for absmax).
+            fp8_dtype_min/max: Min/max representable values in target FP8 dtype.
+            round_scales_to_power_of_2: If true, round scale down to nearest
+                power of 2 for hardware-friendly scaling.
+            BLOCK_SIZE_K: Number of K elements processed per iteration (autotuned).
+            EPS: Small epsilon to avoid division by zero in scale computation.
         """
         row_idx = tl.program_id(0)
 
         # ── Pass 1: compute row-wise maximum absolute value ──
+        # Iterate over the K dimension in blocks, tracking the running max
+        # of absolute values across all blocks for this row.
         row_amax: tl.float32 = 0.0
 
         for k_start in range(0, K, BLOCK_SIZE_K):
@@ -533,17 +575,24 @@ if torch_version_at_least("2.7.0") and has_triton():
             block_amax = tl.max(tl.abs(vals))
             row_amax = tl.maximum(row_amax, block_amax)
 
-        # ── Compute scale ──
+        # ── Compute scale: scale = FP8_MAX / absmax ──
+        # This maps the row's dynamic range into the FP8 representable range.
+        # Use float64 for the division to maintain precision, then convert back.
         row_amax = tl.maximum(row_amax, EPS)
         scale = fp8_dtype_max / row_amax.to(tl.float64)
         scale = scale.to(tl.float32)
 
+        # Optionally round to power of 2 for hardware-friendly scaling.
+        # Power-of-2 scales can be applied as exponent additions rather than
+        # multiplications, which is more efficient on some hardware.
         if round_scales_to_power_of_2:
             scale = tl.exp2(tl.floor(tl.log2(scale)))
 
         tl.store(scales_ptr + row_idx, scale)
 
         # ── Pass 2: apply scale and cast to FP8 ──
+        # Re-read the same row data (likely in L2 cache from pass 1),
+        # multiply by the computed scale, clamp to FP8 range, and store.
         for k_start in range(0, K, BLOCK_SIZE_K):
             k_offs = k_start + tl.arange(0, BLOCK_SIZE_K)
             k_mask = k_offs < K
