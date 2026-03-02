@@ -81,7 +81,7 @@ class _LowPrecisionAttentionWrapper(nn.Module):
 
 
 class _FP8FlashAttentionMonkeyPatchWrapper(_LowPrecisionAttentionWrapper):
-    """Wrapper for the monkey-patch path (``fuse_rope=False``).
+    """Wrapper for the monkey-patch path (``fuse_rope_using_torch_compile=False``).
 
     Replaces ``F.scaled_dot_product_attention`` with the FP8 backend
     function for the duration of each forward call.  The inner module
