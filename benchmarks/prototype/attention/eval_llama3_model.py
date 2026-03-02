@@ -81,7 +81,7 @@ BACKENDS = {
 
 RANDOM_SEED = 42
 
-SEQ_LENGTHS = [1024, 2048, 4096, 8192, 16384, 32768]  # , 65536, 131072]
+DEFAULT_SEQ_LENGTHS = [1024, 2048, 4096, 8192, 16384, 32768]
 
 
 def cleanup_gpu():
@@ -133,7 +133,9 @@ def _compile_with_mask_strip(model, flash_impl_name=None):
     return torch.compile(model, backend=mask_strip_backend)
 
 
-def setup_backend(orig_model, backend_name, compile_flag, fuse_rope=False):
+def setup_backend(
+    orig_model, backend_name, compile_flag, fuse_rope_using_torch_compile=False
+):
     """Set up a backend for a benchmark phase.
 
     All backends use the HuggingFace SDPA attention path (the model must
@@ -157,7 +159,7 @@ def setup_backend(orig_model, backend_name, compile_flag, fuse_rope=False):
         orig_model: The original (uncompiled, unwrapped) model.
         backend_name: Name of the backend.
         compile_flag: Whether --compile was passed.
-        fuse_rope: Whether to fuse RoPE into the FP8 kernel (FP8 backends only).
+        fuse_rope_using_torch_compile: Whether to fuse RoPE into the FP8 kernel (FP8 backends only).
 
     Returns:
         (model, flash_impl) where model is the model to use for this phase
@@ -173,7 +175,7 @@ def setup_backend(orig_model, backend_name, compile_flag, fuse_rope=False):
         orig_model.config.use_cache = False
         fp8_config = LowPrecisionAttentionConfig(
             backend=cfg["fp8_backend"],
-            fuse_rope=fuse_rope,
+            fuse_rope_using_torch_compile=fuse_rope_using_torch_compile,
         )
         model = apply_low_precision_attention(orig_model, fp8_config)
         if compile_flag:
@@ -274,9 +276,13 @@ def run_benchmark(
     test_backend: str = "fa3_fp8",
     num_runtime_iters: int = 10,
     num_warmup: int = 3,
+    seq_lengths: list[int] | None = None,
     compile: bool = False,
-    fuse_rope: bool = False,
+    fuse_rope_using_torch_compile: bool = False,
 ):
+    if seq_lengths is None:
+        seq_lengths = DEFAULT_SEQ_LENGTHS
+
     baseline_label = BACKENDS[baseline_backend]["label"]
     test_label = BACKENDS[test_backend]["label"]
     compile_str = " + torch.compile" if compile else ""
@@ -320,7 +326,7 @@ def run_benchmark(
         orig_model,
         baseline_backend,
         compile,
-        fuse_rope=fuse_rope,
+        fuse_rope_using_torch_compile=fuse_rope_using_torch_compile,
     )
     baseline_ppl = evaluate_perplexity(baseline_model, tokenizer, baseline_flash)
     print(f"  {baseline_label} perplexity: {baseline_ppl:.2f}")
@@ -331,7 +337,7 @@ def run_benchmark(
         orig_model,
         test_backend,
         compile,
-        fuse_rope=fuse_rope,
+        fuse_rope_using_torch_compile=fuse_rope_using_torch_compile,
     )
     test_ppl = evaluate_perplexity(test_model, tokenizer, test_flash)
     print(f"  {test_label} perplexity: {test_ppl:.2f}")
@@ -356,10 +362,10 @@ def run_benchmark(
         orig_model,
         baseline_backend,
         compile,
-        fuse_rope=fuse_rope,
+        fuse_rope_using_torch_compile=fuse_rope_using_torch_compile,
     )
     baseline_runtimes = {}
-    for S in SEQ_LENGTHS:
+    for S in seq_lengths:
         try:
             ms = benchmark_runtime(
                 baseline_model,
@@ -387,7 +393,7 @@ def run_benchmark(
         orig_model,
         test_backend,
         compile,
-        fuse_rope=fuse_rope,
+        fuse_rope_using_torch_compile=fuse_rope_using_torch_compile,
     )
     test_runtimes = {}
     for S in baseline_runtimes:
@@ -508,12 +514,19 @@ def main():
         help="Number of warmup iterations per sequence length",
     )
     parser.add_argument(
+        "--seq_lengths",
+        type=int,
+        nargs="+",
+        default=DEFAULT_SEQ_LENGTHS,
+        help="Sequence lengths for runtime benchmarking (default: 1024..32768)",
+    )
+    parser.add_argument(
         "--compile",
         action="store_true",
         help="Wrap the model with torch.compile (applies to non-FP8 backends)",
     )
     parser.add_argument(
-        "--fuse_rope",
+        "--fuse_rope_using_torch_compile",
         action="store_true",
         help="Fuse RoPE into the FP8 kernel (compile path, off by default)",
     )
@@ -525,8 +538,9 @@ def main():
         test_backend=args.test,
         num_runtime_iters=args.num_runtime_iters,
         num_warmup=args.num_warmup,
+        seq_lengths=args.seq_lengths,
         compile=args.compile,
-        fuse_rope=args.fuse_rope,
+        fuse_rope_using_torch_compile=args.fuse_rope_using_torch_compile,
     )
 
 
