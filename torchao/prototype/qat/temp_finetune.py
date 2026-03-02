@@ -2,6 +2,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, Mxfp4Config
 from trl import SFTConfig, SFTTrainer
 import torch
 from datasets import load_dataset
+from torchao.prototype.qat.nvfp4_moe import apply_nvfp4_moe_qat
 
 quantization_config = Mxfp4Config(dequantize=True)
 
@@ -11,6 +12,10 @@ model = AutoModelForCausalLM.from_pretrained(
     torch_dtype=torch.bfloat16,
     device_map="auto",
 )
+
+# Apply NVFP4 QAT to MoE expert layers so the forward pass uses the
+# flashinfer NVFP4 kernel while backward uses bf16 GEMMs.
+model = apply_nvfp4_moe_qat(model)
 
 tokenizer = AutoTokenizer.from_pretrained("openai/gpt-oss-20b")
 
