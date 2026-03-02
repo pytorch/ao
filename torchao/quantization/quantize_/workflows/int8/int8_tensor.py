@@ -327,7 +327,7 @@ def _(func, types, args, kwargs):
                 x_scales.reshape(-1, 1),
                 w_scales.reshape(-1, 1) if w_scales.numel() > 1 else w_scales,
             )
-        elif kernel_choice == "torch":
+        elif kernel_choice == KernelPreference.TORCH:
             # Cast FP16 scale to float to avoid overflow in int_scaled_matmul
             intermediate_dtype = (
                 torch.float if x_scales.dtype == torch.half else x_scales.dtype
@@ -339,14 +339,15 @@ def _(func, types, args, kwargs):
             # Asymmetric activation zero_point correction:
             # Y = (X_int @ W_int^T) * s_x * s_w - zp_x * s_x * row_sum(W_int)^T * s_w
             # The first term is y_dot_scaled * w_scales. The second is the correction.
-            if (
-                weight_tensor.act_quant_kwargs.mapping_type == MappingType.ASYMMETRIC
-                and activation_tensor.zero_point is not None
-            ):
+            if activation_tensor.zero_point is not None:
                 w_row_sums = weight_tensor.qdata.sum(dim=-1)  # (N,)
-                zp_x = activation_tensor.zero_point.reshape(-1, 1).to(intermediate_dtype)
+                zp_x = activation_tensor.zero_point.reshape(-1, 1).to(
+                    intermediate_dtype
+                )
                 x_scales_flat = x_scales.reshape(-1, 1).to(intermediate_dtype)
-                zp_correction = (zp_x * x_scales_flat) * w_row_sums.to(intermediate_dtype)
+                zp_correction = (zp_x * x_scales_flat) * w_row_sums.to(
+                    intermediate_dtype
+                )
                 y_dot_scaled = y_dot_scaled - zp_correction.to(output_dtype)
 
             y = y_dot_scaled * w_scales.flatten()
