@@ -84,7 +84,7 @@ class _LowPrecisionAttentionWrapper(nn.Module):
 
 
 class _FP8FlashAttentionCompiledWrapper(_LowPrecisionAttentionWrapper):
-    """Wrapper for the compile path (``fuse_rope=True``).
+    """Wrapper for the compile path (``fuse_rope_using_torch_compile=True``).
 
     The inner module has already been compiled with a custom Inductor
     backend (the FP8 fusion pass).  ``@torch._dynamo.disable`` on
@@ -120,7 +120,7 @@ class _FP8FlashAttentionCompiledWrapper(_LowPrecisionAttentionWrapper):
 
 
 class _FP8FlashAttentionMonkeyPatchWrapper(_LowPrecisionAttentionWrapper):
-    """Wrapper for the monkey-patch path (``fuse_rope=False``).
+    """Wrapper for the monkey-patch path (``fuse_rope_using_torch_compile=False``).
 
     Replaces ``F.scaled_dot_product_attention`` with the FP8 backend
     function for the duration of each forward call.  The inner module
