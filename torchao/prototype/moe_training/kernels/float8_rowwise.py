@@ -598,12 +598,8 @@ if torch_version_at_least("2.7.0") and has_triton():
 
         m, k = hp_tensor.shape
 
-        output_buffer = torch.empty(
-            (m, k), dtype=output_dtype, device=hp_tensor.device
-        )
-        scales_buffer = torch.empty(
-            (m,), dtype=torch.float32, device=hp_tensor.device
-        )
+        output_buffer = torch.empty((m, k), dtype=output_dtype, device=hp_tensor.device)
+        scales_buffer = torch.empty((m,), dtype=torch.float32, device=hp_tensor.device)
 
         grid = lambda meta: (m,)
 
@@ -635,9 +631,7 @@ if torch_version_at_least("2.7.0") and has_triton():
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         assert hp_tensor.ndim == 2, "input tensor must be 2D"
         m, k = hp_tensor.shape
-        output_buffer = torch.empty(
-            (m, k), dtype=output_dtype, device=hp_tensor.device
-        )
+        output_buffer = torch.empty((m, k), dtype=output_dtype, device=hp_tensor.device)
         scales_buffer = torch.empty(
             (m, 1), dtype=torch.float32, device=hp_tensor.device
         )
