@@ -38,24 +38,24 @@ class LowPrecisionAttentionConfig:
     Args:
         backend: Attention backend to use. If None (default), automatically
             selected based on hardware capabilities.
-        use_hadamard: Apply Hadamard transform. Options:
+        hadamard_mode: Apply Hadamard transform. Options:
             - None: No Hadamard transform (default)
             - "v": Apply Hadamard to V only
             - "qkv": Apply Hadamard to Q, K, and V
-        fuse_rope: If True, the model is compiled with a custom Inductor
-            backend that fuses RoPE + quantization + SDPA into a single
-            kernel.  If False (default), ``F.scaled_dot_product_attention``
-            is monkey-patched with the FP8 backend at call time — no
-            ``torch.compile`` is needed.
+        fuse_rope_using_torch_compile: If True, fuse RoPE + quantization + SDPA into optimized
+            kernels.  This uses ``torch.compile`` internally — see
+            ``shared_utils/custom_ops.py`` for details.
+            If False (default), attention is replaced at call time without
+            compilation.
     """
 
     backend: Optional[AttentionBackend] = None
-    use_hadamard: Optional[Literal["v", "qkv"]] = None
-    fuse_rope: bool = False
+    hadamard_mode: Optional[Literal["v", "qkv"]] = None
+    fuse_rope_using_torch_compile: bool = False
 
     def __post_init__(self):
-        # Validate use_hadamard value
-        if self.use_hadamard is not None and self.use_hadamard not in ("v", "qkv"):
+        # Validate hadamard_mode value
+        if self.hadamard_mode is not None and self.hadamard_mode not in ("v", "qkv"):
             raise ValueError(
-                f"use_hadamard must be None, 'v', or 'qkv', got {self.use_hadamard!r}"
+                f"hadamard_mode must be None, 'v', or 'qkv', got {self.hadamard_mode!r}"
             )
