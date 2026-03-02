@@ -38,46 +38,19 @@ def apply_low_precision_attention(
     """
     Apply low-precision attention to a model.
 
-    Depending on the configuration, the model is either:
-    - **Monkey-patch path** (``fuse_rope=False``, default): wraps the model
-      so that ``F.scaled_dot_product_attention`` is replaced with the FP8
-      backend at call time.  No ``torch.compile`` is needed.
-    - **Compile path** (``fuse_rope=True``): internally calls
-      ``torch.compile`` with a custom Inductor backend to fuse
-      RoPE + FP8 quantization + SDPA into optimized kernels.
-      See *Compile path details* below.
+    Resolves the requested backend and delegates to the backend-specific
+    setup function.  The returned wrapper manages attention backend
+    activation internally — callers do **not** need to call
+    ``activate_flash_attention_impl`` / ``restore_flash_attention_impl``.
 
-    The returned wrapper uses ``@torch._dynamo.disable`` on its
-    ``forward`` method, creating a graph-break boundary.  If the caller
-    later applies ``torch.compile`` to a parent model, the inner
-    compiled graph is preserved and will not be re-traced.
-
-    **Compile path details** (``fuse_rope=True``):
-
-    The compile path uses several ``torch.compile`` internals:
-
-    1. ``torch.compile(model, backend=...)`` with a custom backend that
-       wraps ``torch._inductor.compile_fx.compile_fx``.
-    2. A **pre-grad custom FX pass**
-       (``torch._inductor.config.pre_grad_custom_pass``) that
-       pattern-matches RoPE and SDPA nodes in the FX graph and replaces
-       them with fused custom ops.
-    3. ``torch.library.custom_op`` with ``register_fake`` to register
-       the fused Triton kernels as opaque ops with known output
-       shapes/dtypes.
-
-    The pre-grad IR is an unstable internal API that may change across
-    PyTorch versions.  A ``UserWarning`` is emitted when this path is
-    used.
+    See ``LowPrecisionAttentionConfig`` for the available configuration
+    options and their effects (e.g., ``fuse_rope_using_torch_compile``).
 
     Args:
         model: The model to apply low-precision attention to.
             Must not already be compiled with ``torch.compile``.
-            For models that use KV caching (e.g., HuggingFace models
-            with ``config.use_cache=True``), the caller should disable
-            KV caching before calling this function.  The
-            ``DynamicCache.update()`` calls insert ``torch.cat`` nodes
-            that block the RoPE + SDPA fusion pass.
+            KV caching should be disabled before calling this function
+            (e.g., ``config.use_cache = False`` for HuggingFace models).
         config: Configuration for low-precision attention.
             If None, uses default config (auto backend selection).
 
