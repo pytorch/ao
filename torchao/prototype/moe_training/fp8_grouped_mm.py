@@ -12,6 +12,7 @@ from torchao.float8.config import ScalingGranularity
 from torchao.float8.float8_utils import tensor_to_scale, to_fp8_saturated
 from torchao.prototype.moe_training.kernels import (
     triton_fp8_per_group_colwise_scales,
+    triton_fp8_rowwise_2d_scale_and_cast,
     triton_fp8_rowwise_3d_transpose_rhs,
 )
 from torchao.prototype.moe_training.utils import (
@@ -125,17 +126,16 @@ class _Float8GroupedMM(torch.autograd.Function):
             padded_group_end_offsets = offs
 
         # Convert high precision input tensor to float8, row-major for left operand of grouped GEMM.
+        # Uses fused Triton kernel that computes per-row absmax + scale + FP8 cast
+        # in a single kernel launch (replaces 3 separate ops: tensor_to_scale,
+        # multiply by scale, and to_fp8_saturated).
         # padded_A shape: (M, K) or (padded_M, K) if padding was used
-        # A_scales shape: (M,1) or (padded_M, 1) if padding was used
-        A_scales = tensor_to_scale(
+        # A_scales shape: (M, 1) or (padded_M, 1) if padding was used
+        A_data_row_major, A_scales = triton_fp8_rowwise_2d_scale_and_cast(
             padded_A,
-            float8_dtype,
-            scaling_granularity=ScalingGranularity.AXISWISE,
-            axiswise_dim=-1,
+            output_dtype=float8_dtype,
             round_scales_to_power_of_2=True,
         )
-        A_scaled = padded_A.to(torch.float32) * A_scales
-        A_data_row_major = to_fp8_saturated(A_scaled, float8_dtype)
 
         # Convert B to float8, column-major for right operand of grouped GEMM.
         # B_t shape: (E, K, N)

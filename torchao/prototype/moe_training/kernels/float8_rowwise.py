@@ -468,6 +468,181 @@ if torch_version_at_least("2.7.0") and has_triton():
         )
         return output_buffer, scales_buffer
 
+    # ── Autotune configs for 2D fused rowwise scale+cast kernel ─────────
+    if torch.version.hip is not None:
+        fused_2d_kernel_configs = [
+            triton.Config(
+                {"BLOCK_SIZE_K": block_size_k},
+                num_warps=warps,
+                num_stages=stages,
+            )
+            for block_size_k in [128, 256]
+            for warps in [4, 8]
+            for stages in [2]
+        ]
+    else:
+        fused_2d_kernel_configs = [
+            triton.Config(
+                {"BLOCK_SIZE_K": 128},
+                num_warps=4,
+                num_stages=4,
+            )
+        ]
+
+    @triton.autotune(configs=fused_2d_kernel_configs, key=["K"])
+    @triton.jit
+    def _triton_fp8_rowwise_2d_fused_scale_and_cast_kernel(
+        input_ptr,
+        stride_input_row: tl.int64,
+        stride_input_col,
+        output_ptr,
+        stride_output_row: tl.int64,
+        stride_output_col,
+        scales_ptr,
+        M: int,
+        K: int,
+        fp8_dtype_min: tl.constexpr,
+        fp8_dtype_max: tl.constexpr,
+        input_dtype: tl.constexpr,
+        output_dtype: tl.constexpr,
+        round_scales_to_power_of_2: tl.constexpr,
+        BLOCK_SIZE_K: tl.constexpr,
+        EPS: tl.constexpr,
+    ):
+        """
+        Fused kernel that computes per-row scales and casts a 2D tensor to FP8
+        in a single kernel launch with two passes.
+
+        Each program handles one row of the input tensor.
+
+        Pass 1: Iterate over K blocks to compute row-wise absmax.
+        Pass 2: Iterate again to apply scale and cast to FP8.
+        """
+        row_idx = tl.program_id(0)
+
+        # ── Pass 1: compute row-wise maximum absolute value ──
+        row_amax: tl.float32 = 0.0
+
+        for k_start in range(0, K, BLOCK_SIZE_K):
+            k_offs = k_start + tl.arange(0, BLOCK_SIZE_K)
+            k_mask = k_offs < K
+
+            input_offs = row_idx * stride_input_row + k_offs * stride_input_col
+            vals = tl.load(input_ptr + input_offs, mask=k_mask, other=0.0)
+
+            block_amax = tl.max(tl.abs(vals))
+            row_amax = tl.maximum(row_amax, block_amax)
+
+        # ── Compute scale ──
+        row_amax = tl.maximum(row_amax, EPS)
+        scale = fp8_dtype_max / row_amax.to(tl.float64)
+        scale = scale.to(tl.float32)
+
+        if round_scales_to_power_of_2:
+            scale = tl.exp2(tl.floor(tl.log2(scale)))
+
+        tl.store(scales_ptr + row_idx, scale)
+
+        # ── Pass 2: apply scale and cast to FP8 ──
+        for k_start in range(0, K, BLOCK_SIZE_K):
+            k_offs = k_start + tl.arange(0, BLOCK_SIZE_K)
+            k_mask = k_offs < K
+
+            input_offs = row_idx * stride_input_row + k_offs * stride_input_col
+            vals = tl.load(input_ptr + input_offs, mask=k_mask, other=0.0)
+
+            scaled_vals = vals.to(tl.float32) * scale
+            clamped_vals = tl.clamp(
+                scaled_vals, min=fp8_dtype_min, max=fp8_dtype_max
+            ).to(output_dtype)
+
+            output_offs = row_idx * stride_output_row + k_offs * stride_output_col
+            tl.store(output_ptr + output_offs, clamped_vals, mask=k_mask)
+
+    @torch.library.custom_op(
+        "torchao::triton_fp8_rowwise_2d_scale_and_cast", mutates_args={}
+    )
+    def triton_fp8_rowwise_2d_scale_and_cast(
+        hp_tensor: torch.Tensor,
+        output_dtype: torch.dtype = torch.float8_e4m3fn,
+        round_scales_to_power_of_2: bool = False,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Fused scale computation and FP8 cast for 2D row-major tensors.
+
+        Replaces the 3-kernel sequence:
+            1. tensor_to_scale(A, axiswise_dim=-1)
+            2. A_scaled = A.to(float32) * A_scales
+            3. A_fp8 = to_fp8_saturated(A_scaled, fp8_dtype)
+
+        With a single Triton kernel that computes per-row absmax, scale, and
+        FP8 cast in two passes (benefiting from L2 cache reuse).
+
+        Args:
+            hp_tensor: Input tensor of shape (M, K) in float32 or bfloat16.
+            output_dtype: Target FP8 dtype.
+            round_scales_to_power_of_2: Whether to round scales to nearest power of 2.
+
+        Returns:
+            Tuple of (fp8_data, scales):
+                - fp8_data: shape (M, K) in output_dtype, row-major.
+                - scales: shape (M, 1) in float32 (forward scales: FP8_MAX / amax).
+        """
+        assert hp_tensor.ndim == 2, "input tensor must be 2D"
+
+        tl_input_dtype = FP8_DTYPE_MAP[hp_tensor.dtype]
+        tl_output_dtype = FP8_DTYPE_MAP[output_dtype]
+
+        fp8_dtype_min = torch.finfo(output_dtype).min
+        fp8_dtype_max = torch.finfo(output_dtype).max
+
+        m, k = hp_tensor.shape
+
+        output_buffer = torch.empty(
+            (m, k), dtype=output_dtype, device=hp_tensor.device
+        )
+        scales_buffer = torch.empty(
+            (m,), dtype=torch.float32, device=hp_tensor.device
+        )
+
+        grid = lambda meta: (m,)
+
+        _triton_fp8_rowwise_2d_fused_scale_and_cast_kernel[grid](
+            hp_tensor,
+            hp_tensor.stride(0),
+            hp_tensor.stride(1),
+            output_buffer,
+            output_buffer.stride(0),
+            output_buffer.stride(1),
+            scales_buffer,
+            m,
+            k,
+            fp8_dtype_min,
+            fp8_dtype_max,
+            tl_input_dtype,
+            tl_output_dtype,
+            round_scales_to_power_of_2=round_scales_to_power_of_2,
+            EPS=EPS,
+        )
+
+        return output_buffer, scales_buffer.unsqueeze(-1)
+
+    @triton_fp8_rowwise_2d_scale_and_cast.register_fake
+    def _fake_triton_fp8_rowwise_2d_scale_and_cast(
+        hp_tensor: torch.Tensor,
+        output_dtype: torch.dtype = torch.float8_e4m3fn,
+        round_scales_to_power_of_2: bool = False,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        assert hp_tensor.ndim == 2, "input tensor must be 2D"
+        m, k = hp_tensor.shape
+        output_buffer = torch.empty(
+            (m, k), dtype=output_dtype, device=hp_tensor.device
+        )
+        scales_buffer = torch.empty(
+            (m, 1), dtype=torch.float32, device=hp_tensor.device
+        )
+        return output_buffer, scales_buffer
+
 else:
 
     def triton_fp8_rowwise_3d_transpose_rhs(
@@ -486,4 +661,13 @@ else:
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         raise NotImplementedError(
             "triton_fp8_rowwise_3d_transpose_rhs_fused_reduction requires torch 2.7.0+ and triton installed"
+        )
+
+    def triton_fp8_rowwise_2d_scale_and_cast(
+        hp_tensor: torch.Tensor,
+        output_dtype: torch.dtype = torch.float8_e4m3fn,
+        round_scales_to_power_of_2: bool = False,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        raise NotImplementedError(
+            "triton_fp8_rowwise_2d_scale_and_cast requires torch 2.7.0+ and triton installed"
         )
