@@ -10,7 +10,7 @@ Shared backend setup logic for low-precision attention.
 Provides ``setup_fp8_backend``, the parameterized core of every
 backend-specific setup function (e.g., ``setup_fp8_fa3``).
 
-Currently supports the monkey-patch path (``fuse_rope=False``), which wraps
+Currently supports the monkey-patch path (``fuse_rope_using_torch_compile=False``), which wraps
 the model so that ``F.scaled_dot_product_attention`` is replaced with
 the FP8 backend at call time.  No ``torch.compile`` needed.
 """
@@ -174,19 +174,19 @@ def setup_fp8_backend(
     Returns:
         A wrapped module with low-precision FP8 attention applied.
     """
-    if config.use_hadamard == "qkv":
+    if config.hadamard_mode == "qkv":
         raise NotImplementedError(
             "FP8 attention with Hadamard on QKV is not yet implemented."
         )
-    elif config.use_hadamard == "v":
+    elif config.hadamard_mode == "v":
         raise NotImplementedError(
             "FP8 attention with Hadamard on V is not yet implemented."
         )
 
-    if config.fuse_rope:
+    if config.fuse_rope_using_torch_compile:
         raise NotImplementedError(
-            "RoPE fusion (fuse_rope=True) is not yet implemented. "
-            "Use fuse_rope=False (default) for the monkey-patch path."
+            "RoPE fusion (fuse_rope_using_torch_compile=True) is not yet implemented. "
+            "Use fuse_rope_using_torch_compile=False (default) for the monkey-patch path."
         )
 
     strip_causal_mask = detect_causal_mask(model, flash_impl_name=flash_impl_name)
