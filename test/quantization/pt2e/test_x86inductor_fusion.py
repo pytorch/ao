@@ -208,7 +208,9 @@ class TestPatternMatcherBase(TestCase):
                 clone_inputs = self._clone_inputs(inputs)
                 expected = mod(*inputs)
                 actual = torch.compile(mod, **compile_options)(*clone_inputs)
-                torch.testing.assert_close(actual, expected, atol=atol, rtol=rtol)
+                torch.testing.assert_close(
+                    actual.float(), expected.float(), atol=atol, rtol=rtol
+                )
                 matcher_check_fn()
 
     def _test_code_common(
@@ -3234,6 +3236,16 @@ class TestDynamicPatternMatcher(TestPatternMatcherBase):
         "CPU" not in torch._C._dispatch_dump("torchao::_scaled_embedding_bag"),
         reason="cpp kernels not built",
     )
+    def test_fp8_scaled_embedding_bag_with_output_quant(self):
+        self._test_scaled_embedding_bag_helper(torch.float8_e4m3fn, True)
+
+    @skipIfNoDynamoSupport
+    @skipIfNoONEDNN
+    @skipIfNoFloat8Support
+    @unittest.skipIf(
+        "CPU" not in torch._C._dispatch_dump("torchao::_scaled_embedding_bag"),
+        reason="cpp kernels not built",
+    )
     def test_int8_concat_dequant_quant(self):
         class Mod(torch.nn.Module):
             def __init__(self):
@@ -3274,6 +3286,37 @@ class TestDynamicPatternMatcher(TestPatternMatcherBase):
                 (int8_inputs,),
                 matcher_check_fn,
             )
+
+
+@unittest.skipIf(not torch_version_at_least("2.8.0"), "Requires torch 2.8+")
+@unittest.skipIf(torch.version.hip is not None, "Not applicable to ROCm")
+class TestLowering(TestPatternMatcherBase):
+    def test_lowering_quant_dequant_fp8(self):
+        r"""
+        This testcase will test lowering of quant-dequant pattern.
+        """
+
+        class M(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+
+            def forward(self, x):
+                return qdq_fp8(x, scale=0.2)
+
+        mod = M().eval()
+        x = torch.randn((4, 4))
+
+        self._test_code_common(
+            mod,
+            (x,),
+            include_ops=[],
+            # these ops should be lowered away
+            exclude_ops=[
+                "torch.ops.torchao.quantize_affine_float8_non_decomposed.default",
+                "torch.ops.torchao.dequantize_affine_float8_non_decomposed.default",
+            ],
+            is_fp8=True,
+        )
 
 
 instantiate_parametrized_tests(TestPatternMatcher)

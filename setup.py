@@ -456,6 +456,46 @@ class CMakeExtension(Extension):
         self.cmake_args = cmake_args
 
 
+def add_options_for_x86(extra_compile_args):
+    if use_cpu_kernels and is_linux:
+        if hasattr(torch._C._cpu, "_is_avx512_supported"):
+            is_avx512_supported = torch._C._cpu._is_avx512_supported()
+        elif hasattr(torch.cpu, "_is_avx512_supported"):
+            is_avx512_supported = torch.cpu._is_avx512_supported()
+        else:
+            is_avx512_supported = False
+        if is_avx512_supported:
+            extra_compile_args["cxx"].extend(
+                [
+                    "-DCPU_CAPABILITY_AVX512",
+                    "-march=native",
+                    "-mfma",
+                    "-fopenmp",
+                ]
+            )
+        else:
+            print(
+                "[WARNING] AVX512 not supported, CPU kernels will be built without AVX512 optimizations"
+            )
+        # note the different API name for vnni (vnni vs avx512_vnni)
+        if hasattr(torch._C._cpu, "_is_avx512_vnni_supported"):
+            is_avx512_vnni_supported = torch._C._cpu._is_avx512_vnni_supported()
+        elif hasattr(torch.cpu, "_is_vnni_supported"):
+            is_avx512_vnni_supported = torch.cpu._is_vnni_supported()
+        else:
+            is_avx512_vnni_supported = False
+        if is_avx512_vnni_supported:
+            extra_compile_args["cxx"].extend(
+                [
+                    "-DCPU_CAPABILITY_AVX512_VNNI",
+                ]
+            )
+        else:
+            print(
+                "[WARNING] AVX512 VNNI not supported, CPU kernels will be built without AVX512 VNNI optimizations"
+            )
+
+
 def get_extensions():
     # Skip building C++ extensions if USE_CPP is set to "0"
     if use_cpp == "0":
@@ -506,28 +546,7 @@ def get_extensions():
             ["-O3" if not debug_mode else "-O0", "-fdiagnostics-color=always"]
         )
 
-        if use_cpu_kernels and is_linux:
-            if (
-                hasattr(torch._C._cpu, "_is_avx512_supported")
-                and torch._C._cpu._is_avx512_supported()
-            ):
-                extra_compile_args["cxx"].extend(
-                    [
-                        "-DCPU_CAPABILITY_AVX512",
-                        "-march=native",
-                        "-mfma",
-                        "-fopenmp",
-                    ]
-                )
-            if (
-                hasattr(torch._C._cpu, "_is_avx512_vnni_supported")
-                and torch._C._cpu._is_avx512_vnni_supported()
-            ):
-                extra_compile_args["cxx"].extend(
-                    [
-                        "-DCPU_CAPABILITY_AVX512_VNNI",
-                    ]
-                )
+        add_options_for_x86(extra_compile_args)
 
         if debug_mode:
             extra_compile_args["cxx"].append("-g")

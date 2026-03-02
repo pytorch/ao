@@ -22,6 +22,9 @@
 #include <omp.h>
 #include <torch/all.h>
 #include <torch/csrc/autograd/function.h>
+#include <iostream>
+#include <fstream>
+#include <string>
 
 namespace torchao {
 
@@ -878,7 +881,7 @@ inline void _fp8_dequant_quant_fusion_kernel(
   }
 }
 
-// UINT8 - one parallel loop with u8u8s32 GEMM 
+// UINT8 - one parallel loop with u8u8s32 GEMM
 template <typename scalar_t, typename mask_t,
           int64_t q_split_size, int64_t kv_split_size,
           bool use_one_parallel_loop,
@@ -2185,6 +2188,34 @@ int8_sdpa_fused_kernel_impl(
       AT_PRIVATE_CASE_TYPE_USING_HINT(                     \
           at::ScalarType::Half, mask_t, __VA_ARGS__))
 
+// at::cpu::L2_cache_size is removed from torch:
+// https://github.com/pytorch/pytorch/commit/c5aa299b048da269e1165216a1ef3cb06edb413d
+// This kernel is only built on Linux, no need to consider cross-platform compatibility here.
+int get_l2_cache_size_linux() {
+    // The path to the L2 cache size file for CPU core 0
+    std::string path = "/sys/devices/system/cpu/cpu0/cache/index2/size";
+    std::ifstream size_file(path);
+    std::string size_str;
+
+    if (size_file.is_open()) {
+        getline(size_file, size_str);
+        size_file.close();
+
+        // The size read from sysfs is typically a number followed by 'K' for Kilobytes
+        // We can parse it and convert to bytes if needed.
+        // For simplicity, we assume it's in KB and return the integer value.
+        try {
+            int size_kb = std::stoi(size_str);
+            return size_kb * 1024; // Convert KB to bytes
+        } catch (const std::exception& e) {
+            std::cerr << "Error parsing cache size: " << e.what() << std::endl;
+        }
+    } else {
+        std::cerr << "Could not open " << path << " - maybe not on Linux or path is different?" << std::endl;
+    }
+    return -1; // Error
+}
+
 void int8_sdpa_fused_kernel(
     const at::Tensor& output,
     const at::Tensor& query,
@@ -2218,7 +2249,7 @@ void int8_sdpa_fused_kernel(
   // Heuristic to decide whether to use one parallel loop or not
   //    true: one parallel loop for sum+packing+core
   //    false: three parallel loops for sum, packing, core
-  uint32_t l2_cache_size = at::cpu::L2_cache_size();
+  uint32_t l2_cache_size = get_l2_cache_size_linux();
   int64_t num_thread = at::get_num_threads();
   int64_t attn_size = q_split_size * kv_seq_len * sizeof(int32_t) * num_thread;
   bool use_one_parallel_loop = (batchSize * num_head > num_thread) &&

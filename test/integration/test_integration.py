@@ -38,7 +38,6 @@ from torchao.quantization.autoquant import (
 from torchao.quantization.quant_api import (
     Float8DynamicActivationFloat8WeightConfig,
     Int4WeightOnlyConfig,
-    Int8DynamicActivationInt4WeightConfig,
     Int8DynamicActivationInt8WeightConfig,
     Int8WeightOnlyConfig,
     quantize_,
@@ -120,10 +119,6 @@ def _int8da_int8w_api(
             set_inductor_config=False,
         ),
     )
-
-
-def _int8da_int4w_api(mod):
-    quantize_(mod, Int8DynamicActivationInt4WeightConfig(set_inductor_config=False))
 
 
 # TODO: use this to reduce the number of tests
@@ -1393,7 +1388,7 @@ class TestExport(unittest.TestCase):
     @parameterized.expand(
         list(
             itertools.product(
-                TENSOR_SUBCLASS_APIS + [_int8da_int4w_api],
+                TENSOR_SUBCLASS_APIS,
                 COMMON_DEVICES,
                 COMMON_DTYPES,
             )
@@ -1446,11 +1441,6 @@ class TestExport(unittest.TestCase):
         model = torch.export.export(model, example_inputs, strict=True).module()
         after_export = model(x)
         self.assertTrue(torch.equal(after_export, ref))
-        if api is _int8da_int4w_api:
-            targets = [n.target for n in model.graph.nodes]
-            self.assertTrue(torch.ops.torchao.choose_qparams_affine.default in targets)
-            self.assertTrue(torch.ops.torchao.quantize_affine.default in targets)
-            self.assertFalse(torch.ops.aten.narrow.default in targets)
 
     @unittest.skipIf(
         not is_sm_at_least_89(), "Requires GPU with compute capability >= 8.9"

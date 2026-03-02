@@ -78,19 +78,18 @@ the corresponding fake quantization configs to use.
 2. **Convert:** quantize the model using the base config provided
 
 Currently only the following PTQ base configs are supported:
-- [`Int8DynamicActivationInt4WeightConfig`](https://docs.pytorch.org/ao/main/generated/torchao.quantization.Int8DynamicActivationInt4WeightConfig.html)
 - [`Int4WeightOnlyConfig`](https://docs.pytorch.org/ao/main/generated/torchao.quantization.Int4WeightOnlyConfig.html)
 
 For example (most use cases):
 
 ```python
-from torchao.quantization import quantize_, Int8DynamicActivationInt4WeightConfig
+from torchao.quantization import quantize_, Int4WeightOnlyConfig
 from torchao.quantization.qat import QATConfig
 
 model = get_model()
 
 # prepare: swap `torch.nn.Linear` -> `FakeQuantizedLinear`
-base_config = Int8DynamicActivationInt4WeightConfig(group_size=32)
+base_config = Int4WeightOnlyConfig(group_size=32)
 quantize_(model, QATConfig(base_config, step="prepare"))
 
 # train
@@ -109,7 +108,7 @@ and/or weights. For example, the following usage is numerically equivalent
 to the above:
 
 ```python
-from torchao.quantization import quantize_, Int8DynamicActivationInt4WeightConfig
+from torchao.quantization import quantize_, Int4WeightOnlyConfig
 from torchao.quantization.qat import IntxFakeQuantizeConfig, QATConfig
 
 model = get_model()

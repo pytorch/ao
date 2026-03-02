@@ -62,18 +62,17 @@ class QATConfig(AOBaseConfig):
 
         from torchao.quantization import (
             quantize_,
-            Int8DynamicActivationInt4WeightConfig,
+            Int4WeightOnlyConfig,
         )
         from torchao.quantization.qat import QATConfig
 
-        base_config = Int8DynamicActivationInt4WeightConfig(group_size=32)
+        base_config = Int4WeightOnlyConfig(group_size=32)
         quantize_(model, QATConfig(base_config, step="prepare"))
         train_loop(model)
         quantize_(model, QATConfig(base_config, step="convert"))
 
     Currently only the following are supported as base configs:
 
-        - :class:`~torchao.quantization.Int8DynamicActivationInt4WeightConfig`
         - :class:`~torchao.quantization.Int4WeightOnlyConfig`
 
     The second way to use this config involves specifying the fake quantization

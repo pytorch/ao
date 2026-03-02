@@ -361,6 +361,29 @@ def _(func, _types, args, _kwargs):
     )
 
 
+@implements(aten.select.int)
+def _(func, types, args, kwargs):
+    """Select operation for tensor core tiled packed tensor (e.g., MoE expert selection)"""
+    self, dim, index = args
+    assert dim == 0, (
+        f"Int4TilePackedTo4dTensor aten.select.int with {dim=} is not yet supported"
+    )
+
+    new_shape = list(self.shape)
+    new_shape.pop(dim)
+
+    block_size = list(self.block_size)
+    block_size.pop(dim)
+
+    return Int4TilePackedTo4dTensor(
+        self.qdata[index],
+        self.scale_and_zero[index],
+        block_size,
+        new_shape,
+        act_pre_scale=self.act_pre_scale,
+    )
+
+
 Int4TilePackedTo4dTensor.__module__ = "torchao.quantization"
 
 # Allow a model with Int4TilePackedTo4dTensor weights to be loaded with `weights_only=True`

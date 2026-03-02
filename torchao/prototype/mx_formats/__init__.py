@@ -7,6 +7,7 @@ from torchao.prototype.mx_formats.config import (
 from torchao.prototype.mx_formats.inference_workflow import (
     MXDynamicActivationMXWeightConfig,
     NVFP4DynamicActivationNVFP4WeightConfig,
+    NVFP4ObservedLinear,
     NVFP4WeightOnlyConfig,
 )
 
@@ -19,5 +20,6 @@ __all__ = [
     "MXLinearRecipeName",
     "MXDynamicActivationMXWeightConfig",
     "NVFP4DynamicActivationNVFP4WeightConfig",
+    "NVFP4ObservedLinear",
     "NVFP4WeightOnlyConfig",
 ]

@@ -3,6 +3,8 @@ PyTorch 2 Export Quantization with Intel GPU Backend through Inductor
 
 **Author**: `Yan Zhiwei <https://github.com/ZhiweiYan-96>`_, `Wang Eikan <https://github.com/EikanWang>`_, `Zhang Liangang <https://github.com/liangan1>`_, `Liu River <https://github.com/riverliuintel>`_, `Cui Yifeng <https://github.com/CuiYifeng>`_
 
+.. _pt2e-xpu-prerequisites:
+
 Prerequisites
 ---------------
 
@@ -253,6 +255,8 @@ script within the BFloat16 Autocast context.
             # Running some benchmark
             optimized_model(*example_inputs)
 
+
+.. _pt2e_quant_xpu_inductor-conclusion:
 
 Conclusion
 ------------

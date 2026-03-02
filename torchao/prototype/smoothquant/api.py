@@ -103,8 +103,8 @@ def _smooth_quant_transform(
     )
 
     # Compute smoothed weight parameters
-    smoothing_factor, activation_scale = observed_linear.obs.calculate_qparams(
-        weight_quant_kwargs=quant_kwargs
+    smoothing_factor, activation_scale, activation_zero_point = (
+        observed_linear.obs.calculate_qparams(weight_quant_kwargs=quant_kwargs)
     )
     weight = observed_linear.weight * smoothing_factor
 
@@ -122,6 +122,7 @@ def _smooth_quant_transform(
     # Quantize weights
     if isinstance(base_config, IsStaticQuantizationConfig):
         base_config.act_quant_scale = activation_scale
+        base_config.act_quant_zero_point = activation_zero_point
 
     base_config_handler = _QUANTIZE_CONFIG_HANDLER[type(base_config)]
     dummy_mod = DummyModule(weight)
