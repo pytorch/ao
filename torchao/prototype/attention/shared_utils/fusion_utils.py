@@ -1307,6 +1307,11 @@ def rope_sdpa_fusion_pass(
             confirmed that every attention mask is a materialized causal
             mask, so SDPA nodes carrying a mask can have it stripped and
             replaced with ``is_causal=True``.
+
+    Note:
+        KV caching must be disabled before compilation.
+        ``DynamicCache.update()`` calls insert ``torch.cat`` nodes
+        between the RoPE and SDPA ops, breaking the pattern match.
     """
     # Collect SDPA nodes upfront. We snapshot the list before modifying
     # the graph to avoid iterator invalidation issues.
@@ -1566,11 +1571,6 @@ def rope_sdpa_fusion_pass(
         fp8_count += 1
 
     replaced_count = fused_count + fp8_count
-    print(
-        f"[fusion_pass] Found {len(sdpa_nodes)} SDPA node(s): "
-        f"{fused_count} RoPE-fused, {fp8_count} FP8-replaced "
-        f"(backend: {backend_name})"
-    )
     logger.info(
         "Found %d SDPA node(s): %d RoPE-fused, %d FP8-replaced (backend: %s)",
         len(sdpa_nodes),
