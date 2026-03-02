@@ -89,7 +89,13 @@ def cleanup_gpu():
     torch._dynamo.reset()
 
 
-def setup_backend(pipe, backend_name, compile_flag, orig_transformer, fuse_rope=False):
+def setup_backend(
+    pipe,
+    backend_name,
+    compile_flag,
+    orig_transformer,
+    fuse_rope_using_torch_compile=False,
+):
     """Set up a backend for a benchmark phase.
 
     For FP8 backends (fa3_fp8): applies low-precision attention which
@@ -102,7 +108,7 @@ def setup_backend(pipe, backend_name, compile_flag, orig_transformer, fuse_rope=
         backend_name: Name of the backend.
         compile_flag: Whether --compile was passed.
         orig_transformer: The original (uncompiled) transformer.
-        fuse_rope: Whether to fuse RoPE into the FP8 kernel (FP8 backends only).
+        fuse_rope_using_torch_compile: Whether to fuse RoPE into the FP8 kernel (FP8 backends only).
 
     Returns:
         flash_impl to pass to generate_image (None for FP8 backends
@@ -115,7 +121,7 @@ def setup_backend(pipe, backend_name, compile_flag, orig_transformer, fuse_rope=
         print(f"Applying low-precision FP8 attention ({backend_name})...")
         fp8_config = LowPrecisionAttentionConfig(
             backend=cfg["fp8_backend"],
-            fuse_rope=fuse_rope,
+            fuse_rope_using_torch_compile=fuse_rope_using_torch_compile,
         )
         pipe.transformer = apply_low_precision_attention(pipe.transformer, fp8_config)
         if compile_flag:
@@ -198,7 +204,7 @@ def run_benchmark(
     debug_prompt: Optional[str] = None,
     warmup_iters: int = 2,
     compile: bool = False,
-    fuse_rope: bool = False,
+    fuse_rope_using_torch_compile: bool = False,
 ):
     """
     Run the attention backend benchmark on FLUX.1-schnell.
@@ -211,7 +217,7 @@ def run_benchmark(
         debug_prompt: If specified, use only this prompt (for debugging).
         warmup_iters: Number of warmup iterations before benchmarking.
         compile: If True, wrap the model with torch.compile.
-        fuse_rope: If True (default), fuse RoPE into the FP8 kernel.
+        fuse_rope_using_torch_compile: If True (default), fuse RoPE into the FP8 kernel.
             If False, only replace SDPA with FP8 (skip RoPE fusion).
     """
     compile_str = " + torch.compile" if compile else ""
@@ -268,7 +274,7 @@ def run_benchmark(
         baseline_backend,
         compile,
         orig_transformer,
-        fuse_rope=fuse_rope,
+        fuse_rope_using_torch_compile=fuse_rope_using_torch_compile,
     )
 
     print(f"Warming up {baseline_backend} with {warmup_iters} iterations...")
@@ -328,7 +334,7 @@ def run_benchmark(
         test_backend,
         compile,
         orig_transformer,
-        fuse_rope=fuse_rope,
+        fuse_rope_using_torch_compile=fuse_rope_using_torch_compile,
     )
 
     print(f"Warming up {test_backend} with {warmup_iters} iterations...")
@@ -464,7 +470,7 @@ def main():
         help="Wrap the model with torch.compile for both backends",
     )
     parser.add_argument(
-        "--fuse_rope",
+        "--fuse_rope_using_torch_compile",
         action="store_true",
         help="Fuse RoPE into the FP8 kernel (compile path, off by default)",
     )
@@ -479,7 +485,7 @@ def main():
         debug_prompt=args.debug_prompt,
         warmup_iters=args.warmup_iters,
         compile=args.compile,
-        fuse_rope=args.fuse_rope,
+        fuse_rope_using_torch_compile=args.fuse_rope_using_torch_compile,
     )
 
 

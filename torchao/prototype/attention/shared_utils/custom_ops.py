@@ -215,6 +215,16 @@ def make_compile_fn(
 ) -> Callable:
     """Create a ``compile_with_fp8_fusion`` function for a backend.
 
+    The returned callable uses ``torch.compile`` with a custom backend
+    that wraps ``torch._inductor.compile_fx.compile_fx``.  A pre-grad
+    custom FX pass (``torch._inductor.config.pre_grad_custom_pass``)
+    pattern-matches RoPE and SDPA nodes in the FX graph and replaces
+    them with fused custom ops registered via ``torch.library.custom_op``.
+
+    The pre-grad IR is an unstable internal API that may change across
+    PyTorch versions.  A ``UserWarning`` is emitted when this path is
+    used.
+
     Args:
         fusion_pass_fn: The backend-specific fusion pass (from
             ``make_fusion_pass``).
@@ -234,7 +244,7 @@ def make_compile_fn(
 
         pass_fn = partial(
             fusion_pass_fn,
-            fuse_rope=config.fuse_rope,
+            fuse_rope=config.fuse_rope_using_torch_compile,
             strip_causal_mask=strip_causal_mask,
         )
 
@@ -247,7 +257,7 @@ def make_compile_fn(
                 inductor_config.pre_grad_custom_pass = old_pass
 
         warnings.warn(
-            "Low-precision attention with fuse_rope=True uses "
+            "Low-precision attention with fuse_rope_using_torch_compile=True uses "
             "torch._inductor.config.pre_grad_custom_pass to fuse "
             "RoPE + FP8 quantization + SDPA in the FX graph. "
             "The pre-grad IR is an unstable internal API that may "

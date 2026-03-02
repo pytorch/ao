@@ -352,8 +352,8 @@ class TestFP8ModelAPI(TestCase):
 
     @unittest.skipIf(not _ANY_COMPILED_AVAILABLE, _NO_COMPILED_SKIP_MSG)
     @common_utils.parametrize("dtype", [torch.bfloat16, torch.float16])
-    @common_utils.parametrize("fuse_rope", [True, False])
-    def test_apply_to_model_accuracy(self, dtype, fuse_rope):
+    @common_utils.parametrize("fuse_rope_using_torch_compile", [True, False])
+    def test_apply_to_model_accuracy(self, dtype, fuse_rope_using_torch_compile):
         """apply_low_precision_attention produces output close to original model."""
         embed_dim, num_heads = 256, 8
         model = SimpleAttentionModel(embed_dim, num_heads).to(
@@ -377,7 +377,7 @@ class TestFP8ModelAPI(TestCase):
 
             config = LowPrecisionAttentionConfig(
                 backend=backend.attention_backend,
-                fuse_rope=fuse_rope,
+                fuse_rope_using_torch_compile=fuse_rope_using_torch_compile,
             )
             test_model = apply_low_precision_attention(test_model, config)
 
@@ -388,7 +388,7 @@ class TestFP8ModelAPI(TestCase):
             self.assertGreater(
                 sqnr.item(),
                 20.0,
-                f"[{backend.name}, fuse_rope={fuse_rope}] SQNR "
+                f"[{backend.name}, fuse_rope_using_torch_compile={fuse_rope_using_torch_compile}] SQNR "
                 f"{sqnr.item():.2f} dB below threshold "
                 f"for model-level test, dtype={dtype}",
             )
