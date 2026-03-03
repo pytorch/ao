@@ -596,5 +596,31 @@ class TestFloat8MultiThread(FSDPTestMultiThread, TestFloat8Common):
         )
 
 
+class TestFloat8UnevenShardMultiThread(FSDPTestMultiThread, TestFloat8Common):
+    """Tests float8 + FSDP2 with uneven parameter sharding (numel % world_size != 0)."""
+
+    @property
+    def world_size(self) -> int:
+        return 3
+
+    @unittest.skipIf(not TEST_CUDA, "no cuda")
+    @skip_if_lt_x_gpu(3)
+    def test_uneven_shard_fwd_bwd(self):
+        """Forward+backward with uneven sharding should not crash."""
+        torch.manual_seed(42)
+        # 17 * 16 = 272, 272 % 3 = 2 → uneven sharding
+        module = nn.Linear(16, 17, bias=False, device="cuda")
+        self.broadcast_module(module)
+        float8_config = Float8LinearConfig(
+            enable_fsdp_float8_all_gather=True,
+            emulate=True,
+        )
+        module = convert_to_float8_training(module, config=float8_config)
+        fully_shard(module)
+        inp = torch.randn(4, 16, device="cuda")
+        out = module(inp)
+        out.sum().backward()
+
+
 if __name__ == "__main__":
     run_tests()
