@@ -112,8 +112,7 @@ def to_mx_with_precomputed_scale(
     is_swizzled_scales: bool = False,
 ) -> torch.Tensor:
     """
-    Takes a high precision tensor and converts to MX scale and raw data, in
-    naive layout (scale and raw data are separate tensors).
+    Takes a high precision tensor and mx scale and quantizes the high precesion tensor to MX format with the given scale.
 
     Args:
         data_hp: High-precision input tensor to quantize.
@@ -197,7 +196,9 @@ def to_mx(
     scaling_mode: ScaleCalculationMode = ScaleCalculationMode.FLOOR,
     is_swizzled_scales: bool = False,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """Quantizes a high-precision tensor to MX format, returning (scale, data)
+    """
+    Takes a high precision tensor and converts to MX scale and raw data, in
+    naive layout (scale and raw data are separate tensors).
 
     Args:
         data_hp: High-precision input tensor to quantize.
