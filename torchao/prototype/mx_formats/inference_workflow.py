@@ -246,7 +246,10 @@ class NVFP4DynamicActivationNVFP4WeightConfig(AOBaseConfig):
 
 @register_quantize_module_handler(NVFP4DynamicActivationNVFP4WeightConfig)
 def _nvfp4_inference_linear_transform(
-    module: torch.nn.Linear, config: NVFP4DynamicActivationNVFP4WeightConfig
+    module: torch.nn.Linear,
+    config: NVFP4DynamicActivationNVFP4WeightConfig,
+    *,
+    parameter_name: str = "weight",
 ):
     """Quantization handler for NVFP4DynamicActivationNVFP4WeightConfig
 
@@ -255,7 +258,7 @@ def _nvfp4_inference_linear_transform(
     - CONVERT: Extract amax from observer, compute static per_tensor_scale, quantize
     - None (default): Original dynamic quantization behavior
     """
-    weight = module.weight
+    weight = getattr(module, parameter_name)
     if weight.shape[-2] % 16 != 0 or weight.shape[-1] % 16 != 0:
         raise RuntimeError(
             f"NVFP4 only supports weight shape with last 2 dims divisible by 16, got {weight.shape}"
@@ -312,6 +315,8 @@ def _nvfp4_inference_linear_transform(
             "NVFP4 DYNAMIC mode is only supported on sm100+ machines"
         )
 
+        weight = getattr(module, parameter_name)
+
         per_tensor_scale = None
         if config.use_dynamic_per_tensor_scale:
             tensor_amax = torch.max(torch.abs(weight))
@@ -331,8 +336,19 @@ def _nvfp4_inference_linear_transform(
             act_quant_kwargs=act_quant_kwargs,
         )
         quantized_weight.use_triton_kernel = config.use_triton_kernel
-        module.weight = torch.nn.Parameter(quantized_weight, requires_grad=False)
-        module.extra_repr = types.MethodType(_linear_extra_repr, module)
+        setattr(
+            module,
+            parameter_name,
+            torch.nn.Parameter(quantized_weight, requires_grad=False),
+        )
+        module.extra_repr = types.MethodType(
+            partial(
+                _module_extra_repr,
+                original_extra_repr=module.extra_repr,
+                parameter_name=parameter_name,
+            ),
+            module,
+        )
         return module
 
     else:
