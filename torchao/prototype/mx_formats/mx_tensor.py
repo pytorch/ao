@@ -151,10 +151,32 @@ def to_mx_with_precomputed_scale(
         raise AssertionError("unsupported element dtype")
 
     # Convert scale to uint8 format expected by scale_and_cast_hp_data
+    # Validate input scale format
+    if scale.dtype != torch.float8_e8m0fnu:
+        raise ValueError(f"scale must be torch.float8_e8m0fnu, got {scale.dtype}")
+
     scale_e8m0_uint8 = scale.view(torch.uint8)
+
     if is_swizzled_scales:
         M, K = data_hp.shape[-2], data_hp.shape[-1]
+        # Validate swizzled scale dimensions match expected blocked format
+        expected_scale_M, expected_scale_K = hp_data_dims_to_swizzled_scale_dims_mx(
+            M, K
+        )
+        if scale.shape[-2:] != (expected_scale_M, expected_scale_K):
+            raise ValueError(
+                f"For swizzled scales with data shape {data_hp.shape}, expected scale shape "
+                f"ending with {(expected_scale_M, expected_scale_K)}, got {scale.shape}"
+            )
         scale_e8m0_uint8 = from_blocked(scale_e8m0_uint8.flatten(), M, K // block_size)
+    else:
+        # Validate non-swizzled scale shape (before unsqueeze(-1))
+        expected_scale_shape = (*data_hp.shape[:-1], data_hp.shape[-1] // block_size)
+        if scale_e8m0_uint8.shape != expected_scale_shape:
+            raise ValueError(
+                f"scale shape {scale_e8m0_uint8.shape} does not match expected "
+                f"shape {expected_scale_shape} for data shape {data_hp.shape} and block_size {block_size}"
+            )
 
     data_lp = scale_and_cast_hp_data(
         data_hp,
@@ -396,6 +418,14 @@ def scale_and_cast_hp_data(
     assert scale_e8m0_biased.dtype == torch.uint8, (
         f"scale_e8m0_biased.dtype must be uint8, got {scale_e8m0_biased.dtype}"
     )
+
+    # Validate scale shape matches expected format
+    expected_scale_shape = (*data_hp.shape[:-1], data_hp.shape[-1] // block_size, 1)
+    if scale_e8m0_biased.shape != expected_scale_shape:
+        raise ValueError(
+            f"scale_e8m0_biased shape {scale_e8m0_biased.shape} does not match expected "
+            f"shape {expected_scale_shape} for data shape {data_hp.shape} and block_size {block_size}"
+        )
 
     orig_shape = data_hp.shape
     data_hp = data_hp.reshape(
