@@ -203,12 +203,7 @@ def setup_backend(
 
 
 def evaluate_perplexity(model, tokenizer, flash_impl) -> float:
-    """Evaluate perplexity on WikiText-2 using lm_eval.
-
-    For FP8 backends, the model wrapper handles flash activation internally.
-    For non-FP8 backends, flash activation is set for the duration of the
-    evaluation so that lm_eval's internal forward calls use the correct kernel.
-    """
+    # Evaluate perplexity on WikiText-2 using lm_eval.
     if flash_impl:
         activate_flash_attention_impl(flash_impl)
     try:
