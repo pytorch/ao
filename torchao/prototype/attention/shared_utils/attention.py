@@ -181,6 +181,9 @@ def _fp8_rope_sdpa(
 
     input_dtype = query.dtype
 
+    cos = cos.to(query.device)
+    sin = sin.to(query.device)
+
     q_fp8, k_fp8, v_fp8, descale_q, descale_k, descale_v = _fp8_rope_sdpa_quantize(
         query, key, value, cos, sin, rope_interleaved=rope_interleaved
     )
