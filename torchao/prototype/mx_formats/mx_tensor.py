@@ -109,12 +109,18 @@ def to_mx(
     block_size: int,
     scaling_mode: ScaleCalculationMode = ScaleCalculationMode.FLOOR,
     is_swizzled_scales: bool = False,
-    scale: Optional[torch.Tensor] = None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """Quantizes a high-precision tensor to MX format, returning (scale, data).
+    """Quantizes a high-precision tensor to MX format, returning (scale, data)
 
-    If ``scale`` is None, then it is computed from the data. (dynamic quant)
-    Otherwise the caller-provided scale is used directly. (static quant)
+    Args:
+        data_hp: High-precision input tensor to quantize.
+        elem_dtype: Target MX element dtype.
+        block_size: MX block size.
+        scaling_mode: Scale calculation mode.
+        is_swizzled_scales: Whether to return scales in swizzled layout.
+
+    Returns:
+        Tuple of (scale, quantized_data).
     """
     assert data_hp.dtype in (
         torch.bfloat16,
@@ -153,50 +159,96 @@ def to_mx(
     else:
         raise AssertionError("unsupported element dtype")
 
-    if scale is None:
-        # dynamic quant case, compute the scale
-        scale_e8m0_uint8 = compute_mx_scale(
-            data_hp, target_max_pow2, mbits, max_pos, block_size, scaling_mode
+    # Dynamic quantization: compute the scale from data
+    scale_e8m0_uint8 = compute_mx_scale(
+        data_hp, target_max_pow2, mbits, max_pos, block_size, scaling_mode
+    )
+    data_lp = scale_and_cast_hp_data(
+        data_hp,
+        scale_e8m0_uint8,
+        elem_dtype,
+        max_pos,
+        block_size,
+        scaling_mode,
+    )
+    scale_e8m0_biased = scale_e8m0_uint8.view(torch.float8_e8m0fnu).squeeze(-1)
+    if is_swizzled_scales:
+        leading_dims, M, K = (
+            data_hp.shape[:-2],
+            data_hp.shape[-2],
+            data_hp.shape[-1],
         )
-        data_lp = scale_and_cast_hp_data(
-            data_hp,
-            scale_e8m0_uint8,
-            elem_dtype,
-            max_pos,
-            block_size,
-            scaling_mode,
-        )
-        scale_out = scale_e8m0_uint8.view(torch.float8_e8m0fnu).squeeze(-1)
-        if is_swizzled_scales:
-            leading_dims, M, K = (
-                data_hp.shape[:-2],
-                data_hp.shape[-2],
-                data_hp.shape[-1],
-            )
-            scale_shape = (math.prod(leading_dims) * M, K // block_size)
-            scale_out = to_blocked(scale_out.view(scale_shape)).flatten()
-            scale_M, scale_K = hp_data_dims_to_swizzled_scale_dims_mx(M, K)
-            scale_out = scale_out.view(*leading_dims, scale_M, scale_K)
+        scale_shape = (math.prod(leading_dims) * M, K // block_size)
+        scale_e8m0_biased = to_blocked(scale_e8m0_biased.view(scale_shape)).flatten()
+        scale_M, scale_K = hp_data_dims_to_swizzled_scale_dims_mx(M, K)
+        scale_e8m0_biased = scale_e8m0_biased.view(*leading_dims, scale_M, scale_K)
 
+    return scale_e8m0_biased, data_lp
+
+
+def to_mx_with_precomputed_scale(
+    data_hp: torch.Tensor,
+    scale: torch.Tensor,
+    elem_dtype: Union[torch.dtype, str],
+    block_size: int,
+    scaling_mode: ScaleCalculationMode = ScaleCalculationMode.FLOOR,
+    is_swizzled_scales: bool = False,
+) -> torch.Tensor:
+    """Quantizes data using precomputed scale, returning only quantized data.
+
+    Args:
+        data_hp: High-precision input tensor to quantize.
+        scale: Precomputed scale tensor.
+        elem_dtype: Target MX element dtype.
+        block_size: MX block size.
+        scaling_mode: Scale calculation mode for data scaling.
+        is_swizzled_scales: Whether the scale tensor uses swizzled layout.
+
+    Returns:
+        Quantized data tensor only.
+    """
+    assert data_hp.dtype in (
+        torch.bfloat16,
+        torch.float,
+    ), f"{data_hp.dtype} is not supported yet"
+    assert data_hp.shape[-1] % block_size == 0, (
+        f"the last dimension of shape {data_hp.shape} must be divisible by block_size {block_size}"
+    )
+    assert data_hp.is_contiguous(), "unsupported"
+    assert elem_dtype in SUPPORTED_ELEM_DTYPES, "unsupported"
+
+    # Get the max_pos value for the element dtype
+    if elem_dtype == torch.float8_e4m3fn:
+        max_pos = F8E4M3_MAX
+    elif elem_dtype == torch.float8_e5m2:
+        max_pos = F8E5M2_MAX
+    elif elem_dtype == DTYPE_FP6_E2M3:
+        max_pos = F6_E2M3_MAX
+    elif elem_dtype == DTYPE_FP6_E3M2:
+        max_pos = F6_E3M2_MAX
+    elif elem_dtype == torch.float4_e2m1fn_x2:
+        max_pos = F4_E2M1_MAX
     else:
-        # static quant case, use the provided scale
-        scale_e8m0_uint8 = scale.view(torch.uint8)
-        if is_swizzled_scales:
-            M, K = data_hp.shape[-2], data_hp.shape[-1]
-            scale_e8m0_uint8 = from_blocked(
-                scale_e8m0_uint8.flatten(), M, K // block_size
-            )
-        data_lp = scale_and_cast_hp_data(
-            data_hp,
-            scale_e8m0_uint8.unsqueeze(-1),
-            elem_dtype,
-            max_pos,
-            block_size,
-            scaling_mode,
-        )
-        scale_out = scale
+        raise AssertionError("unsupported element dtype")
 
-    return scale_out, data_lp
+    # Convert scale to uint8 format expected by scale_and_cast_hp_data
+    scale_e8m0_uint8 = scale.view(torch.uint8)
+    if is_swizzled_scales:
+        M, K = data_hp.shape[-2], data_hp.shape[-1]
+        scale_e8m0_uint8 = from_blocked(
+            scale_e8m0_uint8.flatten(), M, K // block_size
+        )
+
+    data_lp = scale_and_cast_hp_data(
+        data_hp,
+        scale_e8m0_uint8.unsqueeze(-1),
+        elem_dtype,
+        max_pos,
+        block_size,
+        scaling_mode,
+    )
+
+    return data_lp
 
 
 def compute_mx_scale(
@@ -645,14 +697,24 @@ class MXTensor(TorchAOBaseTensor):
                 scaling_mode=scaling_mode.value,
             )
         else:
-            scale_e8m0_biased, data_lp = to_mx(
-                data_hp,
-                elem_dtype,
-                block_size,
-                scaling_mode,
-                is_swizzled_scales,
-                scale=scale,
-            )
+            if scale is None:
+                scale_e8m0_biased, data_lp = to_mx(
+                    data_hp,
+                    elem_dtype,
+                    block_size,
+                    scaling_mode,
+                    is_swizzled_scales,
+                )
+            else:
+                data_lp = to_mx_with_precomputed_scale(
+                    data_hp,
+                    scale,
+                    elem_dtype,
+                    block_size,
+                    scaling_mode,
+                    is_swizzled_scales,
+                )
+                scale_e8m0_biased = scale
         if isinstance(scale_e8m0_biased, DTensor):
             assert isinstance(data_lp, DTensor), "unsupported"
             local_scale_e8m0_biased = scale_e8m0_biased.to_local()
