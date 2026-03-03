@@ -164,7 +164,9 @@ def _mx_inference_linear_transform(
     )
 
     setattr(
-        module, parameter_name, torch.nn.Parameter(quantized_weight, requires_grad=False)
+        module,
+        parameter_name,
+        torch.nn.Parameter(quantized_weight, requires_grad=False),
     )
     module.extra_repr = types.MethodType(
         partial(
@@ -407,7 +409,9 @@ def _nvfp4_weight_only_linear_transform(
     )
     # Set triton preference after construction
     setattr(
-        module, parameter_name, torch.nn.Parameter(quantized_weight, requires_grad=False)
+        module,
+        parameter_name,
+        torch.nn.Parameter(quantized_weight, requires_grad=False),
     )
     module.extra_repr = types.MethodType(
         partial(
