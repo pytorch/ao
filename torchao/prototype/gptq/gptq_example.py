@@ -17,8 +17,11 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from torchao.prototype.gptq import GPTQConfig
 from torchao.prototype.mx_formats.inference_workflow import (
     MXDynamicActivationMXWeightConfig,
+    NVFP4DynamicActivationNVFP4WeightConfig,
+    NVFP4WeightOnlyConfig,
 )
 from torchao.prototype.mx_formats.mx_tensor import MXTensor
+from torchao.prototype.mx_formats.nvfp4_tensor import NVFP4Tensor
 from torchao.quantization import Int4WeightOnlyConfig, Int8WeightOnlyConfig, quantize_
 from torchao.quantization.granularity import PerRow
 from torchao.quantization.quantize_.common.kernel_preference import KernelPreference
@@ -168,6 +171,32 @@ def dequantize_mx_tensors(model):
             setattr(module, keys[-1], torch.nn.Parameter(dequantized, requires_grad=False))
 
 
+def dequantize_nvfp4_tensors(model):
+    """Dequantize any NVFP4Tensor parameters before saving."""
+    # First pass: dequantize all module parameters (weight, bias, etc.)
+    for name, module in model.named_modules():
+        for param_name, param in list(module.named_parameters(recurse=False)):
+            if isinstance(param, NVFP4Tensor):
+                print(f"Dequantizing NVFP4Tensor in {name}.{param_name}")
+                dequantized = param.dequantize(output_dtype=param.orig_dtype)
+                setattr(module, param_name, torch.nn.Parameter(dequantized, requires_grad=False))
+
+    # Second pass: check all parameters in state_dict to catch any remaining NVFP4Tensors
+    state_dict = model.state_dict()
+    for param_name, param in list(state_dict.items()):
+        if isinstance(param, NVFP4Tensor):
+            print(f"Dequantizing remaining NVFP4Tensor: {param_name}")
+            dequantized = param.dequantize(output_dtype=param.orig_dtype)
+            keys = param_name.split('.')
+            module = model
+            for key in keys[:-1]:
+                if key.isdigit():
+                    module = module[int(key)]
+                else:
+                    module = getattr(module, key)
+            setattr(module, keys[-1], torch.nn.Parameter(dequantized, requires_grad=False))
+
+
 def run_lm_eval(model, tokenizer, tasks: str, num_fewshot: int, batch_size: str):
     """Run lm_eval on an in-memory model."""
     import lm_eval
@@ -242,6 +271,12 @@ def parse_args():
             "mxfp4-rtn",
             "mxfp4-gptq-sequential",
             "mxfp4-gptq-nonsequential",
+            "nvfp4-rtn",
+            "nvfp4-gptq-sequential",
+            "nvfp4-gptq-nonsequential",
+            "nvfp4-dynamic-rtn",
+            "nvfp4-dynamic-gptq-sequential",
+            "nvfp4-dynamic-gptq-nonsequential",
         ],
         help="Quantization method to use",
     )
@@ -332,6 +367,10 @@ def main():
         "mxfp8-gptq-nonsequential",
         "mxfp4-gptq-sequential",
         "mxfp4-gptq-nonsequential",
+        "nvfp4-gptq-sequential",
+        "nvfp4-gptq-nonsequential",
+        "nvfp4-dynamic-gptq-sequential",
+        "nvfp4-dynamic-gptq-nonsequential",
     ]:
         output_dir += f"_{args.dataset_id}_n{args.num_calibration_samples}"
         output_dir += f"_damp{args.percdamp}_bs{args.gptq_block_size}"
@@ -369,6 +408,16 @@ def main():
         )
         quantize_(model, config, filter_fn=None)
 
+    elif args.quantization == "nvfp4-rtn":
+        print("Applying NVFP4 weight-only RTN quantization...")
+        config = NVFP4WeightOnlyConfig()
+        quantize_(model, config, filter_fn=None)
+
+    elif args.quantization == "nvfp4-dynamic-rtn":
+        print("Applying NVFP4 dynamic activation RTN quantization...")
+        config = NVFP4DynamicActivationNVFP4WeightConfig()
+        quantize_(model, config, filter_fn=None)
+
     elif args.quantization in [
         "int4-gptq-sequential",
         "int4-gptq-nonsequential",
@@ -378,6 +427,10 @@ def main():
         "mxfp8-gptq-nonsequential",
         "mxfp4-gptq-sequential",
         "mxfp4-gptq-nonsequential",
+        "nvfp4-dynamic-gptq-sequential",
+        "nvfp4-dynamic-gptq-nonsequential",
+        "nvfp4-gptq-sequential",
+        "nvfp4-gptq-nonsequential",
     ]:
         # Determine base config based on quantization type
         if "int4" in args.quantization:
@@ -386,6 +439,12 @@ def main():
         elif "int8" in args.quantization:
             base_config = Int8WeightOnlyConfig(granularity=PerRow(), version=2)
             quant_type = "Int8"
+        elif "nvfp4-dynamic" in args.quantization:
+            base_config = NVFP4DynamicActivationNVFP4WeightConfig()
+            quant_type = "NVFP4-Dynamic"
+        elif "nvfp4" in args.quantization:
+            base_config = NVFP4WeightOnlyConfig()
+            quant_type = "NVFP4"
         elif "mxfp4" in args.quantization:
             base_config = MXDynamicActivationMXWeightConfig(
                 activation_dtype=torch.float4_e2m1fn_x2,
@@ -463,10 +522,13 @@ def main():
         print("Running evaluation...")
         run_lm_eval(model, tokenizer, args.eval_tasks, args.eval_num_fewshot, args.eval_batch_size)
 
-    # Before saving, dequantize any MX tensors
+    # Before saving, dequantize any MX/NVFP4 tensors
     if args.quantization in ["mxfp8-rtn", "mxfp4-rtn", "mxfp8-gptq-sequential", "mxfp8-gptq-nonsequential", "mxfp4-gptq-sequential", "mxfp4-gptq-nonsequential"]:
         print("Dequantizing MX tensors before saving...")
         dequantize_mx_tensors(model)
+    if args.quantization in ["nvfp4-rtn", "nvfp4-dynamic-rtn", "nvfp4-gptq-sequential", "nvfp4-gptq-nonsequential", "nvfp4-dynamic-gptq-sequential", "nvfp4-dynamic-gptq-nonsequential"]:
+        print("Dequantizing NVFP4 tensors before saving...")
+        dequantize_nvfp4_tensors(model)
 
     # Save model to generated output directory
     print(f"Saving model to {output_dir}...")

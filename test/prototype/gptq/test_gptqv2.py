@@ -21,6 +21,17 @@ from torchao.prototype.gptq.observer import (
 )
 from torchao.prototype.mx_formats.inference_workflow import (
     MXDynamicActivationMXWeightConfig,
+    NVFP4DynamicActivationNVFP4WeightConfig,
+    NVFP4WeightOnlyConfig,
+)
+from torchao.prototype.mx_formats.nvfp4_tensor import (
+    NVFP4Tensor,
+    nvfp4_quantize,
+    per_tensor_amax_to_scale,
+)
+from torchao.prototype.mx_formats.utils import (
+    hp_data_dims_to_swizzled_scale_dims_nvfp4,
+    to_blocked,
 )
 from torchao.quantization import (
     Float8DynamicActivationFloat8WeightConfig,
@@ -30,7 +41,7 @@ from torchao.quantization import (
 )
 from torchao.quantization.granularity import PerRow
 from torchao.quantization.quantize_.common import KernelPreference
-from torchao.utils import _is_mslk_available
+from torchao.utils import _is_mslk_available, is_sm_at_least_100
 
 
 class ToyLinearModel(torch.nn.Module):
@@ -763,6 +774,147 @@ class TestGPTQMXFP8:
             is_swizzled_scales=True,
             scale=scale_swizzled,
             kernel_preference=KernelPreference.AUTO,
+        )
+
+        # The dequantized results should match
+        ref_dq = ref.dequantize(data.dtype)
+        result_dq = result.dequantize(data.dtype)
+        torch.testing.assert_close(result_dq, ref_dq, atol=0, rtol=0)
+
+
+class TestGPTQNVFP4:
+    """Test suite for NVFP4 GPTQ support."""
+
+    @pytest.mark.skipif(not is_sm_at_least_100(), reason="Requires SM100+ (Blackwell)")
+    @pytest.mark.parametrize(
+        "base_config",
+        [
+            pytest.param(
+                NVFP4WeightOnlyConfig(use_dynamic_per_tensor_scale=True),
+                id="nvfp4-weight-only-pts",
+            ),
+            pytest.param(
+                NVFP4WeightOnlyConfig(use_dynamic_per_tensor_scale=False),
+                id="nvfp4-weight-only-no-pts",
+            ),
+            pytest.param(
+                NVFP4DynamicActivationNVFP4WeightConfig(
+                    use_triton_kernel=False,
+                    use_dynamic_per_tensor_scale=True,
+                ),
+                id="nvfp4-dynamic",
+            ),
+        ],
+    )
+    def test_nvfp4_gptq_sqnr(self, base_config):
+        """End-to-end SQNR test: GPTQ should produce better quality than RTN for NVFP4."""
+        torch.manual_seed(43)
+
+        # Use dimensions divisible by 16 and 128
+        model = ToyLinearModel(m=512, n=2048, k=1024).cuda().to(torch.bfloat16)
+
+        calibration_inputs = [
+            torch.randn(4, 512, dtype=torch.bfloat16, device="cuda") for _ in range(10)
+        ]
+        test_input = calibration_inputs[0]
+
+        # Get baseline output (full precision)
+        out = model(test_input)
+
+        model_rtn = copy.deepcopy(model)
+        model_gptq = copy.deepcopy(model)
+
+        # --- NVFP4 RTN baseline ---
+        quantize_(model_rtn, base_config)
+        out_rtn = model_rtn(test_input)
+
+        # --- NVFP4 GPTQ ---
+        observe_config = GPTQConfig(step="observe", base_config=base_config)
+        quantize_(model_gptq, observe_config)
+
+        for inp in calibration_inputs:
+            model_gptq(inp)
+
+        convert_config = GPTQConfig(step="convert", base_config=base_config)
+        quantize_(model_gptq, convert_config)
+        out_gptq = model_gptq(test_input)
+
+        from torchao.quantization.utils import compute_error
+
+        sqnr_rtn = compute_error(out_rtn, out)
+        sqnr_gptq = compute_error(out_gptq, out)
+
+        print(f"NVFP4 RTN SQNR: {sqnr_rtn}, NVFP4 GPTQ SQNR: {sqnr_gptq}")
+
+        assert sqnr_gptq > sqnr_rtn, (
+            f"GPTQ SQNR: {sqnr_gptq} is not better than RTN SQNR: {sqnr_rtn}"
+        )
+
+    @pytest.mark.skipif(not is_sm_at_least_100(), reason="Requires SM100+ (Blackwell)")
+    def test_nvfp4_precomputed_scale(self):
+        """Unit test verifying nvfp4_quantize with precomputed scale produces
+        identical results to computing scale from data."""
+        torch.manual_seed(42)
+        data = torch.randn(128, 64, dtype=torch.bfloat16, device="cuda")
+
+        # Compute without precomputed scale
+        scale_ref, data_lp_ref = nvfp4_quantize(data, block_size=16)
+
+        # Now pass the computed scale back as precomputed
+        scale_pre, data_lp_pre = nvfp4_quantize(data, block_size=16, scale=scale_ref)
+
+        torch.testing.assert_close(scale_pre, scale_ref, atol=0, rtol=0)
+        torch.testing.assert_close(data_lp_pre, data_lp_ref, atol=0, rtol=0)
+
+        # Also test with per_tensor_scale
+        pts = per_tensor_amax_to_scale(torch.max(torch.abs(data)))
+        scale_ref2, data_lp_ref2 = nvfp4_quantize(data, block_size=16, per_tensor_scale=pts)
+        scale_pre2, data_lp_pre2 = nvfp4_quantize(
+            data, block_size=16, per_tensor_scale=pts, scale=scale_ref2
+        )
+
+        torch.testing.assert_close(scale_pre2, scale_ref2, atol=0, rtol=0)
+        torch.testing.assert_close(data_lp_pre2, data_lp_ref2, atol=0, rtol=0)
+
+    @pytest.mark.skipif(not is_sm_at_least_100(), reason="Requires SM100+ (Blackwell)")
+    @pytest.mark.parametrize(
+        "shape",
+        [
+            (128, 128),
+            (64, 256),
+            (256, 512),
+        ],
+    )
+    def test_manual_scale_swizzling_for_nvfp4_gptq(self, shape):
+        """Verify that scale swizzling round-trip produces correct dequantized results for NVFP4.
+
+        GPTQ computes scales column-by-column in unswizzled format. For CUBLAS mode,
+        these scales must be manually swizzled before passing to NVFP4Tensor.to_nvfp4
+        with is_swizzled_scales=True.
+        """
+        data = torch.randn(shape, device="cuda", dtype=torch.bfloat16)
+
+        # Reference: compute with is_swizzled_scales=True directly
+        ref = NVFP4Tensor.to_nvfp4(
+            data_hp=data,
+            block_size=16,
+            is_swizzled_scales=True,
+        )
+
+        # Simulate GPTQ: compute scale in unswizzled format
+        unswizzled = NVFP4Tensor.to_nvfp4(
+            data_hp=data,
+            block_size=16,
+            is_swizzled_scales=False,
+        )
+
+        # Pass unswizzled scale with is_swizzled_scales=True and scale param
+        # to_nvfp4 handles swizzling when is_swizzled_scales=True
+        result = NVFP4Tensor.to_nvfp4(
+            data_hp=data,
+            block_size=16,
+            is_swizzled_scales=True,
+            scale=unswizzled.scale,
         )
 
         # The dequantized results should match
