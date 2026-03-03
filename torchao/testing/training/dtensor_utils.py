@@ -25,7 +25,7 @@ from torchao.float8.float8_tensor_parallel import (
     Float8RowwiseParallel,
     PrepareFloat8ModuleInput,
 )
-from torchao.prototype.mx_formats.config import MXLinearConfig
+from torchao.prototype.moe_training.config import MXFP8TrainingOpConfig
 from torchao.quantization import quantize_
 
 
@@ -55,7 +55,7 @@ class ToyModel(nn.Module):
 
 def _test_lowp_mlp_tensor_parallelism_base(
     mesh: DeviceMesh,
-    config: Union[Float8LinearConfig, MXLinearConfig],
+    config: Union[Float8LinearConfig, MXFP8TrainingOpConfig],
     size=32,
     compile: bool = False,
     allgather_in_lowp: bool = False,
@@ -64,7 +64,7 @@ def _test_lowp_mlp_tensor_parallelism_base(
 
     # TODO(future): remove this once float8 training works with `quantize_` API
     convert_model_func = convert_to_float8_training
-    if isinstance(config, MXLinearConfig):
+    if isinstance(config, MXFP8TrainingOpConfig):
         convert_model_func = quantize_
 
     toy_model = ToyModel(size).to(device)

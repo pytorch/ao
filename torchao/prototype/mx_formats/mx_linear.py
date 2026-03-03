@@ -5,25 +5,21 @@
 # LICENSE file in the root directory of this source tree.
 
 """
-Defines the prototype UX for converting a model to use mx weights
+MX format matrix multiplication utilities for training.
 """
 
-from typing import Any, Optional
+from typing import Any
 
 import torch
 
 from torchao.prototype.mx_formats.config import (
     MXFP8Dim0CastKernelChoice,
     MXFP8Dim1CastKernelChoice,
-    MXLinearConfig,
     ScaleCalculationMode,
 )
 from torchao.prototype.mx_formats.mx_tensor import MXTensor
 from torchao.prototype.mx_formats.utils import _to_mxfp8_dim1_kernel_wrapper
 from torchao.quantization.quantize_.common.kernel_preference import KernelPreference
-from torchao.quantization.transform_module import (
-    register_quantize_module_handler,
-)
 
 
 # convenience wrapper
@@ -264,64 +260,3 @@ class mx_mm(torch.autograd.Function):
             None,
             None,
         )
-
-
-class MXLinear(torch.nn.Linear):
-    """
-    Linear layer with the compute happening in emulate MX. Currently the MX
-    matmul is emulated since there is no hardware support yet. Activations,
-    weights and grads are casted to MX and back to high precision for each
-    matmul.
-
-    Input, weight and grad_output can have each their own MX element dtype.
-    """
-
-    @classmethod
-    @torch.no_grad()
-    def from_float(
-        cls,
-        mod,
-        config: Optional[MXLinearConfig] = MXLinearConfig(),
-    ):
-        assert isinstance(mod, torch.nn.Linear), f"unsupported type(mod) {type(mod)}"
-        assert isinstance(config, MXLinearConfig)
-        mod.__class__ = MXLinear
-        mod.config = config
-        return mod
-
-    def forward(self, x):
-        if torch.is_autocast_enabled():
-            # special case autocast
-            autocast_dtype = torch.get_autocast_dtype("cuda")
-            x = x.to(autocast_dtype)
-            w = self.weight.to(autocast_dtype)
-        else:
-            w = self.weight
-
-        config = self.config
-        wgrad_with_hp = False
-        y = mx_mm.apply(
-            x,
-            w,
-            config.elem_dtype,
-            config.elem_dtype_weight_override or config.elem_dtype,
-            config.elem_dtype_grad_output_override or config.elem_dtype,
-            config.block_size,
-            config.kernel_preference,
-            config.mxfp8_dim0_cast_kernel_choice,
-            config.mxfp8_dim1_cast_kernel_choice,
-            config.scale_calculation_mode,
-            wgrad_with_hp,  # temporary, for tests to pass pending deletion of MXLinear
-        )
-        if self.bias is not None:
-            y = y + self.bias
-        return y
-
-    def extra_repr(self):
-        s = f"{super().extra_repr()}, {self.config.short_str()}"
-        return s
-
-
-@register_quantize_module_handler(MXLinearConfig)
-def _mx_linear_transform(module: torch.nn.Module, config: MXLinearConfig):
-    return MXLinear.from_float(module, config=config)

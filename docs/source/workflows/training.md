@@ -336,25 +336,19 @@ Below is a toy training loop. For an example real training loop, see our torchti
 ```python
 import torch
 from torchao.quantization import quantize_
-import torchao.prototype.mx_formats
-from torchao.prototype.mx_formats import MXLinearConfig, ScaleCalculationMode
-from torchao.quantization.quantize_.common import KernelPreference
+from torchao.prototype.moe_training.config import MXFP8TrainingOpConfig, MXFP8TrainingRecipe
+from torchao.prototype.mx_formats import ScaleCalculationMode
 
-# low precision gemm, requires CUDA capability 10.0+
-kernel_preference = KernelPreference.AUTO
-# or, emulated gemm
-# kernel_preference = KernelPreference.EMULATED
-
-scale_calculation_mode = ScaleCalculationMode.FLOOR
-# other supported modes: RCEIL, CEIL, EVEN
+# create config from a recipe
+config = MXFP8TrainingOpConfig.from_recipe(MXFP8TrainingRecipe.MXFP8_RCEIL)
+# or manually configure
+# config = MXFP8TrainingOpConfig(
+#     kernel_preference=KernelPreference.AUTO,  # or KernelPreference.EMULATED
+#     scale_calculation_mode=ScaleCalculationMode.RCEIL,  # or FLOOR, CEIL, EVEN
+#     wgrad_with_hp=False,  # True to compute grad_weight in high precision
+# )
 
 m = torch.nn.Sequential(torch.nn.Linear(32, 32)).cuda()
-config = MXLinearConfig(
-    elem_dtype=torch.float4_e2m1fn_x2,
-    block_size=32,
-    kernel_preference=kernel_preference,
-    scale_calculation_mode=scale_calculation_mode,
-)
 quantize_(m, config)
 m = torch.compile(m, fullgraph=True)
 

@@ -4,7 +4,7 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 """
-Test numerics of manually defined float16 TP vs mxfp4 TP of toy models
+Test numerics of manually defined float16 TP vs mxfp8 TP of toy models
 
 Note: for now, this does not run in CI.
 TODO(future): make this run in CI
@@ -24,7 +24,7 @@ from torch.distributed._tensor import DTensor, Shard, distribute_tensor
 from torch.distributed.device_mesh import DeviceMesh, init_device_mesh
 from tqdm import tqdm
 
-from torchao.prototype.mx_formats import MXLinearConfig
+from torchao.prototype.moe_training.config import MXFP8TrainingOpConfig
 from torchao.prototype.mx_formats.mx_tensor import MXTensor
 from torchao.testing.training.dtensor_utils import (
     _test_lowp_mlp_tensor_parallelism_base,
@@ -73,9 +73,8 @@ def _test_dtensor_cast_to_mxfp4(mesh: DeviceMesh, size=4):
     )
 
 
-def _test_mxfp4_mlp_tensor_parallelism(mesh: DeviceMesh, size=128):
-    config = MXLinearConfig.from_recipe_name("mxfp4_emulated")
-    config.block_size = 32
+def _test_mxfp8_mlp_tensor_parallelism(mesh: DeviceMesh, size=128):
+    config = MXFP8TrainingOpConfig()
     _test_lowp_mlp_tensor_parallelism_base(
         mesh, config, size, compile=False, allgather_in_lowp=False
     )
@@ -88,7 +87,7 @@ if __name__ == "__main__":
     device_mesh = setup_distributed()
     tests = [
         _test_dtensor_cast_to_mxfp4,
-        _test_mxfp4_mlp_tensor_parallelism,
+        _test_mxfp8_mlp_tensor_parallelism,
     ]
 
     for test in tqdm(tests, desc="Running tests"):
