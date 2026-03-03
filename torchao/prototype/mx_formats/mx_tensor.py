@@ -111,7 +111,9 @@ def to_mx_with_precomputed_scale(
     scaling_mode: ScaleCalculationMode = ScaleCalculationMode.FLOOR,
     is_swizzled_scales: bool = False,
 ) -> torch.Tensor:
-    """Quantizes data using precomputed scale, returning only quantized data.
+    """
+    Takes a high precision tensor and converts to MX scale and raw data, in
+    naive layout (scale and raw data are separate tensors).
 
     Args:
         data_hp: High-precision input tensor to quantize.
