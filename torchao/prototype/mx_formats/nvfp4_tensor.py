@@ -130,6 +130,7 @@ class NVFP4Tensor(TorchAOBaseTensor):
         is_swizzled_scales: bool = False,
         use_triton_kernel: bool = False,
         act_quant_kwargs: Optional[QuantizeTensorToNVFP4Kwargs] = None,
+        scale: Optional[torch.Tensor] = None,
     ):
         """Convert high precision tensor to NVFP4 format.
 
@@ -158,7 +159,7 @@ class NVFP4Tensor(TorchAOBaseTensor):
             blockwise_scales, data_lp = triton_quantize_nvfp4(data_hp, per_tensor_scale)
         else:
             blockwise_scales, data_lp = nvfp4_quantize(
-                data_hp, block_size, per_tensor_scale
+                data_hp, block_size, per_tensor_scale, scale=scale
             )
             if is_swizzled_scales:
                 scale_shape = (math.prod(leading_dims) * M, K // block_size)
@@ -642,6 +643,7 @@ def nvfp4_quantize(
     data_hp: torch.Tensor,
     block_size: int = 16,
     per_tensor_scale: Optional[torch.Tensor] = None,
+    scale: Optional[torch.Tensor] = None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """NVIDIA FP4 quantization with UE4M3 scales.
 
@@ -674,6 +676,21 @@ def nvfp4_quantize(
     orig_shape = data_hp.shape
     # Convert to float32 early for consistent precision with Triton implementation
     data_hp = data_hp.float().reshape(orig_shape[0], -1, block_size)
+
+    # If precomputed scale is provided, skip scale computation
+    if scale is not None:
+        if per_tensor_scale is None:
+            block_scale_fp32 = scale.to(torch.float32).unsqueeze(-1)
+            data_scaled = data_hp / block_scale_fp32
+        else:
+            total_scale = per_tensor_scale * scale.to(torch.float32)
+            data_scaled = data_hp / total_scale.unsqueeze(-1)
+        out_scales = scale
+        data_scaled = torch.clamp(data_scaled, -F4_E2M1_MAX, F4_E2M1_MAX)
+        data_scaled = data_scaled.view(orig_shape)
+        data_lp = f32_to_f4_unpacked(data_scaled)
+        data_lp = pack_uint4(data_lp)
+        return out_scales, data_lp
 
     max_abs = torch.amax(torch.abs(data_hp), dim=-1)
     # These scales are currently in fp32, we are going to `quantize` them to e4m3
