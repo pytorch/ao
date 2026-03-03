@@ -21,6 +21,7 @@ class ObserverTensor(TorchAOBaseTensor):
 
     tensor_data_names = ["hp_data"]
     tensor_attribute_names = ["observed_inputs"]
+    optional_tensor_attribute_names = ["quantize_fn"]
 
     def __new__(
         cls,
@@ -99,6 +100,7 @@ class GPTQObserverTensor(ObserverTensor):
     tensor_data_names = ["hp_data"]
     optional_tensor_data_names = ["hessian"]
     tensor_attribute_names = ["total_batches"]
+    optional_tensor_attribute_names = ["quantize_fn"]
 
     def __new__(
         cls, hp_data: torch.Tensor, total_batches: int, hessian=None, quantize_fn=None
