@@ -432,17 +432,17 @@ def scale_and_cast_hp_data(
         # scale and saturated cast the data elements to max of target dtype
         data_lp = data_hp / scale_fp32
 
-    if (
-        elem_dtype in (torch.float8_e4m3fn, torch.float8_e5m2)
-        and not torch._dynamo.is_compiling()
-    ):
-        # As of 20250317, the Pytorch eager mode cast to `torch.float8_e4m3fn`
-        # is unsaturated. This cast is saturated in triton. If we are compute bound,
-        # we see a speedup if we remove this redundant clamp if we are compiling
-        # to triton.
-        # TODO(#1912): make the saturated cast work in eager mode and remove this
-        # workaround.
-        data_lp = torch.clamp(data_lp, min=-1 * max_pos, max=max_pos)
+        if (
+            elem_dtype in (torch.float8_e4m3fn, torch.float8_e5m2)
+            and not torch._dynamo.is_compiling()
+        ):
+            # As of 20250317, the Pytorch eager mode cast to `torch.float8_e4m3fn`
+            # is unsaturated. This cast is saturated in triton. If we are compute bound,
+            # we see a speedup if we remove this redundant clamp if we are compiling
+            # to triton.
+            # TODO(#1912): make the saturated cast work in eager mode and remove this
+            # workaround.
+            data_lp = torch.clamp(data_lp, min=-1 * max_pos, max=max_pos)
 
     # cast to target dtype
     if elem_dtype in (torch.float8_e4m3fn, torch.float8_e5m2):
