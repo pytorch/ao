@@ -6,6 +6,7 @@
 
 import types
 from dataclasses import dataclass
+from functools import partial
 from typing import Optional
 
 import torch
@@ -27,7 +28,7 @@ from torchao.prototype.mx_formats.nvfp4_tensor import (
     QuantizeTensorToNVFP4Kwargs,
     per_tensor_amax_to_scale,
 )
-from torchao.quantization.quant_api import _quantization_type
+from torchao.quantization.quant_api import _module_extra_repr, _quantization_type
 from torchao.quantization.quantize_.common.kernel_preference import KernelPreference
 from torchao.quantization.quantize_.common.quantization_step import QuantizationStep
 from torchao.quantization.transform_module import (
@@ -133,9 +134,12 @@ def _linear_extra_repr(self):
 
 @register_quantize_module_handler(MXDynamicActivationMXWeightConfig)
 def _mx_inference_linear_transform(
-    module: torch.nn.Module, config: MXDynamicActivationMXWeightConfig
+    module: torch.nn.Module,
+    config: MXDynamicActivationMXWeightConfig,
+    *,
+    parameter_name: str = "weight",
 ):
-    weight = module.weight
+    weight = getattr(module, parameter_name)
 
     assert weight.dtype == torch.bfloat16, (
         f"Only supporting bf16 out dtype for now, got {weight.dtype}"
@@ -159,8 +163,17 @@ def _mx_inference_linear_transform(
         scaling_mode=config.scaling_mode,
     )
 
-    module.weight = torch.nn.Parameter(quantized_weight, requires_grad=False)
-    module.extra_repr = types.MethodType(_linear_extra_repr, module)
+    setattr(
+        module, parameter_name, torch.nn.Parameter(quantized_weight, requires_grad=False)
+    )
+    module.extra_repr = types.MethodType(
+        partial(
+            _module_extra_repr,
+            original_extra_repr=module.extra_repr,
+            parameter_name=parameter_name,
+        ),
+        module,
+    )
     return module
 
 
