@@ -21,14 +21,23 @@ except:
 from torchao.core.config import AOBaseConfig
 from torchao.prototype.mx_formats.inference_workflow import (
     MXDynamicActivationMXWeightConfig,
+    NVFP4DynamicActivationNVFP4WeightConfig,
+    NVFP4WeightOnlyConfig,
 )
 from torchao.prototype.mx_formats.mx_tensor import (
     MXTensor,
     QuantizeTensorToMXKwargs,
     to_mx,
 )
+from torchao.prototype.mx_formats.nvfp4_tensor import (
+    NVFP4Tensor,
+    QuantizeTensorToNVFP4Kwargs,
+    nvfp4_quantize,
+    per_tensor_amax_to_scale,
+)
 from torchao.prototype.mx_formats.utils import (
     hp_data_dims_to_swizzled_scale_dims_mx,
+    hp_data_dims_to_swizzled_scale_dims_nvfp4,
     to_blocked,
 )
 from torchao.quantization import Int4Tensor, Int8Tensor
@@ -49,6 +58,8 @@ CONFIG_TO_TORCHAO_BASE_TENSOR = {
     Int4WeightOnlyConfig: Int4Tensor,
     Int8WeightOnlyConfig: Int8Tensor,
     MXDynamicActivationMXWeightConfig: MXTensor,
+    NVFP4WeightOnlyConfig: NVFP4Tensor,
+    NVFP4DynamicActivationNVFP4WeightConfig: NVFP4Tensor,
 }
 
 
@@ -82,6 +93,8 @@ class GPTQConfig(AOBaseConfig):
         Int4WeightOnlyConfig,
         Int8WeightOnlyConfig,
         MXDynamicActivationMXWeightConfig,
+        NVFP4WeightOnlyConfig,
+        NVFP4DynamicActivationNVFP4WeightConfig,
     ] = None
     percdamp: float = 0.01
     gptq_quantize_block_size: int = 256
@@ -120,6 +133,14 @@ def _gptq_config_transform(
                     kernel_preference=base.kernel_preference,  # Use the actual kernel preference
                 )
                 return mx.dequantize(torch.float)
+
+        elif isinstance(config.base_config, NVFP4DynamicActivationNVFP4WeightConfig):
+            base = config.base_config
+
+            def quantize_fn(x):
+                pts = per_tensor_amax_to_scale(torch.max(torch.abs(x))) if base.use_dynamic_per_tensor_scale else None
+                nvfp4 = NVFP4Tensor.to_nvfp4(x.to(torch.bfloat16), block_size=16, per_tensor_scale=pts)
+                return nvfp4.dequantize(torch.float)
 
         new_tensor = GPTQObserverTensor.from_hp(tensor, quantize_fn=quantize_fn)
         setattr(module, parameter_name, nn.Parameter(new_tensor, requires_grad=False))
@@ -281,12 +302,21 @@ def gptq_quantize(H: torch.Tensor, W: torch.Tensor, config: GPTQConfig):
         group_size = base_config.block_size
         block_size = [1, group_size]
         mx_elem_dtype = base_config.weight_dtype
+    elif isinstance(base_config, (NVFP4WeightOnlyConfig, NVFP4DynamicActivationNVFP4WeightConfig)):
+        group_size = 16
+        block_size = [1, group_size]
 
     assert group_size > 0
 
     W = W.view(-1, W.shape[-1]).detach()
     columns = W.shape[1]
     device = W.device
+
+    # Compute optional NVFP4 per-tensor scale from the original weights
+    nvfp4_per_tensor_scale = None
+    if isinstance(base_config, (NVFP4WeightOnlyConfig, NVFP4DynamicActivationNVFP4WeightConfig)):
+        if base_config.use_dynamic_per_tensor_scale:
+            nvfp4_per_tensor_scale = per_tensor_amax_to_scale(torch.max(torch.abs(W)))
 
     assert device.type == "cuda", "GPTQ only supports CUDA currently"
 
@@ -345,6 +375,16 @@ def gptq_quantize(H: torch.Tensor, W: torch.Tensor, config: GPTQConfig):
                         group_size,
                     )
                     group_qparams.append(mx_scale_e8m0)
+                elif isinstance(base_config, (NVFP4WeightOnlyConfig, NVFP4DynamicActivationNVFP4WeightConfig)):
+                    group_data = W_quantize_block[
+                        :, group_start - block_start : group_end - block_start
+                    ]
+                    nvfp4_scale, _ = nvfp4_quantize(
+                        group_data.contiguous(),
+                        block_size=16,
+                        per_tensor_scale=nvfp4_per_tensor_scale,
+                    )
+                    group_qparams.append(nvfp4_scale)
 
             # Quantize each column and propagate errors to subsequent columns
             for i in range(group_start - block_start, group_end - block_start):
@@ -381,6 +421,18 @@ def gptq_quantize(H: torch.Tensor, W: torch.Tensor, config: GPTQConfig):
                         scale=mx_scale_e8m0,
                     )
                     dq = test.dequantize(torch.float)[:, 0:1]
+                elif isinstance(base_config, (NVFP4WeightOnlyConfig, NVFP4DynamicActivationNVFP4WeightConfig)):
+                    w_padded = torch.zeros(
+                        w.shape[0], 16, dtype=w.dtype, device=w.device
+                    )
+                    w_padded[:, 0:1] = w
+                    nvfp4 = NVFP4Tensor.to_nvfp4(
+                        w_padded,
+                        block_size=16,
+                        per_tensor_scale=nvfp4_per_tensor_scale,
+                        scale=nvfp4_scale,
+                    )
+                    dq = nvfp4.dequantize(torch.float)[:, 0:1]
 
                 err1 = (w - dq) / Hinv_quantize_block[i, i]
                 W_quantize_block[:, i:] -= err1.matmul(
@@ -437,6 +489,25 @@ def gptq_quantize(H: torch.Tensor, W: torch.Tensor, config: GPTQConfig):
             is_swizzled_scales=True,
             scaling_mode=base_config.scaling_mode,
             scale=scale_swizzled,
+        )
+    elif isinstance(base_config, (NVFP4WeightOnlyConfig, NVFP4DynamicActivationNVFP4WeightConfig)):
+        scale = torch.cat(group_qparams, dim=1)  # [M, K//16] unswizzled
+
+        act_quant_kwargs = None
+        if isinstance(base_config, NVFP4DynamicActivationNVFP4WeightConfig):
+            act_quant_kwargs = QuantizeTensorToNVFP4Kwargs(
+                use_dynamic_per_tensor_scale=base_config.use_dynamic_per_tensor_scale,
+                use_triton_kernel=base_config.use_triton_kernel,
+                is_swizzled_scales=True,
+            )
+
+        result = NVFP4Tensor.to_nvfp4(
+            W,
+            block_size=16,
+            per_tensor_scale=nvfp4_per_tensor_scale,
+            is_swizzled_scales=True,
+            scale=scale,  # Unswizzled; to_nvfp4 handles swizzling
+            act_quant_kwargs=act_quant_kwargs,
         )
     return result
 
