@@ -103,6 +103,15 @@ def _fp8_sdpa(
 
     input_dtype = query.dtype
 
+    # Ensure Triton kernels launch on the correct device.
+    # In the monkey-patch path (no torch.compile), accelerate's hooks move
+    # tensors to the correct device but don't call torch.cuda.set_device().
+    # Triton dispatches based on current_device(), not tensor device, so
+    # without this guard the kernel launches on the wrong GPU's stream.
+    _prev_device = torch.cuda.current_device()
+    if query.device.index is not None and query.device.index != _prev_device:
+        torch.cuda.set_device(query.device)
+
     q_fp8, k_fp8, v_fp8, descale_q, descale_k, descale_v = _fp8_sdpa_quantize(
         query, key, value
     )
@@ -118,5 +127,9 @@ def _fp8_sdpa(
             k_descale=descale_k,
             v_descale=descale_v,
         )
+
+    # Restore previous device to avoid side effects on the caller.
+    if query.device.index is not None and query.device.index != _prev_device:
+        torch.cuda.set_device(_prev_device)
 
     return out.to(input_dtype)
