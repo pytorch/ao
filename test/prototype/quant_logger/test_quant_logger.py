@@ -20,6 +20,7 @@ from torchao.prototype.quant_logger.quant_logger import (
     log_parameter_info,
     reset_counter,
 )
+from torchao.utils import torch_version_at_least
 
 torch.manual_seed(0)
 
@@ -44,6 +45,8 @@ class ModelWithLoop(nn.Module):
         return x3
 
 
+@unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+@unittest.skipIf(not torch_version_at_least("2.10.0"), "Need pytorch 2.10+")
 class TestQuantLogger(unittest.TestCase):
     def setUp(self):
         # Reload module to restore default log_tensor op (tests may redefine it)
