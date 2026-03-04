@@ -15,6 +15,7 @@ from torch.distributed.tensor.experimental import register_sharding
 from torch.utils._triton import has_triton
 
 from torchao.prototype.custom_fp_utils import (
+    RoundingMode,
     _f32_to_floatx_unpacked,
     _floatx_unpacked_to_f32,
 )
@@ -56,13 +57,18 @@ ZERO_BITS_F32 = 0x0
 ZERO_POINT_FIVE_BITS_F32 = 0x3F000000
 
 
-def f32_to_f4_unpacked(x):
+def f32_to_f4_unpacked(x, rounding_mode=RoundingMode.RN):
     """
     Input: torch.Tensor of dtype torch.float
     Output: torch.Tensor of dtype torch.uint8, with bits 0-3 empty and
       bits 4-7 in fp4_e2m1
+
+    Args:
+        rounding_mode: RoundingMode.RN or RoundingMode.RS
     """
-    return _f32_to_floatx_unpacked(x, EBITS_F4_E2M1, MBITS_F4_E2M1)
+    return _f32_to_floatx_unpacked(
+        x, EBITS_F4_E2M1, MBITS_F4_E2M1, rounding_mode=rounding_mode
+    )
 
 
 def f32_to_f6_e2m3_unpacked(x):
@@ -425,6 +431,287 @@ if torch_version_at_least("2.7.0") and has_triton():
 
         return out
 
+    @triton.jit
+    def convert_fp32_to_fp4_packed(x_pairs):
+        """Convert FP32 pairs to packed FP4 format using round-to-nearest.
+
+        This function takes tensor where consecutive values along the last dimension
+        are packed together into single bytes.
+
+        Args:
+            x_pairs: [Tensor, Tensor] both w/ shapes [..., 1] where zipped last dimension contains
+                    interleaved pairs of FP32 values to be packed together.
+
+        Returns:
+            Packed tensor with shape [...] (last dimension removed) where each
+            element is an int8 containing 2 FP4 values:
+            - First value of pair → low nibble (bits 0-3)
+            - Second value of pair → high nibble (bits 4-7)
+
+        Example:
+            Input:  [128, 32, 2] containing FP32 pairs
+            Output: [128, 32] containing packed FP4 bytes
+
+        """
+
+        x_fp4x2 = tl.inline_asm_elementwise(
+            asm="""
+            {
+            .reg .b8 byte0, byte1, byte2, byte3;
+            cvt.rn.satfinite.e2m1x2.f32 byte0, $5, $1;
+            cvt.rn.satfinite.e2m1x2.f32 byte1, $6, $2;
+            cvt.rn.satfinite.e2m1x2.f32 byte2, $7, $3;
+            cvt.rn.satfinite.e2m1x2.f32 byte3, $8, $4;
+            mov.b32 $0, {byte0, byte1, byte2, byte3};
+            }
+            """,
+            constraints=("=r,r,r,r,r,r,r,r,r"),
+            args=x_pairs,
+            dtype=tl.uint8,
+            is_pure=True,
+            pack=4,
+        )
+
+        return x_fp4x2
+
+    @triton.jit
+    def convert_fp32_to_fp4_packed_rs(x_pairs, rbits):
+        """Hardware stochastic rounding for FP4 conversion using cvt.rs PTX.
+
+        Uses the cvt.rs.satfinite.e2m1x4.f32 instruction which performs
+        stochastic rounding natively. Two instructions convert 8 floats
+        (4 pairs) into 4 packed FP4 bytes, matching the RN path output.
+
+        The RN path uses cvt.rn.satfinite.e2m1x2 (2 floats -> 1 byte, pack=4
+        consumes 4 elements per tensor -> 8 floats). The RS instruction
+        cvt.rs.satfinite.e2m1x4 takes 4 floats + 1 rbits -> 2 bytes, so only
+        2 of the 4 rbits values from pack=4 are used ($9, $10); the other
+        two ($11, $12) are wasted. This keeps the data layout identical to RN.
+
+        Args:
+            x_pairs: [Tensor, Tensor] from [128, 32, 2].split() — same as RN path.
+            rbits: Tensor of uint32 random bits [128, 32]. With pack=4,
+                4 consecutive values are loaded; only 2 are used per invocation.
+        """
+        x_fp4x2 = tl.inline_asm_elementwise(
+            asm="""
+            {
+            .reg .b16 half0, half1;
+            cvt.rs.satfinite.e2m1x4.f32 half0, {$6, $2, $5, $1}, $9;
+            cvt.rs.satfinite.e2m1x4.f32 half1, {$8, $4, $7, $3}, $10;
+            mov.b32 $0, {half0, half1};
+            }
+            """,
+            constraints=("=r,r,r,r,r,r,r,r,r,r,r,r,r"),
+            args=[x_pairs[0], x_pairs[1], rbits],
+            dtype=tl.uint8,
+            is_pure=True,
+            pack=4,
+        )
+
+        return x_fp4x2
+
+    # Sauce: https://github.com/gau-nernst/quantized-training
+    @triton.jit
+    def quantize_nvfp4_triton_kernel(
+        x_ptr,
+        tensor_scale_ptr,
+        q_ptr,
+        s_ptr,
+        stride_xm,
+        stride_xn,
+        M,
+        N,
+        seed,
+        USE_TENSOR_SCALE: tl.constexpr,
+        MASK_SCALES: tl.constexpr,
+        ROUNDING_MODE: tl.constexpr,  # 0=RN, 1=RS
+    ):
+        F4_E2M1_MAX = 6.0
+        F8E4M3_MAX = 448.0
+        E4M3_EPS = 1.5258789e-05
+
+        pid_m = tl.program_id(1)
+        pid_n = tl.program_id(0)
+
+        offs_m = pid_m * 128 + tl.arange(0, 128)[:, None]
+        offs_n = pid_n * 64 + tl.arange(0, 64)[None, :]
+        if MASK_SCALES:
+            mask = (offs_m < M) & (offs_n < N)
+            other = 0.0
+        else:
+            mask = None
+            other = None
+        x = tl.load(
+            x_ptr + offs_m * stride_xm + offs_n * stride_xn, mask=mask, other=other
+        )  # [128, 64]
+        x_blocks = x.to(tl.float32).reshape(128, 4, 16)  # [128, 4, 16]
+
+        # Compute block-wise scales
+        block_amax = tl.max(x_blocks.abs(), axis=2)  # [128, 4]
+
+        if USE_TENSOR_SCALE:
+            # Two-level scaling: quantize block scales with per-tensor scale
+            tensor_scale = tl.load(tensor_scale_ptr)
+
+            # First compute block scales
+            block_scale_f32 = (block_amax / F4_E2M1_MAX).to(tl.float32)
+
+            # Quantize the block scales with per-tensor scale
+            scaled_block_scales = block_scale_f32 / tensor_scale
+            scaled_block_scales = tl.clamp(scaled_block_scales, E4M3_EPS, F8E4M3_MAX)
+            scales = scaled_block_scales.to(tl.float8e4nv)
+
+            # Apply combined scale to data: per_tensor_scale * quantized_block_scale
+            total_scale = tensor_scale * scales.to(tl.float32)[:, :, None]
+            x_blocks = tl.div_rn(x_blocks, total_scale)
+        else:
+            # Single-level scaling: use block scales directly
+            scales_f32 = block_amax / F4_E2M1_MAX
+            scales_f32 = tl.clamp(scales_f32, E4M3_EPS, F8E4M3_MAX)
+            scales = scales_f32.to(tl.float8e4nv)
+
+            # Apply block scale to data
+            total_scale = scales.to(tl.float32)[:, :, None]
+            x_blocks = tl.div_rn(x_blocks, total_scale)
+
+        # NVIDIA layout for scales
+        if MASK_SCALES:
+            # Create offsets for the scale dimensions (4 blocks per row)
+            scale_offs_n = pid_n * 4 + tl.arange(0, 4)[None, :]
+
+            # Mask out scales to 0 if we are not aligned to 128 x 64
+            scales = tl.where(
+                (offs_m < M) & (scale_offs_n < N // 16),
+                scales,
+                0.0,
+            )
+        packed_scales = scales.reshape(4, 32, 4).permute(1, 0, 2).reshape(32, 16)
+        offs_m = tl.arange(0, 32)[:, None]
+        offs_n = tl.arange(0, 16)[None, :]
+        tl.store(
+            s_ptr
+            + (pid_m * tl.num_programs(0) + pid_n) * (32 * 16)
+            + offs_m * 16
+            + offs_n,
+            packed_scales,
+        )
+
+        # Output offsets for packed FP4 storage [128, 32]
+        offs_m = pid_m * 128 + tl.arange(0, 128)[:, None]
+        offs_n = pid_n * 32 + tl.arange(0, 32)[None, :]
+        out_offs = offs_m * (N // 2) + offs_n
+
+        # Convert to FP4
+        x_pairs = x_blocks.reshape(128, 32, 2).split()
+        if ROUNDING_MODE == 0:
+            # Round to nearest (RN)
+            x_fp4x2 = convert_fp32_to_fp4_packed(x_pairs)
+        else:
+            # Stochastic rounding (RS) via hardware cvt.rs.satfinite.e2m1x4.f32
+            rbits = tl.randint(seed, out_offs)
+            x_fp4x2 = convert_fp32_to_fp4_packed_rs(x_pairs, rbits)
+        if MASK_SCALES:
+            mask = (offs_m < M) & (offs_n < N // 2)
+        else:
+            mask = None
+        tl.store(q_ptr + out_offs, x_fp4x2, mask=mask)
+
+    @torch.library.custom_op("ao::triton_quantize_nvfp4", mutates_args=())
+    def triton_quantize_nvfp4(
+        x: torch.Tensor,
+        per_tensor_scale: Optional[torch.Tensor] = None,
+        rounding_mode: int = 0,
+        seed: int = 0,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Quantize a tensor to NVFP4 format.
+
+        Args:
+            x (torch.Tensor): Input tensor to be quantized.
+            per_tensor_scale (Optional[torch.Tensor]): Per-tensor scale for two-level quantization.
+                If None, uses single-level block-wise quantization only.
+            rounding_mode (int): 0 for round-to-nearest, 1 for stochastic rounding.
+            seed (int): Seed for stochastic rounding random number generation.
+
+        Returns:
+            Tuple[torch.Tensor, torch.Tensor]: Quantized tensor and scales tensor in swizzled layout.
+
+        Note:
+            Since VLLM does not use dyanmo guards we need to make this a custom op
+            to avoid the triton kernel being invoked w/ the wrong use of `MASK_SCALES`
+        """
+        # reshape to 2d
+        orig_leading_dims, _orig_M, orig_N = x.shape[:-2], x.shape[-2], x.shape[-1]
+        x = x.reshape(-1, orig_N)
+
+        M, N = x.shape
+        # assert M % 128 == 0 and N % 64 == 0
+        assert N % 16 == 0, "N must be divisible by 16 for NVFP4 quantization"
+        if rounding_mode not in RoundingMode:
+            raise ValueError(
+                f"Unknown rounding_mode: {rounding_mode}. "
+                f"Expected RoundingMode.RN or RoundingMode.RS."
+            )
+
+        # Calculate blocks needed
+        num_scales = N // 16
+        n_row_blocks = triton.cdiv(M, 128)
+        n_col_blocks = triton.cdiv(num_scales, 4)
+        padded_rows = n_row_blocks * 128
+        padded_cols = n_col_blocks * 4
+
+        # mask out scales to 0 if we are not aligned to 128 x 64
+        MASK_SCALES = M % 128 != 0 or N % 64 != 0
+
+        xq = x.new_empty(M, N // 2, dtype=torch.uint8)
+        scales = x.new_empty(padded_rows, padded_cols, dtype=torch.float8_e4m3fn)
+
+        grid = (triton.cdiv(N, 64), triton.cdiv(M, 128))
+
+        if per_tensor_scale is None:
+            # Don't allocate tensor, we just steal this since it won't be used in kernel
+            tensor_scale_ptr = x
+            use_tensor_scale = False
+        else:
+            tensor_scale_ptr = per_tensor_scale
+            use_tensor_scale = True
+
+        quantize_nvfp4_triton_kernel[grid](
+            x,
+            tensor_scale_ptr,
+            xq,
+            scales,
+            x.stride(0),
+            x.stride(1),
+            M,
+            N,
+            seed,
+            USE_TENSOR_SCALE=use_tensor_scale,
+            MASK_SCALES=MASK_SCALES,
+            ROUNDING_MODE=rounding_mode,
+        )
+
+        # reshape back to original shape
+        scales = scales.view(*orig_leading_dims, -1, padded_cols)
+        xq = xq.view(*orig_leading_dims, -1, N // 2)
+
+        return scales, xq.view(torch.uint8)
+
+    @triton_quantize_nvfp4.register_fake
+    def _(x, per_tensor_scale=None, rounding_mode=0, seed=0):
+        M, N = x.shape
+        num_scales = N // 16
+        n_row_blocks = triton.cdiv(M, 128)
+        n_col_blocks = triton.cdiv(num_scales, 4)
+        padded_rows = n_row_blocks * 128
+        padded_cols = n_col_blocks * 4
+
+        scales = torch.empty(
+            padded_rows, padded_cols, device=x.device, dtype=torch.float8_e4m3fn
+        )
+        xq = torch.empty(M, N // 2, device=x.device, dtype=torch.uint8)
+        return scales, xq
+
     @triton_mx_block_rearrange.register_fake
     def _(scale_tensor):
         rows, cols = scale_tensor.shape
@@ -444,6 +731,14 @@ else:
         raise AssertionError("needs torch version 2.8+ and triton")
 
     def triton_mx_block_rearrange(scale_tensor: torch.Tensor) -> torch.Tensor:
+        raise AssertionError("needs torch version 2.8+ and triton")
+
+    def triton_quantize_nvfp4(
+        x: torch.Tensor,
+        tensor_scale: Optional[torch.Tensor] = None,
+        rounding_mode: int = 0,
+        seed: int = 0,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         raise AssertionError("needs torch version 2.8+ and triton")
 
     def triton_mxfp8_dequant_dim0(
