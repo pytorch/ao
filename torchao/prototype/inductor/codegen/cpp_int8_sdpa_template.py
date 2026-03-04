@@ -799,9 +799,7 @@ extern "C"
 {%- endif %}
 
   // Data ptrs
-  const scalar_t* q_data = query;
-  const scalar_t* k_data = key;
-  const scalar_t* v_data = value;
+  {{template.codegen_qkv_ptr(kernel)}}
   scalar_t* out_data = output;
 
   bool headSize_mul64 = headSize % 64 == 0;
@@ -1223,9 +1221,7 @@ extern "C"
 {%- endif %}
 
   // Data ptrs
-  const scalar_t* q_data = query;
-  const scalar_t* k_data = key;
-  const scalar_t* v_data = value;
+  {{template.codegen_qkv_ptr(kernel)}}
   scalar_t* out_data = output;
 
   int64_t qk_reduce_strideL = qSplitSize * rndkvSplitSize;
@@ -1776,3 +1772,18 @@ class CppInt8SdpaTemplate(CppFlexAttentionTemplate):
                 buffer_size=buffer_size,
             )
         )
+
+    def codegen_qkv_ptr(self, kernel):
+        if len(kernel.args.input_buffers)==1:
+            buf_name = next(iter(kernel.args.input_buffers.values()))
+            return f"""
+  const scalar_t* q_data = {buf_name} + {self.input_nodes[0].layout.offset};
+  const scalar_t* k_data = {buf_name} + {self.input_nodes[1].layout.offset};
+  const scalar_t* v_data = {buf_name} + {self.input_nodes[2].layout.offset};
+"""
+        else:
+            return f"""
+  const scalar_t* q_data = query;
+  const scalar_t* k_data = key;
+  const scalar_t* v_data = value;
+"""
