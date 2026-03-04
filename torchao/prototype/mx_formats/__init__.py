@@ -1,3 +1,4 @@
+from torchao.prototype.custom_fp_utils import RoundingMode
 from torchao.prototype.mx_formats.config import (
     MXLinearConfig,
     MXLinearRecipeName,
@@ -22,4 +23,5 @@ __all__ = [
     "NVFP4DynamicActivationNVFP4WeightConfig",
     "NVFP4ObservedLinear",
     "NVFP4WeightOnlyConfig",
+    "RoundingMode",
 ]
