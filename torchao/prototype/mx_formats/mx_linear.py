@@ -137,7 +137,6 @@ class mx_mm(torch.autograd.Function):
         )
         output = torch.mm(input_mx_r_dim0, weight_mx_dim0.t())
         output = output.reshape(*input_orig_shape[:-1], output.shape[-1])
-
         return output
 
     @staticmethod

@@ -170,7 +170,8 @@ def to_mx(
     assert data_hp.shape[-1] % block_size == 0, (
         f"the last dimension of shape {data_hp.shape} must be divisible by block_size {block_size}"
     )
-    assert data_hp.is_contiguous(), "unsupported"
+    if not data_hp.is_contiguous():
+        assert data_hp.is_contiguous(), "unsupported"
     assert elem_dtype in SUPPORTED_ELEM_DTYPES, "unsupported"
 
     orig_shape = data_hp.shape
