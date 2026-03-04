@@ -545,6 +545,10 @@ def run(
                 continue
             elif fqn == "proj_out":
                 continue
+            elif "norm.linear" in fqn:
+                # activations here have shape [batch_size, 3072], so
+                # too small to see speedups from activation quantization
+                continue
             elif weight_shape[0] < 1024 or weight_shape[1] < 1024:
                 continue
             fqn_to_config_dict[fqn] = config_obj
