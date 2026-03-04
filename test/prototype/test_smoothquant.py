@@ -69,7 +69,6 @@ if torch.xpu.is_available():
     device_list.append("xpu")
 
 
-@unittest.skipIf(torch.version.hip is not None, "Skipping tests in ROCm")
 class TestSmoothQuant(unittest.TestCase):
     """SmoothQuant tests using only supported quantization configs."""
 
