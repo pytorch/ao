@@ -11,6 +11,7 @@ from typing import Optional
 import torch
 from torch.utils._python_dispatch import return_and_correct_aliasing
 
+from torchao.prototype.custom_fp_utils import RoundingMode
 from torchao.prototype.mx_formats.constants import F4_E2M1_MAX, F8E4M3_MAX
 from torchao.prototype.mx_formats.kernels import (
     f4_unpacked_to_f32,
@@ -32,6 +33,7 @@ from torchao.prototype.mx_formats.utils import (
     to_blocked,
 )
 from torchao.quantization.quantize_.common import (
+    KernelPreference,
     QuantizeTensorKwargs,
 )
 from torchao.utils import TorchAOBaseTensor, fill_defaults
@@ -47,6 +49,7 @@ class QuantizeTensorToNVFP4Kwargs(QuantizeTensorKwargs):
     is_swizzled_scales: bool = False
     use_triton_kernel: bool = False
     use_dynamic_per_tensor_scale: bool = False
+    rounding_mode: RoundingMode = RoundingMode.RN
 
 
 class NVFP4Tensor(TorchAOBaseTensor):
@@ -137,6 +140,8 @@ class NVFP4Tensor(TorchAOBaseTensor):
         is_swizzled_scales: bool = False,
         use_triton_kernel: bool = False,
         act_quant_kwargs: Optional[QuantizeTensorToNVFP4Kwargs] = None,
+        rounding_mode: RoundingMode = RoundingMode.RN,
+        kernel_preference: KernelPreference = KernelPreference.MSLK,
     ):
         """Convert high precision tensor to NVFP4 format.
 
@@ -150,6 +155,8 @@ class NVFP4Tensor(TorchAOBaseTensor):
             is_swizzled_scales: If True, store scales in swizzled format for faster matrix multiplication
             use_triton_kernel: If True, use Triton kernel for quantization
             act_quant_kwargs: If specified, config for quantizing the activation
+            rounding_mode: Rounding mode for FP4 conversion (RN or RS).
+                For deterministic RS, set torch.manual_seed() before calling.
 
         Returns:
             NVFP4Tensor: Quantized tensor in NVFP4 format
@@ -162,10 +169,20 @@ class NVFP4Tensor(TorchAOBaseTensor):
             assert K % 16 == 0, (
                 f"Triton kernel requires K (dim -1) to be divisible by 16, got {K}"
             )
-            blockwise_scales, data_lp = mslk_quantize_nvfp4(data_hp, per_tensor_scale)
+            assert per_tensor_scale is not None, (
+                "Triton kernel requires per_tensor_scale"
+            )
+            if kernel_preference = KernelPreference.MSLK:
+                blockwise_scales, data_lp = mslk_quantize_nvfp4(data_hp, per_tensor_scale)
+            else:
+                _seed = torch.randint(2**31, (1,)).item()
+                blockwise_scales, data_lp = triton_quantize_nvfp4(
+                    data_hp, per_tensor_scale, rounding_mode.value, _seed
+                )
         else:
             blockwise_scales, data_lp = nvfp4_quantize(
-                data_hp, block_size, per_tensor_scale
+                data_hp, block_size, per_tensor_scale,
+                rounding_mode=rounding_mode,
             )
             if is_swizzled_scales:
                 scale_shape = (math.prod(leading_dims) * M, K // block_size)
@@ -610,6 +627,7 @@ def nvfp4_linear(func, types, args, kwargs):
             per_tensor_scale=per_tensor_scale,
             is_swizzled_scales=k.is_swizzled_scales,
             use_triton_kernel=k.use_triton_kernel,
+            rounding_mode=k.rounding_mode,
         )
         res = _addmm_nvfp4_dispatch(input_tensor, weight_tensor.t(), func, bias=bias)
         res = res.reshape(*orig_shape[:-1], res.shape[-1])
@@ -645,6 +663,7 @@ def nvfp4_mm(func, types, args, kwargs):
                 per_tensor_scale=per_tensor_scale,
                 is_swizzled_scales=k.is_swizzled_scales,
                 use_triton_kernel=k.use_triton_kernel,
+                rounding_mode=k.rounding_mode,
             )
         return _addmm_nvfp4_dispatch(input_tensor, weight_tensor, func)
 
@@ -699,6 +718,7 @@ def nvfp4_addmm(func, types, args, kwargs):
                 per_tensor_scale=per_tensor_scale,
                 is_swizzled_scales=k.is_swizzled_scales,
                 use_triton_kernel=k.use_triton_kernel,
+                rounding_mode=k.rounding_mode,
             )
         return _addmm_nvfp4_dispatch(input_tensor, weight_tensor, func, bias=bias)
 
@@ -770,6 +790,7 @@ def nvfp4_quantize(
     data_hp: torch.Tensor,
     block_size: int = 16,
     per_tensor_scale: Optional[torch.Tensor] = None,
+    rounding_mode: RoundingMode = RoundingMode.RN,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """NVIDIA FP4 quantization with UE4M3 scales.
 
@@ -779,13 +800,14 @@ def nvfp4_quantize(
     Args:
         data_hp: High precision input tensor (bfloat16 or float32)
         block_size: Block size for quantization (must be 16)
-        per_tensor_amax: Optional pre-computed absolute maximum for calibration.
+        per_tensor_scale: Optional pre-computed per-tensor scale for calibration.
             If provided, uses per-tensor scaling. If None, uses block-wise scaling only.
+        rounding_mode: Rounding mode for FP4 conversion (RN or RS).
+            For deterministic RS, set torch.manual_seed() before calling.
 
     Returns:
         tuple: A tuple containing:
-            - total_scale_fp8: Blockwise scales in float8_e4m3fn format
-            - per_tensor_scale: Global per-tensor scale if per_tensor_amax provided, else None
+            - out_scales: Blockwise scales in float8_e4m3fn format
             - data_lp: Packed FP4 data (2 values per byte)
 
     Raises:
@@ -844,7 +866,7 @@ def nvfp4_quantize(
 
     data_scaled = torch.clamp(data_scaled, -F4_E2M1_MAX, F4_E2M1_MAX)
     data_scaled = data_scaled.view(orig_shape)
-    data_lp = f32_to_f4_unpacked(data_scaled)
+    data_lp = f32_to_f4_unpacked(data_scaled, rounding_mode=rounding_mode)
     # TODO: NotImplementedError: "copy_kernel" not implemented for 'Float4_e2m1fn_x2'
     # data_lp = pack_uint4(data_lp).view(torch.float4_e2m1fn_x2)
     data_lp = pack_uint4(data_lp)
