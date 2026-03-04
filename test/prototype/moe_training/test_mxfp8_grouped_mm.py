@@ -11,14 +11,15 @@ from torch.nn import functional as F
 from torchao.prototype.mx_formats.config import ScaleCalculationMode
 from torchao.utils import is_sm_version, torch_version_at_least
 
-# We need to skip before doing any imports which would use triton, since
-# triton won't be available on CPU builds and torch < 2.5
+# MXFP8 grouped MM requires FP8-capable hardware (SM90+ on CUDA, MI300+ on ROCm)
+from torchao.utils import is_MI300, is_MI350, is_sm_at_least_90
+
 if not (
     torch_version_at_least("2.7.0")
     and torch.cuda.is_available()
-    and torch.cuda.get_device_capability()[0] >= 9
+    and (is_sm_at_least_90() or is_MI300() or is_MI350())
 ):
-    pytest.skip("Unsupported PyTorch version", allow_module_level=True)
+    pytest.skip("Requires FP8-capable GPU (CUDA SM90+, MI300, or MI350)", allow_module_level=True)
 
 pytest.importorskip("triton", reason="Triton required to run this test")
 
