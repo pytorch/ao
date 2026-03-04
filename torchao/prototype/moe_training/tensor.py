@@ -107,6 +107,7 @@ class TrainingWeightWrapperBaseTensor(TorchAOBaseTensor):
 
     @classmethod
     def __torch_dispatch__(cls, func, types, args, kwargs={}):
+        print("[TORCH_DISPATCH]: ", func.__name__)
         # unwrap args/kwargs and extract config
         config = None
 
@@ -240,10 +241,6 @@ class Float8TrainingWeightWrapperTensor(TrainingWeightWrapperBaseTensor):
             # Use torchao scaled grouped mm with dynamic quant for
             # "2d x 3d with offsets" case (used for routed experts).
             # Otherwise, fall back to regular grouped mm.
-            #
-            # TODO: support "3d x 3d without offsets" case, which is
-            # used for shared experts. This is basically the grouped_mm
-            # kernel handling a bmm.
             A, B = args[0], args[1]
 
             assert not isinstance(A, cls), f"A should not be a {cls.__name__}"
@@ -281,14 +278,11 @@ class MXFP8TrainingWeightWrapperTensor(TrainingWeightWrapperBaseTensor):
     @classmethod
     def __torch_function__(cls, func, types, args, kwargs={}):
         # grouped_mm op override
+        print("[TORCH_FUNCTION]", func.__name__)
         if func.__name__ == "_grouped_mm":
             # Use torchao scaled grouped mm with dynamic quant for
             # "2d x 3d with offsets" case (used for routed experts).
             # Otherwise, fall back to regular grouped mm.
-            #
-            # TODO: support "3d x 3d without offsets" case, which is
-            # used for shared experts. This is basically the grouped_mm
-            # kernel handling a bmm.
             A, B = args[0], args[1]
 
             assert not isinstance(A, cls), f"A should not be a {cls.__name__}"
@@ -309,7 +303,7 @@ class MXFP8TrainingWeightWrapperTensor(TrainingWeightWrapperBaseTensor):
                 )
 
         # linear op override
-        elif func.__name__ == "linear":
+        elif func.__name__ in ("linear", "mm", "mm.default"):
             A, B = args[0], args[1]
 
             assert not isinstance(A, cls), f"A should not be a {cls.__name__}"
@@ -319,6 +313,10 @@ class MXFP8TrainingWeightWrapperTensor(TrainingWeightWrapperBaseTensor):
             assert isinstance(config, MXFP8TrainingOpConfig), (
                 "expected MXFP8TrainingOpConfig"
             )
+            
+            # Log weight shard statistics
+            weight = B._data
+            
             return _to_mxfp8_then_scaled_mm(
                 A,
                 unwrap_weight(B),
