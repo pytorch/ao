@@ -5,28 +5,10 @@
 # LICENSE file in the root directory of this source tree.
 
 """
-Benchmark script for evaluating attention backends on LLaMA 3.
+Benchmark attention backends (FA2/FA3/FA3-FP8) on LLaMA 3.
+Measures perplexity on WikiText-2 and forward-pass latency across sequence lengths.
 
-Two-phase benchmark:
-  Phase 1 (Perplexity): Evaluates quality on WikiText-2 test set using lm_eval,
-      comparing baseline and test backends.
-  Phase 2 (Runtime): Measures forward-pass latency across sequence lengths
-      from 1K to 128K tokens using random token IDs.
-
-Available backends:
-    fa2      - Flash Attention 2 (default SDPA)
-    fa3      - Flash Attention 3
-    fa3_fp8  - Flash Attention 3 with FP8 quantization (fused RoPE + FP8 SDPA)
-
-Usage:
-    # Default: FA3 vs FA3 FP8
-    python eval_llama3_model.py
-
-    # FA2 vs FA3
-    python eval_llama3_model.py --baseline fa2 --test fa3
-
-    # With torch.compile (applies to non-FP8 backends)
-    python eval_llama3_model.py --compile
+Usage: python eval_llama3_model.py --baseline fa3 --test fa3_fp8
 """
 
 import argparse
@@ -55,10 +37,6 @@ from torchao.prototype.attention.shared_utils.fusion_utils import (
     _strip_causal_mask,
     detect_causal_mask,
 )
-
-# =============================================================================
-# Backend Configuration
-# =============================================================================
 
 BACKENDS = {
     "fa2": {
@@ -92,16 +70,7 @@ def cleanup_gpu():
 
 
 def _make_strip_causal_mask_pass(strip_causal_mask: bool):
-    """Create a pre-grad pass that strips HF's materialized causal masks from SDPA nodes.
-
-    During torch.compile, HuggingFace materializes causal masks as 4D bool
-    tensors and passes them to SDPA with is_causal=False.  This forces the
-    math backend instead of flash attention.  This pass detects those masks,
-    removes them, and sets is_causal=True so flash attention can be used.
-
-    Args:
-        strip_causal_mask: Result of ``detect_causal_mask`` pre-flight check.
-    """
+    """Create a pre-grad pass that strips HF's materialized causal masks from SDPA nodes."""
 
     def _strip_causal_mask_pass(graph):
         for node in graph.nodes:
@@ -136,36 +105,7 @@ def _compile_with_mask_strip(model, flash_impl_name=None):
 def setup_backend(
     orig_model, backend_name, compile_flag, fuse_rope_using_torch_compile=False
 ):
-    """Set up a backend for a benchmark phase.
-
-    All backends use the HuggingFace SDPA attention path (the model must
-    be loaded with ``attn_implementation="sdpa"``).  The specific flash
-    attention kernel (FA2, FA3, FA4) is selected at runtime via
-    ``activate_flash_attention_impl`` around each forward call.
-
-    For FP8 backends: applies low-precision attention which handles
-    compilation and the fusion pass internally.
-
-    For other backends: optionally compiles if compile_flag is set.
-    When compiling, a custom pre-grad pass strips HF's materialized causal
-    masks so SDPA dispatches to flash attention instead of the math backend.
-
-    Also manages ``config.use_cache``: FP8 backends need it disabled
-    (DynamicCache.update() inserts torch.cat that blocks RoPE fusion),
-    and non-FP8 backends also disable it when compiling (the causal mask
-    stripping pass assumes no KV cache).
-
-    Args:
-        orig_model: The original (uncompiled, unwrapped) model.
-        backend_name: Name of the backend.
-        compile_flag: Whether --compile was passed.
-        fuse_rope_using_torch_compile: Whether to fuse RoPE into the FP8 kernel (FP8 backends only).
-
-    Returns:
-        (model, flash_impl) where model is the model to use for this phase
-        and flash_impl is the flash attention implementation to activate
-        around forward calls.
-    """
+    """Configure and return (model, flash_impl) for the given backend."""
     cfg = BACKENDS[backend_name]
 
     if cfg["fp8"]:
@@ -195,11 +135,6 @@ def setup_backend(
         # Restore use_cache in case a prior setup disabled it.
         orig_model.config.use_cache = True
         return orig_model, cfg["flash_impl"]
-
-
-# =============================================================================
-# Helpers
-# =============================================================================
 
 
 def evaluate_perplexity(model, tokenizer, flash_impl) -> float:
@@ -259,11 +194,6 @@ def benchmark_runtime(
     return times[num_iters // 2]  # median
 
 
-# =============================================================================
-# Benchmark
-# =============================================================================
-
-
 @torch.inference_mode()
 def run_benchmark(
     model_id: str,
@@ -300,7 +230,7 @@ def run_benchmark(
     model = AutoModelForCausalLM.from_pretrained(
         model_id,
         torch_dtype=torch.bfloat16,
-        device_map="auto",
+        device_map="cuda",
         attn_implementation="sdpa",
     )
     model.eval()
@@ -308,9 +238,6 @@ def run_benchmark(
     orig_model = model
     vocab_size = model.config.vocab_size
 
-    # =====================================================================
-    # Phase 1: Perplexity
-    # =====================================================================
     print("\n" + "=" * 80)
     print("Phase 1: Perplexity (WikiText-2 via lm_eval)")
     print("=" * 80)
@@ -342,9 +269,6 @@ def run_benchmark(
     del baseline_model, test_model
     cleanup_gpu()
 
-    # =====================================================================
-    # Phase 2: Runtime
-    # =====================================================================
     print("\n" + "=" * 80)
     print(
         f"Phase 2: Runtime ({num_runtime_iters} iters, {num_warmup} warmup per seq_len)"
@@ -451,9 +375,6 @@ def run_benchmark(
 
     print("-" * len(header))
 
-    # =====================================================================
-    # Summary
-    # =====================================================================
     print("\n" + "=" * 80)
     print("SUMMARY")
     print("=" * 80)

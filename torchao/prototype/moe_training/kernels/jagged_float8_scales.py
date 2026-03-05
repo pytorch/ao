@@ -41,14 +41,20 @@ if torch_version_at_least("2.7.0") and has_triton():
     if torch.version.hip is not None:
         kernel_configs_2D = [
             triton.Config(
-                {"BLOCK_SIZE": block_size, "BLOCK_SIZE_ITER": block_size_iter},
-                num_warps=warps,
-                num_stages=stages,
-            )
-            for block_size in [32, 64]
-            for block_size_iter in [64, 128]
-            for warps in [4, 8]
-            for stages in [2, 3]
+                {"BLOCK_SIZE": 128, "BLOCK_SIZE_ITER": 128},
+                num_warps=8,
+                num_stages=2,
+            ),
+            triton.Config(
+                {"BLOCK_SIZE": 128, "BLOCK_SIZE_ITER": 256},
+                num_warps=8,
+                num_stages=2,
+            ),
+            triton.Config(
+                {"BLOCK_SIZE": 256, "BLOCK_SIZE_ITER": 128},
+                num_warps=8,
+                num_stages=2,
+            ),
         ]
     else:
         kernel_configs_2D = [
