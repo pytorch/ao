@@ -66,9 +66,13 @@ class SmoothQuantObserver(torch.nn.Module):
             quant_smooth_activation = _choose_quant_func_and_quantize_tensor(
                 example_input_for_quantization / smoothing_factor, weight_quant_kwargs
             )
-            return smoothing_factor, quant_smooth_activation.scale
+            return (
+                smoothing_factor,
+                quant_smooth_activation.scale,
+                quant_smooth_activation.zero_point,
+            )
         else:
-            return smoothing_factor, None
+            return smoothing_factor, None, None
 
 
 class SmoothQuantObservedLinear(torch.nn.Linear):

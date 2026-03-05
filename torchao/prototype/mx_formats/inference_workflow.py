@@ -14,10 +14,7 @@ import torch.nn.functional as F
 from torch import Tensor
 
 from torchao.core.config import AOBaseConfig
-from torchao.prototype.mx_formats.config import (
-    _validate_elem_dtype,
-    _validate_kernel_preference,
-)
+from torchao.prototype.mx_formats.config import _validate_elem_dtype
 from torchao.prototype.mx_formats.mx_tensor import (
     MXTensor,
     QuantizeTensorToMXKwargs,
@@ -123,9 +120,6 @@ class MXDynamicActivationMXWeightConfig(AOBaseConfig):
         )
         _validate_elem_dtype(self.activation_dtype)
         _validate_elem_dtype(self.weight_dtype)
-        _validate_kernel_preference(
-            self.kernel_preference, self.block_size, self.weight_dtype
-        )
 
 
 def _linear_extra_repr(self):

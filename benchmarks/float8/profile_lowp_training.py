@@ -45,7 +45,10 @@ from torchao.float8.config import (
 from torchao.float8.float8_linear_utils import (
     convert_to_float8_training,
 )
-from torchao.prototype.mx_formats.config import MXLinearConfig
+from torchao.prototype.moe_training.config import (
+    MXFP8TrainingOpConfig,
+    MXFP8TrainingRecipe,
+)
 from torchao.prototype.mx_formats.mx_tensor import MXTensor
 from torchao.prototype.mx_formats.utils import to_blocked
 from torchao.quantization import quantize_
@@ -320,7 +323,15 @@ def main(
     elif float8_recipe_name is not None:
         config = Float8LinearConfig.from_recipe_name(float8_recipe_name)
     elif mx_recipe_name is not None:
-        config = MXLinearConfig.from_recipe_name(mx_recipe_name)
+        try:
+            config = MXFP8TrainingOpConfig.from_recipe(
+                MXFP8TrainingRecipe(mx_recipe_name)
+            )
+        except ValueError:
+            raise ValueError(
+                f"Unsupported mx_recipe_name: {mx_recipe_name}. "
+                f"Supported values: {[r.value for r in MXFP8TrainingRecipe]}"
+            )
 
     print(f"Compile is set to       | {compile}")
     print(f"model_type is set to    | {model_type}")

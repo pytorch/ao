@@ -29,28 +29,41 @@ if torch_version_at_least("2.7.0") and has_triton():
         torch.int32: tl.int32,
         torch.int64: tl.int64,
         torch.float8_e4m3fn: tl.float8e4nv,
+        torch.float8_e4m3fnuz: tl.float8e4b8,
         torch.float8_e5m2: tl.float8e5,
+        torch.float8_e5m2fnuz: tl.float8e5b16,
         torch.float16: tl.float16,
         torch.bfloat16: tl.bfloat16,
         torch.float32: tl.float32,
         torch.float64: tl.float64,
     }
 
-    block_sizes = [32]  # [16, 32, 64]
-    block_sizes_iter = [128]  # [64, 128, 256]
-    num_warps = [4]
-    num_stages = [3]
-    kernel_configs_2D = [
-        triton.Config(
-            {"BLOCK_SIZE": block_size, "BLOCK_SIZE_ITER": block_size_iter},
-            num_warps=warps,
-            num_stages=stages,
-        )
-        for block_size in block_sizes
-        for block_size_iter in block_sizes_iter
-        for warps in num_warps
-        for stages in num_stages
-    ]
+    if torch.version.hip is not None:
+        kernel_configs_2D = [
+            triton.Config(
+                {"BLOCK_SIZE": 128, "BLOCK_SIZE_ITER": 128},
+                num_warps=8,
+                num_stages=2,
+            ),
+            triton.Config(
+                {"BLOCK_SIZE": 128, "BLOCK_SIZE_ITER": 256},
+                num_warps=8,
+                num_stages=2,
+            ),
+            triton.Config(
+                {"BLOCK_SIZE": 256, "BLOCK_SIZE_ITER": 128},
+                num_warps=8,
+                num_stages=2,
+            ),
+        ]
+    else:
+        kernel_configs_2D = [
+            triton.Config(
+                {"BLOCK_SIZE": 32, "BLOCK_SIZE_ITER": 128},
+                num_warps=4,
+                num_stages=3,
+            )
+        ]
 
     @torch.library.custom_op(
         "torchao::triton_fp8_per_group_rowwise_scales", mutates_args={}
@@ -106,6 +119,7 @@ if torch_version_at_least("2.7.0") and has_triton():
             scales_buffer,
             m,
             k,
+            n_groups,
             hp_tensor.stride(0),
             hp_tensor.stride(1),
             output_buffer.stride(0),
@@ -145,7 +159,7 @@ if torch_version_at_least("2.7.0") and has_triton():
     # so the kernel is easily interpretable in a standalone fasion.
     # The tokens per expert will vary per iteration, so don't want
     # to recompile on `token` dim (K, in this case) changes.
-    @triton.autotune(configs=kernel_configs_2D, key=["M"])
+    @triton.autotune(configs=kernel_configs_2D, key=["M", "N_GROUPS"])
     @triton.jit
     def _triton_fp8_per_group_rowwise_scales_kernel(
         input_ptr,
@@ -154,6 +168,7 @@ if torch_version_at_least("2.7.0") and has_triton():
         scales_ptr,
         M: int,
         K: int,
+        N_GROUPS: int,
         stride_input_row: int,
         stride_input_col: int,
         stride_output_row: int,
@@ -297,6 +312,7 @@ if torch_version_at_least("2.7.0") and has_triton():
             scales_buffer,
             k,
             n,
+            n_groups,
             hp_tensor.stride(0),
             hp_tensor.stride(1),
             output_buffer.stride(0),
@@ -334,7 +350,7 @@ if torch_version_at_least("2.7.0") and has_triton():
     # before the calculation `grad_B = grad_output_t @ input`.
     # The tokens per expert will vary per iteration, so don't want
     # to recompile on `token` dim (M) changes.
-    @triton.autotune(configs=kernel_configs_2D, key=["K"])
+    @triton.autotune(configs=kernel_configs_2D, key=["K", "N_GROUPS"])
     @triton.jit
     def _triton_fp8_per_group_colwise_scales_kernel(
         input_ptr,
@@ -343,6 +359,7 @@ if torch_version_at_least("2.7.0") and has_triton():
         scales_ptr,
         K: int,
         N: int,
+        N_GROUPS: int,
         stride_input_row: int,
         stride_input_col: int,
         stride_output_row: int,
