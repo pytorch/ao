@@ -561,6 +561,7 @@ def get_inference_bf16_activation_mem_sympy(M, K, N, gpu_name: Optional[str] = N
     kernel_rw = BYTES_PER_EL_BF16 * M * K * 2
     # convert from bytes to seconds
     res_s = kernel_rw / specs["peak_mem_bw_bytes_sec"] / specs["pct_achievable_mem_bw"]
+    res_s = sympy.Max(res_s, KERNEL_LAUNCH_OVERHEAD_SEC)
     return res_s
 
 

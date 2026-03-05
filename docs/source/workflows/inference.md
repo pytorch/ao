@@ -96,12 +96,30 @@ vllm bench throughput --num_prompts 32 --input_len 4096 --output_len 32 --max_mo
 vllm bench throughput --num_prompts 128 --input_len 32 --output_len 2048 --max_model_len 2080
 ```
 
-### Microbenchmarks
+### Microbenchmarks and roofline model
 
-The following set of microbenchmarks measures the roofline peak and observed execution time of
-a `ReLU -> Linear` toy model swept across various (M, K, N) shapes, with the activation
+The following set of microbenchmarks show the roofline expected and observed execution times of
+a `ReLU -> Linear` toy model across a sweep of (M, K, N) shapes, with the activation
 shaped (M, K) and the weight shaped (K, N). This can be used to estimate expected speedup
-of quantizing `torch.nn.Linear` layers with various recipes based on the activation and weight shapes.
+of quantizing `torch.nn.Linear` layers with various recipes based on shapes in your model
+during inference.
+
+Explanation: to see speedup from quantization of `activation -> gemm` during inference, we want
+
+```
+(bf16_activation_time + bf16_gemm_time) > (bf16_activation_and_quantize_tensor_time + fp8_gemm_time)
+```
+
+In a perfect world (and our roofline model), 
+1. `bf16_activation_time > bf16_activation_and_quantize_tensor_time` is always true
+because `bf16_activation` reads+writes `M*K*2 bytes` and `bf16_activation_and_quantize_tensor` is a single
+fused kernel that reads+writes `M*K*1.5 bytes`.
+2. `bf16_gemm_time` > `fp8_gemm_time` is always true as fp8 gemm has ~2x peak efficiency vs bf16 gemm
+
+In the real world, both (1) and (2) are not always true due to kernel launch overhead, kernel efficiency,
+lack of fusion for some recipes, etc. Therefore, the observed speedups are often significantly
+below the roofline peak.  In general you should expect the observed speedup from inference quantization
+to increase as MKN increases.
 
 #### NVIDIA B200
 
@@ -121,10 +139,10 @@ torch version           2.12.0.dev20260218+cu130
 torchao version         0.17.0+git3075bb624
 ...
    fwd_M  fwd_K  fwd_N  r_fp8_gemm_and_ovhd_spdp  b_fp8_e2e_spdp
-0   1024   1024   1024                      0.64            0.94
-1   2048   2048   2048                      1.75            1.21
-2   4096   4096   4096                      1.90            1.45
-3   8192   8192   8192                      1.94            1.75
+0   1024   1024   1024                      1.00            0.93
+1   2048   2048   2048                      1.75            1.20
+2   4096   4096   4096                      1.90            1.46
+3   8192   8192   8192                      1.94            1.76
 4  16384  16384  16384                      1.97            1.77
 
 #
@@ -137,11 +155,11 @@ torch version           2.12.0.dev20260218+cu130
 torchao version         0.17.0+git3075bb624
 ...
    fwd_M  fwd_K  fwd_N  r_fp8_gemm_and_ovhd_spdp  b_fp8_e2e_spdp
-0   1024   1024   1024                      0.64            0.37
-1   2048   2048   2048                      2.39            0.74
+0   1024   1024   1024                      1.00            0.38
+1   2048   2048   2048                      2.39            0.73
 2   4096   4096   4096                      2.92            1.19
-3   8192   8192   8192                      3.34            1.78
-4  16384  16384  16384                      3.63            2.57
+3   8192   8192   8192                      3.34            1.80
+4  16384  16384  16384                      3.63            2.56
 ```
 
 ## Other Available Quantization Techniques
