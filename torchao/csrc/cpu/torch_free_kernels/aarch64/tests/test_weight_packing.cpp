@@ -5,8 +5,8 @@
 // LICENSE file in the root directory of this source tree.
 
 #include <gtest/gtest.h>
-#include <torchao/csrc/cpu/torch_free_kernels/aarch64/linear/channelwise_8bit_activation_groupwise_lowbit_weight/pack_weights.h>
 #include <torchao/csrc/cpu/torch_free_kernels/aarch64/tests/test_utils.h>
+#include <torchao/csrc/cpu/torch_free_kernels/weight_packing/weight_packing.h>
 
 template <int weight_nbit, int nr, int kr, int sr>
 void test_weight_packing(
@@ -29,16 +29,16 @@ void test_weight_packing(
   //   using namespace torchao::kernels::cpu::aarch64::linear::packing;
 
   std::vector<char> packed_weights(
-      torchao::kernels::cpu::aarch64::linear::
-          channelwise_8bit_activation_groupwise_lowbit_weight::weight_packing::
-              packed_weights_size(
-                  n,
-                  k,
-                  group_size,
-                  weight_nbit,
-                  has_weight_zeros,
-                  has_bias,
-                  nr));
+      torchao::weight_packing::packed_weights_size(
+          n,
+          k,
+          group_size,
+          weight_nbit,
+          has_weight_zeros,
+          has_bias,
+          nr,
+          kr,
+          sr));
 
   int8_t* weight_qvals_in = test_case.weight_qvals.data();
   float* weight_scales_in = test_case.weight_scales.data();
@@ -56,20 +56,19 @@ void test_weight_packing(
   std::vector<int8_t> weight_zeros_out(test_case.weight_zeros.size());
   std::vector<float> bias_out(test_case.bias.size());
 
-  torchao::kernels::cpu::aarch64::linear::
-      channelwise_8bit_activation_groupwise_lowbit_weight::weight_packing::
-          pack_weights<weight_nbit, nr, kr, sr>(
-              packed_weights.data(),
-              n,
-              k,
-              group_size,
-              weight_qvals_in,
-              weight_scales_in,
-              weight_zeros_in,
-              bias_in);
-  torchao::kernels::cpu::aarch64::linear::
-      channelwise_8bit_activation_groupwise_lowbit_weight::weight_packing::
-          unpack_weights<weight_nbit, nr, kr, sr>(
+  torchao::weight_packing::pack_weights<weight_nbit, nr, kr, sr>(
+      packed_weights.data(),
+      n,
+      k,
+      group_size,
+      weight_qvals_in,
+      weight_scales_in,
+      weight_zeros_in,
+      bias_in,
+      nr,
+      kr,
+      sr);
+  torchao::weight_packing::unpack_weights<weight_nbit, nr, kr, sr>(
               weight_qvals_out.data(),
               weight_scales_out.data(),
               weight_zeros_out.data(),

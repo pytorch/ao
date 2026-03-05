@@ -56,9 +56,9 @@ void test_channelwise_8bit_activation_groupwise_lowbit_weight_1x1x32(
       kr,
       sr);
 
-  std::vector<char> packed_weights(packed_weights_size(
+  std::vector<char> packed_weights(torchao::weight_packing::packed_weights_size(
       n, k, group_size, weight_nbit, has_weight_zeros, has_bias, nr, kr, sr));
-  pack_weights<weight_nbit, nr, kr, sr>(
+  torchao::weight_packing::pack_weights<weight_nbit, nr, kr, sr>(
       (void*)packed_weights.data(),
       n,
       k,
@@ -132,9 +132,9 @@ void test_channelwise_8bit_activation_groupwise_lowbit_weight_1x4x16(
       kr,
       sr);
 
-  std::vector<char> packed_weights(packed_weights_size(
+  std::vector<char> packed_weights(torchao::weight_packing::packed_weights_size(
       n, k, group_size, weight_nbit, has_weight_zeros, has_bias, nr, kr, sr));
-  pack_weights<weight_nbit, nr, kr, sr>(
+  torchao::weight_packing::pack_weights<weight_nbit, nr, kr, sr>(
       (void*)packed_weights.data(),
       n,
       k,
@@ -208,9 +208,9 @@ void test_channelwise_8bit_activation_groupwise_lowbit_weight_1x8x16(
       kr,
       sr);
 
-  std::vector<char> packed_weights(packed_weights_size(
+  std::vector<char> packed_weights(torchao::weight_packing::packed_weights_size(
       n, k, group_size, weight_nbit, has_weight_zeros, has_bias, nr, kr, sr));
-  pack_weights<weight_nbit, nr, kr, sr>(
+  torchao::weight_packing::pack_weights<weight_nbit, nr, kr, sr>(
       (void*)packed_weights.data(),
       n,
       k,

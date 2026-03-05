@@ -18,8 +18,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-import torchao.prototype.quant_logger.quant_logger
-from torchao.prototype.quant_logger.quant_logger import (
+import torchao.prototype.quant_logger
+from torchao.prototype.quant_logger import (
     add_activation_loggers,
     enable_log_stats_to_file,
     enable_log_tensor_save_tensors_to_disk,
@@ -57,6 +57,7 @@ class TestQuantLogger(unittest.TestCase):
     def setUp(self):
         # Reload module to restore default log_tensor op (tests may redefine it)
         importlib.reload(torchao.prototype.quant_logger.quant_logger)
+        importlib.reload(torchao.prototype.quant_logger)
 
     def test_log_activations_simple(self):
         with patch("sys.stdout", new_callable=StringIO) as mock_stdout:

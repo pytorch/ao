@@ -13,10 +13,19 @@ counter = [0]
 
 
 def reset_counter():
+    """Resets the global logging counter to zero."""
     counter[0] = 0
 
 
 def get_default_stats(x: torch.Tensor):
+    """Computes summary statistics for a tensor.
+
+    Args:
+        x: Input tensor to compute statistics for.
+
+    Returns:
+        A tuple of (max_abs, avg, std) as Python floats.
+    """
     max_abs = torch.max(torch.abs(x)).item()
     avg = torch.mean(x).item()
     std = torch.std(x, correction=0).item()
@@ -27,9 +36,26 @@ def get_default_stats(x: torch.Tensor):
 def log_tensor(
     x: torch.Tensor, fqn: str, op: str, tag: str, extra: str | None = None
 ) -> None:
-    """
-    User can redefine this function in their code to customize logging (write to file,
-    log custom stats, etc).
+    """Logs summary statistics for a tensor. This is the default implementation
+    that prints to stdout; users can redefine this custom op to customize
+    logging behavior (e.g. write to file, log custom stats).
+
+    Note: do not use this function directly. Instead, you can override it
+    (see code sample below) to modify what gets logged and/or where it gets
+    logged to.
+
+    Args:
+        x: The tensor to log statistics for.
+        fqn: Fully qualified name of the module parameter associated with this tensor.
+        op: The operation being logged (e.g. ``"linear"``), or ``""`` for parameters.
+        tag: A tag categorizing the log entry (e.g. ``"act"`` for activations,
+            ``"param"`` for parameters).
+        extra: Optional extra metadata string to include in the log line.
+
+    Example:
+
+    .. literalinclude:: ../../examples/prototype/quant_logger/log_tensor_example.py
+       :language: python
     """
     counter_val = counter[0]
     counter[0] += 1
@@ -50,8 +76,15 @@ def _(x: torch.Tensor, fqn: str, op: str, tag: str, extra: str | None = None) ->
 # convenience overrides
 
 
-# save entire tensors to disk
 def enable_log_tensor_save_tensors_to_disk(save_dir):
+    """Redefines ``quant_logger::log_tensor`` to save full tensors to disk.
+
+    Each logged tensor is cloned and saved as ``{fqn}_{op}_{tag}.pt``
+    under *save_dir*. The directory is created if it does not exist.
+
+    Args:
+        save_dir: Path to the directory where tensor files will be saved.
+    """
     os.makedirs(save_dir, exist_ok=True)
 
     @torch.library.custom_op("quant_logger::log_tensor", mutates_args=("x",))
@@ -65,8 +98,16 @@ def enable_log_tensor_save_tensors_to_disk(save_dir):
         torch.save(x.clone(), filepath)
 
 
-# save defaults stats to csv file
 def enable_log_stats_to_file(filename):
+    """Redefines ``quant_logger::log_tensor`` to append summary statistics to a CSV file.
+
+    The file is initialized with a header row. Each subsequent call to
+    ``log_tensor`` appends a row with columns: tag, counter_val, fqn, op,
+    max_abs, avg, std.
+
+    Args:
+        filename: Path to the CSV file to write.
+    """
     headers = ["tag", "counter_val", "fqn", "op", "max_abs", "avg", "std"]
     with open(filename, "w") as f:
         writer = csv.writer(f)
@@ -86,9 +127,18 @@ def enable_log_stats_to_file(filename):
 
 
 class ActivationLoggingTensor(torch.Tensor):
-    """
-    A simple tensor subclass to log activations of common PyTorch ops.
-    For now, only supports `F.linear`.
+    """A wrapper tensor subclass that intercepts ``F.linear`` calls to log
+    input activations via the ``quant_logger::log_tensor`` custom op.
+
+    When ``F.linear`` is called with an ``ActivationLoggingTensor`` as the
+    weight, the input activation tensor is logged (with GEMM shape metadata)
+    before the linear op is executed with the unwrapped weight. All other ops
+    fall through to the underlying tensor.
+
+    Args:
+        original_weight_tensor: The real weight tensor to wrap.
+        fqn: Fully qualified name of the parameter in the model (e.g.
+            ``"layers.0.self_attn.q_proj.weight"``).
     """
 
     @staticmethod
@@ -180,9 +230,21 @@ class ActivationLoggingTensor(torch.Tensor):
 
 
 def add_activation_loggers(model: torch.nn.Module):
-    """
-    Adds logging for activations passing through `F.linear` ops. The logging
-    is user-configurable by redefining the `quant_logger::log_tensor` custom op.
+    """Wraps ``nn.Linear`` weights with :class:`ActivationLoggingTensor` so that
+    input activations are logged each time ``F.linear`` is called.
+
+    The logging behavior is user-configurable by redefining the
+    ``quant_logger::log_tensor`` custom op (see
+    :func:`enable_log_tensor_save_tensors_to_disk` and
+    :func:`enable_log_stats_to_file` for built-in alternatives).
+
+    Args:
+        model: The model whose ``nn.Linear`` weights will be wrapped.
+
+    Example:
+
+    .. literalinclude:: ../../examples/prototype/quant_logger/add_activation_loggers_example.py
+       :language: python
     """
 
     fqn_to_module = dict(model.named_modules())
@@ -201,8 +263,19 @@ def add_activation_loggers(model: torch.nn.Module):
 
 
 def log_parameter_info(model: torch.nn.Module):
-    """
-    Prints summary statistics about model parameters.
+    """Logs summary statistics for every parameter in the model.
+
+    Each parameter is passed to ``quant_logger::log_tensor`` with
+    ``tag="param"``, so the output format depends on the current
+    ``log_tensor`` implementation.
+
+    Args:
+        model: The model whose parameters will be logged.
+
+    Example:
+
+    .. literalinclude:: ../../examples/prototype/quant_logger/log_parameter_info_example.py
+       :language: python
     """
     for fqn, parameter in model.named_parameters():
         torch.ops.quant_logger.log_tensor(parameter, fqn, "", "param", None)
