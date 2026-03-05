@@ -69,7 +69,7 @@
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
     <link rel="next" title="First Quantization Example" href="first_quantization_example.html" />
-    <link rel="prev" title="_choose_quant_func_and_quantize_tensor" href="../api_reference/generated/torchao.quantization.quantize_.common._choose_quant_func_and_quantize_tensor.html" />
+    <link rel="prev" title="reset_counter" href="../api_reference/generated/torchao.prototype.quant_logger.reset_counter.html" />
 
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
@@ -175,7 +175,7 @@
   fbq('track', 'PageView');
 </script>
 <script>
-  document.documentElement.setAttribute('data-version', 'main (0.17.0+gitdf68b82 )');
+  document.documentElement.setAttribute('data-version', 'main (0.17.0+gitf97ec45 )');
 </script>
 <noscript>
   <img height="1" width="1" src="https://www.facebook.com/tr?id=243028289693773&ev=PageView&noscript=1" />
@@ -563,6 +563,12 @@ document.write(`
                 </a>
               </li>
             
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../api_reference/api_ref_prototype_quant_logger.html">
+                  torchao.prototype.quant_logger
+                </a>
+              </li>
+            
           </ul>
         
       </li>
@@ -640,6 +646,12 @@ document.write(`
               <li class=" ">
                 <a class="nav-link dropdown-item nav-internal" href="mxfp8_expert_parallel_training.html">
                   MXFP8 Expert Parallel Training
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="debugging_weights_and_activations.html">
+                  Debugging Weights and Activations with quant_logger
                 </a>
               </li>
             
@@ -1000,6 +1012,12 @@ document.write(`
                 </a>
               </li>
             
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../api_reference/api_ref_prototype_quant_logger.html">
+                  torchao.prototype.quant_logger
+                </a>
+              </li>
+            
           </ul>
         
       </li>
@@ -1077,6 +1095,12 @@ document.write(`
               <li class=" ">
                 <a class="nav-link dropdown-item nav-internal" href="mxfp8_expert_parallel_training.html">
                   MXFP8 Expert Parallel Training
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="debugging_weights_and_activations.html">
+                  Debugging Weights and Activations with quant_logger
                 </a>
               </li>
             
@@ -1302,6 +1326,7 @@ document.write(`
 <li class="toctree-l1"><a class="reference internal" href="subclass_basic.html">Writing Your Own Quantized Tensor</a></li>
 <li class="toctree-l1"><a class="reference internal" href="subclass_advanced.html">Writing Your Own Quantized Tensor (advanced)</a></li>
 <li class="toctree-l1"><a class="reference internal" href="mxfp8_expert_parallel_training.html">MXFP8 Expert Parallel Training</a></li>
+<li class="toctree-l1"><a class="reference internal" href="debugging_weights_and_activations.html">Debugging Weights and Activations with <cite>quant_logger</cite></a></li>
 </ul>
 </div>
 </nav></div>
@@ -1412,6 +1437,7 @@ document.write(`
 <li class="toctree-l1"><a class="reference internal" href="subclass_basic.html">Writing Your Own Quantized Tensor</a></li>
 <li class="toctree-l1"><a class="reference internal" href="subclass_advanced.html">Writing Your Own Quantized Tensor (advanced)</a></li>
 <li class="toctree-l1"><a class="reference internal" href="mxfp8_expert_parallel_training.html">MXFP8 Expert Parallel Training</a></li>
+<li class="toctree-l1"><a class="reference internal" href="debugging_weights_and_activations.html">Debugging Weights and Activations with <cite>quant_logger</cite></a></li>
 </ul>
 </div>
 </section>
@@ -1459,12 +1485,12 @@ document.write(`
 
 <div class="prev-next-area">
     <a class="left-prev"
-       href="../api_reference/generated/torchao.quantization.quantize_.common._choose_quant_func_and_quantize_tensor.html"
+       href="../api_reference/generated/torchao.prototype.quant_logger.reset_counter.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">_choose_quant_func_and_quantize_tensor</p>
+        <p class="prev-next-title">reset_counter</p>
       </div>
     </a>
     <a class="right-next"
@@ -1498,12 +1524,12 @@ document.write(`
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="../api_reference/generated/torchao.quantization.quantize_.common._choose_quant_func_and_quantize_tensor.html"
+       href="../api_reference/generated/torchao.prototype.quant_logger.reset_counter.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">_choose_quant_func_and_quantize_tensor</p>
+        <p class="prev-next-title">reset_counter</p>
       </div>
     </a>
     <a class="right-next"
@@ -1747,7 +1773,7 @@ document.write(`
        "headline": "Tutorials",
        "description": "PyTorch Documentation. Explore PyTorch, an open-source machine learning library that accelerates the path from research prototyping to production deployment.",
        "url": "/eager_tutorials/index.html",
-       "articleBody": "Tutorials# Created On: Mar 05, 2026 | Last Updated On: Mar 05, 2026 Tutorials for quantization using eager mode execution. First Quantization Example (Part 1) Pre-training with float8 (Part 2) Fine-tuning with QAT, QLoRA, and float8 (Part 3) Serving on vLLM, SGLang, ExecuTorch Integration with VLLM: Architecture and Usage Guide Hugging Face Integration Serialization Static Quantization Writing Your Own Quantized Tensor Writing Your Own Quantized Tensor (advanced) MXFP8 Expert Parallel Training",
+       "articleBody": "Tutorials# Created On: Mar 05, 2026 | Last Updated On: Mar 05, 2026 Tutorials for quantization using eager mode execution. First Quantization Example (Part 1) Pre-training with float8 (Part 2) Fine-tuning with QAT, QLoRA, and float8 (Part 3) Serving on vLLM, SGLang, ExecuTorch Integration with VLLM: Architecture and Usage Guide Hugging Face Integration Serialization Static Quantization Writing Your Own Quantized Tensor Writing Your Own Quantized Tensor (advanced) MXFP8 Expert Parallel Training Debugging Weights and Activations with quant_logger",
        "author": {
          "@type": "Organization",
          "name": "PyTorch Contributors",

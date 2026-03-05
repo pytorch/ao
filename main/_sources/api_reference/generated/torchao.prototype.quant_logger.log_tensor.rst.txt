@@ -1,0 +1,6 @@
+﻿torchao.prototype.quant\_logger.log\_tensor
+===========================================
+
+.. currentmodule:: torchao.prototype.quant_logger
+
+.. autodata:: log_tensor

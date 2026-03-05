@@ -12,10 +12,10 @@
 <meta property="og:type" content="website" />
 <meta property="og:url" content="http://pytorch.org/api_reference/index.html" />
 <meta property="og:site_name" content="torchao" />
-<meta property="og:description" content="Comprehensive API documentation for torchao. torchao.quantization, torchao.quantization.qat, torchao.sparsity, torchao.float8, torchao.core, torchao.utils, torchao.quantization.quantize_.common." />
+<meta property="og:description" content="Comprehensive API documentation for torchao. torchao.quantization, torchao.quantization.qat, torchao.sparsity, torchao.float8, torchao.core, torchao.utils, torchao.quantization.quantize_.common, to..." />
 <meta property="og:image" content="https://pytorch.org/assets/images/social-share.jpg" />
 <meta property="og:image:alt" content="torchao" />
-<meta name="description" content="Comprehensive API documentation for torchao. torchao.quantization, torchao.quantization.qat, torchao.sparsity, torchao.float8, torchao.core, torchao.utils, torchao.quantization.quantize_.common." />
+<meta name="description" content="Comprehensive API documentation for torchao. torchao.quantization, torchao.quantization.qat, torchao.sparsity, torchao.float8, torchao.core, torchao.utils, torchao.quantization.quantize_.common, to..." />
 
     <title>API Reference &#8212; torchao main documentation</title>
   
@@ -175,7 +175,7 @@
   fbq('track', 'PageView');
 </script>
 <script>
-  document.documentElement.setAttribute('data-version', 'main (0.17.0+gitdf68b82 )');
+  document.documentElement.setAttribute('data-version', 'main (0.17.0+gitf97ec45 )');
 </script>
 <noscript>
   <img height="1" width="1" src="https://www.facebook.com/tr?id=243028289693773&ev=PageView&noscript=1" />
@@ -563,6 +563,12 @@ document.write(`
                 </a>
               </li>
             
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="api_ref_prototype_quant_logger.html">
+                  torchao.prototype.quant_logger
+                </a>
+              </li>
+            
           </ul>
         
       </li>
@@ -640,6 +646,12 @@ document.write(`
               <li class=" ">
                 <a class="nav-link dropdown-item nav-internal" href="../eager_tutorials/mxfp8_expert_parallel_training.html">
                   MXFP8 Expert Parallel Training
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../eager_tutorials/debugging_weights_and_activations.html">
+                  Debugging Weights and Activations with quant_logger
                 </a>
               </li>
             
@@ -1000,6 +1012,12 @@ document.write(`
                 </a>
               </li>
             
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="api_ref_prototype_quant_logger.html">
+                  torchao.prototype.quant_logger
+                </a>
+              </li>
+            
           </ul>
         
       </li>
@@ -1077,6 +1095,12 @@ document.write(`
               <li class=" ">
                 <a class="nav-link dropdown-item nav-internal" href="../eager_tutorials/mxfp8_expert_parallel_training.html">
                   MXFP8 Expert Parallel Training
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../eager_tutorials/debugging_weights_and_activations.html">
+                  Debugging Weights and Activations with quant_logger
                 </a>
               </li>
             
@@ -1359,6 +1383,15 @@ document.write(`
 </details></li>
 
 
+<li class="toctree-l1 has-children"><a class="reference internal" href="api_ref_prototype_quant_logger.html">torchao.prototype.quant_logger</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="generated/torchao.prototype.quant_logger.add_activation_loggers.html">add_activation_loggers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="generated/torchao.prototype.quant_logger.log_parameter_info.html">log_parameter_info</a></li>
+<li class="toctree-l2"><a class="reference internal" href="generated/torchao.prototype.quant_logger.log_tensor.html">torchao.prototype.quant_logger.log_tensor</a></li>
+<li class="toctree-l2"><a class="reference internal" href="generated/torchao.prototype.quant_logger.enable_log_stats_to_file.html">enable_log_stats_to_file</a></li>
+<li class="toctree-l2"><a class="reference internal" href="generated/torchao.prototype.quant_logger.enable_log_tensor_save_tensors_to_disk.html">enable_log_tensor_save_tensors_to_disk</a></li>
+<li class="toctree-l2"><a class="reference internal" href="generated/torchao.prototype.quant_logger.reset_counter.html">reset_counter</a></li>
+</ul>
+</details></li>
 </ul>
 </div>
 </nav></div>
@@ -1465,6 +1498,7 @@ document.write(`
 <li class="toctree-l1"><a class="reference internal" href="api_ref_utils.html">torchao.core</a></li>
 <li class="toctree-l1"><a class="reference internal" href="api_ref_utils.html#torchao-utils">torchao.utils</a></li>
 <li class="toctree-l1"><a class="reference internal" href="api_ref_utils.html#torchao-quantization-quantize-common">torchao.quantization.quantize_.common</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api_ref_prototype_quant_logger.html">torchao.prototype.quant_logger</a></li>
 </ul>
 </div>
 </section>
@@ -1800,7 +1834,7 @@ document.write(`
        "headline": "API Reference",
        "description": "PyTorch Documentation. Explore PyTorch, an open-source machine learning library that accelerates the path from research prototyping to production deployment.",
        "url": "/api_reference/index.html",
-       "articleBody": "API Reference# Created On: Mar 05, 2026 | Last Updated On: Mar 05, 2026 Comprehensive API documentation for torchao. torchao.quantization torchao.quantization.qat torchao.sparsity torchao.float8 torchao.core torchao.utils torchao.quantization.quantize_.common",
+       "articleBody": "API Reference# Created On: Mar 05, 2026 | Last Updated On: Mar 05, 2026 Comprehensive API documentation for torchao. torchao.quantization torchao.quantization.qat torchao.sparsity torchao.float8 torchao.core torchao.utils torchao.quantization.quantize_.common torchao.prototype.quant_logger",
        "author": {
          "@type": "Organization",
          "name": "PyTorch Contributors",

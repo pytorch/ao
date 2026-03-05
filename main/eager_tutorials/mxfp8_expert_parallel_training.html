@@ -68,7 +68,7 @@
     <link rel="canonical" href="https://pytorch.org/ao/eager_tutorials/mxfp8_expert_parallel_training.html" />
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Contributing" href="../contributing/index.html" />
+    <link rel="next" title="Debugging Weights and Activations with quant_logger" href="debugging_weights_and_activations.html" />
     <link rel="prev" title="Writing Your Own Quantized Tensor (advanced)" href="subclass_advanced.html" />
 
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
@@ -175,7 +175,7 @@
   fbq('track', 'PageView');
 </script>
 <script>
-  document.documentElement.setAttribute('data-version', 'main (0.17.0+gitdf68b82 )');
+  document.documentElement.setAttribute('data-version', 'main (0.17.0+gitf97ec45 )');
 </script>
 <noscript>
   <img height="1" width="1" src="https://www.facebook.com/tr?id=243028289693773&ev=PageView&noscript=1" />
@@ -563,6 +563,12 @@ document.write(`
                 </a>
               </li>
             
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../api_reference/api_ref_prototype_quant_logger.html">
+                  torchao.prototype.quant_logger
+                </a>
+              </li>
+            
           </ul>
         
       </li>
@@ -640,6 +646,12 @@ document.write(`
               <li class=" ">
                 <a class="nav-link dropdown-item nav-internal" href="#">
                   MXFP8 Expert Parallel Training
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="debugging_weights_and_activations.html">
+                  Debugging Weights and Activations with quant_logger
                 </a>
               </li>
             
@@ -1000,6 +1012,12 @@ document.write(`
                 </a>
               </li>
             
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../api_reference/api_ref_prototype_quant_logger.html">
+                  torchao.prototype.quant_logger
+                </a>
+              </li>
+            
           </ul>
         
       </li>
@@ -1077,6 +1095,12 @@ document.write(`
               <li class=" ">
                 <a class="nav-link dropdown-item nav-internal" href="#">
                   MXFP8 Expert Parallel Training
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="debugging_weights_and_activations.html">
+                  Debugging Weights and Activations with quant_logger
                 </a>
               </li>
             
@@ -1302,6 +1326,7 @@ document.write(`
 <li class="toctree-l1"><a class="reference internal" href="subclass_basic.html">Writing Your Own Quantized Tensor</a></li>
 <li class="toctree-l1"><a class="reference internal" href="subclass_advanced.html">Writing Your Own Quantized Tensor (advanced)</a></li>
 <li class="toctree-l1 current active"><a class="current reference internal" href="#">MXFP8 Expert Parallel Training</a></li>
+<li class="toctree-l1"><a class="reference internal" href="debugging_weights_and_activations.html">Debugging Weights and Activations with <cite>quant_logger</cite></a></li>
 </ul>
 </div>
 </nav></div>
@@ -2184,11 +2209,11 @@ The speedup comes from using MXFP8 for all-to-all communications:</p>
       </div>
     </a>
     <a class="right-next"
-       href="../contributing/index.html"
+       href="debugging_weights_and_activations.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Contributing</p>
+        <p class="prev-next-title">Debugging Weights and Activations with <cite>quant_logger</cite></p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -2223,11 +2248,11 @@ The speedup comes from using MXFP8 for all-to-all communications:</p>
       </div>
     </a>
     <a class="right-next"
-       href="../contributing/index.html"
+       href="debugging_weights_and_activations.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Contributing</p>
+        <p class="prev-next-title">Debugging Weights and Activations with <cite>quant_logger</cite></p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
