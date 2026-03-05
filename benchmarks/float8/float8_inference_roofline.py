@@ -581,6 +581,7 @@ def run(
             M, K, N, torch.float8_e4m3fn, gemm_recipe_name
         )
     print("bf16_gemm_time_sympy", bf16_gemm_time_sympy)
+    print("bf16_ovhd_time_sympy", bf16_ovhd_time_sympy)
     print("fp8_gemm_time_sympy", fp8_gemm_time_sympy)
     print("fp8_ovhd_time_sympy", fp8_ovhd_time_sympy)
     print()
