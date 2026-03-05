@@ -4,7 +4,14 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
-"""Tests for FP8 low-precision attention (FA3 backend)."""
+"""
+Tests for FP8 low-precision attention (FA3 and FA4 backends).
+
+Tests are parametrized over available backends. On Hopper (SM 9.x) with
+flash-attn installed, FA3 tests run. On Hopper or Blackwell (SM 10.x)
+with flash_attn.cute.interface installed, FA4 tests run. Backends that
+are not available on the current hardware are automatically skipped.
+"""
 
 import unittest
 from dataclasses import dataclass
@@ -36,7 +43,9 @@ from torchao.prototype.attention import (
     apply_low_precision_attention,
 )
 from torchao.prototype.attention.utils import (
+    _is_blackwell,
     _is_fa3_available,
+    _is_fa4_available,
     _is_hopper,
 )
 
@@ -46,10 +55,10 @@ class BackendConfig:
     """Configuration for a single backend under test."""
 
     name: str
-    flash_impl: str  # "FA3"
+    flash_impl: str  # "FA3" or "FA4"
     attention_backend: AttentionBackend
     sdpa_fn: Callable  # fp8_fa3_sdpa
-    rope_sdpa_fn: Callable  # fp8_fa3_rope_sdpa
+    rope_sdpa_fn: Callable  # fp8_fa3_rope_sdpa, or None if not yet available
     available_eager: bool  # Can run direct sdpa calls
     available_compiled: bool  # Can run via apply_low_precision_attention
     skip_msg: str
@@ -76,7 +85,6 @@ def _build_backend_configs() -> List[BackendConfig]:
     """Build backend configs, lazily importing functions only when available."""
     configs = []
 
-    # FA3: Hopper only
     fa3_available = (
         _TORCH_VERSION_AT_LEAST_2_11 and _is_hopper() and _is_fa3_available()
     )
@@ -104,6 +112,37 @@ def _build_backend_configs() -> List[BackendConfig]:
             skip_msg=(
                 "FP8 FA3 requires Hopper (SM 9.x), flash-attn installed, "
                 "and PyTorch with FA3 activation APIs"
+            ),
+        )
+    )
+
+    fa4_available = (
+        _TORCH_VERSION_AT_LEAST_2_11
+        and (_is_hopper() or _is_blackwell())
+        and _is_fa4_available()
+    )
+    if fa4_available:
+        from torchao.prototype.attention.fp8_fa4.attention import fp8_fa4_sdpa
+
+        sdpa_fn = fp8_fa4_sdpa
+        eager_ok = _probe_eager_quantized_sdpa(sdpa_fn, "FA4")
+    else:
+        sdpa_fn = None
+        eager_ok = False
+
+    configs.append(
+        BackendConfig(
+            name="FA4",
+            flash_impl="FA4",
+            attention_backend=AttentionBackend.FP8_FA4,
+            sdpa_fn=sdpa_fn,
+            rope_sdpa_fn=None,  # FA4 rope not yet available
+            available_eager=eager_ok,
+            available_compiled=eager_ok,
+            skip_msg=(
+                "FP8 FA4 requires Hopper (SM 9.x) or Blackwell (SM 10.x), "
+                "flash-attn with FA4 support installed, "
+                "and PyTorch with flash activation APIs"
             ),
         )
     )
@@ -261,6 +300,8 @@ class TestFP8RopeSDPANumericalAccuracy(TestCase):
             )
 
         for backend in _EAGER_BACKENDS:
+            if backend.rope_sdpa_fn is None:
+                continue  # Backend doesn't support fused RoPE yet
             self._activate(backend)
             with torch.no_grad():
                 out_fp8 = backend.rope_sdpa_fn(q, k, v, cos, sin, is_causal=False)

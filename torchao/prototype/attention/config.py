@@ -13,6 +13,7 @@ class AttentionBackend(str, Enum):
     """Backend kernel for computing attention."""
 
     FP8_FA3 = "FP8_FA3"  # Requires SM90+ (Hopper)
+    FP8_FA4 = "FP8_FA4"  # Requires SM90+ (Hopper) or SM100+ (Blackwell)
 
 
 @dataclass
