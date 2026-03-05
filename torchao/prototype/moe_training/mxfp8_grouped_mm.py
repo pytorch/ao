@@ -39,6 +39,7 @@ from torchao.quantization.quantize_.common import KernelPreference
 
 logger: logging.Logger = logging.getLogger(__name__)
 
+
 # Check if SM100 kernels are available
 # All SM100-dependent kernels are guarded at their definition sites
 _SM100_KERNELS_AVAILABLE = (
@@ -134,14 +135,8 @@ class _MXFP8GroupedMM(torch.autograd.Function):
         assert kernel_preference in (
             KernelPreference.AUTO,
             KernelPreference.EMULATED,
-        ), "kernel_preference must be AUTO or EMULATED"
-
-        # emulated mode validation
-        emulated = kernel_preference == KernelPreference.EMULATED
-        assert emulated or _SM100_KERNELS_AVAILABLE, (
-            "SM100 kernels not available. Please use use torchao CUDA 12.8+ build on SM100/100a device(s). "
-            "Otherwise, set kernel_preference=KernelPreference.EMULATED (emulated mode implements basic functionality without efficient kernels)."
-        )
+            KernelPreference.TE,
+        ), "kernel_preference must be AUTO, EMULATED, or TE"
 
         # Input validation
         assert input_act.ndim == 2, "input_act must be 2D"
@@ -154,6 +149,27 @@ class _MXFP8GroupedMM(torch.autograd.Function):
             torch.bfloat16,
             torch.float32,
         ), "out_dtype must be bfloat16 or float32"
+
+        # TE path: delegate to TransformerEngine custom ops
+        if kernel_preference == KernelPreference.TE:
+            from torchao.prototype.moe_training.te_grouped_mm import te_gemm_fwd
+
+            output = te_gemm_fwd(input_act, weight_t, group_offsets, out_dtype, True)
+            ctx.save_for_backward(input_act, weight_t, group_offsets)
+            ctx.block_size = block_size
+            ctx.out_dtype = out_dtype
+            ctx.kernel_preference = kernel_preference
+            ctx.wgrad_with_hp = wgrad_with_hp
+            ctx.scale_calculation_mode = scale_calculation_mode
+            return output
+
+        # emulated mode validation
+        emulated = kernel_preference == KernelPreference.EMULATED
+        assert emulated or _SM100_KERNELS_AVAILABLE, (
+            "SM100 kernels not available. Please use use torchao CUDA 12.8+ build on SM100/100a device(s). "
+            "Otherwise, set kernel_preference=KernelPreference.EMULATED (emulated mode implements basic functionality without efficient kernels)."
+        )
+
         if isinstance(input_act, MXTensor):
             assert wgrad_with_hp, (
                 "only `wgrad_with_hp` recipe is supported for pre-quantized inputs, support for other recipes is still in progress"
@@ -238,9 +254,10 @@ class _MXFP8GroupedMM(torch.autograd.Function):
         wgrad_with_hp = ctx.wgrad_with_hp
         scale_calculation_mode = ctx.scale_calculation_mode
 
-        # Check SM100 kernel availability when not using emulated mode
+        # Check SM100 kernel availability when not using emulated or TE mode
         emulated = kernel_preference == KernelPreference.EMULATED
-        assert emulated or _SM100_KERNELS_AVAILABLE, (
+        te_mode = kernel_preference == KernelPreference.TE
+        assert emulated or te_mode or _SM100_KERNELS_AVAILABLE, (
             "SM100 kernels not available. Please use use torchao CUDA 12.8+ build on SM100/100a device(s)."
             "Otherwise, set kernel_preference=KernelPreference.EMULATED (emulated mode implements basic functionality without efficient kernels)."
         )
@@ -294,6 +311,12 @@ def _compute_dgrad(
     Returns:
         grad_input, shape (M, K)
     """
+    # TE path: delegate to TransformerEngine custom op
+    if kernel_preference == KernelPreference.TE:
+        from torchao.prototype.moe_training.te_grouped_mm import te_gemm_dgrad
+
+        return te_gemm_dgrad(grad_output, weight_t, group_offsets, out_dtype, True)
+
     # Quantize grad_output along dim0
     # grad_output_data shape: (M, N)
     # grad_output_scales shape: (M, N//block_size)
@@ -375,6 +398,12 @@ def _compute_wgrad(
     Returns:
         grad_weight_t, shape (E, K, N)
     """
+    # TE path: delegate to TransformerEngine custom op
+    if kernel_preference == KernelPreference.TE:
+        from torchao.prototype.moe_training.te_grouped_mm import te_gemm_wgrad
+
+        return te_gemm_wgrad(input_act, grad_output, group_offsets, out_dtype, True)
+
     # Dequantize if needed
     grad_output = _dequantize_if_mxtensor(grad_output, block_size)
     input_act = _dequantize_if_mxtensor(input_act, block_size)

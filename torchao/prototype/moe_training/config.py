@@ -31,6 +31,7 @@ class MXFP8TrainingRecipe(Enum):
     MXFP8_RCEIL = "mxfp8_rceil"
     MXFP8_RCEIL_WGRAD_WITH_HP = "mxfp8_rceil_wgrad_with_hp"
     MXFP8_EMULATED_RCEIL = "mxfp8_emulated_rceil"
+    MXFP8_TE = "mxfp8_te"
 
 
 class TrainingOpBaseConfig(AOBaseConfig):
@@ -125,6 +126,13 @@ class MXFP8TrainingOpConfig(TrainingOpBaseConfig):
         elif recipe == MXFP8TrainingRecipe.MXFP8_EMULATED_RCEIL:
             return cls(
                 kernel_preference=KernelPreference.EMULATED,
+                out_dtype=torch.bfloat16,
+                wgrad_with_hp=False,
+                scale_calculation_mode=ScaleCalculationMode.RCEIL,
+            )
+        elif recipe == MXFP8TrainingRecipe.MXFP8_TE:
+            return cls(
+                kernel_preference=KernelPreference.TE,
                 out_dtype=torch.bfloat16,
                 wgrad_with_hp=False,
                 scale_calculation_mode=ScaleCalculationMode.RCEIL,
