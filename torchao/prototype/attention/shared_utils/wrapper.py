@@ -7,15 +7,9 @@
 """
 Wrapper classes for low-precision attention modules.
 
-Class hierarchy::
-
-    _LowPrecisionAttentionWrapper          (base: orig_mod proxy, isinstance target)
-    ├── _FP8FlashAttentionCompiledWrapper   (compile path: @dynamo.disable, flash activation)
-    └── _FP8FlashAttentionMonkeyPatchWrapper (monkey-patch path: SDPA swap, flash activation)
-
-The base class is intentionally minimal — it handles ``_orig_mod``
-registration and attribute proxying.  Backend-specific concerns (flash
-activation, SDPA monkey-patching, dynamo guards) live in subclasses.
+_LowPrecisionAttentionWrapper          (base: orig_mod proxy, isinstance target)
+├── _FP8FlashAttentionCompiledWrapper   (compile path: @dynamo.disable, flash activation)
+└── _FP8FlashAttentionMonkeyPatchWrapper (monkey-patch path: SDPA swap, flash activation)
 """
 
 from typing import Callable
@@ -24,74 +18,31 @@ import torch
 import torch._dynamo
 import torch.nn as nn
 import torch.nn.functional as F
-
-from torchao.utils import torch_version_at_least
-
-_TORCH_VERSION_AT_LEAST_2_11 = torch_version_at_least("2.11.0")
-
-if _TORCH_VERSION_AT_LEAST_2_11:
-    from torch.nn.attention import (
-        activate_flash_attention_impl,
-        restore_flash_attention_impl,
-    )
-
-_MIN_VERSION_ERROR = (
-    "Low-precision attention requires PyTorch 2.11+. "
-    "Please update your PyTorch version."
+from torch.nn.attention import (
+    activate_flash_attention_impl,
+    restore_flash_attention_impl,
 )
 
 
-def _check_min_torch_version():
-    if not _TORCH_VERSION_AT_LEAST_2_11:
-        raise RuntimeError(_MIN_VERSION_ERROR)
-
-
-# ============================================================================
-# Base wrapper
-# ============================================================================
-
-
 class _LowPrecisionAttentionWrapper(nn.Module):
-    """Base wrapper for low-precision attention modules.
-
-    Registers ``_orig_mod`` as a submodule so that ``to()``, ``cuda()``,
-    ``eval()``, ``parameters()``, etc. propagate correctly through the
-    standard ``nn.Module`` machinery.  Proxies attribute access to the
-    original module so model-specific attributes (e.g., ``config``)
-    remain accessible.
-
-    This class is the ``isinstance`` check target used by
-    ``apply_low_precision_attention`` to guard against double-wrapping.
-    Subclasses implement ``forward`` with backend-specific logic.
-    """
+    """Base wrapper. Proxies attribute access to the original module."""
 
     def __init__(self, orig_mod: nn.Module):
         super().__init__()
         self._orig_mod = orig_mod
 
     def __getattr__(self, name: str):
-        # nn.Module.__getattr__ checks _parameters, _buffers, _modules.
-        # If the attribute is not found there, proxy to the original module.
         try:
             return super().__getattr__(name)
         except AttributeError:
             return getattr(self._orig_mod, name)
 
 
-# ============================================================================
-# FP8 Flash Attention wrappers
-# ============================================================================
-
-
 class _FP8FlashAttentionCompiledWrapper(_LowPrecisionAttentionWrapper):
-    """Wrapper for the compile path (``fuse_rope_using_torch_compile=True``).
+    """Compile path wrapper (``fuse_rope_using_torch_compile=True``).
 
-    The inner module has already been compiled with a custom Inductor
-    backend (the FP8 fusion pass).  ``@torch._dynamo.disable`` on
-    ``forward`` prevents an outer ``torch.compile`` from re-tracing the
-    internally-compiled graph.
-
-    Flash attention is activated/restored around each forward call.
+    @torch._dynamo.disable prevents an outer torch.compile from re-tracing
+    the internally-compiled graph.
     """
 
     def __init__(
@@ -100,10 +51,8 @@ class _FP8FlashAttentionCompiledWrapper(_LowPrecisionAttentionWrapper):
         orig_mod: nn.Module,
         flash_impl_name: str,
     ):
-        _check_min_torch_version()
         super().__init__(orig_mod)
-        # Stored outside _modules to avoid double-counting parameters
-        # (the compiled module wraps the same _orig_mod).
+        # Stored outside _modules to avoid double-counting parameters.
         object.__setattr__(self, "_compiled_mod", compiled_mod)
         object.__setattr__(self, "_flash_impl_name", flash_impl_name)
 
@@ -120,14 +69,10 @@ class _FP8FlashAttentionCompiledWrapper(_LowPrecisionAttentionWrapper):
 
 
 class _FP8FlashAttentionMonkeyPatchWrapper(_LowPrecisionAttentionWrapper):
-    """Wrapper for the monkey-patch path (``fuse_rope_using_torch_compile=False``).
+    """Monkey-patch path wrapper (``fuse_rope_using_torch_compile=False``).
 
     Replaces ``F.scaled_dot_product_attention`` with the FP8 backend
-    function for the duration of each forward call.  The inner module
-    is the original (uncompiled) model — the user may later call
-    ``torch.compile`` on this wrapper or a parent module.
-
-    Flash attention is activated/restored around each forward call.
+    for the duration of each forward call.
     """
 
     def __init__(
@@ -136,7 +81,6 @@ class _FP8FlashAttentionMonkeyPatchWrapper(_LowPrecisionAttentionWrapper):
         flash_impl_name: str,
         sdpa_patch_fn: Callable,
     ):
-        _check_min_torch_version()
         super().__init__(orig_mod)
         object.__setattr__(self, "_flash_impl_name", flash_impl_name)
         object.__setattr__(self, "_sdpa_patch_fn", sdpa_patch_fn)
@@ -158,26 +102,11 @@ class _FP8FlashAttentionMonkeyPatchWrapper(_LowPrecisionAttentionWrapper):
             restore_flash_attention_impl()
 
 
-# ============================================================================
-# Causal mask stripping helper
-# ============================================================================
-
-
 def _make_causal_aware_sdpa(fp8_sdpa_fn: Callable, strip_causal_mask: bool) -> Callable:
     """Wrap an FP8 SDPA function to strip materialized causal masks.
 
-    HuggingFace models (e.g. LLaMA) pass a materialized lower-triangular
-    boolean ``attn_mask`` to ``F.scaled_dot_product_attention`` with
-    ``is_causal=False``.  The FP8 SDPA functions don't support
-    ``attn_mask``.
-
-    When ``strip_causal_mask`` is ``True`` (determined once at setup time
-    by ``detect_causal_mask``), the wrapper unconditionally strips any
-    ``attn_mask`` and sets ``is_causal=True``.  This is zero-cost at
-    runtime — no per-call tensor inspection.
-
-    When ``strip_causal_mask`` is ``False``, the mask is passed through
-    unchanged (and the FP8 function will raise if it receives one).
+    When ``strip_causal_mask=True``, unconditionally strips any attn_mask
+    and sets ``is_causal=True``. This is zero-cost at runtime.
     """
     if strip_causal_mask:
 
