@@ -78,12 +78,14 @@ def apply_low_precision_attention(
 
     if backend == AttentionBackend.FP8_FA4:
         from torchao.prototype.attention.fp8_fa4.attention import fp8_fa4_sdpa
+        from torchao.prototype.attention.fp8_fa4.fusion_pass import make_fp8_backend
 
         return setup_fp8_backend(
             model,
             config,
             flash_impl_name="FA4",
             sdpa_fn=fp8_fa4_sdpa,
+            backend_fn=make_fp8_backend,
         )
 
     raise ValueError(f"Unknown backend: {backend}")
