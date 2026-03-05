@@ -289,7 +289,9 @@ def test_mxfp8_grouped_gemm_from_qdata_and_scales_matches_dynamic():
     F.mse_loss(out_ref, labels).backward()
     F.mse_loss(out, labels).backward()
 
-    assert x.grad is None, "MXTensor inputs are not connected back to the source HP tensor"
+    assert x.grad is None, (
+        "MXTensor inputs are not connected back to the source HP tensor"
+    )
 
     weight_grad_sqnr = compute_error(w_t_ref.grad, w_t.grad)
     # MXTensor inputs dequantize for the `wgrad_with_hp` path, so the weight
