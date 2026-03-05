@@ -24,7 +24,6 @@ from torch.testing._internal.common_utils import TestCase
 from torch.testing._internal.inductor_utils import clone_preserve_strides_offset
 
 import torchao
-import torchao.quantization.pt2e.quantizer.x86_inductor_quantizer as xiq
 from torchao.quantization.pt2e import FROM_NODE_KEY
 from torchao.quantization.pt2e._numeric_debugger import _extract_node_source_debug_info
 from torchao.quantization.pt2e.graph_utils import bfs_trace_with_node_process
@@ -32,9 +31,6 @@ from torchao.quantization.pt2e.quantize_pt2e import (
     convert_pt2e,
     prepare_pt2e,
     prepare_qat_pt2e,
-)
-from torchao.quantization.pt2e.quantizer.x86_inductor_quantizer import (
-    X86InductorQuantizer,
 )
 from torchao.utils import torch_version_at_least
 
@@ -226,6 +222,11 @@ def get_default_x86_quantizer(is_qat, is_dynamic):
     """
     Create a default X86InductorQuantizer configured for the given mode (QAT and dynamic quant).
     """
+    import torchao.quantization.pt2e.quantizer.x86_inductor_quantizer as xiq
+    from torchao.quantization.pt2e.quantizer.x86_inductor_quantizer import (
+        X86InductorQuantizer,
+    )
+
     quantizer = X86InductorQuantizer()
     quantizer.set_global(
         xiq.get_default_x86_inductor_quantization_config(
