@@ -214,9 +214,7 @@ class _Float8GroupedMM(torch.autograd.Function):
         # needed for grad_B: grad_output_t @ A
         # Use transpose method to avoid uncoalesced memory accesses.
         grad_out_data_colwise, grad_out_scales = triton_fp8_per_group_colwise_scales(
-            grad_output.t()
-            .contiguous()
-            .t(),  # Quantization is over 2x faster when input is col major, even with this transformation
+            grad_output,
             offs,
             float8_dtype,
             round_scales_to_power_of_2=True,
@@ -225,9 +223,7 @@ class _Float8GroupedMM(torch.autograd.Function):
         grad_output_t_scales = grad_out_scales.t()
 
         A_data_col_major, A_scales = triton_fp8_per_group_colwise_scales(
-            A.t()
-            .contiguous()
-            .t(),  # Quantization is over 2x faster when input is col major, even with this transformation
+            A,
             offs,
             float8_dtype,
             round_scales_to_power_of_2=True,

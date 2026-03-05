@@ -12,6 +12,7 @@
 #include <stddef.h>
 #include <torchao/csrc/cpu/torch_free_kernels/aarch64/linear/channelwise_8bit_activation_groupwise_lowbit_weight/pack_activations.h>
 #include <torchao/csrc/cpu/torch_free_kernels/aarch64/linear/channelwise_8bit_activation_groupwise_lowbit_weight/pack_weights.h>
+#include <torchao/csrc/cpu/torch_free_kernels/weight_packing/weight_packing.h>
 
 #include <torchao/csrc/cpu/torch_free_kernels/aarch64/linear/channelwise_8bit_activation_groupwise_lowbit_weight/kernel_1x1x32_f32_neondot-impl.h>
 #include <torchao/csrc/cpu/torch_free_kernels/aarch64/linear/channelwise_8bit_activation_groupwise_lowbit_weight/kernel_1x4x16_f32_neondot-impl.h>
@@ -65,65 +66,6 @@ void pack_activations(
   (void)sr; // unused
   activation_packing::pack_activations<mr_, kr_, sr_>(
       packed_activations, m, k, group_size, activations, has_weight_zeros);
-}
-
-inline size_t packed_weights_size(
-    int n,
-    int k,
-    int group_size,
-    int weight_nbit,
-    bool has_weight_zeros,
-    bool has_bias,
-    int nr,
-    int kr,
-    int sr) {
-  (void)kr; // unused
-  (void)sr; // unused
-  return weight_packing::packed_weights_size(
-      n, k, group_size, weight_nbit, has_weight_zeros, has_bias, nr);
-}
-
-inline size_t packed_weights_offset(
-    int n_idx,
-    int k,
-    int group_size,
-    int weight_nbit,
-    bool has_weight_zeros,
-    bool has_bias,
-    int nr,
-    int kr,
-    int sr) {
-  assert(n_idx % nr == 0);
-  auto packed_weights_size_nr_cols = packed_weights_size(
-      nr, k, group_size, weight_nbit, has_weight_zeros, has_bias, nr, kr, sr);
-  return (n_idx / nr) * packed_weights_size_nr_cols;
-}
-
-template <int weight_nbit, int nr_, int kr_, int sr_>
-void pack_weights(
-    void* packed_weights,
-    int n,
-    int k,
-    int group_size,
-    const int8_t* weight_qvals,
-    const float* weight_scales,
-    const int8_t* weight_zeros,
-    const float* bias,
-    int nr,
-    int kr,
-    int sr) {
-  (void)nr; // unused
-  (void)kr; // unused
-  (void)sr; // unused
-  weight_packing::pack_weights<weight_nbit, nr_, kr_, sr_>(
-      packed_weights,
-      n,
-      k,
-      group_size,
-      weight_qvals,
-      weight_scales,
-      weight_zeros,
-      bias);
 }
 
 template <int weight_nbit, int nr_, int kr_, int sr_>
