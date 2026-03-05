@@ -4,13 +4,7 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
-"""
-Tests for FP8 low-precision attention (FA3 backend).
-
-Tests are gated on Hopper (SM 9.x) with flash-attn installed.
-When the backend is not available on the current hardware, tests are
-automatically skipped.
-"""
+"""Tests for FP8 low-precision attention."""
 
 import unittest
 from dataclasses import dataclass
@@ -47,9 +41,6 @@ from torchao.prototype.attention.utils import (
 )
 
 
-# ---------------------------------------------------------------------------
-# Backend configuration
-# ---------------------------------------------------------------------------
 @dataclass
 class BackendConfig:
     """Configuration for a single backend under test."""
@@ -64,11 +55,7 @@ class BackendConfig:
 
 
 def _probe_eager_quantized_sdpa(sdpa_fn, flash_impl: str) -> bool:
-    """Try a tiny quantized SDPA call to verify the backend works in eager mode.
-
-    FA3 uses _scaled_dot_product_attention_quantized internally,
-    which requires FA3 activation. This probe catches mismatches.
-    """
+    """Try a tiny quantized SDPA call to verify the backend works."""
     try:
         activate_flash_attention_impl(flash_impl)
         try:
@@ -131,9 +118,6 @@ if _ANY_EAGER_AVAILABLE or _ANY_COMPILED_AVAILABLE:
     from torchao.quantization.utils import compute_error
 
 
-# ---------------------------------------------------------------------------
-# Simple model for API-level tests
-# ---------------------------------------------------------------------------
 class SimpleAttentionModel(nn.Module):
     """A minimal model that calls F.scaled_dot_product_attention."""
 
@@ -156,9 +140,6 @@ class SimpleAttentionModel(nn.Module):
         return self.out_proj(attn_out)
 
 
-# ---------------------------------------------------------------------------
-# Numerical accuracy tests
-# ---------------------------------------------------------------------------
 @common_utils.instantiate_parametrized_tests
 class TestFP8SDPANumericalAccuracy(TestCase):
     """SQNR-based numerical accuracy tests for FP8 SDPA."""
@@ -209,9 +190,6 @@ class TestFP8SDPANumericalAccuracy(TestCase):
             )
 
 
-# ---------------------------------------------------------------------------
-# API-level model tests
-# ---------------------------------------------------------------------------
 @common_utils.instantiate_parametrized_tests
 class TestFP8ModelAPI(TestCase):
     """API-level tests using apply_low_precision_attention on a model."""
@@ -232,8 +210,6 @@ class TestFP8ModelAPI(TestCase):
             out_ref = model(x)
 
         for backend in _COMPILED_BACKENDS:
-            # Need a fresh model for each backend since
-            # apply_low_precision_attention modifies the model.
             test_model = SimpleAttentionModel(embed_dim, num_heads).to(
                 device="cuda", dtype=dtype
             )

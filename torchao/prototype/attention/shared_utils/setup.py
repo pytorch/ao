@@ -4,16 +4,7 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
-"""
-Shared backend setup logic for low-precision attention.
-
-Provides ``setup_fp8_backend``, the parameterized core of every
-backend-specific setup function (e.g., ``setup_fp8_fa3``).
-
-Currently supports the monkey-patch path (``fuse_rope_using_torch_compile=False``), which wraps
-the model so that ``F.scaled_dot_product_attention`` is replaced with
-the FP8 backend at call time.  No ``torch.compile`` needed.
-"""
+"""Shared backend setup logic for low-precision attention."""
 
 import logging
 from typing import Callable
@@ -35,18 +26,8 @@ from torchao.prototype.attention.shared_utils.wrapper import (
 logger = logging.getLogger(__name__)
 
 
-# ============================================================================
-# Causal mask detection (pre-flight probe)
-# ============================================================================
-
-
 def _is_lower_triangular_bool_mask(mask: torch.Tensor) -> bool:
-    """Check if a real tensor is a bool, square lower-triangular (causal) mask.
-
-    Compares the mask against ``torch.tril(torch.ones(...))``.  Returns
-    ``True`` only when the mask is boolean, the last two dimensions are
-    square, and every element matches the canonical causal pattern.
-    """
+    """Check if a tensor is a bool, square lower-triangular (causal) mask."""
     if mask.dtype != torch.bool:
         return False
 
@@ -59,7 +40,6 @@ def _is_lower_triangular_bool_mask(mask: torch.Tensor) -> bool:
 
     # Build reference causal mask on the same device / shape and compare.
     ref = torch.tril(torch.ones(q_len, kv_len, dtype=torch.bool, device=mask.device))
-    # Broadcast: mask may be [B, 1, Q, KV] or [B, H, Q, KV]; ref is [Q, KV].
     return torch.equal(mask.broadcast_to(mask.shape), ref.expand_as(mask))
 
 
@@ -68,40 +48,12 @@ def detect_causal_mask(
     sample_input_ids=None,
     flash_impl_name: str | None = None,
 ) -> bool:
-    """Run one forward pass to detect whether the model uses causal masks.
-
-    This pre-flight check monkey-patches ``F.scaled_dot_product_attention``
-    to inspect every ``attn_mask`` argument.  It returns ``True`` when
-    either of the following holds for **every** SDPA call during the
-    forward pass:
-
-    1. The call carries a materialized lower-triangular boolean causal
-       mask (i.e. safe to strip and replace with ``is_causal=True``), or
-    2. The call already uses ``is_causal=True`` with no mask tensor.
-
-    Args:
-        model: The model to probe.  Must expose ``model.config.vocab_size``
-            for automatic dummy-input generation.
-        sample_input_ids: Optional ``[B, S]`` int tensor of input IDs.
-            If ``None``, a ``[1, 16]`` tensor of random token IDs is
-            created automatically.
-        flash_impl_name: Flash attention implementation to activate during
-            the probe forward pass (e.g. ``"FA3"``).  Required
-            on hardware where the default SDPA backend may not support the
-            model.
-
-    Returns:
-        ``True`` if every SDPA call used causal attention (safe to strip
-        masks that appear during compilation), ``False`` otherwise
-        (conservatively disables mask stripping).
-    """
-    # Resolve device from model parameters.
+    """Run one forward pass to detect whether the model uses causal masks."""
     try:
         device = next(model.parameters()).device
     except StopIteration:
         return False
 
-    # Build dummy input_ids if not provided.
     if sample_input_ids is None:
         vocab_size = getattr(getattr(model, "config", None), "vocab_size", None)
         if vocab_size is None:
@@ -116,16 +68,12 @@ def detect_causal_mask(
     def _hook(*args, **kwargs):
         nonlocal saw_any_sdpa
         saw_any_sdpa = True
-        # Extract attn_mask (positional arg 3 or kwarg).
         attn_mask = args[3] if len(args) > 3 else kwargs.get("attn_mask", None)
         is_causal = kwargs.get("is_causal", False) if len(args) <= 5 else args[5]
 
         if attn_mask is not None and not is_causal:
             all_causal.append(_is_lower_triangular_bool_mask(attn_mask))
         elif attn_mask is None and is_causal:
-            # The framework skipped mask materialization and used
-            # is_causal=True directly.  This is equivalent to a causal
-            # mask and is safe to strip during compilation.
             all_causal.append(True)
 
         return original_sdpa(*args, **kwargs)
@@ -145,15 +93,9 @@ def detect_causal_mask(
             restore_flash_attention_impl()
 
     if not saw_any_sdpa:
-        # No SDPA calls observed at all.
         return False
 
     return all(all_causal)
-
-
-# ============================================================================
-# Backend setup
-# ============================================================================
 
 
 def setup_fp8_backend(
@@ -162,18 +104,7 @@ def setup_fp8_backend(
     flash_impl_name: str,
     sdpa_fn: Callable,
 ) -> nn.Module:
-    """Set up FP8 attention on *model* and wrap it.
-
-    Args:
-        model: The model to wrap.
-        config: Low-precision attention configuration.
-        flash_impl_name: Flash implementation name (e.g. ``"FA3"``).
-        sdpa_fn: The backend-specific FP8 SDPA function (e.g.
-            ``fp8_fa3_sdpa``).  Used for the monkey-patch path.
-
-    Returns:
-        A wrapped module with low-precision FP8 attention applied.
-    """
+    """Set up FP8 attention on *model* and wrap it."""
     if config.hadamard_mode == "qkv":
         raise NotImplementedError(
             "FP8 attention with Hadamard on QKV is not yet implemented."

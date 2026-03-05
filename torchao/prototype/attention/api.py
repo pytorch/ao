@@ -4,13 +4,7 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
-"""
-User-facing API for low-precision attention.
-
-This module is the backend-agnostic entry point.  It validates inputs,
-resolves the backend, and dispatches to the appropriate backend-specific
-setup function (e.g., ``fp8_fa3.setup.setup_fp8_fa3``).
-"""
+"""User-facing API for low-precision attention."""
 
 from typing import Optional
 
@@ -35,52 +29,18 @@ def apply_low_precision_attention(
     model: nn.Module,
     config: Optional[LowPrecisionAttentionConfig] = None,
 ) -> nn.Module:
+    """Apply low-precision attention to a model.
+
+    Resolves the backend and wraps the model so that attention backend
+    activation is managed internally.
     """
-    Apply low-precision attention to a model.
-
-    Resolves the requested backend and delegates to the backend-specific
-    setup function.  The returned wrapper manages attention backend
-    activation internally — callers do **not** need to call
-    ``activate_flash_attention_impl`` / ``restore_flash_attention_impl``.
-
-    See ``LowPrecisionAttentionConfig`` for the available configuration
-    options and their effects (e.g., ``fuse_rope_using_torch_compile``).
-
-    Args:
-        model: The model to apply low-precision attention to.
-            Must not already be compiled with ``torch.compile``.
-            KV caching should be disabled before calling this function
-            (e.g., ``config.use_cache = False`` for HuggingFace models).
-        config: Configuration for low-precision attention.
-            If None, uses default config (auto backend selection).
-
-    Returns:
-        A wrapped module with low-precision attention applied.
-
-    Raises:
-        RuntimeError: If the model is already compiled or already
-            wrapped.
-
-    Example::
-
-        from torchao.prototype.attention import apply_low_precision_attention
-
-        model = MyTransformer()
-        model = apply_low_precision_attention(model)
-        output = model(inputs)  # flash activation managed internally
-    """
-    # Guard: already wrapped.
     if isinstance(model, _LowPrecisionAttentionWrapper):
-        raise RuntimeError(
-            "apply_low_precision_attention has already been applied to this module."
-        )
+        raise RuntimeError("Model already has low-precision attention applied.")
 
-    # Guard: already compiled.
     if isinstance(model, torch._dynamo.OptimizedModule):
         raise RuntimeError(
-            "The module is already compiled with torch.compile. "
-            "apply_low_precision_attention must be called on the "
-            "original (uncompiled) module, before torch.compile."
+            "Module is already compiled. "
+            "Call apply_low_precision_attention before torch.compile."
         )
 
     if config is None:

@@ -4,18 +4,7 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
-"""
-Wrapper classes for low-precision attention modules.
-
-Class hierarchy::
-
-    _LowPrecisionAttentionWrapper          (base: orig_mod proxy, isinstance target)
-    └── _FP8FlashAttentionMonkeyPatchWrapper (monkey-patch path: SDPA swap, flash activation)
-
-The base class is intentionally minimal — it handles ``_orig_mod``
-registration and attribute proxying.  Backend-specific concerns (flash
-activation, SDPA monkey-patching) live in subclasses.
-"""
+"""Wrapper classes for low-precision attention modules."""
 
 from typing import Callable
 
@@ -43,53 +32,22 @@ def _check_min_torch_version():
         raise RuntimeError(_MIN_VERSION_ERROR)
 
 
-# ============================================================================
-# Base wrapper
-# ============================================================================
-
-
 class _LowPrecisionAttentionWrapper(nn.Module):
-    """Base wrapper for low-precision attention modules.
-
-    Registers ``_orig_mod`` as a submodule so that ``to()``, ``cuda()``,
-    ``eval()``, ``parameters()``, etc. propagate correctly through the
-    standard ``nn.Module`` machinery.  Proxies attribute access to the
-    original module so model-specific attributes (e.g., ``config``)
-    remain accessible.
-
-    This class is the ``isinstance`` check target used by
-    ``apply_low_precision_attention`` to guard against double-wrapping.
-    Subclasses implement ``forward`` with backend-specific logic.
-    """
+    """Base wrapper that registers ``_orig_mod`` and proxies attribute access."""
 
     def __init__(self, orig_mod: nn.Module):
         super().__init__()
         self._orig_mod = orig_mod
 
     def __getattr__(self, name: str):
-        # nn.Module.__getattr__ checks _parameters, _buffers, _modules.
-        # If the attribute is not found there, proxy to the original module.
         try:
             return super().__getattr__(name)
         except AttributeError:
             return getattr(self._orig_mod, name)
 
 
-# ============================================================================
-# FP8 Flash Attention wrapper (monkey-patch path)
-# ============================================================================
-
-
 class _FP8FlashAttentionMonkeyPatchWrapper(_LowPrecisionAttentionWrapper):
-    """Wrapper for the monkey-patch path (``fuse_rope_using_torch_compile=False``).
-
-    Replaces ``F.scaled_dot_product_attention`` with the FP8 backend
-    function for the duration of each forward call.  The inner module
-    is the original (uncompiled) model — the user may later call
-    ``torch.compile`` on this wrapper or a parent module.
-
-    Flash attention is activated/restored around each forward call.
-    """
+    """Monkey-patch wrapper that swaps SDPA with FP8 backend during forward."""
 
     def __init__(
         self,
@@ -119,26 +77,11 @@ class _FP8FlashAttentionMonkeyPatchWrapper(_LowPrecisionAttentionWrapper):
             restore_flash_attention_impl()
 
 
-# ============================================================================
-# Causal mask stripping helper
-# ============================================================================
-
-
 def _make_causal_aware_sdpa(fp8_sdpa_fn: Callable, strip_causal_mask: bool) -> Callable:
     """Wrap an FP8 SDPA function to strip materialized causal masks.
 
-    HuggingFace models (e.g. LLaMA) pass a materialized lower-triangular
-    boolean ``attn_mask`` to ``F.scaled_dot_product_attention`` with
-    ``is_causal=False``.  The FP8 SDPA functions don't support
-    ``attn_mask``.
-
-    When ``strip_causal_mask`` is ``True`` (determined once at setup time
-    by ``detect_causal_mask``), the wrapper unconditionally strips any
-    ``attn_mask`` and sets ``is_causal=True``.  This is zero-cost at
-    runtime — no per-call tensor inspection.
-
-    When ``strip_causal_mask`` is ``False``, the mask is passed through
-    unchanged (and the FP8 function will raise if it receives one).
+    When ``strip_causal_mask`` is True, strips any ``attn_mask`` and sets
+    ``is_causal=True``. When False, passes the mask through unchanged.
     """
     if strip_causal_mask:
 

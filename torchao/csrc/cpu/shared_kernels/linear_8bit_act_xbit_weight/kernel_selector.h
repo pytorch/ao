@@ -20,6 +20,9 @@
 #if defined(TORCHAO_ENABLE_KLEIDI)
 #include <torchao/csrc/cpu/torch_free_kernels/aarch64/kleidi/kai_matmul_clamp_f32_qai8dxp_qsi4c32p.h>
 #endif // TORCHAO_ENABLE_KLEIDI
+#else
+// Fallback implementation for non-ARM architectures (x86, etc.)
+#include <torchao/csrc/cpu/torch_free_kernels/fallback/linear/channelwise_8bit_activation_groupwise_lowbit_weight.h>
 #endif // TORCHAO_BUILD_CPU_AARCH64
 
 namespace torchao::ops::linear_8bit_act_xbit_weight {
@@ -97,8 +100,13 @@ void register_ukernel_config_universal(
       torchao::ops::PackedWeightsType::linear_8bit_act_xbit_weight_universal,
       weight_nbit);
 
+#if defined(TORCHAO_BUILD_CPU_AARCH64)
   namespace kernel = torchao::kernels::cpu::aarch64::linear::
       channelwise_8bit_activation_groupwise_lowbit_weight;
+#else
+  namespace kernel = torchao::kernels::cpu::fallback::linear::
+      channelwise_8bit_activation_groupwise_lowbit_weight;
+#endif
 
   constexpr bool has_lut = false;
   int preferred_alignment = 16;
@@ -110,23 +118,23 @@ void register_ukernel_config_universal(
     constexpr int sr = 2;
     constexpr int mr = 1;
     constexpr int m_step = 1;
+    auto uk = UKernelConfig::make(
+    preferred_alignment,
+    n_step,
+    nr,
+    kr,
+    sr,
+    weight_nbit,
+    format.has_weight_zeros,
+    format.has_bias,
+    &torchao::weight_packing::packed_weights_size,
+    &torchao::weight_packing::packed_weights_offset,
+    &torchao::weight_packing::pack_weights<weight_nbit, nr, kr, sr>,
+    /*linear_configs*/ {});
 
 #if defined(TORCHAO_ENABLE_ARM_NEON_DOT)
     if (cpuinfo_has_arm_neon_dot()) {
       log_registration(format, "universal: kernel_1x8x16_f32_neondot");
-      auto uk = UKernelConfig::make(
-          preferred_alignment,
-          n_step,
-          nr,
-          kr,
-          sr,
-          weight_nbit,
-          format.has_weight_zeros,
-          format.has_bias,
-          &kernel::packed_weights_size,
-          &kernel::packed_weights_offset,
-          &kernel::pack_weights<weight_nbit, nr, kr, sr>,
-          /*linear_configs*/ {});
 
       if (format.has_weight_zeros) {
         constexpr bool has_weight_zeros = true;
@@ -140,9 +148,6 @@ void register_ukernel_config_universal(
                  weight_nbit,
                  has_weight_zeros,
                  has_lut>});
-
-        table.register_ukernel_config(format, uarch, std::move(uk));
-        return;
       } else {
         constexpr bool has_weight_zeros = false;
         uk.linear_configs[0] = UKernelConfig::linear_config_type(
@@ -155,11 +160,44 @@ void register_ukernel_config_universal(
                  weight_nbit,
                  has_weight_zeros,
                  has_lut>});
-
-        table.register_ukernel_config(format, uarch, std::move(uk));
-        return;
       }
+
+      table.register_ukernel_config(format, uarch, std::move(uk));
+      return;
     }
+#else // TORCHAO_ENABLE_ARM_NEON_DOT
+
+    // Fallback for non-ARM architectures (x86, etc.)
+    // Register config with weight packing only - linear execution is not supported
+    log_registration(format, "universal: fallback (pack weights only)");
+
+    if (format.has_weight_zeros) {
+      constexpr bool has_weight_zeros = true;
+      uk.linear_configs[0] = UKernelConfig::linear_config_type(
+          {m_step,
+           mr,
+           &kernel::packed_activations_size,
+           &kernel::packed_activations_offset,
+           &kernel::pack_activations<mr, kr, sr>,
+           &kernel::kernel_1x8x16_f32_fallback<
+               weight_nbit,
+               has_weight_zeros,
+               has_lut>});
+    } else {
+      constexpr bool has_weight_zeros = false;
+      uk.linear_configs[0] = UKernelConfig::linear_config_type(
+          {m_step,
+           mr,
+           &kernel::packed_activations_size,
+           &kernel::packed_activations_offset,
+           &kernel::pack_activations<mr, kr, sr>,
+           &kernel::kernel_1x8x16_f32_fallback<
+               weight_nbit,
+               has_weight_zeros,
+               has_lut>});
+    }
+    table.register_ukernel_config(format, uarch, std::move(uk));
+    return;
 #endif // TORCHAO_ENABLE_ARM_NEON_DOT
   }
 }
@@ -177,10 +215,10 @@ void register_ukernel_config_lut(
       torchao::ops::PackedWeightsType::linear_8bit_act_xbit_weight_lut,
       weight_nbit
     );
-    constexpr bool has_lut = true;
-    int preferred_alignment = 16;
 
     #if defined(TORCHAO_ENABLE_ARM_NEON_DOT)
+    constexpr bool has_lut = true;
+    int preferred_alignment = 16;
     namespace kernel = torchao::kernels::cpu::aarch64::linear::
       channelwise_8bit_activation_groupwise_lowbit_weight;
 
@@ -434,7 +472,6 @@ PackedWeightsFormat select_packed_weights_format(
 
   // Select universal format
   if (!target || *target == "universal") {
-#if defined(TORCHAO_ENABLE_ARM_NEON_DOT)
     return PackedWeightsFormat(
         torchao::ops::PackedWeightsType::linear_8bit_act_xbit_weight_universal,
         weight_nbit,
@@ -443,7 +480,6 @@ PackedWeightsFormat select_packed_weights_format(
         /*nr*/ 8,
         /*kr*/ 16,
         /*sr*/ 2);
-#endif // defined(TORCHAO_ENABLE_ARM_NEON_DOT)
   }
 
   throw std::runtime_error("No packed_weights_format was selected");

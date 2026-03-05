@@ -4,12 +4,7 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
-"""
-FP8 FA3 backend setup.
-
-Thin wrapper around the shared ``setup_fp8_backend``, binding the FA3
-attention function.
-"""
+"""FP8 FA3 backend setup."""
 
 import torch.nn as nn
 
