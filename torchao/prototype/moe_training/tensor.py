@@ -21,6 +21,7 @@ from torchao.prototype.moe_training.config import (
 )
 from torchao.prototype.moe_training.utils import _quantize_then_scaled_grouped_mm
 from torchao.prototype.mx_formats.mx_linear import _to_mxfp8_then_scaled_mm
+from torchao.quantization.quantize_.common import KernelPreference
 from torchao.utils import TorchAOBaseTensor
 
 aten = torch.ops.aten
@@ -89,17 +90,12 @@ class TrainingWeightWrapperBaseTensor(TorchAOBaseTensor):
 
     @classmethod
     def __torch_dispatch__(cls, func, types, args, kwargs={}):
-        # unwrap args/kwargs and extract config
         config = None
 
         def unwrap(t):
             nonlocal config
             if config is None:
                 config = t.config
-            else:
-                assert t.config == config, (
-                    "All TrainingWeightWrapperBaseTensor instances must have the same config"
-                )
             return t._data
 
         args_unwrapped, kwargs_unwrapped = pytree.tree_map_only(
@@ -301,6 +297,12 @@ class MXFP8TrainingWeightWrapperTensor(TrainingWeightWrapperBaseTensor):
             assert isinstance(config, MXFP8TrainingOpConfig), (
                 "expected MXFP8TrainingOpConfig"
             )
+
+            if config.kernel_preference == KernelPreference.TE:
+                # TE kernel path is only for grouped GEMM; for linear ops,
+                # fall through to non-quantized dispatch.
+                with torch._C.DisableTorchFunctionSubclass():
+                    return func(*args, **kwargs)
 
             return _to_mxfp8_then_scaled_mm(
                 A,
