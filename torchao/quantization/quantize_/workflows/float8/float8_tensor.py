@@ -58,7 +58,7 @@ __all__ = [
 aten = torch.ops.aten
 
 
-@dataclass
+@dataclass(frozen=True)
 class QuantizeTensorToFloat8Kwargs(QuantizeTensorKwargs):
     """Tensor kwargs for creating float8 tensor (either activation or weight)
 
