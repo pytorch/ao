@@ -5,10 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 """
-FP8 attention implementation using FA4 backend.
-
-Use apply_low_precision_attention() from torchao.prototype.attention as the public API.
-For lower-level access, use fp8_fa4_sdpa() directly.
+FP8 attention using FA4 backend.
 """
 
 from torchao.prototype.attention.fp8_fa4.attention import (

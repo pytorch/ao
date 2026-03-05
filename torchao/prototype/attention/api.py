@@ -4,13 +4,7 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
-"""
-User-facing API for low-precision attention.
-
-This module is the backend-agnostic entry point.  It validates inputs,
-resolves the backend, and dispatches to the appropriate backend-specific
-setup function (e.g., ``fp8_fa3.setup.setup_fp8_fa3``).
-"""
+"""User-facing API for low-precision attention."""
 
 from typing import Optional
 
@@ -22,6 +16,7 @@ from torchao.prototype.attention.config import (
     AttentionBackend,
     LowPrecisionAttentionConfig,
 )
+from torchao.prototype.attention.shared_utils.setup import setup_fp8_backend
 from torchao.prototype.attention.shared_utils.wrapper import (
     _LowPrecisionAttentionWrapper,
 )
@@ -29,58 +24,28 @@ from torchao.prototype.attention.utils import (
     _check_backend_available,
     _get_available_backend,
 )
+from torchao.utils import torch_version_at_least
 
 
 def apply_low_precision_attention(
     model: nn.Module,
     config: Optional[LowPrecisionAttentionConfig] = None,
 ) -> nn.Module:
+    """Apply low-precision attention to a model.
+
+    Must be called before ``torch.compile``. KV caching should be
+    disabled before calling (e.g., ``config.use_cache = False`` for
+    HuggingFace models).
     """
-    Apply low-precision attention to a model.
-
-    Resolves the requested backend and delegates to the backend-specific
-    setup function.  The returned wrapper manages attention backend
-    activation internally — callers do **not** need to call
-    ``activate_flash_attention_impl`` / ``restore_flash_attention_impl``.
-
-    See ``LowPrecisionAttentionConfig`` for the available configuration
-    options and their effects (e.g., ``fuse_rope_using_torch_compile``).
-
-    Args:
-        model: The model to apply low-precision attention to.
-            Must not already be compiled with ``torch.compile``.
-            KV caching should be disabled before calling this function
-            (e.g., ``config.use_cache = False`` for HuggingFace models).
-        config: Configuration for low-precision attention.
-            If None, uses default config (auto backend selection).
-
-    Returns:
-        A wrapped module with low-precision attention applied.
-
-    Raises:
-        RuntimeError: If the model is already compiled or already
-            wrapped.
-
-    Example::
-
-        from torchao.prototype.attention import apply_low_precision_attention
-
-        model = MyTransformer()
-        model = apply_low_precision_attention(model)
-        output = model(inputs)  # flash activation managed internally
-    """
-    # Guard: already wrapped.
+    if not torch_version_at_least("2.11.0"):
+        raise RuntimeError("Low-precision attention requires PyTorch 2.11+.")
     if isinstance(model, _LowPrecisionAttentionWrapper):
         raise RuntimeError(
             "apply_low_precision_attention has already been applied to this module."
         )
-
-    # Guard: already compiled.
     if isinstance(model, torch._dynamo.OptimizedModule):
         raise RuntimeError(
-            "The module is already compiled with torch.compile. "
-            "apply_low_precision_attention must be called on the "
-            "original (uncompiled) module, before torch.compile."
+            "apply_low_precision_attention must be called before torch.compile."
         )
 
     if config is None:
@@ -93,13 +58,31 @@ def apply_low_precision_attention(
         _check_backend_available(backend)
 
     if backend == AttentionBackend.FP8_FA3:
-        from torchao.prototype.attention.fp8_fa3.setup import setup_fp8_fa3
+        from torchao.prototype.attention.fp8_fa3.attention import fp8_fa3_sdpa
+        from torchao.prototype.attention.fp8_fa3.fusion_pass import (
+            compile_with_fp8_fusion,
+        )
 
-        return setup_fp8_fa3(model, config)
+        return setup_fp8_backend(
+            model,
+            config,
+            flash_impl_name="FA3",
+            sdpa_fn=fp8_fa3_sdpa,
+            compile_fn=compile_with_fp8_fusion,
+        )
 
     if backend == AttentionBackend.FP8_FA4:
-        from torchao.prototype.attention.fp8_fa4.setup import setup_fp8_fa4
+        from torchao.prototype.attention.fp8_fa4.attention import fp8_fa4_sdpa
+        from torchao.prototype.attention.fp8_fa4.fusion_pass import (
+            compile_with_fp8_fusion,
+        )
 
-        return setup_fp8_fa4(model, config)
+        return setup_fp8_backend(
+            model,
+            config,
+            flash_impl_name="FA4",
+            sdpa_fn=fp8_fa4_sdpa,
+            compile_fn=compile_with_fp8_fusion,
+        )
 
     raise ValueError(f"Unknown backend: {backend}")

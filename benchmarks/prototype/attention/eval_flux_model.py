@@ -5,33 +5,12 @@
 # LICENSE file in the root directory of this source tree.
 
 """
-Benchmark script for evaluating attention backends on FLUX.1-schnell.
+Benchmark attention backends on FLUX.1-schnell.
 
-Compares two selectable attention backends using LPIPS (perceptual similarity).
-Uses DrawBench dataset for standardized prompt evaluation.
-
-Available backends:
-    fa2      - Flash Attention 2 (default SDPA)
-    fa3      - Flash Attention 3
-    fa3_fp8  - Flash Attention 3 with FP8 quantization (fused RoPE + FP8 SDPA)
-    fa4      - Flash Attention 4
-    fa4_fp8  - Flash Attention 4 with FP8 quantization (fused RoPE + FP8 SDPA)
+Compares backends using LPIPS (perceptual similarity) on DrawBench prompts.
 
 Usage:
-    # Compare FA3 vs FA3 FP8 (default)
-    python eval_flux_model.py --debug_prompt "A red car"
-
-    # Compare FA2 vs FA3
-    python eval_flux_model.py --baseline fa2 --test fa3
-
-    # Compare FA3 vs FA4
-    python eval_flux_model.py --baseline fa3 --test fa4
-
-    # Full benchmark with 200 prompts
-    python eval_flux_model.py --num_prompts 200
-
-    # With torch.compile
-    python eval_flux_model.py --compile
+    python eval_flux_model.py --baseline fa3 --test fa3_fp8 --debug_prompt "A red car"
 """
 
 import argparse
@@ -56,10 +35,6 @@ from torchao.prototype.attention import (
     LowPrecisionAttentionConfig,
     apply_low_precision_attention,
 )
-
-# =============================================================================
-# Backend Configuration
-# =============================================================================
 
 BACKENDS = {
     "fa2": {"flash_impl": None, "fp8": False},
@@ -96,24 +71,7 @@ def setup_backend(
     orig_transformer,
     fuse_rope_using_torch_compile=False,
 ):
-    """Set up a backend for a benchmark phase.
-
-    For FP8 backends (fa3_fp8): applies low-precision attention which
-    handles compilation and the fusion pass internally.
-
-    For other backends: optionally compiles if compile_flag is set.
-
-    Args:
-        pipe: The diffusion pipeline.
-        backend_name: Name of the backend.
-        compile_flag: Whether --compile was passed.
-        orig_transformer: The original (uncompiled) transformer.
-        fuse_rope_using_torch_compile: Whether to fuse RoPE into the FP8 kernel (FP8 backends only).
-
-    Returns:
-        flash_impl to pass to generate_image (None for FP8 backends
-        since FA3 is managed internally by the wrapper).
-    """
+    """Set up a backend and return the flash_impl name."""
     cfg = BACKENDS[backend_name]
     pipe.transformer = orig_transformer
 
@@ -127,20 +85,12 @@ def setup_backend(
         if compile_flag:
             print(f"Compiling transformer with torch.compile ({backend_name})...")
             pipe.transformer = torch.compile(pipe.transformer)
-        # Return the flash impl (e.g. "FA3") so generate_image activates it
-        # for the entire pipe() call.  This keeps non-transformer SDPA calls
-        # (VAE, text encoder) consistent with the baseline FA3 backend.
         return cfg["flash_impl"]
     else:
         if compile_flag:
             print(f"Compiling transformer with torch.compile ({backend_name})...")
             pipe.transformer = torch.compile(pipe.transformer)
         return cfg["flash_impl"]
-
-
-# =============================================================================
-# Helpers
-# =============================================================================
 
 
 def pil_to_lpips_tensor(img: Image.Image, device: str) -> torch.Tensor:
@@ -190,11 +140,6 @@ def generate_image(
     return image
 
 
-# =============================================================================
-# Benchmark
-# =============================================================================
-
-
 @torch.inference_mode()
 def run_benchmark(
     baseline_backend: str = "fa3",
@@ -206,20 +151,7 @@ def run_benchmark(
     compile: bool = False,
     fuse_rope_using_torch_compile: bool = False,
 ):
-    """
-    Run the attention backend benchmark on FLUX.1-schnell.
-
-    Args:
-        baseline_backend: Baseline attention backend name.
-        test_backend: Test attention backend name.
-        num_prompts: Number of prompts to use (50 or 200 recommended).
-        num_inference_steps: Number of diffusion steps per image.
-        debug_prompt: If specified, use only this prompt (for debugging).
-        warmup_iters: Number of warmup iterations before benchmarking.
-        compile: If True, wrap the model with torch.compile.
-        fuse_rope_using_torch_compile: If True (default), fuse RoPE into the FP8 kernel.
-            If False, only replace SDPA with FP8 (skip RoPE fusion).
-    """
+    """Run the attention backend benchmark on FLUX.1-schnell."""
     compile_str = " + torch.compile" if compile else ""
     print("=" * 80)
     print("Attention Backend Benchmark for FLUX.1-schnell")

@@ -5,30 +5,12 @@
 # LICENSE file in the root directory of this source tree.
 
 """
-Benchmark any two attention backends against each other for a single layer.
+Benchmark two attention backends against each other for a single layer.
 
-Sweeps over sequence lengths from 1024 to 131072, measuring runtime and
-SQNR (Signal-to-Quantization-Noise Ratio) for each configuration.
-
-Available backends:
-    fa2      - BF16 SDPA with FlashAttention 2 (PyTorch default)
-    fa3      - BF16 SDPA with FlashAttention 3
-    fa3_fp8  - FP8 SDPA with FlashAttention 3 (includes quantization kernels)
-    fa4      - BF16 SDPA with FlashAttention 4
-    fa4_fp8  - FP8 SDPA with FlashAttention 4 (includes quantization kernels)
+Sweeps over sequence lengths from 1K to 128K, measuring runtime and SQNR.
 
 Usage:
-    # Default: FA2 vs FA3+FP8
-    python benchmarks/prototype/attention/benchmark_sdpa.py
-
-    # FA3 bf16 vs FA3 fp8
     python benchmarks/prototype/attention/benchmark_sdpa.py --baseline fa3 --test fa3_fp8
-
-    # FA2 vs FA4
-    python benchmarks/prototype/attention/benchmark_sdpa.py --baseline fa2 --test fa4
-
-    # With causal masking
-    python benchmarks/prototype/attention/benchmark_sdpa.py --baseline fa3 --test fa4 --causal
 """
 
 import argparse
@@ -46,6 +28,7 @@ from torch.nn.attention import (
 
 from torchao.prototype.attention.fp8_fa3.attention import fp8_fa3_sdpa
 from torchao.prototype.attention.fp8_fa4.attention import fp8_fa4_sdpa
+from torchao.quantization.utils import compute_error as compute_sqnr
 
 BACKENDS = ["fa2", "fa3", "fa3_fp8", "fa4", "fa4_fp8"]
 
@@ -84,15 +67,6 @@ def _run_attention(backend: str, q, k, v, is_causal: bool):
     else:
         with sdpa_kernel(SDPBackend.FLASH_ATTENTION):
             return F.scaled_dot_product_attention(q, k, v, is_causal=is_causal)
-
-
-def compute_sqnr(reference: torch.Tensor, approximate: torch.Tensor) -> float:
-    """Compute Signal-to-Quantization-Noise Ratio in dB."""
-    signal_power = reference.float().pow(2).mean()
-    noise_power = (reference.float() - approximate.float()).pow(2).mean()
-    if noise_power == 0:
-        return float("inf")
-    return (10 * torch.log10(signal_power / noise_power)).item()
 
 
 def benchmark_fn(fn, num_warmup, num_iters):
