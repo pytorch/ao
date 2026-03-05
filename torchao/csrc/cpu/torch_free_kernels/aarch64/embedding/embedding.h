@@ -12,6 +12,7 @@
 #include <torchao/csrc/cpu/torch_free_kernels/aarch64/bitpacking/bitpack.h>
 #include <torchao/csrc/cpu/torch_free_kernels/aarch64/linear/channelwise_8bit_activation_groupwise_lowbit_weight/pack_weights.h>
 #include <torchao/csrc/cpu/torch_free_kernels/macro.h>
+#include <torchao/csrc/cpu/torch_free_kernels/weight_packing/weight_packing.h>
 #include <cassert>
 #include <vector>
 
@@ -353,9 +354,7 @@ inline void shared_embedding(
   n_idx = n_idx * nr;
   int j = index - n_idx;
 
-  torchao::kernels::cpu::aarch64::linear::
-      channelwise_8bit_activation_groupwise_lowbit_weight::weight_packing::
-          unpack_weights_at_n_idx<weight_nbit, nr, kr, sr>(
+  torchao::weight_packing::unpack_weights_at_n_idx<weight_nbit, nr, kr, sr>(
               weight_qvals.data(),
               weight_scales.data(),
               has_weight_zeros ? weight_zeros.data() : nullptr,
