@@ -5,17 +5,10 @@
 # LICENSE file in the root directory of this source tree.
 
 """
-Separated FP8 Quantization kernels for Q, K, V.
+FP8 quantization kernels for Q, K, V.
 
-This module processes Q, K, and V independently with separate kernel launches:
-- Q: FP8 quantization (phase1 + reduce + phase2)
-- K: FP8 quantization (phase1 + reduce + phase2)
-- V: FP8 quantization (phase1 + reduce + phase2)
-
-Each tensor is processed independently, allowing different head counts (GQA).
-
-Input format: [B, H, S, D] (SDPA-style)
-Output format: [B, H, S, D] (SDPA-style)
+Input/output format: [B, H, S, D].
+Supports GQA (different head counts for Q vs K/V).
 """
 
 from typing import Optional, Tuple
@@ -23,10 +16,6 @@ from typing import Optional, Tuple
 import torch
 import triton
 import triton.language as tl
-
-# =============================================================================
-# Helper functions
-# =============================================================================
 
 
 def _compute_num_chunks(tensor: torch.Tensor, S: int) -> int:
@@ -45,11 +34,6 @@ def _compute_num_chunks(tensor: torch.Tensor, S: int) -> int:
     # Adjust if S is small
     num_chunks = min(num_chunks, S)
     return num_chunks
-
-
-# =============================================================================
-# Phase 1: Compute partial absmax for a single tensor
-# =============================================================================
 
 
 @triton.autotune(
@@ -126,11 +110,6 @@ def single_phase1_kernel(
     tl.store(partial_max_ptr + chunk_idx, x_max)
 
 
-# =============================================================================
-# Reduce kernels
-# =============================================================================
-
-
 @triton.jit
 def single_reduce_kernel(
     partial_max_ptr,  # [B * H * num_chunks]
@@ -199,11 +178,6 @@ def group_reduce_kernel(
 
     tl.store(scale_ptr + scale_idx, tl.where(x_max > eps, FP8_MAX / x_max, 1.0))
     tl.store(descale_ptr + scale_idx, tl.where(x_max > eps, x_max / FP8_MAX, 1.0))
-
-
-# =============================================================================
-# Phase 2: Quantize to FP8
-# =============================================================================
 
 
 @triton.autotune(
@@ -281,11 +255,6 @@ def single_phase2_kernel(
 
         # Store to output
         tl.store(x_out_ptr + ptr_offset, x_fp8, mask=mask)
-
-
-# =============================================================================
-# Main entry point
-# =============================================================================
 
 
 def triton_fp8_sdpa_quantize(

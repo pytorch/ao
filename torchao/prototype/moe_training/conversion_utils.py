@@ -4,28 +4,53 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 import logging
-from typing import Callable, Optional
+from typing import Callable, Optional, Type
 
+import torch
 from torch import nn
 
 from torchao.prototype.moe_training.config import (
-    GroupedMMConfig,
+    Float8TrainingOpConfig,
+    MXFP8TrainingOpConfig,
+    TrainingOpBaseConfig,
 )
 
 logger: logging.Logger = logging.getLogger(__name__)
+
+
+def _get_tensor_cls_for_config(
+    config: TrainingOpBaseConfig,
+) -> Type[torch.Tensor]:
+    """
+    Returns the appropriate tensor class for the given config.
+    """
+    from torchao.prototype.moe_training.tensor import (
+        Float8TrainingWeightWrapperTensor,
+        MXFP8TrainingWeightWrapperTensor,
+    )
+
+    if isinstance(config, MXFP8TrainingOpConfig):
+        return MXFP8TrainingWeightWrapperTensor
+    elif isinstance(config, Float8TrainingOpConfig):
+        return Float8TrainingWeightWrapperTensor
+    else:
+        raise ValueError(f"Unsupported config type: {type(config)}")
 
 
 def _swap_params(
     module: nn.Module,
     *,
     module_filter_fn: Optional[Callable[[nn.Module, str], bool]] = None,
-    config: Optional[GroupedMMConfig] = None,
+    config: Optional[TrainingOpBaseConfig] = None,
     target_parameter_name: Optional[str] = None,
 ) -> nn.Module:
     """
     Recurses through the nn.Module, recursively swapping the data tensor of
-    each nn.Parameter with a ScaledGroupedMMTensor. Only applies if the module
+    each nn.Parameter with a training tensor subclass. Only applies if the module
     passed the module_filter_fn, if specified.
+
+    The tensor class used (Float8TrainingWeightWrapperTensor or MXFP8TrainingWeightWrapperTensor) is determined
+    by the config type.
 
     Args:
         module: Module to modify.
@@ -36,7 +61,9 @@ def _swap_params(
     Returns:
      nn.Module: The modified module with swapped linear layers.
     """
-    from torchao.prototype.moe_training.tensor import ScaledGroupedMMTensor
+    from torchao.prototype.moe_training.tensor import TrainingWeightWrapperBaseTensor
+
+    tensor_cls = _get_tensor_cls_for_config(config)
 
     if isinstance(module, nn.Parameter) and (
         module_filter_fn is None or module_filter_fn(module, "")
@@ -45,8 +72,8 @@ def _swap_params(
             raise AssertionError(
                 f"Does not support a root nn.Parameter with children: {module}"
             )
-        if not isinstance(module.data, ScaledGroupedMMTensor):
-            new_data = ScaledGroupedMMTensor(module.data, config)
+        if not isinstance(module.data, TrainingWeightWrapperBaseTensor):
+            new_data = tensor_cls(module.data, config)
             return nn.Parameter(new_data, requires_grad=module.requires_grad)
         return module
 
@@ -67,7 +94,6 @@ def _swap_params(
                 new_fqn = f"{cur_fqn}.{child_module_name}"
 
             post_order_traversal(child_module, new_fqn, module)
-
         if module_filter_fn is None or module_filter_fn(module, cur_fqn):
             for param_name, param in module.named_parameters(recurse=False):
                 if (
@@ -75,14 +101,14 @@ def _swap_params(
                     and param_name != target_parameter_name
                 ):
                     continue
-                if not isinstance(param.data, ScaledGroupedMMTensor):
+                if not isinstance(param.data, TrainingWeightWrapperBaseTensor):
                     new_param = nn.Parameter(
-                        ScaledGroupedMMTensor(param.data, config),
+                        tensor_cls(param.data, config),
                         requires_grad=param.requires_grad,
                     )
                     setattr(module, param_name, new_param)
                     logger.info(
-                        f"Swapped {cur_fqn}.{param_name} to ScaledGroupedMMTensor"
+                        f"Swapped {cur_fqn}.{param_name} to {tensor_cls.__name__}"
                     )
 
     post_order_traversal(root_module)

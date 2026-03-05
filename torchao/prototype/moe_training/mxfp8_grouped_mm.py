@@ -150,9 +150,10 @@ class _MXFP8GroupedMM(torch.autograd.Function):
         assert group_offsets is not None, (
             "group_offsets must be provided for 2d-3d grouped mm"
         )
-        assert out_dtype in (torch.bfloat16, torch.float32), (
-            "out_dtype must be bfloat16 or float32"
-        )
+        assert out_dtype in (
+            torch.bfloat16,
+            torch.float32,
+        ), "out_dtype must be bfloat16 or float32"
         if isinstance(input_act, MXTensor):
             assert wgrad_with_hp, (
                 "only `wgrad_with_hp` recipe is supported for pre-quantized inputs, support for other recipes is still in progress"
