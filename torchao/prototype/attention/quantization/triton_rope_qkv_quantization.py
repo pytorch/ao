@@ -5,17 +5,10 @@
 # LICENSE file in the root directory of this source tree.
 
 """
-Separated RoPE + FP8 Quantization kernels for Q, K, V.
+Fused RoPE + FP8 quantization kernels for Q, K, V.
 
-This module processes Q, K, and V independently with separate kernel launches:
-- Q: RoPE + FP8 quantization (phase1 + reduce + phase2)
-- K: RoPE + FP8 quantization (phase1 + reduce + phase2)
-- V: FP8 quantization with layout transpose (phase1 + reduce + phase2)
-
-The Q and K kernels share the same code (called with different pointers).
-
-Input format: [B, S, H, D] (FLUX-style)
-Output format: [B, H, S, D] (SDPA-style)
+Input: [B, S, H, D], output: [B, H, S, D].
+Supports GQA (different head counts for Q vs K/V).
 """
 
 from typing import Optional, Tuple
@@ -23,10 +16,6 @@ from typing import Optional, Tuple
 import torch
 import triton
 import triton.language as tl
-
-# =============================================================================
-# Helper functions
-# =============================================================================
 
 
 def _compute_num_chunks(tensor: torch.Tensor, S: int) -> int:
@@ -45,11 +34,6 @@ def _compute_num_chunks(tensor: torch.Tensor, S: int) -> int:
     # Adjust if S is small
     num_chunks = min(num_chunks, S)
     return num_chunks
-
-
-# =============================================================================
-# Phase 1 for Q or K: RoPE + max computation (single tensor)
-# =============================================================================
 
 
 @triton.autotune(
@@ -202,11 +186,6 @@ def rope_single_phase1_kernel(
     tl.store(partial_max_ptr + chunk_idx, x_max)
 
 
-# =============================================================================
-# Phase 1 for V: max computation only (no RoPE)
-# =============================================================================
-
-
 @triton.autotune(
     configs=[
         triton.Config({"BLOCK_SIZE": 512}, num_warps=4),
@@ -280,11 +259,6 @@ def v_phase1_kernel(
     tl.store(partial_max_ptr + chunk_idx, v_max)
 
 
-# =============================================================================
-# Reduce kernel: Aggregate partial maxes and compute scale for a single tensor
-# =============================================================================
-
-
 @triton.jit
 def single_reduce_kernel(
     partial_max_ptr,  # [B * H * num_chunks]
@@ -353,11 +327,6 @@ def group_reduce_kernel(
 
     tl.store(scale_ptr + scale_idx, tl.where(x_max > eps, FP8_MAX / x_max, 1.0))
     tl.store(descale_ptr + scale_idx, tl.where(x_max > eps, x_max / FP8_MAX, 1.0))
-
-
-# =============================================================================
-# Phase 2 for Q or K: Quantize from intermediate [B,H,S,D] to FP8 [B,H,S,D]
-# =============================================================================
 
 
 @triton.autotune(
@@ -435,11 +404,6 @@ def rope_single_phase2_kernel(
 
         # Store to output
         tl.store(x_out_ptr + ptr_offset, x_fp8, mask=mask)
-
-
-# =============================================================================
-# Phase 2 for V: Transpose [B,S,H,D] -> [B,H,S,D] + quantize
-# =============================================================================
 
 
 @triton.autotune(
@@ -522,11 +486,6 @@ def v_phase2_kernel(
 
         # Store to output
         tl.store(v_out_ptr + out_offset, v_fp8, mask=mask)
-
-
-# =============================================================================
-# Main entry point
-# =============================================================================
 
 
 def triton_fp8_rope_sdpa_quantize(
