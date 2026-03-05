@@ -8,7 +8,7 @@ import sys
 from typing import Tuple
 
 import torch
-from torch.distributed._tensor import DTensor
+from torch.distributed._tensor import DTensor, Shard
 
 from torchao.prototype.mx_formats.config import (
     MXFP8Dim1CastKernelChoice,
@@ -206,10 +206,23 @@ def _to_mxfp8_dim1_kernel_wrapper(
             None,
             is_swizzled_scales,
         )
+        # We need to manually transpose placements because we bypassed
+        # DTensor's dispatch: we extracted the local tensor via .to_local(),
+        # transposed it with .t(), and are now re-wrapping with
+        # DTensor.from_local(). Since DTensor didn't see the transpose op,
+        # it won't update placements automatically — we must flip
+        # Shard(dim) -> Shard(1 - dim) ourselves to match the transposed data.
+        transposed_placements = []
+        for p in a_data.placements:
+            if isinstance(p, Shard):
+                assert a_data.ndim == 2
+                transposed_placements.append(Shard(1 - p.dim))
+            else:
+                transposed_placements.append(p)
         mx_tensor = DTensor.from_local(
             inner,
             a_data.device_mesh,
-            a_data.placements,
+            tuple(transposed_placements),
             run_check=False,
             shape=a_data.t().size(),
             stride=a_data.t().stride(),
