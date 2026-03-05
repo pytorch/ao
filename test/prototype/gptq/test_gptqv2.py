@@ -613,8 +613,11 @@ class TestGPTQMXFP8:
     """Test suite for MXFP8 GPTQ support."""
 
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA available")
-    def test_mxfp8_gptq_sqnr(self):
+    @pytest.mark.parametrize("kernel_preference", [KernelPreference.EMULATED, KernelPreference.AUTO])
+    def test_mxfp8_gptq_sqnr(self, kernel_preference):
         """End-to-end SQNR test: GPTQ should produce better quality than RTN.
+
+        Tests both emulated and non-emulated (AUTO) kernel preferences.
 
         Compares the output SQNR (Signal-to-Quantization-Noise Ratio) of:
         - GPTQ: Hessian-aware quantization with error propagation
@@ -623,6 +626,9 @@ class TestGPTQMXFP8:
         Since MXTensor weight-only dispatch is not yet available, we dequantize
         the quantized weights back to bfloat16 before running the forward pass.
         This isolates the weight quantization quality comparison.
+
+        Args:
+            kernel_preference: Either KernelPreference.EMULATED or KernelPreference.AUTO
         """
         torch.manual_seed(43)
 
@@ -654,7 +660,7 @@ class TestGPTQMXFP8:
         base_config = MXDynamicActivationMXWeightConfig(
             activation_dtype=torch.float8_e4m3fn,
             weight_dtype=torch.float8_e4m3fn,
-            kernel_preference=KernelPreference.EMULATED,
+            kernel_preference=kernel_preference,
         )
         quantize_(model_rtn, base_config)
         out_rtn = model_rtn(test_input)
@@ -686,14 +692,82 @@ class TestGPTQMXFP8:
         sqnr_rtn = compute_error(out_rtn, out)
         sqnr_gptq = compute_error(out_gptq, out)
 
+        kernel_mode = "emulated" if kernel_preference == KernelPreference.EMULATED else "non-emulated"
         print(
             f"Float8 RTN SQNR: {sqnr_float8}, "
-            f"MXFP8 RTN SQNR: {sqnr_rtn}, "
-            f"MXFP8 GPTQ SQNR: {sqnr_gptq}"
+            f"MXFP8 {kernel_mode} RTN SQNR: {sqnr_rtn}, "
+            f"MXFP8 {kernel_mode} GPTQ SQNR: {sqnr_gptq}"
         )
 
         # MXFP8 has good precision (8-bit float), so SQNR should be high
-        assert sqnr_gptq > 25, f"MXFP8 GPTQ SQNR: {sqnr_gptq} is too low"
+        assert sqnr_gptq > 25, f"MXFP8 {kernel_mode} GPTQ SQNR: {sqnr_gptq} is too low"
         assert sqnr_gptq > sqnr_rtn, (
-            f"GPTQ SQNR: {sqnr_gptq} is not better than RTN SQNR: {sqnr_rtn}"
+            f"{kernel_mode} GPTQ SQNR: {sqnr_gptq} is not better than RTN SQNR: {sqnr_rtn}"
         )
+
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA available")
+    @pytest.mark.parametrize("elem_dtype", [torch.float8_e4m3fn, torch.float8_e5m2])
+    @pytest.mark.parametrize(
+        "shape,block_size",
+        [
+            ((128, 128), 32),
+            ((64, 256), 32),
+            ((256, 512), 32),
+        ],
+    )
+    def test_manual_scale_swizzling_for_gptq(self, elem_dtype, shape, block_size):
+        """Test that manually swizzling scales produces correct results.
+
+        GPTQ computes scales column-by-column in unswizzled format. For non-emulated
+        mode (CUBLAS), these scales must be manually swizzled before passing to
+        MXTensor.to_mx with is_swizzled_scales=True.
+        """
+        from torchao.prototype.mx_formats.mx_tensor import MXTensor
+        from torchao.prototype.mx_formats.utils import (
+            hp_data_dims_to_swizzled_scale_dims_mx,
+            to_blocked,
+        )
+
+        data = torch.randn(shape, device="cuda", dtype=torch.bfloat16)
+
+        # Reference: compute with is_swizzled_scales=True directly
+        ref = MXTensor.to_mx(
+            data_hp=data,
+            elem_dtype=elem_dtype,
+            block_size=block_size,
+            is_swizzled_scales=True,
+            kernel_preference=KernelPreference.AUTO,
+        )
+
+        # Simulate GPTQ: compute scale in unswizzled format
+        unswizzled = MXTensor.to_mx(
+            data_hp=data,
+            elem_dtype=elem_dtype,
+            block_size=block_size,
+            is_swizzled_scales=False,
+            kernel_preference=KernelPreference.AUTO,
+        )
+
+        # Manually swizzle the scale (as GPTQ should do)
+        M, K = data.shape[-2], data.shape[-1]
+        scale_dtype = unswizzled.scale.dtype
+        scale_swizzled = to_blocked(unswizzled.scale).flatten()
+        scale_M, scale_K = hp_data_dims_to_swizzled_scale_dims_mx(M, K)
+        scale_swizzled = scale_swizzled.view(scale_M, scale_K).to(scale_dtype)
+
+        # Pass swizzled scale with is_swizzled_scales=True
+        result = MXTensor.to_mx(
+            data_hp=data,
+            elem_dtype=elem_dtype,
+            block_size=block_size,
+            is_swizzled_scales=True,
+            scale=scale_swizzled,
+            kernel_preference=KernelPreference.AUTO,
+        )
+
+        # The dequantized results should match
+        ref_dq = ref.dequantize(data.dtype)
+        result_dq = result.dequantize(data.dtype)
+        torch.testing.assert_close(result_dq, ref_dq, atol=0, rtol=0)
+
+
