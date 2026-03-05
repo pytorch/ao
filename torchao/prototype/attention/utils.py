@@ -16,9 +16,7 @@ from torchao.prototype.attention.config import AttentionBackend
 
 
 def _is_hopper() -> bool:
-    """
-    Check if the current CUDA device is Hopper (SM 9.x).
-    """
+    """Check if the current CUDA device is Hopper (SM 9.x)."""
     if not torch.cuda.is_available():
         return False
     major, _ = torch.cuda.get_device_capability()
@@ -26,9 +24,7 @@ def _is_hopper() -> bool:
 
 
 def _is_fa3_available() -> bool:
-    """
-    Check if the flash attention 3 library (flash_attn_interface) is installed.
-    """
+    """Check if flash_attn_interface is installed."""
     try:
         importlib.import_module("flash_attn_interface")
         return True
@@ -37,21 +33,13 @@ def _is_fa3_available() -> bool:
 
 
 def _get_available_backend() -> AttentionBackend:
-    """
-    Get the best available backend for current hardware.
-
-    Returns:
-        The best available backend.
-
-    Raises:
-        RuntimeError: If no compatible backend is available.
-    """
+    """Get the best available backend for current hardware."""
     if not torch.cuda.is_available():
         raise RuntimeError("Low-precision attention requires CUDA.")
 
     capability = torch.cuda.get_device_capability()
 
-    # FA3 requires exactly Hopper (SM 9.x) and flash_attn_interface
+    # FA3 requires Hopper (SM 9.x) and flash_attn_interface
     if _is_hopper() and _is_fa3_available():
         return AttentionBackend.FP8_FA3
 
@@ -59,15 +47,7 @@ def _get_available_backend() -> AttentionBackend:
 
 
 def _check_backend_available(backend: AttentionBackend) -> None:
-    """
-    Check if the specified backend is available on current hardware.
-
-    Args:
-        backend: The backend to check.
-
-    Raises:
-        RuntimeError: If the backend is not available.
-    """
+    """Check if the specified backend is available on current hardware."""
     if backend == AttentionBackend.FP8_FA3:
         if not torch.cuda.is_available():
             raise RuntimeError("FP8_FA3 backend requires CUDA.")

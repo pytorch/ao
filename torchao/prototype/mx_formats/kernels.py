@@ -651,6 +651,7 @@ if torch_version_at_least("2.7.0") and has_triton():
         padded_cols = n_col_blocks * 4
 
         return scale_tensor.new_empty((padded_rows, padded_cols))
+
 else:
 
     def triton_to_mxfp8_dim1_reference(
@@ -1021,9 +1022,10 @@ if _triton_kernels_available:
         assert x.dtype == torch.bfloat16, (
             f"only bfloat16 inputs are supported, got {x.dtype}"
         )
-        assert scaling_mode in ("floor", "rceil"), (
-            "only floor and rceil scaling modes are supported"
-        )
+        assert scaling_mode in (
+            "floor",
+            "rceil",
+        ), "only floor and rceil scaling modes are supported"
 
         # Reshape tensor to 2d if necessary and get shape
         x_orig_shape = x.shape
@@ -1157,11 +1159,14 @@ else:
     def triton_to_mxfp8_dim0(
         x: torch.Tensor,
         inner_block_size=32,
+        scaling_mode: str = "rceil",
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         raise AssertionError("needs torch version 2.8+ and triton")
 
     def triton_to_mxfp8_dim1(
-        x, inner_block_size=32
+        x,
+        inner_block_size=32,
+        scaling_mode: str = "rceil",
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         raise AssertionError("needs torch version 2.8+ and triton")
 
