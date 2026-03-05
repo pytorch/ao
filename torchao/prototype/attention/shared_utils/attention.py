@@ -7,12 +7,8 @@
 """
 Shared FP8 scaled dot-product attention implementation.
 
-This module contains the backend-agnostic FP8 SDPA logic.  The actual
-backend (e.g., FA3) is selected by the caller via
-``activate_flash_attention_impl`` *before* calling these functions.
-
 Backend-specific modules (``fp8_fa3/attention.py``, etc.) provide thin
-named wrappers around these functions.
+named wrappers around these functions via ``functools.partial``.
 """
 
 from typing import Optional
@@ -28,11 +24,6 @@ if _TORCH_VERSION_AT_LEAST_2_11:
     from torch.nn.attention.experimental._scaled_dot_product_attention_quantized import (
         _scaled_dot_product_attention_quantized,
     )
-
-_MIN_VERSION_ERROR = (
-    "Low-precision attention requires PyTorch 2.11+. "
-    "Please update your PyTorch version."
-)
 
 from torchao.prototype.attention.quantization import (
     _fp8_rope_sdpa_quantize,
@@ -52,49 +43,16 @@ def _fp8_sdpa(
     *,
     backend_name: str = "FP8",
 ) -> torch.Tensor:
-    """FP8 SDPA implementation shared by all backends.
+    """FP8 SDPA shared by all backends.
 
-    Quantizes Q, K, V to FP8 with per-head scaling, then runs
-    ``_scaled_dot_product_attention_quantized`` under the
-    ``SDPBackend.FLASH_ATTENTION`` kernel selector.
+    The correct flash attention implementation (e.g. FA3) must be
+    activated before calling this function. The high-level
+    ``apply_low_precision_attention`` API handles this automatically.
 
-    .. important::
-
-        The correct flash attention implementation (e.g., FA3) must
-        be activated **before** calling this function::
-
-            from torch.nn.attention import (
-                activate_flash_attention_impl,
-                restore_flash_attention_impl,
-            )
-
-            activate_flash_attention_impl("FA3")
-            try:
-                out = _fp8_sdpa(q, k, v, is_causal=True)
-            finally:
-                restore_flash_attention_impl()
-
-        The high-level API (``apply_low_precision_attention``) handles
-        this automatically.  This requirement only applies when calling
-        this function (or the backend-specific wrappers like
-        ``fp8_fa3_sdpa``) directly.
-
-    Args:
-        query: Query tensor of shape [B, H, S, D] in bf16/fp16.
-        key: Key tensor of shape [B, H, S, D] in bf16/fp16.
-        value: Value tensor of shape [B, H, S, D] in bf16/fp16.
-        attn_mask: Not supported, must be None.
-        dropout_p: Not supported, must be 0.0.
-        is_causal: Whether to apply causal masking.
-        scale: Scaling factor for attention. If None, uses 1/sqrt(D).
-        enable_gqa: Whether to enable grouped query attention.
-        backend_name: Name of the backend for error messages.
-
-    Returns:
-        Attention output of shape [B, H, S, D] in the input dtype.
+    Input/output layout: [B, H, S, D].
     """
     if not _TORCH_VERSION_AT_LEAST_2_11:
-        raise RuntimeError(_MIN_VERSION_ERROR)
+        raise RuntimeError("Low-precision attention requires PyTorch 2.11+.")
     if attn_mask is not None:
         raise ValueError(f"attn_mask not supported for FP8 {backend_name}")
     if dropout_p != 0.0:
@@ -103,15 +61,6 @@ def _fp8_sdpa(
         )
 
     input_dtype = query.dtype
-
-    # Ensure Triton kernels launch on the correct device.
-    # In the monkey-patch path (no torch.compile), accelerate's hooks move
-    # tensors to the correct device but don't call torch.cuda.set_device().
-    # Triton dispatches based on current_device(), not tensor device, so
-    # without this guard the kernel launches on the wrong GPU's stream.
-    _prev_device = torch.cuda.current_device()
-    if query.device.index is not None and query.device.index != _prev_device:
-        torch.cuda.set_device(query.device)
 
     q_fp8, k_fp8, v_fp8, descale_q, descale_k, descale_v = _fp8_sdpa_quantize(
         query, key, value
@@ -128,10 +77,6 @@ def _fp8_sdpa(
             k_descale=descale_k,
             v_descale=descale_v,
         )
-
-    # Restore previous device to avoid side effects on the caller.
-    if query.device.index is not None and query.device.index != _prev_device:
-        torch.cuda.set_device(_prev_device)
 
     return out.to(input_dtype)
 
@@ -151,40 +96,14 @@ def _fp8_rope_sdpa(
     *,
     backend_name: str = "FP8",
 ) -> torch.Tensor:
-    """Fused RoPE + FP8 SDPA implementation shared by all backends.
+    """Fused RoPE + FP8 SDPA shared by all backends.
 
-    Applies RoPE to Q and K, quantizes Q, K, V to FP8 with per-head
-    scaling, then runs ``_scaled_dot_product_attention_quantized``.
-
-    Input layout is [B, S, H, D] (pre-transpose). The fused quantization
+    Input layout: [B, S, H, D] (pre-transpose). The fused quantization
     kernel handles the transpose to [B, H, S, D] internally.
-
-    .. important::
-
-        The correct flash attention implementation (e.g., FA3) must
-        be activated **before** calling this function.  See ``_fp8_sdpa``
-        docstring for details.
-
-    Args:
-        query: Query tensor of shape [B, S, H, D] in bf16/fp16.
-        key: Key tensor of shape [B, S, H, D] in bf16/fp16.
-        value: Value tensor of shape [B, S, H, D] in bf16/fp16.
-        cos: Cosine frequencies for RoPE, shape [S, D].
-        sin: Sine frequencies for RoPE, shape [S, D].
-        attn_mask: Not supported, must be None.
-        dropout_p: Not supported, must be 0.0.
-        is_causal: Whether to apply causal masking.
-        scale: Scaling factor for attention. If None, uses 1/sqrt(D).
-        enable_gqa: Whether to enable grouped query attention.
-        rope_interleaved: If True, use interleaved (FLUX) RoPE pairing.
-            If False (default), use NeoX half-split pairing.
-        backend_name: Name of the backend for error messages.
-
-    Returns:
-        Attention output of shape [B, H, S, D] in the input dtype.
+    Output layout: [B, H, S, D].
     """
     if not _TORCH_VERSION_AT_LEAST_2_11:
-        raise RuntimeError(_MIN_VERSION_ERROR)
+        raise RuntimeError("Low-precision attention requires PyTorch 2.11+.")
     if attn_mask is not None:
         raise ValueError(f"attn_mask not supported for FP8 {backend_name}")
     if dropout_p != 0.0:
@@ -196,11 +115,6 @@ def _fp8_rope_sdpa(
 
     cos = cos.to(query.device)
     sin = sin.to(query.device)
-
-    # Ensure Triton kernels launch on the correct device (see _fp8_sdpa).
-    _prev_device = torch.cuda.current_device()
-    if query.device.index is not None and query.device.index != _prev_device:
-        torch.cuda.set_device(query.device)
 
     q_fp8, k_fp8, v_fp8, descale_q, descale_k, descale_v = _fp8_rope_sdpa_quantize(
         query, key, value, cos, sin, rope_interleaved=rope_interleaved
@@ -217,8 +131,5 @@ def _fp8_rope_sdpa(
             k_descale=descale_k,
             v_descale=descale_v,
         )
-
-    if query.device.index is not None and query.device.index != _prev_device:
-        torch.cuda.set_device(_prev_device)
 
     return out.to(input_dtype)

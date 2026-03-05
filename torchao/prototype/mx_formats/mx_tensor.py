@@ -562,7 +562,14 @@ class MXTensor(TorchAOBaseTensor):
         triton_kernel_supported = (
             elem_dtype == torch.float8_e4m3fn and not is_swizzled_scales
         )
-        if mxfp8_dim0_cast_kernel_choice == MXFP8Dim0CastKernelChoice.TRITON:
+        if (
+            mxfp8_dim0_cast_kernel_choice == MXFP8Dim0CastKernelChoice.TORCH
+            or kernel_preference == KernelPreference.EMULATED
+        ):
+            scale_e8m0_biased, data_lp = to_mx(
+                data_hp, elem_dtype, block_size, scaling_mode, is_swizzled_scales
+            )
+        else:
             assert triton_kernel_supported, (
                 f"triton kernel unsupported for {data_hp.dtype=}, {elem_dtype=}, {scaling_mode=}, {is_swizzled_scales=}"
             )
@@ -570,10 +577,6 @@ class MXTensor(TorchAOBaseTensor):
                 data_hp,
                 inner_block_size=block_size,
                 scaling_mode=scaling_mode.value,
-            )
-        else:
-            scale_e8m0_biased, data_lp = to_mx(
-                data_hp, elem_dtype, block_size, scaling_mode, is_swizzled_scales
             )
         if isinstance(scale_e8m0_biased, DTensor):
             assert isinstance(data_lp, DTensor), "unsupported"
