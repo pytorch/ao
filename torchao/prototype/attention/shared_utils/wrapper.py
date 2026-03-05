@@ -28,6 +28,21 @@ class _LowPrecisionAttentionWrapper(nn.Module):
             return getattr(self._orig_mod, name)
 
 
+class _FP8FlashAttentionWrapper(_LowPrecisionAttentionWrapper):
+    """Compile path wrapper. Activates the flash impl around the module forward."""
+
+    def __init__(self, orig_mod: nn.Module, flash_impl_name: str):
+        super().__init__(orig_mod)
+        self._flash_impl_name = flash_impl_name
+
+    def forward(self, *args, **kwargs):
+        activate_flash_attention_impl(self._flash_impl_name)
+        try:
+            return self._orig_mod(*args, **kwargs)
+        finally:
+            restore_flash_attention_impl()
+
+
 class _FP8FlashAttentionMonkeyPatchWrapper(_LowPrecisionAttentionWrapper):
     """Monkey-patch path wrapper. Replaces ``F.scaled_dot_product_attention``
     with the FP8 backend for the duration of each forward call.

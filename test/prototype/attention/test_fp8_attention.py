@@ -4,7 +4,7 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
-"""Tests for FP8 low-precision attention."""
+"""Tests for FP8 low-precision attention (FA3 backend)."""
 
 import unittest
 from dataclasses import dataclass
@@ -49,13 +49,14 @@ class BackendConfig:
     flash_impl: str  # "FA3"
     attention_backend: AttentionBackend
     sdpa_fn: Callable  # fp8_fa3_sdpa
+    rope_sdpa_fn: Callable  # fp8_fa3_rope_sdpa
     available_eager: bool  # Can run direct sdpa calls
     available_compiled: bool  # Can run via apply_low_precision_attention
     skip_msg: str
 
 
 def _probe_eager_quantized_sdpa(sdpa_fn, flash_impl: str) -> bool:
-    """Try a tiny quantized SDPA call to verify the backend works."""
+    """Try a tiny quantized SDPA call to verify the backend works in eager mode."""
     try:
         activate_flash_attention_impl(flash_impl)
         try:
@@ -80,12 +81,15 @@ def _build_backend_configs() -> List[BackendConfig]:
         _TORCH_VERSION_AT_LEAST_2_11 and _is_hopper() and _is_fa3_available()
     )
     if fa3_available:
-        from torchao.prototype.attention.fp8_fa3.attention import fp8_fa3_sdpa
+        from torchao.prototype.attention.fp8_fa3.attention import (
+            fp8_fa3_rope_sdpa,
+            fp8_fa3_sdpa,
+        )
 
-        sdpa_fn = fp8_fa3_sdpa
+        sdpa_fn, rope_sdpa_fn = fp8_fa3_sdpa, fp8_fa3_rope_sdpa
         eager_ok = _probe_eager_quantized_sdpa(sdpa_fn, "FA3")
     else:
-        sdpa_fn = None
+        sdpa_fn = rope_sdpa_fn = None
         eager_ok = False
 
     configs.append(
@@ -94,6 +98,7 @@ def _build_backend_configs() -> List[BackendConfig]:
             flash_impl="FA3",
             attention_backend=AttentionBackend.FP8_FA3,
             sdpa_fn=sdpa_fn,
+            rope_sdpa_fn=rope_sdpa_fn,
             available_eager=eager_ok,
             available_compiled=eager_ok,
             skip_msg=(
@@ -116,6 +121,31 @@ _NO_COMPILED_SKIP_MSG = "No FP8 attention backend available for compiled mode"
 
 if _ANY_EAGER_AVAILABLE or _ANY_COMPILED_AVAILABLE:
     from torchao.quantization.utils import compute_error
+
+
+def _generate_rope_cos_sin(S, D, device, dtype=torch.float32):
+    """Generate cos/sin frequencies for RoPE testing (NeoX half-split format)."""
+    freqs = 1.0 / (10000.0 ** (torch.arange(0, D, 2, dtype=torch.float32) / D))
+    positions = torch.arange(S, dtype=torch.float32)
+    angles = torch.outer(positions, freqs)  # [S, D/2]
+    cos_half = torch.cos(angles)
+    sin_half = torch.sin(angles)
+    cos = torch.cat([cos_half, cos_half], dim=-1).to(device=device, dtype=dtype)
+    sin = torch.cat([sin_half, sin_half], dim=-1).to(device=device, dtype=dtype)
+    return cos, sin
+
+
+def _apply_rope_ref(x, cos, sin):
+    """Reference NeoX half-split RoPE: x is [B, S, H, D], cos/sin are [S, D]."""
+    D = x.shape[-1]
+    D_HALF = D // 2
+    x_first = x[..., :D_HALF].float()
+    x_second = x[..., D_HALF:].float()
+    cos_half = cos[:, :D_HALF].float().unsqueeze(0).unsqueeze(2)
+    sin_half = sin[:, :D_HALF].float().unsqueeze(0).unsqueeze(2)
+    out_first = x_first * cos_half - x_second * sin_half
+    out_second = x_second * cos_half + x_first * sin_half
+    return torch.cat([out_first, out_second], dim=-1).to(x.dtype)
 
 
 class SimpleAttentionModel(nn.Module):
@@ -191,12 +221,69 @@ class TestFP8SDPANumericalAccuracy(TestCase):
 
 
 @common_utils.instantiate_parametrized_tests
+class TestFP8RopeSDPANumericalAccuracy(TestCase):
+    """SQNR-based numerical accuracy tests for FP8 attention with fused RoPE."""
+
+    def setUp(self):
+        self._active_backend = None
+
+    def tearDown(self):
+        if self._active_backend is not None:
+            restore_flash_attention_impl()
+
+    def _activate(self, backend: BackendConfig):
+        activate_flash_attention_impl(backend.flash_impl)
+        self._active_backend = backend
+
+    @unittest.skipIf(not _ANY_EAGER_AVAILABLE, _NO_EAGER_SKIP_MSG)
+    @common_utils.parametrize(
+        "shape",
+        [
+            (2, 1024, 8, 64),
+            (1, 1024, 16, 128),
+        ],
+    )
+    @common_utils.parametrize("dtype", [torch.bfloat16, torch.float16])
+    def test_rope_sdpa_accuracy(self, shape, dtype):
+        """FP8 RoPE SDPA output matches ref RoPE + SDPA within acceptable SQNR."""
+        B, S, H, D = shape
+        q = torch.randn(B, S, H, D, device="cuda", dtype=dtype)
+        k = torch.randn(B, S, H, D, device="cuda", dtype=dtype)
+        v = torch.randn(B, S, H, D, device="cuda", dtype=dtype)
+        cos, sin = _generate_rope_cos_sin(S, D, device="cuda")
+
+        with torch.no_grad():
+            q_rope = _apply_rope_ref(q, cos, sin).transpose(1, 2)
+            k_rope = _apply_rope_ref(k, cos, sin).transpose(1, 2)
+            v_ref = v.transpose(1, 2)
+            out_ref = F.scaled_dot_product_attention(
+                q_rope, k_rope, v_ref, is_causal=False
+            )
+
+        for backend in _EAGER_BACKENDS:
+            self._activate(backend)
+            with torch.no_grad():
+                out_fp8 = backend.rope_sdpa_fn(q, k, v, cos, sin, is_causal=False)
+            restore_flash_attention_impl()
+            self._active_backend = None
+
+            sqnr = compute_error(out_ref, out_fp8)
+            self.assertGreater(
+                sqnr.item(),
+                25.0,
+                f"[{backend.name}] SQNR {sqnr.item():.2f} dB below threshold "
+                f"of 25 dB for shape={shape}, dtype={dtype}",
+            )
+
+
+@common_utils.instantiate_parametrized_tests
 class TestFP8ModelAPI(TestCase):
     """API-level tests using apply_low_precision_attention on a model."""
 
     @unittest.skipIf(not _ANY_COMPILED_AVAILABLE, _NO_COMPILED_SKIP_MSG)
     @common_utils.parametrize("dtype", [torch.bfloat16, torch.float16])
-    def test_apply_to_model_accuracy(self, dtype):
+    @common_utils.parametrize("fuse_rope_using_torch_compile", [True, False])
+    def test_apply_to_model_accuracy(self, dtype, fuse_rope_using_torch_compile):
         """apply_low_precision_attention produces output close to original model."""
         embed_dim, num_heads = 256, 8
         model = SimpleAttentionModel(embed_dim, num_heads).to(
@@ -218,6 +305,7 @@ class TestFP8ModelAPI(TestCase):
 
             config = LowPrecisionAttentionConfig(
                 backend=backend.attention_backend,
+                fuse_rope_using_torch_compile=fuse_rope_using_torch_compile,
             )
             test_model = apply_low_precision_attention(test_model, config)
 
@@ -228,7 +316,7 @@ class TestFP8ModelAPI(TestCase):
             self.assertGreater(
                 sqnr.item(),
                 20.0,
-                f"[{backend.name}] SQNR "
+                f"[{backend.name}, fuse_rope_using_torch_compile={fuse_rope_using_torch_compile}] SQNR "
                 f"{sqnr.item():.2f} dB below threshold "
                 f"for model-level test, dtype={dtype}",
             )
