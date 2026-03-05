@@ -7,15 +7,10 @@
 """
 Shared backend setup logic for low-precision attention.
 
-Provides ``setup_fp8_backend``, the parameterized core of every
-backend-specific setup function (e.g., ``setup_fp8_fa3``).
-
 Routes between two paths depending on ``config.fuse_rope_using_torch_compile``:
-- **Monkey-patch path** (default): wraps the model so that
-  ``F.scaled_dot_product_attention`` is replaced with the FP8
-  backend at call time.  No ``torch.compile`` needed.
-- **Compile path** (``fuse_rope_using_torch_compile=True``): compiles the model with the
-  RoPE + FP8 fusion pass via Inductor.
+- Monkey-patch path (default): wraps the model so that
+  ``F.scaled_dot_product_attention`` is replaced at call time.
+- Compile path: compiles the model with the RoPE + FP8 fusion pass.
 """
 
 from typing import Callable
@@ -37,21 +32,7 @@ def setup_fp8_backend(
     sdpa_fn: Callable,
     compile_fn: Callable,
 ) -> nn.Module:
-    """Set up FP8 attention on *model* and wrap it.
-
-    Args:
-        model: The model to wrap.
-        config: Low-precision attention configuration.
-        flash_impl_name: Flash implementation name (e.g. ``"FA3"``).
-        sdpa_fn: The backend-specific FP8 SDPA function (e.g.
-            ``fp8_fa3_sdpa``).  Used for the monkey-patch path.
-        compile_fn: A callable ``(model, config) -> compiled_module`` that
-            compiles the model with the backend-specific fusion pass.
-            Used for the compile path.
-
-    Returns:
-        A wrapped module with low-precision FP8 attention applied.
-    """
+    """Set up FP8 attention on *model* and wrap it."""
     if config.hadamard_mode == "qkv":
         raise NotImplementedError(
             "FP8 attention with Hadamard on QKV is not yet implemented."
