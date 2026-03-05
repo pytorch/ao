@@ -16,17 +16,30 @@ from torchao.prototype.attention.config import AttentionBackend
 
 
 def _is_hopper() -> bool:
-    """Check if the current CUDA device is Hopper (SM 9.x)."""
     if not torch.cuda.is_available():
         return False
     major, _ = torch.cuda.get_device_capability()
     return major == 9
 
 
+def _is_blackwell() -> bool:
+    if not torch.cuda.is_available():
+        return False
+    major, _ = torch.cuda.get_device_capability()
+    return major == 10
+
+
 def _is_fa3_available() -> bool:
-    """Check if flash_attn_interface is installed."""
     try:
         importlib.import_module("flash_attn_interface")
+        return True
+    except ModuleNotFoundError:
+        return False
+
+
+def _is_fa4_available() -> bool:
+    try:
+        importlib.import_module("flash_attn.cute.interface")
         return True
     except ModuleNotFoundError:
         return False
@@ -39,29 +52,42 @@ def _get_available_backend() -> AttentionBackend:
 
     capability = torch.cuda.get_device_capability()
 
-    # FA3 requires Hopper (SM 9.x) and flash_attn_interface
+    if _is_blackwell() and _is_fa4_available():
+        return AttentionBackend.FP8_FA4
     if _is_hopper() and _is_fa3_available():
         return AttentionBackend.FP8_FA3
+    if _is_hopper() and _is_fa4_available():
+        return AttentionBackend.FP8_FA4
 
     raise RuntimeError(f"No compatible backend for SM{capability[0]}{capability[1]}.")
 
 
 def _check_backend_available(backend: AttentionBackend) -> None:
     """Check if the specified backend is available on current hardware."""
+    if not torch.cuda.is_available():
+        raise RuntimeError(f"{backend} backend requires CUDA.")
+
+    capability = torch.cuda.get_device_capability()
+
     if backend == AttentionBackend.FP8_FA3:
-        if not torch.cuda.is_available():
-            raise RuntimeError("FP8_FA3 backend requires CUDA.")
-
         if not _is_hopper():
-            capability = torch.cuda.get_device_capability()
             raise RuntimeError(
-                f"FP8_FA3 backend requires Hopper (SM 9.x). "
-                f"Current device: SM{capability[0]}{capability[1]}. "
+                f"FP8_FA3 requires Hopper (SM 9.x), got SM{capability[0]}{capability[1]}."
             )
-
         if not _is_fa3_available():
             raise RuntimeError(
-                "FP8_FA3 backend requires the flash-attn package with FA3 support. "
+                "FP8_FA3 requires the flash-attn package with FA3 support."
+            )
+
+    elif backend == AttentionBackend.FP8_FA4:
+        if not (_is_hopper() or _is_blackwell()):
+            raise RuntimeError(
+                f"FP8_FA4 requires Hopper or Blackwell, got SM{capability[0]}{capability[1]}."
+            )
+        if not _is_fa4_available():
+            raise RuntimeError(
+                "FP8_FA4 requires the flash-attn package with FA4 support "
+                "(flash_attn.cute.interface)."
             )
 
     else:
