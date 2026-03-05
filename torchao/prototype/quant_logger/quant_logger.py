@@ -64,7 +64,7 @@ def log_tensor(
     if extra is not None:
         extra_str = f"{extra=}, "
     print(
-        f"t={tag}, c={counter_val}, {fqn=}, {op=}, {extra_str}max={max_abs:.2f}, avg={avg:.2f}, std={std:.2f}"
+        f"t={tag}, c={counter_val}, {fqn=}, {op=}, {extra_str}max_abs={max_abs:.2f}, avg={avg:.2f}, std={std:.2f}"
     )
 
 
@@ -103,12 +103,12 @@ def enable_log_stats_to_file(filename):
 
     The file is initialized with a header row. Each subsequent call to
     ``log_tensor`` appends a row with columns: tag, counter_val, fqn, op,
-    max_abs, avg, std.
+    max_abs, avg, std, extra.
 
     Args:
         filename: Path to the CSV file to write.
     """
-    headers = ["tag", "counter_val", "fqn", "op", "max_abs", "avg", "std"]
+    headers = ["tag", "counter_val", "fqn", "op", "max_abs", "avg", "std", "extra"]
     with open(filename, "w") as f:
         writer = csv.writer(f)
         writer.writerow(headers)
@@ -120,7 +120,7 @@ def enable_log_stats_to_file(filename):
         counter_val = counter[0]
         counter[0] += 1
         max_abs, avg, std = get_default_stats(x)
-        data = [tag, counter_val, fqn, op, max_abs, avg, std]
+        data = [tag, counter_val, fqn, op, max_abs, avg, std, extra or ""]
         with open(filename, "a") as f:
             writer = csv.writer(f)
             writer.writerow(data)
