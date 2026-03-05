@@ -62,6 +62,7 @@ from torchao.utils import (
     get_current_accelerator_device,
     is_sm_at_least_89,
     is_sm_at_least_90,
+    is_sm_at_least_100,
     unwrap_tensor_subclass,
 )
 
@@ -71,6 +72,10 @@ try:
     has_gemlite = True
 except ModuleNotFoundError:
     has_gemlite = False
+
+from torchao.prototype.mx_formats.inference_workflow import (
+    MXDynamicActivationMXWeightConfig,
+)
 
 
 def dynamic_quant(model, example_inputs):
@@ -1050,6 +1055,8 @@ class TestFqnToConfig(TestCase):
             Float8WeightOnlyConfig(),
             Float8DynamicActivationFloat8WeightConfig(granularity=PerTensor()),
         ]
+        if is_sm_at_least_100():
+            configs.append(MXDynamicActivationMXWeightConfig())
         for config in configs:
             with self.subTest(config=type(config).__name__):
                 model = torch.nn.Sequential(
