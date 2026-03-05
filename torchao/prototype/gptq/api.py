@@ -24,16 +24,22 @@ from torchao.prototype.mx_formats.inference_workflow import (
 )
 from torchao.prototype.mx_formats.mx_tensor import (
     MXTensor,
+    QuantizeTensorToMXKwargs,
     to_mx,
 )
+from torchao.prototype.mx_formats.utils import (
+    hp_data_dims_to_swizzled_scale_dims_mx,
+    to_blocked,
+)
 from torchao.quantization import Int4Tensor, Int8Tensor
-from torchao.quantization.granularity import PerRow
+from torchao.quantization.granularity import PerGroup, PerRow
 from torchao.quantization.quant_api import (
     Int4WeightOnlyConfig,
     Int8WeightOnlyConfig,
     _module_extra_repr,
 )
 from torchao.quantization.quantize_.common.kernel_preference import KernelPreference
+from torchao.quantization.quant_primitives import MappingType
 from torchao.quantization.transform_module import register_quantize_module_handler
 from torchao.quantization.utils import get_block_size
 
@@ -73,7 +79,9 @@ class GPTQConfig(AOBaseConfig):
 
     step: str = "observe"  # "observe" or "convert"
     base_config: Union[
-        Int4WeightOnlyConfig, Int8WeightOnlyConfig, MXDynamicActivationMXWeightConfig
+        Int4WeightOnlyConfig,
+        Int8WeightOnlyConfig,
+        MXDynamicActivationMXWeightConfig,
     ] = None
     percdamp: float = 0.01
     gptq_quantize_block_size: int = 256
@@ -109,7 +117,7 @@ def _gptq_config_transform(
                     x.to(torch.bfloat16),
                     base.activation_dtype,
                     block_size=base.block_size,
-                    kernel_preference=KernelPreference.EMULATED,
+                    kernel_preference=base.kernel_preference,  # Use the actual kernel preference
                 )
                 return mx.dequantize(torch.float)
 
@@ -368,7 +376,7 @@ def gptq_quantize(H: torch.Tensor, W: torch.Tensor, config: GPTQConfig):
                         w_padded,
                         mx_elem_dtype,
                         group_size,
-                        kernel_preference=KernelPreference.EMULATED,
+                        kernel_preference=base_config.kernel_preference,  # Use the actual kernel preference
                         is_swizzled_scales=False,
                         scale=mx_scale_e8m0,
                     )
@@ -404,15 +412,32 @@ def gptq_quantize(H: torch.Tensor, W: torch.Tensor, config: GPTQConfig):
         )
     elif isinstance(base_config, MXDynamicActivationMXWeightConfig):
         scale = torch.cat(group_qparams, dim=1)
+        # Manually swizzle the scale for non-emulated (CUBLAS) mode
+        # GPTQ computes scales column-by-column in unswizzled format,
+        # but is_swizzled_scales=True expects scales to already be swizzled
+        M, K = W.shape[-2], W.shape[-1]
+        scale_dtype = scale.dtype
+        scale_swizzled = to_blocked(scale).flatten()
+        scale_M, scale_K = hp_data_dims_to_swizzled_scale_dims_mx(M, K)
+        scale_swizzled = scale_swizzled.view(scale_M, scale_K).to(scale_dtype)
+        # Create act_quant_kwargs for dynamic activation quantization
+        act_quant_kwargs = QuantizeTensorToMXKwargs(
+            elem_dtype=base_config.activation_dtype,
+            block_size=base_config.block_size,
+            kernel_preference=base_config.kernel_preference,
+            is_swizzled_scales=True,
+            scaling_mode=base_config.scaling_mode,
+        )
         result = MXTensor.to_mx(
             W,
             base_config.weight_dtype,
             block_size=base_config.block_size,
-            kernel_preference=KernelPreference.EMULATED,
-            act_quant_kwargs=None,
-            is_swizzled_scales=False,
-            scale=scale,
-        ).dequantize(torch.bfloat16)
+            kernel_preference=base_config.kernel_preference,
+            act_quant_kwargs=act_quant_kwargs,
+            is_swizzled_scales=True,
+            scaling_mode=base_config.scaling_mode,
+            scale=scale_swizzled,
+        )
     return result
 
 
