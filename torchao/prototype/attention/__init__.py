@@ -7,23 +7,7 @@
 """
 Low-precision attention for inference.
 
-This module provides APIs for running attention with reduced precision
-(e.g., FP8) for faster inference. It can be extended to support different
-quantization strategies and different PyTorch core attention backends.
-
-Note: Low-precision attention only supports inference (forward pass).
-Backward pass is not supported by the underlying backends.
-
-Note: apply_low_precision_attention replaces all F.scaled_dot_product_attention
-calls within the model with the configured low-precision backend.
-
-Example::
-
-    from torchao.prototype.attention import apply_low_precision_attention
-
-    model = MyTransformer()
-    model = apply_low_precision_attention(model)
-    output = model(inputs)
+Only supports forward pass — backward is not supported by the underlying backends.
 """
 
 from torchao.prototype.attention.api import apply_low_precision_attention
@@ -33,9 +17,7 @@ from torchao.prototype.attention.config import (
 )
 
 __all__ = [
-    # Config
     "LowPrecisionAttentionConfig",
     "AttentionBackend",
-    # API
     "apply_low_precision_attention",
 ]

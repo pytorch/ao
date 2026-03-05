@@ -50,9 +50,6 @@ from torchao.prototype.attention.utils import (
 )
 
 
-# ---------------------------------------------------------------------------
-# Backend configuration
-# ---------------------------------------------------------------------------
 @dataclass
 class BackendConfig:
     """Configuration for a single backend under test."""
@@ -68,11 +65,7 @@ class BackendConfig:
 
 
 def _probe_eager_quantized_sdpa(sdpa_fn, flash_impl: str) -> bool:
-    """Try a tiny quantized SDPA call to verify the backend works in eager mode.
-
-    FA3 uses _scaled_dot_product_attention_quantized internally,
-    which requires FA3 activation. This probe catches mismatches.
-    """
+    """Try a tiny quantized SDPA call to verify the backend works in eager mode."""
     try:
         activate_flash_attention_impl(flash_impl)
         try:
@@ -92,7 +85,6 @@ def _build_backend_configs() -> List[BackendConfig]:
     """Build backend configs, lazily importing functions only when available."""
     configs = []
 
-    # FA3: Hopper only
     fa3_available = (
         _TORCH_VERSION_AT_LEAST_2_11 and _is_hopper() and _is_fa3_available()
     )
@@ -124,7 +116,6 @@ def _build_backend_configs() -> List[BackendConfig]:
         )
     )
 
-    # FA4: Hopper or Blackwell
     fa4_available = (
         _TORCH_VERSION_AT_LEAST_2_11
         and (_is_hopper() or _is_blackwell())
@@ -171,9 +162,6 @@ if _ANY_EAGER_AVAILABLE or _ANY_COMPILED_AVAILABLE:
     from torchao.quantization.utils import compute_error
 
 
-# ---------------------------------------------------------------------------
-# RoPE helpers
-# ---------------------------------------------------------------------------
 def _generate_rope_cos_sin(S, D, device, dtype=torch.float32):
     """Generate cos/sin frequencies for RoPE testing (NeoX half-split format)."""
     freqs = 1.0 / (10000.0 ** (torch.arange(0, D, 2, dtype=torch.float32) / D))
@@ -192,7 +180,6 @@ def _apply_rope_ref(x, cos, sin):
     D_HALF = D // 2
     x_first = x[..., :D_HALF].float()
     x_second = x[..., D_HALF:].float()
-    # [S, D_HALF] -> [1, S, 1, D_HALF] for broadcasting with [B, S, H, D_HALF]
     cos_half = cos[:, :D_HALF].float().unsqueeze(0).unsqueeze(2)
     sin_half = sin[:, :D_HALF].float().unsqueeze(0).unsqueeze(2)
     out_first = x_first * cos_half - x_second * sin_half
@@ -200,9 +187,6 @@ def _apply_rope_ref(x, cos, sin):
     return torch.cat([out_first, out_second], dim=-1).to(x.dtype)
 
 
-# ---------------------------------------------------------------------------
-# Simple model for API-level tests
-# ---------------------------------------------------------------------------
 class SimpleAttentionModel(nn.Module):
     """A minimal model that calls F.scaled_dot_product_attention."""
 
@@ -225,9 +209,6 @@ class SimpleAttentionModel(nn.Module):
         return self.out_proj(attn_out)
 
 
-# ---------------------------------------------------------------------------
-# Numerical accuracy tests
-# ---------------------------------------------------------------------------
 @common_utils.instantiate_parametrized_tests
 class TestFP8SDPANumericalAccuracy(TestCase):
     """SQNR-based numerical accuracy tests for FP8 SDPA."""
@@ -278,9 +259,6 @@ class TestFP8SDPANumericalAccuracy(TestCase):
             )
 
 
-# ---------------------------------------------------------------------------
-# RoPE SDPA numerical accuracy tests
-# ---------------------------------------------------------------------------
 @common_utils.instantiate_parametrized_tests
 class TestFP8RopeSDPANumericalAccuracy(TestCase):
     """SQNR-based numerical accuracy tests for FP8 attention with fused RoPE."""
@@ -314,7 +292,6 @@ class TestFP8RopeSDPANumericalAccuracy(TestCase):
         cos, sin = _generate_rope_cos_sin(S, D, device="cuda")
 
         with torch.no_grad():
-            # Reference: apply RoPE, transpose to [B, H, S, D], run SDPA
             q_rope = _apply_rope_ref(q, cos, sin).transpose(1, 2)
             k_rope = _apply_rope_ref(k, cos, sin).transpose(1, 2)
             v_ref = v.transpose(1, 2)
@@ -340,9 +317,6 @@ class TestFP8RopeSDPANumericalAccuracy(TestCase):
             )
 
 
-# ---------------------------------------------------------------------------
-# API-level model tests
-# ---------------------------------------------------------------------------
 @common_utils.instantiate_parametrized_tests
 class TestFP8ModelAPI(TestCase):
     """API-level tests using apply_low_precision_attention on a model."""
@@ -364,8 +338,6 @@ class TestFP8ModelAPI(TestCase):
             out_ref = model(x)
 
         for backend in _COMPILED_BACKENDS:
-            # Need a fresh model for each backend since
-            # apply_low_precision_attention modifies the model.
             test_model = SimpleAttentionModel(embed_dim, num_heads).to(
                 device="cuda", dtype=dtype
             )
