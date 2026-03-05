@@ -20,6 +20,7 @@ you must activate FA4 yourself::
 from functools import partial
 
 from torchao.prototype.attention.shared_utils.attention import (
+    _fp8_rope_sdpa,
     _fp8_sdpa,
 )
 
@@ -27,3 +28,8 @@ fp8_fa4_sdpa = partial(_fp8_sdpa, backend_name="FA4")
 fp8_fa4_sdpa.__doc__ = _fp8_sdpa.__doc__
 fp8_fa4_sdpa.__name__ = "fp8_fa4_sdpa"
 fp8_fa4_sdpa.__qualname__ = "fp8_fa4_sdpa"
+
+fp8_fa4_rope_sdpa = partial(_fp8_rope_sdpa, backend_name="FA4")
+fp8_fa4_rope_sdpa.__doc__ = _fp8_rope_sdpa.__doc__
+fp8_fa4_rope_sdpa.__name__ = "fp8_fa4_rope_sdpa"
+fp8_fa4_rope_sdpa.__qualname__ = "fp8_fa4_rope_sdpa"
