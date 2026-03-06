@@ -659,7 +659,7 @@ class TestSubclass(unittest.TestCase):
                         Int4WeightOnlyConfig(
                             group_size=groupsize,
                             int4_packing_format=Int4PackingFormat.TILE_PACKED_TO_4D,
-                            int4_tile_packed_ntile=ntile_size
+                            int4_tile_packed_ntile=ntile_size,
                         ),
                     )
 

@@ -772,7 +772,9 @@ class Int4WeightOnlyConfig(AOBaseConfig):
     version: int = 2
 
     def __post_init__(self):
-        assert self.int4_tile_packed_ntile in [8, 16], "int4_tile_packed_ntile must be either 8 or 16"
+        assert self.int4_tile_packed_ntile in [8, 16], (
+            "int4_tile_packed_ntile must be either 8 or 16"
+        )
         torch._C._log_api_usage_once("torchao.quantization.Int4WeightOnlyConfig")
 
 
