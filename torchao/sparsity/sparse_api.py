@@ -126,9 +126,8 @@ def sparsify_(
             from torchao.sparse_api import semi_sparse_weight
             m = sparsify_(m, semi_sparse_weight(), filter_fn)
 
-            # for int8 dynamic quantization + 2:4 sparsity
-            from torchao.dtypes import SemiSparseLayout
-            m = quantize_(m, Int8DynamicActivationInt8WeightConfig(layout=SemiSparseLayout), filter_fn)
+            # for int8 dynamic quantization
+            m = quantize_(m, Int8DynamicActivationInt8WeightConfig(), filter_fn)
     """
     torch._C._log_api_usage_once("torchao.sparsity.sparsify_")
     handler = _QUANTIZE_CONFIG_HANDLER[type(config)]
