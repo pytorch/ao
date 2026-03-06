@@ -2140,6 +2140,10 @@ class TestPatternMatcher(TestPatternMatcherBase):
     @parametrize("is_qat", [True, False])
     @parametrize("is_dynamic", [True, False])
     def test_qlinear_add_int8_mixed_bf16(self, use_relu, is_qat, is_dynamic):
+        if is_dynamic:
+            # skip due to an issue in torch nightly (https://github.com/pytorch/pytorch/commit/996dedb42f2ed0facbdb73e36bc877a02bb40209)
+            # TODO(Weiwen): after fixing torch nightly, re-enable this
+            return
         self._qlinear_add_test_helper(
             mixed_bf16=True,
             use_relu=use_relu,
