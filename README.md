@@ -164,9 +164,10 @@ For diffusion models, you can quantize using Hugging Face diffusers
 import torch
 from diffusers import DiffusionPipeline, PipelineQuantizationConfig, TorchAoConfig
 from torchao.quantization import Int8WeightOnlyConfig
+from torchao.quantization.granularity import PerGroup
 
 pipeline_quant_config = PipelineQuantizationConfig(
-    quant_mapping={"transformer": TorchAoConfig(Int8WeightOnlyConfig(group_size=128))}
+    quant_mapping={"transformer": TorchAoConfig(Int8WeightOnlyConfig(granularity=PerGroup(128)))}
 )
 pipeline = DiffusionPipeline.from_pretrained(
     "black-forest-labs/FLUX.1-dev",
