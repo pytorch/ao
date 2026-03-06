@@ -767,6 +767,8 @@ class Int4WeightOnlyConfig(AOBaseConfig):
     int4_choose_qparams_algorithm: Int4ChooseQParamsAlgorithm = (
         Int4ChooseQParamsAlgorithm.TINYGEMM
     )
+    # ntile size for TILE_PACKED_TO_4D format, 8 for CUDA platform, 16 for ROCm platform
+    int4_tile_packed_ntile: int = 8
     version: int = 2
 
     def __post_init__(self):
@@ -782,6 +784,7 @@ def _int4_weight_only_quantize_tensor(weight, config):
     group_size = config.group_size
     int4_choose_qparams_algorithm = config.int4_choose_qparams_algorithm
     int4_packing_format = config.int4_packing_format
+    int4_tile_packed_ntile = config.int4_tile_packed_ntile
 
     if weight.shape[-1] % group_size != 0:
         logger.info(
@@ -824,6 +827,7 @@ def _int4_weight_only_quantize_tensor(weight, config):
             weight,
             block_size,
             int4_choose_qparams_algorithm=int4_choose_qparams_algorithm,
+            ntile_size=config.int4_tile_packed_ntile
         )
         return new_weight
     else:

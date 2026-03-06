@@ -643,13 +643,13 @@ class TestSubclass(unittest.TestCase):
         )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
-    @skip_if_rocm("ROCm enablement in progress")
     @skip_if_xpu("XPU enablement in progress")
     def test_int4_weight_only_quant_subclass_api_grouped(self, device, dtype):
         if dtype != torch.bfloat16:
             self.skipTest(f"Fails for {dtype}")
         if device == "cpu":
             self.skipTest("Only CUDA is supported for int4 weight only quantization v2")
+        ntile_size = 16 if torch.version.hip else 8
         for test_shape in [(256, 256, 16), (256, 256, 8)]:
             for groupsize in [64, 32]:
 
@@ -659,6 +659,7 @@ class TestSubclass(unittest.TestCase):
                         Int4WeightOnlyConfig(
                             group_size=groupsize,
                             int4_packing_format=Int4PackingFormat.TILE_PACKED_TO_4D,
+                            int4_tile_packed_ntile=ntile_size
                         ),
                     )
 

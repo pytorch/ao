@@ -98,6 +98,7 @@ class Int4TilePackedTo4dTensor(TorchAOBaseTensor):
         cls,
         hp_tensor: torch.Tensor,
         block_size: List[int],
+        ntile_size: Optional[int] = 8,
         int4_choose_qparams_algorithm: Int4ChooseQParamsAlgorithm = Int4ChooseQParamsAlgorithm.TINYGEMM,
     ):
         assert len(block_size) == hp_tensor.ndim, (
@@ -127,8 +128,7 @@ class Int4TilePackedTo4dTensor(TorchAOBaseTensor):
 
         # Pre-process: pad to required dimensions
         in_features = find_multiple(orig_in_features, 1024)
-        n_tile = 16 if torch.version.hip else 8
-        out_features = find_multiple(orig_out_features, n_tile)
+        out_features = find_multiple(orig_out_features, ntile_size)
         hp_tensor_padded = torch.nn.functional.pad(
             hp_tensor,
             (0, in_features - orig_in_features, 0, out_features - orig_out_features),
