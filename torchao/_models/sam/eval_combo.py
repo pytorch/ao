@@ -19,7 +19,6 @@ from torchao._models.utils import (
     write_json_result_local,
     write_json_result_ossci,
 )
-from torchao.dtypes import SemiSparseLayout
 from torchao.prototype.quantization.autoquant_v2 import autoquant_v2
 from torchao.quantization import (
     Int8DynamicActivationInt8WeightConfig,
@@ -387,7 +386,7 @@ def run(
         )
         quantize_(
             predictor.model.image_encoder,
-            Int8DynamicActivationInt8WeightConfig(layout=SemiSparseLayout()),
+            Int8DynamicActivationInt8WeightConfig(),
             mlp_lin1_only,
         )
         sparsify_(predictor.model.image_encoder, semi_sparse_weight(), mlp_lin2_only)
