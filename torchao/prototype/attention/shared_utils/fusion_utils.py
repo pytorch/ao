@@ -6,12 +6,6 @@
 
 """
 Shared FX graph pattern detection and fusion utilities for low-precision attention.
-
-Contains:
-  - RoPE pattern detection (NeoX/LLaMA and FLUX interleaved variants)
-  - SDPA node detection and parameter extraction
-  - Transpose detection and unwrapping
-  - Graph surgery and main fusion pass logic
 """
 
 import logging
@@ -31,17 +25,13 @@ logger = logging.getLogger(__name__)
 class RoPEMatch:
     """Result of detecting a RoPE pattern on a tensor."""
 
-    pre_rope_input: (
-        Node  # Tensor BEFORE RoPE: the "x" in "x * cos + rotate_half(x) * sin"
-    )
-    cos_node: Node  # Cosine frequencies, traced back to [S, D] source
-    sin_node: Node  # Sine frequencies, traced back to [S, D] source
+    pre_rope_input: Node  # tensor before RoPE: "x" in "x * cos + rotate_half(x) * sin"
+    cos_node: Node  # cosine frequencies, traced back to [S, D] source
+    sin_node: Node  # sine frequencies, traced back to [S, D] source
     rope_interleaved: bool  # True = FLUX interleaved, False = NeoX half-split
 
 
-# ---------------------------------------------------------------------------
 # FX Node Utilities
-# ---------------------------------------------------------------------------
 
 
 def _is_op(node: Node, *targets) -> bool:
@@ -150,9 +140,7 @@ def _trace_through_views(node: Node) -> Node:
     return current
 
 
-# ---------------------------------------------------------------------------
 # Transpose Detection
-# ---------------------------------------------------------------------------
 
 
 def _unwrap_transpose(node: Node) -> Optional[Node]:
@@ -251,9 +239,7 @@ def _unwrap_repeat_kv(node: Node) -> Optional[Node]:
     return None
 
 
-# ---------------------------------------------------------------------------
 # SDPA Detection and Parameter Extraction
-# ---------------------------------------------------------------------------
 
 
 def _is_sdpa_node(node: Node) -> bool:
@@ -420,9 +406,7 @@ def _get_sdpa_qkv(node: Node) -> Optional[Tuple[Node, Node, Node]]:
     return q, k, v
 
 
-# ---------------------------------------------------------------------------
 # NeoX/LLaMA RoPE Pattern Detection
-# ---------------------------------------------------------------------------
 #
 # NeoX/LLaMA RoPE:
 #   rotate_half(x) = cat(-x[..., D//2:], x[..., :D//2], dim=-1)
@@ -707,9 +691,7 @@ def _detect_rope(node: Node) -> Optional[RoPEMatch]:
     return _detect_neox_rope(node)
 
 
-# ---------------------------------------------------------------------------
 # Graph Surgery
-# ---------------------------------------------------------------------------
 
 
 def _replace_with_fused_op(
@@ -782,9 +764,7 @@ def _replace_sdpa_with_fp8(
     )
 
 
-# ---------------------------------------------------------------------------
 # Main Fusion Pass
-# ---------------------------------------------------------------------------
 
 
 def rope_sdpa_fusion_pass(

@@ -5,10 +5,13 @@
 # LICENSE file in the root directory of this source tree.
 
 """
-Benchmark attention backends (FA2/FA3/FA3-FP8) on LLaMA 3.
-Measures perplexity on WikiText-2 and forward-pass latency across sequence lengths.
+Benchmark attention backends on LLaMA 3.
 
-Usage: python eval_llama3_model.py --baseline fa3 --test fa3_fp8
+Phase 1: Perplexity on WikiText-2 via lm_eval.
+Phase 2: Forward-pass latency across sequence lengths 1K-128K.
+
+Usage:
+    python eval_llama3_model.py --baseline fa3 --test fa3_fp8
 """
 
 import argparse
@@ -28,7 +31,6 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from torchao.prototype.attention import (
     AttentionBackend,
-    LowPrecisionAttentionConfig,
     apply_low_precision_attention,
 )
 from torchao.prototype.attention.shared_utils.fusion_utils import (
@@ -54,6 +56,17 @@ BACKENDS = {
         "fp8": True,
         "fp8_backend": AttentionBackend.FP8_FA3,
         "label": "FA3 FP8",
+    },
+    "fa4": {
+        "flash_impl": "FA4",
+        "fp8": False,
+        "label": "FA4 BF16",
+    },
+    "fa4_fp8": {
+        "flash_impl": "FA4",
+        "fp8": True,
+        "fp8_backend": AttentionBackend.FP8_FA4,
+        "label": "FA4 FP8",
     },
 }
 
@@ -105,7 +118,7 @@ def _compile_with_mask_strip(model, flash_impl_name=None):
 def setup_backend(
     orig_model, backend_name, compile_flag, fuse_rope_using_torch_compile=False
 ):
-    """Configure and return (model, flash_impl) for the given backend."""
+    """Set up a backend and return (model, flash_impl)."""
     cfg = BACKENDS[backend_name]
 
     if cfg["fp8"]:
@@ -113,12 +126,17 @@ def setup_backend(
         # Disable KV cache: DynamicCache.update() torch.cat nodes block
         # the RoPE + SDPA fusion pass required by FP8 compilation.
         orig_model.config.use_cache = False
-        fp8_config = LowPrecisionAttentionConfig(
+        model = apply_low_precision_attention(
+            orig_model,
             backend=cfg["fp8_backend"],
             fuse_rope_using_torch_compile=fuse_rope_using_torch_compile,
         )
-        model = apply_low_precision_attention(orig_model, fp8_config)
-        if compile_flag:
+        if fuse_rope_using_torch_compile:
+            print(
+                f"  Compiling model with torch.compile ({backend_name}, FP8 backend)..."
+            )
+            model = torch.compile(model, backend=model.compile_backend)
+        elif compile_flag:
             print(f"  Compiling model with torch.compile ({backend_name})...")
             model = torch.compile(model)
         return model, cfg["flash_impl"]
