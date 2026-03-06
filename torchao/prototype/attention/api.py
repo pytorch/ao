@@ -6,22 +6,71 @@
 
 """User-facing API for low-precision attention."""
 
+from enum import Enum
 from typing import Optional
 
 import torch
 import torch._dynamo
 import torch.nn as nn
 
-from torchao.prototype.attention.config import AttentionBackend
 from torchao.prototype.attention.shared_utils.setup import setup_fp8_backend
 from torchao.prototype.attention.shared_utils.wrapper import (
     _LowPrecisionAttentionWrapper,
 )
 from torchao.prototype.attention.utils import (
-    _check_backend_available,
-    _get_available_backend,
+    _is_blackwell,
+    _is_fa3_available,
+    _is_fa4_available,
+    _is_hopper,
 )
 from torchao.utils import torch_version_at_least
+
+
+class AttentionBackend(str, Enum):
+    """Backend kernel for computing attention."""
+
+    FP8_FA3 = "FP8_FA3"  # Requires SM90+ (Hopper)
+    FP8_FA4 = "FP8_FA4"  # Requires SM90+ (Hopper) or SM100+ (Blackwell)
+
+
+def _get_available_backend() -> AttentionBackend:
+    if not torch.cuda.is_available():
+        raise RuntimeError("Low-precision attention requires CUDA.")
+    capability = torch.cuda.get_device_capability()
+    if _is_blackwell() and _is_fa4_available():
+        return AttentionBackend.FP8_FA4
+    if _is_hopper() and _is_fa3_available():
+        return AttentionBackend.FP8_FA3
+    if _is_hopper() and _is_fa4_available():
+        return AttentionBackend.FP8_FA4
+    raise RuntimeError(f"No compatible backend for SM{capability[0]}{capability[1]}.")
+
+
+def _check_backend_available(backend: AttentionBackend) -> None:
+    if not torch.cuda.is_available():
+        raise RuntimeError(f"{backend} backend requires CUDA.")
+    capability = torch.cuda.get_device_capability()
+    if backend == AttentionBackend.FP8_FA3:
+        if not _is_hopper():
+            raise RuntimeError(
+                f"FP8_FA3 requires Hopper (SM 9.x), got SM{capability[0]}{capability[1]}."
+            )
+        if not _is_fa3_available():
+            raise RuntimeError(
+                "FP8_FA3 requires the flash-attn package with FA3 support."
+            )
+    elif backend == AttentionBackend.FP8_FA4:
+        if not (_is_hopper() or _is_blackwell()):
+            raise RuntimeError(
+                f"FP8_FA4 requires Hopper or Blackwell, got SM{capability[0]}{capability[1]}."
+            )
+        if not _is_fa4_available():
+            raise RuntimeError(
+                "FP8_FA4 requires the flash-attn package with FA4 support "
+                "(flash_attn.cute.interface)."
+            )
+    else:
+        raise ValueError(f"Unknown backend: {backend}")
 
 
 def apply_low_precision_attention(
