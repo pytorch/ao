@@ -12,10 +12,8 @@ import torch
 import torch._dynamo
 import torch.nn as nn
 
-from torchao.prototype.attention.config import (
-    AttentionBackend,
-    LowPrecisionAttentionConfig,
-)
+from torchao.prototype.attention.config import AttentionBackend
+from torchao.prototype.attention.shared_utils.setup import setup_fp8_backend
 from torchao.prototype.attention.shared_utils.wrapper import (
     _LowPrecisionAttentionWrapper,
 )
@@ -23,38 +21,47 @@ from torchao.prototype.attention.utils import (
     _check_backend_available,
     _get_available_backend,
 )
+from torchao.utils import torch_version_at_least
 
 
 def apply_low_precision_attention(
     model: nn.Module,
-    config: Optional[LowPrecisionAttentionConfig] = None,
+    backend: Optional[AttentionBackend] = None,
+    fuse_rope_using_torch_compile: bool = False,
 ) -> nn.Module:
     """Apply low-precision attention to a model.
 
-    Resolves the backend and wraps the model so that attention backend
-    activation is managed internally.
-    """
-    if isinstance(model, _LowPrecisionAttentionWrapper):
-        raise RuntimeError("Model already has low-precision attention applied.")
+    Must be called before ``torch.compile``. KV caching should be
+    disabled before calling (e.g., ``config.use_cache = False`` for
+    HuggingFace models).
 
+    When ``fuse_rope_using_torch_compile=True``, the returned wrapper
+    exposes a ``compile_backend`` attribute. You must compile with it to get
+    the RoPE fusion::
+
+        model = apply_low_precision_attention(model, fuse_rope_using_torch_compile=True)
+        model = torch.compile(model, backend=model.compile_backend)
+    """
+    if not torch_version_at_least("2.11.0"):
+        raise RuntimeError("Low-precision attention requires PyTorch 2.11+.")
+    if isinstance(model, _LowPrecisionAttentionWrapper):
+        raise RuntimeError(
+            "apply_low_precision_attention has already been applied to this module."
+        )
     if isinstance(model, torch._dynamo.OptimizedModule):
         raise RuntimeError(
-            "Module is already compiled. "
-            "Call apply_low_precision_attention before torch.compile."
+            "apply_low_precision_attention must be called before torch.compile."
         )
 
-    if config is None:
-        config = LowPrecisionAttentionConfig()
-
-    if config.backend is None:
+    if backend is None:
         backend = _get_available_backend()
     else:
-        backend = config.backend
         _check_backend_available(backend)
 
     if backend == AttentionBackend.FP8_FA3:
-        from torchao.prototype.attention.fp8_fa3.setup import setup_fp8_fa3
+        return setup_fp8_backend(model, "FA3", fuse_rope_using_torch_compile)
 
-        return setup_fp8_fa3(model, config)
+    if backend == AttentionBackend.FP8_FA4:
+        return setup_fp8_backend(model, "FA4", fuse_rope_using_torch_compile)
 
     raise ValueError(f"Unknown backend: {backend}")
