@@ -12,17 +12,13 @@ that are not traceable by torch.compile. Registering them as custom_ops
 tells the compiler to treat them as opaque nodes with known shapes/dtypes.
 """
 
-import warnings
 from functools import partial
 from typing import Callable, NamedTuple
 
 import torch
-import torch._dynamo
 import torch._inductor.config as inductor_config
 import torch.nn as nn
-from torch.fx import Graph
 
-from torchao.prototype.attention.config import LowPrecisionAttentionConfig
 from torchao.prototype.attention.shared_utils.fusion_utils import (
     detect_causal_mask,
 )
@@ -126,51 +122,29 @@ def register_fp8_attention_ops(
     return RegisteredOps(rope_sdpa_op=rope_sdpa_op, fp8_sdpa_op=fp8_sdpa_op)
 
 
-def make_fusion_pass(
+def make_backend_fn(
     ops: RegisteredOps,
     backend_name: str,
+    flash_impl_name: str,
     max_head_dim: int = 256,
 ) -> Callable:
-    """Create a backend-specific fusion pass function."""
+    """Return a ``make_fp8_backend(model, fuse_rope_using_torch_compile)`` function for a backend."""
 
-    def _fusion_pass(
-        graph: Graph, *, fuse_rope: bool = True, strip_causal_mask: bool = False
-    ) -> None:
-        _shared_fusion_pass(
-            graph,
-            rope_sdpa_op=ops.rope_sdpa_op,
-            fp8_sdpa_op=ops.fp8_sdpa_op,
-            max_head_dim=max_head_dim,
-            backend_name=backend_name,
-            fuse_rope=fuse_rope,
-            strip_causal_mask=strip_causal_mask,
-        )
-
-    return _fusion_pass
-
-
-def make_compile_fn(
-    fusion_pass_fn: Callable,
-    flash_impl_name: str,
-) -> Callable:
-    """Create a ``compile_with_fp8_fusion`` function for a backend.
-
-    Uses a custom Inductor backend that hijacks
-    ``torch._inductor.config.pre_grad_custom_pass`` to fuse RoPE + FP8
-    SDPA in the FX graph. The pre-grad IR is an unstable internal API.
-    """
-
-    def compile_with_fp8_fusion(
+    def make_fp8_backend(
         model: nn.Module,
-        config: LowPrecisionAttentionConfig,
-    ) -> nn.Module:
+        fuse_rope_using_torch_compile: bool,
+    ) -> Callable:
         from torch._inductor.compile_fx import compile_fx
 
         strip_causal_mask = detect_causal_mask(model, flash_impl_name=flash_impl_name)
 
         pass_fn = partial(
-            fusion_pass_fn,
-            fuse_rope=config.fuse_rope_using_torch_compile,
+            _shared_fusion_pass,
+            rope_sdpa_op=ops.rope_sdpa_op,
+            fp8_sdpa_op=ops.fp8_sdpa_op,
+            max_head_dim=max_head_dim,
+            backend_name=backend_name,
+            fuse_rope=fuse_rope_using_torch_compile,
             strip_causal_mask=strip_causal_mask,
         )
 
@@ -182,17 +156,6 @@ def make_compile_fn(
             finally:
                 inductor_config.pre_grad_custom_pass = old_pass
 
-        warnings.warn(
-            "Low-precision attention with fuse_rope_using_torch_compile=True uses "
-            "torch._inductor.config.pre_grad_custom_pass to fuse "
-            "RoPE + FP8 quantization + SDPA in the FX graph. "
-            "The pre-grad IR is an unstable internal API that may "
-            "change across PyTorch versions.",
-            UserWarning,
-            stacklevel=4,
-        )
+        return fp8_attention_backend
 
-        torch._dynamo.reset()
-        return torch.compile(model, backend=fp8_attention_backend)
-
-    return compile_with_fp8_fusion
+    return make_fp8_backend
