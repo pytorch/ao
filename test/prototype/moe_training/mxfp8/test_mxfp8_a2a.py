@@ -23,15 +23,15 @@ from torchao.float8.float8_utils import (
     compute_error,
 )
 from torchao.prototype.moe_training.kernels.mxfp8.comms import (
-    mxfp8_on_device_all_to_all_v,
+    mxfp8_syncless_all_to_all_expert_major,
     to_mxfp8_a2a_dequant,
 )
 
-from ..testing_utils import generate_split_sizes
+from test.prototype.moe_training.testing_utils import generate_split_sizes
 
 
 @instantiate_parametrized_tests
-class MXFP8OnDeviceAllToAllVTest(MultiProcessTestCase):
+class MXFP8SynclessAllToAllExpertMajorTest(MultiProcessTestCase):
     def setUp(self) -> None:
         super().setUp()
         self._spawn_processes()
@@ -69,6 +69,7 @@ class MXFP8OnDeviceAllToAllVTest(MultiProcessTestCase):
 
             tokens_per_ep_rank = 8192
             dim = 2048
+            num_experts_per_rank = 2
             input_tensor = torch.randn(
                 tokens_per_ep_rank,
                 dim,
@@ -78,21 +79,34 @@ class MXFP8OnDeviceAllToAllVTest(MultiProcessTestCase):
             )
             ref_input_tensor = input_tensor.detach().clone().requires_grad_(True)
 
-            # Generate random input splits that sum to tokens_per_ep_rank
-            num_splits = self.world_size
-            input_splits = generate_split_sizes(
-                num_splits, tokens_per_ep_rank, self.device
-            )
+            # Generate random expert splits per rank that sum to tokens_per_ep_rank.
+            # expert_splits_per_rank[i, j] = number of tokens this rank sends to expert j on rank i.
+            # The total across all entries must equal tokens_per_ep_rank (this rank's token count).
+            # Shape: (world_size, num_experts_per_rank)
+            total_splits = self.world_size * num_experts_per_rank
+            expert_splits_per_rank = generate_split_sizes(
+                total_splits, tokens_per_ep_rank, self.device
+            ).view(self.world_size, num_experts_per_rank)
+
+            # Compute input_splits from expert_splits_per_rank (sum across experts)
+            input_splits = expert_splits_per_rank.sum(dim=1)
 
             # Max output tokens per rank is worst case where one rank receives all tokens
-            max_output_tokens_per_rank = tokens_per_ep_rank * self.world_size
+            # With padding to multiple of 32, we need more space
+            max_output_tokens_per_rank = (
+                tokens_per_ep_rank * self.world_size
+                + 32 * num_experts_per_rank * self.world_size
+            )
 
             # Test forward
-            output, output_splits = mxfp8_on_device_all_to_all_v(
-                input_tensor,
-                input_splits,
-                max_output_tokens_per_rank,
-                group_name,
+            output, output_splits, output_expert_splits, expert_padded_offsets = (
+                mxfp8_syncless_all_to_all_expert_major(
+                    input_tensor,
+                    input_splits,
+                    max_output_tokens_per_rank,
+                    expert_splits_per_rank,
+                    group_name,
+                )
             )
 
             # Reference torch.all_to_all_single to compare against
@@ -118,10 +132,38 @@ class MXFP8OnDeviceAllToAllVTest(MultiProcessTestCase):
                 dist.group.WORLD,
             )
 
-            # Compare output
-            assert torch.equal(output_splits, output_splits_ref), (
-                "output_splits mismatch"
+            # Compute reference expert splits using all-gather.
+            # Gather expert_splits_per_rank from all ranks into a
+            # (world_size, world_size, num_experts_per_rank) tensor where
+            # gathered[source_rank, dest_rank, expert_idx] = tokens source_rank sends to expert_idx on dest_rank.
+            gathered_expert_splits = torch.empty(
+                self.world_size * self.world_size,
+                num_experts_per_rank,
+                dtype=torch.int64,
+                device=self.device,
             )
+            dist.all_gather_into_tensor(
+                gathered_expert_splits,
+                expert_splits_per_rank,
+                group=dist.group.WORLD,
+            )
+            gathered_expert_splits = gathered_expert_splits.view(
+                self.world_size, self.world_size, num_experts_per_rank
+            )
+            # output_expert_splits_ref[remote_rank, :] = tokens remote_rank sends to each expert on this rank
+            output_expert_splits_ref = torch.empty_like(output_expert_splits)
+            for remote_rank in range(self.world_size):
+                output_expert_splits_ref[remote_rank, :] = gathered_expert_splits[
+                    remote_rank, self.rank, :
+                ]
+
+            # Compare output
+            assert torch.equal(
+                output_splits, output_splits_ref
+            ), "output_splits mismatch"
+            assert torch.equal(
+                output_expert_splits, output_expert_splits_ref
+            ), f"output_expert_splits mismatch: got {output_expert_splits}, expected {output_expert_splits_ref}"
             out_no_padding = output[:total_tokens_on_rank_after_a2a]
             sqnr = compute_error(ref_output, out_no_padding)
             min_sqnr = 30.0
@@ -137,9 +179,9 @@ class MXFP8OnDeviceAllToAllVTest(MultiProcessTestCase):
             # Compare grads
             grad_sqnr = compute_error(ref_input_tensor.grad, input_tensor.grad)
             min_grad_sqnr = 28.0
-            assert grad_sqnr > min_grad_sqnr, (
-                f"grad_sqnr={grad_sqnr} is less than min_grad_sqnr={min_grad_sqnr}"
-            )
+            assert (
+                grad_sqnr > min_grad_sqnr
+            ), f"grad_sqnr={grad_sqnr} is less than min_grad_sqnr={min_grad_sqnr}"
 
         finally:
             dist.destroy_process_group()
@@ -258,9 +300,9 @@ class ToMXFP8AllToAllVDequantTest(MultiProcessTestCase):
             # Compare grads
             grad_sqnr = compute_error(ref_input_tensor.grad, input_tensor.grad)
             min_grad_sqnr = 28.0
-            assert grad_sqnr > min_grad_sqnr, (
-                f"grad_sqnr={grad_sqnr} is less than min_grad_sqnr={min_grad_sqnr}"
-            )
+            assert (
+                grad_sqnr > min_grad_sqnr
+            ), f"grad_sqnr={grad_sqnr} is less than min_grad_sqnr={min_grad_sqnr}"
 
         finally:
             dist.destroy_process_group()
