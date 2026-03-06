@@ -11,13 +11,9 @@ Only supports forward pass — backward is not supported by the underlying backe
 """
 
 from torchao.prototype.attention.api import apply_low_precision_attention
-from torchao.prototype.attention.config import (
-    AttentionBackend,
-    LowPrecisionAttentionConfig,
-)
+from torchao.prototype.attention.config import AttentionBackend
 
 __all__ = [
-    "LowPrecisionAttentionConfig",
     "AttentionBackend",
     "apply_low_precision_attention",
 ]

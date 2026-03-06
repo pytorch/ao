@@ -4,18 +4,8 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
-"""
-Wrapper classes for low-precision attention modules.
-
-_LowPrecisionAttentionWrapper          (base: orig_mod proxy, isinstance target)
-├── _FP8FlashAttentionCompiledWrapper   (compile path: @dynamo.disable, flash activation)
-└── _FP8FlashAttentionMonkeyPatchWrapper (monkey-patch path: SDPA swap, flash activation)
-"""
-
 from typing import Callable
 
-import torch
-import torch._dynamo
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.attention import (
@@ -38,64 +28,40 @@ class _LowPrecisionAttentionWrapper(nn.Module):
             return getattr(self._orig_mod, name)
 
 
-class _FP8FlashAttentionCompiledWrapper(_LowPrecisionAttentionWrapper):
-    """Compile path wrapper (``fuse_rope_using_torch_compile=True``).
+class _FP8FlashAttentionWrapper(_LowPrecisionAttentionWrapper):
+    """Compile path wrapper. Activates the flash impl around the module forward."""
 
-    @torch._dynamo.disable prevents an outer torch.compile from re-tracing
-    the internally-compiled graph.
-    """
-
-    def __init__(
-        self,
-        compiled_mod: nn.Module,
-        orig_mod: nn.Module,
-        flash_impl_name: str,
-    ):
+    def __init__(self, orig_mod: nn.Module, flash_impl_name: str):
         super().__init__(orig_mod)
-        # Stored outside _modules to avoid double-counting parameters.
-        object.__setattr__(self, "_compiled_mod", compiled_mod)
-        object.__setattr__(self, "_flash_impl_name", flash_impl_name)
+        self._flash_impl_name = flash_impl_name
 
-    @torch._dynamo.disable
     def forward(self, *args, **kwargs):
-        compiled_mod = object.__getattribute__(self, "_compiled_mod")
-        flash_impl_name = object.__getattribute__(self, "_flash_impl_name")
-
-        activate_flash_attention_impl(flash_impl_name)
+        activate_flash_attention_impl(self._flash_impl_name)
         try:
-            return compiled_mod(*args, **kwargs)
+            return self._orig_mod(*args, **kwargs)
         finally:
             restore_flash_attention_impl()
 
 
 class _FP8FlashAttentionMonkeyPatchWrapper(_LowPrecisionAttentionWrapper):
-    """Monkey-patch path wrapper (``fuse_rope_using_torch_compile=False``).
-
-    Replaces ``F.scaled_dot_product_attention`` with the FP8 backend
-    for the duration of each forward call.
+    """Monkey-patch path wrapper. Replaces ``F.scaled_dot_product_attention``
+    with the FP8 backend for the duration of each forward call.
     """
 
     def __init__(
-        self,
-        orig_mod: nn.Module,
-        flash_impl_name: str,
-        sdpa_patch_fn: Callable,
+        self, orig_mod: nn.Module, flash_impl_name: str, sdpa_patch_fn: Callable
     ):
         super().__init__(orig_mod)
-        object.__setattr__(self, "_flash_impl_name", flash_impl_name)
-        object.__setattr__(self, "_sdpa_patch_fn", sdpa_patch_fn)
+        self._flash_impl_name = flash_impl_name
+        self._sdpa_patch_fn = sdpa_patch_fn
 
     def forward(self, *args, **kwargs):
-        orig_mod = self._orig_mod
-        flash_impl_name = object.__getattribute__(self, "_flash_impl_name")
-        sdpa_patch_fn = object.__getattribute__(self, "_sdpa_patch_fn")
-
-        activate_flash_attention_impl(flash_impl_name)
+        activate_flash_attention_impl(self._flash_impl_name)
         try:
             original_sdpa = F.scaled_dot_product_attention
-            F.scaled_dot_product_attention = sdpa_patch_fn
+            F.scaled_dot_product_attention = self._sdpa_patch_fn
             try:
-                return orig_mod(*args, **kwargs)
+                return self._orig_mod(*args, **kwargs)
             finally:
                 F.scaled_dot_product_attention = original_sdpa
         finally:
@@ -103,11 +69,7 @@ class _FP8FlashAttentionMonkeyPatchWrapper(_LowPrecisionAttentionWrapper):
 
 
 def _make_causal_aware_sdpa(fp8_sdpa_fn: Callable, strip_causal_mask: bool) -> Callable:
-    """Wrap an FP8 SDPA function to strip materialized causal masks.
-
-    When ``strip_causal_mask=True``, unconditionally strips any attn_mask
-    and sets ``is_causal=True``. This is zero-cost at runtime.
-    """
+    """Wrap an FP8 SDPA function to strip materialized causal masks."""
     if strip_causal_mask:
 
         def _patched(
@@ -135,5 +97,4 @@ def _make_causal_aware_sdpa(fp8_sdpa_fn: Callable, strip_causal_mask: bool) -> C
             )
 
         return _patched
-    else:
-        return fp8_sdpa_fn
+    return fp8_sdpa_fn
