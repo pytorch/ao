@@ -21,17 +21,11 @@ def setup_fp8_backend(
     flash_impl_name: str,
     fuse_rope_using_torch_compile: bool,
 ) -> nn.Module:
-    """Set up FP8 attention on *model* and wrap it."""
     if flash_impl_name == "FA3":
         from torchao.prototype.attention.fp8_fa3.attention import (
             fp8_fa3_sdpa as sdpa_fn,
         )
         from torchao.prototype.attention.fp8_fa3.fusion_pass import make_fp8_backend
-    elif flash_impl_name == "FA4":
-        from torchao.prototype.attention.fp8_fa4.attention import (
-            fp8_fa4_sdpa as sdpa_fn,
-        )
-        from torchao.prototype.attention.fp8_fa4.fusion_pass import make_fp8_backend
     else:
         raise ValueError(f"Unknown flash_impl_name: {flash_impl_name}")
 
