@@ -17,8 +17,9 @@ from tqdm import tqdm
 from benchmarks.utils import benchmark_cuda_function_in_microseconds, profile_fn
 from torchao.prototype.moe_training.kernels.mxfp8 import (
     _mxfp8_cuda_kernels_available,
-    fused_pad_token_groups_cuda,
+    fused_unpad_token_groups_cuda,
     torch_pad_token_groups,
+    torch_unpad_token_groups,
 )
 from torchao.prototype.moe_training.utils import generate_jagged_offs
 
@@ -82,15 +83,25 @@ def run_experiment(
         config.alignment_size,
     )
 
+    # Create inputs and pad them first
     inputs = torch.randn(num_tokens, dim, dtype=torch.bfloat16, device=device)
+    group_offsets = generate_jagged_offs(
+        num_groups, num_tokens, multiple_of=1, device=device
+    )
+
+    # Pad the inputs to get padded tensors for unpad benchmark
+    padded_inputs, padded_group_start_offsets, padded_group_end_offsets = (
+        torch_pad_token_groups(inputs, group_offsets, alignment_size)
+    )
 
     def torch_eager_with_offsets():
-        group_offsets = generate_jagged_offs(
-            num_groups, num_tokens, multiple_of=1, device=device
+        return torch_unpad_token_groups(
+            padded_inputs,
+            group_offsets,
+            padded_group_start_offsets,
+            num_tokens,
+            alignment_size,
         )
-        return torch_pad_token_groups(
-            inputs, group_offsets, alignment_size
-        )  # Returns 3 values
 
     def warmup(fn):
         for _ in range(5):
@@ -102,61 +113,53 @@ def run_experiment(
         torch_eager_with_offsets
     )
     if args.profile:
-        group_offsets = generate_jagged_offs(
-            num_groups, num_tokens, multiple_of=1, device=device
-        )
         profile_fn(
-            torch_pad_token_groups,
-            inputs,
+            torch_unpad_token_groups,
+            padded_inputs,
             group_offsets,
+            padded_group_start_offsets,
             alignment_size,
-            profile_name="torch_pad_token_groups_eager",
+            profile_name="torch_unpad_token_groups_eager",
         )
 
     # bench CUDA kernel if available
     if _mxfp8_cuda_kernels_available:
 
         def cuda_with_offsets():
-            group_offsets = generate_jagged_offs(
-                num_groups, num_tokens, multiple_of=1, device=device
+            return fused_unpad_token_groups_cuda(
+                padded_inputs,
+                group_offsets,
+                padded_group_start_offsets,
+                num_tokens,
+                alignment_size,
             )
-            return fused_pad_token_groups_cuda(inputs, group_offsets, alignment_size)
 
         warmup(cuda_with_offsets)
         cuda_time_us = benchmark_cuda_function_in_microseconds(cuda_with_offsets)
         if args.profile:
-            group_offsets = generate_jagged_offs(
-                num_groups, num_tokens, multiple_of=1, device=device
-            )
             profile_fn(
-                fused_pad_token_groups_cuda,
-                inputs,
+                fused_unpad_token_groups_cuda,
+                padded_inputs,
                 group_offsets,
+                padded_group_start_offsets,
+                num_tokens,
                 alignment_size,
-                profile_name="fused_pad_token_groups_cuda",
+                profile_name="fused_unpad_token_groups_cuda",
             )
     else:
         cuda_time_us = float("inf")  # Not available
 
-    # mem bw calculations - run once to get output sizes
-    group_offsets = generate_jagged_offs(
-        num_groups, num_tokens, multiple_of=1, device=device
-    )
-    torch_padded_tokens, torch_padded_start_offsets, torch_padded_offsets = (
-        torch_pad_token_groups(inputs, group_offsets, alignment_size)
-    )
-
+    # mem bw calculations
     bytes_per_el = torch.finfo(torch.bfloat16).bits / 8
 
     read_bytes = (
-        inputs.numel() * bytes_per_el  # Read input tokens
+        padded_inputs.numel() * bytes_per_el  # Read padded input tokens
         + group_offsets.numel() * 4  # Read group offsets (int32)
+        + padded_group_start_offsets.numel() * 4  # Read padded start offsets (int32)
     )
 
     write_bytes = (
-        torch_padded_tokens.numel() * bytes_per_el  # Write zeros (entire buffer)
-        + inputs.numel() * bytes_per_el  # Write actual data (overwrites part of zeros)
-        + torch_padded_offsets.numel() * 4  # Write output offsets (int32)
+        inputs.numel() * bytes_per_el  # Write unpadded data
     )
 
     total_bytes = read_bytes + write_bytes
