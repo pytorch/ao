@@ -16,7 +16,7 @@ from torchao.prototype.gptq import (
 )
 from torchao.prototype.gptq.observer import GPTQObserverTensor
 from torchao.quantization import Int4WeightOnlyConfig, Int8WeightOnlyConfig, quantize_
-from torchao.quantization.granularity import PerRow
+from torchao.quantization.granularity import PerGroup, PerRow
 from torchao.utils import _is_mslk_available
 
 
@@ -220,7 +220,9 @@ class TestGPTQObserverTensor:
                     reason="fbgemm_gpu not available",
                 ),
             ),
-            pytest.param(Int8WeightOnlyConfig(group_size=128), id="int8"),
+            pytest.param(
+                Int8WeightOnlyConfig(version=2, granularity=PerGroup(128)), id="int8"
+            ),
         ],
     )
     def test_observer_config_transform(self, base_config):
@@ -302,7 +304,7 @@ class TestGPTQFlow:
                 ),
             ),
             pytest.param(
-                Int8WeightOnlyConfig(group_size=128),
+                Int8WeightOnlyConfig(version=2, granularity=PerGroup(128)),
                 id="int8",
             ),
         ],
@@ -365,7 +367,7 @@ class TestGPTQFlow:
                 ),
             ),
             pytest.param(
-                Int8WeightOnlyConfig(group_size=128),
+                Int8WeightOnlyConfig(version=2, granularity=PerGroup(128)),
                 id="int8",
             ),
         ],
