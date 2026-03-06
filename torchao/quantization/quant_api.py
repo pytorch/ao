@@ -38,8 +38,6 @@ from torchao.dtypes import (
     Float8Layout,
     Int4CPULayout,
     Int4XPULayout,
-    PlainLayout,
-    SemiSparseLayout,
     TensorCoreTiledLayout,
     to_affine_quantized_floatx,
     to_affine_quantized_floatx_static,
@@ -48,7 +46,6 @@ from torchao.dtypes import (
 from torchao.dtypes.uintx.packed_linear_int8_dynamic_activation_intx_weight_layout import (
     Target,
 )
-from torchao.dtypes.utils import Layout
 from torchao.float8.config import e4m3_dtype
 from torchao.float8.float8_linear import Float8Linear
 from torchao.float8.inference import (
@@ -114,7 +111,6 @@ from .granularity import (
 )
 from .linear_activation_quantized_tensor import (
     LinearActivationQuantizedTensor,
-    to_linear_activation_quantized,
 )
 from .linear_quant_modules import (
     Int4WeightOnlyQuantizer,
@@ -1050,29 +1046,6 @@ def _int8_symm_per_token_reduced_range_quant(x: torch.Tensor) -> torch.Tensor:
     )
 
 
-def _int8_symm_per_token_reduced_range_quant_noop_decode(
-    x: torch.Tensor,
-) -> torch.Tensor:
-    mapping_type = MappingType.SYMMETRIC
-    target_dtype = torch.int8
-    eps = 1e-5
-    quant_min = -127
-    quant_max = 127
-    if x.shape[1] == 1:
-        return x
-    else:
-        return to_affine_quantized_intx(
-            x,
-            mapping_type,
-            _get_per_token_block_size(x),
-            target_dtype,
-            eps=eps,
-            quant_min=quant_min,
-            quant_max=quant_max,
-            scale_dtype=torch.float32 if x.dtype == torch.float16 else None,
-        )
-
-
 def _float8_cutlass_quant(
     x: torch.Tensor,
     target_dtype: torch.dtype,
@@ -1132,19 +1105,15 @@ class Int8DynamicActivationInt8WeightConfig(AOBaseConfig):
     quantization to linear layers.
 
     Args:
-        layout: Optional[Layout] = PlainLayout() - Tensor layout for the quantized weights. Controls how the
-            quantized data is stored and accessed.
+        act_mapping_type: Optional[MappingType] = MappingType.SYMMETRIC - Mapping type for activation quantization.
+            SYMMETRIC and ASYMMETRIC are supported.
         granularity: Optional[Union[Granularity, Tuple[Granularity, Granularity], List[Granularity]]] = PerRow()
             The granularity for quantization. Can be either a single granularity (applied to both
             activations and weights) or a tuple / list of two granularities (first for activations, second for weights).
             If None, defaults to PerRow for both. Only PerTensor and PerRow are supported.
-        act_mapping_type: Optional[MappingType] = MappingType.SYMMETRIC - Mapping type for activation quantization.
-            SYMMETRIC and ASYMMETRIC are supported for version 2.
-        weight_only_decode: bool = False - If True, only quantizes weights during forward pass and keeps activations
-            in original precision during decode operations.
         set_inductor_config: bool = True - If True, adjusts `torchinductor` settings to recommended values
             for better performance with this quantization scheme.
-        version (int): the version of the config, version 1 is using AffineQuantizedTensor that we plan to deprecate/split, version 2 is using Int8Tensor
+        version: int = 2 - Version of the quantization implementation. Only version 2 (Int8Tensor) is supported.
 
     Example:
 
@@ -1152,88 +1121,40 @@ class Int8DynamicActivationInt8WeightConfig(AOBaseConfig):
        :language: python
     """
 
-    layout: Optional[Layout] = PlainLayout()
     act_mapping_type: Optional[MappingType] = MappingType.SYMMETRIC
-    weight_only_decode: bool = False
     granularity: Optional[
         Union[Granularity, Tuple[Granularity, Granularity], list[Granularity]]
     ] = PerRow()
     set_inductor_config: bool = True
-    version: int = 1
+    version: int = 2
 
     def __post_init__(self):
         torch._C._log_api_usage_once(
             "torchao.quantization.Int8DynamicActivationInt8WeightConfig"
         )
-        if self.version == 2:
-            act_granularity, weight_granularity = Int8Tensor._normalize_granularity(
-                self.granularity
+        if self.version != 2:
+            raise ValueError(
+                "Only version 2 of Int8DynamicActivationInt8WeightConfig is supported. "
+                "Version 1 (AffineQuantizedTensor) has been removed."
             )
-            _validate_granularity_int8(act_granularity, weight_granularity)
+        act_granularity, weight_granularity = Int8Tensor._normalize_granularity(
+            self.granularity
+        )
+        _validate_granularity_int8(act_granularity, weight_granularity)
 
 
 def _int8_dynamic_activation_int8_weight_quantize_tensor(weight, config):
-    if config.version == 1:
-        layout = config.layout
-        act_mapping_type = config.act_mapping_type
-        weight_only_decode = config.weight_only_decode
-
-        in_features = weight.shape[-1]
-        # int8 dynamic quantization only has benefit when in_feature > 16
-        if in_features <= 16:
-            logger.info(
-                f"Skipping applying Int8DynamicActivationInt8WeightConfig to weight of shape {weight.shape}"
-                f" because `in_feature` is <= 16: {in_features}"
-            )
-            return weight
-
-        # weight settings
-        mapping_type = MappingType.SYMMETRIC
-        weight_zero_point_domain = ZeroPointDomain.NONE
-
-        def get_weight_block_size(x):
-            return tuple([1 for _ in range(x.dim() - 1)] + [x.shape[-1]])
-
-        target_dtype = torch.int8
-        eps = torch.finfo(torch.float32).eps
-        zero_point_dtype = torch.int64
-
-        if weight_only_decode:
-            input_quant_func = _int8_symm_per_token_reduced_range_quant_noop_decode
-        else:
-            # input settings
-            if act_mapping_type == MappingType.SYMMETRIC:
-                input_quant_func = _int8_symm_per_token_reduced_range_quant
-            else:
-                input_quant_func = _int8_asymm_per_token_quant
-
-        block_size = get_weight_block_size(weight)
-        new_weight = to_affine_quantized_intx(
-            weight,
-            mapping_type,
-            block_size,
-            target_dtype,
-            eps=eps,
-            zero_point_dtype=zero_point_dtype,
-            _layout=layout,
-            zero_point_domain=weight_zero_point_domain,
-        )
-        quantized_weight = to_linear_activation_quantized(new_weight, input_quant_func)
-    else:
-        act_granularity, weight_granularity = Int8Tensor._normalize_granularity(
-            config.granularity
-        )
-        assert config.version == 2, f"Unexpected version: {config.version}"
-
-        quantized_weight = Int8Tensor.from_hp(
-            weight,
-            granularity=weight_granularity,
-            act_quant_kwargs=QuantizeTensorToInt8Kwargs(
-                granularity=act_granularity,
-                mapping_type=config.act_mapping_type,
-            ),
-        )
-
+    act_granularity, weight_granularity = Int8Tensor._normalize_granularity(
+        config.granularity
+    )
+    quantized_weight = Int8Tensor.from_hp(
+        weight,
+        granularity=weight_granularity,
+        act_quant_kwargs=QuantizeTensorToInt8Kwargs(
+            granularity=act_granularity,
+            mapping_type=config.act_mapping_type,
+        ),
+    )
     return quantized_weight
 
 
@@ -1367,21 +1288,6 @@ def _int8_static_activation_int8_weight_transform(
         module,
     )
     return module
-
-
-def int8_dynamic_activation_int8_semi_sparse_weight():
-    """
-    Applies int8 dnynamic symmetric per-token activation and int8 per-channel weight
-    quantization + 2:4 sparsity to linear layers.
-    """
-    warnings.warn(
-        """int8_dyanmic_activation_int8_semi_sparse_weight() will be deprecated at a later release. Please use the layout kwarg in Int8DynamicActivationInt8WeightConfig instead.
-
-    from torchao.dtypes import SemiSparseLayout
-    Int8DynamicActivationInt8WeightConfig(layout=SemiSparseLayout()"""
-    )
-
-    return Int8DynamicActivationInt8WeightConfig(layout=SemiSparseLayout())
 
 
 @dataclass
