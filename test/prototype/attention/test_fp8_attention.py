@@ -14,10 +14,6 @@ import torch.nn.functional as F
 from torch.testing._internal import common_utils
 from torch.testing._internal.common_utils import TestCase, run_tests
 
-from torchao.prototype.attention import (
-    AttentionBackend,
-    apply_low_precision_attention,
-)
 from torchao.prototype.attention.utils import _is_fa3_available, _is_hopper
 from torchao.utils import torch_version_at_least
 
@@ -27,6 +23,10 @@ if torch_version_at_least("2.11.0") and _is_hopper() and _is_fa3_available():
         restore_flash_attention_impl,
     )
 
+    from torchao.prototype.attention import (
+        AttentionBackend,
+        apply_low_precision_attention,
+    )
     from torchao.prototype.attention.fp8_fa3.attention import (
         fp8_fa3_rope_sdpa,
         fp8_fa3_sdpa,
