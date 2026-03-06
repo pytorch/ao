@@ -11,7 +11,7 @@ These tests validate:
   1. Custom op registration and fake (meta) implementations
   2. Forward + backward numerical correctness vs BF16 grouped MM reference
   3. Integration through _to_mxfp8_then_scaled_grouped_mm with KernelPreference.TE
-  4. Model conversion via MXFP8TrainingOpConfig with MXFP8_TE recipe
+  4. Model conversion via MXFP8TrainingOpConfig with KernelPreference.TE
   5. torch.compile compatibility (custom ops have fake impls)
 """
 
@@ -42,10 +42,7 @@ except ImportError:
     )
 
 from torchao.float8.float8_utils import compute_error
-from torchao.prototype.moe_training.config import (
-    MXFP8TrainingOpConfig,
-    MXFP8TrainingRecipe,
-)
+from torchao.prototype.moe_training.config import MXFP8TrainingOpConfig
 from torchao.prototype.moe_training.mxfp8_grouped_mm import (
     _to_mxfp8_then_scaled_grouped_mm,
 )
@@ -186,25 +183,12 @@ def test_te_integrated_fwd_bwd(M, K, N, num_experts):
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Test config / recipe
-# ──────────────────────────────────────────────────────────────────────────────
-
-
-def test_mxfp8_te_recipe():
-    """Verify MXFP8_TE recipe creates correct config."""
-    config = MXFP8TrainingOpConfig.from_recipe(MXFP8TrainingRecipe.MXFP8_TE)
-    assert config.kernel_preference == KernelPreference.TE
-    assert config.out_dtype == torch.bfloat16
-    assert config.wgrad_with_hp is False
-
-
-# ──────────────────────────────────────────────────────────────────────────────
 # Test model conversion
 # ──────────────────────────────────────────────────────────────────────────────
 
 
 def test_te_model_conversion():
-    """Test that quantize_() with MXFP8_TE recipe correctly swaps parameters
+    """Test that quantize_() with KernelPreference.TE correctly swaps parameters
     and that forward + backward produce valid gradients."""
     from torchao.prototype.moe_training.tensor import (
         MXFP8TrainingWeightWrapperTensor,
@@ -229,7 +213,7 @@ def test_te_model_conversion():
 
     model = SimpleMoE().to("cuda", torch.bfloat16)
 
-    config = MXFP8TrainingOpConfig.from_recipe(MXFP8TrainingRecipe.MXFP8_TE)
+    config = MXFP8TrainingOpConfig(kernel_preference=KernelPreference.TE)
 
     def filter_fn(mod, fqn):
         return "gate" in fqn or isinstance(mod, SimpleMoE)

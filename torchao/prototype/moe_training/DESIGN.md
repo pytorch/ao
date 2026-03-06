@@ -174,96 +174,10 @@ _MXFP8GroupedMM.apply(...)   ← torch.autograd.Function
        └─ wgrad:    te_moe::gemm_wgrad  (TE MXFP8Quantizer → general_grouped_gemm)
 ```
 
----
-
-## 4. File Changes
-
-### 4.1 `torchao/quantization/quantize_/common/kernel_preference.py`
-
-Added `TE = "te"` to the `KernelPreference` enum with docstring explaining
-the TE dependency and what kernels it uses.
-
-### 4.2 `torchao/prototype/moe_training/te_grouped_mm.py` (new file)
-
-Contains all TE-specific logic, isolated behind an import guard:
-
-```python
-try:
-    from transformer_engine.pytorch.cpp_extensions.gemm import general_grouped_gemm
-    from transformer_engine.pytorch.tensor.mxfp8_tensor import MXFP8Quantizer
-    import transformer_engine_torch as tex
-    _TE_AVAILABLE = True
-except ImportError:
-    _TE_AVAILABLE = False
-```
-
-**MXFP8 quantization helpers:**
-
-| Function | Purpose |
-|---|---|
-| `_mxfp8_quantize_inputs` | Pad to block-32 multiples, then `split_quantize` rowwise |
-| `_mxfp8_quantize_weights` | Transpose [E,K,N]→[E,N,K], quantize each expert rowwise |
-| `_mxfp8_quantize_weights_dgrad` | Same transpose, quantize row+col, switch to col-only |
-| `_mxfp8_quantize_wgrad` | Pad both inputs & grads, quantize row+col, switch inputs to col-only |
-
-**Custom ops (torch.library):**
-
-Each op is registered with `@torch.library.custom_op` and has a
-`.register_fake` implementation for torch.compile tracing:
-
-| Op | Signature | GEMM Layout | Purpose |
-|---|---|---|---|
-| `te_moe::gemm_fwd` | `(A, B_t, offs, out_dtype, use_fp8) → out` | TN | Forward: `out[i] = input[i] @ weight[i]^T` |
-| `te_moe::gemm_dgrad` | `(grad_out, B_t, offs, out_dtype, use_fp8) → grad_A` | NN | Backward: `grad_A[i] = grad_out[i] @ weight[i]` |
-| `te_moe::gemm_wgrad` | `(A, grad_out, offs, out_dtype, use_fp8) → grad_B_t` | NT | Backward: `wgrad[i] = grad_out[i]^T @ A[i]` |
-
-Each op internally:
-1. Converts cumulative offsets → per-expert `m_splits` (GPU→CPU sync)
-2. Pads per-expert token chunks to multiples of 32
-3. Quantizes via TE's `MXFP8Quantizer` / `split_quantize`
-4. Calls TE's `general_grouped_gemm`
-5. Unpads the output if padding was applied
-
-### 4.3 `torchao/prototype/moe_training/mxfp8_grouped_mm.py` (modified)
-
-Three changes to the existing `_MXFP8GroupedMM` autograd function:
-
-1. **`forward()`**: Early-return branch when `kernel_preference == TE`:
-   calls `te_gemm_fwd`, saves tensors for backward, returns.
-
-2. **`backward()`**: Updated SM100 assertion to also allow TE mode.
-
-3. **`_compute_dgrad()`** and **`_compute_wgrad()`**: Early-return branches
-   that call `te_gemm_dgrad` / `te_gemm_wgrad` respectively.
-
-The TE branches are self-contained — they don't interact with the existing
-quantization or scale-rearrangement logic.
-
-### 4.4 `torchao/prototype/moe_training/config.py` (modified)
-
-- Added `MXFP8TrainingRecipe.MXFP8_TE` enum value
-- Added factory case in `MXFP8TrainingOpConfig.from_recipe()`:
-  ```python
-  MXFP8_TE → MXFP8TrainingOpConfig(kernel_preference=KernelPreference.TE, ...)
-  ```
-
-### 4.5 `torchao/prototype/moe_training/__init__.py` (modified)
-
-Exported: `is_te_available`, `te_gemm_fwd`, `te_gemm_dgrad`, `te_gemm_wgrad`.
-
-### 4.6 `test/prototype/moe_training/test_te_grouped_mm.py` (new file)
-
-Test coverage:
-- Custom ops directly (fwd, dgrad, wgrad) in both MXFP8 and BF16 modes
-- Full forward+backward through `_to_mxfp8_then_scaled_grouped_mm`
-  with `KernelPreference.TE` vs BF16 reference
-- Recipe creation (`MXFP8_TE`)
-- Model conversion via `quantize_()` with TE recipe
-- `torch.compile` compatibility (fullgraph=True)
 
 ---
 
-## 5. Data Flow: Forward + Backward
+## 4. Data Flow: Forward + Backward
 
 ### Forward
 
@@ -328,18 +242,16 @@ input_act [M, K]    grad_output [M, N]    offs [E]
 
 ---
 
-## 6. Usage
+## 5. Usage
 
-### 6.1 Programmatic (TorchAO)
+### 5.1 Programmatic (TorchAO)
 
 ```python
-from torchao.prototype.moe_training.config import (
-    MXFP8TrainingOpConfig,
-    MXFP8TrainingRecipe,
-)
+from torchao.prototype.moe_training.config import MXFP8TrainingOpConfig
+from torchao.quantization.quantize_.common import KernelPreference
 from torchao.quantization.quant_api import quantize_
 
-config = MXFP8TrainingOpConfig.from_recipe(MXFP8TrainingRecipe.MXFP8_TE)
+config = MXFP8TrainingOpConfig(kernel_preference=KernelPreference.TE)
 
 def moe_filter(mod, fqn):
     return "experts" in fqn
@@ -347,27 +259,13 @@ def moe_filter(mod, fqn):
 quantize_(model, config=config, filter_fn=moe_filter)
 ```
 
-Or directly:
+### 5.2 TorchTitan CLI
 
-```python
-from torchao.quantization.quantize_.common import KernelPreference
-
-config = MXFP8TrainingOpConfig(kernel_preference=KernelPreference.TE)
+TorchTitan users specify the kernel preference via the recipe configuration.
+The `kernel_preference` is set to `KernelPreference.TE` on the
+`MXFP8TrainingOpConfig`, which routes through:
 ```
-
-### 6.2 TorchTitan CLI
-
-```bash
---model.converters="quantize.grouped_mm.mx"
---quantize.grouped_mm.mx.recipe_name="mxfp8_te"
---quantize.grouped_mm.mx.fqns="experts"
-```
-
-This routes through:
-```
-torchtitan recipe_name="mxfp8_te"
-  → MXFP8TrainingRecipe.MXFP8_TE
-  → MXFP8TrainingOpConfig(kernel_preference=KernelPreference.TE)
+MXFP8TrainingOpConfig(kernel_preference=KernelPreference.TE)
   → _swap_params → MXFP8TrainingWeightWrapperTensor(config=...)
   → __torch_function__ intercept
   → _MXFP8GroupedMM.forward(kernel_preference=TE)
@@ -376,7 +274,7 @@ torchtitan recipe_name="mxfp8_te"
 
 ---
 
-## 7. Known Caveats
+## 6. Known Caveats
 
 1. **GPU→CPU sync**: `_offs_to_m_splits` calls `offs.tolist()` which is a
    device-to-host synchronization. This happens 3 times per MoE layer per
@@ -394,7 +292,7 @@ torchtitan recipe_name="mxfp8_te"
 
 4. **BF16 mode**: The custom ops support `use_fp8=False` for non-quantized
    grouped GEMM via TE's kernel. This is currently only used for testing;
-   the `MXFP8_TE` recipe always sets `use_fp8=True`.
+   `KernelPreference.TE` always uses `use_fp8=True` in production.
 
 5. **TE version dependency**: Requires `transformer_engine` with
    `MXFP8Quantizer` support (TE 2.x+). The import guard provides a clear
@@ -402,22 +300,7 @@ torchtitan recipe_name="mxfp8_te"
 
 ---
 
-## 8. Testing Plan
-
-| Test | What it validates |
-|---|---|
-| `test_te_gemm_fwd` | Forward custom op (MXFP8 + BF16) vs BF16 ref |
-| `test_te_gemm_dgrad` | DGRAD custom op vs BF16 ref |
-| `test_te_gemm_wgrad` | WGRAD custom op vs BF16 ref |
-| `test_te_integrated_fwd_bwd` | Full autograd path through `_MXFP8GroupedMM` with TE |
-| `test_mxfp8_te_recipe` | Recipe enum → config creation |
-| `test_te_model_conversion` | `quantize_()` parameter swap + forward/backward |
-| `test_te_compile` | `torch.compile(fullgraph=True)` traces without breaks |
-| **TorchTitan 2-node** | End-to-end DeepSeek-V3 training with TE grouped GEMM |
-
----
-
-## 9. Future Work
+## 7. Future Work
 
 - **Fused quantize-GEMM**: If TE exposes a fused quantize+GEMM API in the
   future, the custom ops can be updated internally without changing the

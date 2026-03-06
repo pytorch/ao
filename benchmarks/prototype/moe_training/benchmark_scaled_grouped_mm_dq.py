@@ -5,8 +5,10 @@
 # LICENSE file in the root directory of this source tree.
 # this benchmarking script is a modified version of the original script from: https://github.com/drisspg/transformer_nuggets/blob/main/transformer_nuggets/utils/benchmark.py
 import argparse
+import csv
 import itertools
 import logging
+import os
 from dataclasses import dataclass
 from typing import List, Union
 
@@ -29,6 +31,7 @@ from torchao.prototype.moe_training.utils import (
     _quantize_then_scaled_grouped_mm,
     generate_jagged_offs,
 )
+from torchao.quantization.quantize_.common import KernelPreference
 from torchao.utils import is_MI300, is_MI350, is_ROCM
 
 device = torch.device("cuda")
@@ -44,7 +47,7 @@ torch._dynamo.config.automatic_dynamic_shapes = False
 class ExperimentConfig:
     high_precision_dtype: torch.dtype
     MNKG: tuple[int]
-    recipe: Union[Float8TrainingRecipe, MXFP8TrainingRecipe]
+    recipe: Union[Float8TrainingRecipe, MXFP8TrainingRecipe, KernelPreference]
 
 
 @dataclass(frozen=True)
@@ -96,6 +99,7 @@ def get_configs() -> List[ExperimentConfig]:
     recipes = [
         MXFP8TrainingRecipe.MXFP8_RCEIL,
         MXFP8TrainingRecipe.MXFP8_RCEIL_WGRAD_WITH_HP,
+        KernelPreference.TE,
     ]
     high_precision_dtypes = [torch.bfloat16]
     configs = []
@@ -173,6 +177,8 @@ def run_experiment(
     # Create config object from recipe
     if isinstance(config.recipe, Float8TrainingRecipe):
         quant_config = Float8TrainingOpConfig.from_recipe(config.recipe)
+    elif config.recipe == KernelPreference.TE:
+        quant_config = MXFP8TrainingOpConfig(kernel_preference=KernelPreference.TE)
     else:
         quant_config = MXFP8TrainingOpConfig.from_recipe(config.recipe)
 
@@ -229,7 +235,7 @@ def run_experiment(
     )
 
 
-def print_results(experiments: List[Experiment]):
+def print_results(experiments: List[Experiment], csv_path: str = None):
     headers = [
         "M,N,K,G",
         "recipe",
@@ -248,13 +254,25 @@ def print_results(experiments: List[Experiment]):
                 experiment.config.recipe,
                 experiment.result.bf16_fwd_bwd_us,
                 experiment.result.scaled_fwd_bwd_us,
-                f"{experiment.result.scaled_fwd_bwd_speedup}x",
+                experiment.result.scaled_fwd_bwd_speedup,
                 experiment.result.bf16_fwd_us,
                 experiment.result.scaled_fwd_us,
-                f"{experiment.result.scaled_fwd_speedup}x",
+                experiment.result.scaled_fwd_speedup,
             ]
         )
-    print(tabulate(rows, headers=headers))
+
+    display_rows = [
+        row[:4] + [f"{row[4]}x"] + row[5:7] + [f"{row[7]}x"] for row in rows
+    ]
+    print(tabulate(display_rows, headers=headers))
+
+    if csv_path:
+        os.makedirs(os.path.dirname(csv_path) or ".", exist_ok=True)
+        with open(csv_path, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(headers)
+            writer.writerows(rows)
+        print(f"\nCSV results saved to {csv_path}")
 
 
 def main(args: argparse.Namespace):
@@ -285,16 +303,31 @@ def main(args: argparse.Namespace):
             )
             continue
 
+        elif config.recipe == KernelPreference.TE:
+            if torch.cuda.get_device_capability()[0] < 9:
+                logging.warning(
+                    f"Skipping TE MXFP8 benchmarks, requires SM90+ and found {torch.cuda.get_device_capability()}"
+                )
+                continue
+            try:
+                import transformer_engine  # noqa: F401
+            except ImportError:
+                logging.warning(
+                    "Skipping TE MXFP8 benchmarks, TransformerEngine not installed"
+                )
+                continue
+
         result = run_experiment(config, args)
         results.append(Experiment(config=config, result=result))
 
     # Use Tabulate to print results
-    print_results(results)
+    print_results(results, csv_path=args.csv)
 
 
 if __name__ == "__main__":
     arg_parser = argparse.ArgumentParser()
     arg_parser.add_argument("--compile", action="store_true")
     arg_parser.add_argument("--profile", action="store_true")
+    arg_parser.add_argument("--csv", type=str, default=None, help="Path to save CSV results")
     args = arg_parser.parse_args()
     main(args)
