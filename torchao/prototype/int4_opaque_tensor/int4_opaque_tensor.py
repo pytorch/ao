@@ -15,11 +15,16 @@ from torchao.quantization.quant_primitives import (
     _choose_qparams_affine_tinygemm,
     _choose_qparams_and_quantize_affine_hqq,
     _quantize_affine_tinygemm,
+    choose_qparams_affine,
+    quantize_affine,
 )
 from torchao.quantization.quantize_.workflows import (
     Int4ChooseQParamsAlgorithm,
 )
-from torchao.quantization.utils import pack_tinygemm_scales_and_zeros
+from torchao.quantization.utils import (
+    _get_per_token_block_size,
+    pack_tinygemm_scales_and_zeros,
+)
 from torchao.utils import (
     TorchAOBaseTensor,
 )
@@ -33,34 +38,44 @@ aten = torch.ops.aten
 
 class Int4OpaqueTensor(TorchAOBaseTensor):
     """
-    int4 weight-only quantization on CPU with tinygemm (groupwise quantization only). The packing format is determined on ISA and shape.
-    This is an opaque tensor subclass, the packing format is not exposed to the rest of the system. See the note below for more details.
+    int4 weight quantization on CPU with two supported paths:
 
-    Tensor Attributes:
-        qdata: preshuffled and packed int4 weight for CPU tinygemm kernel, always viewed as a 2D (N, K/2) tensor, last dimension is packed
-               preshuffling is specific to CPU kernels based on ISA and shape, see Note below.
-        scale_and_zero: (K/group_size, N, 2), dtype is the same as the original Tensor dtype
+    1. A16W4 (weight-only): float16/bfloat16/float32 activation + int4 weight,
+       using tinygemm kernel (_weight_int4pack_mm_for_cpu).
 
-    Non-Tensor Attributes:
-        block_size: the block size for quantization, representing the granularity, for groupwise quantization, will have block_size (1, group_size).
-                    we only support group_size = 32/64/128.
-        shape: shape of the original Tensor
+    2. DA8W4 (dynamic activation): int8 dynamic activation + int4 weight,
+       using da8w4 kernel (da8w4_linear_cpu). Activation is quantized
+       per-token dynamically at runtime.
+
+    The path is selected based on `act_mapping_type`:
+      - None  → A16W4 tinygemm path
+      - "asymmetric" or "symmetric" → DA8W4 path
+
+    Mandatory Tensor Attributes (A16W4):
+        qdata: packed int4 weight.
+               A16W4: preshuffled for tinygemm, shape (N, K/2)
+               DA8W4: prepacked for da8w4_linear_cpu (4D)
+        scale_and_zero: weight quantization params.
+               A16W4: packed scales+zeros for tinygemm, shape (K/group_size, N, 2)
+               DA8W4: packed scales, shape (N/block_n, G, block_n)
+
+    Mandatory Non-Tensor Attributes:
+        block_size: quantization block size, e.g. [1, group_size]
+        shape: original weight shape [N, K]
 
     Optional Tensor Data Attributes:
-        act_pre_scale (Optional[Tensor]): Optional scale for activation Tensor, if present,
-               we'll multiply activation Tensor with act_pre_scale before applying dynamic
-               quantization to activation or running quantized mm op
+        act_pre_scale: activation pre-scale (A16W4 only)
+        qzeros: packed weight zero-points for DA8W4, shape (N/block_n, G, block_n)
+        compensation: weight compensation for DA8W4, shape (N/block_n, K/block_k, block_n)
 
-    Note on Details for data layout for CPU tinygemm kernel:
-
-      We use AVX512 to compute TINYGEMM on CPU. We can also leverage AVX512_VNNI and AMX instructions with torch.compile and max-autotune.
-      For data locality, we preshuffle the data in plain layout (N, K/2) to (N/block_n, K, block_n/2), where block_n = 64/32/16.
-      See https://github.com/pytorch/pytorch/blob/32eee8ed225d9f10fbbcb38c24b8b44c24c0c97c/aten/src/ATen/native/cpu/int4mm_kernel.cpp#L583 for more details.
+    Optional Non-Tensor Attributes:
+        act_mapping_type: None for A16W4; "asymmetric" or "symmetric" for DA8W4
     """
 
     tensor_data_names = ["qdata", "scale_and_zero"]
     tensor_attribute_names = ["block_size", "shape"]
-    optional_tensor_data_names = ["act_pre_scale"]
+    optional_tensor_data_names = ["act_pre_scale", "qzeros", "compensation"]
+    optional_tensor_attribute_names = ["act_mapping_type"]
 
     def __new__(
         cls,
@@ -69,6 +84,9 @@ class Int4OpaqueTensor(TorchAOBaseTensor):
         block_size,
         shape,
         act_pre_scale: Optional[torch.Tensor] = None,
+        qzeros: Optional[torch.Tensor] = None,
+        compensation: Optional[torch.Tensor] = None,
+        act_mapping_type: Optional[str] = None,
     ):
         kwargs = {}
         kwargs["device"] = qdata.device
@@ -83,17 +101,26 @@ class Int4OpaqueTensor(TorchAOBaseTensor):
         block_size: List[int],
         shape: torch.Size,
         act_pre_scale: Optional[torch.Tensor] = None,
+        qzeros: Optional[torch.Tensor] = None,
+        compensation: Optional[torch.Tensor] = None,
+        act_mapping_type: Optional[str] = None,
     ):
         super().__init__()
         self.qdata = qdata
         self.scale_and_zero = scale_and_zero
         self.block_size = block_size
         self.act_pre_scale = act_pre_scale
+        self.qzeros = qzeros
+        self.compensation = compensation
+        self.act_mapping_type = act_mapping_type
 
     def _quantization_type(self):
-        s = f"shape={self.shape}, block_size={self.block_size}, device={self.device}"
-        if self.act_pre_scale is not None:
-            s += f", act_pre_scale.shape={self.act_pre_scale.shape}"
+        if self.act_mapping_type is not None:
+            s = f"da8w4, shape={self.shape}, block_size={self.block_size}, act={self.act_mapping_type}, device={self.device}"
+        else:
+            s = f"shape={self.shape}, block_size={self.block_size}, device={self.device}"
+            if self.act_pre_scale is not None:
+                s += f", act_pre_scale.shape={self.act_pre_scale.shape}"
         return s
 
     @classmethod
@@ -186,9 +213,160 @@ class Int4OpaqueTensor(TorchAOBaseTensor):
             act_pre_scale=None,
         )
 
+    @classmethod
+    def from_hp_da8w4(
+        cls,
+        w: torch.Tensor,
+        group_size: int = 32,
+        act_mapping_type: MappingType = MappingType.ASYMMETRIC,
+    ):
+        """
+        Quantize a float weight tensor for DA8W4 (int8 dynamic activation + int4 weight) on CPU.
+
+        The weight is quantized per-group (asymmetric int4), then prepacked via
+        torch.ops.torchao.da8w4_linear_prepack_cpu for the CPU kernel.
+
+        Args:
+            w: float weight tensor, shape [N, K], must be on CPU
+            group_size: quantization group size, K must be divisible by group_size
+            act_mapping_type: MappingType.ASYMMETRIC (uint8 activation, default) or
+                              MappingType.SYMMETRIC (int8 activation, requires PyTorch >= 2.8)
+        """
+        assert w.ndim == 2 and w.device.type == "cpu", (
+            f"Expecting 2D tensor on CPU, but got: {w.shape} on {w.device.type}"
+        )
+        assert w.shape[1] % group_size == 0, (
+            f"K={w.shape[1]} must be divisible by group_size={group_size}"
+        )
+        assert w.shape[0] % 32 == 0 and w.shape[1] % 2 == 0, (
+            f"N={w.shape[0]} must be divisible by 32 and K={w.shape[1]} must be even for DA8W4"
+        )
+        original_shape = w.shape
+        block_size = [1, group_size]
+
+        # Quantize weight: asymmetric int4 per-group → uint8 [N, K], values in [0, 15]
+        scale, zero_point = choose_qparams_affine(
+            w,
+            MappingType.ASYMMETRIC,
+            block_size,
+            torch.uint8,
+            quant_min=0,
+            quant_max=15,
+            eps=1e-6,
+            scale_dtype=torch.float32,
+            zero_point_dtype=torch.int32,
+        )
+        int4_weight = quantize_affine(
+            w,
+            block_size,
+            scale,
+            zero_point,
+            torch.uint8,
+            quant_min=0,
+            quant_max=15,
+        ).to(torch.uint8)
+
+        # Prepack for da8w4_linear_cpu
+        packed_weight, packed_scales, packed_qzeros, compensation = (
+            torch.ops.torchao.da8w4_linear_prepack_cpu(
+                int4_weight,
+                scale,
+                zero_point.to(torch.int8),
+            )
+        )
+
+        act_str = (
+            "symmetric" if act_mapping_type == MappingType.SYMMETRIC else "asymmetric"
+        )
+        return cls(
+            qdata=packed_weight,
+            scale_and_zero=packed_scales,
+            block_size=block_size,
+            shape=original_shape,
+            act_pre_scale=None,
+            qzeros=packed_qzeros,
+            compensation=compensation,
+            act_mapping_type=act_str,
+        )
+
 
 implements = Int4OpaqueTensor.implements
 implements_torch_function = Int4OpaqueTensor.implements_torch_function
+
+
+def _da8w4_linear(input_tensor, weight_tensor, bias):
+    """DA8W4 linear: dynamically quantize activation per-token, then call da8w4_linear_cpu."""
+    orig_act_size = input_tensor.size()
+    orig_dtype = input_tensor.dtype
+
+    # Reshape activation to 2D
+    act_fp = input_tensor.reshape(-1, input_tensor.shape[-1])
+    per_token_block_size = _get_per_token_block_size(act_fp)
+
+    if weight_tensor.act_mapping_type == "symmetric":
+        # Symmetric int8 quantization: values in [-127, 127]
+        act_scale, act_zero_point = choose_qparams_affine(
+            act_fp,
+            MappingType.SYMMETRIC,
+            per_token_block_size,
+            torch.int8,
+            quant_min=-127,
+            quant_max=127,
+            eps=torch.finfo(torch.float32).eps,
+            scale_dtype=torch.float32,
+            zero_point_dtype=torch.int8,
+        )
+        act_int = quantize_affine(
+            act_fp,
+            per_token_block_size,
+            act_scale,
+            act_zero_point,
+            torch.int8,
+            quant_min=-127,
+            quant_max=127,
+        )
+    else:
+        # Asymmetric uint8 quantization: values in [0, 255]
+        act_scale, act_zero_point = choose_qparams_affine(
+            act_fp,
+            MappingType.ASYMMETRIC,
+            per_token_block_size,
+            torch.uint8,
+            quant_min=0,
+            quant_max=255,
+            eps=torch.finfo(torch.float32).eps,
+            scale_dtype=torch.float32,
+            zero_point_dtype=torch.int32,
+        )
+        act_int = quantize_affine(
+            act_fp,
+            per_token_block_size,
+            act_scale,
+            act_zero_point,
+            torch.uint8,
+            quant_min=0,
+            quant_max=255,
+        )
+
+    act_scale_1d = act_scale.reshape(-1)
+    act_qzeros_1d = act_zero_point.reshape(-1).to(torch.int32)
+
+    y = torch.ops.torchao.da8w4_linear_cpu.default(
+        act_int.contiguous(),
+        act_scale_1d,
+        act_qzeros_1d,
+        weight_tensor.qdata,
+        weight_tensor.scale_and_zero,
+        weight_tensor.qzeros,
+        weight_tensor.compensation,
+        bias.float() if bias is not None else bias,
+        orig_dtype,
+    )
+
+    orig_out_features = weight_tensor.shape[-2]
+    y = y[:, :orig_out_features]
+    y = y.reshape(*orig_act_size[:-1], orig_out_features)
+    return y.to(orig_dtype)
 
 
 @implements(aten.linear.default)
@@ -212,6 +390,11 @@ def _(func, types, args, kwargs):
         f"Shapes of input and weight do not match, input:{input_tensor.shape}, weight: {weight_tensor.shape}"
     )
 
+    # DA8W4 path: dynamic int8 activation + int4 weight
+    if weight_tensor.act_mapping_type is not None:
+        return _da8w4_linear(input_tensor, weight_tensor, bias)
+
+    # A16W4 path: float activation + int4 weight (tinygemm)
     if weight_tensor.act_pre_scale is not None:
         input_tensor = input_tensor * weight_tensor.act_pre_scale
 

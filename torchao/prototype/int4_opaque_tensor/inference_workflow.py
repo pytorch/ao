@@ -5,7 +5,8 @@
 # LICENSE file in the root directory of this source tree.
 
 import logging
-from dataclasses import dataclass
+import types
+from dataclasses import dataclass, field
 
 import torch
 
@@ -13,9 +14,9 @@ import torchao
 from torchao.core.config import AOBaseConfig
 
 logger = logging.getLogger(__name__)
-import types
 
 from torchao.quantization.quant_api import _linear_extra_repr
+from torchao.quantization.quant_primitives import MappingType
 from torchao.quantization.quantize_.workflows import (
     Int4ChooseQParamsAlgorithm,
 )
@@ -83,6 +84,67 @@ def _int4_weight_only_transform(
         + " but {module} does not have one"
     )
     new_weight = _int4_weight_only_opaque_tensor_quantize(module.weight, config)
+    module.weight = torch.nn.Parameter(new_weight, requires_grad=False)
+    module.extra_repr = types.MethodType(_linear_extra_repr, module)
+    return module
+
+
+@dataclass
+class Int8DynamicActInt4WeightOpaqueTensorConfig(AOBaseConfig):
+    """
+    Configuration for int8 dynamic activation + int4 weight quantization on CPU,
+    using Int4OpaqueTensor (tensor subclassing) with the da8w4_linear_cpu backend.
+
+    Weights are quantized per-group (asymmetric int4) and prepacked at quantization time.
+    Activations are quantized dynamically per-token at runtime.
+
+    Args:
+        `group_size`: quantization group size for weights; K must be divisible by group_size
+        `act_mapping_type`: activation quantization type:
+            - MappingType.ASYMMETRIC (default): uint8 activation quantization
+            - MappingType.SYMMETRIC: int8 activation quantization (requires PyTorch >= 2.8)
+    """
+
+    group_size: int = 32
+    act_mapping_type: MappingType = field(
+        default_factory=lambda: MappingType.ASYMMETRIC
+    )
+
+    def __post_init__(self):
+        torch._C._log_api_usage_once(
+            "torchao.prototype.int4_opaque_tensor.Int8DynamicActInt4WeightOpaqueTensorConfig"
+        )
+
+
+@register_quantize_module_handler(Int8DynamicActInt4WeightOpaqueTensorConfig)
+def _int8_dynamic_act_int4_weight_transform(
+    module: torch.nn.Module, config: Int8DynamicActInt4WeightOpaqueTensorConfig
+) -> torch.nn.Module:
+    torchao.quantization.utils.recommended_inductor_config_setter()
+
+    assert hasattr(module, "weight"), (
+        "applying DA8W4 quant requires module to have weight attribute"
+        + f" but {module} does not have one"
+    )
+    weight = module.weight
+    if weight.shape[-1] % config.group_size != 0:
+        logger.info(
+            f"Skipping DA8W4 quantization: weight shape {weight.shape} is not compatible "
+            f"with group_size {config.group_size}"
+        )
+        return module
+    if weight.shape[0] % 32 != 0 or weight.shape[-1] % 2 != 0:
+        logger.info(
+            f"Skipping DA8W4 quantization: weight shape {weight.shape} requires "
+            "N divisible by 32 and K divisible by 2"
+        )
+        return module
+
+    new_weight = Int4OpaqueTensor.from_hp_da8w4(
+        weight,
+        group_size=config.group_size,
+        act_mapping_type=config.act_mapping_type,
+    )
     module.weight = torch.nn.Parameter(new_weight, requires_grad=False)
     module.extra_repr = types.MethodType(_linear_extra_repr, module)
     return module
