@@ -827,7 +827,7 @@ def _int4_weight_only_quantize_tensor(weight, config):
             weight,
             block_size,
             int4_choose_qparams_algorithm=int4_choose_qparams_algorithm,
-            ntile_size=config.int4_tile_packed_ntile
+            ntile_size=int4_tile_packed_ntile,
         )
         return new_weight
     else:
