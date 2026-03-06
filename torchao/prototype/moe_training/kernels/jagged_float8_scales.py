@@ -91,7 +91,6 @@ if torch_version_at_least("2.7.0") and has_triton():
         """
         assert hp_tensor.ndim == 2, "input tensor must be 2D"
 
-        num_elements = hp_tensor.numel()
         tl_input_dtype = FP8_DTYPE_MAP[hp_tensor.dtype]
         tl_output_dtype = FP8_DTYPE_MAP[output_dtype]
 
@@ -124,7 +123,6 @@ if torch_version_at_least("2.7.0") and has_triton():
             hp_tensor.stride(1),
             output_buffer.stride(0),
             output_buffer.stride(1),
-            num_elements,
             fp8_dtype_min,
             fp8_dtype_max,
             tl_input_dtype,
@@ -173,7 +171,6 @@ if torch_version_at_least("2.7.0") and has_triton():
         stride_input_col: int,
         stride_output_row: int,
         stride_output_col: int,
-        num_elements: int,
         fp8_dtype_min: tl.constexpr,
         fp8_dtype_max: tl.constexpr,
         input_dtype: tl.constexpr,
@@ -194,15 +191,24 @@ if torch_version_at_least("2.7.0") and has_triton():
         group_col_end_idx = tl.load(offsets_ptr + offset_idx)
         block_row_offs = block_row_id * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
 
+        # cast to int64 to avoid overflow in pointer arithmetic for large tensors
+        block_row_offs_i64 = block_row_offs.to(tl.int64)
+        stride_input_row_i64 = stride_input_row.to(tl.int64)
+        stride_input_col_i64 = stride_input_col.to(tl.int64)
+        stride_output_row_i64 = stride_output_row.to(tl.int64)
+        stride_output_col_i64 = stride_output_col.to(tl.int64)
+
         # compute rowwise amaxes for this group
         amax_buffer = tl.zeros((BLOCK_SIZE,), dtype=input_dtype)
         for col_start_idx in range(
             group_col_start_idx, group_col_end_idx, BLOCK_SIZE_ITER
         ):
-            block_col_offs = col_start_idx + tl.arange(0, BLOCK_SIZE_ITER)
+            block_col_offs = (col_start_idx + tl.arange(0, BLOCK_SIZE_ITER)).to(
+                tl.int64
+            )
             block_offs = (
-                block_row_offs[:, None] * stride_input_row
-                + block_col_offs[None, :] * stride_input_col
+                block_row_offs_i64[:, None] * stride_input_row_i64
+                + block_col_offs[None, :] * stride_input_col_i64
             )
             block_mask = (block_row_offs[:, None] < M) & (
                 block_col_offs[None, :] < group_col_end_idx
@@ -226,7 +232,7 @@ if torch_version_at_least("2.7.0") and has_triton():
 
         # store rowwise scales for each group in contiguous memory:
         # [group0_row0, group_0_row1, ..., group2_row0, group2_row1]
-        scales_offs = block_row_offs + (M * offset_idx)
+        scales_offs = block_row_offs_i64 + (M.to(tl.int64) * offset_idx.to(tl.int64))
         scales_mask = tl.arange(0, BLOCK_SIZE) < M
         tl.store(scales_ptr + scales_offs, scales, mask=scales_mask)
 
@@ -234,10 +240,12 @@ if torch_version_at_least("2.7.0") and has_triton():
         for col_start_idx in range(
             group_col_start_idx, group_col_end_idx, BLOCK_SIZE_ITER
         ):
-            block_col_offs = col_start_idx + tl.arange(0, BLOCK_SIZE_ITER)
+            block_col_offs = (col_start_idx + tl.arange(0, BLOCK_SIZE_ITER)).to(
+                tl.int64
+            )
             block_offs = (
-                block_row_offs[:, None] * stride_input_row
-                + block_col_offs[None, :] * stride_input_col
+                block_row_offs_i64[:, None] * stride_input_row_i64
+                + block_col_offs[None, :] * stride_input_col_i64
             )
             block_mask = (block_row_offs[:, None] < M) & (
                 block_col_offs[None, :] < group_col_end_idx
@@ -250,8 +258,8 @@ if torch_version_at_least("2.7.0") and has_triton():
                 output_dtype
             )
             out_offs = (
-                block_row_offs[:, None] * stride_output_row
-                + block_col_offs[None, :] * stride_output_col
+                block_row_offs_i64[:, None] * stride_output_row_i64
+                + block_col_offs[None, :] * stride_output_col_i64
             )
             tl.store(out_ptr + out_offs, fp8_data, mask=block_mask)
 
@@ -281,7 +289,6 @@ if torch_version_at_least("2.7.0") and has_triton():
         """
         assert hp_tensor.ndim == 2, "input tensor must be 2D"
 
-        num_elements = hp_tensor.numel()
         tl_input_dtype = FP8_DTYPE_MAP[hp_tensor.dtype]
         tl_output_dtype = FP8_DTYPE_MAP[output_dtype]
 
@@ -317,7 +324,6 @@ if torch_version_at_least("2.7.0") and has_triton():
             hp_tensor.stride(1),
             output_buffer.stride(0),
             output_buffer.stride(1),
-            num_elements,
             fp8_dtype_min,
             fp8_dtype_max,
             tl_input_dtype,
@@ -364,7 +370,6 @@ if torch_version_at_least("2.7.0") and has_triton():
         stride_input_col: int,
         stride_output_row: int,
         stride_output_col: int,
-        num_elements: int,
         fp8_dtype_min: tl.constexpr,
         fp8_dtype_max: tl.constexpr,
         input_dtype: tl.constexpr,
@@ -385,15 +390,24 @@ if torch_version_at_least("2.7.0") and has_triton():
         group_row_end_idx = tl.load(offsets_ptr + offset_idx)
         block_col_offs = block_col_id * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
 
+        # cast to int64 to avoid overflow in pointer arithmetic for large tensors
+        block_col_offs_i64 = block_col_offs.to(tl.int64)
+        stride_input_row_i64 = stride_input_row.to(tl.int64)
+        stride_input_col_i64 = stride_input_col.to(tl.int64)
+        stride_output_row_i64 = stride_output_row.to(tl.int64)
+        stride_output_col_i64 = stride_output_col.to(tl.int64)
+
         # compute colwise amaxes for this group
         amax_buffer = tl.zeros((BLOCK_SIZE,), dtype=input_dtype)
         for row_start_idx in range(
             group_row_start_idx, group_row_end_idx, BLOCK_SIZE_ITER
         ):
-            block_row_offs = row_start_idx + tl.arange(0, BLOCK_SIZE_ITER)
+            block_row_offs = (row_start_idx + tl.arange(0, BLOCK_SIZE_ITER)).to(
+                tl.int64
+            )
             block_offs = (
-                block_row_offs[:, None] * stride_input_row
-                + block_col_offs[None, :] * stride_input_col
+                block_row_offs[:, None] * stride_input_row_i64
+                + block_col_offs_i64[None, :] * stride_input_col_i64
             )
             block_mask = (block_row_offs[:, None] < group_row_end_idx) & (
                 block_col_offs[None, :] < N
@@ -418,7 +432,7 @@ if torch_version_at_least("2.7.0") and has_triton():
         # store colwise scales for each group in contiguous memory:
         # [group0_col0, group_0_col1, ..., group2_col0, group2_col1]
         # note: input tensor is in col-major memory layout.
-        scales_offs = block_col_offs + (N * offset_idx)
+        scales_offs = block_col_offs_i64 + (N.to(tl.int64) * offset_idx.to(tl.int64))
         scales_mask = tl.arange(0, BLOCK_SIZE) < N
         tl.store(scales_ptr + scales_offs, scales, mask=scales_mask)
 
@@ -426,10 +440,12 @@ if torch_version_at_least("2.7.0") and has_triton():
         for row_start_idx in range(
             group_row_start_idx, group_row_end_idx, BLOCK_SIZE_ITER
         ):
-            block_row_offs = row_start_idx + tl.arange(0, BLOCK_SIZE_ITER)
+            block_row_offs = (row_start_idx + tl.arange(0, BLOCK_SIZE_ITER)).to(
+                tl.int64
+            )
             block_offs = (
-                block_row_offs[:, None] * stride_input_row
-                + block_col_offs[None, :] * stride_input_col
+                block_row_offs[:, None] * stride_input_row_i64
+                + block_col_offs_i64[None, :] * stride_input_col_i64
             )
             block_mask = (block_row_offs[:, None] < group_row_end_idx) & (
                 block_col_offs[None, :] < N
@@ -442,8 +458,8 @@ if torch_version_at_least("2.7.0") and has_triton():
                 output_dtype
             )
             out_offs = (
-                block_row_offs[:, None] * stride_output_row
-                + block_col_offs[None, :] * stride_output_col
+                block_row_offs[:, None] * stride_output_row_i64
+                + block_col_offs_i64[None, :] * stride_output_col_i64
             )
             tl.store(out_ptr + out_offs, fp8_data, mask=block_mask)
 
