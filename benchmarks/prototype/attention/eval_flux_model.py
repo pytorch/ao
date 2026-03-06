@@ -5,9 +5,12 @@
 # LICENSE file in the root directory of this source tree.
 
 """
-Benchmark attention backends on FLUX.1-schnell using LPIPS perceptual similarity.
+Benchmark attention backends on FLUX.1-schnell.
 
-    python eval_flux_model.py --baseline fa3 --test fa3_fp8 --num_prompts 200
+Compares backends using LPIPS (perceptual similarity) on DrawBench prompts.
+
+Usage:
+    python eval_flux_model.py --baseline fa3 --test fa3_fp8 --debug_prompt "A red car"
 """
 
 import argparse
@@ -29,7 +32,6 @@ from torch.nn.attention import (
 
 from torchao.prototype.attention import (
     AttentionBackend,
-    LowPrecisionAttentionConfig,
     apply_low_precision_attention,
 )
 
@@ -40,6 +42,12 @@ BACKENDS = {
         "flash_impl": "FA3",
         "fp8": True,
         "fp8_backend": AttentionBackend.FP8_FA3,
+    },
+    "fa4": {"flash_impl": "FA4", "fp8": False},
+    "fa4_fp8": {
+        "flash_impl": "FA4",
+        "fp8": True,
+        "fp8_backend": AttentionBackend.FP8_FA4,
     },
 }
 
@@ -62,18 +70,25 @@ def setup_backend(
     orig_transformer,
     fuse_rope_using_torch_compile=False,
 ):
-    """Set up a backend for a benchmark phase."""
+    """Set up a backend and return the flash_impl name."""
     cfg = BACKENDS[backend_name]
     pipe.transformer = orig_transformer
 
     if cfg["fp8"]:
         print(f"Applying low-precision FP8 attention ({backend_name})...")
-        fp8_config = LowPrecisionAttentionConfig(
+        pipe.transformer = apply_low_precision_attention(
+            pipe.transformer,
             backend=cfg["fp8_backend"],
             fuse_rope_using_torch_compile=fuse_rope_using_torch_compile,
         )
-        pipe.transformer = apply_low_precision_attention(pipe.transformer, fp8_config)
-        if compile_flag:
+        if fuse_rope_using_torch_compile:
+            print(
+                f"Compiling transformer with torch.compile ({backend_name}, FP8 backend)..."
+            )
+            pipe.transformer = torch.compile(
+                pipe.transformer, backend=pipe.transformer.compile_backend
+            )
+        elif compile_flag:
             print(f"Compiling transformer with torch.compile ({backend_name})...")
             pipe.transformer = torch.compile(pipe.transformer)
         return cfg["flash_impl"]
@@ -107,6 +122,8 @@ def generate_image(
     seed: int,
     device: str,
     num_inference_steps: int,
+    height: int = 2048,
+    width: int = 2048,
     flash_impl: Optional[str] = None,
 ) -> Image.Image:
     """Generate an image from a prompt with deterministic seed."""
@@ -119,6 +136,8 @@ def generate_image(
             prompt=prompt,
             num_inference_steps=num_inference_steps,
             guidance_scale=3.5,
+            height=height,
+            width=width,
             generator=generator,
         ).images[0]
     finally:
@@ -137,6 +156,8 @@ def run_benchmark(
     test_backend: str = "fa3_fp8",
     num_prompts: int = 50,
     num_inference_steps: int = 20,
+    height: int = 2048,
+    width: int = 2048,
     debug_prompt: Optional[str] = None,
     warmup_iters: int = 2,
     compile: bool = False,
@@ -209,6 +230,8 @@ def run_benchmark(
             RANDOM_SEED,
             device,
             num_inference_steps,
+            height=height,
+            width=width,
             flash_impl=baseline_flash_impl,
         )
         print(f"  Warmup {i + 1}/{warmup_iters} complete")
@@ -228,6 +251,8 @@ def run_benchmark(
             RANDOM_SEED,
             device,
             num_inference_steps,
+            height=height,
+            width=width,
             flash_impl=baseline_flash_impl,
         )
         end_event.record()
@@ -235,6 +260,7 @@ def run_benchmark(
         elapsed_ms = start_event.elapsed_time(end_event)
 
         baseline_tensor = pil_to_lpips_tensor(baseline_img, device)
+        # Store tensors on CPU to free GPU memory for the test phase.
         baseline_data.append((prompt, baseline_tensor.cpu()))
         baseline_times_ms.append(elapsed_ms)
 
@@ -267,6 +293,8 @@ def run_benchmark(
             RANDOM_SEED,
             device,
             num_inference_steps,
+            height=height,
+            width=width,
             flash_impl=test_flash_impl,
         )
         print(f"  Warmup {i + 1}/{warmup_iters} complete")
@@ -287,6 +315,8 @@ def run_benchmark(
             RANDOM_SEED,
             device,
             num_inference_steps,
+            height=height,
+            width=width,
             flash_impl=test_flash_impl,
         )
         end_event.record()
@@ -330,7 +360,8 @@ def run_benchmark(
     print(f"  Model:             {MODEL_ID}")
     print(f"  Prompts tested:    {len(prompts)}")
     print(f"  Inference steps:   {num_inference_steps}")
-    print(f"  Image size:        {IMAGE_SIZE}")
+    print(f"  Generation size:   {width}x{height}")
+    print(f"  LPIPS resize:      {IMAGE_SIZE[0]}x{IMAGE_SIZE[1]}")
     print(f"  Random seed:       {RANDOM_SEED}")
     print("=" * 80)
 
@@ -396,6 +427,18 @@ def main():
         action="store_true",
         help="Fuse RoPE into the FP8 kernel (compile path, off by default)",
     )
+    parser.add_argument(
+        "--height",
+        type=int,
+        default=2048,
+        help="Generated image height in pixels (default: 2048)",
+    )
+    parser.add_argument(
+        "--width",
+        type=int,
+        default=2048,
+        help="Generated image width in pixels (default: 2048)",
+    )
 
     args = parser.parse_args()
 
@@ -404,6 +447,8 @@ def main():
         test_backend=args.test,
         num_prompts=args.num_prompts,
         num_inference_steps=args.num_inference_steps,
+        height=args.height,
+        width=args.width,
         debug_prompt=args.debug_prompt,
         warmup_iters=args.warmup_iters,
         compile=args.compile,
