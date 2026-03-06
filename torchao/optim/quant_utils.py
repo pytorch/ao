@@ -5,7 +5,10 @@
 # LICENSE file in the root directory of this source tree.
 import torch
 from torch import Tensor
-from torch.distributed.tensor import DTensor
+if torch.distributed.is_available():
+    from torch.distributed.tensor import DTensor
+else:
+    DTensor = None
 
 
 # https://github.com/TimDettmers/bitsandbytes/blob/dada530149212d64d4b69534716202659ef37ec8/bitsandbytes/functional.py#L339-L391
@@ -128,7 +131,7 @@ def _fp32_to_bf16_sr(_x_f32: Tensor) -> Tensor:
     # [a15, ..., a0] / 2^16, where the bit pattern [a15, ..., a0] is interpreted as uint16
     #
     # we have to use int32 since most arithmetic ops are not implemented for uint32/int16/uint16
-    is_dt = isinstance(_x_f32, DTensor)
+    is_dt = DTensor is not None and isinstance(_x_f32, DTensor)
     x_f32 = _x_f32.to_local() if is_dt else _x_f32
 
     rand_16bit = torch.randint(

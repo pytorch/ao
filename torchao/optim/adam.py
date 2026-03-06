@@ -7,7 +7,10 @@ from typing import Optional
 
 import torch
 from torch import Tensor
-from torch.distributed._tensor import DTensor
+if torch.distributed.is_available():
+    from torch.distributed._tensor import DTensor
+else:
+    DTensor = None
 from torch.optim import Optimizer
 
 from .quant_utils import _fp32_to_bf16_sr
@@ -69,7 +72,7 @@ class _AdamBase(Optimizer):
         raise NotImplementedError
 
     def _new_buffer(self, p: Tensor, signed: bool):
-        local_p = p.to_local() if isinstance(p, DTensor) else p
+        local_p = p.to_local() if (DTensor is not None and isinstance(p, DTensor)) else p
 
         # follow bitsandbytes, only quantize tensors >= 4096 values
         if local_p.numel() >= 4096 and local_p.numel() % self.block_size == 0:
@@ -81,7 +84,7 @@ class _AdamBase(Optimizer):
         # NOTE: local tensor may have different shapes across ranks.
         # this happens when the 1st dim is not divisible by WORLD_SIZE.
         # thus, we must supply shape (and stride) to DTensor.from_local()
-        if isinstance(p, DTensor):
+        if DTensor is not None and isinstance(p, DTensor):
             out = DTensor.from_local(
                 local_tensor=out,
                 device_mesh=p.device_mesh,

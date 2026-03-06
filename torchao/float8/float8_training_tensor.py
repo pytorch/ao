@@ -7,11 +7,15 @@ import enum
 from typing import Dict, NamedTuple, Optional
 
 import torch
-from torch.distributed._tensor import DTensor
 
 from torchao.float8.float8_utils import (
     to_fp8_saturated,
 )
+
+if torch.distributed.is_available():
+    from torch.distributed._tensor import DTensor
+else:
+    DTensor = None
 
 aten = torch.ops.aten
 
@@ -153,7 +157,7 @@ class _ToFloat8ConstrFunc(torch.autograd.Function):
         tensor_scaled = tensor.to(torch.float32) * scale
         bits_fp8 = to_fp8_saturated(tensor_scaled, float8_dtype)
 
-        if isinstance(bits_fp8, DTensor):
+        if DTensor is not None and isinstance(bits_fp8, DTensor):
             assert isinstance(scale, DTensor), (
                 "Expected Float8 scale to be a DTensor if bits_fp8 is a DTensor"
             )

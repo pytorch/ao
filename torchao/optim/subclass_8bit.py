@@ -20,8 +20,12 @@ from .quant_utils import (
 )
 
 aten = torch.ops.aten
-c10d_functional = torch.ops.c10d_functional
-_c10d_functional = torch.ops._c10d_functional
+if torch.distributed.is_available():
+    c10d_functional = torch.ops.c10d_functional
+    _c10d_functional = torch.ops._c10d_functional
+else:
+    c10d_functional = None
+    _c10d_functional = None
 
 # Lazy initialization to avoid meta device issues during import
 from functools import lru_cache
@@ -175,18 +179,18 @@ def _(func, types, args, kwargs):
 
 
 # Build the list of c10d operations to implement
-_optim_state_8bit_c10d_ops = [
-    # required by DTensor.full_tensor()
-    c10d_functional.all_gather_into_tensor.default,
-    _c10d_functional.all_gather_into_tensor.default,
-    c10d_functional.wait_tensor.default,
-    _c10d_functional.wait_tensor.default,
-    # required by torch.distributed.checkpoint.save
-    aten.detach.default,
-]
-# _wrap_tensor_autograd was added in PyTorch 2.11.0.dev
-if torch_version_at_least("2.11.0.dev"):
-    _optim_state_8bit_c10d_ops.append(_c10d_functional._wrap_tensor_autograd.default)
+_optim_state_8bit_c10d_ops = [aten.detach.default]  # required by torch.distributed.checkpoint.save
+if torch.distributed.is_available():
+    _optim_state_8bit_c10d_ops += [
+        # required by DTensor.full_tensor()
+        c10d_functional.all_gather_into_tensor.default,
+        _c10d_functional.all_gather_into_tensor.default,
+        c10d_functional.wait_tensor.default,
+        _c10d_functional.wait_tensor.default,
+    ]
+    # _wrap_tensor_autograd was added in PyTorch 2.11.0.dev
+    if torch_version_at_least("2.11.0.dev"):
+        _optim_state_8bit_c10d_ops.append(_c10d_functional._wrap_tensor_autograd.default)
 
 
 @OptimState8bit.implements(_optim_state_8bit_c10d_ops)

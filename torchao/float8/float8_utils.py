@@ -8,9 +8,14 @@ from typing import Iterable, Optional, Tuple, Union
 
 import torch
 import torch.distributed as dist
-from torch.distributed._functional_collectives import AsyncCollectiveTensor, all_reduce
 
 from torchao.float8.config import ScalingGranularity
+
+if torch.distributed.is_available():
+    from torch.distributed._functional_collectives import AsyncCollectiveTensor, all_reduce
+else:
+    AsyncCollectiveTensor = None
+    all_reduce = None
 
 # Helpful visualizer for debugging (only supports fp32):
 # https://www.h-schmidt.net/FloatConverter/IEEE754.html
@@ -71,12 +76,12 @@ def tensor_to_amax(
     # If the user asked for distributed reduction, do it.
     # If the user did not ask for it, assume that it will
     # happen elsewhere.
-    if reduce_amax and dist.is_initialized():
+    if reduce_amax and dist.is_available() and dist.is_initialized():
         pg = device_mesh.get_group() if device_mesh is not None else None
         # dist.all_reduce(amax, op=dist.ReduceOp.MAX, group=pg)
         group = list(range(dist.get_world_size())) if pg is None else pg
         amax = all_reduce(amax, "MAX", group)
-        if isinstance(amax, AsyncCollectiveTensor):
+        if AsyncCollectiveTensor is not None and isinstance(amax, AsyncCollectiveTensor):
             amax = amax.wait()
 
     return amax

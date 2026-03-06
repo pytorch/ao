@@ -3,23 +3,26 @@
 #
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
+from __future__ import annotations
 import functools
 import math
 import sys
 from dataclasses import dataclass, replace
 from enum import Enum, auto
-from typing import Any, Dict, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple, Union
 
 import torch
 import torch.nn.functional as F
 from torch._prims_common import make_contiguous_strides_for
-from torch.distributed.device_mesh import DeviceMesh
+if TYPE_CHECKING:
+    from torch.distributed.device_mesh import DeviceMesh
 
 from torchao.utils import torch_version_at_least
 
 aten = torch.ops.aten
 
-c10d_functional = torch.ops.c10d_functional
+if torch.distributed.is_available():
+    c10d_functional = torch.ops.c10d_functional
 
 
 def nf4_all_gather_into_tensor(func, *args, **kwargs):
@@ -63,10 +66,10 @@ def scatter_nf4tensor(func, *args, **kwargs):
     return new_attr, update_work
 
 
-NF4_OPS_TABLE: Dict[Any, Any] = {
-    torch.ops._c10d_functional.all_gather_into_tensor.default: nf4_all_gather_into_tensor,
-    torch.ops.c10d.scatter_.default: scatter_nf4tensor,
-}
+NF4_OPS_TABLE: Dict[Any, Any] = {}
+if torch.distributed.is_available():
+    NF4_OPS_TABLE[torch.ops._c10d_functional.all_gather_into_tensor.default] = nf4_all_gather_into_tensor
+    NF4_OPS_TABLE[torch.ops.c10d.scatter_.default] = scatter_nf4tensor
 
 
 _INNER_TENSOR_NAMES_FOR_SHARDING = [
@@ -518,22 +521,24 @@ def nf4_cat(aten_op: torch._ops.OpOverload, args, kwargs=None):
     return tensors
 
 
-@implements(
-    [
-        torch.ops._c10d_functional.wait_tensor.default,
-    ]
-)
-def wait_tensor(func, *args, **kwargs):
-    nf4tensor = args[0][0]
-    updated_attrs = {}
-    for attr in _INNER_TENSOR_NAMES_FOR_SHARDING:
-        updated_attrs[attr] = func(getattr(nf4tensor, attr))
-    updatedNF4Tensor = NF4Tensor(*construct_nf4_args(nf4tensor, updated_attrs))
-    return updatedNF4Tensor
+if torch.distributed.is_available():
+
+    @implements(
+        [
+            torch.ops._c10d_functional.wait_tensor.default,
+        ]
+    )
+    def wait_tensor(func, *args, **kwargs):
+        nf4tensor = args[0][0]
+        updated_attrs = {}
+        for attr in _INNER_TENSOR_NAMES_FOR_SHARDING:
+            updated_attrs[attr] = func(getattr(nf4tensor, attr))
+        updatedNF4Tensor = NF4Tensor(*construct_nf4_args(nf4tensor, updated_attrs))
+        return updatedNF4Tensor
 
 
 # _wrap_tensor_autograd was added in PyTorch 2.11.0.dev and later
-if torch_version_at_least("2.11.0.dev"):
+if torch_version_at_least("2.11.0.dev") and torch.distributed.is_available():
 
     @implements(
         [
@@ -1198,5 +1203,4 @@ def nf4_constructor(
     )
 
 
-torch.serialization.add_safe_globals([NF4Tensor])
 torch.serialization.add_safe_globals([NF4Tensor])

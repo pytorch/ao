@@ -20,8 +20,12 @@ from .quant_utils import (
 )
 
 aten = torch.ops.aten
-c10d_functional = torch.ops.c10d_functional
-_c10d_functional = torch.ops._c10d_functional
+if torch.distributed.is_available():
+    c10d_functional = torch.ops.c10d_functional
+    _c10d_functional = torch.ops._c10d_functional
+else:
+    c10d_functional = None
+    _c10d_functional = None
 
 # https://github.com/thu-ml/low-bit-optimizers/blob/e3e2854728e498c2a606e3fdb88daa27ae94f9a6/lpmm/configs/2nd_moment_group_128.yml
 # NOTE: power-1 is linear
@@ -203,18 +207,18 @@ def _(func, types, args, kwargs):
 
 
 # Build the list of c10d operations to implement
-_optim_state_4bit_c10d_ops = [
-    # required by DTensor.full_tensor()
-    c10d_functional.all_gather_into_tensor.default,
-    _c10d_functional.all_gather_into_tensor.default,
-    c10d_functional.wait_tensor.default,
-    _c10d_functional.wait_tensor.default,
-    # required by torch.distributed.checkpoint.save
-    aten.detach.default,
-]
-# _wrap_tensor_autograd was added in PyTorch 2.11.0.dev
-if torch_version_at_least("2.11.0.dev"):
-    _optim_state_4bit_c10d_ops.append(_c10d_functional._wrap_tensor_autograd.default)
+_optim_state_4bit_c10d_ops = [aten.detach.default]  # required by torch.distributed.checkpoint.save
+if torch.distributed.is_available():
+    _optim_state_4bit_c10d_ops += [
+        # required by DTensor.full_tensor()
+        c10d_functional.all_gather_into_tensor.default,
+        _c10d_functional.all_gather_into_tensor.default,
+        c10d_functional.wait_tensor.default,
+        _c10d_functional.wait_tensor.default,
+    ]
+    # _wrap_tensor_autograd was added in PyTorch 2.11.0.dev
+    if torch_version_at_least("2.11.0.dev"):
+        _optim_state_4bit_c10d_ops.append(_c10d_functional._wrap_tensor_autograd.default)
 
 
 @OptimState4bit.implements(_optim_state_4bit_c10d_ops)
