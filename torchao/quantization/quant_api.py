@@ -753,6 +753,7 @@ class Int4WeightOnlyConfig(AOBaseConfig):
          currently support TINYGEMM ("tinygemm") and HQQ ("hqq"), used in version 2 only
         `set_inductor_config`: if True, adjusts `torchinductor` settings to recommended values. used in both version 1 and 2
         `version`: version of the config to use, default is 2
+        `int4_tile_packed_ntile`: ntile size for TILED_PACKED_TO_4D format, default is 8 for CUDA platform, 16 for ROCm platform
 
     Example:
 
@@ -767,11 +768,11 @@ class Int4WeightOnlyConfig(AOBaseConfig):
     int4_choose_qparams_algorithm: Int4ChooseQParamsAlgorithm = (
         Int4ChooseQParamsAlgorithm.TINYGEMM
     )
-    # ntile size for TILE_PACKED_TO_4D format, 8 for CUDA platform, 16 for ROCm platform
     int4_tile_packed_ntile: int = 8
     version: int = 2
 
     def __post_init__(self):
+        assert self.int4_tile_packed_ntile in [8, 16], "int4_tile_packed_ntile must be either 8 or 16"
         torch._C._log_api_usage_once("torchao.quantization.Int4WeightOnlyConfig")
 
 
