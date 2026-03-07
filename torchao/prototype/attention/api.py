@@ -13,12 +13,16 @@ import torch
 import torch._dynamo
 import torch.nn as nn
 
-from torchao.prototype.attention.shared_utils.setup import setup_fp8_backend
-from torchao.prototype.attention.shared_utils.wrapper import (
-    _LowPrecisionAttentionWrapper,
-)
 from torchao.prototype.attention.utils import _is_fa3_available, _is_hopper
 from torchao.utils import torch_version_at_least
+
+if torch_version_at_least("2.11.0"):
+    from torchao.prototype.attention.shared_utils.setup import setup_fp8_backend
+    from torchao.prototype.attention.shared_utils.wrapper import (
+        _LowPrecisionAttentionWrapper,
+    )
+else:
+    raise ImportError("Low-precision attention requires PyTorch 2.11+.")
 
 
 class AttentionBackend(str, Enum):
@@ -71,8 +75,6 @@ def apply_low_precision_attention(
         model = apply_low_precision_attention(model, fuse_rope_using_torch_compile=True)
         model = torch.compile(model, backend=model.compile_backend)
     """
-    if not torch_version_at_least("2.11.0"):
-        raise RuntimeError("Low-precision attention requires PyTorch 2.11+.")
     if isinstance(model, _LowPrecisionAttentionWrapper):
         raise RuntimeError(
             "apply_low_precision_attention has already been applied to this module."
