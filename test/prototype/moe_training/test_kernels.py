@@ -13,6 +13,7 @@ from torchao.utils import is_MI300, is_MI350, is_sm_at_least_90
 if not (torch.cuda.is_available() and (is_sm_at_least_90() or is_MI300() or is_MI350())):
     pytest.skip("Requires FP8-capable GPU (CUDA SM90+, MI300, or MI350)", allow_module_level=True)
 
+from torchao.float8.config import e4m3_dtype
 from torchao.prototype.moe_training.kernels.float8_rowwise import (
     triton_fp8_rowwise_3d_transpose_rhs,
     triton_fp8_rowwise_3d_transpose_rhs_fused_reduction,
@@ -38,12 +39,9 @@ from torchao.prototype.moe_training.utils import (
     torch_to_float8_per_group_colwise,
     torch_to_float8_per_group_rowwise,
 )
-from torchao.float8.config import e4m3_dtype
 from torchao.prototype.mx_formats.mx_tensor import ScaleCalculationMode, to_mx
 from torchao.testing.utils import skip_if_rocm
-from torchao.utils import (
-    is_sm_at_least_100,
-)
+from torchao.utils import is_sm_at_least_100
 
 
 @pytest.mark.parametrize("round_scales_to_power_of_2", [True, False])

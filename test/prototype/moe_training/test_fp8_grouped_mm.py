@@ -7,10 +7,13 @@
 import pytest
 import torch
 
-from torchao.utils import is_sm_version, torch_version_at_least
-
-# FP8 grouped MM requires FP8-capable hardware (SM90+ on CUDA, MI300+ on ROCm)
-from torchao.utils import is_MI300, is_MI350, is_sm_at_least_90
+from torchao.utils import (
+    is_MI300,
+    is_MI350,
+    is_sm_at_least_90,
+    is_sm_version,
+    torch_version_at_least,
+)
 
 if not (
     torch_version_at_least("2.7.0")
@@ -35,7 +38,6 @@ from torchao.prototype.moe_training.config import (
 from torchao.prototype.moe_training.fp8_grouped_mm import (
     _to_fp8_rowwise_then_scaled_grouped_mm,
 )
-from torchao.testing.utils import skip_if_rocm
 from torchao.utils import is_MI300, is_MI350, is_ROCM
 
 # Needed since changing args to function causes recompiles
