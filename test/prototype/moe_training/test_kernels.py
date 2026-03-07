@@ -10,8 +10,13 @@ import torch
 # FP8 MoE kernels require FP8-capable hardware (SM90+ on CUDA, MI300+ on ROCm)
 from torchao.utils import is_MI300, is_MI350, is_sm_at_least_90
 
-if not (torch.cuda.is_available() and (is_sm_at_least_90() or is_MI300() or is_MI350())):
-    pytest.skip("Requires FP8-capable GPU (CUDA SM90+, MI300, or MI350)", allow_module_level=True)
+if not (
+    torch.cuda.is_available() and (is_sm_at_least_90() or is_MI300() or is_MI350())
+):
+    pytest.skip(
+        "Requires FP8-capable GPU (CUDA SM90+, MI300, or MI350)",
+        allow_module_level=True,
+    )
 
 from torchao.float8.config import e4m3_dtype
 from torchao.prototype.moe_training.kernels.float8_rowwise import (

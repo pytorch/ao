@@ -20,7 +20,10 @@ if not (
     and torch.cuda.is_available()
     and (is_sm_at_least_90() or is_MI300() or is_MI350())
 ):
-    pytest.skip("Requires FP8-capable GPU (CUDA SM90+, MI300, or MI350)", allow_module_level=True)
+    pytest.skip(
+        "Requires FP8-capable GPU (CUDA SM90+, MI300, or MI350)",
+        allow_module_level=True,
+    )
 
 pytest.importorskip("triton", reason="Triton required to run this test")
 
