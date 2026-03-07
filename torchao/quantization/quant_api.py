@@ -768,8 +768,8 @@ class Int4WeightOnlyConfig(AOBaseConfig):
     int4_choose_qparams_algorithm: Int4ChooseQParamsAlgorithm = (
         Int4ChooseQParamsAlgorithm.TINYGEMM
     )
-    version: int = 2
     int4_tile_packed_ntile: int = 8
+    version: int = 2
 
     def __post_init__(self):
         assert self.int4_tile_packed_ntile in [8, 16], (

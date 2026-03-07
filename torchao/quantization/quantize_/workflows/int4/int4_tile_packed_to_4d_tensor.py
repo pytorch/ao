@@ -98,8 +98,8 @@ class Int4TilePackedTo4dTensor(TorchAOBaseTensor):
         cls,
         hp_tensor: torch.Tensor,
         block_size: List[int],
-        ntile_size: Optional[int] = 8,
         int4_choose_qparams_algorithm: Int4ChooseQParamsAlgorithm = Int4ChooseQParamsAlgorithm.TINYGEMM,
+        ntile_size: Optional[int] = 8,
     ):
         assert len(block_size) == hp_tensor.ndim, (
             f"Expecting the length of block_size to be equal to the dimension of the weight, got {block_size=} and {hp_tensor.ndim=}"
