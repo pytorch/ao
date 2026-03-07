@@ -10,7 +10,6 @@ import torch
 triton = pytest.importorskip("triton", reason="Triton required to run this test")
 
 from packaging import version
-
 from torchao.float8.config import e4m3_dtype
 from torchao.float8.float8_utils import compute_error
 from torchao.prototype.blockwise_fp8_training.kernels import (
