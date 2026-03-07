@@ -20,17 +20,17 @@ from torchao.utils import torch_version_at_least
 if torch_version_at_least("2.11.0"):
     from torchao.prototype.attention.utils import _is_fa3_available, _is_hopper
 
-if _is_hopper() and _is_fa3_available():
-    from torch.nn.attention import (
-        activate_flash_attention_impl,
-        restore_flash_attention_impl,
-    )
+    if _is_hopper() and _is_fa3_available():
+        from torch.nn.attention import (
+            activate_flash_attention_impl,
+            restore_flash_attention_impl,
+        )
 
-    from torchao.prototype.attention import (
-        AttentionBackend,
-        apply_low_precision_attention,
-    )
-    from torchao.prototype.attention.fp8_fa3.attention import fp8_fa3_sdpa
+        from torchao.prototype.attention import (
+            AttentionBackend,
+            apply_low_precision_attention,
+        )
+        from torchao.prototype.attention.fp8_fa3.attention import fp8_fa3_sdpa
 
 
 class SimpleAttentionModel(nn.Module):
