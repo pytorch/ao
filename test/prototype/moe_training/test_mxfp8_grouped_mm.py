@@ -9,10 +9,13 @@ import torch
 from torch.nn import functional as F
 
 from torchao.prototype.mx_formats.config import ScaleCalculationMode
-from torchao.utils import is_sm_version, torch_version_at_least
-
-# MXFP8 grouped MM requires FP8-capable hardware (SM90+ on CUDA, MI300+ on ROCm)
-from torchao.utils import is_MI300, is_MI350, is_sm_at_least_90
+from torchao.utils import (
+    is_MI300,
+    is_MI350,
+    is_sm_at_least_90,
+    is_sm_version,
+    torch_version_at_least,
+)
 
 if not (
     torch_version_at_least("2.7.0")
