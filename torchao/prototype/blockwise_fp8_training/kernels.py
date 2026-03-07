@@ -689,6 +689,19 @@ def triton_fp8_blockwise_weight_quant_transposed_rhs_kernel(
     EPS: tl.constexpr,
     FP8_MAX: tl.constexpr,
 ):
+    """
+    Quantizes the input tensor `x_ptr` and stores the result in `y_ptr` and the scaling factors in `s_ptr`.
+
+    Writes output with transposed dims in column-major format.
+
+    Args:
+        x_ptr (tl.pointer): Pointer to the input tensor.
+        y_ptr (tl.pointer): Pointer to the output tensor where quantized values will be stored.
+        s_ptr (tl.pointer): Pointer to the output tensor where scaling factors will be stored.
+        M (int): Number of rows in the weight matrix.
+        N (int): Number of columns in the weight matrix.
+        BLOCK_SIZE (tl.constexpr): The size of the block to be processed by each program instance.
+    """
     pid_m = tl.program_id(axis=0)
     pid_n = tl.program_id(axis=1)
 
