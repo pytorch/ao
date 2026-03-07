@@ -14,10 +14,13 @@ import torch.nn.functional as F
 from torch.testing._internal import common_utils
 from torch.testing._internal.common_utils import TestCase, run_tests
 
-from torchao.prototype.attention.utils import _is_fa3_available, _is_hopper
+from torchao.quantization.utils import compute_error
 from torchao.utils import torch_version_at_least
 
-if torch_version_at_least("2.11.0") and _is_hopper() and _is_fa3_available():
+if torch_version_at_least("2.11.0"):
+    from torchao.prototype.attention.utils import _is_fa3_available, _is_hopper
+
+if _is_hopper() and _is_fa3_available():
     from torch.nn.attention import (
         activate_flash_attention_impl,
         restore_flash_attention_impl,
@@ -31,7 +34,6 @@ if torch_version_at_least("2.11.0") and _is_hopper() and _is_fa3_available():
         fp8_fa3_rope_sdpa,
         fp8_fa3_sdpa,
     )
-    from torchao.quantization.utils import compute_error
 
 
 def _rope_cos_sin(S, D, device):
