@@ -5,7 +5,6 @@
 # LICENSE file in the root directory of this source tree.
 import unittest
 
-import pytest
 import torch
 from torch.distributed._tensor import DeviceMesh, DTensor, Replicate, Shard
 from torch.testing._internal import common_utils
