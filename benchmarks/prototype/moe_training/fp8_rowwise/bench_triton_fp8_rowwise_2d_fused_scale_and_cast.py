@@ -7,7 +7,6 @@
 
 import itertools
 from dataclasses import dataclass
-from typing import List
 
 import torch
 from tabulate import tabulate
@@ -46,7 +45,7 @@ class Experiment:
     result: ExperimentResult
 
 
-def get_configs() -> List[ExperimentConfig]:
+def get_configs() -> list[ExperimentConfig]:
     # MoE-relevant 2D shapes: (M, K) where M = total tokens routed to experts.
     # In practice M depends on batch_size * seq_len * top_k / num_experts.
     # K is model hidden dim or intermediate dim.
@@ -93,9 +92,7 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
         device=device,
     )
 
-    # --- torch.compile of the native 3-op sequence (tensor_to_scale + multiply + cast).
-    # This is the best-case for the unfused path: the compiler sees the full sequence
-    # and can fuse ops freely.
+    # --- torch.compile reference: 3-kernel sequence ---
     def run_original(A: torch.Tensor):
         A_scales = tensor_to_scale(
             A,
@@ -110,7 +107,7 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
 
     run_original_compiled = torch.compile(run_original)
 
-    # --- Fused Triton kernel.
+    # --- Fused Triton kernel ---
     def run_fused(A: torch.Tensor):
         return triton_fp8_rowwise_2d_scale_and_cast(
             A,
@@ -148,7 +145,7 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
     )
 
 
-def print_results(experiments: List[Experiment]):
+def print_results(experiments: list[Experiment]):
     headers = [
         "shape (M, K)",
         "dtype",
@@ -181,10 +178,9 @@ def print_results(experiments: List[Experiment]):
     speedups = [
         e.result.torch_compile_time_us / e.result.triton_time_us for e in experiments
     ]
-    print(
-        f"Triton vs torch.compile  — avg: {sum(speedups) / len(speedups):.2f}x  "
-        f"min: {min(speedups):.2f}x  max: {max(speedups):.2f}x"
-    )
+    print(f"Average speedup: {sum(speedups) / len(speedups):.2f}x")
+    print(f"Min speedup:     {min(speedups):.2f}x")
+    print(f"Max speedup:     {max(speedups):.2f}x")
 
 
 def main():
@@ -196,14 +192,13 @@ def main():
         results.append(Experiment(config=config, result=result))
 
     print()
-    print("=" * 90)
-    print("Fused 2D Scale+Cast Kernel Benchmark")
-    print()
-    print("  torch.compile : torch.compile of the native 3-op sequence")
-    print("                  (tensor_to_scale + multiply + to_fp8_saturated).")
-    print("                  Best-case for the unfused path.")
-    print("  triton        : triton_fp8_rowwise_2d_scale_and_cast() fused kernel.")
-    print("=" * 90)
+    print("=" * 100)
+    print("Fused 2D Scale+Cast Kernel vs torch.compile 3-Kernel Sequence")
+    print(
+        "Reference: torch.compile(tensor_to_scale() + A * scales + to_fp8_saturated())"
+    )
+    print("Fused:     triton_fp8_rowwise_2d_scale_and_cast()")
+    print("=" * 100)
     print()
     print_results(results)
 
