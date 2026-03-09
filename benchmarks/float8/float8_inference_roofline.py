@@ -798,13 +798,26 @@ def run(
                         use_dynamic_per_tensor_scale=True,
                     )
                 elif recipe_name == "nvfp4_static":
+                    config_calib = NVFP4DynamicActivationNVFP4WeightConfig(
+                        step="prepare",
+                    )
                     config = NVFP4DynamicActivationNVFP4WeightConfig(
-                        use_dynamic_per_tensor_scale=False,
+                        step="convert",
                     )
                 else:
                     assert False, "unsupported"
 
                 m_fp8_dyn = copy.deepcopy(m_orig)
+
+                if recipe_name == "nvfp4_static":
+                    # calibrate with sample data
+                    # this benchmark is performance-only, so a toy datum is fine
+                    quantize_(m_fp8_dyn, config_calib)
+                    toy_datum = torch.randn(
+                        M_val, K_val, dtype=torch.bfloat16, device="cuda"
+                    )
+                    m_fp8_dyn(toy_datum)
+
                 if op_name == "linear":
                     quantize_(m_fp8_dyn, config)
                 elif op_name == "conv2d":
