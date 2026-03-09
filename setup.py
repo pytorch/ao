@@ -774,11 +774,16 @@ def get_extensions():
                             f"-DPy_LIMITED_API={min_supported_cpython_hexcode}",
                             "-std=c++17",
                             "-O3",
+                            "-DUSE_CUDA",
+                            # define TORCH_TARGET_VERSION with min version 2.11 for ABI stable Float8_e8m0fnu
+                            "-DTORCH_TARGET_VERSION=0x020b000000000000",
                         ],
                         "nvcc": nvcc_args
                         + [
                             "-gencode=arch=compute_100,code=sm_100",
                             "-gencode=arch=compute_120,code=compute_120",
+                            "-DUSE_CUDA",
+                            "-DTORCH_TARGET_VERSION=0x020b000000000000",
                         ],
                     },
                 ),
