@@ -8,6 +8,9 @@
 import pytest
 import torch
 import torch.nn.functional as F
+from mslk.quantize.triton.fp4_quantize import (
+    triton_quantize_nvfp4 as mslk_triton_quantize_nvfp4,
+)
 
 from torchao.prototype.mx_formats.constants import (
     F4_E2M1_MAX,
@@ -369,6 +372,8 @@ def test_nvfp4_swizzled_scales_get_scales_method():
 @torch.no_grad()
 def test_triton_nvfp4_quantize_equivalence(M, N, use_per_tensor_scale, dtype):
     """Test that Triton and PyTorch NVFP4 quantization produce equivalent results."""
+    if not use_per_tensor_scale:
+        pytest.skip("MSLK triton kernel requires per_tensor_scale")
 
     torch.manual_seed(42)
     x = torch.randn(M, N, dtype=dtype, device="cuda")
@@ -411,6 +416,51 @@ def test_triton_nvfp4_quantize_equivalence(M, N, use_per_tensor_scale, dtype):
         f"SQNR {sqnr:.2f} < {SQNR_THRESHOLD} for M={M}, N={N}, "
         f"use_per_tensor_scale={use_per_tensor_scale}, dtype={dtype}"
     )
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.parametrize(
+    "M", [128, 256, 512, 1024, 100, 200, 384], ids=lambda m: f"M{m}"
+)
+@pytest.mark.parametrize("N", [64, 128, 256, 512, 32, 96, 160], ids=lambda n: f"N{n}")
+@pytest.mark.skipif(
+    not is_sm_at_least_100(), reason="requires sm100+ for nvfp4 triton kernel"
+)
+@torch.no_grad()
+def test_mslk_nvfp4_numerics(M, N):
+    """Test that MSLK triton and TorchAO PyTorch NVFP4 quantization produce bitwise equal results."""
+    dtype = torch.bfloat16
+
+    torch.manual_seed(42)
+    x = torch.randn(M, N, dtype=dtype, device="cuda")
+
+    per_tensor_scale = per_tensor_amax_to_scale(torch.amax(torch.abs(x)))
+    # MSLK expects global_scale as the reciprocal of TorchAO's per_tensor_scale
+    mslk_global_scale = 1.0 / per_tensor_scale
+
+    # Quantize with TorchAO PyTorch path
+    nvfp4_pt = NVFP4Tensor.to_nvfp4(
+        x.clone(),
+        per_tensor_scale=per_tensor_scale,
+        is_swizzled_scales=True,
+        use_triton_kernel=False,
+    )
+
+    # Quantize with MSLK triton kernel (returns qdata, scales in swizzled layout)
+    mslk_qdata, mslk_scales = mslk_triton_quantize_nvfp4(x.clone(), mslk_global_scale)
+
+    # Compare swizzled scales (bitwise equality)
+    torch.testing.assert_close(
+        nvfp4_pt.scale.view(torch.uint8).flatten(),
+        mslk_scales.view(torch.uint8).flatten(),
+        atol=0,
+        rtol=0,
+    )
+
+    # Compare unpacked qdata (bitwise equality)
+    pt_unpacked = unpack_uint4(nvfp4_pt.qdata)
+    mslk_unpacked = unpack_uint4(mslk_qdata.view(torch.uint8))
+    torch.testing.assert_close(pt_unpacked, mslk_unpacked, atol=0, rtol=0)
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
@@ -559,8 +609,14 @@ def test_scale_shape_matches_qdata(
     block_size = 16
 
     x_hp = torch.randn(*shape, device="cuda")
+
+    per_tensor_scale = per_tensor_amax_to_scale(torch.amax(torch.abs(x_hp)))
+
     x = NVFP4Tensor.to_nvfp4(
-        x_hp, is_swizzled_scales=is_swizzled_scales, use_triton_kernel=use_triton_kernel
+        x_hp,
+        per_tensor_scale=per_tensor_scale,
+        is_swizzled_scales=is_swizzled_scales,
+        use_triton_kernel=use_triton_kernel,
     )
 
     if len(shape) == 2:

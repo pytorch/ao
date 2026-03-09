@@ -83,8 +83,12 @@ def to_nvfp4_reference(x_hp):
 
 
 def to_nvfp4_reference_triton_swizzle(x_hp):
+    per_tensor_scale = torch.tensor(1.0, dtype=torch.float32, device=x_hp.device)
     nvfp4_tensor = NVFP4Tensor.to_nvfp4(
-        x_hp, use_triton_kernel=True, is_swizzled_scales=True
+        x_hp,
+        per_tensor_scale=per_tensor_scale,
+        use_triton_kernel=True,
+        is_swizzled_scales=True,
     )
     return nvfp4_tensor.qdata, nvfp4_tensor.scale
 
