@@ -139,16 +139,32 @@ torch version           2.12.0.dev20260218+cu130
 torchao version         0.17.0+git3075bb624
 ...
    fwd_M  fwd_K  fwd_N  r_fp8_gemm_and_ovhd_spdp  b_fp8_e2e_spdp
-0   1024   1024   1024                      1.00            0.93
-1   2048   2048   2048                      1.75            1.20
-2   4096   4096   4096                      1.90            1.46
-3   8192   8192   8192                      1.94            1.76
-4  16384  16384  16384                      1.97            1.77
+0   1024   1024   1024                      1.00            0.31
+1   2048   2048   2048                      1.75            0.52
+2   4096   4096   4096                      1.90            0.90
+3   8192   8192   8192                      1.94            1.41
+4  16384  16384  16384                      1.97            2.14
 
 #
 # nvfp4 with dynamic global scaling
 #
 > python benchmarks/float8/float8_inference_roofline.py --recipe_name nvfp4 --enable_fusion_modeling True --skip_printing_detailed_metrics True
+...
+GPU                     NVIDIA B200
+torch version           2.12.0.dev20260218+cu130
+torchao version         0.17.0+git3075bb624
+...
+   fwd_M  fwd_K  fwd_N  r_fp8_gemm_and_ovhd_spdp  b_fp8_e2e_spdp
+0   1024   1024   1024                      1.00            0.38
+1   2048   2048   2048                      2.39            0.73
+2   4096   4096   4096                      2.92            1.19
+3   8192   8192   8192                      3.34            1.80
+4  16384  16384  16384                      3.63            2.56
+
+#
+# nvfp4 with static global scaling (user API in progress)
+#
+> python benchmarks/float8/float8_inference_roofline.py --recipe_name nvfp4_static --enable_fusion_modeling True --skip_printing_detailed_metrics True
 ...
 GPU                     NVIDIA B200
 torch version           2.12.0.dev20260218+cu130
