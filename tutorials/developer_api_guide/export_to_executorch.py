@@ -18,7 +18,6 @@ from typing import List
 import torch
 from my_dtype_tensor_subclass import MyDTypeTensor
 
-import torchao
 from torchao.quantization.quant_primitives import dequantize_affine, register_custom_op
 
 
