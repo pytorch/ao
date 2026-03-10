@@ -11,6 +11,7 @@ import triton
 import triton.language as tl
 from torch.library import triton_op, wrap_triton
 
+from torchao.float8.config import e4m3_dtype
 from torchao.prototype.moe_training.utils import (
     _is_column_major,
     _is_row_major,
@@ -305,6 +306,7 @@ def triton_fp8_blockwise_act_quant_lhs_kernel(
     BLOCK_SIZE: tl.constexpr,
     NUM_GROUPS: tl.constexpr,
     EPS: tl.constexpr,
+    FP8_MAX: tl.constexpr,
 ):
     pid_m = tl.program_id(axis=0)
     pid_k = tl.program_id(axis=1)
@@ -316,15 +318,11 @@ def triton_fp8_blockwise_act_quant_lhs_kernel(
     x_mask = (m_offs[:, None] < M) & (k_offs[None, :] < K)
     x = tl.load(x_ptr + x_offs, mask=x_mask)
 
-    # Perform scaling
-    max_fp8_e4m3 = 448.0
-    min_fp8_e4m3 = -448.0
-
     # Scales for (1 x block_size) groups, shape will be (NUM_GROUPS, 1)
     amax = tl.clamp(tl.max(tl.abs(x), axis=1), min=EPS, max=float("inf")).to(tl.float64)
-    scale = (max_fp8_e4m3 / amax).to(tl.float32)[:, None]
+    scale = (FP8_MAX / amax).to(tl.float32)[:, None]
     y = x * scale
-    y = tl.clamp(y, min=min_fp8_e4m3, max=max_fp8_e4m3).to(y_ptr.dtype.element_ty)
+    y = tl.clamp(y, min=-FP8_MAX, max=FP8_MAX).to(y_ptr.dtype.element_ty)
 
     # Write output to column major fomrat
     y_offs = m_offs[:, None] * y_stride_dim_0 + k_offs[None, :] * y_stride_dim_1
@@ -338,7 +336,7 @@ def triton_fp8_blockwise_act_quant_lhs_kernel(
 
 @triton_op("torchao::triton_fp8_blockwise_act_quant_lhs", mutates_args={})
 def triton_fp8_blockwise_act_quant_lhs(
-    x: torch.Tensor, block_size: int = 128, dtype: torch.dtype = torch.float8_e4m3fn
+    x: torch.Tensor, block_size: int = 128, dtype: torch.dtype = e4m3_dtype
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Input: row-major high-precision tensor
@@ -350,8 +348,10 @@ def triton_fp8_blockwise_act_quant_lhs(
     )
     assert dtype in [
         torch.float8_e4m3fn,
-    ], "dtype must be torch.float8_e4m3fn"
+        torch.float8_e4m3fnuz,
+    ], "dtype must be float8_e4m3fn or float8_e4m3fnuz"
     M, K = x.size()
+    fp8_max = torch.finfo(dtype).max
     y = torch.empty_like(x, dtype=dtype)
     # Write scales to column-major format to align with torch._scaled_mm requirements.
     s = x.new_empty(M, K // block_size, dtype=torch.float32).as_strided(
@@ -379,6 +379,7 @@ def triton_fp8_blockwise_act_quant_lhs(
         K=K,
         BLOCK_SIZE=block_size,
         EPS=EPS,
+        FP8_MAX=fp8_max,
     )
     return y, s
 
@@ -400,6 +401,7 @@ def triton_fp8_blockwise_act_quant_rhs_kernel(
     BLOCK_SIZE: tl.constexpr,
     NUM_GROUPS: tl.constexpr,
     EPS: tl.constexpr,
+    FP8_MAX: tl.constexpr,
 ):
     pid_m = tl.program_id(axis=0)
     pid_k = tl.program_id(axis=1)
@@ -413,15 +415,11 @@ def triton_fp8_blockwise_act_quant_rhs_kernel(
     x_mask = (m_offs[:, None] < M) & (k_offs[None, :] < K)
     x = tl.load(x_ptr + x_offs, mask=x_mask)
 
-    # Perform scaling
-    max_fp8_e4m3 = 448.0
-    min_fp8_e4m3 = -448.0
-
     # Column-wise scales for RHS operand, shape (1, block_size)
     amax = tl.clamp(tl.max(tl.abs(x), axis=0), min=EPS, max=float("inf")).to(tl.float64)
-    scale = (max_fp8_e4m3 / amax).to(tl.float32)[None, :]
+    scale = (FP8_MAX / amax).to(tl.float32)[None, :]
     y = x * scale
-    y = tl.clamp(y, min=min_fp8_e4m3, max=max_fp8_e4m3).to(y_ptr.dtype.element_ty)
+    y = tl.clamp(y, min=-FP8_MAX, max=FP8_MAX).to(y_ptr.dtype.element_ty)
 
     # Write output to column major format
     y_offs = m_offs[:, None] * y_stride_dim_0 + k_offs[None, :] * y_stride_dim_1
@@ -435,7 +433,7 @@ def triton_fp8_blockwise_act_quant_rhs_kernel(
 
 @triton_op("torchao::triton_fp8_blockwise_act_quant_rhs", mutates_args={})
 def triton_fp8_blockwise_act_quant_rhs(
-    x: torch.Tensor, block_size: int = 128, dtype: torch.dtype = torch.float8_e4m3fn
+    x: torch.Tensor, block_size: int = 128, dtype: torch.dtype = e4m3_dtype
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Input: row-major
@@ -447,8 +445,10 @@ def triton_fp8_blockwise_act_quant_rhs(
     )
     assert dtype in [
         torch.float8_e4m3fn,
-    ], "dtype must be torch.float8_e4m3fn"
+        torch.float8_e4m3fnuz,
+    ], "dtype must be float8_e4m3fn or float8_e4m3fnuz"
     M, K = x.size()
+    fp8_max = torch.finfo(dtype).max
     M_blocks = triton.cdiv(M, block_size)
     y = torch.empty_like(x, dtype=dtype)
     y = y.as_strided(y.size(), (1, y.size(0)))
@@ -474,6 +474,7 @@ def triton_fp8_blockwise_act_quant_rhs(
         K=K,
         BLOCK_SIZE=block_size,
         EPS=EPS,
+        FP8_MAX=fp8_max,
     )
     return y, s
 
@@ -495,6 +496,7 @@ def triton_fp8_blockwise_act_quant_transposed_lhs_kernel(
     BLOCK_SIZE: tl.constexpr,  # For scaling groups, not for grid/parallelization
     NUM_GROUPS: tl.constexpr,  # For grid/parallelization, not for scaling groups
     EPS: tl.constexpr,
+    FP8_MAX: tl.constexpr,
 ):
     # This kernel reads data in row-major format, and writes to an output tensor with
     # transposed dims and in column major format. To facilitate this, given that for a
@@ -513,15 +515,11 @@ def triton_fp8_blockwise_act_quant_transposed_lhs_kernel(
     x_mask = (m_offs[:, None] < M) & (k_offs[None, :] < K)
     x = tl.load(x_ptr + x_offs, mask=x_mask)
 
-    # Perform scaling
-    max_fp8_e4m3 = 448.0
-    min_fp8_e4m3 = -448.0
-
     # Compute amax across dim 0 (column-wise).
     amax = tl.clamp(tl.max(tl.abs(x), axis=0), min=EPS, max=float("inf")).to(tl.float64)
-    scale = (max_fp8_e4m3 / amax).to(tl.float32)
+    scale = (FP8_MAX / amax).to(tl.float32)
     y = x * scale
-    y = tl.clamp(y, min=min_fp8_e4m3, max=max_fp8_e4m3).to(y_ptr.dtype.element_ty)
+    y = tl.clamp(y, min=-FP8_MAX, max=FP8_MAX).to(y_ptr.dtype.element_ty)
 
     # Write output to column major fomrat
     y_offs = k_offs[:, None] * y_stride_dim_0 + m_offs[None, :] * y_stride_dim_1
@@ -542,7 +540,7 @@ def triton_fp8_blockwise_act_quant_transposed_lhs_kernel(
 
 @triton_op("torchao::triton_fp8_blockwise_act_quant_transposed_lhs", mutates_args={})
 def triton_fp8_blockwise_act_quant_transposed_lhs(
-    x: torch.Tensor, block_size: int = 128, dtype: torch.dtype = torch.float8_e4m3fn
+    x: torch.Tensor, block_size: int = 128, dtype: torch.dtype = e4m3_dtype
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     assert x.is_contiguous(), "Input tensor must be contiguous"
     assert x.size(0) % block_size == 0, (
@@ -550,10 +548,12 @@ def triton_fp8_blockwise_act_quant_transposed_lhs(
     )
     assert dtype in [
         torch.float8_e4m3fn,
-    ], "dtype must be torch.float8_e4m3fn"
+        torch.float8_e4m3fnuz,
+    ], "dtype must be float8_e4m3fn or float8_e4m3fnuz"
 
     # Output should have transposed dims and be in row major format
     M, K = x.shape
+    fp8_max = torch.finfo(dtype).max
     y = torch.empty(K, M, dtype=dtype, device=x.device)
     M_blocks = triton.cdiv(M, block_size)
 
@@ -583,6 +583,7 @@ def triton_fp8_blockwise_act_quant_transposed_lhs(
         K=K,
         BLOCK_SIZE=block_size,  # Scaling group size
         EPS=EPS,
+        FP8_MAX=fp8_max,
     )
     return y, s
 
@@ -603,6 +604,7 @@ def triton_fp8_blockwise_weight_quant_rhs_kernel(
     N: tl.constexpr,
     BLOCK_SIZE: tl.constexpr,
     EPS: tl.constexpr,
+    FP8_MAX: tl.constexpr,
 ):
     pid_m = tl.program_id(axis=0)
     pid_n = tl.program_id(axis=1)
@@ -615,13 +617,10 @@ def triton_fp8_blockwise_weight_quant_rhs_kernel(
     x_mask = (offs_m[:, None] < M) & (offs_n[None, :] < N)
     x = tl.load(x_ptr + x_offs, mask=x_mask)
 
-    # Scale the data
-    max_fp8_e4m3 = 448.0
-    min_fp8_e4m3 = -448.0
     amax = tl.clamp(tl.max(tl.abs(x)), min=EPS, max=float("inf")).to(tl.float64)
-    scale = (max_fp8_e4m3 / amax).to(tl.float32)
+    scale = (FP8_MAX / amax).to(tl.float32)
     y = x * scale
-    y = tl.clamp(y, min=min_fp8_e4m3, max=max_fp8_e4m3).to(y_ptr.dtype.element_ty)
+    y = tl.clamp(y, min=-FP8_MAX, max=FP8_MAX).to(y_ptr.dtype.element_ty)
 
     # Store output in column major format
     y_offs = offs_m[:, None] * y_stride_dim_0 + offs_n[None, :] * y_stride_dim_1
@@ -636,7 +635,7 @@ def triton_fp8_blockwise_weight_quant_rhs_kernel(
 
 @triton_op("torchao::triton_fp8_blockwise_weight_quant_rhs", mutates_args={})
 def triton_fp8_blockwise_weight_quant_rhs(
-    x: torch.Tensor, block_size: int = 128, dtype: torch.dtype = torch.float8_e4m3fn
+    x: torch.Tensor, block_size: int = 128, dtype: torch.dtype = e4m3_dtype
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     assert x.is_contiguous(), "Input tensor must be contiguous"
     assert x.dim() == 2, "Input tensor must have 2 dimensions"
@@ -645,8 +644,10 @@ def triton_fp8_blockwise_weight_quant_rhs(
     )
     assert dtype in [
         torch.float8_e4m3fn,
-    ], "dtype must be torch.float8_e4m3fn"
+        torch.float8_e4m3fnuz,
+    ], "dtype must be float8_e4m3fn or float8_e4m3fnuz"
     M, N = x.size()
+    fp8_max = torch.finfo(dtype).max
     y = torch.empty_like(x, dtype=dtype)
     y = y.as_strided(y.size(), (1, y.size(0)))  # Column major
     M_blocks, N_blocks = triton.cdiv(M, block_size), triton.cdiv(N, block_size)
@@ -675,6 +676,7 @@ def triton_fp8_blockwise_weight_quant_rhs(
         N,
         BLOCK_SIZE=block_size,
         EPS=EPS,
+        FP8_MAX=fp8_max,
     )
     return y, s
 
@@ -695,6 +697,7 @@ def triton_fp8_blockwise_weight_quant_transposed_rhs_kernel(
     N: tl.constexpr,
     BLOCK_SIZE: tl.constexpr,
     EPS: tl.constexpr,
+    FP8_MAX: tl.constexpr,
 ):
     """
     Quantizes the input tensor `x_ptr` and stores the result in `y_ptr` and the scaling factors in `s_ptr`.
@@ -719,13 +722,10 @@ def triton_fp8_blockwise_weight_quant_transposed_rhs_kernel(
     x_mask = (m_offs[:, None] < M) & (n_offs[None, :] < N)
     x = tl.load(x_ptr + x_offs, mask=x_mask).to(tl.float32)
 
-    # Perform scaling
-    max_fp8_e4m3 = 448.0
-    min_fp8_e4m3 = -448.0
     amax = tl.clamp(tl.max(tl.abs(x)), min=EPS, max=float("inf")).to(tl.float64)
-    scale = (max_fp8_e4m3 / amax).to(tl.float32)
+    scale = (FP8_MAX / amax).to(tl.float32)
     y = x * scale
-    y = tl.clamp(y, min=min_fp8_e4m3, max=max_fp8_e4m3).to(y_ptr.dtype.element_ty)
+    y = tl.clamp(y, min=-FP8_MAX, max=FP8_MAX).to(y_ptr.dtype.element_ty)
 
     # Write output to column major fomrat
     y_offs = n_offs[:, None] * y_stride_dim_0 + m_offs[None, :] * y_stride_dim_1
@@ -744,7 +744,7 @@ def triton_fp8_blockwise_weight_quant_transposed_rhs_kernel(
 
 @triton_op("torchao::triton_fp8_blockwise_weight_quant_transposed_rhs", mutates_args={})
 def triton_fp8_blockwise_weight_quant_transposed_rhs(
-    x: torch.Tensor, block_size: int = 128, dtype: torch.dtype = torch.float8_e4m3fn
+    x: torch.Tensor, block_size: int = 128, dtype: torch.dtype = e4m3_dtype
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     assert x.is_contiguous(), "Input tensor must be contiguous"
     assert x.dim() == 2, "Input tensor must have 2 dimensions"
@@ -753,8 +753,10 @@ def triton_fp8_blockwise_weight_quant_transposed_rhs(
     )
     assert dtype in [
         torch.float8_e4m3fn,
-    ], "dtype must be torch.float8_e4m3fn"
+        torch.float8_e4m3fnuz,
+    ], "dtype must be float8_e4m3fn or float8_e4m3fnuz"
     M, N = x.size()
+    fp8_max = torch.finfo(dtype).max
     y = torch.empty(N, M, dtype=dtype, device=x.device)
     y = y.as_strided(y.size(), (1, y.size(0)))  # Column major
     n_blocks, m_blocks = triton.cdiv(N, block_size), triton.cdiv(M, block_size)
@@ -783,11 +785,12 @@ def triton_fp8_blockwise_weight_quant_transposed_rhs(
         N,
         BLOCK_SIZE=block_size,
         EPS=EPS,
+        FP8_MAX=fp8_max,
     )
     return y, s
 
 
-def torch_blockwise_scale_act_quant_lhs(x, tile_size=128):
+def torch_blockwise_scale_act_quant_lhs(x, tile_size=128, dtype=e4m3_dtype):
     """
     Input: weight tensor in high precision
     Output: weight tensor in float8, and scale, tiled 1 by tile_size
@@ -802,15 +805,12 @@ def torch_blockwise_scale_act_quant_lhs(x, tile_size=128):
     x_amax = x.abs().max(dim=1, keepdim=True).values.to(torch.float64)
     x_amax = torch.clamp(x_amax, min=EPS, max=float("inf"))
 
-    # Convert amax to scale
-    fp8_dtype_max, fp8_dtype_min = (
-        torch.finfo(torch.float8_e4m3fn).max,
-        torch.finfo(torch.float8_e4m3fn).min,
-    )
+    fp8_dtype_max = torch.finfo(dtype).max
+    fp8_dtype_min = torch.finfo(dtype).min
     s = (fp8_dtype_max / x_amax).to(torch.float32)
 
     # Apply scale and clamp
-    x = (x * s).clamp(min=fp8_dtype_min, max=fp8_dtype_max).to(torch.float8_e4m3fn)
+    x = (x * s).clamp(min=fp8_dtype_min, max=fp8_dtype_max).to(dtype)
 
     # Reshape quantized output back to original shape and reshape scales accordingly
     x = x.reshape(*orig_shape)
@@ -824,18 +824,21 @@ def torch_blockwise_scale_act_quant_lhs(x, tile_size=128):
 def torch_blockwise_scale_act_quant_rhs(
     x: torch.Tensor,
     block_size: int = 128,
-    dtype: torch.dtype = torch.float8_e4m3fn,
+    dtype: torch.dtype = e4m3_dtype,
     eps: float = 1e-12,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     assert x.is_contiguous(), "Input tensor must be contiguous"
     assert x.size(-1) % block_size == 0, (
         f"Last dimension size must be divisible by block_size (block_size={block_size})"
     )
-    assert dtype in [torch.float8_e4m3fn], "dtype must be torch.float8_e4m3fn"
+    assert dtype in [
+        torch.float8_e4m3fn,
+        torch.float8_e4m3fnuz,
+    ], "dtype must be float8_e4m3fn or float8_e4m3fnuz"
 
     M, K = x.size()
-    max_fp8_e4m3 = 448.0
-    min_fp8_e4m3 = -448.0
+    fp8_max = torch.finfo(dtype).max
+    fp8_min = torch.finfo(dtype).min
 
     # Reshape input to work with blocks of size (block_size, 1) along dimension 0
     num_blocks_m = M // block_size
@@ -849,39 +852,22 @@ def torch_blockwise_scale_act_quant_rhs(
 
     # Process each column (K dimension) separately
     for k in range(K):
-        # Extract column k from all blocks: shape (num_blocks_m, block_size)
-        x_col = x_blocks[:, :, k]  # (num_blocks_m, block_size)
-
-        # Compute absolute max for each block
-        amax = torch.abs(x_col).max(dim=1, keepdim=True)[0]  # (num_blocks_m, 1)
-
-        # Clamp to avoid division by zero
+        x_col = x_blocks[:, :, k]
+        amax = torch.abs(x_col).max(dim=1, keepdim=True)[0]
         amax = torch.clamp(amax, min=eps).to(torch.float64)
-
-        # Compute scales
-        scale = (max_fp8_e4m3 / amax).to(torch.float32)  # (num_blocks_m, 1)
-
-        # Apply scaling
-        y_col = x_col * scale  # (num_blocks_m, block_size)
-
-        # Clamp to FP8 range
-        y_col = torch.clamp(y_col, min=min_fp8_e4m3, max=max_fp8_e4m3)
-
-        # Store results
+        scale = (fp8_max / amax).to(torch.float32)
+        y_col = x_col * scale
+        y_col = torch.clamp(y_col, min=fp8_min, max=fp8_max)
         y_blocks[:, :, k] = y_col.to(dtype)
-        scales[:, k] = scale.squeeze(-1)  # (num_blocks_m,)
+        scales[:, k] = scale.squeeze(-1)
 
-    # Reshape back to original shape (removing padding if any)
-    y = y_blocks.view(-1, K)[:M, :]  # (M, K)
-
-    # Convert to column-major format
+    y = y_blocks.view(-1, K)[:M, :]
     y = y.t().contiguous().t()
 
-    # Return output tensor and reciprocal scales
     return y, 1.0 / scales
 
 
-def torch_blockwise_scale_weight_quant(x, tile_size=128):
+def torch_blockwise_scale_weight_quant(x, tile_size=128, dtype=e4m3_dtype):
     """
     Input: weight tensor in high precision
     Output: weight tensor in float8, and scale, tiled tile_size by tile_size
@@ -890,34 +876,25 @@ def torch_blockwise_scale_weight_quant(x, tile_size=128):
     assert x.is_contiguous(), "input tensor must be contiguous"
     height, width = x.shape
 
-    # Compute block sizes
     t_h = height // tile_size
     t_w = width // tile_size
 
-    # Reshape 2D input tensor into 4D tensor with shape (t_h, t_w, tile_size * tile_size)
     x = x.reshape(t_h, tile_size, t_w, tile_size)
     x = x.permute(0, 2, 1, 3)
     x = x.reshape(-1, tile_size * tile_size)
 
-    # Compute amax along last dim (i.e., the block)
     x_amax = x.abs().max(dim=1).values.unsqueeze(1).to(torch.float64)
     x_amax = torch.clamp(x_amax, min=EPS, max=float("inf"))
 
-    # Convert amax to scale
-    fp8_dtype_max, fp8_dtype_min = (
-        torch.finfo(torch.float8_e4m3fn).max,
-        torch.finfo(torch.float8_e4m3fn).min,
-    )
+    fp8_dtype_max = torch.finfo(dtype).max
+    fp8_dtype_min = torch.finfo(dtype).min
     s = (fp8_dtype_max / x_amax).to(torch.float32)
 
-    # Apply scale and clamp
-    x = (x * s).clamp(min=fp8_dtype_min, max=fp8_dtype_max).to(torch.float8_e4m3fn)
+    x = (x * s).clamp(min=fp8_dtype_min, max=fp8_dtype_max).to(dtype)
 
-    # Reshape quantized output and scales back to 2D
     x = x.reshape(t_h, t_w, tile_size, tile_size)
     x = x.permute(0, 2, 1, 3)
     x = x.reshape(height, width)
     s = s.reshape(t_h, t_w).to(torch.float)
 
-    # Return output tensor and reciprocal scale
     return x, 1.0 / s

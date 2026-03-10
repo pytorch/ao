@@ -7,9 +7,19 @@
 import pytest
 import torch
 
+from torchao.utils import torch_version_at_least
+
+if not (
+    torch_version_at_least("2.7.0")
+    and torch.cuda.is_available()
+    and torch.cuda.get_device_capability()[0] >= 9
+):
+    pytest.skip("Requires CUDA capability >= 9.0", allow_module_level=True)
+
 triton = pytest.importorskip("triton", reason="Triton required to run this test")
 
 from packaging import version
+from torchao.float8.config import e4m3_dtype
 from torchao.float8.float8_utils import compute_error
 from torchao.prototype.blockwise_fp8_training.kernels import (
     torch_blockwise_scale_act_quant_lhs,
@@ -23,8 +33,6 @@ from torchao.prototype.blockwise_fp8_training.kernels import (
     triton_fp8_gemm_1x128_128x1,
     triton_fp8_gemm_1x128_128x128,
 )
-from torchao.testing.utils import skip_if_rocm
-from torchao.utils import is_sm_at_least_90
 
 BLOCKWISE_SIZE_MNK = [
     # (128, 128, 128),
@@ -38,14 +46,12 @@ BLOCKWISE_SIZE_MNK = [
 ]
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.skipif(not is_sm_at_least_90(), reason="Requires CUDA capability >= 9.0")
 @pytest.mark.skipif(
     version.parse(triton.__version__) < version.parse("3.3.0"),
     reason="Triton version < 3.3.0, test skipped",
 )
 @pytest.mark.parametrize("M, N, K", BLOCKWISE_SIZE_MNK)
-@pytest.mark.parametrize("dtype", [torch.float8_e4m3fn])
+@pytest.mark.parametrize("dtype", [e4m3_dtype])
 def test_triton_fp8_gemm_1x128_128x128(M, N, K, dtype):
     # Simulate output = input @ weight.T
     A = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
@@ -63,14 +69,12 @@ def test_triton_fp8_gemm_1x128_128x128(M, N, K, dtype):
     assert sqnr >= min_sqnr, f"SQNR {sqnr:.2f} must be >= {min_sqnr}"
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.skipif(not is_sm_at_least_90(), reason="Requires CUDA capability >= 9.0")
 @pytest.mark.skipif(
     version.parse(triton.__version__) < version.parse("3.3.0"),
     reason="Triton version < 3.3.0, test skipped",
 )
 @pytest.mark.parametrize("M, N, K", BLOCKWISE_SIZE_MNK)
-@pytest.mark.parametrize("dtype", [torch.float8_e4m3fn])
+@pytest.mark.parametrize("dtype", [e4m3_dtype])
 def test_triton_fp8_gemm_1x128_128x1(M, N, K, dtype):
     # Simulate grad_weight = grad_output_t @ input
     A = torch.randn(K, M, dtype=torch.bfloat16, device="cuda")
@@ -89,8 +93,6 @@ def test_triton_fp8_gemm_1x128_128x1(M, N, K, dtype):
     assert sqnr >= min_sqnr, f"SQNR {sqnr:.2f} must be >= {min_sqnr}"
 
 
-@skip_if_rocm("ROCm not supported")
-@pytest.mark.skipif(not is_sm_at_least_90(), reason="Requires CUDA capability >= 9.0")
 @pytest.mark.parametrize("block_size", [128, 256])
 def test_triton_quantize_fp8_act_quant_lhs(block_size):
     device = "cuda"
@@ -136,8 +138,6 @@ def test_triton_quantize_fp8_act_quant_lhs(block_size):
     )
 
 
-@skip_if_rocm("ROCm not supported")
-@pytest.mark.skipif(not is_sm_at_least_90(), reason="Requires CUDA capability >= 9.0")
 @pytest.mark.parametrize("block_size", [128, 256])
 def test_triton_quantize_fp8_act_quant_rhs(block_size: int):
     device = "cuda"
@@ -183,8 +183,6 @@ def test_triton_quantize_fp8_act_quant_rhs(block_size: int):
     )
 
 
-@skip_if_rocm("ROCm not supported")
-@pytest.mark.skipif(not is_sm_at_least_90(), reason="Requires CUDA capability >= 9.0")
 @pytest.mark.parametrize("block_size", [128, 256])
 @pytest.mark.parametrize("M,K", [(4096, 1024), (4096, 4 * 4096)])
 def test_triton_quantize_fp8_act_quant_transposed_lhs(M, K, block_size: int):
@@ -232,8 +230,6 @@ def test_triton_quantize_fp8_act_quant_transposed_lhs(M, K, block_size: int):
     )
 
 
-@skip_if_rocm("ROCm not supported")
-@pytest.mark.skipif(not is_sm_at_least_90(), reason="Requires CUDA capability >= 9.0")
 @pytest.mark.parametrize("block_size", [128, 256])
 @pytest.mark.parametrize("M,K", [(4096, 1024), (4096, 4 * 4096)])
 def test_triton_quantize_fp8_weight_quant_rhs(M, K, block_size: int):
@@ -278,8 +274,6 @@ def test_triton_quantize_fp8_weight_quant_rhs(M, K, block_size: int):
     )
 
 
-@skip_if_rocm("ROCm not supported")
-@pytest.mark.skipif(not is_sm_at_least_90(), reason="Requires CUDA capability >= 9.0")
 @pytest.mark.parametrize("block_size", [128, 256])
 def test_triton_quantize_fp8_weight_quant_transposed_rhs(block_size: int):
     device = "cuda"
