@@ -172,7 +172,7 @@ window.addEventListener("load", () => mermaid.run());
   fbq('track', 'PageView');
 </script>
 <script>
-  document.documentElement.setAttribute('data-version', 'main (0.17.0+git21fc296 )');
+  document.documentElement.setAttribute('data-version', 'main (0.17.0+gitf0d0deb )');
 </script>
 <noscript>
   <img height="1" width="1" src="https://www.facebook.com/tr?id=243028289693773&ev=PageView&noscript=1" />
@@ -1412,11 +1412,14 @@ document.write(`
 
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">register_as_pytree_constant</span>
+
 
 <span class="c1"># can switch to StrEnum (https://docs.python.org/3/library/enum.html#enum.StrEnum)</span>
 <span class="c1"># after python 3.10 is end of life (https://devguide.python.org/versions/)</span>
 <div class="viewcode-block" id="KernelPreference">
 <a class="viewcode-back" href="../../../../../api_reference/generated/torchao.quantization.quantize_.common.KernelPreference.html#torchao.quantization.quantize_.common.KernelPreference">[docs]</a>
+<span class="nd">@register_as_pytree_constant</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">KernelPreference</span><span class="p">(</span><span class="nb">str</span><span class="p">,</span> <span class="n">Enum</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Enum for specifying the groups of kernels that&#39;s used for quantization, matrix multiplication</span>
 <span class="sd">    or other compute ops for quantized tensor</span>
@@ -1709,7 +1712,7 @@ document.write(`
        "headline": "torchao.quantization.quantize_.common.kernel_preference",
        "description": "PyTorch Documentation. Explore PyTorch, an open-source machine learning library that accelerates the path from research prototyping to production deployment.",
        "url": "/_modules/torchao/quantization/quantize_/common/kernel_preference.html",
-       "articleBody": "Source code for torchao.quantization.quantize_.common.kernel_preference # Copyright (c) Meta Platforms, Inc. and affiliates. # All rights reserved. # # This source code is licensed under the BSD 3-Clause license found in the # LICENSE file in the root directory of this source tree. from enum import Enum import torch # can switch to StrEnum (https://docs.python.org/3/library/enum.html#enum.StrEnum) # after python 3.10 is end of life (https://devguide.python.org/versions/) [docs] class KernelPreference(str, Enum): \"\"\"Enum for specifying the groups of kernels that\u0027s used for quantization, matrix multiplication or other compute ops for quantized tensor Examples of how options affects the selected kernels can be found in tensor subclass implementations under torchao/quantization/quantize_/workflows \"\"\" AUTO = \"auto\" \"\"\"Use the most efficient quantize and mm kernels chosen for user based on hardware and library availabilities and versions etc. \"\"\" TORCH = \"torch\" \"\"\"Use torch native quantize and quantized mm kernels \"\"\" MSLK = \"mslk\" \"\"\"Use quantize and quantized mm kernels from mslk library, requires mslk library \"\"\" EMULATED = \"emulated\" \"\"\"Emulates gemm_lowp(A, B) with gemm_fp32(A.dequantize(), B.dequantize()). Intended use cases are: 1. Running CI for product logic on hardware which does not support the actual lowp gemm. 2. Debugging kernel numerics issues. \"\"\" torch.serialization.add_safe_globals([KernelPreference])",
+       "articleBody": "Source code for torchao.quantization.quantize_.common.kernel_preference # Copyright (c) Meta Platforms, Inc. and affiliates. # All rights reserved. # # This source code is licensed under the BSD 3-Clause license found in the # LICENSE file in the root directory of this source tree. from enum import Enum import torch from torchao.utils import register_as_pytree_constant # can switch to StrEnum (https://docs.python.org/3/library/enum.html#enum.StrEnum) # after python 3.10 is end of life (https://devguide.python.org/versions/) [docs] @register_as_pytree_constant class KernelPreference(str, Enum): \"\"\"Enum for specifying the groups of kernels that\u0027s used for quantization, matrix multiplication or other compute ops for quantized tensor Examples of how options affects the selected kernels can be found in tensor subclass implementations under torchao/quantization/quantize_/workflows \"\"\" AUTO = \"auto\" \"\"\"Use the most efficient quantize and mm kernels chosen for user based on hardware and library availabilities and versions etc. \"\"\" TORCH = \"torch\" \"\"\"Use torch native quantize and quantized mm kernels \"\"\" MSLK = \"mslk\" \"\"\"Use quantize and quantized mm kernels from mslk library, requires mslk library \"\"\" EMULATED = \"emulated\" \"\"\"Emulates gemm_lowp(A, B) with gemm_fp32(A.dequantize(), B.dequantize()). Intended use cases are: 1. Running CI for product logic on hardware which does not support the actual lowp gemm. 2. Debugging kernel numerics issues. \"\"\" torch.serialization.add_safe_globals([KernelPreference])",
        "author": {
          "@type": "Organization",
          "name": "PyTorch Contributors",
