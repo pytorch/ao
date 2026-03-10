@@ -67,6 +67,13 @@ def apply_low_precision_attention(
     Must be called before ``torch.compile``. KV caching should be
     disabled before calling (e.g., ``config.use_cache = False`` for
     HuggingFace models).
+
+    When ``fuse_rope_using_torch_compile=True``, the returned wrapper
+    exposes a ``compile_backend`` attribute. You must compile with it to get
+    the RoPE fusion::
+
+        model = apply_low_precision_attention(model, fuse_rope_using_torch_compile=True)
+        model = torch.compile(model, backend=model.compile_backend)
     """
     if isinstance(model, _LowPrecisionAttentionWrapper):
         raise RuntimeError(
