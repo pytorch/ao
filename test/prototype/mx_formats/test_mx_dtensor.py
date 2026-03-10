@@ -28,6 +28,9 @@ from torchao.prototype.moe_training.config import (
     MXFP8TrainingOpConfig,
     MXFP8TrainingRecipe,
 )
+from torchao.prototype.mx_formats.mx_dtensor import (
+    ensure_mx_scaled_mm_strategy_registered,
+)
 from torchao.prototype.mx_formats.mx_tensor import MXTensor
 from torchao.testing.training.dtensor_utils import (
     _test_lowp_mlp_tensor_parallelism_base,
@@ -54,7 +57,18 @@ def _test_dtensor_cast_to_mxfp8(mesh: DeviceMesh, size=1024):
 
     dist_x_fp32 = distribute_tensor(x_fp32, mesh, [Shard(0)])
     dist_x_fp8 = MXTensor.to_mx(dist_x_fp32, torch.float8_e4m3fn, block_size=32)
-    assert isinstance(dist_x_fp8, DTensor)
+
+    # With the new wrapping order, MXTensor is the outer wrapper with DTensor
+    # inner tensors (MXTensor(DTensor_qdata, DTensor_scale)).
+    assert isinstance(dist_x_fp8, MXTensor), (
+        f"Expected MXTensor, got {type(dist_x_fp8)}"
+    )
+    assert isinstance(dist_x_fp8.qdata, DTensor), (
+        f"Expected qdata to be DTensor, got {type(dist_x_fp8.qdata)}"
+    )
+    assert isinstance(dist_x_fp8.scale, DTensor), (
+        f"Expected scale to be DTensor, got {type(dist_x_fp8.scale)}"
+    )
 
     # Verify that the result of to_mx with DTensor matches the slice of the
     # result of to_mx without DTensor. This will fail on numeric op mismatches.
@@ -66,9 +80,14 @@ def _test_dtensor_cast_to_mxfp8(mesh: DeviceMesh, size=1024):
     slice_start = local_rank * rows_per_slice
     slice_end = (local_rank + 1) * rows_per_slice
     x_fp8_fp32_slice = x_fp8_fp32[slice_start:slice_end]
+    # dequantize handles DTensor inner tensors and returns a DTensor
+    dist_x_fp8_dequant = dist_x_fp8.dequantize(torch.bfloat16)
+    assert isinstance(dist_x_fp8_dequant, DTensor), (
+        f"Expected dequantize result to be DTensor, got {type(dist_x_fp8_dequant)}"
+    )
     torch.testing.assert_close(
         x_fp8_fp32_slice,
-        dist_x_fp8.to_local().dequantize(torch.bfloat16),
+        dist_x_fp8_dequant.to_local(),
         atol=0,
         rtol=0,
     )
@@ -92,6 +111,7 @@ def _test_mxfp8_mlp_tensor_parallelism_auto(mesh: DeviceMesh, size=64):
 
 if __name__ == "__main__":
     device_mesh = setup_distributed()
+    ensure_mx_scaled_mm_strategy_registered()
     tests = [
         _test_dtensor_cast_to_mxfp8,
         _test_mxfp8_mlp_tensor_parallelism_emulated,
