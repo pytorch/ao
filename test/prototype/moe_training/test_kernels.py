@@ -7,11 +7,18 @@
 import pytest
 import torch
 
-# We need to skip before doing any imports which would use triton, since
-# triton won't be available on CPU builds
-if not (torch.cuda.is_available() and torch.cuda.get_device_capability()[0] >= 9):
-    pytest.skip("Unsupported PyTorch version", allow_module_level=True)
+# FP8 MoE kernels require FP8-capable hardware (SM90+ on CUDA, MI300+ on ROCm)
+from torchao.utils import is_MI300, is_MI350, is_sm_at_least_90
 
+if not (
+    torch.cuda.is_available() and (is_sm_at_least_90() or is_MI300() or is_MI350())
+):
+    pytest.skip(
+        "Requires FP8-capable GPU (CUDA SM90+, MI300, or MI350)",
+        allow_module_level=True,
+    )
+
+from torchao.float8.config import e4m3_dtype
 from torchao.prototype.moe_training.kernels.float8_rowwise import (
     triton_fp8_rowwise_3d_transpose_rhs,
     triton_fp8_rowwise_3d_transpose_rhs_fused_reduction,
@@ -44,12 +51,9 @@ from torchao.prototype.moe_training.utils import (
 )
 from torchao.prototype.mx_formats.mx_tensor import ScaleCalculationMode, to_mx
 from torchao.testing.utils import skip_if_rocm
-from torchao.utils import (
-    is_sm_at_least_100,
-)
+from torchao.utils import is_sm_at_least_100
 
 
-@skip_if_rocm("ROCm enablement in progress")
 @pytest.mark.parametrize("round_scales_to_power_of_2", [True, False])
 def test_row_major_with_jagged_rowwise_scales(round_scales_to_power_of_2: bool):
     # Tests case where rowwise scales are computed for multiple distinct subtensors,
@@ -63,7 +67,7 @@ def test_row_major_with_jagged_rowwise_scales(round_scales_to_power_of_2: bool):
     ref_fp8_data, ref_scales = torch_to_float8_per_group_rowwise(
         x,
         colwise_offs,
-        target_dtype=torch.float8_e4m3fn,
+        target_dtype=e4m3_dtype,
         round_scales_to_power_of_2=round_scales_to_power_of_2,
     )
 
@@ -71,7 +75,7 @@ def test_row_major_with_jagged_rowwise_scales(round_scales_to_power_of_2: bool):
     kernel_fp8_data, kernel_scales = triton_fp8_per_group_rowwise_scales(
         x,
         colwise_offs,
-        output_dtype=torch.float8_e4m3fn,
+        output_dtype=e4m3_dtype,
         round_scales_to_power_of_2=round_scales_to_power_of_2,
     )
 
@@ -80,7 +84,6 @@ def test_row_major_with_jagged_rowwise_scales(round_scales_to_power_of_2: bool):
     assert not _is_column_major(kernel_fp8_data), "fp8 data is not row major"
 
 
-@skip_if_rocm("ROCm enablement in progress")
 @pytest.mark.parametrize("round_scales_to_power_of_2", [True, False])
 def test_row_major_with_jagged_rowwise_scales_transpose_method(
     round_scales_to_power_of_2: bool,
@@ -97,7 +100,7 @@ def test_row_major_with_jagged_rowwise_scales_transpose_method(
     ref_fp8_data, ref_scales = torch_to_float8_per_group_rowwise(
         grad_out_t,
         colwise_offs,
-        target_dtype=torch.float8_e4m3fn,
+        target_dtype=e4m3_dtype,
         round_scales_to_power_of_2=round_scales_to_power_of_2,
     )
 
@@ -107,7 +110,7 @@ def test_row_major_with_jagged_rowwise_scales_transpose_method(
     kernel_fp8_data, kernel_scales = triton_fp8_per_group_colwise_scales(
         grad_out.t().contiguous().t(),
         colwise_offs,
-        output_dtype=torch.float8_e4m3fn,
+        output_dtype=e4m3_dtype,
         round_scales_to_power_of_2=round_scales_to_power_of_2,
     )
     kernel_fp8_data = kernel_fp8_data.t()  # (mg, n) -> (n, mg)
@@ -118,7 +121,6 @@ def test_row_major_with_jagged_rowwise_scales_transpose_method(
     assert not _is_column_major(kernel_fp8_data), "fp8 data is not row major"
 
 
-@skip_if_rocm("ROCm enablement in progress")
 @pytest.mark.parametrize("round_scales_to_power_of_2", [True, False])
 def test_column_major_with_jagged_colwise_scales(round_scales_to_power_of_2: bool):
     # tests case where colwise scales are computed for multiple distinct subtensors,
@@ -132,13 +134,13 @@ def test_column_major_with_jagged_colwise_scales(round_scales_to_power_of_2: boo
     ref_fp8_data, ref_scales = torch_to_float8_per_group_colwise(
         x,
         rowwise_offs,
-        target_dtype=torch.float8_e4m3fn,
+        target_dtype=e4m3_dtype,
         round_scales_to_power_of_2=round_scales_to_power_of_2,
     )
     kernel_fp8_data, kernel_scales = triton_fp8_per_group_colwise_scales(
         x,
         rowwise_offs,
-        output_dtype=torch.float8_e4m3fn,
+        output_dtype=e4m3_dtype,
         round_scales_to_power_of_2=round_scales_to_power_of_2,
     )
     assert torch.eq(ref_fp8_data, kernel_fp8_data).all(), "fp8 data not equal"
@@ -146,7 +148,6 @@ def test_column_major_with_jagged_colwise_scales(round_scales_to_power_of_2: boo
     assert _is_column_major(kernel_fp8_data), "fp8 data is not column major"
 
 
-@skip_if_rocm("ROCm not supported")
 @pytest.mark.parametrize("round_scales_to_power_of_2", [True, False])
 def test_fp8_rowwise_3d_transpose_rhs_atomic(round_scales_to_power_of_2: bool):
     device = "cuda"
@@ -161,7 +162,7 @@ def test_fp8_rowwise_3d_transpose_rhs_atomic(round_scales_to_power_of_2: bool):
     # Compute reference with torch impl
     ref_fp8, ref_scales = torch_to_3d_rowwise_float8_transpose_rhs(
         x,
-        target_dtype=torch.float8_e4m3fn,
+        target_dtype=e4m3_dtype,
         round_scales_to_power_of_2=round_scales_to_power_of_2,
     )
     # Torch impl keeps empty scaled dim, so we squeeze it out to be consistent with triton impl
@@ -169,7 +170,7 @@ def test_fp8_rowwise_3d_transpose_rhs_atomic(round_scales_to_power_of_2: bool):
 
     triton_fp8, triton_scales = triton_fp8_rowwise_3d_transpose_rhs(
         x,
-        output_dtype=torch.float8_e4m3fn,
+        output_dtype=e4m3_dtype,
         round_scales_to_power_of_2=round_scales_to_power_of_2,
     )
     assert ref_scales.shape == triton_scales.shape, "scale shapes not equal"
@@ -181,7 +182,6 @@ def test_fp8_rowwise_3d_transpose_rhs_atomic(round_scales_to_power_of_2: bool):
     assert torch.allclose(ref_fp8, triton_fp8, rtol=0, atol=0), "fp8 data not equal"
 
 
-@skip_if_rocm("ROCm not supported")
 @pytest.mark.parametrize("round_scales_to_power_of_2", [True, False])
 def test_fp8_rowwise_3d_transpose_rhs_reduction(round_scales_to_power_of_2: bool):
     device = "cuda"
@@ -196,7 +196,7 @@ def test_fp8_rowwise_3d_transpose_rhs_reduction(round_scales_to_power_of_2: bool
     # Compute reference with torch impl
     ref_fp8, ref_scales = torch_to_3d_rowwise_float8_transpose_rhs(
         x,
-        target_dtype=torch.float8_e4m3fn,
+        target_dtype=e4m3_dtype,
         round_scales_to_power_of_2=round_scales_to_power_of_2,
     )
     # Torch impl keeps empty scaled dim, so we squeeze it out to be consistent with triton impl
@@ -204,7 +204,7 @@ def test_fp8_rowwise_3d_transpose_rhs_reduction(round_scales_to_power_of_2: bool
 
     triton_fp8, triton_scales = triton_fp8_rowwise_3d_transpose_rhs_fused_reduction(
         x,
-        output_dtype=torch.float8_e4m3fn,
+        output_dtype=e4m3_dtype,
         round_scales_to_power_of_2=round_scales_to_power_of_2,
     )
     assert ref_scales.shape == triton_scales.shape, "scale shapes not equal"
