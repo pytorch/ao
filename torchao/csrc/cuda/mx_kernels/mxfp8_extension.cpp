@@ -49,6 +49,26 @@ void launch_mx_block_rearrange_2d_simple_cuda(
     int chunk_width,
     cudaStream_t stream);
 
+void launch_compute_padded_offsets_cuda(
+    const int32_t* group_end_offsets_ptr,
+    int32_t* padded_group_start_offsets_ptr,
+    int32_t* padded_group_end_offsets_ptr,
+    int num_groups,
+    int alignment_size,
+    cudaStream_t stream);
+
+void launch_fused_pad_token_groups_cuda(
+    const void* input_ptr,
+    const int32_t* group_end_offsets_ptr,
+    const int32_t* padded_group_start_offsets_ptr,
+    void* output_ptr,
+    int num_tokens,
+    int dim,
+    int num_groups,
+    int dtype_size,
+    int dtype_enum,
+    cudaStream_t stream);
+
 // Helper for tensor validation
 void check_cuda_tensor(const at::Tensor &t, const char *name) {
   TORCH_CHECK(t.is_cuda(), name, " must be a CUDA tensor");
@@ -296,6 +316,77 @@ at::Tensor mx_block_rearrange_2d_M_groups(
   return output;
 }
 
+std::tuple<at::Tensor, at::Tensor> fused_pad_token_groups(
+    at::Tensor inputs,
+    at::Tensor group_end_offsets,
+    int64_t alignment_size) {
+
+  // Validate inputs
+  check_cuda_tensor(inputs, "inputs");
+  check_cuda_tensor(group_end_offsets, "group_end_offsets");
+
+  TORCH_CHECK(inputs.dim() == 2, "inputs must be 2D, got: ", inputs.dim());
+  TORCH_CHECK(inputs.is_contiguous(), "inputs must be contiguous");
+  TORCH_CHECK(group_end_offsets.dim() == 1, "group_end_offsets must be 1D");
+  TORCH_CHECK(group_end_offsets.scalar_type() == at::kInt,
+              "group_end_offsets must be int32");
+  TORCH_CHECK(inputs.scalar_type() == at::kFloat ||
+                  inputs.scalar_type() == at::kBFloat16,
+              "inputs must be float32 or bfloat16");
+
+  c10::cuda::CUDAGuard device_guard(inputs.device());
+
+  const int num_tokens = inputs.size(0);
+  const int dim = inputs.size(1);
+  const int num_groups = group_end_offsets.size(0);
+
+  TORCH_CHECK(num_groups <= 32, "num_groups must be <= 32, got: ", num_groups);
+  TORCH_CHECK(alignment_size == 32, "alignment_size must be 32 for now");
+
+  // Allocate tensors for padded group offsets
+  at::Tensor padded_group_start_offsets = at::empty({num_groups}, group_end_offsets.options());
+  at::Tensor padded_group_end_offsets = at::empty({num_groups}, group_end_offsets.options());
+
+  // Launch GPU kernel to compute padded offsets (avoids multiple torch op launches)
+  launch_compute_padded_offsets_cuda(
+      group_end_offsets.data_ptr<int32_t>(),
+      padded_group_start_offsets.data_ptr<int32_t>(),
+      padded_group_end_offsets.data_ptr<int32_t>(),
+      num_groups,
+      static_cast<int>(alignment_size),
+      at::cuda::getCurrentCUDAStream()
+  );
+
+  // Calculate output size with upper bound padding
+  const int output_rows = num_tokens + num_groups * alignment_size;
+
+  // Allocate zero-initialized output (zeros for padding required by quantization)
+  at::Tensor output = at::zeros({output_rows, dim}, inputs.options());
+
+  // Determine dtype parameters
+  int dtype_size = inputs.element_size();
+  int dtype_enum = 0; // 0=fp32, 1=bf16
+  if (inputs.scalar_type() == at::kBFloat16) {
+    dtype_enum = 1;
+  }
+
+  // Launch copy kernel (overwrites zeros with real data)
+  launch_fused_pad_token_groups_cuda(
+      inputs.data_ptr(),
+      group_end_offsets.data_ptr<int32_t>(),
+      padded_group_start_offsets.data_ptr<int32_t>(),
+      output.data_ptr(),
+      num_tokens,
+      dim,
+      num_groups,
+      dtype_size,
+      dtype_enum,
+      at::cuda::getCurrentCUDAStream()
+  );
+
+  return std::make_tuple(output, padded_group_end_offsets);
+}
+
 
 } // namespace mxfp8
 
@@ -305,4 +396,5 @@ TORCH_LIBRARY_IMPL(torchao, CUDA, m) {
   m.impl("mxfp8_quantize", &mxfp8::mxfp8_quantize);
   m.impl("mxfp8_quantize_3d", &mxfp8::mxfp8_quantize_3d);
   m.impl("mx_block_rearrange_2d_M_groups", &mxfp8::mx_block_rearrange_2d_M_groups);
+  m.impl("fused_pad_token_groups", &mxfp8::fused_pad_token_groups);
 }

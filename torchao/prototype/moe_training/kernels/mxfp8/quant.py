@@ -245,6 +245,76 @@ def compute_blocked_scale_offsets_for_K_groups(
     return group_sizes, starting_col_after_padding
 
 
+def torch_pad_token_groups(
+    inputs: torch.Tensor, group_offsets: torch.Tensor, alignment_size: int
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Reference PyTorch implementation for padding token groups to alignment.
+
+    Uses upper bound allocation to match Triton implementations and avoid D2H sync
+    for size computation.
+
+    Args:
+        inputs: Input tensor of shape (num_tokens, dim)
+        group_offsets: Group end offsets of shape (num_groups,)
+        alignment_size: Alignment size to pad each group to
+
+    Returns:
+        padded_tokens: Padded tokens tensor (with upper bound size)
+        padded_group_offsets: New group offsets after padding
+    """
+    num_tokens, dim = inputs.shape
+    num_groups = group_offsets.shape[0]
+
+    # Upper bound allocation (same as Triton implementations)
+    output_size = num_tokens + num_groups * alignment_size
+    padded_tokens = torch.zeros(
+        output_size, dim, dtype=inputs.dtype, device=inputs.device
+    )
+
+    # Compute group sizes using torch operations (no D2H sync)
+    group_sizes = torch.diff(
+        group_offsets,
+        prepend=torch.zeros(1, dtype=group_offsets.dtype, device=group_offsets.device),
+    )
+
+    # Compute padded sizes (align to alignment_size)
+    padded_sizes = (
+        (group_sizes + alignment_size - 1) // alignment_size
+    ) * alignment_size
+
+    # Compute padded offsets using cumsum
+    padded_group_end_offsets = torch.cumsum(padded_sizes, 0, dtype=torch.int32)
+    padded_group_start_offsets = padded_group_end_offsets - padded_sizes
+
+    # Copy data group by group
+    group_start_offsets = torch.cat(
+        [
+            torch.zeros(1, dtype=group_offsets.dtype, device=group_offsets.device),
+            group_offsets[:-1],
+        ]
+    )
+
+    # Convert tensors to lists once to avoid repeated device-to-host syncs
+    group_start_list = group_start_offsets.tolist()
+    group_end_list = group_offsets.tolist()
+    padded_start_list = padded_group_start_offsets.tolist()
+
+    for i in range(num_groups):
+        group_start = group_start_list[i]
+        group_end = group_end_list[i]
+        padded_start = padded_start_list[i]
+
+        # Copy group tokens to padded output
+        group_size = group_end - group_start
+        padded_tokens[padded_start : padded_start + group_size] = inputs[
+            group_start:group_end
+        ]
+        # Zeros already in buffer, no need to explicitly pad
+
+    return padded_tokens, padded_group_end_offsets
+
+
 if torch_version_at_least("2.7.0") and has_triton():
     import triton
     import triton.language as tl
@@ -346,7 +416,7 @@ if torch_version_at_least("2.7.0") and has_triton():
 
         # Calculate this group's start row after blocked format padding, by doing a prefix sum
         # of each previous group's padded size.
-        output_group_start_row = _blocked_group_start_idx(
+        output_group_start_row = _start_index_after_padding(
             group_pid, orig_offsets, num_groups, 128
         )
 
@@ -608,7 +678,7 @@ if torch_version_at_least("2.7.0") and has_triton():
 
         # Calculate this group's start row after blocked format padding, by doing a prefix sum
         # of each previous group's padded size.
-        output_group_start_col = _blocked_group_start_idx(
+        output_group_start_col = _start_index_after_padding(
             group_pid, orig_offsets, num_groups, 4
         )
 
@@ -684,7 +754,7 @@ if torch_version_at_least("2.7.0") and has_triton():
         return dest_indices_flat
 
     @triton.jit
-    def _blocked_group_start_idx(
+    def _start_index_after_padding(
         group_pid,
         orig_offsets,
         num_groups: tl.constexpr,
@@ -860,6 +930,75 @@ if _mxfp8_cuda_kernels_available:
 
         return scales_tensor.new_empty((padded_rows, padded_cols))
 
+    # CUDA kernel for fused padding of token groups
+    lib.define(
+        "fused_pad_token_groups(Tensor inputs, Tensor group_end_offsets, int alignment_size) -> (Tensor, Tensor)",
+        tags=[torch._C.Tag.needs_fixed_stride_order],
+    )
+
+    def fused_pad_token_groups_cuda(
+        inputs: torch.Tensor,
+        group_end_offsets: torch.Tensor,
+        alignment_size: int = 32,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """
+        CUDA implementation of fused padding for token groups.
+
+        This function pads token groups to alignment boundaries in a single fused operation.
+        Each group is padded to a multiple of alignment_size (typically 32).
+
+        Args:
+            inputs: Input tensor of shape (num_tokens, dim)
+            group_end_offsets: Group end offsets of shape (num_groups,)
+            alignment_size: Alignment size to pad each group to
+
+        Returns:
+            padded_tokens: Padded tokens tensor
+            padded_group_end_offsets: New group offsets after padding
+        """
+        assert inputs.ndim == 2, "input activations must be 2d"
+        assert inputs.dtype in (
+            torch.float32,
+            torch.bfloat16,
+        ), "inputs must be float32 or bfloat16"
+        assert group_end_offsets.dtype == torch.int32, "group_end_offsets must be int32"
+
+        return torch.ops.torchao.fused_pad_token_groups.default(
+            inputs,
+            group_end_offsets,
+            alignment_size,
+        )
+
+    @torch.library.register_fake("torchao::fused_pad_token_groups")
+    def _fake_fused_pad_token_groups_cuda(
+        inputs: torch.Tensor,
+        group_end_offsets: torch.Tensor,
+        alignment_size: int,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Fake/meta implementation for fused_pad_token_groups."""
+        num_tokens, dim = inputs.shape
+        num_groups = group_end_offsets.shape[0]
+
+        # Calculate output size with upper bound padding
+        output_rows = num_tokens + num_groups * alignment_size
+
+        # Create fake output tensors
+        padded_tokens = inputs.new_empty((output_rows, dim))
+
+        # Compute fake padded offsets
+        group_sizes = torch.diff(
+            group_end_offsets,
+            prepend=torch.zeros(
+                1, dtype=group_end_offsets.dtype, device=group_end_offsets.device
+            ),
+        )
+        padded_sizes = (
+            (group_sizes + alignment_size - 1) // alignment_size
+        ) * alignment_size
+        padded_group_end_offsets = torch.cumsum(padded_sizes, 0, dtype=torch.int32)
+
+        return padded_tokens, padded_group_end_offsets
+
 else:
 
     def mxfp8_quantize_cuda_3d(
@@ -878,4 +1017,13 @@ else:
     ) -> torch.Tensor:
         raise NotImplementedError(
             "mx_block_rearrange_2d_M_groups_cuda is not implemented on this device"
+        )
+
+    def fused_pad_token_groups_cuda(
+        inputs: torch.Tensor,
+        group_end_offsets: torch.Tensor,
+        alignment_size: int = 32,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        raise NotImplementedError(
+            "fused_pad_token_groups_cuda is not implemented on this device"
         )
