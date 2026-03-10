@@ -1090,8 +1090,7 @@ class TestFqnToConfig(TestCase):
         quant_config = FqnToConfig({"0.custom_param": config})
         quantize_(model, quant_config, filter_fn=None)
 
-        # weight must be completely untouched (same object)
-        assert model[0].weight.data_ptr() == model[0].weight.data_ptr()
+        # weight must be completely untouched
         torch.testing.assert_close(
             model[0].weight,
             original_weight,
