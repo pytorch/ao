@@ -19,12 +19,14 @@ from torchao.quantization.quant_primitives import (
     _DTYPE_TO_QVALUE_BOUNDS,
     MappingType,
     _choose_scale_float8,
+    _choose_scale_float8_impl,
     _dequantize_affine_float8,
     _fake_quantize_affine,
     _quantize_affine_float8,
     _Round,
     choose_qparams_affine,
 )
+from torchao.float8.hifloat8_utils import is_hifloatx_dtype
 from torchao.quantization.utils import (
     _get_per_token_block_size,
     get_block_size,
@@ -83,13 +85,22 @@ class Float8FakeQuantizer(FakeQuantizerBase):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         original_dtype = x.dtype
         block_size = get_block_size(x.shape, self.config.granularity)
-        scale = _choose_scale_float8(
-            x,
-            block_size,
-            self.config.dtype,
-            hp_value_lb=self.config.hp_value_lb,
-            hp_value_ub=self.config.hp_value_ub,
-        )
+        if is_hifloatx_dtype(self.config.dtype):
+            scale = _choose_scale_float8_impl(
+                x,
+                block_size,
+                self.config.dtype,
+                hp_value_lb=self.config.hp_value_lb,
+                hp_value_ub=self.config.hp_value_ub,
+            )
+        else:
+            scale = _choose_scale_float8(
+                x,
+                block_size,
+                self.config.dtype,
+                hp_value_lb=self.config.hp_value_lb,
+                hp_value_ub=self.config.hp_value_ub,
+            )
         q = _quantize_affine_float8(x, scale, self.config.dtype)
         dq = _dequantize_affine_float8(q, scale, original_dtype)
         return dq

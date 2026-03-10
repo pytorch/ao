@@ -11,6 +11,7 @@ import torch.distributed as dist
 from torch.distributed._functional_collectives import AsyncCollectiveTensor, all_reduce
 
 from torchao.float8.config import ScalingGranularity
+from torchao.float8.hifloat8_utils import is_hifloatx_dtype, to_hifloatx
 
 # Helpful visualizer for debugging (only supports fp32):
 # https://www.h-schmidt.net/FloatConverter/IEEE754.html
@@ -43,7 +44,11 @@ def amax_to_scale(
     # torch.compile and eager show different numerics for 1.0 / float32,
     # upcast to float64 to ensure same numeric between compile and eager
     amax = amax.to(torch.float64)
-    if float8_dtype in FP8_TYPES:
+    if is_hifloatx_dtype(float8_dtype):
+        # HiFloatx uses an internal cast kernel; treat scale as 1.0 so
+        # we don't apply an extra external scaling factor.
+        res = torch.ones_like(amax, dtype=torch.float32)
+    elif float8_dtype in FP8_TYPES:
         res = torch.finfo(float8_dtype).max / torch.clamp(amax, min=EPS)
         res = res.to(torch.float32)
     else:
@@ -126,6 +131,9 @@ def to_fp8_saturated(x: torch.Tensor, float8_dtype: torch.dtype):
         is `amax2`, where `amax1 < amax2`. This is common when using delayed
         scaling.
     """
+    if is_hifloatx_dtype(float8_dtype):
+        # HiFloatx conversion handled by torch_npu cast kernels.
+        return to_hifloatx(x, float8_dtype)
     if float8_dtype in FP8_TYPES:
         max_value = torch.finfo(float8_dtype).max
         x = x.clamp(min=-max_value, max=max_value)
@@ -161,6 +169,15 @@ def fp8_tensor_statistics(
     Returns:
         A tuple containing the number of zeros and the number of max values.
     """
+    if is_hifloatx_dtype(float8_dtype):
+        # Best-effort statistics for HiFloatx: count zeros and skip max count.
+        tensor_orig_type = (
+            tensor._data.to(dtype=tensor._orig_dtype) / tensor._scale
+            if hasattr(tensor, "_data") and hasattr(tensor, "_scale")
+            else tensor.to(torch.float32)
+        )
+        num_zero = (tensor_orig_type == 0).sum().item()
+        return (num_zero, 0)
     if float8_dtype in FP8_TYPES:
         FP8_MAX = torch.finfo(float8_dtype).max
     else:

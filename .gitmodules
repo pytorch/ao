@@ -1,3 +1,6 @@
 [submodule "third_party/cutlass"]
 	path = third_party/cutlass
 	url = https://github.com/NVIDIA/cutlass
+[submodule "vendor/submodule/pytorch"]
+	path = vendor/submodule/pytorch
+	url = https://gitcode.com/wangzhenwu/pytorch.git

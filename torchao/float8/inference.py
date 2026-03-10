@@ -7,11 +7,21 @@
 Defines an nn module designed to be used during inference
 """
 
+import warnings
 from typing import List, NamedTuple, Optional, Tuple, Union
 
 import torch
 
 from torchao.float8.float8_utils import is_row_major, pad_tensor_for_matmul
+from torchao.float8.hifloat8_utils import (
+    get_hifloat4_npu_dtype,
+    hifloat4_raw_int8,
+    hifloat8_raw_int8,
+    hifloatx_scales_to_npu,
+    is_hifloat4_tensor,
+    is_hifloat8_tensor,
+    is_hifloatx_tensor,
+)
 from torchao.float8.types import FP8Granularity
 from torchao.quantization.granularity import (
     PerRow,
@@ -23,6 +33,166 @@ from torchao.utils import (
 )
 
 Tensor = torch.Tensor
+_STANDARD_FP8_DTYPES = tuple(
+    d
+    for d in (
+        getattr(torch, "float8_e4m3fn", None),
+        getattr(torch, "float8_e5m2", None),
+        getattr(torch, "float8_e4m3fnuz", None),
+        getattr(torch, "float8_e5m2fnuz", None),
+    )
+    if d is not None
+)
+
+
+def _is_standard_fp8_tensor(t: Tensor) -> bool:
+    if not isinstance(t, torch.Tensor):
+        return False
+    if t.dtype in _STANDARD_FP8_DTYPES:
+        return True
+    try:
+        dtype_str = str(t.dtype).lower()
+    except Exception:
+        return False
+    return ("float8_e4m3fn" in dtype_str) or ("float8_e5m2" in dtype_str)
+
+
+_WARNED_STANDARD_FP8_NPU_FALLBACK = False
+
+
+def _warn_standard_fp8_npu_fallback_once() -> None:
+    global _WARNED_STANDARD_FP8_NPU_FALLBACK
+    if _WARNED_STANDARD_FP8_NPU_FALLBACK:
+        return
+    warnings.warn(
+        "Standard float8 on NPU currently falls back to explicit dequantize + "
+        "torch.mm (npu_quant_matmul is not used) to avoid _scaled_mm/triton path.",
+        RuntimeWarning,
+        stacklevel=2,
+    )
+    _WARNED_STANDARD_FP8_NPU_FALLBACK = True
+
+
+def _should_use_npu_fp8_matmul(a_data: Tensor, b_data: Tensor) -> bool:
+    if a_data.device.type != "npu" or b_data.device.type != "npu":
+        return False
+    if is_hifloatx_tensor(a_data) or is_hifloatx_tensor(b_data):
+        return True
+    return _is_standard_fp8_tensor(a_data) and _is_standard_fp8_tensor(b_data)
+
+
+def _fp8_npu_matmul(
+    a_data: Tensor,
+    a_scale: Tensor,
+    b_data: Tensor,
+    b_scale: Tensor,
+    output_dtype: torch.dtype,
+    bias: Optional[Tensor] = None,
+) -> Tensor:
+    if torch.compiler.is_compiling():
+        # Keep this op out of NPU inductor triton codegen to avoid
+        # known scheduler/codegen failures in compile mode.
+        return _fp8_npu_matmul_eager(
+            a_data, a_scale, b_data, b_scale, output_dtype, bias=bias
+        )
+    return _fp8_npu_matmul_impl(
+        a_data, a_scale, b_data, b_scale, output_dtype, bias=bias
+    )
+
+
+@torch._dynamo.disable
+def _fp8_npu_matmul_eager(
+    a_data: Tensor,
+    a_scale: Tensor,
+    b_data: Tensor,
+    b_scale: Tensor,
+    output_dtype: torch.dtype,
+    bias: Optional[Tensor] = None,
+) -> Tensor:
+    return _fp8_npu_matmul_impl(
+        a_data, a_scale, b_data, b_scale, output_dtype, bias=bias
+    )
+
+
+def _fp8_npu_matmul_impl(
+    a_data: Tensor,
+    a_scale: Tensor,
+    b_data: Tensor,
+    b_scale: Tensor,
+    output_dtype: torch.dtype,
+    bias: Optional[Tensor] = None,
+) -> Tensor:
+    try:
+        import torch_npu  # type: ignore
+    except Exception:
+        out = torch.mm(a_data.float() / a_scale, b_data.float() / b_scale).to(
+            output_dtype
+        )
+        return out + bias if bias is not None else out
+
+    a_is_hif8 = is_hifloat8_tensor(a_data)
+    b_is_hif8 = is_hifloat8_tensor(b_data)
+    a_is_hif4 = is_hifloat4_tensor(a_data)
+    b_is_hif4 = is_hifloat4_tensor(b_data)
+    a_is_std_fp8 = _is_standard_fp8_tensor(a_data)
+    b_is_std_fp8 = _is_standard_fp8_tensor(b_data)
+    std_fp8_path = False
+
+    if a_is_hif8 and b_is_hif8:
+        x1 = hifloat8_raw_int8(a_data)
+        x2 = hifloat8_raw_int8(b_data)
+        x1_dtype = torch_npu.hifloat8
+        x2_dtype = torch_npu.hifloat8
+    elif a_is_hif4 and b_is_hif4:
+        x1 = hifloat4_raw_int8(a_data)
+        x2 = hifloat4_raw_int8(b_data)
+        x1_dtype = get_hifloat4_npu_dtype()
+        x2_dtype = x1_dtype
+    elif a_is_std_fp8 and b_is_std_fp8:
+        std_fp8_path = True
+        # For standard float8_e4m3fn/e5m2, op-plugin meta check requires
+        # x1_dtype/x2_dtype to be None. Pass fp8 tensors directly.
+        x1 = a_data
+        x2 = b_data
+        x1_dtype = None
+        x2_dtype = None
+    else:
+        # Mixed fp8 types are unsupported by npu_quant_matmul today.
+        out = torch.mm(a_data.float() / a_scale, b_data.float() / b_scale).to(
+            output_dtype
+        )
+        return out + bias if bias is not None else out
+
+    scale, pertoken_scale = hifloatx_scales_to_npu(
+        a_scale, b_scale, out_features=b_data.shape[-1]
+    )
+    device = x1.device
+    if scale.device != device:
+        scale = scale.to(device)
+    if pertoken_scale is not None and pertoken_scale.device != device:
+        pertoken_scale = pertoken_scale.to(device)
+    if bias is not None and bias.device != device:
+        bias = bias.to(device)
+
+    try:
+        quant_matmul_kwargs = {
+            "pertoken_scale": pertoken_scale,
+            "bias": bias,
+            "output_dtype": output_dtype,
+        }
+        if x1_dtype is not None:
+            quant_matmul_kwargs["x1_dtype"] = x1_dtype
+        if x2_dtype is not None:
+            quant_matmul_kwargs["x2_dtype"] = x2_dtype
+        return torch_npu.npu_quant_matmul(x1, x2, scale, **quant_matmul_kwargs)
+    except Exception:
+        if std_fp8_path:
+            _warn_standard_fp8_npu_fallback_once()
+        # Keep an FP32 fallback on NPU to avoid _scaled_mm/triton path.
+        out = torch.mm(a_data.float() / a_scale, b_data.float() / b_scale).to(
+            output_dtype
+        )
+        return out + bias if bias is not None else out
 
 
 class Float8MMConfig(NamedTuple):
@@ -100,6 +270,13 @@ def addmm_float8_unwrapped_inference(
     as inputs. This is used to standardize the logic between subclassed and non subclassed
     versions of the linear module.
     """
+
+    # On NPU, route fp8 matmul through npu_quant_matmul to avoid
+    # torch._scaled_mm and potential triton paths.
+    if _should_use_npu_fp8_matmul(a_data, b_data):
+        return _fp8_npu_matmul(
+            a_data, a_scale, b_data, b_scale, output_dtype, bias=bias
+        )
 
     if output_dtype == torch.float32 and bias is not None:
         # Bias is not supported by _scaled_mm when output is fp32
@@ -243,12 +420,32 @@ def _check_hardware_support(
         AssertionError: If hardware doesn't support the requested granularity
         ValueError: If invalid granularity type is provided
     """
-    for _granularity in granularities:
-        if not isinstance(_granularity, (PerTensor, PerRow)):
-            raise ValueError(
-                f"Invalid granularity type: {_granularity}, only PerTensor or PerRow are supported."
-            )
+    from torchao.quantization.granularity import (
+        PerRow,
+        PerTensor,
+    )
 
-        assert is_sm_at_least_89() or is_MI300(), (
-            "Float8 dynamic quantization requires CUDA compute capability ≥8.9 or MI300+."
+    is_per_tensor = isinstance(granularities[0], PerTensor) and isinstance(
+        granularities[1], PerTensor
+    )
+    is_per_row = isinstance(granularities[0], PerRow) and isinstance(
+        granularities[1], PerRow
+    )
+    is_a_1_128_w_128_128 = _granularity_is_a_1_128_w_128_128(granularities)
+
+    if is_per_tensor or is_per_row:
+        npu_available = False
+        try:
+            import torch_npu  # type: ignore
+
+            npu_available = torch_npu.npu.is_available()
+        except Exception:
+            npu_available = False
+        assert (
+            npu_available
+            or torch.xpu.is_available()
+            or (torch.cuda.is_available() and is_sm_at_least_89())
+            or is_MI300()
+        ), (
+            "Float8 dynamic quantization requires CUDA compute capability ≥8.9 or MI300+ or XPU or NPU."
         )

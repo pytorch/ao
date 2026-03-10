@@ -12,12 +12,32 @@ from torchao.float8.float8_training_tensor import (
     Float8TrainingTensor,
     choose_scaled_mm_config,
 )
+from torchao.float8.inference import (
+    _fp8_npu_matmul,
+    _should_use_npu_fp8_matmul,
+)
 from torchao.float8.float8_utils import is_row_major, pad_tensor_for_matmul
+from torchao.utils import torch_version_at_least
 
 aten = torch.ops.aten
 c10d_functional = torch.ops.c10d_functional
 _c10d_functional = torch.ops._c10d_functional
 FLOAT8_OPS_TABLE: Dict[Any, Any] = {}
+
+
+def _npu_fp8_matmul(
+    a: Float8TrainingTensor,
+    b: Float8TrainingTensor,
+    bias: Optional[torch.Tensor] = None,
+) -> torch.Tensor:
+    return _fp8_npu_matmul(
+        a._data,
+        a._scale,
+        b._data,
+        b._scale,
+        a._orig_dtype,
+        bias=bias,
+    )
 
 
 # [Note] Usage of scales
@@ -173,9 +193,9 @@ def float8_transpose(aten_op, args, kwargs=None):
     new_axiswise_dim = old_axiswise_dim
     if old_axiswise_dim is not None:
         if old_axiswise_dim == 0:
-            new_axiswise_dim == -1
+            new_axiswise_dim = -1
         else:
-            new_axiswise_dim == 0
+            new_axiswise_dim = 0
 
     return Float8TrainingTensor(
         new_data,
@@ -370,6 +390,8 @@ def float8_mm(aten_op, args, kwargs=None):
     ), "Expecting  both Float8TrainingTensor for mm inputs but found {} and {}".format(
         type(a), type(b)
     )
+    if _should_use_npu_fp8_matmul(a._data, b._data):
+        return _npu_fp8_matmul(a, b, bias=None)
     a_data, a_scale, b_data, b_scale = preprocess_addmm(a, b)
     output_dtype = a._orig_dtype
     scaled_mm_config = choose_scaled_mm_config(
@@ -405,6 +427,8 @@ def float8_addmm(aten_op, args, kwargs=None):
     bias = args[0]
     a = args[1]
     b = args[2]
+    if _should_use_npu_fp8_matmul(a._data, b._data):
+        return _npu_fp8_matmul(a, b, bias=bias)
     a_data, a_scale, b_data, b_scale = preprocess_addmm(a, b)
     output_dtype = a._orig_dtype
     assert bias.dtype == output_dtype, "bias dtype must match output dtype"

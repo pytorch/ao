@@ -25,9 +25,11 @@ from torchao.float8.inference import (
 from torchao.quantization.granularity import PerRow, PerTensor
 from torchao.quantization.quant_primitives import (
     _choose_scale_float8,
+    _choose_scale_float8_impl,
     _dequantize_affine_float8,
     _quantize_affine_float8,
 )
+from torchao.float8.hifloat8_utils import is_hifloatx_dtype
 from torchao.quantization.quantize_.common import (
     KernelPreference,
     QuantizeTensorKwargs,
@@ -171,6 +173,7 @@ class Float8Tensor(TorchAOBaseTensor):
         kernel_choice = None
         if (
             kernel_preference == KernelPreference.AUTO
+            and hp_tensor.device.type == "cuda"
             and _is_fbgemm_gpu_genai_available()
             and is_sm_at_least_90()
             and isinstance(granularity, PerRow)
@@ -182,8 +185,12 @@ class Float8Tensor(TorchAOBaseTensor):
             kernel_choice = "fbgemm"
         elif kernel_preference == KernelPreference.FBGEMM:
             # if user explicitly chose FBGEMM kernel preference, we'll also use fbgemm kernel
-            assert _is_fbgemm_gpu_genai_available() and is_sm_at_least_90(), (
-                "Specified fbgemm but fbgemm_gpu_genai is not installed or hardware is not >= SM 9.0 (>= H100)"
+            assert (
+                hp_tensor.device.type == "cuda"
+                and _is_fbgemm_gpu_genai_available()
+                and is_sm_at_least_90()
+            ), (
+                "Specified fbgemm but tensor is not on CUDA SM90+, or fbgemm_gpu_genai is unavailable"
             )
             assert hp_value_lb is None, (
                 "hp_value_lb should not be specified if with KerenelPreference.FBGEMM"
@@ -223,13 +230,23 @@ class Float8Tensor(TorchAOBaseTensor):
                 )
         else:
             assert kernel_choice == "torch", f"Expected torch, got {kernel_choice}"
-            scale = _choose_scale_float8(
-                hp_tensor,
-                float8_dtype=float8_dtype,
-                block_size=block_size,
-                hp_value_lb=hp_value_lb,
-                hp_value_ub=hp_value_ub,
-            )
+            if is_hifloatx_dtype(float8_dtype):
+                # Avoid torch.library dtype schema conversion for torch_npu HiFloatx custom dtypes.
+                scale = _choose_scale_float8_impl(
+                    hp_tensor,
+                    float8_dtype=float8_dtype,
+                    block_size=block_size,
+                    hp_value_lb=hp_value_lb,
+                    hp_value_ub=hp_value_ub,
+                )
+            else:
+                scale = _choose_scale_float8(
+                    hp_tensor,
+                    float8_dtype=float8_dtype,
+                    block_size=block_size,
+                    hp_value_lb=hp_value_lb,
+                    hp_value_ub=hp_value_ub,
+                )
             data = _quantize_affine_float8(hp_tensor, scale, float8_dtype)
 
         hp_dtype = hp_tensor.dtype
@@ -270,9 +287,18 @@ def _(func, types, args, kwargs):
 
         if weight_tensor.kernel_preference == KernelPreference.AUTO:
             kernel_choice = "torch"
-            if _is_fbgemm_gpu_genai_available() and is_sm_at_least_90():
+            if (
+                input_tensor.device.type == "cuda"
+                and weight_tensor.device.type == "cuda"
+                and _is_fbgemm_gpu_genai_available()
+                and is_sm_at_least_90()
+            ):
                 kernel_choice = "fbgemm"
         elif weight_tensor.kernel_preference == KernelPreference.FBGEMM:
+            assert (
+                input_tensor.device.type == "cuda"
+                and weight_tensor.device.type == "cuda"
+            ), "KernelPreference.FBGEMM only supports CUDA tensors"
             kernel_choice = "fbgemm"
         else:
             assert weight_tensor.kernel_preference == KernelPreference.TORCH, (

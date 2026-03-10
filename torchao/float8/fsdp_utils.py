@@ -21,7 +21,7 @@ from torchao.float8.float8_training_tensor import (
     LinearMMConfig,
     hp_tensor_and_scale_to_float8,
 )
-from torchao.float8.float8_utils import EPS
+from torchao.float8.float8_utils import EPS, amax_to_scale
 
 
 @torch.no_grad()
@@ -71,7 +71,7 @@ def precompute_float8_dynamic_scale_for_fsdp(module: nn.Module) -> None:
     # upcast to float64 to ensure same numeric between compile and eager
     origin_dtype = amax_tensor.dtype
     amax_tensor = amax_tensor.to(torch.float64)
-    scale_tensor = torch.finfo(target_dtype).max / amax_tensor  # Replicate
+    scale_tensor = amax_to_scale(amax_tensor, target_dtype)  # Replicate
     if origin_dtype is torch.float16:
         scale_tensor = torch.clamp(scale_tensor, max=torch.finfo(torch.float16).max)
     local_scale_tensor = scale_tensor.to_local().to(torch.float32)
