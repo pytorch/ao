@@ -128,6 +128,9 @@ def _int8_dynamic_act_int4_weight_transform(
         "applying DA8W4 quant requires module to have weight attribute"
         + f" but {module} does not have one"
     )
+    assert "CPU" in torch._C._dispatch_dump("torchao::da8w4_linear_cpu"), (
+        "DA8W4 on CPU requires the da8w4_linear_cpu kernel to be built and available"
+    )
     weight = module.weight
     if weight.shape[-1] % config.group_size != 0:
         logger.info(

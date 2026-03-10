@@ -399,7 +399,7 @@ def _(func, types, args, kwargs):
 
     # DA8W4 path: dynamic int8 activation + int4 weight
     if weight_tensor.act_mapping_type is not None:
-        if weight_tensor.act_mapping_type == MappingType.SYMMETRIC:
+        if weight_tensor.act_mapping_type == "symmetric":
             assert torch_version_at_least("2.8.0"), (
                 "Symmetric int8 activation quantization requires PyTorch 2.8+"
             )
