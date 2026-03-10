@@ -41,5 +41,12 @@ class KernelPreference(str, Enum):
     2. Debugging kernel numerics issues.
     """
 
+    TE = "te"
+    """Use MXFP8 quantization and grouped GEMM kernels from NVIDIA TransformerEngine.
+    Requires the transformer_engine package. Uses TE's MXFP8Quantizer for
+    block-scaled FP8 quantization (block_size=32, E8M0 scales) and
+    general_grouped_gemm for the CUDA GEMM kernel.
+    """
+
 
 torch.serialization.add_safe_globals([KernelPreference])

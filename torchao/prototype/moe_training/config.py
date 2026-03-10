@@ -102,6 +102,16 @@ class MXFP8TrainingOpConfig(TrainingOpBaseConfig):
     # Rounding mode to use when calculating the e8m0 scale factors.
     scale_calculation_mode: ScaleCalculationMode = ScaleCalculationMode.RCEIL
 
+    def __post_init__(self):
+        if self.kernel_preference == KernelPreference.TE:
+            try:
+                import transformer_engine  # noqa: F401
+            except ImportError:
+                raise ImportError(
+                    "KernelPreference.TE requires TransformerEngine, which is not installed. "
+                    "Install from: https://docs.nvidia.com/deeplearning/transformer-engine/user-guide/installation.html"
+                )
+
     @classmethod
     def from_recipe(
         cls,
