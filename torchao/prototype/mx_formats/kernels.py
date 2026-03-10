@@ -1341,13 +1341,13 @@ except ImportError:
 
 @torch.library.custom_op("ao::mslk_quantize_nvfp4", mutates_args=())
 def mslk_quantize_nvfp4(
-    x: torch.Tensor, per_tensor_scale: torch.Tensor
+    x: torch.Tensor, global_scale: torch.Tensor
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """Quantize a tensor to NVFP4 using the MSLK triton kernel.
 
     Args:
         x: Input tensor to quantize.
-        per_tensor_scale: Per-tensor scale (TorchAO convention: amax / (F8E4M3_MAX * F4_E2M1_MAX)).
+        global_scale: Global scale in MSLK convention (1.0 / per_tensor_scale).
 
     Returns:
         Tuple of (blockwise_scales, quantized_data_uint8) matching TorchAO's convention.
@@ -1356,13 +1356,12 @@ def mslk_quantize_nvfp4(
         "mslk is required for NVFP4 triton quantization. "
         "Install from https://github.com/pytorch/MSLK"
     )
-    mslk_global_scale = 1.0 / per_tensor_scale
-    data_lp, blockwise_scales = _mslk_triton_quantize_nvfp4(x, mslk_global_scale)
+    data_lp, blockwise_scales = _mslk_triton_quantize_nvfp4(x, global_scale)
     return blockwise_scales, data_lp.view(torch.uint8)
 
 
 @mslk_quantize_nvfp4.register_fake
-def _(x, per_tensor_scale):
+def _(x, global_scale):
     # Mirror the reshape logic from the real MSLK kernel
     orig_leading_dims, orig_N = x.shape[:-2], x.shape[-1]
     x_2d = x.reshape(-1, orig_N)

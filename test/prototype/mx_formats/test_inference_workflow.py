@@ -217,7 +217,7 @@ def test_inference_workflow_nvfp4(
     y_ref = m(x)
 
     if use_triton_kernel and quant_type == "dynamic":
-        with cuda_kernel_profiler("quantize_nvfp4_triton_kernel") as result:
+        with cuda_kernel_profiler("triton_quantize_nvfp4_kernel") as result:
             y_mx = m_mx(x)
         assert result["found"], "Expected quantize_nvfp4 kernel to be found"
     else:

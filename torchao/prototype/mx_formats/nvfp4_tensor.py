@@ -248,7 +248,7 @@ class NVFP4Tensor(TorchAOBaseTensor):
         return (
             scale_e4m3.to(self.orig_dtype)
             if self.per_tensor_scale is None
-            else self.per_tensor_scale * scale_e4m3.to(self.orig_dtype)
+            else scale_e4m3.to(self.orig_dtype) / self.per_tensor_scale
         )
 
     @classmethod
@@ -468,7 +468,7 @@ def _addmm_nvfp4_dispatch(
     # Merge double quant scales into 1 scale for Scale_In^D
     if a.per_tensor_scale is not None:
         assert b.per_tensor_scale is not None
-        scale_result = a.per_tensor_scale * b.per_tensor_scale
+        scale_result = 1.0 / (a.per_tensor_scale * b.per_tensor_scale)
     else:
         assert b.per_tensor_scale is None and a.per_tensor_scale is None
         scale_result = None
@@ -628,9 +628,9 @@ def nvfp4_addmm(func, types, args, kwargs):
 def per_tensor_amax_to_scale(amax: torch.Tensor) -> torch.Tensor:
     """Convert per-tensor amax to per-tensor scale for NVFP4 quantization.
 
-    Divides by both F8E4M3_MAX and F4_E2M1_MAX to ensure block scales can utilize
-    the full FP8 E4M3 range (up to 448) when block_max equals tensor_max.
-    Without F4_E2M1_MAX, the maximum scale would only reach FP8_MAX / FP4_MAX.
+    Returns the global scale in MSLK convention: (F8E4M3_MAX * F4_E2M1_MAX) / amax.
+    This ensures block scales can utilize the full FP8 E4M3 range (up to 448)
+    when block_max equals tensor_max.
 
     Args:
         amax: Per-tensor absolute maximum value from calibration
@@ -638,7 +638,7 @@ def per_tensor_amax_to_scale(amax: torch.Tensor) -> torch.Tensor:
     Returns:
         torch.Tensor: Per-tensor scale for two-level NVFP4 scaling
     """
-    return amax.to(torch.float32) / (F8E4M3_MAX * F4_E2M1_MAX)
+    return (F8E4M3_MAX * F4_E2M1_MAX) / amax.to(torch.float32)
 
 
 def nvfp4_quantize(
@@ -697,14 +697,14 @@ def nvfp4_quantize(
         # we want the per_tensor_scale ~= amax of the block_scale_fp32
         block_scale_fp32 = block_scale.to(torch.float32)
         # Quantize the blockwise scales w/ the per_tensor_scale
-        scaled_block_scales = block_scale_fp32 / per_tensor_scale
+        scaled_block_scales = block_scale_fp32 * per_tensor_scale
         scaled_block_scales_fp8 = torch.clamp(
             scaled_block_scales, min=E4M3_EPS, max=F8E4M3_MAX
         ).to(torch.float8_e4m3fn)
         scaled_block_scales_fp32 = scaled_block_scales_fp8.to(torch.float32)
         # Multiply by reciprocal of combined scale instead of dividing,
         # to match the MSLK triton kernel numerics: x * (global_scale / fp8_scale)
-        reciprocal_scale = (1.0 / per_tensor_scale) / scaled_block_scales_fp32
+        reciprocal_scale = per_tensor_scale / scaled_block_scales_fp32
         data_scaled = data_hp * reciprocal_scale.unsqueeze(-1)
         out_scales = scaled_block_scales_fp8
 
