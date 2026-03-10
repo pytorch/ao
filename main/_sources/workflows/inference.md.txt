@@ -155,11 +155,27 @@ torch version           2.12.0.dev20260218+cu130
 torchao version         0.17.0+git3075bb624
 ...
    fwd_M  fwd_K  fwd_N  r_fp8_gemm_and_ovhd_spdp  b_fp8_e2e_spdp
-0   1024   1024   1024                      1.00            0.38
-1   2048   2048   2048                      2.39            0.73
-2   4096   4096   4096                      2.92            1.19
-3   8192   8192   8192                      3.34            1.80
-4  16384  16384  16384                      3.63            2.56
+0   1024   1024   1024                      1.00            0.28
+1   2048   2048   2048                      2.36            0.52
+2   4096   4096   4096                      2.89            0.90
+3   8192   8192   8192                      3.32            1.41
+4  16384  16384  16384                      3.62            2.14
+
+#
+# nvfp4 with static global scaling (user API in progress)
+#
+> python benchmarks/float8/float8_inference_roofline.py --recipe_name nvfp4_static --enable_fusion_modeling True --skip_printing_detailed_metrics True
+...
+GPU                     NVIDIA B200
+torch version           2.12.0.dev20260218+cu130
+torchao version         0.17.0+git3075bb624
+...
+   fwd_M  fwd_K  fwd_N  r_fp8_gemm_and_ovhd_spdp  b_fp8_e2e_spdp
+0   1024   1024   1024                      1.00            0.34
+1   2048   2048   2048                      2.74            0.64
+2   4096   4096   4096                      3.42            1.06
+3   8192   8192   8192                      3.67            1.58
+4  16384  16384  16384                      3.82            2.31
 ```
 
 ## Other Available Quantization Techniques
