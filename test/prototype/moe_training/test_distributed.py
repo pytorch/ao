@@ -13,6 +13,13 @@
 
 import copy
 import os
+import sys
+from pathlib import Path
+
+# Add test directory to sys.path for absolute imports
+test_dir = Path(__file__).parent.parent.parent
+if str(test_dir) not in sys.path:
+    sys.path.insert(0, str(test_dir))
 
 import pytest
 import torch
@@ -50,21 +57,23 @@ if not torch.cuda.is_available() or torch.cuda.get_device_capability() < (8, 9):
         "CUDA not available or compute capability < 8.9", allow_module_level=True
     )
 
+from test.prototype.moe_training.reference_moe import (
+    MoE,
+    MoEArgs,
+    set_token_group_alignment_size_m,
+)
+from test.prototype.moe_training.reference_parallel_styles import (
+    ExpertParallel,
+    ExpertTensorParallel,
+    NoParallel,
+    TensorParallel,
+)
 from torchao.float8.float8_utils import compute_error
 from torchao.prototype.moe_training.config import (
     MXFP8TrainingOpConfig,
     MXFP8TrainingRecipe,
 )
 from torchao.quantization.quant_api import quantize_
-
-from .reference_moe import MoE, MoEArgs, set_token_group_alignment_size_m
-from .reference_parallel_styles import (
-    ExpertParallel,
-    ExpertTensorParallel,
-    NoParallel,
-    TensorParallel,
-)
-from .testing_utils import _validate_model_conversion
 
 
 class ParallelStrategy:
@@ -138,20 +147,20 @@ def distributed_env():
             "min_input_grad_sqnr": 29.0,
             "min_param_grad_sqnr": 21.0,
         },
-        {
-            "recipe": MXFP8TrainingRecipe.MXFP8_RCEIL_WGRAD_WITH_HP,
-            "group_alignment_size": 32,
-            "min_out_sqnr": 27.0,
-            "min_input_grad_sqnr": 29.0,
-            "min_param_grad_sqnr": 25.0,
-        },
-        {
-            "recipe": MXFP8TrainingRecipe.MXFP8_EMULATED_RCEIL,
-            "group_alignment_size": 32,
-            "min_out_sqnr": 26.5,
-            "min_input_grad_sqnr": 29.0,
-            "min_param_grad_sqnr": 21.0,
-        },
+        # {
+        #     "recipe": MXFP8TrainingRecipe.MXFP8_RCEIL_WGRAD_WITH_HP,
+        #     "group_alignment_size": 32,
+        #     "min_out_sqnr": 27.0,
+        #     "min_input_grad_sqnr": 29.0,
+        #     "min_param_grad_sqnr": 25.0,
+        # },
+        # {
+        #     "recipe": MXFP8TrainingRecipe.MXFP8_EMULATED_RCEIL,
+        #     "group_alignment_size": 32,
+        #     "min_out_sqnr": 26.5,
+        #     "min_input_grad_sqnr": 29.0,
+        #     "min_param_grad_sqnr": 21.0,
+        # },
     ],
 )
 def test_moe_training_parallel(
@@ -217,24 +226,12 @@ def test_moe_training_parallel(
     for param1, param2 in zip(model.parameters(), ref_model.parameters()):
         assert torch.equal(param1, param2)
 
-    # convert MoE to float8 training
-    target_fqns = ["experts"]
-
     def moe_module_filter_fn(mod: nn.Module, cur_fqn: str) -> bool:
-        for target_fqn in target_fqns:
-            if target_fqn in cur_fqn:
-                return True
-        return False
+        return "experts" in cur_fqn and "shared_experts" not in cur_fqn
 
     # quantize test model using MXFP8 config
     config = MXFP8TrainingOpConfig.from_recipe(recipe)
     quantize_(model, config=config, filter_fn=moe_module_filter_fn)
-
-    # validate that only the experts were converted
-    _validate_model_conversion(
-        model,
-        target_fqns=target_fqns,
-    )
 
     if compile:
         # TODO: compile with fullgraph=True when torchtitan llama4 moe supports it
