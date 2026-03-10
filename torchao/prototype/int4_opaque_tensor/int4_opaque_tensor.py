@@ -27,6 +27,7 @@ from torchao.quantization.utils import (
 )
 from torchao.utils import (
     TorchAOBaseTensor,
+    torch_version_at_least,
 )
 
 __all__ = [
@@ -304,6 +305,9 @@ def _da8w4_linear(input_tensor, weight_tensor, bias):
     per_token_block_size = _get_per_token_block_size(act_fp)
 
     if weight_tensor.act_mapping_type == "symmetric":
+        assert torch_version_at_least("2.8.0"), (
+            "Symmetric int8 activation quantization requires PyTorch 2.8+"
+        )
         # Symmetric int8 quantization: values in [-127, 127]
         act_scale, act_zero_point = choose_qparams_affine(
             act_fp,
@@ -326,6 +330,9 @@ def _da8w4_linear(input_tensor, weight_tensor, bias):
             quant_max=127,
         )
     else:
+        assert torch_version_at_least("2.7.0"), (
+            "Asymmetric uint8 activation quantization requires PyTorch 2.7+"
+        )
         # Asymmetric uint8 quantization: values in [0, 255]
         act_scale, act_zero_point = choose_qparams_affine(
             act_fp,
@@ -392,6 +399,14 @@ def _(func, types, args, kwargs):
 
     # DA8W4 path: dynamic int8 activation + int4 weight
     if weight_tensor.act_mapping_type is not None:
+        if weight_tensor.act_mapping_type == MappingType.SYMMETRIC:
+            assert torch_version_at_least("2.8.0"), (
+                "Symmetric int8 activation quantization requires PyTorch 2.8+"
+            )
+        else:
+            assert torch_version_at_least("2.7.0"), (
+                "Asymmetric uint8 activation quantization requires PyTorch 2.7+"
+            )
         return _da8w4_linear(input_tensor, weight_tensor, bias)
 
     # A16W4 path: float activation + int4 weight (tinygemm)

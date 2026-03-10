@@ -109,6 +109,7 @@ class Int8DynamicActInt4WeightOpaqueTensorConfig(AOBaseConfig):
     act_mapping_type: MappingType = field(
         default_factory=lambda: MappingType.ASYMMETRIC
     )
+    set_inductor_config: bool = True
 
     def __post_init__(self):
         torch._C._log_api_usage_once(
@@ -120,7 +121,8 @@ class Int8DynamicActInt4WeightOpaqueTensorConfig(AOBaseConfig):
 def _int8_dynamic_act_int4_weight_transform(
     module: torch.nn.Module, config: Int8DynamicActInt4WeightOpaqueTensorConfig
 ) -> torch.nn.Module:
-    torchao.quantization.utils.recommended_inductor_config_setter()
+    if config.set_inductor_config:
+        torchao.quantization.utils.recommended_inductor_config_setter()
 
     assert hasattr(module, "weight"), (
         "applying DA8W4 quant requires module to have weight attribute"

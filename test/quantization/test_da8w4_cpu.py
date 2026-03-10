@@ -99,7 +99,11 @@ class TestDa8w4Cpu(TestCase):
     @common_utils.parametrize("x_dim", [2, 3])
     @common_utils.parametrize("bias", [True, False])
     def test_8da4w_concat_linear_cpu(self, x_dim, bias):
-        self.skipTest("Disabled for now")
+        from torchao.prototype.inductor.fx_passes import (
+            register_da8w4_concat_linear_cpu_pass,
+        )
+
+        register_da8w4_concat_linear_cpu_pass()
         N, K = 64, 128
 
         class Mod(torch.nn.Module):
