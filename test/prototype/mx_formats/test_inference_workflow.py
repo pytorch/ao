@@ -22,6 +22,8 @@ from torchao.quantization.quantize_.common import KernelPreference
 from torchao.quantization.utils import compute_error
 from torchao.testing.utils import TorchAOIntegrationTestCase, skip_if_rocm
 from torchao.utils import (
+    is_MI350,
+    is_ROCM,
     is_sm_at_least_89,
     is_sm_at_least_100,
     torch_version_at_least,
@@ -71,9 +73,6 @@ def cuda_kernel_profiler(kernel_pattern):
 @pytest.mark.parametrize("use_inference_mode", [True, False])
 @pytest.mark.parametrize("x_rank", [2, 3])
 @torch.no_grad()
-@skip_if_rocm(
-    "ROCm float4 gemm require gfx950"
-)  # TODO(future): deploy gfx950 in ROCM CI
 def test_inference_workflow_mx(
     elem_dtype,
     bias: bool,
@@ -85,19 +84,22 @@ def test_inference_workflow_mx(
     """
     Smoke test for inference compile
     """
-    # TODO(future): figure out why these CUDA capability conditions are not properly
-    # applied when inside `pytest.mark.skipif` for this test
-    if elem_dtype in (torch.float8_e4m3fn, torch.float8_e5m2):
-        if not is_sm_at_least_89():
-            pytest.skip("CUDA capability >= 8.9 required for float8 in triton")
-        elif not is_sm_at_least_100() and not emulate:
-            pytest.skip("CUDA capability >= 10.0 required for mxfp8 gemm")
-    elif elem_dtype == torch.float4_e2m1fn_x2:
-        if not is_sm_at_least_100() and not emulate:
-            pytest.skip("CUDA capability >= 10.0 required for mxfp4 gemm")
-        elif compile:
-            # TODO(future PR): investigate and fix this
+    if is_ROCM():
+        if not emulate and not is_MI350():
+            pytest.skip("ROCm native MX gemm requires gfx950 (MI350)")
+        if elem_dtype == torch.float4_e2m1fn_x2 and compile:
             pytest.skip("mxfp4 + compile currently does not work, low SQNR")
+    else:
+        if elem_dtype in (torch.float8_e4m3fn, torch.float8_e5m2):
+            if not is_sm_at_least_89():
+                pytest.skip("CUDA capability >= 8.9 required for float8 in triton")
+            elif not is_sm_at_least_100() and not emulate:
+                pytest.skip("CUDA capability >= 10.0 required for mxfp8 gemm")
+        elif elem_dtype == torch.float4_e2m1fn_x2:
+            if not is_sm_at_least_100() and not emulate:
+                pytest.skip("CUDA capability >= 10.0 required for mxfp4 gemm")
+            elif compile:
+                pytest.skip("mxfp4 + compile currently does not work, low SQNR")
 
     m = nn.Linear(32, 128, bias=bias, dtype=torch.bfloat16, device="cuda")
     m_mx = copy.deepcopy(m)
