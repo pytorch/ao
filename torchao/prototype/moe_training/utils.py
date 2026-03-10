@@ -404,6 +404,7 @@ def _quantize_then_scaled_grouped_mm(
             kernel_preference=config.kernel_preference,
             wgrad_with_hp=config.wgrad_with_hp,
             scale_calculation_mode=config.scale_calculation_mode,
+            pad_token_groups_for_grouped_mm=config.pad_token_groups_for_grouped_mm,
         )
     else:
         raise ValueError(f"Unsupported config type: {type(config)}")

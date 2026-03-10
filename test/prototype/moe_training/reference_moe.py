@@ -147,6 +147,12 @@ def generate_permute_indices(
         torch.int32
     )
 
+    # Ensure m_sizes sums to exactly max_len (the actual data size after permutation)
+    current_sum = m_sizes.sum().item()
+    if current_sum != max_len:
+        # Add the difference to the last expert
+        m_sizes[-1] = m_sizes[-1] + (max_len - current_sum)
+
     m_offsets = torch.cumsum(m_sizes, 0)
     write_offsets = m_offsets - m_sizes
 
@@ -176,8 +182,8 @@ def generate_permute_indices(
 # Utils from torchtitan/models/moe/utils.py
 # =============================================================================
 
-TOKEN_GROUP_ALIGN_SIZE_M = 8
-ValidTokenGroupAlignmentSize = Literal[8, 16, 32]
+TOKEN_GROUP_ALIGN_SIZE_M = 1
+ValidTokenGroupAlignmentSize = Literal[1, 16, 32]
 
 
 def set_token_group_alignment_size_m(

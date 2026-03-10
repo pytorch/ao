@@ -102,6 +102,9 @@ class MXFP8TrainingOpConfig(TrainingOpBaseConfig):
     # Rounding mode to use when calculating the e8m0 scale factors.
     scale_calculation_mode: ScaleCalculationMode = ScaleCalculationMode.RCEIL
 
+    # Whether to pad the token group sizes to multiples of 32 (MXFP8 scaling block size).
+    pad_token_groups_for_grouped_mm: bool = False
+
     @classmethod
     def from_recipe(
         cls,
@@ -114,6 +117,7 @@ class MXFP8TrainingOpConfig(TrainingOpBaseConfig):
                 out_dtype=torch.bfloat16,
                 wgrad_with_hp=False,
                 scale_calculation_mode=ScaleCalculationMode.RCEIL,
+                pad_token_groups_for_grouped_mm=True,
             )
         elif recipe == MXFP8TrainingRecipe.MXFP8_RCEIL_WGRAD_WITH_HP:
             return cls(
@@ -121,6 +125,7 @@ class MXFP8TrainingOpConfig(TrainingOpBaseConfig):
                 out_dtype=torch.bfloat16,
                 wgrad_with_hp=True,
                 scale_calculation_mode=ScaleCalculationMode.RCEIL,
+                pad_token_groups_for_grouped_mm=True,
             )
         elif recipe == MXFP8TrainingRecipe.MXFP8_EMULATED_RCEIL:
             return cls(
@@ -128,6 +133,7 @@ class MXFP8TrainingOpConfig(TrainingOpBaseConfig):
                 out_dtype=torch.bfloat16,
                 wgrad_with_hp=False,
                 scale_calculation_mode=ScaleCalculationMode.RCEIL,
+                pad_token_groups_for_grouped_mm=True,
             )
         else:
             raise ValueError(f"Unsupported MXFP8 recipe: {recipe}")
@@ -139,6 +145,8 @@ class MXFP8TrainingOpConfig(TrainingOpBaseConfig):
                 and self.out_dtype == other.out_dtype
                 and self.wgrad_with_hp == other.wgrad_with_hp
                 and self.scale_calculation_mode == other.scale_calculation_mode
+                and self.pad_token_groups_for_grouped_mm
+                == other.pad_token_groups_for_grouped_mm
             )
         return NotImplemented
 
@@ -149,6 +157,7 @@ class MXFP8TrainingOpConfig(TrainingOpBaseConfig):
                 self.out_dtype,
                 self.wgrad_with_hp,
                 self.scale_calculation_mode,
+                self.pad_token_groups_for_grouped_mm,
             )
         )
 
