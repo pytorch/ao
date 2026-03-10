@@ -19,9 +19,12 @@ import torch
 
 from torchao.utils import is_MI300, is_MI350, is_sm_at_least_89
 
-if not torch.cuda.is_available() or not (is_sm_at_least_89() or is_MI300() or is_MI350()):
+if not torch.cuda.is_available() or not (
+    is_sm_at_least_89() or is_MI300() or is_MI350()
+):
     pytest.skip(
-        "Requires FP8-capable GPU (CUDA SM89+, MI300, or MI350)", allow_module_level=True
+        "Requires FP8-capable GPU (CUDA SM89+, MI300, or MI350)",
+        allow_module_level=True,
     )
 
 from torch import distributed as dist
