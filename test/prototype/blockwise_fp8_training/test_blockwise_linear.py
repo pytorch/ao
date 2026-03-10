@@ -10,11 +10,16 @@ import pytest
 import torch
 from torch._dynamo.testing import CompileCounterWithBackend
 
-from torchao.utils import is_sm_at_least_90
+from torchao.utils import torch_version_at_least
+
+if not (
+    torch_version_at_least("2.7.0")
+    and torch.cuda.is_available()
+    and torch.cuda.get_device_capability()[0] >= 9
+):
+    pytest.skip("Requires CUDA capability >= 9.0", allow_module_level=True)
 
 triton = pytest.importorskip("triton", reason="Triton required to run this test")
-if not is_sm_at_least_90():
-    pytest.skip("This test requires SM90 or higher", allow_module_level=True)
 
 
 from torchao.float8.float8_utils import compute_error

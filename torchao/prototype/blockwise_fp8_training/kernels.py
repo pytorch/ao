@@ -822,8 +822,8 @@ def torch_blockwise_scale_act_quant_rhs(
     assert dtype in FP8_E4M3_DTYPES, f"dtype must be one of {FP8_E4M3_DTYPES}"
 
     M, K = x.size()
-    max_fp8_e4m3 = torch.finfo(dtype).max
-    min_fp8_e4m3 = torch.finfo(dtype).min
+    fp8_max = torch.finfo(dtype).max
+    fp8_min = torch.finfo(dtype).min
 
     # Reshape input to work with blocks of size (block_size, 1) along dimension 0
     num_blocks_m = M // block_size
@@ -837,35 +837,18 @@ def torch_blockwise_scale_act_quant_rhs(
 
     # Process each column (K dimension) separately
     for k in range(K):
-        # Extract column k from all blocks: shape (num_blocks_m, block_size)
-        x_col = x_blocks[:, :, k]  # (num_blocks_m, block_size)
-
-        # Compute absolute max for each block
-        amax = torch.abs(x_col).max(dim=1, keepdim=True)[0]  # (num_blocks_m, 1)
-
-        # Clamp to avoid division by zero
+        x_col = x_blocks[:, :, k]
+        amax = torch.abs(x_col).max(dim=1, keepdim=True)[0]
         amax = torch.clamp(amax, min=eps).to(torch.float64)
-
-        # Compute scales
-        scale = (max_fp8_e4m3 / amax).to(torch.float32)  # (num_blocks_m, 1)
-
-        # Apply scaling
-        y_col = x_col * scale  # (num_blocks_m, block_size)
-
-        # Clamp to FP8 range
-        y_col = torch.clamp(y_col, min=min_fp8_e4m3, max=max_fp8_e4m3)
-
-        # Store results
+        scale = (fp8_max / amax).to(torch.float32)
+        y_col = x_col * scale
+        y_col = torch.clamp(y_col, min=fp8_min, max=fp8_max)
         y_blocks[:, :, k] = y_col.to(dtype)
-        scales[:, k] = scale.squeeze(-1)  # (num_blocks_m,)
+        scales[:, k] = scale.squeeze(-1)
 
-    # Reshape back to original shape (removing padding if any)
-    y = y_blocks.view(-1, K)[:M, :]  # (M, K)
-
-    # Convert to column-major format
+    y = y_blocks.view(-1, K)[:M, :]
     y = y.t().contiguous().t()
 
-    # Return output tensor and reciprocal scales
     return y, 1.0 / scales
 
 
@@ -878,16 +861,13 @@ def torch_blockwise_scale_weight_quant(x, tile_size=128, dtype=e4m3_dtype):
     assert x.is_contiguous(), "input tensor must be contiguous"
     height, width = x.shape
 
-    # Compute block sizes
     t_h = height // tile_size
     t_w = width // tile_size
 
-    # Reshape 2D input tensor into 4D tensor with shape (t_h, t_w, tile_size * tile_size)
     x = x.reshape(t_h, tile_size, t_w, tile_size)
     x = x.permute(0, 2, 1, 3)
     x = x.reshape(-1, tile_size * tile_size)
 
-    # Compute amax along last dim (i.e., the block)
     x_amax = x.abs().max(dim=1).values.unsqueeze(1).to(torch.float64)
     x_amax = torch.clamp(x_amax, min=EPS, max=float("inf"))
 
@@ -897,11 +877,9 @@ def torch_blockwise_scale_weight_quant(x, tile_size=128, dtype=e4m3_dtype):
 
     x = (x * s).clamp(min=fp8_dtype_min, max=fp8_dtype_max).to(dtype)
 
-    # Reshape quantized output and scales back to 2D
     x = x.reshape(t_h, t_w, tile_size, tile_size)
     x = x.permute(0, 2, 1, 3)
     x = x.reshape(height, width)
     s = s.reshape(t_h, t_w).to(torch.float)
 
-    # Return output tensor and reciprocal scale
     return x, 1.0 / s
