@@ -169,7 +169,7 @@ class TestAffineQuantized(TestCase):
 
         deregister_aqt_quantized_linear_dispatch(dispatch_condition)
 
-    @skip_if_rocm("ROCm enablement in progress")
+    @skip_if_rocm("hipSPARSELt reports available but fails at runtime on this machine")
     @unittest.skipIf(len(GPU_DEVICES) == 0, "Need GPU available")
     def test_print_quantized_module(self):
         for device in self.GPU_DEVICES:
@@ -254,7 +254,6 @@ class TestAffineQuantizedBasic(TestCase):
 
     @common_utils.parametrize("device", COMMON_DEVICES)
     @common_utils.parametrize("dtype", COMMON_DTYPES)
-    @skip_if_rocm("ROCm enablement in progress")
     def test_flatten_unflatten(self, device, dtype):
         if device == "cuda" and dtype == torch.bfloat16 and is_fbcode():
             raise unittest.SkipTest("TODO: Failing for cuda + bfloat16 in fbcode")

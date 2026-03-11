@@ -57,9 +57,10 @@ from torchao.testing.pt2e._xnnpack_quantizer import (
     XNNPACKQuantizer,
     get_symmetric_quantization_config,
 )
-from torchao.testing.utils import skip_if_rocm, skip_if_xpu
+from torchao.testing.utils import skip_if_xpu
 from torchao.utils import (
     get_current_accelerator_device,
+    is_ROCM,
     is_sm_at_least_89,
     is_sm_at_least_90,
     unwrap_tensor_subclass,
@@ -351,22 +352,26 @@ class TestQuantFlow(TestCase):
         ],
     )
     @skip_if_xpu("XPU enablement in progress")
-    @skip_if_rocm("ROCm enablement in progress")
     def test_workflow_e2e_numerics(self, config):
         """
         Simple test of e2e Int4WeightOnlyConfig workflow, comparing numerics
         to a bfloat16 baseline.
         """
-        if (
-            isinstance(
-                config,
-                Float8DynamicActivationFloat8WeightConfig,
-            )
+        if isinstance(config, GemliteUIntXWeightOnlyConfig) and not has_gemlite:
+            return unittest.skip("gemlite not available")
+        if is_ROCM():
+            if isinstance(config, Float8DynamicActivationFloat8WeightConfig):
+                # Default PerTensor granularity on 128x128 linear triggers a
+                # false positive in _is_128_128_scaled (block_size matches shape).
+                # PerRow works; this is an upstream issue not specific to ROCm.
+                return unittest.skip(
+                    "Float8DynActFloat8Weight default PerTensor hits _is_128_128_scaled collision at 128x128"
+                )
+        elif (
+            isinstance(config, Float8DynamicActivationFloat8WeightConfig)
             and not is_sm_at_least_89()
         ):
             return unittest.skip("requires CUDA capability 8.9 or greater")
-        elif isinstance(config, GemliteUIntXWeightOnlyConfig) and not has_gemlite:
-            return unittest.skip("gemlite not available")
 
         dtype = torch.bfloat16
         if isinstance(config, GemliteUIntXWeightOnlyConfig):
