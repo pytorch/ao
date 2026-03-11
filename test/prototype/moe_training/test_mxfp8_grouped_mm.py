@@ -126,6 +126,7 @@ def test_emulate_mxfp8_grouped_gemm_2d_2d(M, N, num_experts):
 @pytest.mark.parametrize("num_experts", (1, 8))
 @pytest.mark.parametrize("wgrad_with_hp", (True, False))
 @pytest.mark.parametrize("use_compile", (False, True))
+@pytest.mark.parametrize("pad_token_groups_for_grouped_mm", (False, True))
 @pytest.mark.parametrize(
     "kernel_preference", (KernelPreference.AUTO, KernelPreference.EMULATED)
 )
@@ -141,11 +142,20 @@ def test_mxfp8_grouped_gemm_with_dq_fwd_bwd(
     use_compile,
     kernel_preference,
     scale_mode,
+    pad_token_groups_for_grouped_mm,
 ):
     # MXFP8 hardware path requires SM100
     if kernel_preference != KernelPreference.EMULATED and not is_sm_version(10, 0):
         pytest.skip(
             f"Skipping MXFP8 hardware mode tests, only supported on compute capability 10.0 and found {torch.cuda.get_device_capability()}"
+        )
+    if (
+        kernel_preference == KernelPreference.EMULATED
+        and use_compile
+        and pad_token_groups_for_grouped_mm
+    ):
+        pytest.skip(
+            "torch native dynamic per group pad/unpad functions do not work with torch.compile yet: https://github.com/pytorch/pytorch/issues/176770"
         )
 
     block_size = 32
@@ -158,7 +168,9 @@ def test_mxfp8_grouped_gemm_with_dq_fwd_bwd(
         device="cuda",
     )
     w_t = w.transpose(-2, -1).requires_grad_(True)
-    offs = generate_jagged_offs(num_experts, M, multiple_of=block_size)
+
+    multiple_of = 1 if pad_token_groups_for_grouped_mm else 32
+    offs = generate_jagged_offs(num_experts, M, multiple_of=multiple_of)
     x_ref, w_t_ref, offs_ref = (
         x.clone().detach().requires_grad_(True),
         w_t.clone().detach().requires_grad_(True),
@@ -179,6 +191,7 @@ def test_mxfp8_grouped_gemm_with_dq_fwd_bwd(
         kernel_preference=kernel_preference,
         wgrad_with_hp=wgrad_with_hp,
         scale_calculation_mode=scale_mode,
+        pad_token_groups_for_grouped_mm=pad_token_groups_for_grouped_mm,
     )
     ref_out = torch._grouped_mm(x_ref, w_t_ref, offs=offs_ref, out_dtype=torch.bfloat16)
     sqnr = compute_error(ref_out, out)

@@ -19,7 +19,10 @@ from torchao.prototype.moe_training.config import (
     MXFP8TrainingOpConfig,
     TrainingOpBaseConfig,
 )
-from torchao.prototype.moe_training.utils import _quantize_then_scaled_grouped_mm
+from torchao.prototype.moe_training.utils import (
+    _quantize_then_scaled_grouped_mm,
+    unwrap_weight,
+)
 from torchao.prototype.mx_formats.mx_linear import _to_mxfp8_then_scaled_mm
 from torchao.utils import TorchAOBaseTensor
 
@@ -240,7 +243,7 @@ class Float8TrainingWeightWrapperTensor(TrainingWeightWrapperBaseTensor):
             if A_is_2d and B_is_2d_or_3d and offs is not None:
                 return _quantize_then_scaled_grouped_mm(
                     A,
-                    B,
+                    unwrap_weight(B),
                     offs=offs,
                     config=config,
                 )
