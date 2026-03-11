@@ -28,21 +28,6 @@ class _LowPrecisionAttentionWrapper(nn.Module):
             return getattr(self._orig_mod, name)
 
 
-class _FP8FlashAttentionWrapper(_LowPrecisionAttentionWrapper):
-    """Compile path wrapper. Activates the flash impl around the module forward."""
-
-    def __init__(self, orig_mod: nn.Module, flash_impl_name: str):
-        super().__init__(orig_mod)
-        self._flash_impl_name = flash_impl_name
-
-    def forward(self, *args, **kwargs):
-        activate_flash_attention_impl(self._flash_impl_name)
-        try:
-            return self._orig_mod(*args, **kwargs)
-        finally:
-            restore_flash_attention_impl()
-
-
 class _FP8FlashAttentionMonkeyPatchWrapper(_LowPrecisionAttentionWrapper):
     """Monkey-patch path wrapper. Replaces ``F.scaled_dot_product_attention``
     with the FP8 backend for the duration of each forward call.
@@ -68,33 +53,38 @@ class _FP8FlashAttentionMonkeyPatchWrapper(_LowPrecisionAttentionWrapper):
             restore_flash_attention_impl()
 
 
-def _make_causal_aware_sdpa(fp8_sdpa_fn: Callable, strip_causal_mask: bool) -> Callable:
-    """Wrap an FP8 SDPA function to strip materialized causal masks."""
-    if strip_causal_mask:
+def _make_causal_aware_sdpa(fp8_sdpa_custom_op, strip_causal_mask: bool) -> Callable:
+    """Bridge F.sdpa signature to the FP8 SDPA custom op.
 
-        def _patched(
+    Calls the custom op so torch.compile sees an opaque node in the FX graph.
+    """
+
+    def _patched(
+        query,
+        key,
+        value,
+        attn_mask=None,
+        dropout_p=0.0,
+        is_causal=False,
+        scale=None,
+        enable_gqa=False,
+    ):
+        if strip_causal_mask and attn_mask is not None:
+            attn_mask = None
+            is_causal = True
+        if attn_mask is not None:
+            raise ValueError("attn_mask not supported for FP8 attention")
+        if dropout_p != 0.0:
+            raise ValueError(
+                f"dropout_p must be 0.0 for FP8 attention, got {dropout_p}"
+            )
+        return fp8_sdpa_custom_op(
             query,
             key,
             value,
-            attn_mask=None,
-            dropout_p=0.0,
-            is_causal=False,
-            scale=None,
-            enable_gqa=False,
-        ):
-            if attn_mask is not None:
-                attn_mask = None
-                is_causal = True
-            return fp8_sdpa_fn(
-                query,
-                key,
-                value,
-                attn_mask=attn_mask,
-                dropout_p=dropout_p,
-                is_causal=is_causal,
-                scale=scale,
-                enable_gqa=enable_gqa,
-            )
+            is_causal=is_causal,
+            scale=scale if scale is not None else 0.0,
+            enable_gqa=enable_gqa,
+        )
 
-        return _patched
-    return fp8_sdpa_fn
+    return _patched
