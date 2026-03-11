@@ -89,10 +89,12 @@ def apply_low_precision_attention(
 
     This replaces ``F.scaled_dot_product_attention`` with an FP8 SDPA
     for eager execution and sets a global pre-grad pass so that
-    ``torch.compile`` will automatically fuse RoPE where detected::
+    ``torch.compile`` will automatically fuse RoPE where detected.
 
-        model = apply_low_precision_attention(model)
-        model = torch.compile(model)   # RoPE fusion happens automatically
+    Example:
+
+    .. literalinclude:: ../../examples/prototype/low_precision_attention.py
+       :language: python
     """
     if not _TORCH_VERSION_AT_LEAST_2_11:
         raise RuntimeError("Low-precision attention requires PyTorch 2.11+.")

@@ -10,7 +10,7 @@ This page provides an overview of the various workflows available in torchao.
   [int8 dense](https://github.com/pytorch/ao/tree/main/torchao/prototype/quantized_training)
 * QAT: the [QAT documentation](qat.md) for details on how to use quantization-aware training to improve model accuracy after quantization.
 * Inference: See the [inference quantization documentation](inference.md) for an overview of quantization for inference workflows.
-* Low-Precision Attention: See the [low-precision attention documentation](low_precision_attention.md) for FP8 attention using Flash Attention backends.
+
 
 ## Workflows status by dtype + hardware
 
@@ -62,5 +62,4 @@ This page provides an overview of the various workflows available in torchao.
 training
 qat
 inference
-low_precision_attention
 ```
