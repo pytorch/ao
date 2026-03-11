@@ -13,10 +13,10 @@
 #      - Values outside the representable range of Floatx after rounding are clamped to the maximum Floatx
 #      magnitude (sign is preserved).
 
-import torch
 from enum import Enum
-from torch import Tensor
 
+import torch
+from torch import Tensor
 
 
 class RoundingMode(Enum):
@@ -49,6 +49,7 @@ def _f32_to_floatx_unpacked(
     ebits: int,
     mbits: int,
     rounding_mode: RoundingMode = RoundingMode.RN,
+    rand_bits: Tensor | None = None,
 ) -> Tensor:
     """Convert FP32 numbers to sub-byte floating point numbers with the given
     number of exponent and mantissa bits.
@@ -65,8 +66,13 @@ def _f32_to_floatx_unpacked(
         mbits: Number of mantissa bits in the target format (including the
             implicit leading 1).
         rounding_mode: RoundingMode.RN (round to nearest, ties to even)
-            or RoundingMode.RS (stochastic rounding). For deterministic RS,
-            set torch.manual_seed() before calling.
+            or RoundingMode.RS (stochastic rounding).
+        rand_bits: Random int32 tensor for stochastic rounding. Required when
+            rounding_mode is RS. Must have the same shape as the normal-range
+            elements of x. Only the low-order (23 - mbits) bits are used;
+            the caller may pass any int32 random values. The caller is
+            responsible for generating this tensor, which keeps RNG concerns
+            (seeding, CUDA graph safety) outside this function.
 
     Note: there are no special values (NaN, inf) support in this code. Values
     outside the representable range of Floatx after rounding are clamped to the
@@ -160,13 +166,13 @@ def _f32_to_floatx_unpacked(
         # positions. This makes the probability of rounding up proportional
         # to the fractional distance from the lower quantization level,
         # providing an unbiased estimator.
-        rand_bits = torch.randint(
-            0,
-            (1 << (MBITS_F32 - mbits)),
-            normal_x.shape,
-            dtype=torch.int32,
-            device=normal_x.device,
-        )
+        if rand_bits is None:
+            raise ValueError(
+                "rand_bits is required for stochastic rounding (RoundingMode.RS). "
+                "Caller must generate rand_bits externally."
+            )
+        # Mask to only the bits that fit in the truncated mantissa positions.
+        rand_bits = rand_bits & ((1 << (MBITS_F32 - mbits)) - 1)
         val_to_add = (exp_bias - F32_EXP_BIAS) << MBITS_F32
         normal_x += val_to_add
         normal_x += rand_bits

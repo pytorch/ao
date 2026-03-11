@@ -57,7 +57,7 @@ ZERO_BITS_F32 = 0x0
 ZERO_POINT_FIVE_BITS_F32 = 0x3F000000
 
 
-def f32_to_f4_unpacked(x, rounding_mode=RoundingMode.RN):
+def f32_to_f4_unpacked(x, rounding_mode=RoundingMode.RN, rand_bits=None):
     """
     Input: torch.Tensor of dtype torch.float
     Output: torch.Tensor of dtype torch.uint8, with bits 0-3 empty and
@@ -65,9 +65,14 @@ def f32_to_f4_unpacked(x, rounding_mode=RoundingMode.RN):
 
     Args:
         rounding_mode: RoundingMode.RN or RoundingMode.RS
+        rand_bits: Random int32 tensor for RS mode (required when RS).
     """
     return _f32_to_floatx_unpacked(
-        x, EBITS_F4_E2M1, MBITS_F4_E2M1, rounding_mode=rounding_mode
+        x,
+        EBITS_F4_E2M1,
+        MBITS_F4_E2M1,
+        rounding_mode=rounding_mode,
+        rand_bits=rand_bits,
     )
 
 
@@ -522,7 +527,7 @@ if torch_version_at_least("2.7.0") and has_triton():
         stride_xn,
         M,
         N,
-        seed,
+        seed_ptr,
         USE_TENSOR_SCALE: tl.constexpr,
         MASK_SCALES: tl.constexpr,
         ROUNDING_MODE: tl.constexpr,  # 0=RN, 1=RS
@@ -609,6 +614,7 @@ if torch_version_at_least("2.7.0") and has_triton():
             x_fp4x2 = convert_fp32_to_fp4_packed(x_pairs)
         else:
             # Stochastic rounding (RS) via hardware cvt.rs.satfinite.e2m1x4.f32
+            seed = tl.load(seed_ptr)
             rbits = tl.randint(seed, out_offs)
             x_fp4x2 = convert_fp32_to_fp4_packed_rs(x_pairs, rbits)
         if MASK_SCALES:
@@ -622,7 +628,7 @@ if torch_version_at_least("2.7.0") and has_triton():
         x: torch.Tensor,
         per_tensor_scale: Optional[torch.Tensor] = None,
         rounding_mode: int = 0,
-        seed: int = 0,
+        seed: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Quantize a tensor to NVFP4 format.
 
@@ -631,7 +637,10 @@ if torch_version_at_least("2.7.0") and has_triton():
             per_tensor_scale (Optional[torch.Tensor]): Per-tensor scale for two-level quantization.
                 If None, uses single-level block-wise quantization only.
             rounding_mode (int): 0 for round-to-nearest, 1 for stochastic rounding.
-            seed (int): Seed for stochastic rounding random number generation.
+            seed (Optional[torch.Tensor]): Seed tensor for stochastic rounding RNG.
+                Should be a single-element int32 tensor on the same device as x.
+                When None, stochastic rounding uses a dummy seed (caller should
+                only pass None when rounding_mode=0).
 
         Returns:
             Tuple[torch.Tensor, torch.Tensor]: Quantized tensor and scales tensor in swizzled layout.
@@ -676,6 +685,10 @@ if torch_version_at_least("2.7.0") and has_triton():
             tensor_scale_ptr = per_tensor_scale
             use_tensor_scale = True
 
+        # For seed_ptr: if seed is None (RN mode), reuse x as dummy pointer
+        # (kernel won't read it when ROUNDING_MODE=0)
+        seed_ptr = seed if seed is not None else x
+
         quantize_nvfp4_triton_kernel[grid](
             x,
             tensor_scale_ptr,
@@ -685,7 +698,7 @@ if torch_version_at_least("2.7.0") and has_triton():
             x.stride(1),
             M,
             N,
-            seed,
+            seed_ptr,
             USE_TENSOR_SCALE=use_tensor_scale,
             MASK_SCALES=MASK_SCALES,
             ROUNDING_MODE=rounding_mode,
@@ -698,7 +711,7 @@ if torch_version_at_least("2.7.0") and has_triton():
         return scales, xq.view(torch.uint8)
 
     @triton_quantize_nvfp4.register_fake
-    def _(x, per_tensor_scale=None, rounding_mode=0, seed=0):
+    def _(x, per_tensor_scale=None, rounding_mode=0, seed=None):
         M, N = x.shape
         num_scales = N // 16
         n_row_blocks = triton.cdiv(M, 128)
@@ -737,7 +750,6 @@ else:
         x: torch.Tensor,
         tensor_scale: Optional[torch.Tensor] = None,
         rounding_mode: int = 0,
-        seed: int = 0,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         raise AssertionError("needs torch version 2.8+ and triton")
 
