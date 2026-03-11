@@ -8,10 +8,14 @@
 FP8 attention using FA4 backend.
 """
 
-from torchao.prototype.attention.fp8_fa4.attention import fp8_fa4_sdpa
+from torchao.prototype.attention.fp8_fa4.attention import (
+    fp8_fa4_rope_sdpa,
+    fp8_fa4_sdpa,
+)
 from torchao.prototype.attention.quantization import _fp8_sdpa_quantize
 
 __all__ = [
     "fp8_fa4_sdpa",
+    "fp8_fa4_rope_sdpa",
     "_fp8_sdpa_quantize",
 ]
