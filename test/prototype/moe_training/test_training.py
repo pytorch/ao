@@ -97,6 +97,11 @@ def test_moe_training(
 
     # FP8_ROWWISE hardware path requires SM90 (CUDA) or MI300/MI350 (ROCm)
     if recipe == Float8TrainingRecipe.FP8_ROWWISE:
+        if compile:
+            pytest.skip(
+                "https://github.com/pytorch/ao/issues/4048: 'FakeTensor' object has no attribute '__tensor_flatten__'"
+            )
+
         if is_ROCM():
             if not (is_MI300() or is_MI350()):
                 pytest.skip("FP8 rowwise test requires MI300 or MI350 on ROCm")

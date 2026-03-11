@@ -136,6 +136,9 @@ def generate_permute_indices(
     """
     Prepare permutation indices and the number of tokens for each expert.
     """
+    # if using generate_permute_indices, capture scalar outputs to avoid graph break
+    torch._dynamo.config.capture_scalar_outputs = True
+
     start_index_values = (
         torch.cumsum(tokens_per_expert_group, 0) - tokens_per_expert_group
     )

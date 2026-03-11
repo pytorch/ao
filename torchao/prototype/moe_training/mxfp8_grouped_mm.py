@@ -13,14 +13,14 @@ from torchao.prototype.moe_training.kernels.mxfp8 import (
     _mxfp8_cuda_kernels_available as _mxfp8_cuda_kernels_available_quant,
 )
 from torchao.prototype.moe_training.kernels.mxfp8 import (
-    fused_pad_token_groups_cuda,
-    fused_unpad_token_groups_cuda,
     mx_block_rearrange_2d_M_groups_cuda,
     mxfp8_quantize_cuda_3d,
-    torch_pad_token_groups,
-    torch_unpad_token_groups,
     triton_mx_block_rearrange_2d_K_groups,
     triton_mx_block_rearrange_per_group_3d,
+)
+from torchao.prototype.moe_training.utils import (
+    pad_token_groups,
+    unpad_token_groups,
 )
 from torchao.prototype.mx_formats.config import (
     MXFP8Dim1CastKernelChoice,
@@ -172,7 +172,7 @@ class _MXFP8GroupedMM(torch.autograd.Function):
         # Conditionally pad token groups if not aligned to block_size
         if pad_token_groups_for_grouped_mm:
             padded_input_act, padded_group_start_offsets, padded_group_end_offsets = (
-                pad_token_groups_func(
+                pad_token_groups(
                     input_act,
                     group_end_offsets,
                     alignment_size=block_size,
@@ -236,7 +236,7 @@ class _MXFP8GroupedMM(torch.autograd.Function):
 
         # Unpad output if padding was used
         if pad_token_groups_for_grouped_mm:
-            output = unpad_token_groups_func(
+            output = unpad_token_groups(
                 output,
                 group_end_offsets,
                 padded_group_start_offsets,
@@ -304,7 +304,7 @@ class _MXFP8GroupedMM(torch.autograd.Function):
         if pad_token_groups_for_grouped_mm:
             # padded start/end offsets same as what we saved from forward.
             # will be original offsets if we aren't using pad/unpad path
-            padded_grad_output, _, _ = pad_token_groups_func(
+            padded_grad_output, _, _ = pad_token_groups(
                 grad_output,
                 original_group_end_offsets,
                 alignment_size=block_size,
@@ -326,7 +326,7 @@ class _MXFP8GroupedMM(torch.autograd.Function):
 
         # Unpad grad_input if padding was used
         if pad_token_groups_for_grouped_mm:
-            grad_input = unpad_token_groups_func(
+            grad_input = unpad_token_groups(
                 grad_input,
                 original_group_end_offsets,
                 padded_group_start_offsets,
@@ -795,69 +795,6 @@ def _emulated_mxfp8_scaled_grouped_mm_2d_2d(
         A_dequant, B_dequant.transpose(-2, -1), offs=offs, out_dtype=out_dtype
     )
     return out
-
-
-def pad_token_groups_func(
-    input_act: torch.Tensor,
-    group_end_offsets: torch.Tensor,
-    alignment_size: int = 32,
-    kernel_preference: KernelPreference = KernelPreference.AUTO,
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    if kernel_preference == KernelPreference.EMULATED:
-        padded_input_act, padded_group_start_offsets, padded_group_end_offsets = (
-            torch_pad_token_groups(
-                input_act, group_end_offsets, alignment_size=alignment_size
-            )
-        )
-    else:
-        padded_input_act, padded_group_start_offsets, padded_group_end_offsets = (
-            fused_pad_token_groups_cuda(
-                input_act, group_end_offsets, alignment_size=alignment_size
-            )
-        )
-    return padded_input_act, padded_group_start_offsets, padded_group_end_offsets
-
-
-def unpad_token_groups_func(
-    padded_output: torch.Tensor,
-    original_group_end_offsets: torch.Tensor,
-    padded_group_start_offsets: torch.Tensor,
-    num_tokens: int,
-    alignment_size: int = 32,
-    kernel_preference: KernelPreference = KernelPreference.AUTO,
-) -> torch.Tensor:
-    """
-    Unpad token groups by removing padding added by pad_token_groups_func.
-
-    Args:
-        padded_output: Padded output tensor of shape (padded_M, N)
-        original_group_end_offsets: Original group end offsets before padding
-        padded_group_start_offsets: Padded group start offsets from pad_token_groups_func
-        num_tokens: Number of tokens in the unpadded output (from before padding)
-        alignment_size: Alignment size used for padding (typically 32)
-        kernel_preference: Kernel preference (EMULATED or AUTO)
-
-    Returns:
-        Unpadded output tensor of shape (M, N)
-    """
-    # Unpad using appropriate implementation
-    if kernel_preference == KernelPreference.EMULATED or not _SM100_KERNELS_AVAILABLE:
-        unpadded_output = torch_unpad_token_groups(
-            padded_output,
-            original_group_end_offsets,
-            padded_group_start_offsets,
-            num_tokens,
-            alignment_size,
-        )
-    else:
-        unpadded_output = fused_unpad_token_groups_cuda(
-            padded_output,
-            original_group_end_offsets,
-            padded_group_start_offsets,
-            num_tokens,
-            alignment_size,
-        )
-    return unpadded_output
 
 
 def round_up(x, y):

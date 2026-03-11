@@ -57,6 +57,8 @@ class Float8TrainingOpConfig(TrainingOpBaseConfig):
     # Output dtype for the FP8 grouped GEMMs.
     out_dtype: Optional[torch.dtype] = torch.bfloat16
 
+    # TODO: support pad_token_groups_for_grouped_mm field like MXFP8TrainingOpConfig
+
     @classmethod
     def from_recipe(
         cls,
