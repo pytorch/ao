@@ -12,19 +12,9 @@ that are not traceable by torch.compile. Registering them as custom_ops
 tells the compiler to treat them as opaque nodes with known shapes/dtypes.
 """
 
-from functools import partial
 from typing import Callable, NamedTuple
 
 import torch
-import torch._inductor.config as inductor_config
-import torch.nn as nn
-
-from torchao.prototype.attention.shared_utils.fusion_utils import (
-    detect_causal_mask,
-)
-from torchao.prototype.attention.shared_utils.fusion_utils import (
-    rope_sdpa_fusion_pass as _shared_fusion_pass,
-)
 
 
 class RegisteredOps(NamedTuple):
@@ -120,42 +110,3 @@ def register_fp8_attention_ops(
     fp8_sdpa_op = getattr(getattr(torch.ops, "torchao"), f"fp8_{backend}_sdpa").default
 
     return RegisteredOps(rope_sdpa_op=rope_sdpa_op, fp8_sdpa_op=fp8_sdpa_op)
-
-
-def make_backend_fn(
-    ops: RegisteredOps,
-    backend_name: str,
-    flash_impl_name: str,
-    max_head_dim: int = 256,
-) -> Callable:
-    """Return a ``make_fp8_backend(model, fuse_rope_using_torch_compile)`` function for a backend."""
-
-    def make_fp8_backend(
-        model: nn.Module,
-        fuse_rope_using_torch_compile: bool,
-    ) -> Callable:
-        from torch._inductor.compile_fx import compile_fx
-
-        strip_causal_mask = detect_causal_mask(model, flash_impl_name=flash_impl_name)
-
-        pass_fn = partial(
-            _shared_fusion_pass,
-            rope_sdpa_op=ops.rope_sdpa_op,
-            fp8_sdpa_op=ops.fp8_sdpa_op,
-            max_head_dim=max_head_dim,
-            backend_name=backend_name,
-            fuse_rope=fuse_rope_using_torch_compile,
-            strip_causal_mask=strip_causal_mask,
-        )
-
-        def fp8_attention_backend(gm, example_inputs):
-            old_pass = inductor_config.pre_grad_custom_pass
-            inductor_config.pre_grad_custom_pass = pass_fn
-            try:
-                return compile_fx(gm, example_inputs)
-            finally:
-                inductor_config.pre_grad_custom_pass = old_pass
-
-        return fp8_attention_backend
-
-    return make_fp8_backend
