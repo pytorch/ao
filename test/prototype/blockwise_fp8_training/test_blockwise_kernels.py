@@ -10,6 +10,7 @@ import torch
 triton = pytest.importorskip("triton", reason="Triton required to run this test")
 
 from packaging import version
+from torchao.float8.config import e4m3_dtype
 from torchao.float8.float8_utils import compute_error
 from torchao.prototype.blockwise_fp8_training.kernels import (
     torch_blockwise_scale_act_quant_lhs,
@@ -23,8 +24,7 @@ from torchao.prototype.blockwise_fp8_training.kernels import (
     triton_fp8_gemm_1x128_128x1,
     triton_fp8_gemm_1x128_128x128,
 )
-from torchao.testing.utils import skip_if_rocm
-from torchao.utils import is_sm_at_least_90
+from torchao.utils import is_MI300, is_MI350, is_sm_at_least_90
 
 BLOCKWISE_SIZE_MNK = [
     # (128, 128, 128),
@@ -39,15 +39,17 @@ BLOCKWISE_SIZE_MNK = [
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.skipif(not is_sm_at_least_90(), reason="Requires CUDA capability >= 9.0")
+@pytest.mark.skipif(
+    not (is_sm_at_least_90() or is_MI300() or is_MI350()),
+    reason="Requires FP8-capable GPU (CUDA SM90+, MI300, or MI350)",
+)
 @pytest.mark.skipif(
     version.parse(triton.__version__) < version.parse("3.3.0"),
     reason="Triton version < 3.3.0, test skipped",
 )
 @pytest.mark.parametrize("M, N, K", BLOCKWISE_SIZE_MNK)
-@pytest.mark.parametrize("dtype", [torch.float8_e4m3fn])
+@pytest.mark.parametrize("dtype", [e4m3_dtype])
 def test_triton_fp8_gemm_1x128_128x128(M, N, K, dtype):
-    # Simulate output = input @ weight.T
     A = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
     B = torch.randn(N, K, dtype=torch.bfloat16, device="cuda")
     C = A @ B.T
@@ -64,15 +66,17 @@ def test_triton_fp8_gemm_1x128_128x128(M, N, K, dtype):
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.skipif(not is_sm_at_least_90(), reason="Requires CUDA capability >= 9.0")
+@pytest.mark.skipif(
+    not (is_sm_at_least_90() or is_MI300() or is_MI350()),
+    reason="Requires FP8-capable GPU (CUDA SM90+, MI300, or MI350)",
+)
 @pytest.mark.skipif(
     version.parse(triton.__version__) < version.parse("3.3.0"),
     reason="Triton version < 3.3.0, test skipped",
 )
 @pytest.mark.parametrize("M, N, K", BLOCKWISE_SIZE_MNK)
-@pytest.mark.parametrize("dtype", [torch.float8_e4m3fn])
+@pytest.mark.parametrize("dtype", [e4m3_dtype])
 def test_triton_fp8_gemm_1x128_128x1(M, N, K, dtype):
-    # Simulate grad_weight = grad_output_t @ input
     A = torch.randn(K, M, dtype=torch.bfloat16, device="cuda")
     B = torch.randn(K, N, dtype=torch.bfloat16, device="cuda")
     C = A.T @ B
@@ -89,35 +93,32 @@ def test_triton_fp8_gemm_1x128_128x1(M, N, K, dtype):
     assert sqnr >= min_sqnr, f"SQNR {sqnr:.2f} must be >= {min_sqnr}"
 
 
-@skip_if_rocm("ROCm not supported")
-@pytest.mark.skipif(not is_sm_at_least_90(), reason="Requires CUDA capability >= 9.0")
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(
+    not (is_sm_at_least_90() or is_MI300() or is_MI350()),
+    reason="Requires FP8-capable GPU (CUDA SM90+, MI300, or MI350)",
+)
 @pytest.mark.parametrize("block_size", [128, 256])
 def test_triton_quantize_fp8_act_quant_lhs(block_size):
     device = "cuda"
     M, K = 4096, 1024
     x = torch.randn(M, K, device=device)
 
-    # Set one scaling block to 0s, so if nan guards/EPS are not applied, the
-    # quantized tensor will have NaNs due to division by 0
     x[0, :block_size] = 0.0
 
-    # Get the quantized tensor and reciprocal scales using triton implementation
     triton_fp8, triton_scale = triton_fp8_blockwise_act_quant_lhs(
         x,
         block_size=block_size,
     )
 
-    # Get the quantized tensor and reciprocal scales using reference implementation
     ref_fp8, ref_scale = torch_blockwise_scale_act_quant_lhs(x, tile_size=block_size)
 
     assert not triton_fp8.isnan().any(), "fp8 output must not contain NaNs"
     assert not ref_fp8.isnan().any(), "fp8 output must not contain NaNs"
 
-    # Convert both to float32 for comparison
     triton_fp32 = triton_fp8.to(torch.float32)
     ref_fp32 = ref_fp8.to(torch.float32)
 
-    # Check that the quantized tensors are close
     torch.testing.assert_close(
         triton_fp32,
         ref_fp32,
@@ -126,7 +127,6 @@ def test_triton_quantize_fp8_act_quant_lhs(block_size):
         msg=f"Quantized tensors differ: max diff = {(triton_fp32 - ref_fp32).abs().max().item()}",
     )
 
-    # Compare reciprocal scales
     torch.testing.assert_close(
         triton_scale,
         ref_scale,
@@ -136,35 +136,32 @@ def test_triton_quantize_fp8_act_quant_lhs(block_size):
     )
 
 
-@skip_if_rocm("ROCm not supported")
-@pytest.mark.skipif(not is_sm_at_least_90(), reason="Requires CUDA capability >= 9.0")
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(
+    not (is_sm_at_least_90() or is_MI300() or is_MI350()),
+    reason="Requires FP8-capable GPU (CUDA SM90+, MI300, or MI350)",
+)
 @pytest.mark.parametrize("block_size", [128, 256])
 def test_triton_quantize_fp8_act_quant_rhs(block_size: int):
     device = "cuda"
     M, K = 4096, 1024
     x = torch.randn(M, K, device=device)
 
-    # Set one block to 0s, so if nan guards/EPS are not applied, the
-    # quantized tensor will have NaNs due to division by 0
     x[:block_size, :block_size] = 0.0
 
-    # Get the quantized tensor and reciprocal scales using triton implementation
     triton_fp8, triton_scale = triton_fp8_blockwise_act_quant_rhs(
         x,
         block_size=block_size,
     )
 
-    # Get the quantized tensor and reciprocal scales using reference implementation
     ref_fp8, ref_scale = torch_blockwise_scale_act_quant_rhs(x, block_size=block_size)
 
     assert not triton_fp8.isnan().any(), "fp8 output must not contain NaNs"
     assert not ref_fp8.isnan().any(), "fp8 output must not contain NaNs"
 
-    # Convert both to float32 for comparison
     triton_fp32 = triton_fp8.to(torch.float32)
     ref_fp32 = ref_fp8.to(torch.float32)
 
-    # Check that the quantized tensors are close
     torch.testing.assert_close(
         triton_fp32,
         ref_fp32,
@@ -173,7 +170,6 @@ def test_triton_quantize_fp8_act_quant_rhs(block_size: int):
         msg=f"Quantized tensors differ: max diff = {(triton_fp32 - ref_fp32).abs().max().item()}",
     )
 
-    # Compare reciprocal scales
     torch.testing.assert_close(
         triton_scale,
         ref_scale,
@@ -183,25 +179,24 @@ def test_triton_quantize_fp8_act_quant_rhs(block_size: int):
     )
 
 
-@skip_if_rocm("ROCm not supported")
-@pytest.mark.skipif(not is_sm_at_least_90(), reason="Requires CUDA capability >= 9.0")
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(
+    not (is_sm_at_least_90() or is_MI300() or is_MI350()),
+    reason="Requires FP8-capable GPU (CUDA SM90+, MI300, or MI350)",
+)
 @pytest.mark.parametrize("block_size", [128, 256])
 @pytest.mark.parametrize("M,K", [(4096, 1024), (4096, 4 * 4096)])
 def test_triton_quantize_fp8_act_quant_transposed_lhs(M, K, block_size: int):
     device = "cuda"
     x = torch.randn(M, K, device=device)
 
-    # Set one scaling block to 0s, so if nan guards/EPS are not applied, the
-    # quantized tensor will have NaNs due to division by 0
     x[0, :block_size] = 0.0
 
-    # Get the quantized tensor and reciprocal scales using triton implementation
     triton_fp8, triton_scale = triton_fp8_blockwise_act_quant_transposed_lhs(
         x,
         block_size=block_size,
     )
 
-    # Get the quantized tensor and reciprocal scales using reference implementation
     ref_fp8, ref_scale = torch_blockwise_scale_act_quant_lhs(
         x.t().contiguous(), tile_size=block_size
     )
@@ -209,11 +204,9 @@ def test_triton_quantize_fp8_act_quant_transposed_lhs(M, K, block_size: int):
     assert not triton_fp8.isnan().any(), "fp8 output must not contain NaNs"
     assert not ref_fp8.isnan().any(), "fp8 output must not contain NaNs"
 
-    # Convert both to float32 for comparison
     triton_fp32 = triton_fp8.to(torch.float32)
     ref_fp32 = ref_fp8.to(torch.float32)
 
-    # Check that the quantized tensors are close
     torch.testing.assert_close(
         triton_fp32,
         ref_fp32,
@@ -222,7 +215,6 @@ def test_triton_quantize_fp8_act_quant_transposed_lhs(M, K, block_size: int):
         msg=f"Quantized tensors differ: max diff = {(triton_fp32 - ref_fp32).abs().max().item()}",
     )
 
-    # Compare reciprocal scales
     torch.testing.assert_close(
         triton_scale,
         ref_scale,
@@ -232,34 +224,31 @@ def test_triton_quantize_fp8_act_quant_transposed_lhs(M, K, block_size: int):
     )
 
 
-@skip_if_rocm("ROCm not supported")
-@pytest.mark.skipif(not is_sm_at_least_90(), reason="Requires CUDA capability >= 9.0")
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(
+    not (is_sm_at_least_90() or is_MI300() or is_MI350()),
+    reason="Requires FP8-capable GPU (CUDA SM90+, MI300, or MI350)",
+)
 @pytest.mark.parametrize("block_size", [128, 256])
 @pytest.mark.parametrize("M,K", [(4096, 1024), (4096, 4 * 4096)])
 def test_triton_quantize_fp8_weight_quant_rhs(M, K, block_size: int):
     device = "cuda"
     x = torch.randn(M, K, device=device)
 
-    # Set one scaling block to 0s, so if nan guards/EPS are not applied, the
-    # quantized tensor will have NaNs due to division by 0
     x[:block_size, :block_size] = 0.0
 
-    # Get the quantized tensor and reciprocal scales using triton implementation
     triton_fp8, triton_scale = triton_fp8_blockwise_weight_quant_rhs(
         x,
         block_size=block_size,
     )
-    # Get the quantized tensor and reciprocal scales using reference implementation
     ref_fp8, ref_scale = torch_blockwise_scale_weight_quant(x, tile_size=block_size)
 
     assert not ref_fp8.isnan().any(), "fp8 output must not contain NaNs"
     assert not triton_fp8.isnan().any(), "fp8 output must not contain NaNs"
 
-    # Convert both to float32 for comparison
     triton_fp32 = triton_fp8.to(torch.float32)
     ref_fp32 = ref_fp8.to(torch.float32)
 
-    # Check that the quantized tensors are close
     torch.testing.assert_close(
         triton_fp32,
         ref_fp32,
@@ -268,7 +257,6 @@ def test_triton_quantize_fp8_weight_quant_rhs(M, K, block_size: int):
         msg=f"Quantized tensors differ: max diff = {(triton_fp32 - ref_fp32).abs().max().item()}",
     )
 
-    # Compare reciprocal scales
     torch.testing.assert_close(
         triton_scale,
         ref_scale,
@@ -278,8 +266,11 @@ def test_triton_quantize_fp8_weight_quant_rhs(M, K, block_size: int):
     )
 
 
-@skip_if_rocm("ROCm not supported")
-@pytest.mark.skipif(not is_sm_at_least_90(), reason="Requires CUDA capability >= 9.0")
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(
+    not (is_sm_at_least_90() or is_MI300() or is_MI350()),
+    reason="Requires FP8-capable GPU (CUDA SM90+, MI300, or MI350)",
+)
 @pytest.mark.parametrize("block_size", [128, 256])
 def test_triton_quantize_fp8_weight_quant_transposed_rhs(block_size: int):
     device = "cuda"
@@ -287,16 +278,12 @@ def test_triton_quantize_fp8_weight_quant_transposed_rhs(block_size: int):
     K = 2048
     x = torch.randn(M, K, device=device)
 
-    # Set one scaling block to 0s, so if nan guards/EPS are not applied, the
-    # quantized tensor will have NaNs due to division by 0
     x[:block_size, :block_size] = 0.0
 
-    # Get the quantized tensor and reciprocal scales using triton implementation
     triton_fp8, triton_scale = triton_fp8_blockwise_weight_quant_transposed_rhs(
         x,
         block_size=block_size,
     )
-    # Get the quantized tensor and reciprocal scales using reference implementation
     ref_fp8, ref_scale = torch_blockwise_scale_weight_quant(
         x.t().contiguous(), tile_size=block_size
     )
@@ -304,11 +291,9 @@ def test_triton_quantize_fp8_weight_quant_transposed_rhs(block_size: int):
     assert not ref_fp8.isnan().any(), "fp8 output must not contain NaNs"
     assert not triton_fp8.isnan().any(), "fp8 output must not contain NaNs"
 
-    # Convert both to float32 for comparison
     triton_fp32 = triton_fp8.to(torch.float32)
     ref_fp32 = ref_fp8.to(torch.float32)
 
-    # Check that the quantized tensors are close
     torch.testing.assert_close(
         triton_fp32,
         ref_fp32,
@@ -317,7 +302,6 @@ def test_triton_quantize_fp8_weight_quant_transposed_rhs(block_size: int):
         msg=f"Quantized tensors differ: max diff = {(triton_fp32 - ref_fp32).abs().max().item()}",
     )
 
-    # Compare reciprocal scales
     torch.testing.assert_close(
         triton_scale,
         ref_scale,

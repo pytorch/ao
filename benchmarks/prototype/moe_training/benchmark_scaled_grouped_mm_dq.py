@@ -65,31 +65,14 @@ class Experiment:
 
 def get_configs() -> List[ExperimentConfig]:
     MNKG_list = [
-        # Llama4 16e with various experts per device (i.e., different EP degrees)
-        (16384, 8192, 5120, 1),
-        (16384, 8192, 5120, 2),
-        (16384, 8192, 5120, 4),
-        (16384, 8192, 5120, 8),
+        # Llama4 16e with various experts per device (i.e., EP degree=8 or 16
+        (32768, 8192, 5120, 1),
+        (32768, 8192, 5120, 2),
         (128000, 8192, 5120, 1),
         (128000, 8192, 5120, 2),
-        (128000, 8192, 5120, 4),
-        (128000, 8192, 5120, 8),
-        # DSV3 236B with various experts per device (i.e., different EP degrees)
-        (16384, 1536, 5120, 1),
-        (16384, 1536, 5120, 2),
-        (16384, 1536, 5120, 4),
-        (16384, 1536, 5120, 8),
-        (128000, 1536, 5120, 1),
-        (128000, 1536, 5120, 2),
-        (128000, 1536, 5120, 4),
-        (128000, 1536, 5120, 8),
-        # DSV3 671B with various experts per device (i.e., different EP degrees)
-        (16384, 2048, 7168, 1),
-        (16384, 2048, 7168, 2),
-        (16384, 2048, 7168, 4),
-        (16384, 2048, 7168, 8),
-        (128000, 2048, 7168, 1),
-        (128000, 2048, 7168, 2),
+        # DSV3 671B with various experts per device (i.e., EP degree=32 or 64
+        (32768, 2048, 7168, 4),
+        (32768, 2048, 7168, 8),
         (128000, 2048, 7168, 4),
         (128000, 2048, 7168, 8),
     ]
@@ -133,20 +116,7 @@ def run_experiment(
         requires_grad=True,
     ).transpose(-2, -1)
 
-    # - configure input to be row-major with groups divided along the column dimension,
-    #   representing the left operand of grad_weight = grad_output_t @ input
-    #   that occurs in the backward pass of the differentiable scaled grouped mm.
-    # - the transposed tensor in col-major format with groups along the row dimension,
-    #    which represents the right operand.
-    token_group_alignment_size = (
-        16 if config.recipe == Float8TrainingRecipe.FP8_ROWWISE else 32
-    )
-
-    offs = generate_jagged_offs(G, total_M, multiple_of=token_group_alignment_size)
-
-    labels = torch.ones(
-        (A.shape[0], B_t.shape[-1]), device=device, dtype=torch.bfloat16
-    )
+    offs = generate_jagged_offs(G, total_M, multiple_of=1)
 
     # fwd_bwd bf16 benchmark + profiling
     bf16_fwd_bwd_us = bench_fwd_bwd_microseconds(
@@ -154,7 +124,6 @@ def run_experiment(
         A,
         B_t,
         offs,
-        labels=labels,
         use_compile=args.compile,
         fullgraph=False,
     )
@@ -164,7 +133,6 @@ def run_experiment(
             A,
             B_t,
             offs,
-            labels=labels,
             use_compile=args.compile,
             fullgraph=False,
             profile_name="bf16_profile",
@@ -183,7 +151,6 @@ def run_experiment(
         B_t,
         quant_config,
         offs,
-        labels=labels,
         use_compile=args.compile,
         fullgraph=False,
     )
@@ -194,7 +161,6 @@ def run_experiment(
             B_t,
             quant_config,
             offs,
-            labels=labels,
             use_compile=args.compile,
             profile_name="scaled_profile",
             fullgraph=False,
