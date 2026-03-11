@@ -23,6 +23,9 @@ from torchao.prototype.attention.shared_utils.attention import (
     _fp8_rope_sdpa,
     _fp8_sdpa,
 )
+from torchao.prototype.attention.shared_utils.custom_ops import (
+    register_fp8_attention_ops,
+)
 
 fp8_fa3_sdpa = partial(_fp8_sdpa, backend_name="FA3")
 fp8_fa3_sdpa.__doc__ = _fp8_sdpa.__doc__
@@ -33,3 +36,9 @@ fp8_fa3_rope_sdpa = partial(_fp8_rope_sdpa, backend_name="FA3")
 fp8_fa3_rope_sdpa.__doc__ = _fp8_rope_sdpa.__doc__
 fp8_fa3_rope_sdpa.__name__ = "fp8_fa3_rope_sdpa"
 fp8_fa3_rope_sdpa.__qualname__ = "fp8_fa3_rope_sdpa"
+
+_ops = register_fp8_attention_ops(
+    backend_name="fa3",
+    rope_sdpa_fn=fp8_fa3_rope_sdpa,
+    sdpa_fn=fp8_fa3_sdpa,
+)
