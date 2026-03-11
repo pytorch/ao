@@ -60,7 +60,6 @@ def _check_backend_available(backend: AttentionBackend) -> None:
 def apply_low_precision_attention(
     model: nn.Module,
     backend: Optional[AttentionBackend] = None,
-    fuse_rope_using_torch_compile: bool = False,
 ) -> nn.Module:
     """Apply low-precision attention to a model.
 
@@ -68,12 +67,12 @@ def apply_low_precision_attention(
     disabled before calling (e.g., ``config.use_cache = False`` for
     HuggingFace models).
 
-    When ``fuse_rope_using_torch_compile=True``, the returned wrapper
-    exposes a ``compile_backend`` attribute. You must compile with it to get
-    the RoPE fusion::
+    This replaces ``F.scaled_dot_product_attention`` with an FP8 SDPA
+    for eager execution and sets a global pre-grad pass so that
+    ``torch.compile`` will automatically fuse RoPE where detected::
 
-        model = apply_low_precision_attention(model, fuse_rope_using_torch_compile=True)
-        model = torch.compile(model, backend=model.compile_backend)
+        model = apply_low_precision_attention(model)
+        model = torch.compile(model)   # RoPE fusion happens automatically
     """
     if isinstance(model, _LowPrecisionAttentionWrapper):
         raise RuntimeError(
@@ -90,6 +89,6 @@ def apply_low_precision_attention(
         _check_backend_available(backend)
 
     if backend == AttentionBackend.FP8_FA3:
-        return setup_fp8_backend(model, "FA3", fuse_rope_using_torch_compile)
+        return setup_fp8_backend(model, "FA3")
 
     raise ValueError(f"Unknown backend: {backend}")
