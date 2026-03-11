@@ -59,6 +59,7 @@ if not torch_version_at_least("2.8.0"):
 if has_triton() and torch.cuda.is_available() and is_sm_at_least_100():
     import triton
     import triton.language as tl
+
     from torchao.prototype.mx_formats.kernels import (
         convert_fp32_to_fp4_packed,
         convert_fp32_to_fp4_packed_rs,
@@ -66,7 +67,11 @@ if has_triton() and torch.cuda.is_available() and is_sm_at_least_100():
 
     @triton.jit
     def _triton_f4_pack_kernel(
-        x_ptr, out_ptr, N, seed, ROUNDING_MODE: tl.constexpr,
+        x_ptr,
+        out_ptr,
+        N,
+        seed_ptr,
+        ROUNDING_MODE: tl.constexpr,
     ):
         """Thin wrapper to test convert_fp32_to_fp4_packed{,_rs} in isolation."""
         pid = tl.program_id(0)
@@ -78,20 +83,27 @@ if has_triton() and torch.cuda.is_available() and is_sm_at_least_100():
             x_fp4x2 = convert_fp32_to_fp4_packed(x_pairs)
         else:
             out_offs = pid * 32 + tl.arange(0, 32)
+            seed = tl.load(seed_ptr)
             rbits = tl.randint(seed, out_offs)
             x_fp4x2 = convert_fp32_to_fp4_packed_rs(x_pairs, rbits)
         out_offs = pid * 32 + tl.arange(0, 32)
         tl.store(out_ptr + out_offs, x_fp4x2, mask=out_offs < N // 2)
 
-    def triton_f4_pack(x, rounding_mode=RoundingMode.RN, seed=0):
+    def triton_f4_pack(x, rounding_mode=RoundingMode.RN):
         """Pack FP32 values to FP4 using Triton convert_fp32_to_fp4_packed{,_rs}."""
         N = x.numel()
         out = torch.empty(N // 2, dtype=torch.uint8, device=x.device)
+        seed = torch.randint(0, 2**31, (1,), dtype=torch.int32, device=x.device)
         grid = (triton.cdiv(N, 64),)
         _triton_f4_pack_kernel[grid](
-            x, out, N, seed, ROUNDING_MODE=rounding_mode.value,
+            x,
+            out,
+            N,
+            seed,
+            ROUNDING_MODE=rounding_mode.value,
         )
         return out
+
 
 FP4_RN_EXPECTED = [(5.2, 6.0), (-5.2, -6.0)]
 
@@ -107,22 +119,25 @@ _triton_kernel_params = [
 ]
 
 
-def _f4_quantize(x, rounding_mode, use_triton, seed=None):
+def _f4_quantize(x, rounding_mode, use_triton):
     """Quantize FP32 to FP4 and dequantize, using either PyTorch or Triton kernel."""
     if rounding_mode not in RoundingMode:
         raise ValueError(
             f"Unknown rounding_mode: {rounding_mode}. "
             f"Expected RoundingMode.RN or RoundingMode.RS."
         )
-    if seed is not None and not use_triton:
-        torch.manual_seed(seed)
     if use_triton:
-        if seed is None:
-            seed = torch.randint(2**31, (1,)).item()
-        xq = triton_f4_pack(x.flatten(), rounding_mode=rounding_mode, seed=seed)
+        xq = triton_f4_pack(x.flatten(), rounding_mode=rounding_mode)
         return f4_unpacked_to_f32(unpack_uint4(xq))
     else:
-        return f4_unpacked_to_f32(f32_to_f4_unpacked(x, rounding_mode=rounding_mode))
+        rand_bits = (
+            torch.randint(0, 2**31, x.shape, dtype=torch.int32, device=x.device)
+            if rounding_mode == RoundingMode.RS
+            else None
+        )
+        return f4_unpacked_to_f32(
+            f32_to_f4_unpacked(x, rounding_mode=rounding_mode, rand_bits=rand_bits)
+        )
 
 
 # TODO: shared utils file for benchmarking and testing
@@ -1019,21 +1034,19 @@ def test_triton_mxfp8_dim0_large_tensor_offset_no_overflow(scaling_mode):
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.parametrize("use_triton", _triton_kernel_params)
 @pytest.mark.parametrize("rounding_mode", [RoundingMode.RN, RoundingMode.RS, 99])
-@pytest.mark.parametrize("seed_a,seed_b", [(42, 42), (42, 123)])
 @pytest.mark.parametrize("shape", [(1024, 128)])
 @pytest.mark.parametrize("value,rn_expected", FP4_RN_EXPECTED)
-def test_f4_rounding(value, rn_expected, shape, seed_a, seed_b, rounding_mode, use_triton):
-    """Test FP4 rounding: RN is biased, RS is unbiased, RS respects seed, invalid raises."""
+def test_f4_rounding(value, rn_expected, shape, rounding_mode, use_triton):
+    """Test FP4 rounding: RN is biased, RS is unbiased, invalid raises."""
     x = torch.ones(*shape, device="cuda", dtype=torch.bfloat16) * value
 
     if rounding_mode not in RoundingMode:
         with pytest.raises(ValueError, match="Unknown rounding_mode"):
-            _f4_quantize(x.float(), rounding_mode, use_triton, seed=seed_a)
+            _f4_quantize(x.float(), rounding_mode, use_triton)
         return
 
     rtol = 1e-2
-    r1 = _f4_quantize(x.float(), rounding_mode, use_triton, seed=seed_a)
-    r2 = _f4_quantize(x.float(), rounding_mode, use_triton, seed=seed_b)
+    r1 = _f4_quantize(x.float(), rounding_mode, use_triton)
 
     # Check rounding behavior via mean
     r1_mean = torch.mean(r1)
@@ -1043,8 +1056,10 @@ def test_f4_rounding(value, rn_expected, shape, seed_a, seed_b, rounding_mode, u
         input_mean = torch.mean(x.float())
         torch.testing.assert_close(r1_mean, input_mean, rtol=rtol, atol=rtol)
 
-    # Check seed determinism
-    if seed_a == seed_b:
-        torch.testing.assert_close(r1, r2, atol=0, rtol=0)
-    elif rounding_mode == RoundingMode.RS:
-        assert not torch.allclose(r1, r2)
+    # Check torch.manual_seed() determinism for RS
+    if rounding_mode == RoundingMode.RS:
+        torch.manual_seed(42)
+        r_a = _f4_quantize(x.float(), rounding_mode, use_triton)
+        torch.manual_seed(42)
+        r_b = _f4_quantize(x.float(), rounding_mode, use_triton)
+        torch.testing.assert_close(r_a, r_b, atol=0, rtol=0)
