@@ -49,7 +49,7 @@ _ALL_TEST_CONFIGS = [
 
 # Int4WeightOnlyConfig with tinygemm uses sm90a CUTLASS kernels which are not
 # forward-compatible with sm100+
-if not is_sm_at_least_100():
+if not torch.xpu.is_available() and not is_sm_at_least_100():
     _ALL_TEST_CONFIGS += [
         (Int4WeightOnlyConfig(), False),
         (Int4WeightOnlyConfig(), True),
@@ -63,7 +63,7 @@ if _DEVICE in ("xpu"):
     ]
 
 # MX and NVFP4 configs require torch >= 2.11
-if torch_version_at_least("2.11.0.dev"):
+if not torch.xpu.is_available() and torch_version_at_least("2.11.0.dev"):
     _ALL_TEST_CONFIGS += [
         (MXDynamicActivationMXWeightConfig(), False),
         (NVFP4DynamicActivationNVFP4WeightConfig(), False),
