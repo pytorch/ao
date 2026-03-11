@@ -19,9 +19,11 @@ from torchao.prototype.mx_formats.nvfp4_tensor import (
     unpack_uint4,
 )
 from torchao.prototype.mx_formats.utils import ceil_div
+from torchao.quantization.quantize_.common.kernel_preference import KernelPreference
 from torchao.quantization.utils import compute_error
-from torchao.testing.utils import skip_if_rocm
 from torchao.utils import (
+    is_MI350,
+    is_ROCM,
     is_sm_at_least_100,
     torch_version_at_least,
 )
@@ -440,10 +442,6 @@ def test_triton_nvfp4_quantize_equivalence(M, N, use_per_tensor_scale, dtype):
     ids=lambda s: f"{s[0]}x{s[1]}x{s[2]}",
 )
 @torch.no_grad()
-@skip_if_rocm("ROCm float4 gemm require gfx950")
-@pytest.mark.skipif(
-    not is_sm_at_least_100(), reason="CUDA capability >= 10.0 required for fp4"
-)
 def test_nvfp4_matmul_with_amax(
     use_gelu: bool,
     quant_type: str,
@@ -453,9 +451,17 @@ def test_nvfp4_matmul_with_amax(
     use_triton_kernel: bool,
     shapes: tuple,
 ):
-    # DYNAMIC mode requires SM100+, but WEIGHT_ONLY works on older GPUs
-    if quant_type == "dynamic" and not is_sm_at_least_100():
-        pytest.skip("CUDA capability >= 10.0 required for DYNAMIC float4 gemm")
+    if is_ROCM():
+        if use_triton_kernel:
+            pytest.skip("Triton NVFP4 quantization kernel requires CUDA SM100+")
+        if quant_type == "dynamic" and not is_MI350():
+            kernel_pref = KernelPreference.EMULATED
+        else:
+            kernel_pref = KernelPreference.AUTO
+    else:
+        if not is_sm_at_least_100():
+            pytest.skip("CUDA capability >= 10.0 required for fp4")
+        kernel_pref = KernelPreference.AUTO
 
     if bias and inpt_dtype == torch.float32:
         pytest.xfail("Bias is not supported when module weight is in fp32")
@@ -482,12 +488,15 @@ def test_nvfp4_matmul_with_amax(
     b_scale = per_tensor_amax_to_scale(torch.amax(torch.abs(B)))
     act_quant_kwargs = None
     if quant_type == "dynamic":
-        act_quant_kwargs = QuantizeTensorToNVFP4Kwargs()
+        act_quant_kwargs = QuantizeTensorToNVFP4Kwargs(
+            kernel_preference=kernel_pref,
+        )
     A_nvfp4 = NVFP4Tensor.to_nvfp4(
         A,
         per_tensor_scale=a_scale,
         is_swizzled_scales=True,
         use_triton_kernel=use_triton_kernel,
+        kernel_preference=kernel_pref,
     )
     B_nvfp4 = NVFP4Tensor.to_nvfp4(
         B,
@@ -495,6 +504,7 @@ def test_nvfp4_matmul_with_amax(
         is_swizzled_scales=True,
         use_triton_kernel=use_triton_kernel,
         act_quant_kwargs=act_quant_kwargs,
+        kernel_preference=kernel_pref,
     )
 
     func = torch.compile(F.linear, fullgraph=True) if compile else F.linear

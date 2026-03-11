@@ -22,6 +22,8 @@ from torchao.quantization.quantize_.common import KernelPreference
 from torchao.quantization.utils import compute_error
 from torchao.testing.utils import TorchAOIntegrationTestCase, skip_if_rocm
 from torchao.utils import (
+    is_MI350,
+    is_ROCM,
     is_sm_at_least_89,
     is_sm_at_least_100,
     torch_version_at_least,
@@ -158,7 +160,6 @@ def test_inference_workflow_mx(
 @pytest.mark.parametrize("use_inference_mode", [False, True])
 @pytest.mark.parametrize("x_rank", [2, 3])
 @torch.no_grad()
-@skip_if_rocm("ROCm float4 gemm require gfx950")
 def test_inference_workflow_nvfp4(
     bias: bool,
     compile: bool,
@@ -174,9 +175,18 @@ def test_inference_workflow_nvfp4(
     Test NVFP4 recipe with scale_dtype=float8_e4m3fn and block_size=16
     Tests both DYNAMIC and WEIGHT_ONLY mm_config modes
     """
-    # DYNAMIC mode requires SM100+, but WEIGHT_ONLY works on older GPUs
-    if quant_type == "dynamic" and not is_sm_at_least_100():
-        pytest.skip("CUDA capability >= 10.0 required for DYNAMIC float4 gemm")
+    if is_ROCM():
+        if use_triton_kernel:
+            pytest.skip("Triton NVFP4 quantization kernel requires CUDA SM100+")
+        if quant_type == "dynamic" and not is_MI350():
+            kernel_pref = KernelPreference.EMULATED
+        else:
+            kernel_pref = KernelPreference.AUTO
+    else:
+        kernel_pref = KernelPreference.AUTO
+        if quant_type == "dynamic" and not is_sm_at_least_100():
+            pytest.skip("CUDA capability >= 10.0 required for DYNAMIC float4 gemm")
+
     if quant_type == "weight_only" and compile:
         pytest.skip("TODO: weight_only quant currently errors w/ compile")
     if quant_type == "weight_only" and use_triton_kernel:
@@ -200,6 +210,7 @@ def test_inference_workflow_nvfp4(
         config = NVFP4DynamicActivationNVFP4WeightConfig(
             use_triton_kernel=use_triton_kernel,
             use_dynamic_per_tensor_scale=use_dynamic_per_tensor_scale,
+            kernel_preference=kernel_pref,
         )
     else:
         config = NVFP4WeightOnlyConfig(
@@ -283,12 +294,8 @@ class VLLMIntegrationTestCase(TorchAOIntegrationTestCase):
 @pytest.mark.skipif(
     not torch_version_at_least("2.8.0"), reason="torch.compile requires PyTorch 2.8+"
 )
-@pytest.mark.skipif(
-    not is_sm_at_least_100(), reason="CUDA capability >= 10.0 required for NVFP4"
-)
 @pytest.mark.parametrize("bias", [True, False])
 @torch.no_grad()
-@skip_if_rocm("ROCm float4 gemm require gfx950")
 def test_nvfp4_static_quantization_flow(
     bias: bool,
 ):
@@ -301,6 +308,17 @@ def test_nvfp4_static_quantization_flow(
     3. convert step produces quantized weights with static activation scale
     4. Inference produces reasonable results (SQNR check)
     """
+    if is_ROCM():
+        kernel_pref = (
+            KernelPreference.EMULATED if not is_MI350() else KernelPreference.AUTO
+        )
+        use_triton = False
+    else:
+        if not is_sm_at_least_100():
+            pytest.skip("CUDA capability >= 10.0 required for NVFP4")
+        kernel_pref = KernelPreference.AUTO
+        use_triton = True
+
     from torchao.prototype.mx_formats.inference_workflow import NVFP4ObservedLinear
 
     in_features, out_features = 64, 256
@@ -333,7 +351,11 @@ def test_nvfp4_static_quantization_flow(
     # Step 3: Convert - extract scale and quantize
     quantize_(
         m,
-        NVFP4DynamicActivationNVFP4WeightConfig(step="convert"),
+        NVFP4DynamicActivationNVFP4WeightConfig(
+            step="convert",
+            kernel_preference=kernel_pref,
+            use_triton_kernel=use_triton,
+        ),
     )
 
     # Verify quantization was applied
@@ -365,11 +387,7 @@ def test_nvfp4_static_quantization_flow(
 @pytest.mark.skipif(
     not torch_version_at_least("2.8.0"), reason="torch.compile requires PyTorch 2.8+"
 )
-@pytest.mark.skipif(
-    not is_sm_at_least_100(), reason="CUDA capability >= 10.0 required for NVFP4"
-)
 @torch.no_grad()
-@skip_if_rocm("ROCm float4 gemm require gfx950")
 def test_nvfp4_static_vs_dynamic_quantization():
     """
     Test that static quantization matches dynamic quantization when calibrated
@@ -377,6 +395,15 @@ def test_nvfp4_static_vs_dynamic_quantization():
     per_tensor_scale statically, calibrating on the exact test input should
     produce the same per_tensor_scale as the dynamic path, yielding identical results.
     """
+    if is_ROCM():
+        kernel_pref = (
+            KernelPreference.EMULATED if not is_MI350() else KernelPreference.AUTO
+        )
+    else:
+        if not is_sm_at_least_100():
+            pytest.skip("CUDA capability >= 10.0 required for NVFP4")
+        kernel_pref = KernelPreference.AUTO
+
     in_features, out_features = 64, 256
     batch_size = 128
 
@@ -393,6 +420,7 @@ def test_nvfp4_static_vs_dynamic_quantization():
         NVFP4DynamicActivationNVFP4WeightConfig(
             use_triton_kernel=False,
             use_dynamic_per_tensor_scale=True,
+            kernel_preference=kernel_pref,
         ),
     )
 
@@ -415,6 +443,7 @@ def test_nvfp4_static_vs_dynamic_quantization():
         NVFP4DynamicActivationNVFP4WeightConfig(
             step="convert",
             use_triton_kernel=False,
+            kernel_preference=kernel_pref,
         ),
     )
 

@@ -32,6 +32,7 @@ from torchao.prototype.mx_formats.utils import (
 from torchao.quantization.quantize_.common import (
     QuantizeTensorKwargs,
 )
+from torchao.quantization.quantize_.common.kernel_preference import KernelPreference
 from torchao.utils import TorchAOBaseTensor, fill_defaults
 
 E4M3_EPS = torch.finfo(torch.float8_e4m3fn).tiny
@@ -45,6 +46,7 @@ class QuantizeTensorToNVFP4Kwargs(QuantizeTensorKwargs):
     is_swizzled_scales: bool = False
     use_triton_kernel: bool = False
     use_dynamic_per_tensor_scale: bool = False
+    kernel_preference: KernelPreference = KernelPreference.AUTO
 
 
 class NVFP4Tensor(TorchAOBaseTensor):
@@ -74,6 +76,7 @@ class NVFP4Tensor(TorchAOBaseTensor):
         "is_swizzled_scales",
         "use_triton_kernel",
         "act_quant_kwargs",
+        "kernel_preference",
     ]
 
     def __new__(
@@ -87,6 +90,7 @@ class NVFP4Tensor(TorchAOBaseTensor):
         is_swizzled_scales=False,
         use_triton_kernel=False,
         act_quant_kwargs=None,
+        kernel_preference=KernelPreference.AUTO,
     ):
         # FP4 tensor size handling two paths, contiguous or not
         new_size = qdata.size()
@@ -113,6 +117,7 @@ class NVFP4Tensor(TorchAOBaseTensor):
         self.is_swizzled_scales = is_swizzled_scales
         self.use_triton_kernel = use_triton_kernel
         self.act_quant_kwargs = act_quant_kwargs
+        self.kernel_preference = kernel_preference
         return self
 
     def __repr__(self):
@@ -130,6 +135,7 @@ class NVFP4Tensor(TorchAOBaseTensor):
         is_swizzled_scales: bool = False,
         use_triton_kernel: bool = False,
         act_quant_kwargs: Optional[QuantizeTensorToNVFP4Kwargs] = None,
+        kernel_preference: KernelPreference = KernelPreference.AUTO,
     ):
         """Convert high precision tensor to NVFP4 format.
 
@@ -184,6 +190,7 @@ class NVFP4Tensor(TorchAOBaseTensor):
             is_swizzled_scales,
             use_triton_kernel,
             act_quant_kwargs,
+            kernel_preference,
         )
 
     # Do not force the NVFP4Tensor type on the returned tensor
@@ -277,6 +284,7 @@ class NVFP4Tensor(TorchAOBaseTensor):
             and act_per_tensor_scale_equal
             and self.qdata.shape == src.qdata.shape
             and self.act_quant_kwargs == src.act_quant_kwargs
+            and self.kernel_preference == src.kernel_preference
         )
 
 
@@ -317,6 +325,7 @@ def nvfp4_to_copy(func, types, args, kwargs):
             tensor.is_swizzled_scales,
             tensor.use_triton_kernel,
             tensor.act_quant_kwargs,
+            tensor.kernel_preference,
         )
         return res
 
@@ -348,6 +357,7 @@ def nvfp4_slice(func, types, args, kwargs):
         x.is_swizzled_scales,
         x.use_triton_kernel,
         x.act_quant_kwargs,
+        x.kernel_preference,
     )
 
     return return_and_correct_aliasing(func, args, kwargs, result)
@@ -367,6 +377,7 @@ def nvfp4_t(func, types, args, kwargs):
         old.is_swizzled_scales,
         old.use_triton_kernel,
         old.act_quant_kwargs,
+        old.kernel_preference,
     )
     return new
 
@@ -389,6 +400,7 @@ def nvfp4_transpose(func, types, args, kwargs):
         old.is_swizzled_scales,
         old.use_triton_kernel,
         old.act_quant_kwargs,
+        old.kernel_preference,
     )
     return new
 
@@ -409,6 +421,7 @@ def nvfp4_view_op(func, types, args, kwargs):
         args[0].is_swizzled_scales,
         args[0].use_triton_kernel,
         args[0].act_quant_kwargs,
+        args[0].kernel_preference,
     )
 
 
@@ -427,8 +440,21 @@ def nvfp4_select(func, types, args, kwargs):
         old.is_swizzled_scales,
         old.use_triton_kernel,
         old.act_quant_kwargs,
+        old.kernel_preference,
     )
     return return_and_correct_aliasing(func, args, kwargs, new)
+
+
+def _resolve_nvfp4_kernel_preference(a_pref, b_pref):
+    """Resolve kernel preference between two NVFP4Tensors."""
+    if a_pref == KernelPreference.AUTO:
+        return b_pref
+    if b_pref == KernelPreference.AUTO:
+        return a_pref
+    assert a_pref == b_pref, (
+        "Both NVFP4Tensor inputs must have the same kernel preference"
+    )
+    return a_pref
 
 
 def _addmm_nvfp4_dispatch(
@@ -438,6 +464,18 @@ def _addmm_nvfp4_dispatch(
     Core implementation shared between nvfp4_mm, nvfp4_addmm, and nvfp4_linear.
     The only difference is whether bias is None or not.
     """
+    gemm_choice = _resolve_nvfp4_kernel_preference(
+        a.kernel_preference, b.kernel_preference
+    )
+
+    if gemm_choice == KernelPreference.EMULATED:
+        a_hp = a.dequantize(a.orig_dtype)
+        b_hp = b.dequantize(b.orig_dtype)
+        if bias is not None:
+            return torch.addmm(bias, a_hp, b_hp)
+        else:
+            return torch.mm(a_hp, b_hp)
+
     assert a.qdata.is_contiguous()
     assert a.scale.is_contiguous()
     assert b.qdata.t().is_contiguous()
@@ -551,6 +589,7 @@ def nvfp4_linear(func, types, args, kwargs):
             per_tensor_scale=per_tensor_scale,
             is_swizzled_scales=k.is_swizzled_scales,
             use_triton_kernel=k.use_triton_kernel,
+            kernel_preference=k.kernel_preference,
         )
         res = _addmm_nvfp4_dispatch(input_tensor, weight_tensor.t(), func, bias=bias)
         res = res.reshape(*orig_shape[:-1], res.shape[-1])
@@ -585,6 +624,7 @@ def nvfp4_mm(func, types, args, kwargs):
                 per_tensor_scale=per_tensor_scale,
                 is_swizzled_scales=k.is_swizzled_scales,
                 use_triton_kernel=k.use_triton_kernel,
+                kernel_preference=k.kernel_preference,
             )
         return _addmm_nvfp4_dispatch(input_tensor, weight_tensor, func)
 
@@ -618,6 +658,7 @@ def nvfp4_addmm(func, types, args, kwargs):
                 per_tensor_scale=per_tensor_scale,
                 is_swizzled_scales=k.is_swizzled_scales,
                 use_triton_kernel=k.use_triton_kernel,
+                kernel_preference=k.kernel_preference,
             )
         return _addmm_nvfp4_dispatch(input_tensor, weight_tensor, func, bias=bias)
 
