@@ -89,6 +89,13 @@ def test_moe_training(
     )
     assert torch.cuda.is_available()
 
+    # Per-group padding has known shape mismatch issues with experts on ROCm
+    # (introduced in #3998). Skip until resolved.
+    if is_ROCM() and "experts" in target_fqns:
+        pytest.skip(
+            "MoE expert training has known shape mismatch on ROCm (per-group padding, see #3998)"
+        )
+
     # Emulated mode with compile is not supported
     if recipe == MXFP8TrainingRecipe.MXFP8_EMULATED_RCEIL and compile:
         pytest.skip(

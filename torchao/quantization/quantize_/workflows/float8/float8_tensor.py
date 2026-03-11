@@ -882,7 +882,7 @@ def _(func, types, args, kwargs):
         )
         qdata = self.qdata.reshape(*size)
         scale_shape = []
-        for i in range(3):
+        for i in range(len(size)):
             scale_shape.append(qdata.shape[i] // self.block_size[i])
         scale = self.scale.reshape(*scale_shape)
         block_size = self.block_size
