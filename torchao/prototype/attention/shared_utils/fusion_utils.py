@@ -242,12 +242,66 @@ def _unwrap_repeat_kv(node: Node) -> Optional[Node]:
 # SDPA Detection and Parameter Extraction
 
 
+def _is_fp8_sdpa_node(node: Node, fp8_sdpa_op) -> bool:
+    """Check if an FX node is our FP8 SDPA custom op."""
+    return node.op == "call_function" and node.target is fp8_sdpa_op
+
+
 def _is_sdpa_node(node: Node) -> bool:
+    """Check if an FX node is ``aten.scaled_dot_product_attention``."""
     return _is_op(
         node,
         torch.ops.aten.scaled_dot_product_attention.default,
         torch._C._nn.scaled_dot_product_attention,
     )
+
+
+def _sdpa_is_fusible(node: Node, strip_causal_mask: bool = False) -> Tuple[bool, bool]:
+    """Check if an aten SDPA node is compatible with our FP8 fused kernel.
+
+    Returns (is_fusible, needs_mask_strip).
+    """
+    args = node.args
+    kwargs = node.kwargs
+
+    attn_mask = args[3] if len(args) > 3 else kwargs.get("attn_mask", None)
+    is_causal = args[5] if len(args) > 5 else kwargs.get("is_causal", False)
+
+    needs_mask_strip = False
+    if attn_mask is not None:
+        if not is_causal and strip_causal_mask and isinstance(attn_mask, Node):
+            needs_mask_strip = True
+        else:
+            return False, False
+
+    dropout_p = args[4] if len(args) > 4 else kwargs.get("dropout_p", 0.0)
+    if dropout_p != 0.0:
+        return False, False
+
+    return True, needs_mask_strip
+
+
+def _strip_causal_mask(node: Node) -> None:
+    """Strip a materialized causal mask from an aten SDPA node."""
+    args = list(node.args)
+    kwargs = dict(node.kwargs)
+
+    if len(args) > 3:
+        args[3] = None
+    elif "attn_mask" in kwargs:
+        kwargs["attn_mask"] = None
+
+    if len(args) > 5:
+        args[5] = True
+    elif "is_causal" in kwargs:
+        kwargs["is_causal"] = True
+    else:
+        kwargs["is_causal"] = True
+
+    node.args = tuple(args)
+    node.kwargs = kwargs
+
+    logger.info("Stripped causal mask from SDPA node: %s", node.name)
 
 
 def _is_lower_triangular_bool_mask(mask: torch.Tensor) -> bool:
@@ -325,80 +379,30 @@ def detect_causal_mask(
     return all(all_causal)
 
 
-def _sdpa_is_fusible(node: Node, strip_causal_mask: bool = False) -> Tuple[bool, bool]:
-    """Check if an SDPA node is compatible with our FP8 fused kernel.
+def _get_fp8_sdpa_params(node: Node) -> Tuple[bool, float, bool]:
+    """Extract is_causal, scale, and enable_gqa from an FP8 SDPA custom op node.
 
-    Returns (is_fusible, needs_mask_strip).
-    """
-    args = node.args
-    kwargs = node.kwargs
-
-    attn_mask = args[3] if len(args) > 3 else kwargs.get("attn_mask", None)
-    is_causal = args[5] if len(args) > 5 else kwargs.get("is_causal", False)
-
-    needs_mask_strip = False
-    if attn_mask is not None:
-        if not is_causal and strip_causal_mask and isinstance(attn_mask, Node):
-            needs_mask_strip = True
-        else:
-            return False, False
-
-    dropout_p = args[4] if len(args) > 4 else kwargs.get("dropout_p", 0.0)
-    if dropout_p != 0.0:
-        return False, False
-
-    return True, needs_mask_strip
-
-
-def _strip_causal_mask(node: Node) -> None:
-    """Strip a materialized causal mask from an SDPA node."""
-    args = list(node.args)
-    kwargs = dict(node.kwargs)
-
-    if len(args) > 3:
-        args[3] = None
-    elif "attn_mask" in kwargs:
-        kwargs["attn_mask"] = None
-
-    if len(args) > 5:
-        args[5] = True
-    elif "is_causal" in kwargs:
-        kwargs["is_causal"] = True
-    else:
-        kwargs["is_causal"] = True
-
-    node.args = tuple(args)
-    node.kwargs = kwargs
-
-    logger.info("Stripped causal mask from SDPA node: %s", node.name)
-
-
-def _get_sdpa_params(node: Node) -> Tuple[bool, float, bool]:
-    """Extract is_causal, scale, and enable_gqa from an SDPA node.
-
+    Custom op signature: (q, k, v, is_causal=False, scale=0.0, enable_gqa=False)
     Scale uses 0.0 as sentinel for "default" (1/sqrt(D)).
     """
     args = node.args
     kwargs = node.kwargs
 
-    is_causal = args[5] if len(args) > 5 else kwargs.get("is_causal", False)
-    scale = args[6] if len(args) > 6 else kwargs.get("scale", None)
-    enable_gqa = args[7] if len(args) > 7 else kwargs.get("enable_gqa", False)
-
-    if scale is None:
-        scale = 0.0
+    is_causal = args[3] if len(args) > 3 else kwargs.get("is_causal", False)
+    scale = args[4] if len(args) > 4 else kwargs.get("scale", 0.0)
+    enable_gqa = args[5] if len(args) > 5 else kwargs.get("enable_gqa", False)
 
     return is_causal, scale, enable_gqa
 
 
-def _get_sdpa_qkv(node: Node) -> Optional[Tuple[Node, Node, Node]]:
-    """Extract Q, K, V input nodes from an SDPA node."""
+def _get_fp8_sdpa_qkv(node: Node) -> Optional[Tuple[Node, Node, Node]]:
+    """Extract Q, K, V input nodes from an FP8 SDPA custom op node."""
     args = node.args
     kwargs = node.kwargs
 
-    q = args[0] if len(args) > 0 else kwargs.get("query", None)
-    k = args[1] if len(args) > 1 else kwargs.get("key", None)
-    v = args[2] if len(args) > 2 else kwargs.get("value", None)
+    q = args[0] if len(args) > 0 else kwargs.get("q", None)
+    k = args[1] if len(args) > 1 else kwargs.get("k", None)
+    v = args[2] if len(args) > 2 else kwargs.get("v", None)
 
     if not all(isinstance(n, Node) for n in (q, k, v)):
         return None
@@ -731,39 +735,6 @@ def _replace_with_fused_op(
     )
 
 
-def _replace_sdpa_with_fp8(
-    graph: Graph,
-    sdpa_node: Node,
-    q_node: Node,
-    k_node: Node,
-    v_node: Node,
-    is_causal: bool,
-    scale: float,
-    enable_gqa: bool,
-    fp8_sdpa_op,
-) -> None:
-    """Replace a plain SDPA node with an FP8 SDPA op (no RoPE fusion)."""
-    with graph.inserting_before(sdpa_node):
-        fp8_node = graph.call_function(
-            fp8_sdpa_op,
-            args=(q_node, k_node, v_node),
-            kwargs={
-                "is_causal": is_causal,
-                "scale": scale,
-                "enable_gqa": enable_gqa,
-            },
-        )
-
-    fp8_node.meta = sdpa_node.meta.copy()
-    sdpa_node.replace_all_uses_with(fp8_node)
-
-    logger.info(
-        "Replaced SDPA with FP8: %s -> %s",
-        sdpa_node.name,
-        fp8_node.name,
-    )
-
-
 # Main Fusion Pass
 
 
@@ -771,207 +742,167 @@ def rope_sdpa_fusion_pass(
     graph: Graph,
     rope_sdpa_op,
     fp8_sdpa_op,
-    max_head_dim: int = 256,
     backend_name: str = "FP8",
-    fuse_rope: bool = True,
-    strip_causal_mask: bool = False,
 ) -> None:
-    """Detect and replace SDPA patterns in the FX graph.
+    """Detect RoPE patterns preceding FP8 SDPA nodes and fuse them.
 
-    For each fusible SDPA node:
-      - Pattern A (RoPE -> transpose -> SDPA): fuse with rope_sdpa custom op
-      - Pattern B (transpose -> RoPE -> SDPA): fuse with rope_sdpa custom op
-      - No RoPE: replace with fp8_sdpa custom op
+    Scans the FX graph for FP8 SDPA custom op nodes (placed by the
+    monkey-patch).  For each one where RoPE is detected on Q and K,
+    replaces it with the fused RoPE+SDPA custom op.  Nodes without
+    RoPE are left as-is — they are already low-precision from the
+    monkey-patch.
+
+    Supported patterns:
+      - Pattern A (RoPE -> transpose -> FP8 SDPA): FLUX-style
+      - Pattern B (transpose -> RoPE -> FP8 SDPA): HuggingFace-style
 
     Note: KV caching must be disabled before compilation.
     DynamicCache.update() inserts torch.cat nodes that break pattern matching.
     """
-    sdpa_nodes = [n for n in graph.nodes if _is_sdpa_node(n)]
+    fp8_sdpa_nodes = [n for n in graph.nodes if _is_fp8_sdpa_node(n, fp8_sdpa_op)]
 
-    if not sdpa_nodes:
-        logger.debug("RoPE + SDPA fusion: found 0 SDPA nodes in graph")
+    if not fp8_sdpa_nodes:
+        print(
+            f"[low_precision_attention] RoPE fusion pass ({backend_name}): "
+            f"found 0 FP8 SDPA nodes in graph"
+        )
         return
 
     fused_count = 0
-    fp8_count = 0
 
-    for sdpa_node in sdpa_nodes:
-        is_fusible, needs_mask_strip = _sdpa_is_fusible(
-            sdpa_node, strip_causal_mask=strip_causal_mask
-        )
-        if not is_fusible:
-            logger.debug("Skipping non-fusible SDPA: %s", sdpa_node.name)
-            continue
+    for sdpa_node in fp8_sdpa_nodes:
+        is_causal, scale, enable_gqa = _get_fp8_sdpa_params(sdpa_node)
 
-        if needs_mask_strip:
-            _strip_causal_mask(sdpa_node)
-
-        is_causal, scale, enable_gqa = _get_sdpa_params(sdpa_node)
-
-        qkv = _get_sdpa_qkv(sdpa_node)
+        qkv = _get_fp8_sdpa_qkv(sdpa_node)
         if qkv is None:
             continue
         q_node, k_node, v_node = qkv
 
-        # Try RoPE fusion
-        if fuse_rope:
-            v_pre_transpose = _unwrap_transpose(v_node)
+        v_pre_transpose = _unwrap_transpose(v_node)
 
-            # Pattern A: RoPE -> transpose -> SDPA (FLUX-style)
-            q_pre_transpose = _unwrap_transpose(q_node)
-            k_pre_transpose = _unwrap_transpose(k_node)
+        # Pattern A: RoPE -> transpose -> FP8 SDPA (FLUX-style)
+        q_pre_transpose = _unwrap_transpose(q_node)
+        k_pre_transpose = _unwrap_transpose(k_node)
 
-            if q_pre_transpose is not None and k_pre_transpose is not None:
-                q_pre_cast = _trace_through_views(q_pre_transpose)
-                k_pre_cast = _trace_through_views(k_pre_transpose)
+        if q_pre_transpose is not None and k_pre_transpose is not None:
+            q_pre_cast = _trace_through_views(q_pre_transpose)
+            k_pre_cast = _trace_through_views(k_pre_transpose)
 
-                q_rope = _detect_rope(q_pre_cast)
-                k_rope = _detect_rope(k_pre_cast)
-
-                if q_rope is not None and k_rope is not None:
-                    pre_rope_q = _trace_through_views(q_rope.pre_rope_input)
-                    pre_rope_k = _trace_through_views(k_rope.pre_rope_input)
-
-                    if v_pre_transpose is None:
-                        logger.debug(
-                            "Pattern A: V has no transpose, skipping: %s",
-                            sdpa_node.name,
-                        )
-                        continue
-
-                    cos_sin = _reshape_cos_sin_to_2d(
-                        graph,
-                        q_rope.cos_node,
-                        q_rope.sin_node,
-                        sdpa_node,
-                    )
-                    if cos_sin is None:
-                        logger.debug(
-                            "Pattern A: cos/sin shape incompatible, skipping: %s",
-                            sdpa_node.name,
-                        )
-                        continue
-                    cos_2d, sin_2d = cos_sin
-
-                    _replace_with_fused_op(
-                        graph=graph,
-                        sdpa_node=sdpa_node,
-                        pre_rope_q=pre_rope_q,
-                        pre_rope_k=pre_rope_k,
-                        v_input=v_pre_transpose,
-                        cos_node=cos_2d,
-                        sin_node=sin_2d,
-                        is_causal=is_causal,
-                        scale=scale,
-                        enable_gqa=enable_gqa,
-                        rope_interleaved=q_rope.rope_interleaved,
-                        rope_sdpa_op=rope_sdpa_op,
-                    )
-                    fused_count += 1
-                    continue
-
-            # Pattern B: transpose -> RoPE -> SDPA (HuggingFace-style)
-            # For GQA, K may go through repeat_kv after RoPE.
-            q_rope = _detect_rope(_trace_through_views(q_node))
-
-            k_rope = _detect_rope(_trace_through_views(k_node))
-            gqa_unwrapped = False
-            if k_rope is None:
-                k_pre_repeat = _unwrap_repeat_kv(k_node)
-                if k_pre_repeat is not None:
-                    k_rope = _detect_rope(_trace_through_views(k_pre_repeat))
-                    if k_rope is not None:
-                        gqa_unwrapped = True
+            q_rope = _detect_rope(q_pre_cast)
+            k_rope = _detect_rope(k_pre_cast)
 
             if q_rope is not None and k_rope is not None:
-                q_bshd = _unwrap_transpose(_trace_through_views(q_rope.pre_rope_input))
-                k_bshd = _unwrap_transpose(_trace_through_views(k_rope.pre_rope_input))
+                pre_rope_q = _trace_through_views(q_rope.pre_rope_input)
+                pre_rope_k = _trace_through_views(k_rope.pre_rope_input)
 
-                if q_bshd is not None and k_bshd is not None:
-                    v_for_fusion = v_node
-                    if gqa_unwrapped:
-                        v_pre_repeat = _unwrap_repeat_kv(v_node)
-                        if v_pre_repeat is not None:
-                            v_for_fusion = v_pre_repeat
-
-                    v_bshd = _unwrap_transpose(v_for_fusion)
-                    if v_bshd is None:
-                        logger.debug(
-                            "Pattern B: V has no transpose, skipping: %s",
-                            sdpa_node.name,
-                        )
-                        continue
-
-                    cos_sin = _reshape_cos_sin_to_2d(
-                        graph,
-                        q_rope.cos_node,
-                        q_rope.sin_node,
-                        sdpa_node,
+                if v_pre_transpose is None:
+                    logger.debug(
+                        "Pattern A: V has no transpose, skipping: %s",
+                        sdpa_node.name,
                     )
-                    if cos_sin is None:
-                        logger.debug(
-                            "Pattern B: cos/sin shape incompatible, skipping: %s",
-                            sdpa_node.name,
-                        )
-                        continue
-                    cos_2d, sin_2d = cos_sin
-
-                    fused_enable_gqa = True if gqa_unwrapped else enable_gqa
-
-                    _replace_with_fused_op(
-                        graph=graph,
-                        sdpa_node=sdpa_node,
-                        pre_rope_q=q_bshd,
-                        pre_rope_k=k_bshd,
-                        v_input=v_bshd,
-                        cos_node=cos_2d,
-                        sin_node=sin_2d,
-                        is_causal=is_causal,
-                        scale=scale,
-                        enable_gqa=fused_enable_gqa,
-                        rope_interleaved=q_rope.rope_interleaved,
-                        rope_sdpa_op=rope_sdpa_op,
-                    )
-                    fused_count += 1
                     continue
 
-        # No RoPE detected (or fuse_rope=False) — replace with non-rope FP8 SDPA
-        q_shape = _get_node_shape(q_node)
-        if q_shape is not None and q_shape[-1] > max_head_dim:
-            logger.debug(
-                "Skipping FP8 replacement: head_dim=%d > %d for %s",
-                q_shape[-1],
-                max_head_dim,
-                sdpa_node.name,
-            )
-            continue
+                cos_sin = _reshape_cos_sin_to_2d(
+                    graph,
+                    q_rope.cos_node,
+                    q_rope.sin_node,
+                    sdpa_node,
+                )
+                if cos_sin is None:
+                    logger.debug(
+                        "Pattern A: cos/sin shape incompatible, skipping: %s",
+                        sdpa_node.name,
+                    )
+                    continue
+                cos_2d, sin_2d = cos_sin
 
-        _replace_sdpa_with_fp8(
-            graph=graph,
-            sdpa_node=sdpa_node,
-            q_node=q_node,
-            k_node=k_node,
-            v_node=v_node,
-            is_causal=is_causal,
-            scale=scale,
-            enable_gqa=enable_gqa,
-            fp8_sdpa_op=fp8_sdpa_op,
-        )
-        fp8_count += 1
+                _replace_with_fused_op(
+                    graph=graph,
+                    sdpa_node=sdpa_node,
+                    pre_rope_q=pre_rope_q,
+                    pre_rope_k=pre_rope_k,
+                    v_input=v_pre_transpose,
+                    cos_node=cos_2d,
+                    sin_node=sin_2d,
+                    is_causal=is_causal,
+                    scale=scale,
+                    enable_gqa=enable_gqa,
+                    rope_interleaved=q_rope.rope_interleaved,
+                    rope_sdpa_op=rope_sdpa_op,
+                )
+                fused_count += 1
+                continue
 
-    replaced_count = fused_count + fp8_count
-    logger.info(
-        "Found %d SDPA node(s): %d RoPE-fused, %d FP8-replaced (backend: %s)",
-        len(sdpa_nodes),
-        fused_count,
-        fp8_count,
-        backend_name,
+        # Pattern B: transpose -> RoPE -> FP8 SDPA (HuggingFace-style)
+        # For GQA, K may go through repeat_kv after RoPE.
+        q_rope = _detect_rope(_trace_through_views(q_node))
+
+        k_rope = _detect_rope(_trace_through_views(k_node))
+        gqa_unwrapped = False
+        if k_rope is None:
+            k_pre_repeat = _unwrap_repeat_kv(k_node)
+            if k_pre_repeat is not None:
+                k_rope = _detect_rope(_trace_through_views(k_pre_repeat))
+                if k_rope is not None:
+                    gqa_unwrapped = True
+
+        if q_rope is not None and k_rope is not None:
+            q_bshd = _unwrap_transpose(_trace_through_views(q_rope.pre_rope_input))
+            k_bshd = _unwrap_transpose(_trace_through_views(k_rope.pre_rope_input))
+
+            if q_bshd is not None and k_bshd is not None:
+                v_for_fusion = v_node
+                if gqa_unwrapped:
+                    v_pre_repeat = _unwrap_repeat_kv(v_node)
+                    if v_pre_repeat is not None:
+                        v_for_fusion = v_pre_repeat
+
+                v_bshd = _unwrap_transpose(v_for_fusion)
+                if v_bshd is None:
+                    logger.debug(
+                        "Pattern B: V has no transpose, skipping: %s",
+                        sdpa_node.name,
+                    )
+                    continue
+
+                cos_sin = _reshape_cos_sin_to_2d(
+                    graph,
+                    q_rope.cos_node,
+                    q_rope.sin_node,
+                    sdpa_node,
+                )
+                if cos_sin is None:
+                    logger.debug(
+                        "Pattern B: cos/sin shape incompatible, skipping: %s",
+                        sdpa_node.name,
+                    )
+                    continue
+                cos_2d, sin_2d = cos_sin
+
+                fused_enable_gqa = True if gqa_unwrapped else enable_gqa
+
+                _replace_with_fused_op(
+                    graph=graph,
+                    sdpa_node=sdpa_node,
+                    pre_rope_q=q_bshd,
+                    pre_rope_k=k_bshd,
+                    v_input=v_bshd,
+                    cos_node=cos_2d,
+                    sin_node=sin_2d,
+                    is_causal=is_causal,
+                    scale=scale,
+                    enable_gqa=fused_enable_gqa,
+                    rope_interleaved=q_rope.rope_interleaved,
+                    rope_sdpa_op=rope_sdpa_op,
+                )
+                fused_count += 1
+                continue
+
+    print(
+        f"[low_precision_attention] RoPE fusion pass ({backend_name}): "
+        f"found {len(fp8_sdpa_nodes)} FP8 SDPA node(s), "
+        f"{fused_count} fused with RoPE"
     )
 
-    if replaced_count > 0:
+    if fused_count > 0:
         graph.eliminate_dead_code()
-        logger.info(
-            "Fusion pass complete: %d RoPE-fused, %d FP8-replaced",
-            fused_count,
-            fp8_count,
-        )
