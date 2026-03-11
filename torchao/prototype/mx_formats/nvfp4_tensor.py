@@ -141,6 +141,7 @@ class NVFP4Tensor(TorchAOBaseTensor):
         use_triton_kernel: bool = False,
         act_quant_kwargs: Optional[QuantizeTensorToNVFP4Kwargs] = None,
         rounding_mode: RoundingMode = RoundingMode.RN,
+        rand_bits: Optional[torch.Tensor] = None,
         kernel_preference: KernelPreference = KernelPreference.MSLK,
     ):
         """Convert high precision tensor to NVFP4 format.
@@ -156,13 +157,26 @@ class NVFP4Tensor(TorchAOBaseTensor):
             use_triton_kernel: If True, use Triton kernel for quantization
             act_quant_kwargs: If specified, config for quantizing the activation
             rounding_mode: Rounding mode for FP4 conversion (RN or RS).
-                For deterministic RS, set torch.manual_seed() before calling.
+            rand_bits: Optional int32 tensor for stochastic rounding randomness.
+                Required when rounding_mode is RS. The caller is responsible
+                for generating this, keeping RNG concerns (seeding, CUDA graph
+                safety) outside this function.
+                - Triton path: single-element int32 seed tensor (the kernel
+                  generates per-element randomness internally).
+                - Eager path: full-shaped int32 tensor (same shape as data_hp).
 
         Returns:
             NVFP4Tensor: Quantized tensor in NVFP4 format
         """
         assert len(data_hp.shape) in (2, 3), "unsupported"
         leading_dims, M, K = data_hp.shape[:-2], data_hp.shape[-2], data_hp.shape[-1]
+
+        if rounding_mode == RoundingMode.RS and rand_bits is None:
+            raise ValueError(
+                "rand_bits is required for stochastic rounding (RoundingMode.RS). "
+                "For the Triton path, pass a single-element int32 seed tensor. "
+                "For the eager path, pass a full-shaped int32 tensor."
+            )
 
         if use_triton_kernel:
             assert is_swizzled_scales, "Triton kernel only supports swizzled scales"
@@ -177,12 +191,15 @@ class NVFP4Tensor(TorchAOBaseTensor):
             else:
                 _seed = torch.randint(2**31, (1,)).item()
                 blockwise_scales, data_lp = triton_quantize_nvfp4(
-                    data_hp, per_tensor_scale, rounding_mode.value, _seed
+                    data_hp, per_tensor_scale, rounding_mode.value, rand_bits
                 )
         else:
             blockwise_scales, data_lp = nvfp4_quantize(
-                data_hp, block_size, per_tensor_scale,
+                data_hp,
+                block_size,
+                per_tensor_scale,
                 rounding_mode=rounding_mode,
+                rand_bits=rand_bits,
             )
             if is_swizzled_scales:
                 scale_shape = (math.prod(leading_dims) * M, K // block_size)
@@ -791,6 +808,7 @@ def nvfp4_quantize(
     block_size: int = 16,
     per_tensor_scale: Optional[torch.Tensor] = None,
     rounding_mode: RoundingMode = RoundingMode.RN,
+    rand_bits: Optional[torch.Tensor] = None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """NVIDIA FP4 quantization with UE4M3 scales.
 
@@ -803,7 +821,8 @@ def nvfp4_quantize(
         per_tensor_scale: Optional pre-computed per-tensor scale for calibration.
             If provided, uses per-tensor scaling. If None, uses block-wise scaling only.
         rounding_mode: Rounding mode for FP4 conversion (RN or RS).
-            For deterministic RS, set torch.manual_seed() before calling.
+        rand_bits: Optional int32 tensor of random bits for stochastic rounding.
+            Required when rounding_mode is RS. Same shape as data_hp.
 
     Returns:
         tuple: A tuple containing:
@@ -820,6 +839,10 @@ def nvfp4_quantize(
     assert data_hp.size(-1) % block_size == 0, "K dim must be divisible by block_size"
     assert data_hp.is_contiguous(), "Only support contiguous data for now"
     assert block_size == 16, "NVFP4 requires block_size=16"
+    if rounding_mode == RoundingMode.RS:
+        assert rand_bits is not None and rand_bits.numel() > 1, (
+            "Eager path requires full-shaped rand_bits tensor for RS mode"
+        )
 
     orig_shape = data_hp.shape
     # Convert to float32 early for consistent precision with Triton implementation
@@ -866,7 +889,11 @@ def nvfp4_quantize(
 
     data_scaled = torch.clamp(data_scaled, -F4_E2M1_MAX, F4_E2M1_MAX)
     data_scaled = data_scaled.view(orig_shape)
-    data_lp = f32_to_f4_unpacked(data_scaled, rounding_mode=rounding_mode)
+    data_lp = f32_to_f4_unpacked(
+        data_scaled,
+        rounding_mode=rounding_mode,
+        rand_bits=rand_bits,
+    )
     # TODO: NotImplementedError: "copy_kernel" not implemented for 'Float4_e2m1fn_x2'
     # data_lp = pack_uint4(data_lp).view(torch.float4_e2m1fn_x2)
     data_lp = pack_uint4(data_lp)
