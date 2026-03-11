@@ -1,5 +1,6 @@
-from .dyn_int8_act_int4_wei_cpu_layout import (
+from torchao.prototype.dtypes import (
     Int8DynamicActInt4WeightCPULayout,
+    UintxLayout,
 )
 from .int4_cpu_layout import (
     Int4CPULayout,
@@ -18,9 +19,6 @@ from .semi_sparse_layout import (
 )
 from .tensor_core_tiled_layout import (
     TensorCoreTiledLayout,
-)
-from .uintx_layout import (
-    UintxLayout,
 )
 
 __all__ = [
