@@ -11,7 +11,15 @@ from torchao.prototype.moe_training.config import (
     MXFP8TrainingOpConfig,
     TrainingOpBaseConfig,
 )
+from torchao.prototype.moe_training.kernels.mxfp8 import (
+    _mxfp8_cuda_kernels_available,
+    fused_pad_token_groups_cuda,
+    fused_unpad_token_groups_cuda,
+    torch_pad_token_groups,
+    torch_unpad_token_groups,
+)
 from torchao.prototype.mx_formats.mx_tensor import to_mx
+from torchao.quantization.quantize_.common import KernelPreference
 from torchao.utils import torch_version_at_least
 
 
@@ -369,11 +377,6 @@ def _quantize_then_scaled_grouped_mm(
     config: TrainingOpBaseConfig,
     offs: Optional[torch.Tensor] = None,
 ) -> torch.Tensor:
-    from torchao.prototype.moe_training import (
-        _to_fp8_rowwise_then_scaled_grouped_mm,
-        _to_mxfp8_then_scaled_grouped_mm,
-    )
-
     """
     This function performs dynamic quantization with the given config
     on the input tensors A and B, then performs a scaled grouped GEMM and returns the results.
@@ -386,6 +389,11 @@ def _quantize_then_scaled_grouped_mm(
         offs (int32 torch.Tensor): The offsets to use to mark the starting index of each group along dim0 of the A tensor.
         config (TrainingOpBaseConfig): Configuration for quantization recipe, etc
     """
+    from torchao.prototype.moe_training import (
+        _to_fp8_rowwise_then_scaled_grouped_mm,
+        _to_mxfp8_then_scaled_grouped_mm,
+    )
+
     # Dispatch based on derived dtype
     if isinstance(config, Float8TrainingOpConfig):
         return _to_fp8_rowwise_then_scaled_grouped_mm(
@@ -408,3 +416,91 @@ def _quantize_then_scaled_grouped_mm(
         )
     else:
         raise ValueError(f"Unsupported config type: {type(config)}")
+
+
+def pad_token_groups(
+    input_act: torch.Tensor,
+    group_end_offsets: torch.Tensor,
+    alignment_size: int = 32,
+    kernel_preference: Optional[KernelPreference] = KernelPreference.AUTO,
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """
+    Pad token groups to the next multiple of alignment_size.
+
+    Args:
+        input_act: Input activations, shape (M, K)
+        group_end_offsets: End index of each token group, shape (E,)
+        alignment_size: Alignment size for padding (typically 32 for MXFP8, 16 for FP8)
+        kernel_preference: Kernel preference (AUTO uses CUDA if available, EMULATED uses torch)
+
+    Returns:
+        tuple: (padded_input_act, padded_group_start_offsets, padded_group_end_offsets)
+    """
+    # Determine whether to use CUDA kernel based on kernel_preference and availability
+    use_cuda = (
+        kernel_preference != KernelPreference.EMULATED and _mxfp8_cuda_kernels_available
+    )
+
+    pad_groups_fn = fused_pad_token_groups_cuda if use_cuda else torch_pad_token_groups
+
+    padded_input_act, padded_group_start_offsets, padded_group_end_offsets = (
+        pad_groups_fn(input_act, group_end_offsets, alignment_size=alignment_size)
+    )
+    return padded_input_act, padded_group_start_offsets, padded_group_end_offsets
+
+
+def unpad_token_groups(
+    padded_output: torch.Tensor,
+    original_group_end_offsets: torch.Tensor,
+    padded_group_start_offsets: torch.Tensor,
+    num_tokens: int,
+    alignment_size: int = 32,
+    kernel_preference: Optional[KernelPreference] = KernelPreference.AUTO,
+) -> torch.Tensor:
+    """
+    Unpad token groups by removing padding added by pad_token_groups.
+
+    Args:
+        padded_output: Padded output tensor of shape (padded_M, N)
+        original_group_end_offsets: Original group end offsets before padding
+        padded_group_start_offsets: Padded group start offsets from pad_token_groups
+        num_tokens: Number of tokens in the unpadded output (from before padding)
+        alignment_size: Alignment size used for padding (typically 32 for MXFP8, 16 for FP8)
+        kernel_preference: Kernel preference (AUTO uses CUDA if available, EMULATED uses torch)
+
+    Returns:
+        Unpadded output tensor of shape (M, N)
+    """
+    # Determine whether to use CUDA kernel based on kernel_preference and availability
+    use_cuda = (
+        kernel_preference != KernelPreference.EMULATED and _mxfp8_cuda_kernels_available
+    )
+
+    unpad_groups_fn = (
+        fused_unpad_token_groups_cuda if use_cuda else torch_unpad_token_groups
+    )
+
+    unpadded_output = unpad_groups_fn(
+        padded_output,
+        original_group_end_offsets,
+        padded_group_start_offsets,
+        num_tokens,
+        alignment_size,
+    )
+    return unpadded_output
+
+
+class _UnwrapWeight(torch.autograd.Function):
+    """Helper to unwrap the tensor subclass in a differentiable way."""
+
+    @staticmethod
+    def forward(ctx, wrapper_tensor):
+        return wrapper_tensor._data
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        return grad_output
+
+
+def unwrap_weight(wrapper_tensor):
+    return _UnwrapWeight.apply(wrapper_tensor)
