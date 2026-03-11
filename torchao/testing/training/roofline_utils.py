@@ -519,6 +519,21 @@ def get_inference_tensor_memory_traffic_ovhd_s(
             )
             res_bytes = [kernel_1_rw + kernel_3_rw]
 
+        case "nvfp4_static":
+            # nvfp4 with static global scaling
+            # x_b16 = ...
+            # static_max_abs = ...
+            # kernel 1: x_bf16, static_max_abs -> to_nvfp4 -> x_nvfp4
+            kernel_1_rw = (
+                # read bf16
+                BYTES_PER_EL_BF16 * numel
+                # write fp4_x2 qdata
+                + BYTES_PER_EL_FLOAT4 * numel
+                # write e8m0 scale
+                + BYTES_PER_EL_FLOAT8 * dim0 * (dim1 // 16)
+            )
+            res_bytes = [kernel_1_rw]
+
         case _:
             raise ValueError(
                 f"Unknown recipe name: {recipe_name}. "
