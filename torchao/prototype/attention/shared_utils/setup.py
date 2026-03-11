@@ -25,6 +25,8 @@ def setup_fp8_backend(
 ) -> nn.Module:
     if flash_impl_name == "FA3":
         from torchao.prototype.attention.fp8_fa3.attention import _ops
+    elif flash_impl_name == "FA4":
+        from torchao.prototype.attention.fp8_fa4.attention import _ops
     else:
         raise ValueError(f"Unknown flash_impl_name: {flash_impl_name}")
 
