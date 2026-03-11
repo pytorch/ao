@@ -1,3 +1,5 @@
+"""Shared utilities for MoE training: FP8/MXFP8 quantization, group padding/unpadding, and scaled grouped matmul."""
+
 import random
 import warnings
 from typing import Optional, Tuple
