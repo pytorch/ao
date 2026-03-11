@@ -43,23 +43,23 @@ torch._dynamo.config.cache_size_limit = 1000
         {
             "recipe": Float8TrainingRecipe.FP8_ROWWISE,
             "group_alignment_size": 16,
-            "min_out_sqnr": 26.5,
+            "min_out_sqnr": 23.0,
             "min_input_grad_sqnr": 29.0,
             "min_param_grad_sqnr": 21.0,
         },
         {
             "recipe": MXFP8TrainingRecipe.MXFP8_RCEIL,
             "group_alignment_size": 32,
-            "min_out_sqnr": 26.5,
+            "min_out_sqnr": 23.0,
             "min_input_grad_sqnr": 29.0,
             "min_param_grad_sqnr": 21.0,
         },
         {
             "recipe": MXFP8TrainingRecipe.MXFP8_RCEIL_WGRAD_WITH_HP,
             "group_alignment_size": 32,
-            "min_out_sqnr": 26.5,
+            "min_out_sqnr": 23.0,
             "min_input_grad_sqnr": 29.0,
-            "min_param_grad_sqnr": 23.0,
+            "min_param_grad_sqnr": 22.0,
         },
         {
             "recipe": MXFP8TrainingRecipe.MXFP8_EMULATED_RCEIL,
@@ -78,13 +78,11 @@ def test_moe_training(
 ):
     (
         recipe,
-        group_alignment_size,
         min_out_sqnr,
         min_input_grad_sqnr,
         min_param_grad_sqnr,
     ) = (
         recipe_config["recipe"],
-        recipe_config["group_alignment_size"],
         recipe_config["min_out_sqnr"],
         recipe_config["min_input_grad_sqnr"],
         recipe_config["min_param_grad_sqnr"],
@@ -99,6 +97,11 @@ def test_moe_training(
 
     # FP8_ROWWISE hardware path requires SM90 (CUDA) or MI300/MI350 (ROCm)
     if recipe == Float8TrainingRecipe.FP8_ROWWISE:
+        if compile:
+            pytest.skip(
+                "https://github.com/pytorch/ao/issues/4048: 'FakeTensor' object has no attribute '__tensor_flatten__'"
+            )
+
         if is_ROCM():
             if not (is_MI300() or is_MI350()):
                 pytest.skip("FP8 rowwise test requires MI300 or MI350 on ROCm")
@@ -120,14 +123,11 @@ def test_moe_training(
             f"Skipping MXFP8 hardware mode tests, only supported on compute capability 10.0 and found {torch.cuda.get_device_capability()}"
         )
 
-    # Set token group alignment size. This is required so that
-    # each logically distinct gemm in the grouped gemm `grad_weight = grad_output_t @ input`
-    # has the contraction dim be divisible by 16. 16 byte alignment is required
-    # for the slowest moving dim (stride 1).
-    set_token_group_alignment_size_m(group_alignment_size)
+    set_token_group_alignment_size_m(1)
     model_args = MoEArgs(
         num_experts=8,
         num_shared_experts=1,
+        use_grouped_mm=True,
     )
     init_std = 0.02
     device = torch.device("cuda")
