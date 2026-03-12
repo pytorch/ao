@@ -28,9 +28,6 @@ from torchao.prototype.moe_training.config import (
     MXFP8TrainingOpConfig,
     MXFP8TrainingRecipe,
 )
-from torchao.prototype.mx_formats.mx_dtensor import (
-    ensure_mx_scaled_mm_strategy_registered,
-)
 from torchao.prototype.mx_formats.mx_tensor import MXTensor
 from torchao.testing.training.dtensor_utils import (
     _test_lowp_mlp_tensor_parallelism_base,
@@ -111,7 +108,6 @@ def _test_mxfp8_mlp_tensor_parallelism_auto(mesh: DeviceMesh, size=64):
 
 if __name__ == "__main__":
     device_mesh = setup_distributed()
-    ensure_mx_scaled_mm_strategy_registered()
     tests = [
         _test_dtensor_cast_to_mxfp8,
         _test_mxfp8_mlp_tensor_parallelism_emulated,
