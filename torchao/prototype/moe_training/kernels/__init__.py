@@ -8,5 +8,8 @@ from torchao.prototype.moe_training.kernels.jagged_float8_scales import (
     triton_fp8_per_group_colwise_scales as triton_fp8_per_group_colwise_scales,
 )
 from torchao.prototype.moe_training.kernels.jagged_float8_scales import (
+    triton_fp8_per_group_colwise_scales_dual as triton_fp8_per_group_colwise_scales_dual,
+)
+from torchao.prototype.moe_training.kernels.jagged_float8_scales import (
     triton_fp8_per_group_rowwise_scales as triton_fp8_per_group_rowwise_scales,
 )
