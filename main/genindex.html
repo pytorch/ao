@@ -172,7 +172,7 @@ window.addEventListener("load", () => mermaid.run());
   fbq('track', 'PageView');
 </script>
 <script>
-  document.documentElement.setAttribute('data-version', 'main (0.17.0+gitf4b3c29 )');
+  document.documentElement.setAttribute('data-version', 'main (0.17.0+git0c13a56 )');
 </script>
 <noscript>
   <img height="1" width="1" src="https://www.facebook.com/tr?id=243028289693773&ev=PageView&noscript=1" />
@@ -563,6 +563,12 @@ document.write(`
               <li class=" ">
                 <a class="nav-link dropdown-item nav-internal" href="api_reference/api_ref_prototype_quant_logger.html">
                   torchao.prototype.quant_logger
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="api_reference/api_ref_prototype_attention.html">
+                  torchao.prototype.attention (prototype)
                 </a>
               </li>
             
@@ -1013,6 +1019,12 @@ document.write(`
                 </a>
               </li>
             
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="api_reference/api_ref_prototype_attention.html">
+                  torchao.prototype.attention (prototype)
+                </a>
+              </li>
+            
           </ul>
         
       </li>
@@ -1383,9 +1395,13 @@ document.write(`
 </li>
       <li><a href="api_reference/generated/torchao.core.config.AOBaseConfig.html#torchao.core.config.AOBaseConfig">AOBaseConfig (class in torchao.core.config)</a>
 </li>
+      <li><a href="api_reference/generated/torchao.sparsity.apply_fake_sparsity.html#torchao.sparsity.apply_fake_sparsity">apply_fake_sparsity() (in module torchao.sparsity)</a>
+</li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
-      <li><a href="api_reference/generated/torchao.sparsity.apply_fake_sparsity.html#torchao.sparsity.apply_fake_sparsity">apply_fake_sparsity() (in module torchao.sparsity)</a>
+      <li><a href="api_reference/generated/torchao.prototype.attention.apply_low_precision_attention.html#torchao.prototype.attention.apply_low_precision_attention">apply_low_precision_attention() (in module torchao.prototype.attention)</a>
+</li>
+      <li><a href="api_reference/generated/torchao.prototype.attention.AttentionBackend.html#torchao.prototype.attention.AttentionBackend">AttentionBackend (class in torchao.prototype.attention)</a>
 </li>
       <li><a href="api_reference/generated/torchao.quantization.quantize_.common.KernelPreference.html#torchao.quantization.quantize_.common.KernelPreference.AUTO">AUTO (torchao.quantization.quantize_.common.KernelPreference attribute)</a>
 </li>
@@ -1457,10 +1473,10 @@ document.write(`
 </li>
       <li><a href="api_reference/generated/torchao.float8.Float8LinearConfig.html#torchao.float8.Float8LinearConfig">Float8LinearConfig (class in torchao.float8)</a>
 </li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api_reference/generated/torchao.float8.Float8LinearRecipeName.html#torchao.float8.Float8LinearRecipeName">Float8LinearRecipeName (class in torchao.float8)</a>
 </li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api_reference/generated/torchao.quantization.Float8WeightOnlyConfig.html#torchao.quantization.Float8WeightOnlyConfig">Float8WeightOnlyConfig (class in torchao.quantization)</a>
 </li>
       <li><a href="api_reference/generated/torchao.quantization.qat.embedding.Int4WeightOnlyEmbedding.html#torchao.quantization.qat.embedding.Int4WeightOnlyEmbedding.forward">forward() (torchao.quantization.qat.embedding.Int4WeightOnlyEmbedding method)</a>
@@ -1477,6 +1493,10 @@ document.write(`
         <li><a href="api_reference/generated/torchao.sparsity.PerChannelNormObserver.html#torchao.sparsity.PerChannelNormObserver.forward">(torchao.sparsity.PerChannelNormObserver method)</a>
 </li>
       </ul></li>
+      <li><a href="api_reference/generated/torchao.prototype.attention.fp8_fa3.attention.fp8_fa3_rope_sdpa.html#torchao.prototype.attention.fp8_fa3.attention.fp8_fa3_rope_sdpa">fp8_fa3_rope_sdpa() (in module torchao.prototype.attention.fp8_fa3.attention)</a>
+</li>
+      <li><a href="api_reference/generated/torchao.prototype.attention.fp8_fa3.attention.fp8_fa3_sdpa.html#torchao.prototype.attention.fp8_fa3.attention.fp8_fa3_sdpa">fp8_fa3_sdpa() (in module torchao.prototype.attention.fp8_fa3.attention)</a>
+</li>
       <li><a href="api_reference/generated/torchao.quantization.FqnToConfig.html#torchao.quantization.FqnToConfig">FqnToConfig (class in torchao.quantization)</a>
 </li>
       <li><a href="api_reference/generated/torchao.float8.Float8LinearConfig.html#torchao.float8.Float8LinearConfig.from_recipe_name">from_recipe_name() (torchao.float8.Float8LinearConfig static method)</a>

@@ -202,3 +202,15 @@ The benchmarks below were run on a single NVIDIA-A6000 GPU.
 |             | codebook-4-64           |  10.095             |  1.73         |  8.63                   | 23.11            |  4.98           |
 
 You try can out these apis with the `quantize_` api as above alongside the config `CodebookWeightOnlyConfig` an example can be found in  in `torchao/_models/llama/generate.py`.
+
+### Low-Precision FP8 Attention (Prototype)
+
+FP8 low-precision attention for inference, built on Flash Attention backends. Currently supports FA3 on Hopper (SM90) and FA4 on Blackwell (SM100).
+
+**Requirements:** PyTorch >= 2.11, Hopper or Blackwell GPU, Flash Attention 3 (`pip install flash-attn-3 --index-url=https://download.pytorch.org/whl/{cuda_version}`).
+
+```{literalinclude} ../examples/prototype/low_precision_attention.py
+:language: python
+```
+
+`apply_low_precision_attention` replaces all `F.scaled_dot_product_attention` calls with FP8 attention for eager execution. When combined with `torch.compile`, RoPE patterns are automatically detected and fused into a single kernel. KV caching should be disabled before calling for best results with `torch.compile`. See the {ref}`API reference <api_attention>` for details.
