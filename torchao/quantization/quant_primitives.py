@@ -2327,15 +2327,19 @@ def _quantize_affine_float8(
     """
     Quantizes the high precision floating point tensor to a float8 tensor, using the given scaling factor.
     """
-    tensor_fp32 = tensor.to(torch.float32)
+    # copy=True guarantees a fresh tensor even when the input is already fp32,
+    # so the in-place div_/clamp_ below never mutate the caller's tensor.
+    tensor_fp32 = tensor.to(torch.float32, copy=True)
 
     # Expand scale to match tensor dimensions for block-wise quantization
     scale_expanded = _maybe_expand_scale_to_tensor_shape(scale, tensor.shape)
 
-    tensor_scaled = tensor_fp32 / scale_expanded
+    # Use in-place ops to avoid allocating additional float32 copies of the
+    # full tensor, reducing peak memory for large activations.
+    tensor_fp32.div_(scale_expanded)
     max_value = torch.finfo(float8_dtype).max
-    tensor_clamped = tensor_scaled.clamp(min=-max_value, max=max_value)
-    return _RoundToFloat8.apply(tensor_clamped, float8_dtype)
+    tensor_fp32.clamp_(min=-max_value, max=max_value)
+    return _RoundToFloat8.apply(tensor_fp32, float8_dtype)
 
 
 def _dequantize_affine_float8(
