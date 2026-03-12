@@ -5,6 +5,7 @@
 #include <c10/util/Float8_e4m3fn.h>
 #include <c10/util/Unroll.h>
 #include <torch/all.h>
+#include "utils.h"
 
 #define QTYPE_DISPATCH(TYPE, ...)                                              \
   [&]() {                                                                      \
@@ -47,10 +48,6 @@ namespace torchao {
 namespace {
 
 #if defined(CPU_CAPABILITY_AVX512)
-// Evaluated exactly once at load time, in case building with AVX-512
-// but AVX-512 is not supportted at runtime.
-static const bool kHasAVX512 = __builtin_cpu_supports("avx512f");
-
 using CHUNK =
     std::tuple<__m512, __m512, __m512, __m512, __m512, __m512, __m512, __m512>;
 static inline __m512 _mm512_load_e4m3_cvt_ps(const at::Float8_e4m3fn *x) {
