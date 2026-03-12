@@ -192,64 +192,21 @@ def _test_lowp_mlp_tensor_parallelism_base(
     global_out = toy_model_fp8(x)
     global_out.backward(go)
 
-    if is_mxfp8:
-        # MXFP8 emulated dim1 quantization transposes and re-contiguifies the
-        # activation (a.t().contiguous()), which can change how elements land
-        # in 32-element blocks depending on whether the input was sharded or
-        # not. This produces small numerical differences, so use relaxed tols.
-        atol, rtol = 0.15, 0.05
+    torch.testing.assert_close(tp_out, global_out)
+    torch.testing.assert_close(sp_out.full_tensor(), global_out)
+    torch.testing.assert_close(tp_model.ffn.w1.weight.grad, sp_model.ffn.w1.weight.grad)
+    torch.testing.assert_close(
+        tp_model.ffn.out_proj.weight.grad,
+        sp_model.ffn.out_proj.weight.grad,
+    )
 
-        torch.testing.assert_close(tp_out, global_out, atol=atol, rtol=rtol)
-        torch.testing.assert_close(
-            sp_out.full_tensor(), global_out, atol=atol, rtol=rtol
-        )
-        torch.testing.assert_close(
-            tp_model.ffn.w1.weight.grad,
-            sp_model.ffn.w1.weight.grad,
-            atol=atol,
-            rtol=rtol,
-        )
-        torch.testing.assert_close(
-            tp_model.ffn.out_proj.weight.grad,
-            sp_model.ffn.out_proj.weight.grad,
-            atol=atol,
-            rtol=rtol,
-        )
-
-        sp_out2 = sp_model2(x_sp_input)
-        sp_out2.backward(go_sp)
-
-        torch.testing.assert_close(
-            sp_out2.full_tensor(), global_out, atol=atol, rtol=rtol
-        )
-        torch.testing.assert_close(
-            tp_model.ffn.w1.weight.grad,
-            sp_model2.ffn.w1.weight.grad,
-            atol=atol,
-            rtol=rtol,
-        )
-        torch.testing.assert_close(
-            tp_model.ffn.out_proj.weight.grad,
-            sp_model2.ffn.out_proj.weight.grad,
-            atol=atol,
-            rtol=rtol,
-        )
-    else:
-        torch.testing.assert_close(tp_out, global_out)
-        torch.testing.assert_close(sp_out.full_tensor(), global_out)
-        torch.testing.assert_close(
-            tp_model.ffn.w1.weight.grad, sp_model.ffn.w1.weight.grad
-        )
-        torch.testing.assert_close(
-            tp_model.ffn.out_proj.weight.grad, sp_model.ffn.out_proj.weight.grad
-        )
-
-        sp_out2 = sp_model2(x_sp_input)
-        sp_out2.backward(go_sp)
-        torch.testing.assert_close(sp_out2.full_tensor(), global_out)
-        torch.testing.assert_close(
-            tp_model.ffn.w1.weight.grad, sp_model2.ffn.w1.weight.grad
-        )
-        torch.testing.assert_close(
-            tp_model.ffn.out_proj.weight.grad, sp_model2.ffn.out_proj.weight.grad
-        )
+    sp_out2 = sp_model2(x_sp_input)
+    sp_out2.backward(go_sp)
+    torch.testing.assert_close(sp_out2.full_tensor(), global_out)
+    torch.testing.assert_close(
+        tp_model.ffn.w1.weight.grad, sp_model2.ffn.w1.weight.grad
+    )
+    torch.testing.assert_close(
+        tp_model.ffn.out_proj.weight.grad,
+        sp_model2.ffn.out_proj.weight.grad,
+    )
