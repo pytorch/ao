@@ -1,5 +1,4 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
-# Copyright (c) 2026 Arm Limited and/or its affiliates.
 # All rights reserved.
 #
 # This source code is licensed under the license found in the
