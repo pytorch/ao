@@ -550,16 +550,15 @@ class MXTensor(TorchAOBaseTensor):
         orig_dtype: torch.dtype,
         *,
         block_size: int = BLOCK_SIZE_DEFAULT,
-        elem_dtype: Optional[Union[torch.dtype, str]] = None,
         kernel_preference: Optional[KernelPreference] = None,
         act_quant_kwargs: Optional[QuantizeTensorToMXKwargs] = None,
         is_swizzled_scales: bool = False,
     ) -> Union["MXTensor", DTensor]:
-        if elem_dtype is None:
-            assert qdata.dtype != torch.uint8, (
-                "elem_dtype must be provided when qdata.dtype is torch.uint8"
-            )
-            elem_dtype = qdata.dtype
+        assert qdata.dtype != torch.uint8, (
+            "from_qdata_and_scales only supports typed MX qdata; "
+            "use MXTensor(...) directly for packed uint8 payloads"
+        )
+        elem_dtype = qdata.dtype
 
         if isinstance(qdata, DTensor) or isinstance(scales, DTensor):
             assert isinstance(qdata, DTensor) and isinstance(scales, DTensor), (
