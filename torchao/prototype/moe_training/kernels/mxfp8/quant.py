@@ -251,8 +251,10 @@ def torch_pad_token_groups(
     """
     Reference PyTorch implementation for padding token groups to alignment.
 
-    Uses split + F.pad + cat approach (torch.compile friendly).
-    Allocates upper bound size to match CUDA kernel behavior (avoids sync).
+    Splits input into per-group chunks and copies each chunk into a
+    pre-allocated zeroed output tensor at the aligned offsets (zero-padding
+    is implicit). Allocates upper bound size to match CUDA kernel behavior
+    (avoids sync).
 
     Args:
         inputs: Input tensor of shape (num_tokens, dim)
@@ -293,11 +295,8 @@ def torch_pad_token_groups(
     )
 
     # Copy data group by group into the padded output
-    group_sizes_list = group_sizes.tolist()
-    try:
-        chunks = inputs.split(group_sizes_list, dim=0)
-    except:
-        breakpoint()
+    group_sizes_list = group_sizes.tolist()  # d2h sync
+    chunks = inputs.split(group_sizes_list, dim=0)
 
     padded_start_offsets = padded_group_end_offsets - padded_sizes
     for i, (chunk, padded_start) in enumerate(
