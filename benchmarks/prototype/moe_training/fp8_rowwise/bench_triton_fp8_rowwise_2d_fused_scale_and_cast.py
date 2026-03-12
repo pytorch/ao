@@ -182,7 +182,7 @@ def print_results(experiments: List[Experiment]):
         e.result.torch_compile_time_us / e.result.triton_time_us for e in experiments
     ]
     print(
-        f"Triton vs torch.compile  — avg: {sum(speedups)/len(speedups):.2f}x  "
+        f"Triton vs torch.compile  — avg: {sum(speedups) / len(speedups):.2f}x  "
         f"min: {min(speedups):.2f}x  max: {max(speedups):.2f}x"
     )
 
