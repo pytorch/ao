@@ -63,6 +63,7 @@ Training and model configurations for this run:
 ```python
 import torch
 from torch.nn import functional as F
+from torchao.prototype.mx_formats.mx_tensor import MXTensor, to_mx
 from torchao.prototype.moe_training import (
     _to_mxfp8_then_scaled_grouped_mm,
 )
@@ -83,6 +84,10 @@ out = _to_mxfp8_then_scaled_grouped_mm(
         B.transpose(-2, -1),
         offs,
 )
+# Optional: if you already have raw MXFP8 qdata/scales, wrap them as an MXTensor:
+# A_scale, A_qdata = to_mx(A, elem_dtype=torch.float8_e4m3fn, block_size=32)
+# A_mx = MXTensor.from_qdata_and_scales(A_qdata, A_scale, orig_dtype=A.dtype)
+# out = _to_mxfp8_then_scaled_grouped_mm(A_mx, B.transpose(-2, -1), offs, wgrad_with_hp=True)
 
 # (Fake labels for demonstration purposes)
 labels = torch.ones_like(out)
