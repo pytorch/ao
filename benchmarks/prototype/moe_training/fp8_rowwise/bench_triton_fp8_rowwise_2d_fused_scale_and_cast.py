@@ -7,6 +7,7 @@
 
 import itertools
 from dataclasses import dataclass
+from typing import List
 
 import torch
 from tabulate import tabulate
@@ -45,7 +46,7 @@ class Experiment:
     result: ExperimentResult
 
 
-def get_configs() -> list[ExperimentConfig]:
+def get_configs() -> List[ExperimentConfig]:
     # MoE-relevant 2D shapes: (M, K) where M = total tokens routed to experts.
     # In practice M depends on batch_size * seq_len * top_k / num_experts.
     # K is model hidden dim or intermediate dim.
@@ -147,7 +148,7 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
     )
 
 
-def print_results(experiments: list[Experiment]):
+def print_results(experiments: List[Experiment]):
     headers = [
         "shape (M, K)",
         "dtype",
