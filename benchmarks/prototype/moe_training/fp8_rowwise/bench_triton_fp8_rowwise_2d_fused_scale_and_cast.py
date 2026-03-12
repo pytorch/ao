@@ -23,11 +23,6 @@ device = torch.device("cuda")
 
 torch._dynamo.config.cache_size_limit = 1000
 
-# Wrap tensor_to_scale so torch.compile treats it as an opaque call.
-# This simulates what happens inside the MoE forward pass: the compiler cannot
-# fuse across the tensor_to_scale boundary, leaving 3 separate kernel launches.
-_tensor_to_scale_opaque = torch.compiler.disable(tensor_to_scale)
-
 
 @dataclass(frozen=True)
 class ExperimentConfig:
@@ -39,10 +34,8 @@ class ExperimentConfig:
 @dataclass(frozen=True)
 class ExperimentResult:
     torch_compile_time_us: float
-    compiled_graph_unfused_time_us: float
     triton_time_us: float
     torch_compile_mem_bw_gbps: float
-    compiled_graph_unfused_mem_bw_gbps: float
     triton_mem_bw_gbps: float
 
 
@@ -99,8 +92,9 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
         device=device,
     )
 
-    # --- Column 1: torch.compile of the isolated 3-kernel sequence.
-    # Best-case for unfused: compiler sees the whole sequence and can optimize freely.
+    # --- torch.compile of the native 3-op sequence (tensor_to_scale + multiply + cast).
+    # This is the best-case for the unfused path: the compiler sees the full sequence
+    # and can fuse ops freely.
     def run_original(A: torch.Tensor):
         A_scales = tensor_to_scale(
             A,
@@ -115,25 +109,7 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
 
     run_original_compiled = torch.compile(run_original)
 
-    # --- Column 2: 3-kernel sequence inside a compiled graph with an opaque boundary.
-    # Simulates the actual MoE forward pass: torch.compile cannot fuse across the
-    # tensor_to_scale call because it's treated as an opaque custom op, leaving
-    # 3 separate kernel launches — exactly what the fused kernel replaces in practice.
-    def run_compiled_graph_unfused(A: torch.Tensor):
-        A_scales = _tensor_to_scale_opaque(
-            A,
-            float8_dtype,
-            scaling_granularity=ScalingGranularity.AXISWISE,
-            axiswise_dim=-1,
-            round_scales_to_power_of_2=config.round_scales_to_power_of_2,
-        )
-        A_scaled = A.to(torch.float32) * A_scales
-        A_data = to_fp8_saturated(A_scaled, float8_dtype)
-        return A_data, A_scales
-
-    run_compiled_graph_unfused_compiled = torch.compile(run_compiled_graph_unfused)
-
-    # --- Column 3: Fused Triton kernel (also opaque to torch.compile as a custom_op).
+    # --- Fused Triton kernel.
     def run_fused(A: torch.Tensor):
         return triton_fp8_rowwise_2d_scale_and_cast(
             A,
@@ -145,15 +121,10 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
     for _ in range(10):
         run_original_compiled(input_tensor)
     for _ in range(10):
-        run_compiled_graph_unfused_compiled(input_tensor)
-    for _ in range(10):
         run_fused(input_tensor)
 
     torch_compile_time_us = benchmark_cuda_function_in_microseconds(
         run_original_compiled, input_tensor
-    )
-    compiled_graph_unfused_time_us = benchmark_cuda_function_in_microseconds(
-        run_compiled_graph_unfused_compiled, input_tensor
     )
     triton_time_us = benchmark_cuda_function_in_microseconds(run_fused, input_tensor)
 
@@ -166,17 +137,12 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
     total_bytes = read_bytes + write_bytes
 
     torch_compile_mem_bw_gbps = (total_bytes / 1e9) / (torch_compile_time_us / 1e6)
-    compiled_graph_unfused_mem_bw_gbps = (total_bytes / 1e9) / (
-        compiled_graph_unfused_time_us / 1e6
-    )
     triton_mem_bw_gbps = (total_bytes / 1e9) / (triton_time_us / 1e6)
 
     return ExperimentResult(
         torch_compile_time_us=torch_compile_time_us,
-        compiled_graph_unfused_time_us=compiled_graph_unfused_time_us,
         triton_time_us=triton_time_us,
         torch_compile_mem_bw_gbps=torch_compile_mem_bw_gbps,
-        compiled_graph_unfused_mem_bw_gbps=compiled_graph_unfused_mem_bw_gbps,
         triton_mem_bw_gbps=triton_mem_bw_gbps,
     )
 
@@ -185,51 +151,38 @@ def print_results(experiments: list[Experiment]):
     headers = [
         "shape (M, K)",
         "dtype",
-        "compile isolated (us)",
-        "compile+opaque (us)",
+        "torch.compile (us)",
         "triton (us)",
-        "speedup vs opaque",
-        "compile isolated BW (GB/s)",
-        "compile+opaque BW (GB/s)",
+        "speedup",
+        "torch.compile BW (GB/s)",
         "triton BW (GB/s)",
     ]
     rows = []
     for experiment in experiments:
         m, k = experiment.config.input_shape
-        speedup_vs_opaque = (
-            experiment.result.compiled_graph_unfused_time_us
-            / experiment.result.triton_time_us
+        speedup = (
+            experiment.result.torch_compile_time_us / experiment.result.triton_time_us
         )
         rows.append(
             [
                 f"({m}, {k})",
                 str(experiment.config.high_precision_dtype).split(".")[-1],
                 f"{experiment.result.torch_compile_time_us:.1f}",
-                f"{experiment.result.compiled_graph_unfused_time_us:.1f}",
                 f"{experiment.result.triton_time_us:.1f}",
-                f"{speedup_vs_opaque:.2f}x",
+                f"{speedup:.2f}x",
                 f"{experiment.result.torch_compile_mem_bw_gbps:.1f}",
-                f"{experiment.result.compiled_graph_unfused_mem_bw_gbps:.1f}",
                 f"{experiment.result.triton_mem_bw_gbps:.1f}",
             ]
         )
     print(tabulate(rows, headers=headers))
     print()
 
-    speedups_vs_isolated = [
+    speedups = [
         e.result.torch_compile_time_us / e.result.triton_time_us for e in experiments
     ]
-    speedups_vs_opaque = [
-        e.result.compiled_graph_unfused_time_us / e.result.triton_time_us
-        for e in experiments
-    ]
     print(
-        f"Triton vs compile-isolated  — avg: {sum(speedups_vs_isolated)/len(speedups_vs_isolated):.2f}x  "
-        f"min: {min(speedups_vs_isolated):.2f}x  max: {max(speedups_vs_isolated):.2f}x"
-    )
-    print(
-        f"Triton vs compile+opaque    — avg: {sum(speedups_vs_opaque)/len(speedups_vs_opaque):.2f}x  "
-        f"min: {min(speedups_vs_opaque):.2f}x  max: {max(speedups_vs_opaque):.2f}x"
+        f"Triton vs torch.compile  — avg: {sum(speedups)/len(speedups):.2f}x  "
+        f"min: {min(speedups):.2f}x  max: {max(speedups):.2f}x"
     )
 
 
@@ -242,24 +195,14 @@ def main():
         results.append(Experiment(config=config, result=result))
 
     print()
-    print("=" * 110)
+    print("=" * 90)
     print("Fused 2D Scale+Cast Kernel Benchmark")
     print()
-    print("  compile-isolated : torch.compile of the 3-kernel sequence in isolation.")
-    print(
-        "                     Best-case for unfused — compiler can optimize the full sequence freely."
-    )
-    print(
-        "  compile+opaque   : torch.compile where tensor_to_scale is opaque (compiler.disable)."
-    )
-    print(
-        "                     Simulates actual MoE training: 3 separate kernel launches inside"
-    )
-    print(
-        "                     a larger compiled graph, which is what the fused kernel replaces."
-    )
-    print("  triton           : triton_fp8_rowwise_2d_scale_and_cast() fused kernel.")
-    print("=" * 110)
+    print("  torch.compile : torch.compile of the native 3-op sequence")
+    print("                  (tensor_to_scale + multiply + to_fp8_saturated).")
+    print("                  Best-case for the unfused path.")
+    print("  triton        : triton_fp8_rowwise_2d_scale_and_cast() fused kernel.")
+    print("=" * 90)
     print()
     print_results(results)
 
