@@ -258,22 +258,6 @@ class Float8TrainingWeightWrapperTensor(TrainingWeightWrapperBaseTensor):
                 return func(*args, **kwargs)
 
 
-class _UnwrapWeight(torch.autograd.Function):
-    """Helper to unwrap the tensor subclass in a differentiable way."""
-
-    @staticmethod
-    def forward(ctx, wrapper_tensor):
-        return wrapper_tensor._data
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        return grad_output
-
-
-def unwrap_weight(wrapper_tensor):
-    return _UnwrapWeight.apply(wrapper_tensor)
-
-
 class MXFP8TrainingWeightWrapperTensor(TrainingWeightWrapperBaseTensor):
     """
     A subclass of torch.Tensor that overrides the grouped_mm and linear ops
@@ -312,7 +296,7 @@ class MXFP8TrainingWeightWrapperTensor(TrainingWeightWrapperBaseTensor):
                 )
 
         # linear op override
-        elif func.__name__ == "linear":
+        elif func.__name__ in ("linear", "mm", "matmul", "addmm"):
             A, B = args[0], args[1]
 
             assert not isinstance(A, cls), f"A should not be a {cls.__name__}"
