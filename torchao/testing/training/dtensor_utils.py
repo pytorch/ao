@@ -27,7 +27,6 @@ from torchao.float8.float8_tensor_parallel import (
 )
 from torchao.prototype.moe_training.config import MXFP8TrainingOpConfig
 from torchao.quantization import quantize_
-from torchao.quantization.utils import compute_error
 
 
 class FeedForward(nn.Module):
@@ -197,47 +196,43 @@ def _test_lowp_mlp_tensor_parallelism_base(
         # MXFP8 emulated dim1 quantization transposes and re-contiguifies the
         # activation (a.t().contiguous()), which can change how elements land
         # in 32-element blocks depending on whether the input was sharded or
-        # not. This produces small numerical differences, so use SQNR threshold.
-        MIN_SQNR = 23.0
+        # not. This produces small numerical differences, so use relaxed tols.
+        atol, rtol = 0.15, 0.05
 
-        tp_out_sqnr = compute_error(tp_out, global_out)
-        assert tp_out_sqnr >= MIN_SQNR, f"tp_out SQNR {tp_out_sqnr} < {MIN_SQNR}"
-
-        sp_out_sqnr = compute_error(sp_out.full_tensor(), global_out)
-        assert sp_out_sqnr >= MIN_SQNR, f"sp_out SQNR {sp_out_sqnr} < {MIN_SQNR}"
-
-        w1_grad_sqnr = compute_error(
-            tp_model.ffn.w1.weight.grad, sp_model.ffn.w1.weight.grad
+        torch.testing.assert_close(tp_out, global_out, atol=atol, rtol=rtol)
+        torch.testing.assert_close(
+            sp_out.full_tensor(), global_out, atol=atol, rtol=rtol
         )
-        assert w1_grad_sqnr >= MIN_SQNR, (
-            f"w1.weight.grad SQNR {w1_grad_sqnr} < {MIN_SQNR}"
+        torch.testing.assert_close(
+            tp_model.ffn.w1.weight.grad,
+            sp_model.ffn.w1.weight.grad,
+            atol=atol,
+            rtol=rtol,
         )
-
-        out_proj_grad_sqnr = compute_error(
-            tp_model.ffn.out_proj.weight.grad, sp_model.ffn.out_proj.weight.grad
-        )
-        assert out_proj_grad_sqnr >= MIN_SQNR, (
-            f"out_proj.weight.grad SQNR {out_proj_grad_sqnr} < {MIN_SQNR}"
+        torch.testing.assert_close(
+            tp_model.ffn.out_proj.weight.grad,
+            sp_model.ffn.out_proj.weight.grad,
+            atol=atol,
+            rtol=rtol,
         )
 
         sp_out2 = sp_model2(x_sp_input)
         sp_out2.backward(go_sp)
 
-        sp_out2_sqnr = compute_error(sp_out2.full_tensor(), global_out)
-        assert sp_out2_sqnr >= MIN_SQNR, f"sp_out2 SQNR {sp_out2_sqnr} < {MIN_SQNR}"
-
-        w1_grad2_sqnr = compute_error(
-            tp_model.ffn.w1.weight.grad, sp_model2.ffn.w1.weight.grad
+        torch.testing.assert_close(
+            sp_out2.full_tensor(), global_out, atol=atol, rtol=rtol
         )
-        assert w1_grad2_sqnr >= MIN_SQNR, (
-            f"w1.weight.grad (sp_model2) SQNR {w1_grad2_sqnr} < {MIN_SQNR}"
+        torch.testing.assert_close(
+            tp_model.ffn.w1.weight.grad,
+            sp_model2.ffn.w1.weight.grad,
+            atol=atol,
+            rtol=rtol,
         )
-
-        out_proj_grad2_sqnr = compute_error(
-            tp_model.ffn.out_proj.weight.grad, sp_model2.ffn.out_proj.weight.grad
-        )
-        assert out_proj_grad2_sqnr >= MIN_SQNR, (
-            f"out_proj.weight.grad (sp_model2) SQNR {out_proj_grad2_sqnr} < {MIN_SQNR}"
+        torch.testing.assert_close(
+            tp_model.ffn.out_proj.weight.grad,
+            sp_model2.ffn.out_proj.weight.grad,
+            atol=atol,
+            rtol=rtol,
         )
     else:
         torch.testing.assert_close(tp_out, global_out)
