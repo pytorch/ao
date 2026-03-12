@@ -23,7 +23,6 @@ from typing import Optional, Union
 
 import torch
 import torch.nn.functional as F
-from torch.distributed._tensor import DTensor, Shard
 from torch.utils._python_dispatch import (
     return_and_correct_aliasing,
 )
@@ -515,26 +514,6 @@ class MXTensor(TorchAOBaseTensor):
         if output_dtype is None:
             output_dtype = self.dtype
 
-        # DTensor inner tensors: extract locals, dequantize, reconstruct DTensor
-        if isinstance(self.qdata, DTensor):
-            local_qdata = self.qdata.to_local()
-            local_scale = self.scale.to_local()
-            local_result = to_dtype(
-                local_qdata,
-                local_scale,
-                self.elem_dtype,
-                self.block_size,
-                output_dtype,
-            )
-            return DTensor.from_local(
-                local_result,
-                self.qdata.device_mesh,
-                self.qdata.placements,
-                run_check=False,
-                shape=self.qdata.size(),
-                stride=self.qdata.stride(),
-            )
-
         scale = self.scale
         if self.is_swizzled_scales:
             is_transposed = self.qdata.stride(-2) < self.qdata.stride(-1)
@@ -639,29 +618,6 @@ def _get_gemm_choice(
     return choice_a if choice_a is not None else choice_b
 
 
-def _to_blocked_dtensor_safe(scale_2d):
-    """Apply to_blocked to a 2D scale tensor, handling DTensor inputs.
-
-    to_blocked does complex view/permute operations that aren't DTensor-safe.
-    For DTensor inputs, extract the local tensor, apply to_blocked locally,
-    and reconstruct as a 1D DTensor with appropriate placement.
-    """
-    if isinstance(scale_2d, DTensor):
-        local_scale = scale_2d.to_local()
-        local_blocked = to_blocked(local_scale)
-        # 2D→1D: row-shard (Shard(0)) maps to Shard(0) on 1D output
-        new_placements = tuple(
-            Shard(0) if isinstance(p, Shard) else p
-            for p in scale_2d.placements
-        )
-        return DTensor.from_local(
-            local_blocked, scale_2d.device_mesh, new_placements,
-            run_check=False,
-        )
-    else:
-        return to_blocked(scale_2d)
-
-
 def _addmm_mx_dispatch(
     a: torch.Tensor, b: MXTensor, aten_op, bias: Optional[torch.Tensor] = None
 ) -> torch.Tensor:
@@ -696,13 +652,13 @@ def _addmm_mx_dispatch(
             a_scale_block = a.scale
         else:
             a_scale = a.scale.view(M, K // a.block_size)
-            a_scale_block = _to_blocked_dtensor_safe(a_scale)
+            a_scale_block = to_blocked(a_scale)
 
         if b.is_swizzled_scales:
             b_scale_block = b.scale.t()
         else:
             b_scale = b.scale.t().view(N, K // b.block_size)
-            b_scale_block = _to_blocked_dtensor_safe(b_scale)
+            b_scale_block = to_blocked(b_scale)
 
         if a.elem_dtype == torch.float8_e4m3fn:
             assert b.elem_dtype == torch.float8_e4m3fn

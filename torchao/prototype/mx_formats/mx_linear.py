@@ -17,9 +17,6 @@ from torchao.prototype.mx_formats.config import (
     MXFP8Dim1CastKernelChoice,
     ScaleCalculationMode,
 )
-from torchao.prototype.mx_formats.mx_dtensor import (
-    ensure_mx_scaled_mm_strategy_registered,
-)
 from torchao.prototype.mx_formats.mx_tensor import MXTensor
 from torchao.prototype.mx_formats.utils import _to_mxfp8_dim1_kernel_wrapper
 from torchao.quantization.quantize_.common.kernel_preference import KernelPreference
@@ -107,7 +104,6 @@ class mx_mm(torch.autograd.Function):
         scale_calculation_mode: ScaleCalculationMode,
         wgrad_with_hp: bool,
     ):
-        ensure_mx_scaled_mm_strategy_registered()
         ctx.save_for_backward(input_hp, weight_hp)
         ctx.in_elem_dtype = in_elem_dtype
         ctx.w_elem_dtype = w_elem_dtype
