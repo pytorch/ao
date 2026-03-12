@@ -11,6 +11,7 @@ This page provides an overview of the various workflows available in torchao.
 * QAT: the [QAT documentation](qat.md) for details on how to use quantization-aware training to improve model accuracy after quantization.
 * Inference: See the [inference quantization documentation](inference.md) for an overview of quantization for inference workflows.
 
+
 ## Workflows status by dtype + hardware
 
 🟢 = stable, 🟡 = prototype, 🟠 = planned, ⚪ = not supported
