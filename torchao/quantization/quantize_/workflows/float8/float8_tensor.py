@@ -108,6 +108,7 @@ class Float8Tensor(TorchAOBaseTensor):
         "act_quant_kwargs",
         "kernel_preference",
         "dtype",
+        "test_only_new_attr",
     ]
 
     def __new__(
@@ -119,6 +120,7 @@ class Float8Tensor(TorchAOBaseTensor):
         act_quant_kwargs: Optional[QuantizeTensorToFloat8Kwargs] = None,
         kernel_preference: KernelPreference = KernelPreference.AUTO,
         dtype: Optional[torch.dtype] = None,
+        test_only_new_attr: Optional[int] = None,
     ):
         shape = qdata.shape
         kwargs = {}
@@ -136,6 +138,7 @@ class Float8Tensor(TorchAOBaseTensor):
         act_quant_kwargs: Optional[QuantizeTensorToFloat8Kwargs] = None,
         kernel_preference: KernelPreference = KernelPreference.AUTO,
         dtype: Optional[torch.dtype] = None,
+        test_only_new_attr: Optional[int] = None,
     ):
         super().__init__()
         self.qdata = qdata
@@ -144,6 +147,7 @@ class Float8Tensor(TorchAOBaseTensor):
         self.mm_config = mm_config
         self.act_quant_kwargs = act_quant_kwargs
         self.kernel_preference = kernel_preference
+        self.test_only_new_attr = test_only_new_attr
 
     def __repr__(self):
         return (
