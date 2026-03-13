@@ -32,8 +32,8 @@ class RoundingMode(Enum):
         for gradient quantization in NVFP4 training.
     """
 
-    RN = 0
-    RS = 1
+    RN = auto()
+    RS = auto()
 
 
 def _n_ones(n: int) -> int:
