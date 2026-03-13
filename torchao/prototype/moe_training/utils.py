@@ -404,7 +404,7 @@ def _quantize_then_scaled_grouped_mm(
             offs,
             config.out_dtype,
             config.float8_dtype,
-            pad_token_groups_for_grouped_mm=False,
+            pad_token_groups_for_grouped_mm=config.pad_token_groups_for_grouped_mm,
         )
     elif isinstance(config, MXFP8TrainingOpConfig):
         return _to_mxfp8_then_scaled_grouped_mm(
