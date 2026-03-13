@@ -91,12 +91,27 @@ for _f in [
 
 # ensure __module__ is set correctly for public APIs
 ObserverOrFakeQuantize = Union[ObserverBase, FakeQuantizeBase]
-ObserverOrFakeQuantize.__module__ = "torchao.quantization.pt2e"
+try:
+    ObserverOrFakeQuantize.__module__ = "torchao.quantization.pt2e"
+except (AttributeError, TypeError):
+    # Python 3.14+ Unions are immutable; set on underlying components instead
+    for _item in (ObserverBase, FakeQuantizeBase):
+        try:
+            _item.__module__ = "torchao.quantization.pt2e"
+        except Exception:
+            pass
 
 ObserverOrFakeQuantizeConstructor = Union[
     PartialWrapper, type[ObserverBase], type[FakeQuantizeBase]
 ]
-ObserverOrFakeQuantizeConstructor.__module__ = "torchao.quantization.pt2e"
+try:
+    ObserverOrFakeQuantizeConstructor.__module__ = "torchao.quantization.pt2e"
+except (AttributeError, TypeError):
+    for _item in (PartialWrapper,):
+        try:
+            _item.__module__ = "torchao.quantization.pt2e"
+        except Exception:
+            pass
 
 
 __all__ = [
