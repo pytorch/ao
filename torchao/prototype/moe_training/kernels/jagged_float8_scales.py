@@ -42,11 +42,16 @@ if torch_version_at_least("2.7.0") and has_triton():
         # Single fixed config on AMD — avoids per-key autotuning D2H sync overhead.
         # Multiple configs trigger hipDeviceSynchronize for each unique (key) shape
         # encountered during training, adding hundreds of syncs per step.
-        # BLOCK_SIZE=128, BLOCK_SIZE_ITER=128, num_warps=8 performs well on MI300X.
+        #
+        # Config chosen by sweeping (BLOCK_SIZE, BLOCK_SIZE_ITER, num_warps) on MI300X
+        # over representative DeepSeek-MoE-16B backward shapes (M=16640, K=2048/5120,
+        # E=64/128). Best single compromise across all shapes:
+        #   BLOCK_SIZE=32, BLOCK_SIZE_ITER=128, num_warps=4
+        # (2-3x faster than the previous 128/128/8 config).
         kernel_configs_2D = [
             triton.Config(
-                {"BLOCK_SIZE": 128, "BLOCK_SIZE_ITER": 128},
-                num_warps=8,
+                {"BLOCK_SIZE": 32, "BLOCK_SIZE_ITER": 128},
+                num_warps=4,
                 num_stages=2,
             ),
         ]
