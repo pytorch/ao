@@ -30,6 +30,12 @@ __all__ = [
     "TorchAOBaseTensor",
     "is_cuda_version_at_least",
     "is_MI300",
+    "is_MI325X",
+    "is_MI350",
+    "is_Navi4",
+    "is_ROCM",
+    "is_rocm_gpu_at_least",
+    "rocm_device_capability",
     "is_sm_at_least_89",
     "is_sm_at_least_90",
     "is_sm_at_least_100",
@@ -1159,43 +1165,112 @@ def fill_defaults(args, n, defaults_tail):
     return r
 
 
-# Supported AMD GPU Models and their LLVM gfx Codes:
+# ---------------------------------------------------------------------------
+# ROCm device capability helpers
 #
-# | AMD GPU Model | LLVM gfx Code          |
-# |---------------|------------------------|
-# | Navi4         | gfx1200, gfx1201       |
-# | MI300X        | gfx940, gfx941, gfx942 |
-# | MI350         | gfx950                 |
+# AMD GPU families and their LLVM GFX codes:
+#
+# | GPU Family    | GFX Code               | (major, minor) |
+# |---------------|------------------------|----------------|
+# | MI210         | gfx90a                 | (9, 0)         |
+# | MI300A/X      | gfx940, gfx941, gfx942 | (9, 4)         |
+# | MI325X        | gfx942                 | (9, 4)         |
+# | MI350X        | gfx950                 | (9, 5)         |
+# | RDNA3 (Navi3) | gfx1100, gfx1101, ...  | (11, 0)        |
+# | RDNA4 (Navi4) | gfx1200, gfx1201       | (12, 0)        |
+#
+# The (major, minor) mapping mirrors HIP's hipDeviceProp_t derivation
+# from the GFX arch string, following the convention established by
+# vLLM (see: vllm/platforms/rocm.py).
+# ---------------------------------------------------------------------------
 
 
-def is_ROCM():
-    return torch.cuda.is_available() and torch.version.hip
+def is_ROCM() -> bool:
+    return torch.cuda.is_available() and torch.version.hip is not None
 
 
-def is_MI300():
-    if is_ROCM():
-        mxArchName = ["gfx940", "gfx941", "gfx942"]
-        archName = torch.cuda.get_device_properties(0).gcnArchName
-        for arch in mxArchName:
-            if arch in archName:
-                return True
-    return False
+def _parse_rocm_device_capability(gcn_arch: str) -> tuple[int, int] | None:
+    """
+    Parse (major, minor) capability from a GCN architecture string.
+
+    Handles both 1-digit major (gfx9xx) and 2-digit major (gfx1xxx) formats:
+      gfx90a  -> (9, 0)
+      gfx942  -> (9, 4)
+      gfx950  -> (9, 5)
+      gfx1100 -> (11, 0)
+      gfx1200 -> (12, 0)
+    """
+    import re
+
+    m = re.match(r"gfx(\d+)", gcn_arch)
+    if not m:
+        return None
+
+    digits = m.group(1)
+    if len(digits) <= 3:
+        return (int(digits[0]), int(digits[1]))
+    elif len(digits) == 4:
+        return (int(digits[:2]), int(digits[2]))
+    return None
 
 
-def is_MI350():
-    if is_ROCM():
-        archName = torch.cuda.get_device_properties(0).gcnArchName
-        if "gfx950" in archName:
-            return True
-    return False
+@functools.cache
+def rocm_device_capability(device_id: int = 0) -> tuple[int, int] | None:
+    """
+    Return (major, minor) device capability for a ROCm GPU, or None if
+    not running on ROCm. Caches the result after first call.
+    """
+    if not is_ROCM():
+        return None
+    gcn_arch = torch.cuda.get_device_properties(device_id).gcnArchName
+    return _parse_rocm_device_capability(gcn_arch)
 
 
-def is_Navi4():
-    if is_ROCM():
-        archName = torch.cuda.get_device_properties(0).gcnArchName
-        if "gfx1200" or "gfx1201" in archName:
-            return True
-    return False
+def is_MI300() -> bool:
+    """MI300A/X: gfx940, gfx941, gfx942."""
+    if not is_ROCM():
+        return False
+    gcn_arch = torch.cuda.get_device_properties(0).gcnArchName
+    return any(arch in gcn_arch for arch in ("gfx940", "gfx941", "gfx942"))
+
+
+def is_MI325X() -> bool:
+    """MI325X: gfx942 (same GFX code as MI300X, differentiated by device ID)."""
+    return is_MI300()
+
+
+def is_MI350() -> bool:
+    """MI350X: gfx950."""
+    if not is_ROCM():
+        return False
+    gcn_arch = torch.cuda.get_device_properties(0).gcnArchName
+    return "gfx950" in gcn_arch
+
+
+def is_Navi4() -> bool:
+    """RDNA4 (Navi4): gfx1200, gfx1201."""
+    if not is_ROCM():
+        return False
+    gcn_arch = torch.cuda.get_device_properties(0).gcnArchName
+    return "gfx1200" in gcn_arch or "gfx1201" in gcn_arch
+
+
+def is_rocm_gpu_at_least(major: int, minor: int = 0) -> bool:
+    """
+    Check if the ROCm GPU capability is at least (major, minor).
+
+    Allows writing capability gates that work across AMD GPU families,
+    analogous to is_sm_at_least_*() for NVIDIA GPUs.
+
+    Examples:
+        is_rocm_gpu_at_least(9, 4)   # True on MI300X/MI325X/MI350X
+        is_rocm_gpu_at_least(9, 5)   # True on MI350X only
+        is_rocm_gpu_at_least(12, 0)  # True on RDNA4 (Navi4)
+    """
+    cap = rocm_device_capability()
+    if cap is None:
+        return False
+    return cap >= (major, minor)
 
 
 def is_sm_version(major: int, minor: int) -> bool:
