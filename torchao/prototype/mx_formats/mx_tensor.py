@@ -426,7 +426,7 @@ def tensor_size_hp_to_fp4x2(orig_size, is_contiguous):
         else:
             assert len(orig_size) == 3, "unsupported"
             # only supporting dim0, dim1, dim2 and dim0, dim2, dim1 orders
-            new_size = [new_size[0], new_size[2] // 2, new_size[1]]
+            new_size = [new_size[0], new_size[1] // 2, new_size[2]]
     return new_size
 
 
@@ -440,7 +440,7 @@ def tensor_size_fp4x2_to_hp(orig_size, is_contiguous):
         else:
             assert len(orig_size) == 3, "unsupported"
             # only supporting dim0, dim1, dim2 and dim0, dim2, dim1 orders
-            new_size = [new_size[0], new_size[2] * 2, new_size[1]]
+            new_size = [new_size[0], new_size[1] * 2, new_size[2]]
     return new_size
 
 
