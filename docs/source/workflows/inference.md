@@ -199,7 +199,7 @@ high level, and measure performance improvements.
 | bfloat16 | 0 | 0.4178 | 1.00 | 1.4914 | 1.00 |
 | float8_rowwise | 0.1236| 0.3455 | 1.21 | 1.1986 | 1.24 |
 | mxfp8 | 0.1260 | 0.3673 | 1.14 | 1.2820 | 1.16 |
-| nvfp4 | 0.2694 | 0.3308 | 1.26 | 1.1334 | 1.32 |
+| nvfp4 | 0.2694 | 0.3203 | 1.30 | 1.0913 | 1.37 |
 
 To reproduce, run:
 
