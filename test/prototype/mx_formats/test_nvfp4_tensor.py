@@ -9,6 +9,7 @@ import pytest
 import torch
 import torch.nn.functional as F
 
+from torchao.prototype.custom_fp_utils import RoundingMode
 from torchao.prototype.mx_formats.constants import (
     F4_E2M1_MAX,
 )
@@ -31,7 +32,43 @@ torch.manual_seed(2)
 if not torch_version_at_least("2.8.0"):
     pytest.skip("Unsupported PyTorch version", allow_module_level=True)
 
+_triton_kernel_params = [
+    False,
+    pytest.param(
+        True,
+        marks=pytest.mark.skipif(
+            not is_sm_at_least_100(),
+            reason="CUDA capability >= 10.0 required for nvfp4 triton kernel",
+        ),
+    ),
+]
 
+
+def _to_nvfp4_with_rand_bits(
+    data, use_triton_kernel=False, rounding_mode=RoundingMode.RN, **kwargs
+):
+    """Test helper: auto-generates rand_bits for RS mode and calls to_nvfp4."""
+    rand_bits = None
+    if rounding_mode == RoundingMode.RS:
+        if use_triton_kernel:
+            rand_bits = torch.randint(
+                0, 2**31, (1,), dtype=torch.int32, device=data.device
+            )
+        else:
+            rand_bits = torch.randint(
+                0, 2**31, data.shape, dtype=torch.int32, device=data.device
+            )
+    return NVFP4Tensor.to_nvfp4(
+        data,
+        use_triton_kernel=use_triton_kernel,
+        rounding_mode=rounding_mode,
+        rand_bits=rand_bits,
+        **kwargs,
+    )
+
+
+@pytest.mark.parametrize("rounding_mode", [RoundingMode.RN, RoundingMode.RS])
+@pytest.mark.parametrize("use_triton_kernel", _triton_kernel_params)
 @pytest.mark.parametrize(
     "dtype,shape,use_per_tensor_scale",
     [
@@ -46,7 +83,10 @@ if not torch_version_at_least("2.8.0"):
 @pytest.mark.skipif(
     not torch_version_at_least("2.8.0"), reason="torch.compile requires PyTorch 2.8+"
 )
-def test_nvfp4_reconstruction(dtype, shape, use_per_tensor_scale):
+def test_nvfp4_reconstruction(
+    dtype, shape, use_per_tensor_scale, rounding_mode, use_triton_kernel
+):
+
     x = torch.randn(shape, dtype=dtype, device="cuda")
     if use_per_tensor_scale:
         tensor_amax = torch.max(torch.abs(x))
@@ -54,7 +94,13 @@ def test_nvfp4_reconstruction(dtype, shape, use_per_tensor_scale):
     else:
         scale = None
 
-    x_nvfp4 = NVFP4Tensor.to_nvfp4(x, per_tensor_scale=scale)
+    x_nvfp4 = _to_nvfp4_with_rand_bits(
+        x,
+        per_tensor_scale=scale,
+        rounding_mode=rounding_mode,
+        is_swizzled_scales=True,
+        use_triton_kernel=use_triton_kernel,
+    )
     x_reconstructed = x_nvfp4.dequantize(dtype)
 
     def assert_sqnr_gt_threshold(orig, new, threshold):
@@ -99,6 +145,8 @@ def test_nvfp4_reconstruction(dtype, shape, use_per_tensor_scale):
     )
 
 
+@pytest.mark.parametrize("rounding_mode", [RoundingMode.RN, RoundingMode.RS])
+@pytest.mark.parametrize("use_triton_kernel", _triton_kernel_params)
 @pytest.mark.parametrize("is_swizzled_scales", [False, True])
 @pytest.mark.parametrize(
     "shape",
@@ -114,20 +162,31 @@ def test_nvfp4_reconstruction(dtype, shape, use_per_tensor_scale):
     not torch_version_at_least("2.8.0"), reason="torch.compile requires PyTorch 2.8+"
 )
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-def test_nvfp4_swizzled_scales_construction(is_swizzled_scales, shape):
+def test_nvfp4_swizzled_scales_construction(
+    is_swizzled_scales, shape, rounding_mode, use_triton_kernel
+):
     """
     Test that NVFP4Tensor can be constructed with swizzled scales and
     that the is_swizzled_scales flag is set correctly.
     """
+    if use_triton_kernel and not is_swizzled_scales:
+        pytest.skip("triton kernel requires swizzled scales")
 
     data = torch.randn(*shape, device="cuda", dtype=torch.bfloat16)
 
-    tensor = NVFP4Tensor.to_nvfp4(data, is_swizzled_scales=is_swizzled_scales)
+    tensor = _to_nvfp4_with_rand_bits(
+        data,
+        is_swizzled_scales=is_swizzled_scales,
+        rounding_mode=rounding_mode,
+        use_triton_kernel=use_triton_kernel,
+    )
     assert tensor.is_swizzled_scales == is_swizzled_scales
     reconstructed = tensor.dequantize(torch.bfloat16)
     assert reconstructed.shape == data.shape
 
 
+@pytest.mark.parametrize("rounding_mode", [RoundingMode.RN, RoundingMode.RS])
+@pytest.mark.parametrize("use_triton_kernel", _triton_kernel_params)
 @pytest.mark.parametrize(
     "slice_dim,slice_spec",
     [
@@ -150,7 +209,9 @@ def test_nvfp4_swizzled_scales_construction(is_swizzled_scales, shape):
 @pytest.mark.skipif(
     not torch_version_at_least("2.8.0"), reason="NVFP4 requires PyTorch 2.8+"
 )
-def test_nvfp4_swizzled_scales_slicing(slice_dim, slice_spec):
+def test_nvfp4_swizzled_scales_slicing(
+    slice_dim, slice_spec, rounding_mode, use_triton_kernel
+):
     """
     Test that slicing works correctly with swizzled scales and maintains
     the swizzled state in the output tensor.
@@ -166,7 +227,12 @@ def test_nvfp4_swizzled_scales_slicing(slice_dim, slice_spec):
 
     data = torch.randn(M, K, device="cuda", dtype=torch.bfloat16)
 
-    tensor = NVFP4Tensor.to_nvfp4(data, is_swizzled_scales=True)
+    tensor = _to_nvfp4_with_rand_bits(
+        data,
+        is_swizzled_scales=True,
+        rounding_mode=rounding_mode,
+        use_triton_kernel=use_triton_kernel,
+    )
     assert tensor.is_swizzled_scales == True
 
     if slice_dim == 0:
@@ -190,6 +256,8 @@ def test_nvfp4_swizzled_scales_slicing(slice_dim, slice_spec):
     torch.testing.assert_close(sliced_reconstructed, expected, atol=1e-6, rtol=1e-6)
 
 
+@pytest.mark.parametrize("rounding_mode", [RoundingMode.RN, RoundingMode.RS])
+@pytest.mark.parametrize("use_triton_kernel", _triton_kernel_params)
 @pytest.mark.parametrize(
     "slice_dim,slice_spec,expected_error",
     [
@@ -244,14 +312,21 @@ def test_nvfp4_swizzled_scales_slicing(slice_dim, slice_spec):
 @pytest.mark.skipif(
     not torch_version_at_least("2.8.0"), reason="NVFP4 requires PyTorch 2.8+"
 )
-def test_nvfp4_swizzled_scales_slicing_errors(slice_dim, slice_spec, expected_error):
+def test_nvfp4_swizzled_scales_slicing_errors(
+    slice_dim, slice_spec, expected_error, rounding_mode, use_triton_kernel
+):
     """
     Test that slicing raises appropriate errors for misaligned boundaries.
     """
 
     M, K = 256, 4096
     data = torch.randn(M, K, device="cuda", dtype=torch.bfloat16)
-    tensor = NVFP4Tensor.to_nvfp4(data, is_swizzled_scales=True)
+    tensor = _to_nvfp4_with_rand_bits(
+        data,
+        is_swizzled_scales=True,
+        rounding_mode=rounding_mode,
+        use_triton_kernel=use_triton_kernel,
+    )
 
     with pytest.raises(RuntimeError, match=expected_error):
         if slice_dim == 0:
@@ -260,18 +335,25 @@ def test_nvfp4_swizzled_scales_slicing_errors(slice_dim, slice_spec, expected_er
             _ = tensor[:, slice_spec]
 
 
+@pytest.mark.parametrize("rounding_mode", [RoundingMode.RN, RoundingMode.RS])
+@pytest.mark.parametrize("use_triton_kernel", _triton_kernel_params)
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(
     not torch_version_at_least("2.8.0"), reason="NVFP4 requires PyTorch 2.8+"
 )
-def test_nvfp4_swizzled_scales_view_semantics():
+def test_nvfp4_swizzled_scales_view_semantics(rounding_mode, use_triton_kernel):
     """
     Test that slicing maintains proper view semantics where possible.
     """
 
     M, K = 256, 4096
     data = torch.randn(M, K, device="cuda", dtype=torch.bfloat16)
-    tensor = NVFP4Tensor.to_nvfp4(data, is_swizzled_scales=True)
+    tensor = _to_nvfp4_with_rand_bits(
+        data,
+        is_swizzled_scales=True,
+        rounding_mode=rounding_mode,
+        use_triton_kernel=use_triton_kernel,
+    )
 
     # Test row slicing (should maintain views)
     sliced_tensor = tensor[0:128, :]
@@ -286,11 +368,13 @@ def test_nvfp4_swizzled_scales_view_semantics():
     assert full_width_slice.qdata.data_ptr() == tensor.qdata.data_ptr()
 
 
+@pytest.mark.parametrize("rounding_mode", [RoundingMode.RN, RoundingMode.RS])
+@pytest.mark.parametrize("use_triton_kernel", _triton_kernel_params)
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(
     not torch_version_at_least("2.8.0"), reason="NVFP4 requires PyTorch 2.8+"
 )
-def test_nvfp4_swizzled_scales_serialization():
+def test_nvfp4_swizzled_scales_serialization(rounding_mode, use_triton_kernel):
     """
     Test that tensor flatten/unflatten preserves the swizzled scales state.
     """
@@ -299,7 +383,12 @@ def test_nvfp4_swizzled_scales_serialization():
     data = torch.randn(M, K, device="cuda", dtype=torch.bfloat16)
 
     # Create tensor with swizzled scales
-    original_tensor = NVFP4Tensor.to_nvfp4(data, is_swizzled_scales=True)
+    original_tensor = _to_nvfp4_with_rand_bits(
+        data,
+        is_swizzled_scales=True,
+        rounding_mode=rounding_mode,
+        use_triton_kernel=use_triton_kernel,
+    )
 
     # Test serialization
     tensor_list, ctx = original_tensor.__tensor_flatten__()
@@ -327,11 +416,13 @@ def test_nvfp4_swizzled_scales_serialization():
     torch.testing.assert_close(original_dq, reconstructed_dq, atol=1e-6, rtol=1e-6)
 
 
+@pytest.mark.parametrize("rounding_mode", [RoundingMode.RN, RoundingMode.RS])
+@pytest.mark.parametrize("use_triton_kernel", _triton_kernel_params)
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(
     not torch_version_at_least("2.8.0"), reason="NVFP4 requires PyTorch 2.8+"
 )
-def test_nvfp4_swizzled_scales_get_scales_method():
+def test_nvfp4_swizzled_scales_get_scales_method(rounding_mode, use_triton_kernel):
     """
     Test that the get_scales() method correctly unswizzles scales when needed.
     """
@@ -340,8 +431,15 @@ def test_nvfp4_swizzled_scales_get_scales_method():
     data = torch.randn(M, K, device="cuda", dtype=torch.bfloat16)
 
     # Create tensors with both storage methods
-    regular_tensor = NVFP4Tensor.to_nvfp4(data, is_swizzled_scales=False)
-    swizzled_tensor = NVFP4Tensor.to_nvfp4(data, is_swizzled_scales=True)
+    regular_tensor = _to_nvfp4_with_rand_bits(
+        data, is_swizzled_scales=False, rounding_mode=rounding_mode
+    )
+    swizzled_tensor = _to_nvfp4_with_rand_bits(
+        data,
+        is_swizzled_scales=True,
+        rounding_mode=rounding_mode,
+        use_triton_kernel=use_triton_kernel,
+    )
 
     # Get scales from both tensors and verify they are equal
     regular_scales = regular_tensor.get_hp_scales()
@@ -354,6 +452,7 @@ def test_nvfp4_swizzled_scales_get_scales_method():
     assert swizzled_scales.shape == expected_shape
 
 
+@pytest.mark.parametrize("rounding_mode", [RoundingMode.RN, RoundingMode.RS])
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.parametrize(
     "M", [128, 256, 512, 1024, 100, 200, 384], ids=lambda m: f"M{m}"
@@ -367,7 +466,9 @@ def test_nvfp4_swizzled_scales_get_scales_method():
     not is_sm_at_least_100(), reason="requires sm100+ for raw intrinsics"
 )
 @torch.no_grad()
-def test_triton_nvfp4_quantize_equivalence(M, N, use_per_tensor_scale, dtype):
+def test_triton_nvfp4_quantize_equivalence(
+    M, N, use_per_tensor_scale, dtype, rounding_mode
+):
     """Test that Triton and PyTorch NVFP4 quantization produce equivalent results."""
 
     torch.manual_seed(42)
@@ -377,42 +478,45 @@ def test_triton_nvfp4_quantize_equivalence(M, N, use_per_tensor_scale, dtype):
     if use_per_tensor_scale:
         per_tensor_scale = per_tensor_amax_to_scale(torch.amax(torch.abs(x)))
 
-    nvfp4_pt = NVFP4Tensor.to_nvfp4(
+    nvfp4_pt = _to_nvfp4_with_rand_bits(
         x.clone(),
         per_tensor_scale=per_tensor_scale,
         is_swizzled_scales=True,
         use_triton_kernel=False,
+        rounding_mode=rounding_mode,
     )
 
-    nvfp4_triton = NVFP4Tensor.to_nvfp4(
+    nvfp4_triton = _to_nvfp4_with_rand_bits(
         x.clone(),
         per_tensor_scale=per_tensor_scale,
         is_swizzled_scales=True,
         use_triton_kernel=True,
+        rounding_mode=rounding_mode,
     )
 
     torch.testing.assert_close(nvfp4_pt.scale.flatten(), nvfp4_triton.scale.flatten())
-    pt_unpacked = unpack_uint4(nvfp4_pt.qdata)
-    triton_unpacked = unpack_uint4(nvfp4_triton.qdata)
-    torch.testing.assert_close(
-        pt_unpacked,
-        triton_unpacked,
-        atol=0,
-        rtol=0,
-    )
+
+    if rounding_mode == RoundingMode.RN:
+        # RN is deterministic, so Triton and PyTorch paths should match exactly
+        pt_unpacked = unpack_uint4(nvfp4_pt.qdata)
+        triton_unpacked = unpack_uint4(nvfp4_triton.qdata)
+        torch.testing.assert_close(pt_unpacked, triton_unpacked, atol=0, rtol=0)
 
     x_pt_dequant = nvfp4_pt.dequantize(dtype)
     x_triton_dequant = nvfp4_triton.dequantize(dtype)
 
     sqnr = compute_error(x_pt_dequant, x_triton_dequant)
-    SQNR_THRESHOLD = 40.0
+    # RS uses different RNGs for Triton vs PyTorch, so SQNR will be lower
+    SQNR_THRESHOLD = 40.0 if rounding_mode == RoundingMode.RN else 8.0
 
     assert sqnr >= SQNR_THRESHOLD, (
         f"SQNR {sqnr:.2f} < {SQNR_THRESHOLD} for M={M}, N={N}, "
-        f"use_per_tensor_scale={use_per_tensor_scale}, dtype={dtype}"
+        f"use_per_tensor_scale={use_per_tensor_scale}, dtype={dtype}, "
+        f"rounding_mode={rounding_mode}"
     )
 
 
+@pytest.mark.parametrize("rounding_mode", [RoundingMode.RN, RoundingMode.RS])
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(
     not torch_version_at_least("2.8.0"), reason="torch.compile requires PyTorch 2.8+"
@@ -425,7 +529,7 @@ def test_triton_nvfp4_quantize_equivalence(M, N, use_per_tensor_scale, dtype):
 @pytest.mark.parametrize("compile", [False])
 @pytest.mark.parametrize("bias", [True, False])
 @pytest.mark.parametrize("inpt_dtype", [torch.bfloat16, torch.float32])
-@pytest.mark.parametrize("use_triton_kernel", [True, False])
+@pytest.mark.parametrize("use_triton_kernel", _triton_kernel_params)
 @pytest.mark.parametrize(
     "shapes",
     [
@@ -452,6 +556,7 @@ def test_nvfp4_matmul_with_amax(
     inpt_dtype: torch.dtype,
     use_triton_kernel: bool,
     shapes: tuple,
+    rounding_mode: RoundingMode,
 ):
     # DYNAMIC mode requires SM100+, but WEIGHT_ONLY works on older GPUs
     if quant_type == "dynamic" and not is_sm_at_least_100():
@@ -483,18 +588,20 @@ def test_nvfp4_matmul_with_amax(
     act_quant_kwargs = None
     if quant_type == "dynamic":
         act_quant_kwargs = QuantizeTensorToNVFP4Kwargs()
-    A_nvfp4 = NVFP4Tensor.to_nvfp4(
+    A_nvfp4 = _to_nvfp4_with_rand_bits(
         A,
         per_tensor_scale=a_scale,
         is_swizzled_scales=True,
         use_triton_kernel=use_triton_kernel,
+        rounding_mode=rounding_mode,
     )
-    B_nvfp4 = NVFP4Tensor.to_nvfp4(
+    B_nvfp4 = _to_nvfp4_with_rand_bits(
         B,
         per_tensor_scale=b_scale,
         is_swizzled_scales=True,
         use_triton_kernel=use_triton_kernel,
         act_quant_kwargs=act_quant_kwargs,
+        rounding_mode=rounding_mode,
     )
 
     func = torch.compile(F.linear, fullgraph=True) if compile else F.linear
@@ -505,21 +612,32 @@ def test_nvfp4_matmul_with_amax(
     )
 
     sqnr = compute_error(C_ref, C_nvfp4)
-    SQNR_THRESHOLD = 16.0
+    # RS has higher quantization noise than RN
+    SQNR_THRESHOLD = 16.0 if rounding_mode == RoundingMode.RN else 6.0
     assert sqnr >= SQNR_THRESHOLD, (
-        f"SQNR {sqnr:.2f} < {SQNR_THRESHOLD}, use_gelu={use_gelu}, {quant_type=}, compile={compile}, bias={bias}"
+        f"SQNR {sqnr:.2f} < {SQNR_THRESHOLD}, use_gelu={use_gelu}, {quant_type=}, "
+        f"compile={compile}, bias={bias}, rounding_mode={rounding_mode}"
     )
 
 
+@pytest.mark.parametrize("rounding_mode", [RoundingMode.RN, RoundingMode.RS])
+@pytest.mark.parametrize("use_triton_kernel", _triton_kernel_params)
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(
     not torch_version_at_least("2.8.0"), reason="NVFP4 requires PyTorch 2.8+"
 )
-def test_nvfp4_to_copy():
-    x = NVFP4Tensor.to_nvfp4(torch.randn((32, 128))).cuda()
+def test_nvfp4_to_copy(rounding_mode, use_triton_kernel):
+    M, K = 32, 128
+    data = torch.randn(M, K)
+    x = _to_nvfp4_with_rand_bits(
+        data.cuda() if use_triton_kernel else data,
+        rounding_mode=rounding_mode,
+        is_swizzled_scales=use_triton_kernel,
+        use_triton_kernel=use_triton_kernel,
+    ).cuda()
     y = torch.ops.aten._to_copy(x, dtype=torch.bfloat16)
-    assert torch.equal(x.qdata, y.qdata)
-    assert torch.equal(x.scale, y.scale)
+    torch.testing.assert_close(x.qdata, y.qdata, atol=0, rtol=0)
+    torch.testing.assert_close(x.scale, y.scale, atol=0, rtol=0)
     assert x.per_tensor_scale is None
     assert y.per_tensor_scale is None
     assert x.act_per_tensor_scale is None
@@ -531,12 +649,13 @@ def test_nvfp4_to_copy():
     assert y.dtype == torch.bfloat16
 
 
+@pytest.mark.parametrize("rounding_mode", [RoundingMode.RN, RoundingMode.RS])
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(
     not torch_version_at_least("2.8.0"), reason="NVFP4 requires PyTorch 2.8+"
 )
 @pytest.mark.parametrize("transpose", [False, True])
-@pytest.mark.parametrize("use_triton_kernel", [False, True])
+@pytest.mark.parametrize("use_triton_kernel", _triton_kernel_params)
 @pytest.mark.parametrize("is_swizzled_scales", [False, True])
 @pytest.mark.parametrize(
     "shape",
@@ -549,18 +668,19 @@ def test_nvfp4_to_copy():
     ),
 )
 def test_scale_shape_matches_qdata(
-    transpose, use_triton_kernel, is_swizzled_scales, shape
+    transpose, use_triton_kernel, is_swizzled_scales, shape, rounding_mode
 ):
-    if use_triton_kernel and not is_sm_at_least_100():
-        pytest.skip("CUDA capability >= 10.0 required for nvfp4 triton kernel")
     if use_triton_kernel and not is_swizzled_scales:
         pytest.skip("triton kernel requires swizzled scales")
 
     block_size = 16
 
     x_hp = torch.randn(*shape, device="cuda")
-    x = NVFP4Tensor.to_nvfp4(
-        x_hp, is_swizzled_scales=is_swizzled_scales, use_triton_kernel=use_triton_kernel
+    x = _to_nvfp4_with_rand_bits(
+        x_hp,
+        is_swizzled_scales=is_swizzled_scales,
+        use_triton_kernel=use_triton_kernel,
+        rounding_mode=rounding_mode,
     )
 
     if len(shape) == 2:
@@ -599,15 +719,135 @@ def test_scale_shape_matches_qdata(
     )
 
 
+@pytest.mark.parametrize("rounding_mode", [RoundingMode.RN, RoundingMode.RS])
+@pytest.mark.parametrize("use_triton_kernel", _triton_kernel_params)
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(
     not torch_version_at_least("2.8.0"), reason="NVFP4 requires PyTorch 2.8+"
 )
 @pytest.mark.parametrize("dims", ((1, 2), (2, 1), (-1, -2), (-2, -1)))
 @pytest.mark.parametrize("is_swizzled_scales", [True, False])
-def test_3d_transpose(dims, is_swizzled_scales):
+def test_3d_transpose(dims, is_swizzled_scales, rounding_mode, use_triton_kernel):
+    if use_triton_kernel and not is_swizzled_scales:
+        pytest.skip("triton kernel requires swizzled scales")
+
     x_hp = torch.randn(2, 128, 256, device="cuda")
-    x_nvfp4 = NVFP4Tensor.to_nvfp4(x_hp, is_swizzled_scales=is_swizzled_scales)
+    x_nvfp4 = _to_nvfp4_with_rand_bits(
+        x_hp,
+        is_swizzled_scales=is_swizzled_scales,
+        rounding_mode=rounding_mode,
+        use_triton_kernel=use_triton_kernel,
+    )
     x_hp_t = x_hp.transpose(dims[0], dims[1])
     x_nvfp4_t = x_nvfp4.transpose(dims[0], dims[1])
     assert x_hp_t.shape == x_nvfp4_t.shape
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(
+    not torch_version_at_least("2.8.0"), reason="NVFP4 requires PyTorch 2.8+"
+)
+def test_nvfp4_rs_cuda_graph_eager():
+    """Test eager RS path under manual CUDA graph capture/replay.
+
+    rand_bits is generated outside the graph boundary and fed in before each
+    replay. Verifies consecutive replays with different rand_bits produce
+    different outputs, and resetting torch.manual_seed reproduces the same output.
+    """
+    shape = (128, 256)
+    x = torch.randn(*shape, dtype=torch.bfloat16, device="cuda")
+    rand_bits = torch.empty(*shape, dtype=torch.int32, device="cuda")
+
+    # Warmup
+    torch.randint(0, 2**31, shape, dtype=torch.int32, device="cuda", out=rand_bits)
+    result = NVFP4Tensor.to_nvfp4(
+        x,
+        rounding_mode=RoundingMode.RS,
+        rand_bits=rand_bits,
+    )
+    qdata_out = result.qdata.clone()
+
+    # Capture graph
+    g = torch.cuda.CUDAGraph()
+    s = torch.cuda.Stream()
+    s.wait_stream(torch.cuda.current_stream())
+    with torch.cuda.stream(s):
+        torch.randint(0, 2**31, shape, dtype=torch.int32, device="cuda", out=rand_bits)
+    torch.cuda.current_stream().wait_stream(s)
+
+    with torch.cuda.graph(g):
+        result = NVFP4Tensor.to_nvfp4(
+            x,
+            rounding_mode=RoundingMode.RS,
+            rand_bits=rand_bits,
+        )
+        qdata_out.copy_(result.qdata)
+
+    # Replay with different rand_bits produces different output
+    torch.manual_seed(42)
+    torch.randint(0, 2**31, shape, dtype=torch.int32, device="cuda", out=rand_bits)
+    g.replay()
+    r1 = qdata_out.clone()
+
+    torch.randint(0, 2**31, shape, dtype=torch.int32, device="cuda", out=rand_bits)
+    g.replay()
+    r2 = qdata_out.clone()
+
+    assert not torch.equal(unpack_uint4(r1), unpack_uint4(r2))
+
+    # Resetting seed reproduces same output
+    torch.manual_seed(42)
+    torch.randint(0, 2**31, shape, dtype=torch.int32, device="cuda", out=rand_bits)
+    g.replay()
+    r3 = qdata_out.clone()
+
+    torch.testing.assert_close(unpack_uint4(r1), unpack_uint4(r3))
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(
+    not is_sm_at_least_100(),
+    reason="CUDA capability >= 10.0 required for nvfp4 triton kernel",
+)
+@pytest.mark.skipif(
+    not torch_version_at_least("2.8.0"), reason="NVFP4 requires PyTorch 2.8+"
+)
+def test_nvfp4_rs_cuda_graph_compile():
+    """Test Triton RS path under torch.compile with CUDA graphs.
+
+    Uses torch.compile with mode="reduce-overhead" (which uses CUDA graphs
+    internally). The compiled function generates a seed and calls to_nvfp4.
+    Verifies consecutive calls produce different outputs, and resetting
+    torch.manual_seed reproduces the same output.
+    """
+    shape = (128, 256)
+    x = torch.randn(*shape, dtype=torch.bfloat16, device="cuda")
+
+    def quantize_rs(data):
+        seed = torch.randint(0, 2**31, (1,), dtype=torch.int32, device=data.device)
+        return NVFP4Tensor.to_nvfp4(
+            data,
+            rounding_mode=RoundingMode.RS,
+            is_swizzled_scales=True,
+            use_triton_kernel=True,
+            rand_bits=seed,
+        ).qdata
+
+    compiled_fn = torch.compile(quantize_rs, mode="reduce-overhead", fullgraph=True)
+
+    # Warmup (torch.compile needs a few calls to trigger compilation + graph capture)
+    for _ in range(3):
+        compiled_fn(x)
+
+    # Consecutive calls produce different output
+    torch.manual_seed(42)
+    r1 = compiled_fn(x).clone()
+    r2 = compiled_fn(x).clone()
+
+    assert not torch.equal(unpack_uint4(r1), unpack_uint4(r2))
+
+    # Resetting seed reproduces same output
+    torch.manual_seed(42)
+    r3 = compiled_fn(x).clone()
+
+    torch.testing.assert_close(unpack_uint4(r1), unpack_uint4(r3))
