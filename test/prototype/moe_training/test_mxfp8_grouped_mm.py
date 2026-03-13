@@ -40,7 +40,7 @@ from torchao.prototype.moe_training.utils import (
     _to_mxfp8_per_group_rowwise,
     generate_jagged_offs,
 )
-from torchao.prototype.mx_formats.mx_tensor import to_mx
+from torchao.prototype.mx_formats.mx_tensor import MXTensor, to_mx
 from torchao.quantization.quantize_.common import KernelPreference
 from torchao.testing.utils import skip_if_rocm
 
@@ -225,3 +225,176 @@ def test_mxfp8_grouped_gemm_with_dq_fwd_bwd(
     assert sqnr >= min_weight_grad_sqnr, (
         f"Weight grad sqnr {sqnr} is too low, must be >= {min_weight_grad_sqnr}"
     )
+
+
+@skip_if_rocm("ROCm not supported")
+def test_mxfp8_grouped_gemm_from_qdata_and_scales_matches_dynamic():
+    block_size = 32
+    M, K, N, num_experts = 4096, 1024, 2048, 8
+    x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda", requires_grad=True)
+    w = torch.randn(
+        num_experts,
+        N,
+        K,
+        dtype=torch.bfloat16,
+        device="cuda",
+    )
+    w_t = w.transpose(-2, -1).requires_grad_(True)
+    offs = generate_jagged_offs(num_experts, M, multiple_of=block_size)
+
+    x_ref = x.detach().clone().requires_grad_(True)
+    w_t_ref = w_t.detach().clone().requires_grad_(True)
+
+    x_scale, x_qdata = to_mx(
+        x.detach(),
+        elem_dtype=torch.float8_e4m3fn,
+        block_size=block_size,
+        scaling_mode=ScaleCalculationMode.RCEIL,
+    )
+    x_mx = MXTensor.from_qdata_and_scales(
+        x_qdata,
+        x_scale,
+        orig_dtype=x.dtype,
+        block_size=block_size,
+        is_swizzled_scales=False,
+    )
+    out = _to_mxfp8_then_scaled_grouped_mm(
+        x_mx,
+        w_t,
+        offs=offs,
+        block_size=block_size,
+        out_dtype=torch.bfloat16,
+        kernel_preference=KernelPreference.EMULATED,
+        wgrad_with_hp=True,
+        scale_calculation_mode=ScaleCalculationMode.RCEIL,
+    )
+    out_ref = _to_mxfp8_then_scaled_grouped_mm(
+        x_ref,
+        w_t_ref,
+        offs=offs,
+        block_size=block_size,
+        out_dtype=torch.bfloat16,
+        kernel_preference=KernelPreference.EMULATED,
+        wgrad_with_hp=True,
+        scale_calculation_mode=ScaleCalculationMode.RCEIL,
+    )
+
+    output_sqnr = compute_error(out_ref, out)
+    min_output_sqnr = 60.0
+    assert output_sqnr >= min_output_sqnr, (
+        f"Output sqnr {output_sqnr} is too low, must be >= {min_output_sqnr}"
+    )
+
+    labels = torch.ones_like(out_ref)
+    F.mse_loss(out_ref, labels).backward()
+    F.mse_loss(out, labels).backward()
+
+    assert x.grad is None, (
+        "MXTensor inputs are not connected back to the source HP tensor"
+    )
+
+    weight_grad_sqnr = compute_error(w_t_ref.grad, w_t.grad)
+    # MXTensor inputs dequantize for the `wgrad_with_hp` path, so the weight
+    # gradient is expected to be close to, but not identical to, the HP path.
+    min_weight_grad_sqnr = 30.0
+    assert weight_grad_sqnr >= min_weight_grad_sqnr, (
+        f"Weight grad sqnr {weight_grad_sqnr} is too low, must be >= {min_weight_grad_sqnr}"
+    )
+
+
+@skip_if_rocm("ROCm not supported")
+def test_mxfp8_grouped_gemm_from_qdata_and_scales_forward():
+    block_size = 32
+    M, K, N, num_experts = 4096, 1024, 2048, 8
+    x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
+    w = torch.randn(
+        num_experts,
+        N,
+        K,
+        dtype=torch.bfloat16,
+        device="cuda",
+    )
+    w_t = w.transpose(-2, -1)
+    offs = generate_jagged_offs(num_experts, M, multiple_of=block_size)
+
+    x_scale, x_qdata = to_mx(
+        x.detach(),
+        elem_dtype=torch.float8_e4m3fn,
+        block_size=block_size,
+        scaling_mode=ScaleCalculationMode.RCEIL,
+    )
+    x_mx = MXTensor.from_qdata_and_scales(
+        x_qdata,
+        x_scale,
+        orig_dtype=x.dtype,
+        block_size=block_size,
+        is_swizzled_scales=False,
+    )
+    out_mx = _to_mxfp8_then_scaled_grouped_mm(
+        x_mx,
+        w_t,
+        offs=offs,
+        block_size=block_size,
+        out_dtype=torch.bfloat16,
+        kernel_preference=KernelPreference.EMULATED,
+        wgrad_with_hp=True,
+        scale_calculation_mode=ScaleCalculationMode.RCEIL,
+    )
+    out_ref = _to_mxfp8_then_scaled_grouped_mm(
+        x,
+        w_t,
+        offs=offs,
+        block_size=block_size,
+        out_dtype=torch.bfloat16,
+        kernel_preference=KernelPreference.EMULATED,
+        wgrad_with_hp=True,
+        scale_calculation_mode=ScaleCalculationMode.RCEIL,
+    )
+
+    output_sqnr = compute_error(out_ref, out_mx)
+    min_output_sqnr = 60.0
+    assert output_sqnr >= min_output_sqnr, (
+        f"Output sqnr {output_sqnr} is too low, must be >= {min_output_sqnr}"
+    )
+
+
+@skip_if_rocm("ROCm not supported")
+def test_mxfp8_grouped_gemm_mxtensor_requires_wgrad_with_hp():
+    block_size = 32
+    M, K, N, num_experts = 1024, 1024, 2048, 4
+    x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
+    w = torch.randn(
+        num_experts,
+        N,
+        K,
+        dtype=torch.bfloat16,
+        device="cuda",
+    )
+    w_t = w.transpose(-2, -1)
+    offs = generate_jagged_offs(num_experts, M, multiple_of=block_size)
+
+    x_scale, x_qdata = to_mx(
+        x,
+        elem_dtype=torch.float8_e4m3fn,
+        block_size=block_size,
+        scaling_mode=ScaleCalculationMode.RCEIL,
+    )
+    x_mx = MXTensor.from_qdata_and_scales(
+        x_qdata,
+        x_scale,
+        orig_dtype=x.dtype,
+        block_size=block_size,
+        is_swizzled_scales=False,
+    )
+
+    with pytest.raises(AssertionError, match="wgrad_with_hp"):
+        _to_mxfp8_then_scaled_grouped_mm(
+            x_mx,
+            w_t,
+            offs=offs,
+            block_size=block_size,
+            out_dtype=torch.bfloat16,
+            kernel_preference=KernelPreference.EMULATED,
+            wgrad_with_hp=False,
+            scale_calculation_mode=ScaleCalculationMode.RCEIL,
+        )
