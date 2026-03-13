@@ -39,23 +39,18 @@ if torch_version_at_least("2.7.0") and has_triton():
     }
 
     if torch.version.hip is not None:
+        # Single fixed config on AMD — avoids per-key autotuning D2H sync overhead.
+        # Multiple configs trigger hipDeviceSynchronize for each unique (key) shape
+        # encountered during training, adding hundreds of syncs per step.
+        # BLOCK_SIZE=128, BLOCK_SIZE_ITER=128, num_warps=8 performs well on MI300X.
         kernel_configs_2D = [
             triton.Config(
                 {"BLOCK_SIZE": 128, "BLOCK_SIZE_ITER": 128},
                 num_warps=8,
                 num_stages=2,
             ),
-            triton.Config(
-                {"BLOCK_SIZE": 128, "BLOCK_SIZE_ITER": 256},
-                num_warps=8,
-                num_stages=2,
-            ),
-            triton.Config(
-                {"BLOCK_SIZE": 256, "BLOCK_SIZE_ITER": 128},
-                num_warps=8,
-                num_stages=2,
-            ),
         ]
+        kernel_configs_2D_dual = kernel_configs_2D
     else:
         kernel_configs_2D = [
             triton.Config(
@@ -64,6 +59,7 @@ if torch_version_at_least("2.7.0") and has_triton():
                 num_stages=3,
             )
         ]
+        kernel_configs_2D_dual = kernel_configs_2D
 
     @torch.library.custom_op(
         "torchao::triton_fp8_per_group_rowwise_scales", mutates_args={}
@@ -453,7 +449,7 @@ if torch_version_at_least("2.7.0") and has_triton():
             )
             tl.store(out_ptr + out_offs, fp8_data, mask=block_mask)
 
-    @triton.autotune(configs=kernel_configs_2D, key=["K", "N_GROUPS"])
+    @triton.autotune(configs=kernel_configs_2D_dual, key=["K", "N_GROUPS"])
     @triton.jit
     def _triton_fp8_per_group_colwise_scales_dual_kernel(
         # Tensor 1 (e.g. padded_grad_output): shape (K, N1)
