@@ -708,7 +708,7 @@ if torch_version_at_least("2.7.0") and has_triton():
         return scales, xq.view(torch.uint8)
 
     @triton_quantize_nvfp4.register_fake
-    def _(x, per_tensor_scale=None, rounding_mode=0, seed=None):
+    def _(x, per_tensor_scale=None, rounding_mode=RoundingMode.RN, seed=None):
         M, N = x.shape
         num_scales = N // 16
         n_row_blocks = triton.cdiv(M, 128)
@@ -745,7 +745,7 @@ else:
     def triton_quantize_nvfp4(
         x: torch.Tensor,
         tensor_scale: Optional[torch.Tensor] = None,
-        rounding_mode: int = 0,
+        rounding_mode: RoundingMode = RoundingMode.RN,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         raise AssertionError("needs torch version 2.8+ and triton")
 
