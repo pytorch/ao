@@ -32,8 +32,8 @@ get_m_blocking(int64_t M) {
 }
 
 #if defined(CPU_CAPABILITY_AVX512)
-// Evaluated once at load time -- true if the CPU running the binary supports
-// AVX-512F.  Used by all CPU kernels for runtime ISA dispatch.
+// Cached check for AVX-512F support in this process, for use by CPU kernels
+// that include this header and are compiled with CPU_CAPABILITY_AVX512.
 inline const bool kHasAVX512 = __builtin_cpu_supports("avx512f");
 
 template<typename T>
