@@ -39,7 +39,6 @@ from torchao.optim.quant_utils import (
 from torchao.optim.subclass_4bit import OptimState4bit
 from torchao.optim.subclass_8bit import OptimState8bit
 from torchao.optim.subclass_fp8 import OptimStateFp8
-from torchao.testing.utils import skip_if_rocm
 from torchao.utils import (
     get_available_devices,
     torch_version_at_least,
@@ -54,9 +53,6 @@ try:
     import lpmm
 except ImportError:
     lpmm = None
-
-if torch.version.hip is not None:
-    pytest.skip("Skipping the test in ROCm", allow_module_level=True)
 
 _DEVICES = get_available_devices()
 
@@ -166,10 +162,9 @@ class TestOptim(TestCase):
     )
     @parametrize("dtype", [torch.float32, torch.bfloat16])
     @parametrize("device", _DEVICES)
-    @skip_if_rocm("ROCm enablement in progress")
     def test_optim_smoke(self, optim_name, dtype, device):
         if optim_name.endswith("Fp8") and device == "cuda":
-            if torch.cuda.get_device_capability() < (8, 9):
+            if not torch.version.hip and torch.cuda.get_device_capability() < (8, 9):
                 pytest.skip("FP8 CUDA requires compute capability >= 8.9")
 
         model = nn.Sequential(nn.Linear(32, 256), nn.ReLU(), nn.Linear(256, 32))
@@ -209,7 +204,7 @@ class TestOptim(TestCase):
     @parametrize("device", _DEVICES)
     def test_optim_default_dtype_bf16(self, optim_name, device):
         if optim_name.endswith("Fp8") and device == "cuda":
-            if torch.cuda.get_device_capability() < (8, 9):
+            if not torch.version.hip and torch.cuda.get_device_capability() < (8, 9):
                 pytest.skip("FP8 CUDA requires compute capability >= 8.9")
 
         old_dtype = torch.get_default_dtype()
@@ -233,7 +228,7 @@ class TestOptim(TestCase):
     @parametrize("device", _DEVICES)
     def test_param_groups(self, optim_name, device):
         if optim_name.endswith("Fp8") and device == "cuda":
-            if torch.cuda.get_device_capability() < (8, 9):
+            if not torch.version.hip and torch.cuda.get_device_capability() < (8, 9):
                 pytest.skip("FP8 CUDA requires compute capability >= 8.9")
 
         model = nn.Sequential(nn.Linear(32, 256), nn.ReLU(), nn.Linear(256, 32))
@@ -260,7 +255,11 @@ class TestOptim(TestCase):
     @parametrize("device", _DEVICES)
     def test_subclass_slice(self, subclass, shape, device):
         if subclass == OptimStateFp8:
-            if device == "cuda" and torch.cuda.get_device_capability() < (8, 9):
+            if (
+                device == "cuda"
+                and not torch.version.hip
+                and torch.cuda.get_device_capability() < (8, 9)
+            ):
                 pytest.skip("FP8 CUDA requires compute capability >= 8.9")
 
         tensor = subclass.zeros(shape, device=device)
@@ -305,7 +304,6 @@ class TestOptim(TestCase):
         not torch.cuda.is_available(),
         reason="bitsandbytes 8-bit Adam only works for CUDA",
     )
-    @skip_if_rocm("ROCm enablement in progress")
     @pytest.mark.skipif(
         torch_version_at_least("2.7.0"), reason="Failing in CI"
     )  # TODO: fix this
@@ -532,15 +530,13 @@ class TestFSDP2(FSDPTest):
         return _FSDP_WORLD_SIZE
 
     @skip_if_lt_x_gpu(_FSDP_WORLD_SIZE)
-    @skip_if_rocm("ROCm enablement in progress")
     def test_fsdp2(self):
-        # we do this to avoid all combinations
         args_list = [
             (optim.AdamW8bit, OffloadPolicy),
             (optim.AdamW4bit, OffloadPolicy),
             (optim.AdamW8bit, CPUOffloadPolicy),
         ]
-        if torch.cuda.get_device_capability() >= (8, 9):
+        if torch.version.hip or torch.cuda.get_device_capability() >= (8, 9):
             args_list.append((optim.AdamWFp8, OffloadPolicy))
 
         self.run_subtests(
@@ -647,7 +643,6 @@ class TestFSDP2(FSDPTest):
             self.assertEqual(v1, v2)
 
     @skip_if_lt_x_gpu(_FSDP_WORLD_SIZE)
-    @skip_if_rocm("ROCm enablement in progress")
     def test_uneven_shard(self):
         in_dim = 512
         out_dim = _FSDP_WORLD_SIZE * 16 + 1
