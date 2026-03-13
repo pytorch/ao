@@ -57,7 +57,11 @@ class Float8TrainingOpConfig(TrainingOpBaseConfig):
     # Output dtype for the FP8 grouped GEMMs.
     out_dtype: Optional[torch.dtype] = torch.bfloat16
 
-    # TODO: support pad_token_groups_for_grouped_mm field like MXFP8TrainingOpConfig
+    # Whether to pad the token group sizes to multiples of 16.
+    # On AMD/ROCm this must be False because the CUDA padding kernel is unavailable
+    # and the torch fallback (torch_pad_token_groups) does group_sizes.tolist() which
+    # causes a D2H sync that breaks torch.compile.
+    pad_token_groups_for_grouped_mm: bool = False
 
     @classmethod
     def from_recipe(
