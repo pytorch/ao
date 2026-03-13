@@ -13,7 +13,7 @@
 #      - Values outside the representable range of Floatx after rounding are clamped to the maximum Floatx
 #      magnitude (sign is preserved).
 
-from enum import Enum
+from enum import Enum, auto
 
 import torch
 from torch import Tensor
