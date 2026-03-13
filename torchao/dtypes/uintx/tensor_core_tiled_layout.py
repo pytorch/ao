@@ -188,6 +188,12 @@ class TensorCoreTiledLayout(Layout):
         )
         return input, scale, zero_point
 
+    def __post_init__(self):
+        super().__post_init__()
+        warnings.warn(
+            "Deprecation: TensorCoreTiledLayout is deprecated and will be removed in a future release of torchao, see https://github.com/pytorch/ao/issues/2752 for more details"
+        )
+
     def extra_repr(self):
         return f"inner_k_tiles={self.inner_k_tiles}"
 
@@ -241,6 +247,9 @@ class TensorCoreTiledAQTTensorImpl(AQTTensorImpl):
         transposed: bool,
         _layout: Layout,
     ):
+        warnings.warn(
+            "Deprecation: TensorCoreTiledAQTTensorImpl is deprecated and will be removed in a future release of torchao, see https://github.com/pytorch/ao/issues/2752 for more details"
+        )
         warnings.warn(
             "Models quantized with version 1 of Int4WeightOnlyConfig is deprecated and will no longer be supported in a future release, please upgrade torchao and quantize again, or download a newer torchao checkpoint, see https://github.com/pytorch/ao/issues/2948 for more details"
         )
