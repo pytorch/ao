@@ -43,13 +43,24 @@ if "BENCH_CFG" in os.environ:
     #   BLOCK_SIZE tiles N (columns), BLOCK_SIZE_ITER tiles K (rows, inner loop)
     @triton.jit
     def _colwise_kernel(
-        input_ptr, offsets_ptr, out_ptr, scales_ptr,
-        K: tl.int64, N: tl.int64, N_GROUPS: tl.int64,
-        str_ir: tl.int64, str_ic: tl.int64,
-        str_or: tl.int64, str_oc: tl.int64,
-        fp8_min: tl.constexpr, fp8_max: tl.constexpr,
-        in_dtype: tl.constexpr, out_dtype: tl.constexpr,
-        BLOCK_SIZE: tl.constexpr, BLOCK_SIZE_ITER: tl.constexpr, EPS: tl.constexpr,
+        input_ptr,
+        offsets_ptr,
+        out_ptr,
+        scales_ptr,
+        K: tl.int64,
+        N: tl.int64,
+        N_GROUPS: tl.int64,
+        str_ir: tl.int64,
+        str_ic: tl.int64,
+        str_or: tl.int64,
+        str_oc: tl.int64,
+        fp8_min: tl.constexpr,
+        fp8_max: tl.constexpr,
+        in_dtype: tl.constexpr,
+        out_dtype: tl.constexpr,
+        BLOCK_SIZE: tl.constexpr,
+        BLOCK_SIZE_ITER: tl.constexpr,
+        EPS: tl.constexpr,
     ):
         # block_col_id tiles the N (hidden/col) dimension
         bcol = tl.program_id(0)
@@ -92,26 +103,40 @@ if "BENCH_CFG" in os.environ:
     # Production colwise kernel input shape: (K_tokens, N_hidden) row-major
     # K=token rows (jagged dim), N=hidden cols
     # Here in cfg: M=total_tokens=K_triton, K=hidden=N_triton
-    K_triton = M   # token dimension (jagged, row-iter)
-    N_triton = K   # hidden dimension (column, block-parallel)
+    K_triton = M  # token dimension (jagged, row-iter)
+    N_triton = K  # hidden dimension (column, block-parallel)
     inp = torch.randn(K_triton, N_triton, dtype=torch.bfloat16, device=device)
     offs = generate_jagged_offs(n_groups, K_triton, multiple_of=16)
     fp8_min = torch.finfo(fp8_dtype).min
     fp8_max = torch.finfo(fp8_dtype).max
 
     def run():
-        out = torch.empty_like(inp, dtype=fp8_dtype).as_strided(inp.size(), (1, K_triton))
+        out = torch.empty_like(inp, dtype=fp8_dtype).as_strided(
+            inp.size(), (1, K_triton)
+        )
         sc = torch.empty(N_triton * n_groups, dtype=torch.float32, device=device)
         grid = (triton.cdiv(N_triton, bs), n_groups)
         _colwise_kernel[grid](
-            inp, offs, out, sc,
-            K_triton, N_triton, n_groups,
-            inp.stride(0), inp.stride(1),
-            out.stride(0), out.stride(1),
-            fp8_min, fp8_max,
-            tl.bfloat16, tl_fp8_dtype,
-            BLOCK_SIZE=bs, BLOCK_SIZE_ITER=bsi, EPS=EPS,
-            num_warps=nw, num_stages=2,
+            inp,
+            offs,
+            out,
+            sc,
+            K_triton,
+            N_triton,
+            n_groups,
+            inp.stride(0),
+            inp.stride(1),
+            out.stride(0),
+            out.stride(1),
+            fp8_min,
+            fp8_max,
+            tl.bfloat16,
+            tl_fp8_dtype,
+            BLOCK_SIZE=bs,
+            BLOCK_SIZE_ITER=bsi,
+            EPS=EPS,
+            num_warps=nw,
+            num_stages=2,
         )
         return out, sc
 
@@ -128,13 +153,13 @@ if "BENCH_CFG" in os.environ:
 # ---------------------------------------------------------------------------
 # Main driver: spawn one subprocess per config.
 # ---------------------------------------------------------------------------
-BLOCK_SIZES      = [32, 64, 128, 256]
+BLOCK_SIZES = [32, 64, 128, 256]
 BLOCK_SIZE_ITERS = [32, 64, 128, 256]
-NUM_WARPS_LIST   = [4, 8]
+NUM_WARPS_LIST = [4, 8]
 
 SHAPES = [
-    dict(M=16640, K=2048, n_groups=64,  label="grad_out  M=16640 K=2048  E=64"),
-    dict(M=16640, K=5120, n_groups=64,  label="grad_out  M=16640 K=5120  E=64"),
+    dict(M=16640, K=2048, n_groups=64, label="grad_out  M=16640 K=2048  E=64"),
+    dict(M=16640, K=5120, n_groups=64, label="grad_out  M=16640 K=5120  E=64"),
     dict(M=16640, K=2048, n_groups=128, label="A         M=16640 K=2048  E=128"),
     dict(M=16640, K=5120, n_groups=128, label="A         M=16640 K=5120  E=128"),
 ]
