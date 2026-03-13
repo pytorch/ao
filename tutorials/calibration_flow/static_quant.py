@@ -112,10 +112,13 @@ def _apply_static_quant_transform(
                 weight, weight_scale, weight_zero_point, block_size, target_dtype
             )
         elif target_dtype == torch.float8_e4m3fn:
+            weight_scale_2d = (
+                weight_scale.view(-1, 1) if weight_scale.dim() == 1 else weight_scale
+            )
             mm_config = Float8MMConfig(use_fast_accum=True)
             return to_affine_quantized_floatx_static(
                 weight,
-                weight_scale,
+                weight_scale_2d,
                 block_size,
                 target_dtype,
                 Float8Layout(mm_config=mm_config),
@@ -181,10 +184,13 @@ class QuantizedLinear(torch.nn.Module):
                 weight, weight_scale, weight_zero_point, block_size, self.target_dtype
             )
         elif self.target_dtype == torch.float8_e4m3fn:
+            weight_scale_2d = (
+                weight_scale.view(-1, 1) if weight_scale.dim() == 1 else weight_scale
+            )
             mm_config = Float8MMConfig(use_fast_accum=True)
             self.qweight = to_affine_quantized_floatx_static(
                 weight,
-                weight_scale,
+                weight_scale_2d,
                 block_size,
                 target_dtype,
                 Float8Layout(mm_config=mm_config),
