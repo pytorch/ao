@@ -6,8 +6,6 @@
 
 
 import argparse
-import gc
-import subprocess
 import time
 from typing import Any, List, Optional
 
@@ -17,8 +15,13 @@ from tqdm import tqdm
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from torchao.prototype.gptq import GPTQConfig
+from torchao.prototype.mx_formats.inference_workflow import (
+    MXDynamicActivationMXWeightConfig,
+)
+from torchao.prototype.mx_formats.mx_tensor import MXTensor
 from torchao.quantization import Int4WeightOnlyConfig, Int8WeightOnlyConfig, quantize_
 from torchao.quantization.granularity import PerRow
+from torchao.quantization.quantize_.common.kernel_preference import KernelPreference
 
 """
 GPTQ sequential quantization example for huggignface models.
@@ -136,6 +139,62 @@ def prepare_dataset(
     return train_dataset
 
 
+def dequantize_mx_tensors(model):
+    """Dequantize any MXTensor parameters before saving."""
+    from torchao.prototype.mx_formats.mx_tensor import MXTensor
+
+    # First pass: dequantize all module parameters (weight, bias, etc.)
+    for name, module in model.named_modules():
+        for param_name, param in list(module.named_parameters(recurse=False)):
+            if isinstance(param, MXTensor):
+                print(f"Dequantizing MXTensor in {name}.{param_name}")
+                dequantized = param.dequantize(output_dtype=param._orig_dtype)
+                setattr(module, param_name, torch.nn.Parameter(dequantized, requires_grad=False))
+
+    # Second pass: check all parameters in state_dict to catch any remaining MXTensors
+    state_dict = model.state_dict()
+    for param_name, param in list(state_dict.items()):
+        if isinstance(param, MXTensor):
+            print(f"Dequantizing remaining MXTensor: {param_name}")
+            dequantized = param.dequantize(output_dtype=param._orig_dtype)
+            # Update the parameter in the model
+            keys = param_name.split('.')
+            module = model
+            for key in keys[:-1]:
+                if key.isdigit():
+                    module = module[int(key)]
+                else:
+                    module = getattr(module, key)
+            setattr(module, keys[-1], torch.nn.Parameter(dequantized, requires_grad=False))
+
+
+def run_lm_eval(model, tokenizer, tasks: str, num_fewshot: int, batch_size: str):
+    """Run lm_eval on an in-memory model."""
+    import lm_eval
+
+    print(f"\n{'=' * 60}")
+    print(f"Evaluating in-memory model")
+    print(f"{'=' * 60}\n")
+
+    task_list = [t.strip() for t in tasks.split(",")]
+    results = lm_eval.simple_evaluate(
+        model="hf",
+        model_args={"pretrained": model, "tokenizer": tokenizer, "batch_size": batch_size},
+        tasks=task_list,
+        num_fewshot=num_fewshot,
+    )
+
+    if results and "results" in results:
+        for task_name, task_results in results["results"].items():
+            for metric, value in task_results.items():
+                if metric not in ("alias",) and not metric.endswith("_stderr"):
+                    stderr_key = f"{metric}_stderr"
+                    stderr = task_results.get(stderr_key, "")
+                    stderr_str = f" +/- {stderr:.4f}" if isinstance(stderr, float) else ""
+                    if isinstance(value, float):
+                        print(f"  {task_name:20s} {metric:15s} {value:.4f}{stderr_str}")
+
+
 def parse_args():
     parser = argparse.ArgumentParser(
         description="GPTQ quantization example for language models"
@@ -177,6 +236,12 @@ def parse_args():
             "int8-rtn",
             "int8-gptq-sequential",
             "int8-gptq-nonsequential",
+            "mxfp8-rtn",
+            "mxfp8-gptq-sequential",
+            "mxfp8-gptq-nonsequential",
+            "mxfp4-rtn",
+            "mxfp4-gptq-sequential",
+            "mxfp4-gptq-nonsequential",
         ],
         help="Quantization method to use",
     )
@@ -197,6 +262,29 @@ def parse_args():
         type=int,
         default=1024,
         help="Block size for GPTQ quantization",
+    )
+    parser.add_argument(
+        "--evaluate",
+        action="store_true",
+        help="Run evaluation after quantization",
+    )
+    parser.add_argument(
+        "--eval-tasks",
+        type=str,
+        default="arc_challenge,arc_easy,hellaswag,piqa,winogrande",
+        help="Comma-separated list of lm_eval tasks",
+    )
+    parser.add_argument(
+        "--eval-num-fewshot",
+        type=int,
+        default=0,
+        help="Number of few-shot examples for evaluation",
+    )
+    parser.add_argument(
+        "--eval-batch-size",
+        type=str,
+        default="auto",
+        help="Batch size for evaluation",
     )
     return parser.parse_args()
 
@@ -240,6 +328,10 @@ def main():
         "int4-gptq-nonsequential",
         "int8-gptq-sequential",
         "int8-gptq-nonsequential",
+        "mxfp8-gptq-sequential",
+        "mxfp8-gptq-nonsequential",
+        "mxfp4-gptq-sequential",
+        "mxfp4-gptq-nonsequential",
     ]:
         output_dir += f"_{args.dataset_id}_n{args.num_calibration_samples}"
         output_dir += f"_damp{args.percdamp}_bs{args.gptq_block_size}"
@@ -259,19 +351,55 @@ def main():
         config = Int8WeightOnlyConfig(version=2, granularity=PerRow())
         quantize_(model, config, filter_fn=None)
 
+    elif args.quantization == "mxfp8-rtn":
+        print("Applying MXFP8 RTN (Round-To-Nearest) quantization...")
+        config = MXDynamicActivationMXWeightConfig(
+            activation_dtype=torch.float8_e4m3fn,
+            weight_dtype=torch.float8_e4m3fn,
+            kernel_preference=KernelPreference.AUTO,
+        )
+        quantize_(model, config, filter_fn=None)
+
+    elif args.quantization == "mxfp4-rtn":
+        print("Applying MXFP4 RTN (Round-To-Nearest) quantization...")
+        config = MXDynamicActivationMXWeightConfig(
+            activation_dtype=torch.float4_e2m1fn_x2,
+            weight_dtype=torch.float4_e2m1fn_x2,
+            kernel_preference=KernelPreference.AUTO,
+        )
+        quantize_(model, config, filter_fn=None)
+
     elif args.quantization in [
         "int4-gptq-sequential",
         "int4-gptq-nonsequential",
         "int8-gptq-sequential",
         "int8-gptq-nonsequential",
+        "mxfp8-gptq-sequential",
+        "mxfp8-gptq-nonsequential",
+        "mxfp4-gptq-sequential",
+        "mxfp4-gptq-nonsequential",
     ]:
         # Determine base config based on quantization type
         if "int4" in args.quantization:
             base_config = Int4WeightOnlyConfig(group_size=args.group_size)
             quant_type = "Int4"
-        else:  # int8
+        elif "int8" in args.quantization:
             base_config = Int8WeightOnlyConfig(granularity=PerRow(), version=2)
             quant_type = "Int8"
+        elif "mxfp4" in args.quantization:
+            base_config = MXDynamicActivationMXWeightConfig(
+                activation_dtype=torch.float4_e2m1fn_x2,
+                weight_dtype=torch.float4_e2m1fn_x2,
+                kernel_preference=KernelPreference.AUTO,  # Use non-emulated mode
+            )
+            quant_type = "MXFP4"
+        else:  # mxfp8
+            base_config = MXDynamicActivationMXWeightConfig(
+                activation_dtype=torch.float8_e4m3fn,
+                weight_dtype=torch.float8_e4m3fn,
+                kernel_preference=KernelPreference.AUTO,  # Use non-emulated mode
+            )
+            quant_type = "MXFP8"
 
         # First application: wrap weights with GPTQObserverTensor (observe step)
         print(
@@ -330,48 +458,22 @@ def main():
         )
         print(f"{'=' * 60}\n")
 
+    # Optionally run evaluation on in-memory model (before saving)
+    if args.evaluate:
+        print("Running evaluation...")
+        run_lm_eval(model, tokenizer, args.eval_tasks, args.eval_num_fewshot, args.eval_batch_size)
+
+    # Before saving, dequantize any MX tensors
+    if args.quantization in ["mxfp8-rtn", "mxfp4-rtn", "mxfp8-gptq-sequential", "mxfp8-gptq-nonsequential", "mxfp4-gptq-sequential", "mxfp4-gptq-nonsequential"]:
+        print("Dequantizing MX tensors before saving...")
+        dequantize_mx_tensors(model)
+
     # Save model to generated output directory
     print(f"Saving model to {output_dir}...")
     tokenizer.save_pretrained(output_dir)
     model.save_pretrained(output_dir, safe_serialization=False)
 
     print("DONE!")
-
-    # Clear GPU memory before running lm_eval
-    print("\nClearing GPU memory...")
-    del model
-    del tokenizer
-    gc.collect()
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
-    print("GPU memory cleared.")
-
-    # Run lm_eval on the saved model
-    print(f"\n{'=' * 60}")
-    print("Running lm_eval on the quantized model...")
-    print(f"{'=' * 60}\n")
-
-    lm_eval_cmd = [
-        "lm_eval",
-        "--model",
-        "hf",
-        "--model_args",
-        f"pretrained={output_dir}",
-        "--tasks",
-        "leaderboard_bbh",
-        "--num_fewshot",
-        "3",
-        "--batch_size",
-        "auto",
-    ]
-
-    print(f"Running command: {' '.join(lm_eval_cmd)}")
-    try:
-        subprocess.run(lm_eval_cmd, check=True)
-    except subprocess.CalledProcessError as e:
-        print(f"lm_eval failed with error: {e}")
-    except FileNotFoundError:
-        print("lm_eval not found. Please install it with: pip install lm-eval")
 
 
 if __name__ == "__main__":
