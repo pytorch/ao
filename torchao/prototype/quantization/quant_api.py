@@ -134,6 +134,9 @@ class UIntxWeightOnlyConfig(AOBaseConfig):
 
     def __post_init__(self):
         torch._C._log_api_usage_once("torchao.quantization.UIntxWeightOnlyConfig")
+        assert self.bit_width in [4, 8], (
+            f"bit_width must be 4 or 8, got {self.bit_width}"
+        )
 
 
 @register_quantize_module_handler(UIntxWeightOnlyConfig)
@@ -183,6 +186,9 @@ class Int8DynamicActivationUIntxWeightConfig(AOBaseConfig):
     def __post_init__(self):
         torch._C._log_api_usage_once(
             "torchao.quantization.Int8DynamicActivationUIntxWeightConfig"
+        )
+        assert self.bit_width in [4, 8], (
+            f"bit_width must be 4 or 8, got {self.bit_width}"
         )
 
 
