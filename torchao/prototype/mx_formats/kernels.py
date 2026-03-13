@@ -4,6 +4,7 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
+import importlib
 import logging
 from typing import Optional, Tuple
 
@@ -1389,14 +1390,7 @@ else:
         )
 
 
-try:
-    from mslk.quantize.triton.fp4_quantize import (
-        triton_quantize_nvfp4 as _mslk_triton_quantize_nvfp4,
-    )
-
-    _mslk_available = True
-except ImportError:
-    _mslk_available = False
+_mslk_available = importlib.util.find_spec("mslk") is not None
 
 
 def mslk_quantize_nvfp4(
@@ -1411,7 +1405,7 @@ def mslk_quantize_nvfp4(
     Returns:
         Tuple of (blockwise_scales, quantized_data_uint8) matching TorchAO's convention.
     """
-    mslk_global_scale = 1.0 / per_tensor_scale
+    mslk_global_scale = per_tensor_scale.reciprocal()
     return _mslk_quantize_nvfp4_custom_op(x, mslk_global_scale)
 
 
@@ -1432,6 +1426,10 @@ def _mslk_quantize_nvfp4_custom_op(
         "mslk is required for NVFP4 triton quantization. "
         "Install from https://github.com/pytorch/MSLK"
     )
+    from mslk.quantize.triton.fp4_quantize import (
+        triton_quantize_nvfp4 as _mslk_triton_quantize_nvfp4,
+    )
+
     data_lp, blockwise_scales = _mslk_triton_quantize_nvfp4(x, global_scale)
     return blockwise_scales, data_lp.view(torch.uint8)
 
