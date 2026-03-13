@@ -4,6 +4,7 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
+import importlib
 import logging
 from typing import Optional, Tuple
 
@@ -1387,3 +1388,69 @@ else:
         raise NotImplementedError(
             "`mxfp8_quantize_cuda` needs (1) torch 2.8+ and (2) torchao built from source on a machine with CUDA capability 10.0+. Please see https://github.com/pytorch/ao/issues/2932 for more details."
         )
+
+
+_mslk_available = importlib.util.find_spec("mslk") is not None
+
+
+def mslk_quantize_nvfp4(
+    x: torch.Tensor, per_tensor_scale: torch.Tensor
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Quantize a tensor to NVFP4 using the MSLK triton kernel.
+
+    Args:
+        x: Input tensor to quantize.
+        per_tensor_scale: Per-tensor scale (TorchAO convention: amax / (F8E4M3_MAX * F4_E2M1_MAX)).
+
+    Returns:
+        Tuple of (blockwise_scales, quantized_data_uint8) matching TorchAO's convention.
+    """
+    mslk_global_scale = per_tensor_scale.reciprocal()
+    return _mslk_quantize_nvfp4_custom_op(x, mslk_global_scale)
+
+
+@torch.library.custom_op("ao::mslk_quantize_nvfp4", mutates_args=())
+def _mslk_quantize_nvfp4_custom_op(
+    x: torch.Tensor, global_scale: torch.Tensor
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Inner custom op for MSLK NVFP4 quantization.
+
+    Args:
+        x: Input tensor to quantize.
+        global_scale: Global scale in MSLK convention (1.0 / per_tensor_scale).
+
+    Returns:
+        Tuple of (blockwise_scales, quantized_data_uint8) matching TorchAO's convention.
+    """
+    assert _mslk_available, (
+        "mslk is required for NVFP4 triton quantization. "
+        "Install from https://github.com/pytorch/MSLK"
+    )
+    from mslk.quantize.triton.fp4_quantize import (
+        triton_quantize_nvfp4 as _mslk_triton_quantize_nvfp4,
+    )
+
+    data_lp, blockwise_scales = _mslk_triton_quantize_nvfp4(x, global_scale)
+    return blockwise_scales, data_lp.view(torch.uint8)
+
+
+@_mslk_quantize_nvfp4_custom_op.register_fake
+def _(x, global_scale):
+    # Mirror the reshape logic from the real MSLK kernel
+    orig_leading_dims, orig_N = x.shape[:-2], x.shape[-1]
+    x_2d = x.reshape(-1, orig_N)
+    M, N = x_2d.shape
+
+    num_scales = N // 16
+    n_row_blocks = triton.cdiv(M, 128)
+    n_col_blocks = triton.cdiv(num_scales, 4)
+    padded_rows = n_row_blocks * 128
+    padded_cols = n_col_blocks * 4
+
+    scales = x.new_empty(padded_rows, padded_cols, dtype=torch.float8_e4m3fn)
+    xq = x.new_empty(M, N // 2, dtype=torch.uint8)
+
+    # Reshape back to match original leading dims
+    scales = scales.view(*orig_leading_dims, -1, padded_cols)
+    xq = xq.view(*orig_leading_dims, -1, N // 2)
+    return scales, xq

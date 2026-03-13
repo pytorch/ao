@@ -151,15 +151,15 @@ torchao version         0.17.0+git3075bb624
 > python benchmarks/float8/float8_inference_roofline.py --recipe_name nvfp4 --enable_fusion_modeling True --skip_printing_detailed_metrics True
 ...
 GPU                     NVIDIA B200
-torch version           2.12.0.dev20260218+cu130
-torchao version         0.17.0+git3075bb624
+torch version           2.12.0.dev20260312+cu130
+torchao version         0.17.0+gitbd7717d20
 ...
    fwd_M  fwd_K  fwd_N  r_fp8_gemm_and_ovhd_spdp  b_fp8_e2e_spdp
-0   1024   1024   1024                      1.00            0.28
-1   2048   2048   2048                      2.36            0.52
-2   4096   4096   4096                      2.89            0.90
-3   8192   8192   8192                      3.32            1.41
-4  16384  16384  16384                      3.62            2.14
+0   1024   1024   1024                      1.00            0.46
+1   2048   2048   2048                      2.36            0.76
+2   4096   4096   4096                      2.89            1.37
+3   8192   8192   8192                      3.32            1.97
+4  16384  16384  16384                      3.62            2.77
 
 #
 # nvfp4 with static global scaling (user API in progress)
@@ -167,15 +167,16 @@ torchao version         0.17.0+git3075bb624
 > python benchmarks/float8/float8_inference_roofline.py --recipe_name nvfp4_static --enable_fusion_modeling True --skip_printing_detailed_metrics True
 ...
 GPU                     NVIDIA B200
-torch version           2.12.0.dev20260218+cu130
-torchao version         0.17.0+git3075bb624
+torch version           2.12.0.dev20260312+cu130
+torchao version         0.17.0+gitbd7717d20
 ...
    fwd_M  fwd_K  fwd_N  r_fp8_gemm_and_ovhd_spdp  b_fp8_e2e_spdp
-0   1024   1024   1024                      1.00            0.34
-1   2048   2048   2048                      2.74            0.64
-2   4096   4096   4096                      3.42            1.06
-3   8192   8192   8192                      3.67            1.58
-4  16384  16384  16384                      3.82            2.31
+0   1024   1024   1024                      1.00            0.55
+1   2048   2048   2048                      2.74            0.95
+2   4096   4096   4096                      3.42            1.69
+3   8192   8192   8192                      3.67            2.29
+4  16384  16384  16384                      3.82            2.98
+
 ```
 
 ## e2e flux-1.schnell benchmarks
@@ -198,7 +199,7 @@ high level, and measure performance improvements.
 | bfloat16 | 0 | 0.4178 | 1.00 | 1.4914 | 1.00 |
 | float8_rowwise | 0.1236| 0.3455 | 1.21 | 1.1986 | 1.24 |
 | mxfp8 | 0.1260 | 0.3673 | 1.14 | 1.2820 | 1.16 |
-| nvfp4 | 0.2694 | 0.3308 | 1.26 | 1.1334 | 1.32 |
+| nvfp4 | 0.2694 | 0.3203 | 1.30 | 1.0913 | 1.37 |
 
 To reproduce, run:
 
