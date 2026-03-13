@@ -5,6 +5,7 @@
 #include <c10/util/Float8_e4m3fn.h>
 #include <c10/util/Unroll.h>
 #include <torch/all.h>
+#include "utils.h"
 
 #define QTYPE_DISPATCH(TYPE, ...)                                              \
   [&]() {                                                                      \
@@ -180,7 +181,7 @@ inline void _scaled_embedding_bag_krnl(
     const index_t *offsets, const data_t *weight, const double scale,
     output_t *result, const int64_t num_batch) {
 #if defined(CPU_CAPABILITY_AVX512)
-  if (emb_dim % 128 == 0) {
+  if (kHasAVX512 && emb_dim % 128 == 0) {
     constexpr int64_t block_dim = 128;
     const int64_t num_blocks = emb_dim / block_dim;
     __m512 scale_v = _mm512_set1_ps(scale);

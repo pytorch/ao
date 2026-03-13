@@ -43,12 +43,6 @@ BACKENDS = {
         "fp8": True,
         "fp8_backend": AttentionBackend.FP8_FA3,
     },
-    "fa4": {"flash_impl": "FA4", "fp8": False},
-    "fa4_fp8": {
-        "flash_impl": "FA4",
-        "fp8": True,
-        "fp8_backend": AttentionBackend.FP8_FA4,
-    },
 }
 
 IMAGE_SIZE = (512, 512)  # (width, height) - resize for consistent LPIPS
@@ -68,7 +62,6 @@ def setup_backend(
     backend_name,
     compile_flag,
     orig_transformer,
-    fuse_rope_using_torch_compile=False,
 ):
     """Set up a backend and return the flash_impl name."""
     cfg = BACKENDS[backend_name]
@@ -79,16 +72,8 @@ def setup_backend(
         pipe.transformer = apply_low_precision_attention(
             pipe.transformer,
             backend=cfg["fp8_backend"],
-            fuse_rope_using_torch_compile=fuse_rope_using_torch_compile,
         )
-        if fuse_rope_using_torch_compile:
-            print(
-                f"Compiling transformer with torch.compile ({backend_name}, FP8 backend)..."
-            )
-            pipe.transformer = torch.compile(
-                pipe.transformer, backend=pipe.transformer.compile_backend
-            )
-        elif compile_flag:
+        if compile_flag:
             print(f"Compiling transformer with torch.compile ({backend_name})...")
             pipe.transformer = torch.compile(pipe.transformer)
         return cfg["flash_impl"]
@@ -161,7 +146,6 @@ def run_benchmark(
     debug_prompt: Optional[str] = None,
     warmup_iters: int = 2,
     compile: bool = False,
-    fuse_rope_using_torch_compile: bool = False,
 ):
     """Run the attention backend benchmark on FLUX.1-schnell."""
     compile_str = " + torch.compile" if compile else ""
@@ -218,7 +202,6 @@ def run_benchmark(
         baseline_backend,
         compile,
         orig_transformer,
-        fuse_rope_using_torch_compile=fuse_rope_using_torch_compile,
     )
 
     print(f"Warming up {baseline_backend} with {warmup_iters} iterations...")
@@ -282,7 +265,6 @@ def run_benchmark(
         test_backend,
         compile,
         orig_transformer,
-        fuse_rope_using_torch_compile=fuse_rope_using_torch_compile,
     )
 
     print(f"Warming up {test_backend} with {warmup_iters} iterations...")
@@ -423,11 +405,6 @@ def main():
         help="Wrap the model with torch.compile for both backends",
     )
     parser.add_argument(
-        "--fuse_rope_using_torch_compile",
-        action="store_true",
-        help="Fuse RoPE into the FP8 kernel (compile path, off by default)",
-    )
-    parser.add_argument(
         "--height",
         type=int,
         default=2048,
@@ -452,7 +429,6 @@ def main():
         debug_prompt=args.debug_prompt,
         warmup_iters=args.warmup_iters,
         compile=args.compile,
-        fuse_rope_using_torch_compile=args.fuse_rope_using_torch_compile,
     )
 
 

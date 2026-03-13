@@ -394,8 +394,8 @@ def test_triton_nvfp4_quantize_equivalence(M, N, use_per_tensor_scale, dtype):
     )
 
     torch.testing.assert_close(nvfp4_pt.scale.flatten(), nvfp4_triton.scale.flatten())
-    pt_unpacked = unpack_uint4(nvfp4_pt.qdata)
-    triton_unpacked = unpack_uint4(nvfp4_triton.qdata)
+    pt_unpacked = unpack_uint4(nvfp4_pt.qdata.view(torch.uint8))
+    triton_unpacked = unpack_uint4(nvfp4_triton.qdata.view(torch.uint8))
     torch.testing.assert_close(
         pt_unpacked,
         triton_unpacked,

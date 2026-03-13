@@ -7,11 +7,18 @@
 import pytest
 import torch
 
-# We need to skip before doing any imports which would use triton, since
-# triton won't be available on CPU builds
-if not (torch.cuda.is_available() and torch.cuda.get_device_capability()[0] >= 9):
-    pytest.skip("Unsupported PyTorch version", allow_module_level=True)
+# FP8 MoE kernels require FP8-capable hardware (SM90+ on CUDA, MI300+ on ROCm)
+from torchao.utils import is_MI300, is_MI350, is_sm_at_least_90
 
+if not (
+    torch.cuda.is_available() and (is_sm_at_least_90() or is_MI300() or is_MI350())
+):
+    pytest.skip(
+        "Requires FP8-capable GPU (CUDA SM90+, MI300, or MI350)",
+        allow_module_level=True,
+    )
+
+from torchao.float8.config import e4m3_dtype
 from torchao.prototype.moe_training.kernels.float8_rowwise import (
     triton_fp8_rowwise_3d_transpose_rhs,
     triton_fp8_rowwise_3d_transpose_rhs_fused_reduction,
@@ -23,12 +30,14 @@ from torchao.prototype.moe_training.kernels.jagged_float8_scales import (
 from torchao.prototype.moe_training.kernels.mxfp8 import (
     _mxfp8_cuda_kernels_available,
     fused_pad_token_groups_cuda,
+    fused_unpad_token_groups_cuda,
     mx_block_rearrange_2d_M_groups_cuda,
     mxfp8_quantize_cuda_3d,
     torch_pad_token_groups,
     torch_to_blocked_2d_K_groups,
     torch_to_blocked_2d_M_groups,
     torch_to_blocked_per_group_3d,
+    torch_unpad_token_groups,
     triton_mx_block_rearrange_2d_K_groups,
     triton_mx_block_rearrange_2d_M_groups,
     triton_mx_block_rearrange_per_group_3d,
@@ -42,12 +51,9 @@ from torchao.prototype.moe_training.utils import (
 )
 from torchao.prototype.mx_formats.mx_tensor import ScaleCalculationMode, to_mx
 from torchao.testing.utils import skip_if_rocm
-from torchao.utils import (
-    is_sm_at_least_100,
-)
+from torchao.utils import is_sm_at_least_100
 
 
-@skip_if_rocm("ROCm enablement in progress")
 @pytest.mark.parametrize("round_scales_to_power_of_2", [True, False])
 def test_row_major_with_jagged_rowwise_scales(round_scales_to_power_of_2: bool):
     # Tests case where rowwise scales are computed for multiple distinct subtensors,
@@ -61,7 +67,7 @@ def test_row_major_with_jagged_rowwise_scales(round_scales_to_power_of_2: bool):
     ref_fp8_data, ref_scales = torch_to_float8_per_group_rowwise(
         x,
         colwise_offs,
-        target_dtype=torch.float8_e4m3fn,
+        target_dtype=e4m3_dtype,
         round_scales_to_power_of_2=round_scales_to_power_of_2,
     )
 
@@ -69,7 +75,7 @@ def test_row_major_with_jagged_rowwise_scales(round_scales_to_power_of_2: bool):
     kernel_fp8_data, kernel_scales = triton_fp8_per_group_rowwise_scales(
         x,
         colwise_offs,
-        output_dtype=torch.float8_e4m3fn,
+        output_dtype=e4m3_dtype,
         round_scales_to_power_of_2=round_scales_to_power_of_2,
     )
 
@@ -78,7 +84,6 @@ def test_row_major_with_jagged_rowwise_scales(round_scales_to_power_of_2: bool):
     assert not _is_column_major(kernel_fp8_data), "fp8 data is not row major"
 
 
-@skip_if_rocm("ROCm enablement in progress")
 @pytest.mark.parametrize("round_scales_to_power_of_2", [True, False])
 def test_row_major_with_jagged_rowwise_scales_transpose_method(
     round_scales_to_power_of_2: bool,
@@ -95,7 +100,7 @@ def test_row_major_with_jagged_rowwise_scales_transpose_method(
     ref_fp8_data, ref_scales = torch_to_float8_per_group_rowwise(
         grad_out_t,
         colwise_offs,
-        target_dtype=torch.float8_e4m3fn,
+        target_dtype=e4m3_dtype,
         round_scales_to_power_of_2=round_scales_to_power_of_2,
     )
 
@@ -105,7 +110,7 @@ def test_row_major_with_jagged_rowwise_scales_transpose_method(
     kernel_fp8_data, kernel_scales = triton_fp8_per_group_colwise_scales(
         grad_out.t().contiguous().t(),
         colwise_offs,
-        output_dtype=torch.float8_e4m3fn,
+        output_dtype=e4m3_dtype,
         round_scales_to_power_of_2=round_scales_to_power_of_2,
     )
     kernel_fp8_data = kernel_fp8_data.t()  # (mg, n) -> (n, mg)
@@ -116,7 +121,6 @@ def test_row_major_with_jagged_rowwise_scales_transpose_method(
     assert not _is_column_major(kernel_fp8_data), "fp8 data is not row major"
 
 
-@skip_if_rocm("ROCm enablement in progress")
 @pytest.mark.parametrize("round_scales_to_power_of_2", [True, False])
 def test_column_major_with_jagged_colwise_scales(round_scales_to_power_of_2: bool):
     # tests case where colwise scales are computed for multiple distinct subtensors,
@@ -130,13 +134,13 @@ def test_column_major_with_jagged_colwise_scales(round_scales_to_power_of_2: boo
     ref_fp8_data, ref_scales = torch_to_float8_per_group_colwise(
         x,
         rowwise_offs,
-        target_dtype=torch.float8_e4m3fn,
+        target_dtype=e4m3_dtype,
         round_scales_to_power_of_2=round_scales_to_power_of_2,
     )
     kernel_fp8_data, kernel_scales = triton_fp8_per_group_colwise_scales(
         x,
         rowwise_offs,
-        output_dtype=torch.float8_e4m3fn,
+        output_dtype=e4m3_dtype,
         round_scales_to_power_of_2=round_scales_to_power_of_2,
     )
     assert torch.eq(ref_fp8_data, kernel_fp8_data).all(), "fp8 data not equal"
@@ -144,7 +148,6 @@ def test_column_major_with_jagged_colwise_scales(round_scales_to_power_of_2: boo
     assert _is_column_major(kernel_fp8_data), "fp8 data is not column major"
 
 
-@skip_if_rocm("ROCm not supported")
 @pytest.mark.parametrize("round_scales_to_power_of_2", [True, False])
 def test_fp8_rowwise_3d_transpose_rhs_atomic(round_scales_to_power_of_2: bool):
     device = "cuda"
@@ -159,7 +162,7 @@ def test_fp8_rowwise_3d_transpose_rhs_atomic(round_scales_to_power_of_2: bool):
     # Compute reference with torch impl
     ref_fp8, ref_scales = torch_to_3d_rowwise_float8_transpose_rhs(
         x,
-        target_dtype=torch.float8_e4m3fn,
+        target_dtype=e4m3_dtype,
         round_scales_to_power_of_2=round_scales_to_power_of_2,
     )
     # Torch impl keeps empty scaled dim, so we squeeze it out to be consistent with triton impl
@@ -167,7 +170,7 @@ def test_fp8_rowwise_3d_transpose_rhs_atomic(round_scales_to_power_of_2: bool):
 
     triton_fp8, triton_scales = triton_fp8_rowwise_3d_transpose_rhs(
         x,
-        output_dtype=torch.float8_e4m3fn,
+        output_dtype=e4m3_dtype,
         round_scales_to_power_of_2=round_scales_to_power_of_2,
     )
     assert ref_scales.shape == triton_scales.shape, "scale shapes not equal"
@@ -179,7 +182,6 @@ def test_fp8_rowwise_3d_transpose_rhs_atomic(round_scales_to_power_of_2: bool):
     assert torch.allclose(ref_fp8, triton_fp8, rtol=0, atol=0), "fp8 data not equal"
 
 
-@skip_if_rocm("ROCm not supported")
 @pytest.mark.parametrize("round_scales_to_power_of_2", [True, False])
 def test_fp8_rowwise_3d_transpose_rhs_reduction(round_scales_to_power_of_2: bool):
     device = "cuda"
@@ -194,7 +196,7 @@ def test_fp8_rowwise_3d_transpose_rhs_reduction(round_scales_to_power_of_2: bool
     # Compute reference with torch impl
     ref_fp8, ref_scales = torch_to_3d_rowwise_float8_transpose_rhs(
         x,
-        target_dtype=torch.float8_e4m3fn,
+        target_dtype=e4m3_dtype,
         round_scales_to_power_of_2=round_scales_to_power_of_2,
     )
     # Torch impl keeps empty scaled dim, so we squeeze it out to be consistent with triton impl
@@ -202,7 +204,7 @@ def test_fp8_rowwise_3d_transpose_rhs_reduction(round_scales_to_power_of_2: bool
 
     triton_fp8, triton_scales = triton_fp8_rowwise_3d_transpose_rhs_fused_reduction(
         x,
-        output_dtype=torch.float8_e4m3fn,
+        output_dtype=e4m3_dtype,
         round_scales_to_power_of_2=round_scales_to_power_of_2,
     )
     assert ref_scales.shape == triton_scales.shape, "scale shapes not equal"
@@ -415,7 +417,7 @@ def test_cuda_mx_dim1_3d_numerics(E, N, K, input_dtype, scaling_mode):
     reason="CUDA kernel requires sm_100 and CUDA 12.8+",
 )
 @skip_if_rocm("ROCm enablement in progress")
-@pytest.mark.parametrize("num_tokens", [128, 157, 4096])
+@pytest.mark.parametrize("num_tokens", [128, 157, 4096, 16392])
 @pytest.mark.parametrize("dim", [7168])
 @pytest.mark.parametrize("num_groups", [1, 2, 4, 8])
 @pytest.mark.parametrize("alignment_size", [32])
@@ -435,13 +437,13 @@ def test_cuda_fused_pad_token_groups(
     )
 
     # Get reference output
-    ref_padded_tokens, ref_padded_offsets = torch_pad_token_groups(
-        inputs, group_offsets, alignment_size
+    ref_padded_tokens, ref_padded_start_offsets, ref_padded_offsets = (
+        torch_pad_token_groups(inputs, group_offsets, alignment_size)
     )
 
     # Run CUDA kernel
-    kernel_padded_tokens, kernel_padded_offsets = fused_pad_token_groups_cuda(
-        inputs, group_offsets, alignment_size
+    kernel_padded_tokens, kernel_padded_start_offsets, kernel_padded_end_offsets = (
+        fused_pad_token_groups_cuda(inputs, group_offsets, alignment_size)
     )
 
     # All implementations now use the same upper bound output size
@@ -449,6 +451,67 @@ def test_cuda_fused_pad_token_groups(
     assert torch.allclose(ref_padded_tokens, kernel_padded_tokens, rtol=0, atol=1e-5), (
         "Padded tokens do not match"
     )
-    assert torch.equal(ref_padded_offsets, kernel_padded_offsets), (
-        "Padded group offsets do not match"
+    assert torch.equal(ref_padded_start_offsets, kernel_padded_start_offsets), (
+        "Padded group start offsets do not match"
+    )
+    assert torch.equal(ref_padded_offsets, kernel_padded_end_offsets), (
+        "Padded group end offsets do not match"
+    )
+
+
+@pytest.mark.skipif(
+    not _mxfp8_cuda_kernels_available,
+    reason="CUDA kernel requires sm_100 and CUDA 12.8+",
+)
+@skip_if_rocm("ROCm enablement in progress")
+@pytest.mark.parametrize("num_tokens", [128, 157, 4096])
+@pytest.mark.parametrize("dim", [7168])
+@pytest.mark.parametrize("num_groups", [1, 2, 4, 8])
+@pytest.mark.parametrize("alignment_size", [32])
+@pytest.mark.parametrize("dtype", [torch.bfloat16])
+def test_cuda_fused_unpad_token_groups(
+    num_tokens: int, dim: int, num_groups: int, alignment_size: int, dtype: torch.dtype
+):
+    """Test fused_unpad_token_groups_cuda kernel for removing padding from token groups."""
+    device = "cuda"
+
+    # Create input activations
+    inputs = torch.randn(num_tokens, dim, dtype=dtype, device=device)
+
+    # Generate group offsets (end indices for each group)
+    group_offsets = generate_jagged_offs(
+        num_groups, num_tokens, multiple_of=1, device=device
+    )
+
+    # First pad the tokens to create padded inputs
+    padded_tokens, padded_group_start_offsets, padded_group_end_offsets = (
+        torch_pad_token_groups(inputs, group_offsets, alignment_size)
+    )
+
+    # Get reference output using torch implementation
+    ref_unpadded_tokens = torch_unpad_token_groups(
+        padded_tokens,
+        group_offsets,
+        padded_group_start_offsets,
+        num_tokens,
+        alignment_size,
+    )
+
+    # Run CUDA kernel
+    kernel_unpadded_tokens = fused_unpad_token_groups_cuda(
+        padded_tokens,
+        group_offsets,
+        padded_group_start_offsets,
+        num_tokens,
+        alignment_size,
+    )
+
+    # Verify outputs match
+    assert torch.allclose(
+        ref_unpadded_tokens, kernel_unpadded_tokens, rtol=0, atol=1e-5
+    ), "Unpadded tokens do not match"
+
+    # Verify that unpad correctly reverses pad operation
+    assert torch.allclose(inputs, kernel_unpadded_tokens, rtol=0, atol=1e-5), (
+        "Unpadded tokens should match original inputs"
     )

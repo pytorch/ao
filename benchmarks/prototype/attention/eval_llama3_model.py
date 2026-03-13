@@ -57,17 +57,6 @@ BACKENDS = {
         "fp8_backend": AttentionBackend.FP8_FA3,
         "label": "FA3 FP8",
     },
-    "fa4": {
-        "flash_impl": "FA4",
-        "fp8": False,
-        "label": "FA4 BF16",
-    },
-    "fa4_fp8": {
-        "flash_impl": "FA4",
-        "fp8": True,
-        "fp8_backend": AttentionBackend.FP8_FA4,
-        "label": "FA4 FP8",
-    },
 }
 
 RANDOM_SEED = 42
@@ -115,9 +104,7 @@ def _compile_with_mask_strip(model, flash_impl_name=None):
     return torch.compile(model, backend=mask_strip_backend)
 
 
-def setup_backend(
-    orig_model, backend_name, compile_flag, fuse_rope_using_torch_compile=False
-):
+def setup_backend(orig_model, backend_name, compile_flag):
     """Set up a backend and return (model, flash_impl)."""
     cfg = BACKENDS[backend_name]
 
@@ -129,14 +116,8 @@ def setup_backend(
         model = apply_low_precision_attention(
             orig_model,
             backend=cfg["fp8_backend"],
-            fuse_rope_using_torch_compile=fuse_rope_using_torch_compile,
         )
-        if fuse_rope_using_torch_compile:
-            print(
-                f"  Compiling model with torch.compile ({backend_name}, FP8 backend)..."
-            )
-            model = torch.compile(model, backend=model.compile_backend)
-        elif compile_flag:
+        if compile_flag:
             print(f"  Compiling model with torch.compile ({backend_name})...")
             model = torch.compile(model)
         return model, cfg["flash_impl"]
@@ -221,7 +202,6 @@ def run_benchmark(
     num_warmup: int = 3,
     seq_lengths: list[int] | None = None,
     compile: bool = False,
-    fuse_rope_using_torch_compile: bool = False,
 ):
     if seq_lengths is None:
         seq_lengths = DEFAULT_SEQ_LENGTHS
@@ -266,7 +246,6 @@ def run_benchmark(
         orig_model,
         baseline_backend,
         compile,
-        fuse_rope_using_torch_compile=fuse_rope_using_torch_compile,
     )
     baseline_ppl = evaluate_perplexity(baseline_model, tokenizer, baseline_flash)
     print(f"  {baseline_label} perplexity: {baseline_ppl:.2f}")
@@ -277,7 +256,6 @@ def run_benchmark(
         orig_model,
         test_backend,
         compile,
-        fuse_rope_using_torch_compile=fuse_rope_using_torch_compile,
     )
     test_ppl = evaluate_perplexity(test_model, tokenizer, test_flash)
     print(f"  {test_label} perplexity: {test_ppl:.2f}")
@@ -299,7 +277,6 @@ def run_benchmark(
         orig_model,
         baseline_backend,
         compile,
-        fuse_rope_using_torch_compile=fuse_rope_using_torch_compile,
     )
     baseline_runtimes = {}
     for S in seq_lengths:
@@ -330,7 +307,6 @@ def run_benchmark(
         orig_model,
         test_backend,
         compile,
-        fuse_rope_using_torch_compile=fuse_rope_using_torch_compile,
     )
     test_runtimes = {}
     for S in baseline_runtimes:
@@ -459,11 +435,6 @@ def main():
         action="store_true",
         help="Wrap the model with torch.compile (applies to non-FP8 backends)",
     )
-    parser.add_argument(
-        "--fuse_rope_using_torch_compile",
-        action="store_true",
-        help="Fuse RoPE into the FP8 kernel (compile path, off by default)",
-    )
     args = parser.parse_args()
 
     run_benchmark(
@@ -474,7 +445,6 @@ def main():
         num_warmup=args.num_warmup,
         seq_lengths=args.seq_lengths,
         compile=args.compile,
-        fuse_rope_using_torch_compile=args.fuse_rope_using_torch_compile,
     )
 
 
