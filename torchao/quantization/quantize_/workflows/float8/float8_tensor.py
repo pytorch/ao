@@ -721,9 +721,16 @@ def _(func, types, args, kwargs):
     return res
 
 
-@implements(aten.slice.Tensor)
-def _(func, types, args, kwargs):
-    """Supports slicing for 1d, 2d, and 3d tensors
+def _slice_impl(
+    self: Float8Tensor,
+    dim: int,
+    start: int,
+    end: int,
+    step: int = 1,
+) -> Float8Tensor:
+    """Common implementation for slice and narrow operations.
+
+    Supports slicing for 2d and 3d tensors.
     original tensor shape has dimension (N, K), or (E, N, K)
     qdata has dimension (N, K) or (E, N, K)
     scale (per row quantization) has dimension: (N,) or (E, N)
@@ -732,9 +739,8 @@ def _(func, types, args, kwargs):
     for scale, we'll do a slice when dim is 0, and don't need to do anything for dim 1
 
     Note that we need to call slice on the qdata and scale directly because slice
-    is an operation that need to preserve aliasing
+    is an operation that need to preserve aliasing.
     """
-    self, dim, start, end, step = fill_defaults(args, 5, [0, None, None, 1])
     assert step == 1
     assert dim == 0 or dim == 1 or dim == 2, (
         f"Only dim==0,1,2 are supported, got: dim={dim}"
@@ -763,20 +769,32 @@ def _(func, types, args, kwargs):
     for i in range(len(self.block_size)):
         block_size[i] = min(block_size[i], sliced_data.shape[i])
 
-    return return_and_correct_aliasing(
-        func,
-        args,
-        kwargs,
-        Float8Tensor(
-            sliced_data,
-            sliced_scale,
-            block_size,
-            self.mm_config,
-            self.act_quant_kwargs,
-            self.kernel_preference,
-            dtype=self.dtype,
-        ),
+    return Float8Tensor(
+        sliced_data,
+        sliced_scale,
+        block_size,
+        self.mm_config,
+        self.act_quant_kwargs,
+        self.kernel_preference,
+        dtype=self.dtype,
     )
+
+
+@implements(aten.slice.Tensor)
+def _(func, types, args, kwargs):
+    """See _slice_impl for docs"""
+    self, dim, start, end, step = fill_defaults(args, 5, [0, None, None, 1])
+    sliced_tensor = _slice_impl(self, dim, start, end, step)
+    return return_and_correct_aliasing(func, args, kwargs, sliced_tensor)
+
+
+@implements(aten.narrow.default)
+def _(func, types, args, kwargs):
+    """See _slice_impl for docs"""
+    self, dim, start, length = args
+    end = start + length
+    sliced_tensor = _slice_impl(self, dim, start, end)
+    return return_and_correct_aliasing(func, args, kwargs, sliced_tensor)
 
 
 @implements(aten.cat.default)

@@ -808,6 +808,80 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
             )
 
     @common_utils.parametrize("granularity", [PerTensor(), PerRow()])
+    @common_utils.parametrize("dim", [0, 1])
+    def test_narrow_inference_mode(self, granularity, dim):
+        """Test that aten.narrow produces the same results with and without torch.inference_mode()"""
+        config = Float8DynamicActivationFloat8WeightConfig(granularity=granularity)
+        dtype = torch.bfloat16
+        device = "cuda"
+
+        start = 0
+        length = 64 if dim == 0 else 128
+
+        # Create a shared weight tensor and deep copy for both linear layers
+        shared_weight = torch.randn(256, 256, dtype=dtype, device=device)
+
+        # Run narrow without inference_mode
+        linear1 = torch.nn.Linear(256, 256, bias=False, dtype=dtype, device=device)
+        linear1.weight = torch.nn.Parameter(shared_weight.clone())
+        quantize_(linear1, config)
+        result_no_inference_mode = linear1.weight.narrow(dim, start, length)
+
+        # Run narrow with inference_mode (quantize_ also under inference_mode)
+        with torch.inference_mode():
+            linear2 = torch.nn.Linear(256, 256, bias=False, dtype=dtype, device=device)
+            linear2.weight = torch.nn.Parameter(shared_weight.clone())
+            quantize_(linear2, config)
+            result_with_inference_mode = linear2.weight.narrow(dim, start, length)
+
+        # Verify shapes match
+        self.assertEqual(
+            result_no_inference_mode.shape,
+            result_with_inference_mode.shape,
+        )
+
+        # Verify block_size matches
+        self.assertEqual(
+            result_no_inference_mode.block_size,
+            result_with_inference_mode.block_size,
+        )
+
+        # Create linear layers with narrowed weights and compare outputs
+        if dim == 0:
+            # Narrowing dim 0: output features reduced
+            out_features = length
+            in_features = 256
+        else:
+            # Narrowing dim 1: input features reduced
+            out_features = 256
+            in_features = length
+
+        # Create sample input
+        sample_input = torch.randn(2, in_features, dtype=dtype, device=device)
+
+        # Create linear with narrowed weight from non-inference mode
+        linear_test1 = torch.nn.Linear(
+            in_features, out_features, bias=False, dtype=dtype, device=device
+        )
+        linear_test1.weight = torch.nn.Parameter(
+            result_no_inference_mode, requires_grad=False
+        )
+
+        # Create linear with narrowed weight from inference mode
+        linear_test2 = torch.nn.Linear(
+            in_features, out_features, bias=False, dtype=dtype, device=device
+        )
+        linear_test2.weight = torch.nn.Parameter(
+            result_with_inference_mode, requires_grad=False
+        )
+
+        # Run forward pass and compare results
+        output1 = linear_test1(sample_input)
+        output2 = linear_test2(sample_input)
+
+        self.assertEqual(output1, output2)
+
+    @common_utils.parametrize("granularity", [PerTensor(), PerRow()])
     def test_slice_preserves_aliasing(self, granularity):
         config = Float8DynamicActivationFloat8WeightConfig(granularity=granularity)
         device = get_current_accelerator_device()
