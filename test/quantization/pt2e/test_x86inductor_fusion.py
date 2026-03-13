@@ -3106,7 +3106,7 @@ class TestDynamicPatternMatcher(TestPatternMatcherBase):
                 # TODO(Weiwen)
                 # It's failing due to https://github.com/pytorch/pytorch/commit/6a91cdc0302aa3353d773f292d24df787961f4a5
                 # Now we skip the failing case and will re-enable it after the issue is fixed.
-                return
+                continue
             self._test_q_attention_block_helper(
                 annotate_matmul=annotate_matmul, is_fp8=True
             )
