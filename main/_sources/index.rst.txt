@@ -67,6 +67,19 @@ Other installation options:
 
 Please see the `torchao compatibility table <https://github.com/pytorch/ao/issues/2919>`__ for version requirements for dependencies.
 
+Optional Dependencies
+^^^^^^^^^^^^^^^^^^^^^
+
+`MSLK <https://github.com/pytorch/MSLK>`__ is an optional runtime dependency that provides accelerated kernels for some of the workflows in torchao. Stable MSLK should be used with stable torchao, and nightly MSLK with nightly torchao.
+
+.. code:: bash
+
+    # Stable
+    pip install mslk-cuda==1.0.0
+
+    # Nightly
+    pip install --pre mslk --index-url https://download.pytorch.org/whl/nightly/cu128
+
 .. toctree::
    :glob:
    :maxdepth: 1

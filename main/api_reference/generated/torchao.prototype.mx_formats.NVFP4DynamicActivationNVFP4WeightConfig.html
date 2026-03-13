@@ -173,7 +173,7 @@
   fbq('track', 'PageView');
 </script>
 <script>
-  document.documentElement.setAttribute('data-version', 'main (0.17.0+git5c0c814 )');
+  document.documentElement.setAttribute('data-version', 'main (0.17.0+git4e5571f )');
 </script>
 <noscript>
   <img height="1" width="1" src="https://www.facebook.com/tr?id=243028289693773&ev=PageView&noscript=1" />
@@ -1559,12 +1559,17 @@ inference time</p></li>
 <p>Note: When step is specified, use_dynamic_per_tensor_scale is automatically
 set to False.</p>
 <p>Configuration parameters:
-- use_triton_kernel: bool, whether to use fused triton kernel for activation scaling (default: True)
-- use_dynamic_per_tensor_scale: bool, whether to dynamically compute per tensor scale (default: True)
-- step: Optional[QuantizationStep], the quantization step for observer-based flow
-- Data: float4_e2m1fn_x2
-- Scales: float8_e4m3fn
-- Block size: 16 along the reduction dim</p>
+- use_triton_kernel: bool, whether to use fused triton kernel for activation scaling (default: True).</p>
+<blockquote>
+<div><p>Requires <a class="reference external" href="https://github.com/pytorch/MSLK">MSLK</a> to be installed.</p>
+</div></blockquote>
+<ul class="simple">
+<li><p>use_dynamic_per_tensor_scale: bool, whether to dynamically compute per tensor scale (default: True)</p></li>
+<li><p>step: Optional[QuantizationStep], the quantization step for observer-based flow</p></li>
+<li><p>Data: float4_e2m1fn_x2</p></li>
+<li><p>Scales: float8_e4m3fn</p></li>
+<li><p>Block size: 16 along the reduction dim</p></li>
+</ul>
 <p>Note: Triton kernel only works with DYNAMIC mode and has constraints that input dimensions
 must satisfy M % 128 == 0 and K % 64 == 0. Will automatically fallback when constraints aren’t met.</p>
 <p>Example:</p>
@@ -1932,7 +1937,7 @@ must satisfy M % 128 == 0 and K % 64 == 0. Will automatically fallback when cons
        "headline": "NVFP4DynamicActivationNVFP4WeightConfig",
        "description": "PyTorch Documentation. Explore PyTorch, an open-source machine learning library that accelerates the path from research prototyping to production deployment.",
        "url": "/api_reference/generated/torchao.prototype.mx_formats.NVFP4DynamicActivationNVFP4WeightConfig.html",
-       "articleBody": "NVFP4DynamicActivationNVFP4WeightConfig# class torchao.prototype.mx_formats.NVFP4DynamicActivationNVFP4WeightConfig(use_triton_kernel: bool = True, use_dynamic_per_tensor_scale: bool = True, step: QuantizationStep | None = None)[source][source]# NVIDIA FP4 (NVFP4) Inference Quantization Configuration This is a specialized configuration for NVIDIA\u2019s FP4 format. NVFP4 uses \u201cdouble quantization\u201d with two scale levels: - A global per_tensor_scale (float32) - Per-block scales (float8_e4m3fn, block_size=16), always dynamically calculated The activation per_tensor_scale can be determined in two ways: Dynamic per_tensor_scale (default, step=None, use_dynamic_per_tensor_scale=True): Both weight and activation per_tensor_scale are computed at runtime from the tensor amax Static per_tensor_scale via observer flow (step=\u201dprepare\u201d/\u201dconvert\u201d): Weight per_tensor_scale is computed from weight amax at convert time Activation per_tensor_scale is determined statically during calibration: step=\u201dprepare\u201d inserts observers, then after running calibration data, step=\u201dconvert\u201d extracts the observed amax and bakes the activation per_tensor_scale into the quantized weight tensor At inference, the static activation per_tensor_scale is read from the weight tensor instead of being computed dynamically Note: activation per-block scales are still computed dynamically at inference time Note: When step is specified, use_dynamic_per_tensor_scale is automatically set to False. Configuration parameters: - use_triton_kernel: bool, whether to use fused triton kernel for activation scaling (default: True) - use_dynamic_per_tensor_scale: bool, whether to dynamically compute per tensor scale (default: True) - step: Optional[QuantizationStep], the quantization step for observer-based flow - Data: float4_e2m1fn_x2 - Scales: float8_e4m3fn - Block size: 16 along the reduction dim Note: Triton kernel only works with DYNAMIC mode and has constraints that input dimensions must satisfy M % 128 == 0 and K % 64 == 0. Will automatically fallback when constraints aren\u2019t met. Example: import torch import torch.nn as nn from torchao.prototype.mx_formats.inference_workflow import ( NVFP4DynamicActivationNVFP4WeightConfig, ) from torchao.quantization import quantize_ model = nn.Linear(32, 128, bias=False, dtype=torch.bfloat16, device=\"cuda\") config = NVFP4DynamicActivationNVFP4WeightConfig( use_dynamic_per_tensor_scale=True, use_triton_kernel=True, ) quantize_(model, config=config) model = torch.compile(model, fullgraph=True)",
+       "articleBody": "NVFP4DynamicActivationNVFP4WeightConfig# class torchao.prototype.mx_formats.NVFP4DynamicActivationNVFP4WeightConfig(use_triton_kernel: bool = True, use_dynamic_per_tensor_scale: bool = True, step: QuantizationStep | None = None)[source][source]# NVIDIA FP4 (NVFP4) Inference Quantization Configuration This is a specialized configuration for NVIDIA\u2019s FP4 format. NVFP4 uses \u201cdouble quantization\u201d with two scale levels: - A global per_tensor_scale (float32) - Per-block scales (float8_e4m3fn, block_size=16), always dynamically calculated The activation per_tensor_scale can be determined in two ways: Dynamic per_tensor_scale (default, step=None, use_dynamic_per_tensor_scale=True): Both weight and activation per_tensor_scale are computed at runtime from the tensor amax Static per_tensor_scale via observer flow (step=\u201dprepare\u201d/\u201dconvert\u201d): Weight per_tensor_scale is computed from weight amax at convert time Activation per_tensor_scale is determined statically during calibration: step=\u201dprepare\u201d inserts observers, then after running calibration data, step=\u201dconvert\u201d extracts the observed amax and bakes the activation per_tensor_scale into the quantized weight tensor At inference, the static activation per_tensor_scale is read from the weight tensor instead of being computed dynamically Note: activation per-block scales are still computed dynamically at inference time Note: When step is specified, use_dynamic_per_tensor_scale is automatically set to False. Configuration parameters: - use_triton_kernel: bool, whether to use fused triton kernel for activation scaling (default: True). Requires MSLK to be installed. use_dynamic_per_tensor_scale: bool, whether to dynamically compute per tensor scale (default: True) step: Optional[QuantizationStep], the quantization step for observer-based flow Data: float4_e2m1fn_x2 Scales: float8_e4m3fn Block size: 16 along the reduction dim Note: Triton kernel only works with DYNAMIC mode and has constraints that input dimensions must satisfy M % 128 == 0 and K % 64 == 0. Will automatically fallback when constraints aren\u2019t met. Example: import torch import torch.nn as nn from torchao.prototype.mx_formats.inference_workflow import ( NVFP4DynamicActivationNVFP4WeightConfig, ) from torchao.quantization import quantize_ model = nn.Linear(32, 128, bias=False, dtype=torch.bfloat16, device=\"cuda\") config = NVFP4DynamicActivationNVFP4WeightConfig( use_dynamic_per_tensor_scale=True, use_triton_kernel=True, ) quantize_(model, config=config) model = torch.compile(model, fullgraph=True)",
        "author": {
          "@type": "Organization",
          "name": "PyTorch Contributors",

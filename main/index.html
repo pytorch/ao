@@ -174,7 +174,7 @@
   fbq('track', 'PageView');
 </script>
 <script>
-  document.documentElement.setAttribute('data-version', 'main (0.17.0+git5c0c814 )');
+  document.documentElement.setAttribute('data-version', 'main (0.17.0+git4e5571f )');
 </script>
 <noscript>
   <img height="1" width="1" src="https://www.facebook.com/tr?id=243028289693773&ev=PageView&noscript=1" />
@@ -1419,6 +1419,16 @@ pip<span class="w"> </span>install<span class="w"> </span>torchao<span class="w"
 </pre></div>
 </div>
 <p>Please see the <a class="reference external" href="https://github.com/pytorch/ao/issues/2919">torchao compatibility table</a> for version requirements for dependencies.</p>
+<section id="optional-dependencies">
+<h3>Optional Dependencies<a class="headerlink" href="#optional-dependencies" title="Link to this heading">#</a></h3>
+<p><a class="reference external" href="https://github.com/pytorch/MSLK">MSLK</a> is an optional runtime dependency that provides accelerated kernels for some of the workflows in torchao. Stable MSLK should be used with stable torchao, and nightly MSLK with nightly torchao.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Stable</span>
+pip<span class="w"> </span>install<span class="w"> </span>mslk-cuda<span class="o">==</span><span class="m">1</span>.0.0
+
+<span class="c1"># Nightly</span>
+pip<span class="w"> </span>install<span class="w"> </span>--pre<span class="w"> </span>mslk<span class="w"> </span>--index-url<span class="w"> </span>https://download.pytorch.org/whl/nightly/cu128
+</pre></div>
+</div>
 <div class="toctree-wrapper compound">
 <p aria-level="2" class="caption" role="heading"><span class="caption-text">Workflows</span></p>
 <ul>
@@ -1449,6 +1459,7 @@ pip<span class="w"> </span>install<span class="w"> </span>torchao<span class="w"
 <li class="toctree-l1"><a class="reference internal" href="pt2e_quantization/index.html">PT2E Quantization</a></li>
 </ul>
 </div>
+</section>
 </section>
 </section>
 
@@ -1494,6 +1505,9 @@ pip<span class="w"> </span>install<span class="w"> </span>torchao<span class="w"
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#pytorch-native-training-to-serving-model-optimization">PyTorch-Native Training-to-Serving Model Optimization</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#quick-start">Quick Start</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#installation">Installation</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#optional-dependencies">Optional Dependencies</a><ul class="nav section-nav flex-column">
+</ul>
+</li>
 </ul>
 </li>
 </ul>
@@ -1721,7 +1735,7 @@ pip<span class="w"> </span>install<span class="w"> </span>torchao<span class="w"
        "headline": "Welcome to the torchao Documentation",
        "description": "PyTorch Documentation. Explore PyTorch, an open-source machine learning library that accelerates the path from research prototyping to production deployment.",
        "url": "/index.html",
-       "articleBody": "Welcome to the torchao Documentation# Created On: Mar 13, 2026 | Last Updated On: Mar 13, 2026 PyTorch-Native Training-to-Serving Model Optimization# Pre-train Llama-3.1-70B 1.5x faster with float8 training Recover 67% of quantized accuracy degradation on Gemma3-4B with QAT Quantize Llama-3-8B to int4 for 1.89x faster inference with 58% less memory torchao is a library for custom data types and optimizations. Quantize and sparsify weights, gradients, optimizers, and activations for inference and training using native PyTorch. Please checkout torchao README for an overall introduction to the library and recent highlight and updates. Quick Start# First, install TorchAO. We recommend installing the latest stable version: pip install torchao Quantize your model weights to int4! import torch from torchao.quantization import Int4WeightOnlyConfig, quantize_ if torch.cuda.is_available(): # quantize on CUDA quantize_(model, Int4WeightOnlyConfig(group_size=32, int4_packing_format=\"tile_packed_to_4d\", int4_choose_qparams_algorithm=\"hqq\")) elif torch.xpu.is_available(): # quantize on XPU quantize_(model, Int4WeightOnlyConfig(group_size=32, int4_packing_format=\"plain_int32\")) See our first quantization example for more details. Installation# To install the latest stable version: pip install torchao Other installation options: # Nightly pip install --pre torchao --index-url https://download.pytorch.org/whl/nightly/cu128 # Different CUDA versions pip install torchao --index-url https://download.pytorch.org/whl/cu126 # CUDA 12.6 pip install torchao --index-url https://download.pytorch.org/whl/cu129 # CUDA 12.9 pip install torchao --index-url https://download.pytorch.org/whl/xpu # XPU pip install torchao --index-url https://download.pytorch.org/whl/cpu # CPU only # For developers # Note: the --no-build-isolation flag is required. USE_CUDA=1 pip install -e . --no-build-isolation USE_XPU=1 pip install -e . --no-build-isolation USE_CPP=0 pip install -e . --no-build-isolation Please see the torchao compatibility table for version requirements for dependencies. Workflows Workflows API Reference API Reference Tutorials Tutorials Contributing Contributing PT2E Quantization PT2E Quantization",
+       "articleBody": "Welcome to the torchao Documentation# Created On: Mar 13, 2026 | Last Updated On: Mar 13, 2026 PyTorch-Native Training-to-Serving Model Optimization# Pre-train Llama-3.1-70B 1.5x faster with float8 training Recover 67% of quantized accuracy degradation on Gemma3-4B with QAT Quantize Llama-3-8B to int4 for 1.89x faster inference with 58% less memory torchao is a library for custom data types and optimizations. Quantize and sparsify weights, gradients, optimizers, and activations for inference and training using native PyTorch. Please checkout torchao README for an overall introduction to the library and recent highlight and updates. Quick Start# First, install TorchAO. We recommend installing the latest stable version: pip install torchao Quantize your model weights to int4! import torch from torchao.quantization import Int4WeightOnlyConfig, quantize_ if torch.cuda.is_available(): # quantize on CUDA quantize_(model, Int4WeightOnlyConfig(group_size=32, int4_packing_format=\"tile_packed_to_4d\", int4_choose_qparams_algorithm=\"hqq\")) elif torch.xpu.is_available(): # quantize on XPU quantize_(model, Int4WeightOnlyConfig(group_size=32, int4_packing_format=\"plain_int32\")) See our first quantization example for more details. Installation# To install the latest stable version: pip install torchao Other installation options: # Nightly pip install --pre torchao --index-url https://download.pytorch.org/whl/nightly/cu128 # Different CUDA versions pip install torchao --index-url https://download.pytorch.org/whl/cu126 # CUDA 12.6 pip install torchao --index-url https://download.pytorch.org/whl/cu129 # CUDA 12.9 pip install torchao --index-url https://download.pytorch.org/whl/xpu # XPU pip install torchao --index-url https://download.pytorch.org/whl/cpu # CPU only # For developers # Note: the --no-build-isolation flag is required. USE_CUDA=1 pip install -e . --no-build-isolation USE_XPU=1 pip install -e . --no-build-isolation USE_CPP=0 pip install -e . --no-build-isolation Please see the torchao compatibility table for version requirements for dependencies. Optional Dependencies# MSLK is an optional runtime dependency that provides accelerated kernels for some of the workflows in torchao. Stable MSLK should be used with stable torchao, and nightly MSLK with nightly torchao. # Stable pip install mslk-cuda==1.0.0 # Nightly pip install --pre mslk --index-url https://download.pytorch.org/whl/nightly/cu128 Workflows Workflows API Reference API Reference Tutorials Tutorials Contributing Contributing PT2E Quantization PT2E Quantization",
        "author": {
          "@type": "Organization",
          "name": "PyTorch Contributors",
