@@ -139,8 +139,20 @@ class TestUIntxBitPackedTensor(TestCase):
             UIntxWeightOnlyConfig(group_size=64, bit_width=4, packing_bitwidth=32),
         )
 
-        sliced = model.weight.narrow(0, 0, 64)
+        weight = model.weight
+        sliced = weight.narrow(0, 0, 64)
         self.assertEqual(sliced.shape[0], 64)
+
+        # Verify internal tensors match direct slicing
+        # Data is stored transposed (K x N), so logical dim 0 -> data dim 1
+        self.assertEqual(
+            sliced.packed_weight,
+            weight.packed_weight.narrow(1, 0, 64),
+        )
+        self.assertEqual(
+            sliced.scale,
+            weight.scale.narrow(1, 0, 64),
+        )
 
     def test_slice_dim1(self):
         """Test narrow/slice on dim 1 (in_features) for tensor parallelism."""
@@ -154,8 +166,24 @@ class TestUIntxBitPackedTensor(TestCase):
             UIntxWeightOnlyConfig(group_size=64, bit_width=4, packing_bitwidth=32),
         )
 
-        sliced = model.weight.narrow(1, 0, 128)
+        weight = model.weight
+        sliced = weight.narrow(1, 0, 128)
         self.assertEqual(sliced.shape[1], 128)
+
+        # Verify internal tensors match direct slicing
+        # Data is stored transposed (K x N), so logical dim 1 -> data dim 0
+        # packed_weight dim 0 is packed by elements_per_sample
+        eps = weight.gemlite_kwargs["elements_per_sample"]
+        self.assertEqual(
+            sliced.packed_weight,
+            weight.packed_weight.narrow(0, 0, 128 // eps),
+        )
+        # scale dim 0 corresponds to groups along in_features
+        scale_ratio = 128 // 64  # in_features_slice / group_size
+        self.assertEqual(
+            sliced.scale,
+            weight.scale.narrow(0, 0, scale_ratio),
+        )
 
     def test_non_standard_shapes(self):
         """Test shapes not divisible by 128 but divisible by 32 (gemlite requirement)."""
@@ -173,12 +201,6 @@ class TestUIntxBitPackedTensor(TestCase):
         x = torch.randn(1, 1024, device="cuda", dtype=torch.float16)
         out = model(x)
         self.assertEqual(out.shape, (1, 1025))
-
-    def test_import_from_prototype_api(self):
-        """Verify UIntxWeightOnlyConfig is available from the prototype API."""
-        from torchao.prototype.quantization.quant_api import (
-            UIntxWeightOnlyConfig,  # noqa: F401
-        )
 
 
 if __name__ == "__main__":
