@@ -19,6 +19,7 @@ from torchao.prototype.mx_formats.inference_workflow import (
 from torchao.quantization import quantize_
 from torchao.quantization.quantize_.common import KernelPreference
 from torchao.utils import (
+    is_ROCM,
     is_sm_at_least_100,
     torch_version_at_least,
 )
@@ -28,13 +29,16 @@ if not torch_version_at_least("2.8.0"):
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.skipif(not is_sm_at_least_100(), reason="needs CUDA capability 10.0+")
 @pytest.mark.parametrize("recipe_name", ["mxfp8", "nvfp4"])
 def test_serialization(recipe_name):
     """
     Ensure that only `import torchao.prototype.mx_formats` is needed to load MX
     and NV checkpoints.
     """
+    if recipe_name == "nvfp4" and not is_sm_at_least_100():
+        pytest.skip("NVFP4 requires CUDA capability 10.0+")
+    if recipe_name == "mxfp8" and not is_sm_at_least_100() and not is_ROCM():
+        pytest.skip("MXFP8 serialization requires CUDA capability 10.0+ or ROCm")
 
     m = nn.Linear(32, 128, bias=False, dtype=torch.bfloat16, device="cuda")
     fname = None

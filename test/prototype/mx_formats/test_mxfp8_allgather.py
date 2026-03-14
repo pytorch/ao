@@ -3,7 +3,7 @@ import torch
 import torch.distributed as dist
 
 from torchao.prototype.mx_formats.mx_tensor import MXTensor
-from torchao.utils import is_sm_at_least_90, torch_version_at_least
+from torchao.utils import is_ROCM, is_sm_at_least_90, torch_version_at_least
 
 if not torch_version_at_least("2.7.0"):
     pytest.skip("Unsupported PyTorch version", allow_module_level=True)
@@ -99,7 +99,7 @@ def _test_allgather(local_rank):
 if __name__ == "__main__":
     local_rank = setup_distributed()
 
-    assert is_sm_at_least_90() == True, "SM must be > 9.0"
+    assert is_sm_at_least_90() or is_ROCM(), "SM must be >= 9.0 or ROCm"
 
     try:
         _test_allgather(local_rank)
