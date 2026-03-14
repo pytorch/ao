@@ -46,25 +46,30 @@ def _handle_use_triton_kernel(
 ) -> QuantizeToNVFP4KernelChoice:
     """Handle deprecated use_triton_kernel parameter.
 
-    Raises an exception if use_triton_kernel does not match
-    quantize_to_nvfp4_kernel_choice.
+    Raises ValueError if use_triton_kernel does not match
+    quantize_to_nvfp4_kernel_choice. use_triton_kernel=True corresponds to
+    MSLK, use_triton_kernel=False corresponds to TORCH or FLASHINFER.
     """
-    expected = (
-        QuantizeToNVFP4KernelChoice.MSLK
-        if use_triton_kernel
-        else QuantizeToNVFP4KernelChoice.TORCH
-    )
-    if expected != quantize_to_nvfp4_kernel_choice:
-        raise ValueError(
-            f"`use_triton_kernel={use_triton_kernel}` does not match "
-            f"`quantize_to_nvfp4_kernel_choice={quantize_to_nvfp4_kernel_choice}`. "
-            "`use_triton_kernel` is deprecated and will be removed after 0.17. "
-            "Please use `quantize_to_nvfp4_kernel_choice` instead. "
-            "`use_triton_kernel=True` is equivalent to "
-            "`quantize_to_nvfp4_kernel_choice=QuantizeToNVFP4KernelChoice.MSLK`, "
-            "`use_triton_kernel=False` is equivalent to "
-            "`quantize_to_nvfp4_kernel_choice=QuantizeToNVFP4KernelChoice.TORCH`."
-        )
+    if use_triton_kernel:
+        if quantize_to_nvfp4_kernel_choice != QuantizeToNVFP4KernelChoice.MSLK:
+            raise ValueError(
+                f"`use_triton_kernel=True` does not match "
+                f"`quantize_to_nvfp4_kernel_choice={quantize_to_nvfp4_kernel_choice}`. "
+                "`use_triton_kernel` is deprecated and will be removed after 0.17. "
+                "Please use `quantize_to_nvfp4_kernel_choice` instead. "
+                "`use_triton_kernel=True` is equivalent to "
+                "`quantize_to_nvfp4_kernel_choice=QuantizeToNVFP4KernelChoice.MSLK`."
+            )
+    else:
+        if quantize_to_nvfp4_kernel_choice == QuantizeToNVFP4KernelChoice.MSLK:
+            raise ValueError(
+                f"`use_triton_kernel=False` does not match "
+                f"`quantize_to_nvfp4_kernel_choice={quantize_to_nvfp4_kernel_choice}`. "
+                "`use_triton_kernel` is deprecated and will be removed after 0.17. "
+                "Please use `quantize_to_nvfp4_kernel_choice` instead. "
+                "`use_triton_kernel=False` is equivalent to "
+                "`quantize_to_nvfp4_kernel_choice=QuantizeToNVFP4KernelChoice.TORCH`."
+            )
     return quantize_to_nvfp4_kernel_choice
 
 

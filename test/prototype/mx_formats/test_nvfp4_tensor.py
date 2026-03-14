@@ -394,16 +394,6 @@ def test_quantize_to_nvfp4_kernel_numerical_equivalence(
 
     other_kernel_choices = [QuantizeToNVFP4KernelChoice.MSLK]
 
-    torch.testing.assert_close(nvfp4_pt.scale.flatten(), nvfp4_triton.scale.flatten())
-    pt_unpacked = unpack_uint4(nvfp4_pt.qdata.view(torch.uint8))
-    triton_unpacked = unpack_uint4(nvfp4_triton.qdata.view(torch.uint8))
-    torch.testing.assert_close(
-        pt_unpacked,
-        triton_unpacked,
-        atol=0,
-        rtol=0,
-    )
-
     # Flashinfer requires the library and per_tensor_scale
     if _is_flashinfer_available() and use_per_tensor_scale:
         other_kernel_choices.append(QuantizeToNVFP4KernelChoice.FLASHINFER)
