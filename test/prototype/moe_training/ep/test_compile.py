@@ -22,6 +22,7 @@ if not (
 
 
 import torch.distributed as dist
+import torch.distributed._symmetric_memory as symm_mem
 import torch.nn.functional as F
 from torch.distributed._functional_collectives import (
     all_to_all_single,
@@ -33,8 +34,7 @@ from test.prototype.moe_training.testing_utils import generate_split_sizes
 from torchao.float8.float8_utils import compute_error
 from torchao.prototype.moe_training.ep import (
     a2a_combine_hp_fwd_mxfp8_bwd,
-    a2a_dispatch_mxfp8_fwd_hp_bwd,
-    permute_mxfp8_fwd_hp_bwd,
+    a2a_dispatch_and_group_mxfp8_fwd_hp_bwd,
     unpermute_hp_fwd_mxfp8_bwd,
 )
 from torchao.prototype.moe_training.ep.permute import _permute_bf16
@@ -42,6 +42,7 @@ from torchao.prototype.moe_training.ep.unpermute import _unpermute_bf16
 from torchao.prototype.moe_training.mxfp8_grouped_mm import (
     _to_mxfp8_then_scaled_grouped_mm,
 )
+from torchao.quantization.quantize_.common import KernelPreference
 
 
 def standard_pipeline(
@@ -80,6 +81,9 @@ def standard_pipeline(
             block_size,
         )
     )
+    active_rows = int(offsets[-1].item())
+    permuted = permuted[:active_rows]
+    permuted_indices = permuted_indices[:active_rows]
 
     # Step 3: Grouped MM
     gemm_output = _to_mxfp8_then_scaled_grouped_mm(
@@ -87,6 +91,7 @@ def standard_pipeline(
         expert_weights_t,
         offs=offsets,
         block_size=block_size,
+        kernel_preference=KernelPreference.EMULATED,
         wgrad_with_hp=True,
     )
 
@@ -120,33 +125,24 @@ def mxfp8_pipeline(
 ) -> torch.Tensor:
     """
     MXFP8 optimized pipeline with chained autograd functions:
-    bf16 -> a2a_dispatch (MXTensor) -> permute (MXTensor) ->
+    bf16 -> fused a2a_dispatch_and_group (MXTensor) ->
     mxfp8_grouped_mm -> unpermute -> a2a_combine -> bf16
     """
     block_size = 32
 
-    # Step 1: A2A dispatch - outputs MXTensor
-    mx_dispatched = a2a_dispatch_mxfp8_fwd_hp_bwd(
-        input_tensor,
-        output_splits_list,
-        input_splits_list,
-        group_name=group.group_name,
-    )
-
-    # Step 2: Permute - maintains MXTensor
+    # Step 1: Dispatch directly into grouped+padded MXTensor layout.
     (
         padded_mx_shape,
         mx_permuted,
         permuted_indices,
         num_tokens_per_expert_padded,
         mx_group_offsets,
-    ) = permute_mxfp8_fwd_hp_bwd(
-        mx_dispatched,
-        num_tokens_per_expert_group,
-        ep_degree,
-        num_experts,
-        block_size,
-        use_triton_for_bwd=True,
+    ) = a2a_dispatch_and_group_mxfp8_fwd_hp_bwd(
+        input_tensor,
+        output_splits_list,
+        input_splits_list,
+        num_tokens_per_expert,
+        group_name=group.group_name,
     )
 
     # Step 3: MXFP8 Grouped MM - outputs BF16
@@ -155,6 +151,7 @@ def mxfp8_pipeline(
         expert_weights_t,
         offs=mx_group_offsets,
         block_size=block_size,
+        kernel_preference=KernelPreference.EMULATED,
         wgrad_with_hp=True,
     )
 
@@ -173,6 +170,7 @@ def mxfp8_pipeline(
         output_splits=input_splits_list,
         input_splits=output_splits_list,
         group_name=group.group_name,
+        mxfp8_bwd=False,
     )
 
     return final_output
@@ -185,7 +183,7 @@ class TestIntegrationCompiled(MultiProcessTestCase):
 
     @property
     def world_size(self):
-        return 2
+        return 4
 
     @property
     def device(self):
@@ -202,9 +200,15 @@ class TestIntegrationCompiled(MultiProcessTestCase):
         )
         torch.manual_seed(42 + self.rank)
 
+    def _init_device(self):
+        symm_mem.set_backend("NVSHMEM")
+
     def test_full_pipeline_compiled(self):
         self._init_process()
         try:
+            self._init_device()
+            symm_mem.enable_symm_mem_for_group(dist.group.WORLD.group_name)
+
             tokens = 64
             dim = 256
             hidden_dim = 512
@@ -304,7 +308,9 @@ class TestIntegrationCompiled(MultiProcessTestCase):
             )
 
             # Compare: Final outputs
-            final_sqnr = compute_error(bf16_output, mxfp8_output)
+            final_sqnr = compute_error(
+                bf16_output.detach(), mxfp8_output.detach()
+            ).item()
             rank_0_print(f"[Rank {self.rank}]   Final output SQNR: {final_sqnr:.2f} dB")
             assert final_sqnr >= 28.0, f"Final SQNR {final_sqnr} too low"
 
@@ -337,7 +343,9 @@ class TestIntegrationCompiled(MultiProcessTestCase):
             assert expert_weights.grad.dtype == torch.bfloat16
 
             # Validate input gradients
-            input_grad_sqnr = compute_error(ref_input_tensor.grad, input_tensor.grad)
+            input_grad_sqnr = compute_error(
+                ref_input_tensor.grad, input_tensor.grad
+            ).item()
             min_input_grad_sqnr = 26.0
             rank_0_print(
                 f"[Rank {self.rank}]   Input grad SQNR: {input_grad_sqnr:.2f} dB"
@@ -354,7 +362,7 @@ class TestIntegrationCompiled(MultiProcessTestCase):
 
             weight_grad_sqnr = compute_error(
                 ref_expert_weights.grad, expert_weights.grad
-            )
+            ).item()
             min_weight_grad_sqnr = 25.0
             rank_0_print(
                 f"[Rank {self.rank}]   Weight grad SQNR: {weight_grad_sqnr:.2f} dB"

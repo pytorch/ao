@@ -19,12 +19,16 @@ Backward (right to left):
 """
 
 from .a2a_combine import a2a_combine_hp_fwd_mxfp8_bwd
-from .a2a_dispatch import a2a_dispatch_mxfp8_fwd_hp_bwd
+from .a2a_dispatch import (
+    a2a_dispatch_and_group_mxfp8_fwd_hp_bwd,
+    a2a_dispatch_mxfp8_fwd_hp_bwd,
+)
 from .permute import permute_mxfp8_fwd_hp_bwd
 from .unpermute import unpermute_hp_fwd_mxfp8_bwd
 
 __all__ = [
     "a2a_dispatch_mxfp8_fwd_hp_bwd",
+    "a2a_dispatch_and_group_mxfp8_fwd_hp_bwd",
     "permute_mxfp8_fwd_hp_bwd",
     "unpermute_hp_fwd_mxfp8_bwd",
     "a2a_combine_hp_fwd_mxfp8_bwd",

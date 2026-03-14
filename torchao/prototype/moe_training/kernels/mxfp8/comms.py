@@ -15,7 +15,7 @@ from torchao.prototype.mx_formats.kernels import (
     triton_mxfp8_dequant_dim0,
     triton_to_mxfp8_dim0,
 )
-from torchao.prototype.mx_formats.mx_tensor import to_dtype, to_mx
+from torchao.prototype.mx_formats.mx_tensor import MXTensor, to_dtype, to_mx
 
 
 # This performs dynamic mxfp8 quantization of the input tensor,
@@ -285,8 +285,241 @@ class MXFP8OnDeviceAllToAllV(torch.autograd.Function):
         return grad_input_hp[: ctx.input_shape[0]], None, None, None, None
 
 
+def _grouped_mxfp8_a2a_forward_impl(
+    input: torch.Tensor,
+    input_splits: torch.Tensor,
+    max_output_rows_per_rank: int,
+    expert_splits_per_rank: torch.Tensor,
+    group: dist.ProcessGroup,
+):
+    assert input.dtype in (torch.float32, torch.bfloat16)
+
+    MXFP8OnDeviceAllToAllV.max_output_rows_per_rank = max_output_rows_per_rank
+
+    block_size = 32
+    to_mx_c = torch.compile(to_mx)
+    input_scales, input_data = to_mx_c(
+        input,
+        elem_dtype=torch.float8_e4m3fn,
+        block_size=block_size,
+    )
+
+    # Triton doesn't support float8_e8m0fnu yet, view as uint8.
+    input_scales = input_scales.view(torch.uint8)
+
+    if MXFP8OnDeviceAllToAllV.input_sym_mem_buf is None:
+        MXFP8OnDeviceAllToAllV.input_sym_mem_buf = symm_mem.empty(
+            MXFP8OnDeviceAllToAllV.max_output_rows_per_rank,
+            *input_data.shape[1:],
+            dtype=input_data.dtype,
+            device=input_data.device,
+        )
+
+    if MXFP8OnDeviceAllToAllV.scales_sym_mem_buf is None:
+        MXFP8OnDeviceAllToAllV.scales_sym_mem_buf = symm_mem.empty(
+            MXFP8OnDeviceAllToAllV.max_output_rows_per_rank,
+            *input_scales.shape[1:],
+            dtype=input_scales.dtype,
+            device=input_scales.device,
+        )
+
+    if MXFP8OnDeviceAllToAllV.input_splits_sym_mem_buf is None:
+        MXFP8OnDeviceAllToAllV.input_splits_sym_mem_buf = symm_mem.empty(
+            *input_splits.shape,
+            dtype=input_splits.dtype,
+            device=input_splits.device,
+        )
+
+    if MXFP8OnDeviceAllToAllV.expert_splits_sym_mem_buf is None:
+        MXFP8OnDeviceAllToAllV.expert_splits_sym_mem_buf = symm_mem.empty(
+            *expert_splits_per_rank.shape,
+            dtype=expert_splits_per_rank.dtype,
+            device=expert_splits_per_rank.device,
+        )
+
+    MXFP8OnDeviceAllToAllV.input_sym_mem_buf.narrow(0, 0, input_data.shape[0]).copy_(
+        input_data
+    )
+    MXFP8OnDeviceAllToAllV.input_splits_sym_mem_buf.copy_(input_splits)
+    MXFP8OnDeviceAllToAllV.expert_splits_sym_mem_buf.copy_(expert_splits_per_rank)
+    MXFP8OnDeviceAllToAllV.scales_sym_mem_buf.narrow(0, 0, input_scales.shape[0]).copy_(
+        input_scales
+    )
+
+    output = input_data.new_empty(
+        MXFP8OnDeviceAllToAllV.max_output_rows_per_rank, *input_data.shape[1:]
+    )
+    output_scales = input_scales.new_empty(
+        MXFP8OnDeviceAllToAllV.max_output_rows_per_rank, *input_scales.shape[1:]
+    )
+    output_splits = torch.empty_like(input_splits)
+    output_expert_splits = torch.empty_like(expert_splits_per_rank)
+    padded_group_end_offsets = torch.empty(
+        expert_splits_per_rank.shape[1], dtype=torch.int64, device=input.device
+    )
+
+    _mxfp8_on_device_all_to_all_v(
+        MXFP8OnDeviceAllToAllV.input_sym_mem_buf,
+        MXFP8OnDeviceAllToAllV.scales_sym_mem_buf,
+        MXFP8OnDeviceAllToAllV.input_splits_sym_mem_buf,
+        MXFP8OnDeviceAllToAllV.expert_splits_sym_mem_buf,
+        output,
+        output_scales,
+        output_splits,
+        output_expert_splits,
+        padded_group_end_offsets,
+        group=group,
+    )
+
+    return (
+        input_data.shape,
+        input_scales.shape,
+        input.dtype,
+        output,
+        output_scales,
+        output_splits,
+        output_expert_splits,
+        padded_group_end_offsets,
+    )
+
+
+def _grouped_mxfp8_a2a_backward_impl(ctx, grad_output: torch.Tensor) -> torch.Tensor:
+    input_splits, input_expert_splits, grad_output_expert_splits = ctx.saved_tensors
+
+    if MXFP8OnDeviceAllToAllV.grad_out_sym_mem_buf is None:
+        MXFP8OnDeviceAllToAllV.grad_out_sym_mem_buf = symm_mem.empty(
+            MXFP8OnDeviceAllToAllV.max_output_rows_per_rank,
+            *grad_output.shape[1:],
+            dtype=torch.float8_e4m3fn,
+            device=grad_output.device,
+        )
+
+    block_size = 32
+    to_mx_c = torch.compile(to_mx)
+    grad_out_scales, grad_out_data = to_mx_c(
+        grad_output,
+        elem_dtype=torch.float8_e4m3fn,
+        block_size=block_size,
+    )
+    grad_out_scales = grad_out_scales.view(torch.uint8)
+
+    MXFP8OnDeviceAllToAllV.grad_out_sym_mem_buf.narrow(
+        0, 0, grad_out_data.shape[0]
+    ).copy_(grad_out_data)
+    MXFP8OnDeviceAllToAllV.scales_sym_mem_buf.narrow(
+        0, 0, grad_out_scales.shape[0]
+    ).copy_(grad_out_scales)
+    MXFP8OnDeviceAllToAllV.expert_splits_sym_mem_buf.copy_(grad_output_expert_splits)
+
+    if MXFP8OnDeviceAllToAllV.grad_input_buf is None:
+        MXFP8OnDeviceAllToAllV.grad_input_buf = grad_out_data.new_empty(
+            ctx.input_shape[0],
+            *ctx.input_shape[1:],
+        )
+
+    if MXFP8OnDeviceAllToAllV.grad_input_scales_buf is None:
+        MXFP8OnDeviceAllToAllV.grad_input_scales_buf = torch.empty(
+            ctx.input_scales_shape[0],
+            *ctx.input_scales_shape[1:],
+            dtype=grad_out_scales.dtype,
+            device=grad_out_scales.device,
+        )
+
+    _mxfp8_on_device_all_to_all_v_bwd(
+        MXFP8OnDeviceAllToAllV.grad_out_sym_mem_buf,
+        MXFP8OnDeviceAllToAllV.scales_sym_mem_buf,
+        MXFP8OnDeviceAllToAllV.expert_splits_sym_mem_buf,
+        input_splits,
+        input_expert_splits,
+        MXFP8OnDeviceAllToAllV.grad_input_buf,
+        MXFP8OnDeviceAllToAllV.grad_input_scales_buf,
+        group=ctx.group,
+    )
+
+    lowp_dtype = grad_out_data.dtype
+    to_dtype_c = torch.compile(to_dtype)
+    grad_input_hp = to_dtype_c(
+        MXFP8OnDeviceAllToAllV.grad_input_buf,
+        MXFP8OnDeviceAllToAllV.grad_input_scales_buf.view(torch.float8_e8m0fnu),
+        lowp_dtype,
+        block_size,
+        ctx.hp_dtype,
+    )
+    return grad_input_hp[: ctx.input_shape[0]]
+
+
+class MXFP8OnDeviceAllToAllVMX(torch.autograd.Function):
+    @staticmethod
+    @torch.compiler.disable
+    def forward(
+        ctx,
+        input: torch.Tensor,
+        input_splits: torch.Tensor,
+        max_output_rows_per_rank: int,
+        expert_splits_per_rank: torch.Tensor,
+        group: dist.ProcessGroup = dist.group.WORLD,
+    ):
+        (
+            input_data_shape,
+            input_scales_shape,
+            hp_dtype,
+            output,
+            output_scales,
+            output_splits,
+            output_expert_splits,
+            padded_group_end_offsets,
+        ) = _grouped_mxfp8_a2a_forward_impl(
+            input,
+            input_splits,
+            max_output_rows_per_rank,
+            expert_splits_per_rank,
+            group,
+        )
+
+        total_output_rows = int(padded_group_end_offsets[-1].item())
+        mx_output = MXTensor(
+            output[:total_output_rows],
+            output_scales[:total_output_rows].view(torch.float8_e8m0fnu),
+            elem_dtype=torch.float8_e4m3fn,
+            block_size=32,
+            orig_dtype=hp_dtype,
+            kernel_preference=None,
+            act_quant_kwargs=None,
+            is_swizzled_scales=False,
+        )
+
+        ctx.group = group
+        ctx.input_shape = input_data_shape
+        ctx.input_scales_shape = input_scales_shape
+        ctx.hp_dtype = hp_dtype
+        ctx.max_output_rows_per_rank = max_output_rows_per_rank
+        ctx.save_for_backward(
+            input_splits, expert_splits_per_rank, output_expert_splits
+        )
+        return (
+            mx_output,
+            output_splits,
+            output_expert_splits,
+            padded_group_end_offsets,
+        )
+
+    @staticmethod
+    @torch.compiler.disable
+    def backward(
+        ctx, grad_output, grad_splits, grad_expert_splits, grad_expert_padded_offsets
+    ):
+        return (
+            _grouped_mxfp8_a2a_backward_impl(ctx, grad_output),
+            None,
+            None,
+            None,
+            None,
+        )
+
+
 # Alias
 mxfp8_on_device_all_to_all_v = MXFP8OnDeviceAllToAllV.apply
+mxfp8_on_device_all_to_all_v_mx = MXFP8OnDeviceAllToAllVMX.apply
 
 
 # Triton launcher function
@@ -424,8 +657,10 @@ def _mxfp8_all_to_all_v_kernel(
                 )
                 expert_tokens_total += expert_tokens_from_remote
 
-            # Round up tokens for this expert to multiple of 32
-            padded_tokens: tl.int64 = ((expert_tokens_total + 31) // 32) * 32
+            # Keep zero-token experts padded to one scaling block so the grouped
+            # layout matches the EP permute metadata contract.
+            padded_tokens_total = tl.maximum(expert_tokens_total, 32)
+            padded_tokens: tl.int64 = ((padded_tokens_total + 31) // 32) * 32
 
             # Zero the padding rows for this expert so downstream grouped mm can
             # consume them directly as dummy rows without reading uninitialized data.
@@ -519,6 +754,7 @@ def _mxfp8_all_to_all_v_kernel(
                         sender_expert_splits_ptr + rank * num_experts_per_rank
                     )
                     prev_expert_total += tl.load(sender_expert_splits_ptr + prev_expert)
+                prev_expert_total = tl.maximum(prev_expert_total, 32)
                 expert_output_offset += ((prev_expert_total + 31) // 32) * 32
 
             for prev_remote_rank in range(remote_rank):
@@ -730,6 +966,7 @@ def _mxfp8_all_to_all_v_bwd_kernel(
                     data = tl.load(input_scale_ptr + offs, mask=mask, other=0.0)
                     tl.store(output_scale_ptr_expert + offs, data, mask=mask)
 
+        remote_expert_tokens_total = tl.maximum(remote_expert_tokens_total, 32)
         remote_expert_start_offset += ((remote_expert_tokens_total + 31) // 32) * 32
         output_expert_offset += expert_tokens
 
