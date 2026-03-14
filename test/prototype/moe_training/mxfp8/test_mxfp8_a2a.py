@@ -26,6 +26,7 @@ from torchao.prototype.moe_training.kernels.mxfp8.comms import (
     mxfp8_syncless_all_to_all_expert_major,
     to_mxfp8_a2a_dequant,
 )
+from torchao.prototype.moe_training.ep.permute import _permute_bf16
 
 from test.prototype.moe_training.testing_utils import generate_split_sizes
 
@@ -157,31 +158,70 @@ class MXFP8SynclessAllToAllExpertMajorTest(MultiProcessTestCase):
                     remote_rank, self.rank, :
                 ]
 
+            # Reorder reference output from rank-major to expert-major using permute_bf16
+            # output_expert_splits_ref is [world_size, num_experts_per_rank]
+            # _permute_bf16 expects num_tokens_per_expert in [r0e0, r0e1, r1e0, r1e1, ...] order
+            # which is exactly the flattened form of output_expert_splits_ref
+            num_tokens_per_expert_flat = output_expert_splits_ref.flatten()
+
+            # Debug: print the shapes and first few values
+            if self.rank == 0:
+                print(f"\n=== Debug info (rank {self.rank}) ===")
+                print(f"output_expert_splits shape: {output_expert_splits.shape}")
+                print(f"output_expert_splits:\n{output_expert_splits}")
+                print(f"output_expert_splits_ref:\n{output_expert_splits_ref}")
+                print(f"expert_padded_offsets: {expert_padded_offsets}")
+                print(f"num_tokens_per_expert_flat: {num_tokens_per_expert_flat}")
+                print(
+                    f"total_tokens_on_rank_after_a2a: {total_tokens_on_rank_after_a2a}"
+                )
+                print(f"ref_output shape: {ref_output.shape}")
+                print(f"output shape: {output.shape}")
+
+            _, ref_output_expert_major, _, _, _ = _permute_bf16(
+                ref_output,
+                num_tokens_per_expert_flat,
+                ep_degree=self.world_size,
+                num_local_experts=num_experts_per_rank,
+                alignment=32,
+            )
+
+            if self.rank == 0:
+                print(f"ref_output_expert_major shape: {ref_output_expert_major.shape}")
+                print(f"Comparing output[:100, :5]:\n{output[:100:20, :5]}")
+                print(
+                    f"vs ref_output_expert_major[:100, :5]:\n{ref_output_expert_major[:100:20, :5]}"
+                )
+
             # Compare output
-            assert torch.equal(
-                output_splits, output_splits_ref
-            ), "output_splits mismatch"
-            assert torch.equal(
-                output_expert_splits, output_expert_splits_ref
-            ), f"output_expert_splits mismatch: got {output_expert_splits}, expected {output_expert_splits_ref}"
+            assert torch.equal(output_splits, output_splits_ref), (
+                "output_splits mismatch"
+            )
+            assert torch.equal(output_expert_splits, output_expert_splits_ref), (
+                f"output_expert_splits mismatch: got {output_expert_splits}, expected {output_expert_splits_ref}"
+            )
             out_no_padding = output[:total_tokens_on_rank_after_a2a]
-            sqnr = compute_error(ref_output, out_no_padding)
+            # Only compare up to total_tokens (excluding padding in reference)
+            ref_output_no_padding = ref_output_expert_major[
+                :total_tokens_on_rank_after_a2a
+            ]
+            sqnr = compute_error(ref_output_no_padding, out_no_padding)
             min_sqnr = 30.0
             assert sqnr > min_sqnr, f"sqnr={sqnr} is less than min_sqnr={min_sqnr}"
 
             # Test backwards
             labels = torch.ones_like(out_no_padding)
             loss = F.mse_loss(out_no_padding, labels)
-            ref_loss = F.mse_loss(ref_output, labels)
+            ref_loss = F.mse_loss(ref_output_no_padding, labels)
             loss.backward()
             ref_loss.backward()
 
             # Compare grads
             grad_sqnr = compute_error(ref_input_tensor.grad, input_tensor.grad)
             min_grad_sqnr = 28.0
-            assert (
-                grad_sqnr > min_grad_sqnr
-            ), f"grad_sqnr={grad_sqnr} is less than min_grad_sqnr={min_grad_sqnr}"
+            assert grad_sqnr > min_grad_sqnr, (
+                f"grad_sqnr={grad_sqnr} is less than min_grad_sqnr={min_grad_sqnr}"
+            )
 
         finally:
             dist.destroy_process_group()
@@ -300,9 +340,9 @@ class ToMXFP8AllToAllVDequantTest(MultiProcessTestCase):
             # Compare grads
             grad_sqnr = compute_error(ref_input_tensor.grad, input_tensor.grad)
             min_grad_sqnr = 28.0
-            assert (
-                grad_sqnr > min_grad_sqnr
-            ), f"grad_sqnr={grad_sqnr} is less than min_grad_sqnr={min_grad_sqnr}"
+            assert grad_sqnr > min_grad_sqnr, (
+                f"grad_sqnr={grad_sqnr} is less than min_grad_sqnr={min_grad_sqnr}"
+            )
 
         finally:
             dist.destroy_process_group()

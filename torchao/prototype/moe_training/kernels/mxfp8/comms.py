@@ -370,7 +370,7 @@ def _mxfp8_syncless_all_to_all_expert_major_launcher(
     expert_splits_ptrs = expert_splits_hdl.buffer_ptrs_dev
     signal_pad_ptrs = input_hdl.signal_pad_ptrs_dev
     dim = output.shape[1]
-    dim_scaling_groups = input_scales.shape[-1]
+    scale_dim = input_scales.shape[-1]
     num_experts_per_rank = expert_splits.shape[-1]
     num_blocks = input_hdl.world_size * BLOCKS_PER_REMOTE_RANK
 
@@ -386,7 +386,7 @@ def _mxfp8_syncless_all_to_all_expert_major_launcher(
         expert_padded_offsets,
         signal_pad_ptrs,
         dim=dim,
-        dim_scaling_groups=dim_scaling_groups,
+        scale_dim=scale_dim,
         num_experts_per_rank=num_experts_per_rank,
         rank=input_hdl.rank,
         world_size=input_hdl.world_size,
@@ -411,7 +411,7 @@ def _mxfp8_all_to_all_expert_major_kernel(
     expert_padded_offsets_ptr,
     signal_pad_ptrs,
     dim: tl.constexpr,
-    dim_scaling_groups: tl.constexpr,
+    scale_dim: tl.constexpr,
     num_experts_per_rank: tl.constexpr,
     rank: tl.constexpr,
     world_size: tl.constexpr,
@@ -455,8 +455,7 @@ def _mxfp8_all_to_all_expert_major_kernel(
                 remote_expert_split_values,
             )
 
-        # Compute padded offsets: round up to multiple of 32 and cumsum
-        # We compute total tokens per expert by summing across all remote ranks,
+        # Compute local padded starting offsets for each expert on this rank,
         # using the output_expert_splits metadata we just computed above.
         cumulative_offset = tl.zeros(
             [], dtype=tl.int64
@@ -466,7 +465,7 @@ def _mxfp8_all_to_all_expert_major_kernel(
             # Store the starting offset for this expert
             tl.store(expert_padded_offsets_ptr + expert_idx, cumulative_offset)
 
-            # Sum tokens for this expert across all remote ranks
+            # Get total tokens for this expert across all remote ranks
             # output_expert_splits[remote_r, expert_idx] is at offset remote_r * num_experts_per_rank + expert_idx
             expert_tokens_total = tl.zeros([], dtype=tl.int64)
             for remote_r in range(world_size):
@@ -488,7 +487,7 @@ def _mxfp8_all_to_all_expert_major_kernel(
     blockwise_barrier(signal_pad_ptrs, None, rank, world_size, sem="relaxed")
 
     # ===== PHASE 2: Data Transfer with Padding =====
-    # Transfer data expert-by-expert from remote_rank to local padded expert regions
+    # Transfer data expert-by-expert from the target remote_rank to local padded expert regions
 
     # One thread block per rank will update output_splits
     if block_offset == 0:
@@ -532,46 +531,56 @@ def _mxfp8_all_to_all_expert_major_kernel(
         expert_tokens = tl.load(remote_expert_splits_ptr + expert_idx)
 
         if expert_tokens > 0:
-            # Get output offset for this expert (with padding)
-            expert_output_offset = tl.load(expert_padded_offsets_ptr + expert_idx)
+            # Get output offset for this expert (with padding). This will be part of determining where we write to.
+            expert_padded_start_offset = tl.load(expert_padded_offsets_ptr + expert_idx)
 
-            # Compute offset within this expert's region for this remote_rank
-            # We need to skip tokens from all previous remote ranks to this expert
-            expert_region_offset_for_remote = tl.zeros([], dtype=tl.int64)
+            # Determines where we write to locally.
+            # After the expert padded start offset, we need to skip by tokens written from other remote ranks for this expert
+            # Add tokens that previous remote ranks sent to this expert.
+            prior_tokens_from_other_ranks_for_expert = tl.zeros([], dtype=tl.int64)
             for prev_remote in range(remote_rank):
-                # Add tokens that prev_remote sent to this expert
                 prev_remote_tokens_to_expert = tl.load(
                     output_expert_splits_ptr
                     + prev_remote * num_experts_per_rank
                     + expert_idx
                 )
-                expert_region_offset_for_remote += prev_remote_tokens_to_expert
+                prior_tokens_from_other_ranks_for_expert += prev_remote_tokens_to_expert
 
-            # Get cumulative offset within this remote rank's data for this expert
-            # Add up tokens from previous experts from this same remote rank
-            cumulative_tokens_before = tl.zeros([], dtype=tl.int64)
+            # Determine where we read from on the remote rank.
+            # Get cumulative offset on the remote rank's data for this expert.
+            # Add up tokens from previous experts on that remote rank.
+            prior_tokens_on_remote_rank_for_expert = tl.zeros([], dtype=tl.int64)
             for prev_expert in range(expert_idx):
-                cumulative_tokens_before += tl.load(
+                prior_tokens_on_remote_rank_for_expert += tl.load(
                     remote_expert_splits_ptr + prev_expert
                 )
 
             # Calculate actual input/output pointers
             input_ptr = (
-                input_base_ptr + (input_row_offset + cumulative_tokens_before) * dim
+                input_base_ptr
+                + (input_row_offset + prior_tokens_on_remote_rank_for_expert) * dim
             )
             output_ptr_expert = (
                 output_ptr
-                + (expert_output_offset + expert_region_offset_for_remote) * dim
+                + (
+                    expert_padded_start_offset
+                    + prior_tokens_from_other_ranks_for_expert
+                )
+                * dim
             )
 
             input_scale_ptr = (
                 input_scales_base_ptr
-                + (input_row_offset + cumulative_tokens_before) * dim_scaling_groups
+                + (input_row_offset + prior_tokens_on_remote_rank_for_expert)
+                * scale_dim
             )
             output_scale_ptr_expert = (
                 output_scales_ptr
-                + (expert_output_offset + expert_region_offset_for_remote)
-                * dim_scaling_groups
+                + (
+                    expert_padded_start_offset
+                    + prior_tokens_from_other_ranks_for_expert
+                )
+                * scale_dim
             )
 
             # Copy data for this expert
@@ -585,7 +594,7 @@ def _mxfp8_all_to_all_expert_major_kernel(
                     tl.store(output_ptr_expert + offs, data, mask=mask)
 
             # Copy scales for this expert
-            total_scales = expert_tokens * dim_scaling_groups
+            total_scales = expert_tokens * scale_dim
             num_scale_blocks = tl.cdiv(total_scales, BLOCK_SIZE)
             for block_idx in tl.range(num_scale_blocks):
                 if block_idx % BLOCKS_PER_REMOTE_RANK == block_offset:
