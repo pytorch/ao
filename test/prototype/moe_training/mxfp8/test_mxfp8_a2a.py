@@ -23,15 +23,16 @@ from torchao.float8.float8_utils import (
     compute_error,
 )
 from torchao.prototype.moe_training.kernels.mxfp8.comms import (
-    mxfp8_on_device_all_to_all_v,
+    mxfp8_syncless_all_to_all_expert_major,
     to_mxfp8_a2a_dequant,
 )
+from torchao.prototype.moe_training.ep.permute import _permute_bf16
 
-from ..testing_utils import generate_split_sizes
+from test.prototype.moe_training.testing_utils import generate_split_sizes
 
 
 @instantiate_parametrized_tests
-class MXFP8OnDeviceAllToAllVTest(MultiProcessTestCase):
+class MXFP8SynclessAllToAllExpertMajorTest(MultiProcessTestCase):
     def setUp(self) -> None:
         super().setUp()
         self._spawn_processes()
@@ -67,42 +68,48 @@ class MXFP8OnDeviceAllToAllVTest(MultiProcessTestCase):
             group_name = dist.group.WORLD.group_name
             symm_mem.enable_symm_mem_for_group(group_name)
 
-            tokens_per_ep_rank = 8192
-            dim = 2048
-            input_tensor = torch.randn(
-                tokens_per_ep_rank,
-                dim,
-                device=self.device,
-                dtype=torch.bfloat16,
-                requires_grad=True,
-            )
-            ref_input_tensor = input_tensor.detach().clone().requires_grad_(True)
+            tokens_per_expert = 2
+            experts_per_rank = 2
+            dim = 32
 
-            # Generate random input splits that sum to tokens_per_ep_rank
-            num_splits = self.world_size
-            input_splits = generate_split_sizes(
-                num_splits, tokens_per_ep_rank, self.device
+            # Create input tensor
+            input_tensor = torch.randn(
+                tokens_per_expert * experts_per_rank,
+                dim,
+                dtype=torch.bfloat16,
+                device=self.device
             )
+            num_tokens_per_expert = generate_split_sizes(
+                experts_per_rank * self.world_size, tokens_per_ep_rank, self.device
+            )
+            expert_splits_per_rank = num_tokens_per_expert.view(self.world_size, -1)
 
             # Max output tokens per rank is worst case where one rank receives all tokens
-            max_output_tokens_per_rank = tokens_per_ep_rank * self.world_size
+            # With padding to multiple of 32, we need more space
+            max_output_tokens_per_rank = (
+                tokens_per_expert * experts_per_rank * self.world_size
+                + 32 * num_experts_per_rank * self.world_size
+            )
 
             # Test forward
-            output, output_splits = mxfp8_on_device_all_to_all_v(
-                input_tensor,
-                input_splits,
-                max_output_tokens_per_rank,
-                group_name,
+            output, output_rank_splits, output_expert_splits, expert_padded_offsets = (
+                mxfp8_syncless_all_to_all_expert_major(
+                    input_tensor,
+                    input_splits,
+                    expert_splits_per_rank,
+                    max_output_tokens_per_rank,
+                    group_name,
+                )
             )
 
             # Reference torch.all_to_all_single to compare against
-            output_splits_ref = torch.empty_like(output_splits)
+            output_rank_splits_ref = torch.empty_like(output_rank_splits)
 
             # Compute output splits from input splits
-            dist.all_to_all_single(output_splits_ref, input_splits)
+            dist.all_to_all_single(output_rank_splits_ref, input_splits)
 
             # Pre-allocate output buffer for reference a2a
-            total_tokens_on_rank_after_a2a = output_splits_ref.sum()
+            total_tokens_on_rank_after_a2a = output_rank_splits_ref.sum()
             ref_output = torch.empty(
                 total_tokens_on_rank_after_a2a,
                 dim,
@@ -113,24 +120,95 @@ class MXFP8OnDeviceAllToAllVTest(MultiProcessTestCase):
             # Do the actual all_to_all_single
             ref_output = all_to_all_single_autograd(
                 ref_input_tensor,
-                output_splits_ref.tolist(),
+                output_rank_splits_ref.tolist(),
                 input_splits.tolist(),
                 dist.group.WORLD,
             )
 
+            # Compute reference expert splits using all-gather.
+            # Gather expert_splits_per_rank from all ranks into a
+            # (world_size, world_size, num_experts_per_rank) tensor where
+            # gathered[source_rank, dest_rank, expert_idx] = tokens source_rank sends to expert_idx on dest_rank.
+            gathered_expert_splits = torch.empty(
+                self.world_size * self.world_size,
+                num_experts_per_rank,
+                dtype=torch.int64,
+                device=self.device,
+            )
+            dist.all_gather_into_tensor(
+                gathered_expert_splits,
+                expert_splits_per_rank,
+                group=dist.group.WORLD,
+            )
+            gathered_expert_splits = gathered_expert_splits.view(
+                self.world_size, self.world_size, num_experts_per_rank
+            )
+            # output_expert_splits_ref[remote_rank, :] = tokens remote_rank sends to each expert on this rank
+            output_expert_splits_ref = torch.empty_like(output_expert_splits)
+            for remote_rank in range(self.world_size):
+                output_expert_splits_ref[remote_rank, :] = gathered_expert_splits[
+                    remote_rank, self.rank, :
+                ]
+
+            # Reorder reference output from rank-major to expert-major using permute_bf16
+            # output_expert_splits_ref is [world_size, num_experts_per_rank]
+            # _permute_bf16 expects num_tokens_per_expert in [r0e0, r0e1, r1e0, r1e1, ...] order
+            # which is exactly the flattened form of output_expert_splits_ref
+            num_tokens_per_expert_flat = output_expert_splits_ref.flatten()
+
+            # Debug: print the shapes and first few values
+            if self.rank == 0:
+                print(f"\n=== Debug info (rank {self.rank}) ===")
+                print(f"world_size: {self.world_size}")
+                print(f"num_experts_per_rank: {num_experts_per_rank}")
+                print(f"expert_splits_per_rank shape: {expert_splits_per_rank.shape}")
+                print(f"expert_splits_per_rank:\n{expert_splits_per_rank}")
+                print(f"output_expert_splits shape: {output_expert_splits.shape}")
+                print(f"output_expert_splits:\n{output_expert_splits}")
+                print(f"output_expert_splits_ref:\n{output_expert_splits_ref}")
+                print(f"expert_padded_offsets: {expert_padded_offsets}")
+                print(f"num_tokens_per_expert_flat: {num_tokens_per_expert_flat}")
+                print(
+                    f"total_tokens_on_rank_after_a2a: {total_tokens_on_rank_after_a2a}"
+                )
+                print(f"ref_output shape: {ref_output.shape}")
+                print(f"output shape: {output.shape}")
+
+            _, ref_output_expert_major, _, _, _ = _permute_bf16(
+                ref_output,
+                num_tokens_per_expert_flat,
+                ep_degree=self.world_size,
+                num_local_experts=num_experts_per_rank,
+                alignment=32,
+            )
+
+            if self.rank == 0:
+                print(f"ref_output_expert_major shape: {ref_output_expert_major.shape}")
+                print(f"Comparing output[:100, :5]:\n{output[:100:20, :5]}")
+                print(
+                    f"vs ref_output_expert_major[:100, :5]:\n{ref_output_expert_major[:100:20, :5]}"
+                )
+
             # Compare output
-            assert torch.equal(output_splits, output_splits_ref), (
-                "output_splits mismatch"
+            assert torch.equal(output_rank_splits, output_rank_splits_ref), (
+                "output_rank_splits mismatch"
+            )
+            assert torch.equal(output_expert_splits, output_expert_splits_ref), (
+                f"output_expert_splits mismatch: got {output_expert_splits}, expected {output_expert_splits_ref}"
             )
             out_no_padding = output[:total_tokens_on_rank_after_a2a]
-            sqnr = compute_error(ref_output, out_no_padding)
+            # Only compare up to total_tokens (excluding padding in reference)
+            ref_output_no_padding = ref_output_expert_major[
+                :total_tokens_on_rank_after_a2a
+            ]
+            sqnr = compute_error(ref_output_no_padding, out_no_padding)
             min_sqnr = 30.0
             assert sqnr > min_sqnr, f"sqnr={sqnr} is less than min_sqnr={min_sqnr}"
 
             # Test backwards
             labels = torch.ones_like(out_no_padding)
             loss = F.mse_loss(out_no_padding, labels)
-            ref_loss = F.mse_loss(ref_output, labels)
+            ref_loss = F.mse_loss(ref_output_no_padding, labels)
             loss.backward()
             ref_loss.backward()
 
@@ -153,7 +231,7 @@ class ToMXFP8AllToAllVDequantTest(MultiProcessTestCase):
 
     @property
     def world_size(self) -> int:
-        return 4
+        return 2
 
     @property
     def device(self) -> torch.device:
