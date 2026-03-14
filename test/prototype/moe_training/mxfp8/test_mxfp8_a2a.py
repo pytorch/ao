@@ -71,14 +71,14 @@ class MXFP8SynclessAllToAllExpertMajorTest(MultiProcessTestCase):
             tokens_per_ep_rank = 8192
             dim = 2048
             num_experts_per_rank = 2
-            input_tensor = torch.randn(
+
+            # Create input tensor - will be reordered by expert splits later
+            input_tensor_unordered = torch.randn(
                 tokens_per_ep_rank,
                 dim,
                 device=self.device,
                 dtype=torch.bfloat16,
-                requires_grad=True,
             )
-            ref_input_tensor = input_tensor.detach().clone().requires_grad_(True)
 
             # Generate random expert splits per rank that sum to tokens_per_ep_rank.
             # expert_splits_per_rank[i, j] = number of tokens this rank sends to expert j on rank i.
@@ -88,6 +88,21 @@ class MXFP8SynclessAllToAllExpertMajorTest(MultiProcessTestCase):
             expert_splits_per_rank = generate_split_sizes(
                 total_splits, tokens_per_ep_rank, self.device
             ).view(self.world_size, num_experts_per_rank)
+
+            # Organize input tensor by expert splits: [r0e0, r0e1, r1e0, r1e1, ...]
+            # This simulates how tokens would be organized after routing in a real MoE
+            input_tensor_list = []
+            offset = 0
+            for rank_idx in range(self.world_size):
+                for expert_idx in range(num_experts_per_rank):
+                    num_tokens = expert_splits_per_rank[rank_idx, expert_idx].item()
+                    input_tensor_list.append(
+                        input_tensor_unordered[offset : offset + num_tokens]
+                    )
+                    offset += num_tokens
+
+            input_tensor = torch.cat(input_tensor_list, dim=0).requires_grad_(True)
+            ref_input_tensor = input_tensor.detach().clone().requires_grad_(True)
 
             # Compute input_splits from expert_splits_per_rank (sum across experts)
             input_splits = expert_splits_per_rank.sum(dim=1)
