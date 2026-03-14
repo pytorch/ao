@@ -15,7 +15,7 @@ from tqdm import tqdm
 
 from benchmarks.utils import benchmark_cuda_function_in_microseconds
 from torchao.prototype.moe_training.kernels.mxfp8 import mxfp8_quantize_cuda_3d
-from torchao.prototype.moe_training.scaled_grouped_mm import (
+from torchao.prototype.moe_training.mxfp8_grouped_mm import (
     _to_mxfp8_dim1_3d,
 )
 from torchao.prototype.mx_formats.config import ScaleCalculationMode
