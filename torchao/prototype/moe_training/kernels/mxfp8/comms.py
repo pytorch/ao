@@ -15,7 +15,7 @@ from torchao.prototype.mx_formats.kernels import (
     triton_mxfp8_dequant_dim0,
     triton_to_mxfp8_dim0,
 )
-from torchao.prototype.mx_formats.mx_tensor import to_dtype, to_mx
+from torchao.prototype.mx_formats.mx_tensor import MXTensor, to_dtype, to_mx
 
 
 # This performs dynamic mxfp8 quantization of the input tensor,
@@ -32,6 +32,9 @@ class MXFP8OnDeviceAllToAllV(torch.autograd.Function):
     # A symmetric memory for exchanging split sizes during both forward and backward
     input_splits_sym_mem_buf = None
 
+    # A symmetric memory for exchanging per-expert token counts during both forward and backward
+    expert_splits_sym_mem_buf = None
+
     # A symmetric memory buffer holding the grad_output during backward
     grad_out_sym_mem_buf = None
 
@@ -44,9 +47,6 @@ class MXFP8OnDeviceAllToAllV(torch.autograd.Function):
     # A preallocated buffer for holding the grad_input scales, that can be reused without cudaMalloc/cudaFree each iteration
     grad_input_scales_buf = None
 
-    # A preallocated buffer for holding the grad_input splits, that can be reused without cudaMalloc/cudaFree each iteration
-    grad_input_splits_buf = None
-
     @staticmethod
     @torch.compiler.disable
     def forward(
@@ -54,6 +54,7 @@ class MXFP8OnDeviceAllToAllV(torch.autograd.Function):
         input: torch.Tensor,
         input_splits: torch.Tensor,
         max_output_rows_per_rank: int,
+        expert_splits_per_rank: torch.Tensor,
         group: dist.ProcessGroup = dist.group.WORLD,
     ):
         """
@@ -62,13 +63,12 @@ class MXFP8OnDeviceAllToAllV(torch.autograd.Function):
             input_scales: float8_e8m0fnu scales for the input tensor.
             input_splits: input splits of shape (group.world_size,)
             max_output_rows_per_rank: maximum output rows/tokens per rank.
+            expert_splits_per_rank: per-expert token counts per destination rank, shape (world_size, num_experts_per_rank).
+                expert_splits_per_rank[i, j] = number of tokens this rank is sending to expert j on rank i.
+                Will be exchanged during all-to-all to provide per-expert metadata at destination.
             group: process group to scope the collective.
         """
         assert input.dtype in (torch.float32, torch.bfloat16)
-
-        # Enable symm mem for the group if not already enabled
-        if not symm_mem.is_symm_mem_enabled_for_group(group):
-            symm_mem.enable_symm_mem_for_group(group)
 
         MXFP8OnDeviceAllToAllV.max_output_rows_per_rank = max_output_rows_per_rank
 
@@ -110,6 +110,14 @@ class MXFP8OnDeviceAllToAllV(torch.autograd.Function):
                 device=input_splits.device,
             )
 
+        # Initialize expert splits buffer (one time only)
+        if MXFP8OnDeviceAllToAllV.expert_splits_sym_mem_buf is None:
+            MXFP8OnDeviceAllToAllV.expert_splits_sym_mem_buf = symm_mem.empty(
+                *expert_splits_per_rank.shape,
+                dtype=expert_splits_per_rank.dtype,
+                device=expert_splits_per_rank.device,
+            )
+
         # Copy quantized data, scales, and output splits to symm mem buffers
         MXFP8OnDeviceAllToAllV.input_sym_mem_buf.narrow(
             0, 0, input_data.shape[0]
@@ -117,6 +125,9 @@ class MXFP8OnDeviceAllToAllV(torch.autograd.Function):
 
         # Copy input splits to symm mem buffer
         MXFP8OnDeviceAllToAllV.input_splits_sym_mem_buf.copy_(input_splits)
+
+        # Copy expert splits to symm mem buffer
+        MXFP8OnDeviceAllToAllV.expert_splits_sym_mem_buf.copy_(expert_splits_per_rank)
 
         # Copy input scales to symm mem buffer
         MXFP8OnDeviceAllToAllV.scales_sym_mem_buf.narrow(
@@ -131,15 +142,26 @@ class MXFP8OnDeviceAllToAllV(torch.autograd.Function):
             MXFP8OnDeviceAllToAllV.max_output_rows_per_rank, *input_scales.shape[1:]
         )
         output_splits = torch.empty_like(input_splits)
+        output_expert_splits = torch.empty_like(expert_splits_per_rank)
+
+        # Padded end offsets for each local expert group. These can be passed
+        # directly as grouped-mm offsets.
+        num_experts_per_rank = expert_splits_per_rank.shape[1]
+        padded_group_end_offsets = torch.empty(
+            num_experts_per_rank, dtype=torch.int64, device=input_data.device
+        )
 
         # Shuffle input to output
         _mxfp8_on_device_all_to_all_v(
             MXFP8OnDeviceAllToAllV.input_sym_mem_buf,
             MXFP8OnDeviceAllToAllV.scales_sym_mem_buf,
             MXFP8OnDeviceAllToAllV.input_splits_sym_mem_buf,
+            MXFP8OnDeviceAllToAllV.expert_splits_sym_mem_buf,
             output,
             output_scales,
             output_splits,
+            output_expert_splits,
+            padded_group_end_offsets,
             group=group,
         )
 
@@ -155,28 +177,39 @@ class MXFP8OnDeviceAllToAllV(torch.autograd.Function):
             hp_dtype,
         )
 
-        # Saving for backward: output splits in forward is the input splits in backward
+        # Saving for backward: we need the original sender layout metadata locally,
+        # plus the gathered per-expert metadata to invert the grouped-by-expert layout.
         ctx.group = group
         ctx.input_shape = input_data.shape
         ctx.input_scales_shape = input_scales.shape
         ctx.hp_dtype = hp_dtype
         ctx.max_output_rows_per_rank = max_output_rows_per_rank
-        ctx.save_for_backward(output_splits)
-        tokens_on_device_after_a2a_fwd = output_splits.sum()
-        hp_output_no_padding = hp_output[:tokens_on_device_after_a2a_fwd]
-        return hp_output_no_padding, output_splits
+        ctx.save_for_backward(
+            input_splits, expert_splits_per_rank, output_expert_splits
+        )
+        return (
+            hp_output,
+            output_splits,
+            output_expert_splits,
+            padded_group_end_offsets,
+        )
 
     @staticmethod
     @torch.compiler.disable
-    def backward(ctx, grad_output, grad_splits):
+    def backward(
+        ctx, grad_output, grad_splits, grad_expert_splits, grad_expert_padded_offsets
+    ):
         """
         Backward is implemented as a shuffle of the output's gradients to the input.
         Args:
             `grad_output`: output's gradients passed from the downstream.
             `grad_splits`: unused.
+            `grad_expert_splits`: unused.
+            `grad_expert_padded_offsets`: unused.
         """
-        # In backward, mxfp8_all_to_all_v input is `grad_output`, and output is `grad_input`.
-        grad_output_splits = ctx.saved_tensors[0]
+        # In backward, grad_output arrives grouped by local expert with per-group
+        # padding. We need to invert that layout before the reverse all-to-all.
+        input_splits, input_expert_splits, grad_output_expert_splits = ctx.saved_tensors
 
         # Initialize grad_output sym mem buffer (one time only)
         if MXFP8OnDeviceAllToAllV.grad_out_sym_mem_buf is None:
@@ -209,36 +242,33 @@ class MXFP8OnDeviceAllToAllV(torch.autograd.Function):
             0, 0, grad_out_scales.shape[0]
         ).copy_(grad_out_scales)
 
-        # Copy in splits to symm mem buffer
-        MXFP8OnDeviceAllToAllV.input_splits_sym_mem_buf.copy_(grad_output_splits)
+        # Copy in expert splits to symm mem buffer
+        MXFP8OnDeviceAllToAllV.expert_splits_sym_mem_buf.copy_(
+            grad_output_expert_splits
+        )
 
-        # Allocate buffers for grad_input data, scales, and splits if necessary
+        # Allocate buffers for grad_input data and scales if necessary.
         if MXFP8OnDeviceAllToAllV.grad_input_buf is None:
             MXFP8OnDeviceAllToAllV.grad_input_buf = grad_out_data.new_empty(
-                ctx.max_output_rows_per_rank,
+                ctx.input_shape[0],
                 *ctx.input_shape[1:],
             )
 
         if MXFP8OnDeviceAllToAllV.grad_input_scales_buf is None:
             MXFP8OnDeviceAllToAllV.grad_input_scales_buf = torch.empty(
-                ctx.max_output_rows_per_rank,
+                ctx.input_scales_shape[0],
                 *ctx.input_scales_shape[1:],
                 dtype=grad_out_scales.dtype,
                 device=grad_out_scales.device,
             )
-        if MXFP8OnDeviceAllToAllV.grad_input_splits_buf is None:
-            MXFP8OnDeviceAllToAllV.grad_input_splits_buf = torch.empty_like(
-                grad_output_splits
-            )
-
-        # Shuffle gradients back to the input
-        _mxfp8_on_device_all_to_all_v(
-            MXFP8OnDeviceAllToAllV.grad_out_sym_mem_buf,  # input
-            MXFP8OnDeviceAllToAllV.scales_sym_mem_buf,  # input scales
-            MXFP8OnDeviceAllToAllV.input_splits_sym_mem_buf,  # input splits
-            MXFP8OnDeviceAllToAllV.grad_input_buf,  # output
-            MXFP8OnDeviceAllToAllV.grad_input_scales_buf,  # output scales
-            MXFP8OnDeviceAllToAllV.grad_input_splits_buf,  # output splits
+        _mxfp8_on_device_all_to_all_v_bwd(
+            MXFP8OnDeviceAllToAllV.grad_out_sym_mem_buf,
+            MXFP8OnDeviceAllToAllV.scales_sym_mem_buf,
+            MXFP8OnDeviceAllToAllV.expert_splits_sym_mem_buf,
+            input_splits,
+            input_expert_splits,
+            MXFP8OnDeviceAllToAllV.grad_input_buf,
+            MXFP8OnDeviceAllToAllV.grad_input_scales_buf,
             group=ctx.group,
         )
 
@@ -252,14 +282,244 @@ class MXFP8OnDeviceAllToAllV(torch.autograd.Function):
             block_size,
             ctx.hp_dtype,
         )
-        tokens_on_device_after_a2a_bwd = (
-            MXFP8OnDeviceAllToAllV.grad_input_splits_buf.sum()
+        return grad_input_hp[: ctx.input_shape[0]], None, None, None, None
+
+
+def _grouped_mxfp8_a2a_forward_impl(
+    input: torch.Tensor,
+    input_splits: torch.Tensor,
+    max_output_rows_per_rank: int,
+    expert_splits_per_rank: torch.Tensor,
+    group: dist.ProcessGroup,
+):
+    assert input.dtype in (torch.float32, torch.bfloat16)
+
+    MXFP8OnDeviceAllToAllV.max_output_rows_per_rank = max_output_rows_per_rank
+
+    block_size = 32
+    to_mx_c = torch.compile(to_mx)
+    input_scales, input_data = to_mx_c(
+        input,
+        elem_dtype=torch.float8_e4m3fn,
+        block_size=block_size,
+    )
+
+    # Triton doesn't support float8_e8m0fnu yet, view as uint8.
+    input_scales = input_scales.view(torch.uint8)
+
+    if MXFP8OnDeviceAllToAllV.input_sym_mem_buf is None:
+        MXFP8OnDeviceAllToAllV.input_sym_mem_buf = symm_mem.empty(
+            MXFP8OnDeviceAllToAllV.max_output_rows_per_rank,
+            *input_data.shape[1:],
+            dtype=input_data.dtype,
+            device=input_data.device,
         )
-        return grad_input_hp[:tokens_on_device_after_a2a_bwd], None, None, None
+
+    if MXFP8OnDeviceAllToAllV.scales_sym_mem_buf is None:
+        MXFP8OnDeviceAllToAllV.scales_sym_mem_buf = symm_mem.empty(
+            MXFP8OnDeviceAllToAllV.max_output_rows_per_rank,
+            *input_scales.shape[1:],
+            dtype=input_scales.dtype,
+            device=input_scales.device,
+        )
+
+    if MXFP8OnDeviceAllToAllV.input_splits_sym_mem_buf is None:
+        MXFP8OnDeviceAllToAllV.input_splits_sym_mem_buf = symm_mem.empty(
+            *input_splits.shape,
+            dtype=input_splits.dtype,
+            device=input_splits.device,
+        )
+
+    if MXFP8OnDeviceAllToAllV.expert_splits_sym_mem_buf is None:
+        MXFP8OnDeviceAllToAllV.expert_splits_sym_mem_buf = symm_mem.empty(
+            *expert_splits_per_rank.shape,
+            dtype=expert_splits_per_rank.dtype,
+            device=expert_splits_per_rank.device,
+        )
+
+    MXFP8OnDeviceAllToAllV.input_sym_mem_buf.narrow(0, 0, input_data.shape[0]).copy_(
+        input_data
+    )
+    MXFP8OnDeviceAllToAllV.input_splits_sym_mem_buf.copy_(input_splits)
+    MXFP8OnDeviceAllToAllV.expert_splits_sym_mem_buf.copy_(expert_splits_per_rank)
+    MXFP8OnDeviceAllToAllV.scales_sym_mem_buf.narrow(0, 0, input_scales.shape[0]).copy_(
+        input_scales
+    )
+
+    output = input_data.new_empty(
+        MXFP8OnDeviceAllToAllV.max_output_rows_per_rank, *input_data.shape[1:]
+    )
+    output_scales = input_scales.new_empty(
+        MXFP8OnDeviceAllToAllV.max_output_rows_per_rank, *input_scales.shape[1:]
+    )
+    output_splits = torch.empty_like(input_splits)
+    output_expert_splits = torch.empty_like(expert_splits_per_rank)
+    padded_group_end_offsets = torch.empty(
+        expert_splits_per_rank.shape[1], dtype=torch.int64, device=input.device
+    )
+
+    _mxfp8_on_device_all_to_all_v(
+        MXFP8OnDeviceAllToAllV.input_sym_mem_buf,
+        MXFP8OnDeviceAllToAllV.scales_sym_mem_buf,
+        MXFP8OnDeviceAllToAllV.input_splits_sym_mem_buf,
+        MXFP8OnDeviceAllToAllV.expert_splits_sym_mem_buf,
+        output,
+        output_scales,
+        output_splits,
+        output_expert_splits,
+        padded_group_end_offsets,
+        group=group,
+    )
+
+    return (
+        input_data.shape,
+        input_scales.shape,
+        input.dtype,
+        output,
+        output_scales,
+        output_splits,
+        output_expert_splits,
+        padded_group_end_offsets,
+    )
+
+
+def _grouped_mxfp8_a2a_backward_impl(ctx, grad_output: torch.Tensor) -> torch.Tensor:
+    input_splits, input_expert_splits, grad_output_expert_splits = ctx.saved_tensors
+
+    if MXFP8OnDeviceAllToAllV.grad_out_sym_mem_buf is None:
+        MXFP8OnDeviceAllToAllV.grad_out_sym_mem_buf = symm_mem.empty(
+            MXFP8OnDeviceAllToAllV.max_output_rows_per_rank,
+            *grad_output.shape[1:],
+            dtype=torch.float8_e4m3fn,
+            device=grad_output.device,
+        )
+
+    block_size = 32
+    to_mx_c = torch.compile(to_mx)
+    grad_out_scales, grad_out_data = to_mx_c(
+        grad_output,
+        elem_dtype=torch.float8_e4m3fn,
+        block_size=block_size,
+    )
+    grad_out_scales = grad_out_scales.view(torch.uint8)
+
+    MXFP8OnDeviceAllToAllV.grad_out_sym_mem_buf.narrow(
+        0, 0, grad_out_data.shape[0]
+    ).copy_(grad_out_data)
+    MXFP8OnDeviceAllToAllV.scales_sym_mem_buf.narrow(
+        0, 0, grad_out_scales.shape[0]
+    ).copy_(grad_out_scales)
+    MXFP8OnDeviceAllToAllV.expert_splits_sym_mem_buf.copy_(grad_output_expert_splits)
+
+    if MXFP8OnDeviceAllToAllV.grad_input_buf is None:
+        MXFP8OnDeviceAllToAllV.grad_input_buf = grad_out_data.new_empty(
+            ctx.input_shape[0],
+            *ctx.input_shape[1:],
+        )
+
+    if MXFP8OnDeviceAllToAllV.grad_input_scales_buf is None:
+        MXFP8OnDeviceAllToAllV.grad_input_scales_buf = torch.empty(
+            ctx.input_scales_shape[0],
+            *ctx.input_scales_shape[1:],
+            dtype=grad_out_scales.dtype,
+            device=grad_out_scales.device,
+        )
+
+    _mxfp8_on_device_all_to_all_v_bwd(
+        MXFP8OnDeviceAllToAllV.grad_out_sym_mem_buf,
+        MXFP8OnDeviceAllToAllV.scales_sym_mem_buf,
+        MXFP8OnDeviceAllToAllV.expert_splits_sym_mem_buf,
+        input_splits,
+        input_expert_splits,
+        MXFP8OnDeviceAllToAllV.grad_input_buf,
+        MXFP8OnDeviceAllToAllV.grad_input_scales_buf,
+        group=ctx.group,
+    )
+
+    lowp_dtype = grad_out_data.dtype
+    to_dtype_c = torch.compile(to_dtype)
+    grad_input_hp = to_dtype_c(
+        MXFP8OnDeviceAllToAllV.grad_input_buf,
+        MXFP8OnDeviceAllToAllV.grad_input_scales_buf.view(torch.float8_e8m0fnu),
+        lowp_dtype,
+        block_size,
+        ctx.hp_dtype,
+    )
+    return grad_input_hp[: ctx.input_shape[0]]
+
+
+class MXFP8OnDeviceAllToAllVMX(torch.autograd.Function):
+    @staticmethod
+    @torch.compiler.disable
+    def forward(
+        ctx,
+        input: torch.Tensor,
+        input_splits: torch.Tensor,
+        max_output_rows_per_rank: int,
+        expert_splits_per_rank: torch.Tensor,
+        group: dist.ProcessGroup = dist.group.WORLD,
+    ):
+        (
+            input_data_shape,
+            input_scales_shape,
+            hp_dtype,
+            output,
+            output_scales,
+            output_splits,
+            output_expert_splits,
+            padded_group_end_offsets,
+        ) = _grouped_mxfp8_a2a_forward_impl(
+            input,
+            input_splits,
+            max_output_rows_per_rank,
+            expert_splits_per_rank,
+            group,
+        )
+
+        total_output_rows = int(padded_group_end_offsets[-1].item())
+        mx_output = MXTensor(
+            output[:total_output_rows],
+            output_scales[:total_output_rows].view(torch.float8_e8m0fnu),
+            elem_dtype=torch.float8_e4m3fn,
+            block_size=32,
+            orig_dtype=hp_dtype,
+            kernel_preference=None,
+            act_quant_kwargs=None,
+            is_swizzled_scales=False,
+        )
+
+        ctx.group = group
+        ctx.input_shape = input_data_shape
+        ctx.input_scales_shape = input_scales_shape
+        ctx.hp_dtype = hp_dtype
+        ctx.max_output_rows_per_rank = max_output_rows_per_rank
+        ctx.save_for_backward(
+            input_splits, expert_splits_per_rank, output_expert_splits
+        )
+        return (
+            mx_output,
+            output_splits,
+            output_expert_splits,
+            padded_group_end_offsets,
+        )
+
+    @staticmethod
+    @torch.compiler.disable
+    def backward(
+        ctx, grad_output, grad_splits, grad_expert_splits, grad_expert_padded_offsets
+    ):
+        return (
+            _grouped_mxfp8_a2a_backward_impl(ctx, grad_output),
+            None,
+            None,
+            None,
+            None,
+        )
 
 
 # Alias
 mxfp8_on_device_all_to_all_v = MXFP8OnDeviceAllToAllV.apply
+mxfp8_on_device_all_to_all_v_mx = MXFP8OnDeviceAllToAllVMX.apply
 
 
 # Triton launcher function
@@ -267,9 +527,12 @@ def _mxfp8_on_device_all_to_all_v(
     input: torch.Tensor,
     input_scales: torch.Tensor,
     input_splits: torch.Tensor,
+    expert_splits: torch.Tensor,
     output: torch.Tensor,
     output_scales: torch.Tensor,
     output_splits: torch.Tensor,
+    output_expert_splits: torch.Tensor,
+    padded_group_end_offsets: torch.Tensor,
     group: dist.ProcessGroup = dist.group.WORLD,
     BLOCKS_PER_REMOTE_RANK: int = 32,
     BLOCK_SIZE: int = 16384,
@@ -278,32 +541,40 @@ def _mxfp8_on_device_all_to_all_v(
     assert output.dim() == 2, f"{output.shape}"
     assert output.shape[1] == input.shape[1]
 
-    # Prepare symmetric memory managed buffers for input, input_splits, and input_scales.
+    # Prepare symmetric memory managed buffers for input, input_splits, input_scales, and expert_splits.
     # - `input` shape (tokens, dim) -> to a sym mem managed buffer of shape (num_ranks, tokens, dim)
     # - `input_splits` shape (num_ranks,) -> to a sym mem managed buffer of shape (num_ranks, num_ranks)`
     # - `input_scales` shape (tokens, dim//block_size) -> to a sym mem managed buffer of shape (num_ranks, tokens, dim//block_size)
+    # - `expert_splits` shape (num_ranks, num_experts_per_rank) -> to a sym mem managed buffer of shape (num_ranks, num_ranks, num_experts_per_rank)
     input_hdl = symm_mem.rendezvous(input, group=group)
     input_splits_hdl = symm_mem.rendezvous(input_splits, group=group)
     input_scales_hdl = symm_mem.rendezvous(input_scales, group=group)
+    expert_splits_hdl = symm_mem.rendezvous(expert_splits, group=group)
 
     input_ptrs = input_hdl.buffer_ptrs_dev
     input_splits_ptrs = input_splits_hdl.buffer_ptrs_dev
     input_scales_ptrs = input_scales_hdl.buffer_ptrs_dev
+    expert_splits_ptrs = expert_splits_hdl.buffer_ptrs_dev
     signal_pad_ptrs = input_hdl.signal_pad_ptrs_dev
     dim = output.shape[1]
     dim_scaling_groups = input_scales.shape[-1]
+    num_experts_per_rank = expert_splits.shape[-1]
     num_blocks = input_hdl.world_size * BLOCKS_PER_REMOTE_RANK
 
     _mxfp8_all_to_all_v_kernel[(num_blocks, 1, 1)](
         input_ptrs,
         input_scales_ptrs,
         input_splits_ptrs,
+        expert_splits_ptrs,
         output,
         output_scales,
         output_splits,
+        output_expert_splits,
+        padded_group_end_offsets,
         signal_pad_ptrs,
         dim=dim,
         dim_scaling_groups=dim_scaling_groups,
+        num_experts_per_rank=num_experts_per_rank,
         rank=input_hdl.rank,
         world_size=input_hdl.world_size,
         BLOCKS_PER_REMOTE_RANK=BLOCKS_PER_REMOTE_RANK,
@@ -319,12 +590,16 @@ def _mxfp8_all_to_all_v_kernel(
     input_ptrs,
     input_scales_ptrs,
     input_splits_ptr,
+    expert_splits_ptr,
     output_ptr,
     output_scales_ptr,
     output_splits_ptr,
+    output_expert_splits_ptr,
+    padded_group_end_offsets_ptr,
     signal_pad_ptrs,
     dim: tl.constexpr,
     dim_scaling_groups: tl.constexpr,
+    num_experts_per_rank: tl.constexpr,
     rank: tl.constexpr,
     world_size: tl.constexpr,
     BLOCKS_PER_REMOTE_RANK: tl.constexpr,
@@ -336,67 +611,364 @@ def _mxfp8_all_to_all_v_kernel(
     remote_rank = tl.program_id(0) // BLOCKS_PER_REMOTE_RANK
     block_offset = tl.program_id(0) % BLOCKS_PER_REMOTE_RANK
 
-    # 1. Get input row to read from the given remote rank (to get data coming to this local rank),
-    #    and how many rows we're reading.
-    # 2. Get the output row offset to write that data to.
-    input_row_offset, output_row_offset, num_rows_to_read = _exchange_row_offsets(
-        input_splits_ptr,
-        rank,
-        remote_rank,
-        world_size,
-    )
+    # ===== PHASE 1: Metadata Exchange and Offset Calculation =====
+    # Only block 0 performs the metadata exchange and computes padded offsets
+    if tl.program_id(0) == 0:
+        # Exchange expert_splits from all remote ranks
+        expert_splits_ptrs = expert_splits_ptr.to(tl.pointer_type(tl.uint64))
+
+        # Accumulate tokens per local expert across all remote ranks
+        expert_offsets = tl.arange(0, num_experts_per_rank)
+
+        for remote_r in range(world_size):
+            # Get pointer to remote rank's expert_splits tensor
+            remote_expert_splits_ptr = tl.load(expert_splits_ptrs + remote_r).to(
+                tl.pointer_type(tl.int64)
+            )
+            # expert_splits[remote_r, rank, :] contains tokens remote_r is sending to our local experts
+            remote_expert_splits_ptr = (
+                remote_expert_splits_ptr + rank * num_experts_per_rank
+            )
+
+            # Load expert splits from this remote rank
+            remote_expert_split_values = tl.load(
+                remote_expert_splits_ptr + expert_offsets
+            )
+
+            # Store to output_expert_splits[remote_r, :]
+            output_expert_splits_offset = remote_r * num_experts_per_rank
+            tl.store(
+                output_expert_splits_ptr + output_expert_splits_offset + expert_offsets,
+                remote_expert_split_values,
+            )
+
+        # Compute padded end offsets: round up to multiple of 32 and cumsum.
+        # We compute total tokens per expert by summing across all remote ranks
+        cumulative_offset = tl.zeros([], dtype=tl.int64)
+        for expert_idx in range(num_experts_per_rank):
+            # Sum tokens for this expert across all remote ranks
+            # output_expert_splits[remote_r, expert_idx] is at offset remote_r * num_experts_per_rank + expert_idx
+            expert_tokens_total = tl.zeros([], dtype=tl.int64)
+            for remote_r in range(world_size):
+                expert_tokens_from_remote = tl.load(
+                    output_expert_splits_ptr
+                    + remote_r * num_experts_per_rank
+                    + expert_idx
+                )
+                expert_tokens_total += expert_tokens_from_remote
+
+            # Keep zero-token experts padded to one scaling block so the grouped
+            # layout matches the EP permute metadata contract.
+            padded_tokens_total = tl.maximum(expert_tokens_total, 32)
+            padded_tokens: tl.int64 = ((padded_tokens_total + 31) // 32) * 32
+
+            # Zero the padding rows for this expert so downstream grouped mm can
+            # consume them directly as dummy rows without reading uninitialized data.
+            padding_rows = padded_tokens - expert_tokens_total
+            if padding_rows > 0:
+                padding_row_offset = cumulative_offset + expert_tokens_total
+                total_padding_elems = padding_rows * dim
+                num_padding_blocks = tl.cdiv(total_padding_elems, BLOCK_SIZE)
+                for block_idx in tl.range(num_padding_blocks):
+                    offs = block_idx * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
+                    mask = offs < total_padding_elems
+                    tl.store(
+                        output_ptr + padding_row_offset * dim + offs,
+                        0.0,
+                        mask=mask,
+                    )
+
+                total_padding_scales = padding_rows * dim_scaling_groups
+                num_padding_scale_blocks = tl.cdiv(total_padding_scales, BLOCK_SIZE)
+                for block_idx in tl.range(num_padding_scale_blocks):
+                    offs = block_idx * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
+                    mask = offs < total_padding_scales
+                    tl.store(
+                        output_scales_ptr
+                        + padding_row_offset * dim_scaling_groups
+                        + offs,
+                        0,
+                        mask=mask,
+                    )
+
+            # Update cumulative offset for next expert
+            cumulative_offset = cumulative_offset + padded_tokens
+            tl.store(padded_group_end_offsets_ptr + expert_idx, cumulative_offset)
+
+    # Barrier to ensure metadata exchange is complete before data transfer
+    sync_threads()
+    blockwise_barrier(signal_pad_ptrs, None, rank, world_size, sem="relaxed")
+
+    # ===== PHASE 2: Data Transfer with Padding =====
+    # Transfer data expert-by-expert from remote_rank to local padded expert regions
 
     # One thread block per rank will update output_splits
     if block_offset == 0:
-        tl.store(output_splits_ptr + remote_rank, num_rows_to_read)
-
-    # Update input and output pointers to point to the specific row we're reading/writing.
-    # 1. `input` is symmetric memory managed buffer of shape [num_ranks, tokens, dim].
-    #   We increment the ptr by `+remote_rank` along the 0th dim to get to the remote rank ptr,
-    #   then increment that ptr by `input_row_offset * dim (stride)` to get the
-    #   start offset for this rank's data on that remote rank.
-    # 2. `output` is a regular local tensor, we can stride into it as usual.
-    input_ptr = (
-        tl.load(input_ptrs.to(tl.pointer_type(tl.uint64)) + remote_rank).to(
-            tl.pointer_type(tl.float8e4nv)
+        # Calculate total rows from this remote rank
+        split_sizes_ptrs_typed = input_splits_ptr.to(tl.pointer_type(tl.uint64))
+        remote_rank_input_splits_ptr = tl.load(split_sizes_ptrs_typed + remote_rank).to(
+            tl.pointer_type(tl.int64)
         )
-        + input_row_offset * dim
-    )
-    output_ptr = output_ptr + output_row_offset * dim
+        num_rows_from_remote = tl.load(remote_rank_input_splits_ptr + rank)
+        tl.store(output_splits_ptr + remote_rank, num_rows_from_remote)
 
-    # Update input_scales and output_scales pointers to point to the specific row we're reading/writing.
-    # 1. `input_scales` is symmetric memory managed buffer of shape [num_ranks, tokens, dim//block_size].
-    #       We increment the ptr by `+remote_rank` along the 0th dim to get to the remote rank ptr,
-    #       then increment by `input_row_offset * dim_scaling_groups (stride)` to get to the start of the
-    #       scales for this rank on that remote rank.
-    # 2. `output_scales` is a regular local tensor, we can stride into it as usual.
-    input_scale_ptr = (
-        tl.load(input_scales_ptrs.to(tl.pointer_type(tl.uint64)) + remote_rank).to(
-            tl.pointer_type(
-                tl.uint8
-            )  # Triton doesn't support float8_e8m0fnu yet, use uint8 instead
+    # Get base input pointer for this remote rank
+    input_base_ptr = tl.load(
+        input_ptrs.to(tl.pointer_type(tl.uint64)) + remote_rank
+    ).to(tl.pointer_type(tl.float8e4nv))
+    input_scales_base_ptr = tl.load(
+        input_scales_ptrs.to(tl.pointer_type(tl.uint64)) + remote_rank
+    ).to(tl.pointer_type(tl.uint8))
+
+    # Calculate input starting offset for this rank's data on remote_rank
+    split_sizes_ptrs_typed = input_splits_ptr.to(tl.pointer_type(tl.uint64))
+    remote_rank_input_splits_ptr = tl.load(split_sizes_ptrs_typed + remote_rank).to(
+        tl.pointer_type(tl.int64)
+    )
+    rank_offsets = tl.arange(0, world_size)
+    remote_split_sizes_prefix = tl.load(
+        remote_rank_input_splits_ptr + rank_offsets, mask=rank_offsets < rank, other=0
+    )
+    input_row_offset = tl.sum(remote_split_sizes_prefix)
+
+    # Get expert splits for this remote rank
+    expert_splits_ptrs_typed = expert_splits_ptr.to(tl.pointer_type(tl.uint64))
+    remote_expert_splits_ptr = tl.load(expert_splits_ptrs_typed + remote_rank).to(
+        tl.pointer_type(tl.int64)
+    )
+    remote_expert_splits_ptr = remote_expert_splits_ptr + rank * num_experts_per_rank
+
+    # Process each expert's data from this remote rank
+    for expert_idx in range(num_experts_per_rank):
+        expert_tokens = tl.load(remote_expert_splits_ptr + expert_idx)
+
+        if expert_tokens > 0:
+            expert_output_offset = tl.zeros([], dtype=tl.int64)
+            for prev_expert in range(expert_idx):
+                prev_expert_total = tl.zeros([], dtype=tl.int64)
+                for sender_rank in range(world_size):
+                    sender_expert_splits_ptr = tl.load(
+                        expert_splits_ptrs_typed + sender_rank
+                    ).to(tl.pointer_type(tl.int64))
+                    sender_expert_splits_ptr = (
+                        sender_expert_splits_ptr + rank * num_experts_per_rank
+                    )
+                    prev_expert_total += tl.load(sender_expert_splits_ptr + prev_expert)
+                prev_expert_total = tl.maximum(prev_expert_total, 32)
+                expert_output_offset += ((prev_expert_total + 31) // 32) * 32
+
+            for prev_remote_rank in range(remote_rank):
+                prev_remote_expert_splits_ptr = tl.load(
+                    expert_splits_ptrs_typed + prev_remote_rank
+                ).to(tl.pointer_type(tl.int64))
+                prev_remote_expert_splits_ptr = (
+                    prev_remote_expert_splits_ptr + rank * num_experts_per_rank
+                )
+                expert_output_offset += tl.load(
+                    prev_remote_expert_splits_ptr + expert_idx
+                )
+
+            # Get cumulative offset within this remote rank's data for this expert
+            # Add up tokens from previous experts from this same remote rank
+            cumulative_tokens_before = tl.zeros([], dtype=tl.int64)
+            for prev_expert in range(expert_idx):
+                cumulative_tokens_before += tl.load(
+                    remote_expert_splits_ptr + prev_expert
+                )
+
+            # Calculate actual input/output pointers
+            input_ptr = (
+                input_base_ptr + (input_row_offset + cumulative_tokens_before) * dim
+            )
+            output_ptr_expert = output_ptr + expert_output_offset * dim
+
+            input_scale_ptr = (
+                input_scales_base_ptr
+                + (input_row_offset + cumulative_tokens_before) * dim_scaling_groups
+            )
+            output_scale_ptr_expert = (
+                output_scales_ptr + expert_output_offset * dim_scaling_groups
+            )
+
+            # Copy data for this expert
+            total_elems = expert_tokens * dim
+            num_blocks = tl.cdiv(total_elems, BLOCK_SIZE)
+            for block_idx in tl.range(num_blocks):
+                if block_idx % BLOCKS_PER_REMOTE_RANK == block_offset:
+                    offs = block_idx * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
+                    mask = offs < total_elems
+                    data = tl.load(input_ptr + offs, mask=mask, other=0.0)
+                    tl.store(output_ptr_expert + offs, data, mask=mask)
+
+            # Copy scales for this expert
+            total_scales = expert_tokens * dim_scaling_groups
+            num_scale_blocks = tl.cdiv(total_scales, BLOCK_SIZE)
+            for block_idx in tl.range(num_scale_blocks):
+                if block_idx % BLOCKS_PER_REMOTE_RANK == block_offset:
+                    offs = block_idx * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
+                    mask = offs < total_scales
+                    data = tl.load(input_scale_ptr + offs, mask=mask, other=0.0)
+                    tl.store(output_scale_ptr_expert + offs, data, mask=mask)
+
+    sync_threads()
+    blockwise_barrier(signal_pad_ptrs, None, rank, world_size, sem="relaxed")
+    return
+
+
+def _mxfp8_on_device_all_to_all_v_bwd(
+    input: torch.Tensor,
+    input_scales: torch.Tensor,
+    expert_splits: torch.Tensor,
+    local_input_splits: torch.Tensor,
+    local_input_expert_splits: torch.Tensor,
+    output: torch.Tensor,
+    output_scales: torch.Tensor,
+    group: dist.ProcessGroup = dist.group.WORLD,
+    BLOCKS_PER_REMOTE_RANK: int = 32,
+    BLOCK_SIZE: int = 16384,
+):
+    assert input.dim() == 2, f"{input.shape}"
+    assert output.dim() == 2, f"{output.shape}"
+    assert output.shape[1] == input.shape[1]
+
+    input_hdl = symm_mem.rendezvous(input, group=group)
+    input_scales_hdl = symm_mem.rendezvous(input_scales, group=group)
+    expert_splits_hdl = symm_mem.rendezvous(expert_splits, group=group)
+
+    input_ptrs = input_hdl.buffer_ptrs_dev
+    input_scales_ptrs = input_scales_hdl.buffer_ptrs_dev
+    expert_splits_ptrs = expert_splits_hdl.buffer_ptrs_dev
+    signal_pad_ptrs = input_hdl.signal_pad_ptrs_dev
+    dim = output.shape[1]
+    dim_scaling_groups = output_scales.shape[-1]
+    num_experts_per_rank = local_input_expert_splits.shape[-1]
+    num_blocks = input_hdl.world_size * BLOCKS_PER_REMOTE_RANK
+
+    _mxfp8_all_to_all_v_bwd_kernel[(num_blocks, 1, 1)](
+        input_ptrs,
+        input_scales_ptrs,
+        expert_splits_ptrs,
+        local_input_splits,
+        local_input_expert_splits,
+        output,
+        output_scales,
+        signal_pad_ptrs,
+        dim=dim,
+        dim_scaling_groups=dim_scaling_groups,
+        num_experts_per_rank=num_experts_per_rank,
+        rank=input_hdl.rank,
+        world_size=input_hdl.world_size,
+        BLOCKS_PER_REMOTE_RANK=BLOCKS_PER_REMOTE_RANK,
+        BLOCK_SIZE=BLOCK_SIZE,
+        num_warps=16,
+    )
+
+    return output
+
+
+@triton.jit
+def _mxfp8_all_to_all_v_bwd_kernel(
+    input_ptrs,
+    input_scales_ptrs,
+    expert_splits_ptrs,
+    local_input_splits_ptr,
+    local_input_expert_splits_ptr,
+    output_ptr,
+    output_scales_ptr,
+    signal_pad_ptrs,
+    dim: tl.constexpr,
+    dim_scaling_groups: tl.constexpr,
+    num_experts_per_rank: tl.constexpr,
+    rank: tl.constexpr,
+    world_size: tl.constexpr,
+    BLOCKS_PER_REMOTE_RANK: tl.constexpr,
+    BLOCK_SIZE: tl.constexpr,
+):
+    blockwise_barrier(signal_pad_ptrs, None, rank, world_size, sem="relaxed")
+    sync_threads()
+
+    remote_rank = tl.program_id(0) // BLOCKS_PER_REMOTE_RANK
+    block_offset = tl.program_id(0) % BLOCKS_PER_REMOTE_RANK
+
+    input_base_ptr = tl.load(
+        input_ptrs.to(tl.pointer_type(tl.uint64)) + remote_rank
+    ).to(tl.pointer_type(tl.float8e4nv))
+    input_scales_base_ptr = tl.load(
+        input_scales_ptrs.to(tl.pointer_type(tl.uint64)) + remote_rank
+    ).to(tl.pointer_type(tl.uint8))
+
+    output_rank_offset = tl.zeros([], dtype=tl.int64)
+    for prev_remote_rank in range(remote_rank):
+        output_rank_offset += tl.load(local_input_splits_ptr + prev_remote_rank)
+
+    local_expert_row_offset = remote_rank * num_experts_per_rank
+    remote_expert_splits_ptr = tl.load(
+        expert_splits_ptrs.to(tl.pointer_type(tl.uint64)) + remote_rank
+    ).to(tl.pointer_type(tl.int64))
+
+    remote_expert_start_offset = tl.zeros([], dtype=tl.int64)
+    output_expert_offset = tl.zeros([], dtype=tl.int64)
+    for expert_idx in range(num_experts_per_rank):
+        expert_tokens = tl.load(
+            local_input_expert_splits_ptr + local_expert_row_offset + expert_idx
         )
-        + input_row_offset * dim_scaling_groups
-    )
-    output_scale_ptr = output_scales_ptr + output_row_offset * dim_scaling_groups
 
-    # Copy target region of remote rank input data to our local output buffer.
-    total_input_elems_to_read = num_rows_to_read * dim
-    num_input_blocks = tl.cdiv(total_input_elems_to_read, BLOCK_SIZE)
-    for block_idx in tl.range(num_input_blocks):
-        offs = block_idx * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
-        mask = offs < total_input_elems_to_read
-        data = tl.load(input_ptr + offs, mask=mask, other=0.0)
-        tl.store(output_ptr + offs, data, mask=mask)
+        remote_expert_tokens_total = tl.zeros([], dtype=tl.int64)
+        for sender_rank in range(world_size):
+            remote_expert_tokens_total += tl.load(
+                remote_expert_splits_ptr
+                + sender_rank * num_experts_per_rank
+                + expert_idx
+            )
 
-    # Copy input_scales (scales on remote rank) to output_scales local buffer.
-    total_input_scales_to_read = num_rows_to_read * dim_scaling_groups
-    num_input_scale_blocks = tl.cdiv(total_input_scales_to_read, BLOCK_SIZE)
-    for block_idx in tl.range(num_input_scale_blocks):
-        offs = block_idx * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
-        mask = offs < total_input_scales_to_read
-        data = tl.load(input_scale_ptr + offs, mask=mask, other=0.0)
-        tl.store(output_scale_ptr + offs, data, mask=mask)
+        if expert_tokens > 0:
+            remote_rank_prefix_for_expert = tl.zeros([], dtype=tl.int64)
+            for prev_sender_rank in range(rank):
+                remote_rank_prefix_for_expert += tl.load(
+                    remote_expert_splits_ptr
+                    + prev_sender_rank * num_experts_per_rank
+                    + expert_idx
+                )
+
+            input_ptr = (
+                input_base_ptr
+                + (remote_expert_start_offset + remote_rank_prefix_for_expert) * dim
+            )
+            output_ptr_expert = (
+                output_ptr + (output_rank_offset + output_expert_offset) * dim
+            )
+
+            input_scale_ptr = (
+                input_scales_base_ptr
+                + (remote_expert_start_offset + remote_rank_prefix_for_expert)
+                * dim_scaling_groups
+            )
+            output_scale_ptr_expert = (
+                output_scales_ptr
+                + (output_rank_offset + output_expert_offset) * dim_scaling_groups
+            )
+
+            total_elems = expert_tokens * dim
+            num_blocks = tl.cdiv(total_elems, BLOCK_SIZE)
+            for block_idx in tl.range(num_blocks):
+                if block_idx % BLOCKS_PER_REMOTE_RANK == block_offset:
+                    offs = block_idx * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
+                    mask = offs < total_elems
+                    data = tl.load(input_ptr + offs, mask=mask, other=0.0)
+                    tl.store(output_ptr_expert + offs, data, mask=mask)
+
+            total_scales = expert_tokens * dim_scaling_groups
+            num_scale_blocks = tl.cdiv(total_scales, BLOCK_SIZE)
+            for block_idx in tl.range(num_scale_blocks):
+                if block_idx % BLOCKS_PER_REMOTE_RANK == block_offset:
+                    offs = block_idx * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
+                    mask = offs < total_scales
+                    data = tl.load(input_scale_ptr + offs, mask=mask, other=0.0)
+                    tl.store(output_scale_ptr_expert + offs, data, mask=mask)
+
+        remote_expert_tokens_total = tl.maximum(remote_expert_tokens_total, 32)
+        remote_expert_start_offset += ((remote_expert_tokens_total + 31) // 32) * 32
+        output_expert_offset += expert_tokens
 
     sync_threads()
     blockwise_barrier(signal_pad_ptrs, None, rank, world_size, sem="relaxed")
