@@ -1,8 +1,6 @@
 from torchao.prototype.mx_formats.config import (
-    ScaleCalculationMode,
-    MXLinearConfig,
-    MXLinearRecipeName,
     QuantizeToNVFP4KernelChoice,
+    ScaleCalculationMode,
 )
 
 # Note: Prototype and subject to change
