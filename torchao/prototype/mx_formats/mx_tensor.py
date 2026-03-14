@@ -23,7 +23,6 @@ from typing import Optional, Union
 
 import torch
 import torch.nn.functional as F
-from torch.distributed._tensor import DTensor
 from torch.utils._python_dispatch import (
     return_and_correct_aliasing,
 )
@@ -639,28 +638,6 @@ class MXTensor(TorchAOBaseTensor):
                 data_hp,
                 inner_block_size=block_size,
                 scaling_mode=scaling_mode.value,
-            )
-        if isinstance(scale_e8m0_biased, DTensor):
-            assert isinstance(data_lp, DTensor), "unsupported"
-            local_scale_e8m0_biased = scale_e8m0_biased.to_local()
-            local_data_lp = data_lp.to_local()
-            inner_mx_tensor = MXTensor(
-                local_data_lp,
-                local_scale_e8m0_biased,
-                elem_dtype,
-                block_size,
-                data_hp.dtype,
-                kernel_preference,
-                act_quant_kwargs,
-                is_swizzled_scales,
-            )
-            return DTensor.from_local(
-                inner_mx_tensor,
-                data_lp.device_mesh,
-                data_lp.placements,
-                run_check=False,
-                shape=data_lp.size(),
-                stride=data_lp.stride(),
             )
         return MXTensor(
             data_lp,
