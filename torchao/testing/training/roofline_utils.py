@@ -33,9 +33,13 @@ gpu_name_to_specs = {
         "bf16_peak_tops": 2.25e15,
         "fp8_peak_tops": 4.5e15,
         "fp4_peak_tops": 9.0e15,
-        # https://resources.nvidia.com/en-us-blackwell-architecture, page 20
-        # 8.0 TB per second
-        "peak_mem_bw_bytes_sec": 8.0e12,
+        # Original source for mem bw: # https://resources.nvidia.com/en-us-blackwell-architecture, page 20
+        # This 8 TB/s number is based on a memory bus bitwidth 8192 bits.
+        # However, as of CUDA 13.0, the memory bus bitwidth is now reported by driver API as 7680 bits.
+        # This was flagged by this twitter user: https://x.com/PV90169/status/2027746935843832044?s=20
+        # We confirmed via CUDA C++ file querying device properties.
+        # (7680 memory bus bitwdith / 8 bits per byte) * (3996 MHz memory clock) * 2 DDR
+        "peak_mem_bw_bytes_sec": (7680 / 8) * (3.996e9) * 2,  # ~7.672 TB/s
         # for now, copy over from H100
         # TODO(future): measure once we have the hardware
         "pct_achievable_gemm_tops": 0.78,
@@ -485,16 +489,49 @@ def get_inference_tensor_memory_traffic_ovhd_s(
             kernel_1_rw += BYTES_PER_EL_FLOAT8 * dim0 * (dim1 // 32)
             res_bytes = [kernel_1_rw]
 
-        case name if name and (name.startswith("mxfp4") or name.startswith("nvfp4")):
-            # For NVFP4, assume minimal overhead since it's primarily a compute format
+        case "mxfp4":
             # x_bf16 = ...
-            # kernel 1:               x_bf16 -> x_nvfp4 (per-tensor scaling for inference)
-            kernel_1_rw = BYTES_PER_EL_BF16 * numel + BYTES_PER_EL_FLOAT4 * numel
-            if name.startswith("nvfp4"):
-                kernel_1_rw += BYTES_PER_EL_FLOAT32  # single scale factor
-            # add in the bytes for scale writes in E4M3 | E8M0
-            block_size = 32 if name.startswith("mxfp4") else 16
-            kernel_1_rw += BYTES_PER_EL_FLOAT8 * dim0 * (dim1 // block_size)
+            # kernel 1:               x_bf16 -> x_mxfp4, s_e8m0
+            kernel_1_rw = (
+                # read bf16
+                BYTES_PER_EL_BF16 * numel
+                # write fp4_x2 qdata
+                + BYTES_PER_EL_FLOAT4 * numel
+                # write e8m0 scale
+                + BYTES_PER_EL_FLOAT8 * dim0 * (dim1 // 32)
+            )
+            res_bytes = [kernel_1_rw]
+
+        case "nvfp4":
+            # nvfp4 with dynamic global scaling
+            # x_b16 = ...
+            # kernel 1:               x_bf16 -> max_abs_stage_1 -> tmp
+            # kernel 2 (mem traffic not modeled): tmp -> max_abs_stage_2 -> max_abs
+            # kernel 3:               x_bf16, max_abs -> to_nvfp4 -> x_nvfp4
+            kernel_1_rw = BYTES_PER_EL_BF16 * numel
+            kernel_3_rw = (
+                # read bf16
+                BYTES_PER_EL_BF16 * numel
+                # write fp4_x2 qdata
+                + BYTES_PER_EL_FLOAT4 * numel
+                # write e8m0 scale
+                + BYTES_PER_EL_FLOAT8 * dim0 * (dim1 // 16)
+            )
+            res_bytes = [kernel_1_rw + kernel_3_rw]
+
+        case "nvfp4_static":
+            # nvfp4 with static global scaling
+            # x_b16 = ...
+            # static_max_abs = ...
+            # kernel 1: x_bf16, static_max_abs -> to_nvfp4 -> x_nvfp4
+            kernel_1_rw = (
+                # read bf16
+                BYTES_PER_EL_BF16 * numel
+                # write fp4_x2 qdata
+                + BYTES_PER_EL_FLOAT4 * numel
+                # write e8m0 scale
+                + BYTES_PER_EL_FLOAT8 * dim0 * (dim1 // 16)
+            )
             res_bytes = [kernel_1_rw]
 
         case _:
@@ -535,6 +572,16 @@ def get_inference_float8_mem_sympy(
     )
     res = sum([*fwd_fp8_input_mem])
     return res
+
+
+def get_inference_bf16_activation_mem_sympy(M, K, N, gpu_name: Optional[str] = None):
+    specs = get_specs(gpu_name)
+    # read entire tensor, write entire tensor
+    kernel_rw = BYTES_PER_EL_BF16 * M * K * 2
+    # convert from bytes to seconds
+    res_s = kernel_rw / specs["peak_mem_bw_bytes_sec"] / specs["pct_achievable_mem_bw"]
+    res_s = sympy.Max(res_s, KERNEL_LAUNCH_OVERHEAD_SEC)
+    return res_s
 
 
 def get_inference_gemm_time_sympy(

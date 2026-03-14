@@ -164,8 +164,7 @@ class _PermuteMXFP8FwdHPBwd(torch.autograd.Function):
         return grad_input, None, None, None, None, None
 
 
-# Reference impl for testing
-def _permute_bf16(
+def permute_and_pad(
     x: torch.Tensor,
     num_tokens_per_expert: torch.Tensor,
     ep_degree: int,
@@ -173,7 +172,8 @@ def _permute_bf16(
     alignment: int,
 ):
     """
-    BF16 permute operation used for testing and benchmarking.
+    Permute token groups from rank-major to expert-major order, and pad group sizes to alignment size,
+    in preparation for grouped GEMM.
 
     Args:
         x: BF16 input tensor

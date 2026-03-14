@@ -136,6 +136,9 @@ def generate_permute_indices(
     """
     Prepare permutation indices and the number of tokens for each expert.
     """
+    # if using generate_permute_indices, capture scalar outputs to avoid graph break
+    torch._dynamo.config.capture_scalar_outputs = True
+
     start_index_values = (
         torch.cumsum(tokens_per_expert_group, 0) - tokens_per_expert_group
     )
@@ -146,6 +149,12 @@ def generate_permute_indices(
     m_sizes = ((total_tokens_per_expert + alignment - 1) // alignment * alignment).to(
         torch.int32
     )
+
+    # Ensure m_sizes sums to exactly max_len (the actual data size after permutation)
+    current_sum = m_sizes.sum().item()
+    if current_sum != max_len:
+        # Add the difference to the last expert
+        m_sizes[-1] = m_sizes[-1] + (max_len - current_sum)
 
     m_offsets = torch.cumsum(m_sizes, 0)
     write_offsets = m_offsets - m_sizes
@@ -176,8 +185,8 @@ def generate_permute_indices(
 # Utils from torchtitan/models/moe/utils.py
 # =============================================================================
 
-TOKEN_GROUP_ALIGN_SIZE_M = 8
-ValidTokenGroupAlignmentSize = Literal[8, 16, 32]
+TOKEN_GROUP_ALIGN_SIZE_M = 1
+ValidTokenGroupAlignmentSize = Literal[1, 16, 32]
 
 
 def set_token_group_alignment_size_m(

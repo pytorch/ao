@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import math
+import warnings
 from typing import TYPE_CHECKING, Optional, Tuple, Union
 
 import torch
@@ -112,6 +113,9 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         if zero_point_domain is _DEFAULT_ZPD:
             zero_point_domain = ZeroPointDomain.INT
         torch._C._log_api_usage_once(str(type(self)))
+        warnings.warn(
+            "Deprecation: AffineQuantizedTensor is deprecated and will be removed in a future release of torchao, see https://github.com/pytorch/ao/issues/2752 for more details"
+        )
         self.tensor_impl = tensor_impl
         self.block_size = block_size
         self.quant_min = quant_min
