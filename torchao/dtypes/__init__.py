@@ -20,9 +20,11 @@ from .uintx import (
     SemiSparseLayout,
     TensorCoreTiledLayout,
 )
-from .uintx.block_sparse_layout import BlockSparseLayout
-from .uintx.dyn_int8_act_int4_wei_cpu_layout import Int8DynamicActInt4WeightCPULayout
-from .uintx.uintx_layout import UintxLayout
+from torchao.prototype.dtypes import (
+    BlockSparseLayout,
+    Int8DynamicActInt4WeightCPULayout,
+    UintxLayout,
+)
 from .utils import (
     Layout,
     PlainLayout,
