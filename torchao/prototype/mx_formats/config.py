@@ -32,6 +32,21 @@ class MXFP8Dim1CastKernelChoice(Enum):
     TORCH = "torch"
 
 
+class QuantizeToNVFP4KernelChoice(str, Enum):
+    """Enum for specifying the kernel used for quantizing a high precision
+    tensor (float32/bfloat16/float16) to nvfp4 tensor with blockwise quantization
+    """
+
+    TORCH = "torch"
+    """Use torch native high precision to nvfp4 quantize kernel implemented with torch ops"""
+
+    MSLK = "mslk"
+    """Use MSLK triton high precision to nvfp4 quantize kernel"""
+
+
+torch.serialization.add_safe_globals([QuantizeToNVFP4KernelChoice])
+
+
 # register as pytree constant so we can use dynamo nonstrict trace in torchao.prototype.moe_training.ep
 @register_as_pytree_constant
 class ScaleCalculationMode(Enum):
