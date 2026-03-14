@@ -188,7 +188,10 @@ def test_inference_workflow_nvfp4(
         and quantize_to_nvfp4_kernel_choice == QuantizeToNVFP4KernelChoice.MSLK
     ):
         pytest.skip("unsupported configuration")
-    if quantize_to_nvfp4_kernel_choice == QuantizeToNVFP4KernelChoice.MSLK and not use_dynamic_per_tensor_scale:
+    if (
+        quantize_to_nvfp4_kernel_choice == QuantizeToNVFP4KernelChoice.MSLK
+        and not use_dynamic_per_tensor_scale
+    ):
         pytest.skip("unsupported configuration")
 
     if use_inference_mode and (
