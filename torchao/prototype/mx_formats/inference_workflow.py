@@ -32,6 +32,7 @@ from torchao.quantization.transform_module import (
     register_quantize_module_handler,
 )
 from torchao.utils import (
+    is_ROCM,
     is_sm_at_least_100,
     torch_version_at_least,
 )
@@ -224,6 +225,7 @@ class NVFP4DynamicActivationNVFP4WeightConfig(AOBaseConfig):
     use_triton_kernel: bool = True
     use_dynamic_per_tensor_scale: bool = True
     step: Optional["QuantizationStep"] = None
+    kernel_preference: KernelPreference = KernelPreference.AUTO
 
     def __post_init__(self):
         if isinstance(self.step, str):
@@ -279,6 +281,7 @@ def _nvfp4_inference_linear_transform(
             use_dynamic_per_tensor_scale=False,
             use_triton_kernel=config.use_triton_kernel,
             is_swizzled_scales=True,
+            kernel_preference=config.kernel_preference,
         )
 
         quantized_weight = NVFP4Tensor.to_nvfp4(
@@ -288,6 +291,7 @@ def _nvfp4_inference_linear_transform(
             is_swizzled_scales=True,
             use_triton_kernel=False,  # Always use traditional construction for weights
             act_quant_kwargs=act_quant_kwargs,
+            kernel_preference=config.kernel_preference,
         )
         quantized_weight.use_triton_kernel = config.use_triton_kernel
 
@@ -306,9 +310,21 @@ def _nvfp4_inference_linear_transform(
 
     elif step is None:
         # Dynamic quantization
-        assert is_sm_at_least_100(), (
-            "NVFP4 DYNAMIC mode is only supported on sm100+ machines"
-        )
+        kernel_pref = config.kernel_preference
+        if kernel_pref == KernelPreference.AUTO:
+            if is_ROCM():
+                from torchao.utils import is_MI350
+
+                if not is_MI350():
+                    raise RuntimeError(
+                        "NVFP4 DYNAMIC mode with AUTO kernel requires gfx950 (MI350) on ROCm. "
+                        "Use kernel_preference=KernelPreference.EMULATED for emulation."
+                    )
+            elif not is_sm_at_least_100():
+                raise RuntimeError(
+                    "NVFP4 DYNAMIC mode requires sm100+. "
+                    "Use kernel_preference=KernelPreference.EMULATED for emulation."
+                )
 
         weight = getattr(module, parameter_name)
 
@@ -321,6 +337,7 @@ def _nvfp4_inference_linear_transform(
             use_dynamic_per_tensor_scale=config.use_dynamic_per_tensor_scale,
             use_triton_kernel=config.use_triton_kernel,
             is_swizzled_scales=True,
+            kernel_preference=kernel_pref,
         )
 
         quantized_weight = NVFP4Tensor.to_nvfp4(
@@ -329,6 +346,7 @@ def _nvfp4_inference_linear_transform(
             is_swizzled_scales=True,
             use_triton_kernel=False,  # Always use traditional construction for weights
             act_quant_kwargs=act_quant_kwargs,
+            kernel_preference=kernel_pref,
         )
         quantized_weight.use_triton_kernel = config.use_triton_kernel
         setattr(
