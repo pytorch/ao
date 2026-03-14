@@ -75,10 +75,6 @@ class Float8TrainingOpConfig(TrainingOpBaseConfig):
             raise ValueError(f"Unsupported FP8 recipe: {recipe}")
 
 
-# Backward-compatibility alias: torchtitan uses the Feb 2026 name FP8GroupedMMConfig.
-FP8GroupedMMConfig = Float8TrainingOpConfig
-
-
 # register as pytree constant so we can use dynamo nonstrict trace in torchao.prototype.moe_training.ep
 @register_as_pytree_constant
 @dataclass
