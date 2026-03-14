@@ -42,7 +42,6 @@ from torchao.float8.float8_utils import (
     tensor_to_scale,
 )
 from torchao.testing.training.test_utils import get_test_float8_linear_config
-from torchao.testing.utils import skip_if_rocm
 from torchao.utils import (
     is_MI300,
     is_ROCM,
@@ -378,7 +377,6 @@ class TestFloat8Linear:
     @unittest.skipIf(
         torch.cuda.is_available() and not is_sm_at_least_90(), "CUDA capability < 9.0"
     )
-    @skip_if_rocm("ROCm enablement in progress")
     def test_linear_from_recipe(
         self,
         recipe_name,
