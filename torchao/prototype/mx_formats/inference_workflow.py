@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import types
+import warnings
 from dataclasses import dataclass
 from functools import partial
 from typing import Optional
@@ -208,7 +209,7 @@ class NVFP4DynamicActivationNVFP4WeightConfig(AOBaseConfig):
     set to False.
 
     Configuration parameters:
-    - quantize_to_nvfp4_kernel_choice: QuantizeToNVFP4KernelChoice, kernel preference for quantization (default: QuantizeToNVFP4KernelChoice.MSLK)
+    - quantize_to_nvfp4_kernel_choice: QuantizeToNVFP4KernelChoice, kernel choice for quantization (default: QuantizeToNVFP4KernelChoice.MSLK)
       Requires `MSLK <https://github.com/pytorch/MSLK>`__ to be installed.
     - use_dynamic_per_tensor_scale: bool, whether to dynamically compute per tensor scale (default: True)
     - step: Optional[QuantizationStep], the quantization step for observer-based flow
@@ -249,6 +250,17 @@ class NVFP4DynamicActivationNVFP4WeightConfig(AOBaseConfig):
             # Static quantization implies use_dynamic_per_tensor_scale=False
             self.use_dynamic_per_tensor_scale = False
 
+        if (
+            self.quantize_to_nvfp4_kernel_choice
+            == QuantizeToNVFP4KernelChoice.FLASHINFER
+        ):
+            if self.step is None and not self.use_dynamic_per_tensor_scale:
+                raise ValueError(
+                    "FLASHINFER kernel choice requires per_tensor_scale. "
+                    "Use step='prepare'/'convert' for static quantization, "
+                    "or set use_dynamic_per_tensor_scale=True."
+                )
+
 
 @register_quantize_module_handler(NVFP4DynamicActivationNVFP4WeightConfig)
 def _nvfp4_inference_linear_transform(
@@ -269,6 +281,15 @@ def _nvfp4_inference_linear_transform(
         raise RuntimeError(
             f"NVFP4 only supports weight shape with last 2 dims divisible by 16, got {weight.shape}"
         )
+    if (
+        config.quantize_to_nvfp4_kernel_choice == QuantizeToNVFP4KernelChoice.FLASHINFER
+        and weight.shape[-1] % 64 != 0
+    ):
+        warnings.warn(
+            f"Skipping NVFP4 quantization for layer with K={weight.shape[-1]}: "
+            f"flashinfer requires K to be divisible by 64."
+        )
+        return module
 
     step = config.step
     if step == QuantizationStep.PREPARE or step == "prepare":
