@@ -1,4 +1,5 @@
 from torchao.prototype.mx_formats.config import (
+    QuantizeToNVFP4KernelChoice,
     ScaleCalculationMode,
 )
 
@@ -15,5 +16,6 @@ __all__ = [
     "MXDynamicActivationMXWeightConfig",
     "NVFP4DynamicActivationNVFP4WeightConfig",
     "NVFP4ObservedLinear",
+    "QuantizeToNVFP4KernelChoice",
     "NVFP4WeightOnlyConfig",
 ]
