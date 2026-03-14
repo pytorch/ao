@@ -30,10 +30,10 @@ class MXFP8SynclessAllToAllExpertMajor(torch.autograd.Function):
     scales_sym_mem_buf = None
 
     # A symmetric memory for exchanging split sizes during both forward and backward
-    input_splits_sym_mem_buf = None
+    input_rank_splits_sym_mem_buf = None
 
     # A symmetric memory for exchanging per-expert token counts during both forward and backward
-    expert_splits_sym_mem_buf = None
+    input_expert_splits_sym_mem_buf = None
 
     # A symmetric memory buffer holding the grad_output during backward
     grad_out_sym_mem_buf = None
@@ -58,19 +58,19 @@ class MXFP8SynclessAllToAllExpertMajor(torch.autograd.Function):
     def forward(
         ctx,
         input: torch.Tensor,
-        input_splits: torch.Tensor,
+        input_rank_splits: torch.Tensor,
+        input_expert_splits: torch.Tensor,
         max_output_rows_per_rank: int,
-        expert_splits_per_rank: torch.Tensor,
         group: dist.ProcessGroup = dist.group.WORLD,
     ):
         """
         Args:
             input: input float8_e4m3fn tensor with data for all ranks concatenated.
             input_scales: float8_e8m0fnu scales for the input tensor.
-            input_splits: input splits of shape (group.world_size,)
+            input_rank_splits: input splits of shape (group.world_size,)
             max_output_rows_per_rank: maximum output rows/tokens per rank.
-            expert_splits_per_rank: per-expert token counts per destination rank, shape (world_size, num_experts_per_rank).
-                expert_splits_per_rank[i, j] = number of tokens this rank is sending to expert j on rank i.
+            input_expert_splits: per-expert token counts per destination rank, shape (world_size, num_experts_per_rank).
+                input_expert_splits[i, j] = number of tokens this rank is sending to expert j on rank i.
                 Will be exchanged during all-to-all to provide per-expert metadata at destination.
             group: process group to scope the collective.
         """
@@ -114,20 +114,20 @@ class MXFP8SynclessAllToAllExpertMajor(torch.autograd.Function):
                 device=input_scales.device,
             )
 
-        # Initialize input splits buffer (one time only)
-        if MXFP8SynclessAllToAllExpertMajor.input_splits_sym_mem_buf is None:
-            MXFP8SynclessAllToAllExpertMajor.input_splits_sym_mem_buf = symm_mem.empty(
-                *input_splits.shape,
-                dtype=input_splits.dtype,
-                device=input_splits.device,
+        # Initialize input rank splits buffer (one time only)
+        if MXFP8SynclessAllToAllExpertMajor.input_rank_splits_sym_mem_buf is None:
+            MXFP8SynclessAllToAllExpertMajor.input_rank_splits_sym_mem_buf = symm_mem.empty(
+                *input_rank_splits.shape,
+                dtype=input_rank_splits.dtype,
+                device=input_rank_splits.device,
             )
 
         # Initialize expert splits buffer (one time only)
-        if MXFP8SynclessAllToAllExpertMajor.expert_splits_sym_mem_buf is None:
-            MXFP8SynclessAllToAllExpertMajor.expert_splits_sym_mem_buf = symm_mem.empty(
-                *expert_splits_per_rank.shape,
-                dtype=expert_splits_per_rank.dtype,
-                device=expert_splits_per_rank.device,
+        if MXFP8SynclessAllToAllExpertMajor.input_expert_splits_sym_mem_buf is None:
+            MXFP8SynclessAllToAllExpertMajor.input_expert_splits_sym_mem_buf = symm_mem.empty(
+                *input_expert_splits.shape,
+                dtype=input_expert_splits.dtype,
+                device=input_expert_splits.device,
             )
 
         # Copy quantized data, scales, and output splits to symm mem buffers
@@ -135,12 +135,12 @@ class MXFP8SynclessAllToAllExpertMajor(torch.autograd.Function):
             0, 0, input_data.shape[0]
         ).copy_(input_data)
 
-        # Copy input splits to symm mem buffer
-        MXFP8SynclessAllToAllExpertMajor.input_splits_sym_mem_buf.copy_(input_splits)
+        # Copy input rank splits to symm mem buffer
+        MXFP8SynclessAllToAllExpertMajor.input_rank_splits_sym_mem_buf.copy_(input_rank_splits)
 
-        # Copy expert splits to symm mem buffer
-        MXFP8SynclessAllToAllExpertMajor.expert_splits_sym_mem_buf.copy_(
-            expert_splits_per_rank
+        # Copy input expert splits to symm mem buffer
+        MXFP8SynclessAllToAllExpertMajor.input_expert_splits_sym_mem_buf.copy_(
+            input_expert_splits
         )
 
         # Copy input scales to symm mem buffer
@@ -157,11 +157,11 @@ class MXFP8SynclessAllToAllExpertMajor(torch.autograd.Function):
             MXFP8SynclessAllToAllExpertMajor.max_output_rows_per_rank,
             *input_scales.shape[1:],
         )
-        output_splits = torch.empty_like(input_splits)
-        output_expert_splits = torch.empty_like(expert_splits_per_rank)
+        output_rank_splits = torch.empty_like(input_rank_splits)
+        output_expert_splits = torch.empty_like(input_expert_splits)
 
         # Allocate buffer for padded expert offsets (one offset per expert)
-        num_experts_per_rank = expert_splits_per_rank.shape[1]
+        num_experts_per_rank = input_expert_splits.shape[1]
         expert_padded_offsets = torch.empty(
             num_experts_per_rank, dtype=torch.int64, device=input_data.device
         )
@@ -170,11 +170,11 @@ class MXFP8SynclessAllToAllExpertMajor(torch.autograd.Function):
         _mxfp8_syncless_all_to_all_expert_major_launcher(
             MXFP8SynclessAllToAllExpertMajor.input_sym_mem_buf,
             MXFP8SynclessAllToAllExpertMajor.scales_sym_mem_buf,
-            MXFP8SynclessAllToAllExpertMajor.input_splits_sym_mem_buf,
-            MXFP8SynclessAllToAllExpertMajor.expert_splits_sym_mem_buf,
+            MXFP8SynclessAllToAllExpertMajor.input_rank_splits_sym_mem_buf,
+            MXFP8SynclessAllToAllExpertMajor.input_expert_splits_sym_mem_buf,
             output,
             output_scales,
-            output_splits,
+            output_rank_splits,
             output_expert_splits,
             expert_padded_offsets,
             group=group,
@@ -196,17 +196,16 @@ class MXFP8SynclessAllToAllExpertMajor(torch.autograd.Function):
         ctx.group = group
         ctx.input_shape = input_data.shape
         ctx.input_scales_shape = input_scales.shape
-        ctx.expert_splits_shape = expert_splits_per_rank.shape
+        ctx.expert_splits_shape = input_expert_splits.shape
         ctx.hp_dtype = hp_dtype
         ctx.max_output_rows_per_rank = max_output_rows_per_rank
         ctx.save_for_backward(
-            output_splits, output_expert_splits, expert_padded_offsets
+            output_rank_splits, output_expert_splits, expert_padded_offsets
         )
-        tokens_on_device_after_a2a_fwd = output_splits.sum()
-        hp_output_no_padding = hp_output[:tokens_on_device_after_a2a_fwd]
+        # Return full expert-major layout with padding
         return (
-            hp_output_no_padding,
-            output_splits,
+            hp_output,
+            output_rank_splits,
             output_expert_splits,
             expert_padded_offsets,
         )
@@ -214,18 +213,18 @@ class MXFP8SynclessAllToAllExpertMajor(torch.autograd.Function):
     @staticmethod
     @torch.compiler.disable
     def backward(
-        ctx, grad_output, grad_splits, grad_expert_splits, grad_expert_padded_offsets
+        ctx, grad_output, grad_rank_splits, grad_expert_splits, grad_expert_padded_offsets
     ):
         """
         Backward is implemented as a shuffle of the output's gradients to the input.
         Args:
             `grad_output`: output's gradients passed from the downstream.
-            `grad_splits`: unused.
+            `grad_rank_splits`: unused.
             `grad_expert_splits`: unused.
             `grad_expert_padded_offsets`: unused.
         """
         # In backward, mxfp8_all_to_all_v input is `grad_output`, and output is `grad_input`.
-        grad_output_splits, grad_output_expert_splits, _ = ctx.saved_tensors
+        grad_output_rank_splits, grad_output_expert_splits, _ = ctx.saved_tensors
 
         # Initialize grad_output sym mem buffer (one time only)
         if MXFP8SynclessAllToAllExpertMajor.grad_out_sym_mem_buf is None:
@@ -258,13 +257,13 @@ class MXFP8SynclessAllToAllExpertMajor(torch.autograd.Function):
             0, 0, grad_out_scales.shape[0]
         ).copy_(grad_out_scales)
 
-        # Copy in splits to symm mem buffer
-        MXFP8SynclessAllToAllExpertMajor.input_splits_sym_mem_buf.copy_(
-            grad_output_splits
+        # Copy in rank splits to symm mem buffer
+        MXFP8SynclessAllToAllExpertMajor.input_rank_splits_sym_mem_buf.copy_(
+            grad_output_rank_splits
         )
 
         # Copy in expert splits to symm mem buffer
-        MXFP8SynclessAllToAllExpertMajor.expert_splits_sym_mem_buf.copy_(
+        MXFP8SynclessAllToAllExpertMajor.input_expert_splits_sym_mem_buf.copy_(
             grad_output_expert_splits
         )
 
@@ -284,7 +283,7 @@ class MXFP8SynclessAllToAllExpertMajor(torch.autograd.Function):
             )
         if MXFP8SynclessAllToAllExpertMajor.grad_input_splits_buf is None:
             MXFP8SynclessAllToAllExpertMajor.grad_input_splits_buf = torch.empty_like(
-                grad_output_splits
+                grad_output_rank_splits
             )
         if MXFP8SynclessAllToAllExpertMajor.grad_input_expert_splits_buf is None:
             MXFP8SynclessAllToAllExpertMajor.grad_input_expert_splits_buf = torch.empty(
@@ -303,11 +302,11 @@ class MXFP8SynclessAllToAllExpertMajor(torch.autograd.Function):
         _mxfp8_syncless_all_to_all_expert_major_launcher(
             MXFP8SynclessAllToAllExpertMajor.grad_out_sym_mem_buf,  # input
             MXFP8SynclessAllToAllExpertMajor.scales_sym_mem_buf,  # input scales
-            MXFP8SynclessAllToAllExpertMajor.input_splits_sym_mem_buf,  # input splits
-            MXFP8SynclessAllToAllExpertMajor.expert_splits_sym_mem_buf,  # expert splits
+            MXFP8SynclessAllToAllExpertMajor.input_rank_splits_sym_mem_buf,  # input rank splits
+            MXFP8SynclessAllToAllExpertMajor.input_expert_splits_sym_mem_buf,  # input expert splits
             MXFP8SynclessAllToAllExpertMajor.grad_input_buf,  # output
             MXFP8SynclessAllToAllExpertMajor.grad_input_scales_buf,  # output scales
-            MXFP8SynclessAllToAllExpertMajor.grad_input_splits_buf,  # output splits
+            MXFP8SynclessAllToAllExpertMajor.grad_input_splits_buf,  # output rank splits
             MXFP8SynclessAllToAllExpertMajor.grad_input_expert_splits_buf,  # output expert splits
             grad_expert_padded_offsets,  # expert padded offsets
             group=ctx.group,
@@ -339,11 +338,11 @@ mxfp8_syncless_all_to_all_expert_major = MXFP8SynclessAllToAllExpertMajor.apply
 def _mxfp8_syncless_all_to_all_expert_major_launcher(
     input: torch.Tensor,
     input_scales: torch.Tensor,
-    input_splits: torch.Tensor,
-    expert_splits: torch.Tensor,
+    input_rank_splits: torch.Tensor,
+    input_expert_splits: torch.Tensor,
     output: torch.Tensor,
     output_scales: torch.Tensor,
-    output_splits: torch.Tensor,
+    output_rank_splits: torch.Tensor,
     output_expert_splits: torch.Tensor,
     expert_padded_offsets: torch.Tensor,
     group: dist.ProcessGroup = dist.group.WORLD,
@@ -354,34 +353,34 @@ def _mxfp8_syncless_all_to_all_expert_major_launcher(
     assert output.dim() == 2, f"{output.shape}"
     assert output.shape[1] == input.shape[1]
 
-    # Prepare symmetric memory managed buffers for input, input_splits, input_scales, and expert_splits.
+    # Prepare symmetric memory managed buffers for input, input_rank_splits, input_scales, and input_expert_splits.
     # - `input` shape (tokens, dim) -> to a sym mem managed buffer of shape (num_ranks, tokens, dim)
-    # - `input_splits` shape (num_ranks,) -> to a sym mem managed buffer of shape (num_ranks, num_ranks)`
+    # - `input_rank_splits` shape (num_ranks,) -> to a sym mem managed buffer of shape (num_ranks, num_ranks)`
     # - `input_scales` shape (tokens, dim//block_size) -> to a sym mem managed buffer of shape (num_ranks, tokens, dim//block_size)
-    # - `expert_splits` shape (num_ranks, num_experts_per_rank) -> to a sym mem managed buffer of shape (num_ranks, num_ranks, num_experts_per_rank)
+    # - `input_expert_splits` shape (num_ranks, num_experts_per_rank) -> to a sym mem managed buffer of shape (num_ranks, num_ranks, num_experts_per_rank)
     input_hdl = symm_mem.rendezvous(input, group=group)
-    input_splits_hdl = symm_mem.rendezvous(input_splits, group=group)
+    input_rank_splits_hdl = symm_mem.rendezvous(input_rank_splits, group=group)
     input_scales_hdl = symm_mem.rendezvous(input_scales, group=group)
-    expert_splits_hdl = symm_mem.rendezvous(expert_splits, group=group)
+    input_expert_splits_hdl = symm_mem.rendezvous(input_expert_splits, group=group)
 
     input_ptrs = input_hdl.buffer_ptrs_dev
-    input_splits_ptrs = input_splits_hdl.buffer_ptrs_dev
+    input_rank_splits_ptrs = input_rank_splits_hdl.buffer_ptrs_dev
     input_scales_ptrs = input_scales_hdl.buffer_ptrs_dev
-    expert_splits_ptrs = expert_splits_hdl.buffer_ptrs_dev
+    input_expert_splits_ptrs = input_expert_splits_hdl.buffer_ptrs_dev
     signal_pad_ptrs = input_hdl.signal_pad_ptrs_dev
     dim = output.shape[1]
     scale_dim = input_scales.shape[-1]
-    num_experts_per_rank = expert_splits.shape[-1]
+    num_experts_per_rank = input_expert_splits.shape[-1]
     num_blocks = input_hdl.world_size * BLOCKS_PER_REMOTE_RANK
 
     _mxfp8_all_to_all_expert_major_kernel[(num_blocks, 1, 1)](
         input_ptrs,
         input_scales_ptrs,
-        input_splits_ptrs,
-        expert_splits_ptrs,
+        input_rank_splits_ptrs,
+        input_expert_splits_ptrs,
         output,
         output_scales,
-        output_splits,
+        output_rank_splits,
         output_expert_splits,
         expert_padded_offsets,
         signal_pad_ptrs,
@@ -402,11 +401,11 @@ def _mxfp8_syncless_all_to_all_expert_major_launcher(
 def _mxfp8_all_to_all_expert_major_kernel(
     input_ptrs,
     input_scales_ptrs,
-    input_splits_ptr,
-    expert_splits_ptr,
+    input_rank_splits_ptr,
+    input_expert_splits_ptr,
     output_ptr,
     output_scales_ptr,
-    output_splits_ptr,
+    output_rank_splits_ptr,
     output_expert_splits_ptr,
     expert_padded_offsets_ptr,
     signal_pad_ptrs,
@@ -428,17 +427,17 @@ def _mxfp8_all_to_all_expert_major_kernel(
     # Only block 0 performs the metadata exchange and computes padded offsets
     if tl.program_id(0) == 0:
         # Exchange expert_splits from all remote ranks
-        expert_splits_ptrs = expert_splits_ptr.to(tl.pointer_type(tl.uint64))
+        input_expert_splits_ptrs = input_expert_splits_ptr.to(tl.pointer_type(tl.uint64))
 
         # Accumulate tokens per local expert across all remote ranks
         expert_offsets = tl.arange(0, num_experts_per_rank)
 
         for remote_r in range(world_size):
             # Get pointer to remote rank's expert_splits tensor
-            remote_expert_splits_ptr = tl.load(expert_splits_ptrs + remote_r).to(
+            remote_expert_splits_ptr = tl.load(input_expert_splits_ptrs + remote_r).to(
                 tl.pointer_type(tl.int64)
             )
-            # expert_splits[remote_r, rank, :] contains tokens remote_r is sending to our local experts
+            # input_expert_splits[remote_r, rank, :] contains tokens remote_r is sending to our local experts
             remote_expert_splits_ptr = (
                 remote_expert_splits_ptr + rank * num_experts_per_rank
             )
@@ -489,15 +488,15 @@ def _mxfp8_all_to_all_expert_major_kernel(
     # ===== PHASE 2: Data Transfer with Padding =====
     # Transfer data expert-by-expert from the target remote_rank to local padded expert regions
 
-    # One thread block per rank will update output_splits
+    # One thread block per rank will update output_rank_splits
     if block_offset == 0:
         # Calculate total rows from this remote rank
-        split_sizes_ptrs_typed = input_splits_ptr.to(tl.pointer_type(tl.uint64))
-        remote_rank_input_splits_ptr = tl.load(split_sizes_ptrs_typed + remote_rank).to(
+        rank_splits_ptrs_typed = input_rank_splits_ptr.to(tl.pointer_type(tl.uint64))
+        remote_rank_input_rank_splits_ptr = tl.load(rank_splits_ptrs_typed + remote_rank).to(
             tl.pointer_type(tl.int64)
         )
-        num_rows_from_remote = tl.load(remote_rank_input_splits_ptr + rank)
-        tl.store(output_splits_ptr + remote_rank, num_rows_from_remote)
+        num_rows_from_remote = tl.load(remote_rank_input_rank_splits_ptr + rank)
+        tl.store(output_rank_splits_ptr + remote_rank, num_rows_from_remote)
 
     # Get base input pointer for this remote rank
     input_base_ptr = tl.load(
@@ -509,19 +508,19 @@ def _mxfp8_all_to_all_expert_major_kernel(
     ).to(tl.pointer_type(tl.uint8))
 
     # Calculate input starting offset for this rank's data on remote_rank
-    split_sizes_ptrs_typed = input_splits_ptr.to(tl.pointer_type(tl.uint64))
-    remote_rank_input_splits_ptr = tl.load(split_sizes_ptrs_typed + remote_rank).to(
+    rank_splits_ptrs_typed = input_rank_splits_ptr.to(tl.pointer_type(tl.uint64))
+    remote_rank_input_rank_splits_ptr = tl.load(rank_splits_ptrs_typed + remote_rank).to(
         tl.pointer_type(tl.int64)
     )
     rank_offsets = tl.arange(0, world_size)
-    remote_split_sizes_prefix = tl.load(
-        remote_rank_input_splits_ptr + rank_offsets, mask=rank_offsets < rank, other=0
+    remote_rank_split_sizes_prefix = tl.load(
+        remote_rank_input_rank_splits_ptr + rank_offsets, mask=rank_offsets < rank, other=0
     )
-    input_row_offset = tl.sum(remote_split_sizes_prefix)
+    input_row_offset = tl.sum(remote_rank_split_sizes_prefix)
 
     # Get expert splits for this remote rank
-    expert_splits_ptrs_typed = expert_splits_ptr.to(tl.pointer_type(tl.uint64))
-    remote_expert_splits_ptr = tl.load(expert_splits_ptrs_typed + remote_rank).to(
+    input_expert_splits_ptrs_typed = input_expert_splits_ptr.to(tl.pointer_type(tl.uint64))
+    remote_expert_splits_ptr = tl.load(input_expert_splits_ptrs_typed + remote_rank).to(
         tl.pointer_type(tl.int64)
     )
     remote_expert_splits_ptr = remote_expert_splits_ptr + rank * num_experts_per_rank
