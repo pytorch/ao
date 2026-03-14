@@ -43,6 +43,24 @@ _ops_to_preserve_subclass = {
     torch.ops.aten.clone.default,
     torch.ops.aten.transpose.int,
     torch.ops.aten.t.default,
+    # required for TP - scatter_ is used to distribute weights
+    torch.ops.c10d.scatter_.default,
+    # # required for quantizing weights
+    # torch.ops.aten.mul.Tensor,
+    # torch.ops.aten.abs.default,
+    # torch.ops.aten.amax.default,
+    # torch.ops.aten.clamp.default,
+    # torch.ops.aten.to.dtype,
+    # torch.ops.aten.unsqueeze.default,
+    # torch.ops.aten.div.Tensor,
+    # torch.ops.aten.reshape.default,
+    # torch.ops.aten.isnan.default,
+    # torch.ops.aten.log2.default,
+    # torch.ops.aten.where.default,
+    # torch.ops.aten.where.self,
+    # torch.ops.aten.ceil.default,
+    # torch.ops.aten.view.dtype,
+    # torch.ops.aten.squeeze.dim,
 }
 
 
@@ -92,6 +110,7 @@ class TrainingWeightWrapperBaseTensor(TorchAOBaseTensor):
 
     @classmethod
     def __torch_dispatch__(cls, func, types, args, kwargs={}):
+        print("[TORCH_DISPATCH]: ", func.__name__)
         # unwrap args/kwargs and extract config
         config = None
 
@@ -225,10 +244,6 @@ class Float8TrainingWeightWrapperTensor(TrainingWeightWrapperBaseTensor):
             # Use torchao scaled grouped mm with dynamic quant for
             # "2d x 3d with offsets" case (used for routed experts).
             # Otherwise, fall back to regular grouped mm.
-            #
-            # TODO: support "3d x 3d without offsets" case, which is
-            # used for shared experts. This is basically the grouped_mm
-            # kernel handling a bmm.
             A, B = args[0], args[1]
 
             assert not isinstance(A, cls), f"A should not be a {cls.__name__}"
@@ -266,14 +281,11 @@ class MXFP8TrainingWeightWrapperTensor(TrainingWeightWrapperBaseTensor):
     @classmethod
     def __torch_function__(cls, func, types, args, kwargs={}):
         # grouped_mm op override
+        print("[TORCH_FUNCTION]", func.__name__)
         if func.__name__ == "_grouped_mm":
             # Use torchao scaled grouped mm with dynamic quant for
             # "2d x 3d with offsets" case (used for routed experts).
             # Otherwise, fall back to regular grouped mm.
-            #
-            # TODO: support "3d x 3d without offsets" case, which is
-            # used for shared experts. This is basically the grouped_mm
-            # kernel handling a bmm.
             A, B = args[0], args[1]
 
             assert not isinstance(A, cls), f"A should not be a {cls.__name__}"
@@ -288,26 +300,29 @@ class MXFP8TrainingWeightWrapperTensor(TrainingWeightWrapperBaseTensor):
             if A_is_2d and B_is_2d_or_3d and offs is not None:
                 return _quantize_then_scaled_grouped_mm(
                     A,
-                    B,
+                    unwrap_weight(B),
                     offs=offs,
                     config=config,
                 )
 
         # linear op override
-        elif func.__name__ in ("linear", "mm", "matmul", "addmm"):
+        elif func.__name__ in ("linear", "mm", "mm.default"):
             A, B = args[0], args[1]
-            assert not isinstance(A, cls), f"A should not be a {cls.__name__}"
 
+            assert not isinstance(A, cls), f"A should not be a {cls.__name__}"
             assert isinstance(B, cls), f"B should be a {cls.__name__}"
 
             config = B.config
             assert isinstance(config, MXFP8TrainingOpConfig), (
                 "expected MXFP8TrainingOpConfig"
             )
-
+            
+            # Log weight shard statistics
+            weight = B._data
+            
             return _to_mxfp8_then_scaled_mm(
                 A,
-                B,
+                unwrap_weight(B),
                 kernel_preference=config.kernel_preference,
                 scale_calculation_mode=config.scale_calculation_mode,
                 wgrad_with_hp=config.wgrad_with_hp,
@@ -318,3 +333,19 @@ class MXFP8TrainingWeightWrapperTensor(TrainingWeightWrapperBaseTensor):
             # the wrapping behavior of the super() impl, go directly to dispatch
             with torch._C.DisableTorchFunctionSubclass():
                 return func(*args, **kwargs)
+
+
+class _UnwrapWeight(torch.autograd.Function):
+    """Helper to unwrap the tensor subclass in a differentiable way"""
+
+    @staticmethod
+    def forward(ctx, wrapper_tensor):
+        return wrapper_tensor._data
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        return grad_output
+
+
+def unwrap_weight(wrapper_tensor):
+    return _UnwrapWeight.apply(wrapper_tensor)
