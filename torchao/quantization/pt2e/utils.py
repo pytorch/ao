@@ -26,7 +26,7 @@ import torch.nn.functional as F
 from torch.ao.quantization.fx._decomposed import quantized_decomposed_lib  # noqa: F401
 from torch.export.unflatten import _assign_attr, _AttrKind
 from torch.fx import Graph, GraphModule, Node
-from torch.nn.utils.fusion import fuse_conv_bn_weights
+from torch.nn.utils.fusion import fuse_conv_bn_weights, fuse_linear_bn_weights
 from torch.nn.utils.parametrize import is_parametrized
 from torch.utils._pytree import LeafSpec
 
@@ -659,6 +659,15 @@ def _is_conv_or_conv_transpose_node(n: Node):
     return _is_conv_node(n) or _is_conv_transpose_node(n)
 
 
+def _is_linear_node(n: Node):
+    """
+    Return whether the node refers to an aten linear op.
+    """
+    return n.op == "call_function" and n.target in [
+        torch.ops.aten.linear.default,
+    ]
+
+
 def _is_conv_transpose_fn(conv_fn: Callable):
     return conv_fn in [F.conv_transpose1d, F.conv_transpose2d, F.conv_transpose3d]
 
@@ -786,6 +795,112 @@ def fold_bn_weights_into_conv_node(
         m.graph.erase_node(bn_node)
 
 
+def fold_bn_weights_into_linear_node(
+    linear_node: Node,
+    linear_weight_node: Node,
+    linear_bias_node: Optional[Node],
+    bn_node: Node,
+    m: GraphModule,
+    fake_fuse: bool = False,
+) -> None:
+    # linear args: input, weight, bias
+    linear_w = _get_tensor_constant_from_node(linear_weight_node, m)
+    linear_b = _get_tensor_constant_from_node(linear_bias_node, m)
+
+    # eval bn args: input, weight, bias, running mean, running var, momentum, eps
+    # train bn args: input, weight, bias, running mean, running var, training, momentum, eps
+    bn_args_schema = bn_node.target._schema.arguments  # type: ignore[union-attr]
+    bn_args = _get_all_arguments(bn_node.args, bn_node.kwargs, bn_args_schema)
+    bn_w = _get_tensor_constant_from_node(bn_args[1], m)
+    bn_b = _get_tensor_constant_from_node(bn_args[2], m)
+    bn_rm = _get_tensor_constant_from_node(bn_args[3], m)
+    bn_rv = _get_tensor_constant_from_node(bn_args[4], m)
+    if bn_node.target == torch.ops.aten._native_batch_norm_legit_no_training.default:
+        eps_arg_index = 6
+    elif _is_supported_batch_norm_for_training(bn_node):
+        eps_arg_index = 7
+    else:
+        raise ValueError("BN node target is unexpected ", bn_node.target)
+    bn_eps = bn_args[eps_arg_index]
+
+    # update the weight and bias for linear
+    linear_args = list(linear_node.args)
+    # filling in the default bias argument
+    if len(linear_args) == 2:
+        linear_args.append(None)
+
+    if fake_fuse:
+        fused_weight = torch.nn.Parameter(linear_w, linear_w.requires_grad)
+        if linear_b is not None:
+            fused_bias = torch.nn.Parameter(linear_b, linear_b.requires_grad)
+        else:
+            fused_bias = torch.nn.Parameter(
+                torch.zeros_like(bn_rm), requires_grad=linear_w.requires_grad
+            )
+    else:
+        fused_weight, fused_bias = fuse_linear_bn_weights(
+            linear_w, linear_b, bn_rm, bn_rv, bn_eps, bn_w, bn_b
+        )
+
+    # calling data since the fused_weight and fused_bias are nn.Parameter
+    weight_attr_name = linear_weight_node.target
+    assert isinstance(weight_attr_name, str)
+    _assign_attr(fused_weight, m, weight_attr_name, _AttrKind.PARAMETER)
+    if linear_bias_node is not None:
+        bias_attr_name = linear_bias_node.target
+        _assign_attr(fused_bias, m, str(bias_attr_name), _AttrKind.PARAMETER)
+    else:
+        bias_attr_name = weight_attr_name + "_bias"
+        _assign_attr(fused_bias, m, bias_attr_name, _AttrKind.PARAMETER)
+        with m.graph.inserting_before(linear_node):
+            get_bias_node = m.graph.get_attr(bias_attr_name)
+        # NOTE: here we assume the bias of linear is not quantized!
+        linear_args[2] = get_bias_node
+    linear_node.args = tuple(linear_args)
+
+    # native_batch_norm has 3 outputs, we expect getitem calls on the output
+    # and we want to replace the uses of getitem 0 with the output of linear
+    #
+    if bn_node.target == torch.ops.aten.batch_norm.default:
+        # With the new training ir, instead of batch_norm + getitem,
+        # we only have the batch_norm node.
+        #
+        # Before:
+        # linear -> bn -> users
+        # After:
+        # linear -> users
+        #         bn has no users now
+        bn_node.replace_all_uses_with(linear_node)
+    else:
+        # Before:
+        # linear -> bn - (first output) -> users1
+        #            \ - (second output) -> users2
+        #            \ - (third output) -> users3
+        # After:
+        # linear -> (first output) -> users1
+        #         bn -
+        #            \ - (second output) -> users2
+        #            \ - (third output) -> users3
+        # if users2 and users3 are empty then bn will be removed through dead code elimination
+        for user in bn_node.users:
+            if (
+                user.op != "call_function"
+                or user.target != operator.getitem
+                or user.args[1] != 0
+            ):
+                continue
+            user.replace_all_uses_with(linear_node)
+
+    # If the BN node does not have users, erase it from the graph
+    # Note: we need to do this manually because the model can still be in train
+    # mode at this point, in which case DCE won't erase the BN node automatically
+    # since the node refers to a mutating op. Here we still need to call DCE first
+    # to get rid of the unused getitem nodes that consume the BN node.
+    m.graph.eliminate_dead_code()
+    if not bn_node._erased and len(bn_node.users) == 0:
+        m.graph.erase_node(bn_node)
+
+
 # fuse conv bn weights, inplace modification of the graph_module and graph
 def _fuse_conv_bn_(m: GraphModule) -> None:
     has_bn = any(_is_bn_node(n) for n in m.graph.nodes)
@@ -816,6 +931,39 @@ def _fuse_conv_bn_(m: GraphModule) -> None:
             (conv_weight_node in fused_convs_weight_nodes),
         )
         fused_convs_weight_nodes.add(conv_weight_node)
+    m.graph.eliminate_dead_code()
+    m.recompile()
+
+
+def _fuse_linear_bn_(m: GraphModule) -> None:
+    """Fuse linear bn weights, inplace modification of the graph_module and graph."""
+    has_bn = any(_is_bn_node(n) for n in m.graph.nodes)
+    if not has_bn:
+        return
+
+    fused_linear_weight_nodes = set()
+    for n in m.graph.nodes:
+        if n.op != "call_function" or n.target not in (
+            torch.ops.aten._native_batch_norm_legit_no_training.default,
+            torch.ops.aten.batch_norm.default,
+        ):
+            continue
+        bn_node = n
+        n = bn_node.args[0]
+        if not _is_linear_node(n):
+            continue
+        linear_node = n
+        linear_weight_node = linear_node.args[1]
+        linear_bias_node = linear_node.args[2] if len(linear_node.args) > 2 else None
+        fold_bn_weights_into_linear_node(
+            linear_node,
+            linear_weight_node,
+            linear_bias_node,
+            bn_node,
+            m,
+            (linear_weight_node in fused_linear_weight_nodes),
+        )
+        fused_linear_weight_nodes.add(linear_weight_node)
     m.graph.eliminate_dead_code()
     m.recompile()
 

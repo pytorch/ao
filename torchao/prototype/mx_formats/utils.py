@@ -19,6 +19,7 @@ from torchao.prototype.mx_formats.kernels import (
     triton_mx_block_rearrange,
     triton_to_mxfp8_dim1,
 )
+from torchao.quantization.quantize_.common import KernelPreference
 
 Tensor = torch.Tensor
 
@@ -157,14 +158,25 @@ def _to_mxfp8_dim1_kernel_wrapper(
 ):
     # avoid circular import
     # TODO(future PR): split this utils file in two
-    from torchao.prototype.mx_formats.mx_tensor import MXTensor
+    from torchao.prototype.mx_formats.mx_tensor import MXTensor, to_mx
 
-    if cast_kernel_choice == MXFP8Dim1CastKernelChoice.TRITON:
+    if kernel_preference == KernelPreference.EMULATED:
+        a_scale, a_data = to_mx(
+            a.t().contiguous(),
+            elem_dtype,
+            block_size,
+            scale_calculation_mode,
+        )
+        a_data = a_data.t()
+
+    elif cast_kernel_choice == MXFP8Dim1CastKernelChoice.TRITON:
         assert scale_calculation_mode in (
             ScaleCalculationMode.FLOOR,
             ScaleCalculationMode.RCEIL,
         )
-        a_data, a_scale = triton_to_mxfp8_dim1(a, block_size)
+        a_data, a_scale = triton_to_mxfp8_dim1(
+            a, block_size, scale_calculation_mode.value
+        )
     elif cast_kernel_choice == MXFP8Dim1CastKernelChoice.CUDA:
         assert scale_calculation_mode in (
             ScaleCalculationMode.FLOOR,

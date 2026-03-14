@@ -36,9 +36,9 @@ from torchao.prototype.moe_training.ep import (
     permute_mxfp8_fwd_hp_bwd,
     unpermute_hp_fwd_mxfp8_bwd,
 )
-from torchao.prototype.moe_training.ep.permute import _permute_bf16
+from torchao.prototype.moe_training.ep.permute import permute_and_pad
 from torchao.prototype.moe_training.ep.unpermute import _unpermute_bf16
-from torchao.prototype.moe_training.scaled_grouped_mm import (
+from torchao.prototype.moe_training.mxfp8_grouped_mm import (
     _to_mxfp8_then_scaled_grouped_mm,
 )
 
@@ -144,7 +144,7 @@ def standard_pipeline(
 
     # Step 2: Permute (BF16)
     input_shape, permuted, permuted_indices, num_tokens_per_expert_padded, offsets = (
-        _permute_bf16(
+        permute_and_pad(
             dispatched,
             num_tokens_per_expert_group,
             ep_degree,

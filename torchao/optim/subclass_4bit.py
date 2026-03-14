@@ -44,11 +44,30 @@ def get_qmap_unsigned():
 class OptimState4bit(TorchAOBaseTensor):
     tensor_attrs = ["codes", "scale", "qmap"]
 
+    # dtype only acts as an appearance dtype to work with the rest of PyTorch
     @staticmethod
-    def __new__(cls, codes: Tensor, scale: Tensor, qmap: Tensor, signed: bool, shape):
-        return Tensor._make_wrapper_subclass(cls, shape, device=codes.device)
+    def __new__(
+        cls,
+        codes: Tensor,
+        scale: Tensor,
+        qmap: Tensor,
+        signed: bool,
+        shape,
+        dtype: torch.dtype | None = None,
+    ):
+        return Tensor._make_wrapper_subclass(
+            cls, shape, device=codes.device, dtype=dtype
+        )
 
-    def __init__(self, codes: Tensor, scale: Tensor, qmap: Tensor, signed: bool, shape):
+    def __init__(
+        self,
+        codes: Tensor,
+        scale: Tensor,
+        qmap: Tensor,
+        signed: bool,
+        shape,
+        dtype: torch.dtype | None = None,
+    ):
         """Create quantized 4-bit optimizer state as proposed in https://arxiv.org/abs/2309.01507
 
         Args
@@ -75,7 +94,7 @@ class OptimState4bit(TorchAOBaseTensor):
         self.block_size = codes.numel() * 2 // scale.numel()
 
     def __tensor_flatten__(self):
-        return self.tensor_attrs, [self.signed, self._shape]
+        return self.tensor_attrs, [self.signed, self._shape, self.dtype]
 
     @classmethod
     def __tensor_unflatten__(
@@ -93,7 +112,14 @@ class OptimState4bit(TorchAOBaseTensor):
         return float_data.view(self._shape)
 
     @classmethod
-    def zeros(cls, shape, signed: bool = True, block_size: int = 128, device=None):
+    def zeros(
+        cls,
+        shape,
+        signed: bool = True,
+        block_size: int = 128,
+        device: torch.types.Device = None,
+        dtype: torch.dtype | None = None,
+    ):
         shape = (shape,) if isinstance(shape, int) else shape
         n_elems = math.prod(shape)
 
@@ -101,12 +127,13 @@ class OptimState4bit(TorchAOBaseTensor):
         scale = torch.zeros(n_elems // block_size, device=device)
         qmap_list = get_qmap_signed() if signed else get_qmap_unsigned()
         qmap = torch.tensor(qmap_list, dtype=torch.float32, device=device)
-        return cls(codes, scale, qmap, signed, shape)
+        return cls(codes, scale, qmap, signed, shape, dtype=dtype)
 
     def __repr__(self):
         return (
             f"{self.__class__.__name__}(signed={self.signed}, block_size={self.block_size}, "
-            f"shape={tuple(self.shape)}, device={self.device}, requires_grad={self.requires_grad})"
+            f"shape={tuple(self.shape)}, dtype={self.dtype}, device={self.device}, "
+            f"requires_grad={self.requires_grad})"
         )
 
 
@@ -139,7 +166,8 @@ def _(func, types, args, kwargs):
 
 @OptimState4bit.implements(aten._to_copy.default)
 def _(func, types, args, kwargs):
-    # ignore dtype
+    # only change the appearance dtype
+    dtype = kwargs.get("dtype", args[0].dtype)
     device = kwargs.get("device", None)
     out = OptimState4bit(
         args[0].codes.to(device=device),
@@ -147,6 +175,7 @@ def _(func, types, args, kwargs):
         args[0].qmap.to(device=device),
         args[0].signed,
         args[0].shape,
+        dtype=dtype,
     )
     return return_and_correct_aliasing(func, args, kwargs, out)
 

@@ -69,6 +69,12 @@ class Float8Layout(Layout):
 
     mm_config: Optional[Float8MMConfig] = None
 
+    def __post_init__(self):
+        super().__post_init__()
+        warnings.warn(
+            "Deprecation: Float8Layout is deprecated and will be removed in a future release of torchao, see https://github.com/pytorch/ao/issues/2752 for more details"
+        )
+
 
 _fallback_warning_shown = False
 
@@ -110,6 +116,9 @@ class Float8AQTTensorImpl(AQTTensorImpl):
         transposed: bool,
         _layout: Layout,
     ):
+        warnings.warn(
+            "Deprecation: Float8AQTTensorImpl is deprecated and will be removed in a future release of torchao, see https://github.com/pytorch/ao/issues/2752 for more details"
+        )
         warnings.warn(
             "Models quantized with version 1 of Float8DynamicActivationFloat8WeightConfig is deprecated and will no longer be supported in a future release, please upgrade torchao and quantize again, or download a newer torchao checkpoint, see https://github.com/pytorch/ao/issues/2649 for more details"
         )

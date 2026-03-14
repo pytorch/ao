@@ -181,6 +181,8 @@ def test_inference_workflow_nvfp4(
         pytest.skip("TODO: weight_only quant currently errors w/ compile")
     if quant_type == "weight_only" and use_triton_kernel:
         pytest.skip("unsupported configuration")
+    if use_triton_kernel and not use_dynamic_per_tensor_scale:
+        pytest.skip("unsupported configuration")
 
     if use_inference_mode and (
         shapes != (128, 64, 256) or inpt_dtype != torch.bfloat16 or use_triton_kernel
@@ -217,7 +219,7 @@ def test_inference_workflow_nvfp4(
     y_ref = m(x)
 
     if use_triton_kernel and quant_type == "dynamic":
-        with cuda_kernel_profiler("quantize_nvfp4_triton_kernel") as result:
+        with cuda_kernel_profiler("triton_quantize_nvfp4_kernel") as result:
             y_mx = m_mx(x)
         assert result["found"], "Expected quantize_nvfp4 kernel to be found"
     else:

@@ -3,6 +3,7 @@
 #
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
+import warnings
 from dataclasses import dataclass
 from typing import Optional
 
@@ -78,6 +79,12 @@ class SemiSparseLayout(Layout):
     tensors to conform to this sparsity pattern.
     """
 
+    def __post_init__(self):
+        super().__post_init__()
+        warnings.warn(
+            "Deprecation: SemiSparseLayout is deprecated and will be removed in a future release of torchao, see https://github.com/pytorch/ao/issues/2752 for more details"
+        )
+
     def pre_process(self, input: torch.Tensor) -> torch.Tensor:
         # prune to 2:4 if not already
         temp = input.detach()
@@ -91,6 +98,18 @@ class SemiSparseAQTTensorImpl(PlainAQTTensorImpl):
     """
     TensorImpl for semi_sparse_cusparselt layout for affine quantized tensor
     """
+
+    def __init__(
+        self,
+        int_data: torch.Tensor,
+        scale: torch.Tensor,
+        zero_point: Optional[torch.Tensor],
+        _layout: Layout,
+    ):
+        warnings.warn(
+            "Deprecation: SemiSparseAQTTensorImpl is deprecated and will be removed in a future release of torchao, see https://github.com/pytorch/ao/issues/2752 for more details"
+        )
+        super().__init__(int_data, scale, zero_point, _layout)
 
     @classmethod
     def __torch_dispatch__(cls, func, types, args, kwargs):
