@@ -3093,6 +3093,7 @@ class TestDynamicPatternMatcher(TestPatternMatcherBase):
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
+    @unittest.skipIf(torch_version_at_least("2.11.0.dev"), "Requires torch 2.11.0.dev+")
     def test_q_attention_block(self):
         for annotate_matmul in [True, False]:
             self._test_q_attention_block_helper(annotate_matmul=annotate_matmul)
