@@ -8,7 +8,7 @@ import argparse
 import itertools
 import logging
 from dataclasses import dataclass
-from typing import List
+from typing import List, Union
 
 import torch
 from tabulate import tabulate
@@ -19,9 +19,17 @@ from benchmarks.utils import (
     bench_fwd_microseconds,
     profile_fwd_bwd,
 )
-from torchao.prototype.moe_training import _quantize_then_scaled_grouped_mm
-from torchao.prototype.moe_training.conversion_utils import MoEScalingType
-from torchao.prototype.moe_training.utils import generate_jagged_offs
+from torchao.prototype.moe_training.config import (
+    Float8TrainingOpConfig,
+    Float8TrainingRecipe,
+    MXFP8TrainingOpConfig,
+    MXFP8TrainingRecipe,
+)
+from torchao.prototype.moe_training.utils import (
+    _quantize_then_scaled_grouped_mm,
+    generate_jagged_offs,
+)
+from torchao.utils import is_MI300, is_MI350, is_ROCM
 
 device = torch.device("cuda")
 
@@ -36,7 +44,7 @@ torch._dynamo.config.automatic_dynamic_shapes = False
 class ExperimentConfig:
     high_precision_dtype: torch.dtype
     MNKG: tuple[int]
-    recipe: MoEScalingType
+    recipe: Union[Float8TrainingRecipe, MXFP8TrainingRecipe]
 
 
 @dataclass(frozen=True)
@@ -57,38 +65,20 @@ class Experiment:
 
 def get_configs() -> List[ExperimentConfig]:
     MNKG_list = [
-        # Llama4 16e with various experts per device (i.e., different EP degrees)
-        (16384, 8192, 5120, 1),
-        (16384, 8192, 5120, 2),
-        (16384, 8192, 5120, 4),
-        (16384, 8192, 5120, 8),
+        # Llama4 16e with various experts per device (i.e., EP degree=8 or 16
+        (32768, 8192, 5120, 1),
+        (32768, 8192, 5120, 2),
         (128000, 8192, 5120, 1),
         (128000, 8192, 5120, 2),
-        (128000, 8192, 5120, 4),
-        (128000, 8192, 5120, 8),
-        # DSV3 236B with various experts per device (i.e., different EP degrees)
-        (16384, 1536, 5120, 1),
-        (16384, 1536, 5120, 2),
-        (16384, 1536, 5120, 4),
-        (16384, 1536, 5120, 8),
-        (128000, 1536, 5120, 1),
-        (128000, 1536, 5120, 2),
-        (128000, 1536, 5120, 4),
-        (128000, 1536, 5120, 8),
-        # DSV3 671B with various experts per device (i.e., different EP degrees)
-        (16384, 2048, 7168, 1),
-        (16384, 2048, 7168, 2),
-        (16384, 2048, 7168, 4),
-        (16384, 2048, 7168, 8),
-        (128000, 2048, 7168, 1),
-        (128000, 2048, 7168, 2),
+        # DSV3 671B with various experts per device (i.e., EP degree=32 or 64
+        (32768, 2048, 7168, 4),
+        (32768, 2048, 7168, 8),
         (128000, 2048, 7168, 4),
         (128000, 2048, 7168, 8),
     ]
     recipes = [
-        MoEScalingType.FP8_ROWWISE,
-        MoEScalingType.MXFP8,
-        MoEScalingType.MXFP8_WGRAD_WITH_HP,
+        MXFP8TrainingRecipe.MXFP8_RCEIL,
+        MXFP8TrainingRecipe.MXFP8_RCEIL_WGRAD_WITH_HP,
     ]
     high_precision_dtypes = [torch.bfloat16]
     configs = []
@@ -126,17 +116,7 @@ def run_experiment(
         requires_grad=True,
     ).transpose(-2, -1)
 
-    # - configure input to be row-major with groups divided along the column dimension,
-    #   representing the left operand of grad_weight = grad_output_t @ input
-    #   that occurs in the backward pass of the differentiable scaled grouped mm.
-    # - the transposed tensor in col-major format with groups along the row dimension,
-    #    which represents the right operand.
-    token_group_alignment_size = 32 if config.recipe == MoEScalingType.MXFP8 else 16
-    offs = generate_jagged_offs(G, total_M, multiple_of=token_group_alignment_size)
-
-    labels = torch.ones(
-        (A.shape[0], B_t.shape[-1]), device=device, dtype=torch.bfloat16
-    )
+    offs = generate_jagged_offs(G, total_M, multiple_of=1)
 
     # fwd_bwd bf16 benchmark + profiling
     bf16_fwd_bwd_us = bench_fwd_bwd_microseconds(
@@ -144,7 +124,6 @@ def run_experiment(
         A,
         B_t,
         offs,
-        labels=labels,
         use_compile=args.compile,
         fullgraph=False,
     )
@@ -154,20 +133,24 @@ def run_experiment(
             A,
             B_t,
             offs,
-            labels=labels,
             use_compile=args.compile,
             fullgraph=False,
             profile_name="bf16_profile",
         )
+
+    # Create config object from recipe
+    if isinstance(config.recipe, Float8TrainingRecipe):
+        quant_config = Float8TrainingOpConfig.from_recipe(config.recipe)
+    else:
+        quant_config = MXFP8TrainingOpConfig.from_recipe(config.recipe)
 
     # fwd_bwd scaled benchmark + profiling
     scaled_fwd_bwd_us = bench_fwd_bwd_microseconds(
         _quantize_then_scaled_grouped_mm,
         A,
         B_t,
+        quant_config,
         offs,
-        scaling_type=config.recipe,
-        labels=labels,
         use_compile=args.compile,
         fullgraph=False,
     )
@@ -176,9 +159,8 @@ def run_experiment(
             _quantize_then_scaled_grouped_mm,
             A,
             B_t,
+            quant_config,
             offs,
-            scaling_type=config.recipe,
-            labels=labels,
             use_compile=args.compile,
             profile_name="scaled_profile",
             fullgraph=False,
@@ -197,8 +179,8 @@ def run_experiment(
         _quantize_then_scaled_grouped_mm,
         A,
         B_t,
+        quant_config,
         offs,
-        scaling_type=config.recipe,
         use_compile=args.compile,
         fullgraph=True,
     )
@@ -246,19 +228,24 @@ def main(args: argparse.Namespace):
     configs = get_configs()
     results = []
     for config in tqdm(configs):
-        if (
-            config.recipe == MoEScalingType.FP8_ROWWISE
-            and torch.cuda.get_device_capability() != (9, 0)
-        ):
-            logging.warning(
-                f"Skipping FP8 rowwise benchmarks, only supported on compute capability 9.0 and found {torch.cuda.get_device_capability()}"
-            )
-            continue
+        if config.recipe == Float8TrainingRecipe.FP8_ROWWISE:
+            if is_ROCM():
+                if not (is_MI300() or is_MI350()):
+                    logging.warning(
+                        "Skipping FP8 rowwise benchmarks, requires MI300 or MI350 on ROCm"
+                    )
+                    continue
+            else:
+                if torch.cuda.get_device_capability() != (9, 0):
+                    logging.warning(
+                        f"Skipping FP8 rowwise benchmarks, only supported on compute capability 9.0 and found {torch.cuda.get_device_capability()}"
+                    )
+                    continue
 
-        elif (
-            config.recipe == MoEScalingType.MXFP8
-            and torch.cuda.get_device_capability() != (10, 0)
-        ):
+        elif config.recipe in (
+            MXFP8TrainingRecipe.MXFP8_RCEIL,
+            MXFP8TrainingRecipe.MXFP8_RCEIL_WGRAD_WITH_HP,
+        ) and torch.cuda.get_device_capability() != (10, 0):
             logging.warning(
                 f"Skipping MXFP8 benchmarks, only supported on compute capability 10.0 and found {torch.cuda.get_device_capability()}"
             )

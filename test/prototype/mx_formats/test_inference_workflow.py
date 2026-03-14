@@ -143,7 +143,7 @@ def test_inference_workflow_mx(
 @pytest.mark.parametrize("inpt_dtype", [torch.bfloat16, torch.float32])
 @pytest.mark.parametrize(
     "quantize_to_nvfp4_kernel_choice",
-    [QuantizeToNVFP4KernelChoice.TORCH, QuantizeToNVFP4KernelChoice.TRITON],
+    [QuantizeToNVFP4KernelChoice.TORCH, QuantizeToNVFP4KernelChoice.MSLK],
 )
 @pytest.mark.parametrize("use_dynamic_per_tensor_scale", [True, False])
 @pytest.mark.parametrize(
@@ -185,20 +185,22 @@ def test_inference_workflow_nvfp4(
         pytest.skip("TODO: weight_only quant currently errors w/ compile")
     if (
         quant_type == "weight_only"
-        and quantize_to_nvfp4_kernel_choice == QuantizeToNVFP4KernelChoice.TRITON
+        and quantize_to_nvfp4_kernel_choice == QuantizeToNVFP4KernelChoice.MSLK
     ):
+        pytest.skip("unsupported configuration")
+    if use_triton_kernel and not use_dynamic_per_tensor_scale:
         pytest.skip("unsupported configuration")
 
     if use_inference_mode and (
         shapes != (128, 64, 256)
         or inpt_dtype != torch.bfloat16
-        or quantize_to_nvfp4_kernel_choice == QuantizeToNVFP4KernelChoice.TRITON
+        or quantize_to_nvfp4_kernel_choice == QuantizeToNVFP4KernelChoice.MSLK
     ):
         pytest.skip("skipping unnecessary tests for inference mode")
     if x_rank == 3 and (
         shapes != (128, 64, 256)
         or inpt_dtype != torch.bfloat16
-        or quantize_to_nvfp4_kernel_choice == QuantizeToNVFP4KernelChoice.TRITON
+        or quantize_to_nvfp4_kernel_choice == QuantizeToNVFP4KernelChoice.MSLK
     ):
         pytest.skip("skipping unnecessary tests for x_rank 3")
 
@@ -228,10 +230,10 @@ def test_inference_workflow_nvfp4(
     y_ref = m(x)
 
     if (
-        quantize_to_nvfp4_kernel_choice == QuantizeToNVFP4KernelChoice.TRITON
+        quantize_to_nvfp4_kernel_choice == QuantizeToNVFP4KernelChoice.MSLK
         and quant_type == "dynamic"
     ):
-        with cuda_kernel_profiler("quantize_nvfp4_triton_kernel") as result:
+        with cuda_kernel_profiler("triton_quantize_nvfp4_kernel") as result:
             y_mx = m_mx(x)
         assert result["found"], "Expected quantize_nvfp4 kernel to be found"
     else:

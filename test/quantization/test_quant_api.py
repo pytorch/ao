@@ -34,12 +34,14 @@ from torchao.quantization.qat import (
 )
 from torchao.quantization.quant_api import (
     Float8DynamicActivationFloat8WeightConfig,
+    Float8DynamicActivationInt4WeightConfig,
     Float8WeightOnlyConfig,
     FqnToConfig,
     GemliteUIntXWeightOnlyConfig,
     Int4WeightOnlyConfig,
     Int8DynamicActivationInt8WeightConfig,
     Int8DynamicActivationIntxWeightConfig,
+    Int8StaticActivationInt8WeightConfig,
     Int8WeightOnlyConfig,
     IntxWeightOnlyConfig,
     ModuleFqnToConfig,
@@ -60,6 +62,8 @@ from torchao.utils import (
     get_current_accelerator_device,
     is_sm_at_least_89,
     is_sm_at_least_90,
+    is_sm_at_least_100,
+    torch_version_at_least,
     unwrap_tensor_subclass,
 )
 
@@ -69,6 +73,11 @@ try:
     has_gemlite = True
 except ModuleNotFoundError:
     has_gemlite = False
+
+from torchao.prototype.mx_formats.inference_workflow import (
+    MXDynamicActivationMXWeightConfig,
+    NVFP4DynamicActivationNVFP4WeightConfig,
+)
 
 
 def dynamic_quant(model, example_inputs):
@@ -1035,6 +1044,44 @@ class TestFqnToConfig(TestCase):
 
         assert isinstance(m.nested.linear.weight, AffineQuantizedTensor)
         assert isinstance(m.linear1.weight, AffineQuantizedTensor)
+
+    def test_fqn_to_config_non_weight_param(self):
+        configs = [
+            Int4WeightOnlyConfig(group_size=128),
+            Float8DynamicActivationInt4WeightConfig(),
+            Int8WeightOnlyConfig(),
+            Int8DynamicActivationInt8WeightConfig(),
+            Int8DynamicActivationIntxWeightConfig(),
+            Int8StaticActivationInt8WeightConfig(),
+            IntxWeightOnlyConfig(),
+            Float8WeightOnlyConfig(),
+            Float8DynamicActivationFloat8WeightConfig(granularity=PerTensor()),
+        ]
+        if is_sm_at_least_100():
+            configs.append(MXDynamicActivationMXWeightConfig())
+        if is_sm_at_least_100() and torch_version_at_least("2.8.0"):
+            configs.append(NVFP4DynamicActivationNVFP4WeightConfig())
+        for config in configs:
+            with self.subTest(config=type(config).__name__):
+                model = torch.nn.Sequential(
+                    torch.nn.Linear(128, 128).to(torch.bfloat16).cuda()
+                )
+                model[0].register_parameter(
+                    "custom_param",
+                    torch.nn.Parameter(
+                        torch.randn(128, 128, dtype=torch.bfloat16, device="cuda")
+                    ),
+                )
+                original_custom_param = model[0].custom_param
+                original_weight = model[0].weight
+                quant_config = FqnToConfig({"0.custom_param": config})
+                quantize_(model, quant_config, filter_fn=None)
+                assert model[0].custom_param is not original_custom_param, (
+                    f"custom_param should be quantized for {type(config).__name__}"
+                )
+                assert model[0].weight is original_weight, (
+                    f"weight should be unchanged for {type(config).__name__}"
+                )
 
     def test_fqn_config_module_config_and_fqn_config_both_specified(self):
         with self.assertRaises(ValueError):

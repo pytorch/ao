@@ -413,6 +413,66 @@ def test_block_sizes(elem_dtype, B):
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+def test_from_qdata_and_scales_round_trip():
+    tensor_hp = torch.randn(128, 128, device="cuda", dtype=torch.bfloat16)
+    tensor_mx = MXTensor.to_mx(
+        tensor_hp,
+        torch.float8_e4m3fn,
+        32,
+        ScaleCalculationMode.RCEIL,
+    )
+    rebuilt = MXTensor.from_qdata_and_scales(
+        tensor_mx.qdata,
+        tensor_mx.scale,
+        orig_dtype=tensor_hp.dtype,
+        block_size=32,
+    )
+    torch.testing.assert_close(
+        rebuilt.dequantize(torch.float32),
+        tensor_mx.dequantize(torch.float32),
+    )
+    assert rebuilt.elem_dtype == tensor_mx.elem_dtype
+    assert rebuilt.block_size == tensor_mx.block_size
+    assert rebuilt.orig_dtype == tensor_mx.orig_dtype
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+def test_from_qdata_and_scales_requires_float8_e8m0_scale_dtype():
+    tensor_hp = torch.randn(128, 128, device="cuda", dtype=torch.bfloat16)
+    tensor_mx = MXTensor.to_mx(
+        tensor_hp,
+        torch.float8_e4m3fn,
+        32,
+        ScaleCalculationMode.RCEIL,
+    )
+    with pytest.raises(AssertionError, match="scale.dtype"):
+        MXTensor.from_qdata_and_scales(
+            tensor_mx.qdata,
+            tensor_mx.scale.view(torch.uint8),
+            orig_dtype=tensor_hp.dtype,
+            block_size=32,
+        )
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+def test_from_qdata_and_scales_rejects_packed_uint8_qdata():
+    tensor_hp = torch.randn(128, 128, device="cuda", dtype=torch.bfloat16)
+    tensor_mx = MXTensor.to_mx(
+        tensor_hp,
+        torch.float8_e4m3fn,
+        32,
+        ScaleCalculationMode.RCEIL,
+    )
+    with pytest.raises(AssertionError, match="typed MX qdata"):
+        MXTensor.from_qdata_and_scales(
+            torch.zeros_like(tensor_mx.qdata, dtype=torch.uint8),
+            tensor_mx.scale,
+            orig_dtype=tensor_hp.dtype,
+            block_size=32,
+        )
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
 def test_transpose(elem_dtype):
     """

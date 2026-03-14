@@ -709,21 +709,32 @@ def _int8_dynamic_activation_intx_weight_transform(
     module: torch.nn.Module,
     config: Int8DynamicActivationIntxWeightConfig,
     *,
+    parameter_name: str = "weight",
     custom_scale: Optional[torch.Tensor] = None,
     custom_zero_point: Optional[torch.Tensor] = None,
 ) -> torch.nn.Module:
     new_weight, new_bias = _int8_dynamic_activation_intx_weight_quantize_tensor(
-        module.weight,
+        getattr(module, parameter_name),
         module.bias,
         config,
         custom_scale=custom_scale,
         custom_zero_point=custom_zero_point,
     )
-    module.weight = torch.nn.Parameter(new_weight, requires_grad=False)
+    setattr(
+        module,
+        parameter_name,
+        torch.nn.Parameter(new_weight, requires_grad=False),
+    )
     if new_bias is None:
         module.bias = None
-    if isinstance(module, nn.Linear):
-        module.extra_repr = types.MethodType(_linear_extra_repr, module)
+    module.extra_repr = types.MethodType(
+        partial(
+            _module_extra_repr,
+            original_extra_repr=module.extra_repr,
+            parameter_name=parameter_name,
+        ),
+        module,
+    )
     return module
 
 
@@ -742,6 +753,7 @@ class Int4WeightOnlyConfig(AOBaseConfig):
          currently support TINYGEMM ("tinygemm") and HQQ ("hqq"), used in version 2 only
         `set_inductor_config`: if True, adjusts `torchinductor` settings to recommended values. used in both version 1 and 2
         `version`: version of the config to use, default is 2
+        `int4_tile_packed_ntile`: ntile size for TILED_PACKED_TO_4D format, default is 8 for CUDA platform, 16 for ROCm platform
 
     Example:
 
@@ -756,9 +768,13 @@ class Int4WeightOnlyConfig(AOBaseConfig):
     int4_choose_qparams_algorithm: Int4ChooseQParamsAlgorithm = (
         Int4ChooseQParamsAlgorithm.TINYGEMM
     )
+    int4_tile_packed_ntile: int = 8
     version: int = 2
 
     def __post_init__(self):
+        assert self.int4_tile_packed_ntile in [8, 16], (
+            "int4_tile_packed_ntile must be either 8 or 16"
+        )
         torch._C._log_api_usage_once("torchao.quantization.Int4WeightOnlyConfig")
 
 
@@ -771,6 +787,7 @@ def _int4_weight_only_quantize_tensor(weight, config):
     group_size = config.group_size
     int4_choose_qparams_algorithm = config.int4_choose_qparams_algorithm
     int4_packing_format = config.int4_packing_format
+    int4_tile_packed_ntile = config.int4_tile_packed_ntile
 
     if weight.shape[-1] % group_size != 0:
         logger.info(
@@ -813,6 +830,7 @@ def _int4_weight_only_quantize_tensor(weight, config):
             weight,
             block_size,
             int4_choose_qparams_algorithm=int4_choose_qparams_algorithm,
+            ntile_size=int4_tile_packed_ntile,
         )
         return new_weight
     else:
@@ -821,18 +839,34 @@ def _int4_weight_only_quantize_tensor(weight, config):
 
 @register_quantize_module_handler(Int4WeightOnlyConfig)
 def _int4_weight_only_transform(
-    module: torch.nn.Module, config: Int4WeightOnlyConfig
+    module: torch.nn.Module,
+    config: Int4WeightOnlyConfig,
+    *,
+    parameter_name: str = "weight",
 ) -> torch.nn.Module:
     if config.set_inductor_config:
         torchao.quantization.utils.recommended_inductor_config_setter()
 
-    assert hasattr(module, "weight"), (
-        "applying int8 weight only quant requires module to have weight attribute"
-        + " but {module} does not have one"
+    assert hasattr(module, parameter_name), (
+        f"applying int4 weight only quant requires module to have {parameter_name} attribute"
+        + f" but {module} does not have one"
     )
-    new_weight = _int4_weight_only_quantize_tensor(module.weight, config)
-    module.weight = torch.nn.Parameter(new_weight, requires_grad=False)
-    module.extra_repr = types.MethodType(_linear_extra_repr, module)
+    new_weight = _int4_weight_only_quantize_tensor(
+        getattr(module, parameter_name), config
+    )
+    setattr(
+        module,
+        parameter_name,
+        torch.nn.Parameter(new_weight, requires_grad=False),
+    )
+    module.extra_repr = types.MethodType(
+        partial(
+            _module_extra_repr,
+            original_extra_repr=module.extra_repr,
+            parameter_name=parameter_name,
+        ),
+        module,
+    )
     return module
 
 
@@ -857,18 +891,24 @@ class Float8DynamicActivationInt4WeightConfig(AOBaseConfig):
 
 @register_quantize_module_handler(Float8DynamicActivationInt4WeightConfig)
 def _float8_dynamic_activation_int4_weight_transform(
-    module: torch.nn.Module, config: Float8DynamicActivationInt4WeightConfig
+    module: torch.nn.Module,
+    config: Float8DynamicActivationInt4WeightConfig,
+    *,
+    parameter_name: str = "weight",
 ) -> torch.nn.Module:
-    assert hasattr(module, "weight"), (
-        "applying int8 weight only quant requires module to have weight attribute"
-        + " but {module} does not have one"
+    assert hasattr(module, parameter_name), (
+        f"applying float8 dynamic activation int4 weight quant requires module to have {parameter_name} attribute"
+        + f" but {module} does not have one"
     )
     int4_packing_format = config.int4_packing_format
 
-    assert int4_packing_format in ("preshuffled", "plain"), (
+    assert int4_packing_format in (
+        "preshuffled",
+        "plain",
+    ), (
         f"only preshuffled and plain int4_packing_format supported right now, got: {int4_packing_format}"
     )
-    weight = module.weight
+    weight = getattr(module, parameter_name)
     group_size = 128
     block_size = list([1 for _ in range(weight.ndim - 1)] + [group_size])
 
@@ -886,8 +926,19 @@ def _float8_dynamic_activation_int4_weight_transform(
             activation_dtype=torch.float8_e4m3fn,
         )
 
-    module.weight = torch.nn.Parameter(new_weight, requires_grad=False)
-    module.extra_repr = types.MethodType(_linear_extra_repr, module)
+    setattr(
+        module,
+        parameter_name,
+        torch.nn.Parameter(new_weight, requires_grad=False),
+    )
+    module.extra_repr = types.MethodType(
+        partial(
+            _module_extra_repr,
+            original_extra_repr=module.extra_repr,
+            parameter_name=parameter_name,
+        ),
+        module,
+    )
     return module
 
 
@@ -1079,7 +1130,7 @@ def _validate_granularity_int8(
 @dataclass
 class Int8DynamicActivationInt8WeightConfig(AOBaseConfig):
     """
-    Configuration for applying int8 dynamic symmetric per-token activation and int8 per-channel weight
+    Configuration for applying int8 dynamic per-token activation and int8 per-channel weight
     quantization to linear layers.
 
     Args:
@@ -1090,7 +1141,7 @@ class Int8DynamicActivationInt8WeightConfig(AOBaseConfig):
             activations and weights) or a tuple / list of two granularities (first for activations, second for weights).
             If None, defaults to PerRow for both. Only PerTensor and PerRow are supported.
         act_mapping_type: Optional[MappingType] = MappingType.SYMMETRIC - Mapping type for activation quantization.
-            SYMMETRIC uses symmetric quantization around zero.
+            SYMMETRIC and ASYMMETRIC are supported for version 2.
         weight_only_decode: bool = False - If True, only quantizes weights during forward pass and keeps activations
             in original precision during decode operations.
         set_inductor_config: bool = True - If True, adjusts `torchinductor` settings to recommended values
@@ -1174,13 +1225,8 @@ def _int8_dynamic_activation_int8_weight_quantize_tensor(weight, config):
         act_granularity, weight_granularity = Int8Tensor._normalize_granularity(
             config.granularity
         )
-        assert config.act_mapping_type == MappingType.SYMMETRIC, (
-            "asymmetric dynamic quant not supported currently"
-        )
         assert config.version == 2, f"Unexpected version: {config.version}"
 
-        # TODO: Symmentric/Asymmetric choice for weight quantization
-        # https://github.com/pytorch/ao/pull/3241#discussion_r2551515539
         quantized_weight = Int8Tensor.from_hp(
             weight,
             granularity=weight_granularity,
@@ -1203,14 +1249,18 @@ def _int8_dynamic_activation_int8_weight_transform(
     if config.set_inductor_config:
         torchao.quantization.utils.recommended_inductor_config_setter()
 
-    assert hasattr(module, "weight"), (
-        "applying int8 dynamic activation int8 weight quant requires module to have weight attribute"
-        + "but {module} does not have one"
+    assert hasattr(module, parameter_name), (
+        f"applying int8 dynamic activation int8 weight quant requires module to have {parameter_name} attribute"
+        + f" but {module} does not have one"
     )
     new_weight = _int8_dynamic_activation_int8_weight_quantize_tensor(
-        module.weight, config
+        getattr(module, parameter_name), config
     )
-    module.weight = torch.nn.Parameter(new_weight, requires_grad=False)
+    setattr(
+        module,
+        parameter_name,
+        torch.nn.Parameter(new_weight, requires_grad=False),
+    )
     module.extra_repr = types.MethodType(
         partial(
             _module_extra_repr,
@@ -1225,20 +1275,22 @@ def _int8_dynamic_activation_int8_weight_transform(
 @dataclass
 class Int8StaticActivationInt8WeightConfig(AOBaseConfig):
     """
-    Configuration for applying int8 static symmetric quantization to both activation and weight
+    Configuration for applying int8 static quantization to both activation and weight
 
     Args:
         act_quant_scale (torch.Tensor): The scale tensor for activation quantization.
+        act_quant_zero_point (torch.Tensor): The zero_point tensor for activation quantization (asymmetric only).
         granularity (Optional[Union[Granularity, Tuple[Granularity, Granularity], List[Granularity]]] = PerRow()):
             The granularity for quantization. Can be either a single granularity (applied to both
             activations and weights) or a tuple / list of two granularities (first for activations, second for weights).
             If None, defaults to PerRow for both. Only PerTensor and PerRow are supported.
-        act_mapping_type (MappingType): The mapping type for activation quantization. only SYMMETRIC is supported currently
+        act_mapping_type (MappingType): The mapping type for activation quantization. SYMMETRIC and ASYMMETRIC are supported.
         set_inductor_config (bool): if True, adjusts `torchinductor` settings to recommended values.
         version (int): the version of the config
     """
 
     act_quant_scale: Optional[torch.Tensor] = None
+    act_quant_zero_point: Optional[torch.Tensor] = None
     granularity: Optional[
         Union[Granularity, Tuple[Granularity, Granularity], list[Granularity]]
     ] = PerRow()
@@ -1281,15 +1333,16 @@ def _int8_static_activation_int8_weight_transform(
     activation_granularity, weight_granularity = Int8Tensor._normalize_granularity(
         config.granularity
     )
-    assert config.act_mapping_type == MappingType.SYMMETRIC, (
-        "asymmetric static quant not supported currently"
-    )
     assert hasattr(module, parameter_name), (
         f"Expected module to have attribute `{parameter_name}` but not found"
     )
 
     if config.set_inductor_config:
         torchao.quantization.utils.recommended_inductor_config_setter()
+
+    act_quant_zero_point = None
+    if config.act_quant_zero_point is not None:
+        act_quant_zero_point = config.act_quant_zero_point.detach()
 
     quantized_tensor = Int8Tensor.from_hp(
         getattr(module, parameter_name),
@@ -1299,6 +1352,7 @@ def _int8_static_activation_int8_weight_transform(
             mapping_type=config.act_mapping_type,
         ),
         act_quant_scale=config.act_quant_scale.detach(),
+        act_quant_zero_point=act_quant_zero_point,
     )
 
     setattr(
@@ -1765,26 +1819,33 @@ def _intx_weight_only_transform(
     module: torch.nn.Module,
     config: IntxWeightOnlyConfig,
     *,
+    parameter_name: str = "weight",
     custom_scale: Optional[torch.Tensor] = None,
     custom_zero_point: Optional[torch.Tensor] = None,
 ) -> torch.nn.Module:
-    assert hasattr(module, "weight"), (
-        "applying intx weight only quant requires module to have weight attribute"
-        + " but {module} does not have one"
+    assert hasattr(module, parameter_name), (
+        f"applying intx weight only quant requires module to have {parameter_name} attribute"
+        + f" but {module} does not have one"
     )
     new_weight = _intx_weight_only_quantize_tensor(
-        module.weight,
+        getattr(module, parameter_name),
         config,
         custom_scale=custom_scale,
         custom_zero_point=custom_zero_point,
     )
-    module.weight = torch.nn.Parameter(new_weight, requires_grad=False)
-
-    if isinstance(module, nn.Linear):
-        module.extra_repr = types.MethodType(_linear_extra_repr, module)
-    elif isinstance(module, nn.Embedding):
-        module.extra_repr = types.MethodType(_embedding_extra_repr, module)
-
+    setattr(
+        module,
+        parameter_name,
+        torch.nn.Parameter(new_weight, requires_grad=False),
+    )
+    module.extra_repr = types.MethodType(
+        partial(
+            _module_extra_repr,
+            original_extra_repr=module.extra_repr,
+            parameter_name=parameter_name,
+        ),
+        module,
+    )
     return module
 
 

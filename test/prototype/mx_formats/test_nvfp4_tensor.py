@@ -373,6 +373,8 @@ def test_quantize_to_nvfp4_kernel_numerical_equivalence(
     M, N, use_per_tensor_scale, dtype
 ):
     """Test that different quantize_to_nvfp4 kernel choices produce numerically equivalent results."""
+    if not use_per_tensor_scale:
+        pytest.skip("MSLK triton kernel requires per_tensor_scale")
 
     torch.manual_seed(42)
     x = torch.randn(M, N, dtype=dtype, device="cuda")
@@ -390,7 +392,17 @@ def test_quantize_to_nvfp4_kernel_numerical_equivalence(
     )
     ref_dequant = nvfp4_ref.dequantize(dtype)
 
-    other_kernel_choices = [QuantizeToNVFP4KernelChoice.TRITON]
+    other_kernel_choices = [QuantizeToNVFP4KernelChoice.MSLK]
+
+    torch.testing.assert_close(nvfp4_pt.scale.flatten(), nvfp4_triton.scale.flatten())
+    pt_unpacked = unpack_uint4(nvfp4_pt.qdata.view(torch.uint8))
+    triton_unpacked = unpack_uint4(nvfp4_triton.qdata.view(torch.uint8))
+    torch.testing.assert_close(
+        pt_unpacked,
+        triton_unpacked,
+        atol=0,
+        rtol=0,
+    )
 
     # Flashinfer requires the library and per_tensor_scale
     if _is_flashinfer_available() and use_per_tensor_scale:
@@ -406,8 +418,8 @@ def test_quantize_to_nvfp4_kernel_numerical_equivalence(
         )
 
         # For kernel choices that use the same quantization algorithm as TORCH
-        # (TRITON should be bitwise identical), verify internal data matches exactly
-        if kc == QuantizeToNVFP4KernelChoice.TRITON:
+        # (MSLK should be bitwise identical), verify internal data matches exactly
+        if kc == QuantizeToNVFP4KernelChoice.MSLK:
             torch.testing.assert_close(
                 nvfp4_ref.scale.flatten(),
                 nvfp4_other.scale.flatten(),
@@ -447,9 +459,9 @@ def test_quantize_to_nvfp4_kernel_numerical_equivalence(
 @pytest.mark.parametrize(
     "quantize_to_nvfp4_kernel_choice",
     [
-        QuantizeToNVFP4KernelChoice.TRITON,
-        QuantizeToNVFP4KernelChoice.TORCH,
+        QuantizeToNVFP4KernelChoice.MSLK,
         QuantizeToNVFP4KernelChoice.FLASHINFER,
+        QuantizeToNVFP4KernelChoice.TORCH,
     ],
 )
 @pytest.mark.parametrize(
@@ -570,7 +582,7 @@ def test_nvfp4_to_copy():
     "quantize_to_nvfp4_kernel_choice",
     [
         QuantizeToNVFP4KernelChoice.TORCH,
-        QuantizeToNVFP4KernelChoice.TRITON,
+        QuantizeToNVFP4KernelChoice.MSLK,
         QuantizeToNVFP4KernelChoice.FLASHINFER,
     ],
 )
@@ -589,12 +601,12 @@ def test_scale_shape_matches_qdata(
     transpose, quantize_to_nvfp4_kernel_choice, is_swizzled_scales, shape
 ):
     if (
-        quantize_to_nvfp4_kernel_choice == QuantizeToNVFP4KernelChoice.TRITON
+        quantize_to_nvfp4_kernel_choice == QuantizeToNVFP4KernelChoice.MSLK
         and not is_sm_at_least_100()
     ):
         pytest.skip("CUDA capability >= 10.0 required for nvfp4 triton kernel")
     if (
-        quantize_to_nvfp4_kernel_choice == QuantizeToNVFP4KernelChoice.TRITON
+        quantize_to_nvfp4_kernel_choice == QuantizeToNVFP4KernelChoice.MSLK
         and not is_swizzled_scales
     ):
         pytest.skip("triton kernel requires swizzled scales")
@@ -609,11 +621,13 @@ def test_scale_shape_matches_qdata(
     block_size = 16
 
     x_hp = torch.randn(*shape, device="cuda")
-    per_tensor_scale = None
+
     if quantize_to_nvfp4_kernel_choice == QuantizeToNVFP4KernelChoice.FLASHINFER:
         # flashinfer only supports fp16/bf16/e4m3 input
         x_hp = x_hp.to(torch.bfloat16)
-        per_tensor_scale = per_tensor_amax_to_scale(torch.amax(torch.abs(x_hp)))
+
+    per_tensor_scale = per_tensor_amax_to_scale(torch.amax(torch.abs(x_hp)))
+
     x = NVFP4Tensor.to_nvfp4(
         x_hp,
         per_tensor_scale=per_tensor_scale,

@@ -61,7 +61,10 @@ from torchao.float8 import (
     Float8LinearConfig,
     convert_to_float8_training,
 )
-from torchao.prototype.mx_formats import MXLinearConfig
+from torchao.prototype.moe_training.config import (
+    MXFP8TrainingOpConfig,
+    MXFP8TrainingRecipe,
+)
 from torchao.quantization import quantize_
 from torchao.testing.training.roofline_utils import (
     get_float8_mem_sympy,
@@ -253,10 +256,7 @@ def run(
     print(f"enable_fusion_modeling: {enable_fusion_modeling}")
 
     assert mx_recipe_name in (
-        # real mxfp8_cublas recipe
-        "mxfp8_cublas",
-        # real mxfp8_cublas_rceil recipe
-        "mxfp8_cublas_rceil",
+        None,
         # modeling of what mxfp8 with 32x32 block size and without gemm
         # operand layout restrictions would look like
         "mxfp8_32x32_flexible_gemm_layout",
@@ -429,7 +429,15 @@ def run(
                 )
             else:
                 assert mx_recipe_name is not None
-                config = MXLinearConfig.from_recipe_name(mx_recipe_name)
+                try:
+                    config = MXFP8TrainingOpConfig.from_recipe(
+                        MXFP8TrainingRecipe(mx_recipe_name)
+                    )
+                except ValueError:
+                    raise ValueError(
+                        f"Unsupported mx_recipe_name: {mx_recipe_name}. "
+                        f"Supported values: {[r.value for r in MXFP8TrainingRecipe]}"
+                    )
                 m_fp8_dyn = copy.deepcopy(m_orig)
                 quantize_(m_fp8_dyn, config=config)
             m_fp8_dyn = torch.compile(m_fp8_dyn)

@@ -10,7 +10,7 @@
 #include <tuple>
 #include <ATen/native/cpu/utils.h>
 
-int64_t get_m_block(int64_t M) {
+inline int64_t get_m_block(int64_t M) {
   if (M <= 48) {
     return M;
   } else if (M < 64) {
@@ -22,7 +22,7 @@ int64_t get_m_block(int64_t M) {
   }
 }
 
-std::tuple<bool, int64_t, int64_t, int64_t>
+inline std::tuple<bool, int64_t, int64_t, int64_t>
 get_m_blocking(int64_t M) {
   bool parallel_on_M = M > 128;
   int64_t block_m = get_m_block(M);
@@ -32,6 +32,10 @@ get_m_blocking(int64_t M) {
 }
 
 #if defined(CPU_CAPABILITY_AVX512)
+// Cached check for AVX-512F support in this process, for use by CPU kernels
+// that include this header and are compiled with CPU_CAPABILITY_AVX512.
+inline const bool kHasAVX512 = __builtin_cpu_supports("avx512f");
+
 template<typename T>
 void zero_buffer(T* data, int64_t size) {
   const int32_t vec_size = at::vec::Vectorized<T>::size();

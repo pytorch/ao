@@ -15,9 +15,10 @@ from torch import nn
 from torch.nn import functional as F
 
 from benchmarks.utils import bench_fwd_bwd_microseconds, profile_fwd_bwd
-from torchao.prototype.moe_training.conversion_utils import (
-    MoEScalingType,
-    MoETrainingConfig,
+from torchao.prototype.moe_training.config import (
+    Float8TrainingRecipe,
+    MXFP8TrainingOpConfig,
+    MXFP8TrainingRecipe,
 )
 from torchao.quantization.quant_api import quantize_
 
@@ -53,20 +54,39 @@ def bench_moe_training_fsdp(args: argparse.Namespace):
         args.hidden_dim,
     )
     assert torch.cuda.is_available()
-    assert recipe_name in ["fp8_rowwise", "mxfp8"]
-    recipe = MoEScalingType[recipe_name.upper()]
-    if recipe == MoEScalingType.FP8_ROWWISE and torch.cuda.get_device_capability() != (
-        9,
-        0,
+    assert recipe_name in ["fp8_rowwise", "mxfp8_rceil", "mxfp8_rceil_wgrad_with_hp"]
+
+    # Map recipe name to enum
+    if recipe_name == "fp8_rowwise":
+        recipe = Float8TrainingRecipe.FP8_ROWWISE
+    elif recipe_name == "mxfp8_rceil":
+        recipe = MXFP8TrainingRecipe.MXFP8_RCEIL
+    elif recipe_name == "mxfp8_rceil_wgrad_with_hp":
+        recipe = MXFP8TrainingRecipe.MXFP8_RCEIL_WGRAD_WITH_HP
+    else:
+        raise ValueError(f"Unknown recipe: {recipe_name}")
+
+    # Check hardware requirements
+    if (
+        recipe == Float8TrainingRecipe.FP8_ROWWISE
+        and torch.cuda.get_device_capability()
+        != (
+            9,
+            0,
+        )
     ):
         logging.warning(
             f"Skipping FP8 rowwise benchmarks, only supported on compute capability 9.0 and found {torch.cuda.get_device_capability()}"
         )
         return
 
-    elif recipe == MoEScalingType.MXFP8 and torch.cuda.get_device_capability() != (
-        10,
-        0,
+    if (
+        recipe == MXFP8TrainingRecipe.MXFP8_RCEIL
+        and torch.cuda.get_device_capability()
+        != (
+            10,
+            0,
+        )
     ):
         logging.warning(
             f"Skipping MXFP8 benchmarks, only supported on compute capability 10.0 and found {torch.cuda.get_device_capability()}"
@@ -92,7 +112,7 @@ def bench_moe_training_fsdp(args: argparse.Namespace):
     model = copy.deepcopy(ref_model)
 
     # Token group alignment size must be 16 for fp8 rowwise training
-    alignment_size = 32 if recipe == MoEScalingType.MXFP8 else 16
+    alignment_size = 32 if recipe == MXFP8TrainingRecipe.MXFP8_RCEIL else 16
     set_token_group_alignment_size_m(alignment_size)
 
     # assert starting params are identical for both models
@@ -107,7 +127,7 @@ def bench_moe_training_fsdp(args: argparse.Namespace):
         return False
 
     # quantize test model
-    config = MoETrainingConfig(scaling_type=recipe)
+    config = MXFP8TrainingOpConfig.from_recipe(recipe)
     quantize_(model, config=config, filter_fn=moe_module_filter_fn)
 
     # inputs
@@ -190,7 +210,10 @@ if __name__ == "__main__":
         help="Enable PyTorch profiling and save results to file",
     )
     parser.add_argument(
-        "--recipe", type=str, help="[fp8_rowwise, mxfp8]", required=True
+        "--recipe",
+        type=str,
+        help="[fp8_rowwise, rceil, rceil_wgrad_with_hp]",
+        required=True,
     )
     parser.add_argument(
         "--local_num_experts",

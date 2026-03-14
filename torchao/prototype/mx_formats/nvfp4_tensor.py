@@ -16,8 +16,8 @@ from torchao.prototype.mx_formats.constants import F4_E2M1_MAX, F8E4M3_MAX
 from torchao.prototype.mx_formats.kernels import (
     f4_unpacked_to_f32,
     f32_to_f4_unpacked,
+    mslk_quantize_nvfp4,
     pack_uint4,
-    triton_quantize_nvfp4,
     unpack_uint4,
 )
 from torchao.prototype.mx_formats.mx_tensor import (
@@ -50,7 +50,7 @@ def _handle_use_triton_kernel(
     quantize_to_nvfp4_kernel_choice.
     """
     expected = (
-        QuantizeToNVFP4KernelChoice.TRITON
+        QuantizeToNVFP4KernelChoice.MSLK
         if use_triton_kernel
         else QuantizeToNVFP4KernelChoice.TORCH
     )
@@ -61,7 +61,7 @@ def _handle_use_triton_kernel(
             "`use_triton_kernel` is deprecated and will be removed after 0.17. "
             "Please use `quantize_to_nvfp4_kernel_choice` instead. "
             "`use_triton_kernel=True` is equivalent to "
-            "`quantize_to_nvfp4_kernel_choice=QuantizeToNVFP4KernelChoice.TRITON`, "
+            "`quantize_to_nvfp4_kernel_choice=QuantizeToNVFP4KernelChoice.MSLK`, "
             "`use_triton_kernel=False` is equivalent to "
             "`quantize_to_nvfp4_kernel_choice=QuantizeToNVFP4KernelChoice.TORCH`."
         )
@@ -192,12 +192,15 @@ class NVFP4Tensor(TorchAOBaseTensor):
             use_triton_kernel, quantize_to_nvfp4_kernel_choice
         )
 
-        if quantize_to_nvfp4_kernel_choice == QuantizeToNVFP4KernelChoice.TRITON:
+        if quantize_to_nvfp4_kernel_choice == QuantizeToNVFP4KernelChoice.MSLK:
             assert is_swizzled_scales, "Triton kernel only supports swizzled scales"
             assert K % 16 == 0, (
                 f"Triton kernel requires K (dim -1) to be divisible by 16, got {K}"
             )
-            blockwise_scales, data_lp = triton_quantize_nvfp4(data_hp, per_tensor_scale)
+            assert per_tensor_scale is not None, (
+                "Triton kernel requires per_tensor_scale"
+            )
+            blockwise_scales, data_lp = mslk_quantize_nvfp4(data_hp, per_tensor_scale)
         elif quantize_to_nvfp4_kernel_choice == QuantizeToNVFP4KernelChoice.FLASHINFER:
             from flashinfer import SfLayout
             from flashinfer import nvfp4_quantize as flashinfer_nvfp4_quantize
@@ -770,10 +773,10 @@ def nvfp4_quantize(
             scaled_block_scales, min=E4M3_EPS, max=F8E4M3_MAX
         ).to(torch.float8_e4m3fn)
         scaled_block_scales_fp32 = scaled_block_scales_fp8.to(torch.float32)
-        # We "temporarily" dequant the scaled_block_scales_fp32 to get the per_tensor_scale
-        # To apply to data
-        total_scale = per_tensor_scale * scaled_block_scales_fp32
-        data_scaled = data_hp / total_scale.unsqueeze(-1)
+        # Multiply by reciprocal of combined scale instead of dividing,
+        # to match the MSLK triton kernel numerics: x * (global_scale / fp8_scale)
+        reciprocal_scale = (1.0 / per_tensor_scale) / scaled_block_scales_fp32
+        data_scaled = data_hp * reciprocal_scale.unsqueeze(-1)
         out_scales = scaled_block_scales_fp8
 
     data_scaled = torch.clamp(data_scaled, -F4_E2M1_MAX, F4_E2M1_MAX)
