@@ -46,6 +46,7 @@ class QuantizeToNVFP4KernelChoice(str, Enum):
 
 torch.serialization.add_safe_globals([QuantizeToNVFP4KernelChoice])
 
+
 # register as pytree constant so we can use dynamo nonstrict trace in torchao.prototype.moe_training.ep
 @register_as_pytree_constant
 class ScaleCalculationMode(Enum):
