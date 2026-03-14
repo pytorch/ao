@@ -19,6 +19,7 @@ from torchao.prototype.moe_training.kernels.mxfp8 import (
     triton_mx_block_rearrange_per_group_3d,
 )
 from torchao.prototype.moe_training.utils import (
+    conditional_nostrict_trace,
     pad_token_groups,
     unpad_token_groups,
 )
@@ -77,7 +78,7 @@ def _validate_grouped_mm_input_act(
 
 
 # Aliases for convenience/clarity
-# @conditional_nostrict_trace
+@conditional_nostrict_trace
 def _to_mxfp8_then_scaled_grouped_mm(
     A: torch.Tensor,
     B_t: torch.Tensor,
