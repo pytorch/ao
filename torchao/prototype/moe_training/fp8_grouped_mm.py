@@ -11,7 +11,8 @@ import torch
 from torchao.float8.config import ScalingGranularity
 from torchao.float8.float8_utils import tensor_to_scale, to_fp8_saturated
 from torchao.prototype.moe_training.kernels import (
-    triton_fp8_per_group_colwise_scales,
+    triton_fp8_per_group_colwise_scales_dual,
+    triton_fp8_rowwise_2d_scale_and_cast,
     triton_fp8_rowwise_3d_transpose_rhs,
 )
 from torchao.prototype.moe_training.utils import (
@@ -125,17 +126,16 @@ class _Float8GroupedMM(torch.autograd.Function):
             padded_group_end_offsets = offs
 
         # Convert high precision input tensor to float8, row-major for left operand of grouped GEMM.
+        # Uses fused Triton kernel that computes per-row absmax + scale + FP8 cast
+        # in a single kernel launch (replaces 3 separate ops: tensor_to_scale,
+        # multiply by scale, and to_fp8_saturated).
         # padded_A shape: (M, K) or (padded_M, K) if padding was used
-        # A_scales shape: (M,1) or (padded_M, 1) if padding was used
-        A_scales = tensor_to_scale(
+        # A_scales shape: (M, 1) or (padded_M, 1) if padding was used
+        A_data_row_major, A_scales = triton_fp8_rowwise_2d_scale_and_cast(
             padded_A,
-            float8_dtype,
-            scaling_granularity=ScalingGranularity.AXISWISE,
-            axiswise_dim=-1,
+            output_dtype=float8_dtype,
             round_scales_to_power_of_2=True,
         )
-        A_scaled = padded_A.to(torch.float32) * A_scales
-        A_data_row_major = to_fp8_saturated(A_scaled, float8_dtype)
 
         # Convert B to float8, column-major for right operand of grouped GEMM.
         # B_t shape: (E, K, N)
@@ -224,18 +224,17 @@ class _Float8GroupedMM(torch.autograd.Function):
 
         # Convert grad_output to float8, row-major for left operand of grouped GEMM
         # needed for grad_A: grad_output @ B
-        #
+        # Uses fused Triton kernel (same as forward A quantization) to replace 3
+        # separate ops (tensor_to_scale + multiply + to_fp8_saturated) in one launch.
         # padded_grad_output shape: (Mg, N) or (padded_Mg, N) if padding was used
-        # grad_output_scale shape: (Mg, 1) or (padded_Mg, 1) if padding was used
-        grad_output_scales = tensor_to_scale(
-            padded_grad_output,
-            float8_dtype,
-            scaling_granularity=ScalingGranularity.AXISWISE,
-            axiswise_dim=-1,
-            round_scales_to_power_of_2=True,
+        # grad_output_scales shape: (Mg, 1) or (padded_Mg, 1) if padding was used
+        grad_output_data_row_major, grad_output_scales = (
+            triton_fp8_rowwise_2d_scale_and_cast(
+                padded_grad_output,
+                output_dtype=float8_dtype,
+                round_scales_to_power_of_2=True,
+            )
         )
-        grad_output_scaled = padded_grad_output.to(torch.float32) * grad_output_scales
-        grad_output_data_row_major = to_fp8_saturated(grad_output_scaled, float8_dtype)
 
         # Compute B fp8 column-major for right operand of grouped GEMM:
         # grad_A = grad_output @ B.
@@ -281,26 +280,20 @@ class _Float8GroupedMM(torch.autograd.Function):
             )
 
         # grad_B is a special case. both operands of the grouped gemm will be 2D with offsets determing the "groups."
-        # Compute scales for grad_output_t and A, which are both 2D tensors with offsets which define the "jagged" groups.
-
-        # Convert transpose of grad_output to float8, row-major for left operand of grouped GEMM
-        # needed for grad_B: grad_output_t @ A
-        # Use transpose method to avoid uncoalesced memory accesses.
-        grad_out_data_colwise, grad_out_scales = triton_fp8_per_group_colwise_scales(
-            padded_grad_output,
-            padded_group_end_offsets,
-            float8_dtype,
-            round_scales_to_power_of_2=True,
+        # Compute colwise scales for grad_output_t and A in a single fused kernel launch.
+        # The dual kernel merges the row-iteration loops for both tensors, halving launches
+        # and reducing per-row overhead vs two sequential triton_fp8_per_group_colwise_scales calls.
+        grad_out_data_colwise, grad_out_scales, A_data_col_major, A_scales = (
+            triton_fp8_per_group_colwise_scales_dual(
+                padded_grad_output,
+                padded_A,
+                padded_group_end_offsets,
+                float8_dtype,
+                round_scales_to_power_of_2=True,
+            )
         )
         grad_output_t_data_row_major = grad_out_data_colwise.t()
         grad_output_t_scales = grad_out_scales.t()
-
-        A_data_col_major, A_scales = triton_fp8_per_group_colwise_scales(
-            padded_A,
-            padded_group_end_offsets,
-            float8_dtype,
-            round_scales_to_power_of_2=True,
-        )
 
         # Compute grad_B = grad_output_t @ A.
         # grad_B = grad_output_t @ A
