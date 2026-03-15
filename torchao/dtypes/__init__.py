@@ -10,10 +10,12 @@ from .affine_quantized_tensor import (
 from .floatx import (
     CutlassSemiSparseLayout,
     Float8Layout,
+    Float8NPULayout,
 )
 from .nf4tensor import NF4Tensor, to_nf4
 from .uintx import (
     Int4CPULayout,
+    Int4NPULayout,
     Int4XPULayout,
     PackedLinearInt8DynamicActivationIntxWeightLayout,
     QDQLayout,
@@ -41,10 +43,12 @@ __all__ = [
     "SemiSparseLayout",
     "TensorCoreTiledLayout",
     "Float8Layout",
+    "Float8NPULayout",
     "affine_quantized_tensor_ops",
     "BlockSparseLayout",
     "UintxLayout",
     "Int4CPULayout",
+    "Int4NPULayout",
     "CutlassSemiSparseLayout",
     "QDQLayout",
     "PackedLinearInt8DynamicActivationIntxWeightLayout",

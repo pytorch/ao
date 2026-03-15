@@ -21,9 +21,19 @@ from torchao.dtypes.floatx.float8_layout import (
     _linear_fp_act_fp8_weight_check,
     _linear_fp_act_fp8_weight_impl,
 )
+from torchao.dtypes.floatx.float8_npu_layout import (
+    _linear_fp8_act_fp8_weight_npu_check,
+    _linear_fp8_act_fp8_weight_npu_impl,
+    _linear_fp_act_fp8_weight_npu_check,
+    _linear_fp_act_fp8_weight_npu_impl,
+)
 from torchao.dtypes.uintx.int4_cpu_layout import (
     _linear_fp_act_uint4_weight_cpu_check,
     _linear_fp_act_uint4_weight_cpu_impl,
+)
+from torchao.dtypes.uintx.int4_npu_layout import (
+    _linear_bf16_act_uint4_weight_npu_check,
+    _linear_bf16_act_uint4_weight_npu_impl,
 )
 from torchao.dtypes.uintx.int4_xpu_layout import (
     _linear_bf16_act_uint4_weight_float_zero_check,
@@ -210,6 +220,18 @@ def _register_aqt_quantized_linear_dispatches():
         (
             _linear_int8_act_int4_weight_cpu_check,
             _linear_int8_act_int4_weight_cpu_impl,
+        ),
+        (
+            _linear_bf16_act_uint4_weight_npu_check,
+            _linear_bf16_act_uint4_weight_npu_impl,
+        ),
+        (
+            _linear_fp8_act_fp8_weight_npu_check,
+            _linear_fp8_act_fp8_weight_npu_impl,
+        ),
+        (
+            _linear_fp_act_fp8_weight_npu_check,
+            _linear_fp_act_fp8_weight_npu_impl,
         ),
     ]:
         register_aqt_quantized_linear_dispatch(dispatch_condition, impl)

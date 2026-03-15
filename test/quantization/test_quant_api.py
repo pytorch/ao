@@ -170,6 +170,8 @@ def _get_ref_change_linear_weights_to_woqtensors(deprecated_tenosr_subclass):
 class TestQuantFlow(TestCase):
     GPU_DEVICES = (["cuda"] if torch.cuda.is_available() else []) + (
         ["xpu"] if torch.xpu.is_available() else []
+    ) + (
+        ["npu"] if hasattr(torch, "npu") and torch.npu.is_available() else []
     )
 
     def test_dynamic_quant_gpu_singleline(self):
