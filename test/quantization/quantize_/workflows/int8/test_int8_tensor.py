@@ -250,6 +250,7 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
             f"Dequantization error is too high to get a SQNR of {compute_error(dequantized, weight_fp)}"
         )
 
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     @unittest.skipIf(
         not torch_version_at_least("2.7.0"), "torch 2.6.0 and below has custom fx pass"
     )
@@ -258,7 +259,7 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
         torch.compiler.reset()
 
         M, K, N = 128, 256, 512
-        device = get_current_accelerator_device()
+        device = get_available_devices()
         m = torch.nn.Sequential(
             torch.nn.Linear(K, N, device=device, dtype=torch.bfloat16)
         )
