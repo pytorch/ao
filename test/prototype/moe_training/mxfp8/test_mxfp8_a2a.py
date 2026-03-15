@@ -57,9 +57,9 @@ def _build_padded_expert_group_reference(
         per_expert_chunks = []
         for remote_rank in range(num_remote_ranks):
             expert_counts_for_remote_rank = output_expert_splits[remote_rank]
-            expert_start = remote_rank_starts[remote_rank] + expert_counts_for_remote_rank[
-                :expert_idx
-            ].sum(dtype=torch.int64)
+            expert_start = remote_rank_starts[
+                remote_rank
+            ] + expert_counts_for_remote_rank[:expert_idx].sum(dtype=torch.int64)
             expert_tokens = expert_counts_for_remote_rank[expert_idx]
             expert_end = expert_start + expert_tokens
             per_expert_chunks.append(dispatched[expert_start:expert_end])
@@ -144,8 +144,7 @@ class MXFP8OnDeviceAllToAllVTest(MultiProcessTestCase):
             # Max output tokens per rank is worst case where one rank receives all tokens,
             # padded independently for each expert.
             max_output_tokens_per_rank = (
-                tokens_per_ep_rank * self.world_size
-                + 32 * num_experts_per_rank
+                tokens_per_ep_rank * self.world_size + 32 * num_experts_per_rank
             )
 
             # Test forward
@@ -182,9 +181,11 @@ class MXFP8OnDeviceAllToAllVTest(MultiProcessTestCase):
             for remote_rank, remote_expert_splits in enumerate(gathered_expert_splits):
                 output_expert_splits_ref[remote_rank] = remote_expert_splits[self.rank]
 
-            ref_output, padded_group_end_offsets_ref = _build_padded_expert_group_reference(
-                ref_dispatched,
-                output_expert_splits_ref,
+            ref_output, padded_group_end_offsets_ref = (
+                _build_padded_expert_group_reference(
+                    ref_dispatched,
+                    output_expert_splits_ref,
+                )
             )
             total_padded_rows = int(padded_group_end_offsets_ref[-1].item())
 
@@ -195,7 +196,9 @@ class MXFP8OnDeviceAllToAllVTest(MultiProcessTestCase):
             assert torch.equal(output_expert_splits, output_expert_splits_ref), (
                 f"output_expert_splits mismatch: got {output_expert_splits}, expected {output_expert_splits_ref}"
             )
-            assert torch.equal(padded_group_end_offsets, padded_group_end_offsets_ref), (
+            assert torch.equal(
+                padded_group_end_offsets, padded_group_end_offsets_ref
+            ), (
                 f"padded_group_end_offsets mismatch: got {padded_group_end_offsets}, expected {padded_group_end_offsets_ref}"
             )
 

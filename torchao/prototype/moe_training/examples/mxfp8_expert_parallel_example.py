@@ -14,7 +14,6 @@ Usage:
 import os
 
 import torch
-import torch.distributed._symmetric_memory as symm_mem
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.distributed import destroy_process_group, init_process_group
@@ -135,8 +134,8 @@ class GroupedExperts(nn.Module):
 # requires torchao nightly build for CUDA 12.8+
 from torchao.prototype.moe_training.ep import (
     a2a_combine_hp_fwd_mxfp8_bwd,
-    a2a_dispatch_and_group_mxfp8_fwd_hp_bwd,
     a2a_dispatch_mxfp8_fwd_hp_bwd,
+    permute_mxfp8_fwd_hp_bwd,
     unpermute_hp_fwd_mxfp8_bwd,
 )
 
@@ -150,10 +149,8 @@ class MXFP8ExpertParallel(ParallelStyle):
         self.permuted_indices = None
 
         # use torchao mxfp8 EP autograd functions as building blocks here
-        self.a2a_dispatch_and_group_mxfp8_fwd_hp_bwd = (
-            a2a_dispatch_and_group_mxfp8_fwd_hp_bwd
-        )
         self.a2a_dispatch_mxfp8_fwd_hp_bwd = a2a_dispatch_mxfp8_fwd_hp_bwd
+        self.permute_mxfp8_fwd_hp_bwd = permute_mxfp8_fwd_hp_bwd
         self.unpermute_hp_fwd_mxfp8_bwd = unpermute_hp_fwd_mxfp8_bwd
         self.a2a_combine_hp_fwd_mxfp8_bwd = a2a_combine_hp_fwd_mxfp8_bwd
 
@@ -170,6 +167,7 @@ class MXFP8ExpertParallel(ParallelStyle):
         # annotate module input placements/sharding with input_layouts
         routed_input, num_tokens_per_expert = inputs
         ep_degree = device_mesh.shape[0]
+        num_local_experts = num_tokens_per_expert.shape[0] // ep_degree
 
         # first all-to-all to calculate output splits from input splits.
         # note: this will incur a d2h sync
@@ -203,19 +201,34 @@ class MXFP8ExpertParallel(ParallelStyle):
                 output_splits.tolist(),
             )
 
-        # Dispatch directly into grouped+padded MXFP8 layout.
+        # perform all-to-all token dispatch
+        routed_input = self.a2a_dispatch_mxfp8_fwd_hp_bwd(
+            routed_input,
+            output_splits=self.output_splits,
+            input_splits=self.input_splits,
+            group_name=device_mesh.get_group().group_name,
+        )
+
+        # NOTE: After this all-to-all, the routed input is put on proper EP rank.
+        #
+        # However, the num_tokens_per_expert_group is not of the final target format
+        # [#tokens for local expert 0, #tokens for local expert 1, ...]
+        #
+        # Rather, it is of the format
+        # [#tokens for local expert 0 from EP rank 0, #tokens for local expert 1 from EP rank 0, ...,
+        #  #tokens for local expert 0 from EP rank 1, #tokens for local expert 1 from EP rank 1, ...]
+        #
+        # We need to perform another shuffle to get the correct layout, via the _permute function
+        # below, which also does padding to make sure the number of tokens each expert gets locally
+        # is a multiple of 32 (scaling block size for MXFP8).
         (
             self.input_shape,
             routed_input,
             self.permuted_indices,
             num_tokens_per_expert_group,
             _,
-        ) = self.a2a_dispatch_and_group_mxfp8_fwd_hp_bwd(
-            routed_input,
-            self.output_splits,
-            self.input_splits,
-            num_tokens_per_expert,
-            group_name=device_mesh.get_group().group_name,
+        ) = self.permute_mxfp8_fwd_hp_bwd(
+            routed_input, num_tokens_per_expert_group, ep_degree, num_local_experts
         )
         return routed_input, num_tokens_per_expert_group
 
@@ -274,7 +287,6 @@ def apply_mxfp8_expert_parallel(
 def main():
     # Initialize distributed process group
     init_process_group(backend="nccl")
-    symm_mem.set_backend("NVSHMEM")
 
     local_rank = int(os.environ["LOCAL_RANK"])
     world_size = int(os.environ["WORLD_SIZE"])
@@ -291,7 +303,6 @@ def main():
 
     # Create device mesh for expert parallelism
     ep_mesh = DeviceMesh("cuda", list(range(world_size)), mesh_dim_names=("ep",))
-    symm_mem.enable_symm_mem_for_group(ep_mesh.get_group().group_name)
 
     # Create MoE layer
     moe = (
