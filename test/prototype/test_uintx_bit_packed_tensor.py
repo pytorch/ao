@@ -9,6 +9,7 @@ import torch
 from torch.testing._internal.common_utils import TestCase, run_tests
 
 from torchao.quantization import quantize_
+from torchao.quantization.utils import compute_error
 
 try:
     import gemlite  # noqa: F401
@@ -21,7 +22,9 @@ except ModuleNotFoundError:
 @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
 @unittest.skipIf(not has_gemlite, "gemlite not available")
 class TestUIntxBitPackedTensor(TestCase):
-    def _test_quantize_and_linear(self, bit_width, group_size, packing_bitwidth):
+    def _test_quantize_and_linear(
+        self, bit_width, group_size, packing_bitwidth, sqnr_threshold=24
+    ):
         """Helper: quantize a linear layer and verify forward pass produces valid output."""
         from torchao.prototype.quantization.quant_api import UIntxWeightOnlyConfig
 
@@ -30,6 +33,10 @@ class TestUIntxBitPackedTensor(TestCase):
         model = torch.nn.Linear(in_features, out_features, bias=False).to(
             device="cuda", dtype=torch.float16
         )
+
+        # Compute reference output before quantization
+        x = torch.randn(2, in_features, device="cuda", dtype=torch.float16)
+        ref_out = model(x)
 
         config = UIntxWeightOnlyConfig(
             group_size=group_size,
@@ -45,12 +52,18 @@ class TestUIntxBitPackedTensor(TestCase):
 
         self.assertIsInstance(model.weight, UIntxBitPackedTensor)
 
-        # Verify forward pass works
-        x = torch.randn(2, in_features, device="cuda", dtype=torch.float16)
+        # Verify forward pass works and is close to non-quantized output
         out = model(x)
         self.assertEqual(out.shape, (2, out_features))
         self.assertFalse(torch.isnan(out).any())
         self.assertFalse(torch.isinf(out).any())
+
+        sqnr = compute_error(ref_out, out)
+        self.assertGreater(
+            sqnr,
+            sqnr_threshold,
+            f"SQNR {sqnr:.1f} dB is below threshold {sqnr_threshold} dB",
+        )
 
     def test_4bit_group64_pack32(self):
         self._test_quantize_and_linear(bit_width=4, group_size=64, packing_bitwidth=32)
@@ -70,7 +83,7 @@ class TestUIntxBitPackedTensor(TestCase):
         self._test_quantize_and_linear(bit_width=8, group_size=None, packing_bitwidth=8)
 
     def _test_dynamic_quantize_and_linear(
-        self, bit_width, group_size, packing_bitwidth
+        self, bit_width, group_size, packing_bitwidth, sqnr_threshold=22
     ):
         """Helper: quantize with dynamic activation and verify forward pass."""
         from torchao.prototype.quantization.quant_api import (
@@ -82,6 +95,10 @@ class TestUIntxBitPackedTensor(TestCase):
         model = torch.nn.Linear(in_features, out_features, bias=False).to(
             device="cuda", dtype=torch.float16
         )
+
+        # Compute reference output before quantization
+        x = torch.randn(2, in_features, device="cuda", dtype=torch.float16)
+        ref_out = model(x)
 
         config = Int8DynamicActivationUIntxWeightConfig(
             group_size=group_size,
@@ -96,11 +113,18 @@ class TestUIntxBitPackedTensor(TestCase):
 
         self.assertIsInstance(model.weight, UIntxBitPackedTensor)
 
-        x = torch.randn(2, in_features, device="cuda", dtype=torch.float16)
+        # Verify forward pass works and is close to non-quantized output
         out = model(x)
         self.assertEqual(out.shape, (2, out_features))
         self.assertFalse(torch.isnan(out).any())
         self.assertFalse(torch.isinf(out).any())
+
+        sqnr = compute_error(ref_out, out)
+        self.assertGreater(
+            sqnr,
+            sqnr_threshold,
+            f"SQNR {sqnr:.1f} dB is below threshold {sqnr_threshold} dB",
+        )
 
     def test_dynamic_4bit_group64_pack32(self):
         self._test_dynamic_quantize_and_linear(
