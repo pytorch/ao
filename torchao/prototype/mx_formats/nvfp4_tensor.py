@@ -447,12 +447,9 @@ def nvfp4_select(func, types, args, kwargs):
 
 def _resolve_nvfp4_kernel_preference(a_pref, b_pref):
     """Resolve kernel preference between two NVFP4Tensors."""
-    if a_pref == KernelPreference.AUTO:
-        return b_pref
-    if b_pref == KernelPreference.AUTO:
-        return a_pref
     assert a_pref == b_pref, (
-        "Both NVFP4Tensor inputs must have the same kernel preference"
+        f"Both NVFP4Tensor inputs must have the same kernel preference, "
+        f"got {a_pref} and {b_pref}"
     )
     return a_pref
 

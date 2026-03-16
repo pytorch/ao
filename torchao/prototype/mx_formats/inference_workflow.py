@@ -298,6 +298,10 @@ def _nvfp4_inference_linear_transform(
     elif step is None:
         # Dynamic quantization
         kernel_pref = config.kernel_preference
+        assert kernel_pref in (KernelPreference.AUTO, KernelPreference.EMULATED), (
+            f"Unsupported kernel_preference={kernel_pref}, "
+            f"only AUTO and EMULATED are supported"
+        )
         if kernel_pref == KernelPreference.AUTO:
             if is_ROCM():
                 from torchao.utils import is_MI350
