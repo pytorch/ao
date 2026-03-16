@@ -71,6 +71,9 @@ class PackedLinearInt8DynamicActivationIntxWeightLayout(Layout):
         target: Union[str, Target] = "auto",
     ):
         warnings.warn(
+            "Deprecation: PackedLinearInt8DynamicActivationIntxWeightLayout is deprecated and will be removed in a future release of torchao, see https://github.com/pytorch/ao/issues/2752 for more details"
+        )
+        warnings.warn(
             "Models quantized with version 1 of IntxWeightOnlyConfig/Int8DynamicActivationIntxWeightConfig are deprecated and will no longer be supported in a future release, please upgrade torchao and quantize again, or download a newer torchao checkpoint, see https://github.com/pytorch/ao/issues/2967 for more details"
         )
         if isinstance(target, str):
@@ -130,6 +133,9 @@ class PackedLinearInt8DynamicActivationIntxWeightAQTTensorImpl(AQTTensorImpl):
         packed_weight: torch.Tensor,
         _layout: Layout,
     ):
+        warnings.warn(
+            "Deprecation: PackedLinearInt8DynamicActivationIntxWeightAQTTensorImpl is deprecated and will be removed in a future release of torchao, see https://github.com/pytorch/ao/issues/2752 for more details"
+        )
         assert isinstance(_layout, PackedLinearInt8DynamicActivationIntxWeightLayout)
         self.packed_weight = packed_weight
         self._layout = _layout

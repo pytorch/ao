@@ -204,7 +204,8 @@ class NVFP4DynamicActivationNVFP4WeightConfig(AOBaseConfig):
     set to False.
 
     Configuration parameters:
-    - use_triton_kernel: bool, whether to use fused triton kernel for activation scaling (default: True)
+    - use_triton_kernel: bool, whether to use fused triton kernel for activation scaling (default: True).
+      Requires `MSLK <https://github.com/pytorch/MSLK>`__ to be installed.
     - use_dynamic_per_tensor_scale: bool, whether to dynamically compute per tensor scale (default: True)
     - step: Optional[QuantizationStep], the quantization step for observer-based flow
     - Data: float4_e2m1fn_x2

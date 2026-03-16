@@ -116,7 +116,17 @@ def run_experiment(
         requires_grad=True,
     ).transpose(-2, -1)
 
-    offs = generate_jagged_offs(G, total_M, multiple_of=1)
+    # Create config object from recipe
+    if isinstance(config.recipe, Float8TrainingRecipe):
+        quant_config = Float8TrainingOpConfig.from_recipe(config.recipe)
+        alignment_size = 16 if args.aligned else 1
+        # TODO: support pad_token_groups_for_grouped_mm option in Float8TrainingOpConfig
+    else:
+        quant_config = MXFP8TrainingOpConfig.from_recipe(config.recipe)
+        quant_config.pad_token_groups_for_grouped_mm = not args.aligned
+        alignment_size = 32 if args.aligned else 1
+
+    offs = generate_jagged_offs(G, total_M, multiple_of=alignment_size)
 
     # fwd_bwd bf16 benchmark + profiling
     bf16_fwd_bwd_us = bench_fwd_bwd_microseconds(
@@ -137,12 +147,6 @@ def run_experiment(
             fullgraph=False,
             profile_name="bf16_profile",
         )
-
-    # Create config object from recipe
-    if isinstance(config.recipe, Float8TrainingRecipe):
-        quant_config = Float8TrainingOpConfig.from_recipe(config.recipe)
-    else:
-        quant_config = MXFP8TrainingOpConfig.from_recipe(config.recipe)
 
     # fwd_bwd scaled benchmark + profiling
     scaled_fwd_bwd_us = bench_fwd_bwd_microseconds(
@@ -262,5 +266,11 @@ if __name__ == "__main__":
     arg_parser = argparse.ArgumentParser()
     arg_parser.add_argument("--compile", action="store_true")
     arg_parser.add_argument("--profile", action="store_true")
+    arg_parser.add_argument(
+        "--aligned",
+        action="store_true",
+        help="If true, token group sizes are pre-aligned, to simulate flow with HybridEP or similar",
+    )
+
     args = arg_parser.parse_args()
     main(args)

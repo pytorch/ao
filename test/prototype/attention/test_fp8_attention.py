@@ -190,7 +190,6 @@ class TestFP8FA3Attention(TestCase):
         fp8_model = apply_low_precision_attention(
             fp8_model,
             backend=AttentionBackend.FP8_FA3,
-            fuse_rope_using_torch_compile=False,
         )
 
         with torch.no_grad():
@@ -231,9 +230,8 @@ class TestFP8FA3Attention(TestCase):
         fp8_model = apply_low_precision_attention(
             fp8_model,
             backend=AttentionBackend.FP8_FA3,
-            fuse_rope_using_torch_compile=True,
         )
-        fp8_model = torch.compile(fp8_model, backend=fp8_model.compile_backend)
+        fp8_model = torch.compile(fp8_model)
 
         with torch.no_grad():
             out_fp8 = fp8_model(x, cos, sin)

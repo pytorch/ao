@@ -37,6 +37,7 @@ torch._dynamo.config.cache_size_limit = 1000
 @pytest.mark.parametrize(
     "kernel_preference", [KernelPreference.AUTO, KernelPreference.EMULATED]
 )
+@pytest.mark.parametrize("token_groups_aligned", [False])
 @pytest.mark.parametrize(
     "recipe_config",
     [
@@ -74,6 +75,7 @@ def test_moe_training(
     target_fqns: list[str],
     compile: bool,
     kernel_preference: KernelPreference,
+    token_groups_aligned: bool,
     recipe_config: dict,
 ):
     (
@@ -110,6 +112,8 @@ def test_moe_training(
                 pytest.skip(
                     f"Skipping FP8 rowwise tests, only supported on compute capability 9.0 and found {torch.cuda.get_device_capability()}"
                 )
+        if not token_groups_aligned:
+            pytest.skip("FP8 rowwise doesn't support per group token padding yet")
 
     # MXFP8 hardware path requires SM100
     if recipe in (
@@ -123,7 +127,11 @@ def test_moe_training(
             f"Skipping MXFP8 hardware mode tests, only supported on compute capability 10.0 and found {torch.cuda.get_device_capability()}"
         )
 
-    set_token_group_alignment_size_m(1)
+    alignment_size = 32 if isinstance(recipe, MXFP8TrainingRecipe) else 16
+    if not token_groups_aligned:
+        alignment_size = 1
+    set_token_group_alignment_size_m(alignment_size)
+
     model_args = MoEArgs(
         num_experts=8,
         num_shared_experts=1,
@@ -159,6 +167,11 @@ def test_moe_training(
         else Float8TrainingOpConfig
     )
     config = config_cls.from_recipe(recipe)
+
+    # TODO: support pad_token_groups_for_grouped_mm in Float8TrainingOpConfig
+    if isinstance(recipe, MXFP8TrainingRecipe) and not token_groups_aligned:
+        config.pad_token_groups_for_grouped_mm = True
+
     quantize_(model, config=config, filter_fn=moe_module_filter_fn)
 
     # validate that only the experts were converted
