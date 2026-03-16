@@ -13,6 +13,7 @@ import logging
 import types
 import warnings
 from dataclasses import dataclass
+from functools import partial
 from typing import Optional
 
 import torch
@@ -29,6 +30,10 @@ from torchao.float8.inference import (
     Float8MMConfig,
 )
 from torchao.quantization.granularity import Granularity, PerTensor
+from torchao.quantization.quant_api import (
+    _linear_extra_repr,
+    _module_extra_repr,
+)
 from torchao.quantization.quant_primitives import (
     MappingType,
 )
@@ -42,9 +47,6 @@ from torchao.quantization.quantize_.workflows import (
 )
 from torchao.quantization.transform_module import (
     register_quantize_module_handler,
-)
-from torchao.quantization.utils import (
-    _linear_extra_repr,
 )
 
 logger = logging.getLogger(__name__)
@@ -114,7 +116,8 @@ def _gemlite_uintx_weight_only_transform(
 
 @dataclass
 class UIntxWeightOnlyConfig(AOBaseConfig):
-    """Weight-only uintx quantization using bit-packed format with gemlite Triton kernels.
+    """Weight-only uintx quantization using bit-packed format with gemlite (https://github.com/dropbox/gemlite)
+       Triton kernels.
 
     Supports 4-bit (asymmetric, grouped) and 8-bit (symmetric, per-channel) quantization.
     Uses gemlite library for efficient Triton-based GEMM.
@@ -143,6 +146,8 @@ class UIntxWeightOnlyConfig(AOBaseConfig):
 def _uintx_weight_only_transform(
     module: torch.nn.Module,
     config: UIntxWeightOnlyConfig,
+    *,
+    parameter_name: str = "weight",
 ) -> torch.nn.Module:
     from torchao.prototype.quantization.uintx.uintx_bit_packed_tensor import (
         UIntxBitPackedTensor,
@@ -151,21 +156,37 @@ def _uintx_weight_only_transform(
     if config.set_inductor_config:
         torchao.quantization.utils.recommended_inductor_config_setter()
 
-    weight = module.weight
+    assert hasattr(module, parameter_name), (
+        f"applying uintx weight only quant requires module to have {parameter_name} attribute"
+        + f" but {module} does not have one"
+    )
+    weight = getattr(module, parameter_name)
     quantized_weight = UIntxBitPackedTensor.from_hp(
         weight,
         bit_width=config.bit_width,
         group_size=config.group_size,
         packing_bitwidth=config.packing_bitwidth,
     )
-    module.weight = torch.nn.Parameter(quantized_weight, requires_grad=False)
-    module.extra_repr = types.MethodType(_linear_extra_repr, module)
+    setattr(
+        module,
+        parameter_name,
+        torch.nn.Parameter(quantized_weight, requires_grad=False),
+    )
+    module.extra_repr = types.MethodType(
+        partial(
+            _module_extra_repr,
+            original_extra_repr=module.extra_repr,
+            parameter_name=parameter_name,
+        ),
+        module,
+    )
     return module
 
 
 @dataclass
 class Int8DynamicActivationUIntxWeightConfig(AOBaseConfig):
-    """Dynamic activation + uintx weight quantization using gemlite Triton kernels.
+    """Dynamic activation + uintx weight quantization using gemlite (https://github.com/dropbox/gemlite)
+       Triton kernels.
 
     Activations are quantized dynamically at runtime (int8). Weights use bit-packed
     uintx format. Supports 4-bit and 8-bit weight quantization.
@@ -196,6 +217,8 @@ class Int8DynamicActivationUIntxWeightConfig(AOBaseConfig):
 def _int8_dynamic_activation_uintx_weight_transform(
     module: torch.nn.Module,
     config: Int8DynamicActivationUIntxWeightConfig,
+    *,
+    parameter_name: str = "weight",
 ) -> torch.nn.Module:
     from torchao.prototype.quantization.uintx.uintx_bit_packed_tensor import (
         UIntxBitPackedTensor,
@@ -204,7 +227,11 @@ def _int8_dynamic_activation_uintx_weight_transform(
     if config.set_inductor_config:
         torchao.quantization.utils.recommended_inductor_config_setter()
 
-    weight = module.weight
+    assert hasattr(module, parameter_name), (
+        f"applying int8 dynamic activation uintx weight quant requires module to have {parameter_name} attribute"
+        + f" but {module} does not have one"
+    )
+    weight = getattr(module, parameter_name)
     quantized_weight = UIntxBitPackedTensor.from_hp(
         weight,
         bit_width=config.bit_width,
@@ -212,8 +239,19 @@ def _int8_dynamic_activation_uintx_weight_transform(
         packing_bitwidth=config.packing_bitwidth,
         mode="dynamic",
     )
-    module.weight = torch.nn.Parameter(quantized_weight, requires_grad=False)
-    module.extra_repr = types.MethodType(_linear_extra_repr, module)
+    setattr(
+        module,
+        parameter_name,
+        torch.nn.Parameter(quantized_weight, requires_grad=False),
+    )
+    module.extra_repr = types.MethodType(
+        partial(
+            _module_extra_repr,
+            original_extra_repr=module.extra_repr,
+            parameter_name=parameter_name,
+        ),
+        module,
+    )
     return module
 
 

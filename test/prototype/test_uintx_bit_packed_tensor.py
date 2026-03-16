@@ -209,6 +209,47 @@ class TestUIntxBitPackedTensor(TestCase):
             weight.scale.narrow(0, 0, scale_ratio),
         )
 
+    def test_fqn_to_config_non_weight_param(self):
+        """Test that UIntx configs quantize a non-weight parameter via FqnToConfig."""
+        from torchao.prototype.quantization.quant_api import (
+            Int8DynamicActivationUIntxWeightConfig,
+            UIntxWeightOnlyConfig,
+        )
+        from torchao.prototype.quantization.uintx.uintx_bit_packed_tensor import (
+            UIntxBitPackedTensor,
+        )
+        from torchao.quantization.quant_api import FqnToConfig
+
+        configs = [
+            UIntxWeightOnlyConfig(group_size=128, bit_width=4, packing_bitwidth=32),
+            Int8DynamicActivationUIntxWeightConfig(
+                group_size=128, bit_width=4, packing_bitwidth=32
+            ),
+        ]
+        for config in configs:
+            with self.subTest(config=type(config).__name__):
+                model = torch.nn.Sequential(
+                    torch.nn.Linear(128, 128, bias=False).to(
+                        device="cuda", dtype=torch.float16
+                    )
+                )
+                model[0].register_parameter(
+                    "custom_param",
+                    torch.nn.Parameter(
+                        torch.randn(128, 128, dtype=torch.float16, device="cuda")
+                    ),
+                )
+                original_custom_param = model[0].custom_param
+                original_weight = model[0].weight
+
+                quantize_(
+                    model, FqnToConfig({"0.custom_param": config}), filter_fn=None
+                )
+
+                self.assertIsInstance(model[0].custom_param, UIntxBitPackedTensor)
+                self.assertIsNot(model[0].custom_param, original_custom_param)
+                self.assertIs(model[0].weight, original_weight)
+
     def test_non_standard_shapes(self):
         """Test shapes not divisible by 128 but divisible by 32 (gemlite requirement)."""
         from torchao.prototype.quantization.quant_api import UIntxWeightOnlyConfig
