@@ -119,7 +119,7 @@ class MXFP8TrainingOpConfig(TrainingOpBaseConfig):
                 out_dtype=torch.bfloat16,
                 wgrad_with_hp=False,
                 scale_calculation_mode=ScaleCalculationMode.RCEIL,
-                pad_token_groups_for_grouped_mm=True,
+                pad_token_groups_for_grouped_mm=False,
             )
         elif recipe == MXFP8TrainingRecipe.MXFP8_RCEIL_WGRAD_WITH_HP:
             return cls(
@@ -127,7 +127,7 @@ class MXFP8TrainingOpConfig(TrainingOpBaseConfig):
                 out_dtype=torch.bfloat16,
                 wgrad_with_hp=True,
                 scale_calculation_mode=ScaleCalculationMode.RCEIL,
-                pad_token_groups_for_grouped_mm=True,
+                pad_token_groups_for_grouped_mm=False,
             )
         elif recipe == MXFP8TrainingRecipe.MXFP8_EMULATED_RCEIL:
             return cls(
@@ -135,7 +135,7 @@ class MXFP8TrainingOpConfig(TrainingOpBaseConfig):
                 out_dtype=torch.bfloat16,
                 wgrad_with_hp=False,
                 scale_calculation_mode=ScaleCalculationMode.RCEIL,
-                pad_token_groups_for_grouped_mm=True,
+                pad_token_groups_for_grouped_mm=False,
             )
         else:
             raise ValueError(f"Unsupported MXFP8 recipe: {recipe}")

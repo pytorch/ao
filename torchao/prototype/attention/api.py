@@ -16,13 +16,13 @@ import torch.nn as nn
 from torchao.prototype.attention.utils import _is_fa3_available, _is_hopper
 from torchao.utils import torch_version_at_least
 
-if torch_version_at_least("2.11.0"):
+_TORCH_VERSION_AT_LEAST_2_11 = torch_version_at_least("2.11.0")
+
+if _TORCH_VERSION_AT_LEAST_2_11:
     from torchao.prototype.attention.shared_utils.setup import setup_fp8_backend
     from torchao.prototype.attention.shared_utils.wrapper import (
         _LowPrecisionAttentionWrapper,
     )
-else:
-    raise ImportError("Low-precision attention requires PyTorch 2.11+.")
 
 
 class AttentionBackend(str, Enum):
@@ -60,7 +60,6 @@ def _check_backend_available(backend: AttentionBackend) -> None:
 def apply_low_precision_attention(
     model: nn.Module,
     backend: Optional[AttentionBackend] = None,
-    fuse_rope_using_torch_compile: bool = False,
 ) -> nn.Module:
     """Apply low-precision attention to a model.
 
@@ -68,13 +67,17 @@ def apply_low_precision_attention(
     disabled before calling (e.g., ``config.use_cache = False`` for
     HuggingFace models).
 
-    When ``fuse_rope_using_torch_compile=True``, the returned wrapper
-    exposes a ``compile_backend`` attribute. You must compile with it to get
-    the RoPE fusion::
+    This replaces ``F.scaled_dot_product_attention`` with an FP8 SDPA
+    for eager execution and sets a global pre-grad pass so that
+    ``torch.compile`` will automatically fuse RoPE where detected.
 
-        model = apply_low_precision_attention(model, fuse_rope_using_torch_compile=True)
-        model = torch.compile(model, backend=model.compile_backend)
+    Example:
+
+    .. literalinclude:: ../../examples/prototype/low_precision_attention.py
+       :language: python
     """
+    if not _TORCH_VERSION_AT_LEAST_2_11:
+        raise RuntimeError("Low-precision attention requires PyTorch 2.11+.")
     if isinstance(model, _LowPrecisionAttentionWrapper):
         raise RuntimeError(
             "apply_low_precision_attention has already been applied to this module."
@@ -90,6 +93,6 @@ def apply_low_precision_attention(
         _check_backend_available(backend)
 
     if backend == AttentionBackend.FP8_FA3:
-        return setup_fp8_backend(model, "FA3", fuse_rope_using_torch_compile)
+        return setup_fp8_backend(model, "FA3")
 
     raise ValueError(f"Unknown backend: {backend}")

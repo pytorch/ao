@@ -19,6 +19,7 @@ from torchao.prototype.moe_training.kernels.mxfp8 import (
     triton_mx_block_rearrange_per_group_3d,
 )
 from torchao.prototype.moe_training.utils import (
+    conditional_nostrict_trace,
     pad_token_groups,
     unpad_token_groups,
 )
@@ -49,8 +50,35 @@ _SM100_KERNELS_AVAILABLE = (
 )
 
 
+def _validate_grouped_mm_input_act(
+    input_act: torch.Tensor,
+    block_size: int,
+) -> None:
+    if not isinstance(input_act, MXTensor):
+        return
+
+    assert input_act.elem_dtype == torch.float8_e4m3fn, (
+        f"Expected MXTensor with elem_dtype float8_e4m3fn, but got {input_act.elem_dtype}"
+    )
+    assert input_act.block_size == block_size, (
+        f"Expected MXTensor block_size={block_size}, but got {input_act.block_size}"
+    )
+    assert not input_act.is_swizzled_scales, (
+        "MXTensor input scales must be unswizzled for grouped GEMM"
+    )
+    assert input_act.qdata.ndim == 2, "MXTensor input_act data must be 2D"
+    assert input_act.scale.ndim == 2, "MXTensor input_act scale must be 2D"
+    assert input_act.scale.shape == (
+        input_act.shape[0],
+        input_act.shape[1] // block_size,
+    ), (
+        "MXTensor input scales must be rowwise with shape "
+        f"({input_act.shape[0]}, {input_act.shape[1] // block_size})"
+    )
+
+
 # Aliases for convenience/clarity
-# @conditional_nostrict_trace
+@conditional_nostrict_trace
 def _to_mxfp8_then_scaled_grouped_mm(
     A: torch.Tensor,
     B_t: torch.Tensor,
@@ -66,9 +94,11 @@ def _to_mxfp8_then_scaled_grouped_mm(
     Differentiable mxfp8 grouped gemm with dynamic mxfp8 quantization.
 
     Args:
-        A (bf16/float32 torch.Tensor): The first high-precision input tensor,
-            which must be a 2D tensor of shape (M * num_groups, K)
-            and in row-major memory layout.
+        A (torch.Tensor): Input activations. May be a high-precision 2D tensor of
+            shape (M * num_groups, K) in row-major memory layout, or an `MXTensor`
+            carrying pre-quantized MXFP8 activations. If you already have raw
+            `(qdata, scale)` tensors, wrap them first with
+            `MXTensor.from_qdata_and_scales(...)`.
         B_t (bf16/float32 torch.Tensor): The second high-precision input tensor
             which must be 3D, which must be shape (G, K, N)
             and in "per group column-major memory" layout (i.e., strides of (N*K, 1, N)).
@@ -85,6 +115,7 @@ def _to_mxfp8_then_scaled_grouped_mm(
     """
     # block_size is always 32 for MXFP8
     block_size = 32
+    _validate_grouped_mm_input_act(A, block_size)
     return _MXFP8GroupedMM.apply(
         A,
         B_t,
@@ -103,8 +134,8 @@ class _MXFP8GroupedMM(torch.autograd.Function):
     Differentiable implementation of grouped GEMM with dynamic MXFP8 quantization.
 
     This autograd function performs grouped matrix multiplication with MXFP8 quantization
-    for efficient MoE training. It supports both pre-quantized (MXTensor) and high-precision
-    inputs, with configurable quantization and layout conversion options.
+    for efficient MoE training. It supports both pre-quantized (`MXTensor`) and
+    high-precision inputs, with configurable quantization and layout conversion options.
     """
 
     @staticmethod
@@ -161,7 +192,9 @@ class _MXFP8GroupedMM(torch.autograd.Function):
         ), "out_dtype must be bfloat16 or float32"
         if isinstance(input_act, MXTensor):
             assert wgrad_with_hp, (
-                "only `wgrad_with_hp` recipe is supported for pre-quantized inputs, support for other recipes is still in progress"
+                "only `wgrad_with_hp` recipe is supported for MXTensor inputs because "
+                "backward needs the high-precision activations to quantize along dim1 "
+                "for weight gradients"
             )
 
         # Save original group_end_offsets and num_tokens before padding
@@ -347,8 +380,17 @@ class _MXFP8GroupedMM(torch.autograd.Function):
             wgrad_with_hp,
             kernel_preference,
         )
-
-        return grad_input, grad_weight_t, None, None, None, None, None, None, None
+        return (
+            grad_input,
+            grad_weight_t,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
 
 
 def _compute_dgrad(
