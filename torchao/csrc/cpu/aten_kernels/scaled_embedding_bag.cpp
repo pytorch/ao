@@ -174,18 +174,46 @@ static inline void store_elem(at::Float8_e4m3fn &out, float input) {
   out = static_cast<at::Float8_e4m3fn>(input);
 }
 
+// Prefetch all cache lines of an embedding row (all blocks).
+// emb_bytes = emb_dim * sizeof(data_t). Cache line = 64 bytes.
+template <typename data_t>
+static inline void _prefetch_emb_row(const data_t *base, int64_t emb_dim) {
+  const char *ptr = reinterpret_cast<const char *>(base);
+  const int64_t emb_bytes = emb_dim * static_cast<int64_t>(sizeof(data_t));
+  for (int64_t off = 0; off < emb_bytes; off += 64) {
+    _mm_prefetch(ptr + off, _MM_HINT_T0);
+  }
+}
+
 template <typename index_t, typename data_t, typename output_t>
 inline void _scaled_embedding_bag_krnl(
     const int64_t bs_begin, const int64_t bs_end, const int64_t num_emb,
     const int64_t emb_dim, const index_t last_offset, const index_t *indices,
     const index_t *offsets, const data_t *weight, const double scale,
     output_t *result, const int64_t num_batch) {
+  // How many batch entries ahead to prefetch. Each entry has ~3 rows to fetch
+  // from a 40M-row table; DRAM latency ~100 ns means we must keep enough
+  // in-flight requests to hide latency.
+  constexpr int64_t PREFETCH_DIST = 8;
 #if defined(CPU_CAPABILITY_AVX512)
   if (kHasAVX512 && emb_dim % 128 == 0) {
     constexpr int64_t block_dim = 128;
     const int64_t num_blocks = emb_dim / block_dim;
     __m512 scale_v = _mm512_set1_ps(scale);
     for (int64_t b = bs_begin; b < bs_end; ++b) {
+      // Software prefetch for batch entry b+PREFETCH_DIST to overlap DRAM
+      // latency (~100 ns per random access to large table) with AVX512 compute.
+      const int64_t pref_b = b + PREFETCH_DIST;
+      if (pref_b < bs_end) {
+        const int64_t pref_start = offsets[pref_b];
+        const int64_t pref_end = (pref_b + 1 == num_batch && last_offset != -1)
+                                     ? last_offset
+                                     : offsets[pref_b + 1];
+        for (int64_t pj = pref_start; pj < pref_end; ++pj) {
+          _prefetch_emb_row(weight + indices[pj] * emb_dim, emb_dim);
+        }
+      }
+
       __m512 x0, x1, x2, x3, x4, x5, x6, x7;
       __m512 y0, y1, y2, y3, y4, y5, y6, y7;
       int64_t start_idx = offsets[b];
