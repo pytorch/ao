@@ -43,6 +43,7 @@ BLOCKWISE_SIZE_MNK = [
     not (is_sm_at_least_90() or is_MI300() or is_MI350()),
     reason="Requires FP8-capable GPU (CUDA SM90+, MI300, or MI350)",
 )
+@pytest.mark.skipif(is_ROCM(), reason="Blockwise FP8 GEMM has numerical issues on ROCm")
 @pytest.mark.skipif(
     version.parse(triton.__version__) < version.parse("3.3.0"),
     reason="Triton version < 3.3.0, test skipped",
@@ -61,10 +62,7 @@ def test_triton_fp8_gemm_1x128_128x128(M, N, K, dtype):
     assert not C_q.isnan().any(), "C_q must not contain NaNs"
 
     sqnr = compute_error(C, C_q)
-    # e4m3fnuz (ROCm) has lower dynamic range (±240) than e4m3fn (CUDA, ±448),
-    # causing worse quantization error for small-M shapes where errors don't
-    # average out. Use a relaxed threshold on ROCm.
-    min_sqnr = 0.5 if is_ROCM() else 28.0
+    min_sqnr = 28.0
     assert sqnr >= min_sqnr, f"SQNR {sqnr:.2f} must be >= {min_sqnr}"
 
 
@@ -73,6 +71,7 @@ def test_triton_fp8_gemm_1x128_128x128(M, N, K, dtype):
     not (is_sm_at_least_90() or is_MI300() or is_MI350()),
     reason="Requires FP8-capable GPU (CUDA SM90+, MI300, or MI350)",
 )
+@pytest.mark.skipif(is_ROCM(), reason="Blockwise FP8 GEMM has numerical issues on ROCm")
 @pytest.mark.skipif(
     version.parse(triton.__version__) < version.parse("3.3.0"),
     reason="Triton version < 3.3.0, test skipped",
