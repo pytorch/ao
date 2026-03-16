@@ -97,6 +97,7 @@ from torchao.quantization.transform_module import (
 from torchao.quantization.utils import (
     _fp8_mm_compat,
     _linear_extra_repr,
+    _module_extra_repr,
     _quantization_type,
     get_block_size,
 )
@@ -393,19 +394,6 @@ def insert_observers_(
 
 def _embedding_extra_repr(self):
     return f"num_embeddings={self.weight.shape[0]}, embedding_dim={self.weight.shape[1]}, weight={_quantization_type(self.weight)}"
-
-
-def _module_extra_repr(self, original_extra_repr, parameter_name):
-    module_torchao_extra_repr = []
-
-    original_extra_repr_str = original_extra_repr()
-    if len(original_extra_repr_str) > 0:
-        module_torchao_extra_repr.append(original_extra_repr_str)
-
-    module_torchao_extra_repr.append(
-        f"{parameter_name}={_quantization_type(getattr(self, parameter_name))}"
-    )
-    return ", ".join(module_torchao_extra_repr)
 
 
 def _get_linear_subclass_inserter(

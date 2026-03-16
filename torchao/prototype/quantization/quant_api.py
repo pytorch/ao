@@ -30,10 +30,6 @@ from torchao.float8.inference import (
     Float8MMConfig,
 )
 from torchao.quantization.granularity import Granularity, PerTensor
-from torchao.quantization.quant_api import (
-    _linear_extra_repr,
-    _module_extra_repr,
-)
 from torchao.quantization.quant_primitives import (
     MappingType,
 )
@@ -47,6 +43,10 @@ from torchao.quantization.quantize_.workflows import (
 )
 from torchao.quantization.transform_module import (
     register_quantize_module_handler,
+)
+from torchao.quantization.utils import (
+    _linear_extra_repr,
+    _module_extra_repr,
 )
 
 logger = logging.getLogger(__name__)
