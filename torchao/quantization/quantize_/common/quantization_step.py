@@ -44,3 +44,14 @@ class QuantizationStep(str, Enum):
     """Convert the floating point model to a dummy quantized model to load pre-quantized weights at inference stage.
     """
     PREPARE_FOR_LOADING = "prepare_for_loading"
+
+    """Compute smoothing factor for SmoothQuant two-pass calibration.
+    After this step, run calibration data through the model again to collect
+    smoothed activation statistics for accurate activation scale computation.
+    """
+    PREPARE_FOR_SMOOTHQUANT_SMOOTHING_FACTOR = "prepare_for_smoothquant_smoothing_factor"
+
+    """Compute activation scales from smoothed activation statistics collected
+    during the second calibration pass (after PREPARE_FOR_SMOOTHQUANT_SMOOTHING_FACTOR).
+    """
+    PREPARE_FOR_SMOOTHQUANT_ACTIVATION_SCALES = "prepare_for_smoothquant_activation_scales"
