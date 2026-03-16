@@ -20,7 +20,7 @@ if [[ ${CU_VERSION:-} == "cu124" ]]; then
 fi
 
 # Enable C++ kernels + kleidiai in aarch64 build
-if [[ $(uname -m) == "aarch64" ]]; then
+if [[ "$(uname -m)" =~ "^(aarch64|arm64)$" ]]; then
     echo "Enabling aarch64-specific build"
     export USE_CPP=1
     export USE_CPU_KERNELS=1
