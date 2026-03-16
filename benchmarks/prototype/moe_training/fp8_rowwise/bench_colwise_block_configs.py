@@ -7,122 +7,163 @@
 # Sweeps (BLOCK_SIZE, BLOCK_SIZE_ITER, num_warps) for the colwise FP8 kernel
 # on representative DeepSeek-MoE-16B training shapes (MI300X).
 #
-# Run via subprocess-per-config to isolate GPU context failures.
 # Usage:
 #   cd ~/ao
 #   python benchmarks/prototype/moe_training/fp8_rowwise/bench_colwise_block_configs.py
 
 import itertools
-import json
-import os
-import subprocess
-import sys
+from dataclasses import dataclass
+from typing import List
 
 import torch
+import triton
+import triton.language as tl
+from tabulate import tabulate
+from triton.testing import do_bench
+
+from torchao.prototype.moe_training.utils import generate_jagged_offs
+
+EPS = 1e-12
+FP8_DTYPE_MAP = {
+    torch.float8_e4m3fn: tl.float8e4nv,
+    torch.float8_e4m3fnuz: tl.float8e4b8,
+}
+
+device = torch.device("cuda")
+
 
 # ---------------------------------------------------------------------------
-# When called as a worker subprocess (BENCH_CFG env var set), run one config.
+# Standalone colwise kernel (no autotune wrapper) so we can inject any config.
+# Mirrors the production _triton_fp8_per_group_colwise_scales_kernel exactly.
+# Input shape: (K, N) where K=token rows (jagged dim), N=hidden cols.
+# BLOCK_SIZE tiles N; BLOCK_SIZE_ITER tiles K in the inner loop.
 # ---------------------------------------------------------------------------
-if "BENCH_CFG" in os.environ:
-    import triton
-    import triton.language as tl
-    from triton.testing import do_bench
+@triton.jit
+def _colwise_kernel(
+    input_ptr,
+    offsets_ptr,
+    out_ptr,
+    scales_ptr,
+    K: tl.int64,
+    N: tl.int64,
+    N_GROUPS: tl.int64,
+    str_ir: tl.int64,
+    str_ic: tl.int64,
+    str_or: tl.int64,
+    str_oc: tl.int64,
+    fp8_min: tl.constexpr,
+    fp8_max: tl.constexpr,
+    in_dtype: tl.constexpr,
+    out_dtype: tl.constexpr,
+    BLOCK_SIZE: tl.constexpr,
+    BLOCK_SIZE_ITER: tl.constexpr,
+    EPS: tl.constexpr,
+):
+    bcol = tl.program_id(0)
+    gidx = tl.program_id(1)
+    rs = tl.load(offsets_ptr + gidx - 1, mask=gidx > 0, other=0)
+    re = tl.load(offsets_ptr + gidx)
+    col_offs = (bcol * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)).to(tl.int64)
+    amax = tl.zeros((BLOCK_SIZE,), dtype=in_dtype)
+    for r0 in range(rs, re, BLOCK_SIZE_ITER):
+        row_offs = (r0 + tl.arange(0, BLOCK_SIZE_ITER)).to(tl.int64)
+        offs = row_offs[:, None] * str_ir + col_offs[None, :] * str_ic
+        mask = (row_offs[:, None] < re) & (col_offs[None, :] < N)
+        d = tl.load(input_ptr + offs, mask=mask, other=0.0).to(in_dtype)
+        amax = tl.maximum(amax, tl.max(tl.abs(d), axis=0)).to(in_dtype)
+    amax = amax.to(tl.float64)
+    s = (fp8_max / tl.clamp(amax, min=EPS, max=float("inf"))).to(tl.float32)
+    s = tl.exp2(tl.floor(tl.log2(s)))
+    sc_offs = col_offs + N * gidx
+    sc_mask = tl.arange(0, BLOCK_SIZE) < N
+    tl.store(scales_ptr + sc_offs, s, mask=sc_mask)
+    for r0 in range(rs, re, BLOCK_SIZE_ITER):
+        row_offs = (r0 + tl.arange(0, BLOCK_SIZE_ITER)).to(tl.int64)
+        offs = row_offs[:, None] * str_ir + col_offs[None, :] * str_ic
+        mask = (row_offs[:, None] < re) & (col_offs[None, :] < N)
+        d = tl.load(input_ptr + offs, mask=mask, other=0.0).to(in_dtype)
+        sd = d * s[None, :]
+        fp8d = tl.clamp(sd, min=fp8_min, max=fp8_max).to(out_dtype)
+        o_offs = row_offs[:, None] * str_or + col_offs[None, :] * str_oc
+        tl.store(out_ptr + o_offs, fp8d, mask=mask)
 
-    from torchao.prototype.moe_training.utils import generate_jagged_offs
 
-    EPS = 1e-12
-    FP8_DTYPE_MAP = {
-        "float8_e4m3fn": (torch.float8_e4m3fn, tl.float8e4nv),
-        "float8_e4m3fnuz": (torch.float8_e4m3fnuz, tl.float8e4b8),
-    }
+@dataclass(frozen=True)
+class ExperimentConfig:
+    M: int  # total token rows (jagged dim, K_triton)
+    K: int  # hidden cols (N_triton)
+    n_groups: int
+    block_size: int
+    block_size_iter: int
+    num_warps: int
+    fp8_dtype: torch.dtype
 
-    # Kernel uses same dimension convention as production:
-    #   input shape = (K, N) where K=token rows (jagged), N=hidden cols
-    #   offsets mark group boundaries along K
-    #   scales buffer = N * N_GROUPS
-    #   BLOCK_SIZE tiles N (columns), BLOCK_SIZE_ITER tiles K (rows, inner loop)
-    @triton.jit
-    def _colwise_kernel(
-        input_ptr,
-        offsets_ptr,
-        out_ptr,
-        scales_ptr,
-        K: tl.int64,
-        N: tl.int64,
-        N_GROUPS: tl.int64,
-        str_ir: tl.int64,
-        str_ic: tl.int64,
-        str_or: tl.int64,
-        str_oc: tl.int64,
-        fp8_min: tl.constexpr,
-        fp8_max: tl.constexpr,
-        in_dtype: tl.constexpr,
-        out_dtype: tl.constexpr,
-        BLOCK_SIZE: tl.constexpr,
-        BLOCK_SIZE_ITER: tl.constexpr,
-        EPS: tl.constexpr,
+
+@dataclass(frozen=True)
+class ExperimentResult:
+    time_us: float
+
+
+@dataclass(frozen=True)
+class Experiment:
+    config: ExperimentConfig
+    result: ExperimentResult
+
+
+SHAPES = [
+    (16640, 2048, 64),
+    (16640, 5120, 64),
+    (16640, 2048, 128),
+    (16640, 5120, 128),
+]
+
+BLOCK_SIZES = [32, 64, 128, 256]
+BLOCK_SIZE_ITERS = [32, 64, 128, 256]
+NUM_WARPS_LIST = [4, 8]
+
+
+def get_configs(fp8_dtype: torch.dtype) -> List[ExperimentConfig]:
+    configs = []
+    for (M, K, n_groups), bs, bsi, nw in itertools.product(
+        SHAPES, BLOCK_SIZES, BLOCK_SIZE_ITERS, NUM_WARPS_LIST
     ):
-        # block_col_id tiles the N (hidden/col) dimension
-        bcol = tl.program_id(0)
-        gidx = tl.program_id(1)
-        # group boundaries along K (token) dimension
-        rs = tl.load(offsets_ptr + gidx - 1, mask=gidx > 0, other=0)
-        re = tl.load(offsets_ptr + gidx)
-        col_offs = (bcol * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)).to(tl.int64)
-        amax = tl.zeros((BLOCK_SIZE,), dtype=in_dtype)
-        for r0 in range(rs, re, BLOCK_SIZE_ITER):
-            row_offs = (r0 + tl.arange(0, BLOCK_SIZE_ITER)).to(tl.int64)
-            offs = row_offs[:, None] * str_ir + col_offs[None, :] * str_ic
-            mask = (row_offs[:, None] < re) & (col_offs[None, :] < N)
-            d = tl.load(input_ptr + offs, mask=mask, other=0.0).to(in_dtype)
-            amax = tl.maximum(amax, tl.max(tl.abs(d), axis=0)).to(in_dtype)
-        amax = amax.to(tl.float64)
-        s = (fp8_max / tl.clamp(amax, min=EPS, max=float("inf"))).to(tl.float32)
-        s = tl.exp2(tl.floor(tl.log2(s)))
-        # scales layout: N * N_GROUPS — N cols per group, stride by N between groups
-        sc_offs = col_offs + N * gidx
-        sc_mask = tl.arange(0, BLOCK_SIZE) < N
-        tl.store(scales_ptr + sc_offs, s, mask=sc_mask)
-        for r0 in range(rs, re, BLOCK_SIZE_ITER):
-            row_offs = (r0 + tl.arange(0, BLOCK_SIZE_ITER)).to(tl.int64)
-            offs = row_offs[:, None] * str_ir + col_offs[None, :] * str_ic
-            mask = (row_offs[:, None] < re) & (col_offs[None, :] < N)
-            d = tl.load(input_ptr + offs, mask=mask, other=0.0).to(in_dtype)
-            sd = d * s[None, :]
-            fp8d = tl.clamp(sd, min=fp8_min, max=fp8_max).to(out_dtype)
-            o_offs = row_offs[:, None] * str_or + col_offs[None, :] * str_oc
-            tl.store(out_ptr + o_offs, fp8d, mask=mask)
+        configs.append(
+            ExperimentConfig(
+                M=M,
+                K=K,
+                n_groups=n_groups,
+                block_size=bs,
+                block_size_iter=bsi,
+                num_warps=nw,
+                fp8_dtype=fp8_dtype,
+            )
+        )
+    return configs
 
-    cfg = json.loads(os.environ["BENCH_CFG"])
-    M, K, n_groups = cfg["M"], cfg["K"], cfg["n_groups"]
-    bs, bsi, nw = cfg["bs"], cfg["bsi"], cfg["nw"]
-    fp8_dtype_name = cfg["fp8_dtype"]
-    fp8_dtype, tl_fp8_dtype = FP8_DTYPE_MAP[fp8_dtype_name]
 
-    device = torch.device("cuda")
-    # Production colwise kernel input shape: (K_tokens, N_hidden) row-major
-    # K=token rows (jagged dim), N=hidden cols
-    # Here in cfg: M=total_tokens=K_triton, K=hidden=N_triton
-    K_triton = M  # token dimension (jagged, row-iter)
-    N_triton = K  # hidden dimension (column, block-parallel)
-    inp = torch.randn(K_triton, N_triton, dtype=torch.bfloat16, device=device)
-    offs = generate_jagged_offs(n_groups, K_triton, multiple_of=16)
+def run_experiment(config: ExperimentConfig) -> ExperimentResult:
+    M, K, n_groups = config.M, config.K, config.n_groups
+    bs, bsi, nw = config.block_size, config.block_size_iter, config.num_warps
+    fp8_dtype = config.fp8_dtype
+    tl_fp8_dtype = FP8_DTYPE_MAP[fp8_dtype]
+
+    inp = torch.randn(M, K, dtype=torch.bfloat16, device=device)
+    offs = generate_jagged_offs(n_groups, M, multiple_of=16)
     fp8_min = torch.finfo(fp8_dtype).min
     fp8_max = torch.finfo(fp8_dtype).max
 
+    out = torch.empty_like(inp, dtype=fp8_dtype).as_strided(inp.size(), (1, M))
+    sc = torch.empty(K * n_groups, dtype=torch.float32, device=device)
+    grid = (triton.cdiv(K, bs), n_groups)
+
     def run():
-        out = torch.empty_like(inp, dtype=fp8_dtype).as_strided(
-            inp.size(), (1, K_triton)
-        )
-        sc = torch.empty(N_triton * n_groups, dtype=torch.float32, device=device)
-        grid = (triton.cdiv(N_triton, bs), n_groups)
         _colwise_kernel[grid](
             inp,
             offs,
             out,
             sc,
-            K_triton,
-            N_triton,
+            M,
+            K,
             n_groups,
             inp.stride(0),
             inp.stride(1),
@@ -138,92 +179,89 @@ if "BENCH_CFG" in os.environ:
             num_warps=nw,
             num_stages=2,
         )
-        return out, sc
-
-    # warmup
-    for _ in range(3):
-        run()
-    torch.cuda.synchronize()
 
     t_us = do_bench(run, return_mode="median") * 1e3
-    print(json.dumps({"t_us": t_us}))
-    sys.exit(0)
+    return ExperimentResult(time_us=t_us)
 
 
-# ---------------------------------------------------------------------------
-# Main driver: spawn one subprocess per config.
-# ---------------------------------------------------------------------------
-BLOCK_SIZES = [32, 64, 128, 256]
-BLOCK_SIZE_ITERS = [32, 64, 128, 256]
-NUM_WARPS_LIST = [4, 8]
+def print_results(experiments: List[Experiment]):
+    # Group by (M, K, n_groups) and print best configs
+    from collections import defaultdict
 
-SHAPES = [
-    dict(M=16640, K=2048, n_groups=64, label="grad_out  M=16640 K=2048  E=64"),
-    dict(M=16640, K=5120, n_groups=64, label="grad_out  M=16640 K=5120  E=64"),
-    dict(M=16640, K=2048, n_groups=128, label="A         M=16640 K=2048  E=128"),
-    dict(M=16640, K=5120, n_groups=128, label="A         M=16640 K=5120  E=128"),
-]
+    groups = defaultdict(list)
+    for e in experiments:
+        key = (e.config.M, e.config.K, e.config.n_groups)
+        groups[key].append(e)
 
+    summary_rows = []
+    for key, exps in groups.items():
+        M, K, n_groups = key
+        best = min(exps, key=lambda e: e.result.time_us)
+        summary_rows.append(
+            [
+                M,
+                K,
+                n_groups,
+                best.config.block_size,
+                best.config.block_size_iter,
+                best.config.num_warps,
+                f"{best.result.time_us:.1f}",
+            ]
+        )
 
-def run_one(shape, bs, bsi, nw, fp8_dtype_name):
-    cfg = {**shape, "bs": bs, "bsi": bsi, "nw": nw, "fp8_dtype": fp8_dtype_name}
-    del cfg["label"]
-    env = {**os.environ, "BENCH_CFG": json.dumps(cfg)}
-    result = subprocess.run(
-        [sys.executable, __file__],
-        env=env,
-        capture_output=True,
-        text=True,
-        timeout=60,
-    )
-    if result.returncode != 0:
-        return float("inf")
-    try:
-        return json.loads(result.stdout.strip())["t_us"]
-    except Exception:
-        return float("inf")
+    print()
+    print("=" * 70)
+    print("Colwise FP8 Block Config Sweep — Best per Shape")
+    print("=" * 70)
+    headers = [
+        "M",
+        "K",
+        "n_groups",
+        "BLOCK_SIZE",
+        "BLOCK_SIZE_ITER",
+        "num_warps",
+        "time (us)",
+    ]
+    print(tabulate(summary_rows, headers=headers))
+
+    # Full results table
+    print()
+    print("=" * 70)
+    print("Full Results")
+    print("=" * 70)
+    all_rows = []
+    for e in experiments:
+        c, r = e.config, e.result
+        all_rows.append(
+            [
+                c.M,
+                c.K,
+                c.n_groups,
+                c.block_size,
+                c.block_size_iter,
+                c.num_warps,
+                f"{r.time_us:.1f}",
+            ]
+        )
+    print(tabulate(all_rows, headers=headers))
 
 
 def main():
-    gpu = subprocess.check_output(
-        ["python", "-c", "import torch; print(torch.cuda.get_device_name())"],
-        text=True,
-    ).strip()
-    hip = subprocess.check_output(
-        ["python", "-c", "import torch; print(torch.version.hip)"],
-        text=True,
-    ).strip()
-    print(f"GPU  : {gpu}")
-    print(f"ROCm : {hip}")
+    fp8_dtype = (
+        torch.float8_e4m3fnuz if torch.version.hip is not None else torch.float8_e4m3fn
+    )
+    print(f"GPU  : {torch.cuda.get_device_name()}")
+    print(f"ROCm : {torch.version.hip}")
+    print(f"FP8  : {fp8_dtype}")
     print()
 
-    fp8_dtype_name = "float8_e4m3fnuz" if hip != "None" else "float8_e4m3fn"
-    combos = list(itertools.product(BLOCK_SIZES, BLOCK_SIZE_ITERS, NUM_WARPS_LIST))
-    overall_best = {}
+    configs = get_configs(fp8_dtype)
+    experiments = []
+    for config in configs:
+        result = run_experiment(config)
+        experiments.append(Experiment(config=config, result=result))
 
-    for shape in SHAPES:
-        label = shape["label"]
-        print(f"=== {label} ===")
-
-        results = []
-        for bs, bsi, nw in combos:
-            t_us = run_one(shape, bs, bsi, nw, fp8_dtype_name)
-            results.append((t_us, bs, bsi, nw))
-            status = f"{t_us:.1f} us" if t_us != float("inf") else "FAIL"
-            print(f"  BS={bs:3d} BSI={bsi:3d} warps={nw}  {status}", flush=True)
-
-        results.sort()
-        best_t, best_bs, best_bsi, best_nw = results[0]
-        overall_best[label] = (best_bs, best_bsi, best_nw, best_t)
-        print(
-            f"\n  BEST: BLOCK_SIZE={best_bs}, BLOCK_SIZE_ITER={best_bsi}, "
-            f"num_warps={best_nw}  →  {best_t:.1f} us\n"
-        )
-
-    print("=" * 60)
-    print("SUMMARY — best config per shape:")
-    for lbl, (bs, bsi, nw, t) in overall_best.items():
-        print(f"  {lbl}  →  BS={bs} BSI={bsi} warps={nw}  ({t:.1f} us)")
+    print_results(experiments)
 
 
 if __name__ == "__main__":
