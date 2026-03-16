@@ -210,7 +210,7 @@ def _is_128_128_scaled(x: torch.Tensor) -> bool:
     """
     assert hasattr(x, "block_size"), "Expecting input to have `block_size` attribute"
     b = x.block_size
-    return len(b) == 2 and b[0] == 128 and b[1] == 128
+    return len(b) == 2 and b[0] == 128 and b[1] == 128 and not _is_tensorwise_scaled(x)
 
 
 def _granularity_is_a_1_128_w_128_128(
