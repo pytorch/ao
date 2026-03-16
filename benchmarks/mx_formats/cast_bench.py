@@ -111,6 +111,8 @@ def run(
         "dim0_mxfp8_floor",
         "dim0_mxfp4_floor",
         "dim0_mxfp8_rceil",
+        "dim0_mxfp8_cutedsl_rceil",
+        "dim0_mxfp8_cutedsl_rceil_ptr",
         "dim0_mxfp8_triton_floor",
         "dim0_mxfp8_triton_rceil",
         "dim0_nvfp4",
@@ -239,6 +241,80 @@ def run(
 
         assert y_d0.dtype == torch.float8_e4m3fn
         assert s_d0.dtype == torch.float8_e8m0fnu
+        bytes_r = x.numel() * bytes_per_el_bf16
+        bytes_w = (y_d0.numel() + s_d0.numel()) * bytes_per_el_fp8
+        bps = (bytes_r + bytes_w) / (time_us / 1e6)
+
+    elif mode == "dim0_mxfp8_cutedsl_rceil":
+        # NOTE 1: this kernel writes scales directly to block layout for tcgen05.mma, so comparing
+        # to triton/cuda kernels which write scales to row major layout and require a separate
+        # per grouped blocked layout kernel is not a 1:1 comparison.
+        # NOTE 2: this kernel does not have group size / group padding awareness, so to use it,
+        # token groups must have been rounded to next multiple of 128.
+        from torchao.prototype.moe_training.kernels.mxfp8.cutedsl.quantize_rowwise import (
+            mxfp8_quantize_rowwise_mma_layout,
+        )
+
+        y_d0, s_d0 = mxfp8_quantize_rowwise_mma_layout(x, fp8_format="e4m3")
+
+        for _ in range(2):
+            __ = mxfp8_quantize_rowwise_mma_layout(x, fp8_format="e4m3")
+        time_us = benchmark_cuda_function_in_microseconds(
+            lambda x, b: mxfp8_quantize_rowwise_mma_layout(x, fp8_format="e4m3"),
+            x,
+            BLOCK_SIZE,
+        )
+
+        assert y_d0.dtype == torch.float8_e4m3fn
+        assert s_d0.dtype == torch.uint8
+        bytes_r = x.numel() * bytes_per_el_bf16
+        bytes_w = (y_d0.numel() + s_d0.numel()) * bytes_per_el_fp8
+        bps = (bytes_r + bytes_w) / (time_us / 1e6)
+
+    elif mode == "dim0_mxfp8_cutedsl_rceil_ptr":
+        # Pointer-based API: pre-allocates outputs and bypasses from_dlpack overhead,
+        # matching how the fbsource benchmarks measure pure kernel performance.
+        from torchao.prototype.moe_training.kernels.mxfp8.cutedsl.quantize_rowwise import (
+            get_output_shapes,
+            mxfp8_quantize_rowwise_mma_layout,
+            mxfp8_quantize_rowwise_ptr,
+        )
+        from torchao.prototype.moe_training.kernels.mxfp8.cutedsl.utils import (
+            E8M0_NEUTRAL_SCALE,
+        )
+
+        # First call via standard API to verify correctness and get reference outputs
+        y_d0, s_d0 = mxfp8_quantize_rowwise_mma_layout(x, fp8_format="e4m3")
+        assert y_d0.dtype == torch.float8_e4m3fn
+        assert s_d0.dtype == torch.uint8
+
+        # Pre-allocate output tensors (outside timed region)
+        shapes = get_output_shapes(M, K, fp8_format="e4m3")
+        output_fp8 = torch.empty(
+            shapes["fp8_shape"], dtype=shapes["fp8_dtype"], device="cuda"
+        )
+        output_scales = torch.full(
+            shapes["scales_shape"], E8M0_NEUTRAL_SCALE, dtype=torch.uint8, device="cuda"
+        )
+
+        # Pad input once (outside timed region)
+        M_padded, N_padded = shapes["M_padded"], shapes["N_padded"]
+        if M_padded != M or N_padded != K:
+            x_padded = torch.zeros((M_padded, N_padded), dtype=x.dtype, device=x.device)
+            x_padded[:M, :K] = x
+        else:
+            x_padded = x
+
+        # Warmup (includes JIT compilation on first call)
+        for _ in range(3):
+            mxfp8_quantize_rowwise_ptr(x_padded, output_fp8, output_scales)
+
+        time_us = benchmark_cuda_function_in_microseconds(
+            lambda xp, b: mxfp8_quantize_rowwise_ptr(xp, output_fp8, output_scales),
+            x_padded,
+            BLOCK_SIZE,
+        )
+
         bytes_r = x.numel() * bytes_per_el_bf16
         bytes_w = (y_d0.numel() + s_d0.numel()) * bytes_per_el_fp8
         bps = (bytes_r + bytes_w) / (time_us / 1e6)
