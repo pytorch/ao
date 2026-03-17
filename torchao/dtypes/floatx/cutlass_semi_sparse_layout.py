@@ -3,6 +3,7 @@
 #
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
+import warnings
 from dataclasses import dataclass
 from typing import Optional
 
@@ -42,6 +43,12 @@ def _same_metadata(
 class CutlassSemiSparseLayout(Layout):
     """Layout class for float8 2:4 sparsity layout for affine quantized tensor, for cutlass kernel."""
 
+    def __post_init__(self):
+        super().__post_init__()
+        warnings.warn(
+            "Deprecation: CutlassSemiSparseLayout is deprecated and will be removed in a future release of torchao, see https://github.com/pytorch/ao/issues/2752 for more details"
+        )
+
     def pre_process(self, dense: torch.Tensor) -> torch.Tensor:
         # prune to 2:4 if not already
         from torchao.sparsity.utils import mask_creator
@@ -76,6 +83,9 @@ class CutlassSemiSparseTensorImpl(AQTTensorImpl):
         scale: torch.Tensor,
         _layout: Layout,
     ):
+        warnings.warn(
+            "Deprecation: CutlassSemiSparseTensorImpl is deprecated and will be removed in a future release of torchao, see https://github.com/pytorch/ao/issues/2752 for more details"
+        )
         self.sparse = sparse
         self.meta = meta
         self.scale = scale

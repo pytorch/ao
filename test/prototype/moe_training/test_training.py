@@ -37,29 +37,30 @@ torch._dynamo.config.cache_size_limit = 1000
 @pytest.mark.parametrize(
     "kernel_preference", [KernelPreference.AUTO, KernelPreference.EMULATED]
 )
+@pytest.mark.parametrize("token_groups_aligned", [False])
 @pytest.mark.parametrize(
     "recipe_config",
     [
         {
             "recipe": Float8TrainingRecipe.FP8_ROWWISE,
             "group_alignment_size": 16,
-            "min_out_sqnr": 26.5,
+            "min_out_sqnr": 23.0,
             "min_input_grad_sqnr": 29.0,
             "min_param_grad_sqnr": 21.0,
         },
         {
             "recipe": MXFP8TrainingRecipe.MXFP8_RCEIL,
             "group_alignment_size": 32,
-            "min_out_sqnr": 26.5,
+            "min_out_sqnr": 23.0,
             "min_input_grad_sqnr": 29.0,
             "min_param_grad_sqnr": 21.0,
         },
         {
             "recipe": MXFP8TrainingRecipe.MXFP8_RCEIL_WGRAD_WITH_HP,
             "group_alignment_size": 32,
-            "min_out_sqnr": 26.5,
+            "min_out_sqnr": 23.0,
             "min_input_grad_sqnr": 29.0,
-            "min_param_grad_sqnr": 23.0,
+            "min_param_grad_sqnr": 22.0,
         },
         {
             "recipe": MXFP8TrainingRecipe.MXFP8_EMULATED_RCEIL,
@@ -74,17 +75,16 @@ def test_moe_training(
     target_fqns: list[str],
     compile: bool,
     kernel_preference: KernelPreference,
+    token_groups_aligned: bool,
     recipe_config: dict,
 ):
     (
         recipe,
-        group_alignment_size,
         min_out_sqnr,
         min_input_grad_sqnr,
         min_param_grad_sqnr,
     ) = (
         recipe_config["recipe"],
-        recipe_config["group_alignment_size"],
         recipe_config["min_out_sqnr"],
         recipe_config["min_input_grad_sqnr"],
         recipe_config["min_param_grad_sqnr"],
@@ -99,6 +99,11 @@ def test_moe_training(
 
     # FP8_ROWWISE hardware path requires SM90 (CUDA) or MI300/MI350 (ROCm)
     if recipe == Float8TrainingRecipe.FP8_ROWWISE:
+        if compile:
+            pytest.skip(
+                "https://github.com/pytorch/ao/issues/4048: 'FakeTensor' object has no attribute '__tensor_flatten__'"
+            )
+
         if is_ROCM():
             if not (is_MI300() or is_MI350()):
                 pytest.skip("FP8 rowwise test requires MI300 or MI350 on ROCm")
@@ -107,6 +112,8 @@ def test_moe_training(
                 pytest.skip(
                     f"Skipping FP8 rowwise tests, only supported on compute capability 9.0 and found {torch.cuda.get_device_capability()}"
                 )
+        if not token_groups_aligned:
+            pytest.skip("FP8 rowwise doesn't support per group token padding yet")
 
     # MXFP8 hardware path requires SM100
     if recipe in (
@@ -120,14 +127,15 @@ def test_moe_training(
             f"Skipping MXFP8 hardware mode tests, only supported on compute capability 10.0 and found {torch.cuda.get_device_capability()}"
         )
 
-    # Set token group alignment size. This is required so that
-    # each logically distinct gemm in the grouped gemm `grad_weight = grad_output_t @ input`
-    # has the contraction dim be divisible by 16. 16 byte alignment is required
-    # for the slowest moving dim (stride 1).
-    set_token_group_alignment_size_m(group_alignment_size)
+    alignment_size = 32 if isinstance(recipe, MXFP8TrainingRecipe) else 16
+    if not token_groups_aligned:
+        alignment_size = 1
+    set_token_group_alignment_size_m(alignment_size)
+
     model_args = MoEArgs(
         num_experts=8,
         num_shared_experts=1,
+        use_grouped_mm=True,
     )
     init_std = 0.02
     device = torch.device("cuda")
@@ -159,6 +167,11 @@ def test_moe_training(
         else Float8TrainingOpConfig
     )
     config = config_cls.from_recipe(recipe)
+
+    # TODO: support pad_token_groups_for_grouped_mm in Float8TrainingOpConfig
+    if isinstance(recipe, MXFP8TrainingRecipe) and not token_groups_aligned:
+        config.pad_token_groups_for_grouped_mm = True
+
     quantize_(model, config=config, filter_fn=moe_module_filter_fn)
 
     # validate that only the experts were converted

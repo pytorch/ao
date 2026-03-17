@@ -20,7 +20,6 @@ logging.basicConfig(
 
 class TestSemiStructuredSparse(common_utils.TestCase):
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
-    @unittest.skip("Temporarily skipping to unpin nightlies")
     def test_sparse(self):
         input = torch.rand((128, 128)).half().cuda()
         model = (
