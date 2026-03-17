@@ -292,8 +292,6 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
                 return unittest.skip("unimplemented")
 
         elif granularity == (PerBlock([1, 128]), PerBlock([128, 128])):
-            if torch.xpu.is_available():
-                return unittest.skip("PerBlock granularity not supported on XPU")
             if dtype is not torch.bfloat16:
                 return unittest.skip("unimplemented")
             elif mode != "dynamic":
