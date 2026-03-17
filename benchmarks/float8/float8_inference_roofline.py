@@ -45,6 +45,7 @@ from torchao.utils import torch_version_at_least
 # ScalingType and SwizzleType are only available in PyTorch 2.10+
 if torch_version_at_least("2.10.0"):
     from torch.nn.functional import ScalingType, SwizzleType
+from torchao.prototype.mx_formats.config import QuantizeToNVFP4KernelChoice
 from torchao.prototype.mx_formats.inference_workflow import (
     MXDynamicActivationMXWeightConfig,
     NVFP4DynamicActivationNVFP4WeightConfig,
@@ -796,13 +797,16 @@ def run(
                 elif recipe_name == "nvfp4":
                     config = NVFP4DynamicActivationNVFP4WeightConfig(
                         use_dynamic_per_tensor_scale=True,
+                        quantize_to_nvfp4_kernel_choice=QuantizeToNVFP4KernelChoice.FLASHINFER,
                     )
                 elif recipe_name == "nvfp4_static":
                     config_calib = NVFP4DynamicActivationNVFP4WeightConfig(
                         step="prepare",
+                        quantize_to_nvfp4_kernel_choice=QuantizeToNVFP4KernelChoice.FLASHINFER,
                     )
                     config = NVFP4DynamicActivationNVFP4WeightConfig(
                         step="convert",
+                        quantize_to_nvfp4_kernel_choice=QuantizeToNVFP4KernelChoice.FLASHINFER,
                     )
                 else:
                     assert False, "unsupported"
