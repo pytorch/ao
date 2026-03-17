@@ -378,10 +378,13 @@ class NVFP4WeightOnlyConfig(AOBaseConfig):
 
 @register_quantize_module_handler(NVFP4WeightOnlyConfig)
 def _nvfp4_weight_only_linear_transform(
-    module: torch.nn.Linear, config: NVFP4WeightOnlyConfig
+    module: torch.nn.Linear,
+    config: NVFP4WeightOnlyConfig,
+    *,
+    parameter_name: str = "weight",
 ):
     """Quantization handler for NVFP4WeightOnlyConfig"""
-    weight = module.weight
+    weight = getattr(module, parameter_name)
 
     if weight.shape[-2] % 16 != 0 or weight.shape[-1] % 16 != 0:
         raise RuntimeError(
@@ -400,8 +403,19 @@ def _nvfp4_weight_only_linear_transform(
         act_quant_kwargs=None,
     )
     # Set triton preference after construction
-    module.weight = torch.nn.Parameter(quantized_weight, requires_grad=False)
-    module.extra_repr = types.MethodType(_linear_extra_repr, module)
+    setattr(
+        module,
+        parameter_name,
+        torch.nn.Parameter(quantized_weight, requires_grad=False),
+    )
+    module.extra_repr = types.MethodType(
+        partial(
+            _module_extra_repr,
+            original_extra_repr=module.extra_repr,
+            parameter_name=parameter_name,
+        ),
+        module,
+    )
     return module
 
 
