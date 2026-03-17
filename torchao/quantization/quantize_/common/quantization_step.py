@@ -49,9 +49,13 @@ class QuantizationStep(str, Enum):
     After this step, run calibration data through the model again to collect
     smoothed activation statistics for accurate activation scale computation.
     """
-    PREPARE_FOR_SMOOTHQUANT_SMOOTHING_FACTOR = "prepare_for_smoothquant_smoothing_factor"
+    PREPARE_FOR_SMOOTHQUANT_SMOOTHING_FACTOR = (
+        "prepare_for_smoothquant_smoothing_factor"
+    )
 
     """Compute activation scales from smoothed activation statistics collected
     during the second calibration pass (after PREPARE_FOR_SMOOTHQUANT_SMOOTHING_FACTOR).
     """
-    PREPARE_FOR_SMOOTHQUANT_ACTIVATION_SCALES = "prepare_for_smoothquant_activation_scales"
+    PREPARE_FOR_SMOOTHQUANT_ACTIVATION_SCALES = (
+        "prepare_for_smoothquant_activation_scales"
+    )
