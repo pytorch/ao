@@ -148,7 +148,7 @@ def _unary_fusion_pattern(unary_fusion, call_fn, users, is_bf16):
 
 
 def get_dequantize_per_tensor_activation_pattern(
-    is_tensor_overload=False, is_fp8=False
+    is_tensor_overload=False, is_fp8=False, users=1
 ):
     if is_fp8:
         dequantize_per_tensor_activation_pattern = CallFunction(
@@ -156,6 +156,7 @@ def get_dequantize_per_tensor_activation_pattern(
             KeywordArg("x"),
             KeywordArg("x_scale"),
             output_dtype=KeywordArg("x_dq_dtype"),
+            _users=users,
         )
     else:
         dequantize_per_tensor_activation_pattern = CallFunction(
@@ -168,6 +169,7 @@ def get_dequantize_per_tensor_activation_pattern(
             KeywordArg("x_quant_min"),
             KeywordArg("x_quant_max"),
             KeywordArg("x_dq_dtype"),
+            _users=users,
         )
     return dequantize_per_tensor_activation_pattern
 
@@ -991,6 +993,26 @@ def _get_linear_dq_node(
     return dequant_node, act_reshape_node, activation_to_bf16_node, act_expand_node
 
 
+def _is_assert_tensor_metadata_node(node: Any) -> bool:
+    return (
+        isinstance(node, torch.fx.Node)
+        and node.op == "call_function"
+        and node.target == torch.ops.aten._assert_tensor_metadata.default
+    )
+
+
+def _get_non_assert_users(node: torch.fx.Node) -> list[torch.fx.Node]:
+    return [user for user in node.users if not _is_assert_tensor_metadata_node(user)]
+
+
+def _erase_assert_tensor_metadata_users(
+    graph: torch.fx.Graph, node: torch.fx.Node
+) -> None:
+    for user in list(node.users):
+        if _is_assert_tensor_metadata_node(user):
+            graph.erase_node(user)
+
+
 def _is_valid_dequant_linear_pattern(dtype, input_dim_exceeds_two, input_contiguous):
     def _inner(match):
         # Check dequant pattern has only 1 user.
@@ -1016,10 +1038,11 @@ def _is_valid_dequant_linear_pattern(dtype, input_dim_exceeds_two, input_contigu
             torch.ops.torchao.dequantize_affine_float8_non_decomposed.default,
         ]
 
-        if len(list(dequant_node.users)) != 1:
-            # Ensure the dequant pattern only has 1 user
-            # since we will delete the dequant pattern here
+        # Allow dequant has multi users including _assert_tensor_metadata introduced by AOT Inductor.
+        if len(_get_non_assert_users(dequant_node)) != 1:
             return False
+            # Ensure the dequant pattern only has 1 effective user
+            # since we will delete the dequant pattern here
 
         # Extra check for bmm pattern
         if input_dim_exceeds_two and not input_contiguous:
@@ -1202,6 +1225,10 @@ def _register_qlinear_weight_prepack_pass(
                 linear_node.replace_all_uses_with(new_linear_node)
                 new_linear_node.meta.update(linear_node.meta)
 
+            # Erase assert users first so dequant nodes become erasable.
+            _erase_assert_tensor_metadata_users(graph, dequant_node)
+            _erase_assert_tensor_metadata_users(graph, dequant)
+
             # Erase the original linear node
             if input_dim_exceeds_two:
                 if input_contiguous:
@@ -1237,6 +1264,7 @@ def _generate_dequant_linear_node_pattern(
     input_dim_exceeds_two=False,
     is_tensor_overload=False,
     is_fp8=False,
+    users=1,
 ):
     assert dtype in [torch.float32, torch.bfloat16]
     t_pattern = _generate_linear_t_pattern(_dequant_per_channel_pattern, dtype)
@@ -1247,7 +1275,7 @@ def _generate_dequant_linear_node_pattern(
             _may_generate_pattern_with_reshape(
                 _may_generate_pattern_with_dtype_convert(
                     get_dequantize_per_tensor_activation_pattern(
-                        is_tensor_overload, is_fp8
+                        is_tensor_overload, is_fp8, users
                     ),
                     KeywordArg("autocast_act_dtype"),
                     dtype == torch.bfloat16,
@@ -1266,7 +1294,7 @@ def _generate_dequant_linear_node_pattern(
             _may_generate_pattern_with_reshape(
                 _may_generate_pattern_with_dtype_convert(
                     get_dequantize_per_tensor_activation_pattern(
-                        is_tensor_overload, is_fp8
+                        is_tensor_overload, is_fp8, users
                     ),
                     KeywordArg("autocast_act_dtype"),
                     dtype == torch.bfloat16,
@@ -1288,6 +1316,7 @@ def _generate_dequant_bmm_node_pattern(
     with_bias=False,
     is_tensor_overload=False,
     is_fp8=False,
+    users=1,
 ):
     # When activation of linear dim exceed 2 and not contiguous
     t_pattern = _generate_linear_t_pattern(_dequant_per_channel_pattern, dtype)
@@ -1299,7 +1328,7 @@ def _generate_dequant_bmm_node_pattern(
             aten.expand.default,
             _may_generate_pattern_with_dtype_convert(
                 get_dequantize_per_tensor_activation_pattern(
-                    is_tensor_overload, is_fp8
+                    is_tensor_overload, is_fp8, users
                 ),
                 KeywordArg("autocast_act_dtype"),
                 dtype == torch.bfloat16,
@@ -1333,9 +1362,17 @@ def _generate_qlinear_weight_prepack_patterns(
     with_bias=False,
     is_tensor_overload=False,
     is_fp8=False,
+    users=1,
 ):
     if is_fp8:
-        dequant_wgt_pattern = dequantize_fp8_weight_pattern
+        # dequant_wgt_pattern = dequantize_fp8_weight_pattern
+        dequant_wgt_pattern = CallFunction(
+            torch.ops.torchao.dequantize_affine_float8_non_decomposed.default,
+            KeywordArg("q_weight"),
+            KeywordArg("w_scale"),
+            output_dtype=KeywordArg("w_dtype"),
+            _users=users,
+        )
     else:
         dequant_wgt_pattern = dequantize_per_channel_weight_pattern
     if input_dim_exceeds_two and not input_contiguous:
@@ -1345,6 +1382,7 @@ def _generate_qlinear_weight_prepack_patterns(
             with_bias,
             is_tensor_overload,
             is_fp8=is_fp8,
+            users=users,
         )
     else:
         return _generate_dequant_linear_node_pattern(
@@ -1353,6 +1391,7 @@ def _generate_qlinear_weight_prepack_patterns(
             input_dim_exceeds_two,
             is_tensor_overload,
             is_fp8=is_fp8,
+            users=users,
         )
 
 
@@ -1526,7 +1565,7 @@ def _register_qlinear_weight_prepack():
     #   |            OPT(add)               |
 
     linear_weight_prepack_cases = itertools.product(
-        [torch.float32, torch.bfloat16], [True, False], [True, False], [True, False]
+        [torch.float32, torch.bfloat16], [True, False], [True, False], [True, False], [1, 2]
     )
 
     # Step 1: register patterns from mm and addmm
@@ -1535,6 +1574,7 @@ def _register_qlinear_weight_prepack():
         input_dim_exceeds_two,
         is_tensor_overload,
         is_fp8,
+        users,
     ) in linear_weight_prepack_cases:
         if is_fp8 and not is_tensor_overload:
             continue
@@ -1543,6 +1583,7 @@ def _register_qlinear_weight_prepack():
             input_dim_exceeds_two,
             is_tensor_overload=is_tensor_overload,
             is_fp8=is_fp8,
+            users=users,
         )
         for weight_prepack_pattern in weight_prepack_patterns:
             # Register to pass_number 1, so we can do dequant promotion in pass_number 0.
@@ -2458,6 +2499,40 @@ def _register_qconv_binary_fusion():
             )
 
 
+def _extract_const_float_from_node(v: Any) -> float | None:
+    if isinstance(v, (int, float)):
+        return float(v)
+
+    if isinstance(v, torch.fx.Node):
+        # case 1: aten.full([1], c)
+        if v.op == "call_function" and v.target is torch.ops.aten.full.default:
+            if len(v.args) >= 2 and isinstance(v.args[1], (int, float)):
+                return float(v.args[1])
+
+        # case 2: get_attr(lifted_tensor)
+        if v.op == "get_attr":
+            obj = v.graph.owning_module
+            for atom in str(v.target).split("."):
+                if not hasattr(obj, atom):
+                    obj = None
+                    break
+                obj = getattr(obj, atom)
+
+            if isinstance(obj, (int, float)):
+                return float(obj)
+            if isinstance(obj, torch.Tensor) and obj.numel() == 1:
+                return float(obj.item())
+
+        # case 3: meta val fallback
+        mv = v.meta.get("val", None)
+        if isinstance(mv, (int, float)):
+            return float(mv)
+        if isinstance(mv, torch.Tensor) and mv.numel() == 1:
+            return float(mv.item())
+
+    return None
+
+
 def _register_qlinear_post_op_fusion_pass(
     pattern,
     pass_number,
@@ -2495,10 +2570,10 @@ def _register_qlinear_post_op_fusion_pass(
 
         # Output QParams
         if output_dtype == torch.float8_e4m3fn:
-            # For float8, we assume the scale is from aten.full.default instead of
-            # a constant buffer to avoid constant folding of q/dq before fusion passes.
-            assert kwargs["o_inv_scale"].target is torch.ops.aten.full.default
-            o_inv_scale = kwargs["o_inv_scale"].args[1]
+            o_inv_scale = _extract_const_float_from_node(kwargs["o_inv_scale"])
+            assert o_inv_scale is not None, (
+                f"Unsupported fp8 o_inv_scale node: {kwargs['o_inv_scale']}"
+            )
         else:
             o_inv_scale = (
                 kwargs["o_inv_scale"]
@@ -2979,31 +3054,7 @@ def _register_scaled_embedding_bag_pass(pattern, pass_number, dtype=torch.float3
             normalized_o_dtype = _normalize_dtype(kwargs["o_dtype"])
             output_type = normalized_o_dtype
 
-            def _extract_const_float(val) -> float | None:
-                # Prefer extracting from python scalars and FX node structure
-                if isinstance(val, (int, float)):
-                    return float(val)
-                if isinstance(val, torch.fx.Node):
-                    meta_val = val.meta.get("val", None)
-                    if isinstance(meta_val, (int, float)):
-                        return float(meta_val)
-                    # Common pattern: aten.full([1], fill_value, dtype=float)
-                    if val.target is torch.ops.aten.full.default and len(val.args) >= 2:
-                        fill_value = val.args[1]
-                        if isinstance(fill_value, (int, float)):
-                            return float(fill_value)
-                    # Common pattern in user code: torch.tensor([scalar])
-                    if val.target is torch.tensor and len(val.args) >= 1:
-                        data = val.args[0]
-                        if (
-                            isinstance(data, (list, tuple))
-                            and len(data) == 1
-                            and isinstance(data[0], (int, float))
-                        ):
-                            return float(data[0])
-                return None
-
-            o_scale = _extract_const_float(kwargs["o_inv_scale"])
+            o_scale = _extract_const_float_from_node(kwargs["o_inv_scale"])
             assert o_scale is not None, "Output scale is not a constant float."
 
         graph = match.graph
