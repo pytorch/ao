@@ -158,7 +158,11 @@ def _linear_fp_act_uint4_weight_int8_zero_impl(input_tensor, weight_tensor, bias
 class Int4XPULayout(Layout):
     """Only for PyTorch version at least 2.7"""
 
-    pass
+    def __post_init__(self):
+        super().__post_init__()
+        warnings.warn(
+            "Deprecation: Int4XPULayout is deprecated and will be removed in a future release of torchao, see https://github.com/pytorch/ao/issues/2752 for more details"
+        )
 
 
 @register_layout(Int4XPULayout)
@@ -211,6 +215,9 @@ class Int4XPUAQTTensorImpl(AQTTensorImpl):
         scale: torch.Tensor = None,
         zero: torch.Tensor = None,
     ):
+        warnings.warn(
+            "Deprecation: Int4XPUAQTTensorImpl is deprecated and will be removed in a future release of torchao, see https://github.com/pytorch/ao/issues/2752 for more details"
+        )
         warnings.warn(
             "Models quantized with version 1 of Int4WeightOnlyConfig is deprecated and will no longer be supported in a future release, please upgrade torchao and quantize again, or download a newer torchao checkpoint, see https://github.com/pytorch/ao/issues/2948 for more details"
         )

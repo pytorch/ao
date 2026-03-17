@@ -7,16 +7,23 @@
 import pytest
 import torch
 
-from torchao.utils import is_sm_version, torch_version_at_least
+from torchao.utils import (
+    is_MI300,
+    is_MI350,
+    is_sm_at_least_90,
+    is_sm_version,
+    torch_version_at_least,
+)
 
-# We need to skip before doing any imports which would use triton, since
-# triton won't be available on CPU builds and torch < 2.5
 if not (
     torch_version_at_least("2.7.0")
     and torch.cuda.is_available()
-    and torch.cuda.get_device_capability()[0] >= 9
+    and (is_sm_at_least_90() or is_MI300() or is_MI350())
 ):
-    pytest.skip("Unsupported PyTorch version", allow_module_level=True)
+    pytest.skip(
+        "Requires FP8-capable GPU (CUDA SM90+, MI300, or MI350)",
+        allow_module_level=True,
+    )
 
 pytest.importorskip("triton", reason="Triton required to run this test")
 
@@ -34,7 +41,6 @@ from torchao.prototype.moe_training.config import (
 from torchao.prototype.moe_training.fp8_grouped_mm import (
     _to_fp8_rowwise_then_scaled_grouped_mm,
 )
-from torchao.testing.utils import skip_if_rocm
 from torchao.utils import is_MI300, is_MI350, is_ROCM
 
 # Needed since changing args to function causes recompiles
@@ -121,7 +127,6 @@ def test_fp8_rowwise_scaled_grouped_mm(m, n, k, n_groups):
         assert torch.equal(b_t.grad, ref_b_t.grad)
 
 
-@skip_if_rocm("ROCm not supported")
 @pytest.mark.parametrize("m", [16, 17])
 @pytest.mark.parametrize("k", [16, 18])
 @pytest.mark.parametrize("n", [32, 33])

@@ -3,6 +3,7 @@
 #
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
+import warnings
 from typing import Optional, Tuple
 
 import torch
@@ -77,6 +78,10 @@ class PlainAQTTensorImpl(AQTTensorImpl):
         zero_point: Optional[torch.Tensor],
         _layout: Layout,
     ):
+        if type(self) is PlainAQTTensorImpl:
+            warnings.warn(
+                "Deprecation: PlainAQTTensorImpl is deprecated and will be removed in a future release of torchao, see https://github.com/pytorch/ao/issues/2752 for more details"
+            )
         self.int_data = int_data
         self.scale = scale
         self.zero_point = zero_point

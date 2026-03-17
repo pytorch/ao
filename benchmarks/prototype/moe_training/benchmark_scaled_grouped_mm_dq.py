@@ -65,31 +65,14 @@ class Experiment:
 
 def get_configs() -> List[ExperimentConfig]:
     MNKG_list = [
-        # Llama4 16e with various experts per device (i.e., different EP degrees)
-        (16384, 8192, 5120, 1),
-        (16384, 8192, 5120, 2),
-        (16384, 8192, 5120, 4),
-        (16384, 8192, 5120, 8),
+        # Llama4 16e with various experts per device (i.e., EP degree=8 or 16
+        (32768, 8192, 5120, 1),
+        (32768, 8192, 5120, 2),
         (128000, 8192, 5120, 1),
         (128000, 8192, 5120, 2),
-        (128000, 8192, 5120, 4),
-        (128000, 8192, 5120, 8),
-        # DSV3 236B with various experts per device (i.e., different EP degrees)
-        (16384, 1536, 5120, 1),
-        (16384, 1536, 5120, 2),
-        (16384, 1536, 5120, 4),
-        (16384, 1536, 5120, 8),
-        (128000, 1536, 5120, 1),
-        (128000, 1536, 5120, 2),
-        (128000, 1536, 5120, 4),
-        (128000, 1536, 5120, 8),
-        # DSV3 671B with various experts per device (i.e., different EP degrees)
-        (16384, 2048, 7168, 1),
-        (16384, 2048, 7168, 2),
-        (16384, 2048, 7168, 4),
-        (16384, 2048, 7168, 8),
-        (128000, 2048, 7168, 1),
-        (128000, 2048, 7168, 2),
+        # DSV3 671B with various experts per device (i.e., EP degree=32 or 64
+        (32768, 2048, 7168, 4),
+        (32768, 2048, 7168, 8),
         (128000, 2048, 7168, 4),
         (128000, 2048, 7168, 8),
     ]
@@ -133,20 +116,17 @@ def run_experiment(
         requires_grad=True,
     ).transpose(-2, -1)
 
-    # - configure input to be row-major with groups divided along the column dimension,
-    #   representing the left operand of grad_weight = grad_output_t @ input
-    #   that occurs in the backward pass of the differentiable scaled grouped mm.
-    # - the transposed tensor in col-major format with groups along the row dimension,
-    #    which represents the right operand.
-    token_group_alignment_size = (
-        16 if config.recipe == Float8TrainingRecipe.FP8_ROWWISE else 32
-    )
+    # Create config object from recipe
+    if isinstance(config.recipe, Float8TrainingRecipe):
+        quant_config = Float8TrainingOpConfig.from_recipe(config.recipe)
+        alignment_size = 16 if args.aligned else 1
+        # TODO: support pad_token_groups_for_grouped_mm option in Float8TrainingOpConfig
+    else:
+        quant_config = MXFP8TrainingOpConfig.from_recipe(config.recipe)
+        quant_config.pad_token_groups_for_grouped_mm = not args.aligned
+        alignment_size = 32 if args.aligned else 1
 
-    offs = generate_jagged_offs(G, total_M, multiple_of=token_group_alignment_size)
-
-    labels = torch.ones(
-        (A.shape[0], B_t.shape[-1]), device=device, dtype=torch.bfloat16
-    )
+    offs = generate_jagged_offs(G, total_M, multiple_of=alignment_size)
 
     # fwd_bwd bf16 benchmark + profiling
     bf16_fwd_bwd_us = bench_fwd_bwd_microseconds(
@@ -154,7 +134,6 @@ def run_experiment(
         A,
         B_t,
         offs,
-        labels=labels,
         use_compile=args.compile,
         fullgraph=False,
     )
@@ -164,17 +143,10 @@ def run_experiment(
             A,
             B_t,
             offs,
-            labels=labels,
             use_compile=args.compile,
             fullgraph=False,
             profile_name="bf16_profile",
         )
-
-    # Create config object from recipe
-    if isinstance(config.recipe, Float8TrainingRecipe):
-        quant_config = Float8TrainingOpConfig.from_recipe(config.recipe)
-    else:
-        quant_config = MXFP8TrainingOpConfig.from_recipe(config.recipe)
 
     # fwd_bwd scaled benchmark + profiling
     scaled_fwd_bwd_us = bench_fwd_bwd_microseconds(
@@ -183,7 +155,6 @@ def run_experiment(
         B_t,
         quant_config,
         offs,
-        labels=labels,
         use_compile=args.compile,
         fullgraph=False,
     )
@@ -194,7 +165,6 @@ def run_experiment(
             B_t,
             quant_config,
             offs,
-            labels=labels,
             use_compile=args.compile,
             profile_name="scaled_profile",
             fullgraph=False,
@@ -296,5 +266,11 @@ if __name__ == "__main__":
     arg_parser = argparse.ArgumentParser()
     arg_parser.add_argument("--compile", action="store_true")
     arg_parser.add_argument("--profile", action="store_true")
+    arg_parser.add_argument(
+        "--aligned",
+        action="store_true",
+        help="If true, token group sizes are pre-aligned, to simulate flow with HybridEP or similar",
+    )
+
     args = arg_parser.parse_args()
     main(args)
