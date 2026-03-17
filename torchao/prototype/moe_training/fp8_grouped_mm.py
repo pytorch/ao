@@ -76,6 +76,9 @@ class _Float8GroupedMM(torch.autograd.Function):
         float8_dtype: torch.dtype = torch.float8_e4m3fn,
         pad_token_groups_for_grouped_mm: bool = True,
     ) -> torch.Tensor:
+        assert not pad_token_groups_for_grouped_mm, (
+            "pad_token_groups_for_grouped_mm=True is not yet supported"
+        )
         # torchao _quantize_then_scaled_grouped_mm only supports A=2D|3D and B=3D.
         assert A.ndim == 2 or A.ndim == 3, "A must be 2D or 3D"
         assert B_t.ndim == 3, "B must be 3D"
