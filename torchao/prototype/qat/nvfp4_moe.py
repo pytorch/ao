@@ -1,10 +1,10 @@
 """
 FP4 QAT for MoE (Mixture of Experts) models.
 
-This module provides fake quantization for MoE expert layers using decomposed
-PyTorch ops with flashinfer's block-scale FP4 quantize-dequantize roundtrip
-inserted before each GEMM. Gradients flow through the STE (Straight-Through
-Estimator) automatically.
+This module provides fake quantization for MoE expert layers using block-scale
+FP4 (E2M1) quantize-dequantize roundtrips inserted before each GEMM, implemented
+entirely in PyTorch (no CPU↔GPU transfers).  Gradients flow through the STE
+(Straight-Through Estimator) automatically.
 
 The per-expert computation matches the flashinfer ``trtllm_fp4_block_scale_moe``
 kernel numerics: standard SwiGLU activation with contiguous gate/value halves
@@ -22,11 +22,17 @@ import torch.nn.functional as F
 
 
 # ---------------------------------------------------------------------------
-# MoE reference forward
+# FP4 E2M1 quantization (pure PyTorch, all on GPU)
 # ---------------------------------------------------------------------------
 
+# Representable positive E2M1 values: 0, 0.5, 1, 1.5, 2, 3, 4, 6
+_E2M1_VALUES = [0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0]
+# Midpoint boundaries between consecutive values (for round-to-nearest)
+_E2M1_BOUNDARIES = [0.25, 0.75, 1.25, 1.75, 2.5, 3.5, 5.0]
+_SF_BLOCK_SIZE = 16
 
-def _calculate_fp4_global_scale_factor(tensor):
+
+def _calculate_fp4_global_scale_factor(tensor: torch.Tensor) -> torch.Tensor:
     """Compute FP4 global scale: ``(448 * 6) / amax``.
 
     448 is the max representable FP8-E4M3 value and 6 is the max FP4-E2M1
@@ -35,30 +41,45 @@ def _calculate_fp4_global_scale_factor(tensor):
     return (448 * 6) / tensor.float().abs().nan_to_num().max()
 
 
-def _quant_dequant_fp4(a):
-    """FP4 quantize-then-dequantize roundtrip (flashinfer, block-scale).
+def _quant_dequant_fp4(
+    a: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """FP4 E2M1 block-scale quantize-dequantize roundtrip, all on GPU.
 
-    Matches the intermediate-activation quantisation that the
-    ``trtllm_fp4_block_scale_moe`` kernel performs between GEMM1 and GEMM2.
+    Implements the same numerics as flashinfer's ``fp4_quantize`` followed by
+    ``e2m1_and_ufp8sf_scale_to_float``, but without any CPU↔GPU transfers.
+
     Returns ``(dequantized, global_scale_factor)``.
     """
-    from flashinfer import e2m1_and_ufp8sf_scale_to_float, fp4_quantize
+    device = a.device
+    gsf = _calculate_fp4_global_scale_factor(a)
 
-    a_global_sf = _calculate_fp4_global_scale_factor(a)
-    a_fp4, a_sf = fp4_quantize(a.cuda(), a_global_sf.cuda(), 16, False, True)
-    a_pt = e2m1_and_ufp8sf_scale_to_float(
-        a_fp4.cpu(),
-        a_sf.cpu().reshape(-1),
-        (1 / a_global_sf).cpu(),
-        16,  # sf_vec_size
-        1,   # ufp8_type (E4M3)
-        True,  # is_sf_swizzled_layout
-    )
-    return a_pt.cuda(), a_global_sf
+    # Scale by global scale factor.
+    x = a.float() * gsf
+    orig_shape = x.shape
+    x_flat = x.reshape(-1, _SF_BLOCK_SIZE)
+
+    # Per-block FP8-E4M3 scale factor: block_amax / fp4_max, quantized to FP8.
+    block_amax = x_flat.abs().amax(dim=-1, keepdim=True)
+    block_sf = (block_amax / 6.0).to(torch.float8_e4m3fn).float()
+
+    # Normalize by block scale and round to nearest E2M1 value.
+    x_norm = x_flat / block_sf.clamp(min=torch.finfo(torch.float8_e4m3fn).tiny)
+    sign = x_norm.sign()
+    x_abs = x_norm.abs()
+    boundaries = torch.tensor(_E2M1_BOUNDARIES, device=device)
+    values = torch.tensor(_E2M1_VALUES, device=device)
+    indices = torch.bucketize(x_abs, boundaries)
+    x_quant = sign * values[indices]
+
+    # Dequantize: reverse the block scale and global scale.
+    x_dq = (x_quant * block_sf).reshape(orig_shape) / gsf
+
+    return x_dq, gsf
 
 
 def _fp4_fake_quantize(x: torch.Tensor) -> torch.Tensor:
-    """FP4 fake quantize with STE, using flashinfer's block-scale FP4.
+    """FP4 fake quantize with STE, using block-scale FP4 (E2M1).
 
     Matches the quantisation the ``trtllm_fp4_block_scale_moe`` kernel
     applies to activations and weights.  The forward pass uses the
@@ -68,7 +89,17 @@ def _fp4_fake_quantize(x: torch.Tensor) -> torch.Tensor:
     return x + (dq_val.to(x.dtype) - x).detach()
 
 
-def _build_permute_info(router_indices, routing_weights, num_experts, padding):
+# ---------------------------------------------------------------------------
+# MoE reference forward
+# ---------------------------------------------------------------------------
+
+
+def _build_permute_info(
+    router_indices: torch.Tensor,
+    routing_weights: torch.Tensor,
+    num_experts: int,
+    padding: int,
+) -> tuple[int, torch.Tensor, torch.Tensor, torch.Tensor]:
     """Build permutation tables from the module's routing tensors.
 
     Converts ``(router_indices, routing_weights)`` — the format used by
@@ -88,7 +119,6 @@ def _build_permute_info(router_indices, routing_weights, num_experts, padding):
     """
     device = router_indices.device
     num_tokens, top_k = router_indices.shape
-    ri_cpu = router_indices.cpu()
 
     # Per-(token, k) weights — clamp sentinel indices and zero them out.
     top_k_logits = routing_weights.gather(
@@ -96,58 +126,77 @@ def _build_permute_info(router_indices, routing_weights, num_experts, padding):
     )
     top_k_logits = top_k_logits.masked_fill(router_indices >= num_experts, 0.0)
 
-    # Count tokens per expert.
-    num_tokens_per_expert = torch.zeros(num_experts, dtype=torch.int64)
-    expert_token_count = torch.zeros(num_experts, dtype=torch.int64)
-    for t in range(num_tokens):
-        for k in range(top_k):
-            eidx = ri_cpu[t, k].item()
-            if eidx < num_experts:
-                num_tokens_per_expert[eidx] += 1
+    # Flat view of expert assignments: [num_tokens * top_k]
+    flat_indices = router_indices.reshape(-1)  # [T * top_k]
+    valid = flat_indices < num_experts
 
-    # Padded prefix sum.
-    padded_prefix_sum = torch.zeros(num_experts + 1, dtype=torch.int64)
-    for i in range(num_experts):
-        padded_prefix_sum[i + 1] = padded_prefix_sum[i] + (
-            (num_tokens_per_expert[i] + padding - 1) // padding * padding
-        )
+    # Count tokens per expert (on GPU).
+    num_tokens_per_expert = torch.zeros(
+        num_experts, dtype=torch.int64, device=device
+    )
+    num_tokens_per_expert.scatter_add_(
+        0, flat_indices[valid], torch.ones_like(flat_indices[valid])
+    )
+
+    # Padded counts and prefix sum (on GPU).
+    padded_counts = (num_tokens_per_expert + padding - 1) // padding * padding
+    padded_prefix_sum = torch.zeros(
+        num_experts + 1, dtype=torch.int64, device=device
+    )
+    padded_prefix_sum[1:] = padded_counts.cumsum(0)
     permuted_buffer_size = padded_prefix_sum[num_experts].item()
 
-    # Token-to-permuted-index mapping.
+    # Token-to-permuted-index mapping (on GPU).
+    # For each valid (token, k) pair, compute its position within its expert's
+    # block by finding the rank among all valid entries for the same expert.
     expanded_token_idx_to_permuted_idx = -torch.ones(
-        num_tokens * top_k, dtype=torch.int64
+        num_tokens * top_k, dtype=torch.int64, device=device
     )
-    for t in range(num_tokens):
-        for k in range(top_k):
-            eidx = ri_cpu[t, k].item()
-            if eidx < num_experts:
-                expanded_idx = t * top_k + k
-                permuted_idx = padded_prefix_sum[eidx] + expert_token_count[eidx]
-                expanded_token_idx_to_permuted_idx[expanded_idx] = permuted_idx
-                expert_token_count[eidx] += 1
+
+    # Compute within-expert rank for each valid entry using argsort.
+    # Sort valid entries by expert index; ties broken by flat position (stable).
+    valid_positions = valid.nonzero(as_tuple=True)[0]  # indices into flat_indices
+    valid_experts = flat_indices[valid_positions]
+
+    # Stable sort by expert gives us contiguous expert groups in order.
+    sort_order = valid_experts.argsort(stable=True)
+    sorted_positions = valid_positions[sort_order]
+    sorted_experts = valid_experts[sort_order]
+
+    # Within-expert rank: position minus the start of that expert's group.
+    expert_start_in_sorted = torch.zeros(
+        num_experts, dtype=torch.int64, device=device
+    )
+    expert_start_in_sorted[1:] = num_tokens_per_expert[:-1].cumsum(0)
+    # Each sorted entry's rank = its index in sorted array - expert_start_in_sorted[expert]
+    sorted_idx = torch.arange(sorted_positions.shape[0], device=device)
+    within_expert_rank = sorted_idx - expert_start_in_sorted[sorted_experts]
+
+    permuted_idx = padded_prefix_sum[sorted_experts] + within_expert_rank
+    expanded_token_idx_to_permuted_idx[sorted_positions] = permuted_idx
 
     return (
         permuted_buffer_size,
-        expanded_token_idx_to_permuted_idx.to(device),
-        num_tokens_per_expert.to(device),
+        expanded_token_idx_to_permuted_idx,
+        num_tokens_per_expert,
         top_k_logits,
     )
 
 
 def _run_moe_reference(
-    hidden_states_float,
-    permute_info,
-    gemm1_weights_float,
-    gemm2_weights_float,
-    num_experts,
-    num_tokens,
-    top_k,
-    hidden_size,
-    intermediate_size,
-    padding,
-    gemm1_bias=None,
-    gemm2_bias=None,
-):
+    hidden_states_float: torch.Tensor,
+    permute_info: tuple[int, torch.Tensor, torch.Tensor, torch.Tensor],
+    gemm1_weights_float: torch.Tensor,
+    gemm2_weights_float: torch.Tensor,
+    num_experts: int,
+    num_tokens: int,
+    top_k: int,
+    hidden_size: int,
+    intermediate_size: int,
+    padding: int,
+    gemm1_bias: torch.Tensor | None = None,
+    gemm2_bias: torch.Tensor | None = None,
+) -> tuple[torch.Tensor, torch.Tensor]:
     """MoE forward with NVFP4 fake quantization, in pure PyTorch.
 
     Matches the flashinfer ``trtllm_fp4_block_scale_moe`` kernel numerics:
@@ -164,29 +213,31 @@ def _run_moe_reference(
     comparison tests for output-scale computation).
     """
     total_padded, expanded_idx, num_tok_per_expert, expert_weight = permute_info
-    expanded_idx = expanded_idx.cpu()
-    num_tok_per_expert = num_tok_per_expert.cpu()
+    # Moved to CPU because the per-expert loops below need Python ints for
+    # tensor slicing.  This is a single small transfer (num_experts int64s)
+    # and avoids a GPU sync on every .item() call inside the loop.
+    num_tok_per_expert_cpu = num_tok_per_expert.cpu()
     expert_weight = expert_weight.float()
+    device = hidden_states_float.device
 
     # 0. Fake-quantize hidden states once globally (matches kernel input quantization).
     hidden_states_fq = _fp4_fake_quantize(hidden_states_float)
 
-    # 1. Permute tokens into expert-sorted order.
-    permute_out = torch.full(
-        (total_padded, hidden_size), float("nan"), device="cuda"
-    ).float()
-    for i in range(num_tokens):
-        for j in range(top_k):
-            pid = expanded_idx[i * top_k + j]
-            permute_out[pid] = hidden_states_fq[i]
+    # 1. Permute tokens into expert-sorted order (vectorized scatter).
+    permute_out = torch.zeros(
+        total_padded, hidden_size, device=device, dtype=torch.float32
+    )
+    token_ids = torch.arange(num_tokens, device=device).unsqueeze(1).expand(-1, top_k).reshape(-1)
+    valid = expanded_idx >= 0
+    permute_out[expanded_idx[valid]] = hidden_states_fq[token_ids[valid]].float()
 
     # 2. GEMM1 — per-expert matmul: [T_e, H] @ [2*I, H]^T → [T_e, 2*I]
-    gemm1_out = torch.full(
-        (total_padded, 2 * intermediate_size), float("nan"), device="cuda"
-    ).float()
+    gemm1_out = torch.zeros(
+        total_padded, 2 * intermediate_size, device=device, dtype=torch.float32
+    )
     pos = 0
     for eidx in range(num_experts):
-        n = num_tok_per_expert[eidx].item()
+        n = num_tok_per_expert_cpu[eidx].item()
         if n == 0:
             continue
         act = permute_out[pos : pos + n]
@@ -199,12 +250,12 @@ def _run_moe_reference(
 
     # 3. SwiGLU activation: silu(gate) * value
     #    Weight layout: first I cols = value ("up"), next I cols = gate.
-    act_out = torch.full(
-        (total_padded, intermediate_size), float("nan"), device="cuda"
-    ).float()
+    act_out = torch.zeros(
+        total_padded, intermediate_size, device=device, dtype=torch.float32
+    )
     pos = 0
     for eidx in range(num_experts):
-        n = num_tok_per_expert[eidx].item()
+        n = num_tok_per_expert_cpu[eidx].item()
         if n == 0:
             continue
         a = gemm1_out[pos : pos + n]
@@ -224,12 +275,12 @@ def _run_moe_reference(
     # 5. GEMM2 — per-expert matmul: [T_e, I] @ [H, I]^T → [T_e, H]
     #    Activation is already at FP4 precision from step 4; only weights
     #    need fake quantization.
-    gemm2_out = torch.full(
-        (total_padded, hidden_size), float("nan"), device="cuda"
-    ).float()
+    gemm2_out = torch.zeros(
+        total_padded, hidden_size, device=device, dtype=torch.float32
+    )
     pos = 0
     for eidx in range(num_experts):
-        n = num_tok_per_expert[eidx].item()
+        n = num_tok_per_expert_cpu[eidx].item()
         if n == 0:
             continue
         act = act_out[pos : pos + n]
@@ -240,12 +291,11 @@ def _run_moe_reference(
         pos += n
         pos = (pos + padding - 1) // padding * padding
 
-    # 6. Finalise: weighted sum over each token's top-k experts.
-    output = torch.zeros(num_tokens, hidden_size, dtype=torch.float32, device="cuda")
-    for i in range(num_tokens):
-        for k in range(top_k):
-            pid = expanded_idx[i * top_k + k]
-            output[i] += gemm2_out[pid] * expert_weight[i, k]
+    # 6. Finalise: weighted sum over each token's top-k experts (vectorized gather).
+    k_ids = torch.arange(top_k, device=device).unsqueeze(0).expand(num_tokens, -1).reshape(-1)
+    weights = expert_weight[token_ids[valid], k_ids[valid]].unsqueeze(1)
+    output = torch.zeros(num_tokens, hidden_size, dtype=torch.float32, device=device)
+    output.index_add_(0, token_ids[valid], gemm2_out[expanded_idx[valid]] * weights)
 
     return output, c_global_sf
 
@@ -269,7 +319,7 @@ class NVFP4FakeQuantizedMoE(nn.Module):
     gradients flow through as if the quantization were identity.
     """
 
-    def __init__(self, num_experts, hidden_size, intermediate_size):
+    def __init__(self, num_experts: int, hidden_size: int, intermediate_size: int) -> None:
         super().__init__()
         self.num_experts = num_experts
         self.hidden_size = hidden_size
@@ -325,8 +375,8 @@ class NVFP4FakeQuantizedMoE(nn.Module):
     def forward(
         self,
         hidden_states: torch.Tensor,
-        router_indices=None,
-        routing_weights=None,
+        router_indices: torch.Tensor | None = None,
+        routing_weights: torch.Tensor | None = None,
     ) -> torch.Tensor:
         batch_size = hidden_states.shape[0]
         hidden_states_2d = hidden_states.reshape(-1, self.hidden_size)
