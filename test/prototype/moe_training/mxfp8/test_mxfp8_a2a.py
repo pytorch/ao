@@ -70,46 +70,65 @@ class MXFP8SynclessAllToAllExpertMajorTest(MultiProcessTestCase):
 
             tokens_per_expert = 2
             experts_per_rank = 2
+            total_local_tokens = tokens_per_expert * experts_per_rank
             dim = 32
 
             # Create input tensor
             input_tensor = torch.randn(
-                tokens_per_expert * experts_per_rank,
+                total_local_tokens,
                 dim,
                 dtype=torch.bfloat16,
-                device=self.device
+                device=self.device,
+                requires_grad=True,
             )
-            num_tokens_per_expert = generate_split_sizes(
-                experts_per_rank * self.world_size, tokens_per_ep_rank, self.device
-            )
-            expert_splits_per_rank = num_tokens_per_expert.view(self.world_size, -1)
+            ref_input_tensor = input_tensor.detach().clone().requires_grad_(True)
 
-            # Max output tokens per rank is worst case where one rank receives all tokens
-            # With padding to multiple of 32, we need more space
+            # generate splits for our local tokens to define which are assigned to each expert GLOBALLY
+            total_experts_global = self.world_size * experts_per_rank
+            num_tokens_per_expert_global = generate_split_sizes(
+                total_experts_global, total_local_tokens, self.device
+            )
+
+            # tokens per expert per rank. shape (world_size, experts_per_rank)
+            # [r0e0, r0e1, r1e0, r1e1, ...]
+            expert_splits_per_rank = num_tokens_per_expert_global.view(
+                self.world_size, -1
+            )
+
+            # tokens per rank: sum of tokens per expert per rank. shape (world_size,)
+            input_rank_level_splits = expert_splits_per_rank.sum(dim=1)
+
+            # Max output tokens per rank is worst case where one rank receives all tokens.
+            # Use upper bound padding, assuming 32 padding tokens per expert globally.
+            total_global_tokens = total_local_tokens * self.world_size
             max_output_tokens_per_rank = (
-                tokens_per_expert * experts_per_rank * self.world_size
-                + 32 * num_experts_per_rank * self.world_size
+                total_global_tokens + 32 * experts_per_rank * self.world_size
             )
 
             # Test forward
-            output, output_rank_splits, output_expert_splits, expert_padded_offsets = (
-                mxfp8_syncless_all_to_all_expert_major(
-                    input_tensor,
-                    input_splits,
-                    expert_splits_per_rank,
-                    max_output_tokens_per_rank,
-                    group_name,
-                )
+            (
+                output,
+                output_rank_level_splits,
+                output_expert_splits,
+                expert_padded_offsets,
+            ) = mxfp8_syncless_all_to_all_expert_major(
+                input_tensor,
+                input_rank_level_splits,
+                expert_splits_per_rank,
+                max_output_tokens_per_rank,
+                group_name,
             )
 
             # Reference torch.all_to_all_single to compare against
-            output_rank_splits_ref = torch.empty_like(output_rank_splits)
+            output_rank_level_splits_ref = torch.empty_like(output_rank_level_splits)
 
             # Compute output splits from input splits
-            dist.all_to_all_single(output_rank_splits_ref, input_splits)
+            dist.all_to_all_single(
+                output_rank_level_splits_ref, input_rank_level_splits
+            )
 
             # Pre-allocate output buffer for reference a2a
-            total_tokens_on_rank_after_a2a = output_rank_splits_ref.sum()
+            total_tokens_on_rank_after_a2a = output_rank_level_splits_ref.sum()
             ref_output = torch.empty(
                 total_tokens_on_rank_after_a2a,
                 dim,
@@ -120,8 +139,8 @@ class MXFP8SynclessAllToAllExpertMajorTest(MultiProcessTestCase):
             # Do the actual all_to_all_single
             ref_output = all_to_all_single_autograd(
                 ref_input_tensor,
-                output_rank_splits_ref.tolist(),
-                input_splits.tolist(),
+                output_rank_level_splits_ref.tolist(),
+                input_rank_level_splits.tolist(),
                 dist.group.WORLD,
             )
 
@@ -131,20 +150,21 @@ class MXFP8SynclessAllToAllExpertMajorTest(MultiProcessTestCase):
             # gathered[source_rank, dest_rank, expert_idx] = tokens source_rank sends to expert_idx on dest_rank.
             gathered_expert_splits = torch.empty(
                 self.world_size * self.world_size,
-                num_experts_per_rank,
+                experts_per_rank,
                 dtype=torch.int64,
                 device=self.device,
             )
             dist.all_gather_into_tensor(
-                gathered_expert_splits,
-                expert_splits_per_rank,
+                gathered_expert_splits,  # [world_size * world_size, num_experts_per_rank]
+                expert_splits_per_rank,  # [world_size, num_experts_per_rank]
                 group=dist.group.WORLD,
             )
             gathered_expert_splits = gathered_expert_splits.view(
                 self.world_size, self.world_size, num_experts_per_rank
             )
             # output_expert_splits_ref[remote_rank, :] = tokens remote_rank sends to each expert on this rank
-            output_expert_splits_ref = torch.empty_like(output_expert_splits)
+            # shape: (experts_per_rank,)
+            output_expert_splits_per_rank_ref = torch.empty_like(output_expert_splits)
             for remote_rank in range(self.world_size):
                 output_expert_splits_ref[remote_rank, :] = gathered_expert_splits[
                     remote_rank, self.rank, :
@@ -190,12 +210,12 @@ class MXFP8SynclessAllToAllExpertMajorTest(MultiProcessTestCase):
                 )
 
             # Compare output
-            assert torch.equal(output_rank_splits, output_rank_splits_ref), (
-                "output_rank_splits mismatch"
-            )
-            assert torch.equal(output_expert_splits, output_expert_splits_ref), (
-                f"output_expert_splits mismatch: got {output_expert_splits}, expected {output_expert_splits_ref}"
-            )
+            assert torch.equal(
+                output_rank_level_splits, output_rank_level_splits_ref
+            ), "output_rank_level_splits mismatch"
+            assert torch.equal(
+                output_expert_splits, output_expert_splits_ref
+            ), f"output_expert_splits mismatch: got {output_expert_splits}, expected {output_expert_splits_ref}"
             out_no_padding = output[:total_tokens_on_rank_after_a2a]
             # Only compare up to total_tokens (excluding padding in reference)
             ref_output_no_padding = ref_output_expert_major[
@@ -215,9 +235,9 @@ class MXFP8SynclessAllToAllExpertMajorTest(MultiProcessTestCase):
             # Compare grads
             grad_sqnr = compute_error(ref_input_tensor.grad, input_tensor.grad)
             min_grad_sqnr = 28.0
-            assert grad_sqnr > min_grad_sqnr, (
-                f"grad_sqnr={grad_sqnr} is less than min_grad_sqnr={min_grad_sqnr}"
-            )
+            assert (
+                grad_sqnr > min_grad_sqnr
+            ), f"grad_sqnr={grad_sqnr} is less than min_grad_sqnr={min_grad_sqnr}"
 
         finally:
             dist.destroy_process_group()
@@ -336,9 +356,9 @@ class ToMXFP8AllToAllVDequantTest(MultiProcessTestCase):
             # Compare grads
             grad_sqnr = compute_error(ref_input_tensor.grad, input_tensor.grad)
             min_grad_sqnr = 28.0
-            assert grad_sqnr > min_grad_sqnr, (
-                f"grad_sqnr={grad_sqnr} is less than min_grad_sqnr={min_grad_sqnr}"
-            )
+            assert (
+                grad_sqnr > min_grad_sqnr
+            ), f"grad_sqnr={grad_sqnr} is less than min_grad_sqnr={min_grad_sqnr}"
 
         finally:
             dist.destroy_process_group()
