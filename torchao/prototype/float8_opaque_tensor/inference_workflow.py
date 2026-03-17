@@ -22,12 +22,11 @@ FP8Granularity = Union["PerTensor", "PerRow", "PerGroup"]
 import types
 from functools import partial
 
-from torchao.quantization.quant_api import _module_extra_repr
 from torchao.quantization.quantize_.workflows import QuantizeTensorToFloat8Kwargs
 from torchao.quantization.transform_module import (
     register_quantize_module_handler,
 )
-from torchao.quantization.utils import get_block_size
+from torchao.quantization.utils import _module_extra_repr, get_block_size
 
 from .float8_opaque_tensor import Float8OpaqueTensor
 
