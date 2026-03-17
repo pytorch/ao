@@ -14,7 +14,11 @@ from torchao.prototype.moe_training.kernels import (
     triton_fp8_per_group_colwise_scales,
     triton_fp8_rowwise_3d_transpose_rhs,
 )
-from torchao.prototype.moe_training.utils import _is_column_major
+from torchao.prototype.moe_training.utils import (
+    _is_column_major,
+    pad_token_groups,
+    unpad_token_groups,
+)
 
 
 def _to_fp8_rowwise_then_scaled_grouped_mm(
@@ -23,6 +27,7 @@ def _to_fp8_rowwise_then_scaled_grouped_mm(
     offs: torch.Tensor,
     out_dtype: Optional[torch.dtype] = torch.bfloat16,
     float8_dtype: torch.dtype = torch.float8_e4m3fn,
+    pad_token_groups_for_grouped_mm: bool = True,
 ) -> torch.Tensor:
     """
     Differentiable FP8 grouped matrix multiplication with dynamic FP8 rowwise quantization.
@@ -39,6 +44,9 @@ def _to_fp8_rowwise_then_scaled_grouped_mm(
         offs: Offset tensor of shape (num_groups + 1,) with dtype int32, defining
             group boundaries for the grouped GEMM operation. Group sizes must be divisible by 16.
         out_dtype: Output dtype for the result. Defaults to torch.bfloat16.
+        float8_dtype: Float8 dtype for quantization. Defaults to torch.float8_e4m3fn.
+        pad_token_groups_for_grouped_mm: Whether to pad token groups to the next multiple of 16
+            (requirement for FP8 grouped GEMM). If your tokens are already padded, set to False.
 
     Returns:
         torch.Tensor: Result of grouped matrix multiplication with shape (M, N).
@@ -49,7 +57,9 @@ def _to_fp8_rowwise_then_scaled_grouped_mm(
         - Scales are computed per-row and rounded to powers of 2 for efficiency
         - This function is fully differentiable via custom autograd implementation
     """
-    return _Float8GroupedMM.apply(A, B_t, offs, out_dtype, float8_dtype)
+    return _Float8GroupedMM.apply(
+        A, B_t, offs, out_dtype, float8_dtype, pad_token_groups_for_grouped_mm
+    )
 
 
 class _Float8GroupedMM(torch.autograd.Function):
@@ -63,6 +73,7 @@ class _Float8GroupedMM(torch.autograd.Function):
         offs: Optional[torch.Tensor] = None,
         out_dtype: Optional[torch.dtype] = torch.bfloat16,
         float8_dtype: torch.dtype = torch.float8_e4m3fn,
+        pad_token_groups_for_grouped_mm: bool = True,
     ) -> torch.Tensor:
         # torchao _quantize_then_scaled_grouped_mm only supports A=2D|3D and B=3D.
         assert A.ndim == 2 or A.ndim == 3, "A must be 2D or 3D"
@@ -97,17 +108,33 @@ class _Float8GroupedMM(torch.autograd.Function):
         # Due to hardware requirements, the right operand in a scaled grouped GEMM must be column-major.
         assert _is_column_major(B_t), "B must be column-major"
 
+        # Save original group_end_offsets and num_tokens before padding
+        num_tokens = A.shape[0]
+        padded_group_start_offsets = None
+        padded_group_end_offsets = None
+
+        # Conditionally pad token groups if not aligned to 16
+        if pad_token_groups_for_grouped_mm:
+            padded_A, padded_group_start_offsets, padded_group_end_offsets = (
+                pad_token_groups(
+                    A, offs, alignment_size=16
+                )  # TODO: support emulated mode
+            )
+        else:
+            padded_A = A
+            padded_group_end_offsets = offs
+
         # Convert high precision input tensor to float8, row-major for left operand of grouped GEMM.
-        # A shape: (M, K) or (B, M, K)
-        # A_scales shape: (M,1) or (B, M, 1)
+        # padded_A shape: (M, K) or (padded_M, K) if padding was used
+        # A_scales shape: (M,1) or (padded_M, 1) if padding was used
         A_scales = tensor_to_scale(
-            A,
+            padded_A,
             float8_dtype,
             scaling_granularity=ScalingGranularity.AXISWISE,
             axiswise_dim=-1,
             round_scales_to_power_of_2=True,
         )
-        A_scaled = A.to(torch.float32) * A_scales
+        A_scaled = padded_A.to(torch.float32) * A_scales
         A_data_row_major = to_fp8_saturated(A_scaled, float8_dtype)
 
         # Convert B to float8, column-major for right operand of grouped GEMM.
@@ -125,9 +152,13 @@ class _Float8GroupedMM(torch.autograd.Function):
         B_t_data_col_major = to_fp8_saturated(B_t_scaled, float8_dtype)
 
         # Store what we need for backward.
-        ctx.save_for_backward(A, B_t, offs)
+        ctx.save_for_backward(
+            padded_A, B_t, offs, padded_group_start_offsets, padded_group_end_offsets
+        )
         ctx.out_dtype = out_dtype
         ctx.float8_dtype = float8_dtype
+        ctx.pad_token_groups_for_grouped_mm = pad_token_groups_for_grouped_mm
+        ctx.num_tokens = num_tokens
 
         # Perform scaled grouped GEMM and return result.
         # output shape: scaled grouped mm of (M,K) @ (B,K,N) = (M,N)
@@ -139,45 +170,77 @@ class _Float8GroupedMM(torch.autograd.Function):
         )
 
         # Squeeze empty dims out of scales, to comply with grouped mm API.
-        # A_scales shape: (M,1) or (B, M, 1)
+        # A_scales shape: (M,1) or (padded_M, 1)
         # B_t_scales shape: (E, 1, N)
         A_scales = A_scales.squeeze(-1)
         B_t_scales = B_t_scales.squeeze(1)
-        return torch._scaled_grouped_mm(
+        output = torch._scaled_grouped_mm(
             A_data_row_major,
             B_t_data_col_major,
             A_scales.reciprocal(),  # Reciprocals are needed for rescaling the output.
             B_t_scales.reciprocal(),
-            offs,
+            padded_group_end_offsets,
             out_dtype=out_dtype,
             use_fast_accum=True,
         )
 
+        # Unpad output if padding was used
+        if pad_token_groups_for_grouped_mm:
+            output = unpad_token_groups(
+                output,
+                offs,
+                padded_group_start_offsets,
+                num_tokens,
+                alignment_size=16,
+            )
+
+        assert output.shape[0] == num_tokens
+
+        return output
+
     @staticmethod
     def backward(ctx, grad_output: torch.Tensor):
-        A, B_t, offs = ctx.saved_tensors
+        (
+            padded_A,
+            B_t,
+            original_group_end_offsets,
+            padded_group_start_offsets,
+            padded_group_end_offsets,
+        ) = ctx.saved_tensors
         out_dtype = ctx.out_dtype
         float8_dtype = ctx.float8_dtype
+        pad_token_groups_for_grouped_mm = ctx.pad_token_groups_for_grouped_mm
+        num_tokens = ctx.num_tokens
+
+        # Pad grad_output if padding was used in forward (needed for both dgrad and wgrad)
+        if pad_token_groups_for_grouped_mm:
+            padded_grad_output, _, _ = pad_token_groups(
+                grad_output,
+                original_group_end_offsets,
+                alignment_size=16,
+            )
+        else:
+            padded_grad_output = grad_output
 
         # Convert grad_output to float8, row-major for left operand of grouped GEMM
         # needed for grad_A: grad_output @ B
         #
-        # grad_output shape: (Mg, N)
-        # grad_output_scale shape: (Mg, 1)
+        # padded_grad_output shape: (Mg, N) or (padded_Mg, N) if padding was used
+        # grad_output_scale shape: (Mg, 1) or (padded_Mg, 1) if padding was used
         grad_output_scales = tensor_to_scale(
-            grad_output,
+            padded_grad_output,
             float8_dtype,
             scaling_granularity=ScalingGranularity.AXISWISE,
             axiswise_dim=-1,
             round_scales_to_power_of_2=True,
         )
-        grad_output_scaled = grad_output.to(torch.float32) * grad_output_scales
+        grad_output_scaled = padded_grad_output.to(torch.float32) * grad_output_scales
         grad_output_data_row_major = to_fp8_saturated(grad_output_scaled, float8_dtype)
 
         # Compute B fp8 column-major for right operand of grouped GEMM:
         # grad_A = grad_output @ B.
         B_data_col_major, B_scales = triton_fp8_rowwise_3d_transpose_rhs(
-            B_t._data if hasattr(B_t, "_data") else B_t,
+            B_t,
             output_dtype=float8_dtype,
             round_scales_to_power_of_2=True,
         )
@@ -193,7 +256,7 @@ class _Float8GroupedMM(torch.autograd.Function):
         )
 
         # Squeeze empty dims out of scales, to comply with grouped mm API.
-        # grad_output_scales shape: (M,1) or (B, M, 1)
+        # grad_output_scales shape: (M,1) or (padded_M, 1)
         # B_scales shape: (E, 1, N)
         grad_output_scales = grad_output_scales.squeeze(-1)
         B_scales = B_scales.squeeze(1)
@@ -202,10 +265,20 @@ class _Float8GroupedMM(torch.autograd.Function):
             B_data_col_major,
             grad_output_scales.reciprocal(),
             B_scales.reciprocal(),
-            offs,
+            padded_group_end_offsets,
             out_dtype=out_dtype,
             use_fast_accum=True,
         )
+
+        # Unpad grad_A if padding was used
+        if pad_token_groups_for_grouped_mm:
+            grad_A = unpad_token_groups(
+                grad_A,
+                original_group_end_offsets,
+                padded_group_start_offsets,
+                num_tokens,
+                alignment_size=16,
+            )
 
         # grad_B is a special case. both operands of the grouped gemm will be 2D with offsets determing the "groups."
         # Compute scales for grad_output_t and A, which are both 2D tensors with offsets which define the "jagged" groups.
@@ -214,8 +287,8 @@ class _Float8GroupedMM(torch.autograd.Function):
         # needed for grad_B: grad_output_t @ A
         # Use transpose method to avoid uncoalesced memory accesses.
         grad_out_data_colwise, grad_out_scales = triton_fp8_per_group_colwise_scales(
-            grad_output,
-            offs,
+            padded_grad_output,
+            padded_group_end_offsets,
             float8_dtype,
             round_scales_to_power_of_2=True,
         )
@@ -223,8 +296,8 @@ class _Float8GroupedMM(torch.autograd.Function):
         grad_output_t_scales = grad_out_scales.t()
 
         A_data_col_major, A_scales = triton_fp8_per_group_colwise_scales(
-            A,
-            offs,
+            padded_A,
+            padded_group_end_offsets,
             float8_dtype,
             round_scales_to_power_of_2=True,
         )
@@ -246,8 +319,8 @@ class _Float8GroupedMM(torch.autograd.Function):
             A_data_col_major,
             grad_output_t_scales.reciprocal(),
             A_scales.reciprocal(),
-            offs,
+            padded_group_end_offsets,
             out_dtype=out_dtype,
             use_fast_accum=True,
         )
-        return grad_A, grad_B.transpose(-2, -1), None, None, None
+        return grad_A, grad_B.transpose(-2, -1), None, None, None, None

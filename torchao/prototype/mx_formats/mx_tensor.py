@@ -486,6 +486,10 @@ class MXTensor(TorchAOBaseTensor):
             dtype=orig_dtype,
             device=qdata.device,
         )
+        if elem_dtype in (torch.float8_e4m3fn, torch.float8_e5m2):
+            assert qdata.dtype == elem_dtype, (
+                f"qdata.dtype must match elem_dtype for MXFP8 tensors, got {qdata.dtype=} and {elem_dtype=}"
+            )
         assert scale.dtype == torch.float8_e8m0fnu, (
             f"scale.dtype must be `torch.float8_e8m0fnu`, got {scale.dtype}"
         )
@@ -536,6 +540,64 @@ class MXTensor(TorchAOBaseTensor):
             self.elem_dtype,
             self.block_size,
             output_dtype,
+        )
+
+    @staticmethod
+    @torch._dynamo.allow_in_graph
+    def from_qdata_and_scales(
+        qdata: torch.Tensor,
+        scales: torch.Tensor,
+        orig_dtype: torch.dtype,
+        *,
+        block_size: int = BLOCK_SIZE_DEFAULT,
+        kernel_preference: Optional[KernelPreference] = None,
+        act_quant_kwargs: Optional[QuantizeTensorToMXKwargs] = None,
+        is_swizzled_scales: bool = False,
+    ) -> Union["MXTensor", DTensor]:
+        assert qdata.dtype != torch.uint8, (
+            "from_qdata_and_scales only supports typed MX qdata; "
+            "use MXTensor(...) directly for packed uint8 payloads"
+        )
+        elem_dtype = qdata.dtype
+
+        if isinstance(qdata, DTensor) or isinstance(scales, DTensor):
+            assert isinstance(qdata, DTensor) and isinstance(scales, DTensor), (
+                "qdata and scales must either both be DTensors or both be local tensors"
+            )
+            assert qdata.device_mesh == scales.device_mesh, (
+                "qdata and scales DTensors must have the same device mesh"
+            )
+            assert qdata.placements == scales.placements, (
+                "qdata and scales DTensors must have the same placements"
+            )
+            inner_mx_tensor = MXTensor(
+                qdata.to_local(),
+                scales.to_local(),
+                elem_dtype,
+                block_size,
+                orig_dtype,
+                kernel_preference,
+                act_quant_kwargs,
+                is_swizzled_scales,
+            )
+            return DTensor.from_local(
+                inner_mx_tensor,
+                qdata.device_mesh,
+                qdata.placements,
+                run_check=False,
+                shape=qdata.size(),
+                stride=qdata.stride(),
+            )
+
+        return MXTensor(
+            qdata,
+            scales,
+            elem_dtype,
+            block_size,
+            orig_dtype,
+            kernel_preference,
+            act_quant_kwargs,
+            is_swizzled_scales,
         )
 
     @staticmethod

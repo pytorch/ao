@@ -3,6 +3,7 @@
 #
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
+import warnings
 from dataclasses import dataclass
 from typing import Optional, Tuple, Union
 
@@ -70,6 +71,10 @@ class Layout:
 
     def __post_init__(self):
         torch._C._log_api_usage_once(str(type(self)))
+        if type(self) is Layout:
+            warnings.warn(
+                "Deprecation: Layout is deprecated and will be removed in a future release of torchao, see https://github.com/pytorch/ao/issues/2752 for more details"
+            )
 
 
 @dataclass(frozen=True)
@@ -79,7 +84,11 @@ class PlainLayout(Layout):
     Typically, this layout is used as the default when no specific layout is required.
     """
 
-    pass
+    def __post_init__(self):
+        super().__post_init__()
+        warnings.warn(
+            "Deprecation: PlainLayout is deprecated and will be removed in a future release of torchao, see https://github.com/pytorch/ao/issues/2752 for more details"
+        )
 
 
 def is_device(target_device_str: str, device: Union[str, torch.device]):
@@ -109,6 +118,12 @@ class AQTTensorImpl(TorchAOBaseTensor):
     Note: This is not a user facing API, it's used by AffineQuantizedTensor to construct
     the underlying implementation of a AQT based on layout
     """
+
+    def __init__(self, *args, **kwargs):
+        if type(self) is AQTTensorImpl:
+            warnings.warn(
+                "Deprecation: AQTTensorImpl is deprecated and will be removed in a future release of torchao, see https://github.com/pytorch/ao/issues/2752 for more details"
+            )
 
     def get_plain(self) -> Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
         """Get the plain (unpacked) Tensor for the tensor impl
