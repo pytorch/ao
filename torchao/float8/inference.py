@@ -301,8 +301,8 @@ def _check_hardware_support(
         )
     elif is_a_1_128_w_128_128:
         # TODO(future PR): look into AMD support
-        assert is_sm_at_least_89(), (
-            "Float8 1x128 activation and 128x128 weight scaling requires CUDA compute capability ≥8.9."
+        assert torch.xpu.is_available() or is_sm_at_least_89(), (
+            "Float8 1x128 activation and 128x128 weight scaling requires CUDA compute capability ≥8.9 or XPU."
         )
     else:
         raise ValueError(f"Invalid granularities {granularities}.")
