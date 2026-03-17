@@ -26,7 +26,7 @@ from torchao.prototype.moe_training.kernels.mxfp8.comms import (
     mxfp8_syncless_all_to_all_expert_major,
     to_mxfp8_a2a_dequant,
 )
-from torchao.prototype.moe_training.ep.permute import _permute_bf16
+from torchao.prototype.moe_training.ep.permute import permute_and_pad
 
 from test.prototype.moe_training.testing_utils import generate_split_sizes
 
@@ -160,19 +160,22 @@ class MXFP8SynclessAllToAllExpertMajorTest(MultiProcessTestCase):
                 group=dist.group.WORLD,
             )
             gathered_expert_splits = gathered_expert_splits.view(
-                self.world_size, self.world_size, num_experts_per_rank
+                self.world_size, self.world_size, experts_per_rank
             )
             # output_expert_splits_ref[remote_rank, :] = tokens remote_rank sends to each expert on this rank
-            # shape: (experts_per_rank,)
-            output_expert_splits_per_rank_ref = torch.empty_like(output_expert_splits)
+            # shape: (world_size, experts_per_rank)
+            output_expert_splits_per_rank_ref = torch.empty_like(expert_splits_per_rank)
             for remote_rank in range(self.world_size):
-                output_expert_splits_ref[remote_rank, :] = gathered_expert_splits[
-                    remote_rank, self.rank, :
-                ]
+                output_expert_splits_per_rank_ref[remote_rank, :] = (
+                    gathered_expert_splits[remote_rank, self.rank, :]
+                )
+
+            # Reduce to get total tokens received per rank
+            output_expert_splits_ref = output_expert_splits_per_rank_ref.sum(dim=0)
 
             # Reorder reference output from rank-major to expert-major using permute_bf16
             # output_expert_splits_ref is [world_size, num_experts_per_rank]
-            # _permute_bf16 expects num_tokens_per_expert in [r0e0, r0e1, r1e0, r1e1, ...] order
+            # permute_and_pad expects num_tokens_per_expert in [r0e0, r0e1, r1e0, r1e1, ...] order
             # which is exactly the flattened form of output_expert_splits_ref
             num_tokens_per_expert_flat = output_expert_splits_ref.flatten()
 
@@ -180,12 +183,19 @@ class MXFP8SynclessAllToAllExpertMajorTest(MultiProcessTestCase):
             if self.rank == 0:
                 print(f"\n=== Debug info (rank {self.rank}) ===")
                 print(f"world_size: {self.world_size}")
-                print(f"num_experts_per_rank: {num_experts_per_rank}")
+                print(f"num_experts_per_rank: {experts_per_rank}")
+                print()
                 print(f"expert_splits_per_rank shape: {expert_splits_per_rank.shape}")
                 print(f"expert_splits_per_rank:\n{expert_splits_per_rank}")
-                print(f"output_expert_splits shape: {output_expert_splits.shape}")
-                print(f"output_expert_splits:\n{output_expert_splits}")
+                print(
+                    f"expert_splits (local):",
+                    expert_splits_per_rank[dist.get_rank(), :],
+                )
+                print()
+                print(f"output_expert_splits_per_rank:\n{output_expert_splits}")
                 print(f"output_expert_splits_ref:\n{output_expert_splits_ref}")
+                print(f"output_expert_splits (local): {output_expert_splits}")
+                print()
                 print(f"expert_padded_offsets: {expert_padded_offsets}")
                 print(f"num_tokens_per_expert_flat: {num_tokens_per_expert_flat}")
                 print(
@@ -194,11 +204,11 @@ class MXFP8SynclessAllToAllExpertMajorTest(MultiProcessTestCase):
                 print(f"ref_output shape: {ref_output.shape}")
                 print(f"output shape: {output.shape}")
 
-            _, ref_output_expert_major, _, _, _ = _permute_bf16(
+            _, ref_output_expert_major, _, _, _ = permute_and_pad(
                 ref_output,
                 num_tokens_per_expert_flat,
                 ep_degree=self.world_size,
-                num_local_experts=num_experts_per_rank,
+                num_local_experts=experts_per_rank,
                 alignment=32,
             )
 
@@ -213,10 +223,13 @@ class MXFP8SynclessAllToAllExpertMajorTest(MultiProcessTestCase):
             assert torch.equal(
                 output_rank_level_splits, output_rank_level_splits_ref
             ), "output_rank_level_splits mismatch"
+
             assert torch.equal(
                 output_expert_splits, output_expert_splits_ref
             ), f"output_expert_splits mismatch: got {output_expert_splits}, expected {output_expert_splits_ref}"
+
             out_no_padding = output[:total_tokens_on_rank_after_a2a]
+
             # Only compare up to total_tokens (excluding padding in reference)
             ref_output_no_padding = ref_output_expert_major[
                 :total_tokens_on_rank_after_a2a
