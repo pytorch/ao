@@ -301,6 +301,12 @@ def _(func, types, args, kwargs):
     )
 
 
+@implements_torch_function(torch._has_compatible_shallow_copy_type)
+def _(func, types, args, kwargs):
+    assert len(args) == 2
+    return type(args[0]) == type(args[1]) and args[0].shape == args[1].shape
+
+
 to_linear_activation_quantized = LinearActivationQuantizedTensor.from_float  # Converts a float tensor to LinearActivationQuantizedTensor for dynamic activation quantization
 
 # Allow a model with LinearActivationQuantizedTensor weights to be loaded with `weights_only=True`
