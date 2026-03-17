@@ -37,6 +37,7 @@ from torchao.dtypes import (
     CutlassSemiSparseLayout,
     Float8Layout,
     Int4CPULayout,
+    Int4NPULayout,
     Int4XPULayout,
     PlainLayout,
     SemiSparseLayout,
@@ -169,12 +170,14 @@ LAYOUT_TO_ZERO_POINT_DOMAIN = {
     TensorCoreTiledLayout: [ZeroPointDomain.FLOAT],
     Int4CPULayout: [ZeroPointDomain.FLOAT],
     Int4XPULayout: [ZeroPointDomain.FLOAT, ZeroPointDomain.INT],
+    Int4NPULayout: [ZeroPointDomain.FLOAT],
 }
 
 LAYOUT_TO_PRESERVE_ZEROS = {
     TensorCoreTiledLayout: False,
     Int4CPULayout: False,
     Int4XPULayout: False,
+    Int4NPULayout: False,
 }
 
 

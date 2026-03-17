@@ -4,6 +4,9 @@ from .dyn_int8_act_int4_wei_cpu_layout import (
 from .int4_cpu_layout import (
     Int4CPULayout,
 )
+from .int4_npu_layout import (
+    Int4NPULayout,
+)
 from .int4_xpu_layout import (
     Int4XPULayout,
 )
@@ -31,5 +34,6 @@ __all__ = [
     "PackedLinearInt8DynamicActivationIntxWeightLayout",
     "QDQLayout",
     "Int4XPULayout",
+    "Int4NPULayout",
     "Int8DynamicActInt4WeightCPULayout",
 ]
