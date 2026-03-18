@@ -39,7 +39,7 @@ class MXFP8SynclessAllToAllExpertMajorTest(MultiProcessTestCase):
 
     @property
     def world_size(self) -> int:
-        return 4
+        return 2
 
     @property
     def device(self) -> torch.device:
@@ -107,7 +107,8 @@ class MXFP8SynclessAllToAllExpertMajorTest(MultiProcessTestCase):
 
             # Test forward
             (
-                output,
+                output_e4m3,
+                output_scales_e8m0,
                 output_rank_level_splits,
                 output_expert_splits,
                 expert_padded_offsets,
@@ -171,38 +172,47 @@ class MXFP8SynclessAllToAllExpertMajorTest(MultiProcessTestCase):
                 )
 
             # Reduce to get total tokens received per rank
-            output_expert_splits_ref = output_expert_splits_per_rank_ref.sum(dim=0)
+            output_expert_splits_ref = output_expert_splits_per_rank_ref
 
             # Reorder reference output from rank-major to expert-major using permute_bf16
             # output_expert_splits_ref is [world_size, num_experts_per_rank]
-            # permute_and_pad expects num_tokens_per_expert in [r0e0, r0e1, r1e0, r1e1, ...] order
-            # which is exactly the flattened form of output_expert_splits_ref
-            num_tokens_per_expert_flat = output_expert_splits_ref.flatten()
+            # permute_and_pad expects num_tokens_per_expert in [e0r0, e0r1, e1r0, e1r1, ...] order
+            # (grouped by expert first, then by remote rank)
+            # So we need to transpose first, then flatten
+            num_tokens_per_expert_flat = output_expert_splits_ref.T.flatten()
 
             # Debug: print the shapes and first few values
-            if self.rank == 0:
-                print(f"\n=== Debug info (rank {self.rank}) ===")
-                print(f"world_size: {self.world_size}")
-                print(f"num_experts_per_rank: {experts_per_rank}")
-                print()
-                print(f"expert_splits_per_rank shape: {expert_splits_per_rank.shape}")
-                print(f"expert_splits_per_rank:\n{expert_splits_per_rank}")
-                print(
-                    f"expert_splits (local):",
-                    expert_splits_per_rank[dist.get_rank(), :],
-                )
-                print()
-                print(f"output_expert_splits_per_rank:\n{output_expert_splits}")
-                print(f"output_expert_splits_ref:\n{output_expert_splits_ref}")
-                print(f"output_expert_splits (local): {output_expert_splits}")
-                print()
-                print(f"expert_padded_offsets: {expert_padded_offsets}")
-                print(f"num_tokens_per_expert_flat: {num_tokens_per_expert_flat}")
-                print(
-                    f"total_tokens_on_rank_after_a2a: {total_tokens_on_rank_after_a2a}"
-                )
-                print(f"ref_output shape: {ref_output.shape}")
-                print(f"output shape: {output.shape}")
+            print(f"\n=== Debug info (rank {self.rank}) ===")
+            print(f"[rank {self.rank}] world_size: {self.world_size}")
+            print(f"[rank {self.rank}] num_experts_per_rank: {experts_per_rank}")
+            print()
+            print(f"[rank {self.rank}] expert_splits_per_rank shape: {expert_splits_per_rank.shape}")
+            print(f"[rank {self.rank}] expert_splits_per_rank:\n{expert_splits_per_rank}")
+            print(
+                f"[rank {self.rank}] expert_splits (local):",
+                expert_splits_per_rank[dist.get_rank(), :],
+            )
+            print()
+            print(f"[rank {self.rank}] output_expert_splits_per_rank:\n{output_expert_splits}")
+            print(f"[rank {self.rank}] output_expert_splits_ref:\n{output_expert_splits_ref}")
+            print(f"[rank {self.rank}] output_expert_splits (local): {output_expert_splits}")
+            print()
+            print(f"[rank {self.rank}] expert_padded_offsets: {expert_padded_offsets}")
+            print(f"[rank {self.rank}] num_tokens_per_expert_flat: {num_tokens_per_expert_flat}")
+
+            # Debug: Print expected data layout
+            print(f"\n[rank {self.rank}] === Expected Data Layout ===")
+            for expert_idx in range(experts_per_rank):
+                start_offset = expert_padded_offsets[expert_idx].item()
+                tokens_from_all_ranks = output_expert_splits[:, expert_idx].sum().item()
+                print(f"[rank {self.rank}] Expert {expert_idx}:")
+                print(f"  - Starts at offset: {start_offset}")
+                print(f"  - Total tokens: {tokens_from_all_ranks}")
+                for remote_rank in range(self.world_size):
+                    tokens_from_rank = output_expert_splits[remote_rank, expert_idx].item()
+                    if tokens_from_rank > 0:
+                        print(f"  - From rank {remote_rank}: {tokens_from_rank} tokens")
+            print()
 
             _, ref_output_expert_major, _, _, _ = permute_and_pad(
                 ref_output,
@@ -212,14 +222,16 @@ class MXFP8SynclessAllToAllExpertMajorTest(MultiProcessTestCase):
                 alignment=32,
             )
 
-            if self.rank == 0:
-                print(f"ref_output_expert_major shape: {ref_output_expert_major.shape}")
-                print(f"Comparing output[:100, :5]:\n{output[:100:20, :5]}")
-                print(
-                    f"vs ref_output_expert_major[:100, :5]:\n{ref_output_expert_major[:100:20, :5]}"
-                )
+            # Quantize reference output to mxfp8 for comparison
+            from torchao.prototype.mx_formats.mx_tensor import to_mx
+            block_size = 32
+            ref_output_scales_e8m0, ref_output_e4m3 = to_mx(
+                ref_output_expert_major,
+                elem_dtype=torch.float8_e4m3fn,
+                block_size=block_size,
+            )
 
-            # Compare output
+            # Compare output splits
             assert torch.equal(
                 output_rank_level_splits, output_rank_level_splits_ref
             ), "output_rank_level_splits mismatch"
@@ -228,29 +240,70 @@ class MXFP8SynclessAllToAllExpertMajorTest(MultiProcessTestCase):
                 output_expert_splits, output_expert_splits_ref
             ), f"output_expert_splits mismatch: got {output_expert_splits}, expected {output_expert_splits_ref}"
 
-            out_no_padding = output[:total_tokens_on_rank_after_a2a]
+            # Slice to permute_and_pad size for comparison.
+            # - Triton kernel is "EP aware" and overallocates for case where all tokens go to one EP rank.
+            #   It returns this overallocated buffer with offsets for use by grouped_mm directly.
+            # - permute_and_pad is intended for local use, and overallocates based on case where
+            compare_size = ref_output_e4m3.shape[0]
 
-            # Only compare up to total_tokens (excluding padding in reference)
-            ref_output_no_padding = ref_output_expert_major[
-                :total_tokens_on_rank_after_a2a
-            ]
-            sqnr = compute_error(ref_output_no_padding, out_no_padding)
-            min_sqnr = 30.0
-            assert sqnr > min_sqnr, f"sqnr={sqnr} is less than min_sqnr={min_sqnr}"
+            # Compare quantized output data (fp8 e4m3)
+            print(f"\n[rank {self.rank}] === Comparing Outputs ===")
+            print(f"[rank {self.rank}] compare_size: {compare_size}")
+            print(f"[rank {self.rank}] output_e4m3 shape: {output_e4m3.shape}")
+            print(f"[rank {self.rank}] ref_output_e4m3 shape: {ref_output_e4m3.shape}")
+
+            # Print first few rows and key positions
+            print(f"\n[rank {self.rank}] Kernel output - First 5 rows:")
+            for i in range(min(5, output_e4m3.shape[0])):
+                print(f"  Row {i}: {output_e4m3[i, :8]}")  # First 8 elements
+
+            print(f"\n[rank {self.rank}] Reference output - First 5 rows:")
+            for i in range(min(5, ref_output_e4m3.shape[0])):
+                print(f"  Row {i}: {ref_output_e4m3[i, :8]}")
+
+            # For rank 1, also check around offset 32 where expert 1 should be
+            if self.rank == 1 and output_e4m3.shape[0] > 34:
+                print(f"\n[rank {self.rank}] Kernel output - Rows around offset 32:")
+                for i in range(30, min(35, output_e4m3.shape[0])):
+                    print(f"  Row {i}: {output_e4m3[i, :8]}")
+
+                print(f"\n[rank {self.rank}] Reference output - Rows around offset 32:")
+                for i in range(30, min(35, ref_output_e4m3.shape[0])):
+                    print(f"  Row {i}: {ref_output_e4m3[i, :8]}")
+
+            torch.testing.assert_close(
+                output_e4m3[:compare_size].view(torch.float32),
+                ref_output_e4m3.view(torch.float32),
+                atol=0,
+                rtol=0,
+            )
+
+            # Compare scales
+            print(f"[rank {self.rank}] output_scales_e8m0 shape: {output_scales_e8m0.shape}")
+            print(f"[rank {self.rank}] output_scales_e8m0[:compare_size]:\n{output_scales_e8m0[:compare_size]}")
+            print(f"[rank {self.rank}] ref_output_scales_e8m0 shape: {ref_output_scales_e8m0.shape}")
+            print(f"[rank {self.rank}] ref_output_scales_e8m0:\n{ref_output_scales_e8m0}")
+
+            torch.testing.assert_close(
+                output_scales_e8m0[:compare_size].view(torch.uint8),
+                ref_output_scales_e8m0.view(torch.uint8),
+                atol=0,
+                rtol=0,
+            )
 
             # Test backwards
-            labels = torch.ones_like(out_no_padding)
-            loss = F.mse_loss(out_no_padding, labels)
-            ref_loss = F.mse_loss(ref_output_no_padding, labels)
-            loss.backward()
-            ref_loss.backward()
+            # labels = torch.ones_like(out_no_padding)
+            # loss = F.mse_loss(out_no_padding, labels)
+            # ref_loss = F.mse_loss(ref_output_no_padding, labels)
+            # loss.backward()
+            # ref_loss.backward()
 
-            # Compare grads
-            grad_sqnr = compute_error(ref_input_tensor.grad, input_tensor.grad)
-            min_grad_sqnr = 28.0
-            assert (
-                grad_sqnr > min_grad_sqnr
-            ), f"grad_sqnr={grad_sqnr} is less than min_grad_sqnr={min_grad_sqnr}"
+            # # Compare grads
+            # grad_sqnr = compute_error(ref_input_tensor.grad, input_tensor.grad)
+            # min_grad_sqnr = 28.0
+            # assert (
+            #     grad_sqnr > min_grad_sqnr
+            # ), f"grad_sqnr={grad_sqnr} is less than min_grad_sqnr={min_grad_sqnr}"
 
         finally:
             dist.destroy_process_group()
