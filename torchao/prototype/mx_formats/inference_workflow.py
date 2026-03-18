@@ -25,12 +25,12 @@ from torchao.prototype.mx_formats.nvfp4_tensor import (
     QuantizeTensorToNVFP4Kwargs,
     per_tensor_amax_to_scale,
 )
-from torchao.quantization.quant_api import _module_extra_repr, _quantization_type
 from torchao.quantization.quantize_.common.kernel_preference import KernelPreference
 from torchao.quantization.quantize_.common.quantization_step import QuantizationStep
 from torchao.quantization.transform_module import (
     register_quantize_module_handler,
 )
+from torchao.quantization.utils import _module_extra_repr, _quantization_type
 from torchao.utils import (
     is_sm_at_least_100,
     torch_version_at_least,
