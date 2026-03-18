@@ -72,7 +72,7 @@ class TrainingWeightWrapperBaseTensor(TorchAOBaseTensor):
             dtype=tensor.dtype,
             layout=tensor.layout,
             device=tensor.device,
-            pin_memory=tensor.is_pinned() if not isinstance(tensor, DTensor) else False,
+            pin_memory=tensor.is_pinned(),
             requires_grad=tensor.requires_grad,
         )
         self.config = config
