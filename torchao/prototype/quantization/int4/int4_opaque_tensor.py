@@ -440,7 +440,7 @@ def _(func, types, args, kwargs):
     return y.to(orig_dtype)
 
 
-Int4OpaqueTensor.__module__ = "torchao.prototype.int4_opaque_tensor"
+Int4OpaqueTensor.__module__ = "torchao.prototype.quantization.int4"
 
 # Allow a model with Int4OpaqueTensor weights to be loaded with `weights_only=True`
 torch.serialization.add_safe_globals([Int4OpaqueTensor])

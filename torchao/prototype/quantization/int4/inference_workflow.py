@@ -46,7 +46,7 @@ class Int4WeightOnlyOpaqueTensorConfig(AOBaseConfig):
 
     def __post_init__(self):
         torch._C._log_api_usage_once(
-            "torchao.prototype.int4_opaque_tensor.Int4WeightOnlyOpaqueTensorConfig"
+            "torchao.prototype.quantization.int4.Int4WeightOnlyOpaqueTensorConfig"
         )
 
 
@@ -90,7 +90,7 @@ def _int4_weight_only_transform(
 
 
 @dataclass
-class Int8DynamicActInt4WeightOpaqueTensorConfig(AOBaseConfig):
+class Int8DynamicActInt4WeightConfig(AOBaseConfig):
     """
     Configuration for int8 dynamic activation + int4 weight quantization on CPU,
     using Int4OpaqueTensor (tensor subclassing) with the da8w4_linear_cpu backend.
@@ -113,13 +113,13 @@ class Int8DynamicActInt4WeightOpaqueTensorConfig(AOBaseConfig):
 
     def __post_init__(self):
         torch._C._log_api_usage_once(
-            "torchao.prototype.int4_opaque_tensor.Int8DynamicActInt4WeightOpaqueTensorConfig"
+            "torchao.prototype.quantization.int4.Int8DynamicActInt4WeightConfig"
         )
 
 
-@register_quantize_module_handler(Int8DynamicActInt4WeightOpaqueTensorConfig)
+@register_quantize_module_handler(Int8DynamicActInt4WeightConfig)
 def _int8_dynamic_act_int4_weight_transform(
-    module: torch.nn.Module, config: Int8DynamicActInt4WeightOpaqueTensorConfig
+    module: torch.nn.Module, config: Int8DynamicActInt4WeightConfig
 ) -> torch.nn.Module:
     if config.set_inductor_config:
         torchao.quantization.utils.recommended_inductor_config_setter()
