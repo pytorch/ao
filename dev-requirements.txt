@@ -3,7 +3,7 @@ pytest==8.4.2
 unittest-xml-reporting
 parameterized
 packaging
-transformers==5.3.0
+transformers
 hypothesis # Avoid test derandomization warning
 sentencepiece # for gpt-fast tokenizer
 expecttest
