@@ -410,7 +410,71 @@ def _mxfp8_syncless_all_to_all_expert_major_launcher(
 
 
 @triton.jit
-def _mxfp8_all_to_all_expert_major_kernel(
+def _compute_expert_metadata_and_offsets(
+    input_expert_splits_ptr,
+    output_expert_splits_ptr,
+    expert_padded_offsets_ptr,
+    rank: tl.constexpr,
+    world_size: tl.constexpr,
+    num_experts_per_rank: tl.constexpr,
+):
+    """Phase 1: Exchange expert_splits from all ranks and compute padded offsets."""
+    # Exchange expert_splits from all remote ranks
+    input_expert_splits_ptrs = input_expert_splits_ptr.to(tl.pointer_type(tl.uint64))
+
+    # Accumulate tokens per local expert across all remote ranks
+    expert_offsets = tl.arange(0, num_experts_per_rank)
+
+    for remote_r in range(world_size):
+        # Get pointer to remote rank's expert_splits tensor
+        remote_expert_splits_ptr = tl.load(input_expert_splits_ptrs + remote_r).to(
+            tl.pointer_type(tl.int64)
+        )
+        # input_expert_splits[remote_r, rank, :] contains tokens remote_r is sending to our local experts
+        remote_expert_splits_ptr = (
+            remote_expert_splits_ptr + rank * num_experts_per_rank
+        )
+
+        # Load expert splits from this remote rank
+        remote_expert_split_values = tl.load(remote_expert_splits_ptr + expert_offsets)
+
+        # Store to output_expert_splits[remote_r, :]
+        output_expert_splits_offset = remote_r * num_experts_per_rank
+        tl.store(
+            output_expert_splits_ptr + output_expert_splits_offset + expert_offsets,
+            remote_expert_split_values,
+        )
+
+    # Compute local padded starting offsets for each expert on this rank,
+    # using the output_expert_splits metadata we just computed above.
+    cumulative_offset = tl.zeros(
+        [], dtype=tl.int64
+    )  # annoyingly only way to init a int64 scalar 0 in triton?
+
+    for expert_idx in range(num_experts_per_rank):
+        # Store the starting offset for this expert
+        tl.store(expert_padded_offsets_ptr + expert_idx, cumulative_offset)
+
+        # Get total tokens for this expert across all remote ranks
+        # output_expert_splits[remote_r, expert_idx] is at offset remote_r * num_experts_per_rank + expert_idx
+        expert_tokens_total = tl.zeros([], dtype=tl.int64)
+        for remote_r in range(world_size):
+            expert_tokens_from_remote = tl.load(
+                output_expert_splits_ptr + remote_r * num_experts_per_rank + expert_idx
+            )
+            expert_tokens_total += expert_tokens_from_remote
+
+        # Round up tokens for this expert to multiple of 32
+        padded_tokens: tl.int64 = ((expert_tokens_total + 31) // 32) * 32
+
+        # Update cumulative offset for next expert
+        cumulative_offset = cumulative_offset + padded_tokens
+
+
+@triton.jit
+def _transfer_expert_data(
+    remote_rank: tl.constexpr,
+    block_offset: tl.constexpr,
     input_ptrs,
     input_scales_ptrs,
     input_rank_splits_ptr,
@@ -420,7 +484,6 @@ def _mxfp8_all_to_all_expert_major_kernel(
     output_rank_splits_ptr,
     output_expert_splits_ptr,
     expert_padded_offsets_ptr,
-    signal_pad_ptrs,
     dim: tl.constexpr,
     scale_dim: tl.constexpr,
     num_experts_per_rank: tl.constexpr,
@@ -429,79 +492,7 @@ def _mxfp8_all_to_all_expert_major_kernel(
     BLOCKS_PER_REMOTE_RANK: tl.constexpr,
     BLOCK_SIZE: tl.constexpr,
 ):
-    blockwise_barrier(signal_pad_ptrs, None, rank, world_size, sem="relaxed")
-    sync_threads()
-
-    remote_rank = tl.program_id(0) // BLOCKS_PER_REMOTE_RANK
-    block_offset = tl.program_id(0) % BLOCKS_PER_REMOTE_RANK
-
-    # ===== PHASE 1: Metadata Exchange and Offset Calculation =====
-    # Only block 0 performs the metadata exchange and computes padded offsets
-    if tl.program_id(0) == 0:
-        # Exchange expert_splits from all remote ranks
-        input_expert_splits_ptrs = input_expert_splits_ptr.to(
-            tl.pointer_type(tl.uint64)
-        )
-
-        # Accumulate tokens per local expert across all remote ranks
-        expert_offsets = tl.arange(0, num_experts_per_rank)
-
-        for remote_r in range(world_size):
-            # Get pointer to remote rank's expert_splits tensor
-            remote_expert_splits_ptr = tl.load(input_expert_splits_ptrs + remote_r).to(
-                tl.pointer_type(tl.int64)
-            )
-            # input_expert_splits[remote_r, rank, :] contains tokens remote_r is sending to our local experts
-            remote_expert_splits_ptr = (
-                remote_expert_splits_ptr + rank * num_experts_per_rank
-            )
-
-            # Load expert splits from this remote rank
-            remote_expert_split_values = tl.load(
-                remote_expert_splits_ptr + expert_offsets
-            )
-
-            # Store to output_expert_splits[remote_r, :]
-            output_expert_splits_offset = remote_r * num_experts_per_rank
-            tl.store(
-                output_expert_splits_ptr + output_expert_splits_offset + expert_offsets,
-                remote_expert_split_values,
-            )
-
-        # Compute local padded starting offsets for each expert on this rank,
-        # using the output_expert_splits metadata we just computed above.
-        cumulative_offset = tl.zeros(
-            [], dtype=tl.int64
-        )  # annoyingly only way to init a int64 scalar 0 in triton?
-
-        for expert_idx in range(num_experts_per_rank):
-            # Store the starting offset for this expert
-            tl.store(expert_padded_offsets_ptr + expert_idx, cumulative_offset)
-
-            # Get total tokens for this expert across all remote ranks
-            # output_expert_splits[remote_r, expert_idx] is at offset remote_r * num_experts_per_rank + expert_idx
-            expert_tokens_total = tl.zeros([], dtype=tl.int64)
-            for remote_r in range(world_size):
-                expert_tokens_from_remote = tl.load(
-                    output_expert_splits_ptr
-                    + remote_r * num_experts_per_rank
-                    + expert_idx
-                )
-                expert_tokens_total += expert_tokens_from_remote
-
-            # Round up tokens for this expert to multiple of 32
-            padded_tokens: tl.int64 = ((expert_tokens_total + 31) // 32) * 32
-
-            # Update cumulative offset for next expert
-            cumulative_offset = cumulative_offset + padded_tokens
-
-    # Barrier to ensure metadata exchange is complete before data transfer
-    sync_threads()
-    blockwise_barrier(signal_pad_ptrs, None, rank, world_size, sem="acq_rel")
-
-    # ===== PHASE 2: Data Transfer with Padding =====
-    # Transfer data expert-by-expert from the target remote_rank to local padded expert regions
-
+    """Phase 2: Transfer data expert-by-expert from remote_rank to local padded expert regions."""
     # One thread block per rank will update output_rank_splits
     if block_offset == 0:
         # Calculate total rows from this remote rank
@@ -620,63 +611,71 @@ def _mxfp8_all_to_all_expert_major_kernel(
                     data = tl.load(input_scale_ptr + offs, mask=mask, other=0.0)
                     tl.store(output_scale_ptr_expert + offs, data, mask=mask)
 
+
+@triton.jit
+def _mxfp8_all_to_all_expert_major_kernel(
+    input_ptrs,
+    input_scales_ptrs,
+    input_rank_splits_ptr,
+    input_expert_splits_ptr,
+    output_ptr,
+    output_scales_ptr,
+    output_rank_splits_ptr,
+    output_expert_splits_ptr,
+    expert_padded_offsets_ptr,
+    signal_pad_ptrs,
+    dim: tl.constexpr,
+    scale_dim: tl.constexpr,
+    num_experts_per_rank: tl.constexpr,
+    rank: tl.constexpr,
+    world_size: tl.constexpr,
+    BLOCKS_PER_REMOTE_RANK: tl.constexpr,
+    BLOCK_SIZE: tl.constexpr,
+):
+    blockwise_barrier(signal_pad_ptrs, None, rank, world_size, sem="relaxed")
+    sync_threads()
+
+    remote_rank = tl.program_id(0) // BLOCKS_PER_REMOTE_RANK
+    block_offset = tl.program_id(0) % BLOCKS_PER_REMOTE_RANK
+
+    # PHASE 1: exhange input expert splits between ranks, and compute local padded token group offsets.
+    if tl.program_id(0) == 0:
+        _compute_expert_metadata_and_offsets(
+            input_expert_splits_ptr,
+            output_expert_splits_ptr,
+            expert_padded_offsets_ptr,
+            rank,
+            world_size,
+            num_experts_per_rank,
+        )
+
+    # Barrier to ensure metadata exchange is complete before data transfer
+    sync_threads()
+    blockwise_barrier(signal_pad_ptrs, None, rank, world_size, sem="acq_rel")
+
+    # PHASE 2: transfer tokens destined for local experts, iterating expert by expert,
+    # gathering tokens from other remote ranks.
+    _transfer_expert_data(
+        remote_rank,
+        block_offset,
+        input_ptrs,
+        input_scales_ptrs,
+        input_rank_splits_ptr,
+        input_expert_splits_ptr,
+        output_ptr,
+        output_scales_ptr,
+        output_rank_splits_ptr,
+        output_expert_splits_ptr,
+        expert_padded_offsets_ptr,
+        dim,
+        scale_dim,
+        num_experts_per_rank,
+        rank,
+        world_size,
+        BLOCKS_PER_REMOTE_RANK,
+        BLOCK_SIZE,
+    )
+
     sync_threads()
     blockwise_barrier(signal_pad_ptrs, None, rank, world_size, sem="relaxed")
     return
-
-
-@triton.jit
-def _exchange_row_offsets(
-    split_sizes_ptrs,
-    local_rank: tl.constexpr,
-    remote_rank: tl.constexpr,
-    world_size: tl.constexpr,
-):
-    """
-    Returns:
-    - `input_offset_for_remote_rank`:
-    - `output_offset_for_remote_rank`:
-    - `num_rows`:
-    """
-    # split_sizes_ptr points to 2d tensor of stacked input split size vectors (one per rank). Example:
-    # rank 0 = [30, 10, 10, 20]
-    # rank 1 = [20, 20, 10, 20]
-    split_sizes_ptrs = split_sizes_ptrs.to(tl.pointer_type(tl.uint64))
-
-    # Get pointer to remote rank's input_split_sizes tensor.
-    remote_rank_input_splits_ptr = tl.load(split_sizes_ptrs + remote_rank).to(
-        tl.pointer_type(tl.int64)
-    )
-
-    # num_rows_to_read is the specific number of tokens to read from remote_rank.
-    num_rows_to_read = tl.load(remote_rank_input_splits_ptr + local_rank)
-
-    # Calculate starting offset in symm mem buf to read data from remote_rank for this local_rank.
-    #
-    # Do this by computing prefix sum of remote split offsets prev ranks.
-    # Ex. remote_rank split sizes = [10, 20, 30]
-    # For local rank 1, masked load = [10, 0, 0]
-    # Starting offset = sum([10, 0, 0]) = 10
-    offsets = tl.arange(0, world_size)
-    remote_split_sizes_prefix = tl.load(
-        remote_rank_input_splits_ptr + offsets, mask=offsets < local_rank, other=0
-    )
-    input_offset_for_remote_rank = tl.sum(remote_split_sizes_prefix)
-
-    # Calculate offset in local output buffer to start writing data to, for data coming from the remote_rank to this local_rank.
-    #
-    # We add `offsets` arange to get a set of pointers to the start of each row (rank) in the split_sizes matrix.
-    # Then, we add the local rank to each pointer, incrementing it colwise to reach the value for this local rank.
-    # Each ptrs now all point to how many tokens/rows that device has for local rank.
-    #
-    # torch equivalent: split_sizes_matrix[:, rank]
-    ptr_to_each_rank_split_sizes = tl.load(split_sizes_ptrs + offsets).to(
-        tl.pointer_type(tl.int64)
-    )
-    output_split_sizes_ptrs = ptr_to_each_rank_split_sizes + local_rank
-    output_split_sizes = tl.load(
-        output_split_sizes_ptrs, mask=offsets < remote_rank, other=0
-    )
-    output_offset_for_remote_rank = tl.sum(output_split_sizes)
-
-    return input_offset_for_remote_rank, output_offset_for_remote_rank, num_rows_to_read
