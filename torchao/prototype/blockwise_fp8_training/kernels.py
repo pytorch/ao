@@ -331,7 +331,8 @@ def triton_fp8_blockwise_act_quant_lhs_kernel(
     y_mask = (m_offs[:, None] < M) & (k_offs[None, :] < K)
     tl.store(y_ptr + y_offs, y, mask=y_mask)
 
-    # Write reciprocal scales
+    # Write reciprocal scales (mask needed because NUM_GROUPS may exceed M,
+    # and unmasked writes to the column-major scale tensor corrupt later columns)
     scale_offs = m_offs[:, None] * s_stride_dim_0 + pid_k * s_stride_dim_1
     scale_mask = m_offs[:, None] < M
     tl.store(s_ptr + scale_offs, tl.div_rn(1.0, scale), mask=scale_mask)

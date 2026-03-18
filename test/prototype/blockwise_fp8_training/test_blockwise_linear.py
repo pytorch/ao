@@ -10,7 +10,7 @@ import pytest
 import torch
 from torch._dynamo.testing import CompileCounterWithBackend
 
-from torchao.utils import torch_version_at_least
+from torchao.utils import is_ROCM, torch_version_at_least
 
 if not (
     torch_version_at_least("2.7.0")
@@ -18,6 +18,11 @@ if not (
     and torch.cuda.get_device_capability()[0] >= 9
 ):
     pytest.skip("Requires CUDA capability >= 9.0", allow_module_level=True)
+
+if is_ROCM():
+    pytest.skip(
+        "Blockwise FP8 linear has numerical issues on ROCm", allow_module_level=True
+    )
 
 triton = pytest.importorskip("triton", reason="Triton required to run this test")
 
