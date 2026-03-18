@@ -109,26 +109,6 @@ def main(args):
                     filter_fn=filter_fn,
                     device=model_device,
                 )
-            elif args.uintx:
-                msg += f" (uintx {args.bits} bits)"
-                from torchao.prototype.dtypes.uintx.uintx_layout import (
-                    _BIT_WIDTH_TO_DTYPE,
-                )
-                from torchao.quantization.quant_api import (
-                    UIntXWeightOnlyConfig,
-                    quantize_,
-                )
-
-                bits = args.bits
-                assert bits in _BIT_WIDTH_TO_DTYPE, f"Invalid bits: {bits}"
-                dtype = _BIT_WIDTH_TO_DTYPE[bits]
-                quantize_(
-                    model,
-                    UIntXWeightOnlyConfig(dtype=dtype, group_size=args.group_size),
-                    filter_fn=filter_fn,
-                    device=model_device,
-                )
-
             else:
                 msg += f" (auto-round {args.bits} bits)"
                 torch.cuda.empty_cache()

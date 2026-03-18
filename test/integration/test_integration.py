@@ -38,7 +38,6 @@ from torchao.quantization.autoquant import (
 from torchao.quantization.quant_api import (
     Float8DynamicActivationFloat8WeightConfig,
     Int4WeightOnlyConfig,
-    Int8DynamicActivationInt4WeightConfig,
     Int8DynamicActivationInt8WeightConfig,
     Int8WeightOnlyConfig,
     quantize_,
@@ -120,10 +119,6 @@ def _int8da_int8w_api(
             set_inductor_config=False,
         ),
     )
-
-
-def _int8da_int4w_api(mod):
-    quantize_(mod, Int8DynamicActivationInt4WeightConfig(set_inductor_config=False))
 
 
 # TODO: use this to reduce the number of tests
@@ -648,13 +643,13 @@ class TestSubclass(unittest.TestCase):
         )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
-    @skip_if_rocm("ROCm enablement in progress")
     @skip_if_xpu("XPU enablement in progress")
     def test_int4_weight_only_quant_subclass_api_grouped(self, device, dtype):
         if dtype != torch.bfloat16:
             self.skipTest(f"Fails for {dtype}")
         if device == "cpu":
             self.skipTest("Only CUDA is supported for int4 weight only quantization v2")
+        ntile_size = 16 if torch.version.hip else 8
         for test_shape in [(256, 256, 16), (256, 256, 8)]:
             for groupsize in [64, 32]:
 
@@ -664,6 +659,7 @@ class TestSubclass(unittest.TestCase):
                         Int4WeightOnlyConfig(
                             group_size=groupsize,
                             int4_packing_format=Int4PackingFormat.TILE_PACKED_TO_4D,
+                            int4_tile_packed_ntile=ntile_size,
                         ),
                     )
 
@@ -1393,7 +1389,7 @@ class TestExport(unittest.TestCase):
     @parameterized.expand(
         list(
             itertools.product(
-                TENSOR_SUBCLASS_APIS + [_int8da_int4w_api],
+                TENSOR_SUBCLASS_APIS,
                 COMMON_DEVICES,
                 COMMON_DTYPES,
             )
@@ -1446,11 +1442,6 @@ class TestExport(unittest.TestCase):
         model = torch.export.export(model, example_inputs, strict=True).module()
         after_export = model(x)
         self.assertTrue(torch.equal(after_export, ref))
-        if api is _int8da_int4w_api:
-            targets = [n.target for n in model.graph.nodes]
-            self.assertTrue(torch.ops.torchao.choose_qparams_affine.default in targets)
-            self.assertTrue(torch.ops.torchao.quantize_affine.default in targets)
-            self.assertFalse(torch.ops.aten.narrow.default in targets)
 
     @unittest.skipIf(
         not is_sm_at_least_89(), "Requires GPU with compute capability >= 8.9"

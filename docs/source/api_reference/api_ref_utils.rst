@@ -1,5 +1,16 @@
 .. _api_utils:
 
+=============
+torchao.core
+=============
+
+.. currentmodule:: torchao.core.config
+
+.. autosummary::
+    :toctree: generated/
+    :nosignatures:
+
+    AOBaseConfig
 
 =============
 torchao.utils
@@ -21,8 +32,8 @@ torchao.quantization.quantize_.common
 
 .. currentmodule:: torchao.quantization.quantize_.common
 
-quantize_ API Common Utils
---------------------------
+quantize\_ API Common Utils
+---------------------------
 .. autosummary::
     :toctree: generated/
     :nosignatures:

@@ -259,7 +259,11 @@ def _kernel(
     if SPLIT_K == 1:
         tl.store(C, acc, mask=mask)
     else:
-        tl.atomic_add(C, acc, mask=mask)
+        # AMD GPUs need relaxed semantics for better performance
+        if tl.constexpr(torch.version.hip is not None):
+            tl.atomic_add(C, acc, mask=mask, sem="relaxed")
+        else:
+            tl.atomic_add(C, acc, mask=mask)
 
 
 class _matmul(torch.autograd.Function):

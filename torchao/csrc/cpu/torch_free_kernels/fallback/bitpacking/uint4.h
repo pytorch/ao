@@ -51,7 +51,7 @@ TORCHAO_ALWAYS_INLINE inline void pack_16_uint4_values(
     uint8_t* packed,
     const uint8_t* unpacked) {
   for (int i = 0; i < 8; ++i) {
-    packed[i] = ((unpacked[i + 8] & 0x0F) << 4) | (unpacked[i] & 0x0F);
+    packed[i] = ((unpacked[i + 8] & 0x0F) << 4) | unpacked[i];
   }
 }
 
@@ -85,7 +85,7 @@ TORCHAO_ALWAYS_INLINE inline void pack_32_uint4_values(
     uint8_t* packed,
     const uint8_t* unpacked) {
   for (int i = 0; i < 16; ++i) {
-    packed[i] = ((unpacked[i + 16] & 0x0F) << 4) | (unpacked[i] & 0x0F);
+    packed[i] = ((unpacked[i + 16] & 0x0F) << 4) | unpacked[i];
   }
 }
 

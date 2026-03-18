@@ -13,7 +13,6 @@ from benchmarks.microbenchmarks.utils import (
     BenchmarkConfig,
     BenchmarkResult,
     BlockSparseWeightConfig,
-    Float8DynamicActivationFloat8SemiSparseWeightConfig,
     Int4WeightOnlyConfig,
     SemiSparseWeightConfig,
     clean_caches,
@@ -111,12 +110,6 @@ class TestUtils(unittest.TestCase):
         # Test combined sparsity and quantization
         config = string_to_config("marlin", "semi-sparse")
         self.assertIsInstance(config, Int4WeightOnlyConfig)
-
-        # Test float8 with semi-sparse
-        config = string_to_config("float8dq", "semi-sparse")
-        self.assertIsInstance(
-            config, Float8DynamicActivationFloat8SemiSparseWeightConfig
-        )
 
     def test_block_sparsity_with_baseline_quantization(self):
         """Test that block sparsity with baseline quantization returns BlockSparseWeightConfig"""

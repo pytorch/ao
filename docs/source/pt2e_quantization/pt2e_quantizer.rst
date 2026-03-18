@@ -372,6 +372,8 @@ Another caveat is that we need to make sure we have an exhaustive list of exampl
 
 Note: We may provide some (pattern, list of example_inputs) or some pre-generated matcher object so people can just use them directly in the future.
 
+.. _pt2e_quantizer-conclusion:
+
 Conclusion
 ^^^^^^^^^^^^^^^^^^^
 

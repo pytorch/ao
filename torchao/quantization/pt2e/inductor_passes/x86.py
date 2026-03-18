@@ -1,3 +1,9 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
+
 # mypy: allow-untyped-decorators
 # mypy: allow-untyped-defs
 import copy
@@ -45,6 +51,14 @@ _VIEW_METHOD_OPS = [
     "view",
     "reshape",
 ]
+
+# Dynamo/FX sometimes carries ScalarType as an int enum (e.g. 24 for float8_e4m3fn).
+# For readability and comparisons, normalize back to torch.dtype when possible using _fallback_enum_to_dtype table,
+# which is from https://github.com/pytorch/pytorch/blob/main/torch/headeronly/core/ScalarType.h#L103-L149.
+_fallback_enum_to_dtype: dict[int, torch.dtype] = {
+    6: torch.float,
+    24: torch.float8_e4m3fn,
+}
 
 """
 The quantization.py file primarily incorporates passes related to quantization fusion
@@ -2947,10 +2961,50 @@ def _register_scaled_embedding_bag_pass(pattern, pass_number, dtype=torch.float3
             kwargs["include_last_offset"],
         )
         output_type = torch.float
-        o_scale = 1.0
+        normalized_o_dtype: Any = None
+        o_scale: float = 1.0
         if "o_dtype" in kwargs:
-            output_type = kwargs["o_dtype"]
-            o_scale = kwargs["o_inv_scale"]
+
+            def _normalize_dtype(dtype_or_enum: Any) -> torch.dtype | Any:
+                # Dynamo/FX sometimes carries ScalarType as an int enum (e.g. 24 for float8_e4m3fn).
+                # For readability and comparisons, normalize back to torch.dtype when possible.
+                if isinstance(dtype_or_enum, torch.dtype):
+                    return dtype_or_enum
+                if isinstance(dtype_or_enum, int):
+                    # Fallback mapping for common ScalarType enums.
+                    if dtype_or_enum in _fallback_enum_to_dtype:
+                        return _fallback_enum_to_dtype[dtype_or_enum]
+                return dtype_or_enum
+
+            normalized_o_dtype = _normalize_dtype(kwargs["o_dtype"])
+            output_type = normalized_o_dtype
+
+            def _extract_const_float(val) -> float | None:
+                # Prefer extracting from python scalars and FX node structure
+                if isinstance(val, (int, float)):
+                    return float(val)
+                if isinstance(val, torch.fx.Node):
+                    meta_val = val.meta.get("val", None)
+                    if isinstance(meta_val, (int, float)):
+                        return float(meta_val)
+                    # Common pattern: aten.full([1], fill_value, dtype=float)
+                    if val.target is torch.ops.aten.full.default and len(val.args) >= 2:
+                        fill_value = val.args[1]
+                        if isinstance(fill_value, (int, float)):
+                            return float(fill_value)
+                    # Common pattern in user code: torch.tensor([scalar])
+                    if val.target is torch.tensor and len(val.args) >= 1:
+                        data = val.args[0]
+                        if (
+                            isinstance(data, (list, tuple))
+                            and len(data) == 1
+                            and isinstance(data[0], (int, float))
+                        ):
+                            return float(data[0])
+                return None
+
+            o_scale = _extract_const_float(kwargs["o_inv_scale"])
+            assert o_scale is not None, "Output scale is not a constant float."
 
         graph = match.graph
         with graph.inserting_before(getitem_node):
@@ -2978,7 +3032,10 @@ def _register_scaled_embedding_bag_pass(pattern, pass_number, dtype=torch.float3
             )
 
             # Erase quant pattern
-            if output_type == torch.int8:
+            if "o_dtype" in kwargs and normalized_o_dtype in [
+                torch.int8,
+                torch.float8_e4m3fn,
+            ]:
                 quant_node.replace_all_uses_with(getitem_node)
                 getitem_node.meta.update(quant_node.meta)
                 graph.erase_node(quant_node)
@@ -3035,19 +3092,18 @@ def _register_quantization_embeddingbag_pass():
                 embeddingbag_pattern, pass_number=1, dtype=dtype
             )
 
-            # will support fp8 output later
-            if not is_fp8:
-                embeddingbag_with_qoutput_pattern = generate_pattern_with_output_quant(
-                    embeddingbag_pattern,
-                    dtype == torch.bfloat16,
-                    is_fp8,
-                )
+            # support int8, fp8 output
+            embeddingbag_with_qoutput_pattern = generate_pattern_with_output_quant(
+                embeddingbag_pattern,
+                dtype == torch.bfloat16,
+                is_fp8,
+            )
 
-                _register_scaled_embedding_bag_pass(
-                    embeddingbag_with_qoutput_pattern,
-                    pass_number=0,
-                    dtype=dtype,
-                )
+            _register_scaled_embedding_bag_pass(
+                embeddingbag_with_qoutput_pattern,
+                pass_number=0,
+                dtype=dtype,
+            )
 
 
 def _is_valid_concat_dq_q_pattern():

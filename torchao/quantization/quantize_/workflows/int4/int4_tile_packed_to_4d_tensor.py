@@ -99,6 +99,7 @@ class Int4TilePackedTo4dTensor(TorchAOBaseTensor):
         hp_tensor: torch.Tensor,
         block_size: List[int],
         int4_choose_qparams_algorithm: Int4ChooseQParamsAlgorithm = Int4ChooseQParamsAlgorithm.TINYGEMM,
+        ntile_size: Optional[int] = 8,
     ):
         assert len(block_size) == hp_tensor.ndim, (
             f"Expecting the length of block_size to be equal to the dimension of the weight, got {block_size=} and {hp_tensor.ndim=}"
@@ -127,7 +128,7 @@ class Int4TilePackedTo4dTensor(TorchAOBaseTensor):
 
         # Pre-process: pad to required dimensions
         in_features = find_multiple(orig_in_features, 1024)
-        out_features = find_multiple(orig_out_features, 8)
+        out_features = find_multiple(orig_out_features, ntile_size)
         hp_tensor_padded = torch.nn.functional.pad(
             hp_tensor,
             (0, in_features - orig_in_features, 0, out_features - orig_out_features),
@@ -355,6 +356,29 @@ def _(func, _types, args, _kwargs):
     return Int4TilePackedTo4dTensor(
         qdata,
         scale_and_zero,
+        block_size,
+        new_shape,
+        act_pre_scale=self.act_pre_scale,
+    )
+
+
+@implements(aten.select.int)
+def _(func, types, args, kwargs):
+    """Select operation for tensor core tiled packed tensor (e.g., MoE expert selection)"""
+    self, dim, index = args
+    assert dim == 0, (
+        f"Int4TilePackedTo4dTensor aten.select.int with {dim=} is not yet supported"
+    )
+
+    new_shape = list(self.shape)
+    new_shape.pop(dim)
+
+    block_size = list(self.block_size)
+    block_size.pop(dim)
+
+    return Int4TilePackedTo4dTensor(
+        self.qdata[index],
+        self.scale_and_zero[index],
         block_size,
         new_shape,
         act_pre_scale=self.act_pre_scale,

@@ -15,9 +15,18 @@ from torch.distributed._tensor import DTensor
 from torch.distributed.device_mesh import DeviceMesh
 from torch.distributed.fsdp import MixedPrecisionPolicy
 
-from torchao.prototype.moe_training import _quantize_then_scaled_grouped_mm
-from torchao.prototype.moe_training.conversion_utils import MoEScalingType
-from torchao.quantization.quantize_.common import KernelPreference
+from torchao.prototype.moe_training.config import (
+    MXFP8TrainingOpConfig,
+    TrainingOpBaseConfig,
+)
+from torchao.prototype.moe_training.utils import (
+    _quantize_then_scaled_grouped_mm,
+    unwrap_weight,
+)
+from torchao.prototype.mx_formats.mx_linear import _to_mxfp8_then_scaled_mm
+from torchao.utils import TorchAOBaseTensor
+
+aten = torch.ops.aten
 
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -33,27 +42,24 @@ _ops_to_preserve_subclass = {
     torch.ops.aten.split.Tensor,
     torch.ops.aten.clone.default,
     torch.ops.aten.transpose.int,
+    torch.ops.aten.t.default,
 }
 
 
-class ScaledGroupedMMTensor(torch.Tensor):
+class TrainingWeightWrapperBaseTensor(TorchAOBaseTensor):
     """
-    ScaledGroupedMMTensor is a simple tensor subclass that wraps a regular tensor
-    and overrides the torch._grouped_mm op by dispatching to the
-    differentiable _quantize_then_scaled_grouped_mm autograd function.
+    A subclass of torch.Tensor that overrides the grouped_mm and linear ops
+    to use dynamic quantization then low precision grouped_mm/linear op,
+    based on the training config.
     """
 
-    scaling_type: MoEScalingType = MoEScalingType.FP8_ROWWISE
-    kernel_preference: KernelPreference = KernelPreference.AUTO
-    grouped_mm_func_name = "_grouped_mm"
-    offs_arg_name = "offs"
+    config: TrainingOpBaseConfig = None
 
     @staticmethod
     def __new__(
         cls,
         tensor: torch.Tensor,
-        scaling_type: MoEScalingType,
-        kernel_preference: KernelPreference = KernelPreference.AUTO,
+        config: TrainingOpBaseConfig,
     ):
         self = torch.Tensor._make_wrapper_subclass(
             cls,
@@ -67,87 +73,48 @@ class ScaledGroupedMMTensor(torch.Tensor):
             pin_memory=tensor.is_pinned(),
             requires_grad=tensor.requires_grad,
         )
-        self.scaling_type = scaling_type
-        self.kernel_preference = kernel_preference
+        self.config = config
         return self
 
     def __init__(
         self,
         tensor: torch.Tensor,
-        scaling_type: MoEScalingType,
-        kernel_preference: KernelPreference = KernelPreference.AUTO,
+        config: TrainingOpBaseConfig,
     ):
         self._data = tensor
-        self.scaling_type = scaling_type
-        self.kernel_preference = kernel_preference
+        self.config = config
 
     @classmethod
     def __torch_function__(cls, func, types, args, kwargs={}):
-        # override the grouped mm op to use the differentiable _quantize_then_scaled_grouped_mm
-        if func.__name__ == cls.grouped_mm_func_name:
-            # Use torchao scaled grouped mm with dynamic quant for
-            # "2d x 3d with offsets" case (used for routed experts).
-            # Otherwise, fall back to regular grouped mm.
-            #
-            # TODO: support "3d x 3d without offsets" case, which is
-            # used for shared experts. This is basically the grouped_mm
-            # kernel handling a bmm.
-            A, B = args[0], args[1]
-            assert not isinstance(A, ScaledGroupedMMTensor), (
-                "A should not be a ScaledGroupedMMTensor"
-            )
-            assert isinstance(B, ScaledGroupedMMTensor), (
-                "B should be a ScaledGroupedMMTensor"
-            )
-            scaling_type = B.scaling_type
-            kernel_preference = B.kernel_preference
-            A_is_2d = A.ndim == 2
-            B_is_2d_or_3d = B.ndim == 2 or B.ndim == 3
-            has_offs = kwargs.get(cls.offs_arg_name) is not None
-            other_args = args[2:]
-            if A_is_2d and B_is_2d_or_3d and has_offs:
-                return _quantize_then_scaled_grouped_mm(
-                    A,
-                    B,
-                    *other_args,
-                    scaling_type=scaling_type,
-                    kernel_preference=kernel_preference,
-                    **kwargs,
-                )
-
-        # Disable torch_function by hand because we don't want
-        # the wrapping behavior of the super() impl, go directly to dispatch
-        with torch._C.DisableTorchFunctionSubclass():
-            return func(*args, **kwargs)
+        raise NotImplementedError(
+            f"{cls.__name__} not intended to be used directly, please override this method in a tensor subclass for your intended derived dtype."
+        )
 
     @classmethod
     def __torch_dispatch__(cls, func, types, args, kwargs={}):
-        # unwrap args/kwargs and extract scaling_type and kernel_preference
-        scaling_type = None
-        kernel_preference = None
+        # unwrap args/kwargs and extract config
+        config = None
 
         def unwrap(t):
-            nonlocal scaling_type, kernel_preference
-            if scaling_type is None:
-                scaling_type = t.scaling_type
-                kernel_preference = t.kernel_preference
+            nonlocal config
+            if config is None:
+                config = t.config
             else:
-                assert t.scaling_type == scaling_type
-                assert t.kernel_preference == kernel_preference
+                assert t.config == config, (
+                    "All TrainingWeightWrapperBaseTensor instances must have the same config"
+                )
             return t._data
 
         args_unwrapped, kwargs_unwrapped = pytree.tree_map_only(
-            ScaledGroupedMMTensor, unwrap, (args, kwargs or {})
+            TrainingWeightWrapperBaseTensor, unwrap, (args, kwargs or {})
         )
-        assert scaling_type is not None, (
-            f"__torch_dispatch__ called on {func.__name__} without any ScaledGroupedMMTensor arguments"
+        assert config is not None, (
+            f"__torch_dispatch__ called on {func.__name__} without any TrainingWeightWrapperBaseTensor arguments"
         )
 
         # detach is special case
         if func == torch.ops.aten.detach.default:
-            return ScaledGroupedMMTensor(
-                args_unwrapped[0], scaling_type, kernel_preference
-            )
+            return cls(args_unwrapped[0], config)
 
         # perform op
         out = func(*args_unwrapped, **kwargs_unwrapped)
@@ -156,29 +123,31 @@ class ScaledGroupedMMTensor(torch.Tensor):
         if func not in _ops_to_preserve_subclass:
             return out
 
-        # wrap outputs back into ScaledGroupedMMTensor for ops that do preserve subclass
+        # wrap outputs back into the same subclass for ops that do preserve subclass
         return pytree.tree_map_only(
             torch.Tensor,
-            lambda x: ScaledGroupedMMTensor(x, scaling_type, kernel_preference),
+            lambda x: cls(x, config),
             out,
         )
 
     def __repr__(self):
-        return f"ScaledGroupedMMTensor(data={self._data}, scaling_type={self.scaling_type}, kernel_preference={self.kernel_preference})"
+        return (
+            f"TrainingWeightWrapperBaseTensor(data={self._data}, config={self.config})"
+        )
 
     def __tensor_flatten__(self):
         metadata = {
-            "scaling_type": self.scaling_type,
-            "kernel_preference": self.kernel_preference,
+            "config": self.config,
         }
         return ["_data"], metadata
 
-    @staticmethod
-    def __tensor_unflatten__(inner_tensors, flatten_spec, outer_size, outer_stride):
-        return ScaledGroupedMMTensor(
+    @classmethod
+    def __tensor_unflatten__(
+        cls, inner_tensors, flatten_spec, outer_size, outer_stride
+    ):
+        return cls(
             inner_tensors["_data"],
-            flatten_spec["scaling_type"],
-            flatten_spec["kernel_preference"],
+            flatten_spec["config"],
         )
 
     # fsdp hooks based on https://github.com/pytorch/pytorch/blob/20e40492b046b9287726d3ec656117e4dc38f0e2/test/distributed/_composable/fsdp/test_fully_shard_extensions.py#L81
@@ -207,19 +176,17 @@ class ScaledGroupedMMTensor(torch.Tensor):
 
         # For training step 1+, out=unsharded param.
         if out is not None:
-            if isinstance(out, ScaledGroupedMMTensor):
+            if isinstance(out, TrainingWeightWrapperBaseTensor):
                 out_data = out._data
-                out.scaling_type = self.scaling_type
-                out.kernel_preference = self.kernel_preference
+                out.config = self.config
             elif isinstance(out, DTensor) and isinstance(
-                out._local_tensor, ScaledGroupedMMTensor
+                out._local_tensor, TrainingWeightWrapperBaseTensor
             ):
                 out_data = out._local_tensor._data
-                out._local_tensor.scaling_type = self.scaling_type
-                out._local_tensor.kernel_preference = self.kernel_preference
+                out._local_tensor.config = self.config
             else:
                 raise RuntimeError(
-                    f"expect out to be ScaledGroupedMMTensor or DTensor with local_tensor=ScaledGroupedMM, but got {type(out)}"
+                    f"expect out to be TrainingWeightWrapperBaseTensor or DTensor with local_tensor=ScaledGroupedMM, but got {type(out)}"
                 )
 
             # If `data` (all gather outputs) is already in the mixed precision policy param_dtype,
@@ -238,7 +205,116 @@ class ScaledGroupedMMTensor(torch.Tensor):
 
             return
 
-        # For training step 0, out=None, so we need to return a new ScaledGroupedMMTensor.
-        output = ScaledGroupedMMTensor(data, self.scaling_type, self.kernel_preference)
+        # For training step 0, out=None, so we need to return a new tensor of the same subclass.
+        output = type(self)(data, self.config)
         inner_tensors = (data,)
         return output, inner_tensors
+
+
+class Float8TrainingWeightWrapperTensor(TrainingWeightWrapperBaseTensor):
+    """
+    A subclass of torch.Tensor that overrides the grouped_mm and linear ops
+    to use dynamic quantization of inputs to FP8, then runs the FP8 grouped_mm/linear,
+    based on the training config.
+    """
+
+    @classmethod
+    def __torch_function__(cls, func, types, args, kwargs={}):
+        # grouped_mm op override
+        if func.__name__ == "_grouped_mm":
+            # Use torchao scaled grouped mm with dynamic quant for
+            # "2d x 3d with offsets" case (used for routed experts).
+            # Otherwise, fall back to regular grouped mm.
+            #
+            # TODO: support "3d x 3d without offsets" case, which is
+            # used for shared experts. This is basically the grouped_mm
+            # kernel handling a bmm.
+            A, B = args[0], args[1]
+
+            assert not isinstance(A, cls), f"A should not be a {cls.__name__}"
+
+            assert isinstance(B, cls), f"B should be a {cls.__name__}"
+
+            config = B.config
+            A_is_2d = A.ndim == 2
+            B_is_2d_or_3d = B.ndim == 2 or B.ndim == 3
+            offs = kwargs.get("offs", None)
+
+            if A_is_2d and B_is_2d_or_3d and offs is not None:
+                return _quantize_then_scaled_grouped_mm(
+                    A,
+                    unwrap_weight(B),
+                    offs=offs,
+                    config=config,
+                )
+
+        # TOOD: linear op override
+        else:
+            # Disable torch_function by hand because we don't want
+            # the wrapping behavior of the super() impl, go directly to dispatch
+            with torch._C.DisableTorchFunctionSubclass():
+                return func(*args, **kwargs)
+
+
+class MXFP8TrainingWeightWrapperTensor(TrainingWeightWrapperBaseTensor):
+    """
+    A subclass of torch.Tensor that overrides the grouped_mm and linear ops
+    to use dynamic quantization of inputs to MXFP8, then runs the MXFP8 grouped_mm/linear,
+    based on the training config.
+    """
+
+    @classmethod
+    def __torch_function__(cls, func, types, args, kwargs={}):
+        # grouped_mm op override
+        if func.__name__ == "_grouped_mm":
+            # Use torchao scaled grouped mm with dynamic quant for
+            # "2d x 3d with offsets" case (used for routed experts).
+            # Otherwise, fall back to regular grouped mm.
+            #
+            # TODO: support "3d x 3d without offsets" case, which is
+            # used for shared experts. This is basically the grouped_mm
+            # kernel handling a bmm.
+            A, B = args[0], args[1]
+
+            assert not isinstance(A, cls), f"A should not be a {cls.__name__}"
+
+            assert isinstance(B, cls), f"B should be a {cls.__name__}"
+
+            config = B.config
+            A_is_2d = A.ndim == 2
+            B_is_2d_or_3d = B.ndim == 2 or B.ndim == 3
+            offs = kwargs.get("offs", None)
+
+            if A_is_2d and B_is_2d_or_3d and offs is not None:
+                return _quantize_then_scaled_grouped_mm(
+                    A,
+                    B,
+                    offs=offs,
+                    config=config,
+                )
+
+        # linear op override
+        elif func.__name__ in ("linear", "mm", "matmul", "addmm"):
+            A, B = args[0], args[1]
+            assert not isinstance(A, cls), f"A should not be a {cls.__name__}"
+
+            assert isinstance(B, cls), f"B should be a {cls.__name__}"
+
+            config = B.config
+            assert isinstance(config, MXFP8TrainingOpConfig), (
+                "expected MXFP8TrainingOpConfig"
+            )
+
+            return _to_mxfp8_then_scaled_mm(
+                A,
+                B,
+                kernel_preference=config.kernel_preference,
+                scale_calculation_mode=config.scale_calculation_mode,
+                wgrad_with_hp=config.wgrad_with_hp,
+            )
+
+        else:
+            # Disable torch_function by hand because we don't want
+            # the wrapping behavior of the super() impl, go directly to dispatch
+            with torch._C.DisableTorchFunctionSubclass():
+                return func(*args, **kwargs)

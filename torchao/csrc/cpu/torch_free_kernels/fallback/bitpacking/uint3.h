@@ -87,17 +87,18 @@ TORCHAO_ALWAYS_INLINE inline void pack_64_uint3_values(
     const uint8_t unpacked6 = unpacked[i + 8 * 6];
     const uint8_t unpacked7 = unpacked[i + 8 * 7];
 
-    // byte 0
-    packed[i] = ((unpacked6 & 0x03) << 6) | ((unpacked0 & 0x07) << 3) |
-        (unpacked1 & 0x07);
+    // byte 0: slot 1 in bits 0-2, slot 0 in bits 3-5, slot 6 (low 2 bits) in bits 6-7
+    // Note: unpacked1 is not masked - ARM stores raw value, unpacking extracts low 3 bits
+    packed[i] = ((unpacked6 & 0x03) << 6) | ((unpacked0 & 0x07) << 3) | unpacked1;
 
-    // byte 1
-    packed[i + 8] = ((unpacked7 & 0x03) << 6) | ((unpacked2 & 0x07) << 3) |
-        (unpacked3 & 0x07);
+    // byte 1: slot 3 in bits 0-2, slot 2 in bits 3-5, slot 7 (low 2 bits) in bits 6-7
+    // Note: unpacked3 is not masked - ARM stores raw value, unpacking extracts low 3 bits
+    packed[i + 8] = ((unpacked7 & 0x03) << 6) | ((unpacked2 & 0x07) << 3) | unpacked3;
 
-    // byte 2
+    // byte 2: slot 5 in bits 0-2, slot 4 in bits 3-5, slot 6 high bit in bit 7, slot 7 high bit in bit 6
+    // Note: unpacked5 is not masked - ARM stores raw value, unpacking extracts low 3 bits
     packed[i + 16] = ((unpacked6 & 0x04) << 5) | ((unpacked7 & 0x04) << 4) |
-        ((unpacked4 & 0x07) << 3) | (unpacked5 & 0x07);
+        ((unpacked4 & 0x07) << 3) | unpacked5;
   }
 }
 
@@ -150,17 +151,18 @@ TORCHAO_ALWAYS_INLINE inline void pack_128_uint3_values(
     const uint8_t unpacked6 = unpacked[i + 16 * 6];
     const uint8_t unpacked7 = unpacked[i + 16 * 7];
 
-    // byte 0
-    packed[i] = ((unpacked6 & 0x03) << 6) | ((unpacked0 & 0x07) << 3) |
-        (unpacked1 & 0x07);
+    // byte 0: slot 1 in bits 0-2, slot 0 in bits 3-5, slot 6 (low 2 bits) in bits 6-7
+    // Note: unpacked1 is not masked - ARM stores raw value, unpacking extracts low 3 bits
+    packed[i] = ((unpacked6 & 0x03) << 6) | ((unpacked0 & 0x07) << 3) | unpacked1;
 
-    // byte 1
-    packed[i + 16] = ((unpacked7 & 0x03) << 6) | ((unpacked2 & 0x07) << 3) |
-        (unpacked3 & 0x07);
+    // byte 1: slot 3 in bits 0-2, slot 2 in bits 3-5, slot 7 (low 2 bits) in bits 6-7
+    // Note: unpacked3 is not masked - ARM stores raw value, unpacking extracts low 3 bits
+    packed[i + 16] = ((unpacked7 & 0x03) << 6) | ((unpacked2 & 0x07) << 3) | unpacked3;
 
-    // byte 2
+    // byte 2: slot 5 in bits 0-2, slot 4 in bits 3-5, slot 6 high bit in bit 7, slot 7 high bit in bit 6
+    // Note: unpacked5 is not masked - ARM stores raw value, unpacking extracts low 3 bits
     packed[i + 32] = ((unpacked6 & 0x04) << 5) | ((unpacked7 & 0x04) << 4) |
-        ((unpacked4 & 0x07) << 3) | (unpacked5 & 0x07);
+        ((unpacked4 & 0x07) << 3) | unpacked5;
   }
 }
 
