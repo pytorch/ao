@@ -29,6 +29,9 @@ from torch.fx import Graph, GraphModule, Node
 from torch.nn.utils.fusion import fuse_conv_bn_weights, fuse_linear_bn_weights
 from torch.nn.utils.parametrize import is_parametrized
 
+# treespec_leaf() was added in newer PyTorch to replace LeafSpec(), which is
+# now deprecated and triggers a FutureWarning on instantiation. Fall back to
+# LeafSpec() for older PyTorch versions that don't have treespec_leaf yet.
 try:
     from torch.utils._pytree import treespec_leaf
 except ImportError:
