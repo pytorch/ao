@@ -29,7 +29,11 @@ class Int4CPULayout(Layout):
     Only for PyTorch version at least 2.6
     """
 
-    pass
+    def __post_init__(self):
+        super().__post_init__()
+        warnings.warn(
+            "Deprecation: Int4CPULayout is deprecated and will be removed in a future release of torchao, see https://github.com/pytorch/ao/issues/2752 for more details"
+        )
 
 
 @register_layout(Int4CPULayout)
@@ -75,6 +79,9 @@ class Int4CPUAQTTensorImpl(AQTTensorImpl):
         transposed: bool,
         _layout: Layout,
     ):
+        warnings.warn(
+            "Deprecation: Int4CPUAQTTensorImpl is deprecated and will be removed in a future release of torchao, see https://github.com/pytorch/ao/issues/2752 for more details"
+        )
         warnings.warn(
             "Models quantized with version 1 of Int4WeightOnlyConfig is deprecated and will no longer be supported in a future release, please upgrade torchao and quantize again, or download a newer torchao checkpoint, see https://github.com/pytorch/ao/issues/2948 for more details"
         )

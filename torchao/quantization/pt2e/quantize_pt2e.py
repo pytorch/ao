@@ -23,6 +23,7 @@ from torchao.quantization.pt2e.quantizer import (  # noqa: F401
 from torchao.quantization.pt2e.utils import (
     _disallow_eval_train,
     _fuse_conv_bn_,
+    _fuse_linear_bn_,
     _get_node_name_to_scope,
 )
 
@@ -102,6 +103,7 @@ def prepare_pt2e(
     # to be quantized before fusion
     # TODO: (maybe) rewrite this with subgraph_rewriter
     _fuse_conv_bn_(model)
+    _fuse_linear_bn_(model)
     model = quantizer.transform_for_annotation(model)
     quantizer.annotate(model)
     quantizer.validate(model)
@@ -126,6 +128,19 @@ def prepare_pt2e(
             scan_combine_fn = model.get_submodule(scan_combine_fn_node.target)
             prepared_scan_combine_fn = prepare_pt2e(scan_combine_fn, quantizer)
             setattr(model, scan_combine_fn_node.target, prepared_scan_combine_fn)
+    # Recursively prepare body_fn subgraphs of while_loop ops.
+    for node in model.graph.nodes:
+        if (
+            node.op == "call_function"
+            and node.target is torch.ops.higher_order.while_loop
+        ):
+            while_loop_body_fn_node = node.args[1]
+            assert isinstance(while_loop_body_fn_node, Node)
+            assert while_loop_body_fn_node.op == "get_attr"
+            assert isinstance(while_loop_body_fn_node.target, str)
+            while_loop_body_fn = model.get_submodule(while_loop_body_fn_node.target)
+            prepared_while_loop_body_fn = prepare_pt2e(while_loop_body_fn, quantizer)
+            setattr(model, while_loop_body_fn_node.target, prepared_while_loop_body_fn)
     return model
 
 
@@ -311,6 +326,23 @@ def convert_pt2e(
                 fold_quantize=fold_quantize,
             )
             setattr(model, scan_combine_fn_node.target, converted_scan_combine_fn)
+    # Recursively convert body_fn subgraphs of while_loop ops.
+    for node in model.graph.nodes:
+        if (
+            node.op == "call_function"
+            and node.target is torch.ops.higher_order.while_loop
+        ):
+            while_loop_body_fn_node = node.args[1]
+            assert isinstance(while_loop_body_fn_node, Node)
+            assert while_loop_body_fn_node.op == "get_attr"
+            assert isinstance(while_loop_body_fn_node.target, str)
+            while_loop_body_fn = model.get_submodule(while_loop_body_fn_node.target)
+            converted_while_loop_body_fn = convert_pt2e(
+                while_loop_body_fn,
+                use_reference_representation=use_reference_representation,
+                fold_quantize=fold_quantize,
+            )
+            setattr(model, while_loop_body_fn_node.target, converted_while_loop_body_fn)
     model = _convert_to_reference_decomposed_fx(model)
     model = _fold_conv_bn_qat(model)
 

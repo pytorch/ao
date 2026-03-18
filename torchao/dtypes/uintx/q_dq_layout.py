@@ -40,7 +40,11 @@ aten = torch.ops.aten
 
 @dataclass(frozen=True)
 class QDQLayout(Layout):
-    pass
+    def __post_init__(self):
+        super().__post_init__()
+        warnings.warn(
+            "Deprecation: QDQLayout is deprecated and will be removed in a future release of torchao, see https://github.com/pytorch/ao/issues/2752 for more details"
+        )
 
 
 def _same_metadata(self: "QDQTensorImpl", src: "QDQTensorImpl") -> bool:
@@ -96,6 +100,9 @@ class QDQTensorImpl(AQTTensorImpl):
         zero_point: Optional[torch.Tensor],
         _layout: Layout,
     ):
+        warnings.warn(
+            "Deprecation: QDQTensorImpl is deprecated and will be removed in a future release of torchao, see https://github.com/pytorch/ao/issues/2752 for more details"
+        )
         warnings.warn(
             "Models quantized with version 1 of IntxWeightOnlyConfig/Int8DynamicActivationIntxWeightConfig are deprecated and will no longer be supported in a future release, please upgrade torchao and quantize again, or download a newer torchao checkpoint, see https://github.com/pytorch/ao/issues/2967 for more details"
         )

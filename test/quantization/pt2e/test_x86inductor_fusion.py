@@ -2140,6 +2140,10 @@ class TestPatternMatcher(TestPatternMatcherBase):
     @parametrize("is_qat", [True, False])
     @parametrize("is_dynamic", [True, False])
     def test_qlinear_add_int8_mixed_bf16(self, use_relu, is_qat, is_dynamic):
+        if is_dynamic:
+            # skip due to an issue in torch nightly (https://github.com/pytorch/pytorch/commit/996dedb42f2ed0facbdb73e36bc877a02bb40209)
+            # TODO(Weiwen): after fixing torch nightly, re-enable this
+            return
         self._qlinear_add_test_helper(
             mixed_bf16=True,
             use_relu=use_relu,
@@ -3165,6 +3169,9 @@ class TestDynamicPatternMatcher(TestPatternMatcherBase):
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
+    @unittest.skipIf(
+        torch_version_at_least("2.11.0.dev"), "Doesn't work with torch 2.11.0.dev+"
+    )
     def test_q_attention_block(self):
         for annotate_matmul in [True, False]:
             self._test_q_attention_block_helper(annotate_matmul=annotate_matmul)
@@ -3172,6 +3179,9 @@ class TestDynamicPatternMatcher(TestPatternMatcherBase):
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
     @skipIfNoFloat8Support
+    @unittest.skipIf(
+        torch_version_at_least("2.11.0.dev"), "Doesn't work with torch 2.11.0.dev+"
+    )
     def test_fp8_q_attention_block(self):
         for annotate_matmul in [True, False]:
             self._test_q_attention_block_helper(

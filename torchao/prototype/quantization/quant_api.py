@@ -22,24 +22,15 @@ from torch import Tensor
 import torchao
 from torchao.core.config import AOBaseConfig
 from torchao.dtypes import (
-    Int8DynamicActInt4WeightCPULayout,
-    PlainLayout,
-    UintxLayout,
     to_affine_quantized_intx,
 )
-from torchao.dtypes.utils import Layout
 from torchao.float8.config import e4m3_dtype
 from torchao.float8.inference import (
     Float8MMConfig,
 )
 from torchao.quantization.granularity import Granularity, PerTensor
-from torchao.quantization.linear_activation_quantized_tensor import (
-    to_linear_activation_quantized,
-)
 from torchao.quantization.quant_primitives import (
-    _DTYPE_TO_QVALUE_BOUNDS,
     MappingType,
-    ZeroPointDomain,
 )
 from torchao.quantization.quantize_.common import (
     KernelPreference,
@@ -57,117 +48,6 @@ from torchao.quantization.utils import (
 )
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass
-class Int8DynamicActivationInt4WeightConfig(AOBaseConfig):
-    """Configuration for applying int8 dynamic per token asymmetric activation quantization and int4 per group weight symmetric quantization to linear
-    This is used to produce a model for executorch backend, but currently executorch did not
-    support lowering for the quantized model from this flow yet
-
-    Args:
-        `group_size`: parameter for quantization, controls the granularity of quantization, smaller
-         size is more fine grained
-        `layout`: layout type for quantized weight tensor
-        `mapping_type`: quantization type for weight, controls the weight quantization is symmetric or asymmetric
-        `act_mapping_type`: quantization type for activation, controls the activation quantization is symmetric or asymmetric
-        `set_inductor_config`: if True, adjusts `torchinductor` settings to recommended values.
-
-    Example:
-
-    .. literalinclude:: ../../examples/inference/int8_dynamic_activation_int4_weight.py
-       :language: python
-    """
-
-    group_size: int = 32
-    layout: Layout = PlainLayout()
-    mapping_type: MappingType = MappingType.SYMMETRIC
-    act_mapping_type: MappingType = MappingType.ASYMMETRIC
-    set_inductor_config: bool = True
-
-    def __post_init__(self):
-        torch._C._log_api_usage_once(
-            "torchao.quantization.Int8DynamicActivationInt4WeightConfig"
-        )
-        warnings.warn(
-            "`Int8DynamicActivationInt4WeightConfig` will be deleted in a future release of torchao. Please see https://github.com/pytorch/ao/issues/2752 for more details."
-        )
-
-
-@register_quantize_module_handler(Int8DynamicActivationInt4WeightConfig)
-def _int8_dynamic_activation_int4_weight_transform(
-    module: torch.nn.Module,
-    config: Int8DynamicActivationInt4WeightConfig,
-    *,
-    custom_scale: Optional[torch.Tensor] = None,
-    custom_zero_point: Optional[torch.Tensor] = None,
-):
-    group_size = config.group_size
-    layout = config.layout
-    mapping_type = config.mapping_type
-    act_mapping_type = config.act_mapping_type
-    if config.set_inductor_config:
-        torchao.quantization.utils.recommended_inductor_config_setter()
-
-    weight = module.weight
-
-    if group_size is None or group_size == -1:
-        group_size = weight.shape[-1]
-    if weight.shape[-1] % group_size != 0:
-        return module
-
-    # weight settings
-    block_size = (1, group_size)
-    target_dtype = torch.int8
-    quant_min = -8
-    quant_max = 7
-
-    # avoid circular import
-    from torchao.quantization.quant_api import (
-        _int8_asymm_per_token_quant,
-        _int8_symm_per_token_quant,
-        _uint8_asymm_per_token_quant,
-    )
-
-    # input settings
-    if act_mapping_type == MappingType.ASYMMETRIC:
-        if isinstance(layout, Int8DynamicActInt4WeightCPULayout):
-            input_quant_func = _uint8_asymm_per_token_quant
-        else:
-            input_quant_func = _int8_asymm_per_token_quant
-    elif act_mapping_type == MappingType.SYMMETRIC:
-        input_quant_func = _int8_symm_per_token_quant
-    else:
-        assert False, f"Unsupported activation mapping type: {act_mapping_type}"
-
-    if isinstance(layout, Int8DynamicActInt4WeightCPULayout):
-        weight = to_affine_quantized_intx(
-            weight,
-            mapping_type,
-            block_size,
-            target_dtype=torch.uint8,
-            quant_min=0,
-            quant_max=15,
-            _layout=layout,
-            custom_scale=custom_scale,
-            custom_zero_point=custom_zero_point,
-        )
-    else:
-        weight = to_affine_quantized_intx(
-            weight,
-            mapping_type,
-            block_size,
-            target_dtype,
-            quant_min,
-            quant_max,
-            _layout=layout,
-            custom_scale=custom_scale,
-            custom_zero_point=custom_zero_point,
-        )
-    weight = to_linear_activation_quantized(weight, input_quant_func)
-    module.weight = torch.nn.Parameter(weight, requires_grad=False)
-    module.extra_repr = types.MethodType(_linear_extra_repr, module)
-    return module
 
 
 @dataclass
@@ -686,94 +566,3 @@ def _float8_static_activation_float8_weight_transform(
         raise ValueError(
             f"Unexpected step: {step}. Expected one of {[s.value for s in QuantizationStep]} or None."
         )
-
-
-@dataclass
-class UIntXWeightOnlyConfig(AOBaseConfig):
-    """
-    Configuration for applying uintx weight-only asymmetric per-group quantization to linear layers, using uintx quantization where
-    x is the number of bits specified by `dtype`
-
-    Args:
-        `dtype`: torch.uint1 to torch.uint7 sub byte dtypes
-        `group_size`: parameter for quantization, controls the granularity of quantization, smaller
-         size is more fine grained, defaults to 64
-        `pack_dim`: the dimension we use for packing, defaults to -1
-        `use_hqq`: whether to use hqq algorithm or the default algorithm to quantize the weight
-        `set_inductor_config`: if True, adjusts `torchinductor` settings to recommended values.
-    """
-
-    dtype: torch.dtype
-    group_size: int = 64
-    pack_dim: int = -1
-    use_hqq: bool = False
-    set_inductor_config: bool = True
-
-    def __post_init__(self):
-        torch._C._log_api_usage_once("torchao.quantization.UIntXWeightOnlyConfig")
-        warnings.warn(
-            "`UIntXWeightOnlyConfig` will be deleted in a future release of torchao. Please see https://github.com/pytorch/ao/issues/2752 for more details."
-        )
-
-
-@register_quantize_module_handler(UIntXWeightOnlyConfig)
-def _uintx_weight_only_transform(
-    module: torch.nn.Module, config: UIntXWeightOnlyConfig
-):
-    dtype = config.dtype
-    group_size = config.group_size
-    pack_dim = config.pack_dim
-    use_hqq = config.use_hqq
-    if config.set_inductor_config:
-        torchao.quantization.utils.recommended_inductor_config_setter()
-
-    weight = module.weight
-
-    SUPPORTED_DTYPES = {
-        torch.uint1,
-        torch.uint2,
-        torch.uint3,
-        torch.uint4,
-        torch.uint5,
-        torch.uint6,
-        torch.uint7,
-        torch.uint8,
-    }
-    assert dtype in SUPPORTED_DTYPES, f"Unsupported dtype for hqq: {dtype}"
-
-    mapping_type = MappingType.ASYMMETRIC
-    block_size = (1, group_size)
-
-    if use_hqq:
-        quant_min, quant_max = _DTYPE_TO_QVALUE_BOUNDS[dtype]
-        dtype = torch.uint8
-        eps = None
-        zero_point_dtype = None
-        zero_point_domain = ZeroPointDomain.FLOAT
-        preserve_zero = False
-        _layout = PlainLayout()
-    else:
-        quant_min, quant_max = None, None
-        eps = torch.finfo(torch.float32).eps
-        zero_point_dtype = torch.int32
-        zero_point_domain = ZeroPointDomain.INT
-        preserve_zero = True
-        _layout = UintxLayout(dtype=dtype, pack_dim=pack_dim)
-
-    new_weight = to_affine_quantized_intx(
-        weight,
-        mapping_type,
-        block_size,
-        dtype,
-        quant_min=quant_min,
-        quant_max=quant_max,
-        eps=eps,
-        zero_point_dtype=zero_point_dtype,
-        zero_point_domain=zero_point_domain,
-        preserve_zero=preserve_zero,
-        _layout=_layout,
-        use_hqq=use_hqq,
-    )
-    module.weight = torch.nn.Parameter(new_weight, requires_grad=False)
-    module.extra_repr = types.MethodType(_linear_extra_repr, module)
-    return module

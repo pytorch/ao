@@ -1630,62 +1630,13 @@ class ReuseInputObserver(ObserverBase):
 """
 # Experimental Affine Quantization Feature START
 We plan to merge the following with torchao repo after we move pt2e flow to torchao
-copied from https://github.com/pytorch/ao/blob/main/torchao/quantization/observer.py
+Re-exported from torchao.quantization.quant_primitives to avoid duplicate definitions.
 """
-from enum import Enum, auto
-
-
-class MappingType(Enum):
-    """How floating point number is mapped to integer number
-
-    symmetric mapping means floating point range is symmetrically mapped to integer range
-    let's say we have floating point range (-3.5, 10.2) and integer range (-8, 7) (int4)
-    we'll use (-10.2, 10.2) as the range for floating point and map that to (-8, 7)
-    e.g. scale = (10.2 - (-10.2)) / (7 - (-8))
-
-    SYMMETRIC_NO_CLIPPING_ERR is a variant of symmetric mapping, where the scale is the max of smin
-    and smax, where smin = min_val_neg / quant_min, and smax = max_val_pos / quant_max. By calculating
-    smin and smax individually, there can be less round error on negative values, and no out-of-range
-    of all floating point values.
-
-    asymmetric mapping means we just directly map the floating point range to integer range,
-    for the above example, we will map (-3.5, 10.2) to (-8, 7) and calculate quantization parameter
-    based on this mapping
-    e.g. scale = (10.2 - (-3.5)) / (7 - (-8))
-    """
-
-    SYMMETRIC = auto()
-    SYMMETRIC_NO_CLIPPING_ERR = auto()
-    ASYMMETRIC = auto()
-
-
-class ZeroPointDomain(Enum):
-    """Enum that indicate whether zero_point is in integer domain or floating point domain
-
-    integer domain: quantized_val = (float_val / scale) (integer) + zero_point (integer)
-    float domain: quantized_val = (float_val - (zero_point (float) - scale * mid_point)) / scale
-    none domain: quantized_val = (float_val / scale)
-    """
-
-    INT = auto()
-    FLOAT = auto()
-    NONE = auto()
-
-
-class TorchAODType(Enum):
-    """
-    Placeholder for dtypes that do not exist in PyTorch core yet.
-    """
-
-    # torch.int1 to torch.int7 will be added to PyTorch 2.6
-    # These will remain here for BC with older PyTorch versions
-    INT1 = auto()
-    INT2 = auto()
-    INT3 = auto()
-    INT4 = auto()
-    INT5 = auto()
-    INT6 = auto()
-    INT7 = auto()
+from torchao.quantization.quant_primitives import (
+    MappingType,
+    TorchAODType,
+    ZeroPointDomain,
+)
 
 
 class AffineQuantizedObserverBase(ABC, torch.nn.Module):

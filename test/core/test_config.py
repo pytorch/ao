@@ -34,11 +34,9 @@ from torchao.quantization.quant_api import (
     Float8WeightOnlyConfig,
     GemliteUIntXWeightOnlyConfig,
     Int4WeightOnlyConfig,
-    Int8DynamicActivationInt4WeightConfig,
     Int8DynamicActivationInt8WeightConfig,
     Int8WeightOnlyConfig,
     ModuleFqnToConfig,
-    UIntXWeightOnlyConfig,
     quantize_,
 )
 from torchao.quantization.quantize_.common.quantization_step import QuantizationStep
@@ -56,7 +54,6 @@ configs = [
     Float8WeightOnlyConfig(
         weight_dtype=torch.float8_e4m3fn,
     ),
-    UIntXWeightOnlyConfig(dtype=torch.uint1),
     Float8DynamicActivationInt4WeightConfig(),
     Int4WeightOnlyConfig(
         group_size=32,
@@ -67,18 +64,10 @@ configs = [
         int4_choose_qparams_algorithm="hqq",
         version=2,
     ),
-    Int8DynamicActivationInt4WeightConfig(
-        group_size=64,
-    ),
     Int8DynamicActivationInt8WeightConfig(),
     # Int8DynamicActivationInt8WeightConfig(layout=SemiSparseLayout()),
     Int8WeightOnlyConfig(
         group_size=128,
-    ),
-    UIntXWeightOnlyConfig(
-        dtype=torch.uint3,
-        group_size=32,
-        use_hqq=True,
     ),
     GemliteUIntXWeightOnlyConfig(
         group_size=128,  # Optional, has default of 64
@@ -92,7 +81,7 @@ configs = [
     ModuleFqnToConfig(
         {
             "linear1": Int4WeightOnlyConfig(),
-            "linear2": Int8DynamicActivationInt4WeightConfig(),
+            "linear2": Int8DynamicActivationInt8WeightConfig(),
         }
     ),
     AWQConfig(

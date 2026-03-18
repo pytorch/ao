@@ -6,6 +6,12 @@ from typing import Any, Dict
 import torch
 
 import torchao
+from torchao.prototype.mx_formats.config import ScaleCalculationMode
+from torchao.prototype.mx_formats.mx_tensor import MXTensor, QuantizeTensorToMXKwargs
+from torchao.prototype.mx_formats.nvfp4_tensor import (
+    NVFP4Tensor,
+    QuantizeTensorToNVFP4Kwargs,
+)
 from torchao.quantization import (
     Float8Tensor,
     Int4PlainInt32Tensor,
@@ -35,6 +41,11 @@ ALLOWED_CLASSES = {
     "KernelPreference": KernelPreference,
     "MappingType": MappingType,
     "Int4PlainInt32Tensor": Int4PlainInt32Tensor,
+    "MXTensor": MXTensor,
+    "QuantizeTensorToMXKwargs": QuantizeTensorToMXKwargs,
+    "ScaleCalculationMode": ScaleCalculationMode,
+    "NVFP4Tensor": NVFP4Tensor,
+    "QuantizeTensorToNVFP4Kwargs": QuantizeTensorToNVFP4Kwargs,
 }
 
 ALLOWED_TENSORS_SUBCLASSES = [
@@ -44,6 +55,8 @@ ALLOWED_TENSORS_SUBCLASSES = [
     "IntxUnpackedToInt8Tensor",
     "Int8Tensor",
     "Int4PlainInt32Tensor",
+    "MXTensor",
+    "NVFP4Tensor",
 ]
 
 __all__ = [

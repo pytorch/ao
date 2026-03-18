@@ -24,7 +24,6 @@ from torchao.dtypes import (
 from torchao.quantization import (
     Float8WeightOnlyConfig,
     GemliteUIntXWeightOnlyConfig,
-    Int8DynamicActivationInt4WeightConfig,
     Int8DynamicActivationInt8WeightConfig,
     Int8WeightOnlyConfig,
     quantize_,
@@ -49,7 +48,6 @@ def get_quantization_functions(
 ):
     base_functions = [
         Int8WeightOnlyConfig(),
-        Int8DynamicActivationInt4WeightConfig(),
         Int8DynamicActivationInt8WeightConfig(),
         Int8DynamicActivationInt8WeightConfig(act_mapping_type=MappingType.ASYMMETRIC),
     ]
