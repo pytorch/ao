@@ -182,9 +182,12 @@ def generate_permute_indices(
     total_tokens_per_expert = torch.clamp_min(total_tokens_per_expert, alignment)
 
     # align the chunk sizes (cdiv)
-    m_sizes = ((total_tokens_per_expert + alignment - 1) // alignment * alignment).to(
-        torch.int32
-    )
+    if alignment > 0:
+        m_sizes = (
+            (total_tokens_per_expert + alignment - 1) // alignment * alignment
+        ).to(torch.int32)
+    else:
+        m_sizes = total_tokens_per_expert.to(torch.int32)
 
     # additional prefix sum to get write offset of each expert in permuted_indices
     # write offsets is per local expert, not global
