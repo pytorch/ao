@@ -128,6 +128,11 @@ class UIntxWeightOnlyConfig(AOBaseConfig):
         bit_width: quantization bit width, 4 or 8. Default: 4.
         packing_bitwidth: bit width for packing, 8/16/32/None (auto). Default: None.
         set_inductor_config: if True, set recommended torchinductor config. Default: True.
+
+    Example:
+
+    .. literalinclude:: ../../examples/inference/uintx_weight_only.py
+       :language: python
     """
 
     group_size: Optional[int] = 128
@@ -137,9 +142,19 @@ class UIntxWeightOnlyConfig(AOBaseConfig):
 
     def __post_init__(self):
         torch._C._log_api_usage_once("torchao.quantization.UIntxWeightOnlyConfig")
-        assert self.bit_width in [4, 8], (
-            f"bit_width must be 4 or 8, got {self.bit_width}"
-        )
+        if self.bit_width not in [4, 8]:
+            raise ValueError(f"bit_width must be 4 or 8, got {self.bit_width}")
+        valid_group_sizes = [32, 64, 128, 256, 512, 1024, None]
+        if self.group_size not in valid_group_sizes:
+            raise ValueError(
+                f"group_size must be one of {valid_group_sizes}, got {self.group_size}"
+            )
+        if self.bit_width == 8 and self.group_size is not None:
+            raise ValueError("group_size must be None for bit_width=8")
+        if self.packing_bitwidth not in [8, 16, 32, None]:
+            raise ValueError(
+                f"packing_bitwidth must be 8, 16, 32, or None, got {self.packing_bitwidth}"
+            )
 
 
 @register_quantize_module_handler(UIntxWeightOnlyConfig)
@@ -197,6 +212,11 @@ class Int8DynamicActivationUIntxWeightConfig(AOBaseConfig):
         bit_width: weight quantization bit width, 4 or 8. Default: 4.
         packing_bitwidth: bit width for packing, 8/16/32/None (auto). Default: None.
         set_inductor_config: if True, set recommended torchinductor config. Default: True.
+
+    Example:
+
+    .. literalinclude:: ../../examples/inference/int8_dynamic_activation_uintx_weight.py
+       :language: python
     """
 
     group_size: Optional[int] = 128
@@ -208,9 +228,19 @@ class Int8DynamicActivationUIntxWeightConfig(AOBaseConfig):
         torch._C._log_api_usage_once(
             "torchao.quantization.Int8DynamicActivationUIntxWeightConfig"
         )
-        assert self.bit_width in [4, 8], (
-            f"bit_width must be 4 or 8, got {self.bit_width}"
-        )
+        if self.bit_width not in [4, 8]:
+            raise ValueError(f"bit_width must be 4 or 8, got {self.bit_width}")
+        valid_group_sizes = [32, 64, 128, 256, 512, 1024, None]
+        if self.group_size not in valid_group_sizes:
+            raise ValueError(
+                f"group_size must be one of {valid_group_sizes}, got {self.group_size}"
+            )
+        if self.bit_width == 8 and self.group_size is not None:
+            raise ValueError("group_size must be None for bit_width=8")
+        if self.packing_bitwidth not in [8, 16, 32, None]:
+            raise ValueError(
+                f"packing_bitwidth must be 8, 16, 32, or None, got {self.packing_bitwidth}"
+            )
 
 
 @register_quantize_module_handler(Int8DynamicActivationUIntxWeightConfig)

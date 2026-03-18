@@ -3,6 +3,7 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
+import tempfile
 import unittest
 
 import torch
@@ -158,10 +159,12 @@ class TestUIntxBitPackedTensor(TestCase):
         model = torch.nn.Linear(512, 256, bias=False).to(
             device="cuda", dtype=torch.float16
         )
+        x = torch.randn(2, 512, device="cuda", dtype=torch.float16)
         quantize_(
             model,
             UIntxWeightOnlyConfig(group_size=64, bit_width=4, packing_bitwidth=32),
         )
+        full_out = model(x)
 
         weight = model.weight
         sliced = weight.narrow(0, 0, 64)
@@ -177,6 +180,15 @@ class TestUIntxBitPackedTensor(TestCase):
             sliced.scale,
             weight.scale.narrow(1, 0, 64),
         )
+
+        # Verify forward pass with sliced weight matches full output
+        model_sliced = torch.nn.Linear(512, 64, bias=False).to(
+            device="cuda", dtype=torch.float16
+        )
+        model_sliced.weight = torch.nn.Parameter(sliced, requires_grad=False)
+        sliced_out = model_sliced(x)
+        self.assertEqual(sliced_out.shape, (2, 64))
+        self.assertTrue(torch.equal(sliced_out, full_out[:, :64]))
 
     def test_slice_dim1(self):
         """Test narrow/slice on dim 1 (in_features) for tensor parallelism."""
@@ -208,6 +220,17 @@ class TestUIntxBitPackedTensor(TestCase):
             sliced.scale,
             weight.scale.narrow(0, 0, scale_ratio),
         )
+
+        # Verify forward pass with sliced weight produces valid output
+        model_sliced = torch.nn.Linear(128, 256, bias=False).to(
+            device="cuda", dtype=torch.float16
+        )
+        model_sliced.weight = torch.nn.Parameter(sliced, requires_grad=False)
+        x_half = torch.randn(2, 128, device="cuda", dtype=torch.float16)
+        sliced_out = model_sliced(x_half)
+        self.assertEqual(sliced_out.shape, (2, 256))
+        self.assertFalse(torch.isnan(sliced_out).any())
+        self.assertFalse(torch.isinf(sliced_out).any())
 
     def test_fqn_to_config_non_weight_param(self):
         """Test that UIntx configs quantize a non-weight parameter via FqnToConfig."""
@@ -266,6 +289,111 @@ class TestUIntxBitPackedTensor(TestCase):
         x = torch.randn(1, 1024, device="cuda", dtype=torch.float16)
         out = model(x)
         self.assertEqual(out.shape, (1, 1025))
+
+    def test_dequantize_8bit(self):
+        """Test that dequantize() is correct for 8-bit symmetric quantization."""
+        from torchao.prototype.quantization.quant_api import UIntxWeightOnlyConfig
+
+        model = torch.nn.Linear(512, 256, bias=False).to(
+            device="cuda", dtype=torch.float16
+        )
+        original_weight = model.weight.clone()
+        quantize_(
+            model,
+            UIntxWeightOnlyConfig(group_size=None, bit_width=8, packing_bitwidth=32),
+        )
+
+        dequantized = model.weight.dequantize()
+        self.assertEqual(dequantized.shape, original_weight.shape)
+        self.assertEqual(dequantized.dtype, original_weight.dtype)
+
+        sqnr = compute_error(original_weight, dequantized)
+        self.assertGreater(
+            sqnr,
+            30,
+            f"8-bit dequantize SQNR {sqnr:.1f} dB is too low",
+        )
+
+    def test_dequantize_4bit(self):
+        """Test that dequantize() is correct for 4-bit asymmetric quantization."""
+        from torchao.prototype.quantization.quant_api import UIntxWeightOnlyConfig
+
+        model = torch.nn.Linear(512, 256, bias=False).to(
+            device="cuda", dtype=torch.float16
+        )
+        original_weight = model.weight.clone()
+        quantize_(
+            model,
+            UIntxWeightOnlyConfig(group_size=64, bit_width=4, packing_bitwidth=32),
+        )
+
+        dequantized = model.weight.dequantize()
+        self.assertEqual(dequantized.shape, original_weight.shape)
+        self.assertEqual(dequantized.dtype, original_weight.dtype)
+
+        sqnr = compute_error(original_weight, dequantized)
+        self.assertGreater(
+            sqnr,
+            20,
+            f"4-bit dequantize SQNR {sqnr:.1f} dB is too low",
+        )
+
+    def test_save_load_roundtrip(self):
+        """Test torch.save / torch.load round-trip preserves quantized weights."""
+        from torchao.prototype.quantization.quant_api import UIntxWeightOnlyConfig
+        from torchao.prototype.quantization.uintx.uintx_bit_packed_tensor import (
+            UIntxBitPackedTensor,
+        )
+
+        model = torch.nn.Linear(512, 256, bias=False).to(
+            device="cuda", dtype=torch.float16
+        )
+        x = torch.randn(2, 512, device="cuda", dtype=torch.float16)
+        quantize_(
+            model,
+            UIntxWeightOnlyConfig(group_size=64, bit_width=4, packing_bitwidth=32),
+        )
+        ref_out = model(x)
+
+        # Save and load state_dict
+        with tempfile.NamedTemporaryFile() as f:
+            torch.save(model.state_dict(), f)
+            f.seek(0)
+            state_dict = torch.load(f, weights_only=True)
+
+        # Load into a fresh model
+        model2 = torch.nn.Linear(512, 256, bias=False).to(
+            device="cuda", dtype=torch.float16
+        )
+        model2.load_state_dict(state_dict, assign=True)
+
+        self.assertIsInstance(model2.weight, UIntxBitPackedTensor)
+        out = model2(x)
+        self.assertTrue(torch.equal(ref_out, out))
+
+    def test_compile(self):
+        """Test torch.compile compatibility."""
+        from torchao.prototype.quantization.quant_api import UIntxWeightOnlyConfig
+
+        model = torch.nn.Linear(512, 256, bias=False).to(
+            device="cuda", dtype=torch.float16
+        )
+        x = torch.randn(2, 512, device="cuda", dtype=torch.float16)
+        quantize_(
+            model,
+            UIntxWeightOnlyConfig(group_size=64, bit_width=4, packing_bitwidth=32),
+        )
+        ref_out = model(x)
+
+        compiled_model = torch.compile(model)
+        compiled_out = compiled_model(x)
+
+        sqnr = compute_error(ref_out, compiled_out)
+        self.assertGreater(
+            sqnr,
+            35,
+            f"Compiled output SQNR {sqnr:.1f} dB vs eager is too low",
+        )
 
 
 if __name__ == "__main__":

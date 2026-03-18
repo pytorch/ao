@@ -4,6 +4,7 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
+import copy
 from typing import Dict, Optional
 
 import torch
@@ -13,7 +14,7 @@ from torchao.utils import TorchAOBaseTensor, fill_defaults
 
 try:
     import gemlite
-except Exception:
+except (ImportError, ModuleNotFoundError):
     gemlite = None
 
 aten = torch.ops.aten
@@ -22,17 +23,26 @@ aten = torch.ops.aten
 class UIntxBitPackedTensor(TorchAOBaseTensor):
     """Packed unsigned integer weight tensor using gemlite bit-packing.
 
-    Supports 4-bit (asymmetric, grouped) and 8-bit (symmetric, per-channel) weight-only quantization.
+    Supports 4-bit (asymmetric, grouped) and 8-bit (symmetric, per-channel) weight-only
+    quantization. Supported bit widths: 4, 8. Supported packing bit widths: 8, 16, 32
+    (or None to let gemlite choose automatically).
 
     Tensor Attributes:
-        packed_weight: gemlite-packed quantized weight data
+        packed_weight: Quantized weight data, stored in transposed layout
+            (in_features-major). For 4-bit: multiple values are bit-packed LSB-first
+            along the in_features axis into a packing container (int8 for
+            packing_bitwidth=8, int16 for 16, int32 for 32). Shape is
+            (in_features // elements_per_sample, out_features) where
+            elements_per_sample = packing_bitwidth // bit_width. For 8-bit: stored
+            unpacked as int8 with shape (in_features, out_features).
+            See gemlite.bitpack for the full packing implementation.
         scale: quantization scale factors
         zero_point: quantization zero points (empty tensor for symmetric)
 
     Non-Tensor Attributes:
         gemlite_kwargs: dict with gemlite metadata (in_features, out_features, meta_args, etc.)
         bit_width: quantization bit width (4 or 8)
-        group_size: quantization group size
+        group_size: quantization group size (32, 64, 128, 256, 512, 1024, or None for per-channel)
         dtype: original weight dtype
     """
 
@@ -102,15 +112,9 @@ class UIntxBitPackedTensor(TorchAOBaseTensor):
         if gemlite is None:
             raise ImportError("gemlite is required. Install with: pip install gemlite")
 
-        assert bit_width in [4, 8], f"bit_width must be 4 or 8, got {bit_width}"
         assert hp_tensor.dtype in [torch.float16, torch.bfloat16], (
             f"dtype must be float16 or bfloat16, got {hp_tensor.dtype}"
         )
-        assert group_size in [32, 64, 128, 256, 512, 1024, None]
-        assert group_size is None or bit_width != 8, (
-            "group_size must be None for bit_width=8"
-        )
-        assert packing_bitwidth in [8, 16, 32, None]
         assert mode in ["weight_only", "dynamic"]
 
         out_features, in_features = hp_tensor.shape
@@ -248,16 +252,22 @@ class UIntxBitPackedTensor(TorchAOBaseTensor):
     def dequantize(self, output_dtype=None):
         """Dequantize packed weight back to floating point."""
         device = self.packed_weight.device
-        int_data = (
-            gemlite.bitpack.unpack_over_rows(
-                self.packed_weight.cuda(),
-                W_nbits=self.bit_width,
-                num_output_rows=self.gemlite_kwargs["in_features"],
-                dtype=torch.uint8,
+        if self.bit_width == 8:
+            # 8-bit weights are stored unpacked as int8 (transposed to K x N).
+            # Skip unpack_over_rows which would incorrectly reinterpret signed
+            # int8 bit patterns as unsigned uint8.
+            int_data = self.packed_weight.t()
+        else:
+            int_data = (
+                gemlite.bitpack.unpack_over_rows(
+                    self.packed_weight.cuda(),
+                    W_nbits=self.bit_width,
+                    num_output_rows=self.gemlite_kwargs["in_features"],
+                    dtype=torch.uint8,
+                )
+                .to(device)
+                .t()
             )
-            .to(device)
-            .t()
-        )
 
         if self.gemlite_kwargs["data_contiguous"]:
             int_data = int_data.contiguous()
@@ -278,7 +288,12 @@ class UIntxBitPackedTensor(TorchAOBaseTensor):
             zero_point = self.zero_point
 
         scale = self.scale.t().contiguous()
-        zero_point = zero_point.t().contiguous()
+        # For symmetric quantization (8-bit), zero_point is stored as an empty
+        # tensor. Replace with zeros matching scale shape for dequantize_affine.
+        if zero_point.numel() == 0:
+            zero_point = torch.zeros_like(scale)
+        else:
+            zero_point = zero_point.t().contiguous()
 
         # Dequantize: (int_data - zero_point) * scale
         from torchao.quantization.quant_primitives import dequantize_affine
@@ -294,6 +309,9 @@ class UIntxBitPackedTensor(TorchAOBaseTensor):
         )
         return result
 
+
+# Allow weights_only=True in torch.load
+torch.serialization.add_safe_globals([UIntxBitPackedTensor])
 
 # Register aten op implementations
 implements = UIntxBitPackedTensor.implements
@@ -344,7 +362,10 @@ def _(func, types, args, kwargs):
     scale = self.scale
     zero_point = self.zero_point
 
-    gemlite_kwargs = self.gemlite_kwargs.copy()
+    # meta_args is shape-independent (contains only quantization config like bit_width,
+    # group_size, dtype enums, etc.) so it doesn't need updating after slicing.
+    # forward_functional derives matrix dimensions from the packed_weight tensor shape.
+    gemlite_kwargs = copy.deepcopy(self.gemlite_kwargs)
     orig_shape = [
         gemlite_kwargs["in_features"],
         gemlite_kwargs["out_features"],
