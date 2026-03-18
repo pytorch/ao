@@ -108,8 +108,7 @@ class MXFP8SynclessAllToAllExpertMajorTest(MultiProcessTestCase):
 
             # Test forward
             (
-                output_e4m3,
-                output_scales_e8m0,
+                mx_output,
                 output_rank_level_splits,
                 output_expert_splits,
                 expert_padded_offsets,
@@ -120,6 +119,13 @@ class MXFP8SynclessAllToAllExpertMajorTest(MultiProcessTestCase):
                 max_output_tokens_per_rank,
                 group_name,
             )
+
+            # Extract fp8 data and scales from MXTensor for comparison
+            from torchao.prototype.mx_formats.mx_tensor import MXTensor
+
+            assert isinstance(mx_output, MXTensor)
+            output_e4m3 = mx_output.qdata
+            output_scales_e8m0 = mx_output.scale.view(torch.uint8)
 
             # Reference torch.all_to_all_single to compare against
             output_rank_level_splits_ref = torch.empty_like(output_rank_level_splits)
@@ -175,114 +181,15 @@ class MXFP8SynclessAllToAllExpertMajorTest(MultiProcessTestCase):
             # Reduce to get total tokens received per rank
             output_expert_splits_ref = output_expert_splits_per_rank_ref
 
-            # Debug: print the shapes and first few values
-            print(f"\n=== Debug info (rank {self.rank}) ===")
-            print(f"[rank {self.rank}] world_size: {self.world_size}")
-            print(f"[rank {self.rank}] num_experts_per_rank: {experts_per_rank}")
-            print()
-            print(
-                f"[rank {self.rank}] expert_splits_per_rank shape: {expert_splits_per_rank.shape}"
+            # Build reference expert-major layout with padding
+            ref_output_expert_major = build_reference_expert_major_output(
+                ref_output,
+                output_expert_splits,
+                output_rank_level_splits_ref,
+                experts_per_rank,
+                self.world_size,
+                self.device,
             )
-            print(
-                f"[rank {self.rank}] expert_splits_per_rank:\n{expert_splits_per_rank}"
-            )
-            print(
-                f"[rank {self.rank}] expert_splits (local):",
-                expert_splits_per_rank[dist.get_rank(), :],
-            )
-            print()
-            print(
-                f"[rank {self.rank}] output_expert_splits_per_rank:\n{output_expert_splits}"
-            )
-            print(
-                f"[rank {self.rank}] output_expert_splits_ref:\n{output_expert_splits_ref}"
-            )
-            print(
-                f"[rank {self.rank}] output_expert_splits (local): {output_expert_splits}"
-            )
-            print()
-            print(f"[rank {self.rank}] expert_padded_offsets: {expert_padded_offsets}")
-
-            # Debug: Print expected data layout
-            print(f"\n[rank {self.rank}] === Expected Data Layout ===")
-            for expert_idx in range(experts_per_rank):
-                start_offset = expert_padded_offsets[expert_idx].item()
-                tokens_from_all_ranks = output_expert_splits[:, expert_idx].sum().item()
-                print(f"[rank {self.rank}] Expert {expert_idx}:")
-                print(f"  - Starts at offset: {start_offset}")
-                print(f"  - Total tokens: {tokens_from_all_ranks}")
-                for remote_rank in range(self.world_size):
-                    tokens_from_rank = output_expert_splits[
-                        remote_rank, expert_idx
-                    ].item()
-                    if tokens_from_rank > 0:
-                        print(f"  - From rank {remote_rank}: {tokens_from_rank} tokens")
-            print()
-
-            # Create reference expert-major layout manually
-            # The kernel writes all tokens for each expert contiguously, then pads to 32
-            # ref_output is in rank-major order from all_to_all
-
-            # Calculate size: sum of padded expert sizes
-            total_size = 0
-            for expert_idx in range(experts_per_rank):
-                tokens_for_expert = output_expert_splits[:, expert_idx].sum().item()
-                padded_size = ((tokens_for_expert + 31) // 32) * 32
-                total_size += padded_size
-
-            # Create padded output buffer
-            ref_output_expert_major = torch.zeros(
-                total_size, dim, dtype=ref_output.dtype, device=self.device
-            )
-
-            # Compute starting offset for each remote rank's data in ref_output
-            rank_start_offsets = torch.cat(
-                [
-                    torch.tensor([0], device=self.device),
-                    output_rank_level_splits_ref.cumsum(0)[:-1],
-                ]
-            )
-
-            # Fill in the data expert by expert
-            ref_write_offset = 0  # where to write in ref_output_expert_major
-
-            for expert_idx in range(experts_per_rank):
-                # Write tokens from each remote rank for this expert
-                for remote_rank in range(self.world_size):
-                    tokens_from_rank = output_expert_splits[
-                        remote_rank, expert_idx
-                    ].item()
-                    if tokens_from_rank > 0:
-                        # Compute offset into ref_output for this (remote_rank, expert_idx) pair
-                        # Start at this rank's base offset
-                        rank_base = rank_start_offsets[remote_rank].item()
-                        # Add offset for previous experts from this rank
-                        expert_offset = (
-                            output_expert_splits[remote_rank, :expert_idx].sum().item()
-                        )
-                        ref_read_offset = rank_base + expert_offset
-
-                        # Copy tokens
-                        ref_output_expert_major[
-                            ref_write_offset : ref_write_offset + tokens_from_rank
-                        ] = ref_output[
-                            ref_read_offset : ref_read_offset + tokens_from_rank
-                        ]
-                        ref_write_offset += tokens_from_rank
-
-                # Pad to next multiple of 32
-                tokens_for_expert = output_expert_splits[:, expert_idx].sum().item()
-                padded_size = ((tokens_for_expert + 31) // 32) * 32
-                ref_write_offset = ref_write_offset - tokens_for_expert + padded_size
-
-            # Debug: print ref_output_expert_major before quantization
-            print(
-                f"\n[rank {self.rank}] === ref_output_expert_major before quantization ==="
-            )
-            print(f"[rank {self.rank}] shape: {ref_output_expert_major.shape}")
-            print(f"[rank {self.rank}] first 5 rows:")
-            for i in range(min(5, ref_output_expert_major.shape[0])):
-                print(f"  Row {i}: {ref_output_expert_major[i, :8]}")
 
             # Quantize reference output to mxfp8 for comparison
             from torchao.prototype.mx_formats.mx_tensor import to_mx
@@ -309,75 +216,146 @@ class MXFP8SynclessAllToAllExpertMajorTest(MultiProcessTestCase):
             # - permute_and_pad is intended for local use, and overallocates based on case where
             compare_size = ref_output_e4m3.shape[0]
 
-            # Compare quantized output data (fp8 e4m3)
-            print(f"\n[rank {self.rank}] === Comparing Outputs ===")
-            print(f"[rank {self.rank}] compare_size: {compare_size}")
-            print(f"[rank {self.rank}] output_e4m3 shape: {output_e4m3.shape}")
-            print(f"[rank {self.rank}] ref_output_e4m3 shape: {ref_output_e4m3.shape}")
-
-            # Print first few rows and key positions
-            print(f"\n[rank {self.rank}] Kernel output - First 5 rows:")
-            for i in range(min(5, output_e4m3.shape[0])):
-                print(f"  Row {i}: {output_e4m3[i, :8]}")  # First 8 elements
-
-            print(f"\n[rank {self.rank}] Reference output - First 5 rows:")
-            for i in range(min(5, ref_output_e4m3.shape[0])):
-                print(f"  Row {i}: {ref_output_e4m3[i, :8]}")
-
-            # For rank 1, also check around offset 32 where expert 1 should be
-            if self.rank == 1 and output_e4m3.shape[0] > 34:
-                print(f"\n[rank {self.rank}] Kernel output - Rows around offset 32:")
-                for i in range(30, min(35, output_e4m3.shape[0])):
-                    print(f"  Row {i}: {output_e4m3[i, :8]}")
-
-                print(f"\n[rank {self.rank}] Reference output - Rows around offset 32:")
-                for i in range(30, min(35, ref_output_e4m3.shape[0])):
-                    print(f"  Row {i}: {ref_output_e4m3[i, :8]}")
-
+            # Compare quantized output data and scales
             torch.testing.assert_close(
                 output_e4m3[:compare_size].view(torch.float32),
                 ref_output_e4m3.view(torch.float32),
                 atol=0,
                 rtol=0,
             )
-
-            # Compare scales
-            print(
-                f"[rank {self.rank}] output_scales_e8m0 shape: {output_scales_e8m0.shape}"
-            )
-            print(
-                f"[rank {self.rank}] output_scales_e8m0[:compare_size]:\n{output_scales_e8m0[:compare_size]}"
-            )
-            print(
-                f"[rank {self.rank}] ref_output_scales_e8m0 shape: {ref_output_scales_e8m0.shape}"
-            )
-            print(
-                f"[rank {self.rank}] ref_output_scales_e8m0:\n{ref_output_scales_e8m0}"
-            )
-
             torch.testing.assert_close(
-                output_scales_e8m0[:compare_size].view(torch.uint8),
+                output_scales_e8m0[:compare_size].view(
+                    torch.uint8
+                ),  # output has full overallocated buffer, so only compare relevant part
                 ref_output_scales_e8m0.view(torch.uint8),
                 atol=0,
                 rtol=0,
             )
 
-            # Test backwards
-            # labels = torch.ones_like(out_no_padding)
-            # loss = F.mse_loss(out_no_padding, labels)
-            # ref_loss = F.mse_loss(ref_output_no_padding, labels)
-            # loss.backward()
-            # ref_loss.backward()
+            print(f"\n[rank {self.rank}] === Testing Backward Pass ===")
 
-            # # Compare grads
-            # grad_sqnr = compute_error(ref_input_tensor.grad, input_tensor.grad)
-            # min_grad_sqnr = 28.0
-            # assert (
-            #     grad_sqnr > min_grad_sqnr
-            # ), f"grad_sqnr={grad_sqnr} is less than min_grad_sqnr={min_grad_sqnr}"
+            # Create dummy gradients only for actual data (not padded/overallocated portion)
+            grad = torch.ones(
+                compare_size, dim, dtype=torch.bfloat16, device=self.device
+            )
+            ref_grad = torch.ones_like(ref_output)
+
+            print(f"[rank {self.rank}] grad shape: {grad.shape}")
+            print(f"[rank {self.rank}] ref_grad shape: {ref_grad.shape}")
+            print(f"[rank {self.rank}] mx_output shape: {mx_output.shape}")
+            print(f"[rank {self.rank}] compare_size: {compare_size}")
+
+            # Backward pass - slice mx_output to actual data size
+            mx_output[:compare_size].backward(grad)
+            ref_output.backward(ref_grad)
+
+            print(
+                f"[rank {self.rank}] input_tensor.grad dtype: {input_tensor.grad.dtype}"
+            )
+            print(
+                f"[rank {self.rank}] ref_input_tensor.grad dtype: {ref_input_tensor.grad.dtype}"
+            )
+            print(
+                f"[rank {self.rank}] input_tensor.grad shape: {input_tensor.grad.shape}"
+            )
+            print(
+                f"[rank {self.rank}] ref_input_tensor.grad shape: {ref_input_tensor.grad.shape}"
+            )
+
+            # Verify gradients are in bf16 (no quantization in backward)
+            assert input_tensor.grad.dtype == torch.bfloat16, (
+                f"Expected bf16 gradients, got {input_tensor.grad.dtype}"
+            )
+
+            # Compare gradients - should match exactly since no quantization in backward
+            torch.testing.assert_close(
+                input_tensor.grad,
+                ref_input_tensor.grad,
+                atol=0,
+                rtol=0,
+                msg="Backward gradients should match exactly (no quantization)",
+            )
+
+            print(f"[rank {self.rank}] Backward pass test PASSED!")
+            print(f"[rank {self.rank}] Gradients match exactly (bf16, no quantization)")
 
         finally:
             dist.destroy_process_group()
+
+
+def build_reference_expert_major_output(
+    ref_output: torch.Tensor,
+    output_expert_splits: torch.Tensor,
+    output_rank_level_splits_ref: torch.Tensor,
+    experts_per_rank: int,
+    world_size: int,
+    device: torch.device,
+) -> torch.Tensor:
+    """
+    Build reference output in expert-major layout with padding.
+
+    Args:
+        ref_output: rank-major output from torch all_to_all
+        output_expert_splits: shape (world_size, experts_per_rank) - tokens per expert from each rank
+        output_rank_level_splits_ref: shape (world_size,) - total tokens from each rank
+        experts_per_rank: number of experts per rank
+        world_size: number of ranks
+        device: torch device
+
+    Returns:
+        ref_output_expert_major: expert-major layout with padding (zeros in padded positions)
+    """
+    dim = ref_output.shape[1]
+
+    # Calculate size: sum of padded expert sizes
+    total_size = 0
+    for expert_idx in range(experts_per_rank):
+        tokens_for_expert = output_expert_splits[:, expert_idx].sum().item()
+        padded_size = ((tokens_for_expert + 31) // 32) * 32
+        total_size += padded_size
+
+    # Create padded output buffer
+    ref_output_expert_major = torch.zeros(
+        total_size, dim, dtype=ref_output.dtype, device=device
+    )
+
+    # Compute starting offset for each remote rank's data in ref_output
+    rank_start_offsets = torch.cat(
+        [
+            torch.tensor([0], device=device),
+            output_rank_level_splits_ref.cumsum(0)[:-1],
+        ]
+    )
+
+    # Fill in the data expert by expert
+    ref_write_offset = 0  # where to write in ref_output_expert_major
+
+    for expert_idx in range(experts_per_rank):
+        # Write tokens from each remote rank for this expert
+        for remote_rank in range(world_size):
+            tokens_from_rank = output_expert_splits[remote_rank, expert_idx].item()
+            if tokens_from_rank > 0:
+                # Compute offset into ref_output for this (remote_rank, expert_idx) pair
+                # Start at this rank's base offset
+                rank_base = rank_start_offsets[remote_rank].item()
+                # Add offset for previous experts from this rank
+                expert_offset = (
+                    output_expert_splits[remote_rank, :expert_idx].sum().item()
+                )
+                ref_read_offset = rank_base + expert_offset
+
+                # Copy tokens
+                ref_output_expert_major[
+                    ref_write_offset : ref_write_offset + tokens_from_rank
+                ] = ref_output[ref_read_offset : ref_read_offset + tokens_from_rank]
+                ref_write_offset += tokens_from_rank
+
+        # Pad to next multiple of 32
+        tokens_for_expert = output_expert_splits[:, expert_idx].sum().item()
+        padded_size = ((tokens_for_expert + 31) // 32) * 32
+        ref_write_offset = ref_write_offset - tokens_for_expert + padded_size
+
+    return ref_output_expert_major
 
 
 if __name__ == "__main__":
