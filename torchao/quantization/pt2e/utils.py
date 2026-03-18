@@ -28,7 +28,15 @@ from torch.export.unflatten import _assign_attr, _AttrKind
 from torch.fx import Graph, GraphModule, Node
 from torch.nn.utils.fusion import fuse_conv_bn_weights, fuse_linear_bn_weights
 from torch.nn.utils.parametrize import is_parametrized
-from torch.utils._pytree import treespec_leaf
+
+try:
+    from torch.utils._pytree import treespec_leaf
+except ImportError:
+    from torch.utils._pytree import LeafSpec
+
+    def treespec_leaf() -> "LeafSpec":
+        return LeafSpec()
+
 
 from torchao.utils import _assert_and_get_unique_device
 
