@@ -105,6 +105,35 @@ def int_matmul(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     return safe_int_mm(a, b)
 
 
+def _int_scaled_matmul_cpu(
+    a: torch.Tensor, b: torch.Tensor, scales1: torch.Tensor
+) -> torch.Tensor:
+    """
+    CPU-optimized path for scaled integer matrix multiplication.
+    CPU prefers decomposed version to leverage the fusion capability of Inductor.
+
+    Args:
+        a (torch.Tensor): The first matrix to multiply (int8).
+        b (torch.Tensor): The second matrix to multiply (int8).
+        scales1 (torch.Tensor): The scaling factors, shape (M, 1).
+
+    Returns:
+        torch.Tensor: The result of the scaled matrix multiplication.
+    """
+    if (
+        not torch.cpu._is_amx_tile_supported() and torch.cpu._is_vnni_supported()
+    ):  # u8s8: convert to uint8 to use AVX512_VNNI instructions for better performance
+        # on platforms with AVX512_VNNI support but without AMX
+        a = (a.to(torch.int32) + 128).to(torch.uint8)
+        c = torch._int_mm(a, b)
+        comp = b.sum(dim=0, keepdim=True, dtype=torch.int32) * 128
+        c.sub_(comp)
+        return c.to(scales1.dtype) * scales1
+    else:  # s8s8: computation done with AMX or reference implementation
+        c = torch._int_mm(a, b)
+        return c.to(scales1.dtype) * scales1
+
+
 def int_scaled_matmul(
     a: torch.Tensor, b: torch.Tensor, scales1: torch.Tensor
 ) -> torch.Tensor:
@@ -127,23 +156,12 @@ def int_scaled_matmul(
     assert M == scales1.size(0) or scales1.numel() == 1
     assert 1 == scales1.size(1)
     assert scales1.is_contiguous()
-    if scales1.device.type != "cpu":
-        scales1 = scales1.expand((M, N))
     assert scales1.dim() == 2
 
     if check_cpu_version(scales1.device):
-        # CPU prefers decomposed version of int_scaled_matmul
-        # to leverage the fusion capability of Inductor
+        return _int_scaled_matmul_cpu(a, b, scales1)
 
-        if not torch.cpu._is_amx_tile_supported() and torch.cpu._is_vnni_supported():# uint8 path
-            a = (a.to(torch.int32) + 128).to(torch.uint8)
-            c = torch._int_mm(a, b)
-            comp = b.sum(dim=0,keepdim=True, dtype=torch.int32) * 128
-            c.sub_(comp)
-            return c.to(scales1.dtype) * scales1
-        else: # int8 path
-            c = torch._int_mm(a, b)
-            return c.to(scales1.dtype) * scales1
+    scales1 = scales1.expand((M, N))
 
     if intmm_triton is not None and AUTOTUNER_ENABLE:
         return torch.ops.torchao.int_scaled_matmul(a, b, scales1)
