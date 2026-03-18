@@ -73,14 +73,16 @@ class MXFP8SynclessAllToAllExpertMajorTest(MultiProcessTestCase):
             total_local_tokens = tokens_per_expert * experts_per_rank
             dim = 32
 
-            # Create input tensor
-            input_tensor = torch.randn(
-                total_local_tokens,
-                dim,
-                dtype=torch.bfloat16,
-                device=self.device,
-                requires_grad=True,
-            )
+            # Create input tensor with uniform distinct data per token
+            # Each rank starts at different values:
+            # Rank 0: rows of [1, 1, ...], [2, 2, ...], [3, 3, ...], [4, 4, ...]
+            # Rank 1: rows of [5, 5, ...], [6, 6, ...], [7, 7, ...], [8, 8, ...]
+            start_value = self.rank * total_local_tokens + 1
+            input_tensor = torch.stack([
+                torch.full((dim,), float(start_value + i), dtype=torch.bfloat16, device=self.device)
+                for i in range(total_local_tokens)
+            ])
+            input_tensor.requires_grad_(True)
             ref_input_tensor = input_tensor.detach().clone().requires_grad_(True)
 
             # generate splits for our local tokens to define which are assigned to each expert GLOBALLY
