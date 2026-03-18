@@ -112,24 +112,12 @@ if __name__ == "__main__":
         _test_dtensor_cast_to_mxfp8,
         _test_mxfp8_mlp_tensor_parallelism_emulated,
     ]
-    # The auto test requires the mxfp8_quantize CUDA kernel to be available.
-    # _mxfp8_cuda_kernels_available checks hardware/driver prerequisites (SM >= 100,
-    # CUDA >= 12.8), but we also need the C++ extension to be built, so we
-    # verify by actually calling the kernel.
     from torchao.prototype.moe_training.kernels.mxfp8.quant import (
         _mxfp8_cuda_kernels_available,
     )
 
     if _mxfp8_cuda_kernels_available:
-        try:
-            from torchao.prototype.mx_formats.kernels import mxfp8_quantize_cuda
-
-            t = torch.randn(32, 32, device="cuda", dtype=torch.bfloat16)
-            mxfp8_quantize_cuda(t, rowwise=False, colwise=True)
-            del t
-            tests.append(_test_mxfp8_mlp_tensor_parallelism_auto)
-        except Exception:
-            print("Skipping auto test: mxfp8_quantize CUDA kernel not available")
+        tests.append(_test_mxfp8_mlp_tensor_parallelism_auto)
     else:
         print("Skipping auto test: requires SM >= 100 and CUDA >= 12.8")
 
