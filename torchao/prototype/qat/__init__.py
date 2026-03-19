@@ -10,8 +10,10 @@ from .nvfp4 import (
     NVFP4FakeQuantizedLinear,
 )
 from .nvfp4_moe import (
-    NVFP4FakeQuantizedGptOssExperts,
+    NVFP4FakeQuantizedMoE,
+    NVFP4FakeQuantizedQwen3MoeBlock,
     apply_nvfp4_moe_qat,
+    remove_nvfp4_moe_qat,
 )
 
 __all__ = [
@@ -19,6 +21,8 @@ __all__ = [
     "MXFakeQuantizedLinear",
     "NVFP4FakeQuantizeConfig",
     "NVFP4FakeQuantizedLinear",
-    "NVFP4FakeQuantizedGptOssExperts",
+    "NVFP4FakeQuantizedMoE",
+    "NVFP4FakeQuantizedQwen3MoeBlock",
     "apply_nvfp4_moe_qat",
+    "remove_nvfp4_moe_qat",
 ]
