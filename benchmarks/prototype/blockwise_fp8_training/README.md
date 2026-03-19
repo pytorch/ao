@@ -1,12 +1,11 @@
 # Blockwise FP8 Training Benchmarks
 
 This directory contains benchmarking scripts for the blockwise FP8 quantization
-wrappers and GEMM paths under
-`torchao.prototype.blockwise_fp8_training.kernels`.
+and GEMM paths under `torchao.prototype.blockwise_fp8_training.kernels`.
 
-## Quant Wrapper Bandwidth Benchmark
+## Quantized Kernel Bandwidth Benchmark
 
-The wrapper-path bandwidth utility is:
+The kernel-path bandwidth utility is:
 
 ```bash
 python -m benchmarks.prototype.blockwise_fp8_training.benchmark_quant_kernel_bandwidth
@@ -14,22 +13,45 @@ python -m benchmarks.prototype.blockwise_fp8_training.benchmark_quant_kernel_ban
 
 What it reports:
 
-- `wrapper_us`: measured runtime of the Python wrapper call
+- `kernel_us`: measured runtime of the preallocated-output kernel launch path
 - `effective_logical_io_gbps`: logical tensor IO bytes divided by measured time
 - `logical_io_vs_peak_%`: `effective_logical_io_gbps / peak_bandwidth_gbps`
 - `logical_io_vs_achievable_%`: `effective_logical_io_gbps / achievable_bandwidth_gbps`
 
 Notes:
 
-- The timing reflects the public wrapper path, including output allocation.
+- The benchmark preallocates `y` and `s` and times the Triton launch path.
+- The benchmark verifies that the preallocated-output launch path matches the
+  public wrapper outputs before timing.
 - The bandwidth number uses the expected tensor IO footprint, not hardware DRAM
   counters.
 - Peak bandwidth defaults to CUDA device properties. `--use-roofline-utils`
   switches to the static `roofline_utils` table.
 
+### Methodology
+
+This benchmark intentionally uses
+`do_bench_triton(...)` from [autotuner.py](/home/dev/ao/torchao/kernel/autotuner.py#L16)
+instead, because it flushes L2 between measured iterations. For a bandwidth
+benchmark, warm-cache timings can overstate effective memory
+bandwidth.
+
+- It times the low-level kernel launch path, not the Python wrapper.
+- It preallocates outputs so allocation time is not counted as kernel time.
+- It runs an untimed reference check against the public wrapper before timing.
+- It uses CUDA event timing and the median, via `do_bench_triton(...)`.
+- It avoids `torch.cuda.empty_cache()`, which changes allocator state but does
+  not flush L2.
+- It validates unsupported shapes up front and skips them instead of silently
+  measuring invalid configurations.
+
 ## Current H100 Results
 
 Captured on 2026-03-19 with:
+
+```bash
+python -m benchmarks.prototype.blockwise_fp8_training.benchmark_quant_kernel_bandwidth
+```
 
 Environment:
 
@@ -40,30 +62,17 @@ Environment:
 - Achievable bandwidth source: `roofline_utils_pct_achievable_mem_bw`
 
 ### Per-shape Results
+Tested with shapes 32768 and 131072 to reflect real world training:
 
-| kernel | shape | wrapper_us | effective_logical_io_gbps | logical_io_vs_peak_% | logical_io_vs_achievable_% |
+| kernel | shape | kernel_us | effective_logical_io_gbps | logical_io_vs_peak_% | logical_io_vs_achievable_% |
 |---|---|---:|---:|---:|---:|
-| act_quant_transposed_lhs | 32768x4096 | 154.62 | 2631.2 | 78.5 | 85.3 |
-| weight_quant_transposed_rhs | 32768x4096 | 150.14 | 2682.0 | 80.0 | 87.0 |
-| act_quant_lhs | 32768x4096 | 150.66 | 2700.5 | 80.6 | 87.6 |
-| act_quant_rhs | 32768x4096 | 147.97 | 2749.6 | 82.0 | 89.2 |
-| weight_quant_rhs | 32768x4096 | 144.22 | 2792.1 | 83.3 | 90.5 |
-| act_quant_transposed_lhs | 131072x4096 | 590.37 | 2756.6 | 82.2 | 89.4 |
-| weight_quant_transposed_rhs | 131072x4096 | 580.74 | 2773.6 | 82.7 | 89.9 |
-| act_quant_lhs | 131072x4096 | 585.38 | 2780.1 | 82.9 | 90.1 |
-| act_quant_rhs | 131072x4096 | 563.17 | 2889.7 | 86.2 | 93.7 |
-| weight_quant_rhs | 131072x4096 | 556.48 | 2894.5 | 86.3 | 93.9 |
-
-### Aggregate Results
-
-| kernel | avg_effective_logical_io_gbps | avg_logical_io_vs_peak_% | worst_case_logical_io_vs_peak_% |
-|---|---:|---:|---:|
-| act_quant_transposed_lhs | 2693.9 | 80.4 | 78.5 |
-| weight_quant_transposed_rhs | 2727.8 | 81.4 | 80.0 |
-| act_quant_lhs | 2740.3 | 81.7 | 80.6 |
-| act_quant_rhs | 2819.6 | 84.1 | 82.0 |
-| weight_quant_rhs | 2843.3 | 84.8 | 83.3 |
-
-The strongest wrapper-path result in this run was `weight_quant_rhs` at
-`2894.5 GB/s` (`86.3%` of the peak reference). The weakest was
-`act_quant_transposed_lhs` at `2631.2 GB/s` (`78.5%` of the peak reference).
+| act_quant_lhs | 32768x4096 | 668.10 | 609.0 | 18.2 | 19.7 |
+| act_quant_rhs | 32768x4096 | 658.56 | 617.8 | 18.4 | 20.0 |
+| act_quant_transposed_lhs | 32768x4096 | 655.14 | 621.0 | 18.5 | 20.1 |
+| weight_quant_rhs | 32768x4096 | 283.49 | 1420.5 | 42.4 | 46.1 |
+| weight_quant_transposed_rhs | 32768x4096 | 281.92 | 1428.4 | 42.6 | 46.3 |
+| act_quant_lhs | 131072x4096 | 663.10 | 2454.2 | 73.2 | 79.6 |
+| act_quant_rhs | 131072x4096 | 657.34 | 2475.7 | 73.9 | 80.3 |
+| act_quant_transposed_lhs | 131072x4096 | 655.14 | 2484.0 | 74.1 | 80.5 |
+| weight_quant_transposed_rhs | 131072x4096 | 583.20 | 2761.9 | 82.4 | 89.6 |
+| weight_quant_rhs | 131072x4096 | 559.52 | 2878.8 | 85.9 | 93.3 |
