@@ -5,7 +5,8 @@
 # LICENSE file in the root directory of this source tree.
 
 import math
-from enum import Enum, auto
+import warnings
+from enum import Enum, EnumMeta, auto
 from typing import Callable, Dict, List, Optional, Tuple, Union
 
 import torch
@@ -88,7 +89,17 @@ class ZeroPointDomain(Enum):
     NONE = auto()
 
 
-class TorchAODType(Enum):
+class _TorchAODTypeMeta(EnumMeta):
+    def __getattribute__(cls, name):
+        result = super().__getattribute__(name)
+        warnings.warn(
+            "Deprecation: TorchAODType is deprecated, please use the torch.intN dtype instead "
+            "(e.g. TorchAODType.INT4 -> torch.int4)"
+        )
+        return result
+
+
+class TorchAODType(Enum, metaclass=_TorchAODTypeMeta):
     """
     Placeholder for dtypes that do not exist in PyTorch core yet.
     """
