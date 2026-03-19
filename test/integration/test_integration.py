@@ -35,6 +35,7 @@ from torchao.quantization.autoquant import (
 )
 
 # APIs to be deprecated (used for torch 2.2.2 and 2.3)
+from torchao.quantization.granularity import PerGroup
 from torchao.quantization.quant_api import (
     Float8DynamicActivationFloat8WeightConfig,
     Int4WeightOnlyConfig,
@@ -98,13 +99,16 @@ COMMON_DEVICE_DTYPE = list(itertools.product(COMMON_DEVICES, COMMON_DTYPES)).cop
 
 
 def _int8wo_api(mod):
-    quantize_(mod, Int8WeightOnlyConfig(set_inductor_config=False))
+    quantize_(mod, Int8WeightOnlyConfig(version=2, set_inductor_config=False))
 
 
 def _int8wo_groupwise_api(mod):
     group_size = 32
     quantize_(
-        mod, Int8WeightOnlyConfig(group_size=group_size, set_inductor_config=False)
+        mod,
+        Int8WeightOnlyConfig(
+            version=2, granularity=PerGroup(group_size), set_inductor_config=False
+        ),
     )
 
 
@@ -718,7 +722,7 @@ class TestWeightOnlyInt8Quant(unittest.TestCase):
 
         quantize_(
             m,
-            Int8WeightOnlyConfig(group_size=group_size),
+            Int8WeightOnlyConfig(version=2, granularity=PerGroup(group_size)),
             filter_fn=lambda x, *args: isinstance(x, nn.Embedding),
         )
         y_q = m(input)

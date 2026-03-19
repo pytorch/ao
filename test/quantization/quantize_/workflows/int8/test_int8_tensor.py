@@ -289,32 +289,6 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
             weight_cpu.dequantize(), weight_pinned.dequantize(), atol=0, rtol=0
         )
 
-    def test_int8_weight_only_v1_v2_per_group_equivalence(self):
-        """Test that v1 per-group and v2 PerGroup produce equivalent outputs."""
-        torch.manual_seed(42)
-        group_size = 64
-        K, N = 256, 128
-
-        model_v1 = ToyTwoLinearModel(
-            K, N, K, dtype=torch.bfloat16, device="cuda"
-        ).eval()
-        model_v2 = copy.deepcopy(model_v1)
-
-        config_v1 = Int8WeightOnlyConfig(version=1, group_size=group_size)
-        config_v2 = Int8WeightOnlyConfig(version=2, granularity=PerGroup(group_size))
-
-        quantize_(model_v1, config_v1)
-        quantize_(model_v2, config_v2)
-
-        input_tensor = torch.randn(32, K, dtype=torch.bfloat16, device="cuda")
-
-        with torch.no_grad():
-            output_v1 = model_v1(input_tensor)
-            output_v2 = model_v2(input_tensor)
-
-        sqnr = compute_error(output_v1, output_v2)
-        self.assertGreater(sqnr, 30, f"v1 vs v2 SQNR too low: {sqnr}")
-
 
 @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
 @common_utils.instantiate_parametrized_tests
