@@ -183,13 +183,16 @@ def string_to_config(
         return Int8WeightOnlyConfig()
     if "int8dq" in quantization:
         if sparsity is not None and ("semi" in sparsity or "2:4" in sparsity):
-            from torchao.dtypes import SemiSparseLayout
-
-            return Int8DynamicActivationInt8WeightConfig(layout=SemiSparseLayout())
-        elif "int8dq_prefill_wo_decode" in quantization:
-            return Int8DynamicActivationInt8WeightConfig(weight_only_decode=True)
-        else:
-            return Int8DynamicActivationInt8WeightConfig()
+            raise RuntimeError(
+                "Int8DynamicActivationInt8WeightConfig no longer supports the `layout` parameter. "
+                "Semi-sparse layout with int8 dynamic quantization has been removed."
+            )
+        if "int8dq_prefill_wo_decode" in quantization:
+            raise RuntimeError(
+                "Int8DynamicActivationInt8WeightConfig no longer supports the `weight_only_decode` parameter. "
+                "This option has been removed."
+            )
+        return Int8DynamicActivationInt8WeightConfig()
     if "int8_dynamic_activation_intx_weight" in quantization:
         assert high_precision_dtype == torch.float32, (
             "int8_dynamic_activation_intx_weight requires using high_precision_dtype=torch.float32"
