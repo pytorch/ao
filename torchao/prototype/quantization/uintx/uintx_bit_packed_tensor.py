@@ -21,14 +21,15 @@ aten = torch.ops.aten
 
 
 class UIntxBitPackedTensor(TorchAOBaseTensor):
-    """Packed unsigned integer weight tensor using gemlite bit-packing.
+    """Packed unsigned integer weight tensor using gemlite (https://github.com/dropbox/gemlite) bit-packing.
+       see Tensor attributes for more details.
 
     Supports 4-bit (asymmetric, grouped) and 8-bit (symmetric, per-channel) weight-only
     quantization. Supported bit widths: 4, 8. Supported packing bit widths: 8, 16, 32
     (or None to let gemlite choose automatically).
 
     Tensor Attributes:
-        packed_weight: Quantized weight data, stored in transposed layout
+        qdata: Quantized weight data, stored in transposed layout
             (in_features-major). For 4-bit: multiple values are bit-packed LSB-first
             along the in_features axis into a packing container (int8 for
             packing_bitwidth=8, int16 for 16, int32 for 32). Shape is
@@ -46,7 +47,7 @@ class UIntxBitPackedTensor(TorchAOBaseTensor):
         dtype: original weight dtype
     """
 
-    tensor_data_names = ["packed_weight", "scale", "zero_point"]
+    tensor_data_names = ["qdata", "scale", "zero_point"]
     tensor_attribute_names = [
         "gemlite_kwargs",
         "bit_width",
@@ -56,7 +57,7 @@ class UIntxBitPackedTensor(TorchAOBaseTensor):
 
     def __new__(
         cls,
-        packed_weight: torch.Tensor,
+        qdata: torch.Tensor,
         scale: torch.Tensor,
         zero_point: torch.Tensor,
         gemlite_kwargs: Dict,
@@ -68,14 +69,14 @@ class UIntxBitPackedTensor(TorchAOBaseTensor):
         return torch.Tensor._make_wrapper_subclass(
             cls,
             shape,
-            device=packed_weight.device,
+            device=qdata.device,
             dtype=dtype,
             requires_grad=False,
         )
 
     def __init__(
         self,
-        packed_weight: torch.Tensor,
+        qdata: torch.Tensor,
         scale: torch.Tensor,
         zero_point: torch.Tensor,
         gemlite_kwargs: Dict,
@@ -83,7 +84,7 @@ class UIntxBitPackedTensor(TorchAOBaseTensor):
         group_size: int,
         dtype: torch.dtype,
     ):
-        self.packed_weight = packed_weight
+        self.qdata = qdata
         self.scale = scale
         self.zero_point = zero_point
         self.gemlite_kwargs = gemlite_kwargs
@@ -185,15 +186,13 @@ class UIntxBitPackedTensor(TorchAOBaseTensor):
             "meta_args": meta_args,
         }
 
-        packed_weight, scale, zero_point = gemlite_linear.get_tensor_args()
-        packed_weight = packed_weight.to(device)
+        qdata, scale, zero_point = gemlite_linear.get_tensor_args()
+        qdata = qdata.to(device)
         if zero_point is None:
-            zero_point = torch.tensor(
-                [[]], device=packed_weight.device, dtype=torch.int32
-            )
+            zero_point = torch.tensor([[]], device=qdata.device, dtype=torch.int32)
 
         return cls(
-            packed_weight,
+            qdata,
             scale,
             zero_point,
             gemlite_kwargs,
@@ -251,16 +250,16 @@ class UIntxBitPackedTensor(TorchAOBaseTensor):
 
     def dequantize(self, output_dtype=None):
         """Dequantize packed weight back to floating point."""
-        device = self.packed_weight.device
+        device = self.qdata.device
         if self.bit_width == 8:
             # 8-bit weights are stored unpacked as int8 (transposed to K x N).
             # Skip unpack_over_rows which would incorrectly reinterpret signed
             # int8 bit patterns as unsigned uint8.
-            int_data = self.packed_weight.t()
+            int_data = self.qdata.t()
         else:
             int_data = (
                 gemlite.bitpack.unpack_over_rows(
-                    self.packed_weight.cuda(),
+                    self.qdata.cuda(),
                     W_nbits=self.bit_width,
                     num_output_rows=self.gemlite_kwargs["in_features"],
                     dtype=torch.uint8,
@@ -330,7 +329,7 @@ def _(func, types, args, kwargs):
         x=input_tensor,
         bias=bias,
         tensor_args=(
-            weight_tensor.packed_weight,
+            weight_tensor.qdata,
             weight_tensor.scale,
             weight_tensor.zero_point,
         ),
@@ -358,13 +357,13 @@ def _(func, types, args, kwargs):
 
     # Data is stored transposed (K x N), so flip the dim
     data_dim = 1 - dim
-    packed_weight = self.packed_weight
+    qdata = self.qdata
     scale = self.scale
     zero_point = self.zero_point
 
     # meta_args is shape-independent (contains only quantization config like bit_width,
     # group_size, dtype enums, etc.) so it doesn't need updating after slicing.
-    # forward_functional derives matrix dimensions from the packed_weight tensor shape.
+    # forward_functional derives matrix dimensions from the qdata tensor shape.
     gemlite_kwargs = copy.deepcopy(self.gemlite_kwargs)
     orig_shape = [
         gemlite_kwargs["in_features"],
@@ -379,12 +378,10 @@ def _(func, types, args, kwargs):
 
     # For packing only the K dimension
     div = elements_per_sample if data_dim == 0 else 1
-    packed_weight = aten.slice.Tensor(
-        packed_weight, data_dim, start // div, end // div, step
-    )
+    qdata = aten.slice.Tensor(qdata, data_dim, start // div, end // div, step)
 
-    gemlite_kwargs["in_features"] = packed_weight.shape[0] * elements_per_sample
-    gemlite_kwargs["out_features"] = packed_weight.shape[1]
+    gemlite_kwargs["in_features"] = qdata.shape[0] * elements_per_sample
+    gemlite_kwargs["out_features"] = qdata.shape[1]
 
     scale = aten.slice.Tensor(scale, data_dim, start_scale, end_scale, step)
     if zero_point is not None and zero_point.numel() > 0:
@@ -393,7 +390,7 @@ def _(func, types, args, kwargs):
         )
 
     sliced = UIntxBitPackedTensor(
-        packed_weight,
+        qdata,
         scale,
         zero_point,
         gemlite_kwargs,

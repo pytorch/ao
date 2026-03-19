@@ -173,8 +173,8 @@ class TestUIntxBitPackedTensor(TestCase):
         # Verify internal tensors match direct slicing
         # Data is stored transposed (K x N), so logical dim 0 -> data dim 1
         self.assertEqual(
-            sliced.packed_weight,
-            weight.packed_weight.narrow(1, 0, 64),
+            sliced.qdata,
+            weight.qdata.narrow(1, 0, 64),
         )
         self.assertEqual(
             sliced.scale,
@@ -208,11 +208,11 @@ class TestUIntxBitPackedTensor(TestCase):
 
         # Verify internal tensors match direct slicing
         # Data is stored transposed (K x N), so logical dim 1 -> data dim 0
-        # packed_weight dim 0 is packed by elements_per_sample
+        # qdata dim 0 is packed by elements_per_sample
         eps = weight.gemlite_kwargs["elements_per_sample"]
         self.assertEqual(
-            sliced.packed_weight,
-            weight.packed_weight.narrow(0, 0, 128 // eps),
+            sliced.qdata,
+            weight.qdata.narrow(0, 0, 128 // eps),
         )
         # scale dim 0 corresponds to groups along in_features
         scale_ratio = 128 // 64  # in_features_slice / group_size
