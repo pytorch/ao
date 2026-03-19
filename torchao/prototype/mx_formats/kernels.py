@@ -24,6 +24,7 @@ from torchao.utils import (
     is_MI350,
     is_ROCM,
     is_sm_at_least_100,
+    is_XPU,
     torch_version_at_least,
 )
 
@@ -456,11 +457,12 @@ else:
 
 
 _triton_kernels_available = (
-    torch_version_at_least("2.7.0")
-    and has_triton()
-    and torch.cuda.is_available()
-    and (is_sm_at_least_100() and is_cuda_version_at_least(12, 8))
-    or (is_ROCM() and is_MI350())
+    torch_version_at_least("2.7.0") and has_triton()
+    and (
+        (torch.cuda.is_available() and (is_sm_at_least_100() and is_cuda_version_at_least(12, 8)))
+        or (is_ROCM() and is_MI350())
+        or is_XPU()
+    )
 )
 
 if _triton_kernels_available:
@@ -469,6 +471,7 @@ if _triton_kernels_available:
     from torch.library import triton_op, wrap_triton
 
     IS_ROCM = tl.constexpr(is_ROCM())
+    IS_XPU = tl.constexpr(is_XPU())
 
     @triton.jit
     def _triton_calculate_scale_rceil(x, axis, USE_PTX: tl.constexpr):
@@ -686,7 +689,7 @@ if _triton_kernels_available:
             col_scale_r, col_scale_e8m0_r = _triton_calculate_scale_rceil(
                 x_block_abs_t_r,
                 axis=1,
-                USE_PTX=not IS_ROCM,
+                USE_PTX=(not IS_ROCM and not IS_XPU),
             )
         else:
             tl.static_assert(SCALING_MODE == "floor")
@@ -796,7 +799,7 @@ if _triton_kernels_available:
             scale_fp32_r, scale_e8m0_r = _triton_calculate_scale_rceil(
                 x_block_abs_r,
                 axis=1,
-                USE_PTX=not IS_ROCM,
+                USE_PTX=(not IS_ROCM and not IS_XPU),
             )
         else:
             tl.static_assert(SCALING_MODE == "floor")
