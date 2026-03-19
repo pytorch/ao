@@ -104,6 +104,7 @@ class mx_mm(torch.autograd.Function):
         scale_calculation_mode: ScaleCalculationMode,
         wgrad_with_hp: bool,
     ):
+        print("mx_mm forward")
         ctx.save_for_backward(input_hp, weight_hp)
         ctx.in_elem_dtype = in_elem_dtype
         ctx.w_elem_dtype = w_elem_dtype
@@ -137,7 +138,6 @@ class mx_mm(torch.autograd.Function):
         )
         output = torch.mm(input_mx_r_dim0, weight_mx_dim0.t())
         output = output.reshape(*input_orig_shape[:-1], output.shape[-1])
-
         return output
 
     @staticmethod
