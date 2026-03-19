@@ -145,6 +145,7 @@ class TestDa8w4Cpu(TestCase):
             # ensure the expected op occurs only once in the code after fusion
             # The trailing "(" is to avoid matching the op in the comment
             assert code[0].count("torch.ops.torchao.da8w4_linear_cpu.default(") == 1
+            torch._dynamo.reset()
             with torch._inductor.config.patch(
                 {"freezing": True, "cpp.enable_concat_linear": False}
             ):

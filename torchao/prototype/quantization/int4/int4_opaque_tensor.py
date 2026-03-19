@@ -236,6 +236,9 @@ class Int4OpaqueTensor(TorchAOBaseTensor):
         assert w.ndim == 2 and w.device.type == "cpu", (
             f"Expecting 2D tensor on CPU, but got: {w.shape} on {w.device.type}"
         )
+        assert group_size in (32, 64, 128), (
+            f"Expecting group_size to be 32/64/128, but got: {group_size}"
+        )
         assert w.shape[1] % group_size == 0, (
             f"K={w.shape[1]} must be divisible by group_size={group_size}"
         )
@@ -399,14 +402,6 @@ def _(func, types, args, kwargs):
 
     # DA8W4 path: dynamic int8 activation + int4 weight
     if weight_tensor.act_mapping_type is not None:
-        if weight_tensor.act_mapping_type == "symmetric":
-            assert torch_version_at_least("2.8.0"), (
-                "Symmetric int8 activation quantization requires PyTorch 2.8+"
-            )
-        else:
-            assert torch_version_at_least("2.7.0"), (
-                "Asymmetric uint8 activation quantization requires PyTorch 2.7+"
-            )
         return _da8w4_linear(input_tensor, weight_tensor, bias)
 
     # A16W4 path: float activation + int4 weight (tinygemm)

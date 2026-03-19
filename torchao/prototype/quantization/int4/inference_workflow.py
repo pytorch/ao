@@ -103,6 +103,7 @@ class Int8DynamicActInt4WeightConfig(AOBaseConfig):
         `act_mapping_type`: activation quantization type:
             - MappingType.ASYMMETRIC (default): uint8 activation quantization
             - MappingType.SYMMETRIC: int8 activation quantization (requires PyTorch >= 2.8)
+        `set_inductor_config`: if True, adjusts `torchinductor` settings to recommended values
     """
 
     group_size: int = 32
