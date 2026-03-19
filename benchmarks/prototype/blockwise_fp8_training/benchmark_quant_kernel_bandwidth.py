@@ -256,16 +256,13 @@ def _print_results(
     print(f"Peak bandwidth source: {bandwidth_spec.peak_source}")
     if bandwidth_spec.achievable_gbps is not None:
         print(
-            "Achievable bandwidth reference: "
-            f"{bandwidth_spec.achievable_gbps:.1f} GB/s"
+            f"Achievable bandwidth reference: {bandwidth_spec.achievable_gbps:.1f} GB/s"
         )
         print(f"Achievable bandwidth source: {bandwidth_spec.achievable_source}")
     else:
         print("Achievable bandwidth reference: n/a")
     print("Timing reflects the Python wrapper path, including output allocation.")
-    print(
-        "logical_io_gbps uses modeled tensor IO bytes, not hardware DRAM counters."
-    )
+    print("logical_io_gbps uses modeled tensor IO bytes, not hardware DRAM counters.")
     print()
 
     rows = []
@@ -308,9 +305,7 @@ def _print_results(
         avg_peak_util = sum(
             item.logical_io_vs_peak_pct for item in kernel_measurements
         ) / len(kernel_measurements)
-        min_peak_util = min(
-            item.logical_io_vs_peak_pct for item in kernel_measurements
-        )
+        min_peak_util = min(item.logical_io_vs_peak_pct for item in kernel_measurements)
         avg_logical_io_gbps = sum(
             item.effective_logical_io_gbps for item in kernel_measurements
         ) / len(kernel_measurements)
@@ -392,9 +387,7 @@ def _write_csv(
                     "peak_bandwidth_gbps": bandwidth_spec.peak_gbps,
                     "peak_bandwidth_source": bandwidth_spec.peak_source,
                     "achievable_bandwidth_gbps": bandwidth_spec.achievable_gbps,
-                    "achievable_bandwidth_source": (
-                        bandwidth_spec.achievable_source
-                    ),
+                    "achievable_bandwidth_source": (bandwidth_spec.achievable_source),
                 }
             )
 
@@ -448,9 +441,7 @@ def main():
 
     torch.random.manual_seed(67)
     args = parse_args()
-    bandwidth_spec = _resolve_gpu_specs(
-        use_roofline_utils=args.use_roofline_utils
-    )
+    bandwidth_spec = _resolve_gpu_specs(use_roofline_utils=args.use_roofline_utils)
 
     measurements, skipped = _run_suite(
         m_values=args.m_values,
