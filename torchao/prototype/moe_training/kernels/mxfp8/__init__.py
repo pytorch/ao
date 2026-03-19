@@ -14,3 +14,28 @@ from torchao.prototype.moe_training.kernels.mxfp8.quant import (
     triton_mx_block_rearrange_2d_M_groups,  # noqa: F401
     triton_mx_block_rearrange_per_group_3d,  # noqa: F401
 )
+
+
+class EPBufferManager:
+    """Manages reusable buffers for MXFP8 all-to-all operations across MoE layers."""
+
+    def __init__(self):
+        self.output = None
+        self.output_scales = None
+        self.max_output_rows_per_rank = None
+
+    def reset(self):
+        """Clear all buffers (useful for testing or changing configs)."""
+        self.__init__()
+
+
+# Module-level singleton for buffer management
+_default_buffer_manager = None
+
+
+def get_buffer_manager():
+    """Get the default buffer manager, creating it if necessary."""
+    global _default_buffer_manager
+    if _default_buffer_manager is None:
+        _default_buffer_manager = EPBufferManager()
+    return _default_buffer_manager
