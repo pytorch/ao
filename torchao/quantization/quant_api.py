@@ -939,7 +939,8 @@ class Int8WeightOnlyConfig(AOBaseConfig):
         group_size (version 1) - Controls the granularity of quantization.
         If None, applies per-channel quantization. Otherwise, applies per-group quantization with the specified group size.
         granularity (version 2) - Quantization granularity.
-            PerRow() for per-channel quantization, PerTensor() for per-tensor quantization.
+            PerRow() for per-channel quantization, PerTensor() for per-tensor quantization,
+            PerGroup(group_size) for per-group quantization.
         set_inductor_config: bool = True - If True, adjusts `torchinductor` settings to recommended values
             for better performance with this quantization scheme.
 
@@ -958,7 +959,11 @@ class Int8WeightOnlyConfig(AOBaseConfig):
         torch._C._log_api_usage_once("torchao.quantization.Int8WeightOnlyConfig")
         if self.version == 2:
             assert self.group_size is None, (
-                f"Only support version 2 with group_size=None, got {self.group_size}"
+                f"Only support version 2 with group_size=None, got {self.group_size}. "
+                f"Use granularity=PerGroup({self.group_size}) instead."
+            )
+            assert isinstance(self.granularity, (PerTensor, PerRow, PerGroup)), (
+                f"granularity must be PerTensor, PerRow, or PerGroup, but got {self.granularity}"
             )
 
 
