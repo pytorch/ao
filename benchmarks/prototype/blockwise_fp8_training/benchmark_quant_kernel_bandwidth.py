@@ -174,9 +174,7 @@ def _launch_act_quant_rhs(
     )
 
 
-def _alloc_act_quant_transposed_lhs(
-    x: torch.Tensor, block_size: int
-) -> KernelBuffers:
+def _alloc_act_quant_transposed_lhs(x: torch.Tensor, block_size: int) -> KernelBuffers:
     m, k = x.size()
     y = torch.empty(k, m, dtype=e4m3_dtype, device=x.device)
     m_blocks = triton.cdiv(m, block_size)
@@ -461,8 +459,7 @@ def _calculate_logical_io_gbps(
     bytes_per_scale_el = torch.finfo(buffers.s.dtype).bits / 8
     read_bytes = input_tensor.numel() * bytes_per_input_el
     write_bytes = (
-        buffers.y.numel() * bytes_per_output_el
-        + buffers.s.numel() * bytes_per_scale_el
+        buffers.y.numel() * bytes_per_output_el + buffers.s.numel() * bytes_per_scale_el
     )
     return ((read_bytes + write_bytes) / 1e9) / (kernel_us / 1e6)
 
@@ -537,8 +534,7 @@ def _print_results(
     print(f"Peak bandwidth source: {bandwidth_spec.peak_source}")
     if bandwidth_spec.achievable_gbps is not None:
         print(
-            "Achievable bandwidth reference: "
-            f"{bandwidth_spec.achievable_gbps:.1f} GB/s"
+            f"Achievable bandwidth reference: {bandwidth_spec.achievable_gbps:.1f} GB/s"
         )
         print(f"Achievable bandwidth source: {bandwidth_spec.achievable_source}")
     else:
@@ -589,9 +585,7 @@ def _print_results(
         avg_peak_util = sum(
             item.logical_io_vs_peak_pct for item in kernel_measurements
         ) / len(kernel_measurements)
-        min_peak_util = min(
-            item.logical_io_vs_peak_pct for item in kernel_measurements
-        )
+        min_peak_util = min(item.logical_io_vs_peak_pct for item in kernel_measurements)
         avg_logical_io_gbps = sum(
             item.effective_logical_io_gbps for item in kernel_measurements
         ) / len(kernel_measurements)
@@ -673,9 +667,7 @@ def _write_csv(
                     "peak_bandwidth_gbps": bandwidth_spec.peak_gbps,
                     "peak_bandwidth_source": bandwidth_spec.peak_source,
                     "achievable_bandwidth_gbps": bandwidth_spec.achievable_gbps,
-                    "achievable_bandwidth_source": (
-                        bandwidth_spec.achievable_source
-                    ),
+                    "achievable_bandwidth_source": (bandwidth_spec.achievable_source),
                 }
             )
 
@@ -729,9 +721,7 @@ def main():
 
     torch.random.manual_seed(67)
     args = parse_args()
-    bandwidth_spec = _resolve_gpu_specs(
-        use_roofline_utils=args.use_roofline_utils
-    )
+    bandwidth_spec = _resolve_gpu_specs(use_roofline_utils=args.use_roofline_utils)
 
     measurements, skipped = _run_suite(
         m_values=args.m_values,
