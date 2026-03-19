@@ -1,69 +1,121 @@
-from transformers import AutoModelForCausalLM, AutoTokenizer, Mxfp4Config
-from trl import SFTConfig, SFTTrainer
+"""
+SFT on GSM8K (grade-school math) with Qwen3-30B-A3B.
+
+Fine-tunes on chain-of-thought GSM8K training examples and saves a bf16
+checkpoint. Use ``temp_eval.py`` to evaluate (bf16 or NVFP4).
+
+Usage::
+
+    # Standard SFT
+    python torchao/prototype/qat/temp_finetune.py
+    #   bf16: ./qwen3-30b-a3b-gsm8k-sft
+
+    # SFT with NVFP4 QAT
+    python torchao/prototype/qat/temp_finetune.py --qat
+    #   bf16: ./qwen3-30b-a3b-gsm8k-sft-qat
+"""
+
+import argparse
+
 import torch
 from datasets import load_dataset
-from torchao.prototype.qat.nvfp4_moe import apply_nvfp4_moe_qat
+from transformers import AutoModelForCausalLM, AutoTokenizer
+from trl import SFTConfig, SFTTrainer
 
-quantization_config = Mxfp4Config(dequantize=True)
+MODEL_NAME = "Qwen/Qwen3-30B-A3B"
+BASE_OUTPUT_DIR = "./qwen3-30b-a3b-gsm8k-sft"
 
-model = AutoModelForCausalLM.from_pretrained(
-    "openai/gpt-oss-20b",
-    quantization_config=quantization_config,
-    torch_dtype=torch.bfloat16,
-    device_map="auto",
-)
 
-# Apply NVFP4 QAT to MoE expert layers so the forward pass uses the
-# flashinfer NVFP4 kernel while backward uses bf16 GEMMs.
-model = apply_nvfp4_moe_qat(model)
+def format_gsm8k(example: dict) -> dict:
+    """Convert a GSM8K example into the ``messages`` format expected by SFTTrainer."""
+    return {
+        "messages": [
+            {"role": "user", "content": example["question"]},
+            {"role": "assistant", "content": example["answer"]},
+        ]
+    }
 
-tokenizer = AutoTokenizer.from_pretrained("openai/gpt-oss-20b")
 
-# Set pad token if not already set
-if tokenizer.pad_token is None:
-    tokenizer.pad_token = tokenizer.eos_token
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="SFT on GSM8K")
+    parser.add_argument(
+        "--qat",
+        action="store_true",
+        help="Apply NVFP4 QAT to MoE expert layers during training.",
+    )
+    parser.add_argument(
+        "--max-steps",
+        type=int,
+        default=100,
+        help="Number of training steps (default: 200). Set to 0 to skip training and only save bf16 checkpoint.",
+    )
+    args = parser.parse_args()
 
-# Load the dataset
-dataset = load_dataset("HuggingFaceH4/Multilingual-Thinking", split="train")
+    output_dir = BASE_OUTPUT_DIR + ("-qat" if args.qat else "")
 
-# The dataset has a "messages" column with entries like:
-#   [{"role": "user", "content": "..."}, {"role": "assistant", "content": "<think>...</think>\n..."}]
-# SFTTrainer natively handles a "messages" column by applying the tokenizer's chat template.
+    model = AutoModelForCausalLM.from_pretrained(
+        MODEL_NAME,
+        torch_dtype=torch.bfloat16,
+        device_map="auto",
+    )
 
-# Train/eval split
-dataset = dataset.train_test_split(test_size=0.05, seed=42)
+    if args.qat:
+        from torchao.prototype.qat.nvfp4_moe import apply_nvfp4_moe_qat
+        model = apply_nvfp4_moe_qat(model)
 
-# Training configuration
-training_args = SFTConfig(
-    output_dir="./gpt-oss-20b-reasoning-sft",
-    max_steps=10,
-    per_device_train_batch_size=1,
-    gradient_accumulation_steps=1,
-    learning_rate=2e-5,
-    lr_scheduler_type="cosine",
-    warmup_ratio=0.1,
-    bf16=True,
-    logging_steps=10,
-    save_strategy="steps",
-    save_steps=200,
-    eval_strategy="steps",
-    eval_steps=200,
-    max_length=4096,
-    gradient_checkpointing=True,
-    gradient_checkpointing_kwargs={"use_reentrant": False},
-    report_to="none",
-)
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
 
-trainer = SFTTrainer(
-    model=model,
-    args=training_args,
-    train_dataset=dataset["train"],
-    eval_dataset=dataset["test"],
-    processing_class=tokenizer,
-)
+    if args.max_steps > 0:
+        # Load GSM8K
+        gsm8k = load_dataset("openai/gsm8k", "main")
+        train_dataset = gsm8k["train"].map(format_gsm8k)
 
-trainer.train()
+        training_args = SFTConfig(
+            output_dir=output_dir,
+            max_steps=args.max_steps,
+            per_device_train_batch_size=16,
+            gradient_accumulation_steps=1,
+            learning_rate=1e-4,
+            max_grad_norm=1.0,
+            lr_scheduler_type="cosine",
+            warmup_steps=20,
+            bf16=True,
+            logging_steps=10,
+            save_strategy="no",
+            max_length=1024,
+            gradient_checkpointing=True,
+            gradient_checkpointing_kwargs={"use_reentrant": False},
+            report_to="none",
+            remove_unused_columns=False,
+        )
 
-# Save the final model
-trainer.save_model("./gpt-oss-20b-reasoning-sft/final")
-tokenizer.save_pretrained("./gpt-oss-20b-reasoning-sft/final")
+        trainer = SFTTrainer(
+            model=model,
+            args=training_args,
+            train_dataset=train_dataset,
+            processing_class=tokenizer,
+        )
+
+        trainer.train()
+
+        if args.qat:
+            from torchao.prototype.qat.nvfp4_moe import remove_nvfp4_moe_qat
+            remove_nvfp4_moe_qat(trainer.model)
+
+        # Save bf16 checkpoint
+        trainer.save_model(output_dir)
+        tokenizer.save_pretrained(output_dir)
+        print(f"\nbf16 checkpoint saved to {output_dir}")
+    else:
+        print("\nSkipping training (--max-steps 0)")
+
+        if args.qat:
+            from torchao.prototype.qat.nvfp4_moe import remove_nvfp4_moe_qat
+            remove_nvfp4_moe_qat(model)
+
+        # Still save the bf16 checkpoint (e.g. from base model)
+        model.save_pretrained(output_dir)
+        tokenizer.save_pretrained(output_dir)
+        print(f"\nbf16 checkpoint saved to {output_dir}")

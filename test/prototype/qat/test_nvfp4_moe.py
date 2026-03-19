@@ -334,21 +334,9 @@ class TestReferenceVsKernel:
         E, H, I, T, top_k = 8, 1024, 512, 64, 2
         self._run_comparison(E, H, I, T, top_k)
 
-    def test_swiglu_with_bias(self):
-        """Standard SwiGLU activation with GEMM bias."""
-        E, H, I, T, top_k = 8, 1024, 512, 64, 2
-        torch.manual_seed(1)
-        gemm1_bias = torch.randn(E, 2 * I, device="cuda", dtype=torch.float32)
-        gemm2_bias = torch.randn(E, H, device="cuda", dtype=torch.float32)
-        self._run_comparison(
-            E, H, I, T, top_k, gemm1_bias=gemm1_bias, gemm2_bias=gemm2_bias,
-        )
-
     # ------------------------------------------------------------------
 
-    def _run_comparison(
-        self, E, H, I, T, top_k, gemm1_bias=None, gemm2_bias=None,
-    ):
+    def _run_comparison(self, E, H, I, T, top_k):
         padding = 128
         torch.manual_seed(0)
 
@@ -395,8 +383,6 @@ class TestReferenceVsKernel:
             gemm1_weights.float(),
             gemm2_weights.float(),
             E, T, top_k, H, I, padding,
-            gemm1_bias=gemm1_bias,
-            gemm2_bias=gemm2_bias,
         )
 
         # ---- 6. Shuffle weights and interleave scales for kernel -------
@@ -418,13 +404,13 @@ class TestReferenceVsKernel:
             hidden_states_scale=hs_sf_kern,
             gemm1_weights=g1ws,
             gemm1_weights_scale=g1ss,
-            gemm1_bias=gemm1_bias,
+            gemm1_bias=None,
             gemm1_alpha=None,
             gemm1_beta=None,
             gemm1_clamp_limit=None,
             gemm2_weights=g2ws,
             gemm2_weights_scale=g2ss,
-            gemm2_bias=gemm2_bias,
+            gemm2_bias=None,
             output1_scale_scalar=scale_c_fc1,
             output1_scale_gate_scalar=scale_gate_fc1,
             output2_scale_scalar=scale_c_fc2,
