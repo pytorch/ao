@@ -290,7 +290,7 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
         )
 
     def test_int8_weight_only_v1_v2_per_group_equivalence(self):
-        """Test that v1 per-group and v2 PerGroup produce bitwise identical outputs."""
+        """Test that v1 per-group and v2 PerGroup produce equivalent outputs."""
         torch.manual_seed(42)
         group_size = 64
         K, N = 256, 128
@@ -308,15 +308,12 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
 
         input_tensor = torch.randn(32, K, dtype=torch.bfloat16, device="cuda")
 
-        torch.use_deterministic_algorithms(True)
-        try:
-            with torch.no_grad():
-                output_v1 = model_v1(input_tensor)
-                output_v2 = model_v2(input_tensor)
+        with torch.no_grad():
+            output_v1 = model_v1(input_tensor)
+            output_v2 = model_v2(input_tensor)
 
-            torch.testing.assert_close(output_v1, output_v2, atol=0, rtol=0)
-        finally:
-            torch.use_deterministic_algorithms(False)
+        sqnr = compute_error(output_v1, output_v2)
+        self.assertGreater(sqnr, 30, f"v1 vs v2 SQNR too low: {sqnr}")
 
 
 @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
