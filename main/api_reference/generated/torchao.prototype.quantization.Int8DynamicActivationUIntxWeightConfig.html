@@ -8,14 +8,14 @@
   <meta name="robots" content="noindex">
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
-<meta property="og:title" content="enable_log_tensor_save_tensors_to_disk" />
+<meta property="og:title" content="Int8DynamicActivationUIntxWeightConfig" />
 <meta property="og:type" content="website" />
-<meta property="og:url" content="http://pytorch.org/api_reference/generated/torchao.prototype.quant_logger.enable_log_tensor_save_tensors_to_disk.html" />
+<meta property="og:url" content="http://pytorch.org/api_reference/generated/torchao.prototype.quantization.Int8DynamicActivationUIntxWeightConfig.html" />
 <meta property="og:site_name" content="torchao" />
 <meta property="og:image" content="https://pytorch.org/assets/images/social-share.jpg" />
 <meta property="og:image:alt" content="torchao" />
 
-    <title>enable_log_tensor_save_tensors_to_disk &#8212; torchao main documentation</title>
+    <title>Int8DynamicActivationUIntxWeightConfig &#8212; torchao main documentation</title>
   
   
   
@@ -56,18 +56,18 @@
     <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
     <script src="../../_static/copybutton.js?v=f281be69"></script>
     <script src="../../_static/design-tabs.js?v=f930bc37"></script>
-    <script>DOCUMENTATION_OPTIONS.pagename = 'api_reference/generated/torchao.prototype.quant_logger.enable_log_tensor_save_tensors_to_disk';</script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'api_reference/generated/torchao.prototype.quantization.Int8DynamicActivationUIntxWeightConfig';</script>
     <script>
         DOCUMENTATION_OPTIONS.theme_version = '0.15.4';
         DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://raw.githubusercontent.com/pytorch/ao/gh-pages/torchao-versions.json';
         DOCUMENTATION_OPTIONS.theme_switcher_version_match = 'main';
         DOCUMENTATION_OPTIONS.show_version_warning_banner = true;
         </script>
-    <link rel="canonical" href="https://pytorch.org/ao/api_reference/generated/torchao.prototype.quant_logger.enable_log_tensor_save_tensors_to_disk.html" />
+    <link rel="canonical" href="https://pytorch.org/ao/api_reference/generated/torchao.prototype.quantization.Int8DynamicActivationUIntxWeightConfig.html" />
     <link rel="index" title="Index" href="../../genindex.html" />
     <link rel="search" title="Search" href="../../search.html" />
-    <link rel="next" title="reset_counter" href="torchao.prototype.quant_logger.reset_counter.html" />
-    <link rel="prev" title="enable_log_stats_to_file" href="torchao.prototype.quant_logger.enable_log_stats_to_file.html" />
+    <link rel="next" title="torchao.quantization.qat" href="../api_ref_qat.html" />
+    <link rel="prev" title="UIntxWeightOnlyConfig" href="torchao.prototype.quantization.UIntxWeightOnlyConfig.html" />
 
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
@@ -1325,7 +1325,7 @@ document.write(`
      aria-label="Section Navigation">
   <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
   <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
-<li class="toctree-l1 has-children"><a class="reference internal" href="../api_ref_quantization.html">torchao.quantization</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l1 current active has-children"><a class="reference internal" href="../api_ref_quantization.html">torchao.quantization</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
 <li class="toctree-l2"><a class="reference internal" href="torchao.quantization.quantize_.html">quantize</a></li>
 <li class="toctree-l2"><a class="reference internal" href="torchao.quantization.FqnToConfig.html">FqnToConfig</a></li>
 <li class="toctree-l2"><a class="reference internal" href="torchao.quantization.Float8DynamicActivationFloat8WeightConfig.html">Float8DynamicActivationFloat8WeightConfig</a></li>
@@ -1340,7 +1340,7 @@ document.write(`
 <li class="toctree-l2"><a class="reference internal" href="torchao.prototype.mx_formats.NVFP4DynamicActivationNVFP4WeightConfig.html">NVFP4DynamicActivationNVFP4WeightConfig</a></li>
 <li class="toctree-l2"><a class="reference internal" href="torchao.prototype.mx_formats.NVFP4WeightOnlyConfig.html">NVFP4WeightOnlyConfig</a></li>
 <li class="toctree-l2"><a class="reference internal" href="torchao.prototype.quantization.UIntxWeightOnlyConfig.html">UIntxWeightOnlyConfig</a></li>
-<li class="toctree-l2"><a class="reference internal" href="torchao.prototype.quantization.Int8DynamicActivationUIntxWeightConfig.html">Int8DynamicActivationUIntxWeightConfig</a></li>
+<li class="toctree-l2 current active"><a class="current reference internal" href="#">Int8DynamicActivationUIntxWeightConfig</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../api_ref_qat.html">torchao.quantization.qat</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -1395,12 +1395,12 @@ document.write(`
 </details></li>
 
 
-<li class="toctree-l1 current active has-children"><a class="reference internal" href="../api_ref_prototype_quant_logger.html">torchao.prototype.quant_logger</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l1 has-children"><a class="reference internal" href="../api_ref_prototype_quant_logger.html">torchao.prototype.quant_logger</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="torchao.prototype.quant_logger.add_activation_loggers.html">add_activation_loggers</a></li>
 <li class="toctree-l2"><a class="reference internal" href="torchao.prototype.quant_logger.log_parameter_info.html">log_parameter_info</a></li>
 <li class="toctree-l2"><a class="reference internal" href="torchao.prototype.quant_logger.log_tensor.html">torchao.prototype.quant_logger.log_tensor</a></li>
 <li class="toctree-l2"><a class="reference internal" href="torchao.prototype.quant_logger.enable_log_stats_to_file.html">enable_log_stats_to_file</a></li>
-<li class="toctree-l2 current active"><a class="current reference internal" href="#">enable_log_tensor_save_tensors_to_disk</a></li>
+<li class="toctree-l2"><a class="reference internal" href="torchao.prototype.quant_logger.enable_log_tensor_save_tensors_to_disk.html">enable_log_tensor_save_tensors_to_disk</a></li>
 <li class="toctree-l2"><a class="reference internal" href="torchao.prototype.quant_logger.reset_counter.html">reset_counter</a></li>
 </ul>
 </details></li>
@@ -1452,9 +1452,9 @@ document.write(`
     <li class="breadcrumb-item"><a href="../index.html" class="nav-link">API Reference</a></li>
     
     
-    <li class="breadcrumb-item"><a href="../api_ref_prototype_quant_logger.html" class="nav-link">torchao.prototype.quant_logger</a></li>
+    <li class="breadcrumb-item"><a href="../api_ref_quantization.html" class="nav-link">torchao.quantization</a></li>
     
-    <li class="breadcrumb-item active" aria-current="page">enable_log_t...</li>
+    <li class="breadcrumb-item active" aria-current="page">Int8DynamicA...</li>
   </ul>
 </nav>
 </div>
@@ -1502,13 +1502,13 @@ document.write(`
     </div>
     
     <div itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
-      <link itemprop="item" href="../api_ref_prototype_quant_logger.html">
-      <meta itemprop="name" content="torchao.prototype.quant_logger">
+      <link itemprop="item" href="../api_ref_quantization.html">
+      <meta itemprop="name" content="torchao.quantization">
       <meta itemprop="position" content="2">
     </div>
     
     <div itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
-      <meta itemprop="name" content="enable_log_tensor_save_tensors_to_disk">
+      <meta itemprop="name" content="Int8DynamicActivationUIntxWeightConfig">
       <meta itemprop="position" content="3">
     </div>
   </div>
@@ -1522,19 +1522,60 @@ document.write(`
 <div id="searchbox"></div>
                 <article class="bd-article">
                   
-  <section id="enable-log-tensor-save-tensors-to-disk">
-<h1>enable_log_tensor_save_tensors_to_disk<a class="headerlink" href="#enable-log-tensor-save-tensors-to-disk" title="Link to this heading">#</a></h1>
-<dl class="py function">
-<dt class="sig sig-object py" id="torchao.prototype.quant_logger.enable_log_tensor_save_tensors_to_disk">
-<span class="sig-prename descclassname"><span class="pre">torchao.prototype.quant_logger.</span></span><span class="sig-name descname"><span class="pre">enable_log_tensor_save_tensors_to_disk</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">save_dir</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/torchao/prototype/quant_logger/quant_logger.html#enable_log_tensor_save_tensors_to_disk"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="reference external" href="https://github.com/pytorch/ao/blob/main/torchao/prototype/quant_logger/quant_logger.py#L79"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#torchao.prototype.quant_logger.enable_log_tensor_save_tensors_to_disk" title="Link to this definition">#</a></dt>
-<dd><p>Redefines <code class="docutils literal notranslate"><span class="pre">quant_logger::log_tensor</span></code> to save full tensors to disk.</p>
-<p>Each logged tensor is cloned and saved as <code class="docutils literal notranslate"><span class="pre">{fqn}_{op}_{tag}.pt</span></code>
-under <em>save_dir</em>. The directory is created if it does not exist.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>save_dir</strong> – Path to the directory where tensor files will be saved.</p>
+  <section id="int8dynamicactivationuintxweightconfig">
+<h1>Int8DynamicActivationUIntxWeightConfig<a class="headerlink" href="#int8dynamicactivationuintxweightconfig" title="Link to this heading">#</a></h1>
+<dl class="py class">
+<dt class="sig sig-object py" id="torchao.prototype.quantization.Int8DynamicActivationUIntxWeightConfig">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">torchao.prototype.quantization.</span></span><span class="sig-name descname"><span class="pre">Int8DynamicActivationUIntxWeightConfig</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">group_size</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">128</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">bit_width</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">4</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">packing_bitwidth</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">set_inductor_config</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/torchao/prototype/quantization/quant_api.html#Int8DynamicActivationUIntxWeightConfig"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="reference external" href="https://github.com/pytorch/ao/blob/main/torchao/prototype/quantization/quant_api.py#L201"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#torchao.prototype.quantization.Int8DynamicActivationUIntxWeightConfig" title="Link to this definition">#</a></dt>
+<dd><dl class="simple">
+<dt>Dynamic activation + uintx weight quantization using gemlite (<a class="github reference external" href="https://github.com/dropbox/gemlite">dropbox/gemlite</a>)</dt><dd><p>Triton kernels.</p>
 </dd>
 </dl>
+<p>Activations are quantized dynamically at runtime (int8). Weights use bit-packed
+uintx format. Supports 4-bit and 8-bit weight quantization.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>group_size</strong> – quantization group size. Use None for per-channel (required for 8-bit).
+Valid values: 32, 64, 128, 256, 512, 1024, None. Default: 128.</p></li>
+<li><p><strong>bit_width</strong> – weight quantization bit width, 4 or 8. Default: 4.</p></li>
+<li><p><strong>packing_bitwidth</strong> – bit width for packing, 8/16/32/None (auto). Default: None.</p></li>
+<li><p><strong>set_inductor_config</strong> – if True, set recommended torchinductor config. Default: True.</p></li>
+</ul>
+</dd>
+</dl>
+<p>Example:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Copyright (c) Meta Platforms, Inc. and affiliates.</span>
+<span class="c1"># All rights reserved.</span>
+<span class="c1">#</span>
+<span class="c1"># This source code is licensed under the BSD 3-Clause license found in the</span>
+<span class="c1"># LICENSE file in the root directory of this source tree.</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.prototype.quantization</span><span class="w"> </span><span class="kn">import</span> <span class="n">Int8DynamicActivationUIntxWeightConfig</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization</span><span class="w"> </span><span class="kn">import</span> <span class="n">quantize_</span>
+
+<span class="n">model</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Sequential</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">512</span><span class="p">,</span> <span class="mi">256</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="s2">&quot;cuda&quot;</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float16</span><span class="p">))</span>
+
+<span class="c1"># int8 dynamic activation + 4-bit grouped weight quantization</span>
+<span class="n">config</span> <span class="o">=</span> <span class="n">Int8DynamicActivationUIntxWeightConfig</span><span class="p">(</span>
+    <span class="n">group_size</span><span class="o">=</span><span class="mi">128</span><span class="p">,</span>
+    <span class="n">bit_width</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span>
+    <span class="n">packing_bitwidth</span><span class="o">=</span><span class="mi">32</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">quantize_</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">config</span><span class="p">)</span>
+
+<span class="c1"># int8 dynamic activation + 8-bit per-channel weight quantization</span>
+<span class="n">model_8bit</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Sequential</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">512</span><span class="p">,</span> <span class="mi">256</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="s2">&quot;cuda&quot;</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float16</span><span class="p">))</span>
+<span class="n">config_8bit</span> <span class="o">=</span> <span class="n">Int8DynamicActivationUIntxWeightConfig</span><span class="p">(</span>
+    <span class="n">group_size</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>  <span class="c1"># per-channel (required for 8-bit)</span>
+    <span class="n">bit_width</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">quantize_</span><span class="p">(</span><span class="n">model_8bit</span><span class="p">,</span> <span class="n">config_8bit</span><span class="p">)</span>
+</pre></div>
+</div>
 </dd></dl>
 
 </section>
@@ -1582,20 +1623,20 @@ under <em>save_dir</em>. The directory is created if it does not exist.</p>
 
 <div class="prev-next-area">
     <a class="left-prev"
-       href="torchao.prototype.quant_logger.enable_log_stats_to_file.html"
+       href="torchao.prototype.quantization.UIntxWeightOnlyConfig.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">enable_log_stats_to_file</p>
+        <p class="prev-next-title">UIntxWeightOnlyConfig</p>
       </div>
     </a>
     <a class="right-next"
-       href="torchao.prototype.quant_logger.reset_counter.html"
+       href="../api_ref_qat.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">reset_counter</p>
+        <p class="prev-next-title">torchao.quantization.qat</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -1621,20 +1662,20 @@ under <em>save_dir</em>. The directory is created if it does not exist.</p>
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="torchao.prototype.quant_logger.enable_log_stats_to_file.html"
+       href="torchao.prototype.quantization.UIntxWeightOnlyConfig.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">enable_log_stats_to_file</p>
+        <p class="prev-next-title">UIntxWeightOnlyConfig</p>
       </div>
     </a>
     <a class="right-next"
-       href="torchao.prototype.quant_logger.reset_counter.html"
+       href="../api_ref_qat.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">reset_counter</p>
+        <p class="prev-next-title">torchao.quantization.qat</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -1656,7 +1697,7 @@ under <em>save_dir</em>. The directory is created if it does not exist.</p>
   </div>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#torchao.prototype.quant_logger.enable_log_tensor_save_tensors_to_disk"><code class="docutils literal notranslate"><span class="pre">enable_log_tensor_save_tensors_to_disk()</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#torchao.prototype.quantization.Int8DynamicActivationUIntxWeightConfig"><code class="docutils literal notranslate"><span class="pre">Int8DynamicActivationUIntxWeightConfig</span></code></a></li>
 </ul>
   </nav></div>
     
@@ -1664,7 +1705,7 @@ under <em>save_dir</em>. The directory is created if it does not exist.</p>
 
   
   <div class="tocsection editthispage">
-    <a href="https://github.com/pytorch/ao/edit/main/docs/source/api_reference/generated/torchao.prototype.quant_logger.enable_log_tensor_save_tensors_to_disk.rst">
+    <a href="https://github.com/pytorch/ao/edit/main/docs/source/api_reference/generated/torchao.prototype.quantization.Int8DynamicActivationUIntxWeightConfig.rst">
       <i class="fa-solid fa-pencil"></i>
       
       
@@ -1678,7 +1719,7 @@ under <em>save_dir</em>. The directory is created if it does not exist.</p>
     
        <div class="sidebar-secondary-item">
     <div class="tocsection sourcelink">
-      <a href="../../_sources/api_reference/generated/torchao.prototype.quant_logger.enable_log_tensor_save_tensors_to_disk.rst.txt">
+      <a href="../../_sources/api_reference/generated/torchao.prototype.quantization.Int8DynamicActivationUIntxWeightConfig.rst.txt">
         <i class="fa-solid fa-file-lines"></i> Show Source
       </a>
     </div>
@@ -1878,11 +1919,11 @@ under <em>save_dir</em>. The directory is created if it does not exist.</p>
     {
        "@context": "https://schema.org",
        "@type": "Article",
-       "name": "enable_log_tensor_save_tensors_to_disk",
-       "headline": "enable_log_tensor_save_tensors_to_disk",
+       "name": "Int8DynamicActivationUIntxWeightConfig",
+       "headline": "Int8DynamicActivationUIntxWeightConfig",
        "description": "PyTorch Documentation. Explore PyTorch, an open-source machine learning library that accelerates the path from research prototyping to production deployment.",
-       "url": "/api_reference/generated/torchao.prototype.quant_logger.enable_log_tensor_save_tensors_to_disk.html",
-       "articleBody": "enable_log_tensor_save_tensors_to_disk# torchao.prototype.quant_logger.enable_log_tensor_save_tensors_to_disk(save_dir)[source][source]# Redefines quant_logger::log_tensor to save full tensors to disk. Each logged tensor is cloned and saved as {fqn}_{op}_{tag}.pt under save_dir. The directory is created if it does not exist. Parameters: save_dir \u2013 Path to the directory where tensor files will be saved.",
+       "url": "/api_reference/generated/torchao.prototype.quantization.Int8DynamicActivationUIntxWeightConfig.html",
+       "articleBody": "Int8DynamicActivationUIntxWeightConfig# class torchao.prototype.quantization.Int8DynamicActivationUIntxWeightConfig(group_size: int | None = 128, bit_width: int = 4, packing_bitwidth: int | None = None, set_inductor_config: bool = True)[source][source]# Dynamic activation + uintx weight quantization using gemlite (dropbox/gemlite)Triton kernels. Activations are quantized dynamically at runtime (int8). Weights use bit-packed uintx format. Supports 4-bit and 8-bit weight quantization. Parameters: group_size \u2013 quantization group size. Use None for per-channel (required for 8-bit). Valid values: 32, 64, 128, 256, 512, 1024, None. Default: 128. bit_width \u2013 weight quantization bit width, 4 or 8. Default: 4. packing_bitwidth \u2013 bit width for packing, 8/16/32/None (auto). Default: None. set_inductor_config \u2013 if True, set recommended torchinductor config. Default: True. Example: # Copyright (c) Meta Platforms, Inc. and affiliates. # All rights reserved. # # This source code is licensed under the BSD 3-Clause license found in the # LICENSE file in the root directory of this source tree. import torch import torch.nn as nn from torchao.prototype.quantization import Int8DynamicActivationUIntxWeightConfig from torchao.quantization import quantize_ model = nn.Sequential(nn.Linear(512, 256, device=\"cuda\", dtype=torch.float16)) # int8 dynamic activation + 4-bit grouped weight quantization config = Int8DynamicActivationUIntxWeightConfig( group_size=128, bit_width=4, packing_bitwidth=32, ) quantize_(model, config) # int8 dynamic activation + 8-bit per-channel weight quantization model_8bit = nn.Sequential(nn.Linear(512, 256, device=\"cuda\", dtype=torch.float16)) config_8bit = Int8DynamicActivationUIntxWeightConfig( group_size=None, # per-channel (required for 8-bit) bit_width=8, ) quantize_(model_8bit, config_8bit)",
        "author": {
          "@type": "Organization",
          "name": "PyTorch Contributors",
@@ -1891,7 +1932,7 @@ under <em>save_dir</em>. The directory is created if it does not exist.</p>
        "image": "https://pytorch.org/docs/stable/_static/img/pytorch_seo.png",
        "mainEntityOfPage": {
          "@type": "WebPage",
-         "@id": "/api_reference/generated/torchao.prototype.quant_logger.enable_log_tensor_save_tensors_to_disk.html"
+         "@id": "/api_reference/generated/torchao.prototype.quantization.Int8DynamicActivationUIntxWeightConfig.html"
        },
        "datePublished": "UnknownT00:00:00Z",
        "dateModified": "UnknownT00:00:00Z"
