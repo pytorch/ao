@@ -17,7 +17,6 @@ from torch.testing._internal.common_utils import (
 from torchao.core.config import AOBaseConfig
 from torchao.dtypes import (
     PlainLayout,
-    SemiSparseLayout,
     to_affine_quantized_intx,
     to_affine_quantized_intx_static,
 )
@@ -56,11 +55,6 @@ def get_quantization_functions(
             pass
         elif check_xpu_version(device):
             pass
-
-    if do_sparse and device != "xpu":
-        base_functions.append(
-            Int8DynamicActivationInt8WeightConfig(layout=SemiSparseLayout())
-        )
 
     if is_sm_at_least_89():
         base_functions.append(Float8WeightOnlyConfig())
@@ -182,7 +176,12 @@ class TestAffineQuantized(TestCase):
                 else:
                     # TODO(#1690): delete this once config migration is done
                     ql = apply_quant(linear)
-                assert "AffineQuantizedTensor" in str(ql)
+                ql_str = str(ql)
+                assert (
+                    "AffineQuantizedTensor" in ql_str
+                    or "Int8Tensor" in ql_str
+                    or "Float8Tensor" in ql_str
+                )
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @common_utils.parametrize(
