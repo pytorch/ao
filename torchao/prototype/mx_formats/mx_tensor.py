@@ -354,7 +354,7 @@ def get_fp_scale(scale_e8m0):
     s_offset = scale_e8m0.to(torch.int16) - E8M0_EXPONENT_BIAS
     # TODO(later): it would be nice if there was a way to do the 2^x operation
     # in PyTorch without creating a tensor of twos
-    two = torch.full_like(s_offset, 2.0)
+    two = torch.full_like(s_offset, 2.0, dtype=torch.float32)
     # pow(two, s_offset) can be out of range of floating point formats.
     # TODO(later): handle this for float16 if we decide to support float16
     # scales.
