@@ -173,7 +173,7 @@
   fbq('track', 'PageView');
 </script>
 <script>
-  document.documentElement.setAttribute('data-version', 'main (0.17.0+git1d75a07 )');
+  document.documentElement.setAttribute('data-version', 'main (0.17.0+git6e5ea54 )');
 </script>
 <noscript>
   <img height="1" width="1" src="https://www.facebook.com/tr?id=243028289693773&ev=PageView&noscript=1" />
@@ -1533,7 +1533,8 @@ document.write(`
 <li><p><strong>None</strong> (<em>If</em>) – </p></li>
 <li><p><strong>Otherwise</strong> (<em>applies per-channel quantization.</em>) – </p></li>
 <li><p><strong>size.</strong> (<em>applies per-group quantization with the specified group</em>) – </p></li>
-<li><p><strong>granularity</strong> (<em>version 2</em>) – PerRow() for per-channel quantization, PerTensor() for per-tensor quantization.</p></li>
+<li><p><strong>granularity</strong> (<em>version 2</em>) – PerRow() for per-channel quantization, PerTensor() for per-tensor quantization,
+PerGroup(group_size) for per-group quantization.</p></li>
 <li><p><strong>set_inductor_config</strong> – bool = True - If True, adjusts <cite>torchinductor</cite> settings to recommended values
 for better performance with this quantization scheme.</p></li>
 </ul>
@@ -1895,7 +1896,7 @@ for better performance with this quantization scheme.</p></li>
        "headline": "Int8WeightOnlyConfig",
        "description": "PyTorch Documentation. Explore PyTorch, an open-source machine learning library that accelerates the path from research prototyping to production deployment.",
        "url": "/api_reference/generated/torchao.quantization.Int8WeightOnlyConfig.html",
-       "articleBody": "Int8WeightOnlyConfig# class torchao.quantization.Int8WeightOnlyConfig(group_size: int | None = None, granularity: Granularity | None = PerRow(dim=-1), set_inductor_config: bool = True, version: int = 1)[source][source]# Configuration for applying int8 weight-only symmetric per-channel quantization to linear layers. Parameters: group_size (version 1) \u2013 None (If) \u2013 Otherwise (applies per-channel quantization.) \u2013 size. (applies per-group quantization with the specified group) \u2013 granularity (version 2) \u2013 PerRow() for per-channel quantization, PerTensor() for per-tensor quantization. set_inductor_config \u2013 bool = True - If True, adjusts torchinductor settings to recommended values for better performance with this quantization scheme. Example: import torch.nn as nn from torchao.quantization import Int8WeightOnlyConfig, quantize_ model = nn.Sequential(nn.Linear(2048, 2048, device=\"cuda\")) quantize_(model, Int8WeightOnlyConfig())",
+       "articleBody": "Int8WeightOnlyConfig# class torchao.quantization.Int8WeightOnlyConfig(group_size: int | None = None, granularity: Granularity | None = PerRow(dim=-1), set_inductor_config: bool = True, version: int = 1)[source][source]# Configuration for applying int8 weight-only symmetric per-channel quantization to linear layers. Parameters: group_size (version 1) \u2013 None (If) \u2013 Otherwise (applies per-channel quantization.) \u2013 size. (applies per-group quantization with the specified group) \u2013 granularity (version 2) \u2013 PerRow() for per-channel quantization, PerTensor() for per-tensor quantization, PerGroup(group_size) for per-group quantization. set_inductor_config \u2013 bool = True - If True, adjusts torchinductor settings to recommended values for better performance with this quantization scheme. Example: import torch.nn as nn from torchao.quantization import Int8WeightOnlyConfig, quantize_ model = nn.Sequential(nn.Linear(2048, 2048, device=\"cuda\")) quantize_(model, Int8WeightOnlyConfig())",
        "author": {
          "@type": "Organization",
          "name": "PyTorch Contributors",
