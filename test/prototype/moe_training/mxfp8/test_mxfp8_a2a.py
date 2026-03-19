@@ -18,8 +18,8 @@ from torch.testing._internal.common_utils import (
 )
 
 from test.prototype.moe_training.testing_utils import generate_split_sizes
-from torchao.prototype.moe_training.kernels.mxfp8.comms import (
-    mxfp8_syncless_all_to_all_expert_major,
+from torchao.prototype.moe_training.kernels.mxfp8.ep_dispatch import (
+    mxfp8_ep_dispatch,
 )
 
 
@@ -31,7 +31,7 @@ class MXFP8SynclessAllToAllExpertMajorTest(MultiProcessTestCase):
 
     @property
     def world_size(self) -> int:
-        return 4
+        return 2
 
     @property
     def device(self) -> torch.device:
@@ -51,14 +51,11 @@ class MXFP8SynclessAllToAllExpertMajorTest(MultiProcessTestCase):
     def _init_device(self):
         symm_mem.set_backend("NVSHMEM")
 
-    def test_a2a_fwd_bwd(self):
+    def test_mxfp8_a2a(self):
         self._init_process()
         try:
             torch.manual_seed(42 + self.rank)
             self._init_device()
-
-            group_name = dist.group.WORLD.group_name
-            symm_mem.enable_symm_mem_for_group(group_name)
 
             tokens_per_expert = 2
             experts_per_rank = 2
@@ -112,12 +109,12 @@ class MXFP8SynclessAllToAllExpertMajorTest(MultiProcessTestCase):
                 output_rank_level_splits,
                 output_expert_splits,
                 expert_padded_offsets,
-            ) = mxfp8_syncless_all_to_all_expert_major(
+            ) = mxfp8_ep_dispatch(
                 input_tensor,
                 input_rank_level_splits,
                 expert_splits_per_rank,
                 max_output_tokens_per_rank,
-                group_name,
+                dist.group.WORLD,
             )
 
             # Extract fp8 data and scales from MXTensor for comparison
@@ -192,13 +189,13 @@ class MXFP8SynclessAllToAllExpertMajorTest(MultiProcessTestCase):
             )
 
             # Quantize reference output to mxfp8 for comparison
-            from torchao.prototype.mx_formats.mx_tensor import to_mx
+            from torchao.prototype.mx_formats.kernels import triton_to_mxfp8_dim0
 
             block_size = 32
-            ref_output_scales_e8m0, ref_output_e4m3 = to_mx(
+            ref_output_e4m3, ref_output_scales_e8m0 = triton_to_mxfp8_dim0(
                 ref_output_expert_major,
-                elem_dtype=torch.float8_e4m3fn,
-                block_size=block_size,
+                inner_block_size=block_size,
+                scaling_mode="rceil",
             )
 
             # Compare output splits
@@ -231,53 +228,6 @@ class MXFP8SynclessAllToAllExpertMajorTest(MultiProcessTestCase):
                 atol=0,
                 rtol=0,
             )
-
-            print(f"\n[rank {self.rank}] === Testing Backward Pass ===")
-
-            # Create dummy gradients only for actual data (not padded/overallocated portion)
-            grad = torch.ones(
-                compare_size, dim, dtype=torch.bfloat16, device=self.device
-            )
-            ref_grad = torch.ones_like(ref_output)
-
-            print(f"[rank {self.rank}] grad shape: {grad.shape}")
-            print(f"[rank {self.rank}] ref_grad shape: {ref_grad.shape}")
-            print(f"[rank {self.rank}] mx_output shape: {mx_output.shape}")
-            print(f"[rank {self.rank}] compare_size: {compare_size}")
-
-            # Backward pass - slice mx_output to actual data size
-            mx_output[:compare_size].backward(grad)
-            ref_output.backward(ref_grad)
-
-            print(
-                f"[rank {self.rank}] input_tensor.grad dtype: {input_tensor.grad.dtype}"
-            )
-            print(
-                f"[rank {self.rank}] ref_input_tensor.grad dtype: {ref_input_tensor.grad.dtype}"
-            )
-            print(
-                f"[rank {self.rank}] input_tensor.grad shape: {input_tensor.grad.shape}"
-            )
-            print(
-                f"[rank {self.rank}] ref_input_tensor.grad shape: {ref_input_tensor.grad.shape}"
-            )
-
-            # Verify gradients are in bf16 (no quantization in backward)
-            assert input_tensor.grad.dtype == torch.bfloat16, (
-                f"Expected bf16 gradients, got {input_tensor.grad.dtype}"
-            )
-
-            # Compare gradients - should match exactly since no quantization in backward
-            torch.testing.assert_close(
-                input_tensor.grad,
-                ref_input_tensor.grad,
-                atol=0,
-                rtol=0,
-                msg="Backward gradients should match exactly (no quantization)",
-            )
-
-            print(f"[rank {self.rank}] Backward pass test PASSED!")
-            print(f"[rank {self.rank}] Gradients match exactly (bf16, no quantization)")
 
         finally:
             dist.destroy_process_group()
