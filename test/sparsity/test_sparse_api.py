@@ -10,6 +10,7 @@ import unittest
 import torch
 from torch import nn
 from torch.testing._internal import common_utils
+from torch.testing._internal.common_utils import skipIfRocmVersionLessThan
 
 from torchao.dtypes import SemiSparseLayout
 from torchao.quantization.quant_api import (
@@ -26,6 +27,7 @@ logging.basicConfig(
 
 class TestSemiStructuredSparse(common_utils.TestCase):
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @skipIfRocmVersionLessThan((7, 0))
     def test_sparse(self):
         input = torch.rand((128, 128)).half().cuda()
         model = (
