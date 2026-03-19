@@ -25,6 +25,7 @@ from torchao.prototype.awq import (
 )
 from torchao.quantization import (
     PerBlock,
+    PerGroup,
     PerRow,
     PerTensor,
 )
@@ -66,7 +67,8 @@ configs = [
     ),
     Int8DynamicActivationInt8WeightConfig(),
     Int8WeightOnlyConfig(
-        group_size=128,
+        version=2,
+        granularity=PerGroup(128),
     ),
     GemliteUIntXWeightOnlyConfig(
         group_size=128,  # Optional, has default of 64

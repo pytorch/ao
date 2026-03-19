@@ -944,9 +944,7 @@ class Int8WeightOnlyConfig(AOBaseConfig):
     Configuration for applying int8 weight-only symmetric per-channel quantization to linear layers.
 
     Args:
-        group_size (version 1) - Controls the granularity of quantization.
-        If None, applies per-channel quantization. Otherwise, applies per-group quantization with the specified group size.
-        granularity (version 2) - Quantization granularity.
+        granularity: Quantization granularity.
             PerRow() for per-channel quantization, PerTensor() for per-tensor quantization,
             PerGroup(group_size) for per-group quantization.
         set_inductor_config: bool = True - If True, adjusts `torchinductor` settings to recommended values
@@ -958,47 +956,24 @@ class Int8WeightOnlyConfig(AOBaseConfig):
        :language: python
     """
 
-    group_size: Optional[int] = None
     granularity: Optional[Granularity] = PerRow()
     set_inductor_config: bool = True
-    version: int = 1
+    version: int = 2
 
     def __post_init__(self):
         torch._C._log_api_usage_once("torchao.quantization.Int8WeightOnlyConfig")
-        if self.version == 2:
-            assert self.group_size is None, (
-                f"Only support version 2 with group_size=None, got {self.group_size}. "
-                f"Use granularity=PerGroup({self.group_size}) instead."
+        if self.version != 2:
+            raise ValueError(
+                "Only version 2 of Int8WeightOnlyConfig is supported. "
+                "Version 1 (AffineQuantizedTensor) has been removed."
             )
-            assert isinstance(self.granularity, (PerTensor, PerRow, PerGroup)), (
-                f"granularity must be PerTensor, PerRow, or PerGroup, but got {self.granularity}"
-            )
+        assert isinstance(self.granularity, (PerTensor, PerRow, PerGroup)), (
+            f"granularity must be PerTensor, PerRow, or PerGroup, but got {self.granularity}"
+        )
 
 
 def _int8_weight_only_quantize_tensor(weight, config):
-    if config.version == 1:
-        warnings.warn(
-            "Config Deprecation: version 1 of Int8WeightOnlyConfig is deprecated and will no longer be supported in a future release, please use version 2, see https://github.com/pytorch/ao/issues/2752 for more details"
-        )
-        mapping_type = MappingType.SYMMETRIC
-        target_dtype = torch.int8
-        eps = torch.finfo(torch.float32).eps
-        zero_point_dtype = torch.int64
-        group_size = config.group_size
-        if group_size is None:
-            group_size = weight.shape[-1]
-        block_size = tuple([1 for x in range(weight.dim() - 1)] + [group_size])
-        new_weight = to_affine_quantized_intx(
-            weight,
-            mapping_type,
-            block_size,
-            target_dtype,
-            eps=eps,
-            zero_point_dtype=zero_point_dtype,
-        )
-    else:
-        assert config.version == 2, f"Unexpected version: {config.version}"
-        new_weight = Int8Tensor.from_hp(weight, granularity=config.granularity)
+    new_weight = Int8Tensor.from_hp(weight, granularity=config.granularity)
     return new_weight
 
 
