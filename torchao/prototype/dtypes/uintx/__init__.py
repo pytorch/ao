@@ -5,7 +5,6 @@
 # LICENSE file in the root directory of this source tree.
 
 from .block_sparse_layout import BlockSparseLayout
-from .dyn_int8_act_int4_wei_cpu_layout import Int8DynamicActInt4WeightCPULayout
 from .gemlite_layout import GemlitePackedLayout
 from .uintx_layout import (
     UintxAQTTensorImpl,
@@ -16,7 +15,6 @@ from .uintx_layout import (
 
 __all__ = [
     "BlockSparseLayout",
-    "Int8DynamicActInt4WeightCPULayout",
     "GemlitePackedLayout",
     "UintxLayout",
     "UintxTensor",
