@@ -25,6 +25,7 @@ from torchao.utils import (
     is_mslk_version_at_least,
     is_ROCM,
     is_sm_at_least_100,
+    is_XPU,
 )
 
 logger = logging.getLogger(__name__)
@@ -455,11 +456,13 @@ else:
         raise AssertionError("needs triton")
 
 
-_triton_kernels_available = (
-    has_triton()
-    and torch.cuda.is_available()
-    and (is_sm_at_least_100() and is_cuda_version_at_least(12, 8))
+_triton_kernels_available = has_triton() and (
+    (
+        torch.cuda.is_available()
+        and (is_sm_at_least_100() and is_cuda_version_at_least(12, 8))
+    )
     or (is_ROCM() and is_MI350())
+    or is_XPU()
 )
 
 if _triton_kernels_available:
@@ -468,6 +471,7 @@ if _triton_kernels_available:
     from torch.library import triton_op, wrap_triton
 
     IS_ROCM = tl.constexpr(is_ROCM())
+    IS_XPU = tl.constexpr(is_XPU())
 
     @triton.jit
     def _calculate_reciprocal_scale(scale_e8m0_biased):
@@ -689,7 +693,7 @@ if _triton_kernels_available:
             col_rcp_scale_fp32, col_scale_e8m0_r = _triton_calculate_scale_rceil(
                 x_block_abs_t_r,
                 axis=1,
-                USE_PTX=not IS_ROCM,
+                USE_PTX=(not IS_ROCM and not IS_XPU),
             )
         else:
             tl.static_assert(SCALING_MODE == "floor")
@@ -800,7 +804,7 @@ if _triton_kernels_available:
             descale_fp32_r, scale_e8m0_r = _triton_calculate_scale_rceil(
                 x_block_abs_r,
                 axis=1,
-                USE_PTX=not IS_ROCM,
+                USE_PTX=(not IS_ROCM and not IS_XPU),
             )
         else:
             tl.static_assert(SCALING_MODE == "floor")
