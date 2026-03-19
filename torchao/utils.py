@@ -1245,6 +1245,10 @@ def check_cpu_version(device, version="2.6.0"):
     return device == "cpu" and torch_version_at_least(version)
 
 
+def is_XPU():
+    return hasattr(torch, "xpu") and torch.xpu.is_available()
+
+
 def check_xpu_version(device, version="2.8.0"):
     if isinstance(device, torch.device):
         device = device.type
