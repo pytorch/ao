@@ -105,6 +105,32 @@ def int_matmul(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     return safe_int_mm(a, b)
 
 
+def _cpu_is_amx_tile_supported() -> bool:
+    """
+    Safely query AMX tile support, guarding against private API absence.
+    torch.cpu._is_amx_tile_supported / torch._C._cpu._is_amx_tile_supported are
+    private and may be missing in certain PyTorch builds or versions.
+    """
+    if hasattr(torch._C._cpu, "_is_amx_tile_supported"):
+        return torch._C._cpu._is_amx_tile_supported()
+    elif hasattr(torch.cpu, "_is_amx_tile_supported"):
+        return torch.cpu._is_amx_tile_supported()
+    return False
+
+
+def _cpu_is_vnni_supported() -> bool:
+    """
+    Safely query AVX512_VNNI support, guarding against private API absence.
+    torch.cpu._is_vnni_supported / torch._C._cpu._is_vnni_supported are
+    private and may be missing in certain PyTorch builds or versions.
+    """
+    if hasattr(torch._C._cpu, "_is_vnni_supported"):
+        return torch._C._cpu._is_vnni_supported()
+    elif hasattr(torch.cpu, "_is_vnni_supported"):
+        return torch.cpu._is_vnni_supported()
+    return False
+
+
 def _int_scaled_matmul_cpu(
     a: torch.Tensor, b: torch.Tensor, scales1: torch.Tensor
 ) -> torch.Tensor:
@@ -121,7 +147,7 @@ def _int_scaled_matmul_cpu(
         torch.Tensor: The result of the scaled matrix multiplication.
     """
     if (
-        not torch.cpu._is_amx_tile_supported() and torch.cpu._is_vnni_supported()
+        not _cpu_is_amx_tile_supported() and _cpu_is_vnni_supported()
     ):  # u8s8: convert to uint8 to use AVX512_VNNI instructions for better performance
         # on platforms with AVX512_VNNI support but without AMX
         a = (a.to(torch.int32) + 128).to(torch.uint8)
