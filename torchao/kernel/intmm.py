@@ -141,7 +141,9 @@ def _int_scaled_matmul_cpu(
     Args:
         a (torch.Tensor): The first matrix to multiply (int8).
         b (torch.Tensor): The second matrix to multiply (int8).
-        scales1 (torch.Tensor): The scaling factors, shape (M, 1).
+        scales1 (torch.Tensor): The scaling factors, typically shape (M, 1).
+            A scalar-like shape (1, 1) is also supported and will broadcast
+            across all rows.
 
     Returns:
         torch.Tensor: The result of the scaled matrix multiplication.
@@ -170,6 +172,8 @@ def int_scaled_matmul(
         a (torch.Tensor): The first matrix to multiply.
         b (torch.Tensor): The second matrix to multiply.
         scales1 (torch.Tensor): The scaling factors for the rows of the result.
+            Expected shape is (M, 1). A scalar-like shape (1, 1) is also
+            supported and will broadcast across all rows.
 
     Returns:
         torch.Tensor: The result of the scaled matrix multiplication.

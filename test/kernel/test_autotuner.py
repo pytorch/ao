@@ -96,10 +96,6 @@ class TestQuantFlow(unittest.TestCase):
         torch.testing.assert_allclose(out32_1, out32_2)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TestIntScaledMatmulCPUPaths(unittest.TestCase):
     """
     Tests for the CPU-specific paths inside _int_scaled_matmul_cpu.
@@ -178,3 +174,7 @@ class TestIntScaledMatmulCPUPaths(unittest.TestCase):
             intmm_mod._cpu_is_vnni_supported = orig_vnni
 
         torch.testing.assert_close(result, expected)
+
+
+if __name__ == "__main__":
+    unittest.main()
