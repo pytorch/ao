@@ -134,7 +134,6 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
     def dequantize(self, output_dtype: Optional[torch.dtype] = None) -> torch.Tensor:
         from torchao.quantization.quant_primitives import (
             ZeroPointDomain,
-            _dequantize_affine_float8,
             _dequantize_affine_no_zero_point,
             _dequantize_affine_tinygemm,
             dequantize_affine,
@@ -143,56 +142,50 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         if output_dtype is None:
             output_dtype = self.dtype
 
-        from torchao.dtypes.floatx import Float8Layout
-
-        if isinstance(self._layout, Float8Layout):
-            data, scale, _ = self.tensor_impl.get_plain()
-            return _dequantize_affine_float8(data, scale, output_dtype)
+        data, scale, zero_point = self.tensor_impl.get_plain()
+        if self.zero_point_domain == ZeroPointDomain.FLOAT:
+            dq = _dequantize_affine_tinygemm(
+                data,
+                self.block_size,
+                scale,
+                zero_point,
+                data.dtype,
+                self.quant_min,
+                self.quant_max,
+                output_dtype=output_dtype,
+            )
+        elif self.zero_point_domain == ZeroPointDomain.NONE:
+            dq = _dequantize_affine_no_zero_point(
+                data,
+                self.block_size,
+                scale,
+                zero_point,
+                data.dtype,
+                self.quant_min,
+                self.quant_max,
+                output_dtype=output_dtype,
+            )
         else:
-            data, scale, zero_point = self.tensor_impl.get_plain()
-            if self.zero_point_domain == ZeroPointDomain.FLOAT:
-                dq = _dequantize_affine_tinygemm(
-                    data,
-                    self.block_size,
-                    scale,
-                    zero_point,
-                    data.dtype,
-                    self.quant_min,
-                    self.quant_max,
-                    output_dtype=output_dtype,
-                )
-            elif self.zero_point_domain == ZeroPointDomain.NONE:
-                dq = _dequantize_affine_no_zero_point(
-                    data,
-                    self.block_size,
-                    scale,
-                    zero_point,
-                    data.dtype,
-                    self.quant_min,
-                    self.quant_max,
-                    output_dtype=output_dtype,
-                )
-            else:
-                dq = dequantize_affine(
-                    data,
-                    self.block_size,
-                    scale,
-                    zero_point,
-                    data.dtype,
-                    self.quant_min,
-                    self.quant_max,
-                    output_dtype=output_dtype,
-                )
-            from torchao.dtypes.uintx import TensorCoreTiledLayout
+            dq = dequantize_affine(
+                data,
+                self.block_size,
+                scale,
+                zero_point,
+                data.dtype,
+                self.quant_min,
+                self.quant_max,
+                output_dtype=output_dtype,
+            )
+        from torchao.dtypes.uintx import TensorCoreTiledLayout
 
-            if isinstance(self._layout, TensorCoreTiledLayout):
-                # need to return to original shape if tensor was padded
-                # in preprocessing
-                # TODO: we could add an API for this if there are more use cases
-                # (e.g. dequant_post_process) in TensorImpl or Layout
-                for dim, dim_size in enumerate(self.shape):
-                    dq = dq.narrow(dim, 0, dim_size)
-            return dq
+        if isinstance(self._layout, TensorCoreTiledLayout):
+            # need to return to original shape if tensor was padded
+            # in preprocessing
+            # TODO: we could add an API for this if there are more use cases
+            # (e.g. dequant_post_process) in TensorImpl or Layout
+            for dim, dim_size in enumerate(self.shape):
+                dq = dq.narrow(dim, 0, dim_size)
+        return dq
 
     def __tensor_flatten__(self):
         # This is used in rumtime to unwrap AffineQuantizedTensor activations.

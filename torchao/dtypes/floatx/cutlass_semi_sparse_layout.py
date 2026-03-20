@@ -198,11 +198,8 @@ class CutlassSemiSparseTensorImpl(AQTTensorImpl):
 
 
 def _linear_fp8_act_fp8_weight_sparse_cutlass_check(input_tensor, weight_tensor, bias):
-    from torchao.dtypes.floatx import Float8Layout
-
     base_check = (
         isinstance(input_tensor, AffineQuantizedTensor)
-        and isinstance(input_tensor._layout, Float8Layout)
         and input_tensor.dtype in (torch.float16, torch.bfloat16)
         and len(input_tensor.shape) >= 2
         and input_tensor.tensor_impl.scale.dtype == torch.float32
