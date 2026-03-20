@@ -12,7 +12,7 @@ from torch.testing._internal.common_utils import (
     run_tests,
 )
 
-from torchao.utils import is_fbcode, is_sm_at_least_90
+from torchao.utils import is_fbcode, is_sm_at_least_90, torch_version_at_least
 
 if is_fbcode():
     # don't import from transformer internally, since some imports might be missing
@@ -67,6 +67,10 @@ _SINGLE_LINEAR_MODEL_INFO = [
 @unittest.skipIf(
     is_fbcode(),
     "Skipping the test in fbcode for now, not sure how to download from transformers",
+)
+@unittest.skipIf(
+    torch_version_at_least("2.11.0.dev"),
+    "Checkpoints need to be regenerated for torch >= 2.11.0",
 )
 class TestLoadAndRunCheckpoint(TestCase):
     def _test_single_linear_helper(
