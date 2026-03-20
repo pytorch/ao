@@ -10,17 +10,16 @@ import time
 import fire
 import torch
 import tqdm
-from data import build_data, setup_coco_img_ids
 from metrics import calculate_miou, create_result_entry
 
 import torchao
+from data import build_data, setup_coco_img_ids
 from torchao._models.utils import (
     get_arch_name,
     write_json_result_local,
     write_json_result_ossci,
 )
 from torchao.dtypes import SemiSparseLayout
-from torchao.prototype.quantization.autoquant_v2 import autoquant_v2
 from torchao.quantization import (
     Int8DynamicActivationInt8WeightConfig,
     autoquant,
@@ -391,39 +390,6 @@ def run(
             mlp_lin1_only,
         )
         sparsify_(predictor.model.image_encoder, semi_sparse_weight(), mlp_lin2_only)
-
-    elif compress is not None and "autoquant_v2" in compress:
-        example_input = torch.randn(
-            1, 3, 1024, 1024, dtype=torch.bfloat16, device=device
-        )
-        if "autoquant_v2-int4" == compress:
-            autoquant_v2(
-                predictor.model.image_encoder,
-                example_input=example_input,
-                manual=True,
-                qtensor_class_list=torchao.prototype.quantization.autoquant_v2.DEFAULT_INT4_AUTOQUANT_CLASS_LIST,
-            )
-        elif "autoquant_v2-float8" == compress:
-            autoquant_v2(
-                predictor.model.image_encoder,
-                example_input=example_input,
-                manual=True,
-                qtensor_class_list=torchao.prototype.quantization.autoquant_v2.OTHER_AUTOQUANT_CLASS_LIST,
-            )
-        elif "autoquant_v2-all" == compress:
-            autoquant_v2(
-                predictor.model.image_encoder,
-                example_input=example_input,
-                manual=True,
-                qtensor_class_list=torchao.prototype.quantization.autoquant_v2.ALL_AUTOQUANT_CLASS_LIST,
-            )
-        else:
-            autoquant_v2(
-                predictor.model.image_encoder, example_input=example_input, manual=True
-            )
-
-        predictor.model.image_encoder(example_input)
-        predictor.model.image_encoder.finalize_autoquant()
 
     elif compress is not None and "autoquant" in compress:
         example_input = torch.randn(
