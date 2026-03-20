@@ -9,7 +9,6 @@ from .affine_quantized_tensor import (
 )
 from .floatx import (
     CutlassSemiSparseLayout,
-    Float8Layout,
 )
 from .nf4tensor import NF4Tensor, to_nf4
 from .uintx import (
@@ -39,7 +38,6 @@ __all__ = [
     "PlainLayout",
     "SemiSparseLayout",
     "TensorCoreTiledLayout",
-    "Float8Layout",
     "affine_quantized_tensor_ops",
     "BlockSparseLayout",
     "UintxLayout",
