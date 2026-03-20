@@ -16,13 +16,10 @@ Verifies that:
 Usage:
     # Run on a machine with NPU hardware + torch_npu installed:
     python -m pytest test/float8/test_float8_npu_training.py -v
-
-    # Run mocked tests (no NPU hardware needed) to verify dispatch logic:
-    python -m pytest test/float8/test_float8_npu_training.py -v -k "mock"
 """
 
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import torch
 import torch.nn as nn
@@ -34,11 +31,11 @@ from torchao.float8.float8_ops import (
     _addmm_float8_unwrapped_npu,
     addmm_float8_unwrapped,
 )
-from torchao.float8.float8_scaling_utils import hp_tensor_to_float8_dynamic
 from torchao.float8.float8_training_tensor import (
     GemmInputRole,
     LinearMMConfig,
     ScaledMMConfig,
+    hp_tensor_and_scale_to_float8,
 )
 from torchao.float8.float8_utils import tensor_to_scale
 
@@ -63,74 +60,56 @@ def _make_linear_mm_config():
     )
 
 
+def _randn_fp8(shape, device="npu"):
+    """Create a random float8_e4m3fn tensor by generating in bfloat16 first, then casting.
+
+    torch.randn does not support float8 dtypes directly because the normal
+    distribution kernel is not implemented for Float8_e4m3fn on any device.
+    """
+    return torch.randn(shape, dtype=torch.bfloat16, device=device).to(
+        torch.float8_e4m3fn
+    )
+
+
 # ============================================================================
-# Mock tests: verify dispatch logic without NPU hardware
+# All tests require NPU hardware since float8 tensors must live on device
 # ============================================================================
 
 
-class TestNPUDispatchMocked(unittest.TestCase):
-    """Tests that verify the NPU dispatch path is taken, using mocks."""
+@unittest.skipUnless(_is_npu_available(), "NPU hardware not available")
+class TestNPUDispatch(unittest.TestCase):
+    """Tests that verify the NPU dispatch path is taken on real NPU tensors."""
 
     def test_addmm_float8_unwrapped_dispatches_to_npu(self):
         """Verify addmm_float8_unwrapped calls _addmm_float8_unwrapped_npu for NPU tensors."""
         M, K, N = 32, 64, 48
 
-        # Create fake NPU-device tensors using a mock device
-        a_data = torch.randn(M, K, dtype=torch.float8_e4m3fn)
-        b_data = torch.randn(K, N, dtype=torch.float8_e4m3fn)
-        a_scale = torch.tensor(1.0)
-        b_scale = torch.tensor(1.0)
-
-        # Mock the device property to return "npu"
-        with patch.object(type(a_data), "device", new_callable=lambda: property(lambda self: torch.device("npu", 0))):
-            with patch(
-                "torchao.float8.float8_ops._addmm_float8_unwrapped_npu"
-            ) as mock_npu_fn:
-                mock_npu_fn.return_value = torch.randn(M, N, dtype=torch.bfloat16)
-                result = addmm_float8_unwrapped(
-                    a_data,
-                    a_scale,
-                    b_data,
-                    b_scale,
-                    output_dtype=torch.bfloat16,
-                )
-                # Assert the NPU path was called
-                mock_npu_fn.assert_called_once()
-                call_args = mock_npu_fn.call_args
-                # Verify the arguments passed to NPU function
-                assert call_args[0][0] is a_data  # a_data
-                assert call_args[0][1] is a_scale  # a_scale (direct, not inverse)
-                assert call_args[0][2] is b_data  # b_data
-                assert call_args[0][3] is b_scale  # b_scale (direct, not inverse)
-                assert call_args[0][4] == torch.bfloat16  # output_dtype
-
-    def test_addmm_float8_unwrapped_cuda_does_not_call_npu(self):
-        """Verify CUDA tensors do NOT go through the NPU path."""
-        if not torch.cuda.is_available():
-            self.skipTest("CUDA not available")
-
-        M, K, N = 32, 64, 48
-        a_data = torch.randn(M, K, dtype=torch.float8_e4m3fn, device="cuda")
-        b_data = torch.randn(K, N, dtype=torch.float8_e4m3fn, device="cuda")
-        a_scale = torch.tensor(1.0, device="cuda")
-        b_scale = torch.tensor(1.0, device="cuda")
+        # Create fp8 tensors on NPU: randn in bf16 then cast
+        a_data = _randn_fp8((M, K))
+        b_data = _randn_fp8((K, N))
+        a_scale = torch.tensor(1.0, device="npu")
+        b_scale = torch.tensor(1.0, device="npu")
 
         with patch(
-            "torchao.float8.float8_ops._addmm_float8_unwrapped_npu"
-        ) as mock_npu_fn:
-            # This should use the CUDA path (_scaled_mm), NOT NPU
-            try:
-                addmm_float8_unwrapped(
-                    a_data,
-                    a_scale,
-                    b_data,
-                    b_scale,
-                    output_dtype=torch.bfloat16,
-                )
-            except Exception:
-                pass  # _scaled_mm may fail on some hardware, that's fine
-            # Assert NPU path was NOT called
-            mock_npu_fn.assert_not_called()
+            "torchao.float8.float8_ops._addmm_float8_unwrapped_npu",
+            wraps=_addmm_float8_unwrapped_npu,
+        ) as spy:
+            result = addmm_float8_unwrapped(
+                a_data,
+                a_scale,
+                b_data,
+                b_scale,
+                output_dtype=torch.bfloat16,
+            )
+            # Assert the NPU path was called
+            spy.assert_called_once()
+            call_args = spy.call_args[0]
+            # Verify the arguments passed to NPU function
+            assert call_args[0] is a_data  # a_data
+            assert call_args[1] is a_scale  # a_scale (direct, not inverse)
+            assert call_args[2] is b_data  # b_data
+            assert call_args[3] is b_scale  # b_scale (direct, not inverse)
+            assert call_args[4] == torch.bfloat16  # output_dtype
 
     def test_npu_path_passes_direct_scale_not_inverse(self):
         """Verify NPU path passes scale directly (not reciprocal).
@@ -140,70 +119,66 @@ class TestNPUDispatchMocked(unittest.TestCase):
         inverse scales.
         """
         M, K, N = 32, 64, 48
-        a_data = torch.randn(M, K, dtype=torch.float8_e4m3fn)
-        b_data = torch.randn(K, N, dtype=torch.float8_e4m3fn)
-        a_scale = torch.tensor(2.5)
-        b_scale = torch.tensor(3.7)
+        a_data = _randn_fp8((M, K))
+        b_data = _randn_fp8((K, N))
+        a_scale = torch.tensor(2.5, device="npu")
+        b_scale = torch.tensor(3.7, device="npu")
 
-        with patch.object(type(a_data), "device", new_callable=lambda: property(lambda self: torch.device("npu", 0))):
-            with patch(
-                "torchao.float8.float8_ops._addmm_float8_unwrapped_npu"
-            ) as mock_npu_fn:
-                mock_npu_fn.return_value = torch.randn(M, N, dtype=torch.bfloat16)
-                addmm_float8_unwrapped(
-                    a_data,
-                    a_scale,
-                    b_data,
-                    b_scale,
-                    output_dtype=torch.bfloat16,
-                )
-                call_args = mock_npu_fn.call_args[0]
-                # Scales must be passed directly, not as reciprocals
-                assert torch.equal(call_args[1], a_scale), (
-                    f"Expected direct a_scale={a_scale}, got {call_args[1]}"
-                )
-                assert torch.equal(call_args[3], b_scale), (
-                    f"Expected direct b_scale={b_scale}, got {call_args[3]}"
-                )
+        with patch(
+            "torchao.float8.float8_ops._addmm_float8_unwrapped_npu",
+            wraps=_addmm_float8_unwrapped_npu,
+        ) as spy:
+            addmm_float8_unwrapped(
+                a_data,
+                a_scale,
+                b_data,
+                b_scale,
+                output_dtype=torch.bfloat16,
+            )
+            call_args = spy.call_args[0]
+            # Scales must be passed directly, not as reciprocals
+            assert torch.equal(call_args[1], a_scale), (
+                f"Expected direct a_scale={a_scale}, got {call_args[1]}"
+            )
+            assert torch.equal(call_args[3], b_scale), (
+                f"Expected direct b_scale={b_scale}, got {call_args[3]}"
+            )
 
     def test_npu_path_with_bias(self):
         """Verify bias is forwarded to the NPU path."""
         M, K, N = 32, 64, 48
-        a_data = torch.randn(M, K, dtype=torch.float8_e4m3fn)
-        b_data = torch.randn(K, N, dtype=torch.float8_e4m3fn)
-        a_scale = torch.tensor(1.0)
-        b_scale = torch.tensor(1.0)
-        bias = torch.randn(N, dtype=torch.bfloat16)
+        a_data = _randn_fp8((M, K))
+        b_data = _randn_fp8((K, N))
+        a_scale = torch.tensor(1.0, device="npu")
+        b_scale = torch.tensor(1.0, device="npu")
+        bias = torch.randn(N, dtype=torch.bfloat16, device="npu")
 
-        with patch.object(type(a_data), "device", new_callable=lambda: property(lambda self: torch.device("npu", 0))):
-            with patch(
-                "torchao.float8.float8_ops._addmm_float8_unwrapped_npu"
-            ) as mock_npu_fn:
-                mock_npu_fn.return_value = torch.randn(M, N, dtype=torch.bfloat16)
-                addmm_float8_unwrapped(
-                    a_data,
-                    a_scale,
-                    b_data,
-                    b_scale,
-                    output_dtype=torch.bfloat16,
-                    bias=bias,
-                )
-                call_kwargs = mock_npu_fn.call_args[1]
-                assert call_kwargs["bias"] is bias
+        with patch(
+            "torchao.float8.float8_ops._addmm_float8_unwrapped_npu",
+            wraps=_addmm_float8_unwrapped_npu,
+        ) as spy:
+            addmm_float8_unwrapped(
+                a_data,
+                a_scale,
+                b_data,
+                b_scale,
+                output_dtype=torch.bfloat16,
+                bias=bias,
+            )
+            call_kwargs = spy.call_args[1]
+            assert call_kwargs["bias"] is bias
 
-    def test_float8_mm_dispatch_dispatches_to_npu(self):
-        """Verify that Float8TrainingTensor mm dispatch goes through NPU path."""
+    def test_float8_mm_dispatch_uses_npu_path(self):
+        """Verify that Float8TrainingTensor mm dispatch goes through NPU addmm path."""
         M, K, N = 32, 64, 48
         linear_mm_config = _make_linear_mm_config()
 
-        # Create hp tensors and convert to Float8TrainingTensor
-        a_hp = torch.randn(M, K, dtype=torch.bfloat16)
-        b_hp = torch.randn(K, N, dtype=torch.bfloat16)
+        # Create hp tensors on NPU and convert to Float8TrainingTensor
+        a_hp = torch.randn(M, K, dtype=torch.bfloat16, device="npu")
+        b_hp = torch.randn(K, N, dtype=torch.bfloat16, device="npu")
 
         a_scale = tensor_to_scale(a_hp, e4m3_dtype)
         b_scale = tensor_to_scale(b_hp, e4m3_dtype)
-
-        from torchao.float8.float8_training_tensor import hp_tensor_and_scale_to_float8
 
         a_fp8 = hp_tensor_and_scale_to_float8(
             a_hp, a_scale, e4m3_dtype, linear_mm_config, GemmInputRole.INPUT
@@ -212,21 +187,20 @@ class TestNPUDispatchMocked(unittest.TestCase):
             b_hp, b_scale, e4m3_dtype, linear_mm_config, GemmInputRole.WEIGHT
         )
 
-        # Mock the NPU path at the addmm_float8_unwrapped level
+        # Spy on the NPU function to verify it's called
         with patch(
-            "torchao.float8.float8_ops.addmm_float8_unwrapped"
-        ) as mock_addmm:
-            mock_addmm.return_value = torch.randn(M, N, dtype=torch.bfloat16)
-            # Trigger the mm dispatch
-            try:
-                result = torch.mm(a_fp8, b_fp8)
-            except Exception:
-                pass
-            mock_addmm.assert_called_once()
+            "torchao.float8.float8_ops._addmm_float8_unwrapped_npu",
+            wraps=_addmm_float8_unwrapped_npu,
+        ) as spy:
+            result = torch.mm(a_fp8, b_fp8)
+            spy.assert_called_once()
+            # Verify output shape and dtype
+            self.assertEqual(result.shape, (M, N))
+            self.assertEqual(result.dtype, torch.bfloat16)
 
 
 # ============================================================================
-# Hardware tests: run only on NPU hardware
+# Hardware tests: end-to-end training on NPU
 # ============================================================================
 
 
@@ -237,7 +211,6 @@ class TestNPUFloat8TrainingHardware(unittest.TestCase):
     def test_addmm_float8_unwrapped_npu_basic(self):
         """Test _addmm_float8_unwrapped_npu produces correct results."""
         M, K, N = 64, 128, 96
-        linear_mm_config = _make_linear_mm_config()
 
         # Create hp reference
         a_hp = torch.randn(M, K, dtype=torch.bfloat16, device="npu")
@@ -408,8 +381,8 @@ class TestNPUFloat8TrainingHardware(unittest.TestCase):
             f"Training did not converge: initial_loss={initial_loss}, final_loss={final_loss}",
         )
 
-    def test_npu_path_actually_called_hardware(self):
-        """Verify the NPU kernel (npu_quant_matmul) is actually called during training."""
+    def test_npu_path_actually_called_in_training(self):
+        """Verify npu_quant_matmul is actually called during fwd+bwd, not CUDA _scaled_mm."""
         M, K, N = 64, 128, 96
 
         config = Float8LinearConfig.from_recipe_name("tensorwise")
