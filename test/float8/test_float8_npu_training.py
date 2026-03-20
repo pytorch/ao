@@ -409,5 +409,267 @@ class TestNPUFloat8TrainingHardware(unittest.TestCase):
             )
 
 
+# ============================================================================
+# Realistic user-facing test: how a real user would use torchao FP8 training
+# ============================================================================
+
+
+class SimpleMLP(nn.Module):
+    """A small MLP resembling a transformer feed-forward block."""
+
+    def __init__(self, d_model, d_ff, num_layers=2, dropout=0.0):
+        super().__init__()
+        layers = []
+        in_dim = d_model
+        for i in range(num_layers - 1):
+            layers.append(nn.Linear(in_dim, d_ff))
+            layers.append(nn.GELU())
+            if dropout > 0:
+                layers.append(nn.Dropout(dropout))
+            in_dim = d_ff
+        layers.append(nn.Linear(in_dim, d_model))
+        self.net = nn.Sequential(*layers)
+
+    def forward(self, x):
+        return self.net(x)
+
+
+@unittest.skipUnless(_is_npu_available(), "NPU hardware not available")
+class TestNPUFloat8TrainingUserWorkflow(unittest.TestCase):
+    """
+    Realistic tests that mirror how a user would actually use torchao
+    to train a model with FP8 on NPU.
+
+    Follows the documented API:
+        1. Create model
+        2. Pick a recipe via Float8LinearConfig.from_recipe_name(...)
+        3. convert_to_float8_training(model, config=config)
+        4. Train normally with standard optimizer and loss
+    """
+
+    def _train_loop(self, model, train_x, train_y, steps=50, lr=1e-2):
+        """Run a standard training loop and return (initial_loss, final_loss)."""
+        optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
+        criterion = nn.MSELoss()
+
+        initial_loss = None
+        final_loss = None
+        for step in range(steps):
+            optimizer.zero_grad()
+            output = model(train_x)
+            loss = criterion(output, train_y)
+            loss.backward()
+            optimizer.step()
+            if step == 0:
+                initial_loss = loss.item()
+            final_loss = loss.item()
+        return initial_loss, final_loss
+
+    def test_simple_mlp_fp8_training(self):
+        """
+        A user creates a 2-layer MLP on NPU, converts to FP8 training with
+        the tensorwise recipe, and trains on a regression task.
+
+        Equivalent user code:
+            model = SimpleMLP(256, 512).bfloat16().npu()
+            config = Float8LinearConfig.from_recipe_name("tensorwise")
+            convert_to_float8_training(model, config=config)
+            optimizer = torch.optim.AdamW(model.parameters(), lr=1e-2)
+            for batch in dataloader:
+                ...
+        """
+        torch.manual_seed(42)
+        d_model, d_ff, batch_size = 256, 512, 64
+
+        # 1. Create model
+        model = SimpleMLP(d_model, d_ff, num_layers=2).bfloat16().npu()
+
+        # 2. Pick a recipe
+        config = Float8LinearConfig.from_recipe_name("tensorwise")
+
+        # 3. Convert to FP8 training
+        convert_to_float8_training(model, config=config)
+
+        # Verify all nn.Linear layers were swapped to Float8Linear
+        linear_modules = [
+            m for m in model.modules() if isinstance(m, (nn.Linear, Float8Linear))
+        ]
+        for m in linear_modules:
+            self.assertIsInstance(m, Float8Linear, f"Expected Float8Linear, got {type(m)}")
+
+        # 4. Train on a simple regression task
+        train_x = torch.randn(batch_size, d_model, device="npu", dtype=torch.bfloat16)
+        train_y = torch.randn(batch_size, d_model, device="npu", dtype=torch.bfloat16)
+
+        initial_loss, final_loss = self._train_loop(model, train_x, train_y, steps=50)
+
+        # Loss must decrease — training actually works
+        self.assertLess(
+            final_loss,
+            initial_loss * 0.5,
+            f"Training did not converge sufficiently: "
+            f"initial_loss={initial_loss:.4f}, final_loss={final_loss:.4f}",
+        )
+
+    def test_multi_layer_model_fp8_training(self):
+        """
+        A deeper model (4 linear layers) to verify FP8 training works with
+        multiple stacked Float8Linear modules.
+        """
+        torch.manual_seed(123)
+        d_model, d_ff, batch_size = 128, 256, 32
+
+        model = SimpleMLP(d_model, d_ff, num_layers=4).bfloat16().npu()
+        config = Float8LinearConfig.from_recipe_name("tensorwise")
+        convert_to_float8_training(model, config=config)
+
+        train_x = torch.randn(batch_size, d_model, device="npu", dtype=torch.bfloat16)
+        train_y = torch.randn(batch_size, d_model, device="npu", dtype=torch.bfloat16)
+
+        initial_loss, final_loss = self._train_loop(model, train_x, train_y, steps=80)
+
+        self.assertLess(
+            final_loss,
+            initial_loss * 0.5,
+            f"Deep model did not converge: "
+            f"initial_loss={initial_loss:.4f}, final_loss={final_loss:.4f}",
+        )
+
+    def test_fp8_training_with_bias(self):
+        """
+        Verify FP8 training works with biased linear layers, which is the
+        default for nn.Linear.
+        """
+        torch.manual_seed(77)
+        batch_size = 32
+
+        # Users often don't explicitly set bias=False
+        model = nn.Sequential(
+            nn.Linear(128, 256),
+            nn.ReLU(),
+            nn.Linear(256, 64),
+        ).bfloat16().npu()
+
+        config = Float8LinearConfig.from_recipe_name("tensorwise")
+        convert_to_float8_training(model, config=config)
+
+        train_x = torch.randn(batch_size, 128, device="npu", dtype=torch.bfloat16)
+        train_y = torch.randn(batch_size, 64, device="npu", dtype=torch.bfloat16)
+
+        initial_loss, final_loss = self._train_loop(model, train_x, train_y, steps=50)
+
+        self.assertLess(
+            final_loss,
+            initial_loss * 0.5,
+            f"Biased model did not converge: "
+            f"initial_loss={initial_loss:.4f}, final_loss={final_loss:.4f}",
+        )
+
+    def test_fp8_vs_bf16_accuracy(self):
+        """
+        Compare FP8 training against BF16 baseline to ensure FP8 does not
+        degrade accuracy significantly on a simple task.
+        """
+        torch.manual_seed(99)
+        d_model, d_ff, batch_size = 128, 256, 32
+
+        train_x = torch.randn(batch_size, d_model, device="npu", dtype=torch.bfloat16)
+        train_y = torch.randn(batch_size, d_model, device="npu", dtype=torch.bfloat16)
+
+        # BF16 baseline
+        torch.manual_seed(99)
+        bf16_model = SimpleMLP(d_model, d_ff).bfloat16().npu()
+        _, bf16_loss = self._train_loop(bf16_model, train_x, train_y, steps=60)
+
+        # FP8 model (same init)
+        torch.manual_seed(99)
+        fp8_model = SimpleMLP(d_model, d_ff).bfloat16().npu()
+        config = Float8LinearConfig.from_recipe_name("tensorwise")
+        convert_to_float8_training(fp8_model, config=config)
+        _, fp8_loss = self._train_loop(fp8_model, train_x, train_y, steps=60)
+
+        # FP8 loss should be in the same ballpark as BF16 (within 3x)
+        self.assertLess(
+            fp8_loss,
+            bf16_loss * 3.0,
+            f"FP8 loss ({fp8_loss:.4f}) is much worse than BF16 loss ({bf16_loss:.4f})",
+        )
+
+    def test_fp8_training_npu_path_verified(self):
+        """
+        Full user workflow with verification that npu_quant_matmul is actually
+        called (not falling back to some other path).
+        """
+        torch.manual_seed(42)
+        d_model, batch_size = 128, 16
+
+        model = nn.Sequential(
+            nn.Linear(d_model, 64, bias=False),
+            nn.ReLU(),
+            nn.Linear(64, d_model, bias=False),
+        ).bfloat16().npu()
+
+        config = Float8LinearConfig.from_recipe_name("tensorwise")
+        convert_to_float8_training(model, config=config)
+
+        optimizer = torch.optim.AdamW(model.parameters(), lr=1e-2)
+        train_x = torch.randn(batch_size, d_model, device="npu", dtype=torch.bfloat16)
+        train_y = torch.randn(batch_size, d_model, device="npu", dtype=torch.bfloat16)
+
+        with patch(
+            "torchao.float8.float8_ops._addmm_float8_unwrapped_npu",
+            wraps=_addmm_float8_unwrapped_npu,
+        ) as spy:
+            # Run 5 training steps
+            for _ in range(5):
+                optimizer.zero_grad()
+                output = model(train_x)
+                loss = nn.functional.mse_loss(output, train_y)
+                loss.backward()
+                optimizer.step()
+
+            # 2 Float8Linear layers × (1 fwd + 2 bwd) = 6 calls per step
+            # 5 steps × 6 = 30 total calls
+            self.assertEqual(
+                spy.call_count,
+                30,
+                f"Expected 30 NPU calls (5 steps × 2 layers × 3 GEMMs), "
+                f"got {spy.call_count}",
+            )
+
+    def test_module_filter_fn(self):
+        """
+        Verify that module_filter_fn lets users selectively convert only
+        certain layers to FP8, leaving others in BF16.
+        """
+        torch.manual_seed(42)
+
+        model = nn.Sequential(
+            nn.Linear(128, 256, bias=False),  # index 0: convert
+            nn.ReLU(),
+            nn.Linear(256, 64, bias=False),   # index 2: keep bf16
+        ).bfloat16().npu()
+
+        config = Float8LinearConfig.from_recipe_name("tensorwise")
+
+        # Only convert the first linear layer
+        def filter_fn(mod, fqn):
+            return "0" in fqn
+
+        convert_to_float8_training(model, config=config, module_filter_fn=filter_fn)
+
+        self.assertIsInstance(model[0], Float8Linear)
+        self.assertNotIsInstance(model[2], Float8Linear)
+        self.assertIsInstance(model[2], nn.Linear)
+
+        # Should still train fine with mixed FP8 + BF16 layers
+        train_x = torch.randn(16, 128, device="npu", dtype=torch.bfloat16)
+        output = model(train_x)
+        output.sum().backward()
+
+        self.assertIsNotNone(model[0].weight.grad)
+        self.assertIsNotNone(model[2].weight.grad)
+
+
 if __name__ == "__main__":
     unittest.main()
