@@ -37,18 +37,32 @@ def _addmm_float8_unwrapped_npu(
     """
     NPU backend for float8 matmul using torch_npu.npu_quant_matmul.
 
-    npu_quant_matmul expects direct scales (not inverse), so we pass
-    a_scale and b_scale as-is (they are multiplicative: fp8_val * scale = hp_val).
+    npu_quant_matmul signature (from op_plugin_functions.yaml):
+        npu_quant_matmul(Tensor x1, Tensor x2, Tensor scale, *,
+                         Tensor? offset=None, Tensor? pertoken_scale=None,
+                         Tensor? bias=None, int? output_dtype=None, ...)
+
+    It takes only 3 positional args: x1, x2, scale.
+    - scale: the weight scale (b_scale)
+    - pertoken_scale: the activation scale (a_scale), applied per-token/per-row
     """
     import torch_npu
+
+    # Map output_dtype to the integer enum expected by npu_quant_matmul
+    _NPU_DTYPE_MAP = {
+        torch.float16: 0,
+        torch.bfloat16: 1,
+        torch.float32: 2,
+    }
+    npu_output_dtype = _NPU_DTYPE_MAP.get(output_dtype)
 
     output = torch_npu.npu_quant_matmul(
         a_data,
         b_data,
-        a_scale,
         b_scale,
+        pertoken_scale=a_scale,
         bias=bias,
-        output_dtype=output_dtype,
+        output_dtype=npu_output_dtype,
     )
     return output
 

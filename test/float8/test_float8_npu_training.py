@@ -104,11 +104,11 @@ class TestNPUDispatch(unittest.TestCase):
             # Assert the NPU path was called
             spy.assert_called_once()
             call_args = spy.call_args[0]
-            # Verify the arguments passed to NPU function
-            assert call_args[0] is a_data  # a_data
-            assert call_args[1] is a_scale  # a_scale (direct, not inverse)
-            assert call_args[2] is b_data  # b_data
-            assert call_args[3] is b_scale  # b_scale (direct, not inverse)
+            # _addmm_float8_unwrapped_npu(a_data, a_scale, b_data, b_scale, output_dtype)
+            assert call_args[0] is a_data  # a_data (x1)
+            assert call_args[1] is a_scale  # a_scale (pertoken_scale)
+            assert call_args[2] is b_data  # b_data (x2)
+            assert call_args[3] is b_scale  # b_scale (scale)
             assert call_args[4] == torch.bfloat16  # output_dtype
 
     def test_npu_path_passes_direct_scale_not_inverse(self):
@@ -137,6 +137,7 @@ class TestNPUDispatch(unittest.TestCase):
             )
             call_args = spy.call_args[0]
             # Scales must be passed directly, not as reciprocals
+            # a_scale → pertoken_scale, b_scale → scale in npu_quant_matmul
             assert torch.equal(call_args[1], a_scale), (
                 f"Expected direct a_scale={a_scale}, got {call_args[1]}"
             )
