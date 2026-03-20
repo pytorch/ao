@@ -48,13 +48,21 @@ def _addmm_float8_unwrapped_npu(
     """
     import torch_npu
 
-    # Map output_dtype to the integer enum expected by npu_quant_matmul
-    _NPU_DTYPE_MAP = {
-        torch.float16: 0,
-        torch.bfloat16: 1,
-        torch.float32: 2,
-    }
-    npu_output_dtype = _NPU_DTYPE_MAP.get(output_dtype)
+    # npu_quant_matmul's output_dtype is an integer passed to GetAclDataType().
+    # When the value < 256, it is treated as a PyTorch ScalarType and
+    # auto-converted to the corresponding ACL dtype.  We can therefore
+    # simply forward the torch dtype's ScalarType ordinal.
+    npu_output_dtype = None
+    if output_dtype is not None:
+        # torch dtype objects expose their ScalarType via _to_c_type() or
+        # by converting with torch._C._jit_get_scalar_type, but the most
+        # portable way is via the internal mapping used by at::ScalarType.
+        _NPU_DTYPE_MAP = {
+            torch.float16: 5,   # at::ScalarType::Half
+            torch.bfloat16: 15, # at::ScalarType::BFloat16
+            torch.float32: 6,   # at::ScalarType::Float
+        }
+        npu_output_dtype = _NPU_DTYPE_MAP.get(output_dtype)
 
     output = torch_npu.npu_quant_matmul(
         a_data,
