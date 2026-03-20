@@ -64,6 +64,13 @@ def _addmm_float8_unwrapped_npu(
         }
         npu_output_dtype = _NPU_DTYPE_MAP.get(output_dtype)
 
+    # npu_quant_matmul expects scales to be at least 1-dim.
+    # In tensorwise scaling, scales are 0-dim scalars — reshape to [1].
+    if b_scale.dim() == 0:
+        b_scale = b_scale.reshape(1)
+    if a_scale.dim() == 0:
+        a_scale = a_scale.reshape(1)
+
     output = torch_npu.npu_quant_matmul(
         a_data,
         b_data,
