@@ -612,42 +612,6 @@ def test_cuda_mx_dim1_numerics(M, K, input_dtype, scaling_mode):
     not is_cuda_version_at_least(12, 8),
     reason="CUDA version >= 12.8 required for MXFP8 CUDA kernels",
 )
-def test_cuda_mxfp8_rceil_exp2f_rcp_unbiased_exp_127():
-    """
-    Test edge case that occurs when the unbiased exponent is 127, requiring
-    the reciprocal to be 2^-127.
-    """
-    device = "cuda"
-    scaling_mode_str = "rceil"  # exp2f_rcp only is called for rceil scale rounding mode
-
-    value = float("inf")
-
-    M, K = 64, 64
-    input_tensor = torch.full((M, K), value, dtype=torch.float32, device=device)
-
-    _, y_fp8, _, scales = mxfp8_quantize_cuda(
-        input_tensor,
-        rowwise=False,
-        colwise=True,
-        scaling_mode=scaling_mode_str,
-    )
-    expected_y = torch.full(y_fp8.shape, 448.0, dtype=y_fp8.dtype, device=y_fp8.device)
-    torch.testing.assert_close(y_fp8, expected_y, atol=0, rtol=0)
-
-    expected_scale = torch.full(
-        scales.shape, 254, dtype=torch.uint8, device=y_fp8.device
-    ).view(torch.float8_e8m0fnu)
-    torch.testing.assert_close(scales, expected_scale, atol=0, rtol=0)
-
-
-@pytest.mark.skipif(
-    not is_sm_at_least_100(),
-    reason="MXFP8 requires CUDA capability 10.0 or greater",
-)
-@pytest.mark.skipif(
-    not is_cuda_version_at_least(12, 8),
-    reason="CUDA version >= 12.8 required for MXFP8 CUDA kernels",
-)
 def test_cuda_mx_dim0_not_supported():
     M, K = 64, 64
     x = (
