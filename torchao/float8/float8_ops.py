@@ -26,6 +26,33 @@ FLOAT8_OPS_TABLE: Dict[Any, Any] = {}
 # Cublas defines scale to always mean a multiplicative factor for the respective matrices
 # For a,b going from fp8 -> fp32 we multiple by the inverse of the scale
 # For output going from fp32 -> fp8 we multiply by the scale
+def _addmm_float8_unwrapped_npu(
+    a_data: torch.Tensor,
+    a_scale: torch.Tensor,
+    b_data: torch.Tensor,
+    b_scale: torch.Tensor,
+    output_dtype: torch.dtype,
+    bias: Optional[torch.Tensor] = None,
+) -> torch.Tensor:
+    """
+    NPU backend for float8 matmul using torch_npu.npu_quant_matmul.
+
+    npu_quant_matmul expects direct scales (not inverse), so we pass
+    a_scale and b_scale as-is (they are multiplicative: fp8_val * scale = hp_val).
+    """
+    import torch_npu
+
+    output = torch_npu.npu_quant_matmul(
+        a_data,
+        b_data,
+        a_scale,
+        b_scale,
+        bias=bias,
+        output_dtype=output_dtype,
+    )
+    return output
+
+
 def addmm_float8_unwrapped(
     a_data: torch.Tensor,
     a_scale: torch.Tensor,
@@ -41,6 +68,12 @@ def addmm_float8_unwrapped(
     as inputs. This is used to standardize the logic between subclassed and non subclassed
     versions of the linear module.
     """
+    # NPU path: use npu_quant_matmul which accepts direct scales
+    if a_data.device.type == "npu":
+        return _addmm_float8_unwrapped_npu(
+            a_data, a_scale, b_data, b_scale, output_dtype, bias=bias,
+        )
+
     a_inverse_scale = a_scale.reciprocal()
     b_inverse_scale = b_scale.reciprocal()
 
