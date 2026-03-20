@@ -68,10 +68,6 @@ from torchao.prototype.dtypes.uintx.block_sparse_layout import (
     _linear_int8_act_int8_weight_block_sparse_check,
     _linear_int8_act_int8_weight_block_sparse_impl,
 )
-from torchao.prototype.dtypes.uintx.dyn_int8_act_int4_wei_cpu_layout import (
-    _linear_int8_act_int4_weight_cpu_check,
-    _linear_int8_act_int4_weight_cpu_impl,
-)
 from torchao.prototype.dtypes.uintx.gemlite_layout import (
     _linear_fp_act_int4_weight_gemlite_check,
     _linear_fp_act_int4_weight_gemlite_impl,
@@ -206,10 +202,6 @@ def _register_aqt_quantized_linear_dispatches():
         (
             _linear_bf16_act_uint4_weight_float_zero_check,
             _linear_bf16_act_uint4_weight_float_zero_impl,
-        ),
-        (
-            _linear_int8_act_int4_weight_cpu_check,
-            _linear_int8_act_int4_weight_cpu_impl,
         ),
     ]:
         register_aqt_quantized_linear_dispatch(dispatch_condition, impl)

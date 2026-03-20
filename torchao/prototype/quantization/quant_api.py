@@ -13,6 +13,7 @@ import logging
 import types
 import warnings
 from dataclasses import dataclass
+from functools import partial
 from typing import Optional
 
 import torch
@@ -45,6 +46,7 @@ from torchao.quantization.transform_module import (
 )
 from torchao.quantization.utils import (
     _linear_extra_repr,
+    _module_extra_repr,
 )
 
 logger = logging.getLogger(__name__)
@@ -109,6 +111,177 @@ def _gemlite_uintx_weight_only_transform(
     )
     module.weight = torch.nn.Parameter(new_weight, requires_grad=False)
     module.extra_repr = types.MethodType(_linear_extra_repr, module)
+    return module
+
+
+@dataclass
+class UIntxWeightOnlyConfig(AOBaseConfig):
+    """Weight-only uintx quantization using bit-packed format with gemlite (https://github.com/dropbox/gemlite)
+       Triton kernels.
+
+    Supports 4-bit (asymmetric, grouped) and 8-bit (symmetric, per-channel) quantization.
+    Uses gemlite library for efficient Triton-based GEMM.
+
+    Args:
+        group_size: quantization group size. Use None for per-channel (required for 8-bit).
+            Valid values: 32, 64, 128, 256, 512, 1024, None. Default: 128.
+        bit_width: quantization bit width, 4 or 8. Default: 4.
+        packing_bitwidth: bit width for packing, 8/16/32/None (auto). Default: None.
+        set_inductor_config: if True, set recommended torchinductor config. Default: True.
+
+    Example:
+
+    .. literalinclude:: ../../examples/inference/uintx_weight_only.py
+       :language: python
+    """
+
+    group_size: Optional[int] = 128
+    bit_width: int = 4
+    packing_bitwidth: Optional[int] = None
+    set_inductor_config: bool = True
+
+    def __post_init__(self):
+        torch._C._log_api_usage_once("torchao.quantization.UIntxWeightOnlyConfig")
+        if self.bit_width not in [4, 8]:
+            raise ValueError(f"bit_width must be 4 or 8, got {self.bit_width}")
+        valid_group_sizes = [32, 64, 128, 256, 512, 1024, None]
+        if self.group_size not in valid_group_sizes:
+            raise ValueError(
+                f"group_size must be one of {valid_group_sizes}, got {self.group_size}"
+            )
+        if self.bit_width == 8 and self.group_size is not None:
+            raise ValueError("group_size must be None for bit_width=8")
+        if self.packing_bitwidth not in [8, 16, 32, None]:
+            raise ValueError(
+                f"packing_bitwidth must be 8, 16, 32, or None, got {self.packing_bitwidth}"
+            )
+
+
+@register_quantize_module_handler(UIntxWeightOnlyConfig)
+def _uintx_weight_only_transform(
+    module: torch.nn.Module,
+    config: UIntxWeightOnlyConfig,
+    *,
+    parameter_name: str = "weight",
+) -> torch.nn.Module:
+    from torchao.prototype.quantization.uintx.uintx_bit_packed_tensor import (
+        UIntxBitPackedTensor,
+    )
+
+    if config.set_inductor_config:
+        torchao.quantization.utils.recommended_inductor_config_setter()
+
+    assert hasattr(module, parameter_name), (
+        f"applying uintx weight only quant requires module to have {parameter_name} attribute"
+        + f" but {module} does not have one"
+    )
+    weight = getattr(module, parameter_name)
+    quantized_weight = UIntxBitPackedTensor.from_hp(
+        weight,
+        bit_width=config.bit_width,
+        group_size=config.group_size,
+        packing_bitwidth=config.packing_bitwidth,
+    )
+    setattr(
+        module,
+        parameter_name,
+        torch.nn.Parameter(quantized_weight, requires_grad=False),
+    )
+    module.extra_repr = types.MethodType(
+        partial(
+            _module_extra_repr,
+            original_extra_repr=module.extra_repr,
+            parameter_name=parameter_name,
+        ),
+        module,
+    )
+    return module
+
+
+@dataclass
+class Int8DynamicActivationUIntxWeightConfig(AOBaseConfig):
+    """Dynamic activation + uintx weight quantization using gemlite (https://github.com/dropbox/gemlite)
+       Triton kernels.
+
+    Activations are quantized dynamically at runtime (int8). Weights use bit-packed
+    uintx format. Supports 4-bit and 8-bit weight quantization.
+
+    Args:
+        group_size: quantization group size. Use None for per-channel (required for 8-bit).
+            Valid values: 32, 64, 128, 256, 512, 1024, None. Default: 128.
+        bit_width: weight quantization bit width, 4 or 8. Default: 4.
+        packing_bitwidth: bit width for packing, 8/16/32/None (auto). Default: None.
+        set_inductor_config: if True, set recommended torchinductor config. Default: True.
+
+    Example:
+
+    .. literalinclude:: ../../examples/inference/int8_dynamic_activation_uintx_weight.py
+       :language: python
+    """
+
+    group_size: Optional[int] = 128
+    bit_width: int = 4
+    packing_bitwidth: Optional[int] = None
+    set_inductor_config: bool = True
+
+    def __post_init__(self):
+        torch._C._log_api_usage_once(
+            "torchao.quantization.Int8DynamicActivationUIntxWeightConfig"
+        )
+        if self.bit_width not in [4, 8]:
+            raise ValueError(f"bit_width must be 4 or 8, got {self.bit_width}")
+        valid_group_sizes = [32, 64, 128, 256, 512, 1024, None]
+        if self.group_size not in valid_group_sizes:
+            raise ValueError(
+                f"group_size must be one of {valid_group_sizes}, got {self.group_size}"
+            )
+        if self.bit_width == 8 and self.group_size is not None:
+            raise ValueError("group_size must be None for bit_width=8")
+        if self.packing_bitwidth not in [8, 16, 32, None]:
+            raise ValueError(
+                f"packing_bitwidth must be 8, 16, 32, or None, got {self.packing_bitwidth}"
+            )
+
+
+@register_quantize_module_handler(Int8DynamicActivationUIntxWeightConfig)
+def _int8_dynamic_activation_uintx_weight_transform(
+    module: torch.nn.Module,
+    config: Int8DynamicActivationUIntxWeightConfig,
+    *,
+    parameter_name: str = "weight",
+) -> torch.nn.Module:
+    from torchao.prototype.quantization.uintx.uintx_bit_packed_tensor import (
+        UIntxBitPackedTensor,
+    )
+
+    if config.set_inductor_config:
+        torchao.quantization.utils.recommended_inductor_config_setter()
+
+    assert hasattr(module, parameter_name), (
+        f"applying int8 dynamic activation uintx weight quant requires module to have {parameter_name} attribute"
+        + f" but {module} does not have one"
+    )
+    weight = getattr(module, parameter_name)
+    quantized_weight = UIntxBitPackedTensor.from_hp(
+        weight,
+        bit_width=config.bit_width,
+        group_size=config.group_size,
+        packing_bitwidth=config.packing_bitwidth,
+        mode="dynamic",
+    )
+    setattr(
+        module,
+        parameter_name,
+        torch.nn.Parameter(quantized_weight, requires_grad=False),
+    )
+    module.extra_repr = types.MethodType(
+        partial(
+            _module_extra_repr,
+            original_extra_repr=module.extra_repr,
+            parameter_name=parameter_name,
+        ),
+        module,
+    )
     return module
 
 
