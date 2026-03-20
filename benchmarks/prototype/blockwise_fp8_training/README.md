@@ -13,16 +13,15 @@ python -m benchmarks.prototype.blockwise_fp8_training.benchmark_quant_kernel_ban
 
 What it reports:
 
-- `kernel_us`: measured runtime of the preallocated-output kernel launch path
+- `kernel_us`: measured runtime of the public quantization wrapper call
 - `effective_logical_io_gbps`: logical tensor IO bytes divided by measured time
 - `logical_io_vs_peak_%`: `effective_logical_io_gbps / peak_bandwidth_gbps`
 - `logical_io_vs_achievable_%`: `effective_logical_io_gbps / achievable_bandwidth_gbps`
 
 Notes:
 
-- The benchmark preallocates `y` and `s` and times the Triton launch path.
-- The benchmark verifies that the preallocated-output launch path matches the
-  public wrapper outputs before timing.
+- The benchmark times the public wrapper functions in
+  `torchao.prototype.blockwise_fp8_training.kernels`.
 - The bandwidth number uses the expected tensor IO footprint, not hardware DRAM
   counters.
 - Peak bandwidth defaults to CUDA device properties. `--use-roofline-utils`
@@ -30,24 +29,17 @@ Notes:
 
 ### Methodology
 
-This benchmark intentionally uses
-`do_bench_triton(...)` from [autotuner.py](/home/dev/ao/torchao/kernel/autotuner.py#L16)
-instead, because it flushes L2 between measured iterations. For a bandwidth
-benchmark, warm-cache timings can overstate effective memory
-bandwidth.
-
-- It times the low-level kernel launch path, not the Python wrapper.
-- It preallocates outputs so allocation time is not counted as kernel time.
-- It runs an untimed reference check against the public wrapper before timing.
-- It uses CUDA event timing and the median, via `do_bench_triton(...)`.
-- It avoids `torch.cuda.empty_cache()`, which changes allocator state but does
-  not flush L2.
+- It times the public wrapper call, matching the style of the other benchmark
+  scripts in this directory.
+- It uses CUDA event timing and the median, via
+  `benchmark_cuda_function_in_microseconds(...)` from
+  [benchmarks/utils.py](/home/dev/ao/benchmarks/utils.py#L101).
 - It validates unsupported shapes up front and skips them instead of silently
   measuring invalid configurations.
 
 ## Current H100 Results
 
-Captured on 2026-03-19 with:
+Captured on 2026-03-20 with:
 
 ```bash
 python -m benchmarks.prototype.blockwise_fp8_training.benchmark_quant_kernel_bandwidth
@@ -66,13 +58,13 @@ Tested with shapes 32768 and 131072 to reflect real world training:
 
 | kernel | shape | kernel_us | effective_logical_io_gbps | logical_io_vs_peak_% | logical_io_vs_achievable_% |
 |---|---|---:|---:|---:|---:|
-| act_quant_lhs | 32768x4096 | 668.10 | 609.0 | 18.2 | 19.7 |
-| act_quant_rhs | 32768x4096 | 658.56 | 617.8 | 18.4 | 20.0 |
-| act_quant_transposed_lhs | 32768x4096 | 655.14 | 621.0 | 18.5 | 20.1 |
-| weight_quant_rhs | 32768x4096 | 283.49 | 1420.5 | 42.4 | 46.1 |
-| weight_quant_transposed_rhs | 32768x4096 | 281.92 | 1428.4 | 42.6 | 46.3 |
-| act_quant_lhs | 131072x4096 | 663.10 | 2454.2 | 73.2 | 79.6 |
-| act_quant_rhs | 131072x4096 | 657.34 | 2475.7 | 73.9 | 80.3 |
-| act_quant_transposed_lhs | 131072x4096 | 655.14 | 2484.0 | 74.1 | 80.5 |
-| weight_quant_transposed_rhs | 131072x4096 | 583.20 | 2761.9 | 82.4 | 89.6 |
-| weight_quant_rhs | 131072x4096 | 559.52 | 2878.8 | 85.9 | 93.3 |
+| act_quant_transposed_lhs | 32768x4096 | 154.46 | 2633.9 | 78.6 | 85.4 |
+| weight_quant_transposed_rhs | 32768x4096 | 150.53 | 2675.2 | 79.8 | 86.7 |
+| act_quant_lhs | 32768x4096 | 150.86 | 2696.8 | 80.4 | 87.4 |
+| act_quant_rhs | 32768x4096 | 148.70 | 2736.0 | 81.6 | 88.7 |
+| weight_quant_rhs | 32768x4096 | 144.99 | 2777.3 | 82.8 | 90.1 |
+| weight_quant_transposed_rhs | 131072x4096 | 581.89 | 2768.1 | 82.6 | 89.8 |
+| act_quant_lhs | 131072x4096 | 586.98 | 2772.5 | 82.7 | 89.9 |
+| act_quant_transposed_lhs | 131072x4096 | 581.47 | 2798.7 | 83.5 | 90.7 |
+| act_quant_rhs | 131072x4096 | 562.56 | 2892.8 | 86.3 | 93.8 |
+| weight_quant_rhs | 131072x4096 | 555.30 | 2900.7 | 86.5 | 94.1 |
