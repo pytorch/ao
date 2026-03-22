@@ -254,7 +254,6 @@ class TestAffineQuantizedBasic(TestCase):
 
     @common_utils.parametrize("device", COMMON_DEVICES)
     @common_utils.parametrize("dtype", COMMON_DTYPES)
-    @skip_if_rocm("ROCm enablement in progress")
     def test_flatten_unflatten(self, device, dtype):
         if device == "cuda" and dtype == torch.bfloat16 and is_fbcode():
             raise unittest.SkipTest("TODO: Failing for cuda + bfloat16 in fbcode")
