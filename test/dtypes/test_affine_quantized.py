@@ -166,9 +166,7 @@ class TestAffineQuantized(TestCase):
     def test_print_quantized_module(self):
         for device in self.GPU_DEVICES:
             do_sparse = is_cusparselt_available and not torch.version.hip
-            apply_quant_list = get_quantization_functions(
-                do_sparse, True, device, True
-            )
+            apply_quant_list = get_quantization_functions(do_sparse, True, device, True)
             for apply_quant in apply_quant_list:
                 linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16, device=device)
                 if isinstance(apply_quant, AOBaseConfig):
