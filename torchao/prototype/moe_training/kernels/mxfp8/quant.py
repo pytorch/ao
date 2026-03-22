@@ -10,7 +10,10 @@ import torch
 from torch import Tensor
 from torch.utils._triton import has_triton
 
-from torchao.prototype.moe_training.kernels.mxfp8.cute_utils import (
+from torchao.prototype.moe_training.kernels.mxfp8.cutedsl_quantize_2d import (
+    mxfp8_quantize_cutedsl_2d,
+)
+from torchao.prototype.moe_training.kernels.mxfp8.cutedsl_quantize_3d import (
     _cutedsl_runtime_available,
     _missing_cutedsl_runtime_packages,
 )
@@ -933,13 +936,9 @@ def _fake_mxfp8_quantize_3d_cutedsl_custom_op(
 def _mxfp8_quantize_2d_cutedsl_custom_op(
     x: torch.Tensor,
     block_size: int = 32,
-    scaling_mode: str = "rceil",
+    scaling_mode: str = "floor",
     stage_count: int = 2,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
-    from torchao.prototype.moe_training.kernels.mxfp8.cutedsl_quantize_2d import (
-        mxfp8_quantize_cutedsl_2d,
-    )
-
     return mxfp8_quantize_cutedsl_2d(
         x,
         block_size=block_size,
@@ -953,7 +952,7 @@ def _mxfp8_quantize_2d_cutedsl_custom_op(
 def _fake_mxfp8_quantize_2d_cutedsl_custom_op(
     x: torch.Tensor,
     block_size: int = 32,
-    scaling_mode: str = "rceil",
+    scaling_mode: str = "floor",
     stage_count: int = 2,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     assert x.ndim == 2, "input tensor must be 2D"
