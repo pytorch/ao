@@ -6,6 +6,7 @@
 import pytest
 import torch
 
+from torchao.float8.config import e4m3_dtype
 from torchao.float8.float8_scaling_utils import hp_tensor_to_float8_dynamic
 from torchao.float8.float8_training_tensor import LinearMMConfig
 from torchao.float8.float8_utils import is_row_major
@@ -39,14 +40,14 @@ def test_fp8_hp_to_fp8_row_major(input_shape: tuple[int, int], algo: KernelAlgor
     # production implementation
     x_fp8_row_major = hp_tensor_to_float8_dynamic(
         x_bf16,
-        torch.float8_e4m3fn,
+        e4m3_dtype,
         LinearMMConfig(),
     )
 
     # float8nocompile triton implementation
     y_fp8_row_major = hp_to_fp8_row_major(
         y_bf16,
-        torch.float8_e4m3fn,
+        e4m3_dtype,
         LinearMMConfig(),
         algo=algo,
     )
@@ -77,7 +78,7 @@ def test_fp8_hp_to_fp8_row_major(input_shape: tuple[int, int], algo: KernelAlgor
     with pytest.raises(AssertionError, match="tensor must be contiguous"):
         hp_to_fp8_row_major(
             y_bf16.t(),  # transpose so tensor memory layout is no longer contiguous
-            torch.float8_e4m3fn,
+            e4m3_dtype,
             LinearMMConfig(),
         )
 
@@ -102,7 +103,7 @@ def test_fp8_hp_to_fp8_row_major_t(input_shape: tuple[int, int], algo: KernelAlg
     # production implementation
     x_fp8_row_major = hp_tensor_to_float8_dynamic(
         x_bf16,
-        torch.float8_e4m3fn,
+        e4m3_dtype,
         LinearMMConfig(),
     )
     x_fp8_row_major_t = x_fp8_row_major.t().contiguous()
@@ -110,7 +111,7 @@ def test_fp8_hp_to_fp8_row_major_t(input_shape: tuple[int, int], algo: KernelAlg
     # float8nocompile triton implementation
     y_fp8_row_major_t = hp_to_fp8_row_major_t(
         y_bf16,
-        torch.float8_e4m3fn,
+        e4m3_dtype,
         LinearMMConfig(),
         algo=algo,
     )
@@ -141,7 +142,7 @@ def test_fp8_hp_to_fp8_row_major_t(input_shape: tuple[int, int], algo: KernelAlg
     with pytest.raises(AssertionError, match="tensor must be contiguous"):
         hp_to_fp8_row_major(
             y_bf16.t(),  # transpose so tensor memory layout is no longer contiguous
-            torch.float8_e4m3fn,
+            e4m3_dtype,
             LinearMMConfig(),
         )
 
@@ -164,7 +165,7 @@ def test_fp8_hp_to_fp8_col_major(input_shape: tuple[int, int], algo: KernelAlgor
     # production implementation
     x_fp8_row_major = hp_tensor_to_float8_dynamic(
         x_bf16,
-        torch.float8_e4m3fn,
+        e4m3_dtype,
         LinearMMConfig(),
     )
     x_fp8_col_major = x_fp8_row_major.t().contiguous().t()
@@ -172,7 +173,7 @@ def test_fp8_hp_to_fp8_col_major(input_shape: tuple[int, int], algo: KernelAlgor
     # float8nocompile triton implementation
     y_fp8_col_major = hp_to_fp8_col_major(
         y_bf16,
-        torch.float8_e4m3fn,
+        e4m3_dtype,
         LinearMMConfig(),
         algo=algo,
     )
@@ -203,7 +204,7 @@ def test_fp8_hp_to_fp8_col_major(input_shape: tuple[int, int], algo: KernelAlgor
     with pytest.raises(AssertionError, match="tensor must be contiguous"):
         hp_to_fp8_col_major(
             y_bf16.t(),  # transpose so tensor memory layout is no longer contiguous
-            torch.float8_e4m3fn,
+            e4m3_dtype,
             LinearMMConfig(),
         )
 
@@ -226,7 +227,7 @@ def test_fp8_hp_to_fp8_col_major_t(input_shape: tuple[int, int], algo: KernelAlg
     # production implementation
     x_fp8_row_major = hp_tensor_to_float8_dynamic(
         x_bf16,
-        torch.float8_e4m3fn,
+        e4m3_dtype,
         LinearMMConfig(),
     )
     x_fp8_col_major_t = x_fp8_row_major.contiguous().t()
@@ -234,7 +235,7 @@ def test_fp8_hp_to_fp8_col_major_t(input_shape: tuple[int, int], algo: KernelAlg
     # float8nocompile triton implementation
     y_fp8_col_major_t = hp_to_fp8_col_major_t(
         y_bf16,
-        torch.float8_e4m3fn,
+        e4m3_dtype,
         LinearMMConfig(),
         algo=algo,
     )
@@ -265,7 +266,7 @@ def test_fp8_hp_to_fp8_col_major_t(input_shape: tuple[int, int], algo: KernelAlg
     with pytest.raises(AssertionError, match="tensor must be contiguous"):
         hp_to_fp8_col_major(
             y_bf16.t(),  # transpose so tensor memory layout is no longer contiguous
-            torch.float8_e4m3fn,
+            e4m3_dtype,
             LinearMMConfig(),
         )
 
@@ -290,7 +291,7 @@ def test_fp8_hp_to_fp8_row_and_col_major(
     # production implementation
     x_fp8_row_major = hp_tensor_to_float8_dynamic(
         x_bf16,
-        torch.float8_e4m3fn,
+        e4m3_dtype,
         LinearMMConfig(),
     )
     x_fp8_col_major = x_fp8_row_major.t().contiguous().t()
@@ -298,7 +299,7 @@ def test_fp8_hp_to_fp8_row_and_col_major(
     # float8nocompile triton implementation
     y_fp8_row_major, y_fp8_col_major = hp_to_fp8_row_and_col_major(
         y_bf16,
-        torch.float8_e4m3fn,
+        e4m3_dtype,
         LinearMMConfig(),
         algo=algo,
     )
@@ -339,7 +340,7 @@ def test_fp8_hp_to_fp8_row_and_col_major(
     with pytest.raises(AssertionError, match="tensor must be contiguous"):
         hp_to_fp8_row_and_col_major(
             y_bf16.t(),  # transpose so tensor memory layout is no longer contiguous
-            torch.float8_e4m3fn,
+            e4m3_dtype,
             LinearMMConfig(),
         )
 
@@ -364,7 +365,7 @@ def test_fp8_hp_to_fp8_row_major_t_and_non_t(
     # production implementation
     x_fp8_row_major = hp_tensor_to_float8_dynamic(
         x_bf16,
-        torch.float8_e4m3fn,
+        e4m3_dtype,
         LinearMMConfig(),
     )
     x_fp8_row_major_t = x_fp8_row_major.t().contiguous()
@@ -372,7 +373,7 @@ def test_fp8_hp_to_fp8_row_major_t_and_non_t(
     # float8nocompile triton implementation
     y_fp8_row_major, y_fp8_row_major_t = hp_to_fp8_row_major_t_and_non_t(
         y_bf16,
-        torch.float8_e4m3fn,
+        e4m3_dtype,
         LinearMMConfig(),
         algo=algo,
     )
@@ -413,7 +414,7 @@ def test_fp8_hp_to_fp8_row_major_t_and_non_t(
     with pytest.raises(AssertionError, match="tensor must be contiguous"):
         hp_to_fp8_row_major_t_and_non_t(
             y_bf16.t(),  # transpose so tensor memory layout is no longer contiguous
-            torch.float8_e4m3fn,
+            e4m3_dtype,
             LinearMMConfig(),
         )
 
@@ -438,7 +439,7 @@ def test_fp8_hp_to_fp8_col_major_t_and_non_t(
     # production implementation
     x_fp8_row_major = hp_tensor_to_float8_dynamic(
         x_bf16,
-        torch.float8_e4m3fn,
+        e4m3_dtype,
         LinearMMConfig(),
     )
     x_fp8_col_major = x_fp8_row_major.t().contiguous().t()
@@ -447,7 +448,7 @@ def test_fp8_hp_to_fp8_col_major_t_and_non_t(
     # float8nocompile triton implementation
     y_fp8_col_major, y_fp8_col_major_t = hp_to_fp8_col_major_t_and_non_t(
         y_bf16,
-        torch.float8_e4m3fn,
+        e4m3_dtype,
         LinearMMConfig(),
         algo=algo,
     )
@@ -488,6 +489,6 @@ def test_fp8_hp_to_fp8_col_major_t_and_non_t(
     with pytest.raises(AssertionError, match="tensor must be contiguous"):
         hp_to_fp8_col_major_t_and_non_t(
             y_bf16.t(),  # transpose so tensor memory layout is no longer contiguous
-            torch.float8_e4m3fn,
+            e4m3_dtype,
             LinearMMConfig(),
         )
