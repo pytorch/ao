@@ -34,6 +34,7 @@ from torchao.prototype.moe_training.kernels.mxfp8 import (
     fused_pad_token_groups_cuda,
     fused_unpad_token_groups_cuda,
     mx_block_rearrange_2d_M_groups_cuda,
+    mxfp8_quantize_cuda_2d,
     mxfp8_quantize_cuda_3d,
     torch_pad_token_groups,
     torch_to_blocked_2d_K_groups,
@@ -430,6 +431,61 @@ def test_cuda_mx_dim1_3d_numerics(E, N, K, input_dtype, scaling_mode):
     # Check quantized values
     torch.testing.assert_close(y_d1, y_d1_ref, rtol=0, atol=0)
     assert y_d1.stride() == y_d1_ref.stride(), "quantized tensor strides do not match"
+
+
+@pytest.mark.skipif(
+    not _is_sm_10x(),
+    reason="MXFP8 requires CUDA SM 10.x",
+)
+@pytest.mark.parametrize("M", (32, 1536, 5120, 7168, 8192))
+@pytest.mark.parametrize("K", (32, 1536, 5120, 7168, 8192))
+@pytest.mark.parametrize("input_dtype", (torch.bfloat16,))
+@pytest.mark.parametrize(
+    "scaling_mode", (ScaleCalculationMode.FLOOR, ScaleCalculationMode.RCEIL)
+)
+def test_cuda_mx_dim0_2d_numerics(M, K, input_dtype, scaling_mode):
+    if not _mxfp8_cutedsl_kernels_available:
+        pytest.skip("mxfp8_quantize_2d is unavailable")
+
+    scaling_mode_str = (
+        "floor" if scaling_mode == ScaleCalculationMode.FLOOR else "rceil"
+    )
+    block_size = 32
+
+    # Use distinct incrementing values from 0 to M*K-1 to make debugging easier.
+    x = (
+        torch.arange(0, M * K, dtype=input_dtype, device="cuda")
+        .reshape(M, K)
+        .contiguous()
+    )
+
+    # Reference implementation
+    s_d0_ref, y_d0_ref = to_mx(
+        x,
+        elem_dtype=torch.float8_e4m3fn,
+        block_size=block_size,
+        scaling_mode=scaling_mode,
+    )
+
+    # CuTeDSL kernel implementation
+    y_d0, s_d0 = mxfp8_quantize_cuda_2d(
+        x,
+        block_size=block_size,
+        scaling_mode=scaling_mode_str,
+    )
+
+    # Convert blocked scales back to reference format
+    s_d0 = from_blocked(s_d0, M, K // block_size).to(s_d0_ref.dtype)
+
+    # Check scales
+    torch.testing.assert_close(s_d0, s_d0_ref, rtol=0, atol=0)
+
+    # Check quantized values
+    torch.testing.assert_close(y_d0, y_d0_ref, rtol=0, atol=0)
+
+    # Verify row-major layout
+    assert y_d0.stride() == (K, 1), "quantized tensor should be row-major"
+    assert y_d0.stride() == y_d0_ref.stride(), "quantized tensor strides do not match"
 
 
 @pytest.mark.skipif(
