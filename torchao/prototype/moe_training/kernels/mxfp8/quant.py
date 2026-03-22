@@ -1,16 +1,30 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
+
 from typing import Tuple
 
 import torch
 from torch import Tensor
 from torch.utils._triton import has_triton
 
+from torchao.prototype.moe_training.kernels.mxfp8.cutedsl_quantize_3d import (
+    _cutedsl_runtime_available,
+    _missing_cutedsl_runtime_packages,
+    mxfp8_quantize_cutedsl_3d,
+)
 from torchao.prototype.mx_formats.utils import to_blocked
 from torchao.utils import (
     ceil_div,
     is_cuda_version_at_least,
-    is_sm_at_least_100,
     torch_version_at_least,
 )
+
+
+def _is_sm_10x() -> bool:
+    return torch.cuda.is_available() and torch.cuda.get_device_capability()[0] == 10
 
 
 def torch_to_blocked_2d_M_groups(
@@ -846,71 +860,74 @@ else:
         )
 
 
-_mxfp8_cuda_kernels_available = (
-    torch.cuda.is_available()
-    and is_sm_at_least_100()
-    and is_cuda_version_at_least(12, 8)
+_lib_mxfp8 = torch.library.Library("torchao", "FRAGMENT")
+_lib_mxfp8.define(
+    "mx_block_rearrange_2d_M_groups(Tensor scales_tensor, Tensor input_group_end_offsets, int chunks_per_tb) -> Tensor",
+    tags=[torch._C.Tag.needs_fixed_stride_order],
 )
 
+
+def _has_cuda_dispatch_kernel(opname: str) -> bool:
+    try:
+        return torch._C._dispatch_has_kernel_for_dispatch_key(opname, "CUDA")
+    except Exception:
+        return False
+
+
+_mxfp8_cuda_kernels_available = (
+    _is_sm_10x()
+    and is_cuda_version_at_least(12, 8)
+    and _has_cuda_dispatch_kernel("torchao::mx_block_rearrange_2d_M_groups")
+)
+_mxfp8_cutedsl_kernels_available = (
+    _is_sm_10x() and is_cuda_version_at_least(12, 8) and _cutedsl_runtime_available()
+)
+
+
+@torch.library.custom_op("torchao::mxfp8_quantize_3d_cutedsl", mutates_args=())
+def _mxfp8_quantize_3d_cutedsl_custom_op(
+    x: torch.Tensor,
+    block_size: int = 32,
+    scaling_mode: str = "floor",
+    stage_count: int = 2,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    return mxfp8_quantize_cutedsl_3d(
+        x,
+        block_size=block_size,
+        scaling_mode=scaling_mode,
+        stage_count=stage_count,
+        blocked_scale_output=True,
+    )
+
+
+@_mxfp8_quantize_3d_cutedsl_custom_op.register_fake
+def _fake_mxfp8_quantize_3d_cutedsl_custom_op(
+    x: torch.Tensor,
+    block_size: int = 32,
+    scaling_mode: str = "floor",
+    stage_count: int = 2,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    assert x.ndim == 3, "input tensor must be 3D"
+    assert block_size == 32, "Only block_size=32 is supported"
+    e, n, k = x.shape
+    q_data = torch.empty_strided(
+        (e, n, k),
+        (n * k, 1, n),
+        device=x.device,
+        dtype=torch.float8_e4m3fn,
+    )
+    n_blocks = n // block_size
+    padded_scale_rows = ceil_div(k, 128) * 128
+    padded_scale_cols = ceil_div(n_blocks, 4) * 4
+    scales = x.new_empty(
+        (e, padded_scale_rows * padded_scale_cols),
+        dtype=torch.float8_e8m0fnu,
+    )
+    return q_data, scales
+
+
 if _mxfp8_cuda_kernels_available:
-    lib = torch.library.Library("torchao", "FRAGMENT")
-    lib.define(
-        "mxfp8_quantize_3d(Tensor input, int scale_dim_n, str fp8_format, str scaling_mode) -> (Tensor, Tensor)",
-        tags=[torch._C.Tag.needs_fixed_stride_order],
-    )
-
-    def mxfp8_quantize_cuda_3d(
-        x: torch.Tensor,
-        block_size: int = 32,
-        scaling_mode: str = "floor",
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-        """
-        Quantizes a 3D tensor of shape (E,N,K) to MXFP8 format, scaling along N.
-
-        This is a high-level wrapper that calls the underlying CUDA kernel via
-        torch.ops.torchao.mxfp8_quantize_3d.
-
-        Args:
-            x (torch.Tensor): Input tensor to be quantized.
-            block_size (int, optional): Block size for quantization. Defaults to 32.
-            scaling_mode (str, optional): Scaling mode for quantization. Defaults to "floor".
-
-        Returns:
-            torch.Tensor: quantized tensor in column-major layout
-            torch.Tensor: scales tensor
-        """
-        assert x.ndim == 3, "Input tensor must be 3D"
-        assert x.dtype in (
-            torch.float32,
-            torch.bfloat16,
-        ), "Input tensor must be float32 or bfloat16"
-        return torch.ops.torchao.mxfp8_quantize_3d.default(
-            x, block_size, "e4m3", scaling_mode
-        )
-
-    @torch.library.register_fake("torchao::mxfp8_quantize_3d")
-    def _fake_mxfp8_quantize_3d(
-        x: torch.Tensor,
-        scale_dim_n: int,
-        fp8_format: str,
-        scaling_mode: str,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-        """Fake/meta implementation for mxfp8_quantize_3d."""
-        assert x.ndim == 3, "Input tensor must be 3D"
-        E, N, K = x.shape
-        # Quantized tensor is in column major layout
-        q_data = x.new_empty(x.shape, dtype=torch.float8_e4m3fn).as_strided(
-            x.shape, (N * K, 1, N)
-        )
-        scales = x.new_empty((E, N // scale_dim_n, K), dtype=torch.float8_e8m0fnu)
-        return q_data, scales
-
     # CUDA kernel for per group blocked layout transform with groups along M
-    lib.define(
-        "mx_block_rearrange_2d_M_groups(Tensor scales_tensor, Tensor input_group_end_offsets, int chunks_per_tb) -> Tensor",
-        tags=[torch._C.Tag.needs_fixed_stride_order],
-    )
-
     def mx_block_rearrange_2d_M_groups_cuda(
         scales_tensor: torch.Tensor,
         input_group_end_offsets: torch.Tensor,
@@ -974,7 +991,7 @@ if _mxfp8_cuda_kernels_available:
         return scales_tensor.new_empty((padded_rows, padded_cols))
 
     # CUDA kernel for fused padding of token groups
-    lib.define(
+    _lib_mxfp8.define(
         "fused_pad_token_groups(Tensor inputs, Tensor group_end_offsets, int alignment_size) -> (Tensor, Tensor, Tensor)",
         tags=[torch._C.Tag.needs_fixed_stride_order],
     )
@@ -1051,7 +1068,7 @@ if _mxfp8_cuda_kernels_available:
         return padded_tokens, padded_group_start_offsets, padded_group_end_offsets
 
     # CUDA kernel for fused unpadding of token groups
-    lib.define(
+    _lib_mxfp8.define(
         "fused_unpad_token_groups(Tensor inputs, Tensor group_end_offsets, Tensor padded_group_start_offsets, int num_tokens, int alignment_size) -> Tensor",
         tags=[torch._C.Tag.needs_fixed_stride_order],
     )
@@ -1115,15 +1132,6 @@ if _mxfp8_cuda_kernels_available:
 
 else:
 
-    def mxfp8_quantize_cuda_3d(
-        x: torch.Tensor,
-        block_size: int = 32,
-        scaling_mode: str = "floor",
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-        raise NotImplementedError(
-            "mxfp8_quantize_cuda_3d is not implemented on this device"
-        )
-
     def mx_block_rearrange_2d_M_groups_cuda(
         scales_tensor: torch.Tensor,
         input_group_end_offsets: torch.Tensor,
@@ -1152,3 +1160,35 @@ else:
         raise NotImplementedError(
             "fused_unpad_token_groups_cuda is not implemented on this device"
         )
+
+
+def mxfp8_quantize_cuda_3d(
+    x: torch.Tensor,
+    block_size: int = 32,
+    scaling_mode: str = "floor",
+    stage_count: int = 2,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Quantize a 3D tensor of shape (E, N, K) with scaling along N in blocks of 32.
+
+    Returns quantized data in column-major-per-expert layout and scales in
+    blocked tcgen05 layout.
+    """
+    if not _mxfp8_cutedsl_kernels_available:
+        missing_packages = _missing_cutedsl_runtime_packages()
+        if missing_packages:
+            missing = ", ".join(missing_packages)
+            raise NotImplementedError(
+                "mxfp8_quantize_3d requires additional Python "
+                f"runtime package(s): {missing}. Please install "
+                "`nvidia-cutlass-dsl` and `apache-tvm-ffi`."
+            )
+        raise NotImplementedError(
+            "mxfp8_quantize_3d requires CUDA, SM 10.x, and CUDA 12.8+."
+        )
+    return _mxfp8_quantize_3d_cutedsl_custom_op(
+        x,
+        block_size=block_size,
+        scaling_mode=scaling_mode,
+        stage_count=stage_count,
+    )

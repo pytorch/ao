@@ -441,24 +441,17 @@ def _compute_dgrad(
         return grad_input  # (M, K)
 
     # Path requiring SM100 kernels.
-    # Use CUDA kernel for dim1 quantization
-    # weight_e4m3: (E, N, K), weight_scales: (E, N//block_size, K)
+    # Quantize weights directly to blocked tcgen05 scales.
     weight = weight_t.transpose(-2, -1)
-    weight_e4m3, weight_scales = mxfp8_quantize_cuda_3d(
+    weight_e4m3, weight_scales_blocked = mxfp8_quantize_cuda_3d(
         weight._data if hasattr(weight, "_data") else weight,
-        block_size=block_size,
+        block_size,
         scaling_mode=scale_calculation_mode.value.lower(),
     )
 
-    # Transpose scales to align with torch API requirement:
-    # (E, N//block_size, K) -> (E, K, N//block_size)
-    weight_scales = weight_scales.transpose(-2, -1)
-
-    # Convert scales to blocked format
     grad_output_scales_blocked = mx_block_rearrange_2d_M_groups_cuda(
         grad_output_scales, group_end_offsets
     )
-    weight_scales_blocked = triton_mx_block_rearrange_per_group_3d(weight_scales)
 
     # Compute grad_input = grad_output @ weight
     grad_input = torch._scaled_grouped_mm(
