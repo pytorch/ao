@@ -268,7 +268,6 @@ class PythonQuantUtilOpUnitTest(unittest.TestCase):
             self._test_per_token_linear_impl("cpu", dtype)
 
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
-    @skip_if_rocm("ROCm enablement in progress")
     def test_per_token_linear_cuda(self):
         device = get_current_accelerator_device()
         for dtype in (torch.float32, torch.float16, torch.bfloat16):

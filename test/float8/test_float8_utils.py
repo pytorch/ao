@@ -9,7 +9,6 @@ import pytest
 import torch
 
 from torchao.float8.float8_utils import _round_scale_down_to_power_of_2
-from torchao.testing.utils import skip_if_rocm
 
 
 # source for notable single-precision cases:
@@ -32,7 +31,6 @@ from torchao.testing.utils import skip_if_rocm
         # ("largest subnormal number", [2**-126 * (1 - 2**-23), 1.1754943508222875e-38]),
     ],
 )
-@skip_if_rocm("ROCm enablement in progress")
 def test_round_scale_down_to_power_of_2_valid_inputs(
     test_case: dict,
 ):
