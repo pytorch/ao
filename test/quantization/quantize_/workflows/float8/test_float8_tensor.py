@@ -34,6 +34,8 @@ from torchao.testing.utils import TorchAOIntegrationTestCase
 from torchao.utils import (
     _is_mslk_available,
     get_current_accelerator_device,
+    is_MI300,
+    is_MI350,
     is_sm_at_least_89,
     is_sm_at_least_90,
     is_sm_at_least_100,
@@ -186,7 +188,10 @@ class ToyLoRAModel(torch.nn.Module):
 @unittest.skipIf(
     not torch.accelerator.is_available(), "skipping when gpu is not available"
 )
-@unittest.skipIf(torch.cuda.is_available() and not is_sm_at_least_89(), "Need sm89+")
+@unittest.skipIf(
+    torch.cuda.is_available() and not (is_sm_at_least_89() or is_MI300() or is_MI350()),
+    "Need sm89+ or MI300/MI350",
+)
 class TestFloat8Tensor(TorchAOIntegrationTestCase):
     def setUp(self):
         _DEVICE = get_current_accelerator_device()
@@ -194,10 +199,6 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         torch.set_grad_enabled(False)
 
     @unittest.skipIf(not torch.accelerator.is_available(), "Need accelerator available")
-    @unittest.skipIf(
-        torch.cuda.is_available() and not is_sm_at_least_89(),
-        "Requires GPU with compute capability >= 8.9",
-    )
     @common_utils.parametrize("dtype", [torch.bfloat16, torch.float32])
     @common_utils.parametrize("mode", ["dynamic", "weight-only"])
     @common_utils.parametrize("compile", [True, False])
@@ -247,10 +248,6 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         )
 
     @unittest.skipIf(not torch.accelerator.is_available(), "Need accelerator available")
-    @unittest.skipIf(
-        torch.cuda.is_available() and not is_sm_at_least_89(),
-        "Requires GPU with compute capability >= 8.9",
-    )
     @common_utils.parametrize("dtype", [torch.bfloat16, torch.float32])
     @common_utils.parametrize("mode", ["dynamic", "weight-only"])
     @common_utils.parametrize("compile", [True, False])
