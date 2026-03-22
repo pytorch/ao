@@ -38,11 +38,11 @@ class ExperimentResult:
     # time
     to_mx_us: float
     cuda_2d_us: float
-    cuda_3d_us: float
+    cutedsl_3d_us: float
     # mem bw
     to_mx_gbps: float
     cuda_2d_gbps: float
-    cuda_3d_gbps: float
+    cutedsl_3d_gbps: float
 
 
 @dataclass(frozen=True)
@@ -116,9 +116,13 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
         scaling_mode=config.scaling_mode,
     )
 
-    # bench 3d cuda kernel
-    data_cuda_3d, scales_cuda_3d = mxfp8_quantize_cuda_3d(input_tensor)
-    time_cuda_3d_us = benchmark_cuda_function_in_microseconds(
+    # bench 3d CuTeDSL kernel
+    data_cuda_3d, scales_cuda_3d = mxfp8_quantize_cuda_3d(
+        input_tensor,
+        block_size=block_size,
+        scaling_mode=str(config.scaling_mode.value),
+    )
+    time_cutedsl_3d_us = benchmark_cuda_function_in_microseconds(
         mxfp8_quantize_cuda_3d,
         input_tensor,
         block_size=block_size,
@@ -136,19 +140,18 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
         + scales_cuda_3d.numel() * bytes_per_scale_el
     )
 
+    cutedsl_3d_gbps = ((read_bytes + write_bytes) / 1e9) / (time_cutedsl_3d_us / 1e6)
     to_mx_gbps = ((read_bytes + write_bytes) / 1e9) / (to_mx_time_us / 1e6)
     cuda_2d_gbps = ((read_bytes + write_bytes) / 1e9) / (time_cuda_2d_us / 1e6)
-    cuda_3d_gbps = ((read_bytes + write_bytes) / 1e9) / (time_cuda_3d_us / 1e6)
-
     return ExperimentResult(
         # time
         to_mx_us=to_mx_time_us,
         cuda_2d_us=time_cuda_2d_us,
-        cuda_3d_us=time_cuda_3d_us,
+        cutedsl_3d_us=time_cutedsl_3d_us,
         # mem bw
         to_mx_gbps=to_mx_gbps,
         cuda_2d_gbps=cuda_2d_gbps,
-        cuda_3d_gbps=cuda_3d_gbps,
+        cutedsl_3d_gbps=cutedsl_3d_gbps,
     )
 
 
@@ -156,11 +159,11 @@ def print_results(experiments: List[Experiment]):
     headers = [
         "input_shape",
         "scaling_mode",
-        "cuda_3d_us",
         "cuda_2d_us",
+        "cutedsl_3d_us",
         "to_mx_us",
-        "cuda_3d_gbps",
         "cuda_2d_gbps",
+        "cutedsl_3d_gbps",
         "to_mx_gbps",
     ]
     rows = []
@@ -169,11 +172,11 @@ def print_results(experiments: List[Experiment]):
             [
                 str(experiment.config.input_shape),
                 str(experiment.config.scaling_mode),
-                experiment.result.cuda_3d_us,
                 experiment.result.cuda_2d_us,
+                experiment.result.cutedsl_3d_us,
                 experiment.result.to_mx_us,
-                round(experiment.result.cuda_3d_gbps, 3),
                 round(experiment.result.cuda_2d_gbps, 3),
+                round(experiment.result.cutedsl_3d_gbps, 3),
                 round(experiment.result.to_mx_gbps, 3),
             ]
         )
