@@ -8,7 +8,6 @@ from .affine_quantized_tensor import (
     to_affine_quantized_intx_static,
 )
 from .floatx import (
-    CutlassSemiSparseLayout,
     Float8Layout,
 )
 from .nf4tensor import NF4Tensor, to_nf4
@@ -44,7 +43,6 @@ __all__ = [
     "BlockSparseLayout",
     "UintxLayout",
     "Int4CPULayout",
-    "CutlassSemiSparseLayout",
     "QDQLayout",
     "PackedLinearInt8DynamicActivationIntxWeightLayout",
     "to_affine_quantized_packed_linear_int8_dynamic_activation_intx_weight",
