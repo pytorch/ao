@@ -7,14 +7,17 @@
 import pytest
 import torch
 
-# FP8 MoE kernels require FP8-capable hardware (SM90+ on CUDA, MI300+ on ROCm)
-from torchao.utils import is_MI300, is_MI350, is_sm_at_least_90
+# FP8 MoE kernels require FP8-capable hardware (SM 10.x on CUDA, MI300+ on ROCm)
+from torchao.utils import is_MI300, is_MI350
 
-if not (
-    torch.cuda.is_available() and (is_sm_at_least_90() or is_MI300() or is_MI350())
-):
+
+def _is_sm_10x() -> bool:
+    return torch.cuda.is_available() and torch.cuda.get_device_capability()[0] == 10
+
+
+if not (torch.cuda.is_available() and (_is_sm_10x() or is_MI300() or is_MI350())):
     pytest.skip(
-        "Requires FP8-capable GPU (CUDA SM90+, MI300, or MI350)",
+        "Requires FP8-capable GPU (CUDA SM 10.x, MI300, or MI350)",
         allow_module_level=True,
     )
 
@@ -28,7 +31,6 @@ from torchao.prototype.moe_training.kernels.jagged_float8_scales import (
     triton_fp8_per_group_rowwise_scales,
 )
 from torchao.prototype.moe_training.kernels.mxfp8 import (
-    _mxfp8_cuda_kernels_available,
     fused_pad_token_groups_cuda,
     fused_unpad_token_groups_cuda,
     mx_block_rearrange_2d_M_groups_cuda,
@@ -42,6 +44,10 @@ from torchao.prototype.moe_training.kernels.mxfp8 import (
     triton_mx_block_rearrange_2d_M_groups,
     triton_mx_block_rearrange_per_group_3d,
 )
+from torchao.prototype.moe_training.kernels.mxfp8.quant import (
+    _mxfp8_cuda_kernels_available,
+    _mxfp8_cutedsl_kernels_available,
+)
 from torchao.prototype.moe_training.utils import (
     _is_column_major,
     generate_jagged_offs,
@@ -50,8 +56,8 @@ from torchao.prototype.moe_training.utils import (
     torch_to_float8_per_group_rowwise,
 )
 from torchao.prototype.mx_formats.mx_tensor import ScaleCalculationMode, to_mx
+from torchao.prototype.mx_formats.utils import from_blocked
 from torchao.testing.utils import skip_if_rocm
-from torchao.utils import is_sm_at_least_100
 
 
 @pytest.mark.parametrize("round_scales_to_power_of_2", [True, False])
@@ -251,8 +257,8 @@ def test_triton_mx_block_rearrange_2d_M_groups(
 
 
 @pytest.mark.skipif(
-    not is_sm_at_least_100(),
-    reason="MXFP8 requires CUDA capability 10.0 or greater",
+    not _is_sm_10x(),
+    reason="MXFP8 requires CUDA SM 10.x",
 )
 @skip_if_rocm("ROCm enablement in progress")
 @pytest.mark.parametrize(
@@ -367,15 +373,20 @@ def test_triton_mx_block_rearrange_2d_K_groups(
 
 
 @pytest.mark.skipif(
-    not is_sm_at_least_100(),
-    reason="MXFP8 requires CUDA capability 10.0 or greater",
+    not _is_sm_10x(),
+    reason="MXFP8 requires CUDA SM 10.x",
 )
 @pytest.mark.parametrize("E", (1, 2, 4, 8))
 @pytest.mark.parametrize("N", (32, 1536, 5120, 7168, 8192))
 @pytest.mark.parametrize("K", (32, 1536, 5120, 7168, 8192))
 @pytest.mark.parametrize("input_dtype", (torch.bfloat16,))
-@pytest.mark.parametrize("scaling_mode", (ScaleCalculationMode.FLOOR,))
+@pytest.mark.parametrize(
+    "scaling_mode", (ScaleCalculationMode.FLOOR, ScaleCalculationMode.RCEIL)
+)
 def test_cuda_mx_dim1_3d_numerics(E, N, K, input_dtype, scaling_mode):
+    if not _mxfp8_cutedsl_kernels_available:
+        pytest.skip("mxfp8_quantize_3d is unavailable")
+
     scaling_mode_str = (
         "floor" if scaling_mode == ScaleCalculationMode.FLOOR else "rceil"
     )
@@ -394,16 +405,25 @@ def test_cuda_mx_dim1_3d_numerics(E, N, K, input_dtype, scaling_mode):
         x.transpose(-2, -1).contiguous(),
         elem_dtype=torch.float8_e4m3fn,
         block_size=block_size,
+        scaling_mode=scaling_mode,
     )
 
     # Transpose tensors and scales back so we have effectively
     # quantized input shape (E, N, K) along N
     y_d1_ref = y_d1_ref.transpose(-2, -1)
     s_d1_ref = s_d1_ref.transpose(-2, -1)
-
     y_d1, s_d1 = mxfp8_quantize_cuda_3d(
-        x, block_size=block_size, scaling_mode=scaling_mode_str
+        x,
+        block_size=block_size,
+        scaling_mode=scaling_mode_str,
     )
+    s_d1 = torch.stack(
+        [
+            from_blocked(s_d1[e], K, N // block_size).transpose(-2, -1).contiguous()
+            for e in range(E)
+        ],
+        dim=0,
+    ).to(s_d1_ref.dtype)
     # Check scales
     torch.testing.assert_close(s_d1, s_d1_ref, rtol=0, atol=0)
 
