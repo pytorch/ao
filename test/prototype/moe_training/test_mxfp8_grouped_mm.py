@@ -47,7 +47,6 @@ from torchao.quantization.quantize_.common import KernelPreference
 torch._dynamo.config.cache_size_limit = 1000
 
 
-
 @pytest.mark.parametrize("M,K,N", [(1024, 1024, 1024), (1024, 2048, 4096)])
 @pytest.mark.parametrize("num_experts", (1, 8, 16))
 def test_emulate_mxfp8_grouped_gemm_2d_3d(M, K, N, num_experts):
@@ -77,7 +76,6 @@ def test_emulate_mxfp8_grouped_gemm_2d_3d(M, K, N, num_experts):
     sqnr = compute_error(ref_out, out)
     min_sqnr = 27.0
     assert sqnr >= min_sqnr, f"sqnr {sqnr} is too low, must be >= {min_sqnr}"
-
 
 
 @pytest.mark.parametrize("M", (1024, 4096))
@@ -125,7 +123,6 @@ def test_emulate_mxfp8_grouped_gemm_2d_2d(M, N, num_experts):
     sqnr = compute_error(ref_out, out)
     min_sqnr = 27.0
     assert sqnr >= min_sqnr, f"sqnr {sqnr} is too low, must be >= {min_sqnr}"
-
 
 
 @pytest.mark.parametrize("M,K,N", [(32768, 5120, 8192), (16640, 7168, 2048)])
@@ -224,7 +221,6 @@ def test_mxfp8_grouped_gemm_with_dq_fwd_bwd(
     )
 
 
-
 def test_mxfp8_grouped_gemm_from_qdata_and_scales_matches_dynamic():
     block_size = 32
     M, K, N, num_experts = 4096, 1024, 2048, 8
@@ -297,7 +293,6 @@ def test_mxfp8_grouped_gemm_from_qdata_and_scales_matches_dynamic():
     )
 
 
-
 def test_mxfp8_grouped_gemm_from_qdata_and_scales_forward():
     block_size = 32
     M, K, N, num_experts = 4096, 1024, 2048, 8
@@ -349,7 +344,6 @@ def test_mxfp8_grouped_gemm_from_qdata_and_scales_forward():
     assert output_sqnr >= min_output_sqnr, (
         f"Output sqnr {output_sqnr} is too low, must be >= {min_output_sqnr}"
     )
-
 
 
 def test_mxfp8_grouped_gemm_mxtensor_requires_wgrad_with_hp():
