@@ -45,9 +45,6 @@ jobs:
           # llama3 - compile baseline
           ${CONDA_RUN} python torchao/_models/llama/generate.py --checkpoint_path "${CHECKPOINT_PATH}/${MODEL_REPO}/model.pth" --compile --compile_prefill --output_json_path ${{ runner.temp }}/benchmark-results/llama3-benchmark-results.json
 
-          # llama3 - autoquant
-          ${CONDA_RUN} python torchao/_models/llama/generate.py --checkpoint_path "${CHECKPOINT_PATH}/${MODEL_REPO}/model.pth" --compile --compile_prefill --quantization autoquant --output_json_path ${{ runner.temp }}/benchmark-results/llama3-benchmark-results.json
-
           # skipping SAM because of https://hud.pytorch.org/pr/pytorch/ao/1407
           # # SAM
           # ${CONDA_RUN} pip install git+https://github.com/pytorch-labs/segment-anything-fast.git@main
