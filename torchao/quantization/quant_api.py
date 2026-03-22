@@ -34,7 +34,6 @@ import torchao
 from torchao.core.config import AOBaseConfig
 from torchao.dtypes import (
     AffineQuantizedTensor,
-    CutlassSemiSparseLayout,
     Float8Layout,
     Int4CPULayout,
     Int4XPULayout,
@@ -1048,32 +1047,6 @@ def _int8_symm_per_token_reduced_range_quant_noop_decode(
         )
 
 
-def _float8_cutlass_quant(
-    x: torch.Tensor,
-    target_dtype: torch.dtype,
-) -> torch.Tensor:
-    return to_affine_quantized_floatx(
-        x,
-        block_size=_get_per_token_block_size(x),
-        scale_dtype=torch.float32,
-        target_dtype=target_dtype,
-        _layout=Float8Layout(mm_config=None),
-    )
-
-
-def _float8_cutlass_quant_sparse(
-    x: torch.Tensor,
-    target_dtype: torch.dtype,
-) -> (torch.Tensor, torch.Tensor):
-    return to_affine_quantized_floatx(
-        x,
-        block_size=_get_per_token_block_size(x),
-        scale_dtype=torch.float32,
-        target_dtype=target_dtype,
-        _layout=CutlassSemiSparseLayout(),
-    )
-
-
 def _validate_granularity_int8(
     act_granularity: Granularity,
     weight_granularity: Granularity,
@@ -2081,8 +2054,6 @@ torch.serialization.add_safe_globals(
         _int8_asymm_per_token_quant,
         _int8_symm_per_token_reduced_range_quant,
         _input_activation_quant_func_fp8,
-        _float8_cutlass_quant,
-        _float8_cutlass_quant_sparse,
         Target,
     ]
 )
