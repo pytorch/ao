@@ -531,7 +531,6 @@ class TestFSDP2(FSDPTest):
         return _FSDP_WORLD_SIZE
 
     @skip_if_lt_x_gpu(_FSDP_WORLD_SIZE)
-    @skip_if_rocm("ROCm enablement in progress")
     def test_fsdp2(self):
         # we do this to avoid all combinations
         args_list = [
@@ -646,7 +645,6 @@ class TestFSDP2(FSDPTest):
             self.assertEqual(v1, v2)
 
     @skip_if_lt_x_gpu(_FSDP_WORLD_SIZE)
-    @skip_if_rocm("ROCm enablement in progress")
     def test_uneven_shard(self):
         in_dim = 512
         out_dim = _FSDP_WORLD_SIZE * 16 + 1
