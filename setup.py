@@ -523,12 +523,12 @@ def get_extensions():
         "-DNDEBUG" if not debug_mode else "-DDEBUG",
         "-O3" if not debug_mode else "-O0",
         "-t=0",
-        "-std=c++17",
+        "-std=c++20",
     ]
     rocm_args = [
         "-DNDEBUG" if not debug_mode else "-DDEBUG",
         "-O3" if not debug_mode else "-O0",
-        "-std=c++17",
+        "-std=c++20",
     ]
     maybe_hipify_v2_flag = []
     if use_rocm and detect_hipify_v2():
@@ -773,7 +773,7 @@ def get_extensions():
                     extra_compile_args={
                         "cxx": [
                             f"-DPy_LIMITED_API={min_supported_cpython_hexcode}",
-                            "-std=c++17",
+                            "-std=c++20",
                             "-O3",
                         ],
                         "nvcc": nvcc_args
