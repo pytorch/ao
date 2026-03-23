@@ -13,7 +13,7 @@ import unittest
 import torch
 from parameterized import parameterized
 
-from torchao.utils import is_sm_at_least_90
+from torchao.utils import is_sm_at_least_90, torch_version_at_least
 
 logging.basicConfig(level=logging.INFO)
 
@@ -115,6 +115,7 @@ class TestIntScaledMatmulCPUPaths(unittest.TestCase):
 
         return safe_int_mm(a, b).to(scales.dtype) * scales
 
+    @unittest.skipIf(not torch_version_at_least("2.12.0.dev"), "Need torch 2.12+")
     def test_vnni_path_via_monkeypatch(self):
         """Force the u8s8 VNNI branch and verify against the reference result."""
         import torchao.kernel.intmm as intmm_mod
@@ -135,6 +136,7 @@ class TestIntScaledMatmulCPUPaths(unittest.TestCase):
 
         torch.testing.assert_close(result, expected)
 
+    @unittest.skipIf(not torch_version_at_least("2.12.0.dev"), "Need torch 2.12+")
     def test_amx_path_via_monkeypatch(self):
         """Force the s8s8 AMX/fallback branch and verify against the reference result."""
         import torchao.kernel.intmm as intmm_mod
@@ -155,6 +157,7 @@ class TestIntScaledMatmulCPUPaths(unittest.TestCase):
 
         torch.testing.assert_close(result, expected)
 
+    @unittest.skipIf(not torch_version_at_least("2.12.0.dev"), "Need torch 2.12+")
     def test_no_simd_path_via_monkeypatch(self):
         """Force the no-AMX/no-VNNI branch and verify against the reference result."""
         import torchao.kernel.intmm as intmm_mod
