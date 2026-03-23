@@ -5,7 +5,6 @@
 # LICENSE file in the root directory of this source tree.
 
 from .uintx import (
-    BlockSparseLayout,
     GemlitePackedLayout,
     UintxAQTTensorImpl,
     UintxLayout,
@@ -14,7 +13,6 @@ from .uintx import (
 )
 
 __all__ = [
-    "BlockSparseLayout",
     "GemlitePackedLayout",
     "UintxLayout",
     "UintxTensor",
