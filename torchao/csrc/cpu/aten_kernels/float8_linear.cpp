@@ -80,8 +80,7 @@ float8_linear_prepack_impl(
   at::Tensor blocked_weight;
   at::Tensor blocked_scales = is_per_tensor ? new_scales.view({1}) : new_scales.view({Nc, block_n, G}).permute({0, 2, 1}).contiguous();
 
-#if defined(CPU_CAPABILITY_AVX512)
-  if (cpublas_could_pack()) {
+  if (__builtin_cpu_supports("avx512f") && cpublas_could_pack()) {
 #ifdef CPUBLAS_BRGEMM_F8F8F32
     constexpr int vnni_size = get_vnni_size<at::Float8_e4m3fn>(); // for fp8
 #else
@@ -114,17 +113,190 @@ float8_linear_prepack_impl(
         }
       }
     });
-  } else
-#endif
-  {
+  } else {
     blocked_weight = weight_reordered;
   }
 
   return std::make_tuple(std::move(blocked_weight), std::move(blocked_scales));
 }
 
-#if defined(CPU_CAPABILITY_AVX512)
-// this doesn't handle NaN.
+// Scalar fp8 -> bf16 conversion (no AVX512 intrinsics)
+static void cvt_f8e4m3_to_bf16_scalar(
+    const at::Float8_e4m3fn* __restrict__ in,
+    at::BFloat16* out,
+    int64_t rows,
+    int64_t cols,
+    int64_t stride) {
+  for (int r = 0; r < rows; ++r) {
+    for (int c = 0; c < cols; ++c) {
+      out[r * cols + c] = (at::BFloat16)in[r * stride + c];
+    }
+  }
+}
+
+// Store result to output buffer with dtype conversion (scalar, no AVX512)
+// If act/wei are per_row or per_tensor quantized, apply scales
+// If bias is not null, add bias
+template<typename out_dtype, int64_t N, int act_quant_mode, int wei_quant_mode>
+static void store_out_scalar(
+    const float* y_buf,
+    out_dtype* c_ptr,
+    int64_t M,
+    int64_t lda,
+    const float* scales_a,
+    const float* scales_b,
+    const float* bias) {
+  float a_scale = 1.0, b_scale = 1.0;
+  if constexpr (act_quant_mode == PER_TENSOR) {
+    a_scale = *scales_a;
+  }
+  if constexpr (wei_quant_mode == PER_TENSOR) {
+    b_scale = *scales_b;
+  }
+  for (int i = 0; i < M; ++i) {
+    if constexpr (act_quant_mode == PER_ROW) {
+      a_scale = *(scales_a + i);
+    }
+    for (int j = 0; j < N; ++j) {
+      if constexpr (wei_quant_mode == PER_ROW) {
+        b_scale = scales_b[j];
+      }
+      float val = y_buf[i * N + j] * a_scale * b_scale;
+      if (bias) val += bias[j];
+      c_ptr[i * lda + j] = static_cast<out_dtype>(val);
+    }
+  }
+}
+
+template<typename out_dtype, int act_quant_mode, int wei_quant_mode>
+void _float8_linear_scalar_impl(
+    const at::Tensor& input,
+    const at::Tensor& input_scales,
+    const at::Tensor& weight,
+    const at::Tensor& weight_scales,
+    const std::optional<at::Tensor>& bias,
+    at::Tensor& output) {
+  // input shape = [..., K]
+  int64_t K = input.size(-1);
+  auto input_view = input.view({-1, K});
+  int64_t M = input_view.size(0);
+
+  // weight shape = [Nc, Kc, block_k, block_n]
+  // scales shape = [Nc, G, block_n]
+  int64_t Nc = weight.size(0);
+  int64_t Kc = weight.size(1);
+  int64_t block_k = weight.size(2);
+  constexpr int64_t block_n = BLOCK_N;
+  TORCH_CHECK(weight.size(3) == block_n, "Float8 linear: unexpected weight shape");
+  int64_t N = Nc * block_n;
+  TORCH_CHECK(K == Kc * block_k, "Float8 linear: weight and input shapes mismatch");
+  bool parallel_on_M;
+  int64_t block_m, Mc, Mc_parallel;
+  std::tie(parallel_on_M, block_m, Mc, Mc_parallel) = get_m_blocking(M);
+  int64_t num_parallel_blocks = Mc_parallel * Nc;
+
+  int64_t num_groups = wei_quant_mode == PER_TENSOR ? 1 : weight_scales.size(1);
+  TORCH_CHECK(K % num_groups == 0, "K should be divisible by num_groups");
+  int64_t group_size = K / num_groups;
+  TORCH_CHECK(group_size % block_k == 0,
+              "Float8 linear: group_size should be divisible by block_k");
+  int64_t block_per_group = group_size / block_k;
+  TORCH_CHECK(!(act_quant_mode == PER_GROUP && wei_quant_mode != PER_GROUP),
+              "Float8 linear: if activation is per_group quantized, weight must be per_group quantized too");
+  TORCH_CHECK(input_scales.numel() == 1 || input_scales.numel() == M || input_scales.numel() == M * num_groups,
+              "Float8 linear: unexpected input scales shape, scale shape:", input_scales.sizes(), ", M:", M, ", num_groups:", num_groups);
+  auto ldsa = act_quant_mode == PER_TENSOR ? 0 : act_quant_mode == PER_ROW ? 1 : num_groups;
+
+  const at::Float8_e4m3fn* a_ptr = input_view.data_ptr<at::Float8_e4m3fn>();
+  const float* a_scales_ptr = input_scales.data_ptr<float>();
+  const at::Float8_e4m3fn* b_ptr = weight.data_ptr<at::Float8_e4m3fn>();
+  const float* b_scales_ptr = weight_scales.data_ptr<float>();
+  out_dtype* c_ptr = output.data_ptr<out_dtype>();
+  const float* bias_ptr = bias.has_value() ? bias.value().data_ptr<float>() : nullptr;
+
+  int64_t block_size = block_m * block_n;
+  int64_t num_thread = at::get_num_threads();
+  at::Tensor y_buffer = at::empty({num_thread, block_size}, output.options().dtype(at::kFloat));
+
+  at::parallel_for(0, num_parallel_blocks, 1, [&](int64_t begin, int64_t end) {
+    int tid = at::get_thread_num();
+    float* y_buf = y_buffer.data_ptr<float>() + tid * block_size;
+
+    int64_t mc = 0, nc = 0;
+    at::native::data_index_init(begin, mc, Mc_parallel, nc, Nc);
+    for (const auto i : c10::irange(begin, end)) {
+      (void)i; // Suppress unused variable
+      int64_t mc_end = parallel_on_M ? mc + 1 : Mc;
+
+      for (int mci = mc; mci < mc_end; ++mci) {
+        int64_t m_size = mci * block_m + block_m > M ? M - mci * block_m : block_m;
+        zero_buffer(y_buf, m_size * block_n);
+        for (int kci = 0; kci < Kc; ++kci) {
+          auto scales_a = a_scales_ptr + mci * block_m * num_groups + kci / block_per_group;
+          auto scales_b = b_scales_ptr + nc * block_n * num_groups + kci / block_per_group * block_n;
+          // Scalar GEMM: fp8 * fp8 -> fp32 accumulation
+          const at::Float8_e4m3fn* A = a_ptr + mci * block_m * K + kci * block_k;
+          const at::Float8_e4m3fn* B = b_ptr + (nc * Kc + kci) * block_n * block_k;
+          for (int64_t ii = 0; ii < m_size; ++ii) {
+            for (int64_t j = 0; j < block_n; ++j) {
+              float sum = 0;
+              for (int64_t k = 0; k < block_k; ++k) {
+                sum += ((float)A[ii * K + k] * (float)B[k * block_n + j]);
+              }
+              if constexpr (act_quant_mode == PER_GROUP) {
+                sum *= scales_a[ii * ldsa];
+              }
+              if constexpr (wei_quant_mode == PER_GROUP) {
+                sum *= scales_b[j];
+              }
+              y_buf[ii * block_n + j] += sum;
+            }
+          }
+        }
+        // store y_buf to output with dtype conversion
+        auto scales_a = act_quant_mode == PER_TENSOR ? a_scales_ptr :
+            act_quant_mode == PER_ROW ? a_scales_ptr + mci * block_m : nullptr;
+        auto scales_b = wei_quant_mode == PER_TENSOR ? b_scales_ptr :
+          wei_quant_mode == PER_ROW ? b_scales_ptr + nc * block_n : nullptr;
+        auto bias_data = bias_ptr ? bias_ptr + nc * block_n : nullptr;
+        store_out_scalar<out_dtype, block_n, act_quant_mode, wei_quant_mode>(
+          y_buf,
+          c_ptr + mci * block_m * N + nc * block_n,
+          m_size,
+          N /*lda*/,
+          scales_a,
+          scales_b,
+          bias_data);
+      }
+      at::native::data_index_step(mc, Mc_parallel, nc, Nc);
+    }
+  });
+}
+
+static void float8_linear_scalar_entry(
+    const at::Tensor& input, const at::Tensor& input_scales,
+    const at::Tensor& weight, const at::Tensor& weight_scales,
+    const std::optional<at::Tensor>& bias, at::Tensor& output,
+    at::ScalarType out_dtype, int act_quant_mode, int wei_quant_mode) {
+  AT_DISPATCH_LINEAR_KERNEL(out_dtype, false, act_quant_mode, wei_quant_mode, [&](){
+    _float8_linear_scalar_impl<out_t, a_quant_mode, b_quant_mode>(
+      input, input_scales, weight, weight_scales, bias, output);
+  });
+}
+
+// Forward declaration; defined inside #pragma GCC target block below.
+static void float8_linear_avx512_entry(
+    const at::Tensor& input, const at::Tensor& input_scales,
+    const at::Tensor& weight, const at::Tensor& weight_scales,
+    const std::optional<at::Tensor>& bias, at::Tensor& output,
+    at::ScalarType out_dtype, bool cpublas_can_pack,
+    int act_quant_mode, int wei_quant_mode);
+
+// === AVX512 IMPLEMENTATION SECTION ===
+#pragma GCC push_options
+#pragma GCC target("avx512f,avx512bw,avx512vl,avx512dq,avx512vnni,amx-int8,amx-tile,amx-bf16")
+#pragma GCC optimize("O3,tree-vectorize")
+#include <immintrin.h>
 inline __m512bh cvt_e4m3_bf16_intrinsic_no_nan(__m256i fp8_vec) {
   const __m512i x = _mm512_cvtepu8_epi16(fp8_vec);
 
@@ -177,8 +349,8 @@ static void cvt_f8e4m3_to_bf16(
 }
 
 
-// accumulate and store result to buffer
-// if act/wei are per_group quantized, apply scales
+// Accumulate and store result to buffer.
+// If act/wei are per_group quantized, apply scales.
 template <bool accum, int64_t N, int act_quant_mode, int wei_quant_mode>
 static void _accumulate_result(
     float* __restrict__ output,
@@ -234,7 +406,7 @@ static void _accumulate_result(
   }
 }
 
-// Store result to output buffer with dtype conversion
+// Store result to output buffer with dtype conversion (AVX512)
 // If act/wei are per_row or per_tensor quantized, apply scales
 // If bias is not null, add bias
 template<typename out_dtype, int64_t N, int act_quant_mode, int wei_quant_mode>
@@ -280,10 +452,17 @@ inline void store_out(
       if constexpr (std::is_same<out_dtype, float>::value) {
         _mm512_storeu_ps(c_ptr + i * lda + j, y_vec);
       } else if constexpr (std::is_same<out_dtype, at::BFloat16>::value) {
-        __m256i y_bf16_vec = at::vec::cvtfp32_bf16(y_vec);
+        // Inline bf16 conversion (avoids at::vec::CPU_CAPABILITY dependency)
+        __m512i val32 = _mm512_castps_si512(y_vec);
+        __mmask16 ord_mask = _mm512_cmp_ps_mask(y_vec, y_vec, _CMP_ORD_Q);
+        __m512i lsb = _mm512_and_si512(_mm512_srli_epi32(val32, 16), _mm512_set1_epi32(1));
+        __m512i rnd = _mm512_add_epi32(_mm512_add_epi32(lsb, _mm512_set1_epi32(0x7fff)), val32);
+        __m512i t = _mm512_srli_epi32(rnd, 16);
+        t = _mm512_mask_blend_epi32(ord_mask, _mm512_set1_epi32(0xffff), t);
+        __m256i y_bf16_vec = _mm512_cvtusepi32_epi16(t);
         _mm256_storeu_si256(reinterpret_cast<__m256i*>(c_ptr + i * lda + j), y_bf16_vec);
       } else if constexpr (std::is_same<out_dtype, at::Half>::value) {
-        __m256i y_fp16_vec = at::vec::cvtfp32_fp16(y_vec);
+        __m256i y_fp16_vec = _mm512_cvtps_ph(y_vec, (_MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC));
         _mm256_storeu_si256(reinterpret_cast<__m256i*>(c_ptr + i * lda + j), y_fp16_vec);
       } else {
         TORCH_CHECK(false, "Unsupported output dtype");
@@ -298,55 +477,6 @@ inline void store_out(
     }
   } // for M
 }
-
-#else // no AVX512
-
-static void cvt_f8e4m3_to_bf16(
-    const at::Float8_e4m3fn* __restrict__ in,
-    at::BFloat16* out,
-    int64_t rows,
-    int64_t cols,
-    int64_t stride) {
-  for (int r = 0; r < rows; ++r) {
-    for (int c = 0; c < cols; ++c) {
-      out[r * cols + c] = (at::BFloat16)in[r * stride + c];
-    }
-  }
-}
-
-// Store result to output buffer with dtype conversion
-// If act/wei are per_row or per_tensor quantized, apply scales
-// If bias is not null, add bias
-template<typename out_dtype, int64_t N, int act_quant_mode, int wei_quant_mode>
-inline void store_out(
-    const float* y_buf,
-    out_dtype* c_ptr,
-    int64_t M,
-    int64_t lda,
-    const float* scales_a,
-    const float* scales_b,
-    const float* bias) {
-  float a_scale = 1.0, b_scale = 1.0;
-  if constexpr (act_quant_mode == PER_TENSOR) {
-    a_scale = *scales_a;
-  }
-  if constexpr (wei_quant_mode == PER_TENSOR) {
-    b_scale = *scales_b;
-  }
-  for (int i = 0; i < M; ++i) {
-    if constexpr (act_quant_mode == PER_ROW) {
-      a_scale = *(scales_a + i);
-    }
-    for (int j = 0; j < N; ++j) {
-      if constexpr (wei_quant_mode == PER_ROW) {
-        b_scale = scales_b[j];
-      }
-      c_ptr[i * lda + j] = static_cast<out_dtype>(y_buf[i * N + j] * a_scale * b_scale);
-    }
-  } // for M
-}
-
-#endif // CPU_CAPABILITY_AVX512
 
 template <bool cpublas_can_pack, int64_t N, int act_quant_mode, int wei_quant_mode>
 void _micro_gemm(
@@ -367,7 +497,6 @@ void _micro_gemm(
   // Compute GEMM fp8 * fp8 -> fp32 (or bf16 * bf16 -> fp32)
   // If per_group quant, apply scales. Otherwise, don't apply scales here
   // Finally accumulate and store results
-#if defined(CPU_CAPABILITY_AVX512)
   if constexpr (cpublas_can_pack) {
 #ifdef CPUBLAS_BRGEMM_F8F8F32
     at::native::cpublas::brgemm(
@@ -409,9 +538,7 @@ void _micro_gemm(
         N /*ldi*/,
         ldc,
         ldsa);
-  } else
-#endif
-  {
+  } else {
     for (int64_t i = 0; i < M; ++i) {
       for (int64_t j = 0; j < N; ++j) {
         float sum = 0;
@@ -481,8 +608,6 @@ void _float8_linear_impl(
   int64_t block_size = block_m * block_n;
   int64_t num_thread = at::get_num_threads();
   at::Tensor y_buffer = at::empty({num_thread, block_size}, output.options().dtype(at::kFloat));
-  // Create buffer for brgemm output and dqA/dqB (optional)
-#if defined(CPU_CAPABILITY_AVX512)
   // buffer for brgemm output in float32
   int64_t buffer_size = block_size * 2; // float32 = bfloat16 * 2
 #ifndef CPUBLAS_BRGEMM_F8F8F32
@@ -490,7 +615,6 @@ void _float8_linear_impl(
   buffer_size += (block_k * block_n + block_m * block_k);
 #endif
   at::Tensor micro_gemm_buffer = at::empty({num_thread, buffer_size}, output.options().dtype(at::kBFloat16));
-#endif
 
   at::parallel_for(0, num_parallel_blocks, 1, [&](int64_t begin, int64_t end) {
     // Get the address of pre-allocated buffers
@@ -498,14 +622,12 @@ void _float8_linear_impl(
     float* y_buf = y_buffer.data_ptr<float>() + tid * block_size;
     at::BFloat16 *dqA_buffer = nullptr, *dqB_buffer = nullptr;
     float* ukernel_buf = nullptr;
-#if defined(CPU_CAPABILITY_AVX512)
     at::BFloat16* micro_gemm_buf = micro_gemm_buffer.data_ptr<at::BFloat16>() + tid * buffer_size;
     ukernel_buf = reinterpret_cast<float*>(micro_gemm_buf);
 #ifndef CPUBLAS_BRGEMM_F8F8F32
     dqA_buffer = micro_gemm_buf;
     dqB_buffer = micro_gemm_buf + block_m * block_k;
     ukernel_buf = reinterpret_cast<float*>(micro_gemm_buf + block_m * block_k + block_k * block_n);
-#endif
 #endif
     int64_t mc = 0, nc = 0;
     at::native::data_index_init(begin, mc, Mc_parallel, nc, Nc);
@@ -557,6 +679,21 @@ void _float8_linear_impl(
   });
 }
 
+static void float8_linear_avx512_entry(
+    const at::Tensor& input, const at::Tensor& input_scales,
+    const at::Tensor& weight, const at::Tensor& weight_scales,
+    const std::optional<at::Tensor>& bias, at::Tensor& output,
+    at::ScalarType out_dtype, bool cpublas_can_pack,
+    int act_quant_mode, int wei_quant_mode) {
+  AT_DISPATCH_LINEAR_KERNEL(out_dtype, cpublas_can_pack, act_quant_mode, wei_quant_mode, [&](){
+    _float8_linear_impl<out_t, can_pack, a_quant_mode, b_quant_mode>(
+      input, input_scales, weight, weight_scales, bias, output);
+  });
+}
+
+#pragma GCC pop_options
+// === END AVX512 IMPLEMENTATION SECTION ===
+
 at::Tensor float8_linear_impl(
     const at::Tensor& input,
     const at::Tensor& input_scales,
@@ -587,15 +724,14 @@ at::Tensor float8_linear_impl(
   out_sizes.back() = N;
   auto output = at::empty(out_sizes, input.options().dtype(output_dtype));
 
-  AT_DISPATCH_LINEAR_KERNEL(output_dtype, cpublas_can_pack, act_quant_mode, wei_quant_mode, [&](){
-    _float8_linear_impl<out_t, can_pack, a_quant_mode, b_quant_mode>(
-      input,
-      input_scales,
-      weight,
-      weight_scales,
-      bias,
-      output);
-  });
+  if (__builtin_cpu_supports("avx512f")) {
+    float8_linear_avx512_entry(input, input_scales, weight, weight_scales, bias,
+                                output, output_dtype, cpublas_can_pack,
+                                act_quant_mode, wei_quant_mode);
+  } else {
+    float8_linear_scalar_entry(input, input_scales, weight, weight_scales, bias,
+                                output, output_dtype, act_quant_mode, wei_quant_mode);
+  }
   return output;
 }
 

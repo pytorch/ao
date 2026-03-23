@@ -39,7 +39,32 @@ inline c10::SymFloat calculate_scale(
   return c10::SymFloat(softmax_scale);
 }
 
-#ifdef CPU_CAPABILITY_AVX512
+// Forward declarations for AVX512-compiled kernel entry points.
+// These are defined inside the #pragma GCC target region below and are
+// only called when __builtin_cpu_supports("avx512f") is true at runtime.
+void int8_sdpa_fused_kernel(
+    const at::Tensor& output, const at::Tensor& query, const at::Tensor& key,
+    const at::Tensor& value, double dropout_p, bool is_causal,
+    std::optional<at::Tensor> attn_mask, std::optional<double> scale,
+    float q_scale, int32_t q_zp, float k_scale, int32_t k_zp,
+    float v_scale, int32_t v_zp, float a_scale, int32_t a_zp,
+    float o_scale, int32_t o_zp);
+#ifdef CPUBLAS_BRGEMM_F8F8F32
+void fp8_sdpa_fused_kernel(
+    const at::Tensor& output, const at::Tensor& query, const at::Tensor& key,
+    const at::Tensor& value, double dropout_p, bool is_causal,
+    std::optional<at::Tensor> attn_mask, std::optional<double> scale,
+    float q_scale, float k_scale, float v_scale, float a_scale, float o_scale);
+#endif // CPUBLAS_BRGEMM_F8F8F32
+
+// === AVX512 IMPLEMENTATION SECTION ===
+// Functions in this section are compiled with AVX512 + AVX512VNNI + AMX
+// target regardless of global compiler flags.  They are only CALLED when
+// __builtin_cpu_supports("avx512f") returns true at runtime.
+#pragma GCC push_options
+#pragma GCC target("avx512f,avx512bw,avx512vl,avx512dq,avx512vnni,amx-int8,amx-tile,amx-bf16")
+#pragma GCC optimize("O3,tree-vectorize")
+#include <immintrin.h>
 
 template <typename scalar_t>
 inline void fill_stub(scalar_t* data, scalar_t val, int64_t size) {
@@ -2401,7 +2426,8 @@ void fp8_sdpa_fused_kernel(
   }
 }
 #endif // CPUBLAS_BRGEMM_F8F8F32
-#endif // CPU_CAPABILITY_AVX512
+// === END AVX512 IMPLEMENTATION SECTION ===
+#pragma GCC pop_options
 
 at::Tensor int8_sdpa_math_kernel(
     const at::Tensor& query,
@@ -2527,8 +2553,9 @@ at::Tensor _qscaled_dot_product_cpu(
   }
 
   if (dtype == at::ScalarType::Byte) {
-#ifdef CPU_CAPABILITY_AVX512
-      if (at::native::cpublas::could_pack(dtype)) {
+      // Use optimized fused int8 SDPA kernel when AVX512 + AMX are available.
+      // Falls back to reference math kernel otherwise.
+      if (__builtin_cpu_supports("avx512f") && at::native::cpublas::could_pack(dtype)) {
           at::Tensor output = at::empty_like(query, query.options()).transpose(1, 2);
           int8_sdpa_fused_kernel(output, query, key, value,
               dropout_p, is_causal, attn_mask, scale,
@@ -2539,7 +2566,6 @@ at::Tensor _qscaled_dot_product_cpu(
               o_scale, o_zp);
           return output.transpose(1, 2);
       } else {
-#endif // CPU_CAPABILITY_AVX512
           return int8_sdpa_math_kernel(query, key, value,
               dropout_p, is_causal, attn_mask, scale,
               q_scale, q_zp,
@@ -2547,13 +2573,12 @@ at::Tensor _qscaled_dot_product_cpu(
               v_scale, v_zp,
               a_scale, a_zp,
               o_scale, o_zp).transpose(1, 2).contiguous().transpose(1, 2);
-#ifdef CPU_CAPABILITY_AVX512
       }
-#endif // CPU_CAPABILITY_AVX512
   } else if (dtype == at::ScalarType::Float8_e4m3fn) {
-#if defined(CPUBLAS_BRGEMM_F8F8F32) && defined(CPU_CAPABILITY_AVX512)
-// CPUBLAS_BRGEMM_F8F8F32 is defined if FP8 BRGEMM is supported in PyTorch CPUBlas.
-      if (at::native::cpublas::could_pack(dtype)) {
+      // Use optimized fused FP8 SDPA kernel when AVX512 + AMX-FP8 are available.
+      // Falls back to reference math kernel otherwise.
+#if defined(CPUBLAS_BRGEMM_F8F8F32)
+      if (__builtin_cpu_supports("avx512f") && at::native::cpublas::could_pack(dtype)) {
           at::Tensor output = at::empty_like(query, query.options()).transpose(1, 2);
           fp8_sdpa_fused_kernel(output, query, key, value,
               dropout_p, is_causal, attn_mask, scale,
@@ -2562,15 +2587,15 @@ at::Tensor _qscaled_dot_product_cpu(
               o_scale);
           return output.transpose(1, 2);
       } else {
-#endif // CPU_CAPABILITY_AVX512 && CPUBLAS_BRGEMM_F8F8F32
+#endif // CPUBLAS_BRGEMM_F8F8F32
           return fp8_sdpa_math_kernel(query, key, value,
               dropout_p, is_causal, attn_mask, scale,
               q_scale, k_scale,
               v_scale, a_scale,
               o_scale).transpose(1, 2).contiguous().transpose(1, 2);
-#if defined(CPUBLAS_BRGEMM_F8F8F32) && defined(CPU_CAPABILITY_AVX512)
+#if defined(CPUBLAS_BRGEMM_F8F8F32)
       }
-#endif // CPU_CAPABILITY_AVX512 && CPUBLAS_BRGEMM_F8F8F32
+#endif // CPUBLAS_BRGEMM_F8F8F32
   } else {
     TORCH_CHECK(false, "_qscaled_dot_product_cpu: Unsupported data type ", dtype);
   }

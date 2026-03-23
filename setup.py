@@ -383,6 +383,46 @@ def bool_to_on_off(value):
 
 
 # BuildExtension is a subclass of from setuptools.command.build_ext.build_ext
+def find_gcc15_compiler():
+    """Find GCC 15 compiler from the conda gcc15 environment.
+
+    Returns the path to g++ if found, otherwise None.
+    The conda gcc15 env packages GCC 15 as 'x86_64-conda-linux-gnu-g++'.
+    """
+    conda_prefix = os.environ.get("CONDA_PREFIX", "")
+    if conda_prefix:
+        candidate = os.path.join(conda_prefix, "bin", "x86_64-conda-linux-gnu-g++")
+        if os.path.exists(candidate):
+            try:
+                result = subprocess.run(
+                    [candidate, "--version"],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                )
+                if "15." in result.stdout:
+                    return candidate
+            except Exception:
+                pass
+    return None
+
+
+def _get_cpu_kernel_include_dirs():
+    """Return include directory flags needed to compile CPU kernel objects."""
+    from torch.utils.cpp_extension import include_paths
+
+    flags = []
+    for p in include_paths():
+        flags.extend(["-I", p])
+    # Python headers
+    import sysconfig
+
+    python_include = sysconfig.get_path("include")
+    if python_include:
+        flags.extend(["-I", python_include])
+    return flags
+
+
 class TorchAOBuildExt(BuildExtension):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -397,11 +437,108 @@ class TorchAOBuildExt(BuildExtension):
         for ext in cmake_extensions:
             self.build_cmake(ext)
 
+        # Pre-compile CPU ISA-specific objects (AVX10.2, etc.) before the
+        # main build so they can be linked in as extra_objects.
+        if use_cpu_kernels and is_linux:
+            self._precompile_cpu_isa_objects(other_extensions)
+
         # Use BuildExtension to build other extensions
         self.extensions = other_extensions
         super().build_extensions()
 
         self.extensions = other_extensions + cmake_extensions
+
+    def _precompile_cpu_isa_objects(self, extensions):
+        """Pre-compile ISA-specific CPU source files that need special flags.
+
+        AVX10.2 files require -march=diamondrapids and cannot share global
+        compile flags with the rest of the extension.  We compile them here
+        using subprocess and attach the resulting .o files as extra_objects
+        to the torchao._C extension.
+        """
+        # Find the torchao._C extension
+        main_ext = next((e for e in extensions if e.name == "torchao._C"), None)
+        if main_ext is None:
+            return
+
+        cxx = os.environ.get("CXX", find_gcc15_compiler() or "g++")
+        include_flags = _get_cpu_kernel_include_dirs()
+
+        # Defines that need to be present for CPU kernel objects
+        cpu_defines = [
+            "-DCPU_CAPABILITY_AVX512",
+            "-DCPU_CAPABILITY_AVX512_VNNI",
+        ]
+
+        aten_kernels_dir = os.path.join("torchao", "csrc", "cpu", "aten_kernels")
+
+        # --- AVX512 implementation files ---
+        # Compiled with full AVX512+AMX flags + CPU_CAPABILITY macros so that
+        # PyTorch's vec512 headers (and their Sleef f16 declarations) work.
+        avx512_sources = glob.glob(os.path.join(aten_kernels_dir, "*_avx512_impl.cpp"))
+        if avx512_sources:
+            avx512_flags = (
+                ["-O3", "-std=c++20", "-fPIC", "-fopenmp"]
+                + include_flags
+                + cpu_defines
+                + [
+                    "-mavx512f",
+                    "-mavx512bw",
+                    "-mavx512vl",
+                    "-mavx512dq",
+                    "-mavx512vnni",
+                    "-mamx-int8",
+                    "-mamx-tile",
+                    "-mamx-bf16",
+                ]
+            )
+            build_dir_avx512 = os.path.join(self.build_temp, "cpu_isa_avx512")
+            os.makedirs(build_dir_avx512, exist_ok=True)
+            for src in avx512_sources:
+                obj = os.path.join(
+                    build_dir_avx512,
+                    os.path.basename(src).replace(".cpp", ".o"),
+                )
+                cmd = [cxx] + avx512_flags + ["-c", src, "-o", obj]
+                print(f"[CPU ISA AVX512] Compiling {src}")
+                try:
+                    subprocess.check_call(cmd)
+                    main_ext.extra_objects = list(
+                        getattr(main_ext, "extra_objects", [])
+                    ) + [obj]
+                except subprocess.CalledProcessError as e:
+                    print(f"[ERROR] Failed to compile AVX512 object {src}: {e}")
+                    raise
+
+        # --- AVX10.2 implementation files ---
+        # Find and pick up any _avx10_2.cpp files under aten_kernels
+        avx10_2_sources = glob.glob(os.path.join(aten_kernels_dir, "*_avx10_2.cpp"))
+
+        avx10_2_flags = (
+            ["-O3", "-std=c++20", "-fPIC"]
+            + include_flags
+            + cpu_defines
+            + ["-march=diamondrapids", "-DCPU_CAPABILITY_AVX10_2"]
+        )
+
+        build_dir = os.path.join(self.build_temp, "cpu_isa_avx10_2")
+        os.makedirs(build_dir, exist_ok=True)
+
+        for src in avx10_2_sources:
+            obj = os.path.join(
+                build_dir,
+                os.path.basename(src).replace(".cpp", ".o"),
+            )
+            cmd = [cxx] + avx10_2_flags + ["-c", src, "-o", obj]
+            print(f"[CPU ISA AVX10.2] Compiling {src}")
+            try:
+                subprocess.check_call(cmd)
+                main_ext.extra_objects = list(
+                    getattr(main_ext, "extra_objects", [])
+                ) + [obj]
+            except subprocess.CalledProcessError as e:
+                print(f"[WARNING] Failed to compile AVX10.2 object {src}: {e}")
+                print("[WARNING] AVX10.2 support will not be available in this build.")
 
     def build_cmake(self, ext):
         extdir = os.path.abspath(os.path.dirname(self.get_ext_fullpath(ext.name)))
@@ -457,42 +594,54 @@ class CMakeExtension(Extension):
 
 
 def add_options_for_x86(extra_compile_args):
+    """Add compile options for x86 CPU kernel builds.
+
+    The main kernel files are compiled WITHOUT any ISA-specific flags so that
+    they run on any x86 platform.  AVX512-specific code lives in separate
+    *_avx512_impl.cpp files compiled via _precompile_cpu_isa_objects() with
+    the correct -mavx512* flags and -DCPU_CAPABILITY_AVX512.
+
+    Runtime dispatch via __builtin_cpu_supports() ensures the right path is
+    taken at runtime:
+      - Old platforms (no AVX512):  scalar fallback paths are used.
+      - GNR (AVX512 + AMX):        AVX512/AMX optimised paths are selected.
+      - DMR (AVX10.2):              AVX10.2 objects (compiled separately with
+                                    -march=diamondrapids) are also linked in.
+    """
     if use_cpu_kernels and is_linux:
-        if hasattr(torch._C._cpu, "_is_avx512_supported"):
-            is_avx512_supported = torch._C._cpu._is_avx512_supported()
-        elif hasattr(torch.cpu, "_is_avx512_supported"):
-            is_avx512_supported = torch.cpu._is_avx512_supported()
-        else:
-            is_avx512_supported = False
-        if is_avx512_supported:
-            extra_compile_args["cxx"].extend(
-                [
-                    "-DCPU_CAPABILITY_AVX512",
-                    "-march=native",
-                    "-mfma",
-                    "-fopenmp",
-                ]
-            )
-        else:
-            print(
-                "[WARNING] AVX512 not supported, CPU kernels will be built without AVX512 optimizations"
-            )
-        # note the different API name for vnni (vnni vs avx512_vnni)
-        if hasattr(torch._C._cpu, "_is_avx512_vnni_supported"):
-            is_avx512_vnni_supported = torch._C._cpu._is_avx512_vnni_supported()
-        elif hasattr(torch.cpu, "_is_vnni_supported"):
-            is_avx512_vnni_supported = torch.cpu._is_vnni_supported()
-        else:
-            is_avx512_vnni_supported = False
-        if is_avx512_vnni_supported:
-            extra_compile_args["cxx"].extend(
-                [
-                    "-DCPU_CAPABILITY_AVX512_VNNI",
-                ]
-            )
+        # Build with full AVX512 + AMX support so PyTorch's vec512 headers
+        # (which use Sleef f16 intrinsics under CPU_CAPABILITY_AVX512) compile
+        # correctly. -fno-tree-vectorize prevents the compiler from emitting
+        # 512-bit packed instructions in *scalar* fallback functions; AVX512
+        # pragma regions add #pragma GCC optimize("O3,tree-vectorize") to
+        # re-enable vectorization only where explicitly desired.
+        extra_compile_args["cxx"].extend(
+            [
+                "-DCPU_CAPABILITY_AVX512",
+                "-DCPU_CAPABILITY_AVX512_VNNI",
+                "-mavx512f",
+                "-mavx512bw",
+                "-mavx512vl",
+                "-mavx512dq",
+                "-mavx512vnni",
+                "-mamx-int8",
+                "-mamx-tile",
+                "-mamx-bf16",
+                "-fno-tree-vectorize",
+                "-fopenmp",
+            ]
+        )
+
+        # Use GCC 15 from the conda gcc15 env when available.  GCC 15 is
+        # required for AVX10.2 target support and other new ISA features.
+        gcc15 = find_gcc15_compiler()
+        if gcc15:
+            os.environ.setdefault("CXX", gcc15)
+            print(f"[CPU Kernels] Using GCC 15 compiler: {gcc15}")
         else:
             print(
-                "[WARNING] AVX512 VNNI not supported, CPU kernels will be built without AVX512 VNNI optimizations"
+                "[CPU Kernels] GCC 15 not found; using default C++ compiler. "
+                "AVX10.2 stub compilation may fail."
             )
 
 
@@ -547,6 +696,18 @@ def get_extensions():
         )
 
         add_options_for_x86(extra_compile_args)
+
+        # Ensure the PyTorch lib directory is in the RPATH of the built .so
+        # so that libc10.so / libtorch_cpu.so are found at runtime without
+        # needing LD_LIBRARY_PATH.
+        if use_cpu_kernels and is_linux:
+            try:
+                import torch.utils.cpp_extension as _tce
+
+                for _lib_dir in _tce.library_paths():
+                    extra_link_args.append(f"-Wl,-rpath,{_lib_dir}")
+            except Exception:
+                pass
 
         if debug_mode:
             extra_compile_args["cxx"].append("-g")
@@ -615,7 +776,7 @@ def get_extensions():
     sources = [s for s in sources if s not in cpu_cmake_sources]
 
     if not use_cpu_kernels or not is_linux:
-        # Remove csrc/cpu/*.cpp
+        # Remove csrc/cpu/aten_kernels/*.cpp
         excluded_sources = list(
             glob.glob(
                 os.path.join(extensions_dir, "cpu", "aten_kernels", "*.cpp"),
@@ -623,6 +784,18 @@ def get_extensions():
             )
         )
         sources = [s for s in sources if s not in excluded_sources]
+    else:
+        # When building CPU kernels, exclude *_avx10_2.cpp and *_avx512_impl.cpp
+        # from the main sources list — they are compiled separately with ISA-
+        # specific flags and linked in as extra_objects by
+        # TorchAOBuildExt._precompile_cpu_isa_objects().
+        isa_sources = glob.glob(
+            os.path.join(extensions_dir, "cpu", "aten_kernels", "*_avx10_2.cpp")
+        )
+        isa_sources += glob.glob(
+            os.path.join(extensions_dir, "cpu", "aten_kernels", "*_avx512_impl.cpp")
+        )
+        sources = [s for s in sources if s not in isa_sources]
 
     # Collect CUDA source files
     extensions_cuda_dir = os.path.join(extensions_dir, "cuda")
