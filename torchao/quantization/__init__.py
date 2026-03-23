@@ -1,30 +1,7 @@
-import importlib
-
 from torchao.kernel import (
     int_scaled_matmul,
     safe_int_mm,
 )
-
-# Lazy imports to avoid CUDA initialization at import time
-_lazy_imports = {
-    "ALL_AUTOQUANT_CLASS_LIST": ".autoquant",
-    "DEFAULT_AUTOQUANT_CLASS_LIST": ".autoquant",
-    "DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST": ".autoquant",
-    "DEFAULT_INT4_AUTOQUANT_CLASS_LIST": ".autoquant",
-    "DEFAULT_SPARSE_AUTOQUANT_CLASS_LIST": ".autoquant",
-    "GEMLITE_INT4_AUTOQUANT_CLASS_LIST": ".autoquant",
-    "OTHER_AUTOQUANT_CLASS_LIST": ".autoquant",
-    "autoquant": ".autoquant",
-}
-
-
-def __getattr__(name):
-    if name in _lazy_imports:
-        module_path = _lazy_imports[name]
-        module = importlib.import_module(module_path, __name__)
-        return getattr(module, name)
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-
 
 from .granularity import (
     Granularity,
@@ -52,7 +29,6 @@ from .observer import (
     AffineQuantizedObserverBase,
 )
 from .quant_api import (
-    Float8DynamicActivationFloat8SemiSparseWeightConfig,
     Float8DynamicActivationFloat8WeightConfig,
     Float8DynamicActivationInt4WeightConfig,
     Float8MMConfig,
@@ -61,7 +37,6 @@ from .quant_api import (
     FqnToConfig,
     GemliteUIntXWeightOnlyConfig,
     Int4WeightOnlyConfig,
-    Int8DynamicActivationInt4WeightConfig,
     Int8DynamicActivationInt8WeightConfig,
     Int8DynamicActivationIntxWeightConfig,
     Int8StaticActivationInt8WeightConfig,
@@ -70,7 +45,6 @@ from .quant_api import (
     ModuleFqnToConfig,
     PlainLayout,
     TensorCoreTiledLayout,
-    UIntXWeightOnlyConfig,
     fqn_matches_fqn_config,
     intx_quantization_aware_training,
     quantize_,
@@ -105,21 +79,11 @@ from .utils import (
 AOPerModuleConfig = ModuleFqnToConfig
 
 __all__ = [
-    # top level API - auto
-    "autoquant",
-    "DEFAULT_AUTOQUANT_CLASS_LIST",
-    "DEFAULT_INT4_AUTOQUANT_CLASS_LIST",
-    "GEMLITE_INT4_AUTOQUANT_CLASS_LIST",
-    "DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST",
-    "DEFAULT_SPARSE_AUTOQUANT_CLASS_LIST",
-    "OTHER_AUTOQUANT_CLASS_LIST",
-    "ALL_AUTOQUANT_CLASS_LIST",
-    # top level API - manual
+    # top level API
     "quantize_",
     "intx_quantization_aware_training",
     "fqn_matches_fqn_config",
     "swap_conv2d_1x1_to_linear",
-    "Int8DynamicActivationInt4WeightConfig",
     "Int8DynamicActivationInt8WeightConfig",
     "Int8DynamicActivationIntxWeightConfig",
     "Int8StaticActivationInt8WeightConfig",
@@ -129,8 +93,6 @@ __all__ = [
     "Float8WeightOnlyConfig",
     "Float8DynamicActivationFloat8WeightConfig",
     "Float8StaticActivationFloat8WeightConfig",
-    "Float8DynamicActivationFloat8SemiSparseWeightConfig",
-    "UIntXWeightOnlyConfig",
     "IntxWeightOnlyConfig",
     "GemliteUIntXWeightOnlyConfig",
     "AOPerModuleConfig",

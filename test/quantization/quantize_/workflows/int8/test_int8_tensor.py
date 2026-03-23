@@ -18,7 +18,7 @@ from torchao.quantization import (
     Int8WeightOnlyConfig,
     quantize_,
 )
-from torchao.quantization.granularity import PerRow, PerTensor
+from torchao.quantization.granularity import PerGroup, PerRow, PerTensor
 from torchao.quantization.quant_primitives import MappingType
 from torchao.quantization.quantize_.common import (
     _choose_quant_func_and_quantize_tensor,
@@ -34,6 +34,7 @@ from torchao.utils import torch_version_at_least
 INT8_TEST_CONFIGS = [
     Int8WeightOnlyConfig(version=2, granularity=PerTensor()),
     Int8WeightOnlyConfig(version=2, granularity=PerRow()),
+    Int8WeightOnlyConfig(version=2, granularity=PerGroup(4)),
     Int8DynamicActivationInt8WeightConfig(
         version=2, granularity=PerTensor(), act_mapping_type=MappingType.SYMMETRIC
     ),
@@ -49,6 +50,12 @@ INT8_TEST_CONFIGS = [
         version=2,
         granularity=(PerRow(), PerTensor()),
         act_mapping_type=MappingType.SYMMETRIC,
+    ),
+    Int8DynamicActivationInt8WeightConfig(
+        version=2, granularity=PerTensor(), act_mapping_type=MappingType.ASYMMETRIC
+    ),
+    Int8DynamicActivationInt8WeightConfig(
+        version=2, granularity=PerRow(), act_mapping_type=MappingType.ASYMMETRIC
     ),
 ]
 
@@ -83,7 +90,10 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
         self.assertEqual(w.qdata.dtype, torch.int8)
         self.assertTrue(torch.all(w.qdata >= -128) and torch.all(w.qdata <= 127))
 
-        if isinstance(config.granularity, PerRow):
+        if isinstance(config.granularity, PerGroup):
+            expected_groups = w.shape[1] // config.granularity.group_size
+            self.assertEqual(w.scale.shape, (w.shape[0], expected_groups))
+        elif isinstance(config.granularity, PerRow):
             self.assertEqual(w.scale.shape, (w.shape[0], 1))
         elif isinstance(config.granularity, PerTensor):
             self.assertEqual(w.scale.shape, (1, 1))
@@ -118,7 +128,11 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
 
         quantize_(model_q, config)
 
-        if isinstance(config.granularity, PerRow):
+        if isinstance(config.granularity, PerGroup):
+            # linear2 = Linear(N, K) → weight shape (K, N), groups along in_features (N)
+            expected_groups = N // config.granularity.group_size
+            self.assertEqual(model_q.linear2.weight.scale.shape, (K, expected_groups))
+        elif isinstance(config.granularity, PerRow):
             self.assertEqual(model_q.linear2.weight.scale.shape, (K, 1))
         elif isinstance(config.granularity, PerTensor):
             self.assertEqual(model_q.linear2.weight.scale.shape, (1, 1))
@@ -159,12 +173,22 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
         self.assertEqual(weight1.qdata, dummy.weight.qdata.narrow(0, 0, slice_sizes[0]))
         self.assertEqual(weight2.qdata, dummy.weight.qdata.narrow(1, 0, slice_sizes[1]))
 
-        if isinstance(config.granularity, PerRow):
+        if isinstance(config.granularity, PerGroup):
+            # Slicing dim=0 slices scale along dim=0
             self.assertEqual(
                 weight1.scale, dummy.weight.scale.narrow(0, 0, slice_sizes[0])
             )
-
-        self.assertEqual(weight2.scale, dummy.weight.scale)
+            # Slicing dim=1 slices scale along dim=1 (fewer groups)
+            gs = config.granularity.group_size
+            expected_scale_cols = slice_sizes[1] // gs
+            self.assertEqual(weight2.scale.shape[1], expected_scale_cols)
+        elif isinstance(config.granularity, PerRow):
+            self.assertEqual(
+                weight1.scale, dummy.weight.scale.narrow(0, 0, slice_sizes[0])
+            )
+            self.assertEqual(weight2.scale, dummy.weight.scale)
+        else:
+            self.assertEqual(weight2.scale, dummy.weight.scale)
         with self.assertRaises(NotImplementedError):
             _ = dummy.weight[::2]
 
@@ -187,7 +211,12 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
         )
 
         # Test block_size granularity
-        if isinstance(config.granularity, PerRow):
+        if isinstance(config.granularity, PerGroup):
+            self.assertEqual(
+                list(get_block_size(x_int8.shape, config.granularity)),
+                [1, config.granularity.group_size],
+            )
+        elif isinstance(config.granularity, PerRow):
             self.assertEqual(
                 list(get_block_size(x_int8.shape, config.granularity)), [1, K]
             )
@@ -260,13 +289,44 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
             weight_cpu.dequantize(), weight_pinned.dequantize(), atol=0, rtol=0
         )
 
+    def test_int8_weight_only_v1_v2_per_group_equivalence(self):
+        """Test that v1 per-group and v2 PerGroup produce equivalent outputs."""
+        torch.manual_seed(42)
+        group_size = 64
+        K, N = 256, 128
+
+        model_v1 = ToyTwoLinearModel(
+            K, N, K, dtype=torch.bfloat16, device="cuda"
+        ).eval()
+        model_v2 = copy.deepcopy(model_v1)
+
+        config_v1 = Int8WeightOnlyConfig(version=1, group_size=group_size)
+        config_v2 = Int8WeightOnlyConfig(version=2, granularity=PerGroup(group_size))
+
+        quantize_(model_v1, config_v1)
+        quantize_(model_v2, config_v2)
+
+        input_tensor = torch.randn(32, K, dtype=torch.bfloat16, device="cuda")
+
+        with torch.no_grad():
+            output_v1 = model_v1(input_tensor)
+            output_v2 = model_v2(input_tensor)
+
+        sqnr = compute_error(output_v1, output_v2)
+        self.assertGreater(sqnr, 30, f"v1 vs v2 SQNR too low: {sqnr}")
+
 
 @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
 @common_utils.instantiate_parametrized_tests
 class TestInt8StaticQuant(TorchAOIntegrationTestCase):
     @common_utils.parametrize("granularity", [PerRow(), PerTensor()])
     @common_utils.parametrize("dtype", [torch.bfloat16])
-    def test_static_activation_per_row_int8_weight(self, granularity, dtype):
+    @common_utils.parametrize(
+        "act_mapping_type", [MappingType.SYMMETRIC, MappingType.ASYMMETRIC]
+    )
+    def test_static_activation_per_row_int8_weight(
+        self, granularity, dtype, act_mapping_type
+    ):
         torch.compiler.reset()
 
         M, N, K = 128, 128, 128
@@ -279,7 +339,7 @@ class TestInt8StaticQuant(TorchAOIntegrationTestCase):
         model_out_baseline = model(input_tensor)
 
         dynamic_config = Int8DynamicActivationInt8WeightConfig(
-            version=2, granularity=granularity
+            version=2, granularity=granularity, act_mapping_type=act_mapping_type
         )
         quantize_(model_dynamic_quant, dynamic_config)
 
@@ -296,9 +356,15 @@ class TestInt8StaticQuant(TorchAOIntegrationTestCase):
             input_tensor, model_dynamic_quant.weight.act_quant_kwargs
         )
 
+        act_quant_zero_point = None
+        if int8_input.zero_point is not None:
+            act_quant_zero_point = int8_input.zero_point.detach().clone()
+
         static_config = Int8StaticActivationInt8WeightConfig(
             act_quant_scale=int8_input.scale.detach().clone(),
+            act_quant_zero_point=act_quant_zero_point,
             granularity=granularity,
+            act_mapping_type=act_mapping_type,
         )
         quantize_(model_static_quant, static_config)
 

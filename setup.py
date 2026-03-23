@@ -523,12 +523,12 @@ def get_extensions():
         "-DNDEBUG" if not debug_mode else "-DDEBUG",
         "-O3" if not debug_mode else "-O0",
         "-t=0",
-        "-std=c++17",
+        "-std=c++20",
     ]
     rocm_args = [
         "-DNDEBUG" if not debug_mode else "-DDEBUG",
         "-O3" if not debug_mode else "-O0",
-        "-std=c++17",
+        "-std=c++20",
     ]
     maybe_hipify_v2_flag = []
     if use_rocm and detect_hipify_v2():
@@ -756,6 +756,7 @@ def get_extensions():
             os.path.join(mxfp8_extension_dir, "mxfp8_extension.cpp"),
             os.path.join(mxfp8_extension_dir, "mxfp8_cuda.cu"),
             os.path.join(mxfp8_extension_dir, "mx_block_rearrange_2d_M_groups.cu"),
+            os.path.join(mxfp8_extension_dir, "fused_pad_token_groups.cu"),
         ]
 
         # Only add the extension if the source files exist AND we are building for sm100
@@ -772,7 +773,7 @@ def get_extensions():
                     extra_compile_args={
                         "cxx": [
                             f"-DPy_LIMITED_API={min_supported_cpython_hexcode}",
-                            "-std=c++17",
+                            "-std=c++20",
                             "-O3",
                         ],
                         "nvcc": nvcc_args

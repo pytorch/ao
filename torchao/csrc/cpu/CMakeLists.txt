@@ -9,7 +9,7 @@ include(CMakeDependentOption)
 
 project(torchao)
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 
 if (NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release)
@@ -197,6 +197,7 @@ endif()
 
 # Build ExecuTorch ops
 if(TORCHAO_BUILD_EXECUTORCH_OPS)
+    find_package(Torch REQUIRED)
     # ExecuTorch package is not required, but EXECUTORCH_INCLUDE_DIRS and EXECUTORCH_LIBRARIES must
     # be defined and EXECUTORCH_LIBRARIES must include the following libraries installed by ExecuTorch:
     # libexecutorch.a
@@ -229,4 +230,5 @@ if(TORCHAO_BUILD_EXECUTORCH_OPS)
         endif()
     endif()
     target_link_libraries(torchao_ops_executorch PRIVATE cpuinfo)
+    target_include_directories(torchao_ops_executorch PRIVATE "${TORCH_INCLUDE_DIRS}")
 endif()

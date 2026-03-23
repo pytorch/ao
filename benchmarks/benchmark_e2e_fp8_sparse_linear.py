@@ -14,7 +14,6 @@ from torchao.prototype.sparsity.activation.srelu_linear import (
 )
 from torchao.prototype.sparsity.activation.utils import SquaredReLU
 from torchao.quantization import (
-    Float8DynamicActivationFloat8SemiSparseWeightConfig,
     Float8DynamicActivationFloat8WeightConfig,
     Float8MMConfig,
     PerRow,
@@ -84,20 +83,6 @@ def benchmark(num_tokens, hidden_size=8192, intermediate_size=8192):
     ffn_clone.forward = torch.compile(ffn_clone.forward, fullgraph=True)
     fp8_c_time = benchmark_microseconds(ffn_clone, input_tensor)
 
-    # fp8 sparse
-    ffn_clone = (
-        nn.Sequential(
-            nn.Linear(hidden_size, intermediate_size, bias=False),
-            SquaredReLU(),
-            nn.Linear(intermediate_size, hidden_size, bias=False),
-        )
-        .to(torch.bfloat16)
-        .cuda()
-    )
-    quantize_(ffn_clone, Float8DynamicActivationFloat8SemiSparseWeightConfig())
-    ffn_clone.forward = torch.compile(ffn_clone.forward, fullgraph=True)
-    fp8_c_sparse_time = benchmark_microseconds(ffn_clone, input_tensor)
-
     # activation fp8 sparse
     ffn_clone = (
         nn.Sequential(
@@ -127,7 +112,6 @@ def benchmark(num_tokens, hidden_size=8192, intermediate_size=8192):
         "bf16_latency (us)": fp16_time,
         "bf16_c_latency (us)": fp16_c_time,
         "fp8_c_time (us)": fp8_c_time,
-        "fp8_c_sparse_time (us)": fp8_c_sparse_time,
         "fp8_c_activation_sparse_time (us)": fp8_c_activation_sparse_time,
         "ao_fast_sparsification_time (us)": ao_fast_sparsification_time,
         "cusparselt_compress_time (us)": cusparselt_time,

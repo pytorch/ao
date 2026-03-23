@@ -27,10 +27,10 @@ TORCHAO_ALWAYS_INLINE inline void pack_8_uint5_values(
   // p2 = u4_all | u5_low_3_bits
   // p3 = u6_all | u7_low_3_bits
   // p4 = u1_high_2_bits | u3_high_2_bits | u5_high_2_bits | u7_high_2_bits
-  packed[0] = (unpacked[0] & 0x1F) | ((unpacked[1] & 0x1F) << 5);
-  packed[1] = (unpacked[2] & 0x1F) | ((unpacked[3] & 0x1F) << 5);
-  packed[2] = (unpacked[4] & 0x1F) | ((unpacked[5] & 0x1F) << 5);
-  packed[3] = (unpacked[6] & 0x1F) | ((unpacked[7] & 0x1F) << 5);
+  packed[0] = unpacked[0] | ((unpacked[1] & 0x1F) << 5);
+  packed[1] = unpacked[2] | ((unpacked[3] & 0x1F) << 5);
+  packed[2] = unpacked[4] | ((unpacked[5] & 0x1F) << 5);
+  packed[3] = unpacked[6] | ((unpacked[7] & 0x1F) << 5);
   packed[4] = ((unpacked[1] & 0x1F) >> 3) | (((unpacked[3] & 0x1F) >> 3) << 2) |
       (((unpacked[5] & 0x1F) >> 3) << 4) | (((unpacked[7] & 0x1F) >> 3) << 6);
 }
@@ -73,16 +73,16 @@ TORCHAO_ALWAYS_INLINE inline void pack_64_uint5_values(
     const uint8_t* unpacked) {
   // Pack the first 32 bytes (p0, p1)
   for (int i = 0; i < 16; ++i) {
-    packed[i] = (unpacked[i] & 0x1F) | ((unpacked[i + 16] & 0x1F) << 5);
-    packed[i + 16] = (unpacked[i + 32] & 0x1F) | ((unpacked[i + 48] & 0x1F) << 5);
+    packed[i] = unpacked[i] | ((unpacked[i + 16] & 0x1F) << 5);
+    packed[i + 16] = unpacked[i + 32] | ((unpacked[i + 48] & 0x1F) << 5);
   }
 
   // Pack the final 8 bytes (p2)
   for (int i = 0; i < 8; ++i) {
-    uint8_t val1 = (unpacked[16 + i] >> 3) & 0x03;
-    uint8_t val2 = (unpacked[24 + i] >> 3) & 0x03;
-    uint8_t val3 = (unpacked[48 + i] >> 3) & 0x03;
-    uint8_t val4 = (unpacked[56 + i] >> 3) & 0x03;
+    uint8_t val1 = unpacked[16 + i] >> 3;
+    uint8_t val2 = unpacked[24 + i] >> 3;
+    uint8_t val3 = unpacked[48 + i] >> 3;
+    uint8_t val4 = unpacked[56 + i] >> 3;
     packed[32 + i] = val1 | (val2 << 2) | (val3 << 4) | (val4 << 6);
   }
 }
@@ -128,18 +128,18 @@ TORCHAO_ALWAYS_INLINE inline void pack_128_uint5_values(
     const uint8_t* unpacked) {
   // Pack the first 64 bytes (p0, p1, p2, p3)
   for (int i = 0; i < 16; ++i) {
-    packed[i] = (unpacked[i] & 0x1F) | ((unpacked[i + 16] & 0x1F) << 5);
-    packed[i + 16] = (unpacked[i + 32] & 0x1F) | ((unpacked[i + 48] & 0x1F) << 5);
-    packed[i + 32] = (unpacked[i + 64] & 0x1F) | ((unpacked[i + 80] & 0x1F) << 5);
-    packed[i + 48] = (unpacked[i + 96] & 0x1F) | ((unpacked[i + 112] & 0x1F) << 5);
+    packed[i] = unpacked[i] | ((unpacked[i + 16] & 0x1F) << 5);
+    packed[i + 16] = unpacked[i + 32] | ((unpacked[i + 48] & 0x1F) << 5);
+    packed[i + 32] = unpacked[i + 64] | ((unpacked[i + 80] & 0x1F) << 5);
+    packed[i + 48] = unpacked[i + 96] | ((unpacked[i + 112] & 0x1F) << 5);
   }
 
   // Pack the final 16 bytes (p4)
   for (int i = 0; i < 16; ++i) {
-    uint8_t val1 = (unpacked[16 + i] >> 3) & 0x03;
-    uint8_t val2 = (unpacked[48 + i] >> 3) & 0x03;
-    uint8_t val3 = (unpacked[80 + i] >> 3) & 0x03;
-    uint8_t val4 = (unpacked[112 + i] >> 3) & 0x03;
+    uint8_t val1 = unpacked[16 + i] >> 3;
+    uint8_t val2 = unpacked[48 + i] >> 3;
+    uint8_t val3 = unpacked[80 + i] >> 3;
+    uint8_t val4 = unpacked[112 + i] >> 3;
     packed[64 + i] = val1 | (val2 << 2) | (val3 << 4) | (val4 << 6);
   }
 }

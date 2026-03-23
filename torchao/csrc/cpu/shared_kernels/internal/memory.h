@@ -19,7 +19,15 @@ inline aligned_byte_ptr make_aligned_byte_ptr(size_t alignment, size_t size) {
   // Adjust size to next multiple of alignment >= size
   size_t adjusted_size = ((size + alignment - 1) / alignment) * alignment;
 
+#if defined(__ANDROID__) && __ANDROID_API__ < 28
+  void* raw_ptr = nullptr;
+  if (::posix_memalign(&raw_ptr, alignment, adjusted_size) != 0) {
+    raw_ptr = nullptr;
+  }
+  char* ptr = static_cast<char*>(raw_ptr);
+#else
   char* ptr = static_cast<char*>(std::aligned_alloc(alignment, adjusted_size));
+#endif
   if (!ptr) {
     throw std::runtime_error(
         "Failed to allocate memory. Requested size: " + std::to_string(size) +

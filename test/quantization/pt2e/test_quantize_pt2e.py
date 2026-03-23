@@ -182,6 +182,36 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
             torch.testing.assert_close(ref_outputs, traced_outputs)
             torch.testing.assert_close(traced_outputs, prepared_outputs)
 
+    def test_linear_bn_fusion(self):
+        N = 8
+        for M in [16, 32]:
+            for bias in [True, False]:
+                m = torch.nn.Sequential(
+                    torch.nn.Linear(N, M, bias=bias),
+                    torch.nn.BatchNorm1d(M),
+                )
+                m.eval()
+                example_inputs = (torch.randn(4, N),)
+                ref_outputs = m(*example_inputs)
+                traced_model = torch.export.export(
+                    m, example_inputs, strict=True
+                ).module()
+                traced_outputs = traced_model(*example_inputs)
+                prepared_model = prepare_pt2e(traced_model, XNNPACKQuantizer())
+                prepared_outputs = prepared_model(*example_inputs)
+                torch.testing.assert_close(ref_outputs, traced_outputs)
+                torch.testing.assert_close(traced_outputs, prepared_outputs)
+                # Verify BN nodes are removed from the graph
+                for node in prepared_model.graph.nodes:
+                    self.assertNotEqual(
+                        node.target,
+                        torch.ops.aten._native_batch_norm_legit_no_training.default,
+                    )
+                    self.assertNotEqual(
+                        node.target,
+                        torch.ops.aten.batch_norm.default,
+                    )
+
     def test_wo_annotate_conv_output_quantizer(self):
         # TODO: use OP_TO_ANNOTATOR
         class BackendAQuantizer(Quantizer):
@@ -3348,6 +3378,123 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
         with torch.no_grad():
             output = m_converted(*example_inputs)
         self.assertEqual(output.shape, (3, 5))
+        sqnr = compute_error(output_ref, output)
+        self.assertGreater(sqnr, 35, f"SQNR too low: {sqnr} dB")
+
+    def test_while_loop_op_quantization(self):
+        """Test that prepare_pt2e and convert_pt2e correctly quantize ops
+        inside the body_fn subgraph of torch._higher_order_ops.while_loop.
+        """
+        from torch._higher_order_ops.while_loop import while_loop
+
+        class WhileLoopModel(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.linear = torch.nn.Linear(5, 5)
+
+            def forward(self, x):
+                # x: (features,)
+                def cond_fn(iter, x):
+                    return iter < 3
+
+                def body_fn(iter, x):
+                    return iter + 1, self.linear(x)
+
+                _, result = while_loop(cond_fn, body_fn, (torch.tensor(0), x))
+                return result
+
+        quantizer = XNNPACKQuantizer().set_global(get_symmetric_quantization_config())
+
+        m = WhileLoopModel().eval()
+        example_inputs = (torch.randn(5),)
+
+        m_export = torch.export.export(m, example_inputs).module()
+        # Compute reference output before quantization modifies the model
+        with torch.no_grad():
+            output_ref = m_export(*example_inputs)
+        m_prepared = prepare_pt2e(m_export, quantizer)
+
+        # Verify that while_loop body_fn subgraph has observers inserted
+        while_loop_body_fn = None
+        for node in m_prepared.graph.nodes:
+            if (
+                node.op == "call_function"
+                and node.target is torch.ops.higher_order.while_loop
+            ):
+                submod_node = node.args[1]
+                while_loop_body_fn = m_prepared.get_submodule(submod_node.target)
+                break
+        self.assertIsNotNone(while_loop_body_fn, "while_loop op not found in graph")
+
+        # Check that observers are present in the body_fn subgraph
+        observer_count = 0
+        for node in while_loop_body_fn.graph.nodes:
+            if node.op == "call_module":
+                self.assertTrue(
+                    node.target.startswith("activation_post_process_"),
+                    f"Unexpected call_module target: {node.target}",
+                )
+                obs_mod = getattr(while_loop_body_fn, node.target)
+                self.assertIsInstance(obs_mod, ObserverBase)
+                observer_count += 1
+        self.assertGreater(
+            observer_count,
+            0,
+            "No observers found in while_loop body_fn subgraph after prepare",
+        )
+
+        # Calibrate - use no_grad because while_loop's runtime re-traces the
+        # body_fn and observers contain data-dependent branching
+        with torch.no_grad():
+            m_prepared(*example_inputs)
+
+        # Convert
+        m_converted = convert_pt2e(m_prepared)
+
+        # Verify that while_loop body_fn subgraph has q/dq ops after conversion
+        while_loop_body_fn_converted = None
+        for node in m_converted.graph.nodes:
+            if (
+                node.op == "call_function"
+                and node.target is torch.ops.higher_order.while_loop
+            ):
+                submod_node = node.args[1]
+                while_loop_body_fn_converted = m_converted.get_submodule(
+                    submod_node.target
+                )
+                break
+        self.assertIsNotNone(
+            while_loop_body_fn_converted,
+            "while_loop op not found in converted graph",
+        )
+
+        # Check that q/dq ops are present in the converted body_fn subgraph
+        body_fn_targets = {
+            node.target
+            for node in while_loop_body_fn_converted.graph.nodes
+            if node.op == "call_function"
+        }
+        self.assertTrue(
+            torch.ops.quantized_decomposed.quantize_per_tensor.default
+            in body_fn_targets
+            or torch.ops.quantized_decomposed.quantize_per_channel.default
+            in body_fn_targets,
+            f"No quantize ops found in converted while_loop body_fn subgraph. "
+            f"Found targets: {body_fn_targets}",
+        )
+        self.assertTrue(
+            torch.ops.quantized_decomposed.dequantize_per_tensor.default
+            in body_fn_targets
+            or torch.ops.quantized_decomposed.dequantize_per_channel.default
+            in body_fn_targets,
+            f"No dequantize ops found in converted while_loop body_fn subgraph. "
+            f"Found targets: {body_fn_targets}",
+        )
+
+        # Verify the model runs successfully and produces accurate results
+        with torch.no_grad():
+            output = m_converted(*example_inputs)
+        self.assertEqual(output.shape, (5,))
         sqnr = compute_error(output_ref, output)
         self.assertGreater(sqnr, 35, f"SQNR too low: {sqnr} dB")
 

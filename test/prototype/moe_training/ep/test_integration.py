@@ -36,9 +36,9 @@ from torchao.prototype.moe_training.ep import (
     permute_mxfp8_fwd_hp_bwd,
     unpermute_hp_fwd_mxfp8_bwd,
 )
-from torchao.prototype.moe_training.ep.permute import _permute_bf16
+from torchao.prototype.moe_training.ep.permute import permute_and_pad
 from torchao.prototype.moe_training.ep.unpermute import _unpermute_bf16
-from torchao.prototype.moe_training.scaled_grouped_mm import (
+from torchao.prototype.moe_training.mxfp8_grouped_mm import (
     _to_mxfp8_then_scaled_grouped_mm,
 )
 from torchao.prototype.mx_formats.mx_tensor import MXTensor
@@ -157,7 +157,7 @@ class TestIntegration(MultiProcessTestCase):
                 input_tensor,
                 output_splits.tolist(),
                 input_splits.tolist(),
-                group=group,
+                group_name=group.group_name,
             )
             assert isinstance(mx_dispatched, MXTensor)
 
@@ -181,7 +181,7 @@ class TestIntegration(MultiProcessTestCase):
                 bf16_permuted_indices,
                 bf16_num_tokens_per_expert_padded,
                 bf16_group_offsets,
-            ) = _permute_bf16(
+            ) = permute_and_pad(
                 bf16_dispatched,
                 num_tokens_per_expert_group,
                 ep_degree,
@@ -292,7 +292,7 @@ class TestIntegration(MultiProcessTestCase):
                 mx_unpermuted,
                 output_splits=input_splits.tolist(),
                 input_splits=output_splits.tolist(),
-                group=group,
+                group_name=group.group_name,
             )
             assert mxfp8_output.dtype == torch.bfloat16
 

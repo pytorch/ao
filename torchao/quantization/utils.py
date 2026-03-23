@@ -766,6 +766,19 @@ def _linear_extra_repr(self):
     return f"in_features={self.weight.shape[1]}, out_features={self.weight.shape[0]}, weight={_quantization_type(self.weight)}"
 
 
+def _module_extra_repr(self, original_extra_repr, parameter_name):
+    module_torchao_extra_repr = []
+
+    original_extra_repr_str = original_extra_repr()
+    if len(original_extra_repr_str) > 0:
+        module_torchao_extra_repr.append(original_extra_repr_str)
+
+    module_torchao_extra_repr.append(
+        f"{parameter_name}={_quantization_type(getattr(self, parameter_name))}"
+    )
+    return ", ".join(module_torchao_extra_repr)
+
+
 def _fp8_mm_compat(weight: torch.Tensor) -> bool:
     """
     Check if a weight tensor meets float8 quantization requirements.

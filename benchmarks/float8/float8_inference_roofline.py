@@ -58,6 +58,7 @@ from torchao.quantization.quant_api import (
 )
 from torchao.quantization.quantize_.common import KernelPreference
 from torchao.testing.training.roofline_utils import (
+    get_inference_bf16_activation_mem_sympy,
     get_inference_float8_mem_sympy,
     get_inference_gemm_time_sympy,
 )
@@ -111,7 +112,7 @@ def get_gemm_times(
 
     bf16_time_s = get_gpu_kernel_gemm_time_s(torch.mm, x_bf16, w_bf16)
 
-    if recipe_name in ("mxfp4_cutlass", "nvfp4"):
+    if recipe_name in ("mxfp4_cutlass", "nvfp4", "nvfp4_static"):
         d1, d2, d3 = torch.float4_e2m1fn_x2, torch.float4_e2m1fn_x2, torch.bfloat16
         A = torch.randint(0, 255, (M, K // 2), device=device, dtype=torch.uint8).view(
             d1
@@ -150,7 +151,7 @@ def get_gemm_times(
         scale_b = torch.ones(N, K // 32, device=device, dtype=torch.float8_e8m0fnu)
         scale_a = to_blocked(scale_a)
         scale_b = to_blocked(scale_b)
-    elif recipe_name == "nvfp4":
+    elif recipe_name in ("nvfp4", "nvfp4_static"):
         scale_a = torch.ones(M, K // 16, device=device, dtype=torch.float8_e4m3fn)
         scale_b = torch.ones(N, K // 16, device=device, dtype=torch.float8_e4m3fn)
         scale_a = to_blocked(scale_a)
@@ -176,7 +177,7 @@ def get_gemm_times(
                 swizzle_b=SwizzleType.SWIZZLE_32_4_4,
                 output_dtype=d3,
             )
-        if recipe_name == "nvfp4":
+        if recipe_name in ("nvfp4", "nvfp4_static"):
             return torch._scaled_mm(
                 A, B, scale_a, scale_b, out_dtype=d3, use_fast_accum=False
             )
@@ -468,8 +469,8 @@ def _create_model_and_input(
 
 
 def run(
-    outfile: str,
     recipe_name: str,
+    outfile: str | None = None,
     do_benchmarks: bool = True,
     shape_gen_name: str = "pow2",
     M: Optional[int] = None,
@@ -485,6 +486,7 @@ def run(
     kernel_size: Optional[int] = None,
     stride: int = 1,
     padding: int = 0,
+    skip_printing_detailed_metrics: bool = False,
 ):
     """
     Args:
@@ -500,6 +502,8 @@ def run(
     * `kernel_size`: kernel_size for conv3d / conv2d
     * `stride`: stride for conv ops (default: 1)
     * `padding`: padding for conv ops (default: 0)
+    * `skip_printing_detailed_metrics`: if True, prints e2e roofline
+      and observed speedups only, skipping all other intermediate metrics
     """
     _SUPPORTED_OPS = ["linear", "conv2d", "conv3d"]
     assert op_name in _SUPPORTED_OPS, (
@@ -561,6 +565,11 @@ def run(
         # TODO(future): also enable fusion modeling here
     )
     bf16_gemm_time_sympy = get_inference_gemm_time_sympy(M, K, N, torch.bfloat16, None)
+    if enable_fusion_modeling and op_name == "linear":
+        bf16_ovhd_time_sympy = get_inference_bf16_activation_mem_sympy(M, K, N)
+    else:
+        # multiply by M to ensure we get a sympy symbol
+        bf16_ovhd_time_sympy = M * 0
 
     if recipe_name and recipe_name.startswith(("nvfp4", "mxfp4")):
         fp8_gemm_time_sympy = get_inference_gemm_time_sympy(
@@ -572,6 +581,7 @@ def run(
             M, K, N, torch.float8_e4m3fn, gemm_recipe_name
         )
     print("bf16_gemm_time_sympy", bf16_gemm_time_sympy)
+    print("bf16_ovhd_time_sympy", bf16_ovhd_time_sympy)
     print("fp8_gemm_time_sympy", fp8_gemm_time_sympy)
     print("fp8_ovhd_time_sympy", fp8_ovhd_time_sympy)
     print()
@@ -587,6 +597,8 @@ def run(
         # roofline - gemm time (fwd + bwd, 3 gemms; for conv: using equivalent implicit gemm dims)
         "r_bf16_gemm_s",
         "r_fp8_gemm_s",
+        # roofline - bf16 overhead time (read-write prev activation, only if fusion modeling is on)
+        "r_bf16_ovhd_s",
         # roofline - fp8 overhead time (by counting reads/writes in the ideal case)
         "r_fp8_ovhd_s",
         # roofline - fp8 gemm + fp8 overhead time (does not include LN or sigmoid)
@@ -628,11 +640,16 @@ def run(
             )
 
             # note: cast from sympy.core.numbers.Float to float to make pandas formatting work
+            r_bf16_ovhd_time_s = float(
+                bf16_ovhd_time_sympy.subs(M, M_val).subs(K, K_val).subs(N, N_val)
+            )
             r_fp8_ovhd_time_s = float(
                 fp8_ovhd_time_sympy.subs(M, M_val).subs(K, K_val).subs(N, N_val)
             )
             r_fp8_gemm_and_ovhd_s = r_fp8_gemm_time_s + r_fp8_ovhd_time_s
-            r_speedup = r_bf16_gemm_time_s / (r_fp8_gemm_time_s + r_fp8_ovhd_time_s)
+            r_speedup = (r_bf16_gemm_time_s + r_bf16_ovhd_time_s) / (
+                r_fp8_gemm_time_s + r_fp8_ovhd_time_s
+            )
 
             # if enabled, also measured observed gemm time
             b_bf16_gemm_time_s, b_fp8_gemm_time_s = 0, 0
@@ -679,11 +696,16 @@ def run(
             r_fp8_gemm_time_s = float(
                 fp8_gemm_time_sympy.subs(M, gemm_M).subs(K, gemm_K).subs(N, gemm_N)
             )
+            r_bf16_ovhd_time_s = float(
+                bf16_ovhd_time_sympy.subs(M, M_val).subs(K, K_val).subs(N, N_val)
+            )
             r_fp8_ovhd_time_s = float(
                 fp8_ovhd_time_sympy.subs(M, gemm_M).subs(K, gemm_K).subs(N, gemm_N)
             )
             r_fp8_gemm_and_ovhd_s = r_fp8_gemm_time_s + r_fp8_ovhd_time_s
-            r_speedup = r_bf16_gemm_time_s / (r_fp8_gemm_time_s + r_fp8_ovhd_time_s)
+            r_speedup = (r_bf16_gemm_time_s + r_bf16_ovhd_time_s) / (
+                r_fp8_gemm_time_s + r_fp8_ovhd_time_s
+            )
 
             # measure actual conv kernel times (without quant overhead)
             b_bf16_gemm_time_s, b_fp8_gemm_time_s = 0, 0
@@ -773,12 +795,29 @@ def run(
                     )
                 elif recipe_name == "nvfp4":
                     config = NVFP4DynamicActivationNVFP4WeightConfig(
-                        use_dynamic_per_tensor_scale=False,
+                        use_dynamic_per_tensor_scale=True,
+                    )
+                elif recipe_name == "nvfp4_static":
+                    config_calib = NVFP4DynamicActivationNVFP4WeightConfig(
+                        step="prepare",
+                    )
+                    config = NVFP4DynamicActivationNVFP4WeightConfig(
+                        step="convert",
                     )
                 else:
                     assert False, "unsupported"
 
                 m_fp8_dyn = copy.deepcopy(m_orig)
+
+                if recipe_name == "nvfp4_static":
+                    # calibrate with sample data
+                    # this benchmark is performance-only, so a toy datum is fine
+                    quantize_(m_fp8_dyn, config_calib)
+                    toy_datum = torch.randn(
+                        M_val, K_val, dtype=torch.bfloat16, device="cuda"
+                    )
+                    m_fp8_dyn(toy_datum)
+
                 if op_name == "linear":
                     quantize_(m_fp8_dyn, config)
                 elif op_name == "conv2d":
@@ -813,7 +852,8 @@ def run(
                 # roofline - gemm
                 r_bf16_gemm_time_s,
                 r_fp8_gemm_time_s,
-                # roofline - fp8 overhead
+                # roofline - overhead
+                r_bf16_ovhd_time_s,
                 r_fp8_ovhd_time_s,
                 # roofline - gemm + overhead, and speedup
                 r_fp8_gemm_and_ovhd_s,
@@ -833,8 +873,20 @@ def run(
 
     pd.set_option("display.precision", 2)
     df = pd.DataFrame(results, columns=headers)
+
+    if outfile is not None:
+        df.to_csv(outfile)
+
+    if op_name == "linear":
+        # drop conv-only columns to simplify linear results
+        df = df.drop(columns=["D", "H", "W", "kernel_size"])
+
+    if skip_printing_detailed_metrics:
+        df = df[
+            ["fwd_M", "fwd_K", "fwd_N", "r_fp8_gemm_and_ovhd_spdp", "b_fp8_e2e_spdp"]
+        ]
+
     print(df)
-    df.to_csv(outfile)
     print("done")
 
 

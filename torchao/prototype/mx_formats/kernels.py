@@ -4,8 +4,9 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
+import importlib
 import logging
-from typing import Optional, Tuple
+from typing import Tuple
 
 import numpy as np
 import torch
@@ -20,6 +21,8 @@ from torchao.prototype.custom_fp_utils import (
 from torchao.prototype.mx_formats.config import ScaleCalculationMode
 from torchao.utils import (
     is_cuda_version_at_least,
+    is_MI350,
+    is_ROCM,
     is_sm_at_least_100,
     torch_version_at_least,
 )
@@ -422,226 +425,6 @@ if torch_version_at_least("2.7.0") and has_triton():
 
         return out
 
-    @triton.jit
-    def convert_fp32_to_fp4_packed(x_pairs):
-        """Convert FP32 pairs to packed FP4 format.
-
-        This function takes tensor where consecutive values along the last dimension
-        are packed together into single bytes.
-
-        Args:
-            x_pairs: [Tensor, Tensor] both w/ shapes [..., 1] where zipped last dimension contains
-                    interleaved pairs of FP32 values to be packed together.
-
-        Returns:
-            Packed tensor with shape [...] (last dimension removed) where each
-            element is an int8 containing 2 FP4 values:
-            - First value of pair → low nibble (bits 0-3)
-            - Second value of pair → high nibble (bits 4-7)
-
-        Example:
-            Input:  [128, 32, 2] containing FP32 pairs
-            Output: [128, 32] containing packed FP4 bytes
-
-        """
-
-        x_fp4x2 = tl.inline_asm_elementwise(
-            asm="""
-            {
-            .reg .b8 byte0, byte1, byte2, byte3;
-            cvt.rn.satfinite.e2m1x2.f32 byte0, $5, $1;
-            cvt.rn.satfinite.e2m1x2.f32 byte1, $6, $2;
-            cvt.rn.satfinite.e2m1x2.f32 byte2, $7, $3;
-            cvt.rn.satfinite.e2m1x2.f32 byte3, $8, $4;
-            mov.b32 $0, {byte0, byte1, byte2, byte3};
-            }
-            """,
-            constraints=("=r,r,r,r,r,r,r,r,r"),
-            args=x_pairs,
-            dtype=tl.uint8,
-            is_pure=True,
-            pack=4,
-        )
-
-        return x_fp4x2
-
-    # Sauce: https://github.com/gau-nernst/quantized-training
-    @triton.jit
-    def quantize_nvfp4_triton_kernel(
-        x_ptr,
-        tensor_scale_ptr,
-        q_ptr,
-        s_ptr,
-        stride_xm,
-        stride_xn,
-        M,
-        N,
-        USE_TENSOR_SCALE: tl.constexpr,
-        MASK_SCALES: tl.constexpr,
-    ):
-        F4_E2M1_MAX = 6.0
-        F8E4M3_MAX = 448.0
-        E4M3_EPS = 1.5258789e-05
-
-        pid_m = tl.program_id(1)
-        pid_n = tl.program_id(0)
-
-        offs_m = pid_m * 128 + tl.arange(0, 128)[:, None]
-        offs_n = pid_n * 64 + tl.arange(0, 64)[None, :]
-        if MASK_SCALES:
-            mask = (offs_m < M) & (offs_n < N)
-            other = 0.0
-        else:
-            mask = None
-            other = None
-        x = tl.load(
-            x_ptr + offs_m * stride_xm + offs_n * stride_xn, mask=mask, other=other
-        )  # [128, 64]
-        x_blocks = x.to(tl.float32).reshape(128, 4, 16)  # [128, 4, 16]
-
-        # Compute block-wise scales
-        block_amax = tl.max(x_blocks.abs(), axis=2)  # [128, 4]
-
-        if USE_TENSOR_SCALE:
-            # Two-level scaling: quantize block scales with per-tensor scale
-            tensor_scale = tl.load(tensor_scale_ptr)
-
-            # First compute block scales
-            block_scale_f32 = (block_amax / F4_E2M1_MAX).to(tl.float32)
-
-            # Quantize the block scales with per-tensor scale
-            scaled_block_scales = block_scale_f32 / tensor_scale
-            scaled_block_scales = tl.clamp(scaled_block_scales, E4M3_EPS, F8E4M3_MAX)
-            scales = scaled_block_scales.to(tl.float8e4nv)
-
-            # Apply combined scale to data: per_tensor_scale * quantized_block_scale
-            total_scale = tensor_scale * scales.to(tl.float32)[:, :, None]
-            x_blocks = tl.div_rn(x_blocks, total_scale)
-        else:
-            # Single-level scaling: use block scales directly
-            scales_f32 = block_amax / F4_E2M1_MAX
-            scales_f32 = tl.clamp(scales_f32, E4M3_EPS, F8E4M3_MAX)
-            scales = scales_f32.to(tl.float8e4nv)
-
-            # Apply block scale to data
-            total_scale = scales.to(tl.float32)[:, :, None]
-            x_blocks = tl.div_rn(x_blocks, total_scale)
-
-        # NVIDIA layout for scales
-        if MASK_SCALES:
-            # Create offsets for the scale dimensions (4 blocks per row)
-            scale_offs_n = pid_n * 4 + tl.arange(0, 4)[None, :]
-
-            # Mask out scales to 0 if we are not aligned to 128 x 64
-            scales = tl.where(
-                (offs_m < M) & (scale_offs_n < N // 16),
-                scales,
-                0.0,
-            )
-        packed_scales = scales.reshape(4, 32, 4).permute(1, 0, 2).reshape(32, 16)
-        offs_m = tl.arange(0, 32)[:, None]
-        offs_n = tl.arange(0, 16)[None, :]
-        tl.store(
-            s_ptr
-            + (pid_m * tl.num_programs(0) + pid_n) * (32 * 16)
-            + offs_m * 16
-            + offs_n,
-            packed_scales,
-        )
-
-        # Convert to FP4
-        x_fp4x2 = convert_fp32_to_fp4_packed(x_blocks.reshape(128, 32, 2).split())
-        offs_m = pid_m * 128 + tl.arange(0, 128)[:, None]
-        offs_n = pid_n * 32 + tl.arange(0, 32)[None, :]
-        if MASK_SCALES:
-            mask = (offs_m < M) & (offs_n < N // 2)
-        else:
-            mask = None
-        tl.store(q_ptr + offs_m * (N // 2) + offs_n, x_fp4x2, mask=mask)
-
-    @torch.library.custom_op("ao::triton_quantize_nvfp4", mutates_args=())
-    def triton_quantize_nvfp4(
-        x: torch.Tensor, per_tensor_scale: Optional[torch.Tensor] = None
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-        """Quantize a tensor to NVFP4 format.
-
-        Args:
-            x (torch.Tensor): Input tensor to be quantized.
-            tensor_scale (Optional[torch.Tensor]): Per-tensor scale for two-level quantization.
-                If None, uses single-level block-wise quantization only.
-
-        Returns:
-            Tuple[torch.Tensor, torch.Tensor]: Quantized tensor and scales tensor in swizzled layout.
-
-        Note:
-            Since VLLM does not use dyanmo guards we need to make this a custom op
-            to avoid the triton kernel being invoked w/ the wrong use of `MASK_SCALES`
-        """
-        # reshape to 2d
-        orig_leading_dims, _orig_M, orig_N = x.shape[:-2], x.shape[-2], x.shape[-1]
-        x = x.reshape(-1, orig_N)
-
-        M, N = x.shape
-        # assert M % 128 == 0 and N % 64 == 0
-        assert N % 16 == 0, "N must be divisible by 16 for NVFP4 quantization"
-
-        # Calculate blocks needed
-        num_scales = N // 16
-        n_row_blocks = triton.cdiv(M, 128)
-        n_col_blocks = triton.cdiv(num_scales, 4)
-        padded_rows = n_row_blocks * 128
-        padded_cols = n_col_blocks * 4
-
-        # mask out scales to 0 if we are not aligned to 128 x 64
-        MASK_SCALES = M % 128 != 0 or N % 64 != 0
-
-        xq = x.new_empty(M, N // 2, dtype=torch.uint8)
-        scales = x.new_empty(padded_rows, padded_cols, dtype=torch.float8_e4m3fn)
-
-        grid = (triton.cdiv(N, 64), triton.cdiv(M, 128))
-
-        if per_tensor_scale is None:
-            # Don't allocate tensor, we just steal this since it won't be used in kernel
-            tensor_scale_ptr = x
-            use_tensor_scale = False
-        else:
-            tensor_scale_ptr = per_tensor_scale
-            use_tensor_scale = True
-
-        quantize_nvfp4_triton_kernel[grid](
-            x,
-            tensor_scale_ptr,
-            xq,
-            scales,
-            x.stride(0),
-            x.stride(1),
-            M,
-            N,
-            USE_TENSOR_SCALE=use_tensor_scale,
-            MASK_SCALES=MASK_SCALES,
-        )
-
-        # reshape back to original shape
-        scales = scales.view(*orig_leading_dims, -1, padded_cols)
-        xq = xq.view(*orig_leading_dims, -1, N // 2)
-
-        return scales, xq.view(torch.uint8)
-
-    @triton_quantize_nvfp4.register_fake
-    def _(x, per_tensor_scale=None):
-        M, N = x.shape
-        num_scales = N // 16
-        n_row_blocks = triton.cdiv(M, 128)
-        n_col_blocks = triton.cdiv(num_scales, 4)
-        padded_rows = n_row_blocks * 128
-        padded_cols = n_col_blocks * 4
-
-        scales = torch.empty(
-            padded_rows, padded_cols, device=x.device, dtype=torch.float8_e4m3fn
-        )
-        xq = torch.empty(M, N // 2, device=x.device, dtype=torch.uint8)
-        return scales, xq
-
     @triton_mx_block_rearrange.register_fake
     def _(scale_tensor):
         rows, cols = scale_tensor.shape
@@ -651,6 +434,7 @@ if torch_version_at_least("2.7.0") and has_triton():
         padded_cols = n_col_blocks * 4
 
         return scale_tensor.new_empty((padded_rows, padded_cols))
+
 else:
 
     def triton_to_mxfp8_dim1_reference(
@@ -660,11 +444,6 @@ else:
         raise AssertionError("needs torch version 2.8+ and triton")
 
     def triton_mx_block_rearrange(scale_tensor: torch.Tensor) -> torch.Tensor:
-        raise AssertionError("needs torch version 2.8+ and triton")
-
-    def triton_quantize_nvfp4(
-        x: torch.Tensor, tensor_scale: Optional[torch.Tensor] = None
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
         raise AssertionError("needs torch version 2.8+ and triton")
 
     def triton_mxfp8_dequant_dim0(
@@ -680,8 +459,8 @@ _triton_kernels_available = (
     torch_version_at_least("2.7.0")
     and has_triton()
     and torch.cuda.is_available()
-    and is_sm_at_least_100()
-    and is_cuda_version_at_least(12, 8)
+    and (is_sm_at_least_100() and is_cuda_version_at_least(12, 8))
+    or (is_ROCM() and is_MI350())
 )
 
 if _triton_kernels_available:
@@ -689,26 +468,25 @@ if _triton_kernels_available:
     import triton.language as tl
     from torch.library import triton_op, wrap_triton
 
+    IS_ROCM = tl.constexpr(is_ROCM())
+
     @triton.jit
-    def _triton_calculate_scale(x, axis, SCALING_MODE: tl.constexpr):
+    def _triton_calculate_scale_rceil(x, axis, USE_PTX: tl.constexpr):
         # There is no good support for accessing globals from a jit'ed triton
         # function, so we redefine them here. Since this is prototype code which
         # we plan to remove after torch.compile catches up, this is fine.
-        target_max_pow2 = 8
         e8m0_exponent_bias = 127
-        bf16_mbits = 7
-        bf16_exp_bias = 127
         fp32_mbits = 23
 
         # Find the maximum absolute value for each row
         max_abs = tl.max(x, axis=axis)
 
-        # Compute e8m0 biased scale using either RCEIL or FLOOR rounding.
-        if SCALING_MODE == "rceil":
+        F8E4M3_MAX_RCP: tl.constexpr = 1.0 / 448.0
+
+        if USE_PTX:
             # RCEIL scaling mode using PTX instruction supported on sm100.
             # The input should be: amax / 448.0
             # where 448.0 is the max representable value in FP8 E4M3 format.
-            F8E4M3_MAX_RCP: tl.constexpr = 1.0 / 448.0
             scale_input = max_abs.to(tl.float32) * F8E4M3_MAX_RCP
 
             # The PTX instruction outputs a packed uint16 where:
@@ -724,27 +502,70 @@ if _triton_kernels_available:
                 pack=1,
             ).to(tl.uint8)
         else:
-            tl.static_assert(SCALING_MODE == "floor")
-
-            # Original floor implementation
-            # Calculate the e8m0 scale by extracting the exponent (floor)
-            max_abs = max_abs.to(tl.bfloat16)
-            max_abs_int16 = max_abs.to(tl.int16, bitcast=True)
-            extracted_pow2 = (
-                (max_abs_int16 >> bf16_mbits) & 0b11111111
-            ) - bf16_exp_bias
-            extracted_pow2 = extracted_pow2 - target_max_pow2
-            scale_e8m0_unbiased = extracted_pow2.to(tl.bfloat16)
+            # Original recil implementation described in https://docs.nvidia.com/cuda/cublas/#d-block-quantization
+            descale = max_abs * F8E4M3_MAX_RCP
 
             # Clamp to exponents that can be represented in e8m0
-            # Add 1 to capture NaNs
             scale_e8m0_unbiased = tl.clamp(
-                scale_e8m0_unbiased, -1 * e8m0_exponent_bias, e8m0_exponent_bias + 1
+                tl.ceil(tl.log2(descale)),
+                min=-1 * e8m0_exponent_bias,
+                max=e8m0_exponent_bias,
             )
 
             # Create the biased e8m0 representation and cast it to 8 bits
-            scale_e8m0_biased = scale_e8m0_unbiased + e8m0_exponent_bias
+            # Set NaN values to 0xFF
+            is_nan = descale != descale
+            scale_e8m0_biased = tl.where(is_nan, 0xFF, scale_e8m0_unbiased + 127)
             scale_e8m0_biased = scale_e8m0_biased.to(tl.uint8)
+
+        # TODO(future PR): add NaN handling here,
+        # https://github.com/pytorch/pytorch/pull/100572 will likely be useful to
+        # get proper NaN propagation working
+        # Calculate the scale in floating point.
+        scale_fp = (scale_e8m0_biased.to(tl.int32) << fp32_mbits).to(
+            tl.float32, bitcast=True
+        )
+
+        fp32_exp_bias = 127.0
+        fp32_min_normal = tl.exp2(-fp32_exp_bias + 1)
+        scale_fp = tl.clamp(scale_fp, min=fp32_min_normal, max=float("inf"))
+
+        return scale_fp, scale_e8m0_biased
+
+    @triton.jit
+    def _triton_calculate_scale_floor(
+        x,
+        axis,
+    ):
+        # There is no good support for accessing globals from a jit'ed triton
+        # function, so we redefine them here. Since this is prototype code which
+        # we plan to remove after torch.compile catches up, this is fine.
+        target_max_pow2 = 8
+        e8m0_exponent_bias = 127
+        bf16_mbits = 7
+        bf16_exp_bias = 127
+        fp32_mbits = 23
+
+        # Find the maximum absolute value for each row
+        max_abs = tl.max(x, axis=axis)
+
+        # Original floor implementation
+        # Calculate the e8m0 scale by extracting the exponent (floor)
+        max_abs = max_abs.to(tl.bfloat16)
+        max_abs_int16 = max_abs.to(tl.int16, bitcast=True)
+        extracted_pow2 = ((max_abs_int16 >> bf16_mbits) & 0b11111111) - bf16_exp_bias
+        extracted_pow2 = extracted_pow2 - target_max_pow2
+        scale_e8m0_unbiased = extracted_pow2.to(tl.bfloat16)
+
+        # Clamp to exponents that can be represented in e8m0
+        # Add 1 to capture NaNs
+        scale_e8m0_unbiased = tl.clamp(
+            scale_e8m0_unbiased, -1 * e8m0_exponent_bias, e8m0_exponent_bias + 1
+        )
+
+        # Create the biased e8m0 representation and cast it to 8 bits
+        scale_e8m0_biased = scale_e8m0_unbiased + e8m0_exponent_bias
+        scale_e8m0_biased = scale_e8m0_biased.to(tl.uint8)
 
         # TODO(future PR): add NaN handling here,
         # https://github.com/pytorch/pytorch/pull/100572 will likely be useful to
@@ -861,11 +682,18 @@ if _triton_kernels_available:
 
         # Find the maximum absolute value for each column
         # shape: (COL_TILE_SIZE * BLOCKS_PER_ROW_TILE,)
-        col_scale_r, col_scale_e8m0_r = _triton_calculate_scale(
-            x_block_abs_t_r,
-            axis=1,
-            SCALING_MODE=SCALING_MODE,
-        )
+        if SCALING_MODE == "rceil":
+            col_scale_r, col_scale_e8m0_r = _triton_calculate_scale_rceil(
+                x_block_abs_t_r,
+                axis=1,
+                USE_PTX=not IS_ROCM,
+            )
+        else:
+            tl.static_assert(SCALING_MODE == "floor")
+            col_scale_r, col_scale_e8m0_r = _triton_calculate_scale_floor(
+                x_block_abs_t_r,
+                axis=1,
+            )
 
         # Divide each column by scale
         # Broadcasting col_scale to match x_block's shape
@@ -964,9 +792,18 @@ if _triton_kernels_available:
 
         # Find the maximum absolute value for each row (across columns)
         # shape: (ROW_TILE_SIZE * BLOCKS_PER_COL_TILE,)
-        scale_fp32_r, scale_e8m0_r = _triton_calculate_scale(
-            x_block_abs_r, axis=1, SCALING_MODE=SCALING_MODE
-        )
+        if SCALING_MODE == "rceil":
+            scale_fp32_r, scale_e8m0_r = _triton_calculate_scale_rceil(
+                x_block_abs_r,
+                axis=1,
+                USE_PTX=not IS_ROCM,
+            )
+        else:
+            tl.static_assert(SCALING_MODE == "floor")
+            scale_fp32_r, scale_e8m0_r = _triton_calculate_scale_floor(
+                x_block_abs_r,
+                axis=1,
+            )
 
         # Divide each row by scale
         # Broadcasting scale to match x_block's shape
@@ -1021,9 +858,10 @@ if _triton_kernels_available:
         assert x.dtype == torch.bfloat16, (
             f"only bfloat16 inputs are supported, got {x.dtype}"
         )
-        assert scaling_mode in ("floor", "rceil"), (
-            "only floor and rceil scaling modes are supported"
-        )
+        assert scaling_mode in (
+            "floor",
+            "rceil",
+        ), "only floor and rceil scaling modes are supported"
 
         # Reshape tensor to 2d if necessary and get shape
         x_orig_shape = x.shape
@@ -1157,11 +995,14 @@ else:
     def triton_to_mxfp8_dim0(
         x: torch.Tensor,
         inner_block_size=32,
+        scaling_mode: str = "rceil",
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         raise AssertionError("needs torch version 2.8+ and triton")
 
     def triton_to_mxfp8_dim1(
-        x, inner_block_size=32
+        x,
+        inner_block_size=32,
+        scaling_mode: str = "rceil",
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         raise AssertionError("needs torch version 2.8+ and triton")
 
@@ -1281,35 +1122,41 @@ if _mxfp8_cuda_kernels_available:
         fp8_format: str,
         scaling_mode: str,
     ):
-        # This function signature can be used to understand the shardings:
-        # _, colwise_data, _, colwise_scales = mxfp8_quantize_cuda(x, rowwise=False, colwise=True)
+        # Op returns 4 tensors: (output_rowwise, output_colwise, scales_rowwise, scales_colwise)
+        # When rowwise=False, outputs 0 and 2 are empty tensors (size 0).
+        # output_colwise has shape (rows, cols) in col-major order.
+        # scales_colwise has shape (cols, num_row_blocks) in col-major order.
+        #
+        # Format: (output_placements, input_placements)
+        # Input placements: one per arg (x=Tensor, then 6 non-tensor args=None)
+        # Output placements: one per output tensor (4 total)
 
-        # When inputs and scale are replicated, we return a quantized output tensor (replicated).
-        inputs_replicated = [None, Replicate(), None, Replicate()]
-        outputs_replicated = [None, Replicate(), None, None]
-        rule_for_input_replicated = (
-            inputs_replicated,
-            outputs_replicated,
+        non_tensor_args = [None, None, None, None, None, None]
+
+        # When input is replicated, all outputs are replicated.
+        rule_replicated = (
+            [Replicate(), Replicate(), Replicate(), Replicate()],
+            [Replicate()] + non_tensor_args,
         )
 
-        # When inputs and scale are sharded along dim 0,
-        # we return a quantized output tensor (sharded along dim1 due to transpose).
-        inputs_sharded_dim0 = [None, Shard(0), None, Shard(0)]
-        outputs_sharded_dim1 = [None, Shard(1), None, None]
-        rule_for_input_sharded_dim0 = (inputs_sharded_dim0, outputs_sharded_dim1)
+        # When input is sharded along dim 0:
+        # output_colwise (rows, cols) col-major: rows are sharded → Shard(0)
+        # scales_colwise (cols, num_row_blocks) col-major: row blocks sharded → Shard(1)
+        # Unused rowwise outputs (empty tensors): Replicate()
+        rule_shard_dim0 = (
+            [Replicate(), Shard(0), Replicate(), Shard(1)],
+            [Shard(0)] + non_tensor_args,
+        )
 
-        # When inputs and scale are sharded along dim 1,
-        # we return a quantized output tensor (sharded along dim0 due to transpose).
-        inputs_sharded_dim1 = [None, Shard(1), None, Shard(1)]
-        outputs_sharded_dim0 = [None, Shard(0), None, None]
-        rule_for_input_sharded_dim1 = (inputs_sharded_dim1, outputs_sharded_dim0)
+        # When input is sharded along dim 1:
+        # output_colwise: cols are sharded → Shard(1)
+        # scales_colwise: col dim is sharded → Shard(0)
+        rule_shard_dim1 = (
+            [Replicate(), Shard(1), Replicate(), Shard(0)],
+            [Shard(1)] + non_tensor_args,
+        )
 
-        acceptable_shardings = [
-            rule_for_input_replicated,
-            rule_for_input_sharded_dim0,
-            rule_for_input_sharded_dim1,
-        ]
-        return acceptable_shardings
+        return [rule_replicated, rule_shard_dim0, rule_shard_dim1]
 
 else:
 
@@ -1322,3 +1169,69 @@ else:
         raise NotImplementedError(
             "`mxfp8_quantize_cuda` needs (1) torch 2.8+ and (2) torchao built from source on a machine with CUDA capability 10.0+. Please see https://github.com/pytorch/ao/issues/2932 for more details."
         )
+
+
+_mslk_available = importlib.util.find_spec("mslk") is not None
+
+
+def mslk_quantize_nvfp4(
+    x: torch.Tensor, per_tensor_scale: torch.Tensor
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Quantize a tensor to NVFP4 using the MSLK triton kernel.
+
+    Args:
+        x: Input tensor to quantize.
+        per_tensor_scale: Per-tensor scale (TorchAO convention: amax / (F8E4M3_MAX * F4_E2M1_MAX)).
+
+    Returns:
+        Tuple of (blockwise_scales, quantized_data_uint8) matching TorchAO's convention.
+    """
+    mslk_global_scale = per_tensor_scale.reciprocal()
+    return _mslk_quantize_nvfp4_custom_op(x, mslk_global_scale)
+
+
+@torch.library.custom_op("ao::mslk_quantize_nvfp4", mutates_args=())
+def _mslk_quantize_nvfp4_custom_op(
+    x: torch.Tensor, global_scale: torch.Tensor
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Inner custom op for MSLK NVFP4 quantization.
+
+    Args:
+        x: Input tensor to quantize.
+        global_scale: Global scale in MSLK convention (1.0 / per_tensor_scale).
+
+    Returns:
+        Tuple of (blockwise_scales, quantized_data_uint8) matching TorchAO's convention.
+    """
+    assert _mslk_available, (
+        "mslk is required for NVFP4 triton quantization. "
+        "Install from https://github.com/pytorch/MSLK"
+    )
+    from mslk.quantize.triton.fp4_quantize import (
+        triton_quantize_nvfp4 as _mslk_triton_quantize_nvfp4,
+    )
+
+    data_lp, blockwise_scales = _mslk_triton_quantize_nvfp4(x, global_scale)
+    return blockwise_scales, data_lp.view(torch.uint8)
+
+
+@_mslk_quantize_nvfp4_custom_op.register_fake
+def _(x, global_scale):
+    # Mirror the reshape logic from the real MSLK kernel
+    orig_leading_dims, orig_N = x.shape[:-2], x.shape[-1]
+    x_2d = x.reshape(-1, orig_N)
+    M, N = x_2d.shape
+
+    num_scales = N // 16
+    n_row_blocks = triton.cdiv(M, 128)
+    n_col_blocks = triton.cdiv(num_scales, 4)
+    padded_rows = n_row_blocks * 128
+    padded_cols = n_col_blocks * 4
+
+    scales = x.new_empty(padded_rows, padded_cols, dtype=torch.float8_e4m3fn)
+    xq = x.new_empty(M, N // 2, dtype=torch.uint8)
+
+    # Reshape back to match original leading dims
+    scales = scales.view(*orig_leading_dims, -1, padded_cols)
+    xq = xq.view(*orig_leading_dims, -1, N // 2)
+    return scales, xq

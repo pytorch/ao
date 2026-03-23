@@ -6,6 +6,7 @@
 
 import types
 from dataclasses import dataclass
+from functools import partial
 from typing import Optional
 
 import torch
@@ -13,10 +14,7 @@ import torch.nn.functional as F
 from torch import Tensor
 
 from torchao.core.config import AOBaseConfig
-from torchao.prototype.mx_formats.config import (
-    _validate_elem_dtype,
-    _validate_kernel_preference,
-)
+from torchao.prototype.mx_formats.config import _validate_elem_dtype
 from torchao.prototype.mx_formats.mx_tensor import (
     MXTensor,
     QuantizeTensorToMXKwargs,
@@ -27,12 +25,12 @@ from torchao.prototype.mx_formats.nvfp4_tensor import (
     QuantizeTensorToNVFP4Kwargs,
     per_tensor_amax_to_scale,
 )
-from torchao.quantization.quant_api import _quantization_type
 from torchao.quantization.quantize_.common.kernel_preference import KernelPreference
 from torchao.quantization.quantize_.common.quantization_step import QuantizationStep
 from torchao.quantization.transform_module import (
     register_quantize_module_handler,
 )
+from torchao.quantization.utils import _module_extra_repr, _quantization_type
 from torchao.utils import (
     is_sm_at_least_100,
     torch_version_at_least,
@@ -92,6 +90,16 @@ class MXDynamicActivationMXWeightConfig(AOBaseConfig):
     Requirements:
     - NVIDIA SM100+ hardware (Blackwell or newer) is required for execution
     - PyTorch 2.5+ for proper serialization support
+
+    Example (mxfp8):
+
+    .. literalinclude:: ../../examples/inference/mxfp8_dynamic_activation_mxfp8_weight.py
+       :language: python
+
+    Example (mxfp4):
+
+    .. literalinclude:: ../../examples/inference/mxfp4_dynamic_activation_mxfp4_weight.py
+       :language: python
     """
 
     block_size: int = 32
@@ -112,9 +120,6 @@ class MXDynamicActivationMXWeightConfig(AOBaseConfig):
         )
         _validate_elem_dtype(self.activation_dtype)
         _validate_elem_dtype(self.weight_dtype)
-        _validate_kernel_preference(
-            self.kernel_preference, self.block_size, self.weight_dtype
-        )
 
 
 def _linear_extra_repr(self):
@@ -123,9 +128,12 @@ def _linear_extra_repr(self):
 
 @register_quantize_module_handler(MXDynamicActivationMXWeightConfig)
 def _mx_inference_linear_transform(
-    module: torch.nn.Module, config: MXDynamicActivationMXWeightConfig
+    module: torch.nn.Module,
+    config: MXDynamicActivationMXWeightConfig,
+    *,
+    parameter_name: str = "weight",
 ):
-    weight = module.weight
+    weight = getattr(module, parameter_name)
 
     assert weight.dtype == torch.bfloat16, (
         f"Only supporting bf16 out dtype for now, got {weight.dtype}"
@@ -149,8 +157,19 @@ def _mx_inference_linear_transform(
         scaling_mode=config.scaling_mode,
     )
 
-    module.weight = torch.nn.Parameter(quantized_weight, requires_grad=False)
-    module.extra_repr = types.MethodType(_linear_extra_repr, module)
+    setattr(
+        module,
+        parameter_name,
+        torch.nn.Parameter(quantized_weight, requires_grad=False),
+    )
+    module.extra_repr = types.MethodType(
+        partial(
+            _module_extra_repr,
+            original_extra_repr=module.extra_repr,
+            parameter_name=parameter_name,
+        ),
+        module,
+    )
     return module
 
 
@@ -185,7 +204,8 @@ class NVFP4DynamicActivationNVFP4WeightConfig(AOBaseConfig):
     set to False.
 
     Configuration parameters:
-    - use_triton_kernel: bool, whether to use fused triton kernel for activation scaling (default: True)
+    - use_triton_kernel: bool, whether to use fused triton kernel for activation scaling (default: True).
+      Requires `MSLK <https://github.com/pytorch/MSLK>`__ to be installed.
     - use_dynamic_per_tensor_scale: bool, whether to dynamically compute per tensor scale (default: True)
     - step: Optional[QuantizationStep], the quantization step for observer-based flow
     - Data: float4_e2m1fn_x2
@@ -194,6 +214,11 @@ class NVFP4DynamicActivationNVFP4WeightConfig(AOBaseConfig):
 
     Note: Triton kernel only works with DYNAMIC mode and has constraints that input dimensions
     must satisfy M % 128 == 0 and K % 64 == 0. Will automatically fallback when constraints aren't met.
+
+    Example:
+
+    .. literalinclude:: ../../examples/inference/nvfp4_dynamic_activation_nvfp4_weight.py
+       :language: python
     """
 
     use_triton_kernel: bool = True
@@ -216,7 +241,10 @@ class NVFP4DynamicActivationNVFP4WeightConfig(AOBaseConfig):
 
 @register_quantize_module_handler(NVFP4DynamicActivationNVFP4WeightConfig)
 def _nvfp4_inference_linear_transform(
-    module: torch.nn.Linear, config: NVFP4DynamicActivationNVFP4WeightConfig
+    module: torch.nn.Linear,
+    config: NVFP4DynamicActivationNVFP4WeightConfig,
+    *,
+    parameter_name: str = "weight",
 ):
     """Quantization handler for NVFP4DynamicActivationNVFP4WeightConfig
 
@@ -225,7 +253,7 @@ def _nvfp4_inference_linear_transform(
     - CONVERT: Extract amax from observer, compute static per_tensor_scale, quantize
     - None (default): Original dynamic quantization behavior
     """
-    weight = module.weight
+    weight = getattr(module, parameter_name)
     if weight.shape[-2] % 16 != 0 or weight.shape[-1] % 16 != 0:
         raise RuntimeError(
             f"NVFP4 only supports weight shape with last 2 dims divisible by 16, got {weight.shape}"
@@ -282,6 +310,8 @@ def _nvfp4_inference_linear_transform(
             "NVFP4 DYNAMIC mode is only supported on sm100+ machines"
         )
 
+        weight = getattr(module, parameter_name)
+
         per_tensor_scale = None
         if config.use_dynamic_per_tensor_scale:
             tensor_amax = torch.max(torch.abs(weight))
@@ -301,8 +331,19 @@ def _nvfp4_inference_linear_transform(
             act_quant_kwargs=act_quant_kwargs,
         )
         quantized_weight.use_triton_kernel = config.use_triton_kernel
-        module.weight = torch.nn.Parameter(quantized_weight, requires_grad=False)
-        module.extra_repr = types.MethodType(_linear_extra_repr, module)
+        setattr(
+            module,
+            parameter_name,
+            torch.nn.Parameter(quantized_weight, requires_grad=False),
+        )
+        module.extra_repr = types.MethodType(
+            partial(
+                _module_extra_repr,
+                original_extra_repr=module.extra_repr,
+                parameter_name=parameter_name,
+            ),
+            module,
+        )
         return module
 
     else:
@@ -313,6 +354,18 @@ def _nvfp4_inference_linear_transform(
 
 @dataclass
 class NVFP4WeightOnlyConfig(AOBaseConfig):
+    """
+    NVIDIA FP4 (NVFP4) Weight-Only Quantization Configuration
+
+    This configuration applies NVFP4 quantization to weights only, keeping activations
+    in their original precision.
+
+    Example:
+
+    .. literalinclude:: ../../examples/inference/nvfp4_weight_only.py
+       :language: python
+    """
+
     use_dynamic_per_tensor_scale: bool = True
 
     def __post_init__(self):

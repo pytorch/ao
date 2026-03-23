@@ -84,7 +84,7 @@ def _log_deprecation_warning(old_api_object: Any):
     warnings.warn(
         """'%s' is deprecated and will be removed in a future release. Please use the following API instead:
 
-    base_config = Int8DynamicActivationInt4WeightConfig(group_size=32)
+    base_config = Int4WeightOnlyConfig(group_size=32)
     quantize_(model, QATConfig(base_config, step="prepare"))
     # train (not shown)
     quantize_(model, QATConfig(base_config, step="convert"))
