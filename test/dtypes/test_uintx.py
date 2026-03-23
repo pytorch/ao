@@ -102,7 +102,6 @@ def test_uintx_api_deprecation():
     TODO: Remove this test once the deprecated APIs have been removed.
     """
     deprecated_apis = [
-        ("BlockSparseLayout", "torchao.dtypes.uintx.block_sparse_layout"),
         ("UintxLayout", "torchao.dtypes.uintx.uintx_layout"),
     ]
 
