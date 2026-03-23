@@ -38,9 +38,6 @@ from torchao.dtypes import (
     TensorCoreTiledLayout,
     to_affine_quantized_intx,
 )
-from torchao.dtypes.uintx.packed_linear_int8_dynamic_activation_intx_weight_layout import (
-    Target,
-)
 from torchao.dtypes.utils import Layout
 from torchao.float8.config import e4m3_dtype
 from torchao.float8.float8_linear import Float8Linear
@@ -1985,6 +1982,5 @@ torch.serialization.add_safe_globals(
     [
         _int8_asymm_per_token_quant,
         _int8_symm_per_token_reduced_range_quant,
-        Target,
     ]
 )
