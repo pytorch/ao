@@ -13,3 +13,9 @@ from torchao.prototype.moe_training.kernels.jagged_float8_scales import (
 from torchao.prototype.moe_training.kernels.jagged_float8_scales import (
     triton_fp8_per_group_rowwise_scales as triton_fp8_per_group_rowwise_scales,
 )
+from torchao.prototype.moe_training.kernels.jagged_float8_scales import (
+    triton_fp8_per_group_tensorwise_amax as triton_fp8_per_group_tensorwise_amax,
+)
+from torchao.prototype.moe_training.kernels.jagged_float8_scales import (
+    triton_fp8_per_group_tensorwise_scales as triton_fp8_per_group_tensorwise_scales,
+)
