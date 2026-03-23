@@ -47,11 +47,17 @@ if __name__ == "__main__":
         "--max-steps",
         type=int,
         default=100,
-        help="Number of training steps (default: 200). Set to 0 to skip training and only save bf16 checkpoint.",
+        help="Number of training steps (default: 100). Set to 0 to skip training and only save bf16 checkpoint.",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=str,
+        default=None,
+        help="Output directory for the checkpoint (default: BASE_OUTPUT_DIR[-qat]).",
     )
     args = parser.parse_args()
 
-    output_dir = BASE_OUTPUT_DIR + ("-qat" if args.qat else "")
+    output_dir = args.output_dir or (BASE_OUTPUT_DIR + ("-qat" if args.qat else ""))
 
     model = AutoModelForCausalLM.from_pretrained(
         MODEL_NAME,
@@ -77,7 +83,7 @@ if __name__ == "__main__":
             max_steps=args.max_steps,
             per_device_train_batch_size=16,
             gradient_accumulation_steps=1,
-            learning_rate=1e-4,
+            learning_rate=2e-5,
             max_grad_norm=1.0,
             lr_scheduler_type="cosine",
             warmup_steps=20,
