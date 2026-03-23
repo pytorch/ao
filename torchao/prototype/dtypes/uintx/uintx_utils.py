@@ -18,6 +18,7 @@ import torch
 from torch.utils._python_dispatch import return_and_correct_aliasing
 
 from torchao.dtypes.uintx.bitpacking import pack, unpack
+from torchao.dtypes.uintx.plain_layout import PlainAQTTensorImpl
 from torchao.dtypes.utils import Layout
 from torchao.utils import TorchAOBaseTensor
 
@@ -212,3 +213,25 @@ class UintxLayout(Layout):
         block_size: Tuple[int, ...],
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         return to_uintx(input, self.dtype, self.pack_dim), scale, zero_point
+
+
+# TODO: migrate autoround to not use UintxLayout/AffineQuantizedTensor,
+# then remove UintxAQTTensorImpl and the @register_layout registration below.
+from torchao.dtypes.affine_quantized_tensor import register_layout
+
+
+@register_layout(UintxLayout)
+class UintxAQTTensorImpl(PlainAQTTensorImpl):
+    def get_plain(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        return self.int_data.get_plain(), self.scale, self.zero_point
+
+    @classmethod
+    def from_plain(
+        cls,
+        int_data: torch.Tensor,
+        scale: torch.Tensor,
+        zero_point: torch.Tensor,
+        _layout: Layout,
+    ):
+        assert isinstance(_layout, UintxLayout)
+        return cls(int_data, scale, zero_point, _layout)
