@@ -16,11 +16,8 @@ from torch import Tensor
 
 from torchao.core.config import AOBaseConfig
 from torchao.dtypes import (
-    Float8Layout,
-    to_affine_quantized_floatx_static,
     to_affine_quantized_intx_static,
 )
-from torchao.float8.inference import Float8MMConfig
 from torchao.quantization import quantize_, to_linear_activation_quantized
 from torchao.quantization.granularity import (
     PerAxis,
@@ -37,7 +34,6 @@ from torchao.quantization.transform_module import (
     register_quantize_module_handler,
 )
 from torchao.quantization.utils import compute_error
-from torchao.utils import is_sm_at_least_90
 
 
 class ObservedLinear(torch.nn.Linear):
@@ -107,21 +103,9 @@ def _apply_static_quant_transform(
 
     def weight_quant_func(weight):
         block_size = (1, weight.shape[1])
-        if target_dtype == torch.uint8:
-            return to_affine_quantized_intx_static(
-                weight, weight_scale, weight_zero_point, block_size, target_dtype
-            )
-        elif target_dtype == torch.float8_e4m3fn:
-            mm_config = Float8MMConfig(use_fast_accum=True)
-            return to_affine_quantized_floatx_static(
-                weight,
-                weight_scale,
-                block_size,
-                target_dtype,
-                Float8Layout(mm_config=mm_config),
-            )
-        else:
-            raise ValueError(f"Unsupported target dtype {target_dtype}")
+        return to_affine_quantized_intx_static(
+            weight, weight_scale, weight_zero_point, block_size, target_dtype
+        )
 
     linear = torch.nn.Linear(
         observed_linear.in_features,
@@ -139,16 +123,9 @@ def _apply_static_quant_transform(
 
     # activation quantization
     act_scale, act_zero_point = observed_linear.act_obs.calculate_qparams()
-    if target_dtype == torch.uint8:
-        input_quant_func = lambda x: to_affine_quantized_intx_static(
-            x, act_scale, act_zero_point, x.shape, target_dtype
-        )
-    elif target_dtype == torch.float8_e4m3fn:
-        input_quant_func = lambda x: to_affine_quantized_floatx_static(
-            x, act_scale, x.shape, target_dtype, Float8Layout(mm_config=None)
-        )
-    else:
-        raise ValueError(f"Unsupported target dtype {target_dtype}")
+    input_quant_func = lambda x: to_affine_quantized_intx_static(
+        x, act_scale, act_zero_point, x.shape, target_dtype
+    )
     linear.weight = torch.nn.Parameter(
         to_linear_activation_quantized(linear.weight, input_quant_func),
         requires_grad=False,
@@ -176,42 +153,19 @@ class QuantizedLinear(torch.nn.Module):
         block_size = (1, weight.shape[1])
         self.target_dtype = target_dtype
         self.bias = bias
-        if self.target_dtype == torch.uint8:
-            self.qweight = to_affine_quantized_intx_static(
-                weight, weight_scale, weight_zero_point, block_size, self.target_dtype
-            )
-        elif self.target_dtype == torch.float8_e4m3fn:
-            mm_config = Float8MMConfig(use_fast_accum=True)
-            self.qweight = to_affine_quantized_floatx_static(
-                weight,
-                weight_scale,
-                block_size,
-                target_dtype,
-                Float8Layout(mm_config=mm_config),
-            )
-        else:
-            raise ValueError(f"Unsupported target dtype {self.target_dtype}")
+        self.qweight = to_affine_quantized_intx_static(
+            weight, weight_scale, weight_zero_point, block_size, self.target_dtype
+        )
 
     def forward(self, input: Tensor):
         block_size = input.shape
-        if self.target_dtype == torch.uint8:
-            qinput = to_affine_quantized_intx_static(
-                input,
-                self.act_scale,
-                self.act_zero_point,
-                block_size,
-                self.target_dtype,
-            )
-        elif self.target_dtype == torch.float8_e4m3fn:
-            qinput = to_affine_quantized_floatx_static(
-                input,
-                self.act_scale,
-                block_size,
-                self.target_dtype,
-                Float8Layout(mm_config=None),
-            )
-        else:
-            raise ValueError(f"Unsupported target dtype {self.target_dtype}")
+        qinput = to_affine_quantized_intx_static(
+            input,
+            self.act_scale,
+            self.act_zero_point,
+            block_size,
+            self.target_dtype,
+        )
         return F.linear(qinput, self.qweight, self.bias)
 
     @classmethod
@@ -321,6 +275,3 @@ def test_static_quant(target_dtype: torch.dtype, mapping_type: MappingType):
 
 if __name__ == "__main__":
     test_static_quant(torch.uint8, MappingType.ASYMMETRIC)
-    if is_sm_at_least_90():
-        # this is testing per row float8 quant
-        test_static_quant(torch.float8_e4m3fn, MappingType.SYMMETRIC)
