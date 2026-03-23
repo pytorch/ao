@@ -7,9 +7,6 @@ from .int4_xpu_layout import (
 from .packed_linear_int8_dynamic_activation_intx_weight_layout import (
     PackedLinearInt8DynamicActivationIntxWeightLayout,
 )
-from .q_dq_layout import (
-    QDQLayout,
-)
 from .semi_sparse_layout import (
     SemiSparseLayout,
 )
@@ -21,6 +18,5 @@ __all__ = [
     "TensorCoreTiledLayout",
     "Int4CPULayout",
     "PackedLinearInt8DynamicActivationIntxWeightLayout",
-    "QDQLayout",
     "Int4XPULayout",
 ]

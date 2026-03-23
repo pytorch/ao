@@ -12,7 +12,6 @@ from .uintx import (
     Int4CPULayout,
     Int4XPULayout,
     PackedLinearInt8DynamicActivationIntxWeightLayout,
-    QDQLayout,
     SemiSparseLayout,
     TensorCoreTiledLayout,
 )
@@ -35,7 +34,6 @@ __all__ = [
     "TensorCoreTiledLayout",
     "affine_quantized_tensor_ops",
     "Int4CPULayout",
-    "QDQLayout",
     "PackedLinearInt8DynamicActivationIntxWeightLayout",
     "to_affine_quantized_packed_linear_int8_dynamic_activation_intx_weight",
     "Int4XPULayout",
