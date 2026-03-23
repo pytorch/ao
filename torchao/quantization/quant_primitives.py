@@ -1973,10 +1973,7 @@ def _choose_qparams_and_quantize_affine_hqq(
     # Store meta-data (we invert the scale for dequantization)
     scale = 1.0 / scale
 
-    # Convert to TensorCoreTiled format
-    # TODO move the conversion of zero_point out of quant_primitives
-    # and into TensorCoreTiledLayout.from_plain and rename this
-    # helper function correctly.
+    # Convert to tinygemm format
     if raw_output is False:
         W_q, scale, zero = _convert_to_affinequantized_format(
             W_q, scale, zero, nbits, shape

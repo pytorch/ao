@@ -387,22 +387,6 @@ def _infer_fake_quantize_configs(
                 group_size=128,
                 activation_dtype=torch.bfloat16,
             )
-        elif base_config.version == 1:
-            # For BC
-            from torchao.quantization.quant_api import (
-                LAYOUT_TO_ZERO_POINT_DOMAIN,
-            )
-
-            if base_config.zero_point_domain == ZeroPointDomain.NONE:
-                zp_domain = LAYOUT_TO_ZERO_POINT_DOMAIN[type(base_config.layout)][0]
-            else:
-                zp_domain = base_config.zero_point_domain
-            weight_config = IntxFakeQuantizeConfig(
-                dtype=torch.uint4,
-                group_size=base_config.group_size,
-                is_symmetric=False,
-                zero_point_domain=zp_domain,
-            )
         else:
             raise ValueError(f"Unknown version on base config {type(base_config)}")
     elif isinstance(base_config, Float8DynamicActivationFloat8WeightConfig):
