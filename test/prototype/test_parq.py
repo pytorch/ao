@@ -12,7 +12,6 @@ import torch
 from torch import nn
 from torch.testing._internal import common_utils
 
-from torchao.dtypes import Int4CPULayout
 from torchao.prototype.parq.optim import (
     ProxHardQuant,
     ProxPARQ,
@@ -344,7 +343,6 @@ class TestUnifTorchaoQuantizer(common_utils.TestCase):
         m_ref = copy.deepcopy(model).eval().to(_DEVICE)
         config = Int4WeightOnlyConfig(group_size=group_size)
         if check_cpu_version(_DEVICE):
-            config.layout = Int4CPULayout()
             config.version = 1
         quantize_(m_ref, config)
 

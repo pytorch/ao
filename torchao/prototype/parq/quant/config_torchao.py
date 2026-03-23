@@ -6,7 +6,7 @@ import torch
 from torch import nn
 
 from torchao.core.config import AOBaseConfig
-from torchao.dtypes import Int4CPULayout, Layout
+from torchao.dtypes import Layout
 from torchao.quantization import MappingType, PerAxis, PerGroup
 from torchao.quantization.quant_api import (
     Granularity,
@@ -125,7 +125,6 @@ def _get_config_from_quantizer(
             version=version,
         )
         if check_cpu_version(device):
-            config.layout = Int4CPULayout()
             config.version = 1
     elif isinstance(quantizer, StretchedUnifTorchaoQuantizer):
         config = StretchedIntxWeightConfig(
