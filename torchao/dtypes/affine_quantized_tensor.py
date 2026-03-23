@@ -15,7 +15,6 @@ import torch
 from torchao.dtypes.utils import (
     AQTTensorImpl,
     Layout,
-    PlainLayout,
 )
 from torchao.utils import TorchAOBaseTensor
 
@@ -234,7 +233,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         zero_point_dtype: Optional[torch.dtype] = None,
         preserve_zero: bool = True,
         zero_point_domain: ZeroPointDomain = _DEFAULT_ZPD,  # type: ignore[assignment]
-        _layout: Layout = PlainLayout(),
+        _layout: Optional[Layout] = None,
         use_hqq: bool = False,
         *,
         custom_scale: Optional[torch.Tensor] = None,
@@ -257,7 +256,8 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
             zero_point_domain = ZeroPointDomain.INT
 
         original_shape = input_float.shape
-        input_float = _layout.pre_process(input_float)
+        if _layout is not None:
+            input_float = _layout.pre_process(input_float)
 
         if use_hqq:
             assert (
@@ -285,14 +285,13 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
                 device=device,
                 verbose=False,
                 raw_output=not isinstance(
-                    _layout, (TensorCoreTiledLayout, PlainLayout)
+                    _layout, (TensorCoreTiledLayout,)
                 ),
                 # raw_output=False is basically the 'convert to TensorCoreTiledLayout zero_point version' option (add scale*midpoint)
                 # note in choose_qparams_affine, preserve_zero = False does this same thing while also controlling whether
                 # zero is preserved.
                 # TODO uncouple preserve_zero and conversion of zero_point to TensorCoreTiledLayout version
                 # TODO move the conversion of zero_point out of quant_primitives and into TensorCoreTiledLayout.from_plain
-                # TODO change PlainLayout to use raw_output.
             )
             data = data.to(target_dtype)
         else:
@@ -372,9 +371,10 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
                 )
             # Note: output will be uint8 tensor for sub byte tensors for now
 
-        data, scale, zero_point = _layout.post_process(
-            data, scale, zero_point, block_size
-        )
+        if _layout is not None:
+            data, scale, zero_point = _layout.post_process(
+                data, scale, zero_point, block_size
+            )
         tensor_impl_ctr = get_tensor_impl_constructor(type(_layout))
         tensor_impl = tensor_impl_ctr(data, scale, zero_point, _layout)
         return cls(
@@ -398,7 +398,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         quant_min: Optional[int] = None,
         quant_max: Optional[int] = None,
         zero_point_domain: ZeroPointDomain = _DEFAULT_ZPD,  # type: ignore[assignment]
-        _layout: Layout = PlainLayout(),
+        _layout: Optional[Layout] = None,
     ):
         """Create an integer AffineQuantizedTensor from a high precision tensor using static parameters."""
         from torchao.quantization.quant_primitives import (
@@ -415,9 +415,10 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         elif zero_point_domain is ZeroPointDomain.NONE and zero_point is not None:
             raise ValueError("zero_point should be None when zero_point_domain is NONE")
         original_shape = input_float.shape
-        input_float, scale, zero_point = _layout.pre_process_static(
-            input_float, scale, zero_point, block_size
-        )
+        if _layout is not None:
+            input_float, scale, zero_point = _layout.pre_process_static(
+                input_float, scale, zero_point, block_size
+            )
 
         if zero_point_domain == ZeroPointDomain.NONE:
             zero_point = None
@@ -451,12 +452,13 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
                 quant_max,
             )
 
-        int_data, scale, zero_point = _layout.post_process(
-            int_data,
-            scale,
-            zero_point,
-            block_size,
-        )
+        if _layout is not None:
+            int_data, scale, zero_point = _layout.post_process(
+                int_data,
+                scale,
+                zero_point,
+                block_size,
+            )
 
         tensor_impl_ctr = get_tensor_impl_constructor(type(_layout))
         tensor_impl = tensor_impl_ctr(int_data, scale, zero_point, _layout)
