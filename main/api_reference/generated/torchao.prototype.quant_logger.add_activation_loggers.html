@@ -173,7 +173,7 @@
   fbq('track', 'PageView');
 </script>
 <script>
-  document.documentElement.setAttribute('data-version', 'main (0.17.0+git34322b5 )');
+  document.documentElement.setAttribute('data-version', 'main (0.17.0+gitaa9be68 )');
 </script>
 <noscript>
   <img height="1" width="1" src="https://www.facebook.com/tr?id=243028289693773&ev=PageView&noscript=1" />
@@ -1526,7 +1526,7 @@ document.write(`
 <h1>add_activation_loggers<a class="headerlink" href="#add-activation-loggers" title="Link to this heading">#</a></h1>
 <dl class="py function">
 <dt class="sig sig-object py" id="torchao.prototype.quant_logger.add_activation_loggers">
-<span class="sig-prename descclassname"><span class="pre">torchao.prototype.quant_logger.</span></span><span class="sig-name descname"><span class="pre">add_activation_loggers</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">model</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.pytorch.org/docs/stable/generated/torch.nn.Module.html#torch.nn.Module" title="(in PyTorch v2.10)"><span class="pre">Module</span></a></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/torchao/prototype/quant_logger/quant_logger.html#add_activation_loggers"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="reference external" href="https://github.com/pytorch/ao/blob/main/torchao/prototype/quant_logger/quant_logger.py#L232"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#torchao.prototype.quant_logger.add_activation_loggers" title="Link to this definition">#</a></dt>
+<span class="sig-prename descclassname"><span class="pre">torchao.prototype.quant_logger.</span></span><span class="sig-name descname"><span class="pre">add_activation_loggers</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">model</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.pytorch.org/docs/stable/generated/torch.nn.Module.html#torch.nn.Module" title="(in PyTorch v2.11)"><span class="pre">Module</span></a></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/torchao/prototype/quant_logger/quant_logger.html#add_activation_loggers"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="reference external" href="https://github.com/pytorch/ao/blob/main/torchao/prototype/quant_logger/quant_logger.py#L232"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#torchao.prototype.quant_logger.add_activation_loggers" title="Link to this definition">#</a></dt>
 <dd><p>Wraps <code class="docutils literal notranslate"><span class="pre">nn.Linear</span></code> weights with <code class="xref py py-class docutils literal notranslate"><span class="pre">ActivationLoggingTensor</span></code> so that
 input activations are logged each time <code class="docutils literal notranslate"><span class="pre">F.linear</span></code> is called.</p>
 <p>The logging behavior is user-configurable by redefining the
