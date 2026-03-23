@@ -299,28 +299,6 @@ def _compile_mxfp8_quantize_2d_cutedsl(
             return scale_biased, inv_scale
 
         @cute.jit
-        def _store_scale_vec4(
-            self,
-            scales_tensor: cute.Tensor,
-            m: cutlass.Int64,
-            k_block_base: cutlass.Int64,
-            scale_buffer: cute.Tensor,
-            vec_idx: cutlass.Int32,
-        ):
-            """Store 4 scales as a vectorized uint32 write."""
-            # Create a 4-element uint8 tensor and copy scales into it
-            scales_vec4 = cute.make_rmem_tensor((4,), cutlass.Uint8)
-            base_offset = vec_idx * 4
-            for i in range(4):
-                scales_vec4[i] = scale_buffer[base_offset + i]
-
-            # Recast to uint32 and write
-            scales_tensor_u32 = cute.recast_tensor(scales_tensor, cutlass.Uint32)
-            scales_vec4_u32 = cute.recast_tensor(scales_vec4, cutlass.Uint32)
-            k_block_vec4 = k_block_base + vec_idx * 4
-            scales_tensor_u32[m, k_block_vec4 // 4] = scales_vec4_u32[0]
-
-        @cute.jit
         def _store_scales_vectorized(
             self,
             scales_tensor: cute.Tensor,
@@ -330,45 +308,12 @@ def _compile_mxfp8_quantize_2d_cutedsl(
             num_scales: cutlass.Int32,
             BLOCKED_SCALE_OUTPUT: cutlass.Constexpr[bool],
         ):
-            """Store scales using vectorized 4-byte writes.
-
-            For blocked layout, the ((32,4),4) layout with strides ((16,4,128*K),(1,512))
-            means 4 consecutive k_blocks are contiguous, so we can always write uint32.
-            """
-            num_vec4 = num_scales // cutlass.Int32(4)
-
-            if cutlass.const_expr(BLOCKED_SCALE_OUTPUT):
-                # Blocked layout: always write as uint32
-                for vec_idx in range(num_vec4):
-                    self._store_scale_vec4(scales_tensor, m, k_block_base, scale_buffer, vec_idx)
-
-                # Remainder: also write as uint32 (safe with padding for blocked layout)
-                remainder = num_scales & cutlass.Int32(3)
-                if remainder > 0:
-                    scales_vec4 = cute.make_rmem_tensor((4,), cutlass.Uint8)
-                    base_offset = num_vec4 * 4
-                    for i in range(remainder):
-                        scales_vec4[i] = scale_buffer[base_offset + i]
-                    # Pad with zeros
-                    for i in range(remainder, 4):
-                        scales_vec4[i] = cutlass.Uint8(0)
-
-                    scales_tensor_u32 = cute.recast_tensor(scales_tensor, cutlass.Uint32)
-                    scales_vec4_u32 = cute.recast_tensor(scales_vec4, cutlass.Uint32)
-                    k_block_vec4 = k_block_base + num_vec4 * 4
-                    scales_tensor_u32[m, k_block_vec4 // 4] = scales_vec4_u32[0]
-            else:
-                # Row-major layout: write uint32 for aligned portions
-                for vec_idx in range(num_vec4):
-                    self._store_scale_vec4(scales_tensor, m, k_block_base, scale_buffer, vec_idx)
-
-                # Remainder: scalar stores for row-major
-                remainder = num_scales % cutlass.Int32(4)
-                if remainder > 0:
-                    base_offset = num_vec4 * 4
-                    for i in range(remainder):
-                        k_block = k_block_base + base_offset + i
-                        scales_tensor[m, k_block] = scale_buffer[base_offset + i]
+            """Store scales - use scalar stores for now due to complex blocked layout."""
+            # For now, use scalar stores since the blocked layout is complex
+            # TODO: Optimize with vectorized stores
+            for i in range(num_scales):
+                k_block = k_block_base + i
+                scales_tensor[m, k_block] = scale_buffer[i]
 
         @cute.jit
         def _store_q_fp8_chunk(
@@ -378,6 +323,7 @@ def _compile_mxfp8_quantize_2d_cutedsl(
             m_rel: cutlass.Int32,
             sout_base: cutlass.Int32,
         ):
+            """Store 4 FP8 values to shared memory."""
             sOUT_tile_u32 = cute.recast_tensor(sOUT_tile, cutlass.Uint32)
             q_fp8_vals4_u32 = cute.recast_tensor(q_fp8_vals4, cutlass.Uint32)
             sOUT_tile_u32[m_rel, sout_base // cutlass.Int32(4)] = q_fp8_vals4_u32[0]
@@ -680,15 +626,8 @@ def _compile_mxfp8_quantize_2d_cutedsl(
                             warp_idx,
                         )
 
-                    if warp_idx >= 1 and warp_idx <= compute_warps:
-                        cute.arch.mbarrier_wait(tma_mbar_ptr, tma_phase)
-                        cute.arch.fence_view_async_shared()
-                else:
-                    if warp_idx >= 1 and warp_idx <= compute_warps:
-                        cute.arch.mbarrier_wait(tma_mbar_ptr, tma_phase)
-                        cute.arch.fence_view_async_shared()
-
                 if warp_idx >= 1 and warp_idx <= compute_warps:
+                    cute.arch.mbarrier_wait(tma_mbar_ptr, tma_phase)
                     lane = tidx % 32
                     m_lane = (warp_idx - 1) * 32 + lane
 
