@@ -1,18 +1,18 @@
 """
-SFT on GSM8K (grade-school math) with Qwen3-30B-A3B.
+SFT with Qwen3-30B-A3B on configurable tasks.
 
-Fine-tunes on chain-of-thought GSM8K training examples and saves a bf16
-checkpoint. Use ``temp_eval.py`` to evaluate (bf16 or NVFP4).
+Fine-tunes on training examples and saves a bf16 checkpoint.
+Use ``temp_eval.py`` to evaluate (bf16 or NVFP4).
 
 Usage::
 
-    # Standard SFT
+    # SFT on GSM8K (default)
     python torchao/prototype/qat/temp_finetune.py
-    #   bf16: ./qwen3-30b-a3b-gsm8k-sft
-
-    # SFT with NVFP4 QAT
     python torchao/prototype/qat/temp_finetune.py --qat
-    #   bf16: ./qwen3-30b-a3b-gsm8k-sft-qat
+
+    # SFT on ARC-Challenge
+    python torchao/prototype/qat/temp_finetune.py --task arc_challenge
+    python torchao/prototype/qat/temp_finetune.py --task arc_challenge --qat
 """
 
 import argparse
@@ -23,8 +23,11 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from trl import SFTConfig, SFTTrainer
 
 MODEL_NAME = "Qwen/Qwen3-30B-A3B"
-BASE_OUTPUT_DIR = "./qwen3-30b-a3b-gsm8k-sft"
 
+
+# ---------------------------------------------------------------------------
+# Dataset formatters (each returns a list of {"messages": [...]} dicts)
+# ---------------------------------------------------------------------------
 
 def format_gsm8k(example: dict) -> dict:
     """Convert a GSM8K example into the ``messages`` format expected by SFTTrainer."""
@@ -36,8 +39,49 @@ def format_gsm8k(example: dict) -> dict:
     }
 
 
+def format_arc_challenge(example: dict) -> dict:
+    """Convert an ARC-Challenge example into the ``messages`` format."""
+    choices = example["choices"]
+    choices_str = "\n".join(
+        f"{label}. {text}" for label, text in zip(choices["label"], choices["text"])
+    )
+    question = f"{example['question']}\n\n{choices_str}"
+    answer = example["answerKey"]
+    return {
+        "messages": [
+            {"role": "user", "content": question},
+            {"role": "assistant", "content": answer},
+        ]
+    }
+
+
+# ---------------------------------------------------------------------------
+# Task registry
+# ---------------------------------------------------------------------------
+
+TASKS = {
+    "gsm8k": {
+        "dataset": ("openai/gsm8k", "main"),
+        "formatter": format_gsm8k,
+        "default_output_dir": "./qwen3-30b-a3b-gsm8k-sft",
+    },
+    "arc_challenge": {
+        "dataset": ("allenai/ai2_arc", "ARC-Challenge"),
+        "formatter": format_arc_challenge,
+        "default_output_dir": "./qwen3-30b-a3b-arc-challenge-sft",
+    },
+}
+
+
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="SFT on GSM8K")
+    parser = argparse.ArgumentParser(description="SFT on configurable tasks")
+    parser.add_argument(
+        "--task",
+        type=str,
+        default="gsm8k",
+        choices=list(TASKS.keys()),
+        help=f"Training task (default: gsm8k). Choices: {list(TASKS.keys())}.",
+    )
     parser.add_argument(
         "--qat",
         action="store_true",
@@ -53,11 +97,12 @@ if __name__ == "__main__":
         "--output-dir",
         type=str,
         default=None,
-        help="Output directory for the checkpoint (default: BASE_OUTPUT_DIR[-qat]).",
+        help="Output directory for the checkpoint.",
     )
     args = parser.parse_args()
 
-    output_dir = args.output_dir or (BASE_OUTPUT_DIR + ("-qat" if args.qat else ""))
+    task_cfg = TASKS[args.task]
+    output_dir = args.output_dir or (task_cfg["default_output_dir"] + ("-qat" if args.qat else ""))
 
     model = AutoModelForCausalLM.from_pretrained(
         MODEL_NAME,
@@ -74,9 +119,9 @@ if __name__ == "__main__":
         tokenizer.pad_token = tokenizer.eos_token
 
     if args.max_steps > 0:
-        # Load GSM8K
-        gsm8k = load_dataset("openai/gsm8k", "main")
-        train_dataset = gsm8k["train"].map(format_gsm8k)
+        ds_name, ds_config = task_cfg["dataset"]
+        ds = load_dataset(ds_name, ds_config)
+        train_dataset = ds["train"].map(task_cfg["formatter"])
 
         training_args = SFTConfig(
             output_dir=output_dir,
