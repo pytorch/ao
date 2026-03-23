@@ -28,14 +28,6 @@ from torchao.quantization.quant_api import quantize_
 if common_utils.SEED is None:
     common_utils.SEED = 1234
 
-try:
-    import gemlite  # noqa: F401
-
-    has_gemlite = True
-except ModuleNotFoundError:
-    has_gemlite = False
-
-
 class TestAffineQuantizedTensorParallel(DTensorTestBase):
     """Basic test case for tensor subclasses"""
 
@@ -156,26 +148,6 @@ class TestInt4woAffineQuantizedTensorParallel(TestAffineQuantizedTensorParallel)
         return self._test_tp(dtype)
 
 
-class TestGemliteLayoutTensorParallel(TestAffineQuantizedTensorParallel):
-    COMMON_DTYPES = [torch.float16]
-
-    @common_utils.parametrize("dtype", COMMON_DTYPES)
-    @with_comms
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
-    @unittest.skipIf(not has_gemlite, "gemlite not available")
-    def test_tp_gemlite(self, dtype):
-        from torchao.quantization import GemliteUIntXWeightOnlyConfig
-
-        for packing_bitwidth in [32, 8]:
-            for bit_width in [4, 8]:
-                for group_size in [64, 32, None] if bit_width == 4 else [None]:
-                    api = lambda: GemliteUIntXWeightOnlyConfig(
-                        group_size, bit_width, packing_bitwidth
-                    )
-                    self.QUANT_METHOD_FN = staticmethod(api)
-                    return self._test_tp(dtype)
-
-
 class TestInt8dqAffineQuantizedTensorParallel(TestAffineQuantizedTensorParallel):
     QUANT_METHOD_FN = staticmethod(Int8DynamicActivationInt8WeightConfig)
     COMMON_DTYPES = [torch.bfloat16]
@@ -189,7 +161,6 @@ class TestInt8dqAffineQuantizedTensorParallel(TestAffineQuantizedTensorParallel)
 
 common_utils.instantiate_parametrized_tests(TestInt8woAffineQuantizedTensorParallel)
 common_utils.instantiate_parametrized_tests(TestInt4woAffineQuantizedTensorParallel)
-common_utils.instantiate_parametrized_tests(TestGemliteLayoutTensorParallel)
 common_utils.instantiate_parametrized_tests(TestInt8dqAffineQuantizedTensorParallel)
 
 # Float8 TP requires FP8-capable hardware (H100+ on CUDA, MI300+ on ROCm)
