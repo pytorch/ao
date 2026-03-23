@@ -132,7 +132,7 @@ def _compile_mxfp8_quantize_2d_cutedsl(
     K_BLOCKS_PER_TILE = TILE_K // SCALE_DIM_K_VALUE
     assert K_BLOCKS_PER_TILE > 0
     assert requested_stage_count >= 1
-    # B200 sweeps on our representative 3D shapes showed no benefit
+    # B200 sweeps on our representative shapes showed no benefit
     # beyond 2 stages. We keep stage setup generic so future tuning can
     # revisit this, but the current tuned contract is 1 or 2 stages.
     assert requested_stage_count <= 2
@@ -922,7 +922,7 @@ def mxfp8_quantize_cutedsl_2d(
 
     _, config = _select_cutedsl_config(str(x.dtype), scaling_mode, K)
     compute_warps, tile_m, tile_k, k_tiles_per_cta = config
-    # B200 sweeps over representative large 3D shapes showed no
+    # B200 sweeps over representative shapes showed no
     # measurable benefit above 2 stages. We keep this configurable for
     # benchmarking, and the effective stage count remains capped by
     # k_tiles_per_cta below.
