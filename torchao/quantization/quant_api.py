@@ -34,7 +34,6 @@ import torchao
 from torchao.core.config import AOBaseConfig
 from torchao.dtypes import (
     AffineQuantizedTensor,
-    CutlassSemiSparseLayout,
     Float8Layout,
     Int4CPULayout,
     Int4XPULayout,
@@ -141,29 +140,12 @@ __all__ = [
     "Quantizer",
     "TwoStepQuantizer",
     "Int4WeightOnlyQuantizer",
-    "autoquant",  # noqa: F822
     "_get_subclass_inserter",
     "quantize_",
     "intx_quantization_aware_training",
     "Int8DynActInt4WeightQuantizer",
     "ModuleFqnToConfig",
 ]
-
-# Lazy imports to avoid CUDA initialization at import time
-_lazy_imports = {
-    "autoquant": ".autoquant",
-}
-
-
-def __getattr__(name):
-    if name in _lazy_imports:
-        import importlib
-
-        module_path = _lazy_imports[name]
-        module = importlib.import_module(module_path, __package__)
-        return getattr(module, name)
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-
 
 LAYOUT_TO_ZERO_POINT_DOMAIN = {
     TensorCoreTiledLayout: [ZeroPointDomain.FLOAT],
@@ -230,14 +212,11 @@ def _is_linear(mod, *args):
         _AffineFakeQuantizedTensor,
     )
 
-    from .autoquant import AutoQuantizableLinearWeight
-
     # adding weight tensor subclass isinstance check to make sure the weight is only quantized once
     # when it is shared by multiple linear modules
     return (
         isinstance(mod, torch.nn.Linear)
         and hasattr(mod, "weight")
-        and not isinstance(mod.weight, AutoQuantizableLinearWeight)
         and not isinstance(mod.weight, AffineQuantizedTensor)
         and not isinstance(mod.weight, LinearActivationQuantizedTensor)
         and not isinstance(mod.weight, _AffineFakeQuantizedTensor)
@@ -939,7 +918,8 @@ class Int8WeightOnlyConfig(AOBaseConfig):
         group_size (version 1) - Controls the granularity of quantization.
         If None, applies per-channel quantization. Otherwise, applies per-group quantization with the specified group size.
         granularity (version 2) - Quantization granularity.
-            PerRow() for per-channel quantization, PerTensor() for per-tensor quantization.
+            PerRow() for per-channel quantization, PerTensor() for per-tensor quantization,
+            PerGroup(group_size) for per-group quantization.
         set_inductor_config: bool = True - If True, adjusts `torchinductor` settings to recommended values
             for better performance with this quantization scheme.
 
@@ -958,7 +938,11 @@ class Int8WeightOnlyConfig(AOBaseConfig):
         torch._C._log_api_usage_once("torchao.quantization.Int8WeightOnlyConfig")
         if self.version == 2:
             assert self.group_size is None, (
-                f"Only support version 2 with group_size=None, got {self.group_size}"
+                f"Only support version 2 with group_size=None, got {self.group_size}. "
+                f"Use granularity=PerGroup({self.group_size}) instead."
+            )
+            assert isinstance(self.granularity, (PerTensor, PerRow, PerGroup)), (
+                f"granularity must be PerTensor, PerRow, or PerGroup, but got {self.granularity}"
             )
 
 
@@ -1061,32 +1045,6 @@ def _int8_symm_per_token_reduced_range_quant_noop_decode(
             quant_max=quant_max,
             scale_dtype=torch.float32 if x.dtype == torch.float16 else None,
         )
-
-
-def _float8_cutlass_quant(
-    x: torch.Tensor,
-    target_dtype: torch.dtype,
-) -> torch.Tensor:
-    return to_affine_quantized_floatx(
-        x,
-        block_size=_get_per_token_block_size(x),
-        scale_dtype=torch.float32,
-        target_dtype=target_dtype,
-        _layout=Float8Layout(mm_config=None),
-    )
-
-
-def _float8_cutlass_quant_sparse(
-    x: torch.Tensor,
-    target_dtype: torch.dtype,
-) -> (torch.Tensor, torch.Tensor):
-    return to_affine_quantized_floatx(
-        x,
-        block_size=_get_per_token_block_size(x),
-        scale_dtype=torch.float32,
-        target_dtype=target_dtype,
-        _layout=CutlassSemiSparseLayout(),
-    )
 
 
 def _validate_granularity_int8(
@@ -2096,8 +2054,6 @@ torch.serialization.add_safe_globals(
         _int8_asymm_per_token_quant,
         _int8_symm_per_token_reduced_range_quant,
         _input_activation_quant_func_fp8,
-        _float8_cutlass_quant,
-        _float8_cutlass_quant_sparse,
         Target,
     ]
 )
