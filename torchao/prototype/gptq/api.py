@@ -24,10 +24,9 @@ from torchao.quantization.granularity import PerRow
 from torchao.quantization.quant_api import (
     Int4WeightOnlyConfig,
     Int8WeightOnlyConfig,
-    _module_extra_repr,
 )
 from torchao.quantization.transform_module import register_quantize_module_handler
-from torchao.quantization.utils import get_block_size
+from torchao.quantization.utils import _module_extra_repr, get_block_size
 
 from .observer import GPTQObserverTensor
 

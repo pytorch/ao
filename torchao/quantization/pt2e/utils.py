@@ -28,7 +28,18 @@ from torch.export.unflatten import _assign_attr, _AttrKind
 from torch.fx import Graph, GraphModule, Node
 from torch.nn.utils.fusion import fuse_conv_bn_weights, fuse_linear_bn_weights
 from torch.nn.utils.parametrize import is_parametrized
-from torch.utils._pytree import LeafSpec
+
+# treespec_leaf() was added in newer PyTorch to replace LeafSpec(), which is
+# now deprecated and triggers a FutureWarning on instantiation. Fall back to
+# LeafSpec() for older PyTorch versions that don't have treespec_leaf yet.
+try:
+    from torch.utils._pytree import treespec_leaf
+except ImportError:
+    from torch.utils._pytree import LeafSpec
+
+    def treespec_leaf() -> "LeafSpec":
+        return LeafSpec()
+
 
 from torchao.utils import _assert_and_get_unique_device
 
@@ -1135,7 +1146,7 @@ def _replace_literals_with_new_placeholders(
                     else:
                         ph_node = gm.graph.placeholder("arg" + str(cnt))
                         new_args.append(ph_node)
-                        args_spec.children_specs.append(LeafSpec())
+                        args_spec.children_specs.append(treespec_leaf())
                         cnt += 1
                         if merge_dup:
                             literal_to_ph[arg] = ph_node

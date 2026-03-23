@@ -8,7 +8,6 @@ import sys
 from typing import Tuple
 
 import torch
-from torch.distributed._tensor import DTensor
 
 from torchao.prototype.mx_formats.config import (
     MXFP8Dim1CastKernelChoice,
@@ -19,6 +18,7 @@ from torchao.prototype.mx_formats.kernels import (
     triton_mx_block_rearrange,
     triton_to_mxfp8_dim1,
 )
+from torchao.quantization.quantize_.common import KernelPreference
 
 Tensor = torch.Tensor
 
@@ -157,14 +157,25 @@ def _to_mxfp8_dim1_kernel_wrapper(
 ):
     # avoid circular import
     # TODO(future PR): split this utils file in two
-    from torchao.prototype.mx_formats.mx_tensor import MXTensor
+    from torchao.prototype.mx_formats.mx_tensor import MXTensor, to_mx
 
-    if cast_kernel_choice == MXFP8Dim1CastKernelChoice.TRITON:
+    if kernel_preference == KernelPreference.EMULATED:
+        a_scale, a_data = to_mx(
+            a.t().contiguous(),
+            elem_dtype,
+            block_size,
+            scale_calculation_mode,
+        )
+        a_data = a_data.t()
+
+    elif cast_kernel_choice == MXFP8Dim1CastKernelChoice.TRITON:
         assert scale_calculation_mode in (
             ScaleCalculationMode.FLOOR,
             ScaleCalculationMode.RCEIL,
         )
-        a_data, a_scale = triton_to_mxfp8_dim1(a, block_size)
+        a_data, a_scale = triton_to_mxfp8_dim1(
+            a, block_size, scale_calculation_mode.value
+        )
     elif cast_kernel_choice == MXFP8Dim1CastKernelChoice.CUDA:
         assert scale_calculation_mode in (
             ScaleCalculationMode.FLOOR,
@@ -180,39 +191,18 @@ def _to_mxfp8_dim1_kernel_wrapper(
         raise ValueError(f"must be one of [CUDA, TRITON], got {cast_kernel_choice}")
 
     is_swizzled_scales = False
-    if isinstance(a_data, DTensor):
-        assert isinstance(a_scale, DTensor)
-        a_data_local = a_data.to_local()
-        a_scale_local = a_scale.to_local()
-        inner = MXTensor(
-            a_data_local.t(),
-            a_scale_local,
-            elem_dtype,
-            block_size,
-            hp_dtype,
-            kernel_preference,
-            None,
-            is_swizzled_scales,
-        )
-        mx_tensor = DTensor.from_local(
-            inner,
-            a_data.device_mesh,
-            a_data.placements,
-            run_check=False,
-            shape=a_data.t().size(),
-            stride=a_data.t().stride(),
-        )
-    else:
-        mx_tensor = MXTensor(
-            a_data.t(),
-            a_scale,
-            elem_dtype,
-            block_size,
-            hp_dtype,
-            kernel_preference,
-            None,
-            is_swizzled_scales,
-        )
+    # MXTensor wraps DTensor inner tensors directly (MXTensor(DTensor) ordering).
+    # DTensor's .t() handles placement transposition automatically.
+    mx_tensor = MXTensor(
+        a_data.t(),
+        a_scale,
+        elem_dtype,
+        block_size,
+        hp_dtype,
+        kernel_preference,
+        None,
+        is_swizzled_scales,
+    )
     return mx_tensor
 
 

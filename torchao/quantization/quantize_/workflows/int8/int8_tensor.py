@@ -355,13 +355,23 @@ def _(func, types, args, kwargs):
 
     else:
         # FP × INT8 (weight-only)
-        w_vals_int8_t = weight_tensor.qdata.t()
-        m = torch.mm(
-            activation_tensor.reshape(-1, activation_tensor.shape[-1]),
-            w_vals_int8_t.to(output_dtype),
-        )
-        y = m * weight_tensor.scale.to(m.dtype).flatten()
-        y = y.reshape(*activation_tensor.shape[:-1], weight_tensor.qdata.shape[0])
+        if weight_tensor.block_size[-1] < weight_tensor.qdata.shape[-1]:
+            # Per-group quantization: dequantize weight, then do FP matmul
+            w_dequant = weight_tensor.dequantize().to(output_dtype)
+            y = torch.mm(
+                activation_tensor.reshape(-1, activation_tensor.shape[-1]),
+                w_dequant.t(),
+            )
+            y = y.reshape(*activation_tensor.shape[:-1], weight_tensor.qdata.shape[0])
+        else:
+            # Per-row or per-tensor: optimized int8 path
+            w_vals_int8_t = weight_tensor.qdata.t()
+            m = torch.mm(
+                activation_tensor.reshape(-1, activation_tensor.shape[-1]),
+                w_vals_int8_t.to(output_dtype),
+            )
+            y = m * weight_tensor.scale.to(m.dtype).flatten()
+            y = y.reshape(*activation_tensor.shape[:-1], weight_tensor.qdata.shape[0])
 
     if bias is not None:
         y += bias

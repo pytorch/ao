@@ -41,14 +41,20 @@ if torch_version_at_least("2.7.0") and has_triton():
     if torch.version.hip is not None:
         kernel_configs_2D = [
             triton.Config(
-                {"BLOCK_SIZE": block_size, "BLOCK_SIZE_ITER": block_size_iter},
-                num_warps=warps,
-                num_stages=stages,
-            )
-            for block_size in [32, 64]
-            for block_size_iter in [64, 128]
-            for warps in [4, 8]
-            for stages in [2, 3]
+                {"BLOCK_SIZE": 128, "BLOCK_SIZE_ITER": 128},
+                num_warps=8,
+                num_stages=2,
+            ),
+            triton.Config(
+                {"BLOCK_SIZE": 128, "BLOCK_SIZE_ITER": 256},
+                num_warps=8,
+                num_stages=2,
+            ),
+            triton.Config(
+                {"BLOCK_SIZE": 256, "BLOCK_SIZE_ITER": 128},
+                num_warps=8,
+                num_stages=2,
+            ),
         ]
     else:
         kernel_configs_2D = [
@@ -85,7 +91,6 @@ if torch_version_at_least("2.7.0") and has_triton():
         """
         assert hp_tensor.ndim == 2, "input tensor must be 2D"
 
-        num_elements = hp_tensor.numel()
         tl_input_dtype = FP8_DTYPE_MAP[hp_tensor.dtype]
         tl_output_dtype = FP8_DTYPE_MAP[output_dtype]
 
@@ -118,7 +123,6 @@ if torch_version_at_least("2.7.0") and has_triton():
             hp_tensor.stride(1),
             output_buffer.stride(0),
             output_buffer.stride(1),
-            num_elements,
             fp8_dtype_min,
             fp8_dtype_max,
             tl_input_dtype,
@@ -160,14 +164,13 @@ if torch_version_at_least("2.7.0") and has_triton():
         offsets_ptr,
         out_ptr,
         scales_ptr,
-        M: int,
-        K: int,
-        N_GROUPS: int,
-        stride_input_row: int,
-        stride_input_col: int,
-        stride_output_row: int,
-        stride_output_col: int,
-        num_elements: int,
+        M: tl.int64,
+        K: tl.int64,
+        N_GROUPS: tl.int64,
+        stride_input_row: tl.int64,
+        stride_input_col: tl.int64,
+        stride_output_row: tl.int64,
+        stride_output_col: tl.int64,
         fp8_dtype_min: tl.constexpr,
         fp8_dtype_max: tl.constexpr,
         input_dtype: tl.constexpr,
@@ -186,14 +189,18 @@ if torch_version_at_least("2.7.0") and has_triton():
             offsets_ptr + offset_idx - 1, mask=offset_idx > 0, other=0
         )
         group_col_end_idx = tl.load(offsets_ptr + offset_idx)
-        block_row_offs = block_row_id * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
+        block_row_offs = (block_row_id * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)).to(
+            tl.int64
+        )
 
         # compute rowwise amaxes for this group
         amax_buffer = tl.zeros((BLOCK_SIZE,), dtype=input_dtype)
         for col_start_idx in range(
             group_col_start_idx, group_col_end_idx, BLOCK_SIZE_ITER
         ):
-            block_col_offs = col_start_idx + tl.arange(0, BLOCK_SIZE_ITER)
+            block_col_offs = (col_start_idx + tl.arange(0, BLOCK_SIZE_ITER)).to(
+                tl.int64
+            )
             block_offs = (
                 block_row_offs[:, None] * stride_input_row
                 + block_col_offs[None, :] * stride_input_col
@@ -228,7 +235,9 @@ if torch_version_at_least("2.7.0") and has_triton():
         for col_start_idx in range(
             group_col_start_idx, group_col_end_idx, BLOCK_SIZE_ITER
         ):
-            block_col_offs = col_start_idx + tl.arange(0, BLOCK_SIZE_ITER)
+            block_col_offs = (col_start_idx + tl.arange(0, BLOCK_SIZE_ITER)).to(
+                tl.int64
+            )
             block_offs = (
                 block_row_offs[:, None] * stride_input_row
                 + block_col_offs[None, :] * stride_input_col
@@ -275,7 +284,6 @@ if torch_version_at_least("2.7.0") and has_triton():
         """
         assert hp_tensor.ndim == 2, "input tensor must be 2D"
 
-        num_elements = hp_tensor.numel()
         tl_input_dtype = FP8_DTYPE_MAP[hp_tensor.dtype]
         tl_output_dtype = FP8_DTYPE_MAP[output_dtype]
 
@@ -311,7 +319,6 @@ if torch_version_at_least("2.7.0") and has_triton():
             hp_tensor.stride(1),
             output_buffer.stride(0),
             output_buffer.stride(1),
-            num_elements,
             fp8_dtype_min,
             fp8_dtype_max,
             tl_input_dtype,
@@ -351,14 +358,13 @@ if torch_version_at_least("2.7.0") and has_triton():
         offsets_ptr,
         out_ptr,
         scales_ptr,
-        K: int,
-        N: int,
-        N_GROUPS: int,
-        stride_input_row: int,
-        stride_input_col: int,
-        stride_output_row: int,
-        stride_output_col: int,
-        num_elements: int,
+        K: tl.int64,
+        N: tl.int64,
+        N_GROUPS: tl.int64,
+        stride_input_row: tl.int64,
+        stride_input_col: tl.int64,
+        stride_output_row: tl.int64,
+        stride_output_col: tl.int64,
         fp8_dtype_min: tl.constexpr,
         fp8_dtype_max: tl.constexpr,
         input_dtype: tl.constexpr,
@@ -377,14 +383,18 @@ if torch_version_at_least("2.7.0") and has_triton():
             offsets_ptr + offset_idx - 1, mask=offset_idx > 0, other=0
         )
         group_row_end_idx = tl.load(offsets_ptr + offset_idx)
-        block_col_offs = block_col_id * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
+        block_col_offs = (block_col_id * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)).to(
+            tl.int64
+        )
 
         # compute colwise amaxes for this group
         amax_buffer = tl.zeros((BLOCK_SIZE,), dtype=input_dtype)
         for row_start_idx in range(
             group_row_start_idx, group_row_end_idx, BLOCK_SIZE_ITER
         ):
-            block_row_offs = row_start_idx + tl.arange(0, BLOCK_SIZE_ITER)
+            block_row_offs = (row_start_idx + tl.arange(0, BLOCK_SIZE_ITER)).to(
+                tl.int64
+            )
             block_offs = (
                 block_row_offs[:, None] * stride_input_row
                 + block_col_offs[None, :] * stride_input_col
@@ -420,7 +430,9 @@ if torch_version_at_least("2.7.0") and has_triton():
         for row_start_idx in range(
             group_row_start_idx, group_row_end_idx, BLOCK_SIZE_ITER
         ):
-            block_row_offs = row_start_idx + tl.arange(0, BLOCK_SIZE_ITER)
+            block_row_offs = (row_start_idx + tl.arange(0, BLOCK_SIZE_ITER)).to(
+                tl.int64
+            )
             block_offs = (
                 block_row_offs[:, None] * stride_input_row
                 + block_col_offs[None, :] * stride_input_col

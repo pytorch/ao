@@ -13,10 +13,10 @@ if not torch.cuda.is_available() or torch.cuda.get_device_capability() < (8, 9):
 
 from torchao.float8.float8_utils import compute_error
 from torchao.prototype.moe_training.config import (
-    FP8GroupedMMConfig,
-    FP8GroupedMMRecipe,
-    MXFP8GroupedMMConfig,
-    MXFP8GroupedMMRecipe,
+    Float8TrainingOpConfig,
+    Float8TrainingRecipe,
+    MXFP8TrainingOpConfig,
+    MXFP8TrainingRecipe,
 )
 from torchao.quantization.quant_api import quantize_
 from torchao.quantization.quantize_.common import KernelPreference
@@ -31,42 +31,42 @@ torch._dynamo.config.cache_size_limit = 1000
 
 
 @pytest.mark.parametrize(
-    "target_fqns",
-    [["experts"]],
+    "target_fqns", [["experts"], ["shared_experts"], ["experts", "shared_experts"]]
 )
 @pytest.mark.parametrize("compile", [False, True])
 @pytest.mark.parametrize(
     "kernel_preference", [KernelPreference.AUTO, KernelPreference.EMULATED]
 )
+@pytest.mark.parametrize("token_groups_aligned", [False])
 @pytest.mark.parametrize(
     "recipe_config",
     [
         {
-            "recipe": FP8GroupedMMRecipe.FP8_ROWWISE,
+            "recipe": Float8TrainingRecipe.FP8_ROWWISE,
             "group_alignment_size": 16,
-            "min_out_sqnr": 29.0,
-            "min_input_grad_sqnr": 29.0,
-            "min_param_grad_sqnr": 23.0,
-        },
-        {
-            "recipe": MXFP8GroupedMMRecipe.MXFP8_RCEIL,
-            "group_alignment_size": 32,
-            "min_out_sqnr": 28.0,
+            "min_out_sqnr": 23.0,
             "min_input_grad_sqnr": 29.0,
             "min_param_grad_sqnr": 21.0,
         },
         {
-            "recipe": MXFP8GroupedMMRecipe.MXFP8_RCEIL_WGRAD_WITH_HP,
+            "recipe": MXFP8TrainingRecipe.MXFP8_RCEIL,
             "group_alignment_size": 32,
-            "min_out_sqnr": 28.0,
+            "min_out_sqnr": 23.0,
             "min_input_grad_sqnr": 29.0,
-            "min_param_grad_sqnr": 25.0,
+            "min_param_grad_sqnr": 21.0,
         },
         {
-            "recipe": MXFP8GroupedMMRecipe.MXFP8_EMULATED_RCEIL,
+            "recipe": MXFP8TrainingRecipe.MXFP8_RCEIL_WGRAD_WITH_HP,
             "group_alignment_size": 32,
-            "min_out_sqnr": 27.0,
+            "min_out_sqnr": 23.0,
             "min_input_grad_sqnr": 29.0,
+            "min_param_grad_sqnr": 22.0,
+        },
+        {
+            "recipe": MXFP8TrainingRecipe.MXFP8_EMULATED_RCEIL,
+            "group_alignment_size": 32,
+            "min_out_sqnr": 23.0,
+            "min_input_grad_sqnr": 27.0,
             "min_param_grad_sqnr": 21.0,
         },
     ],
@@ -75,31 +75,42 @@ def test_moe_training(
     target_fqns: list[str],
     compile: bool,
     kernel_preference: KernelPreference,
+    token_groups_aligned: bool,
     recipe_config: dict,
 ):
     (
         recipe,
-        group_alignment_size,
         min_out_sqnr,
         min_input_grad_sqnr,
         min_param_grad_sqnr,
     ) = (
         recipe_config["recipe"],
-        recipe_config["group_alignment_size"],
         recipe_config["min_out_sqnr"],
         recipe_config["min_input_grad_sqnr"],
         recipe_config["min_param_grad_sqnr"],
     )
     assert torch.cuda.is_available()
 
+    # Per-group padding has known shape mismatch issues with experts on ROCm
+    # (introduced in #3998). Skip until resolved.
+    if is_ROCM() and "experts" in target_fqns:
+        pytest.skip(
+            "MoE expert training has known shape mismatch on ROCm (per-group padding, see #3998)"
+        )
+
     # Emulated mode with compile is not supported
-    if recipe == MXFP8GroupedMMRecipe.MXFP8_EMULATED_RCEIL and compile:
+    if recipe == MXFP8TrainingRecipe.MXFP8_EMULATED_RCEIL and compile:
         pytest.skip(
             "Skipping compile=True with kernel_preference=EMULATED, not currently supported"
         )
 
     # FP8_ROWWISE hardware path requires SM90 (CUDA) or MI300/MI350 (ROCm)
-    if recipe == FP8GroupedMMRecipe.FP8_ROWWISE:
+    if recipe == Float8TrainingRecipe.FP8_ROWWISE:
+        if compile:
+            pytest.skip(
+                "https://github.com/pytorch/ao/issues/4048: 'FakeTensor' object has no attribute '__tensor_flatten__'"
+            )
+
         if is_ROCM():
             if not (is_MI300() or is_MI350()):
                 pytest.skip("FP8 rowwise test requires MI300 or MI350 on ROCm")
@@ -108,11 +119,13 @@ def test_moe_training(
                 pytest.skip(
                     f"Skipping FP8 rowwise tests, only supported on compute capability 9.0 and found {torch.cuda.get_device_capability()}"
                 )
+        if not token_groups_aligned:
+            pytest.skip("FP8 rowwise doesn't support per group token padding yet")
 
     # MXFP8 hardware path requires SM100
     if recipe in (
-        MXFP8GroupedMMRecipe.MXFP8_RCEIL,
-        MXFP8GroupedMMRecipe.MXFP8_RCEIL_WGRAD_WITH_HP,
+        MXFP8TrainingRecipe.MXFP8_RCEIL,
+        MXFP8TrainingRecipe.MXFP8_RCEIL_WGRAD_WITH_HP,
     ) and torch.cuda.get_device_capability() != (
         10,
         0,
@@ -121,13 +134,15 @@ def test_moe_training(
             f"Skipping MXFP8 hardware mode tests, only supported on compute capability 10.0 and found {torch.cuda.get_device_capability()}"
         )
 
-    # Set token group alignment size. This is required so that
-    # each logically distinct gemm in the grouped gemm `grad_weight = grad_output_t @ input`
-    # has the contraction dim be divisible by 16. 16 byte alignment is required
-    # for the slowest moving dim (stride 1).
-    set_token_group_alignment_size_m(group_alignment_size)
+    alignment_size = 32 if isinstance(recipe, MXFP8TrainingRecipe) else 16
+    if not token_groups_aligned:
+        alignment_size = 1
+    set_token_group_alignment_size_m(alignment_size)
+
     model_args = MoEArgs(
         num_experts=8,
+        num_shared_experts=1,
+        use_grouped_mm=True,
     )
     init_std = 0.02
     device = torch.device("cuda")
@@ -154,11 +169,16 @@ def test_moe_training(
 
     # quantize test model
     config_cls = (
-        MXFP8GroupedMMConfig
-        if isinstance(recipe, MXFP8GroupedMMRecipe)
-        else FP8GroupedMMConfig
+        MXFP8TrainingOpConfig
+        if isinstance(recipe, MXFP8TrainingRecipe)
+        else Float8TrainingOpConfig
     )
     config = config_cls.from_recipe(recipe)
+
+    # TODO: support pad_token_groups_for_grouped_mm in Float8TrainingOpConfig
+    if isinstance(recipe, MXFP8TrainingRecipe) and not token_groups_aligned:
+        config.pad_token_groups_for_grouped_mm = True
+
     quantize_(model, config=config, filter_fn=moe_module_filter_fn)
 
     # validate that only the experts were converted

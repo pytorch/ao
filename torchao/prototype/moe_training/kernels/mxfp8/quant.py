@@ -1,16 +1,30 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
+
 from typing import Tuple
 
 import torch
 from torch import Tensor
 from torch.utils._triton import has_triton
 
+from torchao.prototype.moe_training.kernels.mxfp8.cutedsl_quantize_3d import (
+    _cutedsl_runtime_available,
+    _missing_cutedsl_runtime_packages,
+    mxfp8_quantize_cutedsl_3d,
+)
 from torchao.prototype.mx_formats.utils import to_blocked
 from torchao.utils import (
     ceil_div,
     is_cuda_version_at_least,
-    is_sm_at_least_100,
     torch_version_at_least,
 )
+
+
+def _is_sm_10x() -> bool:
+    return torch.cuda.is_available() and torch.cuda.get_device_capability()[0] == 10
 
 
 def torch_to_blocked_2d_M_groups(
@@ -245,6 +259,119 @@ def compute_blocked_scale_offsets_for_K_groups(
     return group_sizes, starting_col_after_padding
 
 
+def torch_pad_token_groups(
+    inputs: torch.Tensor, group_offsets: torch.Tensor, alignment_size: int
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """
+    Reference PyTorch implementation for padding token groups to alignment.
+
+    Splits input into per-group chunks and copies each chunk into a
+    pre-allocated zeroed output tensor at the aligned offsets (zero-padding
+    is implicit). Allocates upper bound size to match CUDA kernel behavior
+    (avoids sync).
+
+    Args:
+        inputs: Input tensor of shape (num_tokens, dim)
+        group_offsets: Group end offsets of shape (num_groups,)
+        alignment_size: Alignment size to pad each group to
+
+    Returns:
+        padded_tokens: Padded tokens tensor (upper bound size)
+        padded_group_start_offsets: New group start offsets after padding
+        padded_group_end_offsets: New group end offsets after padding
+    """
+    inputs = inputs.contiguous()
+    num_tokens = inputs.shape[0]
+    num_groups = group_offsets.shape[0]
+
+    # Compute group sizes using torch operations
+    group_sizes = torch.diff(
+        group_offsets,
+        prepend=torch.zeros(1, dtype=group_offsets.dtype, device=group_offsets.device),
+    )
+
+    # Compute padded sizes (align to alignment_size)
+    padded_sizes = (
+        (group_sizes + alignment_size - 1) // alignment_size
+    ) * alignment_size
+
+    # Compute padded offsets using cumsum
+    padded_group_end_offsets = torch.cumsum(padded_sizes, 0, dtype=torch.int32)
+
+    # Allocate output with upper bound size (matches CUDA kernel)
+    # Round up to ensure alignment (required for quantization operations)
+    output_rows = num_tokens + num_groups * alignment_size
+    output_rows = (
+        (output_rows + alignment_size - 1) // alignment_size
+    ) * alignment_size
+    padded_tokens = torch.zeros(
+        (output_rows, inputs.shape[1]), dtype=inputs.dtype, device=inputs.device
+    )
+
+    # Copy data group by group into the padded output
+    group_sizes_list = group_sizes.tolist()  # d2h sync
+    chunks = inputs.split(group_sizes_list, dim=0)
+
+    padded_start_offsets = padded_group_end_offsets - padded_sizes
+    for i, (chunk, padded_start) in enumerate(
+        zip(chunks, padded_start_offsets.tolist())
+    ):
+        chunk_size = chunk.shape[0]
+        padded_tokens[padded_start : padded_start + chunk_size] = chunk
+
+    return padded_tokens, padded_start_offsets, padded_group_end_offsets
+
+
+def torch_unpad_token_groups(
+    padded_inputs: torch.Tensor,
+    group_offsets: torch.Tensor,
+    padded_group_start_offsets: torch.Tensor,
+    num_tokens: int,
+    alignment_size: int,
+) -> torch.Tensor:
+    """
+    Reference PyTorch implementation for unpadding token groups.
+
+    This reverses the operation done by torch_pad_token_groups.
+    Uses indexing to extract groups (matches CUDA kernel upper-bound allocation).
+
+    Args:
+        padded_inputs: Padded input tensor of shape (upper_bound_padded_num_tokens, dim)
+        group_offsets: Original group end offsets of shape (num_groups,)
+        padded_group_start_offsets: Padded group start offsets of shape (num_groups,)
+        num_tokens: Expected number of tokens in the unpadded output
+        alignment_size: Alignment size used for padding
+
+    Returns:
+        unpadded_tokens: Unpadded tokens tensor of shape (num_tokens, dim)
+    """
+    padded_inputs = padded_inputs.contiguous()
+
+    # Compute group sizes (original, unpadded sizes)
+    group_sizes = torch.diff(
+        group_offsets,
+        prepend=torch.zeros(1, dtype=group_offsets.dtype, device=group_offsets.device),
+    )
+
+    # Extract each group from padded input using start offsets
+    unpadded_chunks = []
+    for padded_start, group_size in zip(
+        padded_group_start_offsets.tolist(), group_sizes.tolist()
+    ):
+        chunk = padded_inputs[padded_start : padded_start + group_size]
+        unpadded_chunks.append(chunk)
+
+    unpadded_tokens = torch.cat(unpadded_chunks, dim=0)
+
+    if unpadded_tokens.shape[0] != num_tokens:
+        raise RuntimeError(
+            f"Unpad output size mismatch: expected {num_tokens} tokens "
+            f"but got {unpadded_tokens.shape[0]} tokens. "
+        )
+
+    return unpadded_tokens
+
+
 if torch_version_at_least("2.7.0") and has_triton():
     import triton
     import triton.language as tl
@@ -346,7 +473,7 @@ if torch_version_at_least("2.7.0") and has_triton():
 
         # Calculate this group's start row after blocked format padding, by doing a prefix sum
         # of each previous group's padded size.
-        output_group_start_row = _blocked_group_start_idx(
+        output_group_start_row = _start_index_after_padding(
             group_pid, orig_offsets, num_groups, 128
         )
 
@@ -608,7 +735,7 @@ if torch_version_at_least("2.7.0") and has_triton():
 
         # Calculate this group's start row after blocked format padding, by doing a prefix sum
         # of each previous group's padded size.
-        output_group_start_col = _blocked_group_start_idx(
+        output_group_start_col = _start_index_after_padding(
             group_pid, orig_offsets, num_groups, 4
         )
 
@@ -684,7 +811,7 @@ if torch_version_at_least("2.7.0") and has_triton():
         return dest_indices_flat
 
     @triton.jit
-    def _blocked_group_start_idx(
+    def _start_index_after_padding(
         group_pid,
         orig_offsets,
         num_groups: tl.constexpr,
@@ -733,71 +860,74 @@ else:
         )
 
 
-_mxfp8_cuda_kernels_available = (
-    torch.cuda.is_available()
-    and is_sm_at_least_100()
-    and is_cuda_version_at_least(12, 8)
+_lib_mxfp8 = torch.library.Library("torchao", "FRAGMENT")
+_lib_mxfp8.define(
+    "mx_block_rearrange_2d_M_groups(Tensor scales_tensor, Tensor input_group_end_offsets, int chunks_per_tb) -> Tensor",
+    tags=[torch._C.Tag.needs_fixed_stride_order],
 )
 
+
+def _has_cuda_dispatch_kernel(opname: str) -> bool:
+    try:
+        return torch._C._dispatch_has_kernel_for_dispatch_key(opname, "CUDA")
+    except Exception:
+        return False
+
+
+_mxfp8_cuda_kernels_available = (
+    _is_sm_10x()
+    and is_cuda_version_at_least(12, 8)
+    and _has_cuda_dispatch_kernel("torchao::mx_block_rearrange_2d_M_groups")
+)
+_mxfp8_cutedsl_kernels_available = (
+    _is_sm_10x() and is_cuda_version_at_least(12, 8) and _cutedsl_runtime_available()
+)
+
+
+@torch.library.custom_op("torchao::mxfp8_quantize_3d_cutedsl", mutates_args=())
+def _mxfp8_quantize_3d_cutedsl_custom_op(
+    x: torch.Tensor,
+    block_size: int = 32,
+    scaling_mode: str = "floor",
+    stage_count: int = 2,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    return mxfp8_quantize_cutedsl_3d(
+        x,
+        block_size=block_size,
+        scaling_mode=scaling_mode,
+        stage_count=stage_count,
+        blocked_scale_output=True,
+    )
+
+
+@_mxfp8_quantize_3d_cutedsl_custom_op.register_fake
+def _fake_mxfp8_quantize_3d_cutedsl_custom_op(
+    x: torch.Tensor,
+    block_size: int = 32,
+    scaling_mode: str = "floor",
+    stage_count: int = 2,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    assert x.ndim == 3, "input tensor must be 3D"
+    assert block_size == 32, "Only block_size=32 is supported"
+    e, n, k = x.shape
+    q_data = torch.empty_strided(
+        (e, n, k),
+        (n * k, 1, n),
+        device=x.device,
+        dtype=torch.float8_e4m3fn,
+    )
+    n_blocks = n // block_size
+    padded_scale_rows = ceil_div(k, 128) * 128
+    padded_scale_cols = ceil_div(n_blocks, 4) * 4
+    scales = x.new_empty(
+        (e, padded_scale_rows * padded_scale_cols),
+        dtype=torch.float8_e8m0fnu,
+    )
+    return q_data, scales
+
+
 if _mxfp8_cuda_kernels_available:
-    lib = torch.library.Library("torchao", "FRAGMENT")
-    lib.define(
-        "mxfp8_quantize_3d(Tensor input, int scale_dim_n, str fp8_format, str scaling_mode) -> (Tensor, Tensor)",
-        tags=[torch._C.Tag.needs_fixed_stride_order],
-    )
-
-    def mxfp8_quantize_cuda_3d(
-        x: torch.Tensor,
-        block_size: int = 32,
-        scaling_mode: str = "floor",
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-        """
-        Quantizes a 3D tensor of shape (E,N,K) to MXFP8 format, scaling along N.
-
-        This is a high-level wrapper that calls the underlying CUDA kernel via
-        torch.ops.torchao.mxfp8_quantize_3d.
-
-        Args:
-            x (torch.Tensor): Input tensor to be quantized.
-            block_size (int, optional): Block size for quantization. Defaults to 32.
-            scaling_mode (str, optional): Scaling mode for quantization. Defaults to "floor".
-
-        Returns:
-            torch.Tensor: quantized tensor in column-major layout
-            torch.Tensor: scales tensor
-        """
-        assert x.ndim == 3, "Input tensor must be 3D"
-        assert x.dtype in (
-            torch.float32,
-            torch.bfloat16,
-        ), "Input tensor must be float32 or bfloat16"
-        return torch.ops.torchao.mxfp8_quantize_3d.default(
-            x, block_size, "e4m3", scaling_mode
-        )
-
-    @torch.library.register_fake("torchao::mxfp8_quantize_3d")
-    def _fake_mxfp8_quantize_3d(
-        x: torch.Tensor,
-        scale_dim_n: int,
-        fp8_format: str,
-        scaling_mode: str,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-        """Fake/meta implementation for mxfp8_quantize_3d."""
-        assert x.ndim == 3, "Input tensor must be 3D"
-        E, N, K = x.shape
-        # Quantized tensor is in column major layout
-        q_data = x.new_empty(x.shape, dtype=torch.float8_e4m3fn).as_strided(
-            x.shape, (N * K, 1, N)
-        )
-        scales = x.new_empty((E, N // scale_dim_n, K), dtype=torch.float8_e8m0fnu)
-        return q_data, scales
-
     # CUDA kernel for per group blocked layout transform with groups along M
-    lib.define(
-        "mx_block_rearrange_2d_M_groups(Tensor scales_tensor, Tensor input_group_end_offsets, int chunks_per_tb) -> Tensor",
-        tags=[torch._C.Tag.needs_fixed_stride_order],
-    )
-
     def mx_block_rearrange_2d_M_groups_cuda(
         scales_tensor: torch.Tensor,
         input_group_end_offsets: torch.Tensor,
@@ -860,16 +990,147 @@ if _mxfp8_cuda_kernels_available:
 
         return scales_tensor.new_empty((padded_rows, padded_cols))
 
-else:
+    # CUDA kernel for fused padding of token groups
+    _lib_mxfp8.define(
+        "fused_pad_token_groups(Tensor inputs, Tensor group_end_offsets, int alignment_size) -> (Tensor, Tensor, Tensor)",
+        tags=[torch._C.Tag.needs_fixed_stride_order],
+    )
 
-    def mxfp8_quantize_cuda_3d(
-        x: torch.Tensor,
-        block_size: int = 32,
-        scaling_mode: str = "floor",
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-        raise NotImplementedError(
-            "mxfp8_quantize_cuda_3d is not implemented on this device"
+    def fused_pad_token_groups_cuda(
+        inputs: torch.Tensor,
+        group_end_offsets: torch.Tensor,
+        alignment_size: int = 32,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        CUDA implementation of fused padding for token groups.
+
+        This function pads token groups to alignment boundaries in a single fused operation.
+        Each group is padded to a multiple of alignment_size (typically 32).
+
+        Padded group offsets are computed efficiently using a GPU kernel.
+
+        Args:
+            inputs: Input tensor of shape (num_tokens, dim)
+            group_end_offsets: Group end offsets of shape (num_groups,)
+            alignment_size: Alignment size to pad each group to
+
+        Returns:
+            padded_tokens: Padded tokens tensor
+            padded_group_start_offsets: Start offsets for each padded group
+            padded_group_end_offsets: End offsets for each padded group
+        """
+        assert inputs.ndim == 2, "input activations must be 2d"
+        assert inputs.dtype in (
+            torch.float32,
+            torch.bfloat16,
+        ), "inputs must be float32 or bfloat16"
+        assert group_end_offsets.dtype == torch.int32, "group_end_offsets must be int32"
+
+        return torch.ops.torchao.fused_pad_token_groups.default(
+            inputs,
+            group_end_offsets,
+            alignment_size,
         )
+
+    @torch.library.register_fake("torchao::fused_pad_token_groups")
+    def _fake_fused_pad_token_groups_cuda(
+        inputs: torch.Tensor,
+        group_end_offsets: torch.Tensor,
+        alignment_size: int,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Fake/meta implementation for fused_pad_token_groups."""
+        num_tokens, dim = inputs.shape
+        num_groups = group_end_offsets.shape[0]
+
+        # Calculate output size with upper bound padding, rounded up to alignment
+        # (required for quantization operations that expect aligned dimensions)
+        output_rows = num_tokens + num_groups * alignment_size
+        output_rows = (
+            (output_rows + alignment_size - 1) // alignment_size
+        ) * alignment_size
+
+        # Create fake output tensors
+        padded_tokens = inputs.new_empty((output_rows, dim))
+
+        # Compute fake padded offsets
+        group_sizes = torch.diff(
+            group_end_offsets,
+            prepend=torch.zeros(
+                1, dtype=group_end_offsets.dtype, device=group_end_offsets.device
+            ),
+        )
+        padded_sizes = (
+            (group_sizes + alignment_size - 1) // alignment_size
+        ) * alignment_size
+        padded_group_end_offsets = torch.cumsum(padded_sizes, 0, dtype=torch.int32)
+        padded_group_start_offsets = padded_group_end_offsets - padded_sizes
+
+        return padded_tokens, padded_group_start_offsets, padded_group_end_offsets
+
+    # CUDA kernel for fused unpadding of token groups
+    _lib_mxfp8.define(
+        "fused_unpad_token_groups(Tensor inputs, Tensor group_end_offsets, Tensor padded_group_start_offsets, int num_tokens, int alignment_size) -> Tensor",
+        tags=[torch._C.Tag.needs_fixed_stride_order],
+    )
+
+    def fused_unpad_token_groups_cuda(
+        inputs: torch.Tensor,
+        group_end_offsets: torch.Tensor,
+        padded_group_start_offsets: torch.Tensor,
+        num_tokens: int,
+        alignment_size: int = 32,
+    ) -> torch.Tensor:
+        """
+        CUDA implementation of fused unpadding for token groups.
+
+        This function removes padding from token groups that were previously padded.
+        It reverses the operation done by fused_pad_token_groups_cuda.
+
+        Args:
+            inputs: Padded input tensor of shape (padded_num_tokens, dim)
+            group_end_offsets: Original group end offsets of shape (num_groups,)
+            padded_group_start_offsets: Padded group start offsets of shape (num_groups,)
+            num_tokens: Number of tokens in the unpadded output (from before padding)
+            alignment_size: Alignment size used for padding
+
+        Returns:
+            unpadded_tokens: Unpadded tokens tensor of shape (num_tokens, dim)
+        """
+        assert inputs.ndim == 2, "input activations must be 2d"
+        assert inputs.dtype in (
+            torch.float32,
+            torch.bfloat16,
+        ), "inputs must be float32 or bfloat16"
+        assert group_end_offsets.dtype == torch.int32, "group_end_offsets must be int32"
+        assert padded_group_start_offsets.dtype == torch.int32, (
+            "padded_group_start_offsets must be int32"
+        )
+
+        return torch.ops.torchao.fused_unpad_token_groups.default(
+            inputs,
+            group_end_offsets,
+            padded_group_start_offsets,
+            num_tokens,
+            alignment_size,
+        )
+
+    @torch.library.register_fake("torchao::fused_unpad_token_groups")
+    def _fake_fused_unpad_token_groups_cuda(
+        inputs: torch.Tensor,
+        group_end_offsets: torch.Tensor,
+        padded_group_start_offsets: torch.Tensor,
+        num_tokens: int,
+        alignment_size: int,
+    ) -> torch.Tensor:
+        """Fake/meta implementation for fused_unpad_token_groups."""
+        dim = inputs.shape[1]
+
+        # Create fake output tensor with provided num_tokens
+        unpadded_tokens = inputs.new_empty((num_tokens, dim))
+
+        return unpadded_tokens
+
+else:
 
     def mx_block_rearrange_2d_M_groups_cuda(
         scales_tensor: torch.Tensor,
@@ -879,3 +1140,55 @@ else:
         raise NotImplementedError(
             "mx_block_rearrange_2d_M_groups_cuda is not implemented on this device"
         )
+
+    def fused_pad_token_groups_cuda(
+        inputs: torch.Tensor,
+        group_end_offsets: torch.Tensor,
+        alignment_size: int = 32,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        raise NotImplementedError(
+            "fused_pad_token_groups_cuda is not implemented on this device"
+        )
+
+    def fused_unpad_token_groups_cuda(
+        inputs: torch.Tensor,
+        group_end_offsets: torch.Tensor,
+        padded_group_start_offsets: torch.Tensor,
+        num_tokens: int,
+        alignment_size: int = 32,
+    ) -> torch.Tensor:
+        raise NotImplementedError(
+            "fused_unpad_token_groups_cuda is not implemented on this device"
+        )
+
+
+def mxfp8_quantize_cuda_3d(
+    x: torch.Tensor,
+    block_size: int = 32,
+    scaling_mode: str = "floor",
+    stage_count: int = 2,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Quantize a 3D tensor of shape (E, N, K) with scaling along N in blocks of 32.
+
+    Returns quantized data in column-major-per-expert layout and scales in
+    blocked tcgen05 layout.
+    """
+    if not _mxfp8_cutedsl_kernels_available:
+        missing_packages = _missing_cutedsl_runtime_packages()
+        if missing_packages:
+            missing = ", ".join(missing_packages)
+            raise NotImplementedError(
+                "mxfp8_quantize_3d requires additional Python "
+                f"runtime package(s): {missing}. Please install "
+                "`nvidia-cutlass-dsl` and `apache-tvm-ffi`."
+            )
+        raise NotImplementedError(
+            "mxfp8_quantize_3d requires CUDA, SM 10.x, and CUDA 12.8+."
+        )
+    return _mxfp8_quantize_3d_cutedsl_custom_op(
+        x,
+        block_size=block_size,
+        scaling_mode=scaling_mode,
+        stage_count=stage_count,
+    )

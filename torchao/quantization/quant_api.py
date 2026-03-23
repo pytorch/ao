@@ -34,7 +34,6 @@ import torchao
 from torchao.core.config import AOBaseConfig
 from torchao.dtypes import (
     AffineQuantizedTensor,
-    CutlassSemiSparseLayout,
     Float8Layout,
     Int4CPULayout,
     Int4XPULayout,
@@ -97,6 +96,7 @@ from torchao.quantization.transform_module import (
 from torchao.quantization.utils import (
     _fp8_mm_compat,
     _linear_extra_repr,
+    _module_extra_repr,
     _quantization_type,
     get_block_size,
 )
@@ -140,29 +140,12 @@ __all__ = [
     "Quantizer",
     "TwoStepQuantizer",
     "Int4WeightOnlyQuantizer",
-    "autoquant",  # noqa: F822
     "_get_subclass_inserter",
     "quantize_",
     "intx_quantization_aware_training",
     "Int8DynActInt4WeightQuantizer",
     "ModuleFqnToConfig",
 ]
-
-# Lazy imports to avoid CUDA initialization at import time
-_lazy_imports = {
-    "autoquant": ".autoquant",
-}
-
-
-def __getattr__(name):
-    if name in _lazy_imports:
-        import importlib
-
-        module_path = _lazy_imports[name]
-        module = importlib.import_module(module_path, __package__)
-        return getattr(module, name)
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-
 
 LAYOUT_TO_ZERO_POINT_DOMAIN = {
     TensorCoreTiledLayout: [ZeroPointDomain.FLOAT],
@@ -229,14 +212,11 @@ def _is_linear(mod, *args):
         _AffineFakeQuantizedTensor,
     )
 
-    from .autoquant import AutoQuantizableLinearWeight
-
     # adding weight tensor subclass isinstance check to make sure the weight is only quantized once
     # when it is shared by multiple linear modules
     return (
         isinstance(mod, torch.nn.Linear)
         and hasattr(mod, "weight")
-        and not isinstance(mod.weight, AutoQuantizableLinearWeight)
         and not isinstance(mod.weight, AffineQuantizedTensor)
         and not isinstance(mod.weight, LinearActivationQuantizedTensor)
         and not isinstance(mod.weight, _AffineFakeQuantizedTensor)
@@ -393,19 +373,6 @@ def insert_observers_(
 
 def _embedding_extra_repr(self):
     return f"num_embeddings={self.weight.shape[0]}, embedding_dim={self.weight.shape[1]}, weight={_quantization_type(self.weight)}"
-
-
-def _module_extra_repr(self, original_extra_repr, parameter_name):
-    module_torchao_extra_repr = []
-
-    original_extra_repr_str = original_extra_repr()
-    if len(original_extra_repr_str) > 0:
-        module_torchao_extra_repr.append(original_extra_repr_str)
-
-    module_torchao_extra_repr.append(
-        f"{parameter_name}={_quantization_type(getattr(self, parameter_name))}"
-    )
-    return ", ".join(module_torchao_extra_repr)
 
 
 def _get_linear_subclass_inserter(
@@ -753,6 +720,7 @@ class Int4WeightOnlyConfig(AOBaseConfig):
          currently support TINYGEMM ("tinygemm") and HQQ ("hqq"), used in version 2 only
         `set_inductor_config`: if True, adjusts `torchinductor` settings to recommended values. used in both version 1 and 2
         `version`: version of the config to use, default is 2
+        `int4_tile_packed_ntile`: ntile size for TILED_PACKED_TO_4D format, default is 8 for CUDA platform, 16 for ROCm platform
 
     Example:
 
@@ -767,9 +735,13 @@ class Int4WeightOnlyConfig(AOBaseConfig):
     int4_choose_qparams_algorithm: Int4ChooseQParamsAlgorithm = (
         Int4ChooseQParamsAlgorithm.TINYGEMM
     )
+    int4_tile_packed_ntile: int = 8
     version: int = 2
 
     def __post_init__(self):
+        assert self.int4_tile_packed_ntile in [8, 16], (
+            "int4_tile_packed_ntile must be either 8 or 16"
+        )
         torch._C._log_api_usage_once("torchao.quantization.Int4WeightOnlyConfig")
 
 
@@ -782,6 +754,7 @@ def _int4_weight_only_quantize_tensor(weight, config):
     group_size = config.group_size
     int4_choose_qparams_algorithm = config.int4_choose_qparams_algorithm
     int4_packing_format = config.int4_packing_format
+    int4_tile_packed_ntile = config.int4_tile_packed_ntile
 
     if weight.shape[-1] % group_size != 0:
         logger.info(
@@ -824,6 +797,7 @@ def _int4_weight_only_quantize_tensor(weight, config):
             weight,
             block_size,
             int4_choose_qparams_algorithm=int4_choose_qparams_algorithm,
+            ntile_size=int4_tile_packed_ntile,
         )
         return new_weight
     else:
@@ -944,7 +918,8 @@ class Int8WeightOnlyConfig(AOBaseConfig):
         group_size (version 1) - Controls the granularity of quantization.
         If None, applies per-channel quantization. Otherwise, applies per-group quantization with the specified group size.
         granularity (version 2) - Quantization granularity.
-            PerRow() for per-channel quantization, PerTensor() for per-tensor quantization.
+            PerRow() for per-channel quantization, PerTensor() for per-tensor quantization,
+            PerGroup(group_size) for per-group quantization.
         set_inductor_config: bool = True - If True, adjusts `torchinductor` settings to recommended values
             for better performance with this quantization scheme.
 
@@ -963,7 +938,11 @@ class Int8WeightOnlyConfig(AOBaseConfig):
         torch._C._log_api_usage_once("torchao.quantization.Int8WeightOnlyConfig")
         if self.version == 2:
             assert self.group_size is None, (
-                f"Only support version 2 with group_size=None, got {self.group_size}"
+                f"Only support version 2 with group_size=None, got {self.group_size}. "
+                f"Use granularity=PerGroup({self.group_size}) instead."
+            )
+            assert isinstance(self.granularity, (PerTensor, PerRow, PerGroup)), (
+                f"granularity must be PerTensor, PerRow, or PerGroup, but got {self.granularity}"
             )
 
 
@@ -1066,32 +1045,6 @@ def _int8_symm_per_token_reduced_range_quant_noop_decode(
             quant_max=quant_max,
             scale_dtype=torch.float32 if x.dtype == torch.float16 else None,
         )
-
-
-def _float8_cutlass_quant(
-    x: torch.Tensor,
-    target_dtype: torch.dtype,
-) -> torch.Tensor:
-    return to_affine_quantized_floatx(
-        x,
-        block_size=_get_per_token_block_size(x),
-        scale_dtype=torch.float32,
-        target_dtype=target_dtype,
-        _layout=Float8Layout(mm_config=None),
-    )
-
-
-def _float8_cutlass_quant_sparse(
-    x: torch.Tensor,
-    target_dtype: torch.dtype,
-) -> (torch.Tensor, torch.Tensor):
-    return to_affine_quantized_floatx(
-        x,
-        block_size=_get_per_token_block_size(x),
-        scale_dtype=torch.float32,
-        target_dtype=target_dtype,
-        _layout=CutlassSemiSparseLayout(),
-    )
 
 
 def _validate_granularity_int8(
@@ -2105,8 +2058,6 @@ torch.serialization.add_safe_globals(
         _int8_asymm_per_token_quant,
         _int8_symm_per_token_reduced_range_quant,
         _input_activation_quant_func_fp8,
-        _float8_cutlass_quant,
-        _float8_cutlass_quant_sparse,
         Target,
     ]
 )

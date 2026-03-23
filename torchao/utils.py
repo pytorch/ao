@@ -1169,7 +1169,7 @@ def fill_defaults(args, n, defaults_tail):
 
 
 def is_ROCM():
-    return torch.cuda.is_available() and torch.version.hip
+    return torch.cuda.is_available() and torch.version.hip is not None
 
 
 def is_MI300():
