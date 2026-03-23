@@ -497,9 +497,7 @@ def test_cuda_mx_dim0_2d_numerics(M, K, input_dtype, scaling_mode):
 @pytest.mark.parametrize("num_groups", [4])
 @pytest.mark.parametrize("alignment_size", [128])
 @pytest.mark.parametrize("input_dtype", [torch.bfloat16])
-@pytest.mark.parametrize(
-    "scaling_mode", [ScaleCalculationMode.RCEIL]
-)
+@pytest.mark.parametrize("scaling_mode", [ScaleCalculationMode.RCEIL])
 def test_cuda_mx_2d_with_group_alignment(
     num_tokens: int,
     K: int,
@@ -578,7 +576,9 @@ def test_cuda_mx_2d_with_group_alignment(
         )
 
         # Update for next group
-        aligned_size = ((group_size + alignment_size - 1) // alignment_size) * alignment_size
+        aligned_size = (
+            (group_size + alignment_size - 1) // alignment_size
+        ) * alignment_size
         padding_for_group = aligned_size - group_size
         cumulative_padding += padding_for_group
         group_start = group_end

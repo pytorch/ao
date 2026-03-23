@@ -186,48 +186,6 @@ def _compile_mxfp8_quantize_2d_cutedsl(
 
     class Mxfp8Quantize2dKernel:
         @cute.jit
-        def _compute_padded_m_index(
-            self,
-            m_input: cutlass.Int32,
-            group_end_offsets: cute.Tensor,
-            group_alignment_size: cutlass.Int32,
-            num_groups: cutlass.Int32,
-        ):
-            """
-            Map input M index to padded output M index.
-
-            For each group, we add padding to align to group_alignment_size.
-            This function computes the cumulative padding offset for all previous groups.
-
-            Returns: (padded_m_index, is_valid)
-                - padded_m_index: output M index in the padded tensor
-                - is_valid: True if this is a real token (not padding)
-            """
-            group_start = cutlass.Int32(0)
-            cumulative_padding = cutlass.Int32(0)
-            padded_m = cutlass.Int32(0)
-            is_valid = False
-
-            for g in range(num_groups):
-                group_end = cutlass.Int32(group_end_offsets[g])
-                group_size = group_end - group_start
-
-                # Check if m_input is in this group
-                in_this_group = m_input < group_end
-                if in_this_group and not is_valid:
-                    # This input M belongs to this group
-                    padded_m = m_input + cumulative_padding
-                    is_valid = True
-
-                # Calculate padding for this group (always compute to maintain loop structure)
-                aligned_size = ((group_size + group_alignment_size - 1) // group_alignment_size) * group_alignment_size
-                padding_for_group = aligned_size - group_size
-                cumulative_padding += padding_for_group
-                group_start = group_end
-
-            return padded_m, is_valid
-
-        @cute.jit
         def _load_vals_block_full(
             self,
             sIN_tile: cute.Tensor,
@@ -548,41 +506,47 @@ def _compile_mxfp8_quantize_2d_cutedsl(
                 )
 
         @cute.jit
-        def _store_output_with_padding(
+        def _compute_input_m_from_output(
             self,
-            sOUT_tile: cute.Tensor,
-            out_mk: cute.Tensor,
-            m0_input: cutlass.Int64,
-            k0: cutlass.Int64,
+            m_output: cutlass.Int32,
             group_end_offsets: cute.Tensor,
             group_alignment_size: cutlass.Int32,
             num_groups: cutlass.Int32,
-            warp_idx: cutlass.Int32,
         ):
-            """Store quantized output with group alignment padding."""
-            cute.arch.sync_threads()
-            # All threads participate in copying data from smem to gmem
-            tidx, _, _ = cute.arch.thread_idx()
-            num_threads_tuple = cute.arch.block_dim()
-            num_threads = num_threads_tuple[0]
+            """
+            Map output M index (in padded tensor) to input M index.
 
-            tile_size = cutlass.Int32(TILE_M * TILE_K)
-            for idx in range(tile_size):
-                thread_owns = (idx % num_threads) == tidx
-                if thread_owns:
-                    m_rel = cutlass.Int32(idx // TILE_K)
-                    k_rel = cutlass.Int32(idx % TILE_K)
-                    m_input = m0_input + cutlass.Int64(m_rel)
-                    k = k0 + cutlass.Int64(k_rel)
+            Returns: (input_m_index, is_valid)
+                - input_m_index: input M index (if valid)
+                - is_valid: True if this output row corresponds to real data (not padding)
+            """
+            group_start_input = cutlass.Int32(0)
+            group_start_output = cutlass.Int32(0)
+            input_m = cutlass.Int32(0)
+            is_valid = False
 
-                    # Compute padded output index
-                    m_output_i32, is_valid = self._compute_padded_m_index(
-                        cutlass.Int32(m_input), group_end_offsets, group_alignment_size, num_groups
-                    )
-                    m_output = cutlass.Int64(m_output_i32)
+            for g in range(num_groups):
+                group_end_input = cutlass.Int32(group_end_offsets[g])
+                group_size = group_end_input - group_start_input
+                aligned_size = (
+                    (group_size + group_alignment_size - 1) // group_alignment_size
+                ) * group_alignment_size
+                group_end_output = group_start_output + aligned_size
 
-                    if is_valid:
-                        out_mk[m_output, k] = sOUT_tile[m_rel, k_rel]
+                # Check if m_output is in this group's output range
+                in_this_group = m_output < group_end_output
+                if in_this_group and not is_valid:
+                    offset_in_group = m_output - group_start_output
+                    # Check if within actual data (not padding)
+                    if offset_in_group < group_size:
+                        input_m = group_start_input + offset_in_group
+                        is_valid = True
+                    # else: this is padding, is_valid stays False
+
+                group_start_input = group_end_input
+                group_start_output = group_end_output
+
+            return input_m, is_valid
 
         @cute.kernel
         def kernel(
@@ -663,8 +627,8 @@ def _compile_mxfp8_quantize_2d_cutedsl(
             cute.arch.sync_threads()
 
             k_tile_group_idx = cutlass.Int64(bidx)
-            m_tile = cutlass.Int64(bidy)
-            m0 = m_tile * TILE_M
+            m_tile_output = cutlass.Int64(bidy)
+            m0_output = m_tile_output * TILE_M
             if cutlass.const_expr(BLOCKED_SCALE_OUTPUT_VALUE):
                 scales_tensor = cute.make_tensor(
                     scales_colwise_u8.iterator,
@@ -693,8 +657,21 @@ def _compile_mxfp8_quantize_2d_cutedsl(
                 if cutlass.const_expr(
                     tile_step == 0 or not (STAGE_COUNT > 1 and K_TILES_PER_CTA > 1)
                 ):
+                    # When using group alignment, compute input tile from output tile
+                    if cutlass.const_expr(USE_GROUP_ALIGNMENT):
+                        # Find first valid input row for this output tile
+                        m_input_first, _ = self._compute_input_m_from_output(
+                            cutlass.Int32(m0_output),
+                            group_end_offsets,
+                            group_alignment_size,
+                            num_groups,
+                        )
+                        m_tile_input = cutlass.Int64(m_input_first) // TILE_M
+                    else:
+                        m_tile_input = m_tile_output
+
                     gIN_tile = cute.local_tile(
-                        tma_tensor_in, (TILE_M, TILE_K), (m_tile, k_tile_eff)
+                        tma_tensor_in, (TILE_M, TILE_K), (m_tile_input, k_tile_eff)
                     )
                     self._issue_tma_load(
                         tma_atom_in,
@@ -716,8 +693,22 @@ def _compile_mxfp8_quantize_2d_cutedsl(
                             if next_stage_idx == 1:
                                 sIN_tile_next = sIN_tile1
 
+                        # When using group alignment, compute input tile from output tile
+                        if cutlass.const_expr(USE_GROUP_ALIGNMENT):
+                            m_input_first, _ = self._compute_input_m_from_output(
+                                cutlass.Int32(m0_output),
+                                group_end_offsets,
+                                group_alignment_size,
+                                num_groups,
+                            )
+                            m_tile_input_next = cutlass.Int64(m_input_first) // TILE_M
+                        else:
+                            m_tile_input_next = m_tile_output
+
                         gIN_tile_next = cute.local_tile(
-                            tma_tensor_in, (TILE_M, TILE_K), (m_tile, k_tile_next)
+                            tma_tensor_in,
+                            (TILE_M, TILE_K),
+                            (m_tile_input_next, k_tile_next),
                         )
                         self._issue_tma_load(
                             tma_atom_in,
@@ -732,18 +723,53 @@ def _compile_mxfp8_quantize_2d_cutedsl(
                     lane = tidx % 32
                     m_lane = (warp_idx - 1) * 32 + lane
 
+                    # Compute input tile start for offset calculation
+                    if cutlass.const_expr(USE_GROUP_ALIGNMENT):
+                        # Recompute which input tile was loaded
+                        m_input_first, _ = self._compute_input_m_from_output(
+                            cutlass.Int32(m0_output),
+                            group_end_offsets,
+                            group_alignment_size,
+                            num_groups,
+                        )
+                        m_tile_input = cutlass.Int64(m_input_first) // TILE_M
+                        # The loaded tile starts at m_tile_input * TILE_M
+                        m_input_tile_start_i64 = m_tile_input * TILE_M
+                    else:
+                        m_input_tile_start_i64 = m0_output
+
                     for mm in cutlass.range_constexpr(M_ITERS_PER_LANE):
-                        m_rel = m_lane + mm * M_THREADS
-                        m_input = m0 + m_rel
+                        m_rel_output = m_lane + mm * M_THREADS
+                        m_output = m0_output + m_rel_output
+
                         if cutlass.const_expr(IS_FULL_K_TILES):
-                            m = m_input
-                            is_valid = True
+                            # Map output row to input row
                             if cutlass.const_expr(USE_GROUP_ALIGNMENT):
-                                m_padded, is_valid = self._compute_padded_m_index(
-                                    cutlass.Int32(m_input), group_end_offsets, group_alignment_size, num_groups
+                                m_input_i32, is_valid_data = (
+                                    self._compute_input_m_from_output(
+                                        cutlass.Int32(m_output),
+                                        group_end_offsets,
+                                        group_alignment_size,
+                                        num_groups,
+                                    )
                                 )
-                                m = cutlass.Int64(m_padded)
-                            if m_rel < TILE_M and is_valid:
+                                m_input_i64 = cutlass.Int64(m_input_i32)
+                                # Compute offset in loaded smem tile
+                                m_rel_input = cutlass.Int32(
+                                    m_input_i64 - m_input_tile_start_i64
+                                )
+                            else:
+                                m_input_i64 = m_output
+                                m_rel_input = m_rel_output
+                                is_valid_data = True
+
+                            m = m_output
+                            if (
+                                m_rel_output < TILE_M
+                                and m_rel_input >= 0
+                                and m_rel_input < TILE_M
+                                and is_valid_data
+                            ):
                                 # Buffer scales for vectorized store
                                 scale_buffer = cute.make_rmem_tensor(
                                     (K_BLOCKS_PER_TILE,), cutlass.Uint8
@@ -753,7 +779,7 @@ def _compile_mxfp8_quantize_2d_cutedsl(
                                     k_base = kb * SCALE_DIM_K_VALUE
                                     vals_block = self._load_vals_block_full(
                                         sIN_tile,
-                                        m_rel,
+                                        m_rel_input,
                                         k_base,
                                     )
 
@@ -768,7 +794,7 @@ def _compile_mxfp8_quantize_2d_cutedsl(
                                         vals_block,
                                         inv_scale,
                                         sOUT_tile,
-                                        m_rel,
+                                        m_rel_output,
                                         k_base,
                                         USE_RCEIL,
                                     )
@@ -783,16 +809,48 @@ def _compile_mxfp8_quantize_2d_cutedsl(
                                     cutlass.Int32(K_BLOCKS_PER_TILE),
                                     BLOCKED_SCALE_OUTPUT_VALUE,
                                 )
+                            elif cutlass.const_expr(USE_GROUP_ALIGNMENT):
+                                # This is a padding row - write zeros to smem
+                                if m_rel_output < TILE_M:
+                                    for k_base in range(0, TILE_K, 4):
+                                        k_offset = cutlass.Int32(k_base)
+                                        # Write zeros as uint32 (4 FP8 zeros)
+                                        sOUT_tile_u32 = cute.recast_tensor(
+                                            sOUT_tile, cutlass.Uint32
+                                        )
+                                        sOUT_tile_u32[
+                                            m_rel_output, k_offset // cutlass.Int32(4)
+                                        ] = cutlass.Uint32(0)
                         else:
-                            m_in_bounds = m_input < M
-                            m = m_input
-                            is_valid = True
+                            # Map output row to input row (tail case with bounds checking)
                             if cutlass.const_expr(USE_GROUP_ALIGNMENT):
-                                m_padded, is_valid = self._compute_padded_m_index(
-                                    cutlass.Int32(m_input), group_end_offsets, group_alignment_size, num_groups
+                                m_input_i32, is_valid_data = (
+                                    self._compute_input_m_from_output(
+                                        cutlass.Int32(m_output),
+                                        group_end_offsets,
+                                        group_alignment_size,
+                                        num_groups,
+                                    )
                                 )
-                                m = cutlass.Int64(m_padded)
-                            if m_rel < TILE_M and m_in_bounds and is_valid:
+                                m_input_i64 = cutlass.Int64(m_input_i32)
+                                m_rel_input = cutlass.Int32(
+                                    m_input_i64 - m_input_tile_start_i64
+                                )
+                                m_in_bounds = m_input_i64 < M
+                            else:
+                                m_input_i64 = m_output
+                                m_rel_input = m_rel_output
+                                is_valid_data = True
+                                m_in_bounds = m_output < M
+
+                            m = m_output
+                            if (
+                                m_rel_output < TILE_M
+                                and m_rel_input >= 0
+                                and m_rel_input < TILE_M
+                                and m_in_bounds
+                                and is_valid_data
+                            ):
                                 # Buffer scales for vectorized store
                                 scale_buffer = cute.make_rmem_tensor(
                                     (K_BLOCKS_PER_TILE,), cutlass.Uint8
@@ -806,7 +864,7 @@ def _compile_mxfp8_quantize_2d_cutedsl(
                                         vals_block = self._load_vals_block_tail(
                                             sIN_tile,
                                             k0,
-                                            m_rel,
+                                            m_rel_input,
                                             k_base,
                                             K,
                                         )
@@ -828,7 +886,7 @@ def _compile_mxfp8_quantize_2d_cutedsl(
                                             inv_scale,
                                             sOUT_tile,
                                             k0,
-                                            m_rel,
+                                            m_rel_output,
                                             k_base,
                                             K,
                                             USE_RCEIL,
@@ -846,28 +904,16 @@ def _compile_mxfp8_quantize_2d_cutedsl(
                                         BLOCKED_SCALE_OUTPUT_VALUE,
                                     )
 
-                # Store output: use regular stores with padding when group alignment is enabled
-                if cutlass.const_expr(USE_GROUP_ALIGNMENT):
-                    self._store_output_with_padding(
-                        sOUT_tile,
-                        out_mk,
-                        m0,
-                        k0,
-                        group_end_offsets,
-                        group_alignment_size,
-                        num_groups,
-                        warp_idx,
-                    )
-                else:
-                    gOUT_tile = cute.local_tile(
-                        tma_tensor_out, (TILE_M, TILE_K), (m_tile, k_tile_eff)
-                    )
-                    self._issue_tma_store(
-                        tma_atom_out,
-                        gOUT_tile,
-                        sOUT_tile,
-                        warp_idx,
-                    )
+                # Store output using TMA (works for both padded and unpadded cases)
+                gOUT_tile = cute.local_tile(
+                    tma_tensor_out, (TILE_M, TILE_K), (m_tile_output, k_tile_eff)
+                )
+                self._issue_tma_store(
+                    tma_atom_out,
+                    gOUT_tile,
+                    sOUT_tile,
+                    warp_idx,
+                )
 
         @cute.jit
         def __call__(
@@ -1095,7 +1141,7 @@ def mxfp8_quantize_cutedsl_2d(
 
     _, config = _select_cutedsl_config(str(x.dtype), scaling_mode, K)
     compute_warps, tile_m, tile_k, k_tiles_per_cta = config
-    
+
     assert stage_count >= 1, "stage_count must be >= 1"
     assert stage_count <= 2, "stage_count must be <= 2"
     is_full_k_tiles = K % (tile_k * k_tiles_per_cta) == 0
