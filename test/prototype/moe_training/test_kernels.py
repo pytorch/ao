@@ -489,6 +489,105 @@ def test_cuda_mx_dim0_2d_numerics(M, K, input_dtype, scaling_mode):
 
 
 @pytest.mark.skipif(
+    not _is_sm_10x(),
+    reason="MXFP8 requires CUDA SM 10.x",
+)
+@pytest.mark.parametrize("num_tokens", [256])
+@pytest.mark.parametrize("K", [512])
+@pytest.mark.parametrize("num_groups", [4])
+@pytest.mark.parametrize("alignment_size", [128])
+@pytest.mark.parametrize("input_dtype", [torch.bfloat16])
+@pytest.mark.parametrize(
+    "scaling_mode", [ScaleCalculationMode.RCEIL]
+)
+def test_cuda_mx_2d_with_group_alignment(
+    num_tokens: int,
+    K: int,
+    num_groups: int,
+    alignment_size: int,
+    input_dtype: torch.dtype,
+    scaling_mode: ScaleCalculationMode,
+):
+    """Test MXFP8 quantization with group alignment padding along M dimension."""
+    if not _mxfp8_cutedsl_kernels_available:
+        pytest.skip("mxfp8_quantize_2d is unavailable")
+
+    device = "cuda"
+    block_size = 32
+    scaling_mode_str = (
+        "floor" if scaling_mode == ScaleCalculationMode.FLOOR else "rceil"
+    )
+
+    # Create input data
+    x = torch.randn(num_tokens, K, dtype=input_dtype, device=device)
+
+    # Generate group end offsets (end indices for each group along M)
+    group_end_offsets = generate_jagged_offs(
+        num_groups, num_tokens, multiple_of=1, device=device
+    )
+
+    # Run kernel with group alignment
+    y_padded, s_padded = mxfp8_quantize_cuda_2d(
+        x,
+        block_size=block_size,
+        scaling_mode=scaling_mode_str,
+        group_end_offsets=group_end_offsets,
+        group_alignment_size=alignment_size,
+    )
+
+    # Verify output is padded
+    expected_output_rows = num_tokens + num_groups * alignment_size
+    assert y_padded.shape[0] == expected_output_rows, (
+        f"Output should be padded to {expected_output_rows} rows, got {y_padded.shape[0]}"
+    )
+    assert y_padded.shape[1] == K, "K dimension should not change"
+
+    # Compute reference for each group and verify non-padded regions match
+    group_start = 0
+    cumulative_padding = 0
+
+    for g in range(num_groups):
+        group_end = group_end_offsets[g].item()
+        group_size = group_end - group_start
+
+        # Extract this group's input data
+        group_input = x[group_start:group_end]
+
+        # Compute reference MXFP8 quantization for this group
+        s_group_ref, y_group_ref = to_mx(
+            group_input,
+            elem_dtype=torch.float8_e4m3fn,
+            block_size=block_size,
+            scaling_mode=scaling_mode,
+        )
+
+        # Compute padded output indices for this group
+        padded_group_start = group_start + cumulative_padding
+        padded_group_end = padded_group_start + group_size
+
+        # Extract the actual quantized data for this group from padded output
+        y_group_kernel = y_padded[padded_group_start:padded_group_end]
+
+        # Verify quantized data matches reference
+        torch.testing.assert_close(
+            y_group_kernel,
+            y_group_ref,
+            rtol=0,
+            atol=0,
+            msg=f"Quantized data mismatch for group {g}",
+        )
+
+        # Update for next group
+        aligned_size = ((group_size + alignment_size - 1) // alignment_size) * alignment_size
+        padding_for_group = aligned_size - group_size
+        cumulative_padding += padding_for_group
+        group_start = group_end
+
+    # Verify row-major layout
+    assert y_padded.stride() == (K, 1), "quantized tensor should be row-major"
+
+
+@pytest.mark.skipif(
     not _mxfp8_cuda_kernels_available,
     reason="CUDA kernel requires sm_100 and CUDA 12.8+",
 )

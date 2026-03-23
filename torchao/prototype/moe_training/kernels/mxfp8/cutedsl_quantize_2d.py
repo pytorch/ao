@@ -81,6 +81,7 @@ def _compile_mxfp8_quantize_2d_cutedsl(
     is_full_k_tiles: bool,
     is_blackwell: bool,
     blocked_scale_output: bool,
+    use_group_alignment: bool,
 ):
     import cuda.bindings.driver as cuda
     import cutlass
@@ -122,6 +123,7 @@ def _compile_mxfp8_quantize_2d_cutedsl(
     IS_FULL_K_TILES_VALUE = is_full_k_tiles
     IS_BLACKWELL_VALUE = is_blackwell
     BLOCKED_SCALE_OUTPUT_VALUE = blocked_scale_output
+    USE_GROUP_ALIGNMENT_VALUE = use_group_alignment
 
     THREADS_PER_BLOCK = (1 + COMPUTE_WARPS) * 32
     assert COMPUTE_WARPS >= 1
@@ -183,6 +185,48 @@ def _compile_mxfp8_quantize_2d_cutedsl(
         ]
 
     class Mxfp8Quantize2dKernel:
+        @cute.jit
+        def _compute_padded_m_index(
+            self,
+            m_input: cutlass.Int32,
+            group_end_offsets: cute.Tensor,
+            group_alignment_size: cutlass.Int32,
+            num_groups: cutlass.Int32,
+        ):
+            """
+            Map input M index to padded output M index.
+
+            For each group, we add padding to align to group_alignment_size.
+            This function computes the cumulative padding offset for all previous groups.
+
+            Returns: (padded_m_index, is_valid)
+                - padded_m_index: output M index in the padded tensor
+                - is_valid: True if this is a real token (not padding)
+            """
+            group_start = cutlass.Int32(0)
+            cumulative_padding = cutlass.Int32(0)
+            padded_m = cutlass.Int32(0)
+            is_valid = False
+
+            for g in range(num_groups):
+                group_end = cutlass.Int32(group_end_offsets[g])
+                group_size = group_end - group_start
+
+                # Check if m_input is in this group
+                in_this_group = m_input < group_end
+                if in_this_group and not is_valid:
+                    # This input M belongs to this group
+                    padded_m = m_input + cumulative_padding
+                    is_valid = True
+
+                # Calculate padding for this group (always compute to maintain loop structure)
+                aligned_size = ((group_size + group_alignment_size - 1) // group_alignment_size) * group_alignment_size
+                padding_for_group = aligned_size - group_size
+                cumulative_padding += padding_for_group
+                group_start = group_end
+
+            return padded_m, is_valid
+
         @cute.jit
         def _load_vals_block_full(
             self,
@@ -339,10 +383,7 @@ def _compile_mxfp8_quantize_2d_cutedsl(
             m_rel: cutlass.Int32,
             sout_base: cutlass.Int32,
         ):
-            """Store 4 FP8 values to shared memory.
-
-            The swizzle is applied automatically by the composed layout.
-            """
+            """Store 4 FP8 values to shared memory"""
             sOUT_tile_u32 = cute.recast_tensor(sOUT_tile, cutlass.Uint32)
             q_fp8_vals4_u32 = cute.recast_tensor(q_fp8_vals4, cutlass.Uint32)
             sOUT_tile_u32[m_rel, sout_base // cutlass.Int32(4)] = q_fp8_vals4_u32[0]
@@ -506,6 +547,43 @@ def _compile_mxfp8_quantize_2d_cutedsl(
                     tOUTg_stage0,
                 )
 
+        @cute.jit
+        def _store_output_with_padding(
+            self,
+            sOUT_tile: cute.Tensor,
+            out_mk: cute.Tensor,
+            m0_input: cutlass.Int64,
+            k0: cutlass.Int64,
+            group_end_offsets: cute.Tensor,
+            group_alignment_size: cutlass.Int32,
+            num_groups: cutlass.Int32,
+            warp_idx: cutlass.Int32,
+        ):
+            """Store quantized output with group alignment padding."""
+            cute.arch.sync_threads()
+            # All threads participate in copying data from smem to gmem
+            tidx, _, _ = cute.arch.thread_idx()
+            num_threads_tuple = cute.arch.block_dim()
+            num_threads = num_threads_tuple[0]
+
+            tile_size = cutlass.Int32(TILE_M * TILE_K)
+            for idx in range(tile_size):
+                thread_owns = (idx % num_threads) == tidx
+                if thread_owns:
+                    m_rel = cutlass.Int32(idx // TILE_K)
+                    k_rel = cutlass.Int32(idx % TILE_K)
+                    m_input = m0_input + cutlass.Int64(m_rel)
+                    k = k0 + cutlass.Int64(k_rel)
+
+                    # Compute padded output index
+                    m_output_i32, is_valid = self._compute_padded_m_index(
+                        cutlass.Int32(m_input), group_end_offsets, group_alignment_size, num_groups
+                    )
+                    m_output = cutlass.Int64(m_output_i32)
+
+                    if is_valid:
+                        out_mk[m_output, k] = sOUT_tile[m_rel, k_rel]
+
         @cute.kernel
         def kernel(
             self,
@@ -522,11 +600,15 @@ def _compile_mxfp8_quantize_2d_cutedsl(
             m_cta_tiles: cutlass.Int64,
             k_cta_tiles: cutlass.Int64,
             blocked_scale_layout: cute.Layout,
+            group_end_offsets: cute.Tensor,
+            group_alignment_size: cutlass.Int32,
+            num_groups: cutlass.Int32,
             SCALE_DIM_K: cutlass.Constexpr[int],
             USE_RCEIL: cutlass.Constexpr[bool],
             IS_FULL_K_TILES: cutlass.Constexpr[bool],
             STAGE_COUNT: cutlass.Constexpr[int],
             IS_BLACKWELL: cutlass.Constexpr[bool],
+            USE_GROUP_ALIGNMENT: cutlass.Constexpr[bool],
         ):
             tidx, _, _ = cute.arch.thread_idx()
             warp_idx = cute.arch.warp_idx()
@@ -652,9 +734,16 @@ def _compile_mxfp8_quantize_2d_cutedsl(
 
                     for mm in cutlass.range_constexpr(M_ITERS_PER_LANE):
                         m_rel = m_lane + mm * M_THREADS
-                        m = m0 + m_rel
+                        m_input = m0 + m_rel
                         if cutlass.const_expr(IS_FULL_K_TILES):
-                            if m_rel < TILE_M:
+                            m = m_input
+                            is_valid = True
+                            if cutlass.const_expr(USE_GROUP_ALIGNMENT):
+                                m_padded, is_valid = self._compute_padded_m_index(
+                                    cutlass.Int32(m_input), group_end_offsets, group_alignment_size, num_groups
+                                )
+                                m = cutlass.Int64(m_padded)
+                            if m_rel < TILE_M and is_valid:
                                 # Buffer scales for vectorized store
                                 scale_buffer = cute.make_rmem_tensor(
                                     (K_BLOCKS_PER_TILE,), cutlass.Uint8
@@ -695,8 +784,15 @@ def _compile_mxfp8_quantize_2d_cutedsl(
                                     BLOCKED_SCALE_OUTPUT_VALUE,
                                 )
                         else:
-                            m_in_bounds = m < M
-                            if m_rel < TILE_M and m_in_bounds:
+                            m_in_bounds = m_input < M
+                            m = m_input
+                            is_valid = True
+                            if cutlass.const_expr(USE_GROUP_ALIGNMENT):
+                                m_padded, is_valid = self._compute_padded_m_index(
+                                    cutlass.Int32(m_input), group_end_offsets, group_alignment_size, num_groups
+                                )
+                                m = cutlass.Int64(m_padded)
+                            if m_rel < TILE_M and m_in_bounds and is_valid:
                                 # Buffer scales for vectorized store
                                 scale_buffer = cute.make_rmem_tensor(
                                     (K_BLOCKS_PER_TILE,), cutlass.Uint8
@@ -750,15 +846,28 @@ def _compile_mxfp8_quantize_2d_cutedsl(
                                         BLOCKED_SCALE_OUTPUT_VALUE,
                                     )
 
-                gOUT_tile = cute.local_tile(
-                    tma_tensor_out, (TILE_M, TILE_K), (m_tile, k_tile_eff)
-                )
-                self._issue_tma_store(
-                    tma_atom_out,
-                    gOUT_tile,
-                    sOUT_tile,
-                    warp_idx,
-                )
+                # Store output: use regular stores with padding when group alignment is enabled
+                if cutlass.const_expr(USE_GROUP_ALIGNMENT):
+                    self._store_output_with_padding(
+                        sOUT_tile,
+                        out_mk,
+                        m0,
+                        k0,
+                        group_end_offsets,
+                        group_alignment_size,
+                        num_groups,
+                        warp_idx,
+                    )
+                else:
+                    gOUT_tile = cute.local_tile(
+                        tma_tensor_out, (TILE_M, TILE_K), (m_tile, k_tile_eff)
+                    )
+                    self._issue_tma_store(
+                        tma_atom_out,
+                        gOUT_tile,
+                        sOUT_tile,
+                        warp_idx,
+                    )
 
         @cute.jit
         def __call__(
@@ -771,6 +880,9 @@ def _compile_mxfp8_quantize_2d_cutedsl(
             k_blocks: cutlass.Int64,
             m_cta_tiles: cutlass.Int64,
             k_cta_tiles: cutlass.Int64,
+            group_end_offsets: cute.Tensor,
+            group_alignment_size: cutlass.Int32,
+            num_groups: cutlass.Int32,
             stream: cuda.CUstream,
         ):
             smem_layout_in, smem_layout_out = _make_tile_smem_layouts(
@@ -823,11 +935,15 @@ def _compile_mxfp8_quantize_2d_cutedsl(
                 m_cta_tiles,
                 k_cta_tiles,
                 blocked_scale_layout,
+                group_end_offsets,
+                group_alignment_size,
+                num_groups,
                 SCALE_DIM_K=SCALE_DIM_K_VALUE,
                 USE_RCEIL=(scaling_mode == "rceil"),
                 IS_FULL_K_TILES=IS_FULL_K_TILES_VALUE,
                 STAGE_COUNT=STAGE_COUNT_VALUE,
                 IS_BLACKWELL=IS_BLACKWELL_VALUE,
+                USE_GROUP_ALIGNMENT=USE_GROUP_ALIGNMENT_VALUE,
             ).launch(
                 grid=(k_cta_tiles, m_cta_tiles, 1),
                 block=(THREADS_PER_BLOCK, 1, 1),
@@ -848,6 +964,12 @@ def _compile_mxfp8_quantize_2d_cutedsl(
     scale_stride0 = cute.sym_int()
     scale_stride1 = cute.sym_int()
 
+    # When using group alignment, output M dimension can be larger than input M
+    if use_group_alignment:
+        m_out = cute.sym_int(divisibility=32)
+    else:
+        m_out = m
+
     fake_inp = make_fake_tensor(
         INPUT_CUTLASS_DTYPE,
         (m, k),
@@ -855,7 +977,7 @@ def _compile_mxfp8_quantize_2d_cutedsl(
     )
     fake_out = make_fake_tensor(
         cutlass.Float8E4M3FN,
-        (m, k),
+        (m_out, k),
         stride=(out_stride0, out_stride1),
     )
     if blocked_scale_output:
@@ -866,11 +988,30 @@ def _compile_mxfp8_quantize_2d_cutedsl(
             stride=(scale_stride0,),
         )
     else:
+        # Scales correspond to output M dimension when using group alignment
         fake_scales = make_fake_tensor(
             cutlass.Uint8,
-            (m, kb),
+            (m_out, kb),
             stride=(scale_stride0, scale_stride1),
         )
+
+    # Create fake tensors for group alignment parameters
+    if use_group_alignment:
+        num_groups_sym = cute.sym_int()
+        group_stride = cute.sym_int()
+        fake_group_end_offsets = make_fake_tensor(
+            cutlass.Int32,
+            (num_groups_sym,),
+            stride=(group_stride,),
+        )
+    else:
+        # Create a dummy tensor with size 1 when not using group alignment
+        fake_group_end_offsets = make_fake_tensor(
+            cutlass.Int32,
+            (1,),
+            stride=(1,),
+        )
+
     fake_stream = make_fake_stream()
 
     return cute.compile(
@@ -883,6 +1024,9 @@ def _compile_mxfp8_quantize_2d_cutedsl(
         k_blocks=0,
         m_cta_tiles=1,
         k_cta_tiles=1,
+        group_end_offsets=fake_group_end_offsets,
+        group_alignment_size=1,
+        num_groups=0,
         stream=fake_stream,
         options="--enable-tvm-ffi",
     )
@@ -894,6 +1038,8 @@ def mxfp8_quantize_cutedsl_2d(
     scaling_mode: str = "floor",
     stage_count: int = 2,
     blocked_scale_output: bool = False,
+    group_end_offsets: torch.Tensor | None = None,
+    group_alignment_size: int = 1,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Quantize a 2D tensor to MXFP8 format using CuTe DSL kernel.
@@ -901,15 +1047,27 @@ def mxfp8_quantize_cutedsl_2d(
     Quantizes along the K dimension - each row has K//32 scales, one per block of 32 K elements.
 
     Args:
-        x: Input tensor of shape (M, K)
+        x: Input tensor of shape (M, K) - unpadded
         block_size: Block size for quantization along K (only 32 supported)
         scaling_mode: Scaling mode ("floor" or "rceil")
         stage_count: Number of pipeline stages (1 or 2)
         blocked_scale_output: Whether to output scales in blocked layout
+        group_end_offsets: Optional int32 tensor with end indexes of groups along M dimension.
+            When provided, output will be padded to align each group to group_alignment_size.
+        group_alignment_size: Alignment size for padding group sizes (default: 1, no padding).
+            Each group will be padded to the next multiple of this value.
 
     Returns:
-        q_data: Quantized data in row-major layout with shape (M, K)
-        scales: Scales tensor with shape (M, K//32) or blocked layout
+        q_data: Quantized data in row-major layout with shape:
+            - (M, K) if group_end_offsets is None
+            - (M + num_groups * group_alignment_size, K) if group_end_offsets is provided (overallocated)
+        scales: Scales tensor with shape corresponding to q_data dimensions, in row-major or blocked layout
+
+    Note:
+        When group_end_offsets is provided, the output is overallocated to handle worst-case padding
+        where each group needs group_alignment_size padding. The actual padded size per group depends
+        on the group sizes. Padding rows contain uninitialized data and should be ignored based on
+        the computed padded group offsets.
     """
     assert x.dtype in (
         torch.float32,
@@ -920,12 +1078,24 @@ def mxfp8_quantize_cutedsl_2d(
     M, K = x.shape
     assert K % block_size == 0, "K must be divisible by block_size"
 
+    # Validate group alignment parameters
+    use_group_alignment = group_end_offsets is not None
+    if use_group_alignment:
+        assert group_end_offsets.dtype == torch.int32, "group_end_offsets must be int32"
+        assert group_end_offsets.is_cuda, "group_end_offsets must be CUDA"
+        assert group_end_offsets.dim() == 1, "group_end_offsets must be 1D"
+        assert group_alignment_size > 0, "group_alignment_size must be positive"
+
+    # Calculate output M dimension with padding if using group alignment
+    M_output = M
+    if use_group_alignment:
+        num_groups = len(group_end_offsets)
+        # Overallocate to handle worst case: each group needs alignment_size padding
+        M_output = M + num_groups * group_alignment_size
+
     _, config = _select_cutedsl_config(str(x.dtype), scaling_mode, K)
     compute_warps, tile_m, tile_k, k_tiles_per_cta = config
-    # B200 sweeps over representative large 3D shapes showed no
-    # measurable benefit above 2 stages. We keep this configurable for
-    # benchmarking, and the effective stage count remains capped by
-    # k_tiles_per_cta below.
+    
     assert stage_count >= 1, "stage_count must be >= 1"
     assert stage_count <= 2, "stage_count must be <= 2"
     is_full_k_tiles = K % (tile_k * k_tiles_per_cta) == 0
@@ -938,14 +1108,14 @@ def mxfp8_quantize_cutedsl_2d(
 
     # Output in row-major layout: stride (K, 1).
     q_data = torch.empty_strided(
-        (M, K),
+        (M_output, K),
         (K, 1),
         device=x.device,
         dtype=torch.float8_e4m3fn,
     )
     k_blocks = K // block_size
     if blocked_scale_output:
-        padded_scale_rows = ceil_div(M, 128) * 128
+        padded_scale_rows = ceil_div(M_output, 128) * 128
         padded_scale_cols = ceil_div(k_blocks, 4) * 4
         scales_u8 = torch.empty(
             (padded_scale_rows * padded_scale_cols,),
@@ -954,7 +1124,7 @@ def mxfp8_quantize_cutedsl_2d(
         )
     else:
         scales_u8 = torch.empty(
-            (M, k_blocks),
+            (M_output, k_blocks),
             device=x.device,
             dtype=torch.uint8,
         )
@@ -970,23 +1140,37 @@ def mxfp8_quantize_cutedsl_2d(
         is_full_k_tiles,
         is_sm_10x,
         blocked_scale_output,
+        use_group_alignment,
     )
 
     import cuda.bindings.driver as cuda
 
     stream = cuda.CUstream(int(torch.cuda.current_stream().cuda_stream))
+    # Note: Grid is based on input M (not padded M_output)
+    # The kernel will map input M to output M with padding
     m_cta_tiles = ceil_div(M, tile_m)
     k_cta_tiles = ceil_div(K, tile_k * k_tiles_per_cta)
+
+    # Prepare group alignment parameters
+    if use_group_alignment:
+        num_groups = len(group_end_offsets)
+    else:
+        # Create dummy tensor when not using group alignment
+        group_end_offsets = torch.zeros(1, dtype=torch.int32, device=x.device)
+        num_groups = 0
 
     compiled(
         x,
         q_data,
         scales_u8,
-        int(M),
+        int(M),  # Input M (unpadded)
         int(K),
         int(k_blocks),
         int(m_cta_tiles),
         int(k_cta_tiles),
+        group_end_offsets,
+        int(group_alignment_size),
+        int(num_groups),
         stream,
     )
 

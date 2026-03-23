@@ -935,6 +935,8 @@ def _mxfp8_quantize_2d_cutedsl_custom_op(
     block_size: int = 32,
     scaling_mode: str = "floor",
     stage_count: int = 2,
+    group_end_offsets: torch.Tensor | None = None,
+    group_alignment_size: int = 1,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     return mxfp8_quantize_cutedsl_2d(
         x,
@@ -942,6 +944,8 @@ def _mxfp8_quantize_2d_cutedsl_custom_op(
         scaling_mode=scaling_mode,
         stage_count=stage_count,
         blocked_scale_output=True,
+        group_end_offsets=group_end_offsets,
+        group_alignment_size=group_alignment_size,
     )
 
 
@@ -951,18 +955,28 @@ def _fake_mxfp8_quantize_2d_cutedsl_custom_op(
     block_size: int = 32,
     scaling_mode: str = "floor",
     stage_count: int = 2,
+    group_end_offsets: torch.Tensor | None = None,
+    group_alignment_size: int = 1,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     assert x.ndim == 2, "input tensor must be 2D"
     assert block_size == 32, "Only block_size=32 is supported"
     m, k = x.shape
+
+    # Calculate output M dimension with padding if using group alignment
+    m_output = m
+    if group_end_offsets is not None:
+        num_groups = group_end_offsets.shape[0]
+        # Overallocate to handle worst case: each group needs alignment_size padding
+        m_output = m + num_groups * group_alignment_size
+
     q_data = torch.empty_strided(
-        (m, k),
+        (m_output, k),
         (k, 1),
         device=x.device,
         dtype=torch.float8_e4m3fn,
     )
     k_blocks = k // block_size
-    padded_scale_rows = ceil_div(m, 128) * 128
+    padded_scale_rows = ceil_div(m_output, 128) * 128
     padded_scale_cols = ceil_div(k_blocks, 4) * 4
     scales = x.new_empty(
         (padded_scale_rows * padded_scale_cols,),
@@ -1244,12 +1258,33 @@ def mxfp8_quantize_cuda_2d(
     block_size: int = 32,
     scaling_mode: str = "rceil",
     stage_count: int = 2,
+    group_end_offsets: torch.Tensor | None = None,
+    group_alignment_size: int = 1,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Quantize a 2D tensor of shape (M, K) with scaling along K in blocks of 32.
 
-    Returns quantized data in row-major layout with shape (M, K) and scales in
-    blocked tcgen05 layout with shape (M, K//32).
+    Returns quantized data in row-major layout and scales in blocked tcgen05 layout.
+
+    Args:
+        x: Input tensor of shape (M, K) - unpadded
+        block_size: Block size for quantization along K (only 32 supported)
+        scaling_mode: Scaling mode ("floor" or "rceil")
+        stage_count: Number of pipeline stages (1 or 2)
+        group_end_offsets: Optional int32 tensor with end indexes of groups along M dimension.
+            When provided, output will be padded to align each group to group_alignment_size.
+        group_alignment_size: Alignment size for padding group sizes (default: 1, no padding).
+            Each group will be padded to the next multiple of this value.
+
+    Returns:
+        q_data: Quantized data in row-major layout with shape:
+            - (M, K) if group_end_offsets is None
+            - (M + num_groups * group_alignment_size, K) if group_end_offsets is provided (overallocated)
+        scales: Scales tensor in blocked tcgen05 layout with dimensions corresponding to q_data
+
+    Note:
+        When group_end_offsets is provided, the output is overallocated to handle worst-case padding.
+        Padding rows contain uninitialized data and should be ignored based on computed padded group offsets.
     """
     if not _mxfp8_cutedsl_kernels_available:
         missing_packages = _missing_cutedsl_runtime_packages()
@@ -1268,4 +1303,6 @@ def mxfp8_quantize_cuda_2d(
         block_size=block_size,
         scaling_mode=scaling_mode,
         stage_count=stage_count,
+        group_end_offsets=group_end_offsets,
+        group_alignment_size=group_alignment_size,
     )
