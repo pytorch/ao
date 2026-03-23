@@ -20,6 +20,10 @@ from torchao import quantize_
 from torchao.dtypes import (
     AffineQuantizedTensor,
 )
+from torchao.prototype.mx_formats.inference_workflow import (
+    MXDynamicActivationMXWeightConfig,
+    NVFP4DynamicActivationNVFP4WeightConfig,
+)
 from torchao.quantization import (
     Float8Tensor,
     Int4TilePackedTo4dTensor,
@@ -63,11 +67,6 @@ from torchao.utils import (
     is_sm_at_least_100,
     torch_version_at_least,
     unwrap_tensor_subclass,
-)
-
-from torchao.prototype.mx_formats.inference_workflow import (
-    MXDynamicActivationMXWeightConfig,
-    NVFP4DynamicActivationNVFP4WeightConfig,
 )
 
 
