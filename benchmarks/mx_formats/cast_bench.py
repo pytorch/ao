@@ -109,6 +109,7 @@ def run(
     print(f"triton version: {triton.__version__}")
     print(f"mode: {mode}")
     assert mode in (
+        "memcpy",
         "dim0",
         "dim1",
         "dim0_dim1",
@@ -131,7 +132,25 @@ def run(
 
     x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda") * 1000
 
-    if mode == "dim0":
+    if mode == "memcpy":
+        # Baseline memcpy benchmark to establish max achievable bandwidth
+        y = torch.randn_like(x)
+
+        # Warmup
+        for _ in range(2):
+            y.copy_(x)
+
+        time_us = benchmark_cuda_function_in_microseconds(
+            lambda src, dst: dst.copy_(src),
+            x,
+            y,
+        )
+
+        # bytes_read + bytes_written
+        bytes_rw = 2 * x.numel() * bytes_per_el_bf16
+        bps = bytes_rw / (time_us / 1e6)
+
+    elif mode == "dim0":
         scale_dim0_reference_c = torch.compile(scale_dim0_reference)
         y_d0, s_d0 = scale_dim0_reference_c(x, BLOCK_SIZE)
 
