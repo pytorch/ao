@@ -15,8 +15,8 @@ Usage::
     # Evaluate base model in bf16
     python torchao/prototype/qat/temp_eval.py --checkpoint Qwen/Qwen3-30B-A3B --bf16
 
-    # Evaluate with more examples (default: 100)
-    python torchao/prototype/qat/temp_eval.py --limit 200
+    # Evaluate only the first 100 examples (default: all)
+    python torchao/prototype/qat/temp_eval.py --limit 100
 """
 
 import argparse
@@ -72,6 +72,13 @@ def quantize_to_nvfp4(
     tokenizer.save_pretrained(nvfp4_dir)
 
     print(f"NVFP4 checkpoint saved to {nvfp4_dir}")
+
+    # Free GPU memory so vllm can use it for inference.
+    del model
+    import gc
+    gc.collect()
+    torch.cuda.empty_cache()
+
     return nvfp4_dir
 
 
@@ -81,7 +88,7 @@ def quantize_to_nvfp4(
 
 def run_gsm8k_eval_nvfp4(
     model_path: str,
-    limit: int = 100,
+    limit: int | None = None,
     batch_size: int = 4,
 ) -> dict:
     """Evaluate using vllm with the NVFP4 trtllm kernel (modelopt_fp4)."""
@@ -91,7 +98,7 @@ def run_gsm8k_eval_nvfp4(
             "pretrained": model_path,
             "quantization": "modelopt_fp4",
             "dtype": "bfloat16",
-            "gpu_memory_utilization": 0.9,
+            "gpu_memory_utilization": 0.65,
             "max_model_len": 2048,
         },
         tasks=["gsm8k_cot_zeroshot"],
@@ -104,7 +111,7 @@ def run_gsm8k_eval_nvfp4(
 
 def run_gsm8k_eval_bf16(
     model_path: str,
-    limit: int = 100,
+    limit: int | None = None,
     batch_size: int = 4,
 ) -> dict:
     """Evaluate using HuggingFace backend (bf16 inference)."""
@@ -154,8 +161,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--limit",
         type=int,
-        default=100,
-        help="Number of test examples to evaluate (default: 100).",
+        default=None,
+        help="Number of test examples to evaluate (default: all).",
     )
     parser.add_argument(
         "--batch-size",
@@ -174,7 +181,8 @@ if __name__ == "__main__":
 
     if args.bf16:
         label = f"checkpoint: {model_path} (bf16)"
-        print(f"Evaluating {model_path} on GSM8K ({args.limit} examples, bf16)")
+        n = f"{args.limit} examples" if args.limit else "all examples"
+        print(f"Evaluating {model_path} on GSM8K ({n}, bf16)")
         results = run_gsm8k_eval_bf16(
             model_path, limit=args.limit, batch_size=args.batch_size,
         )
@@ -183,7 +191,8 @@ if __name__ == "__main__":
         nvfp4_dir = model_path.rstrip("/") + "-nvfp4"
         nvfp4_dir = quantize_to_nvfp4(model_path, nvfp4_dir)
         label = f"checkpoint: {nvfp4_dir} (nvfp4 kernel)"
-        print(f"Evaluating {nvfp4_dir} on GSM8K ({args.limit} examples, nvfp4)")
+        n = f"{args.limit} examples" if args.limit else "all examples"
+        print(f"Evaluating {nvfp4_dir} on GSM8K ({n}, nvfp4)")
         results = run_gsm8k_eval_nvfp4(
             nvfp4_dir, limit=args.limit, batch_size=args.batch_size,
         )
