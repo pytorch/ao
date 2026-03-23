@@ -28,6 +28,7 @@ from torchao.quantization.quant_api import quantize_
 if common_utils.SEED is None:
     common_utils.SEED = 1234
 
+
 class TestAffineQuantizedTensorParallel(DTensorTestBase):
     """Basic test case for tensor subclasses"""
 
