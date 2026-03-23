@@ -16,7 +16,7 @@ from torch.testing._internal.common_utils import (
 
 from torchao import quantize_
 from torchao.prototype.quantization.int4 import (
-    Int8DynamicActInt4WeightConfig,
+    Int8DynamicActivationInt4WeightConfig,
 )
 from torchao.quantization.quant_primitives import MappingType
 from torchao.quantization.utils import compute_error
@@ -70,7 +70,7 @@ class TestDa8w4Cpu(TestCase):
         with torch.no_grad():
             quantize_(
                 m,
-                Int8DynamicActInt4WeightConfig(
+                Int8DynamicActivationInt4WeightConfig(
                     group_size=32,
                     act_mapping_type=act_mapping_type,
                 ),
@@ -128,7 +128,7 @@ class TestDa8w4Cpu(TestCase):
         with torch.no_grad():
             quantize_(
                 m,
-                Int8DynamicActInt4WeightConfig(
+                Int8DynamicActivationInt4WeightConfig(
                     group_size=32,
                     act_mapping_type=MappingType.SYMMETRIC,
                 ),

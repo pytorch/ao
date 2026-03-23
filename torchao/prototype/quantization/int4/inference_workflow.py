@@ -6,7 +6,7 @@
 
 import logging
 import types
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import torch
 
@@ -90,7 +90,7 @@ def _int4_weight_only_transform(
 
 
 @dataclass
-class Int8DynamicActInt4WeightConfig(AOBaseConfig):
+class Int8DynamicActivationInt4WeightConfig(AOBaseConfig):
     """
     Configuration for int8 dynamic activation + int4 weight quantization on CPU,
     using Int4OpaqueTensor (tensor subclassing) with the da8w4_linear_cpu backend.
@@ -99,28 +99,31 @@ class Int8DynamicActInt4WeightConfig(AOBaseConfig):
     Activations are quantized dynamically per-token at runtime.
 
     Args:
-        `group_size`: quantization group size for weights; K must be divisible by group_size
+        `group_size`: quantization group size for weights; K must be divisible by group_size;
+            choices are [128, 64, 32]; otherwise weight will not be quantized
         `act_mapping_type`: activation quantization type:
             - MappingType.ASYMMETRIC (default): uint8 activation quantization
             - MappingType.SYMMETRIC: int8 activation quantization (requires PyTorch >= 2.8)
         `set_inductor_config`: if True, adjusts `torchinductor` settings to recommended values
+    Example:
+
+    .. literalinclude:: ../../examples/prototype/int8_dynamic_activation_int4_weight.py
+       :language: python
     """
 
     group_size: int = 32
-    act_mapping_type: MappingType = field(
-        default_factory=lambda: MappingType.ASYMMETRIC
-    )
+    act_mapping_type: MappingType = MappingType.ASYMMETRIC
     set_inductor_config: bool = True
 
     def __post_init__(self):
         torch._C._log_api_usage_once(
-            "torchao.prototype.quantization.int4.Int8DynamicActInt4WeightConfig"
+            "torchao.prototype.quantization.int4.Int8DynamicActivationInt4WeightConfig"
         )
 
 
-@register_quantize_module_handler(Int8DynamicActInt4WeightConfig)
+@register_quantize_module_handler(Int8DynamicActivationInt4WeightConfig)
 def _int8_dynamic_act_int4_weight_transform(
-    module: torch.nn.Module, config: Int8DynamicActInt4WeightConfig
+    module: torch.nn.Module, config: Int8DynamicActivationInt4WeightConfig
 ) -> torch.nn.Module:
     if config.set_inductor_config:
         torchao.quantization.utils.recommended_inductor_config_setter()
@@ -133,10 +136,14 @@ def _int8_dynamic_act_int4_weight_transform(
         "DA8W4 on CPU requires the da8w4_linear_cpu kernel to be built and available"
     )
     weight = module.weight
-    if weight.shape[-1] % config.group_size != 0:
+    if weight.shape[-1] % config.group_size != 0 or config.group_size not in [
+        128,
+        64,
+        32,
+    ]:
         logger.info(
             f"Skipping DA8W4 quantization: weight shape {weight.shape} is not compatible "
-            f"with group_size {config.group_size}"
+            f"with group_size {config.group_size} (must be divisible and one of [128, 64, 32])"
         )
         return module
     if weight.shape[0] % 32 != 0 or weight.shape[-1] % 2 != 0:
