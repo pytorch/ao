@@ -1075,10 +1075,11 @@ class Int8DynamicActivationInt8WeightConfig(AOBaseConfig):
         torch._C._log_api_usage_once(
             "torchao.quantization.Int8DynamicActivationInt8WeightConfig"
         )
-        if self.version == 1:
-            raise ValueError(
-                "version 1 of Int8DynamicActivationInt8WeightConfig has been removed, please use version 2, "
-                "see https://github.com/pytorch/ao/issues/2752 for more details"
+        if self.layout is None:
+            self.layout = PlainLayout()
+        if self.version == 2:
+            act_granularity, weight_granularity = Int8Tensor._normalize_granularity(
+                self.granularity
             )
         act_granularity, weight_granularity = Int8Tensor._normalize_granularity(
             self.granularity
