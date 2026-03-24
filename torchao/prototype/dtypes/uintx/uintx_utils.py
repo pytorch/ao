@@ -3,25 +3,26 @@
 #
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
+
+"""
+Utilities copied from the deleted uintx_layout.py to support
+autoround and codebook features that still depend on UintxTensor/UintxLayout.
+These should be removed once autoround and codebook are migrated to the new
+quantization design.
+"""
+
 from dataclasses import dataclass
 from typing import List, Tuple
 
 import torch
 from torch.utils._python_dispatch import return_and_correct_aliasing
 
-from torchao.dtypes.affine_quantized_tensor import register_layout
 from torchao.dtypes.uintx.bitpacking import pack, unpack
 from torchao.dtypes.uintx.plain_layout import PlainAQTTensorImpl
-from torchao.dtypes.utils import (
-    Layout,
-)
+from torchao.dtypes.utils import Layout
 from torchao.utils import TorchAOBaseTensor
 
 aten = torch.ops.aten
-
-# Note: Uintx does not work for torch 2.3 and below
-_DTYPE_TO_BIT_WIDTH = {}
-_BIT_WIDTH_TO_DTYPE = {}
 
 _DTYPE_TO_BIT_WIDTH = {
     torch.uint1: 1,
@@ -38,13 +39,7 @@ _BIT_WIDTH_TO_DTYPE = {v: k for k, v in _DTYPE_TO_BIT_WIDTH.items()}
 
 class UintxTensor(TorchAOBaseTensor):
     """
-    Splits int data into packed shards based on bit size
-    fields:
-      int4_shard (torch.Tensor): 4 bit packed shard
-      int2_shard (torch.Tensor): 2 bit packed shard
-      int1_shard (torch.Tensor): 1 bit packed shard
-      bit_width (int): number of bits for each element
-      pack_dim: (int) dimension to pack along
+    Splits int data into packed shards based on bit size.
     """
 
     bits_to_shard = {
@@ -109,14 +104,12 @@ class UintxTensor(TorchAOBaseTensor):
     def get_plain(self):
         return unpack(self.get_shards(), self.bit_width, dim=self.pack_dim)
 
-    # temporary until kernels on packed tensors are created
     def apply_transformation(self, fn):
         og = self.get_plain()
         new = fn(og)
         dtype = _BIT_WIDTH_TO_DTYPE[self.bit_width]
         return self.from_uint8(new, dtype, self.pack_dim)
 
-    # temporary until kernels on packed tensors are created
     def apply_fn_to_shards(self, fn):
         new_shards = [fn(shard) for shard in self.get_shards()]
         return self.__class__(
@@ -204,23 +197,11 @@ def _(func, types, args, kwargs):
     )
 
 
-# quantization api integrations
 to_uintx = UintxTensor.from_uint8
 
 
 @dataclass(frozen=True)
 class UintxLayout(Layout):
-    """A layout class for Uintx tensors, which are tensors with elements packed into
-    smaller bit-widths than the standard 8-bit byte. This layout is used to define
-    how the data is stored and processed in UintxTensor objects.
-
-    Attributes:
-        dtype (torch.dtype): The data type of the tensor elements, which determines
-                             the bit-width used for packing.
-        pack_dim (int): The dimension along which the data is packed. Default is -1,
-                        which indicates the last dimension.
-    """
-
     dtype: torch.dtype
     pack_dim: int = -1
 
@@ -232,6 +213,11 @@ class UintxLayout(Layout):
         block_size: Tuple[int, ...],
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         return to_uintx(input, self.dtype, self.pack_dim), scale, zero_point
+
+
+# TODO: migrate autoround to not use UintxLayout/AffineQuantizedTensor,
+# then remove UintxAQTTensorImpl and the @register_layout registration below.
+from torchao.dtypes.affine_quantized_tensor import register_layout
 
 
 @register_layout(UintxLayout)

@@ -16,12 +16,8 @@ from .semi_sparse_layout import (
 from .tensor_core_tiled_layout import (
     TensorCoreTiledLayout,
 )
-from .uintx_layout import (
-    UintxLayout,
-)
 
 __all__ = [
-    "UintxLayout",
     "SemiSparseLayout",
     "TensorCoreTiledLayout",
     "Int4CPULayout",
