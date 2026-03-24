@@ -47,27 +47,27 @@ _ALL_TEST_CONFIGS = [
     (Int8DynamicActivationInt8WeightConfig(version=2), False),
 ]
 
-# Int4WeightOnlyConfig with tinygemm uses sm90a CUTLASS kernels which are not
-# forward-compatible with sm100+
-if not torch.xpu.is_available() and not is_sm_at_least_100():
-    _ALL_TEST_CONFIGS += [
-        (Int4WeightOnlyConfig(), False),
-        (Int4WeightOnlyConfig(), True),
-        (Int4WeightOnlyConfig(int4_packing_format="tile_packed_to_4d"), False),
-    ]
-
 # plain_int32 only supports XPU
 if _DEVICE in ("xpu"):
     _ALL_TEST_CONFIGS += [
         (Int4WeightOnlyConfig(int4_packing_format="plain_int32"), False),
     ]
+else:
+    # Int4WeightOnlyConfig with tinygemm uses sm90a CUTLASS kernels which are not
+    # forward-compatible with sm100+
+    if not is_sm_at_least_100():
+        _ALL_TEST_CONFIGS += [
+            (Int4WeightOnlyConfig(), False),
+            (Int4WeightOnlyConfig(), True),
+            (Int4WeightOnlyConfig(int4_packing_format="tile_packed_to_4d"), False),
+        ]
 
-# MX and NVFP4 configs require torch >= 2.11
-if not torch.xpu.is_available() and torch_version_at_least("2.11.0.dev"):
-    _ALL_TEST_CONFIGS += [
-        (MXDynamicActivationMXWeightConfig(), False),
-        (NVFP4DynamicActivationNVFP4WeightConfig(), False),
-    ]
+    # MX and NVFP4 configs require torch >= 2.11
+    if torch_version_at_least("2.11.0.dev"):
+        _ALL_TEST_CONFIGS += [
+            (MXDynamicActivationMXWeightConfig(), False),
+            (NVFP4DynamicActivationNVFP4WeightConfig(), False),
+        ]
 
 _TEST_CONFIGS = _ALL_TEST_CONFIGS
 
