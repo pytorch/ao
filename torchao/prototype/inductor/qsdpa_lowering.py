@@ -142,12 +142,12 @@ def register_qsdpa():
             value,
         ]
 
-        return autotune_select_algorithm(
+        node, _ = autotune_select_algorithm(
             "qsdpa",
             choices,
             inputs_for_autotuning,
             layout,
         )
-
+        return node
 
 register_qsdpa()
