@@ -345,7 +345,14 @@ def _is_float8_type(dtype: torch.dtype) -> bool:
         torch.float8_e5m2,
         torch.float8_e5m2fnuz,
     }
-    return dtype in fp8_types
+    if dtype in fp8_types:
+        return True
+    try:
+        from torchao.float8.hifloat8_utils import is_hifloatx_dtype
+
+        return is_hifloatx_dtype(dtype)
+    except Exception:
+        return False
 
 
 def parse_version(version_string):

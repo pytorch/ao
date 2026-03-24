@@ -16,6 +16,30 @@ from torchao.utils import is_MI300
 logger: logging.Logger = logging.getLogger()
 
 
+def _is_hifloat8_dtype(dtype) -> bool:
+    # Avoid importing torch_npu at module import time; it can raise if NPU is
+    # unavailable or another accelerator is active.
+    try:
+        from torchao.float8.hifloat8_utils import is_hifloat8_dtype
+
+        return is_hifloat8_dtype(dtype)
+    except Exception:
+        return False
+
+
+def _is_hifloat4_dtype(dtype) -> bool:
+    try:
+        from torchao.float8.hifloat8_utils import is_hifloat4_dtype
+
+        return is_hifloat4_dtype(dtype)
+    except Exception:
+        return False
+
+
+def _is_hifloatx_dtype(dtype) -> bool:
+    return _is_hifloat8_dtype(dtype) or _is_hifloat4_dtype(dtype)
+
+
 class ScalingType(enum.Enum):
     DYNAMIC = "dynamic"
     # ScalingType.DISABLED means "skip scaling for this tensor, leave it in
@@ -86,7 +110,12 @@ class CastConfig:
     target_dtype: Optional[torch.dtype] = None
 
     def short_str(self):
-        dtype = {e4m3_dtype: "e4m3", e5m2_dtype: "e5m2"}[self.target_dtype]
+        if _is_hifloat8_dtype(self.target_dtype):
+            dtype = "hif8"
+        elif _is_hifloat4_dtype(self.target_dtype):
+            dtype = "hif4"
+        else:
+            dtype = {e4m3_dtype: "e4m3", e5m2_dtype: "e5m2"}[self.target_dtype]
         return f"{self.scaling_type.short_str()}_{self.scaling_granularity.short_str()}_{dtype}"
 
     def __post_init__(self):
@@ -94,9 +123,13 @@ class CastConfig:
             assert self.scaling_type is ScalingType.DYNAMIC, (
                 "only dynamic scaling type is supported for axiswise scaling granularity"
             )
-        assert self.target_dtype is None or (
+        if self.target_dtype is None:
+            return
+        if _is_hifloatx_dtype(self.target_dtype):
+            return
+        assert (
             self.target_dtype.is_floating_point and self.target_dtype.itemsize == 1
-        ), "must specify a 8-bit floating-point dtype"
+        ), "must specify a byte-size floating-point dtype"
 
 
 @dataclass(frozen=True)

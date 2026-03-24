@@ -26,6 +26,7 @@ from torchao.float8.inference import (
     preprocess_data,
     preprocess_scale,
 )
+from torchao.float8.hifloat8_utils import is_hifloatx_tensor
 from torchao.utils import _is_float8_type, fill_defaults
 
 aten = torch.ops.aten
@@ -211,7 +212,11 @@ class Float8AQTTensorImpl(AQTTensorImpl):
         _layout: Layout,
     ):
         """Main entrypoint for constructing Float8TensorImpl"""
-        assert _is_float8_type(data.dtype), (
+        is_meta_hifx = data.device.type == "meta" and data.dtype in (
+            torch.uint8,
+            torch.int8,
+        )
+        assert _is_float8_type(data.dtype) or is_hifloatx_tensor(data) or is_meta_hifx, (
             f"Float8 TensorImpl must be constructed from float8 dtype but got {data.dtype}"
         )
         assert isinstance(_layout, Float8Layout), (
@@ -319,7 +324,10 @@ def _linear_fp8_act_fp8_weight_check(
         return (
             isinstance(aqt, AffineQuantizedTensor)
             and isinstance(aqt._layout, Float8Layout)
-            and _is_float8_type(aqt.tensor_impl.dtype)
+            and (
+                _is_float8_type(aqt.tensor_impl.dtype)
+                or is_hifloatx_tensor(aqt.tensor_impl.float8_data)
+            )
             and (aqt.shape == aqt.block_size or _is_rowwise_scaled(aqt))
         )
 
@@ -380,7 +388,10 @@ def _linear_fp_act_fp8_weight_check(
         # weight is float8 quantized affine quantized tensor
         isinstance(weight_tensor, AffineQuantizedTensor)
         and isinstance(weight_tensor._layout, Float8Layout)
-        and _is_float8_type(weight_tensor.tensor_impl.dtype)
+        and (
+            _is_float8_type(weight_tensor.tensor_impl.dtype)
+            or is_hifloatx_tensor(weight_tensor.tensor_impl.float8_data)
+        )
         and (
             weight_tensor.shape == weight_tensor.block_size
             or _is_rowwise_scaled(weight_tensor)

@@ -14,6 +14,7 @@ from typing import Any, List, Optional, Union
 import torch
 
 from torchao.quantization import Granularity
+from torchao.float8.hifloat8_utils import hifloatx_min_max, is_hifloatx_dtype
 from torchao.quantization.pt2e.observer import (
     AffineQuantizedObserverBase,
     MappingType,
@@ -62,7 +63,7 @@ def _is_float8_type(dtype: torch.dtype) -> bool:
         torch.float8_e5m2,
         torch.float8_e5m2fnuz,
     }
-    return dtype in fp8_types
+    return dtype in fp8_types or is_hifloatx_dtype(dtype)
 
 
 # TODO: decide on if we want to allow custom quant_min/quant_max here
@@ -71,7 +72,9 @@ def _get_and_check_qmin_qmax(dtype, quant_min, quant_max):
     verify that they are within the range of possible quant_min/quant_max
     for dtype
     """
-    if dtype in FP8_TYPES:
+    if is_hifloatx_dtype(dtype):
+        quant_min_lower_bound, quant_max_upper_bound = hifloatx_min_max(dtype)
+    elif dtype in FP8_TYPES:
         quant_min_lower_bound, quant_max_upper_bound = (
             torch.finfo(dtype).min,
             torch.finfo(dtype).max,

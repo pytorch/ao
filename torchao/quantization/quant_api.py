@@ -97,8 +97,6 @@ from torchao.quantization.weight_tensor_linear_activation_quantization import (
 )
 from torchao.utils import (
     _ConfigDeprecationWrapper,
-    is_MI300,
-    is_sm_at_least_89,
     is_sm_at_least_90,
 )
 
@@ -1886,9 +1884,7 @@ def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
 def _float8_dynamic_activation_float8_weight_transform(
     module: torch.nn.Module, config: Float8DynamicActivationFloat8WeightConfig
 ):
-    assert is_sm_at_least_89() or is_MI300(), (
-        "Float8 dynamic activation quantization is only supported on CUDA>=8.9 and MI300+"
-    )
+    _check_hardware_support(tuple(config.granularity))
     if config.set_inductor_config:
         torchao.quantization.utils.recommended_inductor_config_setter()
 
@@ -1991,10 +1987,6 @@ float8_static_activation_float8_weight = _ConfigDeprecationWrapper(
 def _float8_static_activation_float8_weight_transform(
     module: torch.nn.Module, config: Float8StaticActivationFloat8WeightConfig
 ):
-    assert is_sm_at_least_89() or is_MI300(), (
-        "Float8 static activation quantization is only supported on CUDA 8.9 and above"
-    )
-
     scale = config.scale
     activation_dtype = config.activation_dtype
     weight_dtype = config.weight_dtype
@@ -2005,6 +1997,7 @@ def _float8_static_activation_float8_weight_transform(
 
     weight = module.weight
     activation_granularity, weight_granularity = _normalize_granularity(granularity)
+    _check_hardware_support((activation_granularity, weight_granularity))
     assert isinstance(activation_granularity, PerTensor), (
         "Static quantization only supports PerTensor granularity"
     )

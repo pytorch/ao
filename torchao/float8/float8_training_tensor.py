@@ -12,6 +12,7 @@ from torch.distributed._tensor import DTensor
 from torchao.float8.float8_utils import (
     to_fp8_saturated,
 )
+from torchao.float8.hifloat8_utils import is_hifloatx_tensor
 
 aten = torch.ops.aten
 
@@ -177,6 +178,9 @@ class _ToFloat8ConstrFunc(torch.autograd.Function):
                 shape=bits_fp8.size(),
                 stride=bits_fp8.stride(),
             )
+
+        if is_hifloatx_tensor(bits_fp8) and scale.device != bits_fp8.device:
+            scale = scale.to(bits_fp8.device)
 
         return Float8TrainingTensor(
             bits_fp8,
