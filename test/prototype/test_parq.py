@@ -45,7 +45,6 @@ from torchao.quantization.quant_primitives import MappingType
 from torchao.quantization.quantize_.workflows import IntxUnpackedToInt8Tensor
 from torchao.utils import (
     _is_mslk_available,
-    check_cpu_version,
     is_sm_at_least_90,
     torch_version_at_least,
 )
@@ -342,8 +341,6 @@ class TestUnifTorchaoQuantizer(common_utils.TestCase):
 
         m_ref = copy.deepcopy(model).eval().to(_DEVICE)
         config = Int4WeightOnlyConfig(group_size=group_size)
-        if check_cpu_version(_DEVICE):
-            config.version = 1
         quantize_(m_ref, config)
 
         b = 4
