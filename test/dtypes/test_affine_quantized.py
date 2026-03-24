@@ -16,6 +16,7 @@ from torch.testing._internal.common_utils import (
 
 from torchao.core.config import AOBaseConfig
 from torchao.dtypes import (
+    PlainLayout,
     to_affine_quantized_intx,
     to_affine_quantized_intx_static,
 )
@@ -232,6 +233,7 @@ class TestAffineQuantized(TestCase):
             zero_point=torch.zeros(1),
             block_size=(2, 3),
             target_dtype=torch.int8,
+            _layout=PlainLayout(),
         )
 
 
