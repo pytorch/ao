@@ -13,6 +13,7 @@ from .uintx import (
 )
 from .utils import (
     Layout,
+    PlainLayout,
 )
 
 __all__ = [
@@ -24,6 +25,7 @@ __all__ = [
     "to_affine_quantized_floatx",
     "to_affine_quantized_floatx_static",
     "Layout",
+    "PlainLayout",
     "TensorCoreTiledLayout",
     "affine_quantized_tensor_ops",
 ]
