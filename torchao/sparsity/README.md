@@ -6,17 +6,13 @@ Sparsity is the technique of removing parameters from a neural network in order 
 ## Benchmarks
 
 ### segment-anything-fast
-We were able to provide a **1.16x (22.7 -> 26.5 img/s) speedup over our dense baseline, while maintaining 97.5% (0.581 -> 0.567) of the evaluation accuracy (mIOU)**.
+We were able to provide a **1.10x (22.7 -> 24.8 img/s) speedup over our dense baseline, while maintaining 97.6% (0.581 -> 0.567) of the evaluation accuracy (mIOU)** using 2:4 sparsity on the MLP layers.
 
-Overall, we found that accelerating the MLP linear layers provied the most speedups (`lin1`, `lin2`), while mitigating accuracy loss.
+Overall, we found that accelerating the MLP linear layers provided the most speedups (`lin1`, `lin2`), while mitigating accuracy loss.
 
 Applying sparsity to the attention linear layers led to a slower model, likely due to two reasons:
 - We cannot fuse into our semi-structured sparse matmul with torch.compile.
 - The speedups we observe for sparse matmul depend on the matmul shapes, and the attention matmuls are smaller than the MLP ones.
-
-We were also are able to compose int8 dynamic quantization with 2:4 sparsity for futher speedups.
-
-We found that applying int8 dynamic quantization to the attention layers, int8 dynamic quantization + 2:4 sparsity to mlp layer 1 and 2:4 sparsity to mlp layer 2 yielded the best configuration.
 
 The following benchmarks we ran for sam ViT-h on an NVIDIA-A100-80GB, with batch_size=32 and `bfloat16` dtype, with `torch.compile="max_autotune"`:
 
@@ -26,7 +22,6 @@ The following benchmarks we ran for sam ViT-h on an NVIDIA-A100-80GB, with batch
 |            | int8 dynamic quant (attn + mlp)                                                                      | 24.91 | 15154        | 0.5822              | **1.09x**        | **100.19%**       |
 |            | 2:4 sparsity (mlp only)                                                                              | 24.81 | 15632        | 0.5672              | **1.10x**        | **97.61%**        |
 |            | 2:4 sparsity (attn + mlp)                                                                            | 24.30 | 13429        | 0.5306              | **1.07x**        | **91.31%**        |
-|            | int8 dynamic quant (attn)<br>int8 dynamic quant + 2:4 sparsity (mlp lin1)<br>2:4 sparsity (mlp lin2) | 26.46 | 14865        | 0.5668              | **1.16x**        | **97.54%**        |
 
 To reproduce our benchmarks please follow these [instructions](/torchao/_models/sam/README.md).
 
