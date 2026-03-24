@@ -9,15 +9,21 @@ import torch
 
 from torchao.utils import is_cuda_version_at_least, is_sm_at_least_100
 
-if not (
-    torch.cuda.is_available()
-    and is_sm_at_least_100()
-    and is_cuda_version_at_least(12, 8)
+if torch.cuda.is_available() and not (
+    is_sm_at_least_100() and is_cuda_version_at_least(12, 8)
 ):
     pytest.skip("Test requires CUDA 12.8+ with SM >= 100", allow_module_level=True)
 
 from torchao.prototype.moe_training.ep.kernels import generate_permute_indices
 from torchao.prototype.moe_training.ep.permute import _triton_permute_bwd
+from torchao.utils import get_available_devices
+
+_DEVICES = get_available_devices()[1:]  # Exclude CPU since this test is for GPU kernels
+
+
+@pytest.fixture(scope="module", params=_DEVICES)
+def device(request):
+    return request.param
 
 
 @pytest.mark.parametrize(
@@ -41,10 +47,8 @@ from torchao.prototype.moe_training.ep.permute import _triton_permute_bwd
     ],
 )
 def test_triton_permute_bwd(
-    num_tokens, hidden_dim, num_local_experts, ep_degree, alignment
+    num_tokens, hidden_dim, num_local_experts, ep_degree, alignment, device
 ):
-    device = "cuda"
-
     # Generate realistic permutation indices using generate_permute_indices
     # Simulate token distribution across experts
     tokens_per_expert_group = torch.randint(

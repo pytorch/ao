@@ -3,10 +3,8 @@ import torch
 
 from torchao.utils import is_cuda_version_at_least, is_sm_at_least_100
 
-if not (
-    torch.cuda.is_available()
-    and is_sm_at_least_100()
-    and is_cuda_version_at_least(12, 8)
+if torch.cuda.is_available() and not (
+    is_sm_at_least_100() and is_cuda_version_at_least(12, 8)
 ):
     pytest.skip("Test requires CUDA 12.8+ with SM >= 100", allow_module_level=True)
 
@@ -14,10 +12,17 @@ from torchao.prototype.moe_training.ep import permute_mxfp8_fwd_hp_bwd
 from torchao.prototype.moe_training.ep.permute import permute_and_pad
 from torchao.prototype.mx_formats.mx_tensor import MXTensor
 from torchao.quantization.utils import compute_error
+from torchao.utils import get_available_devices
+
+_DEVICES = get_available_devices()[1:]  # Exclude CPU since this test is for GPU kernels
 
 
-def test_mxfp8_permute_forward():
-    device = "cuda"
+@pytest.fixture(scope="module", params=_DEVICES)
+def device(request):
+    return request.param
+
+
+def test_mxfp8_permute_forward(device: str):
     tokens = 64
     dim = 128
     num_experts = 8
