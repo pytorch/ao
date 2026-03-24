@@ -92,3 +92,12 @@ uintx weight configs (prototype)
 
     UIntxWeightOnlyConfig
     Int8DynamicActivationUIntxWeightConfig
+
+int4 weight configs (prototype)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. autosummary::
+    :toctree: generated/
+    :nosignatures:
+
+    Int8DynamicActivationInt4WeightConfig
