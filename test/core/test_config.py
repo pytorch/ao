@@ -64,7 +64,6 @@ configs = [
         version=2,
     ),
     Int8DynamicActivationInt8WeightConfig(),
-    # Int8DynamicActivationInt8WeightConfig(layout=SemiSparseLayout()),
     Int8WeightOnlyConfig(
         group_size=128,
     ),
