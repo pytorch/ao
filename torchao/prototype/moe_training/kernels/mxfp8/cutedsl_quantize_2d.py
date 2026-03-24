@@ -15,8 +15,8 @@ from .cute_utils import (
     F8_MAX,
     compute_amax,
     compute_scale_from_amax,
-    load_vals_4B_chunk_full,
-    load_vals_4B_chunk_tail,
+    load_vals_chunk_full,
+    load_vals_chunk_tail,
 )
 
 
@@ -240,7 +240,7 @@ def _compile_mxfp8_quantize_2d_cutedsl(
             return vals_block
 
         @cute.jit
-        def _store_4b_scales_reg_to_gmem_vec(
+        def _store_scales_vectorized(
             self,
             scales_tensor: cute.Tensor,
             m: cutlass.Int64,
@@ -315,9 +315,9 @@ def _compile_mxfp8_quantize_2d_cutedsl(
             sOUT_tile_u32[m_rel, sout_base // cutlass.Int32(4)] = q_fp8_vals4_u32[0]
 
         @cute.jit
-        def _quantize_store_4B_reg_to_smem(
+        def _quantize_store_chunk(
             self,
-            vals_4B_chunk: cute.Tensor,
+            vals_chunk: cute.Tensor,
             inv_scale: cutlass.Float32,
             sOUT_tile: cute.Tensor,
             m_rel: cutlass.Int32,
@@ -378,9 +378,9 @@ def _compile_mxfp8_quantize_2d_cutedsl(
             for c in range(num_4B_chunks):
                 local_base = c * chunk_vec
                 sout_base = k_base + local_base
-                vals_4B_chunk = load_vals_4B_chunk_full(vals_block, local_base)
-                self._quantize_store_4B_reg_to_smem(
-                    vals_4B_chunk, inv_scale, sOUT_tile, m_rel, sout_base, USE_RCEIL
+                vals_chunk = load_vals_chunk_full(vals_block, local_base)
+                self._quantize_store_chunk(
+                    vals_chunk, inv_scale, sOUT_tile, m_rel, sout_base, USE_RCEIL
                 )
 
         @cute.jit
@@ -418,7 +418,7 @@ def _compile_mxfp8_quantize_2d_cutedsl(
             for c in range(num_4B_chunks):
                 local_base = c * chunk_vec
                 sout_base = k_base + local_base
-                vals_4B_chunk = load_vals_4B_chunk_tail(
+                vals_chunk = load_vals_chunk_tail(
                     vals_block, k0, sout_base, local_base, K
                 )
                 self._quantize_store_4B_reg_to_smem(

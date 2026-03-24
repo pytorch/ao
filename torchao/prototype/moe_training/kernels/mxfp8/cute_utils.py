@@ -169,7 +169,7 @@ def compute_scale_from_amax(
 
 
 @cute.jit
-def load_vals_4B_chunk_full(
+def load_vals_chunk_full(
     vals_block: cute.Tensor,
     local_base: cutlass.Int32,
 ):
@@ -186,14 +186,14 @@ def load_vals_4B_chunk_full(
         Register tensor of shape (4,) containing the loaded float32 values
     """
     chunk_vec = 4
-    vals_4B_chunk = cute.make_rmem_tensor((chunk_vec,), cutlass.Float32)
+    vals_chunk = cute.make_rmem_tensor((chunk_vec,), cutlass.Float32)
     for j in range(chunk_vec):
-        vals_4B_chunk[j] = vals_block[local_base + j]
-    return vals_4B_chunk
+        vals_chunk[j] = vals_block[local_base + j]
+    return vals_chunk
 
 
 @cute.jit
-def load_vals_4B_chunk_tail(
+def load_vals_chunk_tail(
     vals_block: cute.Tensor,
     dim0: cutlass.Int64,
     sout_base: cutlass.Int32,
@@ -217,11 +217,11 @@ def load_vals_4B_chunk_tail(
         with out-of-bounds positions set to 0.0
     """
     chunk_vec = 4
-    vals_4B_chunk = cute.make_rmem_tensor((chunk_vec,), cutlass.Float32)
+    vals_chunk = cute.make_rmem_tensor((chunk_vec,), cutlass.Float32)
     for j in range(chunk_vec):
         idx = dim0 + sout_base + j
         if idx < dim_size:
-            vals_4B_chunk[j] = vals_block[local_base + j]
+            vals_chunk[j] = vals_block[local_base + j]
         else:
-            vals_4B_chunk[j] = cutlass.Float32(0.0)
-    return vals_4B_chunk
+            vals_chunk[j] = cutlass.Float32(0.0)
+    return vals_chunk
