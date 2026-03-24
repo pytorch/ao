@@ -6,7 +6,7 @@ import torch
 from torch import nn
 
 from torchao.core.config import AOBaseConfig
-from torchao.dtypes import Int4CPULayout, Layout, QDQLayout
+from torchao.dtypes import Int4CPULayout, Layout
 from torchao.quantization import MappingType, PerAxis, PerGroup
 from torchao.quantization.quant_api import (
     Granularity,
@@ -39,7 +39,7 @@ except ImportError:
 class StretchedIntxWeightConfig(AOBaseConfig):
     granularity: Granularity = PerAxis(0)
     scale_dtype: Optional[torch.dtype] = None
-    layout: Layout = QDQLayout()
+    layout: Optional[Layout] = None
     version: int = 2
     b: Optional[int] = None
     quant_min: Optional[int] = None
