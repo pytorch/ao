@@ -13,13 +13,6 @@ from torchao.prototype.moe_training.config import (
     MXFP8TrainingOpConfig,
     TrainingOpBaseConfig,
 )
-from torchao.prototype.moe_training.kernels.mxfp8 import (
-    _mxfp8_cuda_kernels_available,
-    fused_pad_token_groups_cuda,
-    fused_unpad_token_groups_cuda,
-    torch_pad_token_groups,
-    torch_unpad_token_groups,
-)
 from torchao.prototype.mx_formats.mx_tensor import to_mx
 from torchao.quantization.quantize_.common import KernelPreference
 from torchao.utils import torch_version_at_least
@@ -439,6 +432,12 @@ def pad_token_groups(
     Returns:
         tuple: (padded_input_act, padded_group_start_offsets, padded_group_end_offsets)
     """
+    from torchao.prototype.moe_training.kernels.mxfp8 import (
+        _mxfp8_cuda_kernels_available,
+        fused_pad_token_groups_cuda,
+        torch_pad_token_groups,
+    )
+
     # Determine whether to use CUDA kernel based on kernel_preference and availability
     use_cuda = (
         kernel_preference != KernelPreference.EMULATED and _mxfp8_cuda_kernels_available
@@ -474,6 +473,12 @@ def unpad_token_groups(
     Returns:
         Unpadded output tensor of shape (M, N)
     """
+    from torchao.prototype.moe_training.kernels.mxfp8 import (
+        _mxfp8_cuda_kernels_available,
+        fused_unpad_token_groups_cuda,
+        torch_unpad_token_groups,
+    )
+
     # Determine whether to use CUDA kernel based on kernel_preference and availability
     use_cuda = (
         kernel_preference != KernelPreference.EMULATED and _mxfp8_cuda_kernels_available

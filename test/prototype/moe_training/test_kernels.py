@@ -441,19 +441,18 @@ def test_cuda_mx_dim1_3d_numerics(E, N, K, input_dtype, scaling_mode):
     not _is_sm_10x(),
     reason="MXFP8 requires CUDA SM 10.x",
 )
-@pytest.mark.parametrize("M", (32, 1536, 5120, 7168, 8192))
-@pytest.mark.parametrize("K", (32, 1536, 5120, 7168, 8192))
+@pytest.mark.skipif(
+    not _mxfp8_cutedsl_kernels_available,
+    reason="MXFP8 cutedsl kernels not available",
+)
+@pytest.mark.parametrize("M", (32, 160, 8192))
+@pytest.mark.parametrize("K", (32, 96, 1536, 5120, 7168, 8192))
 @pytest.mark.parametrize("input_dtype", (torch.bfloat16,))
 @pytest.mark.parametrize(
     "scaling_mode", (ScaleCalculationMode.FLOOR, ScaleCalculationMode.RCEIL)
 )
 def test_cuda_mx_dim0_2d_numerics(M, K, input_dtype, scaling_mode):
-    if not _mxfp8_cutedsl_kernels_available:
-        pytest.skip("mxfp8_quantize_2d is unavailable")
-
-    scaling_mode_str = (
-        "floor" if scaling_mode == ScaleCalculationMode.FLOOR else "rceil"
-    )
+    scaling_mode_str = scaling_mode.value.lower()
     block_size = 32
 
     # Use distinct incrementing values from 0 to M*K-1 to make debugging easier.
