@@ -343,9 +343,6 @@ def run(
     for block in predictor.model.image_encoder.blocks:
         block.attn.use_rel_pos = use_rel_pos
 
-    def mlp_only(mod, name):
-        return isinstance(mod, torch.nn.Linear) and "mlp" in name
-
     if compress == "int8_dynamic_quant":
         quantize_(
             predictor.model.image_encoder, Int8DynamicActivationInt8WeightConfig()
