@@ -15,6 +15,7 @@ import torch
 from torchao.dtypes.utils import (
     AQTTensorImpl,
     Layout,
+    PlainLayout,
 )
 from torchao.utils import TorchAOBaseTensor
 
@@ -249,8 +250,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
             zero_point_domain = ZeroPointDomain.INT
 
         original_shape = input_float.shape
-        if _layout is not None:
-            input_float = _layout.pre_process(input_float)
+        input_float = _layout.pre_process(input_float)
 
         if use_hqq:
             assert (
@@ -275,7 +275,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
                 compute_dtype=compute_dtype,
                 device=device,
                 verbose=False,
-                raw_output=True,
+                raw_output=not isinstance(_layout, PlainLayout),
             )
             data = data.to(target_dtype)
         else:
@@ -355,10 +355,9 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
                 )
             # Note: output will be uint8 tensor for sub byte tensors for now
 
-        if _layout is not None:
-            data, scale, zero_point = _layout.post_process(
-                data, scale, zero_point, block_size
-            )
+        data, scale, zero_point = _layout.post_process(
+            data, scale, zero_point, block_size
+        )
         tensor_impl_ctr = get_tensor_impl_constructor(type(_layout))
         tensor_impl = tensor_impl_ctr(data, scale, zero_point, _layout)
         return cls(
@@ -401,10 +400,9 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         elif zero_point_domain is ZeroPointDomain.NONE and zero_point is not None:
             raise ValueError("zero_point should be None when zero_point_domain is NONE")
         original_shape = input_float.shape
-        if _layout is not None:
-            input_float, scale, zero_point = _layout.pre_process_static(
-                input_float, scale, zero_point, block_size
-            )
+        input_float, scale, zero_point = _layout.pre_process_static(
+            input_float, scale, zero_point, block_size
+        )
 
         if zero_point_domain == ZeroPointDomain.NONE:
             zero_point = None
@@ -438,13 +436,12 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
                 quant_max,
             )
 
-        if _layout is not None:
-            int_data, scale, zero_point = _layout.post_process(
-                int_data,
-                scale,
-                zero_point,
-                block_size,
-            )
+        int_data, scale, zero_point = _layout.post_process(
+            int_data,
+            scale,
+            zero_point,
+            block_size,
+        )
 
         tensor_impl_ctr = get_tensor_impl_constructor(type(_layout))
         tensor_impl = tensor_impl_ctr(int_data, scale, zero_point, _layout)

@@ -11,6 +11,13 @@ from torch.utils._python_dispatch import return_and_correct_aliasing
 from torchao.dtypes.affine_quantized_tensor import (
     AffineQuantizedTensor,
 )
+from torchao.dtypes.uintx.plain_layout import (
+    PlainAQTTensorImpl,
+    _linear_fp_act_int8_weight_check,
+    _linear_fp_act_int8_weight_impl,
+    _linear_int8_act_int8_weight_check,
+    _linear_int8_act_int8_weight_impl,
+)
 from torchao.utils import (
     fill_defaults,
 )
@@ -100,7 +107,10 @@ AffineQuantizedTensor._quantized_linear_op = _quantized_linear_op
 # bias: dimension is (out_features,)
 # so that these can be shared by F.linear, aten.mm, aten.addmm dispatches
 def _register_aqt_quantized_linear_dispatches():
-    for dispatch_condition, impl in []:
+    for dispatch_condition, impl in [
+        (_linear_int8_act_int8_weight_check, _linear_int8_act_int8_weight_impl),
+        (_linear_fp_act_int8_weight_check, _linear_fp_act_int8_weight_impl),
+    ]:
         register_aqt_quantized_linear_dispatch(dispatch_condition, impl)
 
 
@@ -141,6 +151,58 @@ def _(func, types, args, kwargs):
         if isinstance(weight_tensor, AffineQuantizedTensor):
             weight_tensor = weight_tensor.dequantize()
         return torch.nn.functional.linear(input_tensor, weight_tensor, bias)
+
+
+@implements_torch_function(torch.nn.functional.embedding)
+def _(func, types, args, kwargs):
+    from torchao.quantization.quant_primitives import (
+        ZeroPointDomain,
+        _dequantize_affine_no_zero_point,
+        _dequantize_affine_tinygemm,
+        dequantize_affine,
+    )
+
+    # new_arg1 = args[1].dequantize()
+    # return torch.nn.embedding(args[0], new_arg1, *args[2:], **kwargs)
+    assert isinstance(args[1].tensor_impl, PlainAQTTensorImpl), (
+        f"embedding only works with PlainAQTTensorImpl but got {type(args[1].tensor_impl)}"
+    )
+    assert (
+        kwargs["padding_idx"] is None
+        and kwargs["max_norm"] is None
+        and not kwargs["scale_grad_by_freq"]
+        and not kwargs["sparse"]
+        and kwargs["norm_type"] == 2.0
+    )
+    idx = args[0]
+    int_data, scale, zero_point = args[1].tensor_impl.get_plain()
+
+    sliced_data, sliced_scale, sliced_zero_point = (
+        int_data[idx],
+        scale[idx],
+        zero_point[idx],
+    )
+    # Block size is expecting 2 dimensions [1, group size] but
+    # batchsize or other dims gets added to sliced_data, sliced_scale and sliced_zero_point so
+    # we need to increase block size to correct dim
+    new_blocks = idx.dim() - 1
+    if args[1].zero_point_domain == ZeroPointDomain.FLOAT:
+        _dequantize_affine = _dequantize_affine_tinygemm
+    elif args[1].zero_point_domain == ZeroPointDomain.NONE:
+        _dequantize_affine = _dequantize_affine_no_zero_point
+    else:
+        _dequantize_affine = dequantize_affine
+
+    return _dequantize_affine(
+        sliced_data,
+        new_blocks * [1] + list(args[1].block_size),
+        sliced_scale,
+        sliced_zero_point,
+        sliced_data.dtype,
+        args[1].quant_min,
+        args[1].quant_max,
+        output_dtype=sliced_scale.dtype,
+    )
 
 
 @implements(aten.addmm.default)

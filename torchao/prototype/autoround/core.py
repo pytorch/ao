@@ -12,10 +12,10 @@ import torch
 import torchao.prototype.autoround.utils as ar_utils
 import torchao.quantization as ao_quant
 from torchao.dtypes import to_affine_quantized_intx_static
-from torchao.quantization.quantize_.workflows import Int4TilePackedTo4dTensor
-from torchao.quantization.utils import pack_tinygemm_scales_and_zeros
 from torchao.prototype.autoround.multi_tensor import MultiTensor, _multi_tensor_config
 from torchao.quantization.quant_primitives import ZeroPointDomain
+from torchao.quantization.quantize_.workflows import Int4TilePackedTo4dTensor
+from torchao.quantization.utils import pack_tinygemm_scales_and_zeros
 from torchao.utils import find_multiple
 
 
@@ -195,7 +195,6 @@ def apply_auto_round():
                     _BIT_WIDTH_TO_DTYPE,
                     UintxLayout,
                 )
-                from torchao.quantization.quant_primitives import ZeroPointDomain
 
                 assert _auto_round_config.bits in _BIT_WIDTH_TO_DTYPE, (
                     f"Invalid bits: {_auto_round_config.bits}"
@@ -261,7 +260,12 @@ def apply_auto_round():
                 # Pad and quantize input_float
                 input_float_padded = torch.nn.functional.pad(
                     input_float,
-                    (0, in_features - orig_in_features, 0, out_features - orig_out_features),
+                    (
+                        0,
+                        in_features - orig_in_features,
+                        0,
+                        out_features - orig_out_features,
+                    ),
                 )
                 int_data = torch.clamp(
                     torch.round(input_float_padded).to(torch.int32),
@@ -269,7 +273,9 @@ def apply_auto_round():
                     quant_max,
                 )
                 # Pack into int4 format for tinygemm
-                int_data_packed = (int_data[::, ::2] << 4 | int_data[::, 1::2]).to(torch.uint8)
+                int_data_packed = (int_data[::, ::2] << 4 | int_data[::, 1::2]).to(
+                    torch.uint8
+                )
                 packed_weight = torch.ops.aten._convert_weight_to_int4pack(
                     int_data_packed.contiguous(), inner_k_tiles
                 )
