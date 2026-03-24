@@ -16,9 +16,19 @@ Unlike the rowwise path (one scale per row/column), the tensorwise path uses:
 from typing import Optional, Tuple
 
 import torch
+from torch.utils._triton import has_triton
 
 from torchao.float8.float8_utils import amax_to_scale, to_fp8_saturated
+from torchao.prototype.moe_training.kernels.fp8_tensorwise_2d import (
+    triton_fp8_tensorwise_quantize_2d,
+)
+from torchao.prototype.moe_training.kernels.fp8_tensorwise_per_group import (
+    triton_fp8_tensorwise_per_group_quantize,
+)
 from torchao.prototype.moe_training.utils import _is_column_major
+
+_USE_TRITON_QUANTIZE_2D = triton_fp8_tensorwise_quantize_2d is not None
+_USE_TRITON_PER_GROUP = triton_fp8_tensorwise_per_group_quantize is not None
 
 
 @torch.library.custom_op(
@@ -35,30 +45,28 @@ def _fp8_tensorwise_quantize_2d(
     Registered as custom_op so inductor does not fuse quantization into
     Triton kernels that may crash during autotuning on certain hardware.
     """
-    # Sanitize before any computation so both the scale AND the fp8 data are
-    # free of NaN/inf.  If NaN propagates into the scale, scale.reciprocal()
-    # becomes NaN and _scaled_grouped_mm triggers HSA_STATUS_ERROR_EXCEPTION.
+    # Fused Triton path: two sequential passes over the tensor (amax then
+    # quantize) instead of ~15 separate ATen kernel launches.  Each ROCm HIP
+    # kernel launch costs ~60 µs in dispatch overhead, so collapsing 15 launches
+    # to 3 saves ~720 µs of pure dispatch overhead per call.
+    #
+    # Falls back to the PyTorch path if Triton is not available or the tensor
+    # is not contiguous (the Triton kernel requires contiguous layout).
+    if _USE_TRITON_QUANTIZE_2D and tensor.is_contiguous():
+        return triton_fp8_tensorwise_quantize_2d(
+            tensor, output_dtype, round_scales_to_power_of_2=True
+        )
+
+    # PyTorch fallback (kept for non-contiguous inputs and non-Triton builds).
     #
     # Stay in the original dtype (e.g. BF16) throughout to avoid materialising
     # a large float32 copy of the input.  The BF16→F32 promotion kernel is the
     # single largest GPU cost per call (~350 µs for a 98432×2048 tensor) so
     # keeping large tensors in BF16 cuts that overhead entirely.
-    # amax_to_scale already converts the scalar amax to float32 internally.
     tensor_clean = torch.nan_to_num(tensor)
-
-    # Use amax + amin instead of abs().amax() to avoid materialising a full
-    # abs() copy of the tensor (another M×K allocation and kernel launch).
-    t_max = tensor_clean.amax().to(torch.float32)
-    t_min = tensor_clean.amin().to(torch.float32)
-    amax = torch.maximum(t_max.abs(), t_min.abs())
-
+    amax = tensor_clean.abs().amax().to(torch.float32)
     scale = amax_to_scale(amax, output_dtype, round_scales_to_power_of_2=True)
-
-    # Multiply in original dtype to keep the product in BF16 (avoids another
-    # large F32 intermediate before the FP8 cast).
     fp8_data = to_fp8_saturated(tensor_clean * scale.to(tensor_clean.dtype), output_dtype)
-
-    # scale is already float32 from amax_to_scale; no extra .to() needed.
     # .contiguous() materialises the expansion so the output has stride (1,).
     # A stride-0 expanded tensor would cause _scaled_grouped_mm to read
     # incorrect memory on ROCm, producing a GPU hardware exception.
@@ -360,49 +368,36 @@ def _fp8_tensorwise_per_group_quantize(
     M, D = tensor.shape
     num_groups = offs.numel()
 
-    # Sanitize input once so NaN cannot propagate into scales or fp8 data.
-    # NaN in scale → scale.reciprocal() = NaN → _scaled_grouped_mm hardware exception.
-    # Stay in original dtype to avoid a large float32 copy (see quantize_2d).
+    # Fused Triton path: two Triton kernels (amax + quantize) with nan_to_num
+    # fused inline, instead of ~17 separate ATen kernel launches.
+    # Falls back to PyTorch if Triton unavailable or tensor non-contiguous.
+    if _USE_TRITON_PER_GROUP and tensor.is_contiguous():
+        return triton_fp8_tensorwise_per_group_quantize(
+            tensor, offs, output_dtype, output_scale_dim,
+            round_scales_to_power_of_2=True,
+        )
+
+    # PyTorch fallback (kept for non-contiguous inputs and non-Triton builds).
     tensor_clean = torch.nan_to_num(tensor)
 
-    # Step 1: Per-row amax via amax+amin (avoids abs() intermediate allocation),
-    # then per-group max via segment_reduce.
-    # Groups are consecutive: group g occupies rows [offs[g-1], offs[g]).
-    # Use segment_reduce("max") instead of scatter_reduce_("amax") — the latter
-    # uses float atomicMax which raises HSA_STATUS_ERROR_EXCEPTION on AMD ROCm.
-    # unsafe=True: offs[-1] may be < M when the input tensor is padded to a
-    # block-size multiple; only the rows within offs bounds need valid amax.
-    row_max = tensor_clean.amax(dim=1).to(torch.float32)  # (M,)
-    row_min = tensor_clean.amin(dim=1).to(torch.float32)  # (M,)
-    row_amax = torch.maximum(row_max.abs(), row_min.abs())  # (M,) float32
+    row_amax = tensor_clean.abs().amax(dim=1).to(torch.float32)  # (M,) float32
     group_starts = torch.cat([
         torch.zeros(1, dtype=offs.dtype, device=offs.device), offs[:-1]
     ])
     group_lengths = (offs - group_starts).to(torch.int64)
     group_amax = torch.segment_reduce(row_amax, "max", lengths=group_lengths, unsafe=True)
 
-    # Row-to-group mapping for all M rows (including any padding rows beyond
-    # offs[-1]).  Clamp so padding rows fall back to the last valid group.
     row_group_ids = torch.bucketize(
         torch.arange(M, device=tensor.device), offs, right=True
     ).clamp(max=num_groups - 1)
 
-    # Step 2: Compute per-group scales.
     group_scale = amax_to_scale(
         group_amax, output_dtype, round_scales_to_power_of_2=True
     )
 
-    # Step 3: Per-group quantize using PyTorch ops. Triton's FP8 cast on
-    # ROCm uses different rounding than PyTorch, causing NaN over time.
-    # Build a per-row scale vector by mapping each row to its group's scale,
-    # then quantize the entire tensor in one fused operation.
-    # Convert scale to original dtype for the multiply to avoid a large F32
-    # intermediate (tensor_clean is BF16; keeping the product in BF16 is
-    # sufficient precision for FP8 output with 3 mantissa bits).
     per_row_scale = group_scale[row_group_ids].to(tensor_clean.dtype).unsqueeze(1)  # (M, 1)
     fp8_data = to_fp8_saturated(tensor_clean * per_row_scale, output_dtype)
 
-    # Step 4: Expand per-group scales to flat format for _scaled_grouped_mm.
     scales_flat = (
         group_scale
         .unsqueeze(1)

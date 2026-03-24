@@ -4,6 +4,12 @@ from torchao.prototype.moe_training.kernels.float8_rowwise import (
 from torchao.prototype.moe_training.kernels.float8_rowwise import (
     triton_fp8_rowwise_3d_transpose_rhs as triton_fp8_rowwise_3d_transpose_rhs,
 )
+from torchao.prototype.moe_training.kernels.fp8_tensorwise_2d import (
+    triton_fp8_tensorwise_quantize_2d as triton_fp8_tensorwise_quantize_2d,
+)
+from torchao.prototype.moe_training.kernels.fp8_tensorwise_per_group import (
+    triton_fp8_tensorwise_per_group_quantize as triton_fp8_tensorwise_per_group_quantize,
+)
 from torchao.prototype.moe_training.kernels.jagged_float8_scales import (
     triton_fp8_per_group_colwise_scales as triton_fp8_per_group_colwise_scales,
 )
