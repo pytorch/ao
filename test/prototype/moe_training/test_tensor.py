@@ -11,7 +11,7 @@ import torch.nn.functional as F
 from torchao.utils import torch_version_at_least
 
 # Skip module if basic requirements aren't met
-if not (torch_version_at_least("2.7.0") and torch.cuda.is_available()):
+if torch.cuda.is_available() and not torch_version_at_least("2.7.0"):
     pytest.skip("CUDA and PyTorch 2.7.0+ required", allow_module_level=True)
 
 from torchao.prototype.moe_training.config import (
@@ -20,11 +20,19 @@ from torchao.prototype.moe_training.config import (
 )
 from torchao.prototype.moe_training.tensor import MXFP8TrainingWeightWrapperTensor
 from torchao.quantization.utils import compute_error
+from torchao.utils import get_available_devices
+
+_DEVICES = get_available_devices()[1:]  # Exclude CPU since this test is for GPU kernels
+
+
+@pytest.fixture(scope="module", params=_DEVICES)
+def device(request):
+    return request.param
 
 
 @pytest.mark.parametrize("op_name", ["mm", "matmul", "linear"])
 @pytest.mark.parametrize("batch_size", [None, 2, 4])
-def test_mxfp8_training_tensor_ops_fwd_bwd(op_name, batch_size):
+def test_mxfp8_training_tensor_ops_fwd_bwd(op_name, batch_size, device):
     # mm doesn't support batching
     if op_name == "mm" and batch_size is not None:
         pytest.skip("mm doesn't support batching")
@@ -39,10 +47,10 @@ def test_mxfp8_training_tensor_ops_fwd_bwd(op_name, batch_size):
     else:
         A_shape = (batch_size, M, K)
 
-    A = torch.randn(*A_shape, dtype=torch.bfloat16, device="cuda", requires_grad=True)
-    B = torch.randn(N, K, dtype=torch.bfloat16, device="cuda", requires_grad=True)
+    A = torch.randn(*A_shape, dtype=torch.bfloat16, device=device, requires_grad=True)
+    B = torch.randn(N, K, dtype=torch.bfloat16, device=device, requires_grad=True)
     bias = (
-        torch.randn(N, dtype=torch.bfloat16, device="cuda")
+        torch.randn(N, dtype=torch.bfloat16, device=device)
         if op_name == "linear"
         else None
     )
@@ -112,10 +120,10 @@ def test_mxfp8_training_tensor_ops_fwd_bwd(op_name, batch_size):
     )
 
 
-def test_mxfp8_training_tensor_ops_preserve_subclass():
+def test_mxfp8_training_tensor_ops_preserve_subclass(device):
     config = MXFP8TrainingOpConfig.from_recipe(MXFP8TrainingRecipe.MXFP8_EMULATED_RCEIL)
 
-    B = torch.randn(64, 32, dtype=torch.bfloat16, device="cuda")
+    B = torch.randn(64, 32, dtype=torch.bfloat16, device=device)
     B_mxfp8 = MXFP8TrainingWeightWrapperTensor(B, config)
 
     # view

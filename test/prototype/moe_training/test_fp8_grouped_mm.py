@@ -15,9 +15,8 @@ from torchao.utils import (
     torch_version_at_least,
 )
 
-if not (
+if torch.cuda.is_available() and not (
     torch_version_at_least("2.7.0")
-    and torch.cuda.is_available()
     and (is_sm_at_least_90() or is_MI300() or is_MI350())
 ):
     pytest.skip(
@@ -41,16 +40,24 @@ from torchao.prototype.moe_training.config import (
 from torchao.prototype.moe_training.fp8_grouped_mm import (
     _to_fp8_rowwise_then_scaled_grouped_mm,
 )
-from torchao.utils import is_MI300, is_MI350, is_ROCM
+from torchao.utils import get_available_devices, is_MI300, is_MI350, is_ROCM
 
 # Needed since changing args to function causes recompiles
 torch._dynamo.config.cache_size_limit = 1000
+
+_DEVICES = get_available_devices()[1:]  # Exclude CPU since this test is for GPU kernels
+
+
+@pytest.fixture(scope="module", params=_DEVICES)
+def device(request):
+    return request.param
 
 
 @pytest.mark.skipif(
     True,
     reason="Skipping FP8 rowwise test pending fix for https://github.com/pytorch/ao/issues/3957",
 )
+@pytest.mark.skipif(torch.xpu.is_available(), reason="XPU support not yet available")
 @pytest.mark.parametrize("m", [4096])
 @pytest.mark.parametrize("n", [8192])
 @pytest.mark.parametrize("k", [5120])
@@ -91,7 +98,7 @@ def test_fp8_rowwise_scaled_grouped_mm(m, n, k, n_groups):
         b_t,
         offs=offs,
         out_dtype=config.out_dtype,
-        float8_dtyep=config.float8_dtype,
+        float8_dtype=config.float8_dtype,
     )
 
     # Validate result.
@@ -130,7 +137,7 @@ def test_fp8_rowwise_scaled_grouped_mm(m, n, k, n_groups):
 @pytest.mark.parametrize("m", [16, 17])
 @pytest.mark.parametrize("k", [16, 18])
 @pytest.mark.parametrize("n", [32, 33])
-def test_K_or_N_dim_not_multiple_of_16(m, n, k):
+def test_K_or_N_dim_not_multiple_of_16(m, n, k, device):
     # - Leading dim of A doesn't have to be divisible by 16, since it will be
     # divided up into groups based on offset anyway.
     # - Trailing dim of A must be divisible by 16.
@@ -138,7 +145,6 @@ def test_K_or_N_dim_not_multiple_of_16(m, n, k):
     # - Last 2 dims of B must be divisible by 16.
     if n % 16 == 0 and k % 16 == 0:
         return
-    device = "cuda"
     n_groups = 4
     a = torch.randn(
         m * n_groups,
@@ -161,7 +167,7 @@ def test_K_or_N_dim_not_multiple_of_16(m, n, k):
     b_t = b_t.transpose(-2, -1).contiguous().transpose(-2, -1)
 
     config = Float8TrainingOpConfig.from_recipe(Float8TrainingRecipe.FP8_ROWWISE)
-    offs = torch.arange(m, n_groups * m + 1, m, device="cuda", dtype=torch.int32)
+    offs = torch.arange(m, n_groups * m + 1, m, device=device, dtype=torch.int32)
 
     # Compute output.
     with pytest.raises(AssertionError):
