@@ -29,6 +29,8 @@ class TestSemiStructuredSparse(common_utils.TestCase):
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @skipIfRocmVersionLessThan((7, 0))
     def test_sparse(self):
+        if not torch.backends.cusparselt.is_available():
+            self.skipTest("Need cuSPARSELt or hipSPARSELt")
         input = torch.rand((128, 128)).half().cuda()
         model = (
             nn.Sequential(
@@ -45,9 +47,6 @@ class TestSemiStructuredSparse(common_utils.TestCase):
 
         sparsify_(model, semi_sparse_weight())
         sparse_result = model(input)
-
-        if compile:
-            model = torch.compile(model)
 
         torch.testing.assert_close(dense_result, sparse_result, rtol=1e-3, atol=1e-3)
 
