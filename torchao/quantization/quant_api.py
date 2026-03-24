@@ -1068,6 +1068,23 @@ def _validate_granularity_int8(
         )
 
 
+def _validate_act_mapping_type_int8(
+    act_mapping_type: Optional[MappingType],
+) -> None:
+    if act_mapping_type is None:
+        raise ValueError(
+            f"{config_name}: act_mapping_type cannot be None. "
+            f"Must be MappingType.SYMMETRIC or MappingType.ASYMMETRIC"
+        )
+
+    supported = (MappingType.SYMMETRIC, MappingType.ASYMMETRIC)
+    if act_mapping_type not in supported:
+        raise ValueError(
+            f"{config_name}: Unsupported act_mapping_type: {act_mapping_type}. "
+            f"Only {supported} are supported for int8 activation quantization."
+        )
+
+
 @dataclass
 class Int8DynamicActivationInt8WeightConfig(AOBaseConfig):
     """
@@ -1113,6 +1130,9 @@ class Int8DynamicActivationInt8WeightConfig(AOBaseConfig):
                 self.granularity
             )
             _validate_granularity_int8(act_granularity, weight_granularity)
+            _validate_act_mapping_type_int8(
+                self.act_mapping_type
+            )
 
 
 def _int8_dynamic_activation_int8_weight_quantize_tensor(weight, config):
@@ -1247,6 +1267,9 @@ class Int8StaticActivationInt8WeightConfig(AOBaseConfig):
             self.granularity
         )
         _validate_granularity_int8(act_granularity, weight_granularity)
+        _validate_act_mapping_type_int8(
+            self.act_mapping_type
+        )
 
     def get_act_quant_kwargs(self) -> QuantizeTensorToInt8Kwargs:
         """Get the activation quantization kwargs for static quantization.
