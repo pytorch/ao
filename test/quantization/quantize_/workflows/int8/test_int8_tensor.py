@@ -301,14 +301,15 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
             weight_cpu.dequantize(), weight_pinned.dequantize(), atol=0, rtol=0
         )
 
-    def test_int8_weight_only_v1_v2_per_group_equivalence(self):
+    @common_utils.parametrize("device", get_available_devices())
+    def test_int8_weight_only_v1_v2_per_group_equivalence(self, device):
         """Test that v1 per-group and v2 PerGroup produce equivalent outputs."""
         torch.manual_seed(42)
         group_size = 64
         K, N = 256, 128
 
         model_v1 = ToyTwoLinearModel(
-            K, N, K, dtype=torch.bfloat16, device="cuda"
+            K, N, K, dtype=torch.bfloat16, device=device
         ).eval()
         model_v2 = copy.deepcopy(model_v1)
 
@@ -318,7 +319,7 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
         quantize_(model_v1, config_v1)
         quantize_(model_v2, config_v2)
 
-        input_tensor = torch.randn(32, K, dtype=torch.bfloat16, device="cuda")
+        input_tensor = torch.randn(32, K, dtype=torch.bfloat16, device=device)
 
         with torch.no_grad():
             output_v1 = model_v1(input_tensor)
