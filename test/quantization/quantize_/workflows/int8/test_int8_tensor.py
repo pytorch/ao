@@ -252,11 +252,11 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
     @unittest.skipIf(
         not torch_version_at_least("2.7.0"), "torch 2.6.0 and below has custom fx pass"
     )
-    @common_utils.parametrize(
-        "device", [d for d in get_available_devices() if d != "cpu"]
-    )
+    @common_utils.parametrize("device", get_available_devices())
     def test_available_gpu_kernels(self, device):
         """Check which GPU kernels are used"""
+        if device == "cpu":
+            self.skipTest("Need GPU available")
         torch.compiler.reset()
 
         M, K, N = 128, 256, 512
