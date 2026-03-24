@@ -11,6 +11,13 @@ The kernel-path bandwidth utility is:
 python -m benchmarks.prototype.blockwise_fp8_training.benchmark_quant_kernel_bandwidth
 ```
 
+To additionally validate Triton outputs against the Torch reference
+implementations:
+
+```bash
+python -m benchmarks.prototype.blockwise_fp8_training.benchmark_quant_kernel_bandwidth --check-correctness
+```
+
 What it reports:
 
 - `kernel_us`: measured runtime of the public quantization wrapper call
@@ -22,6 +29,9 @@ Notes:
 
 - The benchmark times the public wrapper functions in
   `torchao.prototype.blockwise_fp8_training.kernels`.
+- `--check-correctness` runs the matching Torch reference path once per valid
+  kernel and shape before reporting results. This adds overhead and is intended
+  for validation, not headline timing runs.
 - The bandwidth number uses the expected tensor IO footprint, not hardware DRAM
   counters.
 - Peak bandwidth defaults to CUDA device properties. `--use-roofline-utils`

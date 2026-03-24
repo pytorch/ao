@@ -15,6 +15,9 @@ from tabulate import tabulate
 
 from benchmarks.utils import benchmark_cuda_function_in_microseconds
 from torchao.prototype.blockwise_fp8_training.kernels import (
+    torch_blockwise_scale_act_quant_lhs,
+    torch_blockwise_scale_act_quant_rhs,
+    torch_blockwise_scale_weight_quant,
     triton_fp8_blockwise_act_quant_lhs,
     triton_fp8_blockwise_act_quant_rhs,
     triton_fp8_blockwise_act_quant_transposed_lhs,
@@ -55,6 +58,7 @@ class KernelSpec:
     name: str
     runner: Callable[[torch.Tensor, int], Tuple[torch.Tensor, torch.Tensor]]
     validate: Callable[[Tuple[int, int], int], Optional[str]]
+    reference_runner: Callable[[torch.Tensor, int], Tuple[torch.Tensor, torch.Tensor]]
 
 
 def _validate_k_divisible(shape: Tuple[int, int], block_size: int) -> Optional[str]:
@@ -79,31 +83,61 @@ def _validate_mk_divisible(shape: Tuple[int, int], block_size: int) -> Optional[
     return None
 
 
+def _to_column_major_2d(x: torch.Tensor) -> torch.Tensor:
+    assert x.dim() == 2, f"Expected a 2D tensor, got shape {tuple(x.shape)}"
+    return x.t().contiguous().t()
+
+
+def _reference_weight_quant_rhs(
+    x: torch.Tensor, block_size: int
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    y, s = torch_blockwise_scale_weight_quant(x, tile_size=block_size)
+    return _to_column_major_2d(y), _to_column_major_2d(s)
+
+
+def _reference_weight_quant_transposed_rhs(
+    x: torch.Tensor, block_size: int
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    y, s = torch_blockwise_scale_weight_quant(x.t().contiguous(), tile_size=block_size)
+    return _to_column_major_2d(y), _to_column_major_2d(s)
+
+
 KERNEL_SPECS = [
     KernelSpec(
         name="act_quant_lhs",
         runner=triton_fp8_blockwise_act_quant_lhs,
         validate=_validate_k_divisible,
+        reference_runner=lambda x, block_size: torch_blockwise_scale_act_quant_lhs(
+            x, tile_size=block_size
+        ),
     ),
     KernelSpec(
         name="act_quant_rhs",
         runner=triton_fp8_blockwise_act_quant_rhs,
         validate=_validate_k_divisible,
+        reference_runner=lambda x, block_size: torch_blockwise_scale_act_quant_rhs(
+            x, block_size=block_size
+        ),
     ),
     KernelSpec(
         name="act_quant_transposed_lhs",
         runner=triton_fp8_blockwise_act_quant_transposed_lhs,
         validate=_validate_m_divisible,
+        reference_runner=lambda x, block_size: torch_blockwise_scale_act_quant_lhs(
+            x.t().contiguous(), tile_size=block_size
+        ),
     ),
     KernelSpec(
         name="weight_quant_rhs",
         runner=triton_fp8_blockwise_weight_quant_rhs,
         validate=_validate_mk_divisible,
+        reference_runner=_reference_weight_quant_rhs,
     ),
     KernelSpec(
         name="weight_quant_transposed_rhs",
         runner=triton_fp8_blockwise_weight_quant_transposed_rhs,
         validate=_validate_mk_divisible,
+        reference_runner=_reference_weight_quant_transposed_rhs,
     ),
 ]
 
@@ -176,6 +210,46 @@ def _benchmark_kernel(
     return kernel_us, y, s
 
 
+def _check_correctness(
+    kernel: KernelSpec,
+    input_tensor: torch.Tensor,
+    block_size: int,
+    y: torch.Tensor,
+    s: torch.Tensor,
+    rtol: float,
+    atol: float,
+) -> None:
+    ref_y, ref_s = kernel.reference_runner(input_tensor, block_size)
+
+    assert ref_y.shape == y.shape, (
+        f"{kernel.name}: output shape mismatch: expected {ref_y.shape}, got {y.shape}"
+    )
+    assert ref_y.stride() == y.stride(), (
+        f"{kernel.name}: output stride mismatch: expected {ref_y.stride()}, got {y.stride()}"
+    )
+    assert ref_s.shape == s.shape, (
+        f"{kernel.name}: scale shape mismatch: expected {ref_s.shape}, got {s.shape}"
+    )
+    assert ref_s.stride() == s.stride(), (
+        f"{kernel.name}: scale stride mismatch: expected {ref_s.stride()}, got {s.stride()}"
+    )
+
+    torch.testing.assert_close(
+        y.to(torch.float32),
+        ref_y.to(torch.float32),
+        rtol=rtol,
+        atol=atol,
+        msg=f"{kernel.name}: quantized outputs differ from Torch reference",
+    )
+    torch.testing.assert_close(
+        s,
+        ref_s,
+        rtol=rtol,
+        atol=atol,
+        msg=f"{kernel.name}: scales differ from Torch reference",
+    )
+
+
 def _calculate_logical_io_gbps(
     input_tensor: torch.Tensor,
     y: torch.Tensor,
@@ -195,6 +269,9 @@ def _run_suite(
     k: int,
     block_size: int,
     bandwidth_spec: GpuBandwidthSpec,
+    check_correctness: bool,
+    correctness_rtol: float,
+    correctness_atol: float,
 ) -> Tuple[List[KernelMeasurement], List[SkippedKernelCase]]:
     measurements = []
     skipped = []
@@ -215,6 +292,16 @@ def _run_suite(
 
             input_tensor = torch.randn(*shape, dtype=torch.bfloat16, device="cuda")
             kernel_us, y, s = _benchmark_kernel(kernel, input_tensor, block_size)
+            if check_correctness:
+                _check_correctness(
+                    kernel=kernel,
+                    input_tensor=input_tensor,
+                    block_size=block_size,
+                    y=y,
+                    s=s,
+                    rtol=correctness_rtol,
+                    atol=correctness_atol,
+                )
             effective_logical_io_gbps = _calculate_logical_io_gbps(
                 input_tensor=input_tensor,
                 y=y,
@@ -439,15 +526,35 @@ def parse_args():
             "CUDA device properties."
         ),
     )
+    parser.add_argument(
+        "--check-correctness",
+        action="store_true",
+        help=(
+            "Run a Torch reference implementation once per valid shape/kernel "
+            "pair and assert the Triton output matches."
+        ),
+    )
+    parser.add_argument(
+        "--correctness-rtol",
+        type=float,
+        default=1e-2,
+        help="Relative tolerance for --check-correctness comparisons.",
+    )
+    parser.add_argument(
+        "--correctness-atol",
+        type=float,
+        default=1e-2,
+        help="Absolute tolerance for --check-correctness comparisons.",
+    )
     return parser.parse_args()
 
 
 def main():
+    args = parse_args()
     if not torch.cuda.is_available():
         raise RuntimeError("CUDA is required to run this benchmark.")
 
     torch.random.manual_seed(67)
-    args = parse_args()
     bandwidth_spec = _resolve_gpu_specs(use_roofline_utils=args.use_roofline_utils)
 
     measurements, skipped = _run_suite(
@@ -455,6 +562,9 @@ def main():
         k=args.k,
         block_size=args.block_size,
         bandwidth_spec=bandwidth_spec,
+        check_correctness=args.check_correctness,
+        correctness_rtol=args.correctness_rtol,
+        correctness_atol=args.correctness_atol,
     )
     _print_results(
         measurements=measurements,
