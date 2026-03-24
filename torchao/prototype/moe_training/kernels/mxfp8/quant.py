@@ -14,12 +14,6 @@ from torchao.prototype.moe_training.kernels.mxfp8.cute_utils import (
     _cutedsl_runtime_available,
     _missing_cutedsl_runtime_packages,
 )
-from torchao.prototype.moe_training.kernels.mxfp8.cutedsl_quantize_2d import (
-    mxfp8_quantize_cutedsl_2d,
-)
-from torchao.prototype.moe_training.kernels.mxfp8.cutedsl_quantize_3d import (
-    mxfp8_quantize_cutedsl_3d,
-)
 from torchao.prototype.mx_formats.utils import to_blocked
 from torchao.utils import (
     ceil_div,
@@ -896,6 +890,10 @@ def _mxfp8_quantize_3d_cutedsl_custom_op(
     scaling_mode: str = "rceil",
     stage_count: int = 2,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
+    from torchao.prototype.moe_training.kernels.mxfp8.cutedsl_quantize_3d import (
+        mxfp8_quantize_cutedsl_3d,
+    )
+
     return mxfp8_quantize_cutedsl_3d(
         x,
         block_size=block_size,
@@ -938,6 +936,10 @@ def _mxfp8_quantize_2d_cutedsl_custom_op(
     scaling_mode: str = "rceil",
     stage_count: int = 2,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
+    from torchao.prototype.moe_training.kernels.mxfp8.cutedsl_quantize_2d import (
+        mxfp8_quantize_cutedsl_2d,
+    )
+
     return mxfp8_quantize_cutedsl_2d(
         x,
         block_size=block_size,
