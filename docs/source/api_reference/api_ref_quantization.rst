@@ -94,7 +94,7 @@ uintx weight configs (prototype)
     Int8DynamicActivationUIntxWeightConfig
 
 int4 weight configs (prototype)
-~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. autosummary::
     :toctree: generated/
