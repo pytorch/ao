@@ -47,23 +47,10 @@ These benchmarks were also ran on a NVIDIA-A100-80GB.
 
 ![support_matrix](/docs/static/supported_sparsity_patterns.png)
 
-### int8 dynamic quant + 2:4 sparasity
-
-We support composing int8 dynaic quantization with 2:4 sparsity. We fuse one of the scalar dequant multiplications into our cuSPARSELt sparse mm in order to remain performant.
-
-```py
-from torchao.quantization.quant_api import quantize_, Int8DynamicActivationInt8WeightConfig
-from torchao.dtypes import SemiSparseLayout
-
-model = model.cuda()
-quantize_(model, Int8DynamicActivationInt8WeightConfig(layout=SemiSparseLayout()))
-```
-
 ### 2:4 sparsity
 
 ```py
 from torchao.sparsity.sparse_api import sparsify_, SemiSparseWeightConfig
-from torchao.dtypes import SemiSparseLayout
 
 model = model.cuda()
 sparsify_(model, SemiSparseWeightConfig())
