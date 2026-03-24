@@ -1081,10 +1081,7 @@ class Int8DynamicActivationInt8WeightConfig(AOBaseConfig):
             act_granularity, weight_granularity = Int8Tensor._normalize_granularity(
                 self.granularity
             )
-        act_granularity, weight_granularity = Int8Tensor._normalize_granularity(
-            self.granularity
-        )
-        _validate_granularity_int8(act_granularity, weight_granularity)
+            _validate_granularity_int8(act_granularity, weight_granularity)
 
 
 def _int8_dynamic_activation_int8_weight_quantize_tensor(weight, config):
