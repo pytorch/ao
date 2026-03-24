@@ -16,42 +16,9 @@ if not torch_version_at_least("2.8.0"):
     exit()
 
 
-class ToyLinearModel(torch.nn.Module):
-    def __init__(self, m=64, n=32, k=64, bias=False):
-        super().__init__()
-        self.linear1 = torch.nn.Linear(m, n, bias=bias).to(torch.float)
-        self.linear2 = torch.nn.Linear(n, k, bias=bias).to(torch.float)
-
-    def example_inputs(self, batch_size=1, dtype=torch.float, device="cpu"):
-        return (
-            torch.randn(
-                batch_size, self.linear1.in_features, dtype=dtype, device=device
-            ),
-        )
-
-    def forward(self, x):
-        x = self.linear1(x)
-        x = self.linear2(x)
-        return x
-
-
-device = "cpu"
-bias = True
-dtype = torch.bfloat16
-bs = 32
-act_mapping_type = MappingType.SYMMETRIC
-
-m = ToyLinearModel(bias=bias).eval().to(dtype).to(device)
-example_inputs = m.example_inputs(batch_size=bs, dtype=dtype, device=device)
-
-
-with torch.no_grad():
-    quantize_(
-        m,
-        Int8DynamicActivationInt4WeightConfig(
-            group_size=32,
-            act_mapping_type=act_mapping_type,
-        ),
-    )
-    opt_model = torch.compile(m, fullgraph=True, dynamic=True)
-    opt_model(*example_inputs)
+config = Int8DynamicActivationInt4WeightConfig(
+    group_size=32,
+    act_mapping_type=MappingType.SYMMETRIC,
+)
+m = torch.nn.Linear(64, 64).to(torch.float)
+quantize_(m, config)
