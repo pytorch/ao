@@ -34,7 +34,6 @@ import torchao
 from torchao.core.config import AOBaseConfig
 from torchao.dtypes import (
     AffineQuantizedTensor,
-    TensorCoreTiledLayout,
     to_affine_quantized_intx,
 )
 from torchao.dtypes.utils import Layout
@@ -102,7 +101,6 @@ from .granularity import (
 )
 from .linear_activation_quantized_tensor import (
     LinearActivationQuantizedTensor,
-    to_linear_activation_quantized,
 )
 from .linear_quant_modules import (
     Int4WeightOnlyQuantizer,
@@ -114,7 +112,6 @@ from .qat import (
 from .quant_primitives import (
     _DTYPE_TO_QVALUE_BOUNDS,
     MappingType,
-    ZeroPointDomain,
     quantize_affine,
 )
 from .unified import Quantizer, TwoStepQuantizer
@@ -134,14 +131,6 @@ __all__ = [
     "Int8DynActInt4WeightQuantizer",
     "ModuleFqnToConfig",
 ]
-
-LAYOUT_TO_ZERO_POINT_DOMAIN = {
-    TensorCoreTiledLayout: [ZeroPointDomain.FLOAT],
-}
-
-LAYOUT_TO_PRESERVE_ZEROS = {
-    TensorCoreTiledLayout: False,
-}
 
 
 def _replace_with_custom_fn_if_matches_filter(
@@ -1075,13 +1064,15 @@ class Int8DynamicActivationInt8WeightConfig(AOBaseConfig):
         torch._C._log_api_usage_once(
             "torchao.quantization.Int8DynamicActivationInt8WeightConfig"
         )
-        if self.layout is None:
-            self.layout = PlainLayout()
-        if self.version == 2:
-            act_granularity, weight_granularity = Int8Tensor._normalize_granularity(
-                self.granularity
+        if self.version == 1:
+            raise ValueError(
+                "version 1 of Int8DynamicActivationInt8WeightConfig has been removed, please use version 2, "
+                "see https://github.com/pytorch/ao/issues/2752 for more details"
             )
-            _validate_granularity_int8(act_granularity, weight_granularity)
+        act_granularity, weight_granularity = Int8Tensor._normalize_granularity(
+            self.granularity
+        )
+        _validate_granularity_int8(act_granularity, weight_granularity)
 
 
 def _int8_dynamic_activation_int8_weight_quantize_tensor(weight, config):

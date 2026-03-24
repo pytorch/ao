@@ -11,10 +11,6 @@ from torch.utils._python_dispatch import return_and_correct_aliasing
 from torchao.dtypes.affine_quantized_tensor import (
     AffineQuantizedTensor,
 )
-from torchao.dtypes.uintx.tensor_core_tiled_layout import (
-    _linear_bf16_act_uint4_weight_check,
-    _linear_bf16_act_uint4_weight_impl,
-)
 from torchao.utils import (
     fill_defaults,
 )
@@ -104,9 +100,7 @@ AffineQuantizedTensor._quantized_linear_op = _quantized_linear_op
 # bias: dimension is (out_features,)
 # so that these can be shared by F.linear, aten.mm, aten.addmm dispatches
 def _register_aqt_quantized_linear_dispatches():
-    for dispatch_condition, impl in [
-        (_linear_bf16_act_uint4_weight_check, _linear_bf16_act_uint4_weight_impl),
-    ]:
+    for dispatch_condition, impl in []:
         register_aqt_quantized_linear_dispatch(dispatch_condition, impl)
 
 

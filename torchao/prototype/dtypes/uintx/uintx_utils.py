@@ -17,8 +17,8 @@ from typing import List, Optional, Tuple
 import torch
 from torch.utils._python_dispatch import return_and_correct_aliasing
 
-from torchao.dtypes.uintx.bitpacking import pack, unpack
 from torchao.dtypes.utils import AQTTensorImpl, Layout
+from torchao.prototype.dtypes.uintx.bitpacking import pack, unpack
 from torchao.utils import TorchAOBaseTensor
 
 aten = torch.ops.aten
