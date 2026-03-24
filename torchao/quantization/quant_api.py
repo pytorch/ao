@@ -1091,7 +1091,7 @@ class Int8DynamicActivationInt8WeightConfig(AOBaseConfig):
        :language: python
     """
 
-    layout: Optional[Layout] = PlainLayout()
+    layout: Optional[Layout] = None
     act_mapping_type: Optional[MappingType] = MappingType.SYMMETRIC
     weight_only_decode: bool = False
     granularity: Optional[
@@ -1104,6 +1104,8 @@ class Int8DynamicActivationInt8WeightConfig(AOBaseConfig):
         torch._C._log_api_usage_once(
             "torchao.quantization.Int8DynamicActivationInt8WeightConfig"
         )
+        if self.layout is None:
+            self.layout = PlainLayout()
         if self.version == 2:
             act_granularity, weight_granularity = Int8Tensor._normalize_granularity(
                 self.granularity
