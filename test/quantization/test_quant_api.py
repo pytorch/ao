@@ -21,6 +21,10 @@ from torchao.dtypes import (
     AffineQuantizedTensor,
     PlainLayout,
 )
+from torchao.prototype.mx_formats.inference_workflow import (
+    MXDynamicActivationMXWeightConfig,
+    NVFP4DynamicActivationNVFP4WeightConfig,
+)
 from torchao.quantization import (
     Float8Tensor,
     Int4TilePackedTo4dTensor,
@@ -37,7 +41,6 @@ from torchao.quantization.quant_api import (
     Float8DynamicActivationInt4WeightConfig,
     Float8WeightOnlyConfig,
     FqnToConfig,
-    GemliteUIntXWeightOnlyConfig,
     Int4WeightOnlyConfig,
     Int8DynamicActivationInt8WeightConfig,
     Int8DynamicActivationIntxWeightConfig,
@@ -65,18 +68,6 @@ from torchao.utils import (
     is_sm_at_least_100,
     torch_version_at_least,
     unwrap_tensor_subclass,
-)
-
-try:
-    import gemlite  # noqa: F401
-
-    has_gemlite = True
-except ModuleNotFoundError:
-    has_gemlite = False
-
-from torchao.prototype.mx_formats.inference_workflow import (
-    MXDynamicActivationMXWeightConfig,
-    NVFP4DynamicActivationNVFP4WeightConfig,
 )
 
 
@@ -354,7 +345,6 @@ class TestQuantFlow(TestCase):
             Float8DynamicActivationFloat8WeightConfig(),
             Int8DynamicActivationInt8WeightConfig(),
             Int8WeightOnlyConfig(),
-            GemliteUIntXWeightOnlyConfig(),
         ],
     )
     @skip_if_xpu("XPU enablement in progress")
@@ -372,12 +362,8 @@ class TestQuantFlow(TestCase):
             and not is_sm_at_least_89()
         ):
             return unittest.skip("requires CUDA capability 8.9 or greater")
-        elif isinstance(config, GemliteUIntXWeightOnlyConfig) and not has_gemlite:
-            return unittest.skip("gemlite not available")
 
         dtype = torch.bfloat16
-        if isinstance(config, GemliteUIntXWeightOnlyConfig):
-            dtype = torch.float16
 
         # set up inputs
         device = get_current_accelerator_device()
