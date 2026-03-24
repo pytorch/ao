@@ -34,6 +34,7 @@ Below are the stable and near-stable inference workflows in torchao:
 | intx | int8 | {class}`~torchao.quantization.Int8DynamicActivationIntxWeightConfig`: Applies int8 dynamic per-token activation and intx (1-8 bit) weight quantization. CPU optimized. |
 | uintx (4/8-bit) | bf16 | {class}`~torchao.prototype.quantization.UIntxWeightOnlyConfig`(prototype): Applies 4-bit (asymmetric, grouped) or 8-bit (symmetric, per-channel) weight-only quantization using gemlite (https://github.com/dropbox/gemlite) Triton kernels. Supports packing bit widths 8, 16, 32. Requires CUDA and gemlite. optimized for A100 and H100 GPUs. |
 | uintx (4/8-bit) | int8 | {class}`~torchao.prototype.quantization.Int8DynamicActivationUIntxWeightConfig`(prototype): Applies int8 dynamic activation with 4-bit or 8-bit weight quantization using gemlite (https://github.com/dropbox/gemlite) Triton kernels. Requires CUDA and gemlite. Optimized for A100 and H100 GPUs. |
+| int4 | int8 | {class}`~torchao.prototype.quantization.int4.Int8DynamicActivationInt4WeightConfig`(prototype): Applies int8 dynamic per-group activation and int4 weight per-group quantization on X86 CPU. Groupsize must be 128, 64, 32. |
 
 
 ## Accuracy benchmarks
