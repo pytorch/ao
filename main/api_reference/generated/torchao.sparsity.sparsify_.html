@@ -173,7 +173,7 @@
   fbq('track', 'PageView');
 </script>
 <script>
-  document.documentElement.setAttribute('data-version', 'main (0.17.0+gitbca91b0 )');
+  document.documentElement.setAttribute('data-version', 'main (0.17.0+git436b2e9 )');
 </script>
 <noscript>
   <img height="1" width="1" src="https://www.facebook.com/tr?id=243028289693773&ev=PageView&noscript=1" />
@@ -1529,13 +1529,7 @@ document.write(`
 <span class="sig-prename descclassname"><span class="pre">torchao.sparsity.</span></span><span class="sig-name descname"><span class="pre">sparsify_</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">model</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.pytorch.org/docs/stable/generated/torch.nn.Module.html#torch.nn.Module" title="(in PyTorch v2.11)"><span class="pre">Module</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">config</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="torchao.core.config.AOBaseConfig.html#torchao.core.config.AOBaseConfig" title="torchao.core.config.AOBaseConfig"><span class="pre">AOBaseConfig</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">filter_fn</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Callable" title="(in Python v3.14)"><span class="pre">Callable</span></a><span class="p"><span class="pre">[</span></span><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.pytorch.org/docs/stable/generated/torch.nn.Module.html#torch.nn.Module" title="(in PyTorch v2.11)"><span class="pre">Module</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.pytorch.org/docs/stable/generated/torch.nn.Module.html#torch.nn.Module" title="(in PyTorch v2.11)"><span class="pre">Module</span></a></span></span><a class="reference internal" href="../../_modules/torchao/sparsity/sparse_api.html#sparsify_"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="reference external" href="https://github.com/pytorch/ao/blob/main/torchao/sparsity/sparse_api.py#L97"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#torchao.sparsity.sparsify_" title="Link to this definition">#</a></dt>
 <dd><p>Convert the weight of linear modules in the model with <cite>apply_tensor_subclass</cite>.
 This function is essentially the same as quantize, put for sparsity subclasses.</p>
-<dl class="simple">
-<dt>Currently, we support three options for sparsity:</dt><dd><ul class="simple">
-<li><p>semi-structured (2:4) sparsity with <cite>semi_sparse_weight</cite></p></li>
-<li><p>int8 dynamic quantization + 2:4 sparsity with <cite>layout=SemiSparseLayout</cite></p></li>
-</ul>
-</dd>
-</dl>
+<p>Currently, we support semi-structured (2:4) sparsity with <cite>semi_sparse_weight</cite>.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
@@ -1558,10 +1552,6 @@ This function is essentially the same as quantize, put for sparsity subclasses.<
 <span class="c1"># for 2:4 sparsity</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.sparse_api</span><span class="w"> </span><span class="kn">import</span> <span class="n">semi_sparse_weight</span>
 <span class="n">m</span> <span class="o">=</span> <span class="n">sparsify_</span><span class="p">(</span><span class="n">m</span><span class="p">,</span> <span class="n">semi_sparse_weight</span><span class="p">(),</span> <span class="n">filter_fn</span><span class="p">)</span>
-
-<span class="c1"># for int8 dynamic quantization + 2:4 sparsity</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.dtypes</span><span class="w"> </span><span class="kn">import</span> <span class="n">SemiSparseLayout</span>
-<span class="n">m</span> <span class="o">=</span> <span class="n">quantize_</span><span class="p">(</span><span class="n">m</span><span class="p">,</span> <span class="n">Int8DynamicActivationInt8WeightConfig</span><span class="p">(</span><span class="n">layout</span><span class="o">=</span><span class="n">SemiSparseLayout</span><span class="p">),</span> <span class="n">filter_fn</span><span class="p">)</span>
 </pre></div>
 </div>
 </dd></dl>
@@ -1911,7 +1901,7 @@ This function is essentially the same as quantize, put for sparsity subclasses.<
        "headline": "sparsify",
        "description": "PyTorch Documentation. Explore PyTorch, an open-source machine learning library that accelerates the path from research prototyping to production deployment.",
        "url": "/api_reference/generated/torchao.sparsity.sparsify_.html",
-       "articleBody": "sparsify# torchao.sparsity.sparsify_(model: Module, config: AOBaseConfig, filter_fn: Callable[[Module, str], bool] | None = None) \u2192 Module[source][source]# Convert the weight of linear modules in the model with apply_tensor_subclass. This function is essentially the same as quantize, put for sparsity subclasses. Currently, we support three options for sparsity: semi-structured (2:4) sparsity with semi_sparse_weight int8 dynamic quantization + 2:4 sparsity with layout=SemiSparseLayout Parameters: model (torch.nn.Module) \u2013 input model config (AOBaseConfig) \u2013 a workflow configuration object filter_fn (Optional[Callable[[torch.nn.Module, str], bool]]) \u2013 function that takes a nn.Module instance and fully qualified name of the module, returns True if we want to apply the specified workflow to this module. Example: import torch import torch.nn as nn from torchao.sparsity import sparsify_ def filter_fn(module: nn.Module, fqn: str) -\u003e bool: return isinstance(module, nn.Linear) m = nn.Sequential(nn.Linear(32, 1024), nn.Linear(1024, 32)) # for 2:4 sparsity from torchao.sparse_api import semi_sparse_weight m = sparsify_(m, semi_sparse_weight(), filter_fn) # for int8 dynamic quantization + 2:4 sparsity from torchao.dtypes import SemiSparseLayout m = quantize_(m, Int8DynamicActivationInt8WeightConfig(layout=SemiSparseLayout), filter_fn)",
+       "articleBody": "sparsify# torchao.sparsity.sparsify_(model: Module, config: AOBaseConfig, filter_fn: Callable[[Module, str], bool] | None = None) \u2192 Module[source][source]# Convert the weight of linear modules in the model with apply_tensor_subclass. This function is essentially the same as quantize, put for sparsity subclasses. Currently, we support semi-structured (2:4) sparsity with semi_sparse_weight. Parameters: model (torch.nn.Module) \u2013 input model config (AOBaseConfig) \u2013 a workflow configuration object filter_fn (Optional[Callable[[torch.nn.Module, str], bool]]) \u2013 function that takes a nn.Module instance and fully qualified name of the module, returns True if we want to apply the specified workflow to this module. Example: import torch import torch.nn as nn from torchao.sparsity import sparsify_ def filter_fn(module: nn.Module, fqn: str) -\u003e bool: return isinstance(module, nn.Linear) m = nn.Sequential(nn.Linear(32, 1024), nn.Linear(1024, 32)) # for 2:4 sparsity from torchao.sparse_api import semi_sparse_weight m = sparsify_(m, semi_sparse_weight(), filter_fn)",
        "author": {
          "@type": "Organization",
          "name": "PyTorch Contributors",
