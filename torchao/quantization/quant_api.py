@@ -34,7 +34,6 @@ import torchao
 from torchao.core.config import AOBaseConfig
 from torchao.dtypes import (
     AffineQuantizedTensor,
-    Int4CPULayout,
     PlainLayout,
     TensorCoreTiledLayout,
     to_affine_quantized_intx,
@@ -142,12 +141,10 @@ __all__ = [
 
 LAYOUT_TO_ZERO_POINT_DOMAIN = {
     TensorCoreTiledLayout: [ZeroPointDomain.FLOAT],
-    Int4CPULayout: [ZeroPointDomain.FLOAT],
 }
 
 LAYOUT_TO_PRESERVE_ZEROS = {
     TensorCoreTiledLayout: False,
-    Int4CPULayout: False,
 }
 
 

@@ -11,10 +11,6 @@ from torch.utils._python_dispatch import return_and_correct_aliasing
 from torchao.dtypes.affine_quantized_tensor import (
     AffineQuantizedTensor,
 )
-from torchao.dtypes.uintx.int4_cpu_layout import (
-    _linear_fp_act_uint4_weight_cpu_check,
-    _linear_fp_act_uint4_weight_cpu_impl,
-)
 from torchao.dtypes.uintx.packed_linear_int8_dynamic_activation_intx_weight_layout import (
     _linear_check as _linear_int8_act_intx_weight_packed_check,
 )
@@ -125,10 +121,6 @@ def _register_aqt_quantized_linear_dispatches():
         (_linear_int8_act_int8_weight_check, _linear_int8_act_int8_weight_impl),
         (_linear_bf16_act_uint4_weight_check, _linear_bf16_act_uint4_weight_impl),
         (_linear_fp_act_int8_weight_check, _linear_fp_act_int8_weight_impl),
-        (
-            _linear_fp_act_uint4_weight_cpu_check,
-            _linear_fp_act_uint4_weight_cpu_impl,
-        ),
         (
             _linear_int8_act_intx_weight_packed_check,
             _linear_int8_act_intx_weight_packed_impl,

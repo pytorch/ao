@@ -9,7 +9,6 @@ from .affine_quantized_tensor import (
 )
 from .nf4tensor import NF4Tensor, to_nf4
 from .uintx import (
-    Int4CPULayout,
     PackedLinearInt8DynamicActivationIntxWeightLayout,
     TensorCoreTiledLayout,
 )
@@ -30,7 +29,6 @@ __all__ = [
     "PlainLayout",
     "TensorCoreTiledLayout",
     "affine_quantized_tensor_ops",
-    "Int4CPULayout",
     "PackedLinearInt8DynamicActivationIntxWeightLayout",
     "to_affine_quantized_packed_linear_int8_dynamic_activation_intx_weight",
     "Int4GroupwisePreshuffleTensor",
