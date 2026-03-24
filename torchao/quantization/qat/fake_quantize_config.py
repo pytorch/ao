@@ -109,8 +109,6 @@ class IntxFakeQuantizeConfig(FakeQuantizeConfigBase):
 
     Args:
         dtype: dtype to simulate during fake quantization, e.g. torch.int8.
-            For PyTorch versions older than 2.6, you may use `TorchAODType` to represent
-            torch.int1 to torch.int7 instead, e.g. TorchAODType.INT4.
         granularity: granularity of scales and zero points, e.g. PerGroup(32).
             We also support the following strings:
                1) 'per_token': equivalent to PerToken()
@@ -151,7 +149,7 @@ class IntxFakeQuantizeConfig(FakeQuantizeConfigBase):
         IntxFakeQuantizeConfig(torch.int4, PerGroup(32), MappingType.SYMMETRIC)
     """
 
-    dtype: Union[torch.dtype, TorchAODType]
+    dtype: Union[torch.dtype, "TorchAODType"]
     granularity: Granularity
     mapping_type: MappingType
     scale_precision: torch.dtype
@@ -163,7 +161,7 @@ class IntxFakeQuantizeConfig(FakeQuantizeConfigBase):
 
     def __init__(
         self,
-        dtype: Union[torch.dtype, TorchAODType],
+        dtype: Union[torch.dtype, "TorchAODType"],
         granularity: Union[Granularity, str, None] = None,
         mapping_type: Optional[MappingType] = None,
         scale_precision: torch.dtype = torch.float32,

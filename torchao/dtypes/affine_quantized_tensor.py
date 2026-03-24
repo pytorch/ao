@@ -243,6 +243,8 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
             quantize_affine,
         )
 
+        if _layout is None:
+            _layout = PlainLayout()
         if zero_point_domain is _DEFAULT_ZPD:
             zero_point_domain = ZeroPointDomain.INT
 
@@ -390,6 +392,8 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
             quantize_affine,
         )
 
+        if _layout is None:
+            _layout = PlainLayout()
         if zero_point_domain is _DEFAULT_ZPD:
             zero_point_domain = ZeroPointDomain.INT
         if zero_point_domain is None:

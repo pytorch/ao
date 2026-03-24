@@ -92,10 +92,11 @@ class ZeroPointDomain(Enum):
 class _TorchAODTypeMeta(EnumMeta):
     def __getattribute__(cls, name):
         result = super().__getattribute__(name)
-        warnings.warn(
-            "Deprecation: TorchAODType is deprecated, please use the torch.intN dtype instead "
-            "(e.g. TorchAODType.INT4 -> torch.int4)"
-        )
+        if isinstance(result, cls):
+            warnings.warn(
+                "Deprecation: TorchAODType is deprecated, please use the torch.intN dtype instead "
+                "(e.g. TorchAODType.INT4 -> torch.int4)"
+            )
         return result
 
 
@@ -128,36 +129,41 @@ FP8_TYPES = {
 Map from dtype to the bound value of integers
 TODO: maybe can replace this with call to torch.iinfo
 """
-_DTYPE_TO_QVALUE_BOUNDS: Dict[Union[torch.dtype, TorchAODType], Tuple[int, int]] = {
-    torch.uint8: (0, 255),
-    torch.int8: (-128, 127),
-    torch.int16: (-(2**15), 2**15 - 1),
-    torch.int32: (-(2**31), 2**31 - 1),
-}
-_DTYPE_TO_BIT_WIDTH: Dict[Union[torch.dtype, TorchAODType], Tuple[int, int]] = {
-    TorchAODType.INT1: 1,
-    TorchAODType.INT2: 2,
-    TorchAODType.INT3: 3,
-    TorchAODType.INT4: 4,
-    TorchAODType.INT5: 5,
-    TorchAODType.INT6: 6,
-    TorchAODType.INT7: 7,
-    torch.uint8: 8,
-    torch.int8: 8,
-    torch.int16: 16,
-    torch.int32: 32,
-}
+# Suppress TorchAODType deprecation warnings for internal usage
+with warnings.catch_warnings():
+    warnings.simplefilter("ignore", UserWarning)
 
-_SUB_BYTE_UINT_BOUNDS: Dict[Union[torch.dtype, TorchAODType], Tuple[int, int]] = {}
-_SUB_BYTE_INT_BOUNDS: Dict[Union[torch.dtype, TorchAODType], Tuple[int, int]] = {
-    TorchAODType.INT1: (-(2**0), 2**0 - 1),
-    TorchAODType.INT2: (-(2**1), 2**1 - 1),
-    TorchAODType.INT3: (-(2**2), 2**2 - 1),
-    TorchAODType.INT4: (-(2**3), 2**3 - 1),
-    TorchAODType.INT5: (-(2**4), 2**4 - 1),
-    TorchAODType.INT6: (-(2**5), 2**5 - 1),
-    TorchAODType.INT7: (-(2**6), 2**6 - 1),
-}
+    _DTYPE_TO_QVALUE_BOUNDS: Dict[Union[torch.dtype, TorchAODType], Tuple[int, int]] = {
+        torch.uint8: (0, 255),
+        torch.int8: (-128, 127),
+        torch.int16: (-(2**15), 2**15 - 1),
+        torch.int32: (-(2**31), 2**31 - 1),
+    }
+
+    _DTYPE_TO_BIT_WIDTH: Dict[Union[torch.dtype, TorchAODType], int] = {
+        TorchAODType.INT1: 1,
+        TorchAODType.INT2: 2,
+        TorchAODType.INT3: 3,
+        TorchAODType.INT4: 4,
+        TorchAODType.INT5: 5,
+        TorchAODType.INT6: 6,
+        TorchAODType.INT7: 7,
+        torch.uint8: 8,
+        torch.int8: 8,
+        torch.int16: 16,
+        torch.int32: 32,
+    }
+
+    _SUB_BYTE_UINT_BOUNDS: Dict[Union[torch.dtype, TorchAODType], Tuple[int, int]] = {}
+    _SUB_BYTE_INT_BOUNDS: Dict[Union[torch.dtype, TorchAODType], Tuple[int, int]] = {
+        TorchAODType.INT1: (-(2**0), 2**0 - 1),
+        TorchAODType.INT2: (-(2**1), 2**1 - 1),
+        TorchAODType.INT3: (-(2**2), 2**2 - 1),
+        TorchAODType.INT4: (-(2**3), 2**3 - 1),
+        TorchAODType.INT5: (-(2**4), 2**4 - 1),
+        TorchAODType.INT6: (-(2**5), 2**5 - 1),
+        TorchAODType.INT7: (-(2**6), 2**6 - 1),
+    }
 
 _SUB_BYTE_UINT_BOUNDS = {
     torch.uint1: (0, 2**1 - 1),
