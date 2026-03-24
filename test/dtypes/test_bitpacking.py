@@ -7,7 +7,7 @@ import pytest
 import torch
 from torch.utils._triton import has_triton
 
-from torchao.dtypes.uintx.bitpacking import pack, pack_cpu, unpack, unpack_cpu
+from torchao.prototype.dtypes.uintx.bitpacking import pack, pack_cpu, unpack, unpack_cpu
 from torchao.utils import get_current_accelerator_device
 
 bit_widths = (1, 2, 3, 4, 5, 6, 7)
