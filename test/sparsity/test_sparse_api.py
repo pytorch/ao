@@ -126,55 +126,9 @@ class TestBlockSparseWeight(common_utils.TestCase):
         torch.testing.assert_close(dense_result, sparse_result, rtol=1e-3, atol=1e-3)
 
 
-class TestQuantBlockSparseWeight(common_utils.TestCase):
-    @unittest.skipIf(not is_sm_at_least_90(), "Need H100 to run")
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
-    @common_utils.parametrize("compile", [True, False])
-    def test_sparse(self, compile):
-        input = torch.rand((256, 128)).to(torch.bfloat16).cuda()
-        model = (
-            nn.Sequential(
-                nn.Linear(128, 256),
-                nn.Linear(256, 128),
-            )
-            .to(torch.bfloat16)
-            .cuda()
-            .eval()
-        )
-        from torchao.sparsity.utils import create_block_sparse_tensor
-
-        M, N = model[0].weight.shape
-        model[0].weight.data = (
-            create_block_sparse_tensor(M, N, 64, 0.5, torch.bfloat16)
-            * torch.rand(M, N, dtype=torch.bfloat16).cuda()
-        )
-        M, N = model[1].weight.shape
-        model[1].weight.data = create_block_sparse_tensor(M, N, 64, 0.5, torch.bfloat16)
-
-        model_copy = copy.deepcopy(model)
-
-        quantize_(model_copy, Int8DynamicActivationInt8WeightConfig())
-        reference = model_copy(input)
-
-        from torchao.prototype.dtypes import BlockSparseLayout
-
-        quantize_(
-            model,
-            Int8DynamicActivationInt8WeightConfig(
-                layout=BlockSparseLayout(blocksize=64)
-            ),
-        )
-        if compile:
-            model = torch.compile(model)
-        sparse_result = model(input)
-
-        torch.testing.assert_close(reference, sparse_result, rtol=1e-1, atol=1e-1)
-
-
 common_utils.instantiate_parametrized_tests(TestSemiStructuredSparse)
 common_utils.instantiate_parametrized_tests(TestQuantSemiSparse)
 common_utils.instantiate_parametrized_tests(TestBlockSparseWeight)
-common_utils.instantiate_parametrized_tests(TestQuantBlockSparseWeight)
 
 if __name__ == "__main__":
     unittest.main()

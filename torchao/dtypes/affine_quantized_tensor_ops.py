@@ -54,10 +54,6 @@ from torchao.dtypes.uintx.tensor_core_tiled_layout import (
     _linear_bf16_act_uint4_weight_check,
     _linear_bf16_act_uint4_weight_impl,
 )
-from torchao.prototype.dtypes.uintx.block_sparse_layout import (
-    _linear_int8_act_int8_weight_block_sparse_check,
-    _linear_int8_act_int8_weight_block_sparse_impl,
-)
 from torchao.prototype.dtypes.uintx.gemlite_layout import (
     _linear_fp_act_int4_weight_gemlite_check,
     _linear_fp_act_int4_weight_gemlite_impl,
@@ -156,10 +152,6 @@ def _register_aqt_quantized_linear_dispatches():
         (
             _linear_int8_act_int8_weight_semi_structured_sparse_check,
             _linear_int8_act_int8_weight_semi_structured_sparse_impl,
-        ),
-        (
-            _linear_int8_act_int8_weight_block_sparse_check,
-            _linear_int8_act_int8_weight_block_sparse_impl,
         ),
         (_linear_bf16_act_uint4_weight_check, _linear_bf16_act_uint4_weight_impl),
         (_linear_fp_act_int8_weight_check, _linear_fp_act_int8_weight_impl),

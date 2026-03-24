@@ -16,7 +16,6 @@ from .uintx import (
     SemiSparseLayout,
     TensorCoreTiledLayout,
 )
-from .uintx.block_sparse_layout import BlockSparseLayout
 from .uintx.uintx_layout import UintxLayout
 from .utils import (
     Layout,
@@ -36,7 +35,6 @@ __all__ = [
     "SemiSparseLayout",
     "TensorCoreTiledLayout",
     "affine_quantized_tensor_ops",
-    "BlockSparseLayout",
     "UintxLayout",
     "Int4CPULayout",
     "QDQLayout",
