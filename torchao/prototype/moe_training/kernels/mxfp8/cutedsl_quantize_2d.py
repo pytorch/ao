@@ -15,8 +15,6 @@ from .cute_utils import (
     F8_MAX,
     compute_amax,
     compute_scale_from_amax,
-    load_vals_chunk_full,
-    load_vals_chunk_tail,
 )
 
 
@@ -86,6 +84,7 @@ def _compile_mxfp8_quantize_2d_cutedsl(
     requested_stage_count: int,
     k_tiles_per_cta: int,
     is_full_k_tiles: bool,
+    is_blackwell: bool,
     blocked_scale_output: bool,
 ):
     """Compile the 2D MXFP8 quantization kernel using CuTeDSL.
@@ -143,6 +142,7 @@ def _compile_mxfp8_quantize_2d_cutedsl(
     TILE_K = tile_k
     K_TILES_PER_CTA = k_tiles_per_cta
     IS_FULL_K_TILES_VALUE = is_full_k_tiles
+    IS_BLACKWELL_VALUE = is_blackwell
     BLOCKED_SCALE_OUTPUT_VALUE = blocked_scale_output
 
     THREADS_PER_BLOCK = (1 + COMPUTE_WARPS) * 32
@@ -315,6 +315,37 @@ def _compile_mxfp8_quantize_2d_cutedsl(
             sOUT_tile_u32[m_rel, sout_base // cutlass.Int32(4)] = q_fp8_vals4_u32[0]
 
         @cute.jit
+        def _load_vals_chunk_full(
+            self,
+            vals_block: cute.Tensor,
+            local_base: cutlass.Int32,
+        ):
+            chunk_vec = 4
+            vals_chunk = cute.make_rmem_tensor((chunk_vec,), cutlass.Float32)
+            for j in range(chunk_vec):
+                vals_chunk[j] = vals_block[local_base + j]
+            return vals_chunk
+
+        @cute.jit
+        def _load_vals_chunk_tail(
+            self,
+            vals_block: cute.Tensor,
+            k0: cutlass.Int64,
+            sout_base: cutlass.Int32,
+            local_base: cutlass.Int32,
+            K: cutlass.Int64,
+        ):
+            chunk_vec = 4
+            vals_chunk = cute.make_rmem_tensor((chunk_vec,), cutlass.Float32)
+            for j in range(chunk_vec):
+                k = k0 + sout_base + j
+                if k < K:
+                    vals_chunk[j] = vals_block[local_base + j]
+                else:
+                    vals_chunk[j] = cutlass.Float32(0.0)
+            return vals_chunk
+
+        @cute.jit
         def _quantize_store_chunk(
             self,
             vals_chunk: cute.Tensor,
@@ -378,7 +409,7 @@ def _compile_mxfp8_quantize_2d_cutedsl(
             for c in range(num_4B_chunks):
                 local_base = c * chunk_vec
                 sout_base = k_base + local_base
-                vals_chunk = load_vals_chunk_full(vals_block, local_base)
+                vals_chunk = self._load_vals_chunk_full(vals_block, local_base)
                 self._quantize_store_chunk(
                     vals_chunk, inv_scale, sOUT_tile, m_rel, sout_base, USE_RCEIL
                 )
@@ -418,7 +449,7 @@ def _compile_mxfp8_quantize_2d_cutedsl(
             for c in range(num_4B_chunks):
                 local_base = c * chunk_vec
                 sout_base = k_base + local_base
-                vals_chunk = load_vals_chunk_tail(
+                vals_chunk = self._load_vals_chunk_tail(
                     vals_block, k0, sout_base, local_base, K
                 )
                 self._quantize_store_4B_reg_to_smem(
@@ -539,6 +570,7 @@ def _compile_mxfp8_quantize_2d_cutedsl(
             USE_RCEIL: cutlass.Constexpr[bool],
             IS_FULL_K_TILES: cutlass.Constexpr[bool],
             STAGE_COUNT: cutlass.Constexpr[int],
+            IS_BLACKWELL: cutlass.Constexpr[bool],
         ):
             """Main MXFP8 quantization kernel with warp specialization and TMA pipeline.
 
@@ -717,7 +749,7 @@ def _compile_mxfp8_quantize_2d_cutedsl(
                                     amax = compute_amax(vals_block)
 
                                     scale_biased, inv_scale = compute_scale_from_amax(
-                                        amax, USE_RCEIL
+                                        amax, USE_RCEIL, IS_BLACKWELL
                                     )
                                     scale_buffer[kb] = cutlass.Uint8(scale_biased)
 
@@ -764,7 +796,9 @@ def _compile_mxfp8_quantize_2d_cutedsl(
                                         amax = compute_amax(vals_block)
 
                                         scale_biased, inv_scale = (
-                                            compute_scale_from_amax(amax, USE_RCEIL)
+                                            compute_scale_from_amax(
+                                                amax, USE_RCEIL, IS_BLACKWELL
+                                            )
                                         )
                                         scale_buffer[num_valid_scales] = cutlass.Uint8(
                                             scale_biased
@@ -836,8 +870,13 @@ def _compile_mxfp8_quantize_2d_cutedsl(
             smem_layout_in, smem_layout_out = _make_tile_smem_layouts(
                 cute, TILE_M, TILE_K
             )
-            # Use tcgen05.CtaGroup.ONE for the optimised single-CTA Blackwell (SM 10.x) TMA load path.
-            g2s_op = cpasync.CopyBulkTensorTileG2SOp(tcgen05.CtaGroup.ONE)
+            # SM >= 100 (Blackwell and beyond, including consumer SM12x and
+            # SM13x): use tcgen05.CtaGroup.ONE for the optimised single-CTA
+            # Blackwell TMA load path.
+            if cutlass.const_expr(IS_BLACKWELL_VALUE):
+                g2s_op = cpasync.CopyBulkTensorTileG2SOp(tcgen05.CtaGroup.ONE)
+            else:
+                g2s_op = cpasync.CopyBulkTensorTileG2SOp()
             tma_atom_in, tma_tensor_in = cpasync.make_tiled_tma_atom(
                 g2s_op,
                 inp_mk,
@@ -882,6 +921,7 @@ def _compile_mxfp8_quantize_2d_cutedsl(
                 USE_RCEIL=(scaling_mode == "rceil"),
                 IS_FULL_K_TILES=IS_FULL_K_TILES_VALUE,
                 STAGE_COUNT=STAGE_COUNT_VALUE,
+                IS_BLACKWELL=IS_BLACKWELL_VALUE,
             ).launch(
                 grid=(k_cta_tiles, m_cta_tiles, 1),
                 block=(THREADS_PER_BLOCK, 1, 1),
@@ -1022,6 +1062,7 @@ def mxfp8_quantize_cutedsl_2d(
         stage_count,
         k_tiles_per_cta,
         is_full_k_tiles,
+        is_sm_10x,
         blocked_scale_output,
     )
 

@@ -98,25 +98,54 @@ def compute_amax(vals_block: cute.Tensor):
 
 
 @cute.jit
-def compute_scale_rceil(amax: cutlass.Float32):
-    """Compute scale using RCEIL (round-up) mode with Blackwell PTX inline assembly.
-
-    Uses inline PTX `cvt.rp.satfinite.ue8m0x2.f32` instruction for optimal performance
-    on Blackwell (SM 10.x) and later architectures.
+def compute_scale_rceil(
+    amax: cutlass.Float32,
+    IS_BLACKWELL_VALUE: cutlass.Constexpr[bool],
+):
+    """Compute scale using RCEIL (round-up) mode.
 
     Args:
         amax: Absolute maximum value
+        IS_BLACKWELL_VALUE: Boolean indicating if Blackwell architecture
 
     Returns:
         Tuple of (scale_biased, inv_scale)
     """
     descale = amax * INV_F8_MAX
-    scale_biased = cutlass.Int32(_cvt_rp_satfinite_ue8m0x2_f32(descale))
+    if cutlass.const_expr(IS_BLACKWELL_VALUE):
+        scale_biased = cutlass.Int32(_cvt_rp_satfinite_ue8m0x2_f32(descale))
+        inv_scale = cutlass.Float32(1.0)
+        if scale_biased == 0xFF:
+            inv_scale = cutlass.Float32(0.0)
+        elif scale_biased == 0:
+            inv_scale = cute.exp2(cutlass.Float32(126.0))
+        else:
+            inv_scale = cute.exp2(cutlass.Float32(127 - scale_biased))
+        return scale_biased, inv_scale
+
+    bits = _dsl_arith.bitcast(descale.ir_value(), _dsl_arith.T.i32())
+    exponent = (bits >> cutlass.Int32(23)) & cutlass.Int32(0xFF)
+    mantissa = bits & cutlass.Int32(0x7FFFFF)
+    if exponent == 0xFF:
+        if mantissa != 0:
+            scale_biased = cutlass.Int32(0xFF)
+        else:
+            scale_biased = cutlass.Int32(0xFE)
+    else:
+        if mantissa > 0:
+            if exponent != 0xFE:
+                if exponent == 0:
+                    if mantissa > 0x400000:
+                        exponent += 1
+                else:
+                    exponent += 1
+        scale_biased = exponent
+
     inv_scale = cutlass.Float32(1.0)
     if scale_biased == 0xFF:
         inv_scale = cutlass.Float32(0.0)
     elif scale_biased == 0:
-        inv_scale = cute.exp2(cutlass.Float32(126.0))
+        inv_scale = cutlass.Float32(1.0)
     else:
         inv_scale = cute.exp2(cutlass.Float32(127 - scale_biased))
     return scale_biased, inv_scale
@@ -148,12 +177,14 @@ def compute_scale_floor(amax: cutlass.Float32):
 def compute_scale_from_amax(
     amax: cutlass.Float32,
     USE_RCEIL: cutlass.Constexpr[bool],
+    IS_BLACKWELL: cutlass.Constexpr[bool],
 ):
     """Compute scale from absolute maximum using specified mode.
 
     Args:
         amax: Absolute maximum value
-        USE_RCEIL: Constexpr boolean for scaling mode (True for RCEIL, False for FLOOR)
+        USE_RCEIL: Constexpr boolean for scaling mode
+        IS_BLACKWELL: Boolean indicating if Blackwell architecture
 
     Returns:
         Tuple of (scale_biased, inv_scale)
@@ -162,66 +193,7 @@ def compute_scale_from_amax(
     inv_scale = cutlass.Float32(1.0)
     if amax > 0:
         if cutlass.const_expr(USE_RCEIL):
-            scale_biased, inv_scale = compute_scale_rceil(amax)
+            scale_biased, inv_scale = compute_scale_rceil(amax, IS_BLACKWELL)
         else:
             scale_biased, inv_scale = compute_scale_floor(amax)
     return scale_biased, inv_scale
-
-
-@cute.jit
-def load_vals_chunk_full(
-    vals_block: cute.Tensor,
-    local_base: cutlass.Int32,
-):
-    """Load a full chunk of 4 values from a values block.
-
-    This helper loads 4 consecutive float32 values from a register tensor
-    starting at the given local base index.
-
-    Args:
-        vals_block: Register tensor containing values to load from
-        local_base: Starting index within vals_block for the chunk
-
-    Returns:
-        Register tensor of shape (4,) containing the loaded float32 values
-    """
-    chunk_vec = 4
-    vals_chunk = cute.make_rmem_tensor((chunk_vec,), cutlass.Float32)
-    for j in range(chunk_vec):
-        vals_chunk[j] = vals_block[local_base + j]
-    return vals_chunk
-
-
-@cute.jit
-def load_vals_chunk_tail(
-    vals_block: cute.Tensor,
-    dim0: cutlass.Int64,
-    sout_base: cutlass.Int32,
-    local_base: cutlass.Int32,
-    dim_size: cutlass.Int64,
-):
-    """Load a tail chunk of 4 values with bounds checking.
-
-    This helper loads 4 values from a values block, checking if each position
-    is within the dimension bounds. Out-of-bounds values are replaced with 0.0.
-
-    Args:
-        vals_block: Register tensor containing values to load from
-        dim0: Starting index in the dimension (e.g., k0 or n0)
-        sout_base: Base offset for output indexing
-        local_base: Starting index within vals_block for the chunk
-        dim_size: Total size of the dimension for bounds checking (e.g., K or N)
-
-    Returns:
-        Register tensor of shape (4,) containing the loaded float32 values,
-        with out-of-bounds positions set to 0.0
-    """
-    chunk_vec = 4
-    vals_chunk = cute.make_rmem_tensor((chunk_vec,), cutlass.Float32)
-    for j in range(chunk_vec):
-        idx = dim0 + sout_base + j
-        if idx < dim_size:
-            vals_chunk[j] = vals_block[local_base + j]
-        else:
-            vals_chunk[j] = cutlass.Float32(0.0)
-    return vals_chunk
