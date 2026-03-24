@@ -343,16 +343,6 @@ def run(
     for block in predictor.model.image_encoder.blocks:
         block.attn.use_rel_pos = use_rel_pos
 
-    # Helper filter functions
-    def attn_only(mod, name):
-        return isinstance(mod, torch.nn.Linear) and "attn" in name
-
-    def mlp_lin1_only(mod, name):
-        return isinstance(mod, torch.nn.Linear) and "lin1" in name
-
-    def mlp_lin2_only(mod, name):
-        return isinstance(mod, torch.nn.Linear) and "lin2" in name
-
     def mlp_only(mod, name):
         return isinstance(mod, torch.nn.Linear) and "mlp" in name
 
