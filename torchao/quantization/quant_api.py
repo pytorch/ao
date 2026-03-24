@@ -35,7 +35,6 @@ from torchao.core.config import AOBaseConfig
 from torchao.dtypes import (
     AffineQuantizedTensor,
     PlainLayout,
-    TensorCoreTiledLayout,
     to_affine_quantized_intx,
 )
 from torchao.dtypes.utils import Layout
@@ -135,14 +134,6 @@ __all__ = [
     "Int8DynActInt4WeightQuantizer",
     "ModuleFqnToConfig",
 ]
-
-LAYOUT_TO_ZERO_POINT_DOMAIN = {
-    TensorCoreTiledLayout: [ZeroPointDomain.FLOAT],
-}
-
-LAYOUT_TO_PRESERVE_ZEROS = {
-    TensorCoreTiledLayout: False,
-}
 
 
 def _replace_with_custom_fn_if_matches_filter(
