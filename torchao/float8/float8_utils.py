@@ -40,8 +40,12 @@ def amax_to_scale(
         float8_dtype: The float8 dtype.
         round_scales_to_power_of_2: if true, round scaling factor down to the nearest power of 2.
     """
+    # torch.compile and eager show different numerics for 1.0 / float32,
+    # upcast to float64 to ensure same numeric between compile and eager
+    amax = amax.to(torch.float64)
     if float8_dtype in FP8_TYPES:
-        res = torch.finfo(float8_dtype).max / torch.clamp(amax.to(torch.float32), min=EPS)
+        res = torch.finfo(float8_dtype).max / torch.clamp(amax, min=EPS)
+        res = res.to(torch.float32)
     else:
         raise ValueError(f"Unsupported float8_dtype: {float8_dtype}")
     if round_scales_to_power_of_2:
