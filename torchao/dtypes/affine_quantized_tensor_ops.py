@@ -28,10 +28,6 @@ from torchao.dtypes.uintx.plain_layout import (
     _linear_int8_act_int8_weight_check,
     _linear_int8_act_int8_weight_impl,
 )
-from torchao.dtypes.uintx.semi_sparse_layout import (
-    _linear_int8_act_int8_weight_semi_structured_sparse_check,
-    _linear_int8_act_int8_weight_semi_structured_sparse_impl,
-)
 from torchao.dtypes.uintx.tensor_core_tiled_layout import (
     _linear_bf16_act_uint4_weight_check,
     _linear_bf16_act_uint4_weight_impl,
@@ -127,10 +123,6 @@ AffineQuantizedTensor._quantized_linear_op = _quantized_linear_op
 def _register_aqt_quantized_linear_dispatches():
     for dispatch_condition, impl in [
         (_linear_int8_act_int8_weight_check, _linear_int8_act_int8_weight_impl),
-        (
-            _linear_int8_act_int8_weight_semi_structured_sparse_check,
-            _linear_int8_act_int8_weight_semi_structured_sparse_impl,
-        ),
         (_linear_bf16_act_uint4_weight_check, _linear_bf16_act_uint4_weight_impl),
         (_linear_fp_act_int8_weight_check, _linear_fp_act_int8_weight_impl),
         (

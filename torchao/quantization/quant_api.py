@@ -36,7 +36,6 @@ from torchao.dtypes import (
     AffineQuantizedTensor,
     Int4CPULayout,
     PlainLayout,
-    SemiSparseLayout,
     TensorCoreTiledLayout,
     to_affine_quantized_intx,
 )
@@ -1309,21 +1308,6 @@ def _int8_static_activation_int8_weight_transform(
         module,
     )
     return module
-
-
-def int8_dynamic_activation_int8_semi_sparse_weight():
-    """
-    Applies int8 dnynamic symmetric per-token activation and int8 per-channel weight
-    quantization + 2:4 sparsity to linear layers.
-    """
-    warnings.warn(
-        """int8_dyanmic_activation_int8_semi_sparse_weight() will be deprecated at a later release. Please use the layout kwarg in Int8DynamicActivationInt8WeightConfig instead.
-
-    from torchao.dtypes import SemiSparseLayout
-    Int8DynamicActivationInt8WeightConfig(layout=SemiSparseLayout()"""
-    )
-
-    return Int8DynamicActivationInt8WeightConfig(layout=SemiSparseLayout())
 
 
 @dataclass

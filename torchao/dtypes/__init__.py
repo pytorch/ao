@@ -11,7 +11,6 @@ from .nf4tensor import NF4Tensor, to_nf4
 from .uintx import (
     Int4CPULayout,
     PackedLinearInt8DynamicActivationIntxWeightLayout,
-    SemiSparseLayout,
     TensorCoreTiledLayout,
 )
 from .utils import (
@@ -29,7 +28,6 @@ __all__ = [
     "to_affine_quantized_floatx_static",
     "Layout",
     "PlainLayout",
-    "SemiSparseLayout",
     "TensorCoreTiledLayout",
     "affine_quantized_tensor_ops",
     "Int4CPULayout",
