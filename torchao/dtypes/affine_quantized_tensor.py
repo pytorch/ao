@@ -234,7 +234,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         zero_point_dtype: Optional[torch.dtype] = None,
         preserve_zero: bool = True,
         zero_point_domain: ZeroPointDomain = _DEFAULT_ZPD,  # type: ignore[assignment]
-        _layout: Layout = PlainLayout(),
+        _layout: Optional[Layout] = None,
         use_hqq: bool = False,
         *,
         custom_scale: Optional[torch.Tensor] = None,
@@ -253,6 +253,8 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
             quantize_affine,
         )
 
+        if _layout is None:
+            _layout = PlainLayout()
         if zero_point_domain is _DEFAULT_ZPD:
             zero_point_domain = ZeroPointDomain.INT
 
@@ -399,7 +401,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         quant_min: Optional[int] = None,
         quant_max: Optional[int] = None,
         zero_point_domain: ZeroPointDomain = _DEFAULT_ZPD,  # type: ignore[assignment]
-        _layout: Layout = PlainLayout(),
+        _layout: Optional[Layout] = None,
     ):
         """Create an integer AffineQuantizedTensor from a high precision tensor using static parameters."""
         from torchao.quantization.quant_primitives import (
@@ -409,6 +411,8 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
             quantize_affine,
         )
 
+        if _layout is None:
+            _layout = PlainLayout()
         if zero_point_domain is _DEFAULT_ZPD:
             zero_point_domain = ZeroPointDomain.INT
         if zero_point_domain is None:
