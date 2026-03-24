@@ -308,17 +308,66 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
         quantize_(model, config)
 
         # Run linear operation
-        input_tensor = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
-        output = model(input_tensor)
+        x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
+        y = model(x)
 
         # Verify output shape and dtype
-        self.assertEqual(output.shape, (M, N))
-        self.assertEqual(output.dtype, torch.bfloat16)
+        self.assertEqual(y.shape, (M, N))
+        self.assertEqual(y.dtype, torch.bfloat16)
 
         # Verify correctness by comparing with reference
-        output_ref = torch.nn.functional.linear(input_tensor, weight_ref)
-        sqnr = compute_error(output_ref, output)
+        output_ref = torch.nn.functional.linear(x, weight_ref)
+        sqnr = compute_error(output_ref, y)
         self.assertGreater(sqnr, 20, f"SQNR is too low: {sqnr} dB (expected > 20 dB)")
+
+    # Inputs are (M,..), K, N
+    @common_utils.parametrize(
+        "sizes",
+        [
+            ((128,), 256, 128),
+            ((32, 128), 64, 256),
+        ],
+    )
+    @unittest.skipIf(not has_triton(), "Triton is not available")
+    def test_kernel_preference_numerical_equivalence(self, sizes):
+        """Test different kernel matmul kernels produce numerically equal results"""
+        M, K, N = sizes
+        dtype = self.dtype
+        device = self.device
+        x = torch.randn(*M, K, dtype=dtype, device=device)
+
+        def make_quantized_model(kp):
+            model = ToyTwoLinearModel(
+                input_dim=K,
+                hidden_dim=N,
+                output_dim=N,
+                dtype=dtype,
+                device=device,
+            ).eval()
+
+            config = Int8DynamicActivationInt8WeightConfig(
+                granularity=PerRow(), kernel_preference=kp, version=2
+            )
+            m = copy.deepcopy(model)
+            quantize_(m, config)
+            return m
+
+        # KernelPreference.TORCH as reference
+        kp_ref = KernelPreference.TORCH
+        res_ref = make_quantized_model(kp_ref)(x)
+
+        other_kernel_preferences = [
+            KernelPreference.AUTO,
+            KernelPreference.TRITON,
+        ]
+
+        for kp in other_kernel_preferences:
+            res = make_quantized_model(kp)(x)
+            sqnr = compute_error(res, res_ref)
+            self.assertTrue(
+                sqnr > 28,
+                f"Numerical mismatch: {kp=}, {kp_ref=}, {sqnr=:.2f} dB, {sizes=}",
+            )
 
 
 @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")

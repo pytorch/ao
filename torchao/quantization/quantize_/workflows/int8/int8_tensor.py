@@ -309,7 +309,10 @@ def _(func, types, args, kwargs):
             kernel_choice = (
                 "triton" if tmp.device.type == "cuda" and is_rowwise else "torch"
             )
-        elif weight_tensor.kernel_preference == KernelPreference.TRITON:
+        elif (
+            weight_tensor.kernel_preference == KernelPreference.TRITON
+            and weight_tensor.act_quant_kwargs.granularity == PerRow()
+        ):
             kernel_choice = "triton"
         elif weight_tensor.kernel_preference == KernelPreference.TORCH:
             kernel_choice = "torch"
