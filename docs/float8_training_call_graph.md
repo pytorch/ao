@@ -1,4 +1,4 @@
-# Float8 训练示例调用关系图
+# Float8 训练与推理示例调用关系图
 
 本文基于当前仓库里的实现，对下面这段代码做“按源码推演”的模拟运行说明，不依赖真实 CUDA 执行结果：
 
@@ -311,3 +311,229 @@ loss.backward
 optimizer.step
 torch.save
 ```
+
+## 7. 推理示例先给结论
+
+下面这段 inference 代码，走的不是训练态 `Float8Linear.forward()` 那条路，而是推理态 `quantize_` 路线：
+
+```python
+import torch
+
+from torchao.float8.float8_linear import Float8Linear
+from torchao.quantization.granularity import PerTensor
+from torchao.quantization.quant_api import quantize_
+from torchao.quantization import (
+    Float8DynamicActivationFloat8WeightConfig,
+)
+
+checkpoint = torch.load("checkpoint.pth", weights_only=False)
+model = checkpoint["model"]
+model.load_state_dict(checkpoint["model_state_dict"])
+
+quantize_(model, Float8DynamicActivationFloat8WeightConfig(granularity=PerTensor()))
+
+x = torch.randn(1, 4096, 2048, device="cuda", dtype=torch.bfloat16)
+with torch.inference_mode():
+    out = model(x)
+    print(out)
+```
+
+对当前这个 checkpoint 按源码推演后，模块状态会变成：
+
+| 层 | `torch.load` 后 | `quantize_` 后 | 推理时实际路径 |
+| --- | --- | --- | --- |
+| `0` | `Float8Linear(2048, 4096)` | `nn.Linear(weight=Float8Tensor)` | float8 inference 路径 |
+| `1` | `nn.Linear(4096, 128)` | `nn.Linear(weight=Float8Tensor)` | float8 inference 路径 |
+| `2` | `nn.Linear(128, 1)` | `nn.Linear(weight=bf16 Tensor)` | 普通 `nn.Linear` 路径 |
+
+原因分别是：
+
+- 第 0 层虽然在 checkpoint 里是训练态 `Float8Linear`，但 `quantize_` 会先把它还原成普通 `nn.Linear`，再做推理态 float8 量化。
+- 第 1 层权重形状是 `(128, 4096)`，输入/输出维度都能被 16 整除，满足 `_fp8_mm_compat(...)`，所以会被量化。
+- 第 2 层权重形状是 `(1, 128)`，`out_dim == 1` 不满足 float8 mm 兼容性检查，所以不会进入 float8 kernel 路线。
+
+补充：
+
+- `from torchao.float8.float8_linear import Float8Linear` 在这里主要是为了让 `weights_only=False` 反序列化 checkpoint 时能找到类定义。
+- 下面描述的是 `Float8DynamicActivationFloat8WeightConfig(version=2)` 的默认路径，不是旧版 `AffineQuantizedTensor + Float8Layout` 路线。
+
+## 8. `quantize_` 阶段调用图
+
+```mermaid
+flowchart TD
+    A["torch.load('checkpoint.pth', weights_only=False)"] --> B["model = checkpoint['model']"]
+    B --> C["model.load_state_dict(...)"]
+    C --> D["quantize_(model, Float8DynamicActivationFloat8WeightConfig(granularity=PerTensor()))"]
+    D --> E["_replace_with_custom_fn_if_matches_filter(...)"]
+
+    E --> F["子模块 0: Float8Linear"]
+    F --> F1["先还原成 nn.Linear<br/>复用原 weight / bias"]
+    F1 --> F2["_float8_dynamic_activation_float8_weight_transform"]
+    F2 --> F3["_float8_dynamic_activation_float8_weight_quantize_tensor"]
+    F3 --> F4["_check_hardware_support((PerTensor, PerTensor))"]
+    F4 --> F5["_fp8_mm_compat(weight) == True"]
+    F5 --> F6["构造 QuantizeTensorToFloat8Kwargs(act)"]
+    F6 --> F7["Float8Tensor.from_hp(weight, float8_dtype=e4m3, granularity=PerTensor, mm_config=Float8MMConfig(use_fast_accum=True))"]
+    F7 --> F8["_choose_scale_float8(...)"]
+    F8 --> F9["_quantize_affine_float8(...)"]
+    F9 --> F10["module.weight = Parameter(Float8Tensor, requires_grad=False)"]
+
+    E --> G["子模块 1: nn.Linear"]
+    G --> G1["_float8_dynamic_activation_float8_weight_transform"]
+    G1 --> G2["_fp8_mm_compat(weight) == True"]
+    G2 --> G3["Float8Tensor.from_hp(weight, ...)"]
+    G3 --> G4["module.weight = Parameter(Float8Tensor, requires_grad=False)"]
+
+    E --> H["子模块 2: nn.Linear"]
+    H --> H1["_float8_dynamic_activation_float8_weight_transform"]
+    H1 --> H2["_fp8_mm_compat(weight) == False"]
+    H2 --> H3["保留原始 bf16 weight"]
+```
+
+这一步之后，模型更接近下面这个状态：
+
+```python
+model = nn.Sequential(
+    nn.Linear(2048, 4096),  # weight: Float8Tensor
+    nn.Linear(4096, 128),   # weight: Float8Tensor
+    nn.Linear(128, 1),      # weight: 普通 Tensor
+)
+```
+
+## 9. inference forward 的主调用链
+
+### 9.1 一次 `model(x)` 的模拟执行
+
+```text
+with torch.inference_mode():
+    out = model(x)
+      -> nn.Sequential.forward
+        -> layer[0]: nn.Linear.forward
+          -> F.linear(input, weight=Float8Tensor, bias)
+            -> Float8Tensor 对 F.linear / aten.linear.default 的 override
+              -> 读取 weight.act_quant_kwargs
+              -> _choose_quant_func_and_quantize_tensor(input, act_quant_kwargs)
+                -> Float8Tensor.from_hp(input, float8_dtype=e4m3, granularity=PerTensor)
+                  -> _choose_scale_float8(...)
+                  -> _quantize_affine_float8(...)
+              -> 此时 input 也变成 Float8Tensor
+              -> 选择 kernel
+                -> 若 CUDA + SM90+ + fbgemm_gpu_genai 可用:
+                  -> torch.ops.fbgemm.f8f8bf16(...)
+                -> 否则:
+                  -> preprocess_scale(input_scale, input_shape)
+                  -> preprocess_data(input_qdata, weight_qdata.T, mm_config)
+                  -> addmm_float8_unwrapped_inference(...)
+                    -> 若 _should_use_npu_fp8_matmul(...):
+                      -> _fp8_npu_matmul(...)
+                    -> 否则:
+                      -> torch._scaled_mm(...)
+        -> layer[1]: nn.Linear.forward
+          -> 与 layer[0] 相同的 float8 inference 路径
+        -> layer[2]: nn.Linear.forward
+          -> 普通 F.linear(...)
+```
+
+这段代码的 shape 演化大致是：
+
+- 输入 `x`: `[1, 4096, 2048]`
+- 第 0 层输出: `[1, 4096, 4096]`
+- 第 1 层输出: `[1, 4096, 128]`
+- 第 2 层输出: `[1, 4096, 1]`
+
+### 9.2 合并后的 inference 调用关系图
+
+```mermaid
+flowchart TD
+    A["with torch.inference_mode(): out = model(x)"] --> B["Sequential.forward"]
+
+    B --> C["layer[0] = nn.Linear.forward"]
+    C --> D["F.linear(x, weight=Float8Tensor, bias)"]
+    D --> E["Float8Tensor override for F.linear / aten.linear.default"]
+    E --> F["_choose_quant_func_and_quantize_tensor(x, act_quant_kwargs)"]
+    F --> G["Float8Tensor.from_hp(x, e4m3, PerTensor)"]
+    G --> H["_choose_scale_float8(...)"]
+    H --> I["_quantize_affine_float8(...)"]
+    I --> J["input 变成 Float8Tensor"]
+
+    J --> K["kernel 分发"]
+    K --> L["CUDA SM90+ 且 fbgemm 可用"]
+    L --> M["torch.ops.fbgemm.f8f8bf16(...)"]
+    K --> N["否则走 torch kernel"]
+    N --> O["preprocess_scale(...)"]
+    O --> P["preprocess_data(...)"]
+    P --> Q["addmm_float8_unwrapped_inference(...)"]
+    Q --> R["NPU fastpath?"]
+    R --> S["_fp8_npu_matmul(...)"]
+    R --> T["torch._scaled_mm(...)"]
+
+    B --> U["layer[1] = nn.Linear.forward"]
+    U --> V["与 layer[0] 相同"]
+
+    B --> W["layer[2] = nn.Linear.forward"]
+    W --> X["普通 F.linear(...)"]
+
+    M --> Y["得到 layer[0]/layer[1] 输出"]
+    T --> Y
+    S --> Y
+    Y --> Z["print(out)"]
+    X --> Z
+```
+
+## 10. 训练态和推理态调用链的关键区别
+
+```text
+训练态:
+Float8Linear.forward
+  -> matmul_with_hp_or_float8_args.forward/backward
+  -> Float8TrainingTensor.__torch_dispatch__
+  -> float8_mm / float8_addmm
+  -> torch._scaled_mm
+
+推理态:
+nn.Linear.forward
+  -> F.linear(input, weight=Float8Tensor, bias)
+  -> Float8Tensor 对 F.linear / aten.linear.default 的 override
+  -> 动态把 activation 量化成 Float8Tensor
+  -> fbgemm.f8f8bf16 或 torch._scaled_mm / NPU matmul
+```
+
+一句话记忆：
+
+- 训练态是“模块替换成 `Float8Linear`，前后向都由自定义 autograd 接管”。
+- 推理态是“保留 `nn.Linear`，把权重换成 `Float8Tensor`，在 `F.linear` 里动态量化 activation 并分发到 float8 kernel”。
+
+## 11. 训练态抽象 vs 推理态抽象
+
+下面这张小图可以直接回答“为什么推理前要先还原成普通 `nn.Linear`”：
+
+```mermaid
+flowchart LR
+    subgraph T["训练态抽象"]
+        T1["模块形态: Float8Linear"]
+        T2["forward: matmul_with_hp_or_float8_args"]
+        T3["backward: 自定义三次 GEMM"]
+        T4["核心 tensor: Float8TrainingTensor"]
+        T5["设计目标: 训练数值路径 + autograd 可控"]
+        T1 --> T2 --> T3 --> T4 --> T5
+    end
+
+    subgraph I["推理态抽象"]
+        I1["模块形态: nn.Linear"]
+        I2["只替换 weight -> Float8Tensor"]
+        I3["在 F.linear 中动态量化 activation"]
+        I4["分发到 fbgemm / torch._scaled_mm / NPU"]
+        I5["设计目标: 统一量化框架 + kernel dispatch + 部署"]
+        I1 --> I2 --> I3 --> I4 --> I5
+    end
+
+    T1 -. "checkpoint 加载后，先去掉训练壳" .-> I1
+    T4 -. "训练专用 tensor，不直接复用到推理接口" .-> I2
+```
+
+可以把这个设计理解成两层分工：
+
+- 训练态解决的是“怎么安全地把 `Linear` 的前向和反向都改成 float8 训练路径”。
+- 推理态解决的是“怎么在尽量保留 `nn.Linear` 形态的前提下，把权重和激活接到最合适的推理 kernel 上”。
+
+所以推理前先把 `Float8Linear` 还原成 `nn.Linear`，本质上是在去掉训练专用的模块壳，回到推理量化框架的统一入口。
