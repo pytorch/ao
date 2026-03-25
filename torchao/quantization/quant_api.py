@@ -34,18 +34,9 @@ import torchao
 from torchao.core.config import AOBaseConfig
 from torchao.dtypes import (
     AffineQuantizedTensor,
-    Float8Layout,
-    Int4CPULayout,
-    Int4XPULayout,
     PlainLayout,
-    SemiSparseLayout,
     TensorCoreTiledLayout,
-    to_affine_quantized_floatx,
-    to_affine_quantized_floatx_static,
     to_affine_quantized_intx,
-)
-from torchao.dtypes.uintx.packed_linear_int8_dynamic_activation_intx_weight_layout import (
-    Target,
 )
 from torchao.dtypes.utils import Layout
 from torchao.float8.config import e4m3_dtype
@@ -62,7 +53,6 @@ from torchao.float8.inference import (
 # ruff from removing "unused imports"
 from torchao.prototype.quantization.quant_api import (
     Float8StaticActivationFloat8WeightConfig,  # noqa: F401
-    GemliteUIntXWeightOnlyConfig,  # noqa: F401
 )
 from torchao.quantization.linear_activation_weight_observed_tensor import (
     LinearActivationWeightObservedTensor,
@@ -98,7 +88,6 @@ from torchao.quantization.utils import (
     _linear_extra_repr,
     _module_extra_repr,
     _quantization_type,
-    get_block_size,
 )
 from torchao.utils import (
     is_MI300,
@@ -149,14 +138,10 @@ __all__ = [
 
 LAYOUT_TO_ZERO_POINT_DOMAIN = {
     TensorCoreTiledLayout: [ZeroPointDomain.FLOAT],
-    Int4CPULayout: [ZeroPointDomain.FLOAT],
-    Int4XPULayout: [ZeroPointDomain.FLOAT, ZeroPointDomain.INT],
 }
 
 LAYOUT_TO_PRESERVE_ZEROS = {
     TensorCoreTiledLayout: False,
-    Int4CPULayout: False,
-    Int4XPULayout: False,
 }
 
 
@@ -1102,7 +1087,7 @@ class Int8DynamicActivationInt8WeightConfig(AOBaseConfig):
        :language: python
     """
 
-    layout: Optional[Layout] = PlainLayout()
+    layout: Optional[Layout] = None
     act_mapping_type: Optional[MappingType] = MappingType.SYMMETRIC
     weight_only_decode: bool = False
     granularity: Optional[
@@ -1116,6 +1101,8 @@ class Int8DynamicActivationInt8WeightConfig(AOBaseConfig):
         torch._C._log_api_usage_once(
             "torchao.quantization.Int8DynamicActivationInt8WeightConfig"
         )
+        if self.layout is None:
+            self.layout = PlainLayout()
         if self.version == 2:
             act_granularity, weight_granularity = Int8Tensor._normalize_granularity(
                 self.granularity
@@ -1321,21 +1308,6 @@ def _int8_static_activation_int8_weight_transform(
     return module
 
 
-def int8_dynamic_activation_int8_semi_sparse_weight():
-    """
-    Applies int8 dnynamic symmetric per-token activation and int8 per-channel weight
-    quantization + 2:4 sparsity to linear layers.
-    """
-    warnings.warn(
-        """int8_dyanmic_activation_int8_semi_sparse_weight() will be deprecated at a later release. Please use the layout kwarg in Int8DynamicActivationInt8WeightConfig instead.
-
-    from torchao.dtypes import SemiSparseLayout
-    Int8DynamicActivationInt8WeightConfig(layout=SemiSparseLayout()"""
-    )
-
-    return Int8DynamicActivationInt8WeightConfig(layout=SemiSparseLayout())
-
-
 @dataclass
 class Float8WeightOnlyConfig(AOBaseConfig):
     """
@@ -1408,47 +1380,6 @@ def _float8_weight_only_transform(
         module,
     )
     return module
-
-
-def _input_activation_quant_func_fp8(
-    x: torch.Tensor,
-    activation_granularity: FP8Granularity,
-    activation_dtype: torch.dtype,
-    scale: Optional[torch.Tensor] = None,
-    zero_point: Optional[torch.Tensor] = None,
-):
-    """This function is used to quantize the input activation tensor for an aqt_float variant. If scale
-    is not provided it will be dynamically calculate the scales otherwise it will use the provided scale.
-    """
-    assert zero_point is None, (
-        "Zero point is not supported for dynamic FP8 quantization"
-    )
-    if isinstance(activation_granularity, PerRow):
-        assert x.dtype == torch.bfloat16, (
-            "PerRow quantization only works for bfloat16 precision input activation"
-        )
-
-    block_size = get_block_size(x.shape, activation_granularity)
-    if scale is None:
-        activation = to_affine_quantized_floatx(
-            input_float=x,
-            block_size=block_size,
-            target_dtype=activation_dtype,
-            scale_dtype=torch.float32,
-            _layout=Float8Layout(mm_config=None),  # Config is stored on weight
-        )
-    else:
-        assert isinstance(activation_granularity, PerTensor), (
-            "Static quantization only supports PerTensor granularity"
-        )
-        activation = to_affine_quantized_floatx_static(
-            input_float=x,
-            block_size=block_size,
-            scale=scale,
-            target_dtype=activation_dtype,
-            _layout=Float8Layout(mm_config=None),  # Config is stored on weight
-        )
-    return activation
 
 
 @dataclass
@@ -2057,7 +1988,5 @@ torch.serialization.add_safe_globals(
     [
         _int8_asymm_per_token_quant,
         _int8_symm_per_token_reduced_range_quant,
-        _input_activation_quant_func_fp8,
-        Target,
     ]
 )

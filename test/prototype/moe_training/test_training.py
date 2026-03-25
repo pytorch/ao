@@ -1,3 +1,9 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
+
 import copy
 
 import pytest
@@ -10,6 +16,11 @@ if not torch.cuda.is_available() or torch.cuda.get_device_capability() < (8, 9):
     pytest.skip(
         "CUDA not available or compute capability < 8.9", allow_module_level=True
     )
+
+from torchao.utils import is_ROCM
+
+if is_ROCM():
+    pytest.skip("MXFP8 MoE training is not supported on ROCm", allow_module_level=True)
 
 from torchao.float8.float8_utils import compute_error
 from torchao.prototype.moe_training.config import (

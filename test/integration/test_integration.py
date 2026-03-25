@@ -60,14 +60,6 @@ from torchao.utils import (
     unwrap_tensor_subclass,
 )
 
-try:
-    import gemlite  # noqa: F401
-
-    has_gemlite = True
-except ModuleNotFoundError:
-    has_gemlite = False
-
-
 logger = logging.getLogger("INFO")
 
 torch.manual_seed(0)
@@ -419,50 +411,6 @@ class TestSubclass(unittest.TestCase):
         torch._dynamo.reset()
         self._test_lin_weight_subclass_api_impl(
             _int8wo_api, device, 40, test_dtype=dtype
-        )
-
-    @parameterized.expand(COMMON_DEVICE_DTYPE)
-    @unittest.skipIf(not has_gemlite, "gemlite not available")
-    def test_gemlite_layout(self, device, dtype):
-        from torchao.quantization import GemliteUIntXWeightOnlyConfig
-
-        if dtype != torch.float16:
-            self.skipTest("gemlite only works for fp16 dtype")
-
-        if device == "cpu":
-            self.skipTest(f"gemlite is for cuda, not {device}")
-        for packing_bitwidth in [32, 8]:
-            for bit_width in [4, 8]:
-                for group_size in [64, 32, None] if bit_width == 4 else [None]:
-                    api = lambda mod: quantize_(
-                        mod,
-                        GemliteUIntXWeightOnlyConfig(
-                            group_size, bit_width, packing_bitwidth
-                        ),
-                    )
-                    for test_shape in [
-                        [1, 1024, 512],
-                        [16, 256, 1024],
-                        [128, 256, 1024],
-                    ]:
-                        print(
-                            packing_bitwidth, bit_width, group_size, test_shape, dtype
-                        )
-                        self._test_lin_weight_subclass_api_impl(
-                            api,
-                            device,
-                            15,
-                            test_shape=test_shape,
-                            test_dtype=dtype,
-                        )
-
-        # test that shapes with non divisible by 128 shapes aren't causing errors
-        self._test_lin_weight_subclass_api_impl(
-            lambda mod: quantize_(mod, GemliteUIntXWeightOnlyConfig(None, 4, 32)),
-            device,
-            15,
-            test_shape=[1, 1025, 513],
-            test_dtype=dtype,
         )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)

@@ -630,15 +630,11 @@ def _compile_mxfp8_quantize_3d_cutedsl(
                             warp_idx,
                         )
 
-                    if warp_idx >= 1 and warp_idx <= compute_warps:
-                        cute.arch.mbarrier_wait(tma_mbar_ptr, tma_phase)
-                        cute.arch.fence_view_async_shared()
-                else:
-                    if warp_idx >= 1 and warp_idx <= compute_warps:
-                        cute.arch.mbarrier_wait(tma_mbar_ptr, tma_phase)
-                        cute.arch.fence_view_async_shared()
-
                 if warp_idx >= 1 and warp_idx <= compute_warps:
+                    # wait for tma load to complete
+                    # (no explicit memory fence necessary, it is implicit after mbarrier completion)
+                    # see PTX docs: https://docs.nvidia.com/cuda/parallel-thread-execution/#async-proxy
+                    cute.arch.mbarrier_wait(tma_mbar_ptr, tma_phase)
                     lane = tidx % 32
                     k_lane = (warp_idx - 1) * 32 + lane
 
