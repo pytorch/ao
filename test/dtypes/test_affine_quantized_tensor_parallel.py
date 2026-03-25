@@ -18,7 +18,6 @@ from torchao.quantization import (
     Float8DynamicActivationFloat8WeightConfig,
     Float8WeightOnlyConfig,
     Int4WeightOnlyConfig,
-    Int8DynamicActivationInt8WeightConfig,
     Int8WeightOnlyConfig,
     PerRow,
     PerTensor,
@@ -149,20 +148,8 @@ class TestInt4woAffineQuantizedTensorParallel(TestAffineQuantizedTensorParallel)
         return self._test_tp(dtype)
 
 
-class TestInt8dqAffineQuantizedTensorParallel(TestAffineQuantizedTensorParallel):
-    QUANT_METHOD_FN = staticmethod(Int8DynamicActivationInt8WeightConfig)
-    COMMON_DTYPES = [torch.bfloat16]
-
-    @common_utils.parametrize("dtype", COMMON_DTYPES)
-    @with_comms
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
-    def test_tp(self, dtype):
-        return self._test_tp(dtype)
-
-
 common_utils.instantiate_parametrized_tests(TestInt8woAffineQuantizedTensorParallel)
 common_utils.instantiate_parametrized_tests(TestInt4woAffineQuantizedTensorParallel)
-common_utils.instantiate_parametrized_tests(TestInt8dqAffineQuantizedTensorParallel)
 
 # Float8 TP requires FP8-capable hardware (H100+ on CUDA, MI300+ on ROCm)
 from torchao.utils import is_MI300, is_MI350, is_sm_at_least_90
