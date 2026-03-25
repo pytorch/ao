@@ -31,7 +31,6 @@ from torchao.prototype.moe_training.config import (
 )
 from torchao.quantization.quant_api import quantize_
 from torchao.quantization.quantize_.common import KernelPreference
-from torchao.utils import is_MI300, is_MI350, is_ROCM
 
 # Reference MoE implementation (copied from torchtitan to avoid external dependency)
 from .reference_moe import MoE, MoEArgs, set_token_group_alignment_size_m
@@ -102,34 +101,23 @@ def test_moe_training(
     )
     assert torch.cuda.is_available()
 
-    # Per-group padding has known shape mismatch issues with experts on ROCm
-    # (introduced in #3998). Skip until resolved.
-    if is_ROCM() and "experts" in target_fqns:
-        pytest.skip(
-            "MoE expert training has known shape mismatch on ROCm (per-group padding, see #3998)"
-        )
-
     # Emulated mode with compile is not supported
     if recipe == MXFP8TrainingRecipe.MXFP8_EMULATED_RCEIL and compile:
         pytest.skip(
             "Skipping compile=True with kernel_preference=EMULATED, not currently supported"
         )
 
-    # FP8_ROWWISE hardware path requires SM90 (CUDA) or MI300/MI350 (ROCm)
+    # FP8_ROWWISE hardware path requires SM90
     if recipe == Float8TrainingRecipe.FP8_ROWWISE:
         if compile:
             pytest.skip(
                 "https://github.com/pytorch/ao/issues/4048: 'FakeTensor' object has no attribute '__tensor_flatten__'"
             )
 
-        if is_ROCM():
-            if not (is_MI300() or is_MI350()):
-                pytest.skip("FP8 rowwise test requires MI300 or MI350 on ROCm")
-        else:
-            if torch.cuda.get_device_capability() != (9, 0):
-                pytest.skip(
-                    f"Skipping FP8 rowwise tests, only supported on compute capability 9.0 and found {torch.cuda.get_device_capability()}"
-                )
+        if torch.cuda.get_device_capability() != (9, 0):
+            pytest.skip(
+                f"Skipping FP8 rowwise tests, only supported on compute capability 9.0 and found {torch.cuda.get_device_capability()}"
+            )
         if not token_groups_aligned:
             pytest.skip("FP8 rowwise doesn't support per group token padding yet")
 
