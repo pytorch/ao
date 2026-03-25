@@ -30,15 +30,18 @@ def _get_tensor_cls_for_config(
     )
 
     if isinstance(config, MXFP8TrainingOpConfig):
-        from torch.distributed.tensor import _dispatch, _ops
+        from torchao.quantization.quantize_.common import KernelPreference
 
-        pytorch_version_supported = hasattr(
-            _ops, "scaled_mm_single_dim_strategy"
-        ) and hasattr(_dispatch, "is_pinned_handler")
+        if config.kernel_preference != KernelPreference.EMULATED:
+            from torch.distributed.tensor import _dispatch, _ops
 
-        assert pytorch_version_supported, (
-            "Please install the latest torch nightly build to use MXFP8 training"
-        )
+            pytorch_version_supported = hasattr(
+                _ops, "scaled_mm_single_dim_strategy"
+            ) and hasattr(_dispatch, "is_pinned_handler")
+
+            assert pytorch_version_supported, (
+                "Please install the latest torch nightly build to use MXFP8 training"
+            )
 
         return MXFP8TrainingWeightWrapperTensor
     elif isinstance(config, Float8TrainingOpConfig):
