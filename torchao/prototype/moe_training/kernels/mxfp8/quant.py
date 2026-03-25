@@ -10,10 +10,9 @@ import torch
 from torch import Tensor
 from torch.utils._triton import has_triton
 
-from torchao.prototype.moe_training.kernels.mxfp8.cutedsl_quantize_3d import (
+from torchao.prototype.moe_training.kernels.mxfp8.cute_utils import (
     _cutedsl_runtime_available,
     _missing_cutedsl_runtime_packages,
-    mxfp8_quantize_cutedsl_3d,
 )
 from torchao.prototype.mx_formats.utils import to_blocked
 from torchao.utils import (
@@ -888,9 +887,13 @@ _mxfp8_cutedsl_kernels_available = (
 def _mxfp8_quantize_3d_cutedsl_custom_op(
     x: torch.Tensor,
     block_size: int = 32,
-    scaling_mode: str = "floor",
+    scaling_mode: str = "rceil",
     stage_count: int = 2,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
+    from torchao.prototype.moe_training.kernels.mxfp8.cutedsl_quantize_3d import (
+        mxfp8_quantize_cutedsl_3d,
+    )
+
     return mxfp8_quantize_cutedsl_3d(
         x,
         block_size=block_size,
@@ -904,7 +907,7 @@ def _mxfp8_quantize_3d_cutedsl_custom_op(
 def _fake_mxfp8_quantize_3d_cutedsl_custom_op(
     x: torch.Tensor,
     block_size: int = 32,
-    scaling_mode: str = "floor",
+    scaling_mode: str = "rceil",
     stage_count: int = 2,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     assert x.ndim == 3, "input tensor must be 3D"
@@ -921,6 +924,52 @@ def _fake_mxfp8_quantize_3d_cutedsl_custom_op(
     padded_scale_cols = ceil_div(n_blocks, 4) * 4
     scales = x.new_empty(
         (e, padded_scale_rows * padded_scale_cols),
+        dtype=torch.float8_e8m0fnu,
+    )
+    return q_data, scales
+
+
+@torch.library.custom_op("torchao::mxfp8_quantize_2d_cutedsl", mutates_args=())
+def _mxfp8_quantize_2d_cutedsl_custom_op(
+    x: torch.Tensor,
+    block_size: int = 32,
+    scaling_mode: str = "rceil",
+    stage_count: int = 2,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    from torchao.prototype.moe_training.kernels.mxfp8.cutedsl_quantize_2d import (
+        mxfp8_quantize_cutedsl_2d,
+    )
+
+    return mxfp8_quantize_cutedsl_2d(
+        x,
+        block_size=block_size,
+        scaling_mode=scaling_mode,
+        stage_count=stage_count,
+        blocked_scale_output=True,
+    )
+
+
+@_mxfp8_quantize_2d_cutedsl_custom_op.register_fake
+def _fake_mxfp8_quantize_2d_cutedsl_custom_op(
+    x: torch.Tensor,
+    block_size: int = 32,
+    scaling_mode: str = "rceil",
+    stage_count: int = 2,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    assert x.ndim == 2, "input tensor must be 2D"
+    assert block_size == 32, "Only block_size=32 is supported"
+    m, k = x.shape
+    q_data = torch.empty_strided(
+        (m, k),
+        (k, 1),
+        device=x.device,
+        dtype=torch.float8_e4m3fn,
+    )
+    k_blocks = k // block_size
+    padded_scale_rows = ceil_div(m, 128) * 128
+    padded_scale_cols = ceil_div(k_blocks, 4) * 4
+    scales = x.new_empty(
+        (padded_scale_rows * padded_scale_cols,),
         dtype=torch.float8_e8m0fnu,
     )
     return q_data, scales
@@ -1165,7 +1214,7 @@ else:
 def mxfp8_quantize_cuda_3d(
     x: torch.Tensor,
     block_size: int = 32,
-    scaling_mode: str = "floor",
+    scaling_mode: str = "rceil",
     stage_count: int = 2,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
@@ -1187,6 +1236,38 @@ def mxfp8_quantize_cuda_3d(
             "mxfp8_quantize_3d requires CUDA, SM 10.x, and CUDA 12.8+."
         )
     return _mxfp8_quantize_3d_cutedsl_custom_op(
+        x,
+        block_size=block_size,
+        scaling_mode=scaling_mode,
+        stage_count=stage_count,
+    )
+
+
+def mxfp8_quantize_cuda_2d(
+    x: torch.Tensor,
+    block_size: int = 32,
+    scaling_mode: str = "rceil",
+    stage_count: int = 2,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Quantize a 2D tensor of shape (M, K) with scaling along K in blocks of 32.
+
+    Returns quantized data in row-major layout with shape (M, K) and scales in
+    blocked tcgen05 layout with shape (M, K//32).
+    """
+    if not _mxfp8_cutedsl_kernels_available:
+        missing_packages = _missing_cutedsl_runtime_packages()
+        if missing_packages:
+            missing = ", ".join(missing_packages)
+            raise NotImplementedError(
+                "mxfp8_quantize_2d requires additional Python "
+                f"runtime package(s): {missing}. Please install "
+                "`nvidia-cutlass-dsl` and `apache-tvm-ffi`."
+            )
+        raise NotImplementedError(
+            "mxfp8_quantize_2d requires CUDA, SM 10.x, and CUDA 12.8+."
+        )
+    return _mxfp8_quantize_2d_cutedsl_custom_op(
         x,
         block_size=block_size,
         scaling_mode=scaling_mode,
