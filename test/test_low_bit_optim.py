@@ -533,9 +533,7 @@ class TestFSDP2(FSDPTest):
 
     @skip_if_lt_x_gpu(_FSDP_WORLD_SIZE)
     @skip_if_rocm("ROCm enablement in progress")
-    @pytest.mark.skipif(
-        torch_version_at_least("2.11.0"), reason="Failing in CI"
-    )
+    @pytest.mark.skipif(torch_version_at_least("2.11.0"), reason="Failing in CI")
     def test_fsdp2(self):
         # we do this to avoid all combinations
         args_list = [
