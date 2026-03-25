@@ -15,8 +15,8 @@ from .cute_utils import (
     F8_MAX,
     compute_amax,
     compute_scale_from_amax,
-    load_vals_4B_chunk_full,
-    load_vals_4B_chunk_tail,
+    load_vals_chunk_full,
+    load_vals_chunk_tail,
 )
 
 
@@ -188,7 +188,7 @@ def _compile_mxfp8_quantize_3d_cutedsl(
                 scales_expert[e, n_block, k] = scale_u8
 
         @cute.jit
-        def _store_q_fp8_4B_chunk(
+        def _store_q_fp8_chunk(
             self,
             q_fp8_vals4: cute.Tensor,
             sOUT_tile: cute.Tensor,
@@ -200,23 +200,23 @@ def _compile_mxfp8_quantize_3d_cutedsl(
             sOUT_tile_u32[0, sout_base // cutlass.Int32(4), k_rel] = q_fp8_vals4_u32[0]
 
         @cute.jit
-        def _quantize_store_4B_chunk(
+        def _quantize_store_chunk(
             self,
-            vals_4B_chunk: cute.Tensor,
+            vals_chunk: cute.Tensor,
             inv_scale: cutlass.Float32,
             sOUT_tile: cute.Tensor,
             sout_base: cutlass.Int32,
             k_rel: cutlass.Int32,
             USE_RCEIL: cutlass.Constexpr[bool],
         ):
-            q_vals4_vec = vals_4B_chunk.load() * inv_scale
+            q_vals4_vec = vals_chunk.load() * inv_scale
             if not cutlass.const_expr(USE_RCEIL):
                 q_vals4_vec = cute.where(q_vals4_vec > F8_MAX, F8_MAX, q_vals4_vec)
                 q_vals4_vec = cute.where(q_vals4_vec < -F8_MAX, -F8_MAX, q_vals4_vec)
             q_fp8_vec4 = q_vals4_vec.to(cutlass.Float8E4M3FN)
             q_fp8_vals4 = cute.make_rmem_tensor((4,), cutlass.Float8E4M3FN)
             q_fp8_vals4.store(q_fp8_vec4)
-            self._store_q_fp8_4B_chunk(q_fp8_vals4, sOUT_tile, sout_base, k_rel)
+            self._store_q_fp8_chunk(q_fp8_vals4, sOUT_tile, sout_base, k_rel)
 
         @cute.jit
         def _quantize_store_full(
@@ -229,13 +229,13 @@ def _compile_mxfp8_quantize_3d_cutedsl(
             USE_RCEIL: cutlass.Constexpr[bool],
         ):
             chunk_vec = 4
-            num_4B_chunks = SCALE_DIM_N_VALUE // chunk_vec
-            for c in range(num_4B_chunks):
+            num_chunks = SCALE_DIM_N_VALUE // chunk_vec
+            for c in range(num_chunks):
                 local_base = c * chunk_vec
                 sout_base = n_base + local_base
-                vals_4B_chunk = load_vals_4B_chunk_full(vals_block, local_base)
-                self._quantize_store_4B_chunk(
-                    vals_4B_chunk, inv_scale, sOUT_tile, sout_base, k_rel, USE_RCEIL
+                vals_chunk = load_vals_chunk_full(vals_block, local_base)
+                self._quantize_store_chunk(
+                    vals_chunk, inv_scale, sOUT_tile, sout_base, k_rel, USE_RCEIL
                 )
 
         @cute.jit
@@ -251,15 +251,15 @@ def _compile_mxfp8_quantize_3d_cutedsl(
             USE_RCEIL: cutlass.Constexpr[bool],
         ):
             chunk_vec = 4
-            num_4B_chunks = SCALE_DIM_N_VALUE // chunk_vec
-            for c in range(num_4B_chunks):
+            num_chunks = SCALE_DIM_N_VALUE // chunk_vec
+            for c in range(num_chunks):
                 local_base = c * chunk_vec
                 sout_base = n_base + local_base
-                vals_4B_chunk = load_vals_4B_chunk_tail(
+                vals_chunk = load_vals_chunk_tail(
                     vals_block, n0, sout_base, local_base, N
                 )
-                self._quantize_store_4B_chunk(
-                    vals_4B_chunk, inv_scale, sOUT_tile, sout_base, k_rel, USE_RCEIL
+                self._quantize_store_chunk(
+                    vals_chunk, inv_scale, sOUT_tile, sout_base, k_rel, USE_RCEIL
                 )
 
         @cute.jit
