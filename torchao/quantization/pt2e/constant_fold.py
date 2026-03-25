@@ -94,19 +94,66 @@ class ConstantFolder(torch.fx.Interpreter):
         # Identify mutable buffers by finding copy_ operations
         self.mutable_buffers = self._find_mutable_buffers()
 
+    def _is_mutable_buffer(self, node: torch.fx.Node) -> bool:
+        """Check if a node is a mutable buffer."""
+        named_buffers = dict(self.module.named_buffers())
+        if node.op == "placeholder":
+            return True
+
+        if node.op == "get_attr" and str(node.target) in named_buffers:
+            return True
+
+        return False
+
+    def _collect_mutable_chain(self, start: torch.fx.Node) -> set[torch.fx.Node]:
+        """Collects all nodes that lead to a mutable buffer."""
+        stack = [start]
+        node_parents: dict[torch.fx.Node, list[torch.fx.Node]] = {}
+
+        # Generate a map from a node to its parents
+        while stack:
+            node = stack.pop()
+            if node in node_parents:
+                continue
+
+            parents = [
+                arg
+                for arg in pytree.arg_tree_leaves(*node.args, **node.kwargs)
+                if isinstance(arg, torch.fx.Node)
+            ]
+            node_parents[node] = parents
+            stack.extend(parents)
+
+        # Visit the graph in topological order and trace from the buffer to the start node
+        connected = set()
+        for node in self.graph.nodes:
+            if node not in node_parents:
+                continue
+            if self._is_mutable_buffer(node) or any(
+                parent in connected for parent in node_parents[node]
+            ):
+                connected.add(node)
+
+        return connected if start in connected else set()
+
     def _find_mutable_buffers(self) -> set[torch.fx.Node]:
-        """Find mutable buffers by identifying copy_ operations.
-        The first argument of copy_ op is the mutable buffer."""
+        """Find mutable buffers by identifying copy_ or put_ operations.
+        The graph then traces all nodes that lead to a mutable buffer."""
         mutable_buffers = set()
         for node in self.module.graph.nodes:
             if (
                 node.op == "call_function"
                 and hasattr(node.target, "_schema")
-                and "copy_" in str(node.target)
+                and ("copy_" in str(node.target) or "put_" in str(node.target))
             ):
-                # The first argument of copy_ is the mutable buffer
+                # The first argument of copy_ or put_ is the mutable input
+                # Work through the graph to find all nodes that lead to a mutable buffer
                 if len(node.args) > 0 and isinstance(node.args[0], torch.fx.Node):
-                    mutable_buffers.add(node.args[0])
+                    mutable_chain = self._collect_mutable_chain(node.args[0])
+
+                    if mutable_chain:
+                        mutable_buffers.update(mutable_chain)
+
         return mutable_buffers
 
     def _support_dynamic_shape(self) -> bool:

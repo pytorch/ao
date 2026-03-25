@@ -3266,6 +3266,74 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
         result = m(*example_inputs)
         self.assertIsNotNone(result)
 
+    def test_quantize_in_place_index_put(self):
+        class IndexPutQuantizer(Quantizer):
+            def __init__(self) -> None:
+                super().__init__()
+                self.qspec = QuantizationSpec(
+                    dtype=torch.int8,
+                    observer_or_fake_quant_ctr=observer.default_observer,
+                    quant_min=-128,
+                    quant_max=127,
+                    qscheme=torch.per_tensor_symmetric,
+                )
+
+            def annotate(self, model: torch.fx.GraphModule) -> torch.fx.GraphModule:
+                for node in model.graph.nodes:
+                    if node.op != "call_function":
+                        continue
+                    if node.target != torch.ops.aten.index_put_.default:
+                        continue
+
+                    dst = node.args[0]
+                    value = node.args[2]
+                    node.meta["quantization_annotation"] = QuantizationAnnotation(
+                        input_qspec_map={
+                            dst: self.qspec,
+                            value: SharedQuantizationSpec((dst, node)),
+                        },
+                        output_qspec=SharedQuantizationSpec((dst, node)),
+                        _annotated=True,
+                    )
+                return model
+
+            def transform_for_annotation(
+                self, model: torch.fx.GraphModule
+            ) -> torch.fx.GraphModule:
+                return model
+
+            def validate(self, model: torch.fx.GraphModule) -> None:
+                return None
+
+        class M(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.register_buffer("buf", torch.zeros(4, dtype=torch.float32))
+
+            def forward(self, x: torch.Tensor, idx: torch.Tensor) -> torch.Tensor:
+                updated = self.buf.index_put_((idx,), x)
+                return updated.clone()
+
+        m = M().eval()
+        quantizer = IndexPutQuantizer()
+        example_inputs = (
+            torch.tensor([1.0, 2.0], dtype=torch.float32),
+            torch.tensor([1, 3], dtype=torch.int64),
+        )
+        m = torch.export.export(m, example_inputs, strict=True).module()
+
+        m = prepare_pt2e(m, quantizer)
+        m(*example_inputs)
+        m = convert_pt2e(m, fold_quantize=True)
+
+        # Check that the named buffer is not folded
+        # If it folded it will be named _frozen_param0
+        self.assertTrue("buf" in dict(m.named_buffers()))
+
+        # Verify the quantized model works
+        result = m(*example_inputs)
+        self.assertIsNotNone(result)
+
     def test_scan_op_quantization(self):
         """Test that prepare_pt2e and convert_pt2e correctly quantize ops
         inside the combine_fn subgraph of torch._higher_order_ops.scan.
