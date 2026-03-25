@@ -165,7 +165,6 @@ def test_mxfp8_grouped_gemm_with_dq_fwd_bwd(
             "torch native dynamic per group pad/unpad functions do not work with torch.compile yet: https://github.com/pytorch/pytorch/issues/176770"
         )
 
-    block_size = 32
     x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda", requires_grad=True)
     w = torch.randn(
         num_experts,
@@ -194,7 +193,6 @@ def test_mxfp8_grouped_gemm_with_dq_fwd_bwd(
         x,
         w_t,
         offs=offs,
-        block_size=block_size,
         kernel_preference=kernel_preference,
         wgrad_with_hp=wgrad_with_hp,
         scale_calculation_mode=scale_mode,
@@ -262,7 +260,6 @@ def test_mxfp8_grouped_gemm_from_qdata_and_scales_matches_dynamic():
         x_mx,
         w_t,
         offs=offs,
-        block_size=block_size,
         out_dtype=torch.bfloat16,
         kernel_preference=KernelPreference.EMULATED,
         wgrad_with_hp=True,
@@ -272,7 +269,6 @@ def test_mxfp8_grouped_gemm_from_qdata_and_scales_matches_dynamic():
         x_ref,
         w_t_ref,
         offs=offs,
-        block_size=block_size,
         out_dtype=torch.bfloat16,
         kernel_preference=KernelPreference.EMULATED,
         wgrad_with_hp=True,
@@ -334,7 +330,6 @@ def test_mxfp8_grouped_gemm_from_qdata_and_scales_forward():
         x_mx,
         w_t,
         offs=offs,
-        block_size=block_size,
         out_dtype=torch.bfloat16,
         kernel_preference=KernelPreference.EMULATED,
         wgrad_with_hp=True,
@@ -344,7 +339,6 @@ def test_mxfp8_grouped_gemm_from_qdata_and_scales_forward():
         x,
         w_t,
         offs=offs,
-        block_size=block_size,
         out_dtype=torch.bfloat16,
         kernel_preference=KernelPreference.EMULATED,
         wgrad_with_hp=True,
@@ -392,7 +386,6 @@ def test_mxfp8_grouped_gemm_mxtensor_requires_wgrad_with_hp():
             x_mx,
             w_t,
             offs=offs,
-            block_size=block_size,
             out_dtype=torch.bfloat16,
             kernel_preference=KernelPreference.EMULATED,
             wgrad_with_hp=False,
