@@ -183,10 +183,10 @@ def int_scaled_matmul(
     """
     M, K = a.shape
     K, N = b.shape
+    assert scales1.dim() == 2
     assert M == scales1.size(0) or scales1.numel() == 1
     assert 1 == scales1.size(1)
     assert scales1.is_contiguous()
-    assert scales1.dim() == 2
 
     if check_cpu_version(scales1.device):
         return _int_scaled_matmul_cpu(a, b, scales1)
