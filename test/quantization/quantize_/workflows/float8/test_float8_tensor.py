@@ -22,6 +22,7 @@ from torchao.quantization import (
     Float8WeightOnlyConfig,
     Granularity,
     PerBlock,
+    PerGroup,
     PerRow,
     PerTensor,
     quantize_,
@@ -65,6 +66,10 @@ class ToyLinearModel(torch.nn.Module):
         elif granularity == PerRow():
             assert qs1.shape == (N, 1)
             assert qs2.shape == (K, 1)
+        elif isinstance(granularity, PerGroup):
+            group_size = granularity.group_size
+            assert qs1.shape == (N, K // group_size)
+            assert qs2.shape == (K, N // group_size)
         else:
             assert granularity == (PerBlock([1, 128]), PerBlock([128, 128]))
             assert qs1.shape == (N // 128, K // 128)
@@ -167,6 +172,9 @@ class ToyLoRAModel(torch.nn.Module):
             assert qs.shape == (1, 1)
         elif granularity == PerRow():
             assert qs.shape == (N, 1)
+        elif isinstance(granularity, PerGroup):
+            group_size = granularity.group_size
+            assert qs.shape == (N, K // group_size)
         else:
             assert granularity == (PerBlock((1, 128)), PerBlock((128, 128)))
             assert qs.shape == (N // 128, K // 128)
@@ -194,7 +202,12 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
     @common_utils.parametrize("compile", [True, False])
     @common_utils.parametrize(
         "granularity",
-        [PerTensor(), PerRow(), (PerBlock([1, 128]), PerBlock([128, 128]))],
+        [
+            PerTensor(),
+            PerRow(),
+            PerGroup(64),
+            (PerBlock([1, 128]), PerBlock([128, 128])),
+        ],
     )
     @common_utils.parametrize(
         "kernel_preference",
@@ -291,6 +304,10 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
             if mode == "weight-only":
                 return unittest.skip("unimplemented")
 
+        elif isinstance(granularity, PerGroup):
+            if mode == "dynamic":
+                return unittest.skip("PerGroup not supported for dynamic mode")
+
         elif granularity == (PerBlock([1, 128]), PerBlock([128, 128])):
             if torch.xpu.is_available():
                 return unittest.skip("PerBlock granularity not supported on XPU")
@@ -351,7 +368,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
                 )
             else:
                 assert mode == "weight-only", f"Unsupported mode: {mode}"
-                config = Float8WeightOnlyConfig()
+                config = Float8WeightOnlyConfig(granularity=granularity)
 
             quantize_(quantized_model, config)
 
