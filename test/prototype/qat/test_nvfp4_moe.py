@@ -58,9 +58,7 @@ def _has_flashinfer_sm100():
         return False
 
 
-pytestmark = pytest.mark.skipif(
-    not torch.cuda.is_available(), reason="CUDA required"
-)
+pytestmark = pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
 
 
 # ===========================================================================
@@ -182,9 +180,9 @@ class TestApplyRemoveRoundtrip:
         apply_nvfp4_moe_qat(model)
         for param_name in ["gate_up_proj", "down_proj"]:
             param = getattr(model.experts, param_name)
-            assert isinstance(
-                param.data, NVFP4FakeQuantizedScaledGroupedMMTensor
-            ), f"{param_name} not wrapped"
+            assert isinstance(param.data, NVFP4FakeQuantizedScaledGroupedMMTensor), (
+                f"{param_name} not wrapped"
+            )
 
     def test_remove_unwraps_params(self):
         """apply then remove round-trips params back to plain tensors with identical values."""
@@ -280,7 +278,9 @@ class _DummySwiGLUExperts(nn.Module):
         offs = torch.cumsum(counts, dim=0, dtype=torch.int32)
 
         # Up + gate projection: [S, H] @ [E, 2*I, H]^T -> [S, 2*I]
-        up_gate = torch._grouped_mm(selected_g, self.gate_up_proj.transpose(-1, -2), offs=offs)
+        up_gate = torch._grouped_mm(
+            selected_g, self.gate_up_proj.transpose(-1, -2), offs=offs
+        )
 
         # SwiGLU: silu(gate) * up
         gate, up = up_gate.chunk(2, dim=-1)
@@ -336,7 +336,9 @@ class TestDummyMoEModel:
             "QAT output should differ from unquantized due to fake quantization"
         )
         sqnr = compute_error(out_ref, out_qat)
-        assert sqnr >= 5.0, f"SQNR {sqnr:.2f} dB too low — QAT output too far from reference"
+        assert sqnr >= 5.0, (
+            f"SQNR {sqnr:.2f} dB too low — QAT output too far from reference"
+        )
 
     def test_gradients_flow_to_all_expert_params(self):
         """All expert parameters should receive non-zero gradients after a QAT forward+backward."""
@@ -381,7 +383,9 @@ class TestDummyMoEModel:
         ), "Router weight should not be wrapped"
 
 
-@pytest.mark.skipif(not _has_qwen3_experts, reason="Requires transformers with Qwen3MoeExperts")
+@pytest.mark.skipif(
+    not _has_qwen3_experts, reason="Requires transformers with Qwen3MoeExperts"
+)
 class TestE2EWithQwen3Experts:
     """End-to-end test with real Qwen3MoeExperts module."""
 
@@ -468,8 +472,14 @@ def _quant_fp4_batches(a, num_experts, is_sf_swizzled_layout=True):
 
 
 def _prepare_static_weights_for_trtllm_fp4_moe(
-    gemm1_weights, gemm2_weights, gemm1_scales, gemm2_scales,
-    hidden_size, intermediate_size, num_experts, is_gated_activation,
+    gemm1_weights,
+    gemm2_weights,
+    gemm1_scales,
+    gemm2_scales,
+    hidden_size,
+    intermediate_size,
+    num_experts,
+    is_gated_activation,
 ):
     """Shuffle packed-FP4 weights and interleave block scales for the kernel."""
     epilogue_tile_m = 128
@@ -494,41 +504,55 @@ def _prepare_static_weights_for_trtllm_fp4_moe(
     g1ws, g1ss, g2ws, g2ss = [], [], [], []
     for i in range(num_experts):
         pi = _maybe_get_cached_w3_w1_permute_indices(
-            cache, g1_w[i].view(torch.uint8), epilogue_tile_m,
+            cache,
+            g1_w[i].view(torch.uint8),
+            epilogue_tile_m,
             is_gated_act_gemm=is_gated_activation,
         )
         g1ws.append(g1_w[i].view(torch.uint8)[pi.to(g1_w.device)].contiguous())
 
         pi_sf = _maybe_get_cached_w3_w1_permute_indices(
-            cache, g1_sf[i].view(torch.uint8), epilogue_tile_m,
+            cache,
+            g1_sf[i].view(torch.uint8),
+            epilogue_tile_m,
             num_elts_per_sf=16,
             is_gated_act_gemm=is_gated_activation,
         )
-        g1ss.append(nvfp4_block_scale_interleave(
-            g1_sf[i].view(torch.uint8)[pi_sf.to(g1_sf.device)].contiguous()
-        ))
+        g1ss.append(
+            nvfp4_block_scale_interleave(
+                g1_sf[i].view(torch.uint8)[pi_sf.to(g1_sf.device)].contiguous()
+            )
+        )
 
         pi = get_w2_permute_indices_with_cache(
-            cache, g2_w[i].view(torch.uint8), epilogue_tile_m,
+            cache,
+            g2_w[i].view(torch.uint8),
+            epilogue_tile_m,
         )
         g2ws.append(g2_w[i].view(torch.uint8)[pi.to(g2_w.device)].contiguous())
 
         pi_sf = get_w2_permute_indices_with_cache(
-            cache, g2_sf[i].view(torch.uint8), epilogue_tile_m,
+            cache,
+            g2_sf[i].view(torch.uint8),
+            epilogue_tile_m,
             num_elts_per_sf=16,
         )
-        g2ss.append(nvfp4_block_scale_interleave(
-            g2_sf[i].view(torch.uint8)[pi_sf.to(g2_sf.device)].contiguous()
-        ))
+        g2ss.append(
+            nvfp4_block_scale_interleave(
+                g2_sf[i].view(torch.uint8)[pi_sf.to(g2_sf.device)].contiguous()
+            )
+        )
 
     g1ws = torch.stack(g1ws)
     g1ss = (
-        torch.stack(g1ss).view(torch.float8_e4m3fn)
+        torch.stack(g1ss)
+        .view(torch.float8_e4m3fn)
         .reshape(num_experts, gemm1_intermediate_size, hidden_size // 16)
     )
     g2ws = torch.stack(g2ws)
     g2ss = (
-        torch.stack(g2ss).view(torch.float8_e4m3fn)
+        torch.stack(g2ss)
+        .view(torch.float8_e4m3fn)
         .reshape(num_experts, hidden_size, intermediate_size // 16)
     )
     return g1ws, g1ss, g2ws, g2ss
@@ -559,9 +583,7 @@ def _routing_reference_renormalize(expert_logits, top_k, num_experts, padding):
     top_k_logits, top_k_indices = torch.topk(scores, top_k, dim=1)
 
     num_tokens_per_expert = torch.zeros(num_experts, dtype=torch.int64)
-    expanded_token_idx_to_expert = -torch.ones(
-        num_tokens * top_k, dtype=torch.int64
-    )
+    expanded_token_idx_to_expert = -torch.ones(num_tokens * top_k, dtype=torch.int64)
     expanded_token_idx_to_idx_in_expert = -torch.ones(
         num_tokens * top_k, dtype=torch.int64
     )
@@ -571,9 +593,9 @@ def _routing_reference_renormalize(expert_logits, top_k, num_experts, padding):
             expanded_idx = token_idx * top_k + k
             expert_index = top_k_indices[token_idx, k]
             expanded_token_idx_to_expert[expanded_idx] = expert_index
-            expanded_token_idx_to_idx_in_expert[expanded_idx] = (
-                num_tokens_per_expert[expert_index]
-            )
+            expanded_token_idx_to_idx_in_expert[expanded_idx] = num_tokens_per_expert[
+                expert_index
+            ]
             num_tokens_per_expert[expert_index] += 1
 
     padded_prefix_sum = torch.zeros(num_experts + 1, dtype=torch.int64)
@@ -653,18 +675,10 @@ class TestSubclassVsKernel:
         torch.manual_seed(0)
 
         # ---- 1. Generate random inputs --------------------------------
-        hidden_states = 2 * torch.randn(
-            T, H, device="cuda", dtype=torch.bfloat16
-        )
-        gemm1_weights = torch.randn(
-            E, 2 * I, H, device="cuda", dtype=torch.bfloat16
-        )
-        gemm2_weights = torch.randn(
-            E, H, I, device="cuda", dtype=torch.bfloat16
-        )
-        expert_logits = torch.randn(
-            T, E, device="cuda", dtype=torch.bfloat16
-        )
+        hidden_states = 2 * torch.randn(T, H, device="cuda", dtype=torch.bfloat16)
+        gemm1_weights = torch.randn(E, 2 * I, H, device="cuda", dtype=torch.bfloat16)
+        gemm2_weights = torch.randn(E, H, I, device="cuda", dtype=torch.bfloat16)
+        expert_logits = torch.randn(T, E, device="cuda", dtype=torch.bfloat16)
 
         # ---- 2. Compute routing (Renormalize: TopK -> Softmax) ---------
         routing_result = _routing_reference_renormalize(
@@ -685,10 +699,12 @@ class TestSubclassVsKernel:
         # weight before calling _grouped_mm, so the subclass needs to
         # transpose back to storage layout for correct FP4 block boundaries.
         gemm1_w_wrapped = NVFP4FakeQuantizedScaledGroupedMMTensor(
-            gemm1_weights, is_transposed=False,
+            gemm1_weights,
+            is_transposed=False,
         )
         gemm2_w_wrapped = NVFP4FakeQuantizedScaledGroupedMMTensor(
-            gemm2_weights, is_transposed=False,
+            gemm2_weights,
+            is_transposed=False,
         )
 
         # Permute hidden states into expert-sorted buffer (matching kernel routing)
@@ -696,20 +712,15 @@ class TestSubclassVsKernel:
             permuted_buffer_size, H, device="cuda", dtype=torch.bfloat16
         )
         token_ids = (
-            torch.arange(T, device="cuda")
-            .unsqueeze(1)
-            .expand(-1, top_k)
-            .reshape(-1)
+            torch.arange(T, device="cuda").unsqueeze(1).expand(-1, top_k).reshape(-1)
         )
         valid = expanded_token_idx_to_permuted_idx >= 0
-        permuted_hidden[expanded_token_idx_to_permuted_idx[valid]] = (
-            hidden_states[token_ids[valid]]
-        )
+        permuted_hidden[expanded_token_idx_to_permuted_idx[valid]] = hidden_states[
+            token_ids[valid]
+        ]
 
         # Compute cumulative offsets for _grouped_mm (padded)
-        padded_counts = (
-            (num_tokens_per_expert + padding - 1) // padding * padding
-        )
+        padded_counts = (num_tokens_per_expert + padding - 1) // padding * padding
         offs = torch.cumsum(padded_counts, dim=0).to(torch.int32)
 
         # GEMM1: [S, H] @ [E, 2*I, H]^T -> [S, 2*I]
@@ -734,15 +745,10 @@ class TestSubclassVsKernel:
 
         # Scatter-back: unpermute and weighted-sum (vectorized)
         k_ids = (
-            torch.arange(top_k, device="cuda")
-            .unsqueeze(0)
-            .expand(T, -1)
-            .reshape(-1)
+            torch.arange(top_k, device="cuda").unsqueeze(0).expand(T, -1).reshape(-1)
         )
         weights = top_k_logits[token_ids[valid], k_ids[valid]].unsqueeze(1)
-        subclass_output = torch.zeros(
-            T, H, device="cuda", dtype=torch.float32
-        )
+        subclass_output = torch.zeros(T, H, device="cuda", dtype=torch.float32)
         subclass_output.index_add_(
             0,
             token_ids[valid],
@@ -755,7 +761,12 @@ class TestSubclassVsKernel:
             permute_info,
             gemm1_weights.float(),
             gemm2_weights.float(),
-            E, T, top_k, H, I, padding,
+            E,
+            T,
+            top_k,
+            H,
+            I,
+            padding,
         )
 
         # ---- 5. Quantize weights to FP4 for kernel ---------------------
@@ -775,8 +786,14 @@ class TestSubclassVsKernel:
 
         # ---- 7. Shuffle weights and interleave scales for kernel -------
         g1ws, g1ss, g2ws, g2ss = _prepare_static_weights_for_trtllm_fp4_moe(
-            gemm1_fp4, gemm2_fp4, gemm1_sf_lin, gemm2_sf_lin,
-            H, I, E, is_gated_activation=True,
+            gemm1_fp4,
+            gemm2_fp4,
+            gemm1_sf_lin,
+            gemm2_sf_lin,
+            H,
+            I,
+            E,
+            is_gated_activation=True,
         )
 
         # Output scales (combine global scales for the kernel).
@@ -826,6 +843,9 @@ class TestSubclassVsKernel:
         )
 
         _check_accuracy(
-            subclass_output, kernel_output,
-            atol=0.1, rtol=0.85, percent=0.925,
+            subclass_output,
+            kernel_output,
+            atol=0.1,
+            rtol=0.85,
+            percent=0.925,
         )

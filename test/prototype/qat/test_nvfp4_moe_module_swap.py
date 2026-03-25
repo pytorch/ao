@@ -10,7 +10,6 @@ Includes:
 
 import pytest
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 
 from torchao.prototype.qat.nvfp4_moe_module_swap import (
@@ -51,9 +50,7 @@ def _has_flashinfer_sm100():
         return False
 
 
-pytestmark = pytest.mark.skipif(
-    not torch.cuda.is_available(), reason="CUDA required"
-)
+pytestmark = pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
 
 
 def _make_routing(num_tokens, num_experts, top_k, device):
@@ -61,7 +58,9 @@ def _make_routing(num_tokens, num_experts, top_k, device):
     router_indices = torch.stack(
         [torch.randperm(num_experts, device=device)[:top_k] for _ in range(num_tokens)]
     )  # [T, top_k]
-    routing_weights = torch.randn(num_tokens, num_experts, device=device).softmax(dim=-1)
+    routing_weights = torch.randn(num_tokens, num_experts, device=device).softmax(
+        dim=-1
+    )
     return router_indices, routing_weights
 
 
@@ -99,9 +98,7 @@ class TestGradientFlow:
         E, H, I, T, top_k = 4, 64, 64, 16, 2
 
         torch.manual_seed(42)
-        module = NVFP4FakeQuantizedMoE(E, H, I).to(
-            device="cuda", dtype=torch.bfloat16
-        )
+        module = NVFP4FakeQuantizedMoE(E, H, I).to(device="cuda", dtype=torch.bfloat16)
         # Initialize with small random weights
         with torch.no_grad():
             module.gemm1_weight.normal_(0, 0.02)
@@ -110,7 +107,9 @@ class TestGradientFlow:
         hidden = torch.randn(1, T, H, dtype=torch.bfloat16, device="cuda")
         router_indices, routing_weights = _make_routing(T, E, top_k, "cuda")
 
-        output = module(hidden, router_indices=router_indices, routing_weights=routing_weights)
+        output = module(
+            hidden, router_indices=router_indices, routing_weights=routing_weights
+        )
         loss = output.sum()
         loss.backward()
 
@@ -181,41 +180,55 @@ def prepare_static_weights_for_trtllm_fp4_moe(
     g1ws, g1ss, g2ws, g2ss = [], [], [], []
     for i in range(num_experts):
         pi = _maybe_get_cached_w3_w1_permute_indices(
-            cache, g1_w[i].view(torch.uint8), epilogue_tile_m,
+            cache,
+            g1_w[i].view(torch.uint8),
+            epilogue_tile_m,
             is_gated_act_gemm=is_gated_activation,
         )
         g1ws.append(g1_w[i].view(torch.uint8)[pi.to(g1_w.device)].contiguous())
 
         pi_sf = _maybe_get_cached_w3_w1_permute_indices(
-            cache, g1_sf[i].view(torch.uint8), epilogue_tile_m,
+            cache,
+            g1_sf[i].view(torch.uint8),
+            epilogue_tile_m,
             num_elts_per_sf=16,
             is_gated_act_gemm=is_gated_activation,
         )
-        g1ss.append(nvfp4_block_scale_interleave(
-            g1_sf[i].view(torch.uint8)[pi_sf.to(g1_sf.device)].contiguous()
-        ))
+        g1ss.append(
+            nvfp4_block_scale_interleave(
+                g1_sf[i].view(torch.uint8)[pi_sf.to(g1_sf.device)].contiguous()
+            )
+        )
 
         pi = get_w2_permute_indices_with_cache(
-            cache, g2_w[i].view(torch.uint8), epilogue_tile_m,
+            cache,
+            g2_w[i].view(torch.uint8),
+            epilogue_tile_m,
         )
         g2ws.append(g2_w[i].view(torch.uint8)[pi.to(g2_w.device)].contiguous())
 
         pi_sf = get_w2_permute_indices_with_cache(
-            cache, g2_sf[i].view(torch.uint8), epilogue_tile_m,
+            cache,
+            g2_sf[i].view(torch.uint8),
+            epilogue_tile_m,
             num_elts_per_sf=16,
         )
-        g2ss.append(nvfp4_block_scale_interleave(
-            g2_sf[i].view(torch.uint8)[pi_sf.to(g2_sf.device)].contiguous()
-        ))
+        g2ss.append(
+            nvfp4_block_scale_interleave(
+                g2_sf[i].view(torch.uint8)[pi_sf.to(g2_sf.device)].contiguous()
+            )
+        )
 
     g1ws = torch.stack(g1ws)
     g1ss = (
-        torch.stack(g1ss).view(torch.float8_e4m3fn)
+        torch.stack(g1ss)
+        .view(torch.float8_e4m3fn)
         .reshape(num_experts, gemm1_intermediate_size, hidden_size // 16)
     )
     g2ws = torch.stack(g2ws)
     g2ss = (
-        torch.stack(g2ss).view(torch.float8_e4m3fn)
+        torch.stack(g2ss)
+        .view(torch.float8_e4m3fn)
         .reshape(num_experts, hidden_size, intermediate_size // 16)
     )
     return g1ws, g1ss, g2ws, g2ss
@@ -254,9 +267,7 @@ def _routing_reference_renormalize(expert_logits, top_k, num_experts, padding):
     top_k_logits, top_k_indices = torch.topk(scores, top_k, dim=1)
 
     num_tokens_per_expert = torch.zeros(num_experts, dtype=torch.int64)
-    expanded_token_idx_to_expert = -torch.ones(
-        num_tokens * top_k, dtype=torch.int64
-    )
+    expanded_token_idx_to_expert = -torch.ones(num_tokens * top_k, dtype=torch.int64)
     expanded_token_idx_to_idx_in_expert = -torch.ones(
         num_tokens * top_k, dtype=torch.int64
     )
@@ -266,9 +277,9 @@ def _routing_reference_renormalize(expert_logits, top_k, num_experts, padding):
             expanded_idx = token_idx * top_k + k
             expert_index = top_k_indices[token_idx, k]
             expanded_token_idx_to_expert[expanded_idx] = expert_index
-            expanded_token_idx_to_idx_in_expert[expanded_idx] = (
-                num_tokens_per_expert[expert_index]
-            )
+            expanded_token_idx_to_idx_in_expert[expanded_idx] = num_tokens_per_expert[
+                expert_index
+            ]
             num_tokens_per_expert[expert_index] += 1
 
     padded_prefix_sum = torch.zeros(num_experts + 1, dtype=torch.int64)
@@ -338,18 +349,10 @@ class TestReferenceVsKernel:
         torch.manual_seed(0)
 
         # ---- 1. Generate random inputs --------------------------------
-        hidden_states = 2 * torch.randn(
-            T, H, device="cuda", dtype=torch.bfloat16
-        )
-        gemm1_weights = torch.randn(
-            E, 2 * I, H, device="cuda", dtype=torch.bfloat16
-        )
-        gemm2_weights = torch.randn(
-            E, H, I, device="cuda", dtype=torch.bfloat16
-        )
-        expert_logits = torch.randn(
-            T, E, device="cuda", dtype=torch.bfloat16
-        )
+        hidden_states = 2 * torch.randn(T, H, device="cuda", dtype=torch.bfloat16)
+        gemm1_weights = torch.randn(E, 2 * I, H, device="cuda", dtype=torch.bfloat16)
+        gemm2_weights = torch.randn(E, H, I, device="cuda", dtype=torch.bfloat16)
+        expert_logits = torch.randn(T, E, device="cuda", dtype=torch.bfloat16)
 
         # ---- 2. Compute routing (Renormalize: TopK -> Softmax) ---------
         routing_result = _routing_reference_renormalize(
@@ -379,13 +382,24 @@ class TestReferenceVsKernel:
             permute_info,
             gemm1_weights.float(),
             gemm2_weights.float(),
-            E, T, top_k, H, I, padding,
+            E,
+            T,
+            top_k,
+            H,
+            I,
+            padding,
         )
 
         # ---- 6. Shuffle weights and interleave scales for kernel -------
         g1ws, g1ss, g2ws, g2ss = prepare_static_weights_for_trtllm_fp4_moe(
-            gemm1_fp4, gemm2_fp4, gemm1_sf_lin, gemm2_sf_lin,
-            H, I, E, is_gated_activation=True,
+            gemm1_fp4,
+            gemm2_fp4,
+            gemm1_sf_lin,
+            gemm2_sf_lin,
+            H,
+            I,
+            E,
+            is_gated_activation=True,
         )
 
         # Output scales (combine global scales for the kernel).
@@ -426,6 +440,9 @@ class TestReferenceVsKernel:
 
         # ---- 8. Compare -----------------------------------------------
         _check_accuracy(
-            ref_output, kernel_output,
-            atol=0.1, rtol=0.85, percent=0.925,
+            ref_output,
+            kernel_output,
+            atol=0.1,
+            rtol=0.85,
+            percent=0.925,
         )

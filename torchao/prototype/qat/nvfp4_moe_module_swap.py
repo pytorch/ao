@@ -25,7 +25,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-
 # ---------------------------------------------------------------------------
 # FP4 E2M1 quantization (pure PyTorch, all on GPU)
 # ---------------------------------------------------------------------------
@@ -126,9 +125,7 @@ def _build_permute_info(
     num_tokens, top_k = router_indices.shape
 
     # Per-(token, k) weights — clamp sentinel indices and zero them out.
-    top_k_logits = routing_weights.gather(
-        1, router_indices.clamp(max=num_experts - 1)
-    )
+    top_k_logits = routing_weights.gather(1, router_indices.clamp(max=num_experts - 1))
     top_k_logits = top_k_logits.masked_fill(router_indices >= num_experts, 0.0)
 
     # Flat view of expert assignments: [num_tokens * top_k]
@@ -136,18 +133,14 @@ def _build_permute_info(
     valid = flat_indices < num_experts
 
     # Count tokens per expert (on GPU).
-    num_tokens_per_expert = torch.zeros(
-        num_experts, dtype=torch.int64, device=device
-    )
+    num_tokens_per_expert = torch.zeros(num_experts, dtype=torch.int64, device=device)
     num_tokens_per_expert.scatter_add_(
         0, flat_indices[valid], torch.ones_like(flat_indices[valid])
     )
 
     # Padded counts and prefix sum (on GPU).
     padded_counts = (num_tokens_per_expert + padding - 1) // padding * padding
-    padded_prefix_sum = torch.zeros(
-        num_experts + 1, dtype=torch.int64, device=device
-    )
+    padded_prefix_sum = torch.zeros(num_experts + 1, dtype=torch.int64, device=device)
     padded_prefix_sum[1:] = padded_counts.cumsum(0)
     permuted_buffer_size = padded_prefix_sum[num_experts].item()
 
@@ -169,9 +162,7 @@ def _build_permute_info(
     sorted_experts = valid_experts[sort_order]
 
     # Within-expert rank: position minus the start of that expert's group.
-    expert_start_in_sorted = torch.zeros(
-        num_experts, dtype=torch.int64, device=device
-    )
+    expert_start_in_sorted = torch.zeros(num_experts, dtype=torch.int64, device=device)
     expert_start_in_sorted[1:] = num_tokens_per_expert[:-1].cumsum(0)
     # Each sorted entry's rank = its index in sorted array - expert_start_in_sorted[expert]
     sorted_idx = torch.arange(sorted_positions.shape[0], device=device)
@@ -230,7 +221,12 @@ def _run_moe_reference(
     permute_out = torch.zeros(
         total_padded, hidden_size, device=device, dtype=torch.float32
     )
-    token_ids = torch.arange(num_tokens, device=device).unsqueeze(1).expand(-1, top_k).reshape(-1)
+    token_ids = (
+        torch.arange(num_tokens, device=device)
+        .unsqueeze(1)
+        .expand(-1, top_k)
+        .reshape(-1)
+    )
     valid = expanded_idx >= 0
     permute_out[expanded_idx[valid]] = hidden_states_fq[token_ids[valid]].float()
 
@@ -291,7 +287,12 @@ def _run_moe_reference(
         pos = (pos + padding - 1) // padding * padding
 
     # 6. Finalise: weighted sum over each token's top-k experts (vectorized gather).
-    k_ids = torch.arange(top_k, device=device).unsqueeze(0).expand(num_tokens, -1).reshape(-1)
+    k_ids = (
+        torch.arange(top_k, device=device)
+        .unsqueeze(0)
+        .expand(num_tokens, -1)
+        .reshape(-1)
+    )
     weights = expert_weight[token_ids[valid], k_ids[valid]].unsqueeze(1)
     output = torch.zeros(num_tokens, hidden_size, dtype=torch.float32, device=device)
     output.index_add_(0, token_ids[valid], gemm2_out[expanded_idx[valid]] * weights)
@@ -317,7 +318,9 @@ class NVFP4FakeQuantizedMoE(nn.Module):
     gradients flow through as if the quantization were identity.
     """
 
-    def __init__(self, num_experts: int, hidden_size: int, intermediate_size: int) -> None:
+    def __init__(
+        self, num_experts: int, hidden_size: int, intermediate_size: int
+    ) -> None:
         super().__init__()
         self.num_experts = num_experts
         self.hidden_size = hidden_size
@@ -352,10 +355,10 @@ class NVFP4FakeQuantizedMoE(nn.Module):
         gemm1_list = []
         gemm2_list = []
         for expert in experts:
-            up = expert.up_proj.weight.data     # [I, H]
+            up = expert.up_proj.weight.data  # [I, H]
             gate = expert.gate_proj.weight.data  # [I, H]
             gemm1_list.append(torch.cat([up, gate], dim=0))  # [2*I, H]
-            gemm2_list.append(expert.down_proj.weight.data)   # [H, I]
+            gemm2_list.append(expert.down_proj.weight.data)  # [H, I]
 
         new.gemm1_weight = nn.Parameter(torch.stack(gemm1_list))  # [E, 2*I, H]
         new.gemm2_weight = nn.Parameter(torch.stack(gemm2_list))  # [E, H, I]
@@ -375,7 +378,10 @@ class NVFP4FakeQuantizedMoE(nn.Module):
 
         with torch.no_grad():
             permute_info = _build_permute_info(
-                router_indices, routing_weights, self.num_experts, padding=1,
+                router_indices,
+                routing_weights,
+                self.num_experts,
+                padding=1,
             )
 
         output, _ = _run_moe_reference(
@@ -417,7 +423,9 @@ class NVFP4FakeQuantizedQwen3MoeBlock(nn.Module):
         self.norm_topk_prob = norm_topk_prob
 
     @classmethod
-    def from_qwen3_moe_block(cls, block: nn.Module) -> "NVFP4FakeQuantizedQwen3MoeBlock":
+    def from_qwen3_moe_block(
+        cls, block: nn.Module
+    ) -> "NVFP4FakeQuantizedQwen3MoeBlock":
         """Create from an existing ``Qwen3MoeSparseMoeBlock``."""
         qat_experts = NVFP4FakeQuantizedMoE.from_qwen3_experts(block.experts)
         return cls(
@@ -435,7 +443,9 @@ class NVFP4FakeQuantizedQwen3MoeBlock(nn.Module):
         router_logits = self.gate(hidden_states_2d)
         routing_weights = F.softmax(router_logits, dim=1, dtype=torch.float)
         routing_weights, selected_experts = torch.topk(
-            routing_weights, self.top_k, dim=-1,
+            routing_weights,
+            self.top_k,
+            dim=-1,
         )
         if self.norm_topk_prob:
             routing_weights /= routing_weights.sum(dim=-1, keepdim=True)
@@ -444,8 +454,10 @@ class NVFP4FakeQuantizedQwen3MoeBlock(nn.Module):
         num_tokens = hidden_states_2d.shape[0]
         num_experts = self.experts.num_experts
         full_routing_weights = torch.zeros(
-            num_tokens, num_experts,
-            dtype=routing_weights.dtype, device=routing_weights.device,
+            num_tokens,
+            num_experts,
+            dtype=routing_weights.dtype,
+            device=routing_weights.device,
         )
         full_routing_weights.scatter_(1, selected_experts, routing_weights)
 
