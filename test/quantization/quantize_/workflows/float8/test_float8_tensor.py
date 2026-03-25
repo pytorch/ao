@@ -388,6 +388,49 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
 
     @unittest.skipIf(not torch.accelerator.is_available(), "Need accelerator available")
     @unittest.skipIf(
+        torch.cuda.is_available() and not is_sm_at_least_89(),
+        "Requires GPU with compute capability >= 8.9",
+    )
+    @common_utils.parametrize("dtype", [torch.bfloat16, torch.float32])
+    @common_utils.parametrize("granularity", [PerRow(), PerGroup(64)])
+    @common_utils.parametrize("dispatch_path", ["torch_function", "aten"])
+    @torch.no_grad()
+    def test_fp8_embedding(
+        self, dtype: torch.dtype, granularity: Granularity, dispatch_path: str
+    ):
+        device = get_current_accelerator_device()
+        num_embeddings, embedding_dim = 256, 128
+        model = torch.nn.Embedding(num_embeddings, embedding_dim).to(dtype).to(device)
+
+        quantized_model = copy.deepcopy(model)
+        config = Float8WeightOnlyConfig(granularity=granularity)
+        quantize_(
+            quantized_model,
+            config,
+            filter_fn=lambda m, fqn: isinstance(m, torch.nn.Embedding),
+        )
+
+        assert isinstance(quantized_model.weight, Float8Tensor)
+
+        idx = torch.tensor([0, 2, 5, 100], device=device)
+        output_original = model(idx)
+
+        if dispatch_path == "torch_function":
+            # Goes through __torch_function__ via F.embedding
+            output_quantized = quantized_model(idx)
+        else:
+            # Goes through __torch_dispatch__ via aten op directly
+            output_quantized = torch.ops.aten.embedding.default(
+                quantized_model.weight, idx
+            )
+
+        assert output_original.shape == output_quantized.shape
+
+        error = compute_error(output_original, output_quantized)
+        assert error > 20, f"Quantization error is too high got a SQNR of {error}"
+
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need accelerator available")
+    @unittest.skipIf(
         torch.cuda.is_available() and not is_sm_at_least_100(),
         "Requires GPU with compute capability >= 10.0",
     )
