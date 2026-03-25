@@ -1,0 +1,10 @@
+﻿.. role:: hidden
+    :class: hidden-section
+.. currentmodule:: torchao.float8
+
+
+Float8LinearRecipeName
+======================
+
+.. autoclass:: Float8LinearRecipeName
+    :members:

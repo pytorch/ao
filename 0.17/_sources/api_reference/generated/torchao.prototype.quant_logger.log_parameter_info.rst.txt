@@ -1,0 +1,9 @@
+﻿.. role:: hidden
+    :class: hidden-section
+.. currentmodule:: torchao.prototype.quant_logger
+
+
+log_parameter_info
+==================
+
+.. autofunction:: log_parameter_info

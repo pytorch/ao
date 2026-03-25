@@ -1,0 +1,10 @@
+﻿.. role:: hidden
+    :class: hidden-section
+.. currentmodule:: torchao.prototype.mx_formats
+
+
+NVFP4WeightOnlyConfig
+=====================
+
+.. autoclass:: NVFP4WeightOnlyConfig
+    :members:

@@ -1,0 +1,9 @@
+﻿.. role:: hidden
+    :class: hidden-section
+.. currentmodule:: torchao.prototype.attention.fp8_fa3.attention
+
+
+fp8_fa3_sdpa
+============
+
+.. autofunction:: fp8_fa3_sdpa

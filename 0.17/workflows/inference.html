@@ -1,0 +1,2373 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta property="og:title" content="Quantized Inference" />
+<meta property="og:type" content="website" />
+<meta property="og:url" content="http://pytorch.org/workflows/inference.html" />
+<meta property="og:site_name" content="torchao" />
+<meta property="og:description" content="For inference, we support dynamic and weight-only quantization of torch.nn.funtional.linear across various dtype configurations. The pseudocode is as follows: Inference Workflows: Below are the sta..." />
+<meta property="og:image" content="https://pytorch.org/assets/images/social-share.jpg" />
+<meta property="og:image:alt" content="torchao" />
+<meta name="description" content="For inference, we support dynamic and weight-only quantization of torch.nn.funtional.linear across various dtype configurations. The pseudocode is as follows: Inference Workflows: Below are the sta..." />
+
+    <title>Quantized Inference &#8212; torchao 0.17 documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../_static/styles/theme.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
+<link href="../_static/styles/bootstrap.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
+<link href="../_static/styles/pydata-sphinx-theme.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
+
+  
+  <link href="../_static/vendor/fontawesome/6.5.2/css/all.min.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
+  <link rel="preload" as="font" type="font/woff2" crossorigin href="../_static/vendor/fontawesome/6.5.2/webfonts/fa-solid-900.woff2" />
+<link rel="preload" as="font" type="font/woff2" crossorigin href="../_static/vendor/fontawesome/6.5.2/webfonts/fa-brands-400.woff2" />
+<link rel="preload" as="font" type="font/woff2" crossorigin href="../_static/vendor/fontawesome/6.5.2/webfonts/fa-regular-400.woff2" />
+
+    <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=03e43079" />
+    <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=b417fedc" />
+    <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../_static/sg_gallery.css?v=61a4c737" />
+    <link rel="stylesheet" type="text/css" href="../_static/sg_gallery-binder.css?v=ca3c1c84" />
+    <link rel="stylesheet" type="text/css" href="../_static/sg_gallery-dataframe.css?v=e5fbc548" />
+    <link rel="stylesheet" type="text/css" href="../_static/sg_gallery-rendered-html.css?v=1277b6f3" />
+    <link rel="stylesheet" type="text/css" href="../_static/css/custom.css?v=f533b996" />
+  
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=dfe6caa3a7d634c4db9b" />
+<link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=dfe6caa3a7d634c4db9b" />
+  <script src="../_static/vendor/fontawesome/6.5.2/js/all.min.js?digest=dfe6caa3a7d634c4db9b"></script>
+
+    <script src="../_static/documentation_options.js?v=679d0383"></script>
+    <script src="../_static/doctools.js?v=888ff710"></script>
+    <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../_static/copybutton.js?v=f281be69"></script>
+    <script src="../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'workflows/inference';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.15.4';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://raw.githubusercontent.com/pytorch/ao/gh-pages/torchao-versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '0.17';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner = true;
+        </script>
+    <link rel="canonical" href="https://pytorch.org/ao/workflows/inference.html" />
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="API Reference" href="../api_reference/index.html" />
+    <link rel="prev" title="Quantization-Aware Training (QAT)" href="qat.html" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+
+<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/list.js/2.3.1/list.min.js"></script>
+<script>
+  if (window.location.hostname === 'docs.pytorch.org' || window.location.hostname === 'docs-preview.pytorch.org') {
+    const script = document.createElement('script');
+    script.src = 'https://cmp.osano.com/16A0DbT9yDNIaQkvZ/31b1b91a-e0b6-47ea-bde2-7f2bd13dbe5c/osano.js?variant=one';
+    document.head.appendChild(script);
+  }
+</script>
+<script>
+  // Cookie banner for non-LF projects
+  document.addEventListener('DOMContentLoaded', function () {
+    // Hide cookie banner on local environments and LF owned docs
+    if (window.location.hostname === 'localhost' ||
+      window.location.hostname === '0.0.0.0' ||
+      window.location.hostname === '127.0.0.1' ||
+      window.location.hostname === 'docs.pytorch.org' ||
+      window.location.hostname === 'docs-preview.pytorch.org' ||
+      window.location.hostname.startsWith('192.168.')) {
+      const banner = document.querySelector('.cookie-banner-wrapper');
+      if (banner) {
+        banner.style.display = 'none';
+      }
+    }
+  });
+</script>
+<!-- Conditional CSS for header and footer height adjustment -->
+
+<style>
+  :root {
+    --header-height: 0px !important;
+    --header-height-desktop: 0px !important;
+  }
+  /* Ensure proper mobile layout when LF header is hidden */
+  @media (max-width: 960px) {
+    .bd-header {
+      top: 0 !important;
+      position: sticky !important;
+      z-index: 1020 !important;
+    }
+    .bd-main {
+      padding-top: 0 !important;
+      margin-top: 0 !important;
+    }
+    .bd-article-container {
+      padding-top: 0 !important;
+    }
+    .header-article__inner {
+      padding-top: 1rem !important;
+    }
+
+  }
+</style>
+
+
+<link rel="stylesheet" type="text/css" href="../_static/css/theme.css" crossorigin="anonymous">
+<script type="text/javascript" src="../_static/js/theme.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400&display=swap" rel="stylesheet">
+<meta property="og:image" content="https://docs.pytorch.org/docs/stable/_static/img/pytorch_seo.png" />
+<link rel="stylesheet" href="../_static/webfonts/all.min.css" crossorigin="anonymous">
+<meta http-equiv="Content-Security-Policy"
+  content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:; style-src * 'unsafe-inline'; script-src * 'unsafe-inline' 'unsafe-eval' blob:;">
+<meta name="pytorch_project" content="">
+<!-- Google Tag Manager (noscript) -->
+<noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-T8XT4PS" height="0" width="0"
+    style="display:none;visibility:hidden"></iframe></noscript>
+<!-- End Google Tag Manager (noscript) -->
+<!-- Google Tag Manager -->
+<script>(function (w, d, s, l, i) {
+    w[l] = w[l] || []; w[l].push({
+      'gtm.start':
+        new Date().getTime(), event: 'gtm.js'
+    }); var f = d.getElementsByTagName(s)[0],
+      j = d.createElement(s), dl = l != 'dataLayer' ? '&l=' + l : ''; j.async = true; j.src =
+        'https://www.googletagmanager.com/gtm.js?id=' + i + dl; f.parentNode.insertBefore(j, f);
+    j.onload = function () {
+      window.dispatchEvent(new Event('gtm_loaded'));
+      console.log('GTM loaded successfully');
+    };
+  })(window, document, 'script', 'dataLayer', 'GTM-T8XT4PS');
+</script>
+<!-- End Google Tag Manager -->
+<!-- Facebook Pixel Code -->
+<script>
+  !function (f, b, e, v, n, t, s) {
+    if (f.fbq) return; n = f.fbq = function () {
+      n.callMethod ?
+        n.callMethod.apply(n, arguments) : n.queue.push(arguments)
+    };
+    if (!f._fbq) f._fbq = n; n.push = n; n.loaded = !0; n.version = '2.0';
+    n.queue = []; t = b.createElement(e); t.async = !0;
+    t.src = v; s = b.getElementsByTagName(e)[0];
+    s.parentNode.insertBefore(t, s)
+  }(window, document, 'script',
+    'https://connect.facebook.net/en_US/fbevents.js');
+  fbq('init', '243028289693773');
+  fbq('track', 'PageView');
+</script>
+<script>
+  document.documentElement.setAttribute('data-version', '0.17');
+</script>
+<noscript>
+  <img height="1" width="1" src="https://www.facebook.com/tr?id=243028289693773&ev=PageView&noscript=1" />
+</noscript>
+<script>
+  function gtag() {
+    window.dataLayer.push(arguments);
+  }
+</script>
+<!-- End Facebook Pixel Code -->
+<!-- Repository configuration for tutorials -->
+
+
+<!-- Script to Fix scrolling with fast fixed-duration animation -->
+<script>
+  document.addEventListener('DOMContentLoaded', function () {
+    const SCROLL_DURATION = 150; // Fixed duration in ms regardless of distance
+    let lockedTargetId = null; // Lock the TOC to this target until user scrolls manually
+    let isUpdatingToc = false; // Guard against infinite loops
+
+    function smoothScrollTo(targetY, duration, onComplete) {
+      const startY = window.pageYOffset;
+      const difference = targetY - startY;
+      const startTime = performance.now();
+
+      function step(currentTime) {
+        const elapsed = currentTime - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+        // Ease-out cubic for smooth deceleration
+        const easeOut = 1 - Math.pow(1 - progress, 3);
+        window.scrollTo(0, startY + difference * easeOut);
+        if (progress < 1) {
+          requestAnimationFrame(step);
+        } else if (onComplete) {
+          onComplete();
+        }
+      }
+      requestAnimationFrame(step);
+    }
+
+    function updateTocHighlight(targetId) {
+      if (isUpdatingToc) return; // Prevent infinite loop
+      isUpdatingToc = true;
+
+      // Find the TOC link that points to this target
+      const tocNav = document.querySelector('.bd-toc-nav');
+      if (!tocNav) {
+        isUpdatingToc = false;
+        return;
+      }
+
+      // Remove active class from all TOC items
+      tocNav.querySelectorAll('.nav-link').forEach(link => {
+        link.classList.remove('active');
+        link.parentElement.classList.remove('active');
+      });
+
+      // Add active class to the matching link
+      const matchingLink = tocNav.querySelector(`a[href="#${CSS.escape(targetId)}"]`);
+      if (matchingLink) {
+        matchingLink.classList.add('active');
+        matchingLink.parentElement.classList.add('active');
+      }
+
+      // Use setTimeout to reset the guard after the current call stack
+      setTimeout(function() {
+        isUpdatingToc = false;
+      }, 0);
+    }
+
+    // Watch for ScrollSpy trying to change the active state and override it
+    const tocNav = document.querySelector('.bd-toc-nav');
+    if (tocNav) {
+      const observer = new MutationObserver(function(mutations) {
+        if (lockedTargetId && !isUpdatingToc) {
+          // Force our target to stay highlighted
+          updateTocHighlight(lockedTargetId);
+        }
+      });
+      observer.observe(tocNav, {
+        attributes: true,
+        attributeFilter: ['class'],
+        subtree: true
+      });
+    }
+
+    // Release the lock when user scrolls manually (not programmatically)
+    window.addEventListener('wheel', function() {
+      lockedTargetId = null;
+    });
+    window.addEventListener('touchmove', function() {
+      lockedTargetId = null;
+    });
+
+    document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+      anchor.addEventListener('click', function (e) {
+        const targetId = this.getAttribute('href').substring(1);
+        if (!targetId) return; // Skip empty hash links
+        const targetElement = document.getElementById(targetId);
+
+        if (targetElement) {
+          e.preventDefault();
+
+          // Lock the TOC to this target
+          lockedTargetId = targetId;
+
+          const headerHeight =
+            (document.querySelector('.header-holder') ? document.querySelector('.header-holder').offsetHeight : 0) +
+            (document.querySelector('.bd-header') ? document.querySelector('.bd-header').offsetHeight : 0) + 20;
+
+          const targetPosition = targetElement.getBoundingClientRect().top + window.pageYOffset - headerHeight;
+
+          // Update TOC highlight immediately
+          updateTocHighlight(targetId);
+
+          smoothScrollTo(targetPosition, SCROLL_DURATION, function() {
+            // Keep it highlighted after scroll
+            updateTocHighlight(targetId);
+          });
+
+          // Update URL hash without scrolling
+          history.pushState(null, null, '#' + targetId);
+        }
+      });
+    });
+  });
+</script>
+
+<script async src="https://cse.google.com/cse.js?cx=e65585f8c3ea1440e"></script>
+<!-- RunLLM Widget Configuration -->
+
+
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+
+  </head>
+
+<body data-feedback-url="" class="pytorch-body">
+  
+  
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <input type="checkbox"
+          class="sidebar-toggle"
+          id="pst-primary-sidebar-checkbox"/>
+  <label class="overlay overlay-primary" for="pst-primary-sidebar-checkbox"></label>
+  
+  <input type="checkbox"
+          class="sidebar-toggle"
+          id="pst-secondary-sidebar-checkbox"/>
+  <label class="overlay overlay-secondary" for="pst-secondary-sidebar-checkbox"></label>
+  
+  <div class="search-button__wrapper">
+    <div class="search-button__overlay"></div>
+    <div class="search-button__search-container">
+<form class="bd-search d-flex align-items-center"
+      action="../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         id="search-input"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form></div>
+  </div>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+
+  
+  <div class="navbar-header-items__mobile-logo">
+    
+
+
+
+
+
+
+
+  
+  
+  
+  
+
+
+<a class="navbar-brand logo" href="../index.html">
+  
+    
+    <img src="../_static/img/logo-dark.svg" class="logo__image only-light" alt="torchao - Home"/>
+    
+    
+    <script>document.write(`<img src="../_static/img/logo-white.svg" class="logo__image only-dark" alt="torchao - Home"/>`);</script>
+    
+  
+</a>
+  </div>
+
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      
+      
+        <div class="navbar-item">
+          
+
+
+
+
+
+
+
+  
+  
+  
+  
+
+
+<a class="navbar-brand logo" href="../index.html">
+  
+    
+    <img src="../_static/img/logo-dark.svg" class="logo__image only-light" alt="torchao - Home"/>
+    
+    
+    <script>document.write(`<img src="../_static/img/logo-white.svg" class="logo__image only-dark" alt="torchao - Home"/>`);</script>
+    
+  
+</a>
+        </div>
+      
+    
+      
+      
+        
+        <div class="navbar-item desktop-only-version">
+          
+<script>
+document.write(`
+  <div class="version-switcher__container dropdown">
+    <button id="pst-version-switcher-button-2"
+      type="button"
+      class="version-switcher__button btn btn-sm dropdown-toggle"
+      data-bs-toggle="dropdown"
+      aria-haspopup="listbox"
+      aria-controls="pst-version-switcher-list-2"
+      aria-label="Version switcher list"
+    >
+      Choose version  <!-- this text may get changed later by javascript -->
+      <span class="caret"></span>
+    </button>
+    <div id="pst-version-switcher-list-2"
+      class="version-switcher__menu dropdown-menu list-group-flush py-0"
+      role="listbox" aria-labelledby="pst-version-switcher-button-2">
+      <!-- dropdown will be populated by javascript on page load -->
+    </div>
+  </div>
+`);
+</script>
+        </div>
+      
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+    
+      <li class="nav-item dropdown current active">
+        
+          
+          <div class="nav-item-with-toggle">
+            <a class="nav-link nav-internal active" href="index.html">
+              Workflows
+            </a>
+          </div>
+          <ul class="dropdown-menu" id="dropdown-1">
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="training.html">
+                  Quantized Training
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="qat.html">
+                  Quantization-Aware Training (QAT)
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="#">
+                  Quantized Inference
+                </a>
+              </li>
+            
+          </ul>
+        
+      </li>
+    
+      <li class="nav-item dropdown">
+        
+          
+          <div class="nav-item-with-toggle">
+            <a class="nav-link nav-internal" href="../api_reference/index.html">
+              API Reference
+            </a>
+          </div>
+          <ul class="dropdown-menu" id="dropdown-2">
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../api_reference/api_ref_quantization.html">
+                  torchao.quantization
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../api_reference/api_ref_qat.html">
+                  torchao.quantization.qat
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../api_reference/api_ref_sparsity.html">
+                  torchao.sparsity
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../api_reference/api_ref_float8.html">
+                  torchao.float8
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../api_reference/api_ref_utils.html">
+                  torchao.core
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../api_reference/api_ref_prototype_quant_logger.html">
+                  torchao.prototype.quant_logger
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../api_reference/api_ref_prototype_attention.html">
+                  torchao.prototype.attention (prototype)
+                </a>
+              </li>
+            
+          </ul>
+        
+      </li>
+    
+      <li class="nav-item dropdown">
+        
+          
+          <div class="nav-item-with-toggle">
+            <a class="nav-link nav-internal" href="../eager_tutorials/index.html">
+              Tutorials
+            </a>
+          </div>
+          <ul class="dropdown-menu" id="dropdown-3">
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../eager_tutorials/first_quantization_example.html">
+                  First Quantization Example
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../eager_tutorials/pretraining.html">
+                  (Part 1) Pre-training with float8
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../eager_tutorials/finetuning.html">
+                  (Part 2) Fine-tuning with QAT, QLoRA, and float8
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../eager_tutorials/serving.html">
+                  (Part 3) Serving on vLLM, SGLang, ExecuTorch
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../eager_tutorials/torchao_vllm_integration.html">
+                  Integration with VLLM: Architecture and Usage Guide
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../eager_tutorials/torchao_hf_integration.html">
+                  Hugging Face Integration
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../eager_tutorials/serialization.html">
+                  Serialization
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../eager_tutorials/static_quantization.html">
+                  Static Quantization
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../eager_tutorials/subclass_basic.html">
+                  Writing Your Own Quantized Tensor
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../eager_tutorials/subclass_advanced.html">
+                  Writing Your Own Quantized Tensor (advanced)
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../eager_tutorials/mxfp8_expert_parallel_training.html">
+                  MXFP8 Expert Parallel Training
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../eager_tutorials/debugging_weights_and_activations.html">
+                  Debugging Weights and Activations with quant_logger
+                </a>
+              </li>
+            
+          </ul>
+        
+      </li>
+    
+      <li class="nav-item dropdown">
+        
+          
+          <div class="nav-item-with-toggle">
+            <a class="nav-link nav-internal" href="../contributing/index.html">
+              Contributing
+            </a>
+          </div>
+          <ul class="dropdown-menu" id="dropdown-4">
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../contributing/quantization_overview.html">
+                  Quantization Overview
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../contributing/contributor_guide.html">
+                  Contributor Guide
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../contributing/sparsity.html">
+                  Sparsity Overview
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../contributing/benchmarking_api_guide.html">
+                  Benchmarking API Guide
+                </a>
+              </li>
+            
+          </ul>
+        
+      </li>
+    
+      <li class="nav-item dropdown">
+        
+          
+          <div class="nav-item-with-toggle">
+            <a class="nav-link nav-internal" href="../pt2e_quantization/index.html">
+              PT2E Quantization
+            </a>
+          </div>
+          <ul class="dropdown-menu" id="dropdown-5">
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../pt2e_quantization/pt2e_quant_ptq.html">
+                  PyTorch 2 Export Post Training Quantization
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../pt2e_quantization/pt2e_quant_qat.html">
+                  PyTorch 2 Export Quantization-Aware Training (QAT)
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../pt2e_quantization/pt2e_quant_x86_inductor.html">
+                  PyTorch 2 Export Quantization with X86 Backend through Inductor
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../pt2e_quantization/pt2e_quant_xpu_inductor.html">
+                  PyTorch 2 Export Quantization with Intel GPU Backend through Inductor
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../pt2e_quantization/pt2e_quant_openvino_inductor.html">
+                  PyTorch 2 Export Quantization for OpenVINO torch.compile Backend
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../pt2e_quantization/pt2e_quantizer.html">
+                  How to Write a Quantizer for PyTorch 2 Export Quantization
+                </a>
+              </li>
+            
+          </ul>
+        
+      </li>
+    
+
+    
+    
+  </ul>
+</nav>
+</div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+      
+      
+        <div class="navbar-item"><!-- PyTorch.org site link - desktop only, two-line layout -->
+<!-- Note: The show_pytorch_org_link check is handled in layout.html's navbar_end block -->
+<a href="https://pytorch.org" class="pytorch-site-link nav-link nav-external" data-bs-toggle="tooltip" data-bs-placement="bottom" data-bs-title="Go to PyTorch.org">
+  <span class="pytorch-site-link-text">
+    <span>Go to</span>
+    <span>pytorch.org <i class="fa-solid fa-arrow-up-right-from-square external-icon"></i></span>
+  </span>
+</a></div>
+      
+      
+        <div class="navbar-item">
+  
+<form class="bd-search d-flex align-items-center"
+      action="../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         id="search-input"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+</div>
+      
+        <div class="navbar-item">
+
+<script>
+document.write(`
+  <button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button" title="light/dark" aria-label="light/dark" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <i class="theme-switch fa-solid fa-sun fa-lg" data-mode="light"></i>
+    <i class="theme-switch fa-solid fa-moon fa-lg" data-mode="dark"></i>
+    <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"></i>
+  </button>
+`);
+</script></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://x.com/PyTorch" title="X" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-x-twitter fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">X</span></a>
+        </li>
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/pytorch/ao" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://dev-discuss.pytorch.org/" title="Discourse" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-discourse fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">Discourse</span></a>
+        </li>
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://pypi.org/project/torchao/" title="PyPi" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-python fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">PyPi</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <div class="bd-sidebar-primary bd-sidebar">
+        
+
+
+
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+    <div class="sidebar-header-items__start">
+      <div class="navbar-item">
+        
+<script>
+document.write(`
+  <div class="version-switcher__container dropdown">
+    <button id="pst-version-switcher-button-3"
+      type="button"
+      class="version-switcher__button btn btn-sm dropdown-toggle"
+      data-bs-toggle="dropdown"
+      aria-haspopup="listbox"
+      aria-controls="pst-version-switcher-list-3"
+      aria-label="Version switcher list"
+    >
+      Choose version  <!-- this text may get changed later by javascript -->
+      <span class="caret"></span>
+    </button>
+    <div id="pst-version-switcher-list-3"
+      class="version-switcher__menu dropdown-menu list-group-flush py-0"
+      role="listbox" aria-labelledby="pst-version-switcher-button-3">
+      <!-- dropdown will be populated by javascript on page load -->
+    </div>
+  </div>
+`);
+</script>
+      </div>
+    </div>
+    
+
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+    
+      <li class="nav-item dropdown current active">
+        
+          
+          <div class="nav-item-with-toggle">
+            <a class="nav-link nav-internal active" href="index.html">
+              Workflows
+            </a>
+          </div>
+          <ul class="dropdown-menu" id="dropdown-1">
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="training.html">
+                  Quantized Training
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="qat.html">
+                  Quantization-Aware Training (QAT)
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="#">
+                  Quantized Inference
+                </a>
+              </li>
+            
+          </ul>
+        
+      </li>
+    
+      <li class="nav-item dropdown">
+        
+          
+          <div class="nav-item-with-toggle">
+            <a class="nav-link nav-internal" href="../api_reference/index.html">
+              API Reference
+            </a>
+          </div>
+          <ul class="dropdown-menu" id="dropdown-2">
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../api_reference/api_ref_quantization.html">
+                  torchao.quantization
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../api_reference/api_ref_qat.html">
+                  torchao.quantization.qat
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../api_reference/api_ref_sparsity.html">
+                  torchao.sparsity
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../api_reference/api_ref_float8.html">
+                  torchao.float8
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../api_reference/api_ref_utils.html">
+                  torchao.core
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../api_reference/api_ref_prototype_quant_logger.html">
+                  torchao.prototype.quant_logger
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../api_reference/api_ref_prototype_attention.html">
+                  torchao.prototype.attention (prototype)
+                </a>
+              </li>
+            
+          </ul>
+        
+      </li>
+    
+      <li class="nav-item dropdown">
+        
+          
+          <div class="nav-item-with-toggle">
+            <a class="nav-link nav-internal" href="../eager_tutorials/index.html">
+              Tutorials
+            </a>
+          </div>
+          <ul class="dropdown-menu" id="dropdown-3">
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../eager_tutorials/first_quantization_example.html">
+                  First Quantization Example
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../eager_tutorials/pretraining.html">
+                  (Part 1) Pre-training with float8
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../eager_tutorials/finetuning.html">
+                  (Part 2) Fine-tuning with QAT, QLoRA, and float8
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../eager_tutorials/serving.html">
+                  (Part 3) Serving on vLLM, SGLang, ExecuTorch
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../eager_tutorials/torchao_vllm_integration.html">
+                  Integration with VLLM: Architecture and Usage Guide
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../eager_tutorials/torchao_hf_integration.html">
+                  Hugging Face Integration
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../eager_tutorials/serialization.html">
+                  Serialization
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../eager_tutorials/static_quantization.html">
+                  Static Quantization
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../eager_tutorials/subclass_basic.html">
+                  Writing Your Own Quantized Tensor
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../eager_tutorials/subclass_advanced.html">
+                  Writing Your Own Quantized Tensor (advanced)
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../eager_tutorials/mxfp8_expert_parallel_training.html">
+                  MXFP8 Expert Parallel Training
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../eager_tutorials/debugging_weights_and_activations.html">
+                  Debugging Weights and Activations with quant_logger
+                </a>
+              </li>
+            
+          </ul>
+        
+      </li>
+    
+      <li class="nav-item dropdown">
+        
+          
+          <div class="nav-item-with-toggle">
+            <a class="nav-link nav-internal" href="../contributing/index.html">
+              Contributing
+            </a>
+          </div>
+          <ul class="dropdown-menu" id="dropdown-4">
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../contributing/quantization_overview.html">
+                  Quantization Overview
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../contributing/contributor_guide.html">
+                  Contributor Guide
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../contributing/sparsity.html">
+                  Sparsity Overview
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../contributing/benchmarking_api_guide.html">
+                  Benchmarking API Guide
+                </a>
+              </li>
+            
+          </ul>
+        
+      </li>
+    
+      <li class="nav-item dropdown">
+        
+          
+          <div class="nav-item-with-toggle">
+            <a class="nav-link nav-internal" href="../pt2e_quantization/index.html">
+              PT2E Quantization
+            </a>
+          </div>
+          <ul class="dropdown-menu" id="dropdown-5">
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../pt2e_quantization/pt2e_quant_ptq.html">
+                  PyTorch 2 Export Post Training Quantization
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../pt2e_quantization/pt2e_quant_qat.html">
+                  PyTorch 2 Export Quantization-Aware Training (QAT)
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../pt2e_quantization/pt2e_quant_x86_inductor.html">
+                  PyTorch 2 Export Quantization with X86 Backend through Inductor
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../pt2e_quantization/pt2e_quant_xpu_inductor.html">
+                  PyTorch 2 Export Quantization with Intel GPU Backend through Inductor
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../pt2e_quantization/pt2e_quant_openvino_inductor.html">
+                  PyTorch 2 Export Quantization for OpenVINO torch.compile Backend
+                </a>
+              </li>
+            
+              <li class=" ">
+                <a class="nav-link dropdown-item nav-internal" href="../pt2e_quantization/pt2e_quantizer.html">
+                  How to Write a Quantizer for PyTorch 2 Export Quantization
+                </a>
+              </li>
+            
+          </ul>
+        
+      </li>
+    
+
+    
+    
+  </ul>
+</nav>
+</div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+        
+          <div class="navbar-item"><!-- PyTorch.org site link - desktop only, two-line layout -->
+<!-- Note: The show_pytorch_org_link check is handled in layout.html's navbar_end block -->
+<a href="https://pytorch.org" class="pytorch-site-link nav-link nav-external" data-bs-toggle="tooltip" data-bs-placement="bottom" data-bs-title="Go to PyTorch.org">
+  <span class="pytorch-site-link-text">
+    <span>Go to</span>
+    <span>pytorch.org <i class="fa-solid fa-arrow-up-right-from-square external-icon"></i></span>
+  </span>
+</a></div>
+        
+        
+          <div class="navbar-item">
+  
+<form class="bd-search d-flex align-items-center"
+      action="../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         id="search-input"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+</div>
+        
+          <div class="navbar-item">
+
+<script>
+document.write(`
+  <button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button" title="light/dark" aria-label="light/dark" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <i class="theme-switch fa-solid fa-sun fa-lg" data-mode="light"></i>
+    <i class="theme-switch fa-solid fa-moon fa-lg" data-mode="dark"></i>
+    <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"></i>
+  </button>
+`);
+</script></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://x.com/PyTorch" title="X" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-x-twitter fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">X</span></a>
+        </li>
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/pytorch/ao" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://dev-discuss.pytorch.org/" title="Discourse" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-discourse fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">Discourse</span></a>
+        </li>
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://pypi.org/project/torchao/" title="PyPi" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-python fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">PyPi</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="training.html">Quantized Training</a></li>
+<li class="toctree-l1"><a class="reference internal" href="qat.html">Quantization-Aware Training (QAT)</a></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">Quantized Inference</a></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+  </div>
+
+
+
+<div id="rtd-footer-container"></div>
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Workflows</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page">Quantized Inference</li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+    <div class="header-article-items__end">
+      
+        <div class="header-article-item">
+<div class="rating">
+    Rate this Page
+    <div class="stars">
+        
+        <span class="star" data-behavior="tutorial-rating" data-count="1" data-value="1">★</span>
+        
+        <span class="star" data-behavior="tutorial-rating" data-count="2" data-value="2">★</span>
+        
+        <span class="star" data-behavior="tutorial-rating" data-count="3" data-value="3">★</span>
+        
+        <span class="star" data-behavior="tutorial-rating" data-count="4" data-value="4">★</span>
+        
+        <span class="star" data-behavior="tutorial-rating" data-count="5" data-value="5">★</span>
+        
+    </div>
+</div>
+</div>
+      
+    </div>
+  
+</div>
+</div>
+              
+              
+
+<div id="searchbox"></div>
+<div id="pytorch-article">
+  <!-- Hidden breadcrumb schema for SEO only -->
+  <div style="display:none;" itemscope itemtype="https://schema.org/BreadcrumbList">
+    
+    <div itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
+      <link itemprop="item" href="index.html">
+      <meta itemprop="name" content="Workflows">
+      <meta itemprop="position" content="1">
+    </div>
+    
+    <div itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
+      <meta itemprop="name" content="Quantized Inference">
+      <meta itemprop="position" content="2">
+    </div>
+  </div>
+
+  
+  
+
+  
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="quantized-inference">
+<h1>Quantized Inference<a class="headerlink" href="#quantized-inference" title="Link to this heading">#</a></h1>
+<p class="date-info-last-verified" style="color: #6c6c6d; font-size: small;">Created On: Mar 25, 2026 | Last Updated On: Mar 25, 2026</p>
+<p>For inference, we support dynamic and weight-only quantization of <code class="docutils literal notranslate"><span class="pre">torch.nn.funtional.linear</span></code> across various dtype configurations.
+The pseudocode is as follows:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># high precision (baseline)</span>
+<span class="n">output_bf16</span> <span class="o">=</span> <span class="n">input_bf16</span> <span class="o">@</span> <span class="n">weight_bf16</span><span class="o">.</span><span class="n">t</span><span class="p">()</span>
+
+<span class="c1"># dynamic quantization (shown for fp8 rowwise)</span>
+<span class="n">output_bf16</span> <span class="o">=</span> <span class="n">to_fp8</span><span class="p">(</span><span class="n">input_bf16</span><span class="p">)</span> <span class="o">@</span> <span class="n">to_fp8</span><span class="p">(</span><span class="n">weight_fp8</span><span class="o">.</span><span class="n">t</span><span class="p">())</span>
+
+<span class="c1"># weight-only quantization (shown for int4)</span>
+<span class="n">output_bf16</span> <span class="o">=</span> <span class="n">input_bf16</span> <span class="o">@</span> <span class="n">weight_int4</span><span class="o">.</span><span class="n">t</span><span class="p">()</span>
+</pre></div>
+</div>
+<section id="inference-workflows">
+<h2>Inference Workflows<a class="headerlink" href="#inference-workflows" title="Link to this heading">#</a></h2>
+<p>Below are the stable and near-stable inference workflows in torchao:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<thead>
+<tr class="row-odd"><th class="head"><p>weight dtype</p></th>
+<th class="head"><p>act dtype</p></th>
+<th class="head"><p>summary</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>float8</p></td>
+<td><p>float8</p></td>
+<td><p><a class="reference internal" href="../api_reference/generated/torchao.quantization.Float8DynamicActivationFloat8WeightConfig.html#torchao.quantization.Float8DynamicActivationFloat8WeightConfig" title="torchao.quantization.Float8DynamicActivationFloat8WeightConfig"><code class="xref py py-class docutils literal notranslate"><span class="pre">Float8DynamicActivationFloat8WeightConfig</span></code></a>: Applies float8 dynamic symmetric quantization to both activations and weights. Requires CUDA ≥8.9, AMD MI350+, or Intel XPU. Supports <code class="docutils literal notranslate"><span class="pre">PerTensor</span></code> and <code class="docutils literal notranslate"><span class="pre">PerRow</span></code> granularity.</p></td>
+</tr>
+<tr class="row-odd"><td><p>float8</p></td>
+<td><p>bf16</p></td>
+<td><p><a class="reference internal" href="../api_reference/generated/torchao.quantization.Float8WeightOnlyConfig.html#torchao.quantization.Float8WeightOnlyConfig" title="torchao.quantization.Float8WeightOnlyConfig"><code class="xref py py-class docutils literal notranslate"><span class="pre">Float8WeightOnlyConfig</span></code></a>: Applies float8 weight-only symmetric per-channel quantization. Matmul computed in original precision.</p></td>
+</tr>
+<tr class="row-even"><td><p>int8</p></td>
+<td><p>int8</p></td>
+<td><p><a class="reference internal" href="../api_reference/generated/torchao.quantization.Int8DynamicActivationInt8WeightConfig.html#torchao.quantization.Int8DynamicActivationInt8WeightConfig" title="torchao.quantization.Int8DynamicActivationInt8WeightConfig"><code class="xref py py-class docutils literal notranslate"><span class="pre">Int8DynamicActivationInt8WeightConfig</span></code></a>: Applies int8 dynamic symmetric per-token activation and int8 per-channel weight quantization.</p></td>
+</tr>
+<tr class="row-odd"><td><p>int8</p></td>
+<td><p>bf16</p></td>
+<td><p><a class="reference internal" href="../api_reference/generated/torchao.quantization.Int8WeightOnlyConfig.html#torchao.quantization.Int8WeightOnlyConfig" title="torchao.quantization.Int8WeightOnlyConfig"><code class="xref py py-class docutils literal notranslate"><span class="pre">Int8WeightOnlyConfig</span></code></a>: Applies int8 weight-only symmetric per-channel quantization.</p></td>
+</tr>
+<tr class="row-even"><td><p>mxfp8</p></td>
+<td><p>mxfp8</p></td>
+<td><p><a class="reference internal" href="../api_reference/generated/torchao.prototype.mx_formats.MXDynamicActivationMXWeightConfig.html#torchao.prototype.mx_formats.MXDynamicActivationMXWeightConfig" title="torchao.prototype.mx_formats.MXDynamicActivationMXWeightConfig"><code class="xref py py-class docutils literal notranslate"><span class="pre">MXDynamicActivationMXWeightConfig</span></code></a>(prototype): Applies mxfp8 or mxfp4 dynamic quantization to activations and weights. Requires NVIDIA SM100+ (Blackwell) or AMD MI350+.</p></td>
+</tr>
+<tr class="row-odd"><td><p>int4</p></td>
+<td><p>bf16</p></td>
+<td><p><a class="reference internal" href="../api_reference/generated/torchao.quantization.Int4WeightOnlyConfig.html#torchao.quantization.Int4WeightOnlyConfig" title="torchao.quantization.Int4WeightOnlyConfig"><code class="xref py py-class docutils literal notranslate"><span class="pre">Int4WeightOnlyConfig</span></code></a>: Applies int4 weight-only groupwise quantization. Supports group sizes 256, 128, 64, 32.</p></td>
+</tr>
+<tr class="row-even"><td><p>int4</p></td>
+<td><p>float8</p></td>
+<td><p><a class="reference internal" href="../api_reference/generated/torchao.quantization.Float8DynamicActivationInt4WeightConfig.html#torchao.quantization.Float8DynamicActivationInt4WeightConfig" title="torchao.quantization.Float8DynamicActivationInt4WeightConfig"><code class="xref py py-class docutils literal notranslate"><span class="pre">Float8DynamicActivationInt4WeightConfig</span></code></a>: Applies float8 dynamic per-row activation and int4 per-group weight quantization. Group size 128 only.</p></td>
+</tr>
+<tr class="row-odd"><td><p>nvfp4</p></td>
+<td><p>bf16</p></td>
+<td><p><a class="reference internal" href="../api_reference/generated/torchao.prototype.mx_formats.NVFP4WeightOnlyConfig.html#torchao.prototype.mx_formats.NVFP4WeightOnlyConfig" title="torchao.prototype.mx_formats.NVFP4WeightOnlyConfig"><code class="xref py py-class docutils literal notranslate"><span class="pre">NVFP4WeightOnlyConfig</span></code></a>(prototype): Applies NVFP4 weight-only quantization.</p></td>
+</tr>
+<tr class="row-even"><td><p>nvfp4</p></td>
+<td><p>nvfp4</p></td>
+<td><p><a class="reference internal" href="../api_reference/generated/torchao.prototype.mx_formats.NVFP4DynamicActivationNVFP4WeightConfig.html#torchao.prototype.mx_formats.NVFP4DynamicActivationNVFP4WeightConfig" title="torchao.prototype.mx_formats.NVFP4DynamicActivationNVFP4WeightConfig"><code class="xref py py-class docutils literal notranslate"><span class="pre">NVFP4DynamicActivationNVFP4WeightConfig</span></code></a>(prototype): Applies NVFP4 dynamic quantization to activations and weights with double quantization (per-tensor + per-block scales). Requires NVIDIA SM100+ (Blackwell).</p></td>
+</tr>
+<tr class="row-odd"><td><p>mxfp4</p></td>
+<td><p>mxfp4</p></td>
+<td><p><a class="reference internal" href="../api_reference/generated/torchao.prototype.mx_formats.MXDynamicActivationMXWeightConfig.html#torchao.prototype.mx_formats.MXDynamicActivationMXWeightConfig" title="torchao.prototype.mx_formats.MXDynamicActivationMXWeightConfig"><code class="xref py py-class docutils literal notranslate"><span class="pre">MXDynamicActivationMXWeightConfig</span></code></a>(prototype): Applies mxfp8 or mxfp4 dynamic quantization to activations and weights. Requires NVIDIA SM100+ (Blackwell) or AMD MI350+.</p></td>
+</tr>
+<tr class="row-even"><td><p>intx</p></td>
+<td><p>bf16</p></td>
+<td><p><a class="reference internal" href="../api_reference/generated/torchao.quantization.IntxWeightOnlyConfig.html#torchao.quantization.IntxWeightOnlyConfig" title="torchao.quantization.IntxWeightOnlyConfig"><code class="xref py py-class docutils literal notranslate"><span class="pre">IntxWeightOnlyConfig</span></code></a>: Applies intx (1-8 bit) weight-only quantization. Supports groupwise and per-channel. Works with Linear and Conv2D.</p></td>
+</tr>
+<tr class="row-odd"><td><p>intx</p></td>
+<td><p>int8</p></td>
+<td><p><a class="reference internal" href="../api_reference/generated/torchao.quantization.Int8DynamicActivationIntxWeightConfig.html#torchao.quantization.Int8DynamicActivationIntxWeightConfig" title="torchao.quantization.Int8DynamicActivationIntxWeightConfig"><code class="xref py py-class docutils literal notranslate"><span class="pre">Int8DynamicActivationIntxWeightConfig</span></code></a>: Applies int8 dynamic per-token activation and intx (1-8 bit) weight quantization. CPU optimized.</p></td>
+</tr>
+<tr class="row-even"><td><p>uintx (4/8-bit)</p></td>
+<td><p>bf16</p></td>
+<td><p><a class="reference internal" href="../api_reference/generated/torchao.prototype.quantization.UIntxWeightOnlyConfig.html#torchao.prototype.quantization.UIntxWeightOnlyConfig" title="torchao.prototype.quantization.UIntxWeightOnlyConfig"><code class="xref py py-class docutils literal notranslate"><span class="pre">UIntxWeightOnlyConfig</span></code></a>(prototype): Applies 4-bit (asymmetric, grouped) or 8-bit (symmetric, per-channel) weight-only quantization using gemlite (https://github.com/dropbox/gemlite) Triton kernels. Supports packing bit widths 8, 16, 32. Requires CUDA and gemlite. optimized for A100 and H100 GPUs.</p></td>
+</tr>
+<tr class="row-odd"><td><p>uintx (4/8-bit)</p></td>
+<td><p>int8</p></td>
+<td><p><a class="reference internal" href="../api_reference/generated/torchao.prototype.quantization.Int8DynamicActivationUIntxWeightConfig.html#torchao.prototype.quantization.Int8DynamicActivationUIntxWeightConfig" title="torchao.prototype.quantization.Int8DynamicActivationUIntxWeightConfig"><code class="xref py py-class docutils literal notranslate"><span class="pre">Int8DynamicActivationUIntxWeightConfig</span></code></a>(prototype): Applies int8 dynamic activation with 4-bit or 8-bit weight quantization using gemlite (https://github.com/dropbox/gemlite) Triton kernels. Requires CUDA and gemlite. Optimized for A100 and H100 GPUs.</p></td>
+</tr>
+<tr class="row-even"><td><p>int4</p></td>
+<td><p>int8</p></td>
+<td><p><code class="xref py py-class docutils literal notranslate"><span class="pre">Int8DynamicActivationInt4WeightConfig</span></code>(prototype): Applies int8 dynamic per-group activation and int4 weight per-group quantization on X86 CPU. Groupsize must be 128, 64, 32.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<section id="accuracy-benchmarks">
+<h2>Accuracy benchmarks<a class="headerlink" href="#accuracy-benchmarks" title="Link to this heading">#</a></h2>
+<p>All the following benchmarks are for <code class="docutils literal notranslate"><span class="pre">meta-llama/Llama-3.1-8B</span></code> using <code class="docutils literal notranslate"><span class="pre">lm-eval</span></code>.</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<thead>
+<tr class="row-odd"><th class="head"><p>weight</p></th>
+<th class="head"><p>activation</p></th>
+<th class="head"><p>wikitext-perplexity</p></th>
+<th class="head"><p>winogrande</p></th>
+<th class="head"><p>checkpoint size (GB)</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>bfloat16</p></td>
+<td><p>bfloat16</p></td>
+<td><p>7.3315</p></td>
+<td><p>0.7380</p></td>
+<td><p>16.1</p></td>
+</tr>
+<tr class="row-odd"><td><p>float8_rowwise</p></td>
+<td><p>float8_rowwise</p></td>
+<td><p>7.4197</p></td>
+<td><p>0.7388</p></td>
+<td><p>9.1</p></td>
+</tr>
+<tr class="row-even"><td><p>int8_rowwise</p></td>
+<td><p>bfloat16</p></td>
+<td><p>7.3451</p></td>
+<td><p>0.7340</p></td>
+<td><p>9.1</p></td>
+</tr>
+<tr class="row-odd"><td><p>int8_rowwise</p></td>
+<td><p>int8_rowwise</p></td>
+<td><p>7.4535</p></td>
+<td><p>0.7285</p></td>
+<td><p>9.1</p></td>
+</tr>
+<tr class="row-even"><td><p>mxfp8</p></td>
+<td><p>mxfp8</p></td>
+<td><p>7.6034</p></td>
+<td><p>0.7316</p></td>
+<td><p>9.32</p></td>
+</tr>
+<tr class="row-odd"><td><p>nvfp4</p></td>
+<td><p>nvfp4</p></td>
+<td><p>8.4459</p></td>
+<td><p>0.7135</p></td>
+<td><p>6.05</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>To reproduce, run the following command:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>//<span class="w"> </span>on<span class="w"> </span>an<span class="w"> </span>H100
+<span class="nv">SKIP_VLLM</span><span class="o">=</span><span class="m">1</span><span class="w"> </span>./benchmarks/quantization/measure_accuracy_and_performance.sh<span class="w"> </span>h100
+//<span class="w"> </span>on<span class="w"> </span>a<span class="w"> </span>B200
+<span class="nv">SKIP_VLLM</span><span class="o">=</span><span class="m">1</span><span class="w"> </span>./benchmarks/quantization/measure_accuracy_and_performance.sh<span class="w"> </span>b200
+</pre></div>
+</div>
+</section>
+<section id="performance-benchmarks">
+<h2>Performance benchmarks<a class="headerlink" href="#performance-benchmarks" title="Link to this heading">#</a></h2>
+<section id="e2e-model-level-benchmarks">
+<h3>e2e model level benchmarks<a class="headerlink" href="#e2e-model-level-benchmarks" title="Link to this heading">#</a></h3>
+<p>All the following benchmarks are for <code class="docutils literal notranslate"><span class="pre">meta-llama/Llama-3.1-8B</span></code> using <code class="docutils literal notranslate"><span class="pre">torch==2.9.0</span></code> and <code class="docutils literal notranslate"><span class="pre">vllm==0.13.0</span></code>.</p>
+<section id="nvidia-b200">
+<h4>NVIDIA B200<a class="headerlink" href="#nvidia-b200" title="Link to this heading">#</a></h4>
+<div class="pst-scrollable-table-container"><table class="table">
+<thead>
+<tr class="row-odd"><th class="head"><p>weight</p></th>
+<th class="head"><p>activation</p></th>
+<th class="head"><p>prefill toks/s</p></th>
+<th class="head"><p>decode toks/s</p></th>
+<th class="head"><p>prefill_speedup</p></th>
+<th class="head"><p>decode_speedup</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>bfloat16</p></td>
+<td><p>bfloat16</p></td>
+<td><p>59099.9</p></td>
+<td><p>14380</p></td>
+<td><p>1</p></td>
+<td><p>1</p></td>
+</tr>
+<tr class="row-odd"><td><p>mxfp8</p></td>
+<td><p>mxfp8</p></td>
+<td><p>TODO(https://github.com/pytorch/ao/issues/3549)</p></td>
+<td><p>-</p></td>
+<td><p>-</p></td>
+<td><p>-</p></td>
+</tr>
+<tr class="row-even"><td><p>nvfp4</p></td>
+<td><p>nvfp4</p></td>
+<td><p>102786</p></td>
+<td><p>15218.9</p></td>
+<td><p>1.739</p></td>
+<td><p>1.058</p></td>
+</tr>
+<tr class="row-odd"><td><p>float8_rowwise</p></td>
+<td><p>float8_rowwise</p></td>
+<td><p>69313.7</p></td>
+<td><p>15984</p></td>
+<td><p>1.173</p></td>
+<td><p>1.112</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<section id="nvidia-h100">
+<h4>NVIDIA H100<a class="headerlink" href="#nvidia-h100" title="Link to this heading">#</a></h4>
+<div class="pst-scrollable-table-container"><table class="table">
+<thead>
+<tr class="row-odd"><th class="head"><p>weight</p></th>
+<th class="head"><p>activation</p></th>
+<th class="head"><p>prefill toks/s</p></th>
+<th class="head"><p>decode toks/s</p></th>
+<th class="head"><p>prefill_speedup</p></th>
+<th class="head"><p>decode_speedup</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>bfloat16</p></td>
+<td><p>bfloat16</p></td>
+<td><p>30946.5</p></td>
+<td><p>6612</p></td>
+<td><p>1</p></td>
+<td><p>1</p></td>
+</tr>
+<tr class="row-odd"><td><p>float8_rowwise</p></td>
+<td><p>float8_rowwise</p></td>
+<td><p>45312.5</p></td>
+<td><p>8025.95</p></td>
+<td><p>1.464</p></td>
+<td><p>1.214</p></td>
+</tr>
+<tr class="row-even"><td><p>int8_rowwwise</p></td>
+<td><p>bfloat16</p></td>
+<td><p>28231.9</p></td>
+<td><p>4309.8</p></td>
+<td><p>0.912</p></td>
+<td><p>0.652</p></td>
+</tr>
+<tr class="row-odd"><td><p>int4</p></td>
+<td><p>float8_rowwise</p></td>
+<td><p>TODO(https://github.com/pytorch/ao/issues/3550)</p></td>
+<td><p>-</p></td>
+<td><p>-</p></td>
+<td><p>-</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>To reproduce these benchmarks, run</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>//<span class="w"> </span>on<span class="w"> </span>an<span class="w"> </span>h100
+<span class="nv">SKIP_LM_EVAL</span><span class="o">=</span><span class="m">1</span><span class="w"> </span>./benchmarks/quantization/measure_accuracy_and_performance.sh<span class="w"> </span>h100
+//<span class="w"> </span>on<span class="w"> </span>a<span class="w"> </span>b200
+<span class="nv">SKIP_LM_EVAL</span><span class="o">=</span><span class="m">1</span><span class="w"> </span>./benchmarks/quantization/measure_accuracy_and_performance.sh<span class="w"> </span>h100
+
+//<span class="w"> </span>under<span class="w"> </span>the<span class="w"> </span>hood,<span class="w"> </span>the<span class="w"> </span>actual<span class="w"> </span>vllm<span class="w"> </span>benchmark<span class="w"> </span>is<span class="w"> </span>doing<span class="w"> </span>the<span class="w"> </span>following:
+//<span class="w"> </span><span class="m">1</span>.<span class="w"> </span>prefill
+vllm<span class="w"> </span>bench<span class="w"> </span>throughput<span class="w"> </span>--num_prompts<span class="w"> </span><span class="m">32</span><span class="w"> </span>--input_len<span class="w"> </span><span class="m">4096</span><span class="w"> </span>--output_len<span class="w"> </span><span class="m">32</span><span class="w"> </span>--max_model_len<span class="w"> </span><span class="m">4128</span>
+//<span class="w"> </span><span class="m">2</span>.<span class="w"> </span>decode
+vllm<span class="w"> </span>bench<span class="w"> </span>throughput<span class="w"> </span>--num_prompts<span class="w"> </span><span class="m">128</span><span class="w"> </span>--input_len<span class="w"> </span><span class="m">32</span><span class="w"> </span>--output_len<span class="w"> </span><span class="m">2048</span><span class="w"> </span>--max_model_len<span class="w"> </span><span class="m">2080</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="microbenchmarks-and-roofline-model">
+<h3>Microbenchmarks and roofline model<a class="headerlink" href="#microbenchmarks-and-roofline-model" title="Link to this heading">#</a></h3>
+<p>The following set of microbenchmarks show the roofline expected and observed execution times of
+a <code class="docutils literal notranslate"><span class="pre">ReLU</span> <span class="pre">-&gt;</span> <span class="pre">Linear</span></code> toy model across a sweep of (M, K, N) shapes, with the activation
+shaped (M, K) and the weight shaped (K, N). This can be used to estimate expected speedup
+of quantizing <code class="docutils literal notranslate"><span class="pre">torch.nn.Linear</span></code> layers with various recipes based on shapes in your model
+during inference.</p>
+<p>Explanation: to see speedup from quantization of <code class="docutils literal notranslate"><span class="pre">activation</span> <span class="pre">-&gt;</span> <span class="pre">gemm</span></code> during inference, we want</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="p">(</span><span class="n">bf16_activation_time</span> <span class="o">+</span> <span class="n">bf16_gemm_time</span><span class="p">)</span> <span class="o">&gt;</span> <span class="p">(</span><span class="n">bf16_activation_and_quantize_tensor_time</span> <span class="o">+</span> <span class="n">fp8_gemm_time</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>In a perfect world (and our roofline model),</p>
+<ol class="arabic simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">bf16_activation_time</span> <span class="pre">&gt;</span> <span class="pre">bf16_activation_and_quantize_tensor_time</span></code> is always true
+because <code class="docutils literal notranslate"><span class="pre">bf16_activation</span></code> reads+writes <code class="docutils literal notranslate"><span class="pre">M*K*2</span> <span class="pre">bytes</span></code> and <code class="docutils literal notranslate"><span class="pre">bf16_activation_and_quantize_tensor</span></code> is a single
+fused kernel that reads+writes <code class="docutils literal notranslate"><span class="pre">M*K*1.5</span> <span class="pre">bytes</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">bf16_gemm_time</span></code> &gt; <code class="docutils literal notranslate"><span class="pre">fp8_gemm_time</span></code> is always true as fp8 gemm has ~2x peak efficiency vs bf16 gemm</p></li>
+</ol>
+<p>In the real world, both (1) and (2) are not always true due to kernel launch overhead, kernel efficiency,
+lack of fusion for some recipes, etc. Therefore, the observed speedups are often significantly
+below the roofline peak.  In general you should expect the observed speedup from inference quantization
+to increase as MKN increases.</p>
+<section id="id1">
+<h4>NVIDIA B200<a class="headerlink" href="#id1" title="Link to this heading">#</a></h4>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># `r_fp8_gemm_and_ovhd_spdp` is the roofline expected speedup of the</span>
+<span class="c1">#    quantized ReLU -&gt; Linear layer vs high precision version</span>
+<span class="c1"># `b_fp8_e2e_spdp` is the observed speedup of the quantized</span>
+<span class="c1">#    ReLU -&gt; Linear layer vs high precision version</span>
+
+<span class="c1">#</span>
+<span class="c1"># mxfp8</span>
+<span class="c1">#</span>
+&gt;<span class="w"> </span>python<span class="w"> </span>benchmarks/float8/float8_inference_roofline.py<span class="w"> </span>--recipe_name<span class="w"> </span>mxfp8_cublas<span class="w"> </span>--enable_fusion_modeling<span class="w"> </span>True<span class="w"> </span>--skip_printing_detailed_metrics<span class="w"> </span>True
+...
+GPU<span class="w">                     </span>NVIDIA<span class="w"> </span>B200
+torch<span class="w"> </span>version<span class="w">           </span><span class="m">2</span>.12.0.dev20260218+cu130
+torchao<span class="w"> </span>version<span class="w">         </span><span class="m">0</span>.17.0+git3075bb624
+...
+<span class="w">   </span>fwd_M<span class="w">  </span>fwd_K<span class="w">  </span>fwd_N<span class="w">  </span>r_fp8_gemm_and_ovhd_spdp<span class="w">  </span>b_fp8_e2e_spdp
+<span class="m">0</span><span class="w">   </span><span class="m">1024</span><span class="w">   </span><span class="m">1024</span><span class="w">   </span><span class="m">1024</span><span class="w">                      </span><span class="m">1</span>.00<span class="w">            </span><span class="m">0</span>.93
+<span class="m">1</span><span class="w">   </span><span class="m">2048</span><span class="w">   </span><span class="m">2048</span><span class="w">   </span><span class="m">2048</span><span class="w">                      </span><span class="m">1</span>.75<span class="w">            </span><span class="m">1</span>.20
+<span class="m">2</span><span class="w">   </span><span class="m">4096</span><span class="w">   </span><span class="m">4096</span><span class="w">   </span><span class="m">4096</span><span class="w">                      </span><span class="m">1</span>.90<span class="w">            </span><span class="m">1</span>.46
+<span class="m">3</span><span class="w">   </span><span class="m">8192</span><span class="w">   </span><span class="m">8192</span><span class="w">   </span><span class="m">8192</span><span class="w">                      </span><span class="m">1</span>.94<span class="w">            </span><span class="m">1</span>.76
+<span class="m">4</span><span class="w">  </span><span class="m">16384</span><span class="w">  </span><span class="m">16384</span><span class="w">  </span><span class="m">16384</span><span class="w">                      </span><span class="m">1</span>.97<span class="w">            </span><span class="m">1</span>.77
+
+<span class="c1">#</span>
+<span class="c1"># nvfp4 with dynamic global scaling</span>
+<span class="c1">#</span>
+&gt;<span class="w"> </span>python<span class="w"> </span>benchmarks/float8/float8_inference_roofline.py<span class="w"> </span>--recipe_name<span class="w"> </span>nvfp4<span class="w"> </span>--enable_fusion_modeling<span class="w"> </span>True<span class="w"> </span>--skip_printing_detailed_metrics<span class="w"> </span>True
+...
+GPU<span class="w">                     </span>NVIDIA<span class="w"> </span>B200
+torch<span class="w"> </span>version<span class="w">           </span><span class="m">2</span>.12.0.dev20260312+cu130
+torchao<span class="w"> </span>version<span class="w">         </span><span class="m">0</span>.17.0+gitbd7717d20
+...
+<span class="w">   </span>fwd_M<span class="w">  </span>fwd_K<span class="w">  </span>fwd_N<span class="w">  </span>r_fp8_gemm_and_ovhd_spdp<span class="w">  </span>b_fp8_e2e_spdp
+<span class="m">0</span><span class="w">   </span><span class="m">1024</span><span class="w">   </span><span class="m">1024</span><span class="w">   </span><span class="m">1024</span><span class="w">                      </span><span class="m">1</span>.00<span class="w">            </span><span class="m">0</span>.46
+<span class="m">1</span><span class="w">   </span><span class="m">2048</span><span class="w">   </span><span class="m">2048</span><span class="w">   </span><span class="m">2048</span><span class="w">                      </span><span class="m">2</span>.36<span class="w">            </span><span class="m">0</span>.76
+<span class="m">2</span><span class="w">   </span><span class="m">4096</span><span class="w">   </span><span class="m">4096</span><span class="w">   </span><span class="m">4096</span><span class="w">                      </span><span class="m">2</span>.89<span class="w">            </span><span class="m">1</span>.37
+<span class="m">3</span><span class="w">   </span><span class="m">8192</span><span class="w">   </span><span class="m">8192</span><span class="w">   </span><span class="m">8192</span><span class="w">                      </span><span class="m">3</span>.32<span class="w">            </span><span class="m">1</span>.97
+<span class="m">4</span><span class="w">  </span><span class="m">16384</span><span class="w">  </span><span class="m">16384</span><span class="w">  </span><span class="m">16384</span><span class="w">                      </span><span class="m">3</span>.62<span class="w">            </span><span class="m">2</span>.77
+
+<span class="c1">#</span>
+<span class="c1"># nvfp4 with static global scaling (user API in progress)</span>
+<span class="c1">#</span>
+&gt;<span class="w"> </span>python<span class="w"> </span>benchmarks/float8/float8_inference_roofline.py<span class="w"> </span>--recipe_name<span class="w"> </span>nvfp4_static<span class="w"> </span>--enable_fusion_modeling<span class="w"> </span>True<span class="w"> </span>--skip_printing_detailed_metrics<span class="w"> </span>True
+...
+GPU<span class="w">                     </span>NVIDIA<span class="w"> </span>B200
+torch<span class="w"> </span>version<span class="w">           </span><span class="m">2</span>.12.0.dev20260312+cu130
+torchao<span class="w"> </span>version<span class="w">         </span><span class="m">0</span>.17.0+gitbd7717d20
+...
+<span class="w">   </span>fwd_M<span class="w">  </span>fwd_K<span class="w">  </span>fwd_N<span class="w">  </span>r_fp8_gemm_and_ovhd_spdp<span class="w">  </span>b_fp8_e2e_spdp
+<span class="m">0</span><span class="w">   </span><span class="m">1024</span><span class="w">   </span><span class="m">1024</span><span class="w">   </span><span class="m">1024</span><span class="w">                      </span><span class="m">1</span>.00<span class="w">            </span><span class="m">0</span>.55
+<span class="m">1</span><span class="w">   </span><span class="m">2048</span><span class="w">   </span><span class="m">2048</span><span class="w">   </span><span class="m">2048</span><span class="w">                      </span><span class="m">2</span>.74<span class="w">            </span><span class="m">0</span>.95
+<span class="m">2</span><span class="w">   </span><span class="m">4096</span><span class="w">   </span><span class="m">4096</span><span class="w">   </span><span class="m">4096</span><span class="w">                      </span><span class="m">3</span>.42<span class="w">            </span><span class="m">1</span>.69
+<span class="m">3</span><span class="w">   </span><span class="m">8192</span><span class="w">   </span><span class="m">8192</span><span class="w">   </span><span class="m">8192</span><span class="w">                      </span><span class="m">3</span>.67<span class="w">            </span><span class="m">2</span>.29
+<span class="m">4</span><span class="w">  </span><span class="m">16384</span><span class="w">  </span><span class="m">16384</span><span class="w">  </span><span class="m">16384</span><span class="w">                      </span><span class="m">3</span>.82<span class="w">            </span><span class="m">2</span>.98
+</pre></div>
+</div>
+</section>
+</section>
+</section>
+<section id="e2e-flux-1-schnell-benchmarks">
+<h2>e2e flux-1.schnell benchmarks<a class="headerlink" href="#e2e-flux-1-schnell-benchmarks" title="Link to this heading">#</a></h2>
+<p>These benchmarks compare accuracy and performance of torchao inference quantization on the
+<a class="reference external" href="https://huggingface.co/black-forest-labs/FLUX.1-schnell">flux-1.schnell</a> model.</p>
+<p>For accuracy, we measure the <a class="reference external" href="https://github.com/richzhang/PerceptualSimilarity">LPIPS</a> score
+between images generated by the quantized model and the high precision (bfloat16) baseline,
+averaged over the prompts from the <a class="reference external" href="https://huggingface.co/datasets/sayakpaul/drawbench">sayakpaul/drawbench</a> dataset —
+lower is better, with 0 meaning identical.</p>
+<p>Note that this benchmark optimizes for speed of iteration and does not represent
+the best possible metrics someone could achieve on this model. Instead, this is an
+apples-to-apples comparison intended to compare different quantization recipes at a
+high level, and measure performance improvements.</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<thead>
+<tr class="row-odd"><th class="head"><p>experiment</p></th>
+<th class="head"><p>lpips_avg</p></th>
+<th class="head"><p>time_s_bsz_1</p></th>
+<th class="head"><p>speedup_bsz_1</p></th>
+<th class="head"><p>time_s_bsz_4</p></th>
+<th class="head"><p>speedup_bsz_4</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>bfloat16</p></td>
+<td><p>0</p></td>
+<td><p>0.4178</p></td>
+<td><p>1.00</p></td>
+<td><p>1.4914</p></td>
+<td><p>1.00</p></td>
+</tr>
+<tr class="row-odd"><td><p>float8_rowwise</p></td>
+<td><p>0.1236</p></td>
+<td><p>0.3455</p></td>
+<td><p>1.21</p></td>
+<td><p>1.1986</p></td>
+<td><p>1.24</p></td>
+</tr>
+<tr class="row-even"><td><p>mxfp8</p></td>
+<td><p>0.1260</p></td>
+<td><p>0.3673</p></td>
+<td><p>1.14</p></td>
+<td><p>1.2820</p></td>
+<td><p>1.16</p></td>
+</tr>
+<tr class="row-odd"><td><p>nvfp4</p></td>
+<td><p>0.2694</p></td>
+<td><p>0.3203</p></td>
+<td><p>1.30</p></td>
+<td><p>1.0913</p></td>
+<td><p>1.37</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>To reproduce, run:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>./benchmarks/quantization/eval_accuracy_and_perf_of_flux.sh
+</pre></div>
+</div>
+</section>
+<section id="other-available-quantization-techniques">
+<h2>Other Available Quantization Techniques<a class="headerlink" href="#other-available-quantization-techniques" title="Link to this heading">#</a></h2>
+<section id="int8dynamicactivationintxweightconfig-quantization">
+<h3>Int8DynamicActivationIntxWeightConfig Quantization<a class="headerlink" href="#int8dynamicactivationintxweightconfig-quantization" title="Link to this heading">#</a></h3>
+<p>We have kernels that do 8-bit dynamic quantization of activations and uintx groupwise quantization of weights.  These kernels are experimental and can only be run on a device with an ARM CPU (e.g., a Mac computers with Apple silicon).  The benchmarks below were run on an M1 Mac Pro, with 8 perf cores, and 2 efficiency cores, and 32GB of RAM.  In all cases, torch.compile was used.</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<thead>
+<tr class="row-odd"><th class="head"><p>Model</p></th>
+<th class="head"><p>Technique</p></th>
+<th class="head"><p>Tokens/Second</p></th>
+<th class="head"><p>Memory Bandwidth (GB/s)</p></th>
+<th class="head"><p>Peak Memory (GB)</p></th>
+<th class="head"><p>Model Size (GB)</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Llama-3.1-8B</p></td>
+<td><p>Base (bfloat16)</p></td>
+<td><p>1.24</p></td>
+<td><p>18.62</p></td>
+<td><p>NA</p></td>
+<td><p>15.01</p></td>
+</tr>
+<tr class="row-odd"><td><p></p></td>
+<td><p>int8_dynamic_activation_intx_weight-4-256-false</p></td>
+<td><p>16.03</p></td>
+<td><p>65.81</p></td>
+<td><p>NA</p></td>
+<td><p>4.11</p></td>
+</tr>
+<tr class="row-even"><td><p></p></td>
+<td><p>int8_dynamic_activation_intx_weight-3-256-false</p></td>
+<td><p>18.94</p></td>
+<td><p>59.97</p></td>
+<td><p>NA</p></td>
+<td><p>3.17</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>You can try out these apis with the <code class="docutils literal notranslate"><span class="pre">quantize_</span></code> api as above alongside the config <code class="docutils literal notranslate"><span class="pre">Int8DynamicActivationIntxWeightConfig</span></code>.  An example can be found in <code class="docutils literal notranslate"><span class="pre">torchao/_models/llama/generate.py</span></code>.</p>
+</section>
+<section id="codebook-quantization">
+<h3>Codebook Quantization<a class="headerlink" href="#codebook-quantization" title="Link to this heading">#</a></h3>
+<p>The benchmarks below were run on a single NVIDIA-A6000 GPU.</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<thead>
+<tr class="row-odd"><th class="head"><p>Model</p></th>
+<th class="head"><p>Technique</p></th>
+<th class="head"><p>wikitext-perplexity</p></th>
+<th class="head"><p>Tokens/Second</p></th>
+<th class="head"><p>Memory Bandwidth (GB/s)</p></th>
+<th class="head"><p>Peak Memory (GB)</p></th>
+<th class="head"><p>Model Size (GB)</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Llama-3-8B</p></td>
+<td><p>Base (bfloat16)</p></td>
+<td><p>7.590</p></td>
+<td><p>32.36</p></td>
+<td><p>485.71</p></td>
+<td><p>16.19</p></td>
+<td><p>15.01</p></td>
+</tr>
+<tr class="row-odd"><td><p></p></td>
+<td><p>codebook-4-64</p></td>
+<td><p>9.533</p></td>
+<td><p>1.73</p></td>
+<td><p>8.62</p></td>
+<td><p>23.11</p></td>
+<td><p>4.98</p></td>
+</tr>
+<tr class="row-even"><td><p>Llama-3.1-8B</p></td>
+<td><p>Base (bfloat16)</p></td>
+<td><p>7.713</p></td>
+<td><p>32.16</p></td>
+<td><p>482.70</p></td>
+<td><p>16.35</p></td>
+<td><p>15.01</p></td>
+</tr>
+<tr class="row-odd"><td><p></p></td>
+<td><p>codebook-4-64</p></td>
+<td><p>10.095</p></td>
+<td><p>1.73</p></td>
+<td><p>8.63</p></td>
+<td><p>23.11</p></td>
+<td><p>4.98</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>You try can out these apis with the <code class="docutils literal notranslate"><span class="pre">quantize_</span></code> api as above alongside the config <code class="docutils literal notranslate"><span class="pre">CodebookWeightOnlyConfig</span></code> an example can be found in  in <code class="docutils literal notranslate"><span class="pre">torchao/_models/llama/generate.py</span></code>.</p>
+</section>
+<section id="low-precision-fp8-attention-prototype">
+<h3>Low-Precision FP8 Attention (Prototype)<a class="headerlink" href="#low-precision-fp8-attention-prototype" title="Link to this heading">#</a></h3>
+<p>FP8 low-precision attention for inference, built on Flash Attention backends. Currently supports FA3 on Hopper (SM90) and FA4 on Blackwell (SM100).</p>
+<p><strong>Requirements:</strong> PyTorch &gt;= 2.11, Hopper or Blackwell GPU, Flash Attention 3 (<code class="docutils literal notranslate"><span class="pre">pip</span> <span class="pre">install</span> <span class="pre">flash-attn-3</span> <span class="pre">--index-url=https://download.pytorch.org/whl/{cuda_version}</span></code>).</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn.functional</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">F</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchao.prototype.attention</span><span class="w"> </span><span class="kn">import</span> <span class="n">apply_low_precision_attention</span>
+
+
+<span class="c1"># Simple model with attention</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">MyModel</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">embed_dim</span><span class="o">=</span><span class="mi">512</span><span class="p">,</span> <span class="n">num_heads</span><span class="o">=</span><span class="mi">8</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">num_heads</span> <span class="o">=</span> <span class="n">num_heads</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">head_dim</span> <span class="o">=</span> <span class="n">embed_dim</span> <span class="o">//</span> <span class="n">num_heads</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">q_proj</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="n">embed_dim</span><span class="p">,</span> <span class="n">embed_dim</span><span class="p">,</span> <span class="n">bias</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">k_proj</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="n">embed_dim</span><span class="p">,</span> <span class="n">embed_dim</span><span class="p">,</span> <span class="n">bias</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">v_proj</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="n">embed_dim</span><span class="p">,</span> <span class="n">embed_dim</span><span class="p">,</span> <span class="n">bias</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">out_proj</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="n">embed_dim</span><span class="p">,</span> <span class="n">embed_dim</span><span class="p">,</span> <span class="n">bias</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">):</span>
+        <span class="n">B</span><span class="p">,</span> <span class="n">S</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">x</span><span class="o">.</span><span class="n">shape</span>
+        <span class="n">q</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">q_proj</span><span class="p">(</span><span class="n">x</span><span class="p">)</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">B</span><span class="p">,</span> <span class="n">S</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">num_heads</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">head_dim</span><span class="p">)</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+        <span class="n">k</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">k_proj</span><span class="p">(</span><span class="n">x</span><span class="p">)</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">B</span><span class="p">,</span> <span class="n">S</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">num_heads</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">head_dim</span><span class="p">)</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+        <span class="n">v</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">v_proj</span><span class="p">(</span><span class="n">x</span><span class="p">)</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">B</span><span class="p">,</span> <span class="n">S</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">num_heads</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">head_dim</span><span class="p">)</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+        <span class="n">attn_out</span> <span class="o">=</span> <span class="n">F</span><span class="o">.</span><span class="n">scaled_dot_product_attention</span><span class="p">(</span><span class="n">q</span><span class="p">,</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span><span class="p">,</span> <span class="n">is_causal</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">out_proj</span><span class="p">(</span><span class="n">attn_out</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span><span class="o">.</span><span class="n">contiguous</span><span class="p">()</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">B</span><span class="p">,</span> <span class="n">S</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">))</span>
+
+
+<span class="n">model</span> <span class="o">=</span> <span class="n">MyModel</span><span class="p">()</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="o">=</span><span class="s2">&quot;cuda&quot;</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">)</span><span class="o">.</span><span class="n">eval</span><span class="p">()</span>
+
+<span class="c1"># Auto-detect best backend</span>
+<span class="n">model</span> <span class="o">=</span> <span class="n">apply_low_precision_attention</span><span class="p">(</span><span class="n">model</span><span class="p">)</span>
+
+<span class="c1"># Or specify a backend explicitly</span>
+<span class="c1"># model = apply_low_precision_attention(model, backend=AttentionBackend.FP8_FA3)</span>
+
+<span class="c1"># Optional: torch.compile for RoPE fusion</span>
+<span class="n">model</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="n">model</span><span class="p">)</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">apply_low_precision_attention</span></code> replaces all <code class="docutils literal notranslate"><span class="pre">F.scaled_dot_product_attention</span></code> calls with FP8 attention for eager execution. When combined with <code class="docutils literal notranslate"><span class="pre">torch.compile</span></code>, RoPE patterns are automatically detected and fused into a single kernel. KV caching should be disabled before calling for best results with <code class="docutils literal notranslate"><span class="pre">torch.compile</span></code>. See the <a class="reference internal" href="../api_reference/api_ref_prototype_attention.html#api-attention"><span class="std std-ref">API reference</span></a> for details.</p>
+</section>
+</section>
+</section>
+
+
+                </article>
+              
+</div>
+
+              
+              
+                <footer class="bd-footer-article">
+                  <div class="footer-article-items footer-article__inner">
+  
+    <div class="footer-article-item">
+<div class="feedback">
+  
+<div class="rating">
+    Rate this Page
+    <div class="stars">
+        
+        <span class="star" data-behavior="tutorial-rating" data-count="1" data-value="1">★</span>
+        
+        <span class="star" data-behavior="tutorial-rating" data-count="2" data-value="2">★</span>
+        
+        <span class="star" data-behavior="tutorial-rating" data-count="3" data-value="3">★</span>
+        
+        <span class="star" data-behavior="tutorial-rating" data-count="4" data-value="4">★</span>
+        
+        <span class="star" data-behavior="tutorial-rating" data-count="5" data-value="5">★</span>
+        
+    </div>
+</div>
+
+  <div class="feedback-send">
+    <button class="feedback-btn"
+            onclick="openGitHubIssue()"
+            data-bs-title="Create a GitHub Issue"
+            data-bs-placement="bottom"
+            data-bs-toggle="tooltip"
+            data-gtm="feedback-btn-click">Send Feedback
+    </button>
+  </div>
+</div>
+
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="qat.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Quantization-Aware Training (QAT)</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="../api_reference/index.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">API Reference</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+
+<div class="footer-info">
+  <p class="copyright">
+    
+  </p>
+
+  <p class="theme-version">
+    Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.15.4.
+  </p>
+</div>
+</div>
+  
+</div>
+                </footer>
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="qat.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Quantization-Aware Training (QAT)</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="../api_reference/index.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">API Reference</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <div class="bd-sidebar-secondary bd-toc">
+<div class="sidebar-secondary-items sidebar-secondary__inner">
+    
+       <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#inference-workflows">Inference Workflows</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#accuracy-benchmarks">Accuracy benchmarks</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#performance-benchmarks">Performance benchmarks</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#e2e-model-level-benchmarks">e2e model level benchmarks</a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#nvidia-b200">NVIDIA B200</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#nvidia-h100">NVIDIA H100</a></li>
+</ul>
+</li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#microbenchmarks-and-roofline-model">Microbenchmarks and roofline model</a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#id1">NVIDIA B200</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#e2e-flux-1-schnell-benchmarks">e2e flux-1.schnell benchmarks</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#other-available-quantization-techniques">Other Available Quantization Techniques</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#int8dynamicactivationintxweightconfig-quantization">Int8DynamicActivationIntxWeightConfig Quantization</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#codebook-quantization">Codebook Quantization</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#low-precision-fp8-attention-prototype">Low-Precision FP8 Attention (Prototype)</a></li>
+</ul>
+</li>
+</ul>
+  </nav></div>
+    
+       <div class="sidebar-secondary-item">
+
+  
+  <div class="tocsection editthispage">
+    <a href="https://github.com/pytorch/ao/edit/main/docs/source/workflows/inference.md">
+      <i class="fa-solid fa-pencil"></i>
+      
+      
+        
+          Edit on GitHub
+        
+      
+    </a>
+  </div>
+</div>
+    
+       <div class="sidebar-secondary-item">
+    <div class="tocsection sourcelink">
+      <a href="../_sources/workflows/inference.md.txt">
+        <i class="fa-solid fa-file-lines"></i> Show Source
+      </a>
+    </div>
+</div>
+    
+
+
+
+
+</div>
+</div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script src="../_static/scripts/bootstrap.js?digest=dfe6caa3a7d634c4db9b"></script>
+<script src="../_static/scripts/pydata-sphinx-theme.js?digest=dfe6caa3a7d634c4db9b"></script>
+
+  
+
+<div class="container-fluid docs-tutorials-resources" id="docs-tutorials-resources">
+  <div class="container">
+    <div class="row">
+      <div class="col-md-4">
+        <h2>Docs</h2>
+        <p>Access comprehensive developer documentation for PyTorch</p>
+        <a class="with-right-arrow" href="https://docs.pytorch.org/docs/stable/index.html">View Docs</a>
+      </div>
+
+      <div class="col-md-4">
+        <h2>Tutorials</h2>
+        <p>Get in-depth tutorials for beginners and advanced developers</p>
+        <a class="with-right-arrow" href="https://docs.pytorch.org/tutorials">View Tutorials</a>
+      </div>
+
+      <div class="col-md-4">
+        <h2>Resources</h2>
+        <p>Find development resources and get your questions answered</p>
+        <a class="with-right-arrow" href="https://pytorch.org/resources">View Resources</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+
+
+<footer class="site-footer">
+
+  <div class="container footer-container">
+
+    <div class="newsletter" id="newsletter">
+
+      <p class="newsletter__title is-style-max-width-800"><strong>Stay in touch</strong> for updates, event info, and
+        the latest news</p>
+
+
+      <script charset="utf-8" type="text/javascript" src="//js.hsforms.net/forms/embed/v2.js"></script>
+      <script>
+        hbspt.forms.create({
+          region: "na1",
+          portalId: "8112310",
+          formId: "2fb2231c-000b-4ec5-88a0-1ab242549c9e"
+        });
+      </script>
+
+
+      <p class="newsletter__privacy">By submitting this form, I consent to receive marketing emails from the LF and its
+        projects regarding their events, training, research, developments, and related announcements. I understand that
+        I can unsubscribe at any time using the links in the footers of the emails I receive. <a
+          href="https://www.linuxfoundation.org/privacy/">Privacy Policy</a>.</p>
+
+    </div>
+
+    <div class="lf-grid">
+      <ul class="social-links">
+        <li><a href="https://www.facebook.com/pytorch" target="_blank" title="PyTorch on Facebook">
+            <svg xmlns="http://www.w3.org/2000/svg" viewbox="-0.51 -0.26 26.45 26.45" aria-label="Facebook">
+              <path fill="currentColor"
+                d="M25.497 13.075c0-2.45-.698-4.848-2.011-6.911a12.765 12.765 0 0 0-5.398-4.73A12.671 12.671 0 0 0 11.008.38a12.705 12.705 0 0 0-6.529 2.95A12.827 12.827 0 0 0 .563 9.358a12.896 12.896 0 0 0-.07 7.201 12.831 12.831 0 0 0 3.801 6.103 12.709 12.709 0 0 0 6.471 3.078v-8.957H7.53v-3.708h3.235v-2.824c0-3.213 1.903-4.988 4.813-4.988.956.014 1.909.097 2.852.25V8.67h-1.607a1.83 1.83 0 0 0-1.518.497 1.854 1.854 0 0 0-.561 1.505v2.404h3.535l-.563 3.708h-2.97v8.957a12.725 12.725 0 0 0 7.697-4.337 12.87 12.87 0 0 0 3.054-8.328z" />
+            </svg>
+          </a></li>
+        <li><a href="https://twitter.com/pytorch" target="_blank" title="PyTorch on X">
+            <svg xmlns="http://www.w3.org/2000/svg" viewbox="0 0 300 300" aria-label="X">
+              <path fill="currentColor"
+                d="M178.57 127.15 290.27 0h-26.46l-97.03 110.38L89.34 0H0l117.13 166.93L0 300.25h26.46l102.4-116.59 81.8 116.59h89.34M36.01 19.54H76.66l187.13 262.13h-40.66" />
+            </svg>
+          </a></li>
+        <li><a href="https://www.youtube.com/pytorch" target="_blank" title="PyTorch on YouTube">
+            <svg xmlns="http://www.w3.org/2000/svg" viewbox="0.21 0.27 34.45 25.07" aria-label="YouTube">
+              <path fill="currentColor"
+                d="M33.729 6.084s-.327-2.33-1.317-3.356a4.691 4.691 0 0 0-3.32-1.432c-4.634-.34-11.589-.34-11.589-.34h-.014s-6.954 0-11.59.342a4.692 4.692 0 0 0-3.32 1.432c-.993 1.025-1.315 3.354-1.315 3.354a52.189 52.189 0 0 0-.331 5.473v2.566c.014 1.829.125 3.656.331 5.472 0 0 .322 2.33 1.316 3.36 1.26 1.345 2.916 1.3 3.653 1.445 2.65.26 11.263.34 11.263.34s6.96-.01 11.597-.353a4.691 4.691 0 0 0 3.32-1.432c.993-1.026 1.316-3.356 1.316-3.356.206-1.817.316-3.644.33-5.473v-2.57a52.26 52.26 0 0 0-.33-5.472zM14.076 17.232V7.729l8.951 4.768-8.95 4.735z" />
+            </svg>
+          </a></li>
+        <li><a href="https://www.linkedin.com/company/pytorch" target="_blank" title="PyTorch on LinkedIn">
+            <svg xmlns="http://www.w3.org/2000/svg" viewbox="-10.23 -10.23 531.96 531.96" aria-label="LinkedIn">
+              <rect width="512" height="512" rx="0" fill="currentColor" />
+              <circle fill="#000" cx="142" cy="138" r="37" />
+              <path stroke="#000" stroke-width="66" d="M244 194v198M142 194v198" />
+              <path fill="#000"
+                d="M276 282c0-20 13-40 36-40 24 0 33 18 33 45v105h66V279c0-61-32-89-76-89-34 0-51 19-59 32" />
+            </svg>
+          </a></li>
+        <li><a href="https://pytorch.slack.com" target="_blank" title="PyTorch Slack">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0.16 -0.03 21.19 21.19" aria-label="Slack">
+              <path fill="currentColor"
+                d="M4.896 13.27a2.147 2.147 0 0 1-2.141 2.142A2.147 2.147 0 0 1 .613 13.27c0-1.178.963-2.141 2.142-2.141h2.141v2.141zm1.08 0c0-1.178.962-2.141 2.141-2.141s2.142.963 2.142 2.141v5.363a2.147 2.147 0 0 1-2.142 2.141 2.147 2.147 0 0 1-2.141-2.142V13.27zm2.141-8.6a2.147 2.147 0 0 1-2.141-2.14c0-1.18.962-2.142 2.141-2.142s2.142.963 2.142 2.141v2.142H8.117zm0 1.08c1.179 0 2.141.962 2.141 2.141a2.147 2.147 0 0 1-2.141 2.142H2.755A2.147 2.147 0 0 1 .613 7.89c0-1.179.963-2.141 2.142-2.141h5.362zm8.599 2.141c0-1.179.963-2.141 2.141-2.141 1.179 0 2.143.962 2.143 2.14a2.147 2.147 0 0 1-2.142 2.142h-2.141V7.89zm-1.08 0a2.147 2.147 0 0 1-2.141 2.142 2.147 2.147 0 0 1-2.141-2.142V2.53c0-1.178.962-2.141 2.141-2.141s2.142.963 2.142 2.141v5.362zm-2.141 8.6c1.179 0 2.142.962 2.142 2.14a2.147 2.147 0 0 1-2.142 2.142 2.147 2.147 0 0 1-2.141-2.141V16.49h2.141zm0-1.08a2.147 2.147 0 0 1-2.141-2.141c0-1.179.962-2.142 2.141-2.142h5.362c1.179 0 2.142.963 2.142 2.142a2.147 2.147 0 0 1-2.142 2.142h-5.362z">
+              </path>
+            </svg>
+          </a></li>
+        <li><a href="https://pytorch.org/wechat" title="PyTorch on WeChat">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0.14 -0.17 38.02 33.02" aria-label="WeChat">
+              <path fill="currentColor"
+                d="M26.289 10.976a12.972 12.972 0 0 0-8.742 3.53 10.386 10.386 0 0 0-3.224 8.795c-1.326-.164-2.535-.345-3.75-.448a2.332 2.332 0 0 0-1.273.216c-1.18.666-2.311 1.418-3.652 2.255.246-1.112.405-2.087.687-3.024a1.15 1.15 0 0 0-.523-1.52C1.737 17.902.02 13.601 1.307 9.165c1.189-4.1 4.11-6.587 8.077-7.884A13.54 13.54 0 0 1 24.18 5.617a10.135 10.135 0 0 1 2.109 5.359zM10.668 9.594a1.564 1.564 0 0 0-2.095-1.472 1.52 1.52 0 0 0-.895 1.964 1.502 1.502 0 0 0 1.391.966 1.545 1.545 0 0 0 1.598-1.46v.002zm8.15-1.566a1.567 1.567 0 0 0-1.528 1.543 1.528 1.528 0 0 0 1.571 1.492 1.52 1.52 0 0 0 1.375-2.117 1.518 1.518 0 0 0-1.415-.919l-.003.001z">
+              </path>
+              <path fill="currentColor"
+                d="M33.914 32.137c-1.075-.478-2.062-1.196-3.11-1.306-1.049-.11-2.145.494-3.24.605a10.821 10.821 0 0 1-8.781-2.864c-4.682-4.33-4.013-10.97 1.403-14.518 4.811-3.154 11.874-2.102 15.268 2.273a8.671 8.671 0 0 1-1.002 12.095c-1.046.929-1.422 1.693-.751 2.917.102.257.174.525.213.798zM21.68 20.292a1.264 1.264 0 1 0 .01-2.528 1.264 1.264 0 0 0-.01 2.528zm7.887-2.526a1.266 1.266 0 0 0-1.256 1.21 1.247 1.247 0 1 0 1.256-1.21z">
+              </path>
+            </svg>
+          </a></li>
+      </ul>
+    </div>
+    
+    <div class="privacy-policy">
+      <div class="copyright">
+      
+        <p>
+          &copy; PyTorch. Copyright © The Linux Foundation®. All rights reserved. The Linux Foundation has registered
+          trademarks and uses trademarks. For more information, including terms of use, privacy policy, and trademark
+          usage, please see our <a href="https://www.linuxfoundation.org/legal/policies">Policies</a> page. <a
+            href="https://www.linuxfoundation.org/trademark-usage">Trademark Usage</a>. <a
+            href="http://www.linuxfoundation.org/privacy">Privacy Policy</a>.
+        </p>
+        
+      </div>
+    </div>
+
+
+  </div>
+</footer>
+
+<div class="cookie-banner-wrapper">
+  <div class="container">
+    <p class="gdpr-notice">To analyze traffic and optimize your experience, we serve cookies on this site. By clicking or navigating, you agree to allow our usage of cookies. As the current maintainers of this site, Facebook’s Cookies Policy applies. Learn more, including about available controls: <a href="https://www.facebook.com/policies/cookies/">Cookies Policy</a>.</p>
+    <img class="close-button" src="../_static/img/pytorch-x.svg">
+  </div>
+</div>
+  
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2024-present, torchao Contributors.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 7.2.6.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.15.4.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  <script type="application/ld+json">
+    {
+       "@context": "https://schema.org",
+       "@type": "Article",
+       "name": "Quantized Inference",
+       "headline": "Quantized Inference",
+       "description": "PyTorch Documentation. Explore PyTorch, an open-source machine learning library that accelerates the path from research prototyping to production deployment.",
+       "url": "/workflows/inference.html",
+       "articleBody": "Quantized Inference# Created On: Mar 25, 2026 | Last Updated On: Mar 25, 2026 For inference, we support dynamic and weight-only quantization of torch.nn.funtional.linear across various dtype configurations. The pseudocode is as follows: # high precision (baseline) output_bf16 = input_bf16 @ weight_bf16.t() # dynamic quantization (shown for fp8 rowwise) output_bf16 = to_fp8(input_bf16) @ to_fp8(weight_fp8.t()) # weight-only quantization (shown for int4) output_bf16 = input_bf16 @ weight_int4.t() Inference Workflows# Below are the stable and near-stable inference workflows in torchao: weight dtype act dtype summary float8 float8 Float8DynamicActivationFloat8WeightConfig: Applies float8 dynamic symmetric quantization to both activations and weights. Requires CUDA \u22658.9, AMD MI350+, or Intel XPU. Supports PerTensor and PerRow granularity. float8 bf16 Float8WeightOnlyConfig: Applies float8 weight-only symmetric per-channel quantization. Matmul computed in original precision. int8 int8 Int8DynamicActivationInt8WeightConfig: Applies int8 dynamic symmetric per-token activation and int8 per-channel weight quantization. int8 bf16 Int8WeightOnlyConfig: Applies int8 weight-only symmetric per-channel quantization. mxfp8 mxfp8 MXDynamicActivationMXWeightConfig(prototype): Applies mxfp8 or mxfp4 dynamic quantization to activations and weights. Requires NVIDIA SM100+ (Blackwell) or AMD MI350+. int4 bf16 Int4WeightOnlyConfig: Applies int4 weight-only groupwise quantization. Supports group sizes 256, 128, 64, 32. int4 float8 Float8DynamicActivationInt4WeightConfig: Applies float8 dynamic per-row activation and int4 per-group weight quantization. Group size 128 only. nvfp4 bf16 NVFP4WeightOnlyConfig(prototype): Applies NVFP4 weight-only quantization. nvfp4 nvfp4 NVFP4DynamicActivationNVFP4WeightConfig(prototype): Applies NVFP4 dynamic quantization to activations and weights with double quantization (per-tensor + per-block scales). Requires NVIDIA SM100+ (Blackwell). mxfp4 mxfp4 MXDynamicActivationMXWeightConfig(prototype): Applies mxfp8 or mxfp4 dynamic quantization to activations and weights. Requires NVIDIA SM100+ (Blackwell) or AMD MI350+. intx bf16 IntxWeightOnlyConfig: Applies intx (1-8 bit) weight-only quantization. Supports groupwise and per-channel. Works with Linear and Conv2D. intx int8 Int8DynamicActivationIntxWeightConfig: Applies int8 dynamic per-token activation and intx (1-8 bit) weight quantization. CPU optimized. uintx (4/8-bit) bf16 UIntxWeightOnlyConfig(prototype): Applies 4-bit (asymmetric, grouped) or 8-bit (symmetric, per-channel) weight-only quantization using gemlite (https://github.com/dropbox/gemlite) Triton kernels. Supports packing bit widths 8, 16, 32. Requires CUDA and gemlite. optimized for A100 and H100 GPUs. uintx (4/8-bit) int8 Int8DynamicActivationUIntxWeightConfig(prototype): Applies int8 dynamic activation with 4-bit or 8-bit weight quantization using gemlite (https://github.com/dropbox/gemlite) Triton kernels. Requires CUDA and gemlite. Optimized for A100 and H100 GPUs. int4 int8 Int8DynamicActivationInt4WeightConfig(prototype): Applies int8 dynamic per-group activation and int4 weight per-group quantization on X86 CPU. Groupsize must be 128, 64, 32. Accuracy benchmarks# All the following benchmarks are for meta-llama/Llama-3.1-8B using lm-eval. weight activation wikitext-perplexity winogrande checkpoint size (GB) bfloat16 bfloat16 7.3315 0.7380 16.1 float8_rowwise float8_rowwise 7.4197 0.7388 9.1 int8_rowwise bfloat16 7.3451 0.7340 9.1 int8_rowwise int8_rowwise 7.4535 0.7285 9.1 mxfp8 mxfp8 7.6034 0.7316 9.32 nvfp4 nvfp4 8.4459 0.7135 6.05 To reproduce, run the following command: // on an H100 SKIP_VLLM=1 ./benchmarks/quantization/measure_accuracy_and_performance.sh h100 // on a B200 SKIP_VLLM=1 ./benchmarks/quantization/measure_accuracy_and_performance.sh b200 Performance benchmarks# e2e model level benchmarks# All the following benchmarks are for meta-llama/Llama-3.1-8B using torch==2.9.0 and vllm==0.13.0. NVIDIA B200# weight activation prefill toks/s decode toks/s prefill_speedup decode_speedup bfloat16 bfloat16 59099.9 14380 1 1 mxfp8 mxfp8 TODO(https://github.com/pytorch/ao/issues/3549) - - - nvfp4 nvfp4 102786 15218.9 1.739 1.058 float8_rowwise float8_rowwise 69313.7 15984 1.173 1.112 NVIDIA H100# weight activation prefill toks/s decode toks/s prefill_speedup decode_speedup bfloat16 bfloat16 30946.5 6612 1 1 float8_rowwise float8_rowwise 45312.5 8025.95 1.464 1.214 int8_rowwwise bfloat16 28231.9 4309.8 0.912 0.652 int4 float8_rowwise TODO(https://github.com/pytorch/ao/issues/3550) - - - To reproduce these benchmarks, run // on an h100 SKIP_LM_EVAL=1 ./benchmarks/quantization/measure_accuracy_and_performance.sh h100 // on a b200 SKIP_LM_EVAL=1 ./benchmarks/quantization/measure_accuracy_and_performance.sh h100 // under the hood, the actual vllm benchmark is doing the following: // 1. prefill vllm bench throughput --num_prompts 32 --input_len 4096 --output_len 32 --max_model_len 4128 // 2. decode vllm bench throughput --num_prompts 128 --input_len 32 --output_len 2048 --max_model_len 2080 Microbenchmarks and roofline model# The following set of microbenchmarks show the roofline expected and observed execution times of a ReLU -\u003e Linear toy model across a sweep of (M, K, N) shapes, with the activation shaped (M, K) and the weight shaped (K, N). This can be used to estimate expected speedup of quantizing torch.nn.Linear layers with various recipes based on shapes in your model during inference. Explanation: to see speedup from quantization of activation -\u003e gemm during inference, we want (bf16_activation_time + bf16_gemm_time) \u003e (bf16_activation_and_quantize_tensor_time + fp8_gemm_time) In a perfect world (and our roofline model), bf16_activation_time \u003e bf16_activation_and_quantize_tensor_time is always true because bf16_activation reads+writes M*K*2 bytes and bf16_activation_and_quantize_tensor is a single fused kernel that reads+writes M*K*1.5 bytes. bf16_gemm_time \u003e fp8_gemm_time is always true as fp8 gemm has ~2x peak efficiency vs bf16 gemm In the real world, both (1) and (2) are not always true due to kernel launch overhead, kernel efficiency, lack of fusion for some recipes, etc. Therefore, the observed speedups are often significantly below the roofline peak. In general you should expect the observed speedup from inference quantization to increase as MKN increases. NVIDIA B200# # `r_fp8_gemm_and_ovhd_spdp` is the roofline expected speedup of the # quantized ReLU -\u003e Linear layer vs high precision version # `b_fp8_e2e_spdp` is the observed speedup of the quantized # ReLU -\u003e Linear layer vs high precision version # # mxfp8 # \u003e python benchmarks/float8/float8_inference_roofline.py --recipe_name mxfp8_cublas --enable_fusion_modeling True --skip_printing_detailed_metrics True ... GPU NVIDIA B200 torch version 2.12.0.dev20260218+cu130 torchao version 0.17.0+git3075bb624 ... fwd_M fwd_K fwd_N r_fp8_gemm_and_ovhd_spdp b_fp8_e2e_spdp 0 1024 1024 1024 1.00 0.93 1 2048 2048 2048 1.75 1.20 2 4096 4096 4096 1.90 1.46 3 8192 8192 8192 1.94 1.76 4 16384 16384 16384 1.97 1.77 # # nvfp4 with dynamic global scaling # \u003e python benchmarks/float8/float8_inference_roofline.py --recipe_name nvfp4 --enable_fusion_modeling True --skip_printing_detailed_metrics True ... GPU NVIDIA B200 torch version 2.12.0.dev20260312+cu130 torchao version 0.17.0+gitbd7717d20 ... fwd_M fwd_K fwd_N r_fp8_gemm_and_ovhd_spdp b_fp8_e2e_spdp 0 1024 1024 1024 1.00 0.46 1 2048 2048 2048 2.36 0.76 2 4096 4096 4096 2.89 1.37 3 8192 8192 8192 3.32 1.97 4 16384 16384 16384 3.62 2.77 # # nvfp4 with static global scaling (user API in progress) # \u003e python benchmarks/float8/float8_inference_roofline.py --recipe_name nvfp4_static --enable_fusion_modeling True --skip_printing_detailed_metrics True ... GPU NVIDIA B200 torch version 2.12.0.dev20260312+cu130 torchao version 0.17.0+gitbd7717d20 ... fwd_M fwd_K fwd_N r_fp8_gemm_and_ovhd_spdp b_fp8_e2e_spdp 0 1024 1024 1024 1.00 0.55 1 2048 2048 2048 2.74 0.95 2 4096 4096 4096 3.42 1.69 3 8192 8192 8192 3.67 2.29 4 16384 16384 16384 3.82 2.98 e2e flux-1.schnell benchmarks# These benchmarks compare accuracy and performance of torchao inference quantization on the flux-1.schnell model. For accuracy, we measure the LPIPS score between images generated by the quantized model and the high precision (bfloat16) baseline, averaged over the prompts from the sayakpaul/drawbench dataset \u2014 lower is better, with 0 meaning identical. Note that this benchmark optimizes for speed of iteration and does not represent the best possible metrics someone could achieve on this model. Instead, this is an apples-to-apples comparison intended to compare different quantization recipes at a high level, and measure performance improvements. experiment lpips_avg time_s_bsz_1 speedup_bsz_1 time_s_bsz_4 speedup_bsz_4 bfloat16 0 0.4178 1.00 1.4914 1.00 float8_rowwise 0.1236 0.3455 1.21 1.1986 1.24 mxfp8 0.1260 0.3673 1.14 1.2820 1.16 nvfp4 0.2694 0.3203 1.30 1.0913 1.37 To reproduce, run: ./benchmarks/quantization/eval_accuracy_and_perf_of_flux.sh Other Available Quantization Techniques# Int8DynamicActivationIntxWeightConfig Quantization# We have kernels that do 8-bit dynamic quantization of activations and uintx groupwise quantization of weights. These kernels are experimental and can only be run on a device with an ARM CPU (e.g., a Mac computers with Apple silicon). The benchmarks below were run on an M1 Mac Pro, with 8 perf cores, and 2 efficiency cores, and 32GB of RAM. In all cases, torch.compile was used. Model Technique Tokens/Second Memory Bandwidth (GB/s) Peak Memory (GB) Model Size (GB) Llama-3.1-8B Base (bfloat16) 1.24 18.62 NA 15.01 int8_dynamic_activation_intx_weight-4-256-false 16.03 65.81 NA 4.11 int8_dynamic_activation_intx_weight-3-256-false 18.94 59.97 NA 3.17 You can try out these apis with the quantize_ api as above alongside the config Int8DynamicActivationIntxWeightConfig. An example can be found in torchao/_models/llama/generate.py. Codebook Quantization# The benchmarks below were run on a single NVIDIA-A6000 GPU. Model Technique wikitext-perplexity Tokens/Second Memory Bandwidth (GB/s) Peak Memory (GB) Model Size (GB) Llama-3-8B Base (bfloat16) 7.590 32.36 485.71 16.19 15.01 codebook-4-64 9.533 1.73 8.62 23.11 4.98 Llama-3.1-8B Base (bfloat16) 7.713 32.16 482.70 16.35 15.01 codebook-4-64 10.095 1.73 8.63 23.11 4.98 You try can out these apis with the quantize_ api as above alongside the config CodebookWeightOnlyConfig an example can be found in in torchao/_models/llama/generate.py. Low-Precision FP8 Attention (Prototype)# FP8 low-precision attention for inference, built on Flash Attention backends. Currently supports FA3 on Hopper (SM90) and FA4 on Blackwell (SM100). Requirements: PyTorch \u003e= 2.11, Hopper or Blackwell GPU, Flash Attention 3 (pip install flash-attn-3 --index-url=https://download.pytorch.org/whl/{cuda_version}). import torch import torch.nn as nn import torch.nn.functional as F from torchao.prototype.attention import apply_low_precision_attention # Simple model with attention class MyModel(nn.Module): def __init__(self, embed_dim=512, num_heads=8): super().__init__() self.num_heads = num_heads self.head_dim = embed_dim // num_heads self.q_proj = nn.Linear(embed_dim, embed_dim, bias=False) self.k_proj = nn.Linear(embed_dim, embed_dim, bias=False) self.v_proj = nn.Linear(embed_dim, embed_dim, bias=False) self.out_proj = nn.Linear(embed_dim, embed_dim, bias=False) def forward(self, x): B, S, _ = x.shape q = self.q_proj(x).view(B, S, self.num_heads, self.head_dim).transpose(1, 2) k = self.k_proj(x).view(B, S, self.num_heads, self.head_dim).transpose(1, 2) v = self.v_proj(x).view(B, S, self.num_heads, self.head_dim).transpose(1, 2) attn_out = F.scaled_dot_product_attention(q, k, v, is_causal=True) return self.out_proj(attn_out.transpose(1, 2).contiguous().view(B, S, -1)) model = MyModel().to(device=\"cuda\", dtype=torch.bfloat16).eval() # Auto-detect best backend model = apply_low_precision_attention(model) # Or specify a backend explicitly # model = apply_low_precision_attention(model, backend=AttentionBackend.FP8_FA3) # Optional: torch.compile for RoPE fusion model = torch.compile(model) apply_low_precision_attention replaces all F.scaled_dot_product_attention calls with FP8 attention for eager execution. When combined with torch.compile, RoPE patterns are automatically detected and fused into a single kernel. KV caching should be disabled before calling for best results with torch.compile. See the API reference for details.",
+       "author": {
+         "@type": "Organization",
+         "name": "PyTorch Contributors",
+         "url": "https://pytorch.org"
+       },
+       "image": "https://pytorch.org/docs/stable/_static/img/pytorch_seo.png",
+       "mainEntityOfPage": {
+         "@type": "WebPage",
+         "@id": "/workflows/inference.html"
+       },
+       "datePublished": "Mar 25, 2026T00:00:00Z",
+       "dateModified": "Mar 25, 2026T00:00:00Z"
+     }
+ </script>
+  <script>
+    // Tutorials Call to action event tracking
+    $("[data-behavior='call-to-action-event']").on('click', function () {
+      fbq('trackCustom', "Download", {
+        tutorialTitle: $('h1:first').text(),
+        downloadLink: this.href,
+        tutorialLink: window.location.href,
+        downloadTitle: $(this).attr("data-response")
+      });
+      if (typeof gtag === 'function') {
+        gtag('event', 'click', {
+          'event_category': $(this).attr("data-response"),
+          'event_label': $("h1").first().text(),
+          'tutorial_link': window.location.href
+        });
+      }
+    });
+  </script>
+  
+  </body>
+</html>
