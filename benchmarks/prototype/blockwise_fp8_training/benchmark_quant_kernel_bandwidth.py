@@ -537,13 +537,13 @@ def parse_args():
     parser.add_argument(
         "--correctness-rtol",
         type=float,
-        default=1e-2,
+        default=0,
         help="Relative tolerance for --check-correctness comparisons.",
     )
     parser.add_argument(
         "--correctness-atol",
         type=float,
-        default=1e-2,
+        default=0,
         help="Absolute tolerance for --check-correctness comparisons.",
     )
     return parser.parse_args()
