@@ -12,8 +12,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Union
 
 if TYPE_CHECKING:
-    from torchao.quantization.granularity import PerRow, PerTensor
+    from torchao.quantization.granularity import PerGroup, PerRow, PerTensor
 
 
 # Define FP8Granularity type alias to break circular import dependencies
-FP8Granularity = Union["PerTensor", "PerRow"]
+FP8Granularity = Union["PerTensor", "PerRow", "PerGroup"]
