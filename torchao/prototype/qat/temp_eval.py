@@ -24,7 +24,6 @@ import argparse
 import torch
 from lm_eval import simple_evaluate
 
-
 # ---------------------------------------------------------------------------
 # Task registry
 # ---------------------------------------------------------------------------
@@ -75,16 +74,24 @@ def quantize_to_nvfp4(
     task_cfg = TASKS[task_name]
     ds_name, ds_config, ds_split = task_cfg["calib_dataset"]
     ds = load_dataset(ds_name, ds_config, split=ds_split)
-    calib_texts = [ex[task_cfg["calib_text_key"]] for ex in ds.select(range(num_calib_samples))]
+    calib_texts = [
+        ex[task_cfg["calib_text_key"]] for ex in ds.select(range(num_calib_samples))
+    ]
     calib_inputs = tokenizer(
-        calib_texts, return_tensors="pt", padding=True, truncation=True, max_length=512,
+        calib_texts,
+        return_tensors="pt",
+        padding=True,
+        truncation=True,
+        max_length=512,
     )
 
     def forward_loop(model):
         model.eval()
         with torch.no_grad():
             for i in range(0, len(calib_texts), 8):
-                batch = {k: v[i:i+8].to(model.device) for k, v in calib_inputs.items()}
+                batch = {
+                    k: v[i : i + 8].to(model.device) for k, v in calib_inputs.items()
+                }
                 model(**batch)
 
     print("Quantizing model to NVFP4...")
@@ -99,6 +106,7 @@ def quantize_to_nvfp4(
     # Free GPU memory so vllm can use it for inference.
     del model
     import gc
+
     gc.collect()
     torch.cuda.empty_cache()
 
@@ -108,6 +116,7 @@ def quantize_to_nvfp4(
 # ---------------------------------------------------------------------------
 # Evaluation helpers
 # ---------------------------------------------------------------------------
+
 
 def run_eval_nvfp4(
     model_path: str,
@@ -140,8 +149,8 @@ def run_eval_bf16(
     batch_size: int = 4,
 ) -> dict:
     """Evaluate using HuggingFace backend (bf16 inference)."""
-    from transformers import AutoModelForCausalLM, AutoTokenizer
     from lm_eval.models.huggingface import HFLM
+    from transformers import AutoModelForCausalLM, AutoTokenizer
 
     model = AutoModelForCausalLM.from_pretrained(
         model_path,
@@ -215,7 +224,10 @@ if __name__ == "__main__":
         label = f"checkpoint: {model_path} (bf16)"
         print(f"Evaluating {model_path} on {eval_task} ({n}, bf16)")
         results = run_eval_bf16(
-            model_path, eval_task, limit=args.limit, batch_size=args.batch_size,
+            model_path,
+            eval_task,
+            limit=args.limit,
+            batch_size=args.batch_size,
         )
     else:
         # Quantize bf16 checkpoint to NVFP4, then evaluate via vllm
@@ -224,7 +236,10 @@ if __name__ == "__main__":
         label = f"checkpoint: {nvfp4_dir} (nvfp4 kernel)"
         print(f"Evaluating {nvfp4_dir} on {eval_task} ({n}, nvfp4)")
         results = run_eval_nvfp4(
-            nvfp4_dir, eval_task, limit=args.limit, batch_size=args.batch_size,
+            nvfp4_dir,
+            eval_task,
+            limit=args.limit,
+            batch_size=args.batch_size,
         )
 
     print_results(results, eval_task, label)

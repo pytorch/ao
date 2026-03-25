@@ -29,6 +29,7 @@ MODEL_NAME = "Qwen/Qwen3-30B-A3B"
 # Dataset formatters (each returns a list of {"messages": [...]} dicts)
 # ---------------------------------------------------------------------------
 
+
 def format_gsm8k(example: dict) -> dict:
     """Convert a GSM8K example into the ``messages`` format expected by SFTTrainer."""
     return {
@@ -102,7 +103,9 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     task_cfg = TASKS[args.task]
-    output_dir = args.output_dir or (task_cfg["default_output_dir"] + ("-qat" if args.qat else ""))
+    output_dir = args.output_dir or (
+        task_cfg["default_output_dir"] + ("-qat" if args.qat else "")
+    )
 
     model = AutoModelForCausalLM.from_pretrained(
         MODEL_NAME,
@@ -113,6 +116,7 @@ if __name__ == "__main__":
 
     if args.qat:
         from torchao.prototype.qat.nvfp4_moe import apply_nvfp4_moe_qat
+
         model = apply_nvfp4_moe_qat(model)
 
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
@@ -154,6 +158,7 @@ if __name__ == "__main__":
 
         if args.qat:
             from torchao.prototype.qat.nvfp4_moe import remove_nvfp4_moe_qat
+
             remove_nvfp4_moe_qat(trainer.model)
 
         # Save bf16 checkpoint
@@ -165,6 +170,7 @@ if __name__ == "__main__":
 
         if args.qat:
             from torchao.prototype.qat.nvfp4_moe import remove_nvfp4_moe_qat
+
             remove_nvfp4_moe_qat(model)
 
         # Still save the bf16 checkpoint (e.g. from base model)

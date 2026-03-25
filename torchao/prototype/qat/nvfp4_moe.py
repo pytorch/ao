@@ -188,9 +188,9 @@ class _NVFP4FakeQuantGroupedMM(torch.autograd.Function):
         # We transpose back so FP4 block boundaries match the kernel's
         # storage-layout quantization, then transpose the result back.
         if not is_transposed and B_data.ndim == 3:
-            B_fq = _fp4_fake_quantize_per_expert(
-                B_data.transpose(-1, -2)
-            ).transpose(-1, -2)
+            B_fq = _fp4_fake_quantize_per_expert(B_data.transpose(-1, -2)).transpose(
+                -1, -2
+            )
         else:
             B_fq = _fp4_fake_quantize_per_expert(B_data)
 
@@ -292,9 +292,7 @@ class NVFP4FakeQuantizedScaledGroupedMMTensor(torch.Tensor):
                 and B_is_2d_or_3d
                 and has_offs
             ):
-                return _NVFP4FakeQuantGroupedMM.apply(
-                    A, B, kwargs[cls.offs_arg_name]
-                )
+                return _NVFP4FakeQuantGroupedMM.apply(A, B, kwargs[cls.offs_arg_name])
 
         # Fall through for all other ops.
         with torch._C.DisableTorchFunctionSubclass():
@@ -327,9 +325,7 @@ class NVFP4FakeQuantizedScaledGroupedMMTensor(torch.Tensor):
 
         return pytree.tree_map_only(
             torch.Tensor,
-            lambda x: NVFP4FakeQuantizedScaledGroupedMMTensor(
-                x, is_transposed
-            ),
+            lambda x: NVFP4FakeQuantizedScaledGroupedMMTensor(x, is_transposed),
             out,
         )
 
@@ -386,19 +382,29 @@ def apply_nvfp4_moe_qat(model: nn.Module) -> nn.Module:
             continue
         # All HF @use_experts_implementation classes expose is_transposed.
         # If it's missing, this module likely doesn't use the grouped_mm
-        # backend (e.g. Llama4 uses torch.bmm), so skip it.
+        # backend (e.g. Llama4 uses torch.bmm), so skip it.  Only warn if
+        # the module actually has 3D parameters (i.e. expert weights we'd
+        # want to wrap) — many modules like routers and top-level model
+        # classes carry num_experts but have no 3D params.
         if not hasattr(module, "is_transposed"):
-            logger.warning(
-                "Skipping module %s: has num_experts but no is_transposed "
-                "attribute (not decorated with @use_experts_implementation?)",
-                type(module).__name__,
-            )
+            has_3d = any(p.ndim == 3 for p in module.parameters(recurse=False))
+            if has_3d:
+                logger.warning(
+                    "Skipping module %s: has num_experts and 3D parameters "
+                    "but no is_transposed attribute (not decorated with "
+                    "@use_experts_implementation?)",
+                    type(module).__name__,
+                )
             continue
         is_transposed = module.is_transposed
         for param_name, param in module.named_parameters(recurse=False):
             if param.ndim == 3 and not isinstance(
                 param.data, NVFP4FakeQuantizedScaledGroupedMMTensor
             ):
+                print(
+                    "Replacing param %s (%s) with NVFP4FakeQuantizedScaledGroupedMMTensor"
+                    % (param_name, param.shape)
+                )
                 new_data = NVFP4FakeQuantizedScaledGroupedMMTensor(
                     param.data, is_transposed
                 )
