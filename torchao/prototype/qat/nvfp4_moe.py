@@ -1,29 +1,32 @@
 """
-FP4 QAT for MoE (Mixture of Experts) models.
+FP4 QAT for MoE (Mixture of Experts) models using a tensor subclass.
 
-This module provides fake quantization for MoE expert layers using block-scale
-FP4 (E2M1) quantize-dequantize roundtrips inserted before each GEMM, implemented
-entirely in PyTorch (no CPU↔GPU transfers).  Gradients flow through the STE
-(Straight-Through Estimator) automatically.
+This module provides a **model-agnostic** approach to NVFP4 fake quantization
+for MoE expert layers.  It intercepts ``torch._grouped_mm`` via a tensor
+subclass (following the same pattern as
+:class:`torchao.prototype.moe_training.tensor.ScaledGroupedMMTensor`) and
+injects block-scale FP4 (E2M1) quantize-dequantize roundtrips on both
+activation and weight operands before each grouped GEMM.
 
-The per-expert computation matches the flashinfer ``trtllm_fp4_block_scale_moe``
-kernel numerics: standard SwiGLU activation with contiguous gate/value halves
-and kernel weight layout (``gemm1_weight [E, 2*I, H]``, ``gemm2_weight [E, H, I]``).
-
-Supported model architectures:
-
-- **Qwen3 MoE** (``Qwen3MoeSparseMoeBlock``): per-expert ``gate_proj``,
-  ``up_proj``, ``down_proj`` linear layers (no biases).
+This works with any HuggingFace MoE model that uses the ``grouped_mm``
+expert backend (``experts_implementation="grouped_mm"``).
 
 Usage::
 
-    from torchao.prototype.qat.nvfp4_moe import apply_nvfp4_moe_qat
+    from torchao.prototype.qat.nvfp4_moe import apply_nvfp4_moe_qat, remove_nvfp4_moe_qat
     model = apply_nvfp4_moe_qat(model)
+    # ... train ...
+    model = remove_nvfp4_moe_qat(model)
 """
+
+import logging
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
+import torch.utils._pytree as pytree
+from torch._prims_common import suggest_memory_format
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -95,478 +98,329 @@ def _fp4_fake_quantize(x: torch.Tensor) -> torch.Tensor:
 
 
 # ---------------------------------------------------------------------------
-# MoE reference forward
+# Ops that should preserve the tensor subclass wrapper
+# ---------------------------------------------------------------------------
+
+_ops_to_preserve_subclass = {
+    torch.ops.aten.empty_like.default,
+    torch.ops.aten.new_zeros.default,
+    torch.ops.aten.slice.Tensor,
+    torch.ops.aten.copy_.default,
+    torch.ops.aten.view.default,
+    torch.ops.aten.as_strided.default,
+    torch.ops.aten._to_copy.default,
+    torch.ops.aten._pin_memory.default,
+    torch.ops.aten.split.Tensor,
+    torch.ops.aten.clone.default,
+    torch.ops.aten.transpose.int,
+}
+
+
+# ---------------------------------------------------------------------------
+# Autograd function for fake-quantized grouped MM with STE
 # ---------------------------------------------------------------------------
 
 
-def _build_permute_info(
-    router_indices: torch.Tensor,
-    routing_weights: torch.Tensor,
-    num_experts: int,
-    padding: int,
-) -> tuple[int, torch.Tensor, torch.Tensor, torch.Tensor]:
-    """Build permutation tables from the module's routing tensors.
+def _fp4_fake_quantize_forward(x: torch.Tensor) -> torch.Tensor:
+    """Forward-only FP4 fake quantize (no STE, for use inside autograd.Function).
 
-    Converts ``(router_indices, routing_weights)`` — the format used by
-    :class:`NVFP4FakeQuantizedMoE` — into the padded-permutation tables
-    that :func:`_run_moe_reference` expects.
+    Quantizes the entire tensor with a single global scale factor.
+    """
+    dq_val, _ = _quant_dequant_fp4(x.to(torch.bfloat16))
+    return dq_val.to(x.dtype)
+
+
+def _fp4_fake_quantize_per_expert(w: torch.Tensor) -> torch.Tensor:
+    """Forward-only FP4 fake quantize with an independent global scale per expert.
+
+    This matches the flashinfer ``trtllm_fp4_block_scale_moe`` kernel numerics
+    where each expert's weight tensor is quantized independently (its own
+    ``amax`` and global scale factor).
 
     Args:
-        router_indices: ``[T, top_k]`` pre-selected expert indices.
-            Values in ``[0, num_experts]``; ``num_experts`` is a no-op sentinel.
-        routing_weights: ``[T, E]`` full routing weights (softmax over experts).
-        num_experts: number of experts.
-        padding: alignment padding for expert token buffers.
-
-    Returns:
-        ``(permuted_buffer_size, expanded_token_idx_to_permuted_idx,
-        num_tokens_per_expert, top_k_logits)``
+        w: 3D weight tensor of shape ``[E, ...]`` where ``E`` is the expert
+           dimension.
     """
-    device = router_indices.device
-    num_tokens, top_k = router_indices.shape
-
-    # Per-(token, k) weights — clamp sentinel indices and zero them out.
-    top_k_logits = routing_weights.gather(
-        1, router_indices.clamp(max=num_experts - 1)
-    )
-    top_k_logits = top_k_logits.masked_fill(router_indices >= num_experts, 0.0)
-
-    # Flat view of expert assignments: [num_tokens * top_k]
-    flat_indices = router_indices.reshape(-1)  # [T * top_k]
-    valid = flat_indices < num_experts
-
-    # Count tokens per expert (on GPU).
-    num_tokens_per_expert = torch.zeros(
-        num_experts, dtype=torch.int64, device=device
-    )
-    num_tokens_per_expert.scatter_add_(
-        0, flat_indices[valid], torch.ones_like(flat_indices[valid])
-    )
-
-    # Padded counts and prefix sum (on GPU).
-    padded_counts = (num_tokens_per_expert + padding - 1) // padding * padding
-    padded_prefix_sum = torch.zeros(
-        num_experts + 1, dtype=torch.int64, device=device
-    )
-    padded_prefix_sum[1:] = padded_counts.cumsum(0)
-    permuted_buffer_size = padded_prefix_sum[num_experts].item()
-
-    # Token-to-permuted-index mapping (on GPU).
-    # For each valid (token, k) pair, compute its position within its expert's
-    # block by finding the rank among all valid entries for the same expert.
-    expanded_token_idx_to_permuted_idx = -torch.ones(
-        num_tokens * top_k, dtype=torch.int64, device=device
-    )
-
-    # Compute within-expert rank for each valid entry using argsort.
-    # Sort valid entries by expert index; ties broken by flat position (stable).
-    valid_positions = valid.nonzero(as_tuple=True)[0]  # indices into flat_indices
-    valid_experts = flat_indices[valid_positions]
-
-    # Stable sort by expert gives us contiguous expert groups in order.
-    sort_order = valid_experts.argsort(stable=True)
-    sorted_positions = valid_positions[sort_order]
-    sorted_experts = valid_experts[sort_order]
-
-    # Within-expert rank: position minus the start of that expert's group.
-    expert_start_in_sorted = torch.zeros(
-        num_experts, dtype=torch.int64, device=device
-    )
-    expert_start_in_sorted[1:] = num_tokens_per_expert[:-1].cumsum(0)
-    # Each sorted entry's rank = its index in sorted array - expert_start_in_sorted[expert]
-    sorted_idx = torch.arange(sorted_positions.shape[0], device=device)
-    within_expert_rank = sorted_idx - expert_start_in_sorted[sorted_experts]
-
-    permuted_idx = padded_prefix_sum[sorted_experts] + within_expert_rank
-    expanded_token_idx_to_permuted_idx[sorted_positions] = permuted_idx
-
-    return (
-        permuted_buffer_size,
-        expanded_token_idx_to_permuted_idx,
-        num_tokens_per_expert,
-        top_k_logits,
-    )
+    out = torch.empty_like(w)
+    for i in range(w.shape[0]):
+        dq_val, _ = _quant_dequant_fp4(w[i].to(torch.bfloat16))
+        out[i] = dq_val.to(w.dtype)
+    return out
 
 
-def _run_moe_reference(
-    hidden_states_float: torch.Tensor,
-    permute_info: tuple[int, torch.Tensor, torch.Tensor, torch.Tensor],
-    gemm1_weights_float: torch.Tensor,
-    gemm2_weights_float: torch.Tensor,
-    num_experts: int,
-    num_tokens: int,
-    top_k: int,
-    hidden_size: int,
-    intermediate_size: int,
-    padding: int,
-) -> tuple[torch.Tensor, torch.Tensor]:
-    """MoE forward with NVFP4 fake quantization, in pure PyTorch.
+class _NVFP4FakeQuantGroupedMM(torch.autograd.Function):
+    """Autograd function that applies NVFP4 fake quantization in the forward
+    pass of ``torch._grouped_mm`` and uses STE (straight-through estimator)
+    for the backward pass.
 
-    Matches the flashinfer ``trtllm_fp4_block_scale_moe`` kernel numerics:
+    Both activation and weight are fake-quantized for every grouped GEMM.
+    The activation uses a single global scale across all tokens; weights use
+    an independent global scale per expert.
 
-    - Hidden states are fake-quantized once globally (before permutation),
-      matching the kernel's single-amax input quantization.
-    - Weights are fake-quantized per-expert before each GEMM.
-    - The intermediate activation (GEMM1 → SwiGLU → GEMM2) goes through a
-      single FP4 quant-dequant roundtrip with STE; the kernel takes this FP4
-      data directly into GEMM2, so no re-quantization is needed.
+    **Weight quantization layout**: When ``is_transposed=False``, HF
+    transposes the weight before calling ``_grouped_mm``, so the subclass
+    sees the GEMM-ready layout rather than the storage layout.  To match
+    the kernel's FP4 block boundaries (which are along the last dimension
+    of the *storage* layout), we transpose back to storage layout before
+    quantizing, then transpose the result back for the GEMM.
 
-    Returns ``(output, c_global_sf)`` where *c_global_sf* is the FP4 global
-    scale of the intermediate activation (diagnostic — needed by the kernel
-    comparison tests for output-scale computation).
+    The backward computes gradients as if no quantization happened (STE).
     """
-    total_padded, expanded_idx, num_tok_per_expert, expert_weight = permute_info
-    # Moved to CPU because the per-expert loops below need Python ints for
-    # tensor slicing.  This is a single small transfer (num_experts int64s)
-    # and avoids a GPU sync on every .item() call inside the loop.
-    num_tok_per_expert_cpu = num_tok_per_expert.cpu()
-    expert_weight = expert_weight.float()
-    device = hidden_states_float.device
 
-    # 0. Fake-quantize hidden states once globally (matches kernel input quantization).
-    hidden_states_fq = _fp4_fake_quantize(hidden_states_float)
+    @staticmethod
+    def forward(ctx, A, B_wrapper, offs):
+        # B_wrapper is the NVFP4... subclass; unwrap to get the raw tensor.
+        B_data = (
+            B_wrapper._data
+            if isinstance(B_wrapper, NVFP4FakeQuantizedScaledGroupedMMTensor)
+            else B_wrapper
+        )
+        is_transposed = (
+            B_wrapper._is_transposed
+            if isinstance(B_wrapper, NVFP4FakeQuantizedScaledGroupedMMTensor)
+            else False
+        )
+        ctx.save_for_backward(A, B_data, offs)
 
-    # 1. Permute tokens into expert-sorted order (vectorized scatter).
-    permute_out = torch.zeros(
-        total_padded, hidden_size, device=device, dtype=torch.float32
-    )
-    token_ids = torch.arange(num_tokens, device=device).unsqueeze(1).expand(-1, top_k).reshape(-1)
-    valid = expanded_idx >= 0
-    permute_out[expanded_idx[valid]] = hidden_states_fq[token_ids[valid]].float()
+        # Weight: independent global scale per expert.
+        # When is_transposed=False, HF has already transposed the weight
+        # from storage layout [E, out, in] to GEMM layout [E, in, out].
+        # We transpose back so FP4 block boundaries match the kernel's
+        # storage-layout quantization, then transpose the result back.
+        if not is_transposed and B_data.ndim == 3:
+            B_fq = _fp4_fake_quantize_per_expert(
+                B_data.transpose(-1, -2)
+            ).transpose(-1, -2)
+        else:
+            B_fq = _fp4_fake_quantize_per_expert(B_data)
 
-    # 2. GEMM1 — per-expert matmul: [T_e, H] @ [2*I, H]^T → [T_e, 2*I]
-    gemm1_out = torch.zeros(
-        total_padded, 2 * intermediate_size, device=device, dtype=torch.float32
-    )
-    pos = 0
-    for eidx in range(num_experts):
-        n = num_tok_per_expert_cpu[eidx].item()
-        if n == 0:
-            continue
-        act = permute_out[pos : pos + n]
-        w1 = _fp4_fake_quantize(gemm1_weights_float[eidx]).float()
-        gemm1_out[pos : pos + n] = act @ w1.t()
-        pos += n
-        pos = (pos + padding - 1) // padding * padding
+        # Activation: single global scale across all tokens.
+        A_fq = _fp4_fake_quantize_forward(A)
 
-    # 3. SwiGLU activation: silu(gate) * value
-    #    Weight layout: first I cols = value ("up"), next I cols = gate.
-    act_out = torch.zeros(
-        total_padded, intermediate_size, device=device, dtype=torch.float32
-    )
-    pos = 0
-    for eidx in range(num_experts):
-        n = num_tok_per_expert_cpu[eidx].item()
-        if n == 0:
-            continue
-        a = gemm1_out[pos : pos + n]
-        value = a[:, :intermediate_size]
-        gate = a[:, intermediate_size:]
-        act_out[pos : pos + n] = F.silu(gate) * value
-        pos += n
-        pos = (pos + padding - 1) // padding * padding
+        return torch._grouped_mm(A_fq, B_fq, offs=offs)
 
-    # 4. Intermediate FP4 quant-dequant with STE (matches kernel numerics).
-    #    The kernel quantizes the SwiGLU output to FP4 and feeds it directly
-    #    into GEMM2, so no additional activation quantization is needed in step 5.
-    act_bf16 = act_out.to(torch.bfloat16)
-    dq_val, c_global_sf = _quant_dequant_fp4(act_bf16.detach())
-    act_out = (act_bf16 + (dq_val.to(act_bf16.dtype) - act_bf16).detach()).float()
-
-    # 5. GEMM2 — per-expert matmul: [T_e, I] @ [H, I]^T → [T_e, H]
-    #    Activation is already at FP4 precision from step 4; only weights
-    #    need fake quantization.
-    gemm2_out = torch.zeros(
-        total_padded, hidden_size, device=device, dtype=torch.float32
-    )
-    pos = 0
-    for eidx in range(num_experts):
-        n = num_tok_per_expert_cpu[eidx].item()
-        if n == 0:
-            continue
-        act = act_out[pos : pos + n]
-        w2 = _fp4_fake_quantize(gemm2_weights_float[eidx]).float()
-        gemm2_out[pos : pos + n] = act @ w2.t()
-        pos += n
-        pos = (pos + padding - 1) // padding * padding
-
-    # 6. Finalise: weighted sum over each token's top-k experts (vectorized gather).
-    k_ids = torch.arange(top_k, device=device).unsqueeze(0).expand(num_tokens, -1).reshape(-1)
-    weights = expert_weight[token_ids[valid], k_ids[valid]].unsqueeze(1)
-    output = torch.zeros(num_tokens, hidden_size, dtype=torch.float32, device=device)
-    output.index_add_(0, token_ids[valid], gemm2_out[expanded_idx[valid]] * weights)
-
-    return output, c_global_sf
+    @staticmethod
+    def backward(ctx, grad_output):
+        A, B_data, offs = ctx.saved_tensors
+        # STE backward: compute gradients of grouped_mm(A, B) per group.
+        # For group i with rows [start_i, end_i):
+        #   C_i = A_i @ B_i          (forward)
+        #   dA_i = dC_i @ B_i^T      (grad w.r.t. activation)
+        #   dB_i = A_i^T @ dC_i      (grad w.r.t. weight)
+        grad_A = torch.zeros_like(A)
+        grad_B = torch.zeros_like(B_data)
+        prev = 0
+        for i, end in enumerate(offs.tolist()):
+            if end > prev:
+                grad_A[prev:end] = grad_output[prev:end] @ B_data[i].transpose(-1, -2)
+                grad_B[i] = A[prev:end].transpose(-1, -2) @ grad_output[prev:end]
+            prev = end
+        return grad_A, grad_B, None
 
 
 # ---------------------------------------------------------------------------
-# Module
+# Tensor subclass
 # ---------------------------------------------------------------------------
 
 
-class NVFP4FakeQuantizedMoE(nn.Module):
-    """Batched MoE experts with NVFP4 fake quantization before each GEMM.
+class NVFP4FakeQuantizedScaledGroupedMMTensor(torch.Tensor):
+    """Tensor subclass that intercepts ``torch._grouped_mm`` and injects
+    NVFP4 fake quantization on both weight and activation operands, matching
+    the numerics of the flashinfer ``trtllm_fp4_block_scale_moe`` fused kernel.
 
-    The per-expert computation matches the flashinfer
-    ``trtllm_fp4_block_scale_moe`` kernel: standard SwiGLU with kernel weight
-    layout (``gemm1_weight [E, 2*I, H]``, ``gemm2_weight [E, H, I]``).
+    Follows the same pattern as
+    :class:`torchao.prototype.moe_training.tensor.ScaledGroupedMMTensor`.
 
-    All operations are standard PyTorch ops, so autograd traces through
-    them natively. The NVFP4 fake quantization (quantize->dequantize roundtrip)
-    injects quantization noise in the forward pass, and the STE lets
-    gradients flow through as if the quantization were identity.
+    Args:
+        tensor: The underlying weight tensor (3D, shape ``[E, ...]``).
+        is_transposed: Whether the weight is stored in transposed
+            (GEMM-ready) layout — i.e. ``[E, input_dim, output_dim]``.
+            Mirrors the ``is_transposed`` flag from the HuggingFace
+            ``@use_experts_implementation`` decorator.
+
+            * ``False`` (default, e.g. Qwen3): weights are stored as
+              ``[E, output_dim, input_dim]`` and HF transposes them before
+              ``_grouped_mm``.  The subclass will transpose back to storage
+              layout before quantizing, then transpose the result, so that
+              FP4 block boundaries match the kernel.
+            * ``True``: weights are already in GEMM-ready layout and are
+              passed to ``_grouped_mm`` without transposing.  No layout
+              fixup is needed.
     """
 
-    def __init__(self, num_experts: int, hidden_size: int, intermediate_size: int) -> None:
-        super().__init__()
-        self.num_experts = num_experts
-        self.hidden_size = hidden_size
-        self.intermediate_size = intermediate_size
+    grouped_mm_func_name = "_grouped_mm"
+    offs_arg_name = "offs"
 
-        # Kernel weight layout
-        self.gemm1_weight = nn.Parameter(
-            torch.empty(self.num_experts, 2 * self.intermediate_size, self.hidden_size)
+    @staticmethod
+    def __new__(
+        cls,
+        tensor: torch.Tensor,
+        is_transposed: bool = False,
+    ):
+        return torch.Tensor._make_wrapper_subclass(
+            cls,
+            tensor.size(),
+            strides=tensor.stride(),
+            storage_offset=tensor.storage_offset(),
+            memory_format=suggest_memory_format(tensor),
+            dtype=tensor.dtype,
+            layout=tensor.layout,
+            device=tensor.device,
+            pin_memory=tensor.is_pinned(),
+            requires_grad=tensor.requires_grad,
         )
-        self.gemm2_weight = nn.Parameter(
-            torch.empty(self.num_experts, self.hidden_size, self.intermediate_size)
-        )
-
-    @classmethod
-    def from_qwen3_experts(cls, experts: nn.ModuleList) -> "NVFP4FakeQuantizedMoE":
-        """Create from a Qwen3 ``nn.ModuleList[Qwen3MoeMLP]``.
-
-        Each ``Qwen3MoeMLP`` has ``gate_proj.weight [I, H]``,
-        ``up_proj.weight [I, H]``, ``down_proj.weight [H, I]`` (no biases).
-        These are stacked into kernel layout:
-        ``gemm1_weight [E, 2*I, H]`` (up then gate), ``gemm2_weight [E, H, I]``.
-        """
-        num_experts = len(experts)
-        hidden_size = experts[0].hidden_size
-        intermediate_size = experts[0].intermediate_size
-
-        new = cls(num_experts, hidden_size, intermediate_size)
-
-        # Stack per-expert weights into batched kernel layout.
-        # gemm1: [up_proj; gate_proj] per expert → [E, 2*I, H]
-        # up_proj.weight and gate_proj.weight are each [I, H].
-        gemm1_list = []
-        gemm2_list = []
-        for expert in experts:
-            up = expert.up_proj.weight.data     # [I, H]
-            gate = expert.gate_proj.weight.data  # [I, H]
-            gemm1_list.append(torch.cat([up, gate], dim=0))  # [2*I, H]
-            gemm2_list.append(expert.down_proj.weight.data)   # [H, I]
-
-        new.gemm1_weight = nn.Parameter(torch.stack(gemm1_list))  # [E, 2*I, H]
-        new.gemm2_weight = nn.Parameter(torch.stack(gemm2_list))  # [E, H, I]
-
-        return new
-
-    def forward(
-        self,
-        hidden_states: torch.Tensor,
-        router_indices: torch.Tensor | None = None,
-        routing_weights: torch.Tensor | None = None,
-    ) -> torch.Tensor:
-        batch_size = hidden_states.shape[0]
-        hidden_states_2d = hidden_states.reshape(-1, self.hidden_size)
-        num_tokens = hidden_states_2d.shape[0]
-        top_k = router_indices.shape[1]
-
-        with torch.no_grad():
-            permute_info = _build_permute_info(
-                router_indices, routing_weights, self.num_experts, padding=1,
-            )
-
-        output, _ = _run_moe_reference(
-            hidden_states_2d,
-            permute_info,
-            self.gemm1_weight,
-            self.gemm2_weight,
-            self.num_experts,
-            num_tokens,
-            top_k,
-            self.hidden_size,
-            self.intermediate_size,
-            padding=1,
-        )
-
-        return output.to(hidden_states.dtype).view(batch_size, -1, self.hidden_size)
-
-
-class NVFP4FakeQuantizedQwen3MoeBlock(nn.Module):
-    """Drop-in replacement for ``Qwen3MoeSparseMoeBlock`` that inserts NVFP4
-    fake quantization in the expert forward pass.
-
-    Keeps the original gate (router) and routing logic; replaces the
-    ``nn.ModuleList`` of ``Qwen3MoeMLP`` experts with a single batched
-    :class:`NVFP4FakeQuantizedMoE`.
-    """
 
     def __init__(
         self,
-        gate: nn.Linear,
-        qat_experts: NVFP4FakeQuantizedMoE,
-        top_k: int,
-        norm_topk_prob: bool,
-    ) -> None:
-        super().__init__()
-        self.gate = gate
-        self.experts = qat_experts
-        self.top_k = top_k
-        self.norm_topk_prob = norm_topk_prob
+        tensor: torch.Tensor,
+        is_transposed: bool = False,
+    ):
+        self._data = tensor
+        self._is_transposed = is_transposed
 
     @classmethod
-    def from_qwen3_moe_block(cls, block: nn.Module) -> "NVFP4FakeQuantizedQwen3MoeBlock":
-        """Create from an existing ``Qwen3MoeSparseMoeBlock``."""
-        qat_experts = NVFP4FakeQuantizedMoE.from_qwen3_experts(block.experts)
-        return cls(
-            gate=block.gate,
-            qat_experts=qat_experts,
-            top_k=block.top_k,
-            norm_topk_prob=block.norm_topk_prob,
+    def __torch_function__(cls, func, types, args, kwargs={}):
+        if func.__name__ == cls.grouped_mm_func_name:
+            A, B = args[0], args[1]
+            A_is_2d = A.ndim == 2
+            B_is_2d_or_3d = B.ndim == 2 or B.ndim == 3
+            has_offs = kwargs.get(cls.offs_arg_name) is not None
+
+            if (
+                isinstance(B, NVFP4FakeQuantizedScaledGroupedMMTensor)
+                and A_is_2d
+                and B_is_2d_or_3d
+                and has_offs
+            ):
+                return _NVFP4FakeQuantGroupedMM.apply(
+                    A, B, kwargs[cls.offs_arg_name]
+                )
+
+        # Fall through for all other ops.
+        with torch._C.DisableTorchFunctionSubclass():
+            return func(*args, **kwargs)
+
+    @classmethod
+    def __torch_dispatch__(cls, func, types, args, kwargs={}):
+        # Unwrap all subclass instances and extract metadata.
+        is_transposed = False
+
+        def unwrap(t):
+            nonlocal is_transposed
+            is_transposed = t._is_transposed
+            return t._data
+
+        args_unwrapped, kwargs_unwrapped = pytree.tree_map_only(
+            NVFP4FakeQuantizedScaledGroupedMMTensor, unwrap, (args, kwargs or {})
         )
 
-    def forward(self, hidden_states: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        batch_size, sequence_length, hidden_dim = hidden_states.shape
-        hidden_states_2d = hidden_states.view(-1, hidden_dim)
+        # detach is a special case — always rewrap.
+        if func == torch.ops.aten.detach.default:
+            return NVFP4FakeQuantizedScaledGroupedMMTensor(
+                args_unwrapped[0], is_transposed
+            )
 
-        # Router
-        router_logits = self.gate(hidden_states_2d)
-        routing_weights = F.softmax(router_logits, dim=1, dtype=torch.float)
-        routing_weights, selected_experts = torch.topk(
-            routing_weights, self.top_k, dim=-1,
-        )
-        if self.norm_topk_prob:
-            routing_weights /= routing_weights.sum(dim=-1, keepdim=True)
+        out = func(*args_unwrapped, **kwargs_unwrapped)
 
-        # Build full routing_weights tensor [T, E] for _build_permute_info
-        num_tokens = hidden_states_2d.shape[0]
-        num_experts = self.experts.num_experts
-        full_routing_weights = torch.zeros(
-            num_tokens, num_experts,
-            dtype=routing_weights.dtype, device=routing_weights.device,
-        )
-        full_routing_weights.scatter_(1, selected_experts, routing_weights)
+        if func not in _ops_to_preserve_subclass:
+            return out
 
-        # QAT expert forward
-        output = self.experts(
-            hidden_states,
-            router_indices=selected_experts,
-            routing_weights=full_routing_weights,
+        return pytree.tree_map_only(
+            torch.Tensor,
+            lambda x: NVFP4FakeQuantizedScaledGroupedMMTensor(
+                x, is_transposed
+            ),
+            out,
         )
 
-        return output, router_logits
+    def __repr__(self):
+        return (
+            f"NVFP4FakeQuantizedScaledGroupedMMTensor("
+            f"data={self._data}, "
+            f"is_transposed={self._is_transposed})"
+        )
+
+    def __tensor_flatten__(self):
+        return ["_data"], {
+            "is_transposed": self._is_transposed,
+        }
+
+    @staticmethod
+    def __tensor_unflatten__(inner_tensors, flatten_spec, outer_size, outer_stride):
+        return NVFP4FakeQuantizedScaledGroupedMMTensor(
+            inner_tensors["_data"],
+            flatten_spec["is_transposed"],
+        )
 
 
 # ---------------------------------------------------------------------------
-# Transform
+# Model transforms
 # ---------------------------------------------------------------------------
-
-
-def remove_nvfp4_moe_qat(model: nn.Module) -> nn.Module:
-    """Convert QAT MoE blocks back to standard ``Qwen3MoeSparseMoeBlock``.
-
-    Unbatches ``gemm1_weight [E, 2*I, H]`` and ``gemm2_weight [E, H, I]``
-    back into per-expert ``gate_proj``, ``up_proj``, ``down_proj`` weights,
-    so the checkpoint can be saved in standard HuggingFace format.
-
-    Args:
-        model: A model with :class:`NVFP4FakeQuantizedQwen3MoeBlock` modules.
-
-    Returns:
-        The same model with QAT blocks replaced by standard blocks in-place.
-    """
-    from transformers.models.qwen3_moe.modeling_qwen3_moe import (
-        Qwen3MoeSparseMoeBlock,
-    )
-
-    replacements = []
-    for name, module in model.named_modules():
-        if isinstance(module, NVFP4FakeQuantizedQwen3MoeBlock):
-            replacements.append((name, module))
-
-    for name, qat_block in replacements:
-        qat_experts = qat_block.experts
-        E = qat_experts.num_experts
-        H = qat_experts.hidden_size
-        I = qat_experts.intermediate_size
-
-        # Rebuild per-expert nn.ModuleList using lightweight nn.Module shells.
-        # We skip Qwen3MoeMLP's __init__ (requires a config object) and just
-        # create the three nn.Linear layers directly with the correct weights.
-        expert_list = nn.ModuleList()
-        for i in range(E):
-            expert = nn.Module()
-            expert.hidden_size = H
-            expert.intermediate_size = I
-            # gemm1_weight[i] is [2*I, H] = [up; gate]
-            up = nn.Linear(H, I, bias=False)
-            up.weight = nn.Parameter(qat_experts.gemm1_weight.data[i, :I, :])
-            gate = nn.Linear(H, I, bias=False)
-            gate.weight = nn.Parameter(qat_experts.gemm1_weight.data[i, I:, :])
-            down = nn.Linear(I, H, bias=False)
-            down.weight = nn.Parameter(qat_experts.gemm2_weight.data[i])
-            expert.up_proj = up
-            expert.gate_proj = gate
-            expert.down_proj = down
-            expert_list.append(expert)
-
-        # Create a standard Qwen3MoeSparseMoeBlock shell.
-        # We skip __init__ (requires config) and set attributes directly.
-        new_block = Qwen3MoeSparseMoeBlock.__new__(Qwen3MoeSparseMoeBlock)
-        nn.Module.__init__(new_block)
-        new_block.gate = qat_block.gate
-        new_block.experts = expert_list
-        new_block.top_k = qat_block.top_k
-        new_block.norm_topk_prob = qat_block.norm_topk_prob
-
-        parts = name.rsplit(".", 1)
-        if len(parts) == 2:
-            parent_name, attr_name = parts
-            parent = model.get_submodule(parent_name)
-        else:
-            parent = model
-            attr_name = name
-        setattr(parent, attr_name, new_block)
-
-    return model
 
 
 def apply_nvfp4_moe_qat(model: nn.Module) -> nn.Module:
-    """Replace MoE expert modules with NVFP4 fake-quantized versions.
+    """Wrap MoE expert weight parameters with NVFP4 fake-quantized tensor subclass.
 
-    Supports ``Qwen3MoeSparseMoeBlock`` (from HuggingFace transformers).
+    This enables QAT (quantization-aware training) that matches the numerics of
+    the flashinfer ``trtllm_fp4_block_scale_moe`` fused inference kernel.
 
-    This applies NVFP4 QAT to the MoE expert layers so that the forward pass
-    uses decomposed PyTorch ops with NVFP4 fake quantization while backward
-    uses the STE for gradient computation.
+    Requires a HuggingFace MoE model whose expert classes are decorated with
+    ``@use_experts_implementation`` and loaded with
+    ``experts_implementation="grouped_mm"``.  This covers most popular MoE
+    architectures in HF transformers, including Qwen3-MoE, Qwen2-MoE,
+    DeepSeek-V2/V3, Mixtral, OLMoE, Jamba, PhiMoE, and GLM4-MoE.
+
+    Notable exception: Llama4 does **not** use ``@use_experts_implementation``
+    (it dispatches via ``torch.bmm`` instead of ``torch._grouped_mm``) and
+    is not supported yet.
 
     Args:
-        model: A HuggingFace MoE model.
+        model: A HuggingFace MoE model loaded with
+            ``experts_implementation="grouped_mm"``.
 
     Returns:
-        The same model with expert modules replaced in-place.
+        The same model, modified in-place.
     """
-    from transformers.models.qwen3_moe.modeling_qwen3_moe import (
-        Qwen3MoeSparseMoeBlock,
-    )
+    for module in model.modules():
+        if not hasattr(module, "num_experts"):
+            continue
+        # All HF @use_experts_implementation classes expose is_transposed.
+        # If it's missing, this module likely doesn't use the grouped_mm
+        # backend (e.g. Llama4 uses torch.bmm), so skip it.
+        if not hasattr(module, "is_transposed"):
+            logger.warning(
+                "Skipping module %s: has num_experts but no is_transposed "
+                "attribute (not decorated with @use_experts_implementation?)",
+                type(module).__name__,
+            )
+            continue
+        is_transposed = module.is_transposed
+        for param_name, param in module.named_parameters(recurse=False):
+            if param.ndim == 3 and not isinstance(
+                param.data, NVFP4FakeQuantizedScaledGroupedMMTensor
+            ):
+                new_data = NVFP4FakeQuantizedScaledGroupedMMTensor(
+                    param.data, is_transposed
+                )
+                new_param = nn.Parameter(new_data, requires_grad=param.requires_grad)
+                setattr(module, param_name, new_param)
+    return model
 
-    replacements = []
-    for name, module in model.named_modules():
-        if isinstance(module, Qwen3MoeSparseMoeBlock):
-            replacements.append((name, module))
 
-    for name, module in replacements:
-        parts = name.rsplit(".", 1)
-        if len(parts) == 2:
-            parent_name, attr_name = parts
-            parent = model.get_submodule(parent_name)
-        else:
-            parent = model
-            attr_name = name
+def remove_nvfp4_moe_qat(model: nn.Module) -> nn.Module:
+    """Unwrap NVFP4 fake-quantized tensor subclass back to plain tensors.
 
-        new_module = NVFP4FakeQuantizedQwen3MoeBlock.from_qwen3_moe_block(module)
-        setattr(parent, attr_name, new_module)
+    Args:
+        model: A model previously modified by :func:`apply_nvfp4_moe_qat`.
 
+    Returns:
+        The same model, modified in-place.
+    """
+    for module in model.modules():
+        for param_name, param in list(module.named_parameters(recurse=False)):
+            if isinstance(param.data, NVFP4FakeQuantizedScaledGroupedMMTensor):
+                new_param = nn.Parameter(
+                    param.data._data, requires_grad=param.requires_grad
+                )
+                setattr(module, param_name, new_param)
     return model

@@ -1,27 +1,28 @@
 """
-Tests for NVFP4 QAT with decomposed PyTorch ops for MoE models.
+Tests for NVFP4 QAT tensor subclass approach for MoE models.
 
-Includes:
-- Unit tests for the QAT fake-quantization path (no flashinfer dependency).
-- Reference-vs-kernel comparison tests that verify a decomposed PyTorch
-  reference matches the flashinfer ``trtllm_fp4_block_scale_moe`` fused
-  kernel (requires flashinfer + SM100+ GPU).
+The tensor subclass intercepts ``torch._grouped_mm`` and injects FP4 fake
+quantization on both activation and weight operands — model-agnostic,
+no module swaps required.
+
+See ``test_nvfp4_moe_module_swap.py`` for tests of the older module-swap approach.
 """
 
 import pytest
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 
 from torchao.prototype.qat.nvfp4_moe import (
-    NVFP4FakeQuantizedMoE,
+    NVFP4FakeQuantizedScaledGroupedMMTensor,
     _calculate_fp4_global_scale_factor,
-    _fp4_fake_quantize,
-    _run_moe_reference,
+    apply_nvfp4_moe_qat,
+    remove_nvfp4_moe_qat,
 )
 from torchao.quantization.utils import compute_error
 
 # ---------------------------------------------------------------------------
-# Optional flashinfer imports (for reference-vs-kernel tests)
+# Optional imports
 # ---------------------------------------------------------------------------
 try:
     from flashinfer import fp4_quantize, nvfp4_block_scale_interleave
@@ -35,6 +36,13 @@ try:
     _has_flashinfer = True
 except ImportError:
     _has_flashinfer = False
+
+try:
+    from transformers.models.qwen3_moe.modeling_qwen3_moe import Qwen3MoeExperts
+
+    _has_qwen3_experts = True
+except ImportError:
+    _has_qwen3_experts = False
 
 
 def _has_flashinfer_sm100():
@@ -55,73 +63,388 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-def _make_routing(num_tokens, num_experts, top_k, device):
-    """Create synthetic routing inputs."""
-    router_indices = torch.stack(
-        [torch.randperm(num_experts, device=device)[:top_k] for _ in range(num_tokens)]
-    )  # [T, top_k]
-    routing_weights = torch.randn(num_tokens, num_experts, device=device).softmax(dim=-1)
-    return router_indices, routing_weights
+# ===========================================================================
+# Tensor subclass tests
+# ===========================================================================
 
 
-@pytest.mark.skipif(not _has_flashinfer, reason="Requires flashinfer")
-class TestFakeQuantizeRoundtrip:
-    def test_shape_dtype_preserved(self):
-        x = torch.randn(16, 64, dtype=torch.bfloat16, device="cuda")
-        x_fq = _fp4_fake_quantize(x)
-        assert x_fq.shape == x.shape
-        assert x_fq.dtype == x.dtype
+class TestSubclassWrapsAndUnwraps:
+    """Test that the tensor subclass wrapping/unwrapping works correctly."""
 
-    def test_sqnr(self):
-        torch.manual_seed(42)
-        x = torch.randn(16, 64, dtype=torch.bfloat16, device="cuda")
-        x_fq = _fp4_fake_quantize(x)
-        sqnr = compute_error(x, x_fq)
-        assert sqnr >= 8.0, f"SQNR {sqnr:.2f} dB below threshold 8.0 dB"
+    def test_wrap_unwrap_roundtrip(self):
+        """Wrapping produces the correct subclass type/shape/dtype, and unwrapping recovers the original data."""
+        w = torch.randn(4, 64, 32, dtype=torch.bfloat16, device="cuda")
+        w_orig = w.clone()
+        wrapped = NVFP4FakeQuantizedScaledGroupedMMTensor(w)
 
-    def test_gradient_flows_through(self):
-        x = torch.randn(16, 64, dtype=torch.bfloat16, device="cuda", requires_grad=True)
-        x_fq = _fp4_fake_quantize(x)
-        loss = x_fq.sum()
-        loss.backward()
-        assert x.grad is not None
-        # STE: gradient should be all ones (from sum)
-        assert torch.allclose(x.grad, torch.ones_like(x.grad))
+        # Wrapping produces the right type, shape, dtype
+        assert isinstance(wrapped, NVFP4FakeQuantizedScaledGroupedMMTensor)
+        assert wrapped.shape == w.shape
+        assert wrapped.dtype == w.dtype
+
+        # Unwrapping recovers the original data
+        assert torch.equal(wrapped._data, w_orig)
 
 
-@pytest.mark.skipif(not _has_flashinfer, reason="Requires flashinfer")
-class TestGradientFlow:
-    def test_all_params_get_gradients(self):
-        E, H, I, T, top_k = 4, 64, 64, 16, 2
+class TestGroupedMMIntercept:
+    """Test that torch._grouped_mm is intercepted with fake quantization."""
 
-        torch.manual_seed(42)
-        module = NVFP4FakeQuantizedMoE(E, H, I).to(
-            device="cuda", dtype=torch.bfloat16
+    def test_output_shape(self):
+        """grouped_mm with a wrapped weight produces the correct output shape."""
+        E, K, N = 4, 64, 32
+        T = 16
+        A = torch.randn(T, K, dtype=torch.bfloat16, device="cuda")
+        B = torch.randn(E, K, N, dtype=torch.bfloat16, device="cuda")
+        B_wrapped = NVFP4FakeQuantizedScaledGroupedMMTensor(B)
+        # Create offsets: evenly distribute tokens across experts
+        offs = torch.tensor(
+            [T // E * (i + 1) for i in range(E)],
+            dtype=torch.int32,
+            device="cuda",
         )
-        # Initialize with small random weights
-        with torch.no_grad():
-            module.gemm1_weight.normal_(0, 0.02)
-            module.gemm2_weight.normal_(0, 0.02)
+        out = torch._grouped_mm(A, B_wrapped, offs=offs)
+        assert out.shape == (T, N)
 
-        hidden = torch.randn(1, T, H, dtype=torch.bfloat16, device="cuda")
-        router_indices, routing_weights = _make_routing(T, E, top_k, "cuda")
+    def test_fake_quantization_applied(self):
+        """Output should differ from unquantized grouped_mm due to fake quant."""
+        E, K, N = 4, 64, 32
+        T = 16
+        torch.manual_seed(42)
+        A = torch.randn(T, K, dtype=torch.bfloat16, device="cuda")
+        B = torch.randn(E, K, N, dtype=torch.bfloat16, device="cuda")
+        offs = torch.tensor(
+            [T // E * (i + 1) for i in range(E)],
+            dtype=torch.int32,
+            device="cuda",
+        )
 
-        output = module(hidden, router_indices=router_indices, routing_weights=routing_weights)
-        loss = output.sum()
+        # Unquantized reference
+        out_ref = torch._grouped_mm(A, B, offs=offs)
+
+        # Quantized via subclass
+        B_wrapped = NVFP4FakeQuantizedScaledGroupedMMTensor(B)
+        out_fq = torch._grouped_mm(A, B_wrapped, offs=offs)
+
+        # They should have the same shape but different values
+        assert out_ref.shape == out_fq.shape
+        assert not torch.equal(out_ref, out_fq), (
+            "Fake-quantized output should differ from unquantized"
+        )
+
+
+class TestSubclassGradientFlows:
+    """Test that gradients flow through the tensor subclass."""
+
+    def test_gradient_on_wrapped_param(self):
+        """grouped_mm with a wrapped nn.Parameter produces non-zero gradients for both activation and weight."""
+        E, K, N = 4, 64, 32
+        T = 16
+        torch.manual_seed(42)
+        A = torch.randn(T, K, dtype=torch.bfloat16, device="cuda", requires_grad=True)
+        B_data = torch.randn(E, K, N, dtype=torch.bfloat16, device="cuda")
+        B_wrapped = NVFP4FakeQuantizedScaledGroupedMMTensor(B_data)
+        B_param = nn.Parameter(B_wrapped)
+        offs = torch.tensor(
+            [T // E * (i + 1) for i in range(E)],
+            dtype=torch.int32,
+            device="cuda",
+        )
+        out = torch._grouped_mm(A, B_param, offs=offs)
+        loss = out.sum()
         loss.backward()
+        assert A.grad is not None, "Activation gradient is None"
+        assert B_param.grad is not None, "Weight gradient is None"
+        assert torch.any(B_param.grad != 0), "Weight gradient is all zeros"
 
-        for name in ["gemm1_weight", "gemm2_weight"]:
-            param = getattr(module, name)
+
+class TestApplyRemoveRoundtrip:
+    """Test apply/remove QAT on a dummy module with num_experts attribute."""
+
+    def _make_dummy_experts_module(self, E, K, N):
+        """Create a simple module that mimics HF *Experts with 3D params."""
+        module = nn.Module()
+        module.num_experts = E
+        module.hidden_dim = K
+        module.intermediate_dim = N
+        module.is_transposed = False
+        module.gate_up_proj = nn.Parameter(
+            torch.randn(E, 2 * N, K, dtype=torch.bfloat16, device="cuda")
+        )
+        module.down_proj = nn.Parameter(
+            torch.randn(E, K, N, dtype=torch.bfloat16, device="cuda")
+        )
+        return module
+
+    def test_apply_wraps_3d_params(self):
+        """apply_nvfp4_moe_qat wraps all 3D params on modules with num_experts."""
+        model = nn.Module()
+        model.experts = self._make_dummy_experts_module(4, 64, 32)
+        apply_nvfp4_moe_qat(model)
+        for param_name in ["gate_up_proj", "down_proj"]:
+            param = getattr(model.experts, param_name)
+            assert isinstance(
+                param.data, NVFP4FakeQuantizedScaledGroupedMMTensor
+            ), f"{param_name} not wrapped"
+
+    def test_remove_unwraps_params(self):
+        """apply then remove round-trips params back to plain tensors with identical values."""
+        model = nn.Module()
+        model.experts = self._make_dummy_experts_module(4, 64, 32)
+        orig_gate_up = model.experts.gate_up_proj.data.clone()
+        orig_down = model.experts.down_proj.data.clone()
+
+        apply_nvfp4_moe_qat(model)
+        remove_nvfp4_moe_qat(model)
+
+        for param_name in ["gate_up_proj", "down_proj"]:
+            param = getattr(model.experts, param_name)
+            assert not isinstance(
+                param.data, NVFP4FakeQuantizedScaledGroupedMMTensor
+            ), f"{param_name} still wrapped after remove"
+
+        assert torch.equal(model.experts.gate_up_proj.data, orig_gate_up)
+        assert torch.equal(model.experts.down_proj.data, orig_down)
+
+    def test_skips_non_expert_params(self):
+        """Params on modules without num_experts should not be wrapped."""
+        model = nn.Module()
+        model.experts = self._make_dummy_experts_module(4, 64, 32)
+        model.gate = nn.Linear(64, 4, device="cuda", dtype=torch.bfloat16)
+
+        apply_nvfp4_moe_qat(model)
+        assert not isinstance(
+            model.gate.weight.data, NVFP4FakeQuantizedScaledGroupedMMTensor
+        ), "gate.weight should not be wrapped"
+
+
+class _DummySwiGLUExperts(nn.Module):
+    """Minimal MoE experts module that mirrors the HF ``grouped_mm`` backend.
+
+    Implements: sort tokens by expert -> ``_grouped_mm`` (gate_up_proj) ->
+    SwiGLU -> ``_grouped_mm`` (down_proj) -> weighted scatter-back.
+
+    This is the same data flow as ``transformers.integrations.moe.grouped_mm_experts_forward``
+    but without the HF dependency, so we can test the tensor subclass interception
+    in isolation.
+    """
+
+    def __init__(self, num_experts: int, hidden_dim: int, intermediate_dim: int):
+        super().__init__()
+        self.num_experts = num_experts
+        self.hidden_dim = hidden_dim
+        self.intermediate_dim = intermediate_dim
+        self.is_transposed = False
+        self.gate_up_proj = nn.Parameter(
+            torch.randn(num_experts, 2 * intermediate_dim, hidden_dim)
+        )
+        self.down_proj = nn.Parameter(
+            torch.randn(num_experts, hidden_dim, intermediate_dim)
+        )
+
+    def forward(
+        self,
+        hidden_states: torch.Tensor,
+        top_k_index: torch.Tensor,
+        top_k_weights: torch.Tensor,
+    ) -> torch.Tensor:
+        num_tokens = hidden_states.size(0)
+        num_top_k = top_k_index.size(-1)
+        device = hidden_states.device
+
+        # Expand tokens for each top-k selection
+        token_idx = (
+            torch.arange(num_tokens, device=device)
+            .unsqueeze(1)
+            .expand(-1, num_top_k)
+            .reshape(-1)
+        )
+        expert_ids = top_k_index.reshape(-1)
+        sample_weights = top_k_weights.reshape(-1)
+
+        selected = hidden_states[token_idx]
+
+        # Sort by expert
+        perm = torch.argsort(expert_ids)
+        inv_perm = torch.argsort(perm)
+        selected_g = selected[perm]
+        expert_ids_g = expert_ids[perm]
+        sample_weights_g = sample_weights[perm]
+
+        # Compute offsets (cumulative token counts per expert)
+        counts = torch.histc(
+            expert_ids_g.int(),
+            bins=self.num_experts,
+            min=0,
+            max=self.num_experts - 1,
+        )
+        offs = torch.cumsum(counts, dim=0, dtype=torch.int32)
+
+        # Up + gate projection: [S, H] @ [E, 2*I, H]^T -> [S, 2*I]
+        up_gate = torch._grouped_mm(selected_g, self.gate_up_proj.transpose(-1, -2), offs=offs)
+
+        # SwiGLU: silu(gate) * up
+        gate, up = up_gate.chunk(2, dim=-1)
+        act = F.silu(gate) * up
+
+        # Down projection: [S, I] @ [E, H, I]^T -> [S, H]
+        down = torch._grouped_mm(act, self.down_proj.transpose(-1, -2), offs=offs)
+
+        # Weighted scatter-back
+        weighted = down * sample_weights_g.unsqueeze(-1)
+        weighted = weighted[inv_perm]
+        out = weighted.view(num_tokens, num_top_k, -1).sum(dim=1)
+        return out.to(hidden_states.dtype)
+
+
+class TestDummyMoEModel:
+    """Test apply/remove QAT on a dummy MoE model that calls torch._grouped_mm."""
+
+    def _make_model(self, E=4, H=64, I=32):
+        """Build a simple model with a router + experts."""
+        model = nn.Module()
+        model.gate = nn.Linear(H, E, bias=False)
+        model.experts = _DummySwiGLUExperts(E, H, I)
+        return model.to(device="cuda", dtype=torch.bfloat16)
+
+    def _make_inputs(self, T=8, H=64, E=4, top_k=2):
+        """Generate hidden states and routing indices/weights."""
+        hidden = torch.randn(T, H, dtype=torch.bfloat16, device="cuda")
+        top_k_index = torch.stack(
+            [torch.randperm(E, device="cuda")[:top_k] for _ in range(T)]
+        )
+        top_k_weights = torch.randn(
+            T, top_k, dtype=torch.bfloat16, device="cuda"
+        ).softmax(dim=-1)
+        return hidden, top_k_index, top_k_weights
+
+    def test_output_differs_but_close(self):
+        """QAT output differs from unquantized (fake quant is active) but stays close (SQNR >= 5 dB)."""
+        torch.manual_seed(0)
+        model = self._make_model()
+        with torch.no_grad():
+            model.experts.gate_up_proj.normal_(0, 0.02)
+            model.experts.down_proj.normal_(0, 0.02)
+        hidden, top_k_index, top_k_weights = self._make_inputs()
+
+        out_ref = model.experts(hidden, top_k_index, top_k_weights)
+
+        apply_nvfp4_moe_qat(model)
+        out_qat = model.experts(hidden, top_k_index, top_k_weights)
+
+        assert out_ref.shape == out_qat.shape
+        assert not torch.equal(out_ref, out_qat), (
+            "QAT output should differ from unquantized due to fake quantization"
+        )
+        sqnr = compute_error(out_ref, out_qat)
+        assert sqnr >= 5.0, f"SQNR {sqnr:.2f} dB too low — QAT output too far from reference"
+
+    def test_gradients_flow_to_all_expert_params(self):
+        """All expert parameters should receive non-zero gradients after a QAT forward+backward."""
+        torch.manual_seed(0)
+        model = self._make_model()
+        with torch.no_grad():
+            model.experts.gate_up_proj.normal_(0, 0.02)
+            model.experts.down_proj.normal_(0, 0.02)
+        apply_nvfp4_moe_qat(model)
+
+        hidden, top_k_index, top_k_weights = self._make_inputs()
+        out = model.experts(hidden, top_k_index, top_k_weights)
+        out.sum().backward()
+
+        for name in ["gate_up_proj", "down_proj"]:
+            param = getattr(model.experts, name)
             assert param.grad is not None, f"{name}.grad is None"
             assert torch.any(param.grad != 0), f"{name}.grad is all zeros"
 
+    def test_remove_restores_unquantized_output(self):
+        """After remove, the model should produce the same output as the original unquantized model."""
+        torch.manual_seed(0)
+        model = self._make_model()
+        hidden, top_k_index, top_k_weights = self._make_inputs()
 
-# ==========================================================================
-# Flashinfer-dependent test utilities for TestReferenceVsKernel
-# ==========================================================================
+        out_before = model.experts(hidden, top_k_index, top_k_weights)
+
+        apply_nvfp4_moe_qat(model)
+        remove_nvfp4_moe_qat(model)
+
+        out_after = model.experts(hidden, top_k_index, top_k_weights)
+        assert torch.equal(out_before, out_after), (
+            "Output should be identical after apply+remove roundtrip"
+        )
+
+    def test_router_not_affected(self):
+        """The router (gate) linear should NOT be wrapped by apply_nvfp4_moe_qat."""
+        model = self._make_model()
+        apply_nvfp4_moe_qat(model)
+        assert not isinstance(
+            model.gate.weight.data, NVFP4FakeQuantizedScaledGroupedMMTensor
+        ), "Router weight should not be wrapped"
 
 
-# ---- FP4 quantization helpers -------------------------------------------
+@pytest.mark.skipif(not _has_qwen3_experts, reason="Requires transformers with Qwen3MoeExperts")
+class TestE2EWithQwen3Experts:
+    """End-to-end test with real Qwen3MoeExperts module."""
+
+    def test_forward_and_gradients(self):
+        """Apply QAT to real Qwen3MoeExperts, verify forward output shape, gradients on all 3D params, and clean unwrap."""
+        from transformers import Qwen3MoeConfig
+
+        E, H, I, T, top_k = 4, 64, 32, 8, 2
+
+        config = Qwen3MoeConfig(
+            hidden_size=H,
+            intermediate_size=I,
+            num_experts=E,
+            num_experts_per_tok=top_k,
+            experts_implementation="grouped_mm",
+        )
+        experts = Qwen3MoeExperts(config).to(device="cuda", dtype=torch.bfloat16)
+
+        # Wrap with QAT
+        wrapper = nn.Module()
+        wrapper.experts = experts
+        apply_nvfp4_moe_qat(wrapper)
+
+        # Verify wrapping
+        for name, param in wrapper.experts.named_parameters(recurse=False):
+            if param.ndim == 3:
+                assert isinstance(
+                    param.data, NVFP4FakeQuantizedScaledGroupedMMTensor
+                ), f"{name} not wrapped"
+
+        # Forward pass — Qwen3MoeExperts.forward(hidden_states, top_k_index, top_k_weights)
+        hidden = torch.randn(T, H, dtype=torch.bfloat16, device="cuda")
+        top_k_index = torch.stack(
+            [torch.randperm(E, device="cuda")[:top_k] for _ in range(T)]
+        )
+        top_k_weights = torch.randn(
+            T, top_k, dtype=torch.bfloat16, device="cuda"
+        ).softmax(dim=-1)
+
+        out = wrapper.experts(hidden, top_k_index, top_k_weights)
+        assert out.shape == (T, H)
+
+        loss = out.sum()
+        loss.backward()
+
+        for name, param in wrapper.experts.named_parameters(recurse=False):
+            if param.ndim == 3:
+                assert param.grad is not None, f"{name}.grad is None"
+
+        # Unwrap
+        remove_nvfp4_moe_qat(wrapper)
+        for name, param in wrapper.experts.named_parameters(recurse=False):
+            assert not isinstance(
+                param.data, NVFP4FakeQuantizedScaledGroupedMMTensor
+            ), f"{name} still wrapped"
+
+
+# ===========================================================================
+# Flashinfer kernel comparison: tensor subclass vs fused kernel
+# ===========================================================================
+
+
+# ---- FP4 quantization helpers for kernel comparison ----------------------
 
 
 def _quant_fp4(a, a_global_sf, is_sf_swizzled_layout=True):
@@ -144,21 +467,11 @@ def _quant_fp4_batches(a, num_experts, is_sf_swizzled_layout=True):
     return torch.stack(quant_a), torch.stack(sfs), torch.stack(global_sfs)
 
 
-def prepare_static_weights_for_trtllm_fp4_moe(
-    gemm1_weights: torch.Tensor,
-    gemm2_weights: torch.Tensor,
-    gemm1_scales: torch.Tensor,
-    gemm2_scales: torch.Tensor,
-    hidden_size: int,
-    intermediate_size: int,
-    num_experts: int,
-    is_gated_activation: bool,
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-    """Shuffle packed-FP4 weights and interleave block scales for the kernel.
-
-    Mirrors ``prepare_static_weights_for_trtllm_fp4_moe`` from vllm (which
-    cannot be imported here due to vllm C-extension issues).
-    """
+def _prepare_static_weights_for_trtllm_fp4_moe(
+    gemm1_weights, gemm2_weights, gemm1_scales, gemm2_scales,
+    hidden_size, intermediate_size, num_experts, is_gated_activation,
+):
+    """Shuffle packed-FP4 weights and interleave block scales for the kernel."""
     epilogue_tile_m = 128
     gemm1_intermediate_size = (
         2 * intermediate_size if is_gated_activation else intermediate_size
@@ -225,12 +538,7 @@ def prepare_static_weights_for_trtllm_fp4_moe(
 
 
 def _routing_reference_renormalize(expert_logits, top_k, num_experts, padding):
-    """TopK → Softmax routing reference (``RoutingMethodType.Renormalize``).
-
-    1. Select the top-*k* experts per token.
-    2. Softmax-normalise the selected logits (only across the *k* chosen).
-    3. Build the permutation tables that map (token, k) → position in the
-       padded, expert-sorted buffer.
+    """TopK -> Softmax routing reference (``RoutingMethodType.Renormalize``).
 
     Returns:
         ``(permuted_buffer_size, expanded_token_idx_to_permuted_idx,
@@ -240,17 +548,14 @@ def _routing_reference_renormalize(expert_logits, top_k, num_experts, padding):
     expert_logits_cpu = expert_logits.cpu()
     num_tokens = expert_logits_cpu.shape[0]
 
-    # Step 1: TopK → Softmax normalisation
     topk_values, topk_idx = torch.topk(expert_logits_cpu, k=top_k, dim=-1)
     topk_values = F.softmax(topk_values.float(), dim=-1)
 
-    # Build full-expert scores with only the selected entries non-zero.
     scores = torch.zeros_like(expert_logits_cpu)
     for i in range(num_tokens):
         for j in range(top_k):
             scores[i, topk_idx[i, j]] = topk_values[i, j]
 
-    # Step 2: Compute permutation from the (sparse) score tensor.
     top_k_logits, top_k_indices = torch.topk(scores, top_k, dim=1)
 
     num_tokens_per_expert = torch.zeros(num_experts, dtype=torch.int64)
@@ -298,14 +603,8 @@ def _routing_reference_renormalize(expert_logits, top_k, num_experts, padding):
     )
 
 
-# ---- Accuracy check -------------------------------------------------------
-
-
 def _check_accuracy(a, b, atol, rtol, percent):
-    """Assert that at least *percent* of elements are close.
-
-    Mirrors ``check_accuracy`` from the flashinfer MoE test suite.
-    """
+    """Assert that at least *percent* of elements are close."""
     assert torch.isfinite(a).all(), "Non-finite values in reference output"
     assert torch.isfinite(b).all(), "Non-finite values in kernel output"
     assert a.shape == b.shape, f"Shape mismatch: {a.shape} vs {b.shape}"
@@ -318,18 +617,29 @@ def _check_accuracy(a, b, atol, rtol, percent):
     )
 
 
-# ---- Kernel comparison tests ----------------------------------------------
-
-
 @pytest.mark.skipif(
     not _has_flashinfer_sm100(),
     reason="Requires flashinfer and SM100+ GPU (Blackwell)",
 )
-class TestReferenceVsKernel:
-    """Compare the decomposed-PyTorch reference against the flashinfer
-    ``trtllm_fp4_block_scale_moe`` fused kernel."""
+class TestSubclassVsKernel:
+    """Compare the tensor subclass MoE forward against the flashinfer
+    ``trtllm_fp4_block_scale_moe`` fused kernel.
 
-    def test_swiglu(self):
+    Known sources of numerical difference (tensor subclass vs kernel):
+
+    1. **Weight quantization layout**: The subclass sees weights after
+       ``.transpose(-1, -2)`` (called by the HF grouped_mm backend), so
+       FP4 block-scale boundaries are along a different dimension than the
+       kernel's storage-layout quantization.
+    2. **Intermediate re-quantization**: The subclass intercepts each
+       ``_grouped_mm`` independently, so the SwiGLU output is re-quantized
+       at GEMM2. The kernel quantizes it only once.
+
+    Because of these differences, we use SQNR (signal-to-quantization-noise
+    ratio) rather than tight element-wise tolerances.
+    """
+
+    def test_subclass_vs_kernel_swiglu(self):
         """Standard SwiGLU activation, no bias."""
         E, H, I, T, top_k = 8, 1024, 512, 64, 2
         self._run_comparison(E, H, I, T, top_k)
@@ -337,6 +647,8 @@ class TestReferenceVsKernel:
     # ------------------------------------------------------------------
 
     def _run_comparison(self, E, H, I, T, top_k):
+        from torchao.prototype.qat.nvfp4_moe_module_swap import _run_moe_reference
+
         padding = 128
         torch.manual_seed(0)
 
@@ -354,30 +666,91 @@ class TestReferenceVsKernel:
             T, E, device="cuda", dtype=torch.bfloat16
         )
 
-        # ---- 2. Compute routing (Renormalize: TopK → Softmax) ---------
+        # ---- 2. Compute routing (Renormalize: TopK -> Softmax) ---------
         routing_result = _routing_reference_renormalize(
             expert_logits, top_k, E, padding
         )
-        # permute_info is the first 4 elements; top_k_indices is test-only
+        (
+            permuted_buffer_size,
+            expanded_token_idx_to_permuted_idx,
+            num_tokens_per_expert,
+            top_k_logits,
+            top_k_indices,
+        ) = routing_result
         permute_info = routing_result[:4]
 
-        # ---- 3. Quantize weights to FP4 for kernel ---------------------
-        gemm1_fp4, gemm1_sf_lin, gemm1_gsf = _quant_fp4_batches(
-            gemm1_weights, E, is_sf_swizzled_layout=False
+        # ---- 3. Run tensor subclass forward ----------------------------
+        # Wrap weights with the tensor subclass.
+        # is_transposed=False matches Qwen3's default: HF transposes the
+        # weight before calling _grouped_mm, so the subclass needs to
+        # transpose back to storage layout for correct FP4 block boundaries.
+        gemm1_w_wrapped = NVFP4FakeQuantizedScaledGroupedMMTensor(
+            gemm1_weights, is_transposed=False,
         )
-        gemm2_fp4, gemm2_sf_lin, gemm2_gsf = _quant_fp4_batches(
-            gemm2_weights, E, is_sf_swizzled_layout=False
+        gemm2_w_wrapped = NVFP4FakeQuantizedScaledGroupedMMTensor(
+            gemm2_weights, is_transposed=False,
         )
 
-        # ---- 4. Quantize hidden states to FP4 for kernel ---------------
-        hs_gsf = _calculate_fp4_global_scale_factor(hidden_states)
-        hs_fp4_kern, hs_sf_kern, _ = _quant_fp4(
-            hidden_states, hs_gsf, is_sf_swizzled_layout=False
+        # Permute hidden states into expert-sorted buffer (matching kernel routing)
+        permuted_hidden = torch.zeros(
+            permuted_buffer_size, H, device="cuda", dtype=torch.bfloat16
         )
-        hs_sf_kern = hs_sf_kern.view(torch.float8_e4m3fn).reshape(T, -1)
+        token_ids = (
+            torch.arange(T, device="cuda")
+            .unsqueeze(1)
+            .expand(-1, top_k)
+            .reshape(-1)
+        )
+        valid = expanded_token_idx_to_permuted_idx >= 0
+        permuted_hidden[expanded_token_idx_to_permuted_idx[valid]] = (
+            hidden_states[token_ids[valid]]
+        )
 
-        # ---- 5. Run reference (handles fake quantization internally) ---
-        ref_output, c_gsf = _run_moe_reference(
+        # Compute cumulative offsets for _grouped_mm (padded)
+        padded_counts = (
+            (num_tokens_per_expert + padding - 1) // padding * padding
+        )
+        offs = torch.cumsum(padded_counts, dim=0).to(torch.int32)
+
+        # GEMM1: [S, H] @ [E, 2*I, H]^T -> [S, 2*I]
+        # The tensor subclass intercepts _grouped_mm and applies fake quant
+        up_gate = torch._grouped_mm(
+            permuted_hidden,
+            gemm1_w_wrapped.transpose(-1, -2),
+            offs=offs,
+        )
+
+        # SwiGLU — kernel layout: first I cols = value, next I cols = gate
+        value = up_gate[:, :I]
+        gate = up_gate[:, I:]
+        act = F.silu(gate) * value
+
+        # GEMM2: [S, I] @ [E, H, I]^T -> [S, H]
+        down = torch._grouped_mm(
+            act,
+            gemm2_w_wrapped.transpose(-1, -2),
+            offs=offs,
+        )
+
+        # Scatter-back: unpermute and weighted-sum (vectorized)
+        k_ids = (
+            torch.arange(top_k, device="cuda")
+            .unsqueeze(0)
+            .expand(T, -1)
+            .reshape(-1)
+        )
+        weights = top_k_logits[token_ids[valid], k_ids[valid]].unsqueeze(1)
+        subclass_output = torch.zeros(
+            T, H, device="cuda", dtype=torch.float32
+        )
+        subclass_output.index_add_(
+            0,
+            token_ids[valid],
+            down[expanded_token_idx_to_permuted_idx[valid]].float() * weights.float(),
+        )
+
+        # ---- 4. Run module-swap reference to get c_gsf for kernel ------
+        _, c_gsf = _run_moe_reference(
             hidden_states.float(),
             permute_info,
             gemm1_weights.float(),
@@ -385,8 +758,23 @@ class TestReferenceVsKernel:
             E, T, top_k, H, I, padding,
         )
 
-        # ---- 6. Shuffle weights and interleave scales for kernel -------
-        g1ws, g1ss, g2ws, g2ss = prepare_static_weights_for_trtllm_fp4_moe(
+        # ---- 5. Quantize weights to FP4 for kernel ---------------------
+        gemm1_fp4, gemm1_sf_lin, gemm1_gsf = _quant_fp4_batches(
+            gemm1_weights, E, is_sf_swizzled_layout=False
+        )
+        gemm2_fp4, gemm2_sf_lin, gemm2_gsf = _quant_fp4_batches(
+            gemm2_weights, E, is_sf_swizzled_layout=False
+        )
+
+        # ---- 6. Quantize hidden states to FP4 for kernel ---------------
+        hs_gsf = _calculate_fp4_global_scale_factor(hidden_states)
+        hs_fp4_kern, hs_sf_kern, _ = _quant_fp4(
+            hidden_states, hs_gsf, is_sf_swizzled_layout=False
+        )
+        hs_sf_kern = hs_sf_kern.view(torch.float8_e4m3fn).reshape(T, -1)
+
+        # ---- 7. Shuffle weights and interleave scales for kernel -------
+        g1ws, g1ss, g2ws, g2ss = _prepare_static_weights_for_trtllm_fp4_moe(
             gemm1_fp4, gemm2_fp4, gemm1_sf_lin, gemm2_sf_lin,
             H, I, E, is_gated_activation=True,
         )
@@ -396,7 +784,7 @@ class TestReferenceVsKernel:
         scale_gate_fc1 = (1.0 / gemm1_gsf) * (1.0 / hs_gsf)
         scale_c_fc2 = (1.0 / c_gsf) * (1.0 / gemm2_gsf)
 
-        # ---- 7. Call the fused kernel ----------------------------------
+        # ---- 8. Call the fused kernel ----------------------------------
         kernel_output = trtllm_fp4_block_scale_moe(
             routing_logits=expert_logits,
             routing_bias=None,
@@ -422,13 +810,22 @@ class TestReferenceVsKernel:
             local_expert_offset=0,
             local_num_experts=E,
             routed_scaling_factor=None,
-            routing_method_type=1,  # Renormalize (TopK → Softmax)
+            routing_method_type=1,  # Renormalize (TopK -> Softmax)
             do_finalize=True,
         )
         kernel_output = kernel_output[0].float()
 
-        # ---- 8. Compare -----------------------------------------------
+        # ---- 9. Compare -----------------------------------------------
+        # With the is_transposed layout fix (quantize in storage layout),
+        # we get ~24 dB SQNR and ~95% element-wise match, comparable to
+        # the module-swap approach.
+        sqnr = compute_error(kernel_output, subclass_output)
+        assert sqnr >= 18.0, (
+            f"SQNR {sqnr:.2f} dB too low — tensor subclass output too far "
+            f"from kernel output"
+        )
+
         _check_accuracy(
-            ref_output, kernel_output,
+            subclass_output, kernel_output,
             atol=0.1, rtol=0.85, percent=0.925,
         )

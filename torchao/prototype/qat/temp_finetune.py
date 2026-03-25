@@ -108,6 +108,7 @@ if __name__ == "__main__":
         MODEL_NAME,
         torch_dtype=torch.bfloat16,
         device_map="auto",
+        experts_implementation="grouped_mm",
     )
 
     if args.qat:
