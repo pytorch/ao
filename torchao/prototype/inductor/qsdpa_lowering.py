@@ -142,12 +142,13 @@ def register_qsdpa():
             value,
         ]
 
-        node, _ = autotune_select_algorithm(
+        result = autotune_select_algorithm(
             "qsdpa",
             choices,
             inputs_for_autotuning,
             layout,
         )
+        node = result[0] if isinstance(result, tuple) else result
         return node
 
 register_qsdpa()
