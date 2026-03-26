@@ -157,6 +157,17 @@ static inline void store_chunk(at::Float8_e4m3fn *output, CHUNK chunk) {
   _mm_storeu_si128(reinterpret_cast<__m128i *>(output + 112),
                    at::vec::CPU_CAPABILITY::cvtfp32_fp8e4m3(x7));
 }
+
+// Prefetch all cache lines of an embedding row (all blocks).
+// emb_bytes = emb_dim * sizeof(data_t). Cache line = 64 bytes.
+template <typename data_t>
+static inline void _prefetch_emb_row(const data_t *base, int64_t emb_dim) {
+  const char *ptr = reinterpret_cast<const char *>(base);
+  const int64_t emb_bytes = emb_dim * static_cast<int64_t>(sizeof(data_t));
+  for (int64_t off = 0; off < emb_bytes; off += 64) {
+    _mm_prefetch(ptr + off, _MM_HINT_T0);
+  }
+}
 #endif
 
 static inline void store_elem(float &out, float input) {
@@ -172,17 +183,6 @@ static inline void store_elem(int8_t &out, float input) {
 
 static inline void store_elem(at::Float8_e4m3fn &out, float input) {
   out = static_cast<at::Float8_e4m3fn>(input);
-}
-
-// Prefetch all cache lines of an embedding row (all blocks).
-// emb_bytes = emb_dim * sizeof(data_t). Cache line = 64 bytes.
-template <typename data_t>
-static inline void _prefetch_emb_row(const data_t *base, int64_t emb_dim) {
-  const char *ptr = reinterpret_cast<const char *>(base);
-  const int64_t emb_bytes = emb_dim * static_cast<int64_t>(sizeof(data_t));
-  for (int64_t off = 0; off < emb_bytes; off += 64) {
-    _mm_prefetch(ptr + off, _MM_HINT_T0);
-  }
 }
 
 template <typename index_t, typename data_t, typename output_t>
