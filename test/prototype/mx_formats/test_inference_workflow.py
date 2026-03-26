@@ -181,8 +181,7 @@ def test_inference_workflow_nvfp4(
         pytest.skip("TODO: weight_only quant currently errors w/ compile")
     if quant_type == "weight_only" and use_triton_kernel:
         pytest.skip("unsupported configuration")
-    if use_triton_kernel and not use_dynamic_per_tensor_scale:
-        pytest.skip("unsupported configuration")
+    # use_triton_kernel without per_tensor_scale is now supported (MSLK#233)
 
     if use_inference_mode and (
         shapes != (128, 64, 256) or inpt_dtype != torch.bfloat16 or use_triton_kernel
