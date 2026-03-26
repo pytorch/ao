@@ -111,9 +111,7 @@ def _unfuse_experts_model(model: torch.nn.Module) -> None:
                 expert_mask = torch.nn.functional.one_hot(
                     top_k_index, num_classes=self.num_experts
                 ).permute(2, 1, 0)
-                expert_hit = torch.greater(
-                    expert_mask.sum(dim=(-1, -2)), 0
-                ).nonzero()
+                expert_hit = torch.greater(expert_mask.sum(dim=(-1, -2)), 0).nonzero()
 
             for expert_idx in expert_hit:
                 expert_idx = expert_idx[0]
@@ -127,8 +125,7 @@ def _unfuse_experts_model(model: torch.nn.Module) -> None:
                 current_hidden_states = self.act_fn(gate) * up
                 current_hidden_states = expert.down_proj(current_hidden_states)
                 current_hidden_states = (
-                    current_hidden_states
-                    * top_k_weights[token_idx, top_k_pos, None]
+                    current_hidden_states * top_k_weights[token_idx, top_k_pos, None]
                 )
                 final_hidden_states.index_add_(
                     0,

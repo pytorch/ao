@@ -9,6 +9,7 @@ Usage::
     # SFT on GSM8K (default)
     python torchao/prototype/qat/temp_finetune.py
     python torchao/prototype/qat/temp_finetune.py --qat
+    python torchao/prototype/qat/temp_finetune.py --qat --qat-impl module_swap
 
     # SFT on ARC-Challenge
     python torchao/prototype/qat/temp_finetune.py --task arc_challenge
@@ -89,6 +90,17 @@ if __name__ == "__main__":
         help="Apply NVFP4 QAT to MoE expert layers during training.",
     )
     parser.add_argument(
+        "--qat-impl",
+        type=str,
+        default=None,
+        choices=["tensor_subclass", "module_swap"],
+        help="QAT implementation (default: tensor_subclass). Implies --qat. "
+        "tensor_subclass intercepts torch._grouped_mm via a tensor subclass "
+        "and works with any HF MoE architecture that uses grouped_mm experts; "
+        "module_swap replaces the SparseMoeBlock with a custom module "
+        "(currently only supports Qwen3 MoE).",
+    )
+    parser.add_argument(
         "--max-steps",
         type=int,
         default=100,
@@ -101,6 +113,13 @@ if __name__ == "__main__":
         help="Output directory for the checkpoint.",
     )
     args = parser.parse_args()
+
+    # --qat-impl implies --qat; default to tensor_subclass when --qat is used
+    if args.qat_impl is not None:
+        args.qat = True
+
+    if args.qat and args.qat_impl is None:
+        args.qat_impl = "tensor_subclass"
 
     task_cfg = TASKS[args.task]
     output_dir = args.output_dir or (
@@ -115,7 +134,14 @@ if __name__ == "__main__":
     )
 
     if args.qat:
-        from torchao.prototype.qat.nvfp4_moe import apply_nvfp4_moe_qat
+        # tensor_subclass: model-agnostic, works with any HF MoE using grouped_mm
+        # module_swap: Qwen3 MoE only
+        if args.qat_impl == "tensor_subclass":
+            from torchao.prototype.qat.nvfp4_moe import apply_nvfp4_moe_qat
+        else:
+            from torchao.prototype.qat.nvfp4_moe_module_swap import (
+                apply_nvfp4_moe_qat,
+            )
 
         model = apply_nvfp4_moe_qat(model)
 
@@ -155,25 +181,21 @@ if __name__ == "__main__":
         )
 
         trainer.train()
-
-        if args.qat:
-            from torchao.prototype.qat.nvfp4_moe import remove_nvfp4_moe_qat
-
-            remove_nvfp4_moe_qat(trainer.model)
-
-        # Save bf16 checkpoint
-        trainer.save_model(output_dir)
-        tokenizer.save_pretrained(output_dir)
-        print(f"\nbf16 checkpoint saved to {output_dir}")
+        model = trainer.model
     else:
         print("\nSkipping training (--max-steps 0)")
 
-        if args.qat:
+    if args.qat:
+        if args.qat_impl == "tensor_subclass":
             from torchao.prototype.qat.nvfp4_moe import remove_nvfp4_moe_qat
+        else:
+            from torchao.prototype.qat.nvfp4_moe_module_swap import (
+                remove_nvfp4_moe_qat,
+            )
 
-            remove_nvfp4_moe_qat(model)
+        remove_nvfp4_moe_qat(model)
 
-        # Still save the bf16 checkpoint (e.g. from base model)
-        model.save_pretrained(output_dir)
-        tokenizer.save_pretrained(output_dir)
-        print(f"\nbf16 checkpoint saved to {output_dir}")
+    # Save bf16 checkpoint
+    model.save_pretrained(output_dir)
+    tokenizer.save_pretrained(output_dir)
+    print(f"\nbf16 checkpoint saved to {output_dir}")

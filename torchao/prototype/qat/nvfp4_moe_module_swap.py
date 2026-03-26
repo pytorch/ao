@@ -1,5 +1,5 @@
 """
-FP4 QAT for MoE (Mixture of Experts) models.
+FP4 QAT for MoE (Mixture of Experts) models via module swap.
 
 This module provides fake quantization for MoE expert layers using block-scale
 FP4 (E2M1) quantize-dequantize roundtrips inserted before each GEMM, implemented
@@ -10,18 +10,35 @@ The per-expert computation matches the flashinfer ``trtllm_fp4_block_scale_moe``
 kernel numerics: standard SwiGLU activation with contiguous gate/value halves
 and kernel weight layout (``gemm1_weight [E, 2*I, H]``, ``gemm2_weight [E, H, I]``).
 
-Supported model architectures:
+**Currently only supports Qwen3 MoE** (``Qwen3MoeSparseMoeBlock``).  Adding
+support for other architectures requires implementing model-specific weight
+packing in ``from_*_experts`` and ``remove_nvfp4_moe_qat``.  For a
+model-agnostic approach, use ``torchao.prototype.qat.nvfp4_moe`` (tensor
+subclass) instead.
 
-- **Qwen3 MoE** (``Qwen3MoeSparseMoeBlock``): per-expert ``gate_proj``,
-  ``up_proj``, ``down_proj`` linear layers (no biases).
+Requires transformers >= 5.0 for the ``Qwen3MoeExperts`` fused expert layout
+and ``Qwen3MoeTopKRouter``.
 
 Usage::
 
-    from torchao.prototype.qat.nvfp4_moe import apply_nvfp4_moe_qat
+    from torchao.prototype.qat.nvfp4_moe_module_swap import apply_nvfp4_moe_qat
     model = apply_nvfp4_moe_qat(model)
+    # ... train ...
+    from torchao.prototype.qat.nvfp4_moe_module_swap import remove_nvfp4_moe_qat
+    model = remove_nvfp4_moe_qat(model)
 """
 
+from importlib.metadata import version
+
 import torch
+
+_transformers_version = tuple(int(x) for x in version("transformers").split(".")[:2])
+if _transformers_version < (5, 0):
+    raise ImportError(
+        f"torchao.prototype.qat.nvfp4_moe_module_swap requires transformers >= 5.0 "
+        f"(found {version('transformers')}). The Qwen3MoeExperts fused expert "
+        f"layout is not available in older versions."
+    )
 import torch.nn as nn
 import torch.nn.functional as F
 
@@ -335,33 +352,31 @@ class NVFP4FakeQuantizedMoE(nn.Module):
         )
 
     @classmethod
-    def from_qwen3_experts(cls, experts: nn.ModuleList) -> "NVFP4FakeQuantizedMoE":
-        """Create from a Qwen3 ``nn.ModuleList[Qwen3MoeMLP]``.
+    def from_qwen3_experts(cls, experts: nn.Module) -> "NVFP4FakeQuantizedMoE":
+        """Create from a ``Qwen3MoeExperts`` module (transformers 5.x).
 
-        Each ``Qwen3MoeMLP`` has ``gate_proj.weight [I, H]``,
-        ``up_proj.weight [I, H]``, ``down_proj.weight [H, I]`` (no biases).
-        These are stacked into kernel layout:
+        ``Qwen3MoeExperts`` stores fused 3D parameters ``gate_up_proj [E, 2*I, H]``
+        and ``down_proj [E, H, I]``.
+
+        Weights are stacked into kernel layout:
         ``gemm1_weight [E, 2*I, H]`` (up then gate), ``gemm2_weight [E, H, I]``.
         """
-        num_experts = len(experts)
-        hidden_size = experts[0].hidden_size
-        intermediate_size = experts[0].intermediate_size
+        num_experts = experts.num_experts
+        hidden_size = experts.hidden_dim
+        intermediate_size = experts.intermediate_dim
 
         new = cls(num_experts, hidden_size, intermediate_size)
 
-        # Stack per-expert weights into batched kernel layout.
-        # gemm1: [up_proj; gate_proj] per expert → [E, 2*I, H]
-        # up_proj.weight and gate_proj.weight are each [I, H].
-        gemm1_list = []
-        gemm2_list = []
-        for expert in experts:
-            up = expert.up_proj.weight.data  # [I, H]
-            gate = expert.gate_proj.weight.data  # [I, H]
-            gemm1_list.append(torch.cat([up, gate], dim=0))  # [2*I, H]
-            gemm2_list.append(expert.down_proj.weight.data)  # [H, I]
-
-        new.gemm1_weight = nn.Parameter(torch.stack(gemm1_list))  # [E, 2*I, H]
-        new.gemm2_weight = nn.Parameter(torch.stack(gemm2_list))  # [E, H, I]
+        # gate_up_proj is [E, 2*I, H] but in order [gate; up].
+        # Kernel layout expects [up; gate], so swap the halves.
+        I = intermediate_size
+        gate_up = experts.gate_up_proj.data  # [E, 2*I, H]
+        gate = gate_up[:, :I, :]  # [E, I, H]
+        up = gate_up[:, I:, :]  # [E, I, H]
+        new.gemm1_weight = nn.Parameter(
+            torch.cat([up, gate], dim=1)  # [E, 2*I, H] in [up; gate] order
+        )
+        new.gemm2_weight = nn.Parameter(experts.down_proj.data.clone())
 
         return new
 
@@ -405,13 +420,12 @@ class NVFP4FakeQuantizedQwen3MoeBlock(nn.Module):
     fake quantization in the expert forward pass.
 
     Keeps the original gate (router) and routing logic; replaces the
-    ``nn.ModuleList`` of ``Qwen3MoeMLP`` experts with a single batched
-    :class:`NVFP4FakeQuantizedMoE`.
+    ``Qwen3MoeExperts`` with a single batched :class:`NVFP4FakeQuantizedMoE`.
     """
 
     def __init__(
         self,
-        gate: nn.Linear,
+        gate: nn.Module,
         qat_experts: NVFP4FakeQuantizedMoE,
         top_k: int,
         norm_topk_prob: bool,
@@ -428,27 +442,21 @@ class NVFP4FakeQuantizedQwen3MoeBlock(nn.Module):
     ) -> "NVFP4FakeQuantizedQwen3MoeBlock":
         """Create from an existing ``Qwen3MoeSparseMoeBlock``."""
         qat_experts = NVFP4FakeQuantizedMoE.from_qwen3_experts(block.experts)
+        top_k = block.gate.top_k
+        norm_topk_prob = block.gate.norm_topk_prob
         return cls(
             gate=block.gate,
             qat_experts=qat_experts,
-            top_k=block.top_k,
-            norm_topk_prob=block.norm_topk_prob,
+            top_k=top_k,
+            norm_topk_prob=norm_topk_prob,
         )
 
-    def forward(self, hidden_states: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, hidden_states: torch.Tensor):
         batch_size, sequence_length, hidden_dim = hidden_states.shape
         hidden_states_2d = hidden_states.view(-1, hidden_dim)
 
-        # Router
-        router_logits = self.gate(hidden_states_2d)
-        routing_weights = F.softmax(router_logits, dim=1, dtype=torch.float)
-        routing_weights, selected_experts = torch.topk(
-            routing_weights,
-            self.top_k,
-            dim=-1,
-        )
-        if self.norm_topk_prob:
-            routing_weights /= routing_weights.sum(dim=-1, keepdim=True)
+        # Qwen3MoeTopKRouter returns (logits, weights, indices)
+        router_logits, routing_weights, selected_experts = self.gate(hidden_states_2d)
 
         # Build full routing_weights tensor [T, E] for _build_permute_info
         num_tokens = hidden_states_2d.shape[0]
@@ -468,7 +476,7 @@ class NVFP4FakeQuantizedQwen3MoeBlock(nn.Module):
             routing_weights=full_routing_weights,
         )
 
-        return output, router_logits
+        return output
 
 
 # ---------------------------------------------------------------------------
@@ -480,8 +488,8 @@ def remove_nvfp4_moe_qat(model: nn.Module) -> nn.Module:
     """Convert QAT MoE blocks back to standard ``Qwen3MoeSparseMoeBlock``.
 
     Unbatches ``gemm1_weight [E, 2*I, H]`` and ``gemm2_weight [E, H, I]``
-    back into per-expert ``gate_proj``, ``up_proj``, ``down_proj`` weights,
-    so the checkpoint can be saved in standard HuggingFace format.
+    back into fused ``Qwen3MoeExperts`` with 3D parameters
+    ``gate_up_proj [E, 2*I, H]`` and ``down_proj [E, H, I]``.
 
     Args:
         model: A model with :class:`NVFP4FakeQuantizedQwen3MoeBlock` modules.
@@ -490,6 +498,7 @@ def remove_nvfp4_moe_qat(model: nn.Module) -> nn.Module:
         The same model with QAT blocks replaced by standard blocks in-place.
     """
     from transformers.models.qwen3_moe.modeling_qwen3_moe import (
+        Qwen3MoeExperts,
         Qwen3MoeSparseMoeBlock,
     )
 
@@ -504,34 +513,29 @@ def remove_nvfp4_moe_qat(model: nn.Module) -> nn.Module:
         H = qat_experts.hidden_size
         I = qat_experts.intermediate_size
 
-        # Rebuild per-expert nn.ModuleList using lightweight nn.Module shells.
-        # We skip Qwen3MoeMLP's __init__ (requires a config object) and just
-        # create the three nn.Linear layers directly with the correct weights.
-        expert_list = nn.ModuleList()
-        for i in range(E):
-            expert = nn.Module()
-            expert.hidden_size = H
-            expert.intermediate_size = I
-            # gemm1_weight[i] is [2*I, H] = [up; gate]
-            up = nn.Linear(H, I, bias=False)
-            up.weight = nn.Parameter(qat_experts.gemm1_weight.data[i, :I, :])
-            gate = nn.Linear(H, I, bias=False)
-            gate.weight = nn.Parameter(qat_experts.gemm1_weight.data[i, I:, :])
-            down = nn.Linear(I, H, bias=False)
-            down.weight = nn.Parameter(qat_experts.gemm2_weight.data[i])
-            expert.up_proj = up
-            expert.gate_proj = gate
-            expert.down_proj = down
-            expert_list.append(expert)
+        # Restore Qwen3MoeExperts with fused 3D params.
+        experts_mod = Qwen3MoeExperts.__new__(Qwen3MoeExperts)
+        nn.Module.__init__(experts_mod)
+        experts_mod.num_experts = E
+        experts_mod.hidden_dim = H
+        experts_mod.intermediate_dim = I
+        experts_mod.act_fn = F.silu
+
+        # gemm1_weight is [E, 2*I, H] in [up; gate] order.
+        # Qwen3MoeExperts stores gate_up_proj as [E, 2*I, H] in [gate; up] order.
+        up = qat_experts.gemm1_weight.data[:, :I, :]  # [E, I, H]
+        gate = qat_experts.gemm1_weight.data[:, I:, :]  # [E, I, H]
+        experts_mod.gate_up_proj = nn.Parameter(
+            torch.cat([gate, up], dim=1)  # [E, 2*I, H] in [gate; up] order
+        )
+        experts_mod.down_proj = nn.Parameter(qat_experts.gemm2_weight.data.clone())
 
         # Create a standard Qwen3MoeSparseMoeBlock shell.
         # We skip __init__ (requires config) and set attributes directly.
         new_block = Qwen3MoeSparseMoeBlock.__new__(Qwen3MoeSparseMoeBlock)
         nn.Module.__init__(new_block)
         new_block.gate = qat_block.gate
-        new_block.experts = expert_list
-        new_block.top_k = qat_block.top_k
-        new_block.norm_topk_prob = qat_block.norm_topk_prob
+        new_block.experts = experts_mod
 
         parts = name.rsplit(".", 1)
         if len(parts) == 2:

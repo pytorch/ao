@@ -9,7 +9,16 @@ injects block-scale FP4 (E2M1) quantize-dequantize roundtrips on both
 activation and weight operands before each grouped GEMM.
 
 This works with any HuggingFace MoE model that uses the ``grouped_mm``
-expert backend (``experts_implementation="grouped_mm"``).
+expert backend (``experts_implementation="grouped_mm"``), including:
+
+- Qwen3 MoE (e.g. ``Qwen/Qwen3-30B-A3B``, ``Qwen/Qwen3-235B-A22B``)
+- Qwen2 MoE (e.g. ``Qwen/Qwen2.5-VL-3B-Instruct``)
+- Mixtral (e.g. ``mistralai/Mixtral-8x7B-v0.1``)
+- DeepSeek-V3 / DeepSeek-R1
+- OLMoE (e.g. ``allenai/OLMoE-1B-7B-0924``)
+- Llama 4 MoE (e.g. ``meta-llama/Llama-4-Scout-17B-16E``)
+
+Requires transformers >= 5.0 for the ``grouped_mm`` expert backend.
 
 Usage::
 
@@ -20,8 +29,17 @@ Usage::
 """
 
 import logging
+from importlib.metadata import version
 
 import torch
+
+_transformers_version = tuple(int(x) for x in version("transformers").split(".")[:2])
+if _transformers_version < (5, 0):
+    raise ImportError(
+        f"torchao.prototype.qat.nvfp4_moe requires transformers >= 5.0 "
+        f"(found {version('transformers')}). The grouped_mm expert backend "
+        f"is not available in older versions."
+    )
 import torch.nn as nn
 import torch.utils._pytree as pytree
 from torch._prims_common import suggest_memory_format
