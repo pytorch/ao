@@ -33,7 +33,6 @@ class KernelMeasurement:
     shape: Tuple[int, int]
     kernel_us: float
     effective_logical_io_gbps: float
-    logical_io_vs_peak_pct: float
     logical_io_vs_achievable_pct: Optional[float]
 
 
@@ -50,6 +49,7 @@ class GpuBandwidthSpec:
     peak_gbps: float
     peak_source: str
     achievable_gbps: Optional[float]
+    achievable_pct_of_peak: Optional[float]
     achievable_source: Optional[str]
 
 
@@ -174,9 +174,11 @@ def _resolve_gpu_specs(use_roofline_utils: bool = False) -> GpuBandwidthSpec:
 
     if specs is not None and "pct_achievable_mem_bw" in specs:
         achievable_gbps = peak_gbps * specs["pct_achievable_mem_bw"]
+        achievable_pct_of_peak = specs["pct_achievable_mem_bw"] * 100.0
         achievable_source = "roofline_utils_pct_achievable_mem_bw"
     else:
         achievable_gbps = None
+        achievable_pct_of_peak = None
         achievable_source = None
 
     return GpuBandwidthSpec(
@@ -184,6 +186,7 @@ def _resolve_gpu_specs(use_roofline_utils: bool = False) -> GpuBandwidthSpec:
         peak_gbps=peak_gbps,
         peak_source=peak_source,
         achievable_gbps=achievable_gbps,
+        achievable_pct_of_peak=achievable_pct_of_peak,
         achievable_source=achievable_source,
     )
 
@@ -319,10 +322,6 @@ def _run_suite(
                     shape=shape,
                     kernel_us=kernel_us,
                     effective_logical_io_gbps=effective_logical_io_gbps,
-                    logical_io_vs_peak_pct=(
-                        effective_logical_io_gbps / bandwidth_spec.peak_gbps
-                    )
-                    * 100.0,
                     logical_io_vs_achievable_pct=logical_io_vs_achievable_pct,
                 )
             )
@@ -350,6 +349,10 @@ def _print_results(
         print(
             f"Achievable bandwidth reference: {bandwidth_spec.achievable_gbps:.1f} GB/s"
         )
+        print(
+            "Achievable bandwidth uses "
+            f"{bandwidth_spec.achievable_pct_of_peak:.1f}% of peak bandwidth."
+        )
         print(f"Achievable bandwidth source: {bandwidth_spec.achievable_source}")
     else:
         print("Achievable bandwidth reference: n/a")
@@ -361,7 +364,13 @@ def _print_results(
 
     rows = []
     for measurement in sorted(
-        measurements, key=lambda item: (item.shape[0], item.logical_io_vs_peak_pct)
+        measurements,
+        key=lambda item: (
+            item.shape[0],
+            item.logical_io_vs_achievable_pct
+            if item.logical_io_vs_achievable_pct is not None
+            else float("inf"),
+        ),
     ):
         rows.append(
             [
@@ -369,7 +378,6 @@ def _print_results(
                 f"{measurement.shape[0]}x{measurement.shape[1]}",
                 f"{measurement.kernel_us:.2f}",
                 f"{measurement.effective_logical_io_gbps:.1f}",
-                f"{measurement.logical_io_vs_peak_pct:.1f}",
                 _format_optional_float(measurement.logical_io_vs_achievable_pct),
             ]
         )
@@ -381,7 +389,6 @@ def _print_results(
                 "shape",
                 "kernel_us",
                 "effective_logical_io_gbps",
-                "logical_io_vs_peak_%",
                 "logical_io_vs_achievable_%",
             ],
             tablefmt="github",
@@ -396,10 +403,11 @@ def _print_results(
         ]
         if not kernel_measurements:
             continue
-        avg_peak_util = sum(
-            item.logical_io_vs_peak_pct for item in kernel_measurements
-        ) / len(kernel_measurements)
-        min_peak_util = min(item.logical_io_vs_peak_pct for item in kernel_measurements)
+        achievable_utils = [
+            item.logical_io_vs_achievable_pct
+            for item in kernel_measurements
+            if item.logical_io_vs_achievable_pct is not None
+        ]
         avg_logical_io_gbps = sum(
             item.effective_logical_io_gbps for item in kernel_measurements
         ) / len(kernel_measurements)
@@ -407,19 +415,25 @@ def _print_results(
             [
                 kernel.name,
                 f"{avg_logical_io_gbps:.1f}",
-                f"{avg_peak_util:.1f}",
-                f"{min_peak_util:.1f}",
+                _format_optional_float(
+                    sum(achievable_utils) / len(achievable_utils)
+                    if achievable_utils
+                    else None
+                ),
+                _format_optional_float(min(achievable_utils) if achievable_utils else None),
             ]
         )
-    overall_rows.sort(key=lambda row: float(row[2]))
+    overall_rows.sort(
+        key=lambda row: float(row[2]) if row[2] != "n/a" else float("inf")
+    )
     print(
         tabulate(
             overall_rows,
             headers=[
                 "kernel",
                 "avg_effective_logical_io_gbps",
-                "avg_logical_io_vs_peak_%",
-                "worst_case_logical_io_vs_peak_%",
+                "avg_logical_io_vs_achievable_%",
+                "worst_case_logical_io_vs_achievable_%",
             ],
             tablefmt="github",
         )
@@ -455,11 +469,9 @@ def _write_csv(
                 "k",
                 "kernel_us",
                 "effective_logical_io_gbps",
-                "logical_io_vs_peak_pct",
                 "logical_io_vs_achievable_pct",
-                "peak_bandwidth_gbps",
-                "peak_bandwidth_source",
                 "achievable_bandwidth_gbps",
+                "achievable_pct_of_peak",
                 "achievable_bandwidth_source",
             ],
         )
@@ -474,13 +486,11 @@ def _write_csv(
                     "effective_logical_io_gbps": (
                         measurement.effective_logical_io_gbps
                     ),
-                    "logical_io_vs_peak_pct": measurement.logical_io_vs_peak_pct,
                     "logical_io_vs_achievable_pct": (
                         measurement.logical_io_vs_achievable_pct
                     ),
-                    "peak_bandwidth_gbps": bandwidth_spec.peak_gbps,
-                    "peak_bandwidth_source": bandwidth_spec.peak_source,
                     "achievable_bandwidth_gbps": bandwidth_spec.achievable_gbps,
+                    "achievable_pct_of_peak": bandwidth_spec.achievable_pct_of_peak,
                     "achievable_bandwidth_source": (bandwidth_spec.achievable_source),
                 }
             )
