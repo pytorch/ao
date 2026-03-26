@@ -420,7 +420,9 @@ def _print_results(
                     if achievable_utils
                     else None
                 ),
-                _format_optional_float(min(achievable_utils) if achievable_utils else None),
+                _format_optional_float(
+                    min(achievable_utils) if achievable_utils else None
+                ),
             ]
         )
     overall_rows.sort(
