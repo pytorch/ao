@@ -83,7 +83,6 @@ def _to_mxfp8_then_scaled_grouped_mm(
     A: torch.Tensor,
     B_t: torch.Tensor,
     offs: Optional[torch.Tensor] = None,
-    block_size: Optional[int] = None,
     out_dtype: Optional[torch.dtype] = torch.bfloat16,
     kernel_preference: KernelPreference = KernelPreference.AUTO,
     wgrad_with_hp: bool = False,
@@ -103,7 +102,6 @@ def _to_mxfp8_then_scaled_grouped_mm(
             which must be 3D, which must be shape (G, K, N)
             and in "per group column-major memory" layout (i.e., strides of (N*K, 1, N)).
         offs (int32 torch.Tensor): The offsets to use to mark the end index of each group along the dim0 of the A tensor.
-        block_size (int): Block size for MXFP8 quantization. Must be 32 (the only supported value). This parameter exists for backward compatibility but is ignored.
         out_dtype (torch.dtype): Output dtype for the result. Defaults to torch.bfloat16.
         kernel_preference (KernelPreference): Kernel preference (AUTO uses CUDA/Triton, EMULATED uses to_mx). Defaults to KernelPreference.AUTO.
         wgrad_with_hp (bool): Whether to compute weight gradient in high precision. Defaults to False.
@@ -120,7 +118,6 @@ def _to_mxfp8_then_scaled_grouped_mm(
         A,
         B_t,
         offs,
-        block_size,
         out_dtype,
         kernel_preference,
         wgrad_with_hp,
@@ -144,7 +141,6 @@ class _MXFP8GroupedMM(torch.autograd.Function):
         input_act: torch.Tensor,
         weight_t: torch.Tensor,
         group_end_offsets: Optional[torch.Tensor] = None,
-        block_size: int = 32,
         out_dtype: Optional[torch.dtype] = torch.bfloat16,
         kernel_preference: KernelPreference = KernelPreference.AUTO,
         wgrad_with_hp: bool = False,
@@ -158,15 +154,18 @@ class _MXFP8GroupedMM(torch.autograd.Function):
             input_act: Input activations, shape (M, K) - may be MXTensor or high-precision
             weight_t: Expert weights transposed, shape (E, K, N) - always high-precision
             group_end_offsets: End index of each token group, shape (E,)
-            block_size: Block size for MXFP8 quantization (must be 32)
             out_dtype: Output dtype (bfloat16 or float32)
             kernel_preference: Kernel preference (AUTO uses CUDA/Triton, EMULATED uses to_mx)
             wgrad_with_hp: Compute weight gradient in high precision
             scale_calculation_mode: Mode for scale calculation (RCEIL, FLOOR, etc.)
+            pad_token_groups_for_grouped_mm: Whether to pad token groups to the next multiple of 32
 
         Returns:
             Output tensor, shape (M, N)
         """
+        # block_size is always 32 for MXFP8
+        block_size = 32
+
         assert kernel_preference in (
             KernelPreference.AUTO,
             KernelPreference.EMULATED,
@@ -182,7 +181,6 @@ class _MXFP8GroupedMM(torch.autograd.Function):
         # Input validation
         assert input_act.ndim == 2, "input_act must be 2D"
         assert weight_t.ndim == 3, "weight_t must be 3D"
-        assert block_size == 32, "Only block_size=32 is supported"
         assert group_end_offsets is not None, (
             "group_end_offsets must be provided for 2d-3d grouped mm"
         )
@@ -247,7 +245,6 @@ class _MXFP8GroupedMM(torch.autograd.Function):
             padded_group_start_offsets,
             padded_group_end_offsets,
         )
-        ctx.block_size = block_size
         ctx.out_dtype = out_dtype
         ctx.kernel_preference = kernel_preference
         ctx.wgrad_with_hp = wgrad_with_hp
@@ -279,7 +276,8 @@ class _MXFP8GroupedMM(torch.autograd.Function):
             padded_group_end_offsets,
         ) = ctx.saved_tensors
 
-        block_size = ctx.block_size
+        # block_size is always 32 for MXFP8
+        block_size = 32
         out_dtype = ctx.out_dtype
         kernel_preference = ctx.kernel_preference
         wgrad_with_hp = ctx.wgrad_with_hp
@@ -338,13 +336,12 @@ class _MXFP8GroupedMM(torch.autograd.Function):
         return (
             grad_input,
             grad_weight_t,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
+            None,  # group_end_offsets
+            None,  # out_dtype
+            None,  # kernel_preference
+            None,  # wgrad_with_hp
+            None,  # scale_calculation_mode
+            None,  # pad_token_groups_for_grouped_mm
         )
 
 
