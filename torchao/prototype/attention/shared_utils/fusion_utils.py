@@ -692,6 +692,23 @@ def _detect_neox_rope(node: Node) -> Optional[RoPEMatch]:
     return _try_match(right, left)
 
 
+def _parse_stride2_index(idx) -> Optional[int]:
+    """Parse ``(..., slice(start, None, 2))`` index tuples.
+
+    Returns the slice ``start`` value (defaulting to 0), or None if the
+    index does not match the expected stride-2 pattern.
+    """
+    if not isinstance(idx, tuple) or len(idx) < 1:
+        return None
+    last = idx[-1]
+    if not isinstance(last, slice) or last.step != 2:
+        return None
+    for entry in idx[:-1]:
+        if entry is not Ellipsis and entry != slice(None):
+            return None
+    return last.start if last.start is not None else 0
+
+
 def _get_setitem_stride2_slice(node: Node) -> Optional[Tuple[int, Node]]:
     """Check if node is ``operator.setitem(tensor, (..., slice(start, None, 2)), value)``.
 
@@ -701,21 +718,12 @@ def _get_setitem_stride2_slice(node: Node) -> Optional[Tuple[int, Node]]:
         return None
     if len(node.args) < 3:
         return None
-    idx = node.args[1]
     value = node.args[2]
     if not isinstance(value, Node):
         return None
-    # idx should be (Ellipsis, slice(start, None, 2))
-    if not isinstance(idx, tuple) or len(idx) < 1:
+    start = _parse_stride2_index(node.args[1])
+    if start is None:
         return None
-    last = idx[-1]
-    if not isinstance(last, slice) or last.step != 2:
-        return None
-    # Check preceding entries are Ellipsis or slice(None)
-    for entry in idx[:-1]:
-        if entry is not Ellipsis and entry != slice(None):
-            return None
-    start = last.start if last.start is not None else 0
     return start, value
 
 
@@ -729,18 +737,11 @@ def _get_getitem_stride2_slice(node: Node) -> Optional[Tuple[int, Node]]:
     if len(node.args) < 2:
         return None
     source = node.args[0]
-    idx = node.args[1]
     if not isinstance(source, Node):
         return None
-    if not isinstance(idx, tuple) or len(idx) < 1:
+    start = _parse_stride2_index(node.args[1])
+    if start is None:
         return None
-    last = idx[-1]
-    if not isinstance(last, slice) or last.step != 2:
-        return None
-    for entry in idx[:-1]:
-        if entry is not Ellipsis and entry != slice(None):
-            return None
-    start = last.start if last.start is not None else 0
     return start, source
 
 
