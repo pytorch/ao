@@ -191,11 +191,11 @@ inline void _scaled_embedding_bag_krnl(
     const int64_t emb_dim, const index_t last_offset, const index_t *indices,
     const index_t *offsets, const data_t *weight, const double scale,
     output_t *result, const int64_t num_batch) {
+#if defined(CPU_CAPABILITY_AVX512)
   // How many batch entries ahead to prefetch. Each entry has ~3 rows to fetch
   // from a 40M-row table; DRAM latency ~100 ns means we must keep enough
   // in-flight requests to hide latency.
   constexpr int64_t PREFETCH_DIST = 8;
-#if defined(CPU_CAPABILITY_AVX512)
   if (kHasAVX512 && emb_dim % 128 == 0) {
     constexpr int64_t block_dim = 128;
     const int64_t num_blocks = emb_dim / block_dim;
