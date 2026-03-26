@@ -44,6 +44,122 @@ TASKS = {
 }
 
 
+def _unfuse_experts_model(model: torch.nn.Module) -> None:
+    """Convert fused Qwen3MoeExperts to per-expert nn.Linear modules in-place.
+
+    Transformers 5.x ``Qwen3MoeExperts`` stores expert weights as fused 3D
+    ``nn.Parameter`` tensors (``gate_up_proj`` [E, 2*I, H] and ``down_proj``
+    [E, H, I]).  ModelOpt 0.42.0 cannot quantize or export this format because
+    it expects per-expert ``nn.Linear`` modules.
+
+    This function replaces each ``Qwen3MoeExperts`` with an ``nn.ModuleList``
+    of expert modules (each containing ``gate_proj``, ``up_proj``, ``down_proj``
+    as ``nn.Linear``), wrapped in a callable module so the ``SparseMoeBlock``
+    forward continues to work for calibration.
+
+    The conversion is lossless and in-place (modifies the model, returns None).
+    """
+    import torch.nn as nn
+
+    class _UnfusedExperts(nn.Module):
+        """Drop-in replacement for Qwen3MoeExperts using per-expert nn.Linear.
+
+        Implements the same forward (per-expert loop) and is iterable so
+        ModelOpt's export code can enumerate expert linear layers.
+        """
+
+        def __init__(self, fused: nn.Module):
+            super().__init__()
+            self.num_experts = fused.num_experts
+            self.act_fn = fused.act_fn
+            E = fused.num_experts
+            I = fused.intermediate_dim
+            H = fused.hidden_dim
+
+            for i in range(E):
+                gate_w = fused.gate_up_proj.data[i, :I, :].contiguous()
+                up_w = fused.gate_up_proj.data[i, I:, :].contiguous()
+                down_w = fused.down_proj.data[i].contiguous()
+
+                expert = nn.Module()
+                expert.gate_proj = nn.Linear(
+                    H, I, bias=False, device=gate_w.device, dtype=gate_w.dtype
+                )
+                expert.gate_proj.weight = nn.Parameter(gate_w)
+                expert.up_proj = nn.Linear(
+                    H, I, bias=False, device=up_w.device, dtype=up_w.dtype
+                )
+                expert.up_proj.weight = nn.Parameter(up_w)
+                expert.down_proj = nn.Linear(
+                    I, H, bias=False, device=down_w.device, dtype=down_w.dtype
+                )
+                expert.down_proj.weight = nn.Parameter(down_w)
+                # Register as numbered child so state_dict keys are
+                # "experts.{i}.gate_proj.weight" (no extra prefix).
+                self.add_module(str(i), expert)
+
+        def __iter__(self):
+            for i in range(self.num_experts):
+                yield self._modules[str(i)]
+
+        def __len__(self):
+            return self.num_experts
+
+        def forward(self, hidden_states, top_k_index, top_k_weights):
+            final_hidden_states = torch.zeros_like(hidden_states)
+            with torch.no_grad():
+                expert_mask = torch.nn.functional.one_hot(
+                    top_k_index, num_classes=self.num_experts
+                ).permute(2, 1, 0)
+                expert_hit = torch.greater(
+                    expert_mask.sum(dim=(-1, -2)), 0
+                ).nonzero()
+
+            for expert_idx in expert_hit:
+                expert_idx = expert_idx[0]
+                if expert_idx == self.num_experts:
+                    continue
+                top_k_pos, token_idx = torch.where(expert_mask[expert_idx])
+                current_state = hidden_states[token_idx]
+                expert = self._modules[str(expert_idx.item())]
+                gate = expert.gate_proj(current_state)
+                up = expert.up_proj(current_state)
+                current_hidden_states = self.act_fn(gate) * up
+                current_hidden_states = expert.down_proj(current_hidden_states)
+                current_hidden_states = (
+                    current_hidden_states
+                    * top_k_weights[token_idx, top_k_pos, None]
+                )
+                final_hidden_states.index_add_(
+                    0,
+                    token_idx,
+                    current_hidden_states.to(final_hidden_states.dtype),
+                )
+
+            return final_hidden_states
+
+    count = 0
+    for module in model.modules():
+        if (
+            hasattr(module, "experts")
+            and hasattr(module.experts, "gate_up_proj")
+            and hasattr(module.experts, "num_experts")
+        ):
+            module.experts = _UnfusedExperts(module.experts)
+            count += 1
+
+            # ModelOpt 0.42.0's _QuantSparseMoe.forward expects top_k and
+            # num_experts on the SparseMoeBlock itself, but transformers 5.x
+            # stores them on the router (module.gate).  Copy them over so
+            # the calibration forward doesn't crash.
+            if hasattr(module, "gate") and not hasattr(module, "top_k"):
+                module.top_k = module.gate.top_k
+            if hasattr(module, "gate") and not hasattr(module, "num_experts"):
+                module.num_experts = module.gate.num_experts
+
+    print(f"Converted {count} fused Qwen3MoeExperts to per-expert nn.Linear")
+
+
 def quantize_to_nvfp4(
     bf16_checkpoint: str,
     nvfp4_dir: str,
@@ -65,6 +181,11 @@ def quantize_to_nvfp4(
         torch_dtype=torch.bfloat16,
         device_map="auto",
     )
+
+    # ModelOpt 0.42.0 cannot quantize or export transformers 5.x
+    # Qwen3MoeExperts (fused 3D parameter tensors).  Convert to per-expert
+    # nn.Linear so ModelOpt can handle them as standard quantized linears.
+    _unfuse_experts_model(model)
 
     tokenizer = AutoTokenizer.from_pretrained(bf16_checkpoint)
     if tokenizer.pad_token is None:
@@ -100,6 +221,33 @@ def quantize_to_nvfp4(
     print(f"Exporting NVFP4 checkpoint to {nvfp4_dir}...")
     export_hf_checkpoint(model, dtype=torch.bfloat16, export_dir=nvfp4_dir)
     tokenizer.save_pretrained(nvfp4_dir)
+
+    # Fix config.json for vllm compatibility.  ModelOpt's export with the
+    # unfused experts layout omits gate (router) layers from the quantization
+    # ignore list and uses transformers 5.x config keys that vllm may not
+    # recognise.
+    import json
+    from pathlib import Path
+
+    config_path = Path(nvfp4_dir) / "config.json"
+    with open(config_path) as f:
+        config = json.load(f)
+
+    num_layers = config.get("num_hidden_layers", 0)
+    qcfg = config.get("quantization_config", {})
+    ignore = qcfg.get("ignore", [])
+    for layer_idx in range(num_layers):
+        gate_name = f"model.layers.{layer_idx}.mlp.gate"
+        if gate_name not in ignore:
+            ignore.append(gate_name)
+    qcfg["ignore"] = ignore
+
+    # vllm expects "num_experts"; transformers 5.x writes "num_local_experts".
+    if "num_experts" not in config and "num_local_experts" in config:
+        config["num_experts"] = config["num_local_experts"]
+
+    with open(config_path, "w") as f:
+        json.dump(config, f, indent=4)
 
     print(f"NVFP4 checkpoint saved to {nvfp4_dir}")
 
