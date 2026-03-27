@@ -1563,7 +1563,11 @@ def _register_qlinear_weight_prepack():
     #   |            OPT(add)               |
 
     linear_weight_prepack_cases = itertools.product(
-        [torch.float32, torch.bfloat16], [True, False], [True, False], [True, False], [1, 2]
+        [torch.float32, torch.bfloat16],
+        [True, False],
+        [True, False],
+        [True, False],
+        [1, 2],
     )
 
     # Step 1: register patterns from mm and addmm
