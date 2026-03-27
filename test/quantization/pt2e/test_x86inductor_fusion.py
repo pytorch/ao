@@ -173,6 +173,19 @@ class TestPatternMatcherBase(TestCase):
         is_fp8=False,
         is_aoti=False,
     ):
+        def aoti_compile(model, inputs):
+            exported = torch.export.export(model, inputs)
+            with tempfile.TemporaryDirectory() as tmpdir:
+                package_path = os.path.join(tmpdir, "model.pt2")
+                with config.patch({"aot_inductor.output_path": tmpdir}):
+                    torch._inductor.aoti_compile_and_package(
+                        exported,
+                        package_path=package_path,
+                    )
+
+                compiled_mod = torch._inductor.aoti_load_package(package_path)
+            return compiled_mod
+
         if not hasattr(self, "device"):
             has_xpu = any(
                 isinstance(input, torch.Tensor) and input.device.type == "xpu"
@@ -205,24 +218,18 @@ class TestPatternMatcherBase(TestCase):
                 mod, inputs, is_qat, is_dynamic, quantizer, is_fp8
             )
             with torch.no_grad(), maybe_autocast:
-                _ = torch.compile(convert_model)(*inputs)
+                if is_aoti:
+                    _ = aoti_compile(convert_model, inputs)(*inputs)
+                else:
+                    _ = torch.compile(convert_model)(*inputs)
                 matcher_check_fn()
         else:
             with torch.no_grad(), maybe_autocast:
                 clone_inputs = self._clone_inputs(inputs)
                 expected = mod(*inputs)
                 if is_aoti:
-                    exported = torch.export.export(mod, clone_inputs)
-                    with tempfile.TemporaryDirectory() as tmpdir:
-                        package_path = os.path.join(tmpdir, "model.pt2")
-                        with config.patch({"aot_inductor.output_path": tmpdir}):
-                            torch._inductor.aoti_compile_and_package(
-                                exported,
-                                package_path=package_path,
-                            )
-
-                        compiled_mod = torch._inductor.aoti_load_package(package_path)
-                        actual = compiled_mod(*clone_inputs)
+                    compiled_mod = aoti_compile(mod, clone_inputs)
+                    actual = compiled_mod(*clone_inputs)
                 else:
                     actual = torch.compile(mod, **compile_options)(*clone_inputs)
                 torch.testing.assert_close(
@@ -1570,6 +1577,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
             is_qat=is_qat,
             is_dynamic=is_dynamic,
             is_fp8=is_fp8,
+            is_aoti=is_aoti,
         )
         if is_fp8:
             # ensure quantize_affine_float8_non_decomposed is lowered
