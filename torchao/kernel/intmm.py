@@ -136,7 +136,9 @@ def _int_scaled_matmul_cpu(
 ) -> torch.Tensor:
     """
     CPU-optimized path for scaled integer matrix multiplication.
-    CPU prefers decomposed version to leverage the fusion capability of Inductor.
+    It goes to u8s8 or s8s8 path based on ISA support for
+    hardware. The selection is for performance only and both paths
+    should work regardless of ISA support.
 
     Args:
         a (torch.Tensor): The first matrix to multiply (int8).
@@ -150,14 +152,14 @@ def _int_scaled_matmul_cpu(
     """
     if (
         not _cpu_is_amx_tile_supported() and _cpu_is_vnni_supported()
-    ):  # u8s8: convert to uint8 to use AVX512_VNNI instructions for better performance
-        # on platforms with AVX512_VNNI support but without AMX
+    ):  # u8s8: Convert to uint8 to use AVX512_VNNI instructions for better performance
+        # on platforms with AVX512_VNNI support but without AMX.
         a = (a.to(torch.int32) + 128).to(torch.uint8)
         c = torch._int_mm(a, b)
         comp = b.sum(dim=0, keepdim=True, dtype=torch.int32) * 128
         c.sub_(comp)
         return c.to(scales1.dtype) * scales1
-    else:  # s8s8: computation done with AMX or reference implementation
+    else:  # s8s8: Computation done with AMX or as the fallback.
         c = torch._int_mm(a, b)
         return c.to(scales1.dtype) * scales1
 
