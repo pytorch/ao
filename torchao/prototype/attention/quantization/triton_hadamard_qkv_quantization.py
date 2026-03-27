@@ -213,9 +213,7 @@ def triton_fp8_hadamard_sdpa_quantize(
     v_had = torch.empty_like(v)
 
     # Temp buffers for Hadamard butterfly (one D-vector per (b, h, chunk) triple)
-    q_temp = torch.empty(
-        B, H_q, q_num_chunks, D, dtype=torch.float32, device=q.device
-    )
+    q_temp = torch.empty(B, H_q, q_num_chunks, D, dtype=torch.float32, device=q.device)
     kv_temp = torch.empty(
         B, H_kv, kv_num_chunks, D, dtype=torch.float32, device=q.device
     )

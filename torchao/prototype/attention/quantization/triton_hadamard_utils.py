@@ -205,9 +205,7 @@ def inverse_hadamard_transform(
     chunk_size = (S + num_chunks - 1) // num_chunks
 
     output = torch.empty(B, H, S, D, dtype=x.dtype, device=x.device)
-    temp_buffer = torch.empty(
-        B, H, num_chunks, D, dtype=torch.float32, device=x.device
-    )
+    temp_buffer = torch.empty(B, H, num_chunks, D, dtype=torch.float32, device=x.device)
 
     grid = (B, H, num_chunks)
     use_bfloat16 = x.dtype == torch.bfloat16

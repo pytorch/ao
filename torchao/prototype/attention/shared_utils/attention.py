@@ -72,8 +72,8 @@ def _fp8_sdpa(
             _fp8_hadamard_sdpa_quantize(query, key, value)
         )
     else:
-        q_fp8, k_fp8, v_fp8, descale_q, descale_k, descale_v = (
-            _fp8_sdpa_quantize(query, key, value)
+        q_fp8, k_fp8, v_fp8, descale_q, descale_k, descale_v = _fp8_sdpa_quantize(
+            query, key, value
         )
 
     with sdpa_kernel(SDPBackend.FLASH_ATTENTION):
@@ -138,10 +138,8 @@ def _fp8_rope_sdpa(
             )
         )
     else:
-        q_fp8, k_fp8, v_fp8, descale_q, descale_k, descale_v = (
-            _fp8_rope_sdpa_quantize(
-                query, key, value, cos, sin, rope_interleaved=rope_interleaved
-            )
+        q_fp8, k_fp8, v_fp8, descale_q, descale_k, descale_v = _fp8_rope_sdpa_quantize(
+            query, key, value, cos, sin, rope_interleaved=rope_interleaved
         )
 
     with sdpa_kernel(SDPBackend.FLASH_ATTENTION):

@@ -362,12 +362,8 @@ def triton_fp8_hadamard_rope_sdpa_quantize(
     v_intermediate = torch.empty(B, H_kv, S, D, dtype=v.dtype, device=q.device)
 
     # Temp buffers for Hadamard butterfly
-    q_temp = torch.empty(
-        B, H_q, num_chunks, D, dtype=torch.float32, device=q.device
-    )
-    kv_temp = torch.empty(
-        B, H_kv, num_chunks, D, dtype=torch.float32, device=q.device
-    )
+    q_temp = torch.empty(B, H_q, num_chunks, D, dtype=torch.float32, device=q.device)
+    kv_temp = torch.empty(B, H_kv, num_chunks, D, dtype=torch.float32, device=q.device)
 
     # Partial max buffers
     q_partial_max = torch.empty(
@@ -495,12 +491,8 @@ def triton_fp8_hadamard_rope_sdpa_quantize(
         q_partial_max, q_scale, q_descale, H_q, H_kv, groups, num_chunks
     )
     # K, V: per-head reduce
-    single_reduce_kernel[(B, H_kv)](
-        k_partial_max, k_scale, k_descale, H_kv, num_chunks
-    )
-    single_reduce_kernel[(B, H_kv)](
-        v_partial_max, v_scale, v_descale, H_kv, num_chunks
-    )
+    single_reduce_kernel[(B, H_kv)](k_partial_max, k_scale, k_descale, H_kv, num_chunks)
+    single_reduce_kernel[(B, H_kv)](v_partial_max, v_scale, v_descale, H_kv, num_chunks)
 
     # ---- Phase 2: Quantize Q from intermediate ----
     rope_single_phase2_kernel[q_grid](
