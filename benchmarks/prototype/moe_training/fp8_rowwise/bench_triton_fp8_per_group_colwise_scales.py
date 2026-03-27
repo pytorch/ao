@@ -71,18 +71,12 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
     # Define test inputs
     Mg, K = config.input_shape
 
-    # Column major input tensor.
-    # Right operand in grad_weight = grad_output_t @ input
-    input_tensor = (
-        torch.randn(
-            Mg,
-            K,
-            dtype=config.high_precision_dtype,
-            device=device,
-        )
-        .transpose(-2, -1)
-        .contiguous()
-        .transpose(-2, -1)
+    # Row major input tensor.
+    input_tensor = torch.randn(
+        Mg,
+        K,
+        dtype=config.high_precision_dtype,
+        device=device,
     )
 
     # - configure input to be row-major with groups divided along the column dimension,
