@@ -16,6 +16,7 @@ from torchao.float8.float8_utils import is_row_major, pad_tensor_for_matmul
 from torchao.float8.types import FP8Granularity
 from torchao.utils import (
     is_MI300,
+    is_Navi4,
     is_sm_at_least_89,
 )
 
@@ -295,9 +296,9 @@ def _check_hardware_support(
 
     if is_per_tensor or is_per_row:
         assert torch.xpu.is_available() or (
-            torch.cuda.is_available() and is_sm_at_least_89() or is_MI300()
+            torch.cuda.is_available() and (is_sm_at_least_89() or is_MI300() or is_Navi4())
         ), (
-            "Float8 dynamic quantization requires CUDA compute capability ≥8.9 or MI300+ or XPU."
+            "Float8 dynamic quantization requires CUDA compute capability ≥8.9, MI300+, Navi4+, or XPU."
         )
     elif is_a_1_128_w_128_128:
         # TODO(future PR): look into AMD support

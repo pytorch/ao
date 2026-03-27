@@ -30,6 +30,7 @@ __all__ = [
     "TorchAOBaseTensor",
     "is_cuda_version_at_least",
     "is_MI300",
+    "is_Navi4",
     "is_sm_at_least_89",
     "is_sm_at_least_90",
     "is_sm_at_least_100",
@@ -1193,7 +1194,7 @@ def is_MI350():
 def is_Navi4():
     if is_ROCM():
         archName = torch.cuda.get_device_properties(0).gcnArchName
-        if "gfx1200" or "gfx1201" in archName:
+        if "gfx1200" in archName or "gfx1201" in archName:
             return True
     return False
 
