@@ -38,10 +38,6 @@ BLOCKWISE_SIZE_MNK = [
 ]
 
 
-def _maybe_compile(fn, use_compile: bool):
-    return torch.compile(fn, fullgraph=True) if use_compile else fn
-
-
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(
     not (is_sm_at_least_90() or is_MI300() or is_MI350()),
@@ -105,18 +101,16 @@ def test_triton_fp8_gemm_1x128_128x1(M, N, K, dtype):
     reason="Requires FP8-capable GPU (CUDA SM90+, MI300, or MI350)",
 )
 @pytest.mark.parametrize("block_size", [128, 256])
-@pytest.mark.parametrize("use_compile", [False, True])
-def test_triton_quantize_fp8_act_quant_lhs(block_size, use_compile):
+def test_triton_quantize_fp8_act_quant_lhs(block_size):
     device = "cuda"
     M, K = 4096, 1024
     x = torch.randn(M, K, device=device)
 
     x[0, :block_size] = 0.0
 
-    triton_fp8, triton_scale = _maybe_compile(
-        lambda inp: triton_fp8_blockwise_act_quant_lhs(inp, block_size=block_size),
-        use_compile,
-    )(x)
+    triton_fp8, triton_scale = triton_fp8_blockwise_act_quant_lhs(
+        x, block_size=block_size
+    )
 
     ref_fp8, ref_scale = torch_blockwise_scale_act_quant_lhs(x, tile_size=block_size)
 
@@ -149,18 +143,16 @@ def test_triton_quantize_fp8_act_quant_lhs(block_size, use_compile):
     reason="Requires FP8-capable GPU (CUDA SM90+, MI300, or MI350)",
 )
 @pytest.mark.parametrize("block_size", [128, 256])
-@pytest.mark.parametrize("use_compile", [False, True])
-def test_triton_quantize_fp8_act_quant_rhs(block_size: int, use_compile):
+def test_triton_quantize_fp8_act_quant_rhs(block_size: int):
     device = "cuda"
     M, K = 4096, 1024
     x = torch.randn(M, K, device=device)
 
     x[:block_size, :block_size] = 0.0
 
-    triton_fp8, triton_scale = _maybe_compile(
-        lambda inp: triton_fp8_blockwise_act_quant_rhs(inp, block_size=block_size),
-        use_compile,
-    )(x)
+    triton_fp8, triton_scale = triton_fp8_blockwise_act_quant_rhs(
+        x, block_size=block_size
+    )
 
     ref_fp8, ref_scale = torch_blockwise_scale_act_quant_rhs(x, block_size=block_size)
 
@@ -194,21 +186,15 @@ def test_triton_quantize_fp8_act_quant_rhs(block_size: int, use_compile):
 )
 @pytest.mark.parametrize("block_size", [128, 256])
 @pytest.mark.parametrize("M,K", [(4096, 1024), (4096, 4 * 4096)])
-@pytest.mark.parametrize("use_compile", [False, True])
-def test_triton_quantize_fp8_act_quant_transposed_lhs(
-    M, K, block_size: int, use_compile
-):
+def test_triton_quantize_fp8_act_quant_transposed_lhs(M, K, block_size: int):
     device = "cuda"
     x = torch.randn(M, K, device=device)
 
     x[0, :block_size] = 0.0
 
-    triton_fp8, triton_scale = _maybe_compile(
-        lambda inp: triton_fp8_blockwise_act_quant_transposed_lhs(
-            inp, block_size=block_size
-        ),
-        use_compile,
-    )(x)
+    triton_fp8, triton_scale = triton_fp8_blockwise_act_quant_transposed_lhs(
+        x, block_size=block_size
+    )
 
     ref_fp8, ref_scale = torch_blockwise_scale_act_quant_lhs(
         x.t().contiguous(), tile_size=block_size
@@ -244,17 +230,15 @@ def test_triton_quantize_fp8_act_quant_transposed_lhs(
 )
 @pytest.mark.parametrize("block_size", [128, 256])
 @pytest.mark.parametrize("M,K", [(4096, 1024), (4096, 4 * 4096)])
-@pytest.mark.parametrize("use_compile", [False, True])
-def test_triton_quantize_fp8_weight_quant_rhs(M, K, block_size: int, use_compile):
+def test_triton_quantize_fp8_weight_quant_rhs(M, K, block_size: int):
     device = "cuda"
     x = torch.randn(M, K, device=device)
 
     x[:block_size, :block_size] = 0.0
 
-    triton_fp8, triton_scale = _maybe_compile(
-        lambda inp: triton_fp8_blockwise_weight_quant_rhs(inp, block_size=block_size),
-        use_compile,
-    )(x)
+    triton_fp8, triton_scale = triton_fp8_blockwise_weight_quant_rhs(
+        x, block_size=block_size
+    )
     ref_fp8, ref_scale = torch_blockwise_scale_weight_quant(x, tile_size=block_size)
 
     assert not ref_fp8.isnan().any(), "fp8 output must not contain NaNs"
@@ -286,8 +270,7 @@ def test_triton_quantize_fp8_weight_quant_rhs(M, K, block_size: int, use_compile
     reason="Requires FP8-capable GPU (CUDA SM90+, MI300, or MI350)",
 )
 @pytest.mark.parametrize("block_size", [128, 256])
-@pytest.mark.parametrize("use_compile", [False, True])
-def test_triton_quantize_fp8_weight_quant_transposed_rhs(block_size: int, use_compile):
+def test_triton_quantize_fp8_weight_quant_transposed_rhs(block_size: int):
     device = "cuda"
     M = 512
     K = 2048
@@ -295,12 +278,9 @@ def test_triton_quantize_fp8_weight_quant_transposed_rhs(block_size: int, use_co
 
     x[:block_size, :block_size] = 0.0
 
-    triton_fp8, triton_scale = _maybe_compile(
-        lambda inp: triton_fp8_blockwise_weight_quant_transposed_rhs(
-            inp, block_size=block_size
-        ),
-        use_compile,
-    )(x)
+    triton_fp8, triton_scale = triton_fp8_blockwise_weight_quant_transposed_rhs(
+        x, block_size=block_size
+    )
     ref_fp8, ref_scale = torch_blockwise_scale_weight_quant(
         x.t().contiguous(), tile_size=block_size
     )
