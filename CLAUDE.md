@@ -2,37 +2,6 @@
 
 PyTorch-native library for quantization, sparsity, and low-precision training. Works with `torch.compile()` and `FSDP2`.
 
-## Quick Reference
-
-```python
-# Quantize a model to int4
-from torchao.quantization import quantize_, Int4WeightOnlyConfig
-quantize_(model, Int4WeightOnlyConfig(group_size=32))
-
-# Float8 dynamic quantization
-from torchao.quantization import Float8DynamicActivationFloat8WeightConfig, PerRow
-quantize_(model, Float8DynamicActivationFloat8WeightConfig(granularity=PerRow()))
-
-# Per-layer configs (different quantization per module)
-from torchao.quantization import FqnToConfig
-quantize_(model, FqnToConfig({"layers.0.attn": Int4WeightOnlyConfig(), "layers.0.mlp": Float8DynamicActivationFloat8WeightConfig()}))
-
-# Filter specific layers
-quantize_(model, Int4WeightOnlyConfig(), filter_fn=lambda mod, fqn: "mlp" in fqn)
-
-# QAT (prepare, train, then convert)
-from torchao.quantization import Int8DynamicActivationIntxWeightConfig, PerGroup
-from torchao.quantization.qat import QATConfig
-base_config = Int8DynamicActivationIntxWeightConfig(weight_dtype=torch.int4, weight_granularity=PerGroup(32))
-quantize_(model, QATConfig(base_config, step="prepare"))
-# ... train ...
-quantize_(model, QATConfig(base_config, step="convert"))
-
-# Float8 training (H100/B200 required)
-from torchao.float8 import convert_to_float8_training
-convert_to_float8_training(model)
-```
-
 ## Config Classes
 
 All configs inherit from `AOBaseConfig`. Defined in `torchao/quantization/quant_api.py`:
@@ -48,15 +17,6 @@ All configs inherit from `AOBaseConfig`. Defined in `torchao/quantization/quant_
 | `Float8DynamicActivationInt4WeightConfig` | float8 activations + int4 weights |
 | `IntxWeightOnlyConfig` | arbitrary bit-width for edge/ExecuTorch |
 | `FqnToConfig` | map module names to different configs for per-layer quantization |
-
-### Granularity
-
-Controls how many elements share a quantization scale. Import from `torchao.quantization`:
-- `PerTensor` - one scale for the whole tensor
-- `PerRow` / `PerAxis` - one scale per row/axis (recommended for float8)
-- `PerGroup(group_size)` - one scale per group (e.g., group_size=32 for int4)
-- `PerBlock` - one scale per block
-- `PerToken` - one scale per token (for activations)
 
 ### Prototype configs (in `torchao/prototype/mx_formats/`)
 - `MXDynamicActivationMXWeightConfig` - MXFP8/MXFP4 (H100/B200/MI350x)
@@ -102,3 +62,16 @@ pytest test/quantization/test_quant_api.py
 pytest test/float8/
 pytest test/prototype/mx_formats/
 ```
+
+## Coding Style
+
+- 2 spaces for indentation
+- 80 character line length
+- BSD 3-Clause license header required on all source files
+- Match existing patterns in the file you're editing
+
+## Commit Messages
+
+- Do not commit without explicit request from the user
+- Preserve ghstack trailers when amending commits
+- If Claude or another AI tool was used, disclose in the commit message
