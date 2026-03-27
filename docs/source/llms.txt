@@ -12,6 +12,7 @@
 - [QAT](https://docs.pytorch.org/ao/main/workflows/qat.html)
 - [Quantization Overview](https://docs.pytorch.org/ao/main/contributing/quantization_overview.html): Architecture and internals
 - [Contributor Guide](https://docs.pytorch.org/ao/main/contributing/contributor_guide.html): How to add tensors, kernels, configs
+- [PT2E Quantization](https://docs.pytorch.org/ao/main/pt2e_quantization/index.html): PyTorch 2 Export quantization for deployment backends (X86, XPU, ExecuTorch)
 
 ## Code
 
