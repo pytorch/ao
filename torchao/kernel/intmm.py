@@ -136,9 +136,9 @@ def _int_scaled_matmul_cpu(
 ) -> torch.Tensor:
     """
     CPU-optimized path for scaled integer matrix multiplication.
-    It goes to u8s8 or s8s8 path based on ISA support for
-    hardware. The selection is for performance only and both paths
-    should work regardless of ISA support.
+    CPU prefers decomposed version to leverage the fusion capability of Inductor.
+    It goes to u8s8 or s8s8 path based on ISA support for hardware. The selection
+    is for performance only and both paths should work regardless of ISA support.
 
     Args:
         a (torch.Tensor): The first matrix to multiply (int8).
