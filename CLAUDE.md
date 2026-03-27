@@ -74,6 +74,7 @@ For architecture details, tensor subclass design, and contributor guides, see th
 - [Quantization Overview](docs/source/contributing/quantization_overview.rst) - full stack walkthrough, tensor subclasses, quantization flows
 - [Contributor Guide](docs/source/contributing/contributor_guide.rst) - how to add tensors, kernels, configs
 - [Workflows Matrix](docs/source/workflows/index.md) - dtype x hardware status table
+- [PT2E Quantization](docs/source/pt2e_quantization/index.rst) - PyTorch 2 Export quantization for deployment backends (X86, XPU, ExecuTorch)
 
 These same files render at https://docs.pytorch.org/ao/main/contributing/index.html
 
