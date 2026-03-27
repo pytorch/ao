@@ -1,0 +1,45 @@
+name: Performance Regression
+description: Report a performance regression (slower speed, higher memory usage)
+labels: ["performance"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What got slower or uses more memory? When did it start?
+    validations:
+      required: true
+
+  - type: textarea
+    id: numbers
+    attributes:
+      label: Before/After numbers
+      description: |
+        Include specific measurements:
+        - Tokens/second, latency, or throughput
+        - Peak memory usage
+        - Which version/commit was fast vs slow
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: config
+    attributes:
+      label: Model and quantization config
+      description: Model name, Config class, and parameters used.
+      render: python
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: |
+        - torch and torchao versions
+        - GPU (e.g., H100, A100)
+        - CUDA version
+      render: text
+    validations:
+      required: true

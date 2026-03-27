@@ -1,2 +1,29 @@
-msaroufim
-cpuhrsch
+# Default owners for the repo
+* @jerryzh168 @vkuzo
+
+# Quantization
+/torchao/quantization/ @jerryzh168 @andrewor14
+/torchao/dtypes/ @jerryzh168
+
+# Float8 / Low-precision training
+/torchao/float8/ @vkuzo @drisspg
+
+# Prototype: MX formats and MoE training
+/torchao/prototype/mx_formats/ @danielvegamyhre @vkuzo
+/torchao/prototype/moe_training/ @danielvegamyhre
+
+# Sparsity
+/torchao/sparsity/ @jerryzh168
+
+# Optimizers
+/torchao/optim/ @gau-nernst
+
+# Experimental / Edge
+/torchao/experimental/ @metascroy
+
+# Kernels
+/torchao/kernel/ @danielvegamyhre
+/torchao/csrc/ @danielvegamyhre
+
+# Docs
+/docs/ @vkuzo @svekars
