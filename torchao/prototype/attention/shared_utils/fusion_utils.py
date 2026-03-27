@@ -379,10 +379,10 @@ def detect_causal_mask(
     return all(all_causal)
 
 
-def _get_fp8_sdpa_params(node: Node) -> Tuple[bool, float, bool]:
-    """Extract is_causal, scale, and enable_gqa from an FP8 SDPA custom op node.
+def _get_fp8_sdpa_params(node: Node) -> Tuple[bool, float, bool, str]:
+    """Extract is_causal, scale, enable_gqa, and hadamard from an FP8 SDPA custom op node.
 
-    Custom op signature: (q, k, v, is_causal=False, scale=0.0, enable_gqa=False)
+    Custom op signature: (q, k, v, is_causal=False, scale=0.0, enable_gqa=False, hadamard="NONE")
     Scale uses 0.0 as sentinel for "default" (1/sqrt(D)).
     """
     args = node.args
@@ -391,8 +391,9 @@ def _get_fp8_sdpa_params(node: Node) -> Tuple[bool, float, bool]:
     is_causal = args[3] if len(args) > 3 else kwargs.get("is_causal", False)
     scale = args[4] if len(args) > 4 else kwargs.get("scale", 0.0)
     enable_gqa = args[5] if len(args) > 5 else kwargs.get("enable_gqa", False)
+    hadamard = args[6] if len(args) > 6 else kwargs.get("hadamard", "NONE")
 
-    return is_causal, scale, enable_gqa
+    return is_causal, scale, enable_gqa, hadamard
 
 
 def _get_fp8_sdpa_qkv(node: Node) -> Optional[Tuple[Node, Node, Node]]:
@@ -710,6 +711,7 @@ def _replace_with_fused_op(
     scale: float,
     enable_gqa: bool,
     rope_interleaved: bool,
+    hadamard: str,
     rope_sdpa_op,
 ) -> None:
     """Replace an SDPA node with a fused RoPE+SDPA custom op."""
@@ -722,6 +724,7 @@ def _replace_with_fused_op(
                 "scale": scale,
                 "enable_gqa": enable_gqa,
                 "rope_interleaved": rope_interleaved,
+                "hadamard": hadamard,
             },
         )
 
@@ -771,7 +774,7 @@ def rope_sdpa_fusion_pass(
     fused_count = 0
 
     for sdpa_node in fp8_sdpa_nodes:
-        is_causal, scale, enable_gqa = _get_fp8_sdpa_params(sdpa_node)
+        is_causal, scale, enable_gqa, hadamard = _get_fp8_sdpa_params(sdpa_node)
 
         qkv = _get_fp8_sdpa_qkv(sdpa_node)
         if qkv is None:
@@ -828,6 +831,7 @@ def rope_sdpa_fusion_pass(
                     scale=scale,
                     enable_gqa=enable_gqa,
                     rope_interleaved=q_rope.rope_interleaved,
+                    hadamard=hadamard,
                     rope_sdpa_op=rope_sdpa_op,
                 )
                 fused_count += 1
@@ -893,6 +897,7 @@ def rope_sdpa_fusion_pass(
                     scale=scale,
                     enable_gqa=fused_enable_gqa,
                     rope_interleaved=q_rope.rope_interleaved,
+                    hadamard=hadamard,
                     rope_sdpa_op=rope_sdpa_op,
                 )
                 fused_count += 1

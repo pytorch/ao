@@ -53,7 +53,9 @@ class _FP8FlashAttentionMonkeyPatchWrapper(_LowPrecisionAttentionWrapper):
             restore_flash_attention_impl()
 
 
-def _make_causal_aware_sdpa(fp8_sdpa_custom_op, strip_causal_mask: bool) -> Callable:
+def _make_causal_aware_sdpa(
+    fp8_sdpa_custom_op, strip_causal_mask: bool, hadamard: str = "NONE"
+) -> Callable:
     """Bridge F.sdpa signature to the FP8 SDPA custom op.
 
     Calls the custom op so torch.compile sees an opaque node in the FX graph.
@@ -85,6 +87,7 @@ def _make_causal_aware_sdpa(fp8_sdpa_custom_op, strip_causal_mask: bool) -> Call
             is_causal=is_causal,
             scale=scale if scale is not None else 0.0,
             enable_gqa=enable_gqa,
+            hadamard=hadamard,
         )
 
     return _patched

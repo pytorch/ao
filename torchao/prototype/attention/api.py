@@ -25,6 +25,13 @@ if _TORCH_VERSION_AT_LEAST_2_11:
     )
 
 
+class HadamardMode(str, Enum):
+    """Hadamard transform mode for improved FP8 quantization quality."""
+
+    NONE = "NONE"  # No Hadamard transform
+    QKV = "QKV"  # Apply Hadamard to Q, K, and V
+
+
 class AttentionBackend(str, Enum):
     """Backend kernel for computing attention."""
 
@@ -60,6 +67,7 @@ def _check_backend_available(backend: AttentionBackend) -> None:
 def apply_low_precision_attention(
     model: nn.Module,
     backend: Optional[AttentionBackend] = None,
+    hadamard: HadamardMode = HadamardMode.NONE,
 ) -> nn.Module:
     """Apply low-precision attention to a model.
 
@@ -70,6 +78,15 @@ def apply_low_precision_attention(
     This replaces ``F.scaled_dot_product_attention`` with an FP8 SDPA
     for eager execution and sets a global pre-grad pass so that
     ``torch.compile`` will automatically fuse RoPE where detected.
+
+    Args:
+        model: The model to apply low-precision attention to.
+        backend: Backend to use. If None, auto-detected.
+        hadamard: Hadamard transform mode. ``HadamardMode.QKV`` applies
+            the Hadamard transform to Q, K, and V before FP8 quantization,
+            spreading outliers across the head dimension for better
+            dynamic range utilization. Requires D to be a power of 2
+            and <= 256.
 
     Example:
 
@@ -93,6 +110,6 @@ def apply_low_precision_attention(
         _check_backend_available(backend)
 
     if backend == AttentionBackend.FP8_FA3:
-        return setup_fp8_backend(model, "FA3")
+        return setup_fp8_backend(model, "FA3", hadamard=str(hadamard))
 
     raise ValueError(f"Unknown backend: {backend}")
