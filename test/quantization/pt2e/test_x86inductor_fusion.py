@@ -269,7 +269,9 @@ class TestPatternMatcherBase(TestCase):
                             package_path=package_path,
                         )
 
-                    cpp_paths = glob.glob(os.path.join(tmpdir, "**/*.wrapper.cpp"), recursive=True)
+                    cpp_paths = glob.glob(
+                        os.path.join(tmpdir, "**/*.wrapper.cpp"), recursive=True
+                    )
                     assert cpp_paths, "Failed to find generated .wrapper.cpp"
                     with open(cpp_paths[0], "r") as f:
                         source_code = f.read()
@@ -1609,18 +1611,25 @@ class TestPatternMatcher(TestPatternMatcherBase):
         r"""
         This testcase will quantize a single Linear Moduel.
         """
-        aoti_options = [False,]
+        aoti_options = [
+            False,
+        ]
         try:
             import torch._inductor.constant_folding as cf
+
             if hasattr(cf, "add_dont_constant_fold"):
-                cf.add_dont_constant_fold(torch.ops.torchao.dequantize_affine_float8_non_decomposed.default)
+                cf.add_dont_constant_fold(
+                    torch.ops.torchao.dequantize_affine_float8_non_decomposed.default
+                )
                 aoti_options = [False, True]
         finally:
             pass
 
         for is_aoti in aoti_options:
             for bias in [True, False]:
-                self._qlinear_test_helper((torch.randn((2, 4)),), bias=bias, is_fp8=True, is_aoti=is_aoti)
+                self._qlinear_test_helper(
+                    (torch.randn((2, 4)),), bias=bias, is_fp8=True, is_aoti=is_aoti
+                )
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
@@ -3164,7 +3173,9 @@ class TestDynamicPatternMatcher(TestPatternMatcherBase):
                 annotate_matmul=annotate_matmul, is_fp8=True
             )
 
-    def _test_scaled_embedding_bag_helper(self, dtype, with_output_quant=False, is_aoti=False):
+    def _test_scaled_embedding_bag_helper(
+        self, dtype, with_output_quant=False, is_aoti=False
+    ):
         class FP8QDQEmbeddingBag(torch.nn.Module):
             def __init__(self):
                 super().__init__()
@@ -3270,11 +3281,16 @@ class TestDynamicPatternMatcher(TestPatternMatcherBase):
         reason="cpp kernels not built",
     )
     def test_fp8_scaled_embedding_bag(self):
-        aoti_options = [False,]
+        aoti_options = [
+            False,
+        ]
         try:
             import torch._inductor.constant_folding as cf
+
             if hasattr(cf, "add_dont_constant_fold"):
-                cf.add_dont_constant_fold(torch.ops.torchao.dequantize_affine_float8_non_decomposed.default)
+                cf.add_dont_constant_fold(
+                    torch.ops.torchao.dequantize_affine_float8_non_decomposed.default
+                )
                 aoti_options = [False, True]
         finally:
             pass
