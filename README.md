@@ -310,15 +310,6 @@ TorchAO is integrated into some of the leading open-source libraries including:
 If you find the torchao library useful, please cite it in your work as below.
 
 ```bibtex
-@software{torchao,
-  title={TorchAO: PyTorch-Native Training-to-Serving Model Optimization},
-  author={torchao},
-  url={https://github.com/pytorch/ao},
-  license={BSD-3-Clause},
-  month={oct},
-  year={2024}
-}
-
 @misc{or2025torchao,
   title={TorchAO: PyTorch-Native Training-to-Serving Model Optimization},
   author={Andrew Or and Apurva Jain and Daniel Vega-Myhre and Jesse Cai and Charles David Hernandez and Zhenrui Zheng and Driss Guessous and Vasiliy Kuznetsov and Christian Puhrsch and Mark Saroufim and Supriya Rao and Thien Tran and Aleksandar Samardžić},
