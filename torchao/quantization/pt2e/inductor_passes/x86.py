@@ -1041,8 +1041,6 @@ def _is_valid_dequant_linear_pattern(dtype, input_dim_exceeds_two, input_contigu
         # Allow dequant has multi users including _assert_tensor_metadata introduced by AOT Inductor.
         if len(_get_non_assert_users(dequant_node)) != 1:
             return False
-            # Ensure the dequant pattern only has 1 effective user
-            # since we will delete the dequant pattern here
 
         # Extra check for bmm pattern
         if input_dim_exceeds_two and not input_contiguous:
