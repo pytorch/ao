@@ -11,9 +11,9 @@ import functools
 import glob
 import itertools
 import os
+import tempfile
 import unittest
 from typing import NamedTuple
-import tempfile
 
 import torch
 from torch._dynamo import config as dynamo_config
