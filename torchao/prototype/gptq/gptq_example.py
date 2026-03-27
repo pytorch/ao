@@ -31,6 +31,23 @@ Depending on your exact task, you may see a difference in accuraccy between the 
 """
 
 
+def _get_device(device: Optional[str] = None) -> str:
+    if device is not None:
+        return device
+    if torch.cuda.is_available():
+        return "cuda"
+    if torch.xpu.is_available():
+        return "xpu"
+    raise RuntimeError("GPTQ example requires either CUDA or XPU.")
+
+
+def _get_int4_config(group_size: int, device: str) -> Int4WeightOnlyConfig:
+    kwargs = {"group_size": group_size}
+    if device == "xpu":
+        kwargs["int4_packing_format"] = "plain_int32"
+    return Int4WeightOnlyConfig(**kwargs)
+
+
 # run with no grad otherwise keeping all the tensors around for the backwards will cause oom
 @torch.no_grad()
 def sequential_quantize(
@@ -141,6 +158,13 @@ def parse_args():
         description="GPTQ quantization example for language models"
     )
     parser.add_argument(
+        "--device",
+        type=str,
+        default=None,
+        choices=["cuda", "xpu"],
+        help="Target device for model loading and quantization",
+    )
+    parser.add_argument(
         "--model-id",
         type=str,
         default="unsloth/Llama-3.1-8B-Instruct",
@@ -203,6 +227,7 @@ def parse_args():
 
 def main():
     args = parse_args()
+    device = _get_device(args.device)
 
     # Map dtype string to torch dtype
     dtype_map = {
@@ -215,7 +240,7 @@ def main():
     print(f"Loading model {args.model_id}...")
     model = AutoModelForCausalLM.from_pretrained(
         args.model_id,
-        device_map="cuda:0",
+        device_map=f"{device}:0",
         dtype=dtype,
     )
     tokenizer = AutoTokenizer.from_pretrained(args.model_id)
@@ -251,7 +276,7 @@ def main():
 
     if args.quantization == "int4-rtn":
         print("Applying Int4 RTN (Round-To-Nearest) quantization...")
-        config = Int4WeightOnlyConfig(group_size=args.group_size)
+        config = _get_int4_config(args.group_size, device)
         quantize_(model, config, filter_fn=None)
 
     elif args.quantization == "int8-rtn":
@@ -267,7 +292,7 @@ def main():
     ]:
         # Determine base config based on quantization type
         if "int4" in args.quantization:
-            base_config = Int4WeightOnlyConfig(group_size=args.group_size)
+            base_config = _get_int4_config(args.group_size, device)
             quant_type = "Int4"
         else:  # int8
             base_config = Int8WeightOnlyConfig(granularity=PerRow(), version=2)
@@ -333,6 +358,7 @@ def main():
     # Save model to generated output directory
     print(f"Saving model to {output_dir}...")
     tokenizer.save_pretrained(output_dir)
+    print("model:", model)
     model.save_pretrained(output_dir, safe_serialization=False)
 
     print("DONE!")
@@ -342,8 +368,10 @@ def main():
     del model
     del tokenizer
     gc.collect()
-    if torch.cuda.is_available():
+    if device == "cuda":
         torch.cuda.empty_cache()
+    elif device == "xpu":
+        torch.xpu.empty_cache()
     print("GPU memory cleared.")
 
     # Run lm_eval on the saved model
