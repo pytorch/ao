@@ -81,15 +81,14 @@ input_file = sys.argv[1]
 output_file = input_file + ".out"
 VERBOSE = os.getenv("VERBOSE", "true").lower() == "true"
 GITHUB_LABEL_TO_CATEGORY = {
-    "topic: bc-breaking": "BC Breaking",
-    "topic: deprecation": "Deprecations",
-    "topic: new feature": "New Features",
-    "topic: improvement": "Improvement",
-    "topic: bug fix": "Bug Fixes",
-    "topic: performance": "Performance",
-    "topic: documentation": "Documentation",
-    "topic: for developer": "Developers",
-    "topic: not user facing": "Not User Facing",
+    "module: core": "Core",
+    "module: deprecation": "Deprecations",
+    "module: training": "Training",
+    "module: qat": "QAT",
+    "module: inference": "Inference",
+    "module: bc-breaking": "BC Breaking",
+    "module: pt2e_quant": "Edge",
+    "module: not user facing": "Not User Facing",
 }
 
 
@@ -116,15 +115,15 @@ def clean_release_notes():
     commit_lines = []
     commit_start = False
     commits_by_category = {
-        "BC Breaking": [],
+        "Core": [],
         "Deprecations": [],
-        "New Features": [],
-        "Improvement": [],
-        "Bug Fixes": [],
-        "Performance": [],
-        "Documentation": [],
-        "Developers": [],
+        "Training": [],
+        "QAT": [],
+        "Inference": [],
+        "BC Breaking": [],
+        "Edge": [],
         "Not User Facing": [],
+        "Documentation": [],
     }
     with open(input_file, "r") as in_f, open(output_file, "a") as out_f:
         for line in in_f.readlines():
@@ -162,7 +161,7 @@ def parse_pr_number(commit_line: str) -> int:
 
 def fetch_pr_labels(commit_lines: List[str]) -> Dict[int, str]:
     """
-    Fetch the relevant github labels starting with "topic: " from all PRs.
+    Fetch the relevant github labels starting with "module: " from all PRs.
     If such a label exists for a given PR, store the first one.
     """
     pr_number_to_label = {}
@@ -175,7 +174,7 @@ def fetch_pr_labels(commit_lines: List[str]) -> Dict[int, str]:
     for pr in pulls:
         if pr.number < smallest_pr_number:
             break
-        labels = [l.name for l in pr.labels if l.name.startswith("topic: ")]
+        labels = [l.name for l in pr.labels if l.name.startswith("module: ")]
         if len(labels) > 0:
             if VERBOSE:
                 print("Found label for PR %s: '%s'" % (pr.number, labels[0]))
@@ -207,13 +206,9 @@ def get_commit_category(
     ):
         return "Documentation"
     elif any(x in commit_line.lower() for x in ["test", "lint", " ci", "nightl"]):
-        return "Developers"
-    elif " fix" in commit_line.lower():
-        return "Bug Fixes"
-    elif " add" in commit_line.lower():
-        return "New Features"
+        return "Not User Facing"
     else:
-        return "Improvement"
+        return "Core"
 
 
 def format_commit(commit_line: str) -> str:
