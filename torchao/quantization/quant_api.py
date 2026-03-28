@@ -1620,8 +1620,8 @@ class IntxWeightOnlyConfig(AOBaseConfig):
         assert self.weight_dtype in [getattr(torch, f"int{b}") for b in range(1, 9)], (
             f"weight_dtype must be torch.intx, where 1 <= x <= 8, but got {self.weight_dtype}"
         )
-        assert isinstance(self.granularity, (PerAxis, PerGroup)), (
-            f"granularity must be PerAxis or PerGroup, but got {self.granularity}"
+        assert isinstance(self.granularity, (PerTensor, PerAxis, PerGroup)), (
+            f"granularity must be PerTensor, PerAxis or PerGroup, but got {self.granularity}"
         )
         if isinstance(self.granularity, PerAxis):
             assert self.granularity.axis == 0, (
@@ -1667,6 +1667,8 @@ def _intx_weight_only_quantize_tensor(
             f"axis must be 0 with PerAxis, but got {granularity.axis}"
         )
         group_size = weight.shape[input_dim]
+    elif isinstance(granularity, PerTensor):
+        group_size = 1
     else:
         raise ValueError(f"granularity must be PerGroup or PerAxis, got {granularity}")
 
@@ -1676,6 +1678,8 @@ def _intx_weight_only_quantize_tensor(
         # conv2d: N, C_in, H, W
         assert weight.dim() == 4
         block_size = (1, group_size, 1, 1)
+    if isinstance(granularity, PerTensor):
+        block_size = weight.shape
 
     assert config.version == 2
     if config.intx_packing_format == IntxPackingFormat.UNPACKED_TO_INT8:
