@@ -24,7 +24,10 @@ class WeightTensorWithLinearActivationQuantizationMetadata(TorchAOBaseTensor):
 
     Args:
         original_weight_tensor (torch.Tensor): The weight tensor to be wrapped.
-        input_quant_func_static (Callable): The quantization function for inputs.
+        input_quant_func_static (Callable[
+            [torch.Tensor, torch.Tensor, Optional[torch.Tensor]],
+            torch.Tensor,
+        ]): The quantization function for inputs.
             Must have the signature: (Tensor, scale: Tensor, zero_point: Optional[Tensor], **quant_kwargs) -> Tensor
         scale (torch.Tensor): The scale tensor for activation quantization.
         zero_point (Optional[torch.Tensor]): The zero point tensor for activation quantization. Default is None.
@@ -33,7 +36,10 @@ class WeightTensorWithLinearActivationQuantizationMetadata(TorchAOBaseTensor):
     """
 
     original_weight_tensor: torch.Tensor
-    input_quant_func_static: Callable
+    input_quant_func_static: Callable[
+        [torch.Tensor, torch.Tensor, Optional[torch.Tensor]],
+        torch.Tensor,
+    ]
     scale: torch.Tensor
     zero_point: Optional[torch.Tensor]
     quant_kwargs: Dict[str, Any]
@@ -41,7 +47,10 @@ class WeightTensorWithLinearActivationQuantizationMetadata(TorchAOBaseTensor):
     def __new__(
         cls,
         original_weight_tensor: torch.Tensor,
-        input_quant_func_static: Callable,
+        input_quant_func_static: Callable[
+            [torch.Tensor, torch.Tensor, Optional[torch.Tensor]],
+            torch.Tensor,
+        ],
         scale: torch.Tensor,
         zero_point: Optional[torch.Tensor],
         quant_kwargs: Dict[str, Any],
@@ -58,7 +67,7 @@ class WeightTensorWithLinearActivationQuantizationMetadata(TorchAOBaseTensor):
         self,
         original_weight_tensor: torch.Tensor,
         input_quant_func_static: Callable[
-            [torch.Tensor, torch.Tensor, Optional[torch.Tensor], Dict[str, Any]],
+            [torch.Tensor, torch.Tensor, Optional[torch.Tensor]],
             torch.Tensor,
         ],
         scale: torch.Tensor,
