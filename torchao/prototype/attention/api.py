@@ -13,8 +13,8 @@ import torch
 import torch._dynamo
 import torch.nn as nn
 
-from torchao.prototype.attention.utils import _is_fa3_available, _is_hopper
-from torchao.utils import torch_version_at_least
+from torchao.prototype.attention.utils import _is_fa3_available
+from torchao.utils import is_sm_at_least_90, torch_version_at_least
 
 _TORCH_VERSION_AT_LEAST_2_11 = torch_version_at_least("2.11.0")
 
@@ -35,19 +35,17 @@ def _get_available_backend() -> AttentionBackend:
     if not torch.cuda.is_available():
         raise RuntimeError("Low-precision attention requires CUDA.")
     capability = torch.cuda.get_device_capability()
-    if _is_hopper() and _is_fa3_available():
+    if is_sm_at_least_90() and _is_fa3_available():
         return AttentionBackend.FP8_FA3
     raise RuntimeError(f"No compatible backend for SM{capability[0]}{capability[1]}.")
 
 
 def _check_backend_available(backend: AttentionBackend) -> None:
-    if not torch.cuda.is_available():
-        raise RuntimeError(f"{backend} backend requires CUDA.")
-    capability = torch.cuda.get_device_capability()
     if backend == AttentionBackend.FP8_FA3:
-        if not _is_hopper():
+        if not is_sm_at_least_90():
+            capability = torch.cuda.get_device_capability()
             raise RuntimeError(
-                f"FP8_FA3 requires Hopper (SM 9.x), got SM{capability[0]}{capability[1]}."
+                f"FP8_FA3 requires SM 9.0+, got SM{capability[0]}.{capability[1]}."
             )
         if not _is_fa3_available():
             raise RuntimeError(

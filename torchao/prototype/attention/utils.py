@@ -6,22 +6,6 @@
 
 import importlib
 
-import torch
-
-
-def _is_hopper() -> bool:
-    if not torch.cuda.is_available():
-        return False
-    major, _ = torch.cuda.get_device_capability()
-    return major == 9
-
-
-def _is_blackwell() -> bool:
-    if not torch.cuda.is_available():
-        return False
-    major, _ = torch.cuda.get_device_capability()
-    return major == 10
-
 
 def _is_fa3_available() -> bool:
     try:
