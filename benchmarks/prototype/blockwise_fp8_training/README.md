@@ -11,17 +11,26 @@ The kernel-path bandwidth utility is:
 python -m benchmarks.prototype.blockwise_fp8_training.benchmark_quant_kernel_bandwidth
 ```
 
+To additionally validate Triton outputs against the Torch reference
+implementations:
+
+```bash
+python -m benchmarks.prototype.blockwise_fp8_training.benchmark_quant_kernel_bandwidth --check-correctness
+```
+
 What it reports:
 
 - `kernel_us`: measured runtime of the public quantization wrapper call
 - `effective_logical_io_gbps`: logical tensor IO bytes divided by measured time
-- `logical_io_vs_peak_%`: `effective_logical_io_gbps / peak_bandwidth_gbps`
 - `logical_io_vs_achievable_%`: `effective_logical_io_gbps / achievable_bandwidth_gbps`
 
 Notes:
 
 - The benchmark times the public wrapper functions in
   `torchao.prototype.blockwise_fp8_training.kernels`.
+- `--check-correctness` runs the matching Torch reference path once per valid
+  kernel and shape before reporting results. This adds overhead and is intended
+  for validation, not headline timing runs.
 - The bandwidth number uses the expected tensor IO footprint, not hardware DRAM
   counters.
 - Peak bandwidth defaults to CUDA device properties. `--use-roofline-utils`
@@ -51,20 +60,21 @@ Environment:
 - Peak bandwidth reference: `3352.3 GB/s`
 - Peak bandwidth source: `cuda_device_properties`
 - Achievable bandwidth reference: `3084.1 GB/s`
+- Achievable bandwidth uses `92.0%` of peak bandwidth
 - Achievable bandwidth source: `roofline_utils_pct_achievable_mem_bw`
 
 ### Per-shape Results
 Tested with shapes 32768 and 131072 to reflect real world training:
 
-| kernel | shape | kernel_us | effective_logical_io_gbps | logical_io_vs_peak_% | logical_io_vs_achievable_% |
-|---|---|---:|---:|---:|---:|
-| act_quant_transposed_lhs | 32768x4096 | 154.46 | 2633.9 | 78.6 | 85.4 |
-| weight_quant_transposed_rhs | 32768x4096 | 150.53 | 2675.2 | 79.8 | 86.7 |
-| act_quant_lhs | 32768x4096 | 150.86 | 2696.8 | 80.4 | 87.4 |
-| act_quant_rhs | 32768x4096 | 148.70 | 2736.0 | 81.6 | 88.7 |
-| weight_quant_rhs | 32768x4096 | 144.99 | 2777.3 | 82.8 | 90.1 |
-| weight_quant_transposed_rhs | 131072x4096 | 581.89 | 2768.1 | 82.6 | 89.8 |
-| act_quant_lhs | 131072x4096 | 586.98 | 2772.5 | 82.7 | 89.9 |
-| act_quant_transposed_lhs | 131072x4096 | 581.47 | 2798.7 | 83.5 | 90.7 |
-| act_quant_rhs | 131072x4096 | 562.56 | 2892.8 | 86.3 | 93.8 |
-| weight_quant_rhs | 131072x4096 | 555.30 | 2900.7 | 86.5 | 94.1 |
+| kernel | shape | kernel_us | effective_logical_io_gbps | logical_io_vs_achievable_% |
+|---|---|---:|---:|---:|
+| act_quant_transposed_lhs | 32768x4096 | 154.46 | 2633.9 | 85.4 |
+| weight_quant_transposed_rhs | 32768x4096 | 150.53 | 2675.2 | 86.7 |
+| act_quant_lhs | 32768x4096 | 150.86 | 2696.8 | 87.4 |
+| act_quant_rhs | 32768x4096 | 148.70 | 2736.0 | 88.7 |
+| weight_quant_rhs | 32768x4096 | 144.99 | 2777.3 | 90.1 |
+| weight_quant_transposed_rhs | 131072x4096 | 581.89 | 2768.1 | 89.8 |
+| act_quant_lhs | 131072x4096 | 586.98 | 2772.5 | 89.9 |
+| act_quant_transposed_lhs | 131072x4096 | 581.47 | 2798.7 | 90.7 |
+| act_quant_rhs | 131072x4096 | 562.56 | 2892.8 | 93.8 |
+| weight_quant_rhs | 131072x4096 | 555.30 | 2900.7 | 94.1 |

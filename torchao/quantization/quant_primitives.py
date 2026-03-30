@@ -1330,7 +1330,7 @@ def _choose_qparams_affine_tinygemm(
 
     # For zero_point_domain=FLOAT in asymmetric quantization
     mid_point = (quant_max + quant_min + 1) / 2
-    # this is not preserving zero_point, this is converting to TensorCoreTiledFormat
+    # this is not preserving zero_point, this is converting to tinygemm format
     zero_point = min_val_neg + scale * mid_point
 
     if zero_point_dtype is None:
