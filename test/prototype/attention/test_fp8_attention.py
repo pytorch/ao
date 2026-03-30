@@ -28,6 +28,7 @@ if torch_version_at_least("2.11.0"):
 
         from torchao.prototype.attention import (
             AttentionBackend,
+            HadamardMode,
             apply_low_precision_attention,
         )
         from torchao.prototype.attention.fp8_fa3.attention import (
@@ -106,7 +107,8 @@ class TestFP8FA3Attention(TestCase):
     )
     @common_utils.parametrize("shape", [(2, 8, 1024, 64), (1, 16, 1024, 128)])
     @common_utils.parametrize("dtype", [torch.bfloat16, torch.float16])
-    def test_sdpa_accuracy(self, shape, dtype):
+    @common_utils.parametrize("hadamard", ["NONE", "QKV"])
+    def test_sdpa_accuracy(self, shape, dtype, hadamard):
         B, H, S, D = shape
         q = torch.randn(B, H, S, D, device="cuda", dtype=dtype)
         k = torch.randn(B, H, S, D, device="cuda", dtype=dtype)
@@ -118,7 +120,7 @@ class TestFP8FA3Attention(TestCase):
         activate_flash_attention_impl("FA3")
         try:
             with torch.no_grad():
-                out_fp8 = fp8_fa3_sdpa(q, k, v, is_causal=False)
+                out_fp8 = fp8_fa3_sdpa(q, k, v, is_causal=False, hadamard=hadamard)
         finally:
             restore_flash_attention_impl()
 
@@ -126,7 +128,7 @@ class TestFP8FA3Attention(TestCase):
         self.assertGreater(
             sqnr.item(),
             25.0,
-            f"SQNR {sqnr.item():.2f} dB below 25 dB for shape={shape}, dtype={dtype}",
+            f"SQNR {sqnr.item():.2f} dB below 25 dB for shape={shape}, dtype={dtype}, hadamard={hadamard}",
         )
 
     @unittest.skipUnless(
@@ -135,7 +137,8 @@ class TestFP8FA3Attention(TestCase):
     )
     @common_utils.parametrize("shape", [(2, 1024, 8, 64), (1, 1024, 16, 128)])
     @common_utils.parametrize("dtype", [torch.bfloat16, torch.float16])
-    def test_rope_sdpa_accuracy(self, shape, dtype):
+    @common_utils.parametrize("hadamard", ["NONE", "QKV"])
+    def test_rope_sdpa_accuracy(self, shape, dtype, hadamard):
         B, S, H, D = shape
         q = torch.randn(B, S, H, D, device="cuda", dtype=dtype)
         k = torch.randn(B, S, H, D, device="cuda", dtype=dtype)
@@ -153,7 +156,9 @@ class TestFP8FA3Attention(TestCase):
         activate_flash_attention_impl("FA3")
         try:
             with torch.no_grad():
-                out_fp8 = fp8_fa3_rope_sdpa(q, k, v, cos, sin, is_causal=False)
+                out_fp8 = fp8_fa3_rope_sdpa(
+                    q, k, v, cos, sin, is_causal=False, hadamard=hadamard
+                )
         finally:
             restore_flash_attention_impl()
 
@@ -161,7 +166,7 @@ class TestFP8FA3Attention(TestCase):
         self.assertGreater(
             sqnr.item(),
             25.0,
-            f"SQNR {sqnr.item():.2f} dB below 25 dB for shape={shape}, dtype={dtype}",
+            f"SQNR {sqnr.item():.2f} dB below 25 dB for shape={shape}, dtype={dtype}, hadamard={hadamard}",
         )
 
     @unittest.skipUnless(
@@ -169,7 +174,8 @@ class TestFP8FA3Attention(TestCase):
         "Requires PyTorch >= 2.11, Hopper GPU, and FA3",
     )
     @common_utils.parametrize("dtype", [torch.bfloat16, torch.float16])
-    def test_monkey_patch_model(self, dtype):
+    @common_utils.parametrize("hadamard", [HadamardMode.NONE, HadamardMode.QKV])
+    def test_monkey_patch_model(self, dtype, hadamard):
         embed_dim, num_heads = 512, 8
         model = (
             SimpleAttentionModel(embed_dim, num_heads)
@@ -190,6 +196,7 @@ class TestFP8FA3Attention(TestCase):
         fp8_model = apply_low_precision_attention(
             fp8_model,
             backend=AttentionBackend.FP8_FA3,
+            hadamard=hadamard,
         )
 
         with torch.no_grad():
@@ -199,7 +206,7 @@ class TestFP8FA3Attention(TestCase):
         self.assertGreater(
             sqnr.item(),
             20.0,
-            f"SQNR {sqnr.item():.2f} dB below 20 dB for dtype={dtype}",
+            f"SQNR {sqnr.item():.2f} dB below 20 dB for dtype={dtype}, hadamard={hadamard}",
         )
 
     @unittest.skipUnless(
@@ -207,7 +214,8 @@ class TestFP8FA3Attention(TestCase):
         "Requires PyTorch >= 2.11, Hopper GPU, and FA3",
     )
     @common_utils.parametrize("dtype", [torch.bfloat16, torch.float16])
-    def test_rope_fusion_model(self, dtype):
+    @common_utils.parametrize("hadamard", [HadamardMode.NONE, HadamardMode.QKV])
+    def test_rope_fusion_model(self, dtype, hadamard):
         embed_dim, num_heads = 512, 8
         model = (
             SimpleRoPEAttentionModel(embed_dim, num_heads)
@@ -230,6 +238,7 @@ class TestFP8FA3Attention(TestCase):
         fp8_model = apply_low_precision_attention(
             fp8_model,
             backend=AttentionBackend.FP8_FA3,
+            hadamard=hadamard,
         )
         fp8_model = torch.compile(fp8_model)
 
@@ -240,7 +249,7 @@ class TestFP8FA3Attention(TestCase):
         self.assertGreater(
             sqnr.item(),
             20.0,
-            f"SQNR {sqnr.item():.2f} dB below 20 dB for dtype={dtype}",
+            f"SQNR {sqnr.item():.2f} dB below 20 dB for dtype={dtype}, hadamard={hadamard}",
         )
 
 

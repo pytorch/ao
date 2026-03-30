@@ -287,7 +287,8 @@ def triton_fp8_hadamard_sdpa_quantize(
     )
 
     # ---- Phase 1: Hadamard + max for V ----
-    # kv_temp can be reused: K's phase1 completed before V's launches
+    # kv_temp reused from K: safe because both launches are on the same CUDA
+    # stream, so K's kernel fully completes before V's starts.
     hadamard_single_phase1_kernel[kv_grid](
         v,
         v_had,

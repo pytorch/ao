@@ -110,6 +110,6 @@ def apply_low_precision_attention(
         _check_backend_available(backend)
 
     if backend == AttentionBackend.FP8_FA3:
-        return setup_fp8_backend(model, "FA3", hadamard=str(hadamard))
+        return setup_fp8_backend(model, "FA3", hadamard=hadamard.value)
 
     raise ValueError(f"Unknown backend: {backend}")

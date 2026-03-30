@@ -456,6 +456,8 @@ def triton_fp8_hadamard_rope_sdpa_quantize(
     )
 
     # ---- Phase 1: Hadamard + max for V (no RoPE, with transpose) ----
+    # kv_temp reused from K: safe because both launches are on the same CUDA
+    # stream, so K's kernel fully completes before V's starts.
     hadamard_v_phase1_kernel[kv_grid](
         v,
         v_intermediate,

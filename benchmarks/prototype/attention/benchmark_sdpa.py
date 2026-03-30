@@ -54,7 +54,7 @@ def _run_attention(backend: str, q, k, v, is_causal: bool):
     if backend == "fa3_fp8":
         return fp8_fa3_sdpa(q, k, v, is_causal=is_causal)
     elif backend == "fa3_fp8_hadamard":
-        return fp8_fa3_sdpa(q, k, v, is_causal=is_causal, hadamard=True)
+        return fp8_fa3_sdpa(q, k, v, is_causal=is_causal, hadamard="QKV")
     else:
         with sdpa_kernel(SDPBackend.FLASH_ATTENTION):
             return F.scaled_dot_product_attention(q, k, v, is_causal=is_causal)
