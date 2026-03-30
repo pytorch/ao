@@ -63,17 +63,45 @@ def _run_blockwise_quant_linear_fwd_bwd(
                 fullgraph=True,
             )
 
+    def run_once(x_test, x_ref):
+        if compile_mode:
+            assert compiled_step is not None
+            with torch._dynamo.config.patch(trace_autograd_ops=True):
+                y_test, x_grad_test, weight_grad_test = compiled_step(x_test)
+        else:
+            y_test = layer_under_test(x_test)
+
+        y_ref = layer_ref(x_ref)
+
+        sqnr = compute_error(y_ref, y_test)
+        assert not y_test.isnan().any(), "Output must not contain NaNs"
+        assert sqnr >= 25.0, f"SQNR: {sqnr.item()} must be >= 25.0"
+        assert not sqnr.isinf().any(), "SQNR must not be inf"
+
+        if compile_mode:
+            x_grad_ref, weight_grad_ref = torch.autograd.grad(
+                y_ref.sum(),
+                (x_ref, layer_ref.weight),
+            )
+        else:
+            y_test.sum().backward()
+            y_ref.sum().backward()
+            x_grad_test = x_test.grad
+            weight_grad_test = layer_test.weight.grad
+            x_grad_ref = x_ref.grad
+            weight_grad_ref = layer_ref.weight.grad
+
+        sqnr = compute_error(x_grad_ref, x_grad_test)
+        assert not x_grad_test.isnan().any(), "Input grad must not contain NaNs"
+        assert sqnr >= 30.0, f"SQNR: {sqnr} must be >= 25.0"
+
+        sqnr = compute_error(weight_grad_ref, weight_grad_test)
+        assert not weight_grad_test.isnan().any(), "Weight grad must not contain NaNs"
+        assert sqnr >= 30.0, f"SQNR: {sqnr} must be >= 25.0"
+
     x_test = torch.randn(batch_size, 256, in_features).cuda().requires_grad_(True)
     x_ref = x_test.clone().detach().requires_grad_(True)
-
-    if compile_mode:
-        assert compiled_step is not None
-        with torch._dynamo.config.patch(trace_autograd_ops=True):
-            y_test, x_grad_test, weight_grad_test = compiled_step(x_test)
-    else:
-        y_test = layer_under_test(x_test)
-
-    y_ref = layer_ref(x_ref)
+    run_once(x_test, x_ref)
 
     if compile_mode:
         assert compiled_frame_counter is not None
@@ -81,31 +109,14 @@ def _run_blockwise_quant_linear_fwd_bwd(
             "Compiled blockwise linear should run in a single frame"
         )
 
-    sqnr = compute_error(y_ref, y_test)
-    assert not y_test.isnan().any(), "Output must not contain NaNs"
-    assert sqnr >= 25.0, f"SQNR: {sqnr.item()} must be >= 25.0"
-    assert not sqnr.isinf().any(), "SQNR must not be inf"
+        x_test = torch.randn(batch_size, 256, in_features).cuda().requires_grad_(True)
+        x_ref = x_test.clone().detach().requires_grad_(True)
+        run_once(x_test, x_ref)
 
-    if compile_mode:
-        x_grad_ref, weight_grad_ref = torch.autograd.grad(
-            y_ref.sum(),
-            (x_ref, layer_ref.weight),
+        assert compiled_frame_counter.frame_count == 1, (
+            "Compiled blockwise linear should not recompile for repeated calls "
+            "with the same shapes"
         )
-    else:
-        y_test.sum().backward()
-        y_ref.sum().backward()
-        x_grad_test = x_test.grad
-        weight_grad_test = layer_test.weight.grad
-        x_grad_ref = x_ref.grad
-        weight_grad_ref = layer_ref.weight.grad
-
-    sqnr = compute_error(x_grad_ref, x_grad_test)
-    assert not x_grad_test.isnan().any(), "Input grad must not contain NaNs"
-    assert sqnr >= 30.0, f"SQNR: {sqnr} must be >= 25.0"
-
-    sqnr = compute_error(weight_grad_ref, weight_grad_test)
-    assert not weight_grad_test.isnan().any(), "Weight grad must not contain NaNs"
-    assert sqnr >= 30.0, f"SQNR: {sqnr} must be >= 25.0"
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
