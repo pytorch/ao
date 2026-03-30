@@ -2,6 +2,8 @@
 #include <ATen/cpu/vec/vec.h>
 #include <ATen/native/CPUBlas.h>
 #include <c10/util/Unroll.h>
+#include <cstdio>
+#include <mutex>
 
 namespace torchao {
 
@@ -906,10 +908,21 @@ at::Tensor da8w4_linear_impl(
   auto output = at::empty(out_sizes, input.options().dtype(output_dtype));
 
   if (__builtin_cpu_supports("avx512f")) {
+    static std::once_flag _isa_flag;
+    std::call_once(_isa_flag, []() {
+      fprintf(stderr, "[torchao] da8w4_linear: AVX512 path selected "
+              "(avx512f=1, avx10.2=%d)\n",
+              __builtin_cpu_supports("avx10.2"));
+    });
     da8w4_linear_avx512_entry(input, input_scales, input_qzeros, weight,
                                weight_scales, weight_qzeros, compensation, bias,
                                output, output_dtype, cpublas_can_pack, sym_quant_a);
   } else {
+    static std::once_flag _isa_flag;
+    std::call_once(_isa_flag, []() {
+      fprintf(stderr, "[torchao] da8w4_linear: scalar path selected "
+              "(avx512f=0)\n");
+    });
     da8w4_linear_scalar_entry(input, input_scales, input_qzeros, weight,
                                weight_scales, weight_qzeros, compensation, bias,
                                output, output_dtype, sym_quant_a);

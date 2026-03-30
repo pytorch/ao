@@ -11,6 +11,8 @@
 #include <ATen/Parallel.h>
 #include <ATen/Tensor.h>
 #include <c10/util/irange.h>
+#include <cstdio>
+#include <mutex>
 
 #ifndef AT_PER_OPERATOR_HEADERS
 #include <ATen/Functions.h>
@@ -2556,6 +2558,12 @@ at::Tensor _qscaled_dot_product_cpu(
       // Use optimized fused int8 SDPA kernel when AVX512 + AMX are available.
       // Falls back to reference math kernel otherwise.
       if (__builtin_cpu_supports("avx512f") && at::native::cpublas::could_pack(dtype)) {
+          static std::once_flag _isa_flag;
+          std::call_once(_isa_flag, []() {
+            fprintf(stderr, "[torchao] int8_sdpa: AVX512 fused path selected "
+                    "(avx512f=1, avx10.2=%d)\n",
+                    __builtin_cpu_supports("avx10.2"));
+          });
           at::Tensor output = at::empty_like(query, query.options()).transpose(1, 2);
           int8_sdpa_fused_kernel(output, query, key, value,
               dropout_p, is_causal, attn_mask, scale,
@@ -2566,6 +2574,12 @@ at::Tensor _qscaled_dot_product_cpu(
               o_scale, o_zp);
           return output.transpose(1, 2);
       } else {
+          static std::once_flag _isa_flag_scalar;
+          std::call_once(_isa_flag_scalar, []() {
+            fprintf(stderr, "[torchao] int8_sdpa: scalar/math path selected "
+                    "(avx512f=%d, cpublas_pack unavailable)\n",
+                    __builtin_cpu_supports("avx512f"));
+          });
           return int8_sdpa_math_kernel(query, key, value,
               dropout_p, is_causal, attn_mask, scale,
               q_scale, q_zp,
@@ -2579,6 +2593,12 @@ at::Tensor _qscaled_dot_product_cpu(
       // Falls back to reference math kernel otherwise.
 #if defined(CPUBLAS_BRGEMM_F8F8F32)
       if (__builtin_cpu_supports("avx512f") && at::native::cpublas::could_pack(dtype)) {
+          static std::once_flag _isa_flag;
+          std::call_once(_isa_flag, []() {
+            fprintf(stderr, "[torchao] fp8_sdpa: AVX512 fused path selected "
+                    "(avx512f=1, avx10.2=%d)\n",
+                    __builtin_cpu_supports("avx10.2"));
+          });
           at::Tensor output = at::empty_like(query, query.options()).transpose(1, 2);
           fp8_sdpa_fused_kernel(output, query, key, value,
               dropout_p, is_causal, attn_mask, scale,
@@ -2588,6 +2608,12 @@ at::Tensor _qscaled_dot_product_cpu(
           return output.transpose(1, 2);
       } else {
 #endif // CPUBLAS_BRGEMM_F8F8F32
+          static std::once_flag _isa_flag_scalar;
+          std::call_once(_isa_flag_scalar, []() {
+            fprintf(stderr, "[torchao] fp8_sdpa: scalar/math path selected "
+                    "(avx512f=%d)\n",
+                    __builtin_cpu_supports("avx512f"));
+          });
           return fp8_sdpa_math_kernel(query, key, value,
               dropout_p, is_causal, attn_mask, scale,
               q_scale, k_scale,

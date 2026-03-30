@@ -4,6 +4,8 @@
 #include <ATen/native/EmbeddingBag.h>
 #include <c10/util/Float8_e4m3fn.h>
 #include <c10/util/Unroll.h>
+#include <cstdio>
+#include <mutex>
 #include <torch/all.h>
 #include "utils.h"
 
@@ -184,6 +186,12 @@ inline void _scaled_embedding_bag_krnl(
     const index_t *offsets, const data_t *weight, const double scale,
     output_t *result, const int64_t num_batch) {
   if (kHasAVX512 && emb_dim % 128 == 0) {
+    static std::once_flag _isa_flag;
+    std::call_once(_isa_flag, []() {
+      fprintf(stderr, "[torchao] scaled_embedding_bag: AVX512 path selected "
+              "(avx512f=1, avx10.2=%d)\n",
+              __builtin_cpu_supports("avx10.2"));
+    });
     constexpr int64_t block_dim = 128;
     const int64_t num_blocks = emb_dim / block_dim;
     __m512 scale_v = _mm512_set1_ps(scale);
@@ -223,6 +231,14 @@ inline void _scaled_embedding_bag_krnl(
       result += num_emb * emb_dim;
     }
     return;
+  }
+  {
+    static std::once_flag _isa_flag;
+    std::call_once(_isa_flag, [emb_dim]() {
+      fprintf(stderr, "[torchao] scaled_embedding_bag: scalar path selected "
+              "(avx512f=%d, emb_dim=%ld not multiple of 128)\n",
+              __builtin_cpu_supports("avx512f"), (long)emb_dim);
+    });
   }
   for (int64_t b = bs_begin; b < bs_end; ++b) {
     int64_t start_idx = offsets[b];

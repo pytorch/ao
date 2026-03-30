@@ -2,6 +2,8 @@
 #include <ATen/cpu/vec/vec.h>
 #include <ATen/native/CPUBlas.h>
 #include <c10/util/Unroll.h>
+#include <cstdio>
+#include <mutex>
 #include "utils.h"
 #ifndef AT_PER_OPERATOR_HEADERS
 #include <ATen/Functions.h>
@@ -725,10 +727,21 @@ at::Tensor float8_linear_impl(
   auto output = at::empty(out_sizes, input.options().dtype(output_dtype));
 
   if (__builtin_cpu_supports("avx512f")) {
+    static std::once_flag _isa_flag;
+    std::call_once(_isa_flag, []() {
+      fprintf(stderr, "[torchao] float8_linear: AVX512 path selected "
+              "(avx512f=1, avx10.2=%d)\n",
+              __builtin_cpu_supports("avx10.2"));
+    });
     float8_linear_avx512_entry(input, input_scales, weight, weight_scales, bias,
                                 output, output_dtype, cpublas_can_pack,
                                 act_quant_mode, wei_quant_mode);
   } else {
+    static std::once_flag _isa_flag;
+    std::call_once(_isa_flag, []() {
+      fprintf(stderr, "[torchao] float8_linear: scalar path selected "
+              "(avx512f=0)\n");
+    });
     float8_linear_scalar_entry(input, input_scales, weight, weight_scales, bias,
                                 output, output_dtype, act_quant_mode, wei_quant_mode);
   }
