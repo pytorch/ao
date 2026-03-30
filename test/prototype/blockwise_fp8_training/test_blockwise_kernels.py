@@ -101,7 +101,8 @@ def test_triton_fp8_gemm_1x128_128x1(M, N, K, dtype):
     reason="Requires FP8-capable GPU (CUDA SM90+, MI300, or MI350)",
 )
 @pytest.mark.parametrize("block_size", [128, 256])
-def test_triton_quantize_fp8_act_quant_lhs(block_size):
+@pytest.mark.parametrize("use_compile", [False, True])
+def test_triton_quantize_fp8_act_quant_lhs(block_size, use_compile):
     device = "cuda"
     M, K = 4096, 1024
     x = torch.randn(M, K, device=device)
@@ -143,7 +144,8 @@ def test_triton_quantize_fp8_act_quant_lhs(block_size):
     reason="Requires FP8-capable GPU (CUDA SM90+, MI300, or MI350)",
 )
 @pytest.mark.parametrize("block_size", [128, 256])
-def test_triton_quantize_fp8_act_quant_rhs(block_size: int):
+@pytest.mark.parametrize("use_compile", [False, True])
+def test_triton_quantize_fp8_act_quant_rhs(block_size: int, use_compile):
     device = "cuda"
     M, K = 4096, 1024
     x = torch.randn(M, K, device=device)
@@ -186,7 +188,10 @@ def test_triton_quantize_fp8_act_quant_rhs(block_size: int):
 )
 @pytest.mark.parametrize("block_size", [128, 256])
 @pytest.mark.parametrize("M,K", [(4096, 1024), (4096, 4 * 4096)])
-def test_triton_quantize_fp8_act_quant_transposed_lhs(M, K, block_size: int):
+@pytest.mark.parametrize("use_compile", [False, True])
+def test_triton_quantize_fp8_act_quant_transposed_lhs(
+    M, K, block_size: int, use_compile
+):
     device = "cuda"
     x = torch.randn(M, K, device=device)
 
@@ -230,7 +235,8 @@ def test_triton_quantize_fp8_act_quant_transposed_lhs(M, K, block_size: int):
 )
 @pytest.mark.parametrize("block_size", [128, 256])
 @pytest.mark.parametrize("M,K", [(4096, 1024), (4096, 4 * 4096)])
-def test_triton_quantize_fp8_weight_quant_rhs(M, K, block_size: int):
+@pytest.mark.parametrize("use_compile", [False, True])
+def test_triton_quantize_fp8_weight_quant_rhs(M, K, block_size: int, use_compile):
     device = "cuda"
     x = torch.randn(M, K, device=device)
 
@@ -270,7 +276,8 @@ def test_triton_quantize_fp8_weight_quant_rhs(M, K, block_size: int):
     reason="Requires FP8-capable GPU (CUDA SM90+, MI300, or MI350)",
 )
 @pytest.mark.parametrize("block_size", [128, 256])
-def test_triton_quantize_fp8_weight_quant_transposed_rhs(block_size: int):
+@pytest.mark.parametrize("use_compile", [False, True])
+def test_triton_quantize_fp8_weight_quant_transposed_rhs(block_size: int, use_compile):
     device = "cuda"
     M = 512
     K = 2048
