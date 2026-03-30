@@ -109,7 +109,8 @@ def test_triton_quantize_fp8_act_quant_lhs(block_size):
     x[0, :block_size] = 0.0
 
     triton_fp8, triton_scale = triton_fp8_blockwise_act_quant_lhs(
-        x, block_size=block_size
+        x,
+        block_size=block_size,
     )
 
     ref_fp8, ref_scale = torch_blockwise_scale_act_quant_lhs(x, tile_size=block_size)
@@ -151,7 +152,8 @@ def test_triton_quantize_fp8_act_quant_rhs(block_size: int):
     x[:block_size, :block_size] = 0.0
 
     triton_fp8, triton_scale = triton_fp8_blockwise_act_quant_rhs(
-        x, block_size=block_size
+        x,
+        block_size=block_size,
     )
 
     ref_fp8, ref_scale = torch_blockwise_scale_act_quant_rhs(x, block_size=block_size)
@@ -186,16 +188,15 @@ def test_triton_quantize_fp8_act_quant_rhs(block_size: int):
 )
 @pytest.mark.parametrize("block_size", [128, 256])
 @pytest.mark.parametrize("M,K", [(4096, 1024), (4096, 4 * 4096)])
-def test_triton_quantize_fp8_act_quant_transposed_lhs(
-    M, K, block_size: int
-):
+def test_triton_quantize_fp8_act_quant_transposed_lhs(M, K, block_size: int):
     device = "cuda"
     x = torch.randn(M, K, device=device)
 
     x[0, :block_size] = 0.0
 
     triton_fp8, triton_scale = triton_fp8_blockwise_act_quant_transposed_lhs(
-        x, block_size=block_size
+        x,
+        block_size=block_size,
     )
 
     ref_fp8, ref_scale = torch_blockwise_scale_act_quant_lhs(
@@ -239,7 +240,8 @@ def test_triton_quantize_fp8_weight_quant_rhs(M, K, block_size: int):
     x[:block_size, :block_size] = 0.0
 
     triton_fp8, triton_scale = triton_fp8_blockwise_weight_quant_rhs(
-        x, block_size=block_size
+        x,
+        block_size=block_size,
     )
     ref_fp8, ref_scale = torch_blockwise_scale_weight_quant(x, tile_size=block_size)
 
@@ -281,7 +283,8 @@ def test_triton_quantize_fp8_weight_quant_transposed_rhs(block_size: int):
     x[:block_size, :block_size] = 0.0
 
     triton_fp8, triton_scale = triton_fp8_blockwise_weight_quant_transposed_rhs(
-        x, block_size=block_size
+        x,
+        block_size=block_size,
     )
     ref_fp8, ref_scale = torch_blockwise_scale_weight_quant(
         x.t().contiguous(), tile_size=block_size
