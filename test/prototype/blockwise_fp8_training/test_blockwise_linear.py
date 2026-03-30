@@ -42,20 +42,37 @@ def _run_blockwise_quant_linear_fwd_bwd(
     layer_test = Float8BlockwiseLinear.from_float(copy.deepcopy(layer_ref))
     compiled_frame_counter = None
     layer_under_test = layer_test
+    compiled_step = None
 
     if compile_mode:
-        torch._dynamo.reset()
-        compiled_frame_counter = CompileCounterWithBackend("inductor")
-        layer_under_test = torch.compile(
-            layer_test,
-            backend=compiled_frame_counter,
-            fullgraph=True,
-        )
+        with torch._dynamo.config.patch(trace_autograd_ops=True):
+            torch._dynamo.reset()
+            compiled_frame_counter = CompileCounterWithBackend("inductor")
+
+            def step(x):
+                y = layer_test(x)
+                x_grad, weight_grad = torch.autograd.grad(
+                    y.sum(),
+                    (x, layer_test.weight),
+                )
+                return y.detach(), x_grad, weight_grad
+
+            compiled_step = torch.compile(
+                step,
+                backend=compiled_frame_counter,
+                fullgraph=True,
+            )
 
     x_test = torch.randn(batch_size, 256, in_features).cuda().requires_grad_(True)
     x_ref = x_test.clone().detach().requires_grad_(True)
 
-    y_test = layer_under_test(x_test)
+    if compile_mode:
+        assert compiled_step is not None
+        with torch._dynamo.config.patch(trace_autograd_ops=True):
+            y_test, x_grad_test, weight_grad_test = compiled_step(x_test)
+    else:
+        y_test = layer_under_test(x_test)
+
     y_ref = layer_ref(x_ref)
 
     if compile_mode:
@@ -69,15 +86,25 @@ def _run_blockwise_quant_linear_fwd_bwd(
     assert sqnr >= 25.0, f"SQNR: {sqnr.item()} must be >= 25.0"
     assert not sqnr.isinf().any(), "SQNR must not be inf"
 
-    y_test.sum().backward()
-    y_ref.sum().backward()
+    if compile_mode:
+        x_grad_ref, weight_grad_ref = torch.autograd.grad(
+            y_ref.sum(),
+            (x_ref, layer_ref.weight),
+        )
+    else:
+        y_test.sum().backward()
+        y_ref.sum().backward()
+        x_grad_test = x_test.grad
+        weight_grad_test = layer_test.weight.grad
+        x_grad_ref = x_ref.grad
+        weight_grad_ref = layer_ref.weight.grad
 
-    sqnr = compute_error(x_ref.grad, x_test.grad)
-    assert not x_test.grad.isnan().any(), "Input grad must not contain NaNs"
+    sqnr = compute_error(x_grad_ref, x_grad_test)
+    assert not x_grad_test.isnan().any(), "Input grad must not contain NaNs"
     assert sqnr >= 30.0, f"SQNR: {sqnr} must be >= 25.0"
 
-    sqnr = compute_error(layer_ref.weight.grad, layer_test.weight.grad)
-    assert not layer_test.weight.grad.isnan().any(), "Weight grad must not contain NaNs"
+    sqnr = compute_error(weight_grad_ref, weight_grad_test)
+    assert not weight_grad_test.isnan().any(), "Weight grad must not contain NaNs"
     assert sqnr >= 30.0, f"SQNR: {sqnr} must be >= 25.0"
 
 
