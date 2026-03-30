@@ -41,7 +41,6 @@ def _run_blockwise_quant_linear_fwd_bwd(
     ).cuda()
     layer_test = Float8BlockwiseLinear.from_float(copy.deepcopy(layer_ref))
     compiled_frame_counter = None
-    layer_under_test = layer_test
     compiled_step = None
 
     if compile_mode:
@@ -69,7 +68,7 @@ def _run_blockwise_quant_linear_fwd_bwd(
             with torch._dynamo.config.patch(trace_autograd_ops=True):
                 y_test, x_grad_test, weight_grad_test = compiled_step(x_test)
         else:
-            y_test = layer_under_test(x_test)
+            y_test = layer_test(x_test)
 
         y_ref = layer_ref(x_ref)
 
@@ -93,11 +92,11 @@ def _run_blockwise_quant_linear_fwd_bwd(
 
         sqnr = compute_error(x_grad_ref, x_grad_test)
         assert not x_grad_test.isnan().any(), "Input grad must not contain NaNs"
-        assert sqnr >= 30.0, f"SQNR: {sqnr} must be >= 25.0"
+        assert sqnr >= 30.0, f"SQNR: {sqnr} must be >= 30.0"
 
         sqnr = compute_error(weight_grad_ref, weight_grad_test)
         assert not weight_grad_test.isnan().any(), "Weight grad must not contain NaNs"
-        assert sqnr >= 30.0, f"SQNR: {sqnr} must be >= 25.0"
+        assert sqnr >= 30.0, f"SQNR: {sqnr} must be >= 30.0"
 
     x_test = torch.randn(batch_size, 256, in_features).cuda().requires_grad_(True)
     x_ref = x_test.clone().detach().requires_grad_(True)
