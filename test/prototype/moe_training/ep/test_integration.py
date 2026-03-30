@@ -230,7 +230,6 @@ class TestIntegration(MultiProcessTestCase):
                 mx_permuted,
                 expert_weights.transpose(-2, -1),
                 offs=mx_group_offsets,
-                block_size=block_size,
                 # wgrad_with_hp must be true if inputs are pre-quantized (MXTensor)
                 wgrad_with_hp=True,
             )

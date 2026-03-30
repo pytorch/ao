@@ -3172,6 +3172,7 @@ class TestDynamicPatternMatcher(TestPatternMatcherBase):
     @unittest.skipIf(
         torch_version_at_least("2.11.0.dev"), "Doesn't work with torch 2.11.0.dev+"
     )
+    @unittest.skipIf(torch.xpu.is_available(), "Doesn't work with XPU")
     def test_q_attention_block(self):
         for annotate_matmul in [True, False]:
             self._test_q_attention_block_helper(annotate_matmul=annotate_matmul)
@@ -3182,6 +3183,7 @@ class TestDynamicPatternMatcher(TestPatternMatcherBase):
     @unittest.skipIf(
         torch_version_at_least("2.11.0.dev"), "Doesn't work with torch 2.11.0.dev+"
     )
+    @unittest.skipIf(torch.xpu.is_available(), "Doesn't work with XPU")
     def test_fp8_q_attention_block(self):
         for annotate_matmul in [True, False]:
             self._test_q_attention_block_helper(

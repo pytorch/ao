@@ -43,6 +43,8 @@ _ops_to_preserve_subclass = {
     torch.ops.aten.clone.default,
     torch.ops.aten.transpose.int,
     torch.ops.aten.t.default,
+    # required for TP - scatter_ is used to distribute weights
+    torch.ops.c10d.scatter_.default,
 }
 
 
@@ -288,7 +290,7 @@ class MXFP8TrainingWeightWrapperTensor(TrainingWeightWrapperBaseTensor):
             if A_is_2d and B_is_2d_or_3d and offs is not None:
                 return _quantize_then_scaled_grouped_mm(
                     A,
-                    B,
+                    unwrap_weight(B),
                     offs=offs,
                     config=config,
                 )
@@ -296,8 +298,8 @@ class MXFP8TrainingWeightWrapperTensor(TrainingWeightWrapperBaseTensor):
         # linear op override
         elif func.__name__ in ("linear", "mm", "matmul", "addmm"):
             A, B = args[0], args[1]
-            assert not isinstance(A, cls), f"A should not be a {cls.__name__}"
 
+            assert not isinstance(A, cls), f"A should not be a {cls.__name__}"
             assert isinstance(B, cls), f"B should be a {cls.__name__}"
 
             config = B.config
@@ -307,7 +309,7 @@ class MXFP8TrainingWeightWrapperTensor(TrainingWeightWrapperBaseTensor):
 
             return _to_mxfp8_then_scaled_mm(
                 A,
-                B,
+                unwrap_weight(B),
                 kernel_preference=config.kernel_preference,
                 scale_calculation_mode=config.scale_calculation_mode,
                 wgrad_with_hp=config.wgrad_with_hp,

@@ -1024,7 +1024,7 @@ if _mxfp8_cuda_kernels_available:
         x: torch.Tensor,
         rowwise: bool = False,
         colwise: bool = True,
-        scaling_mode: str = "floor",
+        scaling_mode: str = "rceil",
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Quantizes a 2D tensor to MXFP8 format using CUDA kernels.
@@ -1122,35 +1122,41 @@ if _mxfp8_cuda_kernels_available:
         fp8_format: str,
         scaling_mode: str,
     ):
-        # This function signature can be used to understand the shardings:
-        # _, colwise_data, _, colwise_scales = mxfp8_quantize_cuda(x, rowwise=False, colwise=True)
+        # Op returns 4 tensors: (output_rowwise, output_colwise, scales_rowwise, scales_colwise)
+        # When rowwise=False, outputs 0 and 2 are empty tensors (size 0).
+        # output_colwise has shape (rows, cols) in col-major order.
+        # scales_colwise has shape (cols, num_row_blocks) in col-major order.
+        #
+        # Format: (output_placements, input_placements)
+        # Input placements: one per arg (x=Tensor, then 6 non-tensor args=None)
+        # Output placements: one per output tensor (4 total)
 
-        # When inputs and scale are replicated, we return a quantized output tensor (replicated).
-        inputs_replicated = [None, Replicate(), None, Replicate()]
-        outputs_replicated = [None, Replicate(), None, None]
-        rule_for_input_replicated = (
-            inputs_replicated,
-            outputs_replicated,
+        non_tensor_args = [None, None, None, None, None, None]
+
+        # When input is replicated, all outputs are replicated.
+        rule_replicated = (
+            [Replicate(), Replicate(), Replicate(), Replicate()],
+            [Replicate()] + non_tensor_args,
         )
 
-        # When inputs and scale are sharded along dim 0,
-        # we return a quantized output tensor (sharded along dim1 due to transpose).
-        inputs_sharded_dim0 = [None, Shard(0), None, Shard(0)]
-        outputs_sharded_dim1 = [None, Shard(1), None, None]
-        rule_for_input_sharded_dim0 = (inputs_sharded_dim0, outputs_sharded_dim1)
+        # When input is sharded along dim 0:
+        # output_colwise (rows, cols) col-major: rows are sharded → Shard(0)
+        # scales_colwise (cols, num_row_blocks) col-major: row blocks sharded → Shard(1)
+        # Unused rowwise outputs (empty tensors): Replicate()
+        rule_shard_dim0 = (
+            [Replicate(), Shard(0), Replicate(), Shard(1)],
+            [Shard(0)] + non_tensor_args,
+        )
 
-        # When inputs and scale are sharded along dim 1,
-        # we return a quantized output tensor (sharded along dim0 due to transpose).
-        inputs_sharded_dim1 = [None, Shard(1), None, Shard(1)]
-        outputs_sharded_dim0 = [None, Shard(0), None, None]
-        rule_for_input_sharded_dim1 = (inputs_sharded_dim1, outputs_sharded_dim0)
+        # When input is sharded along dim 1:
+        # output_colwise: cols are sharded → Shard(1)
+        # scales_colwise: col dim is sharded → Shard(0)
+        rule_shard_dim1 = (
+            [Replicate(), Shard(1), Replicate(), Shard(0)],
+            [Shard(1)] + non_tensor_args,
+        )
 
-        acceptable_shardings = [
-            rule_for_input_replicated,
-            rule_for_input_sharded_dim0,
-            rule_for_input_sharded_dim1,
-        ]
-        return acceptable_shardings
+        return [rule_replicated, rule_shard_dim0, rule_shard_dim1]
 
 else:
 
@@ -1158,7 +1164,7 @@ else:
         x: torch.Tensor,
         rowwise: bool = False,
         colwise: bool = True,
-        scaling_mode: str = "floor",
+        scaling_mode: str = "rceil",
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         raise NotImplementedError(
             "`mxfp8_quantize_cuda` needs (1) torch 2.8+ and (2) torchao built from source on a machine with CUDA capability 10.0+. Please see https://github.com/pytorch/ao/issues/2932 for more details."
