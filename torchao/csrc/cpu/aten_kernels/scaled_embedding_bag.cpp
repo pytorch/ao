@@ -47,6 +47,18 @@
 
 namespace torchao {
 
+// Forward declaration of the AVX10.2 entry point defined in
+// scaled_embedding_bag_avx10_2.cpp (compiled with -march=diamondrapids).
+// Called at runtime when __builtin_cpu_supports("avx10.2") is true, giving
+// hardware-accelerated fp8<->fp32 conversion via _mm256_cvthf8_ph /
+// _mm256_cvtph_hf8 instead of the AVX512 software-emulation fallback.
+namespace cpu_avx10_2 {
+at::Tensor _scaled_embedding_bag_avx10_2(
+    const at::Tensor& qweight, const at::Tensor& indices,
+    const at::Tensor& offsets, const at::Tensor& w_scales, double o_scale,
+    int64_t mode, bool include_last_offset, at::ScalarType output_dtype);
+} // namespace cpu_avx10_2
+
 namespace {
 
 // === AVX512 IMPLEMENTATION SECTION ===
@@ -189,7 +201,7 @@ inline void _scaled_embedding_bag_krnl(
     static std::once_flag _isa_flag;
     std::call_once(_isa_flag, []() {
       fprintf(stderr, "[torchao] scaled_embedding_bag: AVX512 path selected "
-              "(avx512f=1, avx10.2=%d)\n",
+              "(avx512f=1, avx10.2=%d, using software fp8 emulation)\n",
               __builtin_cpu_supports("avx10.2"));
     });
     constexpr int64_t block_dim = 128;
@@ -300,6 +312,15 @@ at::Tensor _scaled_embedding_bag_impl(
     const at::Tensor &qweight, const at::Tensor &indices,
     const at::Tensor &offsets, const at::Tensor &w_scales, double o_scale,
     const int64_t mode, bool include_last_offset, at::ScalarType output_dtype) {
+  // Dispatch to AVX10.2 implementation when available: cvtfp8e4m3_fp32 and
+  // cvtfp32_fp8e4m3 use native hardware instructions on DMR instead of the
+  // AVX512 multi-step software emulation.
+  if (__builtin_cpu_supports("avx10.2")) {
+    return cpu_avx10_2::_scaled_embedding_bag_avx10_2(
+        qweight, indices, offsets, w_scales, o_scale,
+        mode, include_last_offset, output_dtype);
+  }
+
   // Only support include_last_offset == True and mode ==
   // at::native::EmbeddingBagMode::SUM
   // TODO: Support more case
