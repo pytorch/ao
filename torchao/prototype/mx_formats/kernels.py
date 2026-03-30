@@ -1024,7 +1024,7 @@ if _mxfp8_cuda_kernels_available:
         x: torch.Tensor,
         rowwise: bool = False,
         colwise: bool = True,
-        scaling_mode: str = "floor",
+        scaling_mode: str = "rceil",
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Quantizes a 2D tensor to MXFP8 format using CUDA kernels.
@@ -1164,7 +1164,7 @@ else:
         x: torch.Tensor,
         rowwise: bool = False,
         colwise: bool = True,
-        scaling_mode: str = "floor",
+        scaling_mode: str = "rceil",
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         raise NotImplementedError(
             "`mxfp8_quantize_cuda` needs (1) torch 2.8+ and (2) torchao built from source on a machine with CUDA capability 10.0+. Please see https://github.com/pytorch/ao/issues/2932 for more details."
