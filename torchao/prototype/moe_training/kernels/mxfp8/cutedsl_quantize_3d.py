@@ -5,34 +5,19 @@
 # LICENSE file in the root directory of this source tree.
 
 import functools
-import importlib.util
 from typing import Tuple
 
 import torch
 
 from torchao.utils import ceil_div
 
-_CUTEDSL_RUNTIME_PACKAGES = {
-    "cuda.bindings.driver": "cuda-python",
-    "cutlass": "nvidia-cutlass-dsl",
-    "cutlass.cute": "nvidia-cutlass-dsl",
-    "tvm_ffi": "apache-tvm-ffi",
-}
-
-
-def _missing_cutedsl_runtime_packages() -> list[str]:
-    missing = []
-    for module_name, package_name in _CUTEDSL_RUNTIME_PACKAGES.items():
-        if (
-            importlib.util.find_spec(module_name) is None
-            and package_name not in missing
-        ):
-            missing.append(package_name)
-    return missing
-
-
-def _cutedsl_runtime_available() -> bool:
-    return len(_missing_cutedsl_runtime_packages()) == 0
+from .cute_utils import (
+    F8_MAX,
+    compute_amax,
+    compute_scale_from_amax,
+    load_vals_chunk_full,
+    load_vals_chunk_tail,
+)
 
 
 def _make_tile_smem_layouts(cute, tile_n: int, tile_k: int):
@@ -79,18 +64,14 @@ def _compile_mxfp8_quantize_3d_cutedsl(
     requested_stage_count: int,
     k_tiles_per_cta: int,
     is_full_k_tiles: bool,
-    is_blackwell: bool,
     blocked_scale_output: bool,
 ):
     import cuda.bindings.driver as cuda
     import cutlass
     import cutlass.cute as cute
     import cutlass.utils as utils
-    from cutlass._mlir.dialects import llvm
-    from cutlass.base_dsl._mlir_helpers import arith as _dsl_arith
     from cutlass.cute.nvgpu import cpasync, tcgen05
     from cutlass.cute.runtime import make_fake_stream, make_fake_tensor
-    from cutlass.cutlass_dsl import T, dsl_user_op
 
     # PTX lowering note:
     # - RCEIL uses inline PTX on Blackwell-family targets because
@@ -120,7 +101,6 @@ def _compile_mxfp8_quantize_3d_cutedsl(
     TILE_K = tile_k
     K_TILES_PER_CTA = k_tiles_per_cta
     IS_FULL_K_TILES_VALUE = is_full_k_tiles
-    IS_BLACKWELL_VALUE = is_blackwell
     BLOCKED_SCALE_OUTPUT_VALUE = blocked_scale_output
 
     THREADS_PER_BLOCK = (1 + COMPUTE_WARPS) * 32
@@ -143,28 +123,6 @@ def _compile_mxfp8_quantize_3d_cutedsl(
     TILE_COPY_BYTES = TILE_N * TILE_K * input_elem_bytes
     K_THREADS = COMPUTE_WARPS * 32
     K_ITERS_PER_LANE = ceil_div(TILE_K, K_THREADS)
-
-    F8_MAX = cutlass.Float32(448.0)
-    INV_F8_MAX = cutlass.Float32(1.0 / 448.0)
-
-    @dsl_user_op
-    def _cvt_rp_satfinite_ue8m0x2_f32(
-        a: cutlass.Float32,
-        *,
-        loc=None,
-        ip=None,
-    ) -> cutlass.Uint16:
-        return cutlass.Uint16(
-            llvm.inline_asm(
-                T.i16(),
-                [cutlass.Float32(a).ir_value(loc=loc, ip=ip)],
-                "cvt.rp.satfinite.ue8m0x2.f32 $0, 0.0, $1;",
-                "=h,f",
-                has_side_effects=False,
-                is_align_stack=False,
-                asm_dialect=llvm.AsmDialect.AD_ATT,
-            )
-        )
 
     @cute.struct
     class SharedStorage:
@@ -214,91 +172,6 @@ def _compile_mxfp8_quantize_3d_cutedsl(
             return vals_block
 
         @cute.jit
-        def _compute_amax(self, vals_block: cute.Tensor):
-            vals_vec = vals_block.load()
-            abs_vec = cute.where(vals_vec < 0, -vals_vec, vals_vec)
-            return cutlass.Float32(
-                abs_vec.reduce(cute.ReductionOp.MAX, cutlass.Float32(0.0), 0)
-            )
-
-        @cute.jit
-        def _compute_scale_rceil(
-            self,
-            amax: cutlass.Float32,
-        ):
-            descale = amax * INV_F8_MAX
-            if cutlass.const_expr(IS_BLACKWELL_VALUE):
-                scale_biased = cutlass.Int32(_cvt_rp_satfinite_ue8m0x2_f32(descale))
-                inv_scale = cutlass.Float32(1.0)
-                if scale_biased == 0xFF:
-                    inv_scale = cutlass.Float32(0.0)
-                elif scale_biased == 0:
-                    inv_scale = cute.exp2(cutlass.Float32(126.0))
-                else:
-                    inv_scale = cute.exp2(cutlass.Float32(127 - scale_biased))
-                return scale_biased, inv_scale
-
-            bits = _dsl_arith.bitcast(descale.ir_value(), _dsl_arith.T.i32())
-            exponent = (bits >> cutlass.Int32(23)) & cutlass.Int32(0xFF)
-            mantissa = bits & cutlass.Int32(0x7FFFFF)
-            if exponent == 0xFF:
-                if mantissa != 0:
-                    scale_biased = cutlass.Int32(0xFF)
-                else:
-                    scale_biased = cutlass.Int32(0xFE)
-            else:
-                if mantissa > 0:
-                    if exponent != 0xFE:
-                        if exponent == 0:
-                            if mantissa > 0x400000:
-                                exponent += 1
-                        else:
-                            exponent += 1
-                scale_biased = exponent
-
-            inv_scale = cutlass.Float32(1.0)
-            if scale_biased == 0xFF:
-                inv_scale = cutlass.Float32(0.0)
-            elif scale_biased == 0:
-                inv_scale = cutlass.Float32(1.0)
-            else:
-                inv_scale = cute.exp2(cutlass.Float32(127 - scale_biased))
-            return scale_biased, inv_scale
-
-        @cute.jit
-        def _compute_scale_floor(
-            self,
-            amax: cutlass.Float32,
-        ):
-            bits = _dsl_arith.bitcast(amax.ir_value(), _dsl_arith.T.i32())
-            exp_i = ((bits >> cutlass.Int32(23)) & cutlass.Int32(0xFF)) - cutlass.Int32(
-                127
-            )
-            scale_exp_unbiased = exp_i - cutlass.Int32(8)
-            if scale_exp_unbiased < -127:
-                scale_exp_unbiased = cutlass.Int32(-127)
-            if scale_exp_unbiased > 128:
-                scale_exp_unbiased = cutlass.Int32(128)
-            inv_scale = cute.exp2(cutlass.Float32(-scale_exp_unbiased))
-            scale_biased = scale_exp_unbiased + 127
-            return scale_biased, inv_scale
-
-        @cute.jit
-        def _compute_scale_from_amax(
-            self,
-            amax: cutlass.Float32,
-            USE_RCEIL: cutlass.Constexpr[bool],
-        ):
-            scale_biased = cutlass.Int32(0)
-            inv_scale = cutlass.Float32(1.0)
-            if amax > 0:
-                if cutlass.const_expr(USE_RCEIL):
-                    scale_biased, inv_scale = self._compute_scale_rceil(amax)
-                else:
-                    scale_biased, inv_scale = self._compute_scale_floor(amax)
-            return scale_biased, inv_scale
-
-        @cute.jit
         def _store_scale(
             self,
             scales_expert: cute.Tensor,
@@ -325,37 +198,6 @@ def _compile_mxfp8_quantize_3d_cutedsl(
             sOUT_tile_u32 = cute.recast_tensor(sOUT_tile, cutlass.Uint32)
             q_fp8_vals4_u32 = cute.recast_tensor(q_fp8_vals4, cutlass.Uint32)
             sOUT_tile_u32[0, sout_base // cutlass.Int32(4), k_rel] = q_fp8_vals4_u32[0]
-
-        @cute.jit
-        def _load_vals_chunk_full(
-            self,
-            vals_block: cute.Tensor,
-            local_base: cutlass.Int32,
-        ):
-            chunk_vec = 4
-            vals_chunk = cute.make_rmem_tensor((chunk_vec,), cutlass.Float32)
-            for j in range(chunk_vec):
-                vals_chunk[j] = vals_block[local_base + j]
-            return vals_chunk
-
-        @cute.jit
-        def _load_vals_chunk_tail(
-            self,
-            vals_block: cute.Tensor,
-            n0: cutlass.Int64,
-            sout_base: cutlass.Int32,
-            local_base: cutlass.Int32,
-            N: cutlass.Int64,
-        ):
-            chunk_vec = 4
-            vals_chunk = cute.make_rmem_tensor((chunk_vec,), cutlass.Float32)
-            for j in range(chunk_vec):
-                n = n0 + sout_base + j
-                if n < N:
-                    vals_chunk[j] = vals_block[local_base + j]
-                else:
-                    vals_chunk[j] = cutlass.Float32(0.0)
-            return vals_chunk
 
         @cute.jit
         def _quantize_store_chunk(
@@ -391,7 +233,7 @@ def _compile_mxfp8_quantize_3d_cutedsl(
             for c in range(num_chunks):
                 local_base = c * chunk_vec
                 sout_base = n_base + local_base
-                vals_chunk = self._load_vals_chunk_full(vals_block, local_base)
+                vals_chunk = load_vals_chunk_full(vals_block, local_base)
                 self._quantize_store_chunk(
                     vals_chunk, inv_scale, sOUT_tile, sout_base, k_rel, USE_RCEIL
                 )
@@ -413,7 +255,7 @@ def _compile_mxfp8_quantize_3d_cutedsl(
             for c in range(num_chunks):
                 local_base = c * chunk_vec
                 sout_base = n_base + local_base
-                vals_chunk = self._load_vals_chunk_tail(
+                vals_chunk = load_vals_chunk_tail(
                     vals_block, n0, sout_base, local_base, N
                 )
                 self._quantize_store_chunk(
@@ -507,7 +349,6 @@ def _compile_mxfp8_quantize_3d_cutedsl(
             USE_RCEIL: cutlass.Constexpr[bool],
             IS_FULL_K_TILES: cutlass.Constexpr[bool],
             STAGE_COUNT: cutlass.Constexpr[int],
-            IS_BLACKWELL: cutlass.Constexpr[bool],
         ):
             tidx, _, _ = cute.arch.thread_idx()
             warp_idx = cute.arch.warp_idx()
@@ -652,10 +493,10 @@ def _compile_mxfp8_quantize_3d_cutedsl(
                                         k_rel,
                                     )
 
-                                    amax = self._compute_amax(vals_block)
+                                    amax = compute_amax(vals_block)
 
-                                    scale_biased, inv_scale = (
-                                        self._compute_scale_from_amax(amax, USE_RCEIL)
+                                    scale_biased, inv_scale = compute_scale_from_amax(
+                                        amax, USE_RCEIL
                                     )
                                     self._store_scale(
                                         scales_expert,
@@ -688,12 +529,10 @@ def _compile_mxfp8_quantize_3d_cutedsl(
                                             N,
                                         )
 
-                                        amax = self._compute_amax(vals_block)
+                                        amax = compute_amax(vals_block)
 
                                         scale_biased, inv_scale = (
-                                            self._compute_scale_from_amax(
-                                                amax, USE_RCEIL
-                                            )
+                                            compute_scale_from_amax(amax, USE_RCEIL)
                                         )
                                         self._store_scale(
                                             scales_expert,
@@ -741,13 +580,8 @@ def _compile_mxfp8_quantize_3d_cutedsl(
             smem_layout_in, smem_layout_out = _make_tile_smem_layouts(
                 cute, TILE_N, TILE_K
             )
-            # SM >= 100 (Blackwell and beyond, including consumer SM12x and
-            # SM13x): use tcgen05.CtaGroup.ONE for the optimised single-CTA
-            # Blackwell TMA load path.
-            if cutlass.const_expr(IS_BLACKWELL_VALUE):
-                g2s_op = cpasync.CopyBulkTensorTileG2SOp(tcgen05.CtaGroup.ONE)
-            else:
-                g2s_op = cpasync.CopyBulkTensorTileG2SOp()
+            # Use tcgen05.CtaGroup.ONE for the optimised single-CTA Blackwell (SM 10.x) TMA load path.
+            g2s_op = cpasync.CopyBulkTensorTileG2SOp(tcgen05.CtaGroup.ONE)
             tma_atom_in, tma_tensor_in = cpasync.make_tiled_tma_atom(
                 g2s_op,
                 inp_enk,
@@ -796,7 +630,6 @@ def _compile_mxfp8_quantize_3d_cutedsl(
                 USE_RCEIL=(scaling_mode == "rceil"),
                 IS_FULL_K_TILES=IS_FULL_K_TILES_VALUE,
                 STAGE_COUNT=STAGE_COUNT_VALUE,
-                IS_BLACKWELL=IS_BLACKWELL_VALUE,
             ).launch(
                 grid=(k_cta_tiles, n_cta_tiles, E),
                 block=(THREADS_PER_BLOCK, 1, 1),
@@ -865,7 +698,7 @@ def _compile_mxfp8_quantize_3d_cutedsl(
 def mxfp8_quantize_cutedsl_3d(
     x: torch.Tensor,
     block_size: int = 32,
-    scaling_mode: str = "floor",
+    scaling_mode: str = "rceil",
     stage_count: int = 2,
     blocked_scale_output: bool = False,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -926,7 +759,6 @@ def mxfp8_quantize_cutedsl_3d(
         stage_count,
         k_tiles_per_cta,
         is_full_k_tiles,
-        is_sm_10x,
         blocked_scale_output,
     )
 
