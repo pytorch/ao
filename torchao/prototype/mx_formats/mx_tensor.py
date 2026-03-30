@@ -116,6 +116,8 @@ def _to_mx_rceil(
     For Nvidia GPU with Blackwell+ architecture, the scale factor derivation method
     could be accelerated by the `cvt.rp.satfinite.ue8m0x2.f32` instruction.
 
+    Fixed to match CUDA float_to_e8m0 and exp2f_rcp behavior with per-element handling.
+
     Args:
         data_hp: High precision data.
         max_abs: Maximum absolute value for data_hp along specified dimension/block_size.
@@ -127,28 +129,51 @@ def _to_mx_rceil(
             (requires cast to low precision data type).
     """
     descale = max_abs / max_pos
-    # TODO: nan/inf needs to be set for any value
-    # of nan/inf in input not just amax.
+
+    # Handle special values in scale calculation (like CUDA float_to_e8m0)
     exponent = torch.where(
         torch.isnan(descale),
-        0xFF,  # Handle biased exponent for nan
-        # NOTE: descale < (torch.finfo(torch.float32).smallest_normal / 2) is handled through clamping
-        (
-            torch.clamp(
-                torch.ceil(torch.log2(descale)),
-                min=-E8M0_EXPONENT_BIAS,
-                max=E8M0_EXPONENT_BIAS,
-            )
-            + E8M0_EXPONENT_BIAS
-        ).to(torch.uint8),
+        255,  # 0xFF for NaN in amax
+        torch.where(
+            torch.isinf(descale),
+            254,  # 0xFE for inf in amax
+            # Normal case
+            (
+                torch.clamp(
+                    torch.ceil(torch.log2(descale)),
+                    min=-E8M0_EXPONENT_BIAS,
+                    max=E8M0_EXPONENT_BIAS,
+                )
+                + E8M0_EXPONENT_BIAS
+            ).to(torch.uint8),
+        ),
     )
 
-    descale_fp = torch.where(
-        exponent == 0, 1.0, torch.exp2(E8M0_EXPONENT_BIAS - exponent.to(torch.float32))
+    # Ref: https://github.com/NVIDIA/TransformerEngine/blob/b7598aa887eb7d619d64c90692980009669379bf/transformer_engine/common/util/ptx.cuh#L332-L341
+    rcp_fp32 = torch.where(
+        exponent == 255,  # NaN case -> stays NaN
+        float("nan"),
+        torch.where(
+            exponent == 254,  # Inf case -> return 2^-127
+            2**-127,
+            # Normal case
+            torch.where(
+                exponent == 0,
+                1.0,
+                torch.exp2(E8M0_EXPONENT_BIAS - exponent.to(torch.float32)),
+            ),
+        ),
     )
 
-    # scale and saturated cast the data elements to max of target dtype
-    data_lp = torch.clamp(data_hp * descale_fp, min=-1 * max_pos, max=max_pos)
+    # Scale the data with per-element special value handling (like CUDA)
+    data_lp = data_hp * rcp_fp32
+
+    # Handle per-element special values after scaling (like CUDA quantize_block)
+    # Individual NaN elements should remain NaN regardless of scale
+    data_lp = torch.where(torch.isnan(data_hp), float("nan"), data_lp)
+
+    data_lp = torch.clamp(data_lp, min=-max_pos, max=max_pos)
+
     return exponent, data_lp
 
 
@@ -183,7 +208,15 @@ def to_mx(
     # Note: this only implements the `minimally supported` version of
     # https://www.opencompute.org/documents/ocp-microscaling-formats-mx-v1-0-spec-final-pdf
     # section 6.3.
-    max_abs = torch.amax(torch.abs(data_hp), -1).unsqueeze(-1)
+
+    # NOTE: we ignore NaN values when computing max, TE uses: `__hmax` which treats nans as missing
+    # data and returns the numeric value.
+    # TE ref: https://github.com/NVIDIA/TransformerEngine/blob/f4debf6648a080c47eeb2213a3a040b4b2638adb/transformer_engine/common/cast/mxfp8/quantize_mxfp8.cuh#L225
+    # CUDA ref: https://docs.nvidia.com/cuda/cuda-math-api/cuda_math_api/group__CUDA__MATH____HALF__COMPARISON.html#group__cuda__math____half__comparison_1ga964cd0e2994141acc0fcb7a64792faf1
+    abs_vals = torch.abs(data_hp)
+    max_abs = torch.amax(
+        torch.where(torch.isnan(abs_vals), float("-inf"), abs_vals), -1
+    ).unsqueeze(-1)
 
     # We cast to float32 here because
     # in the `max_abs_int32 = max_abs.view(hp_int_dtype)` line below,
