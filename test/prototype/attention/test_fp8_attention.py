@@ -174,7 +174,7 @@ class TestFP8FA3Attention(TestCase):
         "Requires PyTorch >= 2.11, Hopper GPU, and FA3",
     )
     @common_utils.parametrize("dtype", [torch.bfloat16, torch.float16])
-    @common_utils.parametrize("hadamard", [HadamardMode.NONE, HadamardMode.QKV])
+    @common_utils.parametrize("hadamard", ["NONE", "QKV"])
     def test_monkey_patch_model(self, dtype, hadamard):
         embed_dim, num_heads = 512, 8
         model = (
@@ -196,7 +196,7 @@ class TestFP8FA3Attention(TestCase):
         fp8_model = apply_low_precision_attention(
             fp8_model,
             backend=AttentionBackend.FP8_FA3,
-            hadamard=hadamard,
+            hadamard=HadamardMode(hadamard),
         )
 
         with torch.no_grad():
@@ -214,7 +214,7 @@ class TestFP8FA3Attention(TestCase):
         "Requires PyTorch >= 2.11, Hopper GPU, and FA3",
     )
     @common_utils.parametrize("dtype", [torch.bfloat16, torch.float16])
-    @common_utils.parametrize("hadamard", [HadamardMode.NONE, HadamardMode.QKV])
+    @common_utils.parametrize("hadamard", ["NONE", "QKV"])
     def test_rope_fusion_model(self, dtype, hadamard):
         embed_dim, num_heads = 512, 8
         model = (
@@ -238,7 +238,7 @@ class TestFP8FA3Attention(TestCase):
         fp8_model = apply_low_precision_attention(
             fp8_model,
             backend=AttentionBackend.FP8_FA3,
-            hadamard=hadamard,
+            hadamard=HadamardMode(hadamard),
         )
         fp8_model = torch.compile(fp8_model)
 
