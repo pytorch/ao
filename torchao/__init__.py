@@ -49,6 +49,7 @@ def _parse_version(version_string):
 
 
 skip_loading_so_files = False
+_skip_reason = None
 force_skip_loading_so_files = (
     os.getenv("TORCHAO_FORCE_SKIP_LOADING_SO_FILES", "0") == "1"
 )
@@ -57,6 +58,9 @@ if force_skip_loading_so_files:
     # users can set env var TORCHAO_FORCE_SKIP_LOADING_SO_FILES=1 to skip loading .so files
     # this way, if they are using an incompatbile torch version, they can still use the API by setting the env var
     skip_loading_so_files = True
+    _skip_reason = (
+        "Skipping import of cpp extensions due to TORCHAO_FORCE_SKIP_LOADING_SO_FILES=1"
+    )
 elif is_fbcode():
     skip_loading_so_files = False
 # if torchao version has "+git", assume it's locally built and we don't know
@@ -64,51 +68,19 @@ elif is_fbcode():
 # otherwise, assume it's prebuilt by torchao's build scripts and we can make
 #   assumptions about the PyTorch version used to build it.
 elif not ("+git" in __version__) and not ("unknown" in __version__):
-    # We know that torchao .so files built using PyTorch 2.8.0 are not ABI compatible with PyTorch 2.9+. (see #2919)
-    # The following code skips importing the .so files if incompatible torch version is detected,
-    # to avoid crashing the Python process with "Aborted (core dumped)".
-    torchao_pytorch_compatible_versions = [
-        # Built against torch 2.8.0
-        (_parse_version("0.13.0"), _parse_version("2.8.0")),
-        (_parse_version("0.14.0"), _parse_version("2.8.0")),
-        # Built against torch 2.9.0
-        (_parse_version("0.14.1"), _parse_version("2.9.0")),
-        (_parse_version("0.14.1"), _parse_version("2.10.0.dev")),
-        # Built against torch 2.9.1
-        (_parse_version("0.15.0"), _parse_version("2.9.1")),
-        (_parse_version("0.15.0"), _parse_version("2.10.0.dev")),
-        # Built against torch 2.10.0
-        (_parse_version("0.16.0"), _parse_version("2.10.0")),
-        (_parse_version("0.16.0"), _parse_version("2.11.0.dev")),
-        # current torchao version - to be deleted after version bump
-        (_parse_version("0.16.0.dev"), _parse_version("2.9.1")),
-        (_parse_version("0.16.0.dev"), _parse_version("2.10.0.dev")),
-        (_parse_version("0.16.0.dev"), _parse_version("2.11.0.dev")),
-        # next torchao version
-        (_parse_version("0.17.0.dev"), _parse_version("2.10.0")),
-        (_parse_version("0.17.0.dev"), _parse_version("2.11.0.dev")),
-    ]
-
     current_torch_version = _parse_version(torch.__version__)
-    current_torchao_version = _parse_version(__version__)
-
-    skip_loading_so_files = True
-    for torchao_v, torch_v in torchao_pytorch_compatible_versions:
-        if current_torchao_version == torchao_v and current_torch_version == torch_v:
-            skip_loading_so_files = False
-            break
-
+    min_torch_version = _parse_version("2.11.0")
+    if current_torch_version >= min_torch_version:
+        skip_loading_so_files = False
+    else:
+        skip_loading_so_files = True
+        _skip_reason = (
+            f"Skipping import of cpp extensions due to incompatible torch version. "
+            f"Please upgrade to torch >= 2.11.0 (found {torch.__version__})."
+        )
 
 if skip_loading_so_files:
-    if force_skip_loading_so_files:
-        logger.warning(
-            "Skipping import of cpp extensions due to TORCHAO_FORCE_SKIP_LOADING_SO_FILES=1"
-        )
-    else:
-        logger.warning(
-            f"Skipping import of cpp extensions due to incompatible torch version {torch.__version__} for torchao version {__version__} \
-            Please see https://github.com/pytorch/ao/issues/2919 for more info"
-        )
+    logger.warning(_skip_reason)
 else:
     try:
         from pathlib import Path
@@ -140,7 +112,6 @@ from . import optim, quantization, swizzle, testing
 
 __all__ = [
     "dtypes",
-    "autoquant",  # noqa: F405
     "optim",
     "quantize_",
     "swizzle",
@@ -148,18 +119,3 @@ __all__ = [
     "ops",
     "quantization",
 ]
-
-# Lazy imports to avoid CUDA initialization at import time
-_lazy_imports = {
-    "autoquant": "torchao.quantization.autoquant",
-}
-
-
-def __getattr__(name):
-    if name in _lazy_imports:
-        import importlib
-
-        module_path = _lazy_imports[name]
-        module = importlib.import_module(module_path)
-        return getattr(module, name)
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

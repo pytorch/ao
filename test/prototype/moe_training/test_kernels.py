@@ -7,18 +7,25 @@
 import pytest
 import torch
 
-# FP8 MoE kernels require FP8-capable hardware (SM90+ on CUDA, MI300+ on ROCm)
-from torchao.utils import is_MI300, is_MI350, is_sm_at_least_90
+# FP8 MoE kernels require FP8-capable hardware (SM 10.x on CUDA, MI300+ on ROCm)
+from torchao.utils import is_MI300, is_MI350
 
-if not (
-    torch.cuda.is_available() and (is_sm_at_least_90() or is_MI300() or is_MI350())
-):
+
+def _is_sm_10x() -> bool:
+    return torch.cuda.is_available() and torch.cuda.get_device_capability()[0] == 10
+
+
+if not (torch.cuda.is_available() and (_is_sm_10x() or is_MI300() or is_MI350())):
     pytest.skip(
-        "Requires FP8-capable GPU (CUDA SM90+, MI300, or MI350)",
+        "Requires FP8-capable GPU (CUDA SM 10.x, MI300, or MI350)",
         allow_module_level=True,
     )
 
-from torchao.float8.config import e4m3_dtype
+from torchao.float8.config import ScalingGranularity, e4m3_dtype
+from torchao.float8.float8_utils import tensor_to_scale, to_fp8_saturated
+from torchao.prototype.moe_training.kernels import (
+    triton_fp8_rowwise_2d_scale_and_cast,
+)
 from torchao.prototype.moe_training.kernels.float8_rowwise import (
     triton_fp8_rowwise_3d_transpose_rhs,
     triton_fp8_rowwise_3d_transpose_rhs_fused_reduction,
@@ -28,10 +35,10 @@ from torchao.prototype.moe_training.kernels.jagged_float8_scales import (
     triton_fp8_per_group_rowwise_scales,
 )
 from torchao.prototype.moe_training.kernels.mxfp8 import (
-    _mxfp8_cuda_kernels_available,
     fused_pad_token_groups_cuda,
     fused_unpad_token_groups_cuda,
     mx_block_rearrange_2d_M_groups_cuda,
+    mxfp8_quantize_cuda_2d,
     mxfp8_quantize_cuda_3d,
     torch_pad_token_groups,
     torch_to_blocked_2d_K_groups,
@@ -42,6 +49,10 @@ from torchao.prototype.moe_training.kernels.mxfp8 import (
     triton_mx_block_rearrange_2d_M_groups,
     triton_mx_block_rearrange_per_group_3d,
 )
+from torchao.prototype.moe_training.kernels.mxfp8.quant import (
+    _mxfp8_cuda_kernels_available,
+    _mxfp8_cutedsl_kernels_available,
+)
 from torchao.prototype.moe_training.utils import (
     _is_column_major,
     generate_jagged_offs,
@@ -50,8 +61,8 @@ from torchao.prototype.moe_training.utils import (
     torch_to_float8_per_group_rowwise,
 )
 from torchao.prototype.mx_formats.mx_tensor import ScaleCalculationMode, to_mx
+from torchao.prototype.mx_formats.utils import from_blocked
 from torchao.testing.utils import skip_if_rocm
-from torchao.utils import is_sm_at_least_100
 
 
 @pytest.mark.parametrize("round_scales_to_power_of_2", [True, False])
@@ -251,8 +262,8 @@ def test_triton_mx_block_rearrange_2d_M_groups(
 
 
 @pytest.mark.skipif(
-    not is_sm_at_least_100(),
-    reason="MXFP8 requires CUDA capability 10.0 or greater",
+    not _is_sm_10x(),
+    reason="MXFP8 requires CUDA SM 10.x",
 )
 @skip_if_rocm("ROCm enablement in progress")
 @pytest.mark.parametrize(
@@ -367,15 +378,20 @@ def test_triton_mx_block_rearrange_2d_K_groups(
 
 
 @pytest.mark.skipif(
-    not is_sm_at_least_100(),
-    reason="MXFP8 requires CUDA capability 10.0 or greater",
+    not _is_sm_10x(),
+    reason="MXFP8 requires CUDA SM 10.x",
 )
 @pytest.mark.parametrize("E", (1, 2, 4, 8))
 @pytest.mark.parametrize("N", (32, 1536, 5120, 7168, 8192))
 @pytest.mark.parametrize("K", (32, 1536, 5120, 7168, 8192))
 @pytest.mark.parametrize("input_dtype", (torch.bfloat16,))
-@pytest.mark.parametrize("scaling_mode", (ScaleCalculationMode.FLOOR,))
+@pytest.mark.parametrize(
+    "scaling_mode", (ScaleCalculationMode.FLOOR, ScaleCalculationMode.RCEIL)
+)
 def test_cuda_mx_dim1_3d_numerics(E, N, K, input_dtype, scaling_mode):
+    if not _mxfp8_cutedsl_kernels_available:
+        pytest.skip("mxfp8_quantize_3d is unavailable")
+
     scaling_mode_str = (
         "floor" if scaling_mode == ScaleCalculationMode.FLOOR else "rceil"
     )
@@ -394,22 +410,85 @@ def test_cuda_mx_dim1_3d_numerics(E, N, K, input_dtype, scaling_mode):
         x.transpose(-2, -1).contiguous(),
         elem_dtype=torch.float8_e4m3fn,
         block_size=block_size,
+        scaling_mode=scaling_mode,
     )
 
     # Transpose tensors and scales back so we have effectively
     # quantized input shape (E, N, K) along N
     y_d1_ref = y_d1_ref.transpose(-2, -1)
     s_d1_ref = s_d1_ref.transpose(-2, -1)
-
     y_d1, s_d1 = mxfp8_quantize_cuda_3d(
-        x, block_size=block_size, scaling_mode=scaling_mode_str
+        x,
+        block_size=block_size,
+        scaling_mode=scaling_mode_str,
     )
+    s_d1 = torch.stack(
+        [
+            from_blocked(s_d1[e], K, N // block_size).transpose(-2, -1).contiguous()
+            for e in range(E)
+        ],
+        dim=0,
+    ).to(s_d1_ref.dtype)
     # Check scales
     torch.testing.assert_close(s_d1, s_d1_ref, rtol=0, atol=0)
 
     # Check quantized values
     torch.testing.assert_close(y_d1, y_d1_ref, rtol=0, atol=0)
     assert y_d1.stride() == y_d1_ref.stride(), "quantized tensor strides do not match"
+
+
+@pytest.mark.skipif(
+    not _is_sm_10x(),
+    reason="MXFP8 requires CUDA SM 10.x",
+)
+@pytest.mark.skipif(
+    not _mxfp8_cutedsl_kernels_available,
+    reason="MXFP8 cutedsl kernels not available",
+)
+@pytest.mark.parametrize("M", (32, 160, 8192))
+@pytest.mark.parametrize("K", (32, 96, 1536, 5120, 7168, 8192))
+@pytest.mark.parametrize("input_dtype", (torch.bfloat16,))
+@pytest.mark.parametrize(
+    "scaling_mode", (ScaleCalculationMode.FLOOR, ScaleCalculationMode.RCEIL)
+)
+def test_cuda_mx_dim0_2d_numerics(M, K, input_dtype, scaling_mode):
+    scaling_mode_str = scaling_mode.value.lower()
+    block_size = 32
+
+    # Use distinct incrementing values from 0 to M*K-1 to make debugging easier.
+    x = (
+        torch.arange(0, M * K, dtype=input_dtype, device="cuda")
+        .reshape(M, K)
+        .contiguous()
+    )
+
+    # Reference implementation
+    s_d0_ref, y_d0_ref = to_mx(
+        x,
+        elem_dtype=torch.float8_e4m3fn,
+        block_size=block_size,
+        scaling_mode=scaling_mode,
+    )
+
+    # CuTeDSL kernel implementation
+    y_d0, s_d0 = mxfp8_quantize_cuda_2d(
+        x,
+        block_size=block_size,
+        scaling_mode=scaling_mode_str,
+    )
+
+    # Convert blocked scales back to reference format
+    s_d0 = from_blocked(s_d0, M, K // block_size).to(s_d0_ref.dtype)
+
+    # Check scales
+    torch.testing.assert_close(s_d0, s_d0_ref, rtol=0, atol=0)
+
+    # Check quantized values
+    torch.testing.assert_close(y_d0, y_d0_ref, rtol=0, atol=0)
+
+    # Verify row-major layout
+    assert y_d0.stride() == (K, 1), "quantized tensor should be row-major"
+    assert y_d0.stride() == y_d0_ref.stride(), "quantized tensor strides do not match"
 
 
 @pytest.mark.skipif(
@@ -515,3 +594,40 @@ def test_cuda_fused_unpad_token_groups(
     assert torch.allclose(inputs, kernel_unpadded_tokens, rtol=0, atol=1e-5), (
         "Unpadded tokens should match original inputs"
     )
+
+
+@pytest.mark.parametrize("round_scales_to_power_of_2", [True, False])
+@pytest.mark.parametrize(
+    "m,k",
+    [(128, 5120), (1024, 8192), (4096, 5120)],
+)
+def test_triton_fp8_rowwise_2d_scale_and_cast(
+    m: int, k: int, round_scales_to_power_of_2: bool
+):
+    device = "cuda"
+    float8_dtype = torch.float8_e4m3fn
+
+    torch.manual_seed(0)
+    x = torch.randn(m, k, dtype=torch.bfloat16, device=device)
+
+    # PyTorch reference: 3-kernel sequence
+    ref_scales = tensor_to_scale(
+        x,
+        float8_dtype,
+        scaling_granularity=ScalingGranularity.AXISWISE,
+        axiswise_dim=-1,
+        round_scales_to_power_of_2=round_scales_to_power_of_2,
+    )
+    ref_fp8 = to_fp8_saturated(x.to(torch.float32) * ref_scales, float8_dtype)
+
+    # Fused Triton kernel
+    triton_fp8, triton_scales = triton_fp8_rowwise_2d_scale_and_cast(
+        x,
+        output_dtype=float8_dtype,
+        round_scales_to_power_of_2=round_scales_to_power_of_2,
+    )
+
+    assert ref_fp8.shape == triton_fp8.shape, "fp8 output shapes not equal"
+    assert ref_scales.shape == triton_scales.shape, "scale shapes not equal"
+    assert torch.allclose(ref_fp8, triton_fp8, rtol=0, atol=0), "fp8 data not equal"
+    assert torch.allclose(ref_scales, triton_scales, rtol=0, atol=0), "scales not equal"

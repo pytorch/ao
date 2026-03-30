@@ -83,7 +83,6 @@ def _to_mxfp8_then_scaled_grouped_mm(
     A: torch.Tensor,
     B_t: torch.Tensor,
     offs: Optional[torch.Tensor] = None,
-    block_size: Optional[int] = None,
     out_dtype: Optional[torch.dtype] = torch.bfloat16,
     kernel_preference: KernelPreference = KernelPreference.AUTO,
     wgrad_with_hp: bool = False,
@@ -103,7 +102,6 @@ def _to_mxfp8_then_scaled_grouped_mm(
             which must be 3D, which must be shape (G, K, N)
             and in "per group column-major memory" layout (i.e., strides of (N*K, 1, N)).
         offs (int32 torch.Tensor): The offsets to use to mark the end index of each group along the dim0 of the A tensor.
-        block_size (int): Block size for MXFP8 quantization. Must be 32 (the only supported value). This parameter exists for backward compatibility but is ignored.
         out_dtype (torch.dtype): Output dtype for the result. Defaults to torch.bfloat16.
         kernel_preference (KernelPreference): Kernel preference (AUTO uses CUDA/Triton, EMULATED uses to_mx). Defaults to KernelPreference.AUTO.
         wgrad_with_hp (bool): Whether to compute weight gradient in high precision. Defaults to False.
@@ -120,7 +118,6 @@ def _to_mxfp8_then_scaled_grouped_mm(
         A,
         B_t,
         offs,
-        block_size,
         out_dtype,
         kernel_preference,
         wgrad_with_hp,
@@ -144,7 +141,6 @@ class _MXFP8GroupedMM(torch.autograd.Function):
         input_act: torch.Tensor,
         weight_t: torch.Tensor,
         group_end_offsets: Optional[torch.Tensor] = None,
-        block_size: int = 32,
         out_dtype: Optional[torch.dtype] = torch.bfloat16,
         kernel_preference: KernelPreference = KernelPreference.AUTO,
         wgrad_with_hp: bool = False,
@@ -158,31 +154,33 @@ class _MXFP8GroupedMM(torch.autograd.Function):
             input_act: Input activations, shape (M, K) - may be MXTensor or high-precision
             weight_t: Expert weights transposed, shape (E, K, N) - always high-precision
             group_end_offsets: End index of each token group, shape (E,)
-            block_size: Block size for MXFP8 quantization (must be 32)
             out_dtype: Output dtype (bfloat16 or float32)
             kernel_preference: Kernel preference (AUTO uses CUDA/Triton, EMULATED uses to_mx)
             wgrad_with_hp: Compute weight gradient in high precision
             scale_calculation_mode: Mode for scale calculation (RCEIL, FLOOR, etc.)
+            pad_token_groups_for_grouped_mm: Whether to pad token groups to the next multiple of 32
 
         Returns:
             Output tensor, shape (M, N)
         """
+        # block_size is always 32 for MXFP8
+        block_size = 32
+
         assert kernel_preference in (
             KernelPreference.AUTO,
             KernelPreference.EMULATED,
         ), "kernel_preference must be AUTO or EMULATED"
 
-        # emulated mode validation
-        emulated = kernel_preference == KernelPreference.EMULATED
-        assert emulated or _SM100_KERNELS_AVAILABLE, (
-            "SM100 kernels not available. Please use use torchao CUDA 12.8+ build on SM100/100a device(s). "
-            "Otherwise, set kernel_preference=KernelPreference.EMULATED (emulated mode implements basic functionality without efficient kernels)."
-        )
+        # Validate SM100 kernels are available if not using emulated mode
+        if kernel_preference != KernelPreference.EMULATED:
+            assert _SM100_KERNELS_AVAILABLE, (
+                "SM100 kernels not available. Please use torchao CUDA 12.8+ build on SM100/100a device(s). "
+                "Otherwise, set kernel_preference=KernelPreference.EMULATED (emulated mode implements basic functionality without efficient kernels)."
+            )
 
         # Input validation
         assert input_act.ndim == 2, "input_act must be 2D"
         assert weight_t.ndim == 3, "weight_t must be 3D"
-        assert block_size == 32, "Only block_size=32 is supported"
         assert group_end_offsets is not None, (
             "group_end_offsets must be provided for 2d-3d grouped mm"
         )
@@ -217,55 +215,16 @@ class _MXFP8GroupedMM(torch.autograd.Function):
             padded_input_act = input_act
             padded_group_end_offsets = group_end_offsets
 
-        # Quantize input activations along dim0
-        # input_act_e4m3 shape: (M, K) or (padded_M, K) if padding was used
-        # input_act_scales shape: (M, K//block_size) or (padded_M, K//block_size)
-        input_act_e4m3, input_act_scales = _extract_or_quantize_dim0(
-            padded_input_act, block_size, kernel_preference, scale_calculation_mode
-        )
-
-        # Quantize expert weights along dim0 (after transposing from (E, K, N) to (E, N, K))
-        # weight_e4m3 shape: (E, N, K)
-        # weight_scales shape: (E, N, K//block_size)
-        weight_e4m3, weight_scales = _extract_or_quantize_dim0(
-            weight_t.transpose(-2, -1),
+        # Perform forward computation using appropriate path
+        output = _compute_fwd(
+            padded_input_act,
+            weight_t,
+            padded_group_end_offsets,
             block_size,
-            kernel_preference,
+            out_dtype,
             scale_calculation_mode,
+            kernel_preference,
         )
-
-        # Perform grouped GEMM: output = input_act @ weight_t
-        # output shape: (M, N) or (padded_M, N) if padding was used
-        if emulated:
-            # Use emulated BF16 path: dequantize and use regular grouped mm
-            # weight_e4m3 is (E, N, K), weight_scales is (E, N, K//block_size)
-            # The emulated function expects B in (E, N, K) format
-            output = _emulated_mxfp8_scaled_grouped_mm_2d_3d(
-                input_act_e4m3,
-                input_act_scales,
-                weight_e4m3,  # Keep as (E, N, K)
-                weight_scales,  # Keep as (E, N, K//block_size)
-                offs=padded_group_end_offsets,
-                out_dtype=out_dtype,
-                block_size=block_size,
-            )
-        else:
-            # Path using SM100 kernels.
-            # Convert scales to blocked layout on a per-group basis required for tcgen05.mma for 2d-3d grouped mm.
-            input_act_scales_blocked = mx_block_rearrange_2d_M_groups_cuda(
-                input_act_scales, padded_group_end_offsets
-            )
-            weight_scales_blocked = triton_mx_block_rearrange_per_group_3d(
-                weight_scales
-            )
-            output = torch._scaled_grouped_mm(
-                input_act_e4m3,
-                weight_e4m3.transpose(-2, -1),  # Transpose back to (E, K, N)
-                input_act_scales_blocked,
-                weight_scales_blocked,
-                offs=padded_group_end_offsets,
-                out_dtype=out_dtype,
-            )
 
         # Unpad output if padding was used
         if pad_token_groups_for_grouped_mm:
@@ -286,7 +245,6 @@ class _MXFP8GroupedMM(torch.autograd.Function):
             padded_group_start_offsets,
             padded_group_end_offsets,
         )
-        ctx.block_size = block_size
         ctx.out_dtype = out_dtype
         ctx.kernel_preference = kernel_preference
         ctx.wgrad_with_hp = wgrad_with_hp
@@ -318,20 +276,14 @@ class _MXFP8GroupedMM(torch.autograd.Function):
             padded_group_end_offsets,
         ) = ctx.saved_tensors
 
-        block_size = ctx.block_size
+        # block_size is always 32 for MXFP8
+        block_size = 32
         out_dtype = ctx.out_dtype
         kernel_preference = ctx.kernel_preference
         wgrad_with_hp = ctx.wgrad_with_hp
         scale_calculation_mode = ctx.scale_calculation_mode
         pad_token_groups_for_grouped_mm = ctx.pad_token_groups_for_grouped_mm
         num_tokens = ctx.num_tokens
-
-        # Check SM100 kernel availability when not using emulated mode
-        emulated = kernel_preference == KernelPreference.EMULATED
-        assert emulated or _SM100_KERNELS_AVAILABLE, (
-            "SM100 kernels not available. Please use use torchao CUDA 12.8+ build on SM100/100a device(s)."
-            "Otherwise, set kernel_preference=KernelPreference.EMULATED (emulated mode implements basic functionality without efficient kernels)."
-        )
 
         # Pad grad_output if padding was used in forward (needed for both dgrad and wgrad)
         if pad_token_groups_for_grouped_mm:
@@ -357,17 +309,6 @@ class _MXFP8GroupedMM(torch.autograd.Function):
             kernel_preference,
         )
 
-        # Unpad grad_input if padding was used
-        if pad_token_groups_for_grouped_mm:
-            grad_input = unpad_token_groups(
-                grad_input,
-                original_group_end_offsets,
-                padded_group_start_offsets,
-                num_tokens,
-                alignment_size=block_size,
-                kernel_preference=kernel_preference,
-            )
-
         # Compute gradient w.r.t. weights (high-precision or quantized)
         # Re-use padded grad_output and padded input activations computed previously
         grad_weight_t = _compute_wgrad(
@@ -380,16 +321,71 @@ class _MXFP8GroupedMM(torch.autograd.Function):
             wgrad_with_hp,
             kernel_preference,
         )
+
+        # Unpad grad_input if padding was used
+        if pad_token_groups_for_grouped_mm:
+            grad_input = unpad_token_groups(
+                grad_input,
+                original_group_end_offsets,
+                padded_group_start_offsets,
+                num_tokens,
+                alignment_size=block_size,
+                kernel_preference=kernel_preference,
+            )
+
         return (
             grad_input,
             grad_weight_t,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
+            None,  # group_end_offsets
+            None,  # out_dtype
+            None,  # kernel_preference
+            None,  # wgrad_with_hp
+            None,  # scale_calculation_mode
+            None,  # pad_token_groups_for_grouped_mm
+        )
+
+
+def _compute_fwd(
+    padded_input_act: torch.Tensor,
+    weight_t: torch.Tensor,
+    padded_group_end_offsets: torch.Tensor,
+    block_size: int,
+    out_dtype: torch.dtype,
+    scale_calculation_mode: ScaleCalculationMode,
+    kernel_preference: KernelPreference,
+) -> torch.Tensor:
+    """
+    Forward computation wrapper that dispatches to AUTO or EMULATED path.
+
+    Args:
+        padded_input_act: Input activations (possibly padded), shape (M, K)
+        weight_t: Expert weights transposed, shape (E, K, N)
+        padded_group_end_offsets: Group offsets (possibly padded)
+        block_size: Block size for quantization
+        out_dtype: Output dtype
+        scale_calculation_mode: Mode for scale calculation
+        kernel_preference: If EMULATED, use EMULATED path (native PyTorch), else use AUTO (SM100 kernels)
+
+    Returns:
+        Output tensor, shape (M, N)
+    """
+    if kernel_preference == KernelPreference.EMULATED:
+        return _compute_fwd_emulated(
+            padded_input_act,
+            weight_t,
+            padded_group_end_offsets,
+            block_size,
+            out_dtype,
+            scale_calculation_mode,
+        )
+    else:
+        return _compute_fwd_sm100(
+            padded_input_act,
+            weight_t,
+            padded_group_end_offsets,
+            block_size,
+            out_dtype,
+            scale_calculation_mode,
         )
 
 
@@ -400,10 +396,10 @@ def _compute_dgrad(
     block_size: int,
     out_dtype: torch.dtype,
     scale_calculation_mode: ScaleCalculationMode,
-    kernel_preference: KernelPreference = KernelPreference.AUTO,
+    kernel_preference: KernelPreference,
 ) -> torch.Tensor:
     """
-    Compute gradient w.r.t. input activations: grad_input = grad_output @ weight.
+    Compute gradient w.r.t. input activations, dispatching to AUTO or EMULATED path.
 
     Args:
         grad_output: Gradient output, shape (M, N)
@@ -412,64 +408,29 @@ def _compute_dgrad(
         block_size: Block size for quantization
         out_dtype: Output dtype
         scale_calculation_mode: Mode for scale calculation
-        kernel_preference: Kernel preference (AUTO uses CUDA/Triton, EMULATED uses to_mx)
+        kernel_preference: If EMULATED, use EMULATED path (native PyTorch), else use AUTO (SM100 kernels)
 
     Returns:
         grad_input, shape (M, K)
     """
-    # Quantize grad_output along dim0
-    # grad_output_data shape: (M, N)
-    # grad_output_scales shape: (M, N//block_size)
-    grad_output_data, grad_output_scales = _extract_or_quantize_dim0(
-        grad_output, block_size, kernel_preference, scale_calculation_mode
-    )
-
     if kernel_preference == KernelPreference.EMULATED:
-        # No CUDA kernel in emulated mode, use torch native impl
-        weight_e4m3, weight_scales = _quantize_3d_along_dim1_native(
-            weight_t.transpose(-2, -1), block_size, scale_calculation_mode
+        return _compute_dgrad_emulated(
+            grad_output,
+            weight_t,
+            group_end_offsets,
+            block_size,
+            out_dtype,
+            scale_calculation_mode,
         )
-        grad_input = _emulated_mxfp8_scaled_grouped_mm_2d_3d(
-            grad_output_data,  # (M, N)
-            grad_output_scales,  # (M, N//block_size)
-            weight_e4m3.transpose(-2, -1),  # (E, N, K)
-            weight_scales.transpose(-2, -1),  # (E, K, N//block_size)
-            offs=group_end_offsets,
-            out_dtype=out_dtype,
-            block_size=block_size,
+    else:
+        return __compute_dgrad_sm100(
+            grad_output,
+            weight_t,
+            group_end_offsets,
+            block_size,
+            out_dtype,
+            scale_calculation_mode,
         )
-        return grad_input  # (M, K)
-
-    # Path requiring SM100 kernels.
-    # Use CUDA kernel for dim1 quantization
-    # weight_e4m3: (E, N, K), weight_scales: (E, N//block_size, K)
-    weight = weight_t.transpose(-2, -1)
-    weight_e4m3, weight_scales = mxfp8_quantize_cuda_3d(
-        weight._data if hasattr(weight, "_data") else weight,
-        block_size=block_size,
-        scaling_mode=scale_calculation_mode.value.lower(),
-    )
-
-    # Transpose scales to align with torch API requirement:
-    # (E, N//block_size, K) -> (E, K, N//block_size)
-    weight_scales = weight_scales.transpose(-2, -1)
-
-    # Convert scales to blocked format
-    grad_output_scales_blocked = mx_block_rearrange_2d_M_groups_cuda(
-        grad_output_scales, group_end_offsets
-    )
-    weight_scales_blocked = triton_mx_block_rearrange_per_group_3d(weight_scales)
-
-    # Compute grad_input = grad_output @ weight
-    grad_input = torch._scaled_grouped_mm(
-        grad_output_data,  # (M, N)
-        weight_e4m3,  # (E, N, K)
-        grad_output_scales_blocked,  # (M, N//block_size)
-        weight_scales_blocked,  # (E, K, N//block_size)
-        offs=group_end_offsets,
-        out_dtype=out_dtype,
-    )
-    return grad_input  # (M, K)
 
 
 def _compute_wgrad(
@@ -479,11 +440,11 @@ def _compute_wgrad(
     block_size: int,
     out_dtype: torch.dtype,
     scale_calculation_mode: ScaleCalculationMode,
-    wgrad_with_hp: bool = False,
-    kernel_preference: KernelPreference = KernelPreference.AUTO,
+    wgrad_with_hp: bool,
+    kernel_preference: KernelPreference,
 ) -> torch.Tensor:
     """
-    Compute gradient w.r.t. weights with quantization.
+    Compute gradient w.r.t. weights, dispatching to AUTO or EMULATED path.
 
     Args:
         grad_output: Gradient output (MXTensor or high-precision), shape (M, N)
@@ -493,7 +454,298 @@ def _compute_wgrad(
         out_dtype: Output dtype
         scale_calculation_mode: Mode for scale calculation
         wgrad_with_hp: Whether to compute weight gradient in high precision
-        kernel_preference: Kernel preference for quantization and compute
+        kernel_preference: If EMULATED, use EMULATED path (native PyTorch), else use AUTO (SM100 kernels)
+
+    Returns:
+        grad_weight_t, shape (E, K, N)
+    """
+    if kernel_preference == KernelPreference.EMULATED:
+        return _compute_wgrad_emulated(
+            grad_output,
+            input_act,
+            group_end_offsets,
+            block_size,
+            out_dtype,
+            scale_calculation_mode,
+            wgrad_with_hp,
+        )
+    else:
+        return __compute_wgrad_sm100(
+            grad_output,
+            input_act,
+            group_end_offsets,
+            block_size,
+            out_dtype,
+            scale_calculation_mode,
+            wgrad_with_hp,
+        )
+
+
+def _extract_or_quantize_dim0_auto(
+    tensor: torch.Tensor,
+    block_size: int,
+    scale_calculation_mode: ScaleCalculationMode,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """
+    Extract qdata and scales from MXTensor or quantize using Triton kernels (AUTO path).
+
+    Args:
+        tensor: Input tensor (MXTensor or high-precision)
+        block_size: Block size for quantization
+        scale_calculation_mode: Mode for scale calculation
+
+    Returns:
+        tuple: (quantized_data, scales)
+    """
+    if isinstance(tensor, MXTensor):
+        return tensor.qdata, tensor.scale
+
+    qdata, scale = triton_to_mxfp8_dim0(
+        tensor,
+        inner_block_size=block_size,
+        scaling_mode=str(scale_calculation_mode.value).lower(),
+    )
+    return qdata, scale
+
+
+def _extract_or_quantize_dim0_emulated(
+    tensor: torch.Tensor,
+    block_size: int,
+    scale_calculation_mode: ScaleCalculationMode,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """
+    Extract qdata and scales from MXTensor or quantize using native PyTorch (EMULATED path).
+
+    Args:
+        tensor: Input tensor (MXTensor or high-precision)
+        block_size: Block size for quantization
+        scale_calculation_mode: Mode for scale calculation
+
+    Returns:
+        tuple: (quantized_data, scales)
+    """
+    if isinstance(tensor, MXTensor):
+        return tensor.qdata, tensor.scale
+
+    scale, qdata = to_mx(
+        tensor,
+        elem_dtype=torch.float8_e4m3fn,
+        block_size=block_size,
+        scaling_mode=scale_calculation_mode,
+    )
+    return qdata, scale
+
+
+def _compute_fwd_sm100(
+    padded_input_act: torch.Tensor,
+    weight_t: torch.Tensor,
+    padded_group_end_offsets: torch.Tensor,
+    block_size: int,
+    out_dtype: torch.dtype,
+    scale_calculation_mode: ScaleCalculationMode,
+) -> torch.Tensor:
+    """
+    Forward computation using AUTO path (SM100 kernels).
+
+    Args:
+        padded_input_act: Input activations (possibly padded), shape (M, K)
+        weight_t: Expert weights transposed, shape (E, K, N)
+        padded_group_end_offsets: Group offsets (possibly padded)
+        block_size: Block size for quantization
+        out_dtype: Output dtype
+        scale_calculation_mode: Mode for scale calculation
+
+    Returns:
+        Output tensor, shape (M, N)
+    """
+    # Quantize input activations along dim0
+    input_act_e4m3, input_act_scales = _extract_or_quantize_dim0_auto(
+        padded_input_act, block_size, scale_calculation_mode
+    )
+
+    # Quantize weights along dim0 (after transposing from (E, K, N) to (E, N, K))
+    weight_e4m3, weight_scales = _extract_or_quantize_dim0_auto(
+        weight_t.transpose(-2, -1), block_size, scale_calculation_mode
+    )
+
+    # Convert scales to blocked layout for SM100 kernels
+    input_act_scales_blocked = mx_block_rearrange_2d_M_groups_cuda(
+        input_act_scales, padded_group_end_offsets
+    )
+    weight_scales_blocked = triton_mx_block_rearrange_per_group_3d(weight_scales)
+
+    # Compute output using SM100 kernel
+    output = torch._scaled_grouped_mm(
+        input_act_e4m3,
+        weight_e4m3.transpose(-2, -1),  # Transpose back to (E, K, N)
+        input_act_scales_blocked,
+        weight_scales_blocked,
+        offs=padded_group_end_offsets,
+        out_dtype=out_dtype,
+    )
+    return output
+
+
+def _compute_fwd_emulated(
+    padded_input_act: torch.Tensor,
+    weight_t: torch.Tensor,
+    padded_group_end_offsets: torch.Tensor,
+    block_size: int,
+    out_dtype: torch.dtype,
+    scale_calculation_mode: ScaleCalculationMode,
+) -> torch.Tensor:
+    """
+    Forward computation using EMULATED path (native PyTorch).
+
+    Args:
+        padded_input_act: Input activations (possibly padded), shape (M, K)
+        weight_t: Expert weights transposed, shape (E, K, N)
+        padded_group_end_offsets: Group offsets (possibly padded)
+        block_size: Block size for quantization
+        out_dtype: Output dtype
+        scale_calculation_mode: Mode for scale calculation
+
+    Returns:
+        Output tensor, shape (M, N)
+    """
+    # Quantize input activations along dim0
+    input_act_e4m3, input_act_scales = _extract_or_quantize_dim0_emulated(
+        padded_input_act, block_size, scale_calculation_mode
+    )
+
+    # Quantize weights along dim0 (after transposing from (E, K, N) to (E, N, K))
+    weight_e4m3, weight_scales = _extract_or_quantize_dim0_emulated(
+        weight_t.transpose(-2, -1), block_size, scale_calculation_mode
+    )
+
+    # Use emulated BF16 path: dequantize and use regular grouped mm
+    output = _emulated_mxfp8_scaled_grouped_mm_2d_3d(
+        input_act_e4m3,
+        input_act_scales,
+        weight_e4m3,
+        weight_scales,
+        offs=padded_group_end_offsets,
+        out_dtype=out_dtype,
+        block_size=block_size,
+    )
+    return output
+
+
+def __compute_dgrad_sm100(
+    grad_output: torch.Tensor,
+    weight_t: torch.Tensor,
+    group_end_offsets: torch.Tensor,
+    block_size: int,
+    out_dtype: torch.dtype,
+    scale_calculation_mode: ScaleCalculationMode,
+) -> torch.Tensor:
+    """
+    Compute gradient w.r.t. input activations using AUTO path (SM100 kernels).
+
+    Args:
+        grad_output: Gradient output, shape (M, N)
+        weight_t: Expert weights transposed, shape (E, K, N)
+        group_end_offsets: Group offsets for grouped mm
+        block_size: Block size for quantization
+        out_dtype: Output dtype
+        scale_calculation_mode: Mode for scale calculation
+
+    Returns:
+        grad_input, shape (M, K)
+    """
+    # Quantize grad_output along dim0
+    grad_output_data, grad_output_scales = _extract_or_quantize_dim0_auto(
+        grad_output, block_size, scale_calculation_mode
+    )
+
+    # Quantize weights directly to blocked tcgen05 scales
+    weight = weight_t.transpose(-2, -1)
+    weight_e4m3, weight_scales_blocked = mxfp8_quantize_cuda_3d(
+        weight._data if hasattr(weight, "_data") else weight,
+        block_size,
+        scaling_mode=scale_calculation_mode.value.lower(),
+    )
+
+    grad_output_scales_blocked = mx_block_rearrange_2d_M_groups_cuda(
+        grad_output_scales, group_end_offsets
+    )
+
+    # Compute grad_input = grad_output @ weight
+    grad_input = torch._scaled_grouped_mm(
+        grad_output_data,
+        weight_e4m3,
+        grad_output_scales_blocked,
+        weight_scales_blocked,
+        offs=group_end_offsets,
+        out_dtype=out_dtype,
+    )
+    return grad_input
+
+
+def _compute_dgrad_emulated(
+    grad_output: torch.Tensor,
+    weight_t: torch.Tensor,
+    group_end_offsets: torch.Tensor,
+    block_size: int,
+    out_dtype: torch.dtype,
+    scale_calculation_mode: ScaleCalculationMode,
+) -> torch.Tensor:
+    """
+    Compute gradient w.r.t. input activations using EMULATED path (native PyTorch).
+
+    Args:
+        grad_output: Gradient output, shape (M, N)
+        weight_t: Expert weights transposed, shape (E, K, N)
+        group_end_offsets: Group offsets for grouped mm
+        block_size: Block size for quantization
+        out_dtype: Output dtype
+        scale_calculation_mode: Mode for scale calculation
+
+    Returns:
+        grad_input, shape (M, K)
+    """
+    # Quantize grad_output along dim0
+    grad_output_data, grad_output_scales = _extract_or_quantize_dim0_emulated(
+        grad_output, block_size, scale_calculation_mode
+    )
+
+    # Quantize weights along dim1 using native PyTorch
+    weight_e4m3, weight_scales = _quantize_3d_along_dim1_native(
+        weight_t.transpose(-2, -1), block_size, scale_calculation_mode
+    )
+
+    grad_input = _emulated_mxfp8_scaled_grouped_mm_2d_3d(
+        grad_output_data,
+        grad_output_scales,
+        weight_e4m3.transpose(-2, -1),
+        weight_scales.transpose(-2, -1),
+        offs=group_end_offsets,
+        out_dtype=out_dtype,
+        block_size=block_size,
+    )
+    return grad_input
+
+
+def __compute_wgrad_sm100(
+    grad_output: torch.Tensor,
+    input_act: torch.Tensor,
+    group_end_offsets: torch.Tensor,
+    block_size: int,
+    out_dtype: torch.dtype,
+    scale_calculation_mode: ScaleCalculationMode,
+    wgrad_with_hp: bool = False,
+) -> torch.Tensor:
+    """
+    Compute gradient w.r.t. weights using AUTO path (SM100 kernels).
+
+    Args:
+        grad_output: Gradient output (MXTensor or high-precision), shape (M, N)
+        input_act: Input activations (MXTensor or high-precision), shape (M, K)
+        group_end_offsets: Group offsets
+        block_size: Block size for quantization
+        out_dtype: Output dtype
+        scale_calculation_mode: Mode for scale calculation
+        wgrad_with_hp: Whether to compute weight gradient in high precision
 
     Returns:
         grad_weight_t, shape (E, K, N)
@@ -511,42 +763,7 @@ def _compute_wgrad(
         )
         return grad_weight.transpose(-2, -1)
 
-    # Quantize grad_output and input_act transposed along dim1 (M dimension)
-    if kernel_preference == KernelPreference.EMULATED:
-        # Use native PyTorch quantization (works on any hardware)
-        grad_output_t_scales, grad_output_t_data = to_mx(
-            grad_output.transpose(
-                -2, -1
-            ).contiguous(),  # (M,N) -> (N,M) and quantize along M
-            elem_dtype=torch.float8_e4m3fn,
-            block_size=block_size,
-            scaling_mode=scale_calculation_mode,
-        )
-        input_act_t_scales, input_act_t_data = to_mx(
-            input_act.transpose(
-                -2, -1
-            ).contiguous(),  # (M,K) -> (K,M) and quantize along M
-            elem_dtype=torch.float8_e4m3fn,
-            block_size=block_size,
-            scaling_mode=scale_calculation_mode,
-        )
-
-        # Dequantize and run bf16 grouped mm for emulation
-        grad_weight = _emulated_mxfp8_scaled_grouped_mm_2d_2d(
-            grad_output_t_data,  # (N, M)
-            grad_output_t_scales,  # (N, M//block_size)
-            input_act_t_data,  # (K, M)
-            input_act_t_scales,  # (K, M//block_size)
-            offs=group_end_offsets,
-            out_dtype=out_dtype,
-            block_size=block_size,
-        )
-        # Transpose to match weight_t shape in forward: (E, N, K) -> (E, K, N)
-        return grad_weight.transpose(-2, -1)
-
-    # Path requiring SM100 kernels.
     # Use CUDA kernel for dim1 quant
-    # (M,N) -> (M//block_size, N)^T -> (N, M//block_size)
     grad_output_t_mx = _to_mxfp8_dim1_kernel_wrapper(
         grad_output,
         block_size,
@@ -559,7 +776,6 @@ def _compute_wgrad(
     grad_output_t_data = grad_output_t_mx.qdata
     grad_output_t_scales = grad_output_t_mx.scale
 
-    # (M,K) -> (M//block_size, K)^T -> (K, M//block_size)
     input_act_t_mx = _to_mxfp8_dim1_kernel_wrapper(
         input_act,
         block_size,
@@ -572,7 +788,7 @@ def _compute_wgrad(
     input_act_t_data = input_act_t_mx.qdata
     input_act_t_scales = input_act_t_mx.scale
 
-    # Convert scales to blocked layout required for tcgen05.mma on a per-group basis for 2d-2d grouped mm
+    # Convert scales to blocked layout for SM100 kernels
     scale_group_offsets = group_end_offsets // block_size
     grad_output_t_scales_blocked = triton_mx_block_rearrange_2d_K_groups(
         grad_output_t_scales,
@@ -584,7 +800,6 @@ def _compute_wgrad(
     )
 
     # Compute grad_weight = grad_output_t @ input_act
-    # Shape: (N, M) @ (M, K) = (E, N, K)
     grad_weight = torch._scaled_grouped_mm(
         grad_output_t_data,
         input_act_t_data.transpose(-2, -1),
@@ -594,6 +809,71 @@ def _compute_wgrad(
         out_dtype=out_dtype,
     )
 
+    # Transpose to match weight_t shape in forward: (E, N, K) -> (E, K, N)
+    return grad_weight.transpose(-2, -1)
+
+
+def _compute_wgrad_emulated(
+    grad_output: torch.Tensor,
+    input_act: torch.Tensor,
+    group_end_offsets: torch.Tensor,
+    block_size: int,
+    out_dtype: torch.dtype,
+    scale_calculation_mode: ScaleCalculationMode,
+    wgrad_with_hp: bool = False,
+) -> torch.Tensor:
+    """
+    Compute gradient w.r.t. weights using EMULATED path (native PyTorch).
+
+    Args:
+        grad_output: Gradient output (MXTensor or high-precision), shape (M, N)
+        input_act: Input activations (MXTensor or high-precision), shape (M, K)
+        group_end_offsets: Group offsets
+        block_size: Block size for quantization
+        out_dtype: Output dtype
+        scale_calculation_mode: Mode for scale calculation
+        wgrad_with_hp: Whether to compute weight gradient in high precision
+
+    Returns:
+        grad_weight_t, shape (E, K, N)
+    """
+    # Dequantize if needed
+    grad_output = _dequantize_if_mxtensor(grad_output, block_size)
+    input_act = _dequantize_if_mxtensor(input_act, block_size)
+
+    if wgrad_with_hp:
+        grad_weight = torch._grouped_mm(
+            grad_output.transpose(-2, -1),
+            input_act,
+            offs=group_end_offsets,
+            out_dtype=out_dtype,
+        )
+        return grad_weight.transpose(-2, -1)
+
+    # Use native PyTorch quantization
+    grad_output_t_scales, grad_output_t_data = to_mx(
+        grad_output.transpose(-2, -1).contiguous(),
+        elem_dtype=torch.float8_e4m3fn,
+        block_size=block_size,
+        scaling_mode=scale_calculation_mode,
+    )
+    input_act_t_scales, input_act_t_data = to_mx(
+        input_act.transpose(-2, -1).contiguous(),
+        elem_dtype=torch.float8_e4m3fn,
+        block_size=block_size,
+        scaling_mode=scale_calculation_mode,
+    )
+
+    # Dequantize and run bf16 grouped mm for emulation
+    grad_weight = _emulated_mxfp8_scaled_grouped_mm_2d_2d(
+        grad_output_t_data,
+        grad_output_t_scales,
+        input_act_t_data,
+        input_act_t_scales,
+        offs=group_end_offsets,
+        out_dtype=out_dtype,
+        block_size=block_size,
+    )
     # Transpose to match weight_t shape in forward: (E, N, K) -> (E, K, N)
     return grad_weight.transpose(-2, -1)
 
@@ -632,45 +912,6 @@ def _quantize_3d_along_dim1_native(
     scales = scales.transpose(-2, -1)
 
     return qdata, scales
-
-
-def _extract_or_quantize_dim0(
-    tensor: torch.Tensor,
-    block_size: int,
-    kernel_preference: KernelPreference,
-    scale_calculation_mode: ScaleCalculationMode,
-) -> tuple[torch.Tensor, torch.Tensor]:
-    """
-    Extract qdata and scales from MXTensor or quantize high-precision tensor along dim0.
-
-    Args:
-        tensor: Input tensor (MXTensor or high-precision)
-        block_size: Block size for quantization
-        kernel_preference: Kernel preference (AUTO uses Triton if available, EMULATED uses to_mx)
-        scale_calculation_mode: Mode for scale calculation
-
-    Returns:
-        tuple: (quantized_data, scales)
-    """
-    if isinstance(tensor, MXTensor):
-        return tensor.qdata, tensor.scale
-
-    # Use SM100 Triton kernel if AUTO mode and kernels available
-    if kernel_preference == KernelPreference.AUTO and _SM100_KERNELS_AVAILABLE:
-        qdata, scale = triton_to_mxfp8_dim0(
-            tensor,
-            inner_block_size=block_size,
-            scaling_mode=str(scale_calculation_mode.value).lower(),
-        )
-    else:
-        # Use native PyTorch (works on any hardware)
-        scale, qdata = to_mx(
-            tensor,
-            elem_dtype=torch.float8_e4m3fn,
-            block_size=block_size,
-            scaling_mode=scale_calculation_mode,
-        )
-    return qdata, scale
 
 
 def _dequantize_if_mxtensor(
