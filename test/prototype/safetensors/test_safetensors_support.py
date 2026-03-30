@@ -36,9 +36,6 @@ from torchao.utils import (
     torch_version_at_least,
 )
 
-_DEVICES = get_available_devices()
-_DEVICE = _DEVICES[-1]
-
 _ALL_TEST_CONFIGS = [
     (Float8DynamicActivationFloat8WeightConfig(granularity=PerRow()), False),
     (IntxWeightOnlyConfig(), False),
@@ -47,27 +44,27 @@ _ALL_TEST_CONFIGS = [
     (Int8DynamicActivationInt8WeightConfig(version=2), False),
 ]
 
-# Int4WeightOnlyConfig with tinygemm uses sm90a CUTLASS kernels which are not
-# forward-compatible with sm100+
-if not is_sm_at_least_100():
-    _ALL_TEST_CONFIGS += [
-        (Int4WeightOnlyConfig(), False),
-        (Int4WeightOnlyConfig(), True),
-        (Int4WeightOnlyConfig(int4_packing_format="tile_packed_to_4d"), False),
-    ]
-
 # plain_int32 only supports XPU
-if _DEVICE in ("xpu"):
+if torch.xpu.is_available():
     _ALL_TEST_CONFIGS += [
         (Int4WeightOnlyConfig(int4_packing_format="plain_int32"), False),
     ]
+else:
+    # Int4WeightOnlyConfig with tinygemm uses sm90a CUTLASS kernels which are not
+    # forward-compatible with sm100+
+    if not is_sm_at_least_100():
+        _ALL_TEST_CONFIGS += [
+            (Int4WeightOnlyConfig(), False),
+            (Int4WeightOnlyConfig(), True),
+            (Int4WeightOnlyConfig(int4_packing_format="tile_packed_to_4d"), False),
+        ]
 
-# MX and NVFP4 configs require torch >= 2.11
-if torch_version_at_least("2.11.0.dev"):
-    _ALL_TEST_CONFIGS += [
-        (MXDynamicActivationMXWeightConfig(), False),
-        (NVFP4DynamicActivationNVFP4WeightConfig(), False),
-    ]
+    # MX and NVFP4 configs require torch >= 2.11
+    if torch_version_at_least("2.11.0.dev"):
+        _ALL_TEST_CONFIGS += [
+            (MXDynamicActivationMXWeightConfig(), False),
+            (NVFP4DynamicActivationNVFP4WeightConfig(), False),
+        ]
 
 _TEST_CONFIGS = _ALL_TEST_CONFIGS
 
@@ -93,16 +90,19 @@ def load_data(file_path: str, device: str):
 )
 class TestSafeTensors(TestCase):
     @parametrize("config, act_pre_scale", _TEST_CONFIGS)
-    def test_safetensors(self, config, act_pre_scale=False):
+    @parametrize("device", get_available_devices())
+    def test_safetensors(self, config, device, act_pre_scale=False):
+        if device == "cpu":
+            self.skipTest("Need GPU available")
         model = torch.nn.Sequential(
-            torch.nn.Linear(128, 256, dtype=torch.bfloat16, device=_DEVICE)
+            torch.nn.Linear(128, 256, dtype=torch.bfloat16, device=device)
         )
         quantize_(model, config)
         if act_pre_scale:
             model[0].weight.act_pre_scale = torch.ones(
-                (1), dtype=torch.bfloat16, device=_DEVICE
+                (1), dtype=torch.bfloat16, device=device
             )
-        example_inputs = (torch.randn(128, 128, dtype=torch.bfloat16, device=_DEVICE),)
+        example_inputs = (torch.randn(128, 128, dtype=torch.bfloat16, device=device),)
         ref_output = model(*example_inputs)
 
         with tempfile.NamedTemporaryFile() as f:
@@ -114,35 +114,38 @@ class TestSafeTensors(TestCase):
                 )
 
             save_file(tensors_data_dict, f.name, metadata=metadata)
-            tensors_data_dict, metadata = load_data(file_path=f.name, device=_DEVICE)
+            tensors_data_dict, metadata = load_data(file_path=f.name, device=device)
             reconstructed_dict, leftover_tensor_data_dict = unflatten_tensor_state_dict(
                 tensors_data_dict, metadata
             )
             assert not leftover_tensor_data_dict
 
         model = torch.nn.Sequential(
-            torch.nn.Linear(128, 256, dtype=torch.bfloat16, device=_DEVICE)
+            torch.nn.Linear(128, 256, dtype=torch.bfloat16, device=device)
         )
         model.load_state_dict(reconstructed_dict, assign=True)
         output = model(*example_inputs)
         assert torch.equal(output, ref_output)
 
     @parametrize("config, act_pre_scale", _TEST_CONFIGS)
-    def test_safetensors_sharded(self, config, act_pre_scale=False):
+    @parametrize("device", get_available_devices())
+    def test_safetensors_sharded(self, config, device, act_pre_scale=False):
+        if device == "cpu":
+            self.skipTest("Need GPU available")
         print("config is ", config)
         model = torch.nn.Sequential(
-            torch.nn.Linear(128, 256, dtype=torch.bfloat16, device=_DEVICE)
+            torch.nn.Linear(128, 256, dtype=torch.bfloat16, device=device)
         )
         quantize_(model, config)
         if act_pre_scale:
             model[0].weight.act_pre_scale = torch.ones(
-                (1), dtype=torch.bfloat16, device=_DEVICE
+                (1), dtype=torch.bfloat16, device=device
             )
 
         with tempfile.NamedTemporaryFile() as f:
             tensors_data_dict, metadata = flatten_tensor_state_dict(model.state_dict())
             save_file(tensors_data_dict, f.name, metadata=metadata)
-            tensors_data_dict, metadata = load_data(file_path=f.name, device=_DEVICE)
+            tensors_data_dict, metadata = load_data(file_path=f.name, device=device)
 
             # simulate missing info on future file
             if act_pre_scale:
