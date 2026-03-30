@@ -45,13 +45,213 @@
     }                                                                          \
   }()
 
+// =============================================================================
+// AVX10.2 variant — compiled as a temp copy of this file with:
+//   -DEMIT_ISA_AVX10_2 -march=diamondrapids
+// When __AVX10_2__ is set by -march=diamondrapids, the PyTorch helpers
+// cvtfp8e4m3_fp32 / cvtfp32_fp8e4m3 (vec512_float8.h) use the native
+// hardware instructions _mm256_cvthf8_ph / _mm256_cvtph_hf8 instead of the
+// multi-step AVX512 software emulation.
+// =============================================================================
+#if defined(EMIT_ISA_AVX10_2)
+#include <immintrin.h>
+
+namespace torchao {
+namespace cpu_avx10_2 {
+
+using CHUNK = std::tuple<__m512, __m512, __m512, __m512,
+                         __m512, __m512, __m512, __m512>;
+
+static inline __m512 _mm512_load_e4m3_cvt_ps(const at::Float8_e4m3fn* x) {
+  __m512 o;
+  __m128i v = _mm_loadu_si128(reinterpret_cast<const __m128i*>(x));
+  at::vec::CPU_CAPABILITY::cvtfp8e4m3_fp32(v, o); // hardware path on AVX10.2
+  return o;
+}
+
+static inline __m512 _mm512_cvt_s8_ps(__m128i x) {
+  return _mm512_cvt_roundepi32_ps(
+      _mm512_cvtepi8_epi32(x),
+      (_MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC));
+}
+
+static inline CHUNK load_chunk(const at::Float8_e4m3fn* x) {
+  return {_mm512_load_e4m3_cvt_ps(x +   0), _mm512_load_e4m3_cvt_ps(x +  16),
+          _mm512_load_e4m3_cvt_ps(x +  32), _mm512_load_e4m3_cvt_ps(x +  48),
+          _mm512_load_e4m3_cvt_ps(x +  64), _mm512_load_e4m3_cvt_ps(x +  80),
+          _mm512_load_e4m3_cvt_ps(x +  96), _mm512_load_e4m3_cvt_ps(x + 112)};
+}
+
+static inline CHUNK load_chunk(const int8_t* x) {
+  __m512i x00 = _mm512_load_si512(x);
+  __m512i x64 = _mm512_load_si512(x + 64);
+  return {_mm512_cvt_s8_ps(_mm512_extracti32x4_epi32(x00, 0)),
+          _mm512_cvt_s8_ps(_mm512_extracti32x4_epi32(x00, 1)),
+          _mm512_cvt_s8_ps(_mm512_extracti32x4_epi32(x00, 2)),
+          _mm512_cvt_s8_ps(_mm512_extracti32x4_epi32(x00, 3)),
+          _mm512_cvt_s8_ps(_mm512_extracti32x4_epi32(x64, 0)),
+          _mm512_cvt_s8_ps(_mm512_extracti32x4_epi32(x64, 1)),
+          _mm512_cvt_s8_ps(_mm512_extracti32x4_epi32(x64, 2)),
+          _mm512_cvt_s8_ps(_mm512_extracti32x4_epi32(x64, 3))};
+}
+
+static inline void store_chunk(float* output, CHUNK chunk) {
+  auto [x0, x1, x2, x3, x4, x5, x6, x7] = chunk;
+  _mm512_store_ps(output +   0, x0); _mm512_store_ps(output +  16, x1);
+  _mm512_store_ps(output +  32, x2); _mm512_store_ps(output +  48, x3);
+  _mm512_store_ps(output +  64, x4); _mm512_store_ps(output +  80, x5);
+  _mm512_store_ps(output +  96, x6); _mm512_store_ps(output + 112, x7);
+}
+
+static inline void store_chunk(int8_t* output, CHUNK chunk) {
+  auto [f0, f1, f2, f3, f4, f5, f6, f7] = chunk;
+  auto cvt = [](__m512 f) {
+    return _mm512_cvtsepi32_epi8(_mm512_cvt_roundps_epi32(
+        f, (_MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC)));
+  };
+  __m512i x00 = _mm512_undefined_epi32(), x64 = _mm512_undefined_epi32();
+  x00 = _mm512_inserti32x4(x00, cvt(f0), 0); x00 = _mm512_inserti32x4(x00, cvt(f1), 1);
+  x00 = _mm512_inserti32x4(x00, cvt(f2), 2); x00 = _mm512_inserti32x4(x00, cvt(f3), 3);
+  x64 = _mm512_inserti32x4(x64, cvt(f4), 0); x64 = _mm512_inserti32x4(x64, cvt(f5), 1);
+  x64 = _mm512_inserti32x4(x64, cvt(f6), 2); x64 = _mm512_inserti32x4(x64, cvt(f7), 3);
+  _mm512_store_si512(output,      x00);
+  _mm512_store_si512(output + 64, x64);
+}
+
+static inline void store_chunk(at::Float8_e4m3fn* output, CHUNK chunk) {
+  auto [x0, x1, x2, x3, x4, x5, x6, x7] = chunk;
+  // Uses _mm256_cvtph_hf8 hardware path on AVX10.2
+  _mm_storeu_si128(reinterpret_cast<__m128i*>(output +   0), at::vec::CPU_CAPABILITY::cvtfp32_fp8e4m3(x0));
+  _mm_storeu_si128(reinterpret_cast<__m128i*>(output +  16), at::vec::CPU_CAPABILITY::cvtfp32_fp8e4m3(x1));
+  _mm_storeu_si128(reinterpret_cast<__m128i*>(output +  32), at::vec::CPU_CAPABILITY::cvtfp32_fp8e4m3(x2));
+  _mm_storeu_si128(reinterpret_cast<__m128i*>(output +  48), at::vec::CPU_CAPABILITY::cvtfp32_fp8e4m3(x3));
+  _mm_storeu_si128(reinterpret_cast<__m128i*>(output +  64), at::vec::CPU_CAPABILITY::cvtfp32_fp8e4m3(x4));
+  _mm_storeu_si128(reinterpret_cast<__m128i*>(output +  80), at::vec::CPU_CAPABILITY::cvtfp32_fp8e4m3(x5));
+  _mm_storeu_si128(reinterpret_cast<__m128i*>(output +  96), at::vec::CPU_CAPABILITY::cvtfp32_fp8e4m3(x6));
+  _mm_storeu_si128(reinterpret_cast<__m128i*>(output + 112), at::vec::CPU_CAPABILITY::cvtfp32_fp8e4m3(x7));
+}
+
+static inline void store_elem(float& out, float v) { out = v; }
+static inline void store_elem(int8_t& out, float v) {
+  out = static_cast<int8_t>(static_cast<int32_t>(
+      std::max(-128.0f, std::min(127.0f, std::round(v)))));
+}
+static inline void store_elem(at::Float8_e4m3fn& out, float v) {
+  out = static_cast<at::Float8_e4m3fn>(v);
+}
+
+template <typename index_t, typename data_t, typename output_t>
+static void _krnl_avx10_2(
+    int64_t bs_begin, int64_t bs_end, int64_t num_emb, int64_t emb_dim,
+    index_t last_offset, const index_t* indices, const index_t* offsets,
+    const data_t* weight, double scale, output_t* result, int64_t num_batch) {
+  if (emb_dim % 128 == 0) {
+    constexpr int64_t block_dim = 128;
+    const int64_t num_blocks = emb_dim / block_dim;
+    __m512 scale_v = _mm512_set1_ps(static_cast<float>(scale));
+    for (int64_t b = bs_begin; b < bs_end; ++b) {
+      __m512 x0, x1, x2, x3, x4, x5, x6, x7;
+      __m512 y0, y1, y2, y3, y4, y5, y6, y7;
+      int64_t start_idx = offsets[b];
+      int64_t end_idx = ((b + 1) == num_batch && last_offset != -1)
+                            ? last_offset : offsets[b + 1];
+      for (int64_t block_id = 0; block_id < num_blocks; ++block_id) {
+        int64_t idx = indices[start_idx] * emb_dim + block_dim * block_id;
+        output_t* block_result = result + block_dim * block_id;
+        std::tie(x0,x1,x2,x3,x4,x5,x6,x7) = load_chunk(weight + idx);
+        for (int64_t j = start_idx + 1; j < end_idx; ++j) {
+          idx = indices[j] * emb_dim + block_dim * block_id;
+          std::tie(y0,y1,y2,y3,y4,y5,y6,y7) = load_chunk(weight + idx);
+          x0=_mm512_add_ps(x0,y0); x1=_mm512_add_ps(x1,y1);
+          x2=_mm512_add_ps(x2,y2); x3=_mm512_add_ps(x3,y3);
+          x4=_mm512_add_ps(x4,y4); x5=_mm512_add_ps(x5,y5);
+          x6=_mm512_add_ps(x6,y6); x7=_mm512_add_ps(x7,y7);
+        }
+        x0=_mm512_mul_ps(x0,scale_v); x1=_mm512_mul_ps(x1,scale_v);
+        x2=_mm512_mul_ps(x2,scale_v); x3=_mm512_mul_ps(x3,scale_v);
+        x4=_mm512_mul_ps(x4,scale_v); x5=_mm512_mul_ps(x5,scale_v);
+        x6=_mm512_mul_ps(x6,scale_v); x7=_mm512_mul_ps(x7,scale_v);
+        store_chunk(block_result, {x0,x1,x2,x3,x4,x5,x6,x7});
+      }
+      result += num_emb * emb_dim;
+    }
+    return;
+  }
+  for (int64_t b = bs_begin; b < bs_end; ++b) {
+    int64_t start_idx = offsets[b];
+    int64_t end_idx = ((b + 1) == num_batch && last_offset != -1)
+                          ? last_offset : offsets[b + 1];
+    for (int64_t d = 0; d < emb_dim; ++d) {
+      float value = float(weight[indices[start_idx] * emb_dim + d]);
+      for (int64_t j = start_idx + 1; j < end_idx; ++j)
+        value += float(weight[indices[j] * emb_dim + d]);
+      store_elem(result[d], value * scale);
+    }
+    result += num_emb * emb_dim;
+  }
+}
+
+// Wrapper called from dispatch macros; #pragma omp must not be inside
+// immediately-invoked lambdas (GCC OpenMP parser rejects it) — keep it here.
+template <typename index_t, typename data_t, typename output_t>
+static void _run_avx10_2(
+    at::Tensor& output, const at::Tensor& qweight,
+    const at::Tensor& indices, const at::Tensor& offsets,
+    float w_scale, int64_t batch_size, int64_t emb_dim, int64_t last_offset) {
+  constexpr int64_t b_block = 512;
+  const int64_t n_b_blocks = (batch_size - 1) / b_block + 1;
+#pragma omp parallel for
+  for (int64_t b = 0; b < n_b_blocks; ++b) {
+    int64_t bs_begin = b * b_block;
+    int64_t bs_end = std::min(batch_size, (b + 1) * b_block);
+    output_t* r = output.data_ptr<output_t>() + b * b_block * emb_dim;
+    _krnl_avx10_2<index_t, data_t, output_t>(
+        bs_begin, bs_end, 1, emb_dim, static_cast<index_t>(last_offset),
+        indices.data_ptr<index_t>(), offsets.data_ptr<index_t>(),
+        qweight.data_ptr<data_t>(), w_scale, r, batch_size);
+  }
+}
+
+at::Tensor _scaled_embedding_bag_avx10_2(
+    const at::Tensor& qweight, const at::Tensor& indices,
+    const at::Tensor& offsets, const at::Tensor& w_scales, double o_scale,
+    int64_t mode, bool include_last_offset, at::ScalarType output_dtype) {
+  static std::once_flag _flag;
+  std::call_once(_flag, []() {
+    fprintf(stderr, "[torchao] scaled_embedding_bag: AVX10.2 path selected "
+            "(hardware fp8 conversion)\n");
+  });
+  int64_t batch_size = include_last_offset ? offsets.size(0) - 1 : offsets.size(0);
+  int64_t emb_dim = qweight.size(1);
+  float w_scale = w_scales.data_ptr<float>()[0] / static_cast<float>(o_scale);
+  int64_t last_offset = indices.numel();
+  at::Tensor output = at::empty({batch_size, emb_dim},
+                                qweight.options().dtype(output_dtype));
+  OUTTYPE_DISPATCH(output_dtype, [&] {
+    QTYPE_DISPATCH(qweight.scalar_type(), [&] {
+      AT_DISPATCH_INDEX_TYPES(
+          indices.scalar_type(), "_scaled_embedding_bag_avx10_2", [&] {
+        _run_avx10_2<index_t, data_t, output_t>(
+            output, qweight, indices, offsets,
+            w_scale, batch_size, emb_dim, last_offset);
+      });
+    });
+  });
+  return output;
+}
+
+} // namespace cpu_avx10_2
+} // namespace torchao
+
+#else // !defined(EMIT_ISA_AVX10_2)
+// =============================================================================
+// Default build: AVX512 (software fp8 emulation) + scalar fallback + dispatch
+// =============================================================================
+
 namespace torchao {
 
-// Forward declaration of the AVX10.2 entry point defined in
-// scaled_embedding_bag_avx10_2.cpp (compiled with -march=diamondrapids).
-// Called at runtime when __builtin_cpu_supports("avx10.2") is true, giving
-// hardware-accelerated fp8<->fp32 conversion via _mm256_cvthf8_ph /
-// _mm256_cvtph_hf8 instead of the AVX512 software-emulation fallback.
+// Forward declaration of the AVX10.2 entry point emitted when this file is
+// compiled as a temp copy with -DEMIT_ISA_AVX10_2 -march=diamondrapids.
 namespace cpu_avx10_2 {
 at::Tensor _scaled_embedding_bag_avx10_2(
     const at::Tensor& qweight, const at::Tensor& indices,
@@ -376,3 +576,5 @@ TORCH_LIBRARY_IMPL(torchao, CPU, m) {
 }
 
 } // namespace torchao
+
+#endif // !defined(EMIT_ISA_AVX10_2)

@@ -11,6 +11,10 @@
 #include <ATen/ops/empty.h>
 #endif
 
+// When compiled as a temp copy with -DEMIT_ISA_AVX10_2 -march=diamondrapids,
+// only the AVX10.2 section below is emitted.
+#if !defined(EMIT_ISA_AVX10_2)
+
 namespace torchao {
 
 namespace {
@@ -756,3 +760,9 @@ TORCH_LIBRARY_IMPL(torchao, CPU, m) {
 }
 
 } // namespace torchao
+
+#else // defined(EMIT_ISA_AVX10_2)
+// TODO: Add AVX10.2-optimised float8_linear implementation here.
+namespace torchao { namespace cpu_avx10_2 {} } // placeholder
+
+#endif // !defined(EMIT_ISA_AVX10_2)
