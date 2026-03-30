@@ -68,6 +68,6 @@ def test_blockwise_quant_linear_fwd_bwd(
     assert sqnr >= 30.0, f"SQNR: {sqnr} must be >= 25.0"
 
     # Compare weight grads
-    sqnr = compute_error(layer_ref.weight, layer_test.weight)
+    sqnr = compute_error(layer_ref.weight.grad, layer_test.weight.grad)
     assert not layer_test.weight.grad.isnan().any(), "Weight grad must not contain NaNs"
     assert sqnr >= 30.0, f"SQNR: {sqnr} must be >= 25.0"

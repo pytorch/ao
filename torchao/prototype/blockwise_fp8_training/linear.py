@@ -62,7 +62,6 @@ class fp8_blockwise_mm(torch.autograd.Function):
         x, weight = ctx.saved_tensors
         block_size = ctx.block_size
         out_dtype = ctx.out_dtype
-        use_triton = ctx.use_triton
 
         # Reshape input to 2D
         x_orig_shape = x.shape
@@ -86,10 +85,9 @@ class fp8_blockwise_mm(torch.autograd.Function):
         )
 
         # grad_x = grad_output @ weight
-        fp8_gemm_1x128_128x128 = (
-            triton_fp8_gemm_1x128_128x128 if use_triton else torch._scaled_mm
-        )
-        grad_x = fp8_gemm_1x128_128x128(
+        # The torch._scaled_mm path is numerically unstable for this RHS blockwise
+        # layout in backward, so use the Triton GEMM implementation for gradients.
+        grad_x = triton_fp8_gemm_1x128_128x128(
             grad_output_fp8,
             weight_fp8,
             grad_output_scale,
@@ -113,10 +111,7 @@ class fp8_blockwise_mm(torch.autograd.Function):
         x_fp8, x_scale = triton_fp8_blockwise_act_quant_rhs(x, block_size)
 
         # grad_weight = grad_output.T @ x
-        fp8_gemm_1x128_128x1 = (
-            triton_fp8_gemm_1x128_128x1 if use_triton else torch._scaled_mm
-        )
-        grad_weight = fp8_gemm_1x128_128x1(
+        grad_weight = triton_fp8_gemm_1x128_128x1(
             grad_output_t_fp8,
             x_fp8,
             grad_output_t_scale,
