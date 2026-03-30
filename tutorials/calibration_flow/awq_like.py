@@ -7,7 +7,7 @@
 Demo for awq like flow that applies equalization scale to input activation
 * insert_observers_: insert observer for activation and weight
 * quantize_: convert the observed linear module to quantized linear module
-   * we first quantize the weight with to_affine_quantized_intx/floatx
+   * we first quantize the weight with to_affine_quantized_intx
    * then we apply equalization scale to linear activation with to_weight_tensor_with_linear_activation_scale_metadata (input activation will be divided by equalization_scale), and then call F.linear with
      scaled input activation and quantized weight (so we can reuse the efficient quantized linear kernels used by quantized weight)
 """
@@ -21,8 +21,6 @@ from torch import Tensor
 
 from torchao.core.config import AOBaseConfig
 from torchao.dtypes import (
-    Float8Layout,
-    to_affine_quantized_floatx_static,
     to_affine_quantized_intx_static,
 )
 from torchao.quantization import (
@@ -116,23 +114,9 @@ def _apply_awq_transform(
 
     def weight_quant_func(weight):
         block_size = (1, weight.shape[1])
-        if target_dtype == torch.uint8:
-            return to_affine_quantized_intx_static(
-                weight, weight_scale, weight_zero_point, block_size, target_dtype
-            )
-        elif target_dtype == torch.float8_e4m3fn:
-            scale_2d = (
-                weight_scale.view(1, -1) if weight_scale.dim() == 1 else weight_scale
-            )
-            return to_affine_quantized_floatx_static(
-                weight,
-                scale_2d,
-                block_size,
-                target_dtype,
-                Float8Layout(mm_config=None),
-            )
-        else:
-            raise ValueError(f"Unsupported target dtype {target_dtype}")
+        return to_affine_quantized_intx_static(
+            weight, weight_scale, weight_zero_point, block_size, target_dtype
+        )
 
     linear = torch.nn.Linear(
         observed_linear.in_features,
@@ -234,4 +218,3 @@ def test_awq(target_dtype: torch.dtype, mapping_type: MappingType):
 
 if __name__ == "__main__":
     test_awq(torch.uint8, MappingType.ASYMMETRIC)
-    test_awq(torch.float8_e4m3fn, MappingType.SYMMETRIC)

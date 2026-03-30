@@ -436,7 +436,7 @@ def benchmark_torch_grouped_mm_fwd_bwd(x, w_t, offs, labels):
     return time_ms
 
 
-def benchmark_mxfp8_grouped_mm_fwd_bwd(x, w_t, offs, labels, block_size=32):
+def benchmark_mxfp8_grouped_mm_fwd_bwd(x, w_t, offs, labels):
     """Benchmark _to_mxfp8_then_scaled_grouped_mm forward + backward"""
     x_clone = x.clone().requires_grad_(True)
     w_t_clone = w_t.clone().requires_grad_(True)
@@ -447,7 +447,6 @@ def benchmark_mxfp8_grouped_mm_fwd_bwd(x, w_t, offs, labels, block_size=32):
     A = x_clone
     B_t = w_t_clone
     offs_arg = offs
-    block_size_arg = block_size
     out_dtype = torch.bfloat16
     kernel_preference = KernelPreference.AUTO
     wgrad_with_hp = False
@@ -458,7 +457,6 @@ def benchmark_mxfp8_grouped_mm_fwd_bwd(x, w_t, offs, labels, block_size=32):
             A,
             B_t,
             offs_arg,
-            block_size_arg,
             out_dtype,
             kernel_preference,
             wgrad_with_hp,

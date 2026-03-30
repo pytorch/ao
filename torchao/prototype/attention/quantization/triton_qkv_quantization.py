@@ -275,22 +275,23 @@ def triton_fp8_sdpa_quantize(
 
     Quantizes all tensors to FP8 with per-head scaling.
     Each of Q, K, V is processed with independent kernel launches,
-    supporting GQA where Q has more heads than K/V (H_q = groups * H_kv).
+    supporting GQA where Q has more heads than K/V (H_q = groups * H_kv)
+    and cross-attention where Q and K/V have different sequence lengths.
 
     For GQA, Q is quantized with per-KV-group scaling so that q_descale
     has shape [B, H_kv] as required by FA3.
 
     Args:
-        q: Query tensor of shape [B, H_q, S, D] in bf16/fp16
-        k: Key tensor of shape [B, H_kv, S, D] in bf16/fp16
-        v: Value tensor of shape [B, H_kv, S, D] in bf16/fp16
-        num_chunks: Number of chunks to split S dimension into.
+        q: Query tensor of shape [B, H_q, S_q, D] in bf16/fp16
+        k: Key tensor of shape [B, H_kv, S_kv, D] in bf16/fp16
+        v: Value tensor of shape [B, H_kv, S_kv, D] in bf16/fp16
+        num_chunks: Number of chunks to split the S dimension into.
                     If None, automatically selects based on GPU SM count.
 
     Returns:
-        q_fp8: Quantized query, shape [B, H_q, S, D] in fp8
-        k_fp8: Quantized key, shape [B, H_kv, S, D] in fp8
-        v_fp8: Quantized value, shape [B, H_kv, S, D] in fp8
+        q_fp8: Quantized query, shape [B, H_q, S_q, D] in fp8
+        k_fp8: Quantized key, shape [B, H_kv, S_kv, D] in fp8
+        v_fp8: Quantized value, shape [B, H_kv, S_kv, D] in fp8
         q_descale: Query descale factors, shape [B, H_kv] in fp32
         k_descale: Key descale factors, shape [B, H_kv] in fp32
         v_descale: Value descale factors, shape [B, H_kv] in fp32
@@ -304,16 +305,14 @@ def triton_fp8_sdpa_quantize(
     assert q.shape[0] == k.shape[0], (
         f"Batch size mismatch: {q.shape[0]} vs {k.shape[0]}"
     )
-    assert q.shape[2] == k.shape[2], (
-        f"Sequence length mismatch: {q.shape[2]} vs {k.shape[2]}"
-    )
     assert q.shape[3] == k.shape[3], f"Head dim mismatch: {q.shape[3]} vs {k.shape[3]}"
     assert q.shape[1] % k.shape[1] == 0, (
         f"Q heads ({q.shape[1]}) must be a multiple of K heads ({k.shape[1]})"
     )
 
-    B, H_q, S, D = q.shape
+    B, H_q, S_q, D = q.shape
     H_kv = k.shape[1]
+    S_kv = k.shape[2]
     groups = H_q // H_kv
 
     # Make tensors contiguous if needed
@@ -321,10 +320,15 @@ def triton_fp8_sdpa_quantize(
     k = k.contiguous()
     v = v.contiguous()
 
-    # Compute number of chunks
+    # Compute number of chunks independently for Q and KV
     if num_chunks is None:
-        num_chunks = _compute_num_chunks(q, S)
-    chunk_size = (S + num_chunks - 1) // num_chunks
+        q_num_chunks = _compute_num_chunks(q, S_q)
+        kv_num_chunks = _compute_num_chunks(k, S_kv)
+    else:
+        q_num_chunks = num_chunks
+        kv_num_chunks = num_chunks
+    q_chunk_size = (S_q + q_num_chunks - 1) // q_num_chunks
+    kv_chunk_size = (S_kv + kv_num_chunks - 1) // kv_num_chunks
 
     # Allocate output tensors
     q_fp8 = torch.empty_like(q, dtype=torch.float8_e4m3fn)
@@ -333,13 +337,13 @@ def triton_fp8_sdpa_quantize(
 
     # Allocate partial max buffers (one per tensor)
     q_partial_max = torch.empty(
-        B * H_q * num_chunks, dtype=torch.float32, device=q.device
+        B * H_q * q_num_chunks, dtype=torch.float32, device=q.device
     )
     k_partial_max = torch.empty(
-        B * H_kv * num_chunks, dtype=torch.float32, device=q.device
+        B * H_kv * kv_num_chunks, dtype=torch.float32, device=q.device
     )
     v_partial_max = torch.empty(
-        B * H_kv * num_chunks, dtype=torch.float32, device=q.device
+        B * H_kv * kv_num_chunks, dtype=torch.float32, device=q.device
     )
 
     # Allocate scale/descale tensors.
@@ -352,8 +356,8 @@ def triton_fp8_sdpa_quantize(
     k_descale = torch.empty(B, H_kv, dtype=torch.float32, device=q.device)
     v_descale = torch.empty(B, H_kv, dtype=torch.float32, device=q.device)
 
-    q_grid_chunked = (B, H_q, num_chunks)
-    kv_grid_chunked = (B, H_kv, num_chunks)
+    q_grid_chunked = (B, H_q, q_num_chunks)
+    kv_grid_chunked = (B, H_kv, kv_num_chunks)
 
     # ---- Phase 1: Max for Q ----
     single_phase1_kernel[q_grid_chunked](
@@ -363,11 +367,11 @@ def triton_fp8_sdpa_quantize(
         q.stride(1),
         q.stride(2),
         q.stride(3),
-        S,
+        S_q,
         D,
         H_q,
-        chunk_size,
-        num_chunks,
+        q_chunk_size,
+        q_num_chunks,
     )
 
     # ---- Phase 1: Max for K ----
@@ -378,11 +382,11 @@ def triton_fp8_sdpa_quantize(
         k.stride(1),
         k.stride(2),
         k.stride(3),
-        S,
+        S_kv,
         D,
         H_kv,
-        chunk_size,
-        num_chunks,
+        kv_chunk_size,
+        kv_num_chunks,
     )
 
     # ---- Phase 1: Max for V ----
@@ -393,21 +397,25 @@ def triton_fp8_sdpa_quantize(
         v.stride(1),
         v.stride(2),
         v.stride(3),
-        S,
+        S_kv,
         D,
         H_kv,
-        chunk_size,
-        num_chunks,
+        kv_chunk_size,
+        kv_num_chunks,
     )
 
     # ---- Reduce ----
     # Q: group reduce across `groups` Q heads per KV head
     group_reduce_kernel[(B, H_kv)](
-        q_partial_max, q_scale, q_descale, H_q, H_kv, groups, num_chunks
+        q_partial_max, q_scale, q_descale, H_q, H_kv, groups, q_num_chunks
     )
     # K, V: per-head reduce
-    single_reduce_kernel[(B, H_kv)](k_partial_max, k_scale, k_descale, H_kv, num_chunks)
-    single_reduce_kernel[(B, H_kv)](v_partial_max, v_scale, v_descale, H_kv, num_chunks)
+    single_reduce_kernel[(B, H_kv)](
+        k_partial_max, k_scale, k_descale, H_kv, kv_num_chunks
+    )
+    single_reduce_kernel[(B, H_kv)](
+        v_partial_max, v_scale, v_descale, H_kv, kv_num_chunks
+    )
 
     # ---- Phase 2: Quantize Q ----
     # Q scale is [B, H_kv]; each group of `groups` Q heads shares one scale.
@@ -419,10 +427,10 @@ def triton_fp8_sdpa_quantize(
         q.stride(1),
         q.stride(2),
         q.stride(3),
-        S,
+        S_q,
         D,
         H_q,
-        chunk_size,
+        q_chunk_size,
         H_kv,
         groups,
     )
@@ -437,10 +445,10 @@ def triton_fp8_sdpa_quantize(
         k.stride(1),
         k.stride(2),
         k.stride(3),
-        S,
+        S_kv,
         D,
         H_kv,
-        chunk_size,
+        kv_chunk_size,
         H_kv,
         1,
     )
@@ -455,10 +463,10 @@ def triton_fp8_sdpa_quantize(
         v.stride(1),
         v.stride(2),
         v.stride(3),
-        S,
+        S_kv,
         D,
         H_kv,
-        chunk_size,
+        kv_chunk_size,
         H_kv,
         1,
     )
