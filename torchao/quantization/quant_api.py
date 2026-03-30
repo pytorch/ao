@@ -1307,12 +1307,13 @@ def _int8_static_activation_int8_weight_transform(
 @dataclass
 class Float8WeightOnlyConfig(AOBaseConfig):
     """
-    Configuration for applying float8 weight-only symmetric per-channel quantization to linear layers.
+    Configuration for applying float8 weight-only symmetric quantization to linear layers.
 
     Args:
         weight_dtype (torch.dtype): The target data type for weight quantization. Default is torch.float8_e4m3fn.
         set_inductor_config (bool): if True, adjusts `torchinductor` settings to recommended values.
         version (int): the version of the config, version 1 is deprecated, version 2 is using Float8Tensor (default)
+        granularity (Granularity): quantization granularity. Supported: PerTensor, PerRow (default), PerGroup.
 
     Note:
         The actual matmul will be computed in original precision of the weight tensor.
@@ -1326,8 +1327,14 @@ class Float8WeightOnlyConfig(AOBaseConfig):
     weight_dtype: torch.dtype = e4m3_dtype
     set_inductor_config: bool = True
     version: int = 2
+    granularity: Granularity = None  # type: ignore[assignment]
 
     def __post_init__(self):
+        if self.granularity is None:
+            self.granularity = PerRow()
+        assert isinstance(self.granularity, (PerTensor, PerRow, PerGroup)), (
+            f"granularity must be PerTensor, PerRow, or PerGroup, got {type(self.granularity)}"
+        )
         torch._C._log_api_usage_once("torchao.quantization.Float8WeightOnlyConfig")
 
 
@@ -1335,7 +1342,7 @@ def _float8_weight_only_quant_tensor(weight, config):
     assert config.version == 2, f"Unexpected version: {config.version}"
     weight_dtype = config.weight_dtype
     new_weight = Float8Tensor.from_hp(
-        weight, float8_dtype=weight_dtype, granularity=PerRow()
+        weight, float8_dtype=weight_dtype, granularity=config.granularity
     )
     return new_weight
 
