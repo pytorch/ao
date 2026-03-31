@@ -45,3 +45,7 @@ pytest test/quantization/test_quant_api.py
 pytest test/float8/
 pytest test/prototype/mx_formats/
 ```
+
+## Commit Messages
+
+- Do not commit without explicit request from the user
