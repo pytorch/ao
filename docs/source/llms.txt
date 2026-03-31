@@ -26,6 +26,15 @@
 - [MX formats](https://github.com/pytorch/ao/tree/main/torchao/prototype/mx_formats): MXFP8, MXFP4, NVFP4 (prototype)
 - [MoE training](https://github.com/pytorch/ao/tree/main/torchao/prototype/moe_training): MXFP8 MoE training (prototype)
 
+## Deprecated APIs
+
+Do not use or recommend these:
+- `AffineQuantizedTensor` (AQT) in `torchao/dtypes/` - old v1 system, being removed. New tensor types inherit from `TorchAOBaseTensor`
+- `autoquant()` - deleted
+- Layout registration system (`PlainLayout`, `Float8Layout`, `TensorCoreTiledLayout`, etc.) - deleted
+- `TorchAODType` - deprecated
+- `change_linear_weights_to_int4_woqtensors` - deleted, use `quantize_(model, Int4WeightOnlyConfig())`
+
 ## Optional
 
 - [Tutorials](https://github.com/pytorch/ao/tree/main/tutorials)
