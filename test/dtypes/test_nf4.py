@@ -771,6 +771,9 @@ class TestComm(FSDPTest):
 
     @skip_if_lt_x_gpu(2)
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
+    @unittest.skip(
+        "Skipped due to PyTorch autograd metadata issue with DTensor redistribute"
+    )
     def test_comm(self):
         self.run_subtests(
             {"input_size": [512, 2048]},
