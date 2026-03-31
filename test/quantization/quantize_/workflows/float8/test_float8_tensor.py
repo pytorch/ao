@@ -8,6 +8,7 @@ import copy
 import unittest
 from contextlib import nullcontext
 from typing import Tuple
+from unittest.mock import patch
 
 import torch
 from torch._inductor.utils import run_and_get_code
@@ -38,7 +39,6 @@ from torchao.utils import (
     is_sm_at_least_100,
     torch_version_at_least,
 )
-from unittest.mock import patch
 
 # Needed since changing args to function causes recompiles
 torch._dynamo.config.cache_size_limit = 128
