@@ -14,6 +14,7 @@ import torch
 import torch.nn as nn
 
 from torchao.float8.config import (
+    CastConfig,
     Float8LinearConfig,
     Float8LinearRecipeName,
     ScalingGranularity,
@@ -453,6 +454,16 @@ class TestFloat8Linear:
         )
         s = m.__repr__()
         assert "i:dyn_ten_e4m3,w:dyn_ten_e4m3,go:dyn_ten_e5m2" in s
+
+    def test_mixed_precision_operands_raise(self):
+        with pytest.raises(
+            AssertionError,
+            match="incompatible operand precision for output",
+        ):
+            Float8LinearConfig(
+                cast_config_input=CastConfig(scaling_type=ScalingType.DISABLED),
+                cast_config_weight=CastConfig(scaling_type=ScalingType.DYNAMIC),
+            )
 
     @unittest.skipIf(not is_sm_at_least_89(), "CUDA 8.9 not available")
     def test_inference_mode(self):
