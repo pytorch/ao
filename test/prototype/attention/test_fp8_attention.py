@@ -107,8 +107,7 @@ class TestFP8FA3Attention(TestCase):
     )
     @common_utils.parametrize("shape", [(2, 8, 1024, 64), (1, 16, 1024, 128)])
     @common_utils.parametrize("dtype", [torch.bfloat16, torch.float16])
-    @common_utils.parametrize("hadamard", ["NONE", "QKV"])
-    def test_sdpa_accuracy(self, shape, dtype, hadamard):
+    def test_sdpa_accuracy(self, shape, dtype):
         B, H, S, D = shape
         q = torch.randn(B, H, S, D, device="cuda", dtype=dtype)
         k = torch.randn(B, H, S, D, device="cuda", dtype=dtype)
@@ -120,7 +119,7 @@ class TestFP8FA3Attention(TestCase):
         activate_flash_attention_impl("FA3")
         try:
             with torch.no_grad():
-                out_fp8 = fp8_fa3_sdpa(q, k, v, is_causal=False, hadamard=hadamard)
+                out_fp8 = fp8_fa3_sdpa(q, k, v, is_causal=False)
         finally:
             restore_flash_attention_impl()
 
@@ -128,7 +127,7 @@ class TestFP8FA3Attention(TestCase):
         self.assertGreater(
             sqnr.item(),
             25.0,
-            f"SQNR {sqnr.item():.2f} dB below 25 dB for shape={shape}, dtype={dtype}, hadamard={hadamard}",
+            f"SQNR {sqnr.item():.2f} dB below 25 dB for shape={shape}, dtype={dtype}",
         )
 
     @unittest.skipUnless(
@@ -137,8 +136,7 @@ class TestFP8FA3Attention(TestCase):
     )
     @common_utils.parametrize("shape", [(2, 1024, 8, 64), (1, 1024, 16, 128)])
     @common_utils.parametrize("dtype", [torch.bfloat16, torch.float16])
-    @common_utils.parametrize("hadamard", ["NONE", "QKV"])
-    def test_rope_sdpa_accuracy(self, shape, dtype, hadamard):
+    def test_rope_sdpa_accuracy(self, shape, dtype):
         B, S, H, D = shape
         q = torch.randn(B, S, H, D, device="cuda", dtype=dtype)
         k = torch.randn(B, S, H, D, device="cuda", dtype=dtype)
@@ -156,9 +154,7 @@ class TestFP8FA3Attention(TestCase):
         activate_flash_attention_impl("FA3")
         try:
             with torch.no_grad():
-                out_fp8 = fp8_fa3_rope_sdpa(
-                    q, k, v, cos, sin, is_causal=False, hadamard=hadamard
-                )
+                out_fp8 = fp8_fa3_rope_sdpa(q, k, v, cos, sin, is_causal=False)
         finally:
             restore_flash_attention_impl()
 
@@ -166,7 +162,7 @@ class TestFP8FA3Attention(TestCase):
         self.assertGreater(
             sqnr.item(),
             25.0,
-            f"SQNR {sqnr.item():.2f} dB below 25 dB for shape={shape}, dtype={dtype}, hadamard={hadamard}",
+            f"SQNR {sqnr.item():.2f} dB below 25 dB for shape={shape}, dtype={dtype}",
         )
 
     @unittest.skipUnless(
@@ -250,6 +246,95 @@ class TestFP8FA3Attention(TestCase):
             sqnr.item(),
             20.0,
             f"SQNR {sqnr.item():.2f} dB below 20 dB for dtype={dtype}, hadamard={hadamard}",
+        )
+
+
+def _make_outlier_tensor(shape, dtype, outlier_channels=(0,), outlier_scale=20.0):
+    """Create a tensor with outliers in specific head-dim channels."""
+    x = torch.randn(shape, device="cuda", dtype=dtype)
+    for ch in outlier_channels:
+        x[..., ch] *= outlier_scale
+    return x
+
+
+@common_utils.instantiate_parametrized_tests
+class TestHadamardAccuracy(TestCase):
+    """Tests that Hadamard improves FP8 quantization quality on outlier-heavy inputs."""
+
+    @unittest.skipUnless(
+        torch_version_at_least("2.11.0") and _is_hopper() and _is_fa3_available(),
+        "Requires PyTorch >= 2.11, Hopper GPU, and FA3",
+    )
+    @common_utils.parametrize("shape", [(2, 8, 1024, 64), (1, 16, 1024, 128)])
+    @common_utils.parametrize("dtype", [torch.bfloat16, torch.float16])
+    def test_hadamard_sdpa_improves_sqnr(self, shape, dtype):
+        B, H, S, D = shape
+        outlier_channels = (0, D // 2)
+        q = _make_outlier_tensor((B, H, S, D), dtype, outlier_channels)
+        k = _make_outlier_tensor((B, H, S, D), dtype, outlier_channels)
+        v = _make_outlier_tensor((B, H, S, D), dtype, outlier_channels)
+
+        with torch.no_grad():
+            out_ref = F.scaled_dot_product_attention(q, k, v, is_causal=False)
+
+        activate_flash_attention_impl("FA3")
+        try:
+            with torch.no_grad():
+                out_no_had = fp8_fa3_sdpa(q, k, v, is_causal=False, hadamard="NONE")
+                out_had = fp8_fa3_sdpa(q, k, v, is_causal=False, hadamard="QKV")
+        finally:
+            restore_flash_attention_impl()
+
+        sqnr_no_had = compute_error(out_ref, out_no_had).item()
+        sqnr_had = compute_error(out_ref, out_had).item()
+        self.assertGreater(
+            sqnr_had,
+            sqnr_no_had,
+            f"Hadamard SQNR ({sqnr_had:.2f} dB) should exceed baseline ({sqnr_no_had:.2f} dB) "
+            f"for shape={shape}, dtype={dtype}",
+        )
+
+    @unittest.skipUnless(
+        torch_version_at_least("2.11.0") and _is_hopper() and _is_fa3_available(),
+        "Requires PyTorch >= 2.11, Hopper GPU, and FA3",
+    )
+    @common_utils.parametrize("shape", [(2, 1024, 8, 64), (1, 1024, 16, 128)])
+    @common_utils.parametrize("dtype", [torch.bfloat16, torch.float16])
+    def test_hadamard_rope_sdpa_improves_sqnr(self, shape, dtype):
+        B, S, H, D = shape
+        outlier_channels = (0, D // 2)
+        q = _make_outlier_tensor((B, S, H, D), dtype, outlier_channels)
+        k = _make_outlier_tensor((B, S, H, D), dtype, outlier_channels)
+        v = _make_outlier_tensor((B, S, H, D), dtype, outlier_channels)
+        cos, sin = _rope_cos_sin(S, D, "cuda")
+
+        with torch.no_grad():
+            out_ref = F.scaled_dot_product_attention(
+                _apply_rope(q, cos, sin).transpose(1, 2),
+                _apply_rope(k, cos, sin).transpose(1, 2),
+                v.transpose(1, 2),
+                is_causal=False,
+            )
+
+        activate_flash_attention_impl("FA3")
+        try:
+            with torch.no_grad():
+                out_no_had = fp8_fa3_rope_sdpa(
+                    q, k, v, cos, sin, is_causal=False, hadamard="NONE"
+                )
+                out_had = fp8_fa3_rope_sdpa(
+                    q, k, v, cos, sin, is_causal=False, hadamard="QKV"
+                )
+        finally:
+            restore_flash_attention_impl()
+
+        sqnr_no_had = compute_error(out_ref, out_no_had).item()
+        sqnr_had = compute_error(out_ref, out_had).item()
+        self.assertGreater(
+            sqnr_had,
+            sqnr_no_had,
+            f"Hadamard SQNR ({sqnr_had:.2f} dB) should exceed baseline ({sqnr_no_had:.2f} dB) "
+            f"for shape={shape}, dtype={dtype}",
         )
 
 
