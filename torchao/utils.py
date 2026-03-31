@@ -1229,6 +1229,24 @@ def is_sm_at_least_100():
     )
 
 
+def platform_supports_float8_tensorwise():
+    if torch.version.hip:
+        return is_MI300() or is_MI350()
+    else:
+        return is_sm_at_least_89()
+
+def platform_supports_float8_axiswise():
+    if torch.version.hip:
+        return is_MI300() or is_MI350()
+    else:
+        return is_sm_at_least_90()
+
+def platform_supports_float8_blockwise():
+    if torch.version.hip:
+        return is_MI300() or is_MI350()
+    else:
+        return is_sm_at_least_90()
+
 def is_cuda_version_at_least(major: int, minor: int) -> bool:
     if not torch.cuda.is_available():
         return False
