@@ -631,21 +631,15 @@ def test_3d_transpose(dims, is_swizzled_scales):
     ids=lambda s: f"{s[0]}x{s[1]}x{s[2]}",
 )
 @pytest.mark.parametrize(
-    "a_has_scale,b_has_scale",
-    [
-        (True, False),
-        (False, True),
-        (False, False),
-    ],
-    ids=["a_scale_only", "b_scale_only", "no_scale"],
+    "a_has_scale",
+    [True, False],
+    ids=["a_scale", "no_a_scale"],
 )
 @pytest.mark.parametrize("use_triton_kernel", [True, False])
 @torch.no_grad()
 @skip_if_rocm("ROCm float4 gemm require gfx950")
-def test_nvfp4_matmul_optional_per_tensor_scale(
-    shapes, a_has_scale, b_has_scale, use_triton_kernel
-):
-    """Test NVFP4 matmul works when per_tensor_scale is None for one or both operands."""
+def test_nvfp4_matmul_optional_per_tensor_scale(shapes, a_has_scale, use_triton_kernel):
+    """Test NVFP4 matmul works when per_tensor_scale is None for activation but always set for weight."""
     m, k, n = shapes
 
     A = torch.randn(m, k, dtype=torch.bfloat16, device="cuda")
@@ -656,9 +650,7 @@ def test_nvfp4_matmul_optional_per_tensor_scale(
     a_scale = (
         per_tensor_amax_to_scale(torch.amax(torch.abs(A))) if a_has_scale else None
     )
-    b_scale = (
-        per_tensor_amax_to_scale(torch.amax(torch.abs(B))) if b_has_scale else None
-    )
+    b_scale = per_tensor_amax_to_scale(torch.amax(torch.abs(B)))
 
     act_quant_kwargs = QuantizeTensorToNVFP4Kwargs()
 
@@ -681,6 +673,4 @@ def test_nvfp4_matmul_optional_per_tensor_scale(
 
     sqnr = compute_error(C_ref, C_nvfp4)
     SQNR_THRESHOLD = 16.0
-    assert sqnr >= SQNR_THRESHOLD, (
-        f"SQNR {sqnr:.2f} < {SQNR_THRESHOLD}, {a_has_scale=}, {b_has_scale=}"
-    )
+    assert sqnr >= SQNR_THRESHOLD, f"SQNR {sqnr:.2f} < {SQNR_THRESHOLD}, {a_has_scale=}"

@@ -112,7 +112,12 @@ def get_gemm_times(
 
     bf16_time_s = get_gpu_kernel_gemm_time_s(torch.mm, x_bf16, w_bf16)
 
-    if recipe_name in ("mxfp4_cutlass", "nvfp4", "nvfp4_static"):
+    if recipe_name in (
+        "mxfp4_cutlass",
+        "nvfp4",
+        "nvfp4_static",
+        "nvfp4_no_global_scale",
+    ):
         d1, d2, d3 = torch.float4_e2m1fn_x2, torch.float4_e2m1fn_x2, torch.bfloat16
         A = torch.randint(0, 255, (M, K // 2), device=device, dtype=torch.uint8).view(
             d1
@@ -151,7 +156,7 @@ def get_gemm_times(
         scale_b = torch.ones(N, K // 32, device=device, dtype=torch.float8_e8m0fnu)
         scale_a = to_blocked(scale_a)
         scale_b = to_blocked(scale_b)
-    elif recipe_name in ("nvfp4", "nvfp4_static"):
+    elif recipe_name in ("nvfp4", "nvfp4_static", "nvfp4_no_global_scale"):
         scale_a = torch.ones(M, K // 16, device=device, dtype=torch.float8_e4m3fn)
         scale_b = torch.ones(N, K // 16, device=device, dtype=torch.float8_e4m3fn)
         scale_a = to_blocked(scale_a)
@@ -177,7 +182,7 @@ def get_gemm_times(
                 swizzle_b=SwizzleType.SWIZZLE_32_4_4,
                 output_dtype=d3,
             )
-        if recipe_name in ("nvfp4", "nvfp4_static"):
+        if recipe_name in ("nvfp4", "nvfp4_static", "nvfp4_no_global_scale"):
             return torch._scaled_mm(
                 A, B, scale_a, scale_b, out_dtype=d3, use_fast_accum=False
             )
@@ -796,6 +801,10 @@ def run(
                 elif recipe_name == "nvfp4":
                     config = NVFP4DynamicActivationNVFP4WeightConfig(
                         use_dynamic_per_tensor_scale=True,
+                    )
+                elif recipe_name == "nvfp4_no_global_scale":
+                    config = NVFP4DynamicActivationNVFP4WeightConfig(
+                        use_dynamic_per_tensor_scale=False,
                     )
                 elif recipe_name == "nvfp4_static":
                     config_calib = NVFP4DynamicActivationNVFP4WeightConfig(
