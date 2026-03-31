@@ -3,10 +3,14 @@ import torch
 
 from torchao.utils import is_cuda_version_at_least, is_sm_at_least_100
 
-if torch.cuda.is_available() and not (
+_is_xpu = torch.xpu.is_available()
+_is_incompatible_cuda = torch.cuda.is_available() and not (
     is_sm_at_least_100() and is_cuda_version_at_least(12, 8)
-):
-    pytest.skip("Test requires CUDA 12.8+ with SM >= 100", allow_module_level=True)
+)
+if not _is_xpu and _is_incompatible_cuda:
+    pytest.skip(
+        "Test requires XPU or CUDA 12.8+ with SM >= 100", allow_module_level=True
+    )
 
 from torchao.prototype.moe_training.ep import permute_mxfp8_fwd_hp_bwd
 from torchao.prototype.moe_training.ep.permute import permute_and_pad
