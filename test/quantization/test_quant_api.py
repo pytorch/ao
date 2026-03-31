@@ -573,9 +573,7 @@ common_utils.instantiate_parametrized_tests(TestQuantFlow)
 
 
 @unittest.skipIf(not torch.accelerator.is_available(), "Need CUDA available")
-@unittest.skipIf(
-    torch.cuda.is_available() and not is_sm_at_least_90(), "Checkpoints are produced in SM90+"
-)
+@unittest.skipIf(not is_sm_at_least_90(), "Checkpoints are produced in SM90+")
 class TestFqnToConfig(TestCase):
     def test_fqn_to_config_repr_custom(self):
         class TestModule(torch.nn.Module):

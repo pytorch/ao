@@ -241,7 +241,7 @@ class TestNF4Linear(TestCase):
         t = to_nf4(input_tensor, 32, 2)
         assert t.device == torch.device("cpu")
         z = t.to(device)
-        assert z.device.type == device.type  # Because the device could be cuda:0
+        assert z.device.type == device  # Because the device could be cuda:0
         x = z.cpu()
         assert x.device == torch.device("cpu")
 
