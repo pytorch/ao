@@ -226,7 +226,6 @@ def mxfp8_pipeline(
         mx_permuted,
         expert_weights_t,
         offs=mx_group_offsets,
-        block_size=block_size,
         wgrad_with_hp=True,
     )
 
