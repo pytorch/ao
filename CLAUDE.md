@@ -18,10 +18,9 @@ All configs inherit from `AOBaseConfig`. Defined in `torchao/quantization/quant_
 | `IntxWeightOnlyConfig` | arbitrary bit-width for edge/ExecuTorch |
 | `FqnToConfig` | map module names to different configs for per-layer quantization |
 
-### Prototype configs (in `torchao/prototype/mx_formats/`)
-- `MXDynamicActivationMXWeightConfig` - MXFP8/MXFP4 (H100/B200/MI350x)
-- `NVFP4DynamicActivationNVFP4WeightConfig` - NVIDIA FP4 (B200 Blackwell only)
-- `NVFP4WeightOnlyConfig` - NVFP4 weight-only (B200 Blackwell only)
+### Prototype configs
+
+See [Workflows Matrix](docs/source/workflows/index.md) for prototype configs (MXFP8, MXFP4, NVFP4) with hardware requirements and status.
 
 ## Stable vs Prototype
 
@@ -33,6 +32,7 @@ All configs inherit from `AOBaseConfig`. Defined in `torchao/quantization/quant_
 For architecture details, tensor subclass design, and contributor guides, see the in-repo docs:
 - [Quantization Overview](docs/source/contributing/quantization_overview.rst) - full stack walkthrough, tensor subclasses, quantization flows
 - [Contributor Guide](docs/source/contributing/contributor_guide.rst) - how to add tensors, kernels, configs
+- [Inference Workflows](docs/source/workflows/inference.md) - which config to use for which hardware
 - [Workflows Matrix](docs/source/workflows/index.md) - dtype x hardware status table
 - [PT2E Quantization](docs/source/pt2e_quantization/index.rst) - PyTorch 2 Export quantization for deployment backends (X86, XPU, ExecuTorch)
 
@@ -54,24 +54,8 @@ Do not use or recommend these:
 USE_CPP=0 pip install -e . --no-build-isolation   # CPU-only
 USE_CUDA=1 pip install -e . --no-build-isolation   # With CUDA
 
-# Lint (ruff v0.11.6, rules: F and I)
-ruff check --fix && ruff format .
-
 # Test (mirrors source structure)
 pytest test/quantization/test_quant_api.py
 pytest test/float8/
 pytest test/prototype/mx_formats/
 ```
-
-## Coding Style
-
-- 2 spaces for indentation
-- 80 character line length
-- BSD 3-Clause license header required on all source files
-- Match existing patterns in the file you're editing
-
-## Commit Messages
-
-- Do not commit without explicit request from the user
-- Preserve ghstack trailers when amending commits
-- If Claude or another AI tool was used, disclose in the commit message
