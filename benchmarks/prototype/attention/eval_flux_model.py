@@ -32,6 +32,7 @@ from torch.nn.attention import (
 
 from torchao.prototype.attention import (
     AttentionBackend,
+    HadamardMode,
     apply_low_precision_attention,
 )
 
@@ -42,6 +43,12 @@ BACKENDS = {
         "flash_impl": "FA3",
         "fp8": True,
         "fp8_backend": AttentionBackend.FP8_FA3,
+    },
+    "fa3_fp8_hadamard": {
+        "flash_impl": "FA3",
+        "fp8": True,
+        "fp8_backend": AttentionBackend.FP8_FA3,
+        "hadamard": HadamardMode.QKV,
     },
 }
 
@@ -72,6 +79,7 @@ def setup_backend(
         pipe.transformer = apply_low_precision_attention(
             pipe.transformer,
             backend=cfg["fp8_backend"],
+            hadamard=cfg.get("hadamard", HadamardMode.NONE),
         )
         if compile_flag:
             print(f"Compiling transformer with torch.compile ({backend_name})...")
