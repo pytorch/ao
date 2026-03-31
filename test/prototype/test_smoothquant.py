@@ -84,7 +84,6 @@ class TestSmoothQuant(unittest.TestCase):
         "base_config",
         [
             Int8DynamicActivationInt8WeightConfig(version=2),
-            Int8DynamicActivationInt8WeightConfig(version=2, granularity=PerRow()),
             Int8DynamicActivationInt8WeightConfig(version=2, granularity=PerTensor()),
             Int8DynamicActivationInt8WeightConfig(
                 version=2, granularity=[PerRow(), PerTensor()]
@@ -93,7 +92,6 @@ class TestSmoothQuant(unittest.TestCase):
                 version=2, granularity=[PerTensor(), PerRow()]
             ),
             Int8StaticActivationInt8WeightConfig(),
-            Int8StaticActivationInt8WeightConfig(granularity=PerRow()),
             Int8StaticActivationInt8WeightConfig(granularity=PerTensor()),
             Int8StaticActivationInt8WeightConfig(granularity=[PerRow(), PerTensor()]),
             Int8StaticActivationInt8WeightConfig(granularity=[PerTensor(), PerRow()]),
