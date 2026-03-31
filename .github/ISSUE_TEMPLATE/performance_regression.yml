@@ -38,8 +38,8 @@ body:
       label: Environment
       description: |
         - torch and torchao versions
-        - GPU (e.g., H100, A100)
-        - CUDA version
+        - Hardware (e.g., H100, A100, MI300x, XPU, CPU)
+        - Relevant library versions (e.g., CUDA, ROCm, MSLK)
       render: text
     validations:
       required: true

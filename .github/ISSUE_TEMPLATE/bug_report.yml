@@ -32,18 +32,9 @@ body:
         Please provide:
         - torch version (`python -c "import torch; print(torch.__version__)"`)
         - torchao version (`python -c "import torchao; print(torchao.__version__)"`)
-        - GPU (e.g., H100, A100, CPU)
-        - CUDA version (`nvcc --version`)
+        - Hardware (e.g., H100, A100, MI300x, XPU, CPU, Apple Silicon)
+        - Relevant library versions (e.g., CUDA, ROCm, MSLK)
         - OS
       render: text
     validations:
       required: true
-
-  - type: textarea
-    id: config
-    attributes:
-      label: Quantization config used
-      description: Which Config class and parameters? (e.g., Int4WeightOnlyConfig(group_size=32))
-      render: python
-    validations:
-      required: false
