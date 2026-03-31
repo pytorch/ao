@@ -151,4 +151,5 @@ def register_qsdpa():
         node = result[0] if isinstance(result, tuple) else result
         return node
 
+
 register_qsdpa()
