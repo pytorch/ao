@@ -6,10 +6,10 @@
 /torchao/dtypes/ @jerryzh168
 
 # Float8 / Low-precision training
-/torchao/float8/ @vkuzo @drisspg
+/torchao/float8/ @vkuzo
 
 # Prototype: MX formats and MoE training
-/torchao/prototype/mx_formats/ @danielvegamyhre @vkuzo
+/torchao/prototype/mx_formats/ @danielvegamyhre @vkuzo @drisspg
 /torchao/prototype/moe_training/ @danielvegamyhre
 
 # Sparsity
