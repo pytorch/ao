@@ -1882,16 +1882,14 @@ def _register_smooth_quant_int_mm_pattern():
         if aten_int_mm_node.args[1].op != "get_attr":
             return False
 
-        if len(match.nodes) == 10:
-            # Check the two tailing reshape nodes can be fused
-            if match.nodes[9].args[1] != match.nodes[6].args[1]:
+        # If the pattern includes a bias add (7- or 9-node variants), validate bias shape.
+        bias_add_nodes = [n for n in match.nodes if n.target is aten.add.Tensor]
+        if bias_add_nodes:
+            add_node = bias_add_nodes[0]
+            # Bias is expected to be the second positional argument of the add node.
+            if len(add_node.args) < 2:
                 return False
-        if len(match.nodes) == 10 or (
-            len(match.nodes) == 7 and match.nodes[6].target is aten.add.Tensor
-        ):
-            bias_idx = 7 if len(match.nodes) == 10 else 6
-            # Check bias shape
-            bias_node = match.nodes[bias_idx].args[1]
+            bias_node = add_node.args[1]
             if not isinstance(bias_node, torch.fx.node.Node):
                 return False
             if len(bias_node.meta.get("tensor_meta").shape) != 1:  # type: ignore[union-attr]
