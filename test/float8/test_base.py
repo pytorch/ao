@@ -16,7 +16,6 @@ from torch.testing._internal.common_utils import (
     TestCase,
     instantiate_parametrized_tests,
     parametrize,
-    run_tests,
 )
 
 from torchao.float8.config import (
@@ -60,6 +59,8 @@ from torchao.utils import (
 random.seed(0)
 torch.manual_seed(0)
 
+_DEVICES = get_available_devices()[1:]  # Exclude CPU since this test is for GPU kernels
+
 
 def bitwise_identical(a: Float8TrainingTensor, b: Float8TrainingTensor) -> bool:
     assert torch.all(a._scale == b._scale).item(), "scales are not identical"
@@ -67,6 +68,7 @@ def bitwise_identical(a: Float8TrainingTensor, b: Float8TrainingTensor) -> bool:
     return True
 
 
+@instantiate_parametrized_tests
 class TestFloat8TrainingTensor(TestCase):
     def test_preserves_dtype(self) -> None:
         # hp means high precision, lp means low precision
@@ -243,7 +245,7 @@ class TestFloat8TrainingTensor(TestCase):
         torch.cuda.is_available() and not is_sm_at_least_90(),
         "Requires CUDA capability >= 9.0",
     )
-    @parametrize("device", get_available_devices(False))
+    @parametrize("device", _DEVICES)
     def test_axiswise_gemm(self, a_shape, a_granularity, b_granularity, device):
         a = torch.randn(*a_shape, dtype=torch.bfloat16, device=device)
         b = torch.randn(64, 32, dtype=torch.bfloat16, device=device)
@@ -285,6 +287,7 @@ class TestFloat8TrainingTensor(TestCase):
             assert e4m3_dtype == torch.float8_e4m3fn
 
 
+@instantiate_parametrized_tests
 class TestFloat8Linear(TestCase):
     def _test_linear_impl(
         self,
@@ -339,7 +342,7 @@ class TestFloat8Linear(TestCase):
     @parametrize("linear_bias", [False, True])
     @parametrize("use_ac", [False, True])
     @unittest.skipIf(not torch.accelerator.is_available(), "GPU not available")
-    @parametrize("device", get_available_devices(False))
+    @parametrize("device", _DEVICES)
     def test_linear_from_config_params(
         self,
         x_shape,
@@ -388,7 +391,7 @@ class TestFloat8Linear(TestCase):
         torch.cuda.is_available() and not is_sm_at_least_90(),
         "Requires CUDA capability >= 9.0",
     )
-    @parametrize("device", get_available_devices(False))
+    @parametrize("device", _DEVICES)
     def test_linear_from_recipe(
         self,
         recipe_name,
@@ -417,7 +420,7 @@ class TestFloat8Linear(TestCase):
         ],
     )
     @unittest.skipIf(not torch.accelerator.is_available(), "GPU not available")
-    @parametrize("device", get_available_devices(False))
+    @parametrize("device", _DEVICES)
     def test_autocast_outputs(
         self,
         emulate: bool,
@@ -468,7 +471,7 @@ class TestFloat8Linear(TestCase):
         torch.cuda.is_available() and not is_sm_at_least_89(),
         "CUDA with float8 support not available",
     )
-    @parametrize("device", get_available_devices(False))
+    @parametrize("device", _DEVICES)
     def test_inference_mode(self, device):
         x = torch.randn(32, 32, device=device)
         m = nn.Sequential(nn.Linear(32, 32)).to(device)
@@ -481,7 +484,7 @@ class TestFloat8Linear(TestCase):
         torch.cuda.is_available() and not is_sm_at_least_89(),
         "CUDA with float8 support not available",
     )
-    @parametrize("device", get_available_devices(False))
+    @parametrize("device", _DEVICES)
     def test_quantize(self, device):
         x = torch.randn(32, 32, device=device)
         m = nn.Sequential(nn.Linear(32, 32)).to(device)
@@ -497,6 +500,7 @@ class TestFloat8Linear(TestCase):
             m(x)
 
 
+@instantiate_parametrized_tests
 class TestScaledMM(TestCase):
     @parametrize("base_dtype", [torch.float16, torch.bfloat16, torch.float32])
     @parametrize("use_fast_accum", [True, False])
@@ -505,7 +509,7 @@ class TestScaledMM(TestCase):
         torch.cuda.is_available() and not is_sm_at_least_89(),
         "CUDA with float8 support not available",
     )
-    @parametrize("device", get_available_devices(False))
+    @parametrize("device", _DEVICES)
     def test_scaled_mm_vs_emulated(self, base_dtype, use_fast_accum, device):
         torch.manual_seed(42)
         input_dtype = e4m3_dtype
@@ -549,7 +553,7 @@ class TestScaledMM(TestCase):
         torch.cuda.is_available() and not is_sm_at_least_89(),
         "CUDA with float8 support not available",
     )
-    @parametrize("device", get_available_devices(False))
+    @parametrize("device", _DEVICES)
     def test_different_configs_error(self, device):
         x_fp32 = torch.randn(16, 16, device=device)
         x_scale = torch.tensor(1.0, device=device)
@@ -591,7 +595,7 @@ class TestScaledMM(TestCase):
         torch.cuda.is_available() and not is_sm_at_least_89(),
         "CUDA with float8 support not available",
     )
-    @parametrize("device", get_available_devices(False))
+    @parametrize("device", _DEVICES)
     def test_pad_inner_dim(self, base_dtype, use_fast_accum, device):
         torch.manual_seed(42)
         input_dtype = e4m3_dtype
@@ -666,6 +670,7 @@ class TestScaledMM(TestCase):
         assert sqnr > 50.0
 
 
+@instantiate_parametrized_tests
 class TestNumerics(TestCase):
     @parametrize(
         "float8_dtype",
@@ -677,7 +682,7 @@ class TestNumerics(TestCase):
         ],
     )
     @unittest.skipIf(not torch.accelerator.is_available(), "GPU not available")
-    @parametrize("device", get_available_devices(False))
+    @parametrize("device", _DEVICES)
     def test_small_amax_float16(self, float8_dtype, device):
         # If we calculate scale naively with FP8_MAX_POS / amax,
         # the result may not be representable in fp16. Verify that
@@ -701,7 +706,8 @@ class TestNumerics(TestCase):
         assert not torch.any(torch.isinf(scale))
 
 
-class TestFloat8LinearUtils(unittest.TestCase):
+@instantiate_parametrized_tests
+class TestFloat8LinearUtils(TestCase):
     def test_swap_root_linear(self):
         for emulate in [True, False]:
             module = nn.Linear(3, 3)
@@ -828,11 +834,5 @@ class TestFloat8LinearUtils(unittest.TestCase):
             self.assertEqual((zero_cnt, max_cnt), (tensor_len, tensor_len))
 
 
-instantiate_parametrized_tests(TestFloat8TrainingTensor)
-instantiate_parametrized_tests(TestFloat8Linear)
-instantiate_parametrized_tests(TestScaledMM)
-instantiate_parametrized_tests(TestNumerics)
-instantiate_parametrized_tests(TestFloat8LinearUtils)
-
 if __name__ == "__main__":
-    run_tests()
+    pytest.main([__file__])
