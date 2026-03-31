@@ -128,7 +128,9 @@ class TestNF4Linear(TestCase):
     @skip_if_rocm("ROCm enablement in progress")
     @parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
     @parametrize("device", get_available_devices())
-    def test_reconstruction_qlora_vs_bnb(self, dtype: torch.dtype, device: torch.device):
+    def test_reconstruction_qlora_vs_bnb(
+        self, dtype: torch.dtype, device: torch.device
+    ):
         # From https://github.com/drisspg/transformer_nuggets/blob/f05afad68ad9086d342268f46a7f344617a02314/test/test_qlora.py#L65C1-L81C47
         torch.manual_seed(0)
         embed_dim = 512
@@ -245,7 +247,7 @@ class TestNF4Linear(TestCase):
 
         input_tensor = torch.rand(128, device=device)
         t = to_nf4(input_tensor, 32, 2)
-        assert t.device.type == device.type
+        assert t.device.type == device
 
     @parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
     def test_to_dtype(self, dtype: torch.dtype):
@@ -287,7 +289,9 @@ class TestNF4Linear(TestCase):
     @parametrize("device", get_available_devices())
     @parametrize("shape", [(16, 16), (32, 16)])
     @parametrize("chunk_size", [8, 16, 32])
-    def test_chunk_size_equivalence(self, dtype: torch.dtype, shape, chunk_size, device: torch.device):
+    def test_chunk_size_equivalence(
+        self, dtype: torch.dtype, shape, chunk_size, device: torch.device
+    ):
         a = torch.randn(shape, device=device, dtype=dtype)
         with unittest.mock.patch("torchao.dtypes.nf4tensor.CHUNK_SIZE", chunk_size):
             nf4_patched = to_nf4(a, 16, 2)
@@ -308,6 +312,7 @@ class TestNF4Linear(TestCase):
 
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     @parametrize("compile", [False, True])
+    @parametrize("device", get_available_devices())
     def test_quantize_api(self, compile, device: torch.device):
         nf4_linear = nn.Linear(512, 512, device=device)
         torchao.quantize_(nf4_linear, nf4_weight_only())
@@ -536,21 +541,21 @@ class TestFSDPOps(TestCase):
         nf4_tensor = to_nf4(torch.randn(512 * 512))
         self.assertEqual(nf4_tensor.device.type, "cpu")
         nf4_tensor = nf4_tensor.to(device, non_blocking=True)
-        self.assertEqual(nf4_tensor.device.type, device.type)
+        self.assertEqual(nf4_tensor.device.type, device)
         self.assertEqual(type(nf4_tensor), NF4Tensor)
         nf4_tensor.get_original_weight()  # make sure we can dequantize
 
         nf4_tensor = to_nf4(torch.randn(512 * 512))
         self.assertEqual(nf4_tensor.device.type, "cpu")
         nf4_tensor = nf4_tensor.to(device)
-        self.assertEqual(nf4_tensor.device.type, device.type)
+        self.assertEqual(nf4_tensor.device.type, device)
         self.assertEqual(type(nf4_tensor), NF4Tensor)
         nf4_tensor.get_original_weight()
 
         nf4_tensor = to_nf4(torch.randn(512 * 512))
         self.assertEqual(nf4_tensor.device.type, "cpu")
         nf4_tensor = nf4_tensor.to(device, torch.bfloat16)
-        self.assertEqual(nf4_tensor.device.type, device.type)
+        self.assertEqual(nf4_tensor.device.type, device)
         self.assertEqual(nf4_tensor.dtype, torch.bfloat16)
         self.assertEqual(type(nf4_tensor), torch.Tensor)  # dequantized
 
@@ -573,9 +578,9 @@ class TestFSDPOps(TestCase):
             to_nf4(linear.weight.detach()), requires_grad=False
         )
         linear.to(device)
-        self.assertEqual(linear.weight.device.type, device.type)
+        self.assertEqual(linear.weight.device.type, device)
         weight = linear.weight.get_original_weight()
-        self.assertEqual(weight.device.type, device.type)
+        self.assertEqual(weight.device.type, device)
 
         linear.cpu()
         self.assertEqual(linear.weight.device.type, "cpu")
@@ -587,9 +592,9 @@ class TestFSDPOps(TestCase):
             to_nf4(linear.weight.detach()), requires_grad=False
         )
         linear.to(device)
-        self.assertEqual(linear.weight.device.type, device.type)
+        self.assertEqual(linear.weight.device.type, device)
         weight = linear.weight.get_original_weight()
-        self.assertEqual(weight.device.type, device.type)
+        self.assertEqual(weight.device.type, device)
 
         linear.to("cpu")
         self.assertEqual(linear.weight.device.type, "cpu")
@@ -599,7 +604,9 @@ class TestFSDPOps(TestCase):
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     @parametrize("input_size", [512 * 512, (512 * 512,), (512, 512)])
     @parametrize("device", get_available_devices())
-    def test_tensor_deepcopy(self, input_size: Union[Tuple[int], int], device: torch.device):
+    def test_tensor_deepcopy(
+        self, input_size: Union[Tuple[int], int], device: torch.device
+    ):
         nf4_orig = to_nf4(torch.randn(input_size, device=device))
         nf4_clone = copy.deepcopy(nf4_orig)
         self.assertEqual(

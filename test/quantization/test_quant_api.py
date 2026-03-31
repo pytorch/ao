@@ -314,6 +314,8 @@ class TestQuantFlow(TestCase):
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     @common_utils.parametrize("device", get_available_devices())
     def test_quantized_model_streaming(self, device):
+        if device == "cpu":
+            self.skipTest("Need GPU available")
         device_module = torch.get_device_module(device)
 
         def reset_memory():
@@ -333,7 +335,7 @@ class TestQuantFlow(TestCase):
         memory_streaming = device_module.max_memory_allocated()
 
         for param in m.parameters():
-            assert param.device.type == device.type
+            assert param.device.type == device
         self.assertLess(memory_streaming, memory_baseline)
 
     # TODO(#1690): move to new config names
@@ -416,6 +418,8 @@ class TestQuantFlow(TestCase):
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     @common_utils.parametrize("device", get_available_devices())
     def test_module_fqn_to_config_regex_basic(self, device):
+        if device == "cpu":
+            self.skipTest("Need GPU available")
         config1 = Int4WeightOnlyConfig(
             group_size=32, int4_packing_format="tile_packed_to_4d"
         )
@@ -433,6 +437,8 @@ class TestQuantFlow(TestCase):
         """Testing that full path config takes precedence over
         regex config in ModuleFqnToConfig
         """
+        if device == "cpu":
+            self.skipTest("Need GPU available")
         config1 = Int4WeightOnlyConfig(
             group_size=32, int4_packing_format="tile_packed_to_4d"
         )
@@ -453,6 +459,8 @@ class TestQuantFlow(TestCase):
         the order of `re:linear.*` and `linear1` to make sure that
         `linear1` config has precedence even it comes after `linear*`
         """
+        if device == "cpu":
+            self.skipTest("Need GPU available")
         config1 = Int4WeightOnlyConfig(
             group_size=32, int4_packing_format="tile_packed_to_4d"
         )
@@ -471,6 +479,9 @@ class TestQuantFlow(TestCase):
         """Testing that we will only match the fqns that fully
         matches the regex
         """
+
+        if device == "cpu":
+            self.skipTest("Need GPU available")
 
         class M(torch.nn.Module):
             def __init__(self, dtype, device):
@@ -543,7 +554,9 @@ class TestQuantFlow(TestCase):
         assert isinstance(model.linear.weight, IntxUnpackedToInt8Tensor)
 
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
-    @unittest.skipIf(not is_sm_at_least_89(), "Need SM 8.9+")
+    @unittest.skipIf(
+        torch.cuda.is_available() and not is_sm_at_least_89(), "Need SM 8.9+"
+    )
     @common_utils.parametrize("device", get_available_devices())
     def test_module_fqn_to_config_skip(self, device):
         config1 = Float8DynamicActivationFloat8WeightConfig()
@@ -560,7 +573,9 @@ common_utils.instantiate_parametrized_tests(TestQuantFlow)
 
 
 @unittest.skipIf(not torch.accelerator.is_available(), "Need CUDA available")
-@unittest.skipIf(not is_sm_at_least_90(), "Checkpoints are produced in SM90+")
+@unittest.skipIf(
+    torch.cuda.is_available() and not is_sm_at_least_90(), "Checkpoints are produced in SM90+"
+)
 class TestFqnToConfig(TestCase):
     def test_fqn_to_config_repr_custom(self):
         class TestModule(torch.nn.Module):
