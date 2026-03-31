@@ -30,6 +30,7 @@ __all__ = [
     "TorchAOBaseTensor",
     "is_cuda_version_at_least",
     "is_MI300",
+    "is_mtia",
     "is_sm_at_least_89",
     "is_sm_at_least_90",
     "is_sm_at_least_100",
@@ -1202,6 +1203,10 @@ def is_sm_version(major: int, minor: int) -> bool:
     """Check if the CUDA version is exactly major.minor"""
     is_cuda = torch.cuda.is_available() and torch.version.cuda
     return torch.cuda.get_device_capability() == (major, minor) if is_cuda else False
+
+
+def is_mtia():
+    return hasattr(torch, "mtia") and torch.mtia.is_available()
 
 
 def is_sm_at_least_89():
