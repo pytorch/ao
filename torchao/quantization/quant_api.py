@@ -1235,8 +1235,7 @@ class Int8StaticActivationInt8WeightConfig(AOBaseConfig):
             The granularity for quantization. Can be either a single granularity (applied to both
             activations and weights) or a tuple / list of two granularities (first for activations, second for weights).
             If None, defaults to PerRow for both. Only PerTensor and PerRow are supported.
-        act_mapping_type (MappingType): The mapping type for activation quantization. SYMMETRIC and ASYMMETRIC are supported.
-            If None, defaults to SYMMETRIC.
+        act_mapping_type (Optional[MappingType]): The mapping type for activation quantization. SYMMETRIC and ASYMMETRIC are supported.
         set_inductor_config (bool): if True, adjusts `torchinductor` settings to recommended values.
         version (int): the version of the config
     """
