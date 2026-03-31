@@ -139,8 +139,9 @@ class _AdamBase(Optimizer):
                     # https://github.com/pytorch/ao/issues/652#issuecomment-2285040894
                     # thus, by calling p.detach(), DTensor won't have .grad anymore, which is ok since we
                     # are passing grad separately anyway.
-                    torch.compile(single_param_adam, fullgraph=True, dynamic=False)(
-                        p.detach(),
+                    p_detached = p.detach()
+                    adam_args = (
+                        p_detached,
                         grad,
                         state["step"],
                         state["exp_avg"],
@@ -154,6 +155,14 @@ class _AdamBase(Optimizer):
                         self.is_adamw,
                         self.bf16_stochastic_round and p.dtype is torch.bfloat16,
                     )
+                    # DTensor param/state can surface compile-time shape specialization
+                    # mismatches across heterogeneous parameter shapes in FSDP2.
+                    if isinstance(p_detached, DTensor):
+                        single_param_adam(*adam_args)
+                    else:
+                        torch.compile(single_param_adam, fullgraph=True, dynamic=False)(
+                            *adam_args
+                        )
 
         return loss
 

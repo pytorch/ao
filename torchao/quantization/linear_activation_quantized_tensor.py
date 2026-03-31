@@ -61,6 +61,23 @@ class LinearActivationQuantizedTensor(TorchAOBaseTensor):
         self.input_quant_func = input_quant_func
         self.quant_kwargs = quant_kwargs
 
+    @property
+    def tensor_impl(self):
+        if hasattr(self.original_weight_tensor, "tensor_impl"):
+            return self.original_weight_tensor.tensor_impl
+        raise AttributeError(
+            f"{type(self.original_weight_tensor)} has no attribute 'tensor_impl'"
+        )
+
+    @tensor_impl.setter
+    def tensor_impl(self, value):
+        if hasattr(self.original_weight_tensor, "tensor_impl"):
+            self.original_weight_tensor.tensor_impl = value
+            return
+        raise AttributeError(
+            f"{type(self.original_weight_tensor)} has no attribute 'tensor_impl'"
+        )
+
     def __repr__(self):
         return f"{self.__class__.__name__}({self.original_weight_tensor}, {self.input_quant_func}, quant_kwargs={self.quant_kwargs}))"
 
