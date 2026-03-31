@@ -15,12 +15,14 @@ from torchao.utils import (
     torch_version_at_least,
 )
 
-if torch.cuda.is_available() and not (
+_is_xpu = torch.xpu.is_available()
+_is_incompatible_cuda = torch.cuda.is_available() and not (
     torch_version_at_least("2.7.0")
     and (is_sm_at_least_90() or is_MI300() or is_MI350())
-):
+)
+if not _is_xpu and _is_incompatible_cuda:
     pytest.skip(
-        "Requires FP8-capable GPU (CUDA SM90+, MI300, or MI350)",
+        "Requires FP8-capable GPU (CUDA SM90+, MI300, MI350 or Intel XPU)",
         allow_module_level=True,
     )
 

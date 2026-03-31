@@ -15,9 +15,13 @@ def _is_sm_10x() -> bool:
     return torch.cuda.is_available() and torch.cuda.get_device_capability()[0] == 10
 
 
-if torch.cuda.is_available and not (_is_sm_10x() or is_MI300() or is_MI350()):
+_is_xpu = torch.xpu.is_available()
+_is_incompatible_cuda = torch.cuda.is_available() and not (
+    _is_sm_10x() or is_MI300() or is_MI350()
+)
+if not _is_xpu and _is_incompatible_cuda:
     pytest.skip(
-        "Requires FP8-capable GPU (CUDA SM 10.x, MI300, or MI350)",
+        "Requires FP8-capable GPU (CUDA SM 10.x, MI300, MI350 or Intel XPU)",
         allow_module_level=True,
     )
 
@@ -607,6 +611,7 @@ def test_cuda_fused_unpad_token_groups(
     )
 
 
+@skip_if_xpu("XPU support not yet available")
 @pytest.mark.parametrize("round_scales_to_power_of_2", [True, False])
 @pytest.mark.parametrize(
     "m,k",
