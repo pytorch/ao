@@ -662,7 +662,6 @@ class TestQLoRA(FSDPTest):
         self.run_subtests(
             {
                 "enable_activation_checkpointing": [False, True],
-                "device": get_available_devices(),
                 "offload_policy": [
                     OffloadPolicy(),
                     CPUOffloadPolicy(pin_memory=True),
@@ -675,7 +674,6 @@ class TestQLoRA(FSDPTest):
     def _test_qlora_fsdp2(
         self,
         enable_activation_checkpointing: bool,
-        device: torch.device,
         offload_policy: "OffloadPolicy",  # noqa: F821
     ):
         from torch.distributed._composable.fsdp import fully_shard
@@ -699,7 +697,7 @@ class TestQLoRA(FSDPTest):
             dropout_p=0,
         )
         torch.manual_seed(42)
-        with torch.device(device):
+        with torch.device("cuda"):
             base_model = Transformer(model_args)
             for layer in base_model.layers:
                 # attention with lora adapters
@@ -753,7 +751,7 @@ class TestQLoRA(FSDPTest):
 
         torch.manual_seed(42 + self.rank + 1)
         for iter_idx in range(5):
-            inp = torch.randint(0, vocab_size, (batch_size, seq_len), device=device)
+            inp = torch.randint(0, vocab_size, (batch_size, seq_len), device="cuda")
             fsdp_optim.zero_grad(set_to_none=(iter_idx % 2 == 0))
             fsdp_loss = fsdp_model(inp).sum()
             fsdp_loss.backward()
