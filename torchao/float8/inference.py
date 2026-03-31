@@ -296,7 +296,10 @@ def _check_hardware_support(
 
     if is_per_tensor or is_per_row:
         assert torch.xpu.is_available() or (
-            torch.cuda.is_available() and is_sm_at_least_89() or is_MI300() or is_MI350()
+            torch.cuda.is_available()
+            and is_sm_at_least_89()
+            or is_MI300()
+            or is_MI350()
         ), (
             "Float8 dynamic quantization requires CUDA compute capability ≥8.9 or MI300+ or XPU."
         )
