@@ -1780,14 +1780,20 @@ def _register_linear_dynamic_fp16_weight_prepack():
 def _register_smooth_quant_int_mm_pattern():
     """
     The pattern is:
-      (no bias) reshape -> _int_mm -> convert_element_type -> (expand ->) mul -> mul -> reshape
-    or
-      (with bias) pattern_no_bias -> add (-> reshape -> reshape)
+       (no bias)
+         (optional) reshape(a) -> _int_mm -> convert_element_type -> mul(x_scale)
+         (optional) convert_element_type (output-convert variant) -> mul(w_scale)
+       (with bias)
+         pattern_no_bias -> add
     """
 
-    # When torch.compile'ing with dynamic=True, the expand node and the two tailing reshape nodes exist
-    # When torch.compile'ing with dynamic=False, they don't exist
-    def get_pattern_no_bias(reshape_a: bool = True, convert_a: bool = False):
+    # get_pattern_no_bias models the core int_mm + scaling computation without bias.
+    #   - reshape_a controls whether we expect an input reshape on `a` before _int_mm.
+    #   - convert_scaled_matmul controls whether there is an extra convert_element_type applied to
+    #     the result of the x_scale multiplication (output-convert variants).
+    def get_pattern_no_bias(
+        reshape_a: bool = True, convert_scaled_matmul: bool = False
+    ):
         int_mm_pattern = CallFunction(
             aten._int_mm.default,
             CallFunction(
@@ -1810,7 +1816,7 @@ def _register_smooth_quant_int_mm_pattern():
             KeywordArg("x_scale"),
         )
 
-        if convert_a:
+        if convert_scaled_matmul:
             mul_x_scale_pattern = CallFunction(
                 prims.convert_element_type.default,
                 mul_x_scale_pattern,
@@ -1830,7 +1836,7 @@ def _register_smooth_quant_int_mm_pattern():
 
     pattern_no_bias_1 = _with_outer_reshape(get_pattern_no_bias())
     pattern_no_bias_1_with_matmul_convert = _with_outer_reshape(
-        get_pattern_no_bias(convert_a=True)
+        get_pattern_no_bias(convert_scaled_matmul=True)
     )
     pattern_no_bias_1_with_output_convert = CallFunction(
         prims.convert_element_type.default,
