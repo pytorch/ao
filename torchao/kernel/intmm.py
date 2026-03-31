@@ -105,6 +105,65 @@ def int_matmul(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     return safe_int_mm(a, b)
 
 
+def _cpu_is_amx_tile_supported() -> bool:
+    """
+    Safely query AMX tile support, guarding against private API absence.
+    torch.cpu._is_amx_tile_supported / torch._C._cpu._is_amx_tile_supported are
+    private and may be missing in certain PyTorch builds or versions.
+    """
+    if hasattr(torch._C._cpu, "_is_amx_tile_supported"):
+        return torch._C._cpu._is_amx_tile_supported()
+    elif hasattr(torch.cpu, "_is_amx_tile_supported"):
+        return torch.cpu._is_amx_tile_supported()
+    return False
+
+
+def _cpu_is_vnni_supported() -> bool:
+    """
+    Safely query AVX512_VNNI support, guarding against private API absence.
+    torch.cpu._is_vnni_supported / torch._C._cpu._is_vnni_supported are
+    private and may be missing in certain PyTorch builds or versions.
+    """
+    if hasattr(torch._C._cpu, "_is_vnni_supported"):
+        return torch._C._cpu._is_vnni_supported()
+    elif hasattr(torch.cpu, "_is_vnni_supported"):
+        return torch.cpu._is_vnni_supported()
+    return False
+
+
+def _int_scaled_matmul_cpu(
+    a: torch.Tensor, b: torch.Tensor, scales1: torch.Tensor
+) -> torch.Tensor:
+    """
+    CPU-optimized path for scaled integer matrix multiplication.
+    CPU prefers decomposed version to leverage the fusion capability of Inductor.
+    It goes to u8s8 or s8s8 path based on ISA support for hardware. The selection
+    is for performance only and both paths should work regardless of ISA support.
+
+    Args:
+        a (torch.Tensor): The first matrix to multiply (int8).
+        b (torch.Tensor): The second matrix to multiply (int8).
+        scales1 (torch.Tensor): The scaling factors, typically shape (M, 1).
+            A scalar-like shape (1, 1) is also supported and will broadcast
+            across all rows.
+
+    Returns:
+        torch.Tensor: The result of the scaled matrix multiplication.
+    """
+    if (
+        not _cpu_is_amx_tile_supported() and _cpu_is_vnni_supported()
+    ):  # u8s8: Convert to uint8 to use AVX512_VNNI instructions for better performance
+        # on platforms with AVX512_VNNI support but without AMX.
+        a = (a.to(torch.int32) + 128).to(torch.uint8)
+        c = torch._int_mm(a, b)
+        comp = b.sum(dim=0, keepdim=True, dtype=torch.int32) * 128
+        c.sub_(comp)
+        return c.to(scales1.dtype) * scales1
+    else:  # s8s8: Computation done with AMX or as the fallback.
+        c = torch._int_mm(a, b)
+        return c.to(scales1.dtype) * scales1
+
+
 def int_scaled_matmul(
     a: torch.Tensor, b: torch.Tensor, scales1: torch.Tensor
 ) -> torch.Tensor:
@@ -115,6 +174,8 @@ def int_scaled_matmul(
         a (torch.Tensor): The first matrix to multiply.
         b (torch.Tensor): The second matrix to multiply.
         scales1 (torch.Tensor): The scaling factors for the rows of the result.
+            Expected shape is (M, 1). A scalar-like shape (1, 1) is also
+            supported and will broadcast across all rows.
 
     Returns:
         torch.Tensor: The result of the scaled matrix multiplication.
@@ -124,17 +185,15 @@ def int_scaled_matmul(
     """
     M, K = a.shape
     K, N = b.shape
+    assert scales1.dim() == 2
     assert M == scales1.size(0) or scales1.numel() == 1
     assert 1 == scales1.size(1)
     assert scales1.is_contiguous()
-    scales1 = scales1.expand((M, N))
-    assert scales1.dim() == 2
 
     if check_cpu_version(scales1.device):
-        # CPU prefers decomposed version of int_scaled_matmul
-        # to leverage the fusion capability of Inductor
-        c = torch._int_mm(a, b)
-        return c.to(scales1.dtype) * scales1
+        return _int_scaled_matmul_cpu(a, b, scales1)
+
+    scales1 = scales1.expand((M, N))
 
     if intmm_triton is not None and AUTOTUNER_ENABLE:
         return torch.ops.torchao.int_scaled_matmul(a, b, scales1)

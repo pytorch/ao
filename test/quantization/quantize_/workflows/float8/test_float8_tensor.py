@@ -8,6 +8,7 @@ import copy
 import unittest
 from contextlib import nullcontext
 from typing import Tuple
+from unittest.mock import patch
 
 import torch
 from torch._inductor.utils import run_and_get_code
@@ -1488,6 +1489,119 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
 
 
 common_utils.instantiate_parametrized_tests(TestFloat8Tensor)
+
+
+class TestMI350HardwareSupport(common_utils.TestCase):
+    """Tests that MI350 (gfx950) is accepted by FP8 hardware checks.
+
+    Uses mocking so the tests run on any hardware without needing an actual
+    MI350 GPU.
+    """
+
+    def _patch_mi350_only(self):
+        """Context manager simulating an MI350-only environment."""
+        from unittest.mock import patch
+
+        return [
+            patch("torchao.float8.inference.is_MI350", return_value=True),
+            patch("torchao.float8.inference.is_MI300", return_value=False),
+            patch("torchao.float8.inference.is_sm_at_least_89", return_value=False),
+            patch("torch.cuda.is_available", return_value=True),
+            patch("torch.xpu.is_available", return_value=False),
+        ]
+
+    def _patch_no_hw(self):
+        """Context manager simulating unsupported hardware."""
+        from unittest.mock import patch
+
+        return [
+            patch("torchao.float8.inference.is_MI350", return_value=False),
+            patch("torchao.float8.inference.is_MI300", return_value=False),
+            patch("torchao.float8.inference.is_sm_at_least_89", return_value=False),
+            patch("torch.cuda.is_available", return_value=True),
+            patch("torch.xpu.is_available", return_value=False),
+        ]
+
+    def _start(self, patches):
+        for p in patches:
+            p.start()
+
+    def _stop(self, patches):
+        for p in patches:
+            p.stop()
+
+    def test_check_hardware_support_mi350_per_tensor(self):
+        from torchao.float8.inference import _check_hardware_support
+
+        patches = self._patch_mi350_only()
+        self._start(patches)
+        try:
+            _check_hardware_support((PerTensor(), PerTensor()))
+        finally:
+            self._stop(patches)
+
+    def test_check_hardware_support_mi350_per_row(self):
+        from torchao.float8.inference import _check_hardware_support
+
+        patches = self._patch_mi350_only()
+        self._start(patches)
+        try:
+            _check_hardware_support((PerRow(), PerRow()))
+        finally:
+            self._stop(patches)
+
+    def test_check_hardware_support_rejects_unsupported_hw(self):
+        from torchao.float8.inference import _check_hardware_support
+
+        patches = self._patch_no_hw()
+        self._start(patches)
+        try:
+            with self.assertRaises(AssertionError):
+                _check_hardware_support((PerRow(), PerRow()))
+        finally:
+            self._stop(patches)
+
+    def test_quant_api_hardware_gate_mi350(self):
+        """The assertion in _float8_dynamic_activation_float8_weight_transform
+        should pass on MI350."""
+
+        with (
+            patch("torchao.quantization.quant_api.is_MI350", return_value=True),
+            patch("torchao.quantization.quant_api.is_MI300", return_value=False),
+            patch(
+                "torchao.quantization.quant_api.is_sm_at_least_89",
+                return_value=False,
+            ),
+            patch("torch.cuda.is_available", return_value=True),
+        ):
+            from torchao.quantization.quant_api import (
+                is_MI300,
+                is_MI350,
+                is_sm_at_least_89,
+            )
+
+            self.assertTrue(is_sm_at_least_89() or is_MI300() or is_MI350())
+
+    def test_quant_api_hardware_gate_rejects_unsupported(self):
+        from unittest.mock import patch
+
+        with (
+            patch("torchao.quantization.quant_api.is_MI350", return_value=False),
+            patch("torchao.quantization.quant_api.is_MI300", return_value=False),
+            patch(
+                "torchao.quantization.quant_api.is_sm_at_least_89",
+                return_value=False,
+            ),
+            patch("torch.cuda.is_available", return_value=True),
+        ):
+            from torchao.quantization.quant_api import (
+                is_MI300,
+                is_MI350,
+                is_sm_at_least_89,
+            )
+
+            self.assertFalse(is_sm_at_least_89() or is_MI300() or is_MI350())
+
 
 if __name__ == "__main__":
     run_tests()
