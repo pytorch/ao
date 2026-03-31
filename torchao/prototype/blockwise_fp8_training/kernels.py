@@ -9,6 +9,8 @@ from typing import Tuple
 import torch
 import triton
 import triton.language as tl
+from torch.distributed.tensor import Partial, Replicate, Shard
+from torch.distributed.tensor.experimental import register_sharding
 from torch.library import triton_op, wrap_triton
 
 from torchao.float8.config import e4m3_dtype
@@ -31,6 +33,30 @@ fp8_gemm_configs_max_autotune = [
 ]
 
 EPS = 1e-12
+
+
+def _two_output_quant_shardings(
+    *,
+    shard_dim0_outputs: Tuple[Shard, Shard],
+    shard_dim1_outputs: Tuple[Shard, Shard],
+):
+    # order is: ([outputs, ...], [inputs, ...])
+    return [
+        ([Replicate(), Replicate()], [Replicate(), None, None]),
+        (list(shard_dim0_outputs), [Shard(0), None, None]),
+        (list(shard_dim1_outputs), [Shard(1), None, None]),
+    ]
+
+
+def _blockwise_gemm_shardings():
+    # Op returns a single tensor and takes:
+    # (a, b, a_s, b_s, block_size, out_dtype)
+    return [
+        ([Replicate()], [Replicate(), Replicate(), Replicate(), Replicate(), None, None]),
+        ([Shard(0)], [Shard(0), Replicate(), Shard(0), Replicate(), None, None]),
+        ([Shard(1)], [Replicate(), Shard(1), Replicate(), Shard(1), None, None]),
+        ([Partial()], [Shard(1), Shard(0), Shard(1), Shard(0), None, None]),
+    ]
 
 
 @triton.autotune(configs=fp8_gemm_configs_max_autotune, key=["N", "K", "BLOCK_SIZE_K"])
@@ -266,6 +292,30 @@ def triton_fp8_gemm_1x128_128x1(
         BLOCK_SIZE_K=block_size,
     )
     return c
+
+
+@register_sharding(torch.ops.torchao.triton_fp8_gemm_1x128_128x128.default)
+def custom_sharding_for_triton_fp8_gemm_1x128_128x128(
+    a: torch.Tensor,
+    b: torch.Tensor,
+    a_s: torch.Tensor,
+    b_s: torch.Tensor,
+    block_size: int = 128,
+    out_dtype: torch.dtype = torch.float32,
+):
+    return _blockwise_gemm_shardings()
+
+
+@register_sharding(torch.ops.torchao.triton_fp8_gemm_1x128_128x1.default)
+def custom_sharding_for_triton_fp8_gemm_1x128_128x1(
+    a: torch.Tensor,
+    b: torch.Tensor,
+    a_s: torch.Tensor,
+    b_s: torch.Tensor,
+    block_size: int = 128,
+    out_dtype: torch.dtype = torch.float32,
+):
+    return _blockwise_gemm_shardings()
 
 
 # Quantization kernels autotuner configs
@@ -777,6 +827,66 @@ def triton_fp8_blockwise_weight_quant_transposed_rhs(
         FP8_MAX=fp8_max,
     )
     return y, s
+
+
+@register_sharding(torch.ops.torchao.triton_fp8_blockwise_act_quant_lhs.default)
+def custom_sharding_for_triton_fp8_blockwise_act_quant_lhs(
+    x: torch.Tensor,
+    block_size: int = 128,
+    dtype: torch.dtype = e4m3_dtype,
+):
+    return _two_output_quant_shardings(
+        shard_dim0_outputs=(Shard(0), Shard(0)),
+        shard_dim1_outputs=(Shard(1), Shard(1)),
+    )
+
+
+@register_sharding(torch.ops.torchao.triton_fp8_blockwise_act_quant_rhs.default)
+def custom_sharding_for_triton_fp8_blockwise_act_quant_rhs(
+    x: torch.Tensor,
+    block_size: int = 128,
+    dtype: torch.dtype = e4m3_dtype,
+):
+    return _two_output_quant_shardings(
+        shard_dim0_outputs=(Shard(0), Shard(0)),
+        shard_dim1_outputs=(Shard(1), Shard(1)),
+    )
+
+
+@register_sharding(torch.ops.torchao.triton_fp8_blockwise_act_quant_transposed_lhs.default)
+def custom_sharding_for_triton_fp8_blockwise_act_quant_transposed_lhs(
+    x: torch.Tensor,
+    block_size: int = 128,
+    dtype: torch.dtype = e4m3_dtype,
+):
+    return _two_output_quant_shardings(
+        shard_dim0_outputs=(Shard(1), Shard(1)),
+        shard_dim1_outputs=(Shard(0), Shard(0)),
+    )
+
+
+@register_sharding(torch.ops.torchao.triton_fp8_blockwise_weight_quant_rhs.default)
+def custom_sharding_for_triton_fp8_blockwise_weight_quant_rhs(
+    x: torch.Tensor,
+    block_size: int = 128,
+    dtype: torch.dtype = e4m3_dtype,
+):
+    return _two_output_quant_shardings(
+        shard_dim0_outputs=(Shard(0), Shard(0)),
+        shard_dim1_outputs=(Shard(1), Shard(1)),
+    )
+
+
+@register_sharding(torch.ops.torchao.triton_fp8_blockwise_weight_quant_transposed_rhs.default)
+def custom_sharding_for_triton_fp8_blockwise_weight_quant_transposed_rhs(
+    x: torch.Tensor,
+    block_size: int = 128,
+    dtype: torch.dtype = e4m3_dtype,
+):
+    return _two_output_quant_shardings(
+        shard_dim0_outputs=(Shard(1), Shard(1)),
+        shard_dim1_outputs=(Shard(0), Shard(0)),
+    )
 
 
 def torch_blockwise_scale_act_quant_lhs(x, tile_size=128, dtype=e4m3_dtype):
