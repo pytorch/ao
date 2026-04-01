@@ -1153,6 +1153,33 @@ def _(*args, **kwargs):
     return out
 
 
+@implements_torch_function(torch.Tensor.narrow)
+def function_narrow(*args, **kwargs):
+    """Handle narrow for NF4Tensor.
+
+    When narrow is called (e.g. by DTensor's redistribute for unpadding),
+    we need to return a fresh NF4Tensor without autograd metadata to avoid
+    the 'differentiable view with existing autograd metadata' error.
+    """
+    tensor = args[0]
+    dim = args[1] if len(args) > 1 else kwargs["dim"]
+    start = args[2] if len(args) > 2 else kwargs["start"]
+    length = args[3] if len(args) > 3 else kwargs["length"]
+
+    if start != 0 or length != tensor.size(dim):
+        raise NotImplementedError(
+            f"NF4Tensor.narrow only supports no-op narrow (start=0, length=size[dim]), "
+            f"got start={start}, length={length}, size[{dim}]={tensor.size(dim)}"
+        )
+
+    updated_attrs = {}
+    tensor_attrs, _ = tensor.__tensor_flatten__()
+    for attr in tensor_attrs:
+        updated_attrs[attr] = getattr(tensor, attr).detach()
+
+    return NF4Tensor(*construct_nf4_args(tensor, updated_attrs))
+
+
 @implements_torch_function(torch.Tensor.view_as)
 def function_view_as(*args, **kwargs):
     """Handle view_as for NF4Tensor.
