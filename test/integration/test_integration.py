@@ -478,10 +478,8 @@ class TestWeightOnlyInt8Quant(unittest.TestCase):
             m = nn.Sequential(nn.Linear(512, 32))
             y_ref = m(x)
             _int8wo_groupwise_api(m)
-            self.assertEqual(
-                m[0].weight.tensor_impl.int_data.shape, torch.Size([32, 512])
-            )
-            self.assertEqual(m[0].weight.tensor_impl.scale.shape, torch.Size([32, 16]))
+            self.assertEqual(m[0].weight.qdata.shape, torch.Size([32, 512]))
+            self.assertEqual(m[0].weight.scale.shape, torch.Size([32, 16]))
             y_wo = m(x)
             sqnr = compute_error(y_ref, y_wo)
             self.assertGreater(sqnr, 45.0)

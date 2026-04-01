@@ -410,6 +410,14 @@ def _(func, types, args, kwargs):
     )
 
 
+@implements(aten.embedding.default)
+def _(func, types, args, kwargs):
+    """Embedding operation for Int8Tensor - dequantize weight and run embedding."""
+    weight, indices = args[0], args[1]
+    # Dequantize the weight and run the embedding on the float weight
+    return aten.embedding.default(weight.dequantize(), indices, *args[2:], **kwargs)
+
+
 @implements(aten.is_pinned.default)
 def _(func, types, args, kwargs):
     is_pinned = args[0].qdata.is_pinned() and args[0].scale.is_pinned()
