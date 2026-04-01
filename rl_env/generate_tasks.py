@@ -33,10 +33,10 @@ from pathlib import Path
 from typing import Optional
 
 try:
-    import anthropic as _anthropic
-    _anthropic_available = True
+    from google import genai as _genai
+    _genai_available = True
 except ImportError:
-    _anthropic_available = False
+    _genai_available = False
 
 
 REPO = "pytorch/ao"
@@ -227,6 +227,8 @@ The following benchmark(s) must run to completion without error:
 # Run tests
 {test_cmd}
 
+Be careful with distributed tests. These include tests with "distributed", "fsdp", "tp", "ep", "parallel" in the name, or tests that fail with errors that indicate a NCCL/torch.distrbuted failure. If you encounter a distributed test failure, verify that the local environment has enough GPUs for this test. If not, you can skip the test.
+
 # Run benchmarks
 {bench_cmd}
 ```
@@ -242,9 +244,9 @@ _llm_client = None
 def _get_llm_client():
     global _llm_client
     if _llm_client is None:
-        if not _anthropic_available:
-            raise ImportError("pip install anthropic to use LLM filtering")
-        _llm_client = _anthropic.Anthropic()
+        if not _genai_available:
+            raise ImportError("pip install google-genai to use LLM filtering")
+        _llm_client = _genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
     return _llm_client
 
 
@@ -285,14 +287,14 @@ Respond with JSON only, no prose:
 """
 
 
-def llm_filter(pr: dict, all_files: list[str]) -> tuple[bool, str]:
+def llm_filter(pr: dict, all_files: list[str], model: str = "gemini-2.0-flash") -> tuple[bool, str]:
     """
     Ask an LLM whether this PR makes a good benchmark task.
     Returns (accept, reason).
-    Falls back to True if the Anthropic client is unavailable.
+    Falls back to True if the google-generativeai client is unavailable.
     """
-    if not _anthropic_available:
-        return True, "LLM filter skipped (anthropic not installed)"
+    if not _genai_available:
+        return True, "LLM filter skipped (google-genai not installed)"
 
     body_excerpt = (pr.get("body") or "").strip()[:1000]
     files_excerpt = "\n".join(f"  {f}" for f in all_files[:40])
@@ -307,12 +309,8 @@ def llm_filter(pr: dict, all_files: list[str]) -> tuple[bool, str]:
 
     try:
         client = _get_llm_client()
-        message = client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=128,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        raw = message.content[0].text.strip()
+        response = client.models.generate_content(model=model, contents=prompt)
+        raw = response.text.strip()
         # Strip markdown code fences if present
         raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw, flags=re.MULTILINE).strip()
         parsed = json.loads(raw)
@@ -328,7 +326,8 @@ def llm_filter(pr: dict, all_files: list[str]) -> tuple[bool, str]:
 # ---------------------------------------------------------------------------
 
 def make_task(pr: dict, files: list[dict], token: Optional[str],
-              use_llm_filter: bool = True) -> Optional[dict]:
+              use_llm_filter: bool = True, filter_model: str = "gemini-2.0-flash",
+              title_include: list[str] = None, title_exclude: list[str] = None) -> Optional[dict]:
     """
     Return a task descriptor dict, or None if the PR doesn't qualify.
 
@@ -351,7 +350,9 @@ def make_task(pr: dict, files: list[dict], token: Optional[str],
         cls = classify_file(f["filename"])
         by_class[cls].append(f)
 
-    added_tests   = [f["filename"] for f in by_class["test"]           if f["status"] in ("added", "modified")]
+    added_tests   = [f["filename"] for f in by_class["test"]
+                     if f["status"] in ("added", "modified")
+                     and Path(f["filename"]).name != "test_distributed.py"]
     added_benches = [f["filename"] for f in by_class["benchmark"]      if f["status"] in ("added", "modified")]
     impl_files    = [f["filename"] for f in by_class["implementation"] if f["status"] in ("added", "modified")]
 
@@ -359,19 +360,17 @@ def make_task(pr: dict, files: list[dict], token: Optional[str],
         return None
 
     title_lower = pr["title"].lower()
-    if "delete" in title_lower:
-        return None
-    if (
-        "cutedsl" in title_lower or 
-        "cuda" in title_lower or
-        not any(w in title_lower for w in ("add", "create", "update"))
-    ):
+
+    if title_exclude and any(w in title_lower for w in title_exclude):
         return None
 
-    # LLM quality filter — runs before the expensive file-content fetches
+    if title_include and not any(w in title_lower for w in title_include):
+        return None
+    
+    # LLM quality filter (optional)
     if use_llm_filter:
         all_filenames = [f["filename"] for f in files]
-        accept, reason = llm_filter(pr, all_filenames)
+        accept, reason = llm_filter(pr, all_filenames, model=filter_model)
         if not accept:
             print(f"\n  LLM rejected PR #{pr['number']}: {reason}", file=sys.stderr)
             return None
@@ -438,8 +437,14 @@ def main():
                         help="Output directory (default: ./tasks)")
     parser.add_argument("--resume", action="store_true",
                         help="Skip PRs already saved in --out directory")
-    parser.add_argument("--no-llm-filter", action="store_true",
-                        help="Skip the LLM quality filter (faster, lower quality)")
+    parser.add_argument("--llm-filter", action="store_true",
+                        help="Enable LLM quality filter to score PR suitability")
+    parser.add_argument("--title-include", nargs="+", metavar="WORD", default=None,
+                        help="Only include PRs whose title contains at least one of these words (unset = no filter)")
+    parser.add_argument("--title-exclude", nargs="+", metavar="WORD", default=None,
+                        help="Exclude PRs whose title contains any of these words (unset = no filter)")
+    parser.add_argument("--filter-model", default=os.environ.get("GEMINI_FILTER_MODEL", "gemini-3-flash-preview"),
+                        help="Gemini model for LLM quality filter (default: gemini-2.0-flash, or GEMINI_FILTER_MODEL env var)")
     args = parser.parse_args()
 
     if not args.token:
@@ -486,7 +491,10 @@ def main():
             continue
 
         task = make_task(pr, files, args.token,
-                         use_llm_filter=not args.no_llm_filter)
+                         use_llm_filter=args.llm_filter,
+                         filter_model=args.filter_model,
+                         title_include=args.title_include,
+                         title_exclude=args.title_exclude)
         if task is None:
             continue
 

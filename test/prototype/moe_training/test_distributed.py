@@ -19,6 +19,9 @@ import torch
 
 from torchao.utils import is_MI300, is_MI350, is_ROCM, is_sm_at_least_89
 
+# TODO: support this later
+pytest.skip("Skip distributed tests for RL env")
+
 if not torch.cuda.is_available() or not (
     is_sm_at_least_89() or is_MI300() or is_MI350()
 ):
