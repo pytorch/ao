@@ -92,18 +92,21 @@ def score_task(task: dict, worktree: Path) -> dict:
     print(test_out[-3000:] if len(test_out) > 3000 else test_out)
     print(f"Test score: {test_score:.2f}  (exit {test_rc})")
 
-    print(f"\nRunning benchmarks: {bench_cmd}")
-    try:
-        bench_rc, bench_out = run_cmd(bench_cmd, worktree, timeout=120)
-    except subprocess.TimeoutExpired:
-        bench_rc, bench_out = 1, "TIMEOUT"
+    if bench_cmd:
+        print(f"\nRunning benchmarks: {bench_cmd}")
+        try:
+            bench_rc, bench_out = run_cmd(bench_cmd, worktree, timeout=120)
+        except subprocess.TimeoutExpired:
+            bench_rc, bench_out = 1, "TIMEOUT"
+        bench_ok = bench_rc == 0
+        print(bench_out[-1000:] if len(bench_out) > 1000 else bench_out)
+        print(f"Benchmark: {'OK' if bench_ok else 'FAILED'}  (exit {bench_rc})")
+        score = 0.8 * test_score + 0.2 * float(bench_ok)
+    else:
+        bench_ok = None
+        bench_out = None
+        score = test_score
 
-    bench_ok = bench_rc == 0
-    print(bench_out[-1000:] if len(bench_out) > 1000 else bench_out)
-    print(f"Benchmark: {'OK' if bench_ok else 'FAILED'}  (exit {bench_rc})")
-
-    # Combined score: 80% tests, 20% benchmark
-    score = 0.8 * test_score + 0.2 * float(bench_ok)
     print(f"\n{'─'*60}")
     print(f"Final score: {score:.3f}")
 

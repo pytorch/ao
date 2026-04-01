@@ -250,25 +250,7 @@ def _get_llm_client():
     return _llm_client
 
 
-LLM_FILTER_PROMPT = """\
-You are helping curate a benchmark for ML systems programming. The benchmark uses \
-merged PRs from torchao (a PyTorch quantization and optimization library) as tasks, \
-where a model must re-implement what the PR does.
-
-A GOOD task PR:
-- Adds a concrete new feature, kernel, quantization method. 
-- Involves real ML systems work: CUDA/Triton/CuteDSL kernels, quantization, \
-non-trivial PyTorch code, performance optimization
-- Has enough substance that re-implementing it is a meaningful challenge
-- Is self-contained enough that an agent can understand what to do
-
-A BAD task PR:
-- Is housekeeping: CI fixes, dependency bumps, lint, formatting, file moves, renames
-- Is a trivial code change
-- Is purely documentation or comments
-- Is a minor convenience wrapper with no real algorithmic content
-- Is so large/diffuse (touching 20+ unrelated files) that it can't be a clear task
-
+_PR_DATA_BLOCK = """\
 Here is the PR to evaluate:
 
 Title: {title}
@@ -286,8 +268,15 @@ Respond with JSON only, no prose:
 }}
 """
 
+LLM_FILTER_PROMPT = """\
+You are helping curate a benchmark for ML systems programming. The benchmark uses \
+merged PRs from torchao (a PyTorch quantization and optimization library) as tasks, \
+where a model must re-implement what the PR does.
+""" + _PR_DATA_BLOCK
 
-def llm_filter(pr: dict, all_files: list[str], model: str = "gemini-2.0-flash") -> tuple[bool, str]:
+
+def llm_filter(pr: dict, all_files: list[str], model: str = "gemini-2.0-flash",
+               filter_prompt: str = None) -> tuple[bool, str]:
     """
     Ask an LLM whether this PR makes a good benchmark task.
     Returns (accept, reason).
@@ -301,7 +290,8 @@ def llm_filter(pr: dict, all_files: list[str], model: str = "gemini-2.0-flash") 
     if len(all_files) > 40:
         files_excerpt += f"\n  ... and {len(all_files) - 40} more"
 
-    prompt = LLM_FILTER_PROMPT.format(
+    template = filter_prompt + "\n\n" + _PR_DATA_BLOCK if filter_prompt else LLM_FILTER_PROMPT
+    prompt = template.format(
         title=pr["title"],
         body=body_excerpt or "(no description)",
         files=files_excerpt,
@@ -327,6 +317,7 @@ def llm_filter(pr: dict, all_files: list[str], model: str = "gemini-2.0-flash") 
 
 def make_task(pr: dict, files: list[dict], token: Optional[str],
               use_llm_filter: bool = True, filter_model: str = "gemini-2.0-flash",
+              filter_prompt: str = None,
               title_include: list[str] = None, title_exclude: list[str] = None) -> Optional[dict]:
     """
     Return a task descriptor dict, or None if the PR doesn't qualify.
@@ -356,7 +347,9 @@ def make_task(pr: dict, files: list[dict], token: Optional[str],
     added_benches = [f["filename"] for f in by_class["benchmark"]      if f["status"] in ("added", "modified")]
     impl_files    = [f["filename"] for f in by_class["implementation"] if f["status"] in ("added", "modified")]
 
-    if not added_tests or not added_benches or not impl_files:
+    if not added_tests or not impl_files:
+        missing = [name for name, lst in [("tests", added_tests), ("impl", impl_files)] if not lst]
+        print(f"\n  Skipping PR #{pr['number']}: no {', '.join(missing)} files", file=sys.stderr)
         return None
 
     title_lower = pr["title"].lower()
@@ -370,7 +363,7 @@ def make_task(pr: dict, files: list[dict], token: Optional[str],
     # LLM quality filter (optional)
     if use_llm_filter:
         all_filenames = [f["filename"] for f in files]
-        accept, reason = llm_filter(pr, all_filenames, model=filter_model)
+        accept, reason = llm_filter(pr, all_filenames, model=filter_model, filter_prompt=filter_prompt)
         if not accept:
             print(f"\n  LLM rejected PR #{pr['number']}: {reason}", file=sys.stderr)
             return None
@@ -413,7 +406,7 @@ def make_task(pr: dict, files: list[dict], token: Optional[str],
         # ── Scoring commands ──────────────────────────────────────────────
         "score_commands": {
             "tests": f"python -m pytest {' '.join(added_tests)} -v --tb=short --no-header -q",
-            "benchmarks": " && ".join(f"python {b}" for b in added_benches),
+            "benchmarks": " && ".join(f"python {b}" for b in added_benches) if added_benches else None,
         },
         # ── Prompt handed to mini-swe-agent ──────────────────────────────
         "prompt": prompt,
@@ -445,6 +438,9 @@ def main():
                         help="Exclude PRs whose title contains any of these words (unset = no filter)")
     parser.add_argument("--filter-model", default=os.environ.get("GEMINI_FILTER_MODEL", "gemini-3-flash-preview"),
                         help="Gemini model for LLM quality filter (default: gemini-2.0-flash, or GEMINI_FILTER_MODEL env var)")
+    parser.add_argument("--filter-prompt", default=None, metavar="TEXT",
+                        help="Custom instructions for the LLM filter (replaces the default preamble; "
+                             "the PR title/body/files are always appended automatically)")
     args = parser.parse_args()
 
     if not args.token:
@@ -491,8 +487,9 @@ def main():
             continue
 
         task = make_task(pr, files, args.token,
-                         use_llm_filter=args.llm_filter,
+                         use_llm_filter=args.llm_filter or bool(args.filter_prompt),
                          filter_model=args.filter_model,
+                         filter_prompt=args.filter_prompt,
                          title_include=args.title_include,
                          title_exclude=args.title_exclude)
         if task is None:
