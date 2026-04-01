@@ -22,6 +22,7 @@ from torchao.prototype.mx_formats.config import ScaleCalculationMode
 from torchao.utils import (
     is_cuda_version_at_least,
     is_MI350,
+    is_mslk_version_at_least,
     is_ROCM,
     is_sm_at_least_100,
     torch_version_at_least,
@@ -1214,6 +1215,15 @@ def _mslk_quantize_nvfp4_custom_op(
     from mslk.quantize.triton.fp4_quantize import (
         triton_quantize_nvfp4 as _mslk_triton_quantize_nvfp4,
     )
+
+    if global_scale is None and not is_mslk_version_at_least("1.1.0"):
+        import mslk
+
+        raise RuntimeError(
+            f"Optional global_scale support requires MSLK >= 1.1.0, "
+            f"but found MSLK {mslk.__version__}. "
+            "Please upgrade MSLK: https://github.com/pytorch/MSLK"
+        )
 
     data_lp, blockwise_scales = _mslk_triton_quantize_nvfp4(x, global_scale)
     return blockwise_scales, data_lp.view(torch.uint8)

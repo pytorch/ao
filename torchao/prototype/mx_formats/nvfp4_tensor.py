@@ -468,10 +468,8 @@ def _addmm_nvfp4_dispatch(
     b_scale = b.per_tensor_scale
     if a_scale is not None and b_scale is not None:
         scale_result = a_scale * b_scale
-    elif a_scale is not None:
-        scale_result = a_scale
-    elif b_scale is not None:
-        scale_result = b_scale
+    elif a_scale is not None or b_scale is not None:
+        scale_result = a_scale if a_scale is not None else b_scale
     else:
         scale_result = None
 
