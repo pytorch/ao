@@ -17,7 +17,6 @@ from hqq.core.utils import *  # noqa: F401, F403
 from torch import Tensor, nn
 
 from torchao.dtypes.utils import is_device
-from torchao.utils import is_cpu_and_torch_version_ok
 
 
 class HQQLinearTorchWeightOnlyInt4(torch.nn.Module):
@@ -167,7 +166,7 @@ class HQQLinearTorchWeightOnlyInt4(torch.nn.Module):
         W_q_torch, scales_torch, zeros_torch = self.hqq_quants_to_torch_quants(
             W_q=W_q, scales=scales, zeros=zeros, shape=shape, nbits=self.nbits
         )
-        if is_cpu_and_torch_version_ok(W_q.device):
+        if W_q.device == "cpu":
             self.weight_int4pack = torch.ops.aten._convert_weight_to_int4pack_for_cpu(
                 W_q_torch, self.inner_k_tiles
             )
@@ -242,7 +241,7 @@ class HQQLinearTorchWeightOnlyInt4(torch.nn.Module):
     def matmul(self, x):
         origin_x_size = x.size()
         x = x.reshape(-1, origin_x_size[-1])
-        if is_cpu_and_torch_version_ok(x.device):
+        if x.device == "cpu":
             c = torch.ops.aten._weight_int4pack_mm_for_cpu(
                 x, self.weight_int4pack, self.groupsize, self.scales_and_zeros
             )
