@@ -8,9 +8,6 @@ from .affine_quantized_tensor import (
     to_affine_quantized_intx_static,
 )
 from .nf4tensor import NF4Tensor, to_nf4
-from .uintx import (
-    TensorCoreTiledLayout,
-)
 from .utils import (
     Layout,
     PlainLayout,
@@ -26,6 +23,5 @@ __all__ = [
     "to_affine_quantized_floatx_static",
     "Layout",
     "PlainLayout",
-    "TensorCoreTiledLayout",
     "affine_quantized_tensor_ops",
 ]
