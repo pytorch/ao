@@ -202,6 +202,14 @@ def _(func, types, args, kwargs):
     )
 
 
+# this is needed for torch.compile fake tensor creation when appearance dtype
+# differs from internal storage dtype (e.g. bf16 wrapper over uint8 codes)
+@OptimState4bit.implements(aten.view.dtype)
+def _(func, types, args, kwargs):
+    x, dtype = args
+    return OptimState4bit(x.codes, x.scale, x.qmap, x.signed, x.shape, dtype=dtype)
+
+
 # Build the list of c10d operations to implement
 _optim_state_4bit_c10d_ops = [
     # required by DTensor.full_tensor()

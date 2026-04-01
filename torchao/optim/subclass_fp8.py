@@ -149,6 +149,14 @@ def _(func, types, args, kwargs):
     return OptimStateFp8(x.codes.view(shape), x.scale)
 
 
+# this is needed for torch.compile fake tensor creation when appearance dtype
+# differs from internal storage dtype (e.g. bf16 wrapper over fp8 codes)
+@OptimStateFp8.implements(aten.view.dtype)
+def _(func, types, args, kwargs):
+    x, dtype = args
+    return OptimStateFp8(x.codes, x.scale, dtype=dtype)
+
+
 # Build the list of c10d operations to implement
 _optim_state_fp8_c10d_ops = [
     # required by DTensor.full_tensor()
