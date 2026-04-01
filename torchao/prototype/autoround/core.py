@@ -278,11 +278,15 @@ def apply_auto_round():
                 scale_for_quant = pad_scale.unsqueeze(-1)
                 zp_for_quant = pad_shifted_zero_point.unsqueeze(-1)
                 min_val = zp_for_quant - scale_for_quant * mid_point
-                int_data = torch.clamp(
-                    torch.round((input_for_quant - min_val) / scale_for_quant),
-                    quant_min,
-                    quant_max,
-                ).to(torch.int32).reshape(out_features, in_features)
+                int_data = (
+                    torch.clamp(
+                        torch.round((input_for_quant - min_val) / scale_for_quant),
+                        quant_min,
+                        quant_max,
+                    )
+                    .to(torch.int32)
+                    .reshape(out_features, in_features)
+                )
                 # Pack into int4 format for tinygemm
                 int_data_packed = (int_data[::, ::2] << 4 | int_data[::, 1::2]).to(
                     torch.uint8
