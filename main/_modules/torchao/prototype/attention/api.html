@@ -172,7 +172,7 @@ window.addEventListener("load", () => mermaid.run());
   fbq('track', 'PageView');
 </script>
 <script>
-  document.documentElement.setAttribute('data-version', 'main (0.18.0+git432a867 )');
+  document.documentElement.setAttribute('data-version', 'main (0.18.0+git168a9e2 )');
 </script>
 <noscript>
   <img height="1" width="1" src="https://www.facebook.com/tr?id=243028289693773&ev=PageView&noscript=1" />
@@ -1441,6 +1441,13 @@ document.write(`
     <span class="p">)</span>
 
 
+<span class="k">class</span><span class="w"> </span><span class="nc">HadamardMode</span><span class="p">(</span><span class="nb">str</span><span class="p">,</span> <span class="n">Enum</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Hadamard transform mode for improved FP8 quantization quality.&quot;&quot;&quot;</span>
+
+    <span class="n">NONE</span> <span class="o">=</span> <span class="s2">&quot;NONE&quot;</span>  <span class="c1"># No Hadamard transform</span>
+    <span class="n">QKV</span> <span class="o">=</span> <span class="s2">&quot;QKV&quot;</span>  <span class="c1"># Apply Hadamard to Q, K, and V</span>
+
+
 <div class="viewcode-block" id="AttentionBackend">
 <a class="viewcode-back" href="../../../../api_reference/generated/torchao.prototype.attention.AttentionBackend.html#torchao.prototype.attention.AttentionBackend">[docs]</a>
 <span class="k">class</span><span class="w"> </span><span class="nc">AttentionBackend</span><span class="p">(</span><span class="nb">str</span><span class="p">,</span> <span class="n">Enum</span><span class="p">):</span>
@@ -1481,6 +1488,7 @@ document.write(`
 <span class="k">def</span><span class="w"> </span><span class="nf">apply_low_precision_attention</span><span class="p">(</span>
     <span class="n">model</span><span class="p">:</span> <span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span>
     <span class="n">backend</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">AttentionBackend</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">hadamard</span><span class="p">:</span> <span class="n">HadamardMode</span> <span class="o">=</span> <span class="n">HadamardMode</span><span class="o">.</span><span class="n">NONE</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Apply low-precision attention to a model.</span>
 
@@ -1491,6 +1499,15 @@ document.write(`
 <span class="sd">    This replaces ``F.scaled_dot_product_attention`` with an FP8 SDPA</span>
 <span class="sd">    for eager execution and sets a global pre-grad pass so that</span>
 <span class="sd">    ``torch.compile`` will automatically fuse RoPE where detected.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        model: The model to apply low-precision attention to.</span>
+<span class="sd">        backend: Backend to use. If None, auto-detected.</span>
+<span class="sd">        hadamard: Hadamard transform mode. ``HadamardMode.QKV`` applies</span>
+<span class="sd">            the Hadamard transform to Q, K, and V before FP8 quantization,</span>
+<span class="sd">            spreading outliers across the head dimension for better</span>
+<span class="sd">            dynamic range utilization. Requires D to be a power of 2</span>
+<span class="sd">            and &lt;= 256.</span>
 
 <span class="sd">    Example:</span>
 
@@ -1514,7 +1531,7 @@ document.write(`
         <span class="n">_check_backend_available</span><span class="p">(</span><span class="n">backend</span><span class="p">)</span>
 
     <span class="k">if</span> <span class="n">backend</span> <span class="o">==</span> <span class="n">AttentionBackend</span><span class="o">.</span><span class="n">FP8_FA3</span><span class="p">:</span>
-        <span class="k">return</span> <span class="n">setup_fp8_backend</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="s2">&quot;FA3&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">setup_fp8_backend</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="s2">&quot;FA3&quot;</span><span class="p">,</span> <span class="n">hadamard</span><span class="o">=</span><span class="n">hadamard</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
 
     <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Unknown backend: </span><span class="si">{</span><span class="n">backend</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span></div>
 
@@ -1780,7 +1797,7 @@ document.write(`
        "headline": "torchao.prototype.attention.api",
        "description": "PyTorch Documentation. Explore PyTorch, an open-source machine learning library that accelerates the path from research prototyping to production deployment.",
        "url": "/_modules/torchao/prototype/attention/api.html",
-       "articleBody": "Source code for torchao.prototype.attention.api # Copyright (c) Meta Platforms, Inc. and affiliates. # All rights reserved. # # This source code is licensed under the BSD 3-Clause license found in the # LICENSE file in the root directory of this source tree. \"\"\"User-facing API for low-precision attention.\"\"\" from enum import Enum from typing import Optional import torch import torch._dynamo import torch.nn as nn from torchao.prototype.attention.utils import _is_fa3_available, _is_hopper from torchao.utils import torch_version_at_least _TORCH_VERSION_AT_LEAST_2_11 = torch_version_at_least(\"2.11.0\") if _TORCH_VERSION_AT_LEAST_2_11: from torchao.prototype.attention.shared_utils.setup import setup_fp8_backend from torchao.prototype.attention.shared_utils.wrapper import ( _LowPrecisionAttentionWrapper, ) [docs] class AttentionBackend(str, Enum): \"\"\"Backend kernel for computing attention.\"\"\" FP8_FA3 = \"FP8_FA3\" # Requires SM90+ (Hopper) def _get_available_backend() -\u003e AttentionBackend: if not torch.cuda.is_available(): raise RuntimeError(\"Low-precision attention requires CUDA.\") capability = torch.cuda.get_device_capability() if _is_hopper() and _is_fa3_available(): return AttentionBackend.FP8_FA3 raise RuntimeError(f\"No compatible backend for SM{capability[0]}{capability[1]}.\") def _check_backend_available(backend: AttentionBackend) -\u003e None: if not torch.cuda.is_available(): raise RuntimeError(f\"{backend} backend requires CUDA.\") capability = torch.cuda.get_device_capability() if backend == AttentionBackend.FP8_FA3: if not _is_hopper(): raise RuntimeError( f\"FP8_FA3 requires Hopper (SM 9.x), got SM{capability[0]}{capability[1]}.\" ) if not _is_fa3_available(): raise RuntimeError( \"FP8_FA3 requires the flash-attn package with FA3 support.\" ) else: raise ValueError(f\"Unknown backend: {backend}\") [docs] def apply_low_precision_attention( model: nn.Module, backend: Optional[AttentionBackend] = None, ) -\u003e nn.Module: \"\"\"Apply low-precision attention to a model. Must be called before ``torch.compile``. KV caching should be disabled before calling (e.g., ``config.use_cache = False`` for HuggingFace models). This replaces ``F.scaled_dot_product_attention`` with an FP8 SDPA for eager execution and sets a global pre-grad pass so that ``torch.compile`` will automatically fuse RoPE where detected. Example: .. literalinclude:: ../../examples/prototype/low_precision_attention.py :language: python \"\"\" if not _TORCH_VERSION_AT_LEAST_2_11: raise RuntimeError(\"Low-precision attention requires PyTorch 2.11+.\") if isinstance(model, _LowPrecisionAttentionWrapper): raise RuntimeError( \"apply_low_precision_attention has already been applied to this module.\" ) if isinstance(model, torch._dynamo.OptimizedModule): raise RuntimeError( \"apply_low_precision_attention must be called before torch.compile.\" ) if backend is None: backend = _get_available_backend() else: _check_backend_available(backend) if backend == AttentionBackend.FP8_FA3: return setup_fp8_backend(model, \"FA3\") raise ValueError(f\"Unknown backend: {backend}\")",
+       "articleBody": "Source code for torchao.prototype.attention.api # Copyright (c) Meta Platforms, Inc. and affiliates. # All rights reserved. # # This source code is licensed under the BSD 3-Clause license found in the # LICENSE file in the root directory of this source tree. \"\"\"User-facing API for low-precision attention.\"\"\" from enum import Enum from typing import Optional import torch import torch._dynamo import torch.nn as nn from torchao.prototype.attention.utils import _is_fa3_available, _is_hopper from torchao.utils import torch_version_at_least _TORCH_VERSION_AT_LEAST_2_11 = torch_version_at_least(\"2.11.0\") if _TORCH_VERSION_AT_LEAST_2_11: from torchao.prototype.attention.shared_utils.setup import setup_fp8_backend from torchao.prototype.attention.shared_utils.wrapper import ( _LowPrecisionAttentionWrapper, ) class HadamardMode(str, Enum): \"\"\"Hadamard transform mode for improved FP8 quantization quality.\"\"\" NONE = \"NONE\" # No Hadamard transform QKV = \"QKV\" # Apply Hadamard to Q, K, and V [docs] class AttentionBackend(str, Enum): \"\"\"Backend kernel for computing attention.\"\"\" FP8_FA3 = \"FP8_FA3\" # Requires SM90+ (Hopper) def _get_available_backend() -\u003e AttentionBackend: if not torch.cuda.is_available(): raise RuntimeError(\"Low-precision attention requires CUDA.\") capability = torch.cuda.get_device_capability() if _is_hopper() and _is_fa3_available(): return AttentionBackend.FP8_FA3 raise RuntimeError(f\"No compatible backend for SM{capability[0]}{capability[1]}.\") def _check_backend_available(backend: AttentionBackend) -\u003e None: if not torch.cuda.is_available(): raise RuntimeError(f\"{backend} backend requires CUDA.\") capability = torch.cuda.get_device_capability() if backend == AttentionBackend.FP8_FA3: if not _is_hopper(): raise RuntimeError( f\"FP8_FA3 requires Hopper (SM 9.x), got SM{capability[0]}{capability[1]}.\" ) if not _is_fa3_available(): raise RuntimeError( \"FP8_FA3 requires the flash-attn package with FA3 support.\" ) else: raise ValueError(f\"Unknown backend: {backend}\") [docs] def apply_low_precision_attention( model: nn.Module, backend: Optional[AttentionBackend] = None, hadamard: HadamardMode = HadamardMode.NONE, ) -\u003e nn.Module: \"\"\"Apply low-precision attention to a model. Must be called before ``torch.compile``. KV caching should be disabled before calling (e.g., ``config.use_cache = False`` for HuggingFace models). This replaces ``F.scaled_dot_product_attention`` with an FP8 SDPA for eager execution and sets a global pre-grad pass so that ``torch.compile`` will automatically fuse RoPE where detected. Args: model: The model to apply low-precision attention to. backend: Backend to use. If None, auto-detected. hadamard: Hadamard transform mode. ``HadamardMode.QKV`` applies the Hadamard transform to Q, K, and V before FP8 quantization, spreading outliers across the head dimension for better dynamic range utilization. Requires D to be a power of 2 and \u003c= 256. Example: .. literalinclude:: ../../examples/prototype/low_precision_attention.py :language: python \"\"\" if not _TORCH_VERSION_AT_LEAST_2_11: raise RuntimeError(\"Low-precision attention requires PyTorch 2.11+.\") if isinstance(model, _LowPrecisionAttentionWrapper): raise RuntimeError( \"apply_low_precision_attention has already been applied to this module.\" ) if isinstance(model, torch._dynamo.OptimizedModule): raise RuntimeError( \"apply_low_precision_attention must be called before torch.compile.\" ) if backend is None: backend = _get_available_backend() else: _check_backend_available(backend) if backend == AttentionBackend.FP8_FA3: return setup_fp8_backend(model, \"FA3\", hadamard=hadamard.value) raise ValueError(f\"Unknown backend: {backend}\")",
        "author": {
          "@type": "Organization",
          "name": "PyTorch Contributors",
