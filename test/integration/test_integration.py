@@ -21,6 +21,7 @@ from torch.testing import FileCheck
 
 import torchao
 from torchao.quantization import safe_int_mm
+from torchao.quantization.granularity import PerGroup
 
 # APIs to be deprecated (used for torch 2.2.2 and 2.3)
 from torchao.quantization.quant_api import (
@@ -83,7 +84,10 @@ def _int8wo_api(mod):
 def _int8wo_groupwise_api(mod):
     group_size = 32
     quantize_(
-        mod, Int8WeightOnlyConfig(group_size=group_size, set_inductor_config=False)
+        mod,
+        Int8WeightOnlyConfig(
+            granularity=PerGroup(group_size), set_inductor_config=False
+        ),
     )
 
 
@@ -489,7 +493,7 @@ class TestWeightOnlyInt8Quant(unittest.TestCase):
 
         quantize_(
             m,
-            Int8WeightOnlyConfig(group_size=group_size),
+            Int8WeightOnlyConfig(granularity=PerGroup(group_size)),
             filter_fn=lambda x, *args: isinstance(x, nn.Embedding),
         )
         y_q = m(input)

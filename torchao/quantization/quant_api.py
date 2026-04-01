@@ -36,7 +36,6 @@ from torchao.dtypes import (
     AffineQuantizedTensor,
     to_affine_quantized_intx,
 )
-from torchao.dtypes.utils import Layout
 from torchao.float8.config import e4m3_dtype
 from torchao.float8.float8_linear import Float8Linear
 from torchao.float8.inference import (
@@ -682,18 +681,15 @@ def _int8_dynamic_activation_intx_weight_transform(
 @dataclass
 class Int4WeightOnlyConfig(AOBaseConfig):
     """
-    Configuration for int4 weight only quantization, only groupwise quantization is supported
-    right now, and we support version 1 and version 2, that are implemented differently although with
-    same support. In version 2, different target are mainly distinguished by `packing_format` arg, and in version 1, mainly by `layout`.
+    Configuration for int4 weight only quantization, only groupwise quantization is supported.
 
     Args:
         `group_size`: parameter for quantization, controls the granularity of quantization, smaller
-         size is more fine grained, choices are [256, 128, 64, 32], used in both version 1 and 2
-        `int4_packing_format`: the packing format for int4 tensor, used in version 2 only
-         `int4_choose_qparams_algorithm`: variants of choose qparams algorithm to use for int4,
-         currently support TINYGEMM ("tinygemm") and HQQ ("hqq"), used in version 2 only
-        `set_inductor_config`: if True, adjusts `torchinductor` settings to recommended values. used in both version 1 and 2
-        `version`: version of the config to use, default is 2
+         size is more fine grained, choices are [256, 128, 64, 32]
+        `int4_packing_format`: the packing format for int4 tensor
+        `int4_choose_qparams_algorithm`: variants of choose qparams algorithm to use for int4,
+         currently support TINYGEMM ("tinygemm") and HQQ ("hqq")
+        `set_inductor_config`: if True, adjusts `torchinductor` settings to recommended values.
         `int4_tile_packed_ntile`: ntile size for TILED_PACKED_TO_4D format, default is 8 for CUDA platform, 16 for ROCm platform
 
     Example:
@@ -704,7 +700,6 @@ class Int4WeightOnlyConfig(AOBaseConfig):
 
     group_size: int = 128
     set_inductor_config: bool = True
-    # only used in version >= 2
     int4_packing_format: Int4PackingFormat = Int4PackingFormat.PLAIN
     int4_choose_qparams_algorithm: Int4ChooseQParamsAlgorithm = (
         Int4ChooseQParamsAlgorithm.TINYGEMM
@@ -1052,7 +1047,6 @@ class Int8DynamicActivationInt8WeightConfig(AOBaseConfig):
        :language: python
     """
 
-    layout: Optional[Layout] = None
     act_mapping_type: Optional[MappingType] = MappingType.SYMMETRIC
     weight_only_decode: bool = False
     granularity: Optional[
