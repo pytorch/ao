@@ -7,7 +7,7 @@ import pandas as pd
 import torch
 from triton.testing import do_bench
 
-from torchao.prototype.quantized_training.int8_mm import int8_mm_dequant
+from torchao.kernel.int8_mm import int8_mm_dequant
 
 
 def bench_f(f, *args):
