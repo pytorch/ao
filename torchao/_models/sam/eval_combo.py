@@ -18,7 +18,6 @@ from torchao._models.utils import (
     write_json_result_local,
     write_json_result_ossci,
 )
-from torchao.dtypes import SemiSparseLayout
 from torchao.quantization import (
     Int8DynamicActivationInt8WeightConfig,
     quantize_,
@@ -344,19 +343,6 @@ def run(
     for block in predictor.model.image_encoder.blocks:
         block.attn.use_rel_pos = use_rel_pos
 
-    # Helper filter functions
-    def attn_only(mod, name):
-        return isinstance(mod, torch.nn.Linear) and "attn" in name
-
-    def mlp_lin1_only(mod, name):
-        return isinstance(mod, torch.nn.Linear) and "lin1" in name
-
-    def mlp_lin2_only(mod, name):
-        return isinstance(mod, torch.nn.Linear) and "lin2" in name
-
-    def mlp_only(mod, name):
-        return isinstance(mod, torch.nn.Linear) and "mlp" in name
-
     if compress == "int8_dynamic_quant":
         quantize_(
             predictor.model.image_encoder, Int8DynamicActivationInt8WeightConfig()
@@ -373,22 +359,6 @@ def run(
     elif compress == "sparse":
         apply_fake_sparsity(predictor.model.image_encoder)
         sparsify_(predictor.model.image_encoder, semi_sparse_weight())
-    elif compress == "int8_dynamic_quant_sparse":
-        # apply sparsify first to set qparams
-        apply_fake_sparsity(predictor.model.image_encoder, filter_fn=mlp_only)
-
-        quantize_(
-            predictor.model.image_encoder,
-            Int8DynamicActivationInt8WeightConfig(),
-            attn_only,
-        )
-        quantize_(
-            predictor.model.image_encoder,
-            Int8DynamicActivationInt8WeightConfig(layout=SemiSparseLayout()),
-            mlp_lin1_only,
-        )
-        sparsify_(predictor.model.image_encoder, semi_sparse_weight(), mlp_lin2_only)
-
     else:
         assert compress is None, f"Unsupported compress mode {compress}"
 

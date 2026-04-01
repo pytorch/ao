@@ -34,15 +34,9 @@ import torchao
 from torchao.core.config import AOBaseConfig
 from torchao.dtypes import (
     AffineQuantizedTensor,
-    Int4CPULayout,
-    Int4XPULayout,
     PlainLayout,
-    SemiSparseLayout,
     TensorCoreTiledLayout,
     to_affine_quantized_intx,
-)
-from torchao.dtypes.uintx.packed_linear_int8_dynamic_activation_intx_weight_layout import (
-    Target,
 )
 from torchao.dtypes.utils import Layout
 from torchao.float8.config import e4m3_dtype
@@ -97,6 +91,7 @@ from torchao.quantization.utils import (
 )
 from torchao.utils import (
     is_MI300,
+    is_MI350,
     is_sm_at_least_89,
 )
 
@@ -144,14 +139,10 @@ __all__ = [
 
 LAYOUT_TO_ZERO_POINT_DOMAIN = {
     TensorCoreTiledLayout: [ZeroPointDomain.FLOAT],
-    Int4CPULayout: [ZeroPointDomain.FLOAT],
-    Int4XPULayout: [ZeroPointDomain.FLOAT, ZeroPointDomain.INT],
 }
 
 LAYOUT_TO_PRESERVE_ZEROS = {
     TensorCoreTiledLayout: False,
-    Int4CPULayout: False,
-    Int4XPULayout: False,
 }
 
 
@@ -1095,7 +1086,7 @@ class Int8DynamicActivationInt8WeightConfig(AOBaseConfig):
        :language: python
     """
 
-    layout: Optional[Layout] = PlainLayout()
+    layout: Optional[Layout] = None
     act_mapping_type: Optional[MappingType] = MappingType.SYMMETRIC
     weight_only_decode: bool = False
     granularity: Optional[
@@ -1108,6 +1099,8 @@ class Int8DynamicActivationInt8WeightConfig(AOBaseConfig):
         torch._C._log_api_usage_once(
             "torchao.quantization.Int8DynamicActivationInt8WeightConfig"
         )
+        if self.layout is None:
+            self.layout = PlainLayout()
         if self.version == 2:
             act_granularity, weight_granularity = Int8Tensor._normalize_granularity(
                 self.granularity
@@ -1312,30 +1305,16 @@ def _int8_static_activation_int8_weight_transform(
     return module
 
 
-def int8_dynamic_activation_int8_semi_sparse_weight():
-    """
-    Applies int8 dnynamic symmetric per-token activation and int8 per-channel weight
-    quantization + 2:4 sparsity to linear layers.
-    """
-    warnings.warn(
-        """int8_dyanmic_activation_int8_semi_sparse_weight() will be deprecated at a later release. Please use the layout kwarg in Int8DynamicActivationInt8WeightConfig instead.
-
-    from torchao.dtypes import SemiSparseLayout
-    Int8DynamicActivationInt8WeightConfig(layout=SemiSparseLayout()"""
-    )
-
-    return Int8DynamicActivationInt8WeightConfig(layout=SemiSparseLayout())
-
-
 @dataclass
 class Float8WeightOnlyConfig(AOBaseConfig):
     """
-    Configuration for applying float8 weight-only symmetric per-channel quantization to linear layers.
+    Configuration for applying float8 weight-only symmetric quantization to linear layers.
 
     Args:
         weight_dtype (torch.dtype): The target data type for weight quantization. Default is torch.float8_e4m3fn.
         set_inductor_config (bool): if True, adjusts `torchinductor` settings to recommended values.
         version (int): the version of the config, version 1 is deprecated, version 2 is using Float8Tensor (default)
+        granularity (Granularity): quantization granularity. Supported: PerTensor, PerRow (default), PerGroup.
 
     Note:
         The actual matmul will be computed in original precision of the weight tensor.
@@ -1349,8 +1328,14 @@ class Float8WeightOnlyConfig(AOBaseConfig):
     weight_dtype: torch.dtype = e4m3_dtype
     set_inductor_config: bool = True
     version: int = 2
+    granularity: Granularity = None  # type: ignore[assignment]
 
     def __post_init__(self):
+        if self.granularity is None:
+            self.granularity = PerRow()
+        assert isinstance(self.granularity, (PerTensor, PerRow, PerGroup)), (
+            f"granularity must be PerTensor, PerRow, or PerGroup, got {type(self.granularity)}"
+        )
         torch._C._log_api_usage_once("torchao.quantization.Float8WeightOnlyConfig")
 
 
@@ -1358,7 +1343,7 @@ def _float8_weight_only_quant_tensor(weight, config):
     assert config.version == 2, f"Unexpected version: {config.version}"
     weight_dtype = config.weight_dtype
     new_weight = Float8Tensor.from_hp(
-        weight, float8_dtype=weight_dtype, granularity=PerRow()
+        weight, float8_dtype=weight_dtype, granularity=config.granularity
     )
     return new_weight
 
@@ -1543,7 +1528,7 @@ def _float8_dynamic_activation_float8_weight_transform(
     parameter_name: str = "weight",
 ):
     if torch.cuda.is_available():
-        assert is_sm_at_least_89() or is_MI300(), (
+        assert is_sm_at_least_89() or is_MI300() or is_MI350(), (
             "Float8 dynamic activation quantization is only supported on CUDA>=8.9 and MI300+"
         )
     if config.set_inductor_config:
@@ -2007,6 +1992,5 @@ torch.serialization.add_safe_globals(
     [
         _int8_asymm_per_token_quant,
         _int8_symm_per_token_reduced_range_quant,
-        Target,
     ]
 )

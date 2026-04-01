@@ -181,11 +181,7 @@ def string_to_config(
     if "int8wo" in quantization:
         return Int8WeightOnlyConfig()
     if "int8dq" in quantization:
-        if sparsity is not None and ("semi" in sparsity or "2:4" in sparsity):
-            from torchao.dtypes import SemiSparseLayout
-
-            return Int8DynamicActivationInt8WeightConfig(layout=SemiSparseLayout())
-        elif "int8dq_prefill_wo_decode" in quantization:
+        if "int8dq_prefill_wo_decode" in quantization:
             return Int8DynamicActivationInt8WeightConfig(weight_only_decode=True)
         else:
             return Int8DynamicActivationInt8WeightConfig()

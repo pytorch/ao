@@ -8,6 +8,7 @@ import copy
 import unittest
 from contextlib import nullcontext
 from typing import Tuple
+from unittest.mock import patch
 
 import torch
 from torch._inductor.utils import run_and_get_code
@@ -22,6 +23,7 @@ from torchao.quantization import (
     Float8WeightOnlyConfig,
     Granularity,
     PerBlock,
+    PerGroup,
     PerRow,
     PerTensor,
     quantize_,
@@ -65,6 +67,10 @@ class ToyLinearModel(torch.nn.Module):
         elif granularity == PerRow():
             assert qs1.shape == (N, 1)
             assert qs2.shape == (K, 1)
+        elif isinstance(granularity, PerGroup):
+            group_size = granularity.group_size
+            assert qs1.shape == (N, K // group_size)
+            assert qs2.shape == (K, N // group_size)
         else:
             assert granularity == (PerBlock([1, 128]), PerBlock([128, 128]))
             assert qs1.shape == (N // 128, K // 128)
@@ -167,6 +173,9 @@ class ToyLoRAModel(torch.nn.Module):
             assert qs.shape == (1, 1)
         elif granularity == PerRow():
             assert qs.shape == (N, 1)
+        elif isinstance(granularity, PerGroup):
+            group_size = granularity.group_size
+            assert qs.shape == (N, K // group_size)
         else:
             assert granularity == (PerBlock((1, 128)), PerBlock((128, 128)))
             assert qs.shape == (N // 128, K // 128)
@@ -194,7 +203,12 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
     @common_utils.parametrize("compile", [True, False])
     @common_utils.parametrize(
         "granularity",
-        [PerTensor(), PerRow(), (PerBlock([1, 128]), PerBlock([128, 128]))],
+        [
+            PerTensor(),
+            PerRow(),
+            PerGroup(64),
+            (PerBlock([1, 128]), PerBlock([128, 128])),
+        ],
     )
     @common_utils.parametrize(
         "kernel_preference",
@@ -291,6 +305,10 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
             if mode == "weight-only":
                 return unittest.skip("unimplemented")
 
+        elif isinstance(granularity, PerGroup):
+            if mode == "dynamic":
+                return unittest.skip("PerGroup not supported for dynamic mode")
+
         elif granularity == (PerBlock([1, 128]), PerBlock([128, 128])):
             if torch.xpu.is_available():
                 return unittest.skip("PerBlock granularity not supported on XPU")
@@ -351,7 +369,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
                 )
             else:
                 assert mode == "weight-only", f"Unsupported mode: {mode}"
-                config = Float8WeightOnlyConfig()
+                config = Float8WeightOnlyConfig(granularity=granularity)
 
             quantize_(quantized_model, config)
 
@@ -368,6 +386,49 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
             assert compute_error(output_original, output_quantized) > 20, (
                 f"Quantization error is too high got a SQNR of {error}"
             )
+
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need accelerator available")
+    @unittest.skipIf(
+        torch.cuda.is_available() and not is_sm_at_least_89(),
+        "Requires GPU with compute capability >= 8.9",
+    )
+    @common_utils.parametrize("dtype", [torch.bfloat16, torch.float32])
+    @common_utils.parametrize("granularity", [PerRow(), PerGroup(64)])
+    @common_utils.parametrize("dispatch_path", ["torch_function", "aten"])
+    @torch.no_grad()
+    def test_fp8_embedding(
+        self, dtype: torch.dtype, granularity: Granularity, dispatch_path: str
+    ):
+        device = get_current_accelerator_device()
+        num_embeddings, embedding_dim = 256, 128
+        model = torch.nn.Embedding(num_embeddings, embedding_dim).to(dtype).to(device)
+
+        quantized_model = copy.deepcopy(model)
+        config = Float8WeightOnlyConfig(granularity=granularity)
+        quantize_(
+            quantized_model,
+            config,
+            filter_fn=lambda m, fqn: isinstance(m, torch.nn.Embedding),
+        )
+
+        assert isinstance(quantized_model.weight, Float8Tensor)
+
+        idx = torch.tensor([0, 2, 5, 100], device=device)
+        output_original = model(idx)
+
+        if dispatch_path == "torch_function":
+            # Goes through __torch_function__ via F.embedding
+            output_quantized = quantized_model(idx)
+        else:
+            # Goes through __torch_dispatch__ via aten op directly
+            output_quantized = torch.ops.aten.embedding.default(
+                quantized_model.weight, idx
+            )
+
+        assert output_original.shape == output_quantized.shape
+
+        error = compute_error(output_original, output_quantized)
+        assert error > 20, f"Quantization error is too high got a SQNR of {error}"
 
     @unittest.skipIf(not torch.accelerator.is_available(), "Need accelerator available")
     @unittest.skipIf(
@@ -1428,6 +1489,119 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
 
 
 common_utils.instantiate_parametrized_tests(TestFloat8Tensor)
+
+
+class TestMI350HardwareSupport(common_utils.TestCase):
+    """Tests that MI350 (gfx950) is accepted by FP8 hardware checks.
+
+    Uses mocking so the tests run on any hardware without needing an actual
+    MI350 GPU.
+    """
+
+    def _patch_mi350_only(self):
+        """Context manager simulating an MI350-only environment."""
+        from unittest.mock import patch
+
+        return [
+            patch("torchao.float8.inference.is_MI350", return_value=True),
+            patch("torchao.float8.inference.is_MI300", return_value=False),
+            patch("torchao.float8.inference.is_sm_at_least_89", return_value=False),
+            patch("torch.cuda.is_available", return_value=True),
+            patch("torch.xpu.is_available", return_value=False),
+        ]
+
+    def _patch_no_hw(self):
+        """Context manager simulating unsupported hardware."""
+        from unittest.mock import patch
+
+        return [
+            patch("torchao.float8.inference.is_MI350", return_value=False),
+            patch("torchao.float8.inference.is_MI300", return_value=False),
+            patch("torchao.float8.inference.is_sm_at_least_89", return_value=False),
+            patch("torch.cuda.is_available", return_value=True),
+            patch("torch.xpu.is_available", return_value=False),
+        ]
+
+    def _start(self, patches):
+        for p in patches:
+            p.start()
+
+    def _stop(self, patches):
+        for p in patches:
+            p.stop()
+
+    def test_check_hardware_support_mi350_per_tensor(self):
+        from torchao.float8.inference import _check_hardware_support
+
+        patches = self._patch_mi350_only()
+        self._start(patches)
+        try:
+            _check_hardware_support((PerTensor(), PerTensor()))
+        finally:
+            self._stop(patches)
+
+    def test_check_hardware_support_mi350_per_row(self):
+        from torchao.float8.inference import _check_hardware_support
+
+        patches = self._patch_mi350_only()
+        self._start(patches)
+        try:
+            _check_hardware_support((PerRow(), PerRow()))
+        finally:
+            self._stop(patches)
+
+    def test_check_hardware_support_rejects_unsupported_hw(self):
+        from torchao.float8.inference import _check_hardware_support
+
+        patches = self._patch_no_hw()
+        self._start(patches)
+        try:
+            with self.assertRaises(AssertionError):
+                _check_hardware_support((PerRow(), PerRow()))
+        finally:
+            self._stop(patches)
+
+    def test_quant_api_hardware_gate_mi350(self):
+        """The assertion in _float8_dynamic_activation_float8_weight_transform
+        should pass on MI350."""
+
+        with (
+            patch("torchao.quantization.quant_api.is_MI350", return_value=True),
+            patch("torchao.quantization.quant_api.is_MI300", return_value=False),
+            patch(
+                "torchao.quantization.quant_api.is_sm_at_least_89",
+                return_value=False,
+            ),
+            patch("torch.cuda.is_available", return_value=True),
+        ):
+            from torchao.quantization.quant_api import (
+                is_MI300,
+                is_MI350,
+                is_sm_at_least_89,
+            )
+
+            self.assertTrue(is_sm_at_least_89() or is_MI300() or is_MI350())
+
+    def test_quant_api_hardware_gate_rejects_unsupported(self):
+        from unittest.mock import patch
+
+        with (
+            patch("torchao.quantization.quant_api.is_MI350", return_value=False),
+            patch("torchao.quantization.quant_api.is_MI300", return_value=False),
+            patch(
+                "torchao.quantization.quant_api.is_sm_at_least_89",
+                return_value=False,
+            ),
+            patch("torch.cuda.is_available", return_value=True),
+        ):
+            from torchao.quantization.quant_api import (
+                is_MI300,
+                is_MI350,
+                is_sm_at_least_89,
+            )
+
+            self.assertFalse(is_sm_at_least_89() or is_MI300() or is_MI350())
+
 
 if __name__ == "__main__":
     run_tests()
