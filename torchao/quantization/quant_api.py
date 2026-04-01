@@ -21,6 +21,7 @@ import re
 import types
 import warnings
 from collections import OrderedDict
+from copy import deepcopy
 from dataclasses import dataclass, field
 from functools import partial
 from typing import Any, Callable, List, Optional, Tuple, Union
@@ -343,8 +344,8 @@ def insert_observers_(
         linear_module.weight = nn.Parameter(
             LinearActivationWeightObservedTensor.from_float(
                 linear_module.weight,
-                input_observer=input_observer,
-                weight_observer=weight_observer,
+                input_observer=deepcopy(input_observer),
+                weight_observer=deepcopy(weight_observer),
             ),
             requires_grad=linear_module.weight.requires_grad,
         )
