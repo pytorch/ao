@@ -47,13 +47,13 @@
 
 // =============================================================================
 // AVX10.2 variant — compiled as a temp copy of this file with:
-//   -DEMIT_ISA_AVX10_2 -march=diamondrapids
+//   -DCPU_CAPABILITY_AVX10_2 -march=diamondrapids
 // When __AVX10_2__ is set by -march=diamondrapids, the PyTorch helpers
 // cvtfp8e4m3_fp32 / cvtfp32_fp8e4m3 (vec512_float8.h) use the native
 // hardware instructions _mm256_cvthf8_ph / _mm256_cvtph_hf8 instead of the
 // multi-step AVX512 software emulation.
 // =============================================================================
-#if defined(EMIT_ISA_AVX10_2)
+#if defined(CPU_CAPABILITY_AVX10_2)
 #include <immintrin.h>
 
 namespace torchao {
@@ -243,7 +243,7 @@ at::Tensor _scaled_embedding_bag_avx10_2(
 } // namespace cpu_avx10_2
 } // namespace torchao
 
-#else // !defined(EMIT_ISA_AVX10_2)
+#else // !defined(CPU_CAPABILITY_AVX10_2)
 // =============================================================================
 // Default build: AVX512 (software fp8 emulation) + scalar fallback + dispatch
 // =============================================================================
@@ -251,7 +251,7 @@ at::Tensor _scaled_embedding_bag_avx10_2(
 namespace torchao {
 
 // Forward declaration of the AVX10.2 entry point emitted when this file is
-// compiled as a temp copy with -DEMIT_ISA_AVX10_2 -march=diamondrapids.
+// compiled as a temp copy with -DCPU_CAPABILITY_AVX10_2 -march=diamondrapids.
 namespace cpu_avx10_2 {
 at::Tensor _scaled_embedding_bag_avx10_2(
     const at::Tensor& qweight, const at::Tensor& indices,
@@ -605,4 +605,4 @@ TORCH_LIBRARY_IMPL(torchao, CPU, m) {
 
 } // namespace torchao
 
-#endif // !defined(EMIT_ISA_AVX10_2)
+#endif // !defined(CPU_CAPABILITY_AVX10_2)

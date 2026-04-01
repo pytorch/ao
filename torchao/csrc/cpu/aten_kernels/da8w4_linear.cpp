@@ -5,9 +5,9 @@
 #include <cstdio>
 #include <mutex>
 
-// When compiled as a temp copy with -DEMIT_ISA_AVX10_2 -march=diamondrapids,
+// When compiled as a temp copy with -DCPU_CAPABILITY_AVX10_2 -march=diamondrapids,
 // only the AVX10.2 section below is emitted.
-#if !defined(EMIT_ISA_AVX10_2)
+#if !defined(CPU_CAPABILITY_AVX10_2)
 
 namespace torchao {
 
@@ -943,10 +943,10 @@ TORCH_LIBRARY_IMPL(torchao, CPU, m) {
 
 } // namespace torchao
 
-#else // defined(EMIT_ISA_AVX10_2)
+#else // defined(CPU_CAPABILITY_AVX10_2)
 // TODO: Add AVX10.2-optimised da8w4_linear implementation here.
 // This section is compiled with -march=diamondrapids when building the
 // AVX10.2 variant temp copy.
 namespace torchao { namespace cpu_avx10_2 {} } // placeholder
 
-#endif // !defined(EMIT_ISA_AVX10_2)
+#endif // !defined(CPU_CAPABILITY_AVX10_2)

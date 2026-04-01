@@ -452,14 +452,14 @@ class TorchAOBuildExt(BuildExtension):
         """Pre-compile ISA-specific CPU objects from kernel source files.
 
         Instead of maintaining separate *_avx10_2.cpp files, each kernel
-        source file contains ISA-specific code guarded by EMIT_ISA_AVX10_2.
+        source file contains ISA-specific code guarded by CPU_CAPABILITY_AVX10_2.
         At build time we:
-          1. Scan kernel .cpp files for the EMIT_ISA_AVX10_2 marker.
+          1. Scan kernel .cpp files for the CPU_CAPABILITY_AVX10_2 marker.
           2. Copy each matching file to a temp path in the build dir.
-          3. Compile that temp copy with -DEMIT_ISA_AVX10_2 -march=diamondrapids.
+          3. Compile that temp copy with -DCPU_CAPABILITY_AVX10_2 -march=diamondrapids.
           4. Attach the resulting .o as extra_objects on the main extension.
 
-        The #if defined(EMIT_ISA_AVX10_2) guard in each source file ensures
+        The #if defined(CPU_CAPABILITY_AVX10_2) guard in each source file ensures
         that only the AVX10.2 variant code is compiled in the temp copy (the
         main build compiles the #else branch which has all the normal code).
         """
@@ -517,9 +517,9 @@ class TorchAOBuildExt(BuildExtension):
                     print(f"[ERROR] Failed to compile AVX512 object {src}: {e}")
                     raise
 
-        # --- AVX10.2 variant: scan kernel files for EMIT_ISA_AVX10_2 marker ---
-        # Any kernel .cpp file that contains EMIT_ISA_AVX10_2 is compiled a
-        # second time as a temp copy with -DEMIT_ISA_AVX10_2 -march=diamondrapids.
+        # --- AVX10.2 variant: scan kernel files for CPU_CAPABILITY_AVX10_2 marker ---
+        # Any kernel .cpp file that contains CPU_CAPABILITY_AVX10_2 is compiled a
+        # second time as a temp copy with -DCPU_CAPABILITY_AVX10_2 -march=diamondrapids.
         # Include the kernel source dir so that relative includes like
         # utils.h still resolve when the file is compiled from a temp copy.
         avx10_2_flags = (
@@ -527,7 +527,7 @@ class TorchAOBuildExt(BuildExtension):
             + include_flags
             + ["-I", aten_kernels_dir]
             + cpu_defines
-            + ["-march=diamondrapids", "-DCPU_CAPABILITY_AVX10_2", "-DEMIT_ISA_AVX10_2"]
+            + ["-march=diamondrapids", "-DCPU_CAPABILITY_AVX10_2"]
         )
 
         build_dir_avx10_2 = os.path.join(self.build_temp, "cpu_isa_avx10_2")
@@ -539,9 +539,9 @@ class TorchAOBuildExt(BuildExtension):
             base = os.path.basename(src)
             if base.endswith("_avx10_2.cpp") or base.endswith("_avx512_impl.cpp"):
                 continue
-            # Check if this file has an EMIT_ISA_AVX10_2 section
+            # Check if this file has an CPU_CAPABILITY_AVX10_2 section
             with open(src) as fh:
-                if "EMIT_ISA_AVX10_2" not in fh.read():
+                if "CPU_CAPABILITY_AVX10_2" not in fh.read():
                     continue
             # Copy to temp dir and compile as AVX10.2 variant
             stem = os.path.splitext(base)[0]
