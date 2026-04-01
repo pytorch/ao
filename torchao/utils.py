@@ -36,6 +36,8 @@ __all__ = [
     "is_package_at_least",
     "DummyModule",
     "register_as_pytree_constant",
+    "is_cpu_and_torch_version_ok",
+    "is_xpu_and_torch_version_ok",
 ]
 
 
@@ -1239,16 +1241,18 @@ def is_cuda_version_at_least(major: int, minor: int) -> bool:
     return (cuda_major, cuda_minor) >= (major, minor)
 
 
-def check_cpu_version(device, version="2.6.0"):
+def is_cpu_and_torch_version_ok(device, torch_version="2.6.0"):
     if isinstance(device, torch.device):
         device = device.type
-    return device == "cpu" and torch_version_at_least(version)
+    return device == "cpu" and torch_version_at_least(torch_version)
 
 
-def check_xpu_version(device, version="2.8.0"):
+def is_xpu_and_torch_version_ok(device, torch_version="2.8.0"):
+    if not torch.xpu.is_available():
+        return False
     if isinstance(device, torch.device):
         device = device.type
-    return device == "xpu" and torch_version_at_least(version)
+    return device == "xpu" and torch_version_at_least(torch_version)
 
 
 def ceil_div(a, b):

@@ -10,7 +10,7 @@ import torch
 from torch._dynamo import is_compiling as dynamo_is_compiling
 from torch._higher_order_ops.out_dtype import out_dtype
 
-from torchao.utils import check_cpu_version
+from torchao.utils import is_cpu_and_torch_version_ok
 
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.NullHandler())
@@ -190,7 +190,7 @@ def int_scaled_matmul(
     assert 1 == scales1.size(1)
     assert scales1.is_contiguous()
 
-    if check_cpu_version(scales1.device):
+    if is_cpu_and_torch_version_ok(scales1.device):
         return _int_scaled_matmul_cpu(a, b, scales1)
 
     scales1 = scales1.expand((M, N))
