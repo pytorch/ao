@@ -1,11 +1,11 @@
 from .inference_workflow import (
-    Int4WeightOnlyConfig,
     Int8DynamicActivationInt4WeightConfig,
+    PrototypeInt4WeightOnlyConfig,
 )
 from .int4_opaque_tensor import Int4OpaqueTensor
 
 __all__ = [
     "Int4OpaqueTensor",
-    "Int4WeightOnlyConfig",
+    "PrototypeInt4WeightOnlyConfig",
     "Int8DynamicActivationInt4WeightConfig",
 ]

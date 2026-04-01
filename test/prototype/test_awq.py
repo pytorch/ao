@@ -15,9 +15,7 @@ from torch.testing._internal.common_utils import (
 )
 
 from torchao.prototype.awq import AWQConfig
-from torchao.prototype.quantization.int4 import (
-    Int4WeightOnlyConfig as PrototypeInt4WeightOnlyConfig,
-)
+from torchao.prototype.quantization.int4 import PrototypeInt4WeightOnlyConfig
 from torchao.quantization import Int4WeightOnlyConfig, quantize_
 from torchao.quantization.quantize_.common.quantization_step import QuantizationStep
 from torchao.utils import _is_mslk_available, torch_version_at_least

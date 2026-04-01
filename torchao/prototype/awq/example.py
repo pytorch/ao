@@ -17,9 +17,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, TorchAoConfig
 from torchao.prototype.awq import (
     AWQConfig,
 )
-from torchao.prototype.quantization.int4 import (
-    Int4WeightOnlyConfig as PrototypeInt4WeightOnlyConfig,
-)
+from torchao.prototype.quantization.int4 import PrototypeInt4WeightOnlyConfig
 from torchao.quantization import Int4WeightOnlyConfig, quantize_
 
 

@@ -28,7 +28,7 @@ from .int4_opaque_tensor import Int4OpaqueTensor
 
 
 @dataclass
-class Int4WeightOnlyConfig(AOBaseConfig):
+class PrototypeInt4WeightOnlyConfig(AOBaseConfig):
     """
     Configuration for int4 weight only quantization, only groupwise quantization is supported right now.
 
@@ -46,7 +46,7 @@ class Int4WeightOnlyConfig(AOBaseConfig):
 
     def __post_init__(self):
         torch._C._log_api_usage_once(
-            "torchao.prototype.quantization.int4.Int4WeightOnlyConfig"
+            "torchao.prototype.quantization.int4.PrototypeInt4WeightOnlyConfig"
         )
 
 
@@ -72,9 +72,9 @@ def _int4_weight_only_opaque_tensor_quantize(weight, config):
     return new_weight
 
 
-@register_quantize_module_handler(Int4WeightOnlyConfig)
+@register_quantize_module_handler(PrototypeInt4WeightOnlyConfig)
 def _int4_weight_only_transform(
-    module: torch.nn.Module, config: Int4WeightOnlyConfig
+    module: torch.nn.Module, config: PrototypeInt4WeightOnlyConfig
 ) -> torch.nn.Module:
     if config.set_inductor_config:
         torchao.quantization.utils.recommended_inductor_config_setter()
