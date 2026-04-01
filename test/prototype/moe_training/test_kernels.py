@@ -7,19 +7,6 @@
 import pytest
 import torch
 
-# FP8 MoE kernels require FP8-capable hardware (SM 10.x on CUDA, MI300+ on ROCm)
-from torchao.utils import is_MI300, is_MI350
-
-
-def _is_sm_10x() -> bool:
-    return torch.cuda.is_available() and torch.cuda.get_device_capability()[0] == 10
-
-
-if not (torch.cuda.is_available() and (_is_sm_10x() or is_MI300() or is_MI350())):
-    pytest.skip(
-        "Requires FP8-capable GPU (CUDA SM 10.x, MI300, or MI350)",
-        allow_module_level=True,
-    )
 
 from torchao.float8.config import ScalingGranularity, e4m3_dtype
 from torchao.float8.float8_utils import tensor_to_scale, to_fp8_saturated

@@ -25,6 +25,7 @@ import argparse
 import json
 import os
 import re
+import subprocess
 import sys
 import time
 import urllib.error
@@ -41,6 +42,7 @@ except ImportError:
 
 REPO = "pytorch/ao"
 API_BASE = "https://api.github.com"
+REPO_ROOT = Path(__file__).parent.parent.resolve()
 
 # ---------------------------------------------------------------------------
 # File classification helpers
@@ -130,6 +132,30 @@ def get_merged_prs(limit: int, token: Optional[str]) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 _ISSUE_RE = re.compile(r"(?:closes|fixes|resolves)\s+#(\d+)", re.IGNORECASE)
+
+# Matches Python test file paths mentioned in PR descriptions, e.g.:
+#   pytest test/quantization/test_fp8.py
+#   python -m pytest test/foo/test_bar.py::TestClass
+#   ran `test/prototype/test_x.py` manually
+_TEST_PATH_RE = re.compile(r"(?:[\w./\-]+/)?test[\w./\-]*\.py", re.IGNORECASE)
+
+
+def extract_test_files_from_description(body: str) -> list[str]:
+    """
+    Parse a PR body for test file paths the author mentioned running.
+    Returns deduplicated paths that look like repo-relative test files.
+    """
+    if not body:
+        return []
+    seen = set()
+    results = []
+    for match in _TEST_PATH_RE.findall(body):
+        # Strip leading ./ and any pytest node ids (::ClassName::test_name)
+        path = match.split("::")[0].lstrip("./")
+        if path and path not in seen and Path(path).name != "test_distributed.py":
+            seen.add(path)
+            results.append(path)
+    return results
 
 def extract_linked_issues(body: str) -> list[int]:
     if not body:
@@ -312,13 +338,56 @@ def llm_filter(pr: dict, all_files: list[str], model: str = "gemini-2.0-flash",
 
 
 # ---------------------------------------------------------------------------
+# Reference benchmark capture
+# ---------------------------------------------------------------------------
+
+def run_reference_benchmark(bench_files: list[str], merge_sha: str) -> dict[str, str]:
+    """
+    Create a temporary worktree at merge_sha, run each benchmark, and return
+    a dict mapping filename -> stdout+stderr output.
+    Requires a GPU on the generation machine.
+    """
+    outputs: dict[str, str] = {}
+    worktree = REPO_ROOT / ".worktrees" / f"ref_{merge_sha[:12]}"
+    try:
+        subprocess.run(
+            ["git", "worktree", "add", "--detach", str(worktree), merge_sha],
+            cwd=REPO_ROOT, check=True, capture_output=True,
+        )
+        for bench_file in bench_files:
+            print(f"  Running reference benchmark: {bench_file}", file=sys.stderr)
+            try:
+                result = subprocess.run(
+                    ["python", bench_file],
+                    cwd=worktree,
+                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                    timeout=180,
+                )
+                outputs[bench_file] = result.stdout.decode(errors="replace")
+            except subprocess.TimeoutExpired:
+                outputs[bench_file] = "TIMEOUT"
+                print(f"  Reference benchmark timed out: {bench_file}", file=sys.stderr)
+            except Exception as e:
+                print(f"  Reference benchmark error ({bench_file}): {e}", file=sys.stderr)
+    except Exception as e:
+        print(f"  Could not create reference worktree at {merge_sha[:12]}: {e}", file=sys.stderr)
+    finally:
+        subprocess.run(
+            ["git", "worktree", "remove", "--force", str(worktree)],
+            cwd=REPO_ROOT, check=False, capture_output=True,
+        )
+    return outputs
+
+
+# ---------------------------------------------------------------------------
 # Task assembly
 # ---------------------------------------------------------------------------
 
 def make_task(pr: dict, files: list[dict], token: Optional[str],
               use_llm_filter: bool = True, filter_model: str = "gemini-2.0-flash",
               filter_prompt: str = None,
-              title_include: list[str] = None, title_exclude: list[str] = None) -> Optional[dict]:
+              title_include: list[str] = None, title_exclude: list[str] = None,
+              capture_benchmarks: bool = False) -> Optional[dict]:
     """
     Return a task descriptor dict, or None if the PR doesn't qualify.
 
@@ -382,7 +451,26 @@ def make_task(pr: dict, files: list[dict], token: Optional[str],
             reference_file_contents[filename] = contents
         time.sleep(0.05)
 
-    prompt = build_prompt(pr, impl_files, added_tests, added_benches, reference_file_contents, token)
+    # Parse PR description for pre-existing test files the author mentioned running.
+    # These already exist at base_sha so they don't need to be written into the worktree,
+    # but we add them to the score command as regression tests.
+    desc_tests = []
+    for path in extract_test_files_from_description(pr.get("body") or ""):
+        if path in added_tests:
+            continue  # already included
+        if fetch_file_at_commit(path, base_sha, token) is not None:
+            desc_tests.append(path)
+            print(f"  Found description-mentioned test: {path}", file=sys.stderr)
+        time.sleep(0.05)
+
+    all_test_files = added_tests + desc_tests
+
+    # Optionally run benchmarks at merge_sha to capture reference output for scoring
+    reference_benchmark_output: dict[str, str] = {}
+    if capture_benchmarks and added_benches:
+        reference_benchmark_output = run_reference_benchmark(added_benches, merge_sha)
+
+    prompt = build_prompt(pr, impl_files, all_test_files, added_benches, reference_file_contents, token)
 
     return {
         "id": f"pr_{pr_number}",
@@ -400,12 +488,14 @@ def make_task(pr: dict, files: list[dict], token: Optional[str],
         # These already exist at base_commit in their pre-PR state.
         "implementation_files": impl_files,
         # ── Oracle files (written into env before the agent runs) ─────────
-        "test_files": added_tests,
+        "test_files": added_tests,           # new/modified by the PR — written into worktree
+        "desc_test_files": desc_tests,       # pre-existing, mentioned in PR description
         "benchmark_files": added_benches,
-        "reference_file_contents": reference_file_contents,  # keyed by filename
+        "reference_file_contents": reference_file_contents,      # keyed by filename
+        "reference_benchmark_output": reference_benchmark_output,  # keyed by bench filename; empty if not captured
         # ── Scoring commands ──────────────────────────────────────────────
         "score_commands": {
-            "tests": f"python -m pytest {' '.join(added_tests)} -v --tb=short --no-header -q",
+            "tests": f"python -m pytest {' '.join(all_test_files)} -v --tb=short --no-header -q",
             "benchmarks": " && ".join(f"python {b}" for b in added_benches) if added_benches else None,
         },
         # ── Prompt handed to mini-swe-agent ──────────────────────────────
@@ -441,6 +531,8 @@ def main():
     parser.add_argument("--filter-prompt", default=None, metavar="TEXT",
                         help="Custom instructions for the LLM filter (replaces the default preamble; "
                              "the PR title/body/files are always appended automatically)")
+    parser.add_argument("--capture-benchmarks", action="store_true",
+                        help="Run each benchmark at merge_sha to capture reference output for scoring (requires GPU)")
     args = parser.parse_args()
 
     if not args.token:
@@ -491,7 +583,8 @@ def main():
                          filter_model=args.filter_model,
                          filter_prompt=args.filter_prompt,
                          title_include=args.title_include,
-                         title_exclude=args.title_exclude)
+                         title_exclude=args.title_exclude,
+                         capture_benchmarks=args.capture_benchmarks)
         if task is None:
             continue
 

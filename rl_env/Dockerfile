@@ -28,7 +28,7 @@ WORKDIR /workspace
 # Full clone (no --depth) so git worktree can checkout arbitrary base commits
 # for task environments. Pin to a tag/commit for reproducible builds, e.g.:
 #   RUN git clone --branch v0.x.y https://github.com/pytorch/ao.git ao
-RUN git clone https://github.com/pytorch/ao.git ao
+RUN git clone --branch dvm-rl-env https://github.com/pytorch/ao.git ao
 
 WORKDIR /workspace/ao
 
