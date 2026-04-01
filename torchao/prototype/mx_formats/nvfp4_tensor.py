@@ -691,9 +691,7 @@ def nvfp4_quantize(
             torch.float8_e4m3fn
         )
         block_scale_fp32 = block_scale_fp8.to(torch.float32)
-        # Multiply by reciprocal instead of dividing to match MSLK triton kernel
-        # numerics (global_scale=None treated as 1.0): x * (1.0 / fp8_scale)
-        data_scaled = data_hp * (1.0 / block_scale_fp32).unsqueeze(-1)
+        data_scaled = data_hp / block_scale_fp32.unsqueeze(-1)
         out_scales = block_scale_fp8
     else:
         # We are doing two level scaling,
