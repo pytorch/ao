@@ -200,7 +200,7 @@ Where `score` is a multiplier to apply to the test/benchmark score:
 
 
 def llm_review_implementation(task: dict, worktree: Path,
-                               model: str = "gemini-2.0-flash") -> tuple[float, str]:
+                               model: str = "gemini-3-flash-preview") -> tuple[float, str]:
     """
     Ask an LLM to review the agent's implementation diff for reward hacking.
     Returns (score_multiplier 0-1, reason).
@@ -247,11 +247,44 @@ def llm_review_implementation(task: dict, worktree: Path,
         return 1.0, f"review error: {e}"
 
 
-def score_task(task: dict, worktree: Path, bench_model: str = "gemini-2.0-flash",
-               review_model: str = "gemini-2.0-flash", skip_review: bool = False) -> dict:
+def verify_reference_files(task: dict, worktree: Path) -> list[str]:
+    """
+    Check that the agent did not delete or modify the reference test/benchmark
+    files that were written into the worktree before the agent ran.
+    Returns a list of violation descriptions (empty = all good).
+    """
+    violations = []
+    for filename, expected in task.get("reference_file_contents", {}).items():
+        dest = worktree / filename
+        if not dest.exists():
+            violations.append(f"DELETED: {filename}")
+        else:
+            actual = dest.read_text(errors="replace")
+            if actual.strip() != expected.strip():
+                violations.append(f"MODIFIED: {filename}")
+    return violations
+
+
+def score_task(task: dict, worktree: Path, bench_model: str = "gemini-3-flash-preview",
+               review_model: str = "gemini-3-flash-preview", skip_review: bool = False) -> dict:
     """Run scoring commands and return a result dict."""
     test_cmd  = task["score_commands"]["tests"]
     bench_cmd = task["score_commands"]["benchmarks"]
+
+    # ── 0. Verify reference files weren't tampered with ───────────────────
+    print(f"\n{'─'*60}")
+    violations = verify_reference_files(task, worktree)
+    if violations:
+        print(f"REFERENCE FILE TAMPERING DETECTED — score forced to 0:")
+        for v in violations:
+            print(f"  {v}")
+        return {
+            "score": 0.0, "raw_score": 0.0,
+            "test_score": 0.0, "benchmark_score": None, "benchmark_method": None,
+            "review_multiplier": 0.0, "review_reason": "reference file tampering: " + "; ".join(violations),
+            "test_output": "", "benchmark_output": None,
+            "tampering": violations,
+        }
 
     print(f"\n{'─'*60}")
     print(f"Running tests:  {test_cmd}")
@@ -265,35 +298,49 @@ def score_task(task: dict, worktree: Path, bench_model: str = "gemini-2.0-flash"
     print(f"Test score: {test_score:.2f}  (exit {test_rc})")
 
     if bench_cmd:
-        print(f"\nRunning benchmarks: {bench_cmd}")
-        try:
-            bench_rc, bench_out = run_cmd(bench_cmd, worktree, timeout=180)
-        except subprocess.TimeoutExpired:
-            bench_rc, bench_out = 1, "TIMEOUT"
-        print(bench_out[-1000:] if len(bench_out) > 1000 else bench_out)
-
         ref_bench_outputs = task.get("reference_benchmark_output", {})
-        if ref_bench_outputs and bench_rc == 0:
-            # Score each benchmark file against its reference output, take the mean
-            bench_scores = []
-            bench_methods = []
-            for bench_file in task.get("benchmark_files", []):
-                ref_out = ref_bench_outputs.get(bench_file, "")
-                if not ref_out:
-                    continue
-                s, method = score_benchmark(bench_out, ref_out, bench_model)
-                bench_scores.append(s)
-                bench_methods.append(f"{Path(bench_file).name}: {method}")
-                print(f"  {bench_methods[-1]} → {s:.3f}")
-            bench_score = sum(bench_scores) / len(bench_scores) if bench_scores else float(bench_rc == 0)
-            bench_method = "; ".join(bench_methods) if bench_methods else "binary"
-        else:
-            # No reference output available — fall back to binary pass/fail
-            bench_score = float(bench_rc == 0)
-            bench_method = "binary (no reference output)"
+        bench_files = task.get("benchmark_files", [])
 
-        print(f"Benchmark score: {bench_score:.3f}  ({bench_method})  (exit {bench_rc})")
-        score = 0.8 * test_score + 0.2 * bench_score
+        # Run each benchmark file individually to get isolated per-file output,
+        # which is needed for accurate per-file comparison against reference output.
+        per_file_outputs: dict[str, tuple[int, str]] = {}
+        for bench_file in bench_files:
+            print(f"\nRunning benchmark: {bench_file}")
+            try:
+                rc, out = run_cmd(f"python {bench_file}", worktree, timeout=180)
+            except subprocess.TimeoutExpired:
+                rc, out = 1, "TIMEOUT"
+            per_file_outputs[bench_file] = (rc, out)
+            print(out[-1000:] if len(out) > 1000 else out)
+            print(f"  exit {rc}")
+
+        bench_out = "\n\n".join(out for _, out in per_file_outputs.values())
+
+        bench_scores = []
+        bench_methods = []
+        for bench_file, (rc, out) in per_file_outputs.items():
+            name = Path(bench_file).name
+            ref_out = ref_bench_outputs.get(bench_file, "")
+            if ref_out and rc == 0:
+                s, method = score_benchmark(out, ref_out, bench_model)
+                bench_scores.append(s)
+                bench_methods.append(f"{name}: {method}")
+                print(f"  {bench_methods[-1]} → {s:.3f}")
+            else:
+                reason = "no reference captured" if not ref_out else "benchmark failed"
+                bench_methods.append(f"{name}: skipped ({reason})")
+                print(f"  {bench_methods[-1]}")
+
+        if bench_scores:
+            bench_score = sum(bench_scores) / len(bench_scores)
+            bench_method = "; ".join(bench_methods)
+            print(f"Benchmark score: {bench_score:.3f}")
+            score = 0.8 * test_score + 0.2 * bench_score
+        else:
+            # No scoreable benchmarks — don't penalise, use test score only
+            bench_score = None
+            bench_method = "; ".join(bench_methods)
+            score = test_score
     else:
         bench_out = None
         bench_score = None
@@ -407,8 +454,10 @@ def run_one(task_path: Path, args) -> None:
                 prompt_arg = Path(prompt_file).read_text()
                 print(f"\nRunning mini-swe-agent (model: {args.model})...")
                 print(f"Working directory: {worktree}")
+                traj_path = out_dir / f"{task_id}.traj.json"
                 cmd = ["mini", "--model", args.model, "--yolo",
-                       "--exit-immediately", "--task", prompt_arg]
+                       "--exit-immediately", "--task", prompt_arg,
+                       "-o", str(traj_path)]
                 if args.cost_limit_per_task is not None:
                     cmd += ["--cost-limit", str(args.cost_limit_per_task)]
                 agent_result = subprocess.run(cmd, cwd=worktree)
@@ -456,10 +505,10 @@ def main():
                         help="Skip the agent; just score whatever is in the worktree")
     parser.add_argument("--keep-worktree", action="store_true",
                         help="Don't delete the worktree after running (useful for debugging)")
-    parser.add_argument("--benchmark-model", default=os.environ.get("GEMINI_FILTER_MODEL", "gemini-2.0-flash"),
-                        help="Gemini model used to score benchmarks when regex parsing fails (default: gemini-2.0-flash)")
-    parser.add_argument("--review-model", default=os.environ.get("GEMINI_FILTER_MODEL", "gemini-2.0-flash"),
-                        help="Gemini model used to review implementation for reward hacking (default: gemini-2.0-flash)")
+    parser.add_argument("--benchmark-model", default=os.environ.get("GEMINI_FILTER_MODEL", "gemini-3-flash-preview"),
+                        help="Gemini model used to score benchmarks when regex parsing fails (default: gemini-3-flash-preview)")
+    parser.add_argument("--review-model", default=os.environ.get("GEMINI_FILTER_MODEL", "gemini-3-flash-preview"),
+                        help="Gemini model used to review implementation for reward hacking (default: gemini-3-flash-preview)")
     parser.add_argument("--no-review", action="store_true",
                         help="Skip the LLM implementation review (review multiplier defaults to 1.0)")
     args = parser.parse_args()

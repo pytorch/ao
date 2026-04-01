@@ -5,7 +5,7 @@ Generate evaluation tasks for the torchao benchmark.
 Each task is derived from a merged PR that added:
   - at least one implementation file
   - at least one unit test
-  - at least one benchmark
+  - optionally one or more benchmarks (included when present)
 
 Task starting state: repo checked out at the PR's base commit, with the
 implementation files removed (tests + benchmarks are kept as the spec).
@@ -210,7 +210,9 @@ def build_prompt(pr: dict, impl_files: list[str], test_files: list[str],
     # Truncate PR body so prompt stays reasonable
     pr_body_excerpt = pr_body[:1500] + ("..." if len(pr_body) > 1500 else "")
 
-    # Inline the reference test files so the agent has a concrete spec
+    # Inline the reference test files so the agent has a concrete spec.
+    # desc_test_files are pre-existing in the repo at base_sha, so their contents
+    # are not in reference_file_contents — note this clearly rather than saying "unavailable".
     test_spec_sections = []
     for tf in test_files:
         contents = reference_file_contents.get(tf, "")
@@ -218,11 +220,24 @@ def build_prompt(pr: dict, impl_files: list[str], test_files: list[str],
             excerpt = contents[:3000] + ("\n# ... (truncated)" if len(contents) > 3000 else "")
             test_spec_sections.append(f"#### `{tf}`\n```python\n{excerpt}\n```")
         else:
-            test_spec_sections.append(f"#### `{tf}`\n(contents unavailable — see PR #{pr['number']})")
+            test_spec_sections.append(f"#### `{tf}`\n(already present in the repo — read it directly)")
     test_spec = "\n\n".join(test_spec_sections)
 
     test_cmd = f"python -m pytest {' '.join(test_files)} -v"
-    bench_cmd = " && ".join(f"python {b}" for b in bench_files)
+
+    bench_section = ""
+    if bench_files:
+        bench_cmd = " && ".join(f"python {b}" for b in bench_files)
+        bench_section = f"""
+### Benchmarks (already placed in the repo for you)
+The following benchmark(s) must run to completion without error:
+{bench_list}
+
+```bash
+# Run benchmarks
+{bench_cmd}
+```
+"""
 
     return f"""Implement the following feature in the torchao repository (pytorch/ao).
 
@@ -243,20 +258,14 @@ The following test file(s) have been added to the repo as your spec.
 Your implementation must make them pass:
 
 {test_spec}
-
-### Benchmarks (already placed in the repo for you)
-The following benchmark(s) must run to completion without error:
-{bench_list}
-
+{bench_section}
 ### How to verify your work
 ```bash
 # Run tests
 {test_cmd}
 
-Be careful with distributed tests. These include tests with "distributed", "fsdp", "tp", "ep", "parallel" in the name, or tests that fail with errors that indicate a NCCL/torch.distrbuted failure. If you encounter a distributed test failure, verify that the local environment has enough GPUs for this test. If not, you can skip the test.
-
-# Run benchmarks
-{bench_cmd}
+# Be careful with distributed tests (names containing "distributed", "fsdp", "tp", "ep", "parallel").
+# If the local environment lacks enough GPUs for them, skip those tests.
 ```
 """
 
@@ -301,7 +310,7 @@ where a model must re-implement what the PR does.
 """ + _PR_DATA_BLOCK
 
 
-def llm_filter(pr: dict, all_files: list[str], model: str = "gemini-2.0-flash",
+def llm_filter(pr: dict, all_files: list[str], model: str = "gemini-3-flash-preview",
                filter_prompt: str = None) -> tuple[bool, str]:
     """
     Ask an LLM whether this PR makes a good benchmark task.
@@ -384,7 +393,7 @@ def run_reference_benchmark(bench_files: list[str], merge_sha: str) -> dict[str,
 # ---------------------------------------------------------------------------
 
 def make_task(pr: dict, files: list[dict], token: Optional[str],
-              use_llm_filter: bool = True, filter_model: str = "gemini-2.0-flash",
+              use_llm_filter: bool = True, filter_model: str = "gemini-3-flash-preview",
               filter_prompt: str = None,
               title_include: list[str] = None, title_exclude: list[str] = None,
               capture_benchmarks: bool = False) -> Optional[dict]:
@@ -394,13 +403,13 @@ def make_task(pr: dict, files: list[dict], token: Optional[str],
     Qualification criteria:
       - Has ≥1 Python implementation file added/modified
       - Has ≥1 Python test file added/modified
-      - Has ≥1 Python benchmark file added/modified
+      - Benchmarks are included if present but are not required
 
     Environment setup (done by the task runner, not here):
       1. git checkout <base_commit>   — repo state before the PR
       2. Write the reference test and benchmark files (from <merge_commit>)
          into the working tree so the agent has a concrete spec.
-      Implementation files are left at their pre-PR state; the agent must
+      Implementation files remain at their pre-PR state; the agent must
       modify them to make the reference tests pass.
     """
     by_class: dict[str, list[dict]] = {"test": [], "benchmark": [], "implementation": []}
@@ -452,14 +461,16 @@ def make_task(pr: dict, files: list[dict], token: Optional[str],
         time.sleep(0.05)
 
     # Parse PR description for pre-existing test files the author mentioned running.
-    # These already exist at base_sha so they don't need to be written into the worktree,
-    # but we add them to the score command as regression tests.
+    # Fetch their contents at base_sha and include in reference_file_contents so they
+    # are explicitly written into the worktree and covered by the tampering check.
     desc_tests = []
     for path in extract_test_files_from_description(pr.get("body") or ""):
         if path in added_tests:
             continue  # already included
-        if fetch_file_at_commit(path, base_sha, token) is not None:
+        contents = fetch_file_at_commit(path, base_sha, token)
+        if contents is not None:
             desc_tests.append(path)
+            reference_file_contents[path] = contents  # write + verify like any reference file
             print(f"  Found description-mentioned test: {path}", file=sys.stderr)
         time.sleep(0.05)
 
@@ -489,9 +500,9 @@ def make_task(pr: dict, files: list[dict], token: Optional[str],
         "implementation_files": impl_files,
         # ── Oracle files (written into env before the agent runs) ─────────
         "test_files": added_tests,           # new/modified by the PR — written into worktree
-        "desc_test_files": desc_tests,       # pre-existing, mentioned in PR description
+        "desc_test_files": desc_tests,       # pre-existing, mentioned in PR description — also written + verified
         "benchmark_files": added_benches,
-        "reference_file_contents": reference_file_contents,      # keyed by filename
+        "reference_file_contents": reference_file_contents,      # keyed by filename; includes both test_files and desc_test_files
         "reference_benchmark_output": reference_benchmark_output,  # keyed by bench filename; empty if not captured
         # ── Scoring commands ──────────────────────────────────────────────
         "score_commands": {
@@ -527,7 +538,7 @@ def main():
     parser.add_argument("--title-exclude", nargs="+", metavar="WORD", default=None,
                         help="Exclude PRs whose title contains any of these words (unset = no filter)")
     parser.add_argument("--filter-model", default=os.environ.get("GEMINI_FILTER_MODEL", "gemini-3-flash-preview"),
-                        help="Gemini model for LLM quality filter (default: gemini-2.0-flash, or GEMINI_FILTER_MODEL env var)")
+                        help="Gemini model for LLM quality filter (default: gemini-3-flash-preview, or GEMINI_FILTER_MODEL env var)")
     parser.add_argument("--filter-prompt", default=None, metavar="TEXT",
                         help="Custom instructions for the LLM filter (replaces the default preamble; "
                              "the PR title/body/files are always appended automatically)")
