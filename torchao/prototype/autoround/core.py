@@ -247,6 +247,7 @@ def apply_auto_round():
                         0,
                         out_features - orig_out_features,
                     ),
+                    value=1.0,
                 ).to(torch.bfloat16)
                 pad_shifted_zero_point = torch.nn.functional.pad(
                     shifted_zero_point,
@@ -267,11 +268,21 @@ def apply_auto_round():
                         out_features - orig_out_features,
                     ),
                 )
+                # Re-quantize using tinygemm affine quantization:
+                #   min_val = shifted_zero_point - scale * mid_point
+                #   quant = clamp(round((input - min_val) / scale), quant_min, quant_max)
+                group_size = observed_linear.group_size
+                input_for_quant = input_float_padded.reshape(
+                    out_features, new_num_groups, group_size
+                )
+                scale_for_quant = pad_scale.unsqueeze(-1)
+                zp_for_quant = pad_shifted_zero_point.unsqueeze(-1)
+                min_val = zp_for_quant - scale_for_quant * mid_point
                 int_data = torch.clamp(
-                    torch.round(input_float_padded).to(torch.int32),
+                    torch.round((input_for_quant - min_val) / scale_for_quant),
                     quant_min,
                     quant_max,
-                )
+                ).to(torch.int32).reshape(out_features, in_features)
                 # Pack into int4 format for tinygemm
                 int_data_packed = (int_data[::, ::2] << 4 | int_data[::, 1::2]).to(
                     torch.uint8
