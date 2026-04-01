@@ -76,11 +76,13 @@ elif not ("+git" in __version__) and not ("unknown" in __version__):
         skip_loading_so_files = True
         _skip_reason = (
             f"Skipping import of cpp extensions due to incompatible torch version. "
-            f"Please upgrade to torch >= 2.11.0 (found {torch.__version__})."
+            f"Please upgrade to torch >= 2.11.0 (found {torch.__version__}). "
+            f"Set TORCHAO_SILENCE_VERSION_COMPATIBILITY_WARNING=1 to silence this warning."
         )
 
 if skip_loading_so_files:
-    logger.warning(_skip_reason)
+    if not os.getenv("TORCHAO_SILENCE_VERSION_COMPATIBILITY_WARNING", "0") == "1":
+        logger.warning(_skip_reason)
 else:
     try:
         from pathlib import Path
