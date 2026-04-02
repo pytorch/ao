@@ -126,14 +126,13 @@ def default_a2a_fwd(
         :, rank, :
     ]  # shape: (world_size, num_experts_per_rank)
 
-    # Sum across source ranks to get total tokens per expert on this rank
-    tokens_per_expert = output_expert_splits.sum(
-        dim=0
-    )  # shape: (num_experts_per_rank,)
+    tokens_per_expert_group = (
+        output_expert_splits.flatten()
+    )  # Shape should be (world_size * num_experts_per_rank,)
 
     _, expert_major_output, _, _, _ = permute_and_pad(
         routed_output,
-        tokens_per_expert,
+        tokens_per_expert_group,  # Use flattened version
         ep_degree=world_size,
         num_local_experts=num_experts_per_rank,
         alignment=32,
@@ -167,7 +166,7 @@ def mxfp8_a2a_fwd(
         )
     )
 
-    return mx_output
+    return mx_output, output_expert_splits
 
 
 def run_experiment(
@@ -265,14 +264,14 @@ def run_experiment(
     warmup(
         lambda: mxfp8_a2a_fwd(
             x, input_rank_splits, input_expert_splits, mesh, buffer_manager
-        )
+        )[0]  # Only use the mx_output for warmup
     )
 
     # Run 10 iterations and take average
     torch.cuda.synchronize()
     start_sec = time.perf_counter()
     for _ in range(NUM_BENCH_ITERS):
-        mxfp8_routed_input = mxfp8_a2a_fwd(
+        mxfp8_routed_input, output_expert_splits = mxfp8_a2a_fwd(
             x, input_rank_splits, input_expert_splits, mesh, buffer_manager
         )
     torch.cuda.synchronize()
@@ -293,15 +292,6 @@ def run_experiment(
         )
 
     # Correctness check: compare outputs
-    if dist.get_rank() == 0:
-        print(f"Debug info for shape {config.input_shape}:")
-        print(f"  Input tensor shape: {x.shape}")
-        print(f"  BF16 output shape: {bf16_routed_input.shape}")
-        print(f"  MXFP8 output shape: {mxfp8_routed_input.qdata.shape}")
-        print(f"  Input rank splits: {input_rank_splits}")
-        print(f"  Input expert splits shape: {input_expert_splits.shape}")
-        print(f"  Input expert splits:\n{input_expert_splits}")
-
     # Dequantize MXFP8 output to BF16 for comparison
     from torchao.prototype.mx_formats.mx_tensor import MXTensor
 
@@ -314,11 +304,6 @@ def run_experiment(
     # while mxfp8_ep_dispatch may overallocate for worst-case scenario
     compare_size = bf16_routed_input.shape[0]
 
-    if dist.get_rank() == 0:
-        print(f"  Compare size: {compare_size}")
-        print(f"  Ref output first few elements: \n{bf16_routed_input[:5, :3]}")
-        print(f"  MXFP8 dequantized first few elements: \n{mxfp8_dequantized[:5, :3]}")
-
     # Compute SQNR between outputs
     sqnr = compute_error(
         bf16_routed_input[:compare_size], mxfp8_dequantized[:compare_size]
@@ -326,6 +311,7 @@ def run_experiment(
 
     if dist.get_rank() == 0:
         sqnr_val = sqnr.item()
+
         if sqnr_val >= 20.0:
             print(
                 f"Correctness check passed for shape {config.input_shape} (SQNR: {sqnr_val:.2f} dB)"
