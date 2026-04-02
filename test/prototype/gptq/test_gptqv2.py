@@ -15,9 +15,107 @@ from torchao.prototype.gptq import (
     gptq_quantize,
 )
 from torchao.prototype.gptq.observer import GPTQObserverTensor
-from torchao.quantization import Int4WeightOnlyConfig, Int8WeightOnlyConfig, quantize_
+from torchao.quantization import (
+    Int4PlainInt32Tensor,
+    Int4Tensor,
+    Int4WeightOnlyConfig,
+    Int8Tensor,
+    Int8WeightOnlyConfig,
+    quantize_,
+)
 from torchao.quantization.granularity import PerRow
 from torchao.utils import _is_mslk_available
+
+GPTQ_TEST_DEVICES = []
+if torch.cuda.is_available():
+    GPTQ_TEST_DEVICES.append("cuda")
+if torch.xpu.is_available():
+    GPTQ_TEST_DEVICES.append("xpu")
+
+
+def _int4_base_config(device, *, group_size=128, version=2):
+    kwargs = {
+        "group_size": group_size,
+        "version": version,
+    }
+    if device == "xpu":
+        kwargs["int4_packing_format"] = "plain_int32"
+    return Int4WeightOnlyConfig(**kwargs)
+
+
+def _expected_tensor_type(device, base_config):
+    if isinstance(base_config, Int4WeightOnlyConfig):
+        return Int4Tensor if device == "cuda" else Int4PlainInt32Tensor
+    return Int8Tensor
+
+
+GPTQ_DEVICE_BASE_CONFIGS = []
+for device in GPTQ_TEST_DEVICES:
+    int4_marks = []
+    if device == "cuda" and not _is_mslk_available():
+        int4_marks.append(pytest.mark.skip(reason="mslk not available"))
+
+    GPTQ_DEVICE_BASE_CONFIGS.append(
+        pytest.param(
+            device,
+            _int4_base_config(device),
+            id=f"{device}-int4",
+            marks=int4_marks,
+        )
+    )
+    GPTQ_DEVICE_BASE_CONFIGS.append(
+        pytest.param(
+            device,
+            Int8WeightOnlyConfig(group_size=128),
+            id=f"{device}-int8",
+        )
+    )
+
+
+GPTQ_DEVICE_BASE_CONFIGS_PERROW = []
+for device in GPTQ_TEST_DEVICES:
+    int4_marks = []
+    if device == "cuda" and not _is_mslk_available():
+        int4_marks.append(pytest.mark.skip(reason="mslk not available"))
+
+    GPTQ_DEVICE_BASE_CONFIGS_PERROW.append(
+        pytest.param(
+            device,
+            _int4_base_config(device),
+            id=f"{device}-int4",
+            marks=int4_marks,
+        )
+    )
+    GPTQ_DEVICE_BASE_CONFIGS_PERROW.append(
+        pytest.param(
+            device,
+            Int8WeightOnlyConfig(granularity=PerRow(), version=2),
+            id=f"{device}-int8",
+        )
+    )
+
+
+GPTQ_DEVICE_BASE_CONFIGS_SQNR = []
+for device in GPTQ_TEST_DEVICES:
+    int4_marks = []
+    if device == "cuda" and not _is_mslk_available():
+        int4_marks.append(pytest.mark.skip(reason="mslk not available"))
+
+    GPTQ_DEVICE_BASE_CONFIGS_SQNR.append(
+        pytest.param(
+            device,
+            _int4_base_config(device, version=2),
+            id=f"{device}-int4",
+            marks=int4_marks,
+        )
+    )
+    GPTQ_DEVICE_BASE_CONFIGS_SQNR.append(
+        pytest.param(
+            device,
+            Int8WeightOnlyConfig(granularity=PerRow(), version=2),
+            id=f"{device}-int8",
+        )
+    )
 
 
 def _calculate_hessian(inputs, device=None):
@@ -70,10 +168,11 @@ class ToyLinearModel(torch.nn.Module):
 class TestGPTQObserverTensor:
     """Test suite for GPTQObserverTensor functionality."""
 
-    @pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA available")
-    def test_observer_tensor_creation(self):
+    @pytest.mark.skipif(not GPTQ_TEST_DEVICES, reason="Need CUDA or XPU available")
+    @pytest.mark.parametrize("device", GPTQ_TEST_DEVICES)
+    def test_observer_tensor_creation(self, device):
         """Test that GPTQObserverTensor.from_hp() creates tensor with correct properties."""
-        weight = torch.randn(32, 64, dtype=torch.float32, device="cuda")
+        weight = torch.randn(32, 64, dtype=torch.float32, device=device)
         observer = GPTQObserverTensor.from_hp(weight)
 
         # Check it's an GPTQObserverTensor
@@ -95,10 +194,11 @@ class TestGPTQObserverTensor:
         # Check total_batches is initialized as 0
         assert observer.total_batches == 0
 
-    @pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA available")
-    def test_observer_tensor_attributes(self):
+    @pytest.mark.skipif(not GPTQ_TEST_DEVICES, reason="Need CUDA or XPU available")
+    @pytest.mark.parametrize("device", GPTQ_TEST_DEVICES)
+    def test_observer_tensor_attributes(self, device):
         """Test GPTQObserverTensor attributes are correctly set."""
-        weight = torch.randn(16, 32, dtype=torch.bfloat16, device="cuda")
+        weight = torch.randn(16, 32, dtype=torch.bfloat16, device=device)
         observer = GPTQObserverTensor.from_hp(weight)
 
         # Test hp_data attribute
@@ -117,8 +217,9 @@ class TestGPTQObserverTensor:
         assert hasattr(observer, "update")
         assert callable(observer.update)
 
-    @pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA available")
-    def test_linear_operation_with_observer(self):
+    @pytest.mark.skipif(not GPTQ_TEST_DEVICES, reason="Need CUDA or XPU available")
+    @pytest.mark.parametrize("device", GPTQ_TEST_DEVICES)
+    def test_linear_operation_with_observer(self, device):
         """Test F.linear with GPTQObserverTensor updates Hessian correctly."""
         batch_size = 4
         in_features = 64
@@ -126,13 +227,13 @@ class TestGPTQObserverTensor:
 
         # Create weight as GPTQObserverTensor
         weight = torch.randn(
-            out_features, in_features, dtype=torch.float32, device="cuda"
+            out_features, in_features, dtype=torch.float32, device=device
         )
         observer_weight = GPTQObserverTensor.from_hp(weight)
 
         # Create input
         input_tensor = torch.randn(
-            batch_size, in_features, dtype=torch.float32, device="cuda"
+            batch_size, in_features, dtype=torch.float32, device=device
         )
 
         # Perform linear operation
@@ -150,14 +251,15 @@ class TestGPTQObserverTensor:
         expected_output = F.linear(input_tensor, weight)
         torch.testing.assert_close(output, expected_output)
 
-    @pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA available")
-    def test_multiple_observations(self):
+    @pytest.mark.skipif(not GPTQ_TEST_DEVICES, reason="Need CUDA or XPU available")
+    @pytest.mark.parametrize("device", GPTQ_TEST_DEVICES)
+    def test_multiple_observations(self, device):
         """Test that Hessian updates incrementally across multiple forward passes."""
         out_features = 16
         in_features = 32
 
         weight = torch.randn(
-            out_features, in_features, dtype=torch.float32, device="cuda"
+            out_features, in_features, dtype=torch.float32, device=device
         )
         observer_weight = GPTQObserverTensor.from_hp(weight)
 
@@ -168,7 +270,7 @@ class TestGPTQObserverTensor:
         for i in range(num_passes):
             batch_size = 2
             input_tensor = torch.randn(
-                batch_size, in_features, dtype=torch.float32, device="cuda"
+                batch_size, in_features, dtype=torch.float32, device=device
             )
             total_samples += 1
             _ = F.linear(input_tensor, observer_weight)
@@ -180,8 +282,9 @@ class TestGPTQObserverTensor:
         # Check total_batches matches total samples
         assert observer_weight.total_batches == total_samples
 
-    @pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA available")
-    def test_bmm_operation_with_observer(self):
+    @pytest.mark.skipif(not GPTQ_TEST_DEVICES, reason="Need CUDA or XPU available")
+    @pytest.mark.parametrize("device", GPTQ_TEST_DEVICES)
+    def test_bmm_operation_with_observer(self, device):
         """Test torch.bmm with GPTQObserverTensor updates Hessian correctly."""
         batch = 4
         m = 8
@@ -189,8 +292,8 @@ class TestGPTQObserverTensor:
         k = 12
 
         # Create input and weight tensors
-        input_tensor = torch.randn(batch, m, k, dtype=torch.float32, device="cuda")
-        weight = torch.randn(batch, k, n, dtype=torch.float32, device="cuda")
+        input_tensor = torch.randn(batch, m, k, dtype=torch.float32, device=device)
+        weight = torch.randn(batch, k, n, dtype=torch.float32, device=device)
         observer_weight = GPTQObserverTensor.from_hp(weight)
 
         # Perform bmm operation
@@ -208,25 +311,12 @@ class TestGPTQObserverTensor:
         expected_output = torch.bmm(input_tensor, weight)
         torch.testing.assert_close(output, expected_output)
 
-    @pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA available")
-    @pytest.mark.parametrize(
-        "base_config",
-        [
-            pytest.param(
-                Int4WeightOnlyConfig(group_size=128),
-                id="int4",
-                marks=pytest.mark.skipif(
-                    not _is_mslk_available(),
-                    reason="fbgemm_gpu not available",
-                ),
-            ),
-            pytest.param(Int8WeightOnlyConfig(group_size=128), id="int8"),
-        ],
-    )
-    def test_observer_config_transform(self, base_config):
+    @pytest.mark.skipif(not GPTQ_TEST_DEVICES, reason="Need CUDA or XPU available")
+    @pytest.mark.parametrize("device,base_config", GPTQ_DEVICE_BASE_CONFIGS)
+    def test_observer_config_transform(self, device, base_config):
         """Test GPTQConfig wraps module weights correctly."""
         # Create a simple linear layer
-        linear = torch.nn.Linear(64, 32, bias=False).cuda()
+        linear = torch.nn.Linear(64, 32, bias=False, device=device)
         original_weight = linear.weight.data.clone()
 
         # Apply GPTQConfig with observe step
@@ -243,7 +333,7 @@ class TestGPTQObserverTensor:
         assert linear.weight.total_batches == 0
 
         # Perform a forward pass
-        input_tensor = torch.randn(4, 64, dtype=torch.float32, device="cuda")
+        input_tensor = torch.randn(4, 64, dtype=torch.float32, device=device)
         output = linear(input_tensor)
 
         # Check Hessian was initialized after forward pass
@@ -253,14 +343,15 @@ class TestGPTQObserverTensor:
         # Check output shape
         assert output.shape == (4, 32)
 
-    @pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA available")
-    def test_hessian_incremental_update(self):
+    @pytest.mark.skipif(not GPTQ_TEST_DEVICES, reason="Need CUDA or XPU available")
+    @pytest.mark.parametrize("device", GPTQ_TEST_DEVICES)
+    def test_hessian_incremental_update(self, device):
         """Test that incremental Hessian updates match batch calculation."""
         in_features = 32
         out_features = 16
 
         weight = torch.randn(
-            out_features, in_features, dtype=torch.float32, device="cuda"
+            out_features, in_features, dtype=torch.float32, device=device
         )
 
         # Create two GPTQObserverTensors - one for incremental, one for batch
@@ -272,14 +363,14 @@ class TestGPTQObserverTensor:
         for _ in range(num_batches):
             batch_size = 4
             input_tensor = torch.randn(
-                batch_size, in_features, dtype=torch.float32, device="cuda"
+                batch_size, in_features, dtype=torch.float32, device=device
             )
             activations.append(input_tensor)
             # Update incrementally
             _ = F.linear(input_tensor, observer_incremental)
 
         # Compute Hessian in batch using _calculate_hessian
-        hessian_batch = _calculate_hessian(activations, device="cuda")
+        hessian_batch = _calculate_hessian(activations, device=device)
 
         # Compare incremental vs batch
         assert observer_incremental.hessian is not None
@@ -289,28 +380,12 @@ class TestGPTQObserverTensor:
 
 
 class TestGPTQFlow:
-    @pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA available")
-    @pytest.mark.parametrize(
-        "base_config",
-        [
-            pytest.param(
-                Int4WeightOnlyConfig(group_size=128),
-                id="int4",
-                marks=pytest.mark.skipif(
-                    not _is_mslk_available(),
-                    reason="fbgemm_gpu not available",
-                ),
-            ),
-            pytest.param(
-                Int8WeightOnlyConfig(group_size=128),
-                id="int8",
-            ),
-        ],
-    )
-    def test_unified_config_two_phase(self, base_config):
+    @pytest.mark.skipif(not GPTQ_TEST_DEVICES, reason="Need CUDA or XPU available")
+    @pytest.mark.parametrize("device,base_config", GPTQ_DEVICE_BASE_CONFIGS)
+    def test_unified_config_two_phase(self, device, base_config):
         """Test that GPTQConfig handles both observation and quantization phases."""
         # Create a simple linear layer
-        linear = torch.nn.Linear(64, 32, bias=False).cuda().to(torch.bfloat16)
+        linear = torch.nn.Linear(64, 32, bias=False, device=device).to(torch.bfloat16)
         original_weight = linear.weight.data.clone()
 
         # Phase 1: Observation step - wrap as GPTQObserverTensor
@@ -326,7 +401,7 @@ class TestGPTQFlow:
 
         # Run some forward passes for calibration
         for _ in range(10):
-            input_tensor = torch.randn(4, 64, dtype=torch.bfloat16, device="cuda")
+            input_tensor = torch.randn(4, 64, dtype=torch.bfloat16, device=device)
             _ = linear(input_tensor)
 
         # Verify Hessian was computed
@@ -340,37 +415,16 @@ class TestGPTQFlow:
         )
         quantize_(linear, convert_config)
 
-        # Verify weight is now Int4Tensor or Int8Tensor (quantized)
-        from torchao.quantization import Int4Tensor, Int8Tensor
-
-        expected_tensor_type = (
-            Int4Tensor if isinstance(base_config, Int4WeightOnlyConfig) else Int8Tensor
-        )
+        expected_tensor_type = _expected_tensor_type(device, base_config)
         assert isinstance(linear.weight, expected_tensor_type)
 
         # Verify it still works
         output = linear(input_tensor)
         assert output.shape == (4, 32)
 
-    @pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA available")
-    @pytest.mark.parametrize(
-        "base_config",
-        [
-            pytest.param(
-                Int4WeightOnlyConfig(group_size=128),
-                id="int4",
-                marks=pytest.mark.skipif(
-                    not _is_mslk_available(),
-                    reason="fbgemm_gpu not available",
-                ),
-            ),
-            pytest.param(
-                Int8WeightOnlyConfig(group_size=128),
-                id="int8",
-            ),
-        ],
-    )
-    def test_gptq_quantize_function(self, base_config):
+    @pytest.mark.skipif(not GPTQ_TEST_DEVICES, reason="Need CUDA or XPU available")
+    @pytest.mark.parametrize("device,base_config", GPTQ_DEVICE_BASE_CONFIGS)
+    def test_gptq_quantize_function(self, device, base_config):
         """Test gptq_quantize function with synthetic Hessian and weights."""
         torch.manual_seed(42)
 
@@ -378,15 +432,15 @@ class TestGPTQFlow:
         out_features = 128
         in_features = 256
         weight = torch.randn(
-            out_features, in_features, dtype=torch.bfloat16, device="cuda"
+            out_features, in_features, dtype=torch.bfloat16, device=device
         )
 
         # Create synthetic Hessian (positive semi-definite)
         # H = A^T @ A ensures positive semi-definiteness
-        A = torch.randn(in_features, in_features, dtype=torch.float32, device="cuda")
+        A = torch.randn(in_features, in_features, dtype=torch.float32, device=device)
         H = A.t() @ A
         # Add regularization to ensure positive definiteness
-        H = H + torch.eye(in_features, device="cuda") * 0.1
+        H = H + torch.eye(in_features, device=device) * 0.1
 
         # Create GPTQ config
         config = GPTQConfig(
@@ -397,12 +451,7 @@ class TestGPTQFlow:
         # Run GPTQ quantization
         quantized_weight = gptq_quantize(H, weight, config)
 
-        # Check output type
-        from torchao.quantization import Int4Tensor, Int8Tensor
-
-        expected_tensor_type = (
-            Int4Tensor if isinstance(base_config, Int4WeightOnlyConfig) else Int8Tensor
-        )
+        expected_tensor_type = _expected_tensor_type(device, base_config)
         assert isinstance(quantized_weight, expected_tensor_type)
 
         # Check shape is preserved
@@ -410,7 +459,7 @@ class TestGPTQFlow:
 
         # Dequantize and check error is reasonable
         dequantized = F.linear(
-            torch.eye(in_features, device="cuda", dtype=torch.bfloat16),
+            torch.eye(in_features, device=device, dtype=torch.bfloat16),
             quantized_weight,
             None,
         ).t()
@@ -429,24 +478,9 @@ class TestGPTQFlow:
         # Int4 should be much smaller than bfloat16
         assert hasattr(quantized_weight, "qdata")
 
-    @pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA available")
-    @pytest.mark.parametrize(
-        "base_config",
-        [
-            pytest.param(
-                Int4WeightOnlyConfig(group_size=128),
-                id="int4",
-                marks=pytest.mark.skipif(
-                    not _is_mslk_available(),
-                    reason="fbgemm_gpu not available",
-                ),
-            ),
-            pytest.param(
-                Int8WeightOnlyConfig(granularity=PerRow(), version=2), id="int8"
-            ),
-        ],
-    )
-    def test_gptq_quantize_better_than_naive(self, base_config):
+    @pytest.mark.skipif(not GPTQ_TEST_DEVICES, reason="Need CUDA or XPU available")
+    @pytest.mark.parametrize("device,base_config", GPTQ_DEVICE_BASE_CONFIGS_PERROW)
+    def test_gptq_quantize_better_than_naive(self, device, base_config):
         """Test that GPTQ produces lower error than naive quantization."""
         torch.manual_seed(43)
 
@@ -454,18 +488,18 @@ class TestGPTQFlow:
         out_features = 64
         in_features = 128
         weight = torch.randn(
-            out_features, in_features, dtype=torch.bfloat16, device="cuda"
+            out_features, in_features, dtype=torch.bfloat16, device=device
         )
 
         # Simulate activations and compute Hessian
         num_samples = 100
         activations = []
         for _ in range(num_samples):
-            act = torch.randn(4, in_features, dtype=torch.float32, device="cuda")
+            act = torch.randn(4, in_features, dtype=torch.float32, device=device)
             activations.append(act)
 
-        H = _calculate_hessian(activations, device="cuda")
-        H_identity = torch.eye(in_features, device="cuda", dtype=torch.float32)
+        H = _calculate_hessian(activations, device=device)
+        H_identity = torch.eye(in_features, device=device, dtype=torch.float32)
 
         # GPTQ quantization
         config = GPTQConfig(
@@ -500,31 +534,16 @@ class TestGPTQFlow:
         assert gptq_loss is not None
         assert naive_loss is not None
 
-    @pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA available")
-    @pytest.mark.parametrize(
-        "base_config",
-        [
-            pytest.param(
-                Int4WeightOnlyConfig(version=2),
-                id="int4",
-                marks=pytest.mark.skipif(
-                    not _is_mslk_available(),
-                    reason="fbgemm_gpu not available",
-                ),
-            ),
-            pytest.param(
-                Int8WeightOnlyConfig(granularity=PerRow(), version=2), id="int8"
-            ),
-        ],
-    )
-    def test_gptq_sqnr(self, base_config):
+    @pytest.mark.skipif(not GPTQ_TEST_DEVICES, reason="Need CUDA or XPU available")
+    @pytest.mark.parametrize("device,base_config", GPTQ_DEVICE_BASE_CONFIGS_SQNR)
+    def test_gptq_sqnr(self, device, base_config):
         torch.manual_seed(43)
 
-        model = ToyLinearModel(m=512, n=2048, k=1024).cuda().to(torch.bfloat16)
+        model = ToyLinearModel(m=512, n=2048, k=1024).to(device).to(torch.bfloat16)
 
         # Create calibration and test inputs
         calibration_inputs = [
-            torch.randn(4, 512, dtype=torch.bfloat16, device="cuda") for _ in range(10)
+            torch.randn(4, 512, dtype=torch.bfloat16, device=device) for _ in range(10)
         ]
         test_input = calibration_inputs[0]
 

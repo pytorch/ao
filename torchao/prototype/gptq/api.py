@@ -19,11 +19,15 @@ except:
     pack_int4 = None
 
 from torchao.core.config import AOBaseConfig
-from torchao.quantization import Int4Tensor, Int8Tensor
+from torchao.quantization import Int4PlainInt32Tensor, Int4Tensor, Int8Tensor
 from torchao.quantization.granularity import PerRow
 from torchao.quantization.quant_api import (
     Int4WeightOnlyConfig,
     Int8WeightOnlyConfig,
+)
+from torchao.quantization.quant_primitives import (
+    MappingType,
+    choose_qparams_affine,
 )
 from torchao.quantization.transform_module import register_quantize_module_handler
 from torchao.quantization.utils import _module_extra_repr, get_block_size
@@ -34,6 +38,9 @@ CONFIG_TO_TORCHAO_BASE_TENSOR = {
     Int4WeightOnlyConfig: Int4Tensor,
     Int8WeightOnlyConfig: Int8Tensor,
 }
+
+if torch.xpu.is_available():
+    CONFIG_TO_TORCHAO_BASE_TENSOR.update({Int4WeightOnlyConfig: Int4PlainInt32Tensor})
 
 
 @dataclass
@@ -69,9 +76,12 @@ class GPTQConfig(AOBaseConfig):
         if self.base_config is None:
             raise ValueError("base_config is required for GPTQ quantization.")
         if isinstance(self.base_config, Int4WeightOnlyConfig):
-            if int4_row_quantize_zp is None:
+            if (
+                self.base_config.int4_packing_format != "plain_int32"
+                and int4_row_quantize_zp is None
+            ):
                 raise ValueError(
-                    "fbgemm_gpu is not installed. Please install fbgemm_gpu to use int4 quantization."
+                    "mslk is not installed. Please install mslk to use GPTQ int4 quantization on CUDA."
                 )
 
 
@@ -179,6 +189,76 @@ def _int4_row_dequantize_zp(
     return torch.cat(dequant_chunks, dim=-1)
 
 
+def _int4_row_choose_qparams_xpu(
+    x: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Choose XPU-compatible affine int4 qparams for a weight group."""
+    scale, zero_point = choose_qparams_affine(
+        x,
+        MappingType.ASYMMETRIC,
+        (1, x.shape[-1]),
+        torch.int32,
+        quant_min=0,
+        quant_max=15,
+        eps=1e-6,
+        scale_dtype=x.dtype,
+        zero_point_dtype=torch.int32,
+    )
+    scale = scale.reshape(x.shape[0], -1).transpose(0, 1).contiguous()
+    zero_point = zero_point.reshape(x.shape[0], -1).transpose(0, 1).contiguous()
+    return scale, zero_point
+
+
+def _int4_row_quantize_zp_precomputed_qparams_xpu(
+    x: torch.Tensor,
+    scales: torch.Tensor,
+    zero_points: torch.Tensor,
+    group_size: int = 128,
+) -> torch.Tensor:
+    """Quantize tensor using precomputed XPU affine int4 qparams."""
+    to_quant = torch.split(x.to(torch.float32), group_size, dim=-1)
+
+    scales_row = scales.t().contiguous().to(torch.float32)
+    zero_points_row = zero_points.t().contiguous().to(torch.float32)
+    scales_list = torch.split(scales_row, 1, dim=-1)
+    zero_points_list = torch.split(zero_points_row, 1, dim=-1)
+
+    out = [
+        chunk.div(scale_chunk).add(zero_point_chunk).round().clamp_(0, 15)
+        for chunk, scale_chunk, zero_point_chunk in zip(
+            to_quant, scales_list, zero_points_list
+        )
+    ]
+    return torch.cat(out, dim=-1).to(torch.int32)
+
+
+def _int4_row_dequantize_zp_xpu(
+    x: torch.Tensor,
+    scales: torch.Tensor,
+    zero_points: torch.Tensor,
+    group_size: int = 128,
+) -> torch.Tensor:
+    """Dequantize XPU affine int4 weights with integer zero points."""
+    x_chunks = torch.split(x, group_size, dim=-1)
+    scales_row = scales.t().contiguous().to(torch.float32)
+    zero_points_row = zero_points.t().contiguous().to(torch.float32)
+    scales_list = torch.split(scales_row, 1, dim=-1)
+    zero_points_list = torch.split(zero_points_row, 1, dim=-1)
+
+    dequant_chunks = [
+        (chunk.to(torch.float32) - zero_point_chunk) * scale_chunk
+        for chunk, scale_chunk, zero_point_chunk in zip(
+            x_chunks, scales_list, zero_points_list
+        )
+    ]
+    return torch.cat(dequant_chunks, dim=-1)
+
+
+def _pack_int4_plain_int32(qdata: torch.Tensor) -> torch.Tensor:
+    packed_weight = (qdata[:, 1::2] << 4 | qdata[:, ::2]).to(torch.uint8)
+    return torch.ops.aten._convert_weight_to_int4pack(packed_weight.contiguous(), 8)
+
+
 def gptq_quantize(H: torch.Tensor, W: torch.Tensor, config: GPTQConfig):
     """
     This function implements the GPTQ algorithm described in this paper: https://arxiv.org/abs/2210.17323 (Algorithm 1)
@@ -224,7 +304,7 @@ def gptq_quantize(H: torch.Tensor, W: torch.Tensor, config: GPTQConfig):
         config: GPTQ configuration
 
     Returns:
-        Int4Tensor or Int8Tensor: Quantized weight matrix
+        Int4PlainInt32Tensor, Int4Tensor or Int8Tensor: Quantized weight matrix
     """
     assert W.dim() == 2
     gptq_quantize_block_size = config.gptq_quantize_block_size
@@ -248,7 +328,7 @@ def gptq_quantize(H: torch.Tensor, W: torch.Tensor, config: GPTQConfig):
     columns = W.shape[1]
     device = W.device
 
-    assert device.type == "cuda", "GPTQ only supports CUDA currently"
+    assert device.type in {"cuda", "xpu"}, "GPTQ only supports CUDA and XPU currently"
 
     dead = torch.diag(H) == 0
     H[dead, dead] = 1
@@ -280,12 +360,16 @@ def gptq_quantize(H: torch.Tensor, W: torch.Tensor, config: GPTQConfig):
             # We only need to calculate initial qparams for the group once
             if group_start % group_size == 0:
                 if isinstance(base_config, Int4WeightOnlyConfig):
-                    _, scale, zero_point = int4_row_quantize_zp(
-                        W_quantize_block[
-                            :, group_start - block_start : group_end - block_start
-                        ],
-                        group_size,
-                    )
+                    group_weight = W_quantize_block[
+                        :, group_start - block_start : group_end - block_start
+                    ]
+                    if device.type == "cuda":
+                        _, scale, zero_point = int4_row_quantize_zp(
+                            group_weight,
+                            group_size,
+                        )
+                    else:
+                        scale, zero_point = _int4_row_choose_qparams_xpu(group_weight)
                     group_qparams.append((scale, zero_point))
                 elif isinstance(base_config, Int8WeightOnlyConfig):
                     quantized_tensor = Int8Tensor.from_hp(
@@ -299,10 +383,18 @@ def gptq_quantize(H: torch.Tensor, W: torch.Tensor, config: GPTQConfig):
             for i in range(group_start - block_start, group_end - block_start):
                 w = W_quantize_block[:, i].unsqueeze(1)
                 if isinstance(base_config, Int4WeightOnlyConfig):
-                    q = _int4_row_quantize_zp_precomputed_qparams(
-                        w, scale, zero_point, group_size
-                    )
-                    dq = _int4_row_dequantize_zp(q, scale, zero_point, group_size)
+                    if device.type == "cuda":
+                        q = _int4_row_quantize_zp_precomputed_qparams(
+                            w, scale, zero_point, group_size
+                        )
+                        dq = _int4_row_dequantize_zp(q, scale, zero_point, group_size)
+                    else:
+                        q = _int4_row_quantize_zp_precomputed_qparams_xpu(
+                            w, scale, zero_point, group_size
+                        )
+                        dq = _int4_row_dequantize_zp_xpu(
+                            q, scale, zero_point, group_size
+                        )
                 elif isinstance(base_config, Int8WeightOnlyConfig):
                     q = Int8Tensor.from_hp(
                         w,
@@ -321,20 +413,38 @@ def gptq_quantize(H: torch.Tensor, W: torch.Tensor, config: GPTQConfig):
         # Once a block is fully processed, perform global updates to H^-1 and W using batched versions of the error propagation equations.
         W[:, block_end:] -= Err1.matmul(Hinv[block_start:block_end, block_end:])
 
-    torch.cuda.synchronize()
+    if device.type == "cuda":
+        torch.cuda.synchronize()
+    else:
+        torch.xpu.synchronize()
 
     # Create the final quantized tensor, which has the same qparams (scale, zero_point), but different qdata
     if isinstance(base_config, Int4WeightOnlyConfig):
         scale, zero_point = [torch.cat(x, dim=0) for x in zip(*group_qparams)]
-        wq = _int4_row_quantize_zp_precomputed_qparams(W, scale, zero_point, group_size)
-        result = Int4Tensor(
-            qdata=pack_int4(wq),
-            scale=scale.to(W.dtype),
-            zero_point=zero_point.to(W.dtype),
-            block_size=block_size,
-            shape=W.shape,
-            act_pre_scale=None,
-        )
+        if device.type == "cuda":
+            wq = _int4_row_quantize_zp_precomputed_qparams(
+                W, scale, zero_point, group_size
+            )
+            result = Int4Tensor(
+                qdata=pack_int4(wq),
+                scale=scale.to(W.dtype),
+                zero_point=zero_point.to(W.dtype),
+                block_size=block_size,
+                shape=W.shape,
+                act_pre_scale=None,
+            )
+        else:
+            wq = _int4_row_quantize_zp_precomputed_qparams_xpu(
+                W, scale, zero_point, group_size
+            )
+            result = Int4PlainInt32Tensor(
+                qdata=_pack_int4_plain_int32(wq),
+                scale=scale.to(W.dtype),
+                zero_point=zero_point.to(torch.int8),
+                block_size=block_size,
+                shape=W.shape,
+                act_pre_scale=None,
+            )
     elif isinstance(base_config, Int8WeightOnlyConfig):
         result = Int8Tensor.from_hp(
             W, granularity=base_config.granularity, scale=quantized_tensor.scale
