@@ -633,7 +633,12 @@ def test_nvfp4_pin_memory(use_per_tensor_scale):
         if use_per_tensor_scale
         else None
     )
-    x_nvfp4 = NVFP4Tensor.to_nvfp4(x_hp, per_tensor_scale=per_tensor_scale)
+    act_per_tensor_scale = per_tensor_amax_to_scale(torch.max(torch.abs(x_hp)))
+    x_nvfp4 = NVFP4Tensor.to_nvfp4(
+        x_hp,
+        per_tensor_scale=per_tensor_scale,
+        act_per_tensor_scale=act_per_tensor_scale,
+    )
     x_cpu = x_nvfp4.cpu()
 
     assert not x_cpu.is_pinned()
@@ -647,6 +652,7 @@ def test_nvfp4_pin_memory(use_per_tensor_scale):
     assert x_pinned.scale.is_pinned()
     if use_per_tensor_scale:
         assert x_pinned.per_tensor_scale.is_pinned()
+    assert x_pinned.act_per_tensor_scale.is_pinned()
 
     assert torch.equal(
         x_cpu.dequantize(torch.float32), x_pinned.dequantize(torch.float32)
