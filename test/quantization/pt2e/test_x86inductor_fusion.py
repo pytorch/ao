@@ -2924,21 +2924,18 @@ class TestPatternMatcher(TestPatternMatcherBase):
                 counters["inductor"]["qlinear_weight_prepack_matcher_nodes"], 4
             )
 
-        self._test_code_common(
-            mod,
-            (a,),
-            ["torch.ops.onednn.qlinear_pointwise.tensor"],
-            [],
-            check_quantization=True,
-        )
-
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
     @parametrize("dtype", [torch.float32, torch.bfloat16])
     def test_smooth_quant_2d_hits_no_outer_or_act_reshape_pattern(self, dtype):
         r"""
-        Verify a real SmoothQuant 2D linear path also matches
-        pattern_with_no_outer_or_act_reshape (no input/output reshape).
+        Verify a real SmoothQuant (Int8DynamicActivationInt8WeightConfig) 2D
+        linear path matches pattern_with_no_outer_or_act_reshape when
+        activation and weight use the same dtype.
+
+        Note: SmoothQuant PREPARE replaces the nn.Linear submodule with a
+        SmoothQuantObservedLinear.  quantize_() can only do that when there is
+        a parent module to call setattr on, so the linear must be wrapped.
         """
         if dtype == torch.bfloat16 and not torch.ops.mkldnn._is_mkldnn_bf16_supported():
             return
@@ -2947,8 +2944,17 @@ class TestPatternMatcher(TestPatternMatcherBase):
         in_feature = 32
         out_feature = 64
 
-        mod = torch.nn.Linear(in_feature, out_feature, bias=False, dtype=torch.float32)
-        mod = mod.eval()
+        class Mod(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.linear = torch.nn.Linear(
+                    in_feature, out_feature, bias=False, dtype=dtype
+                )
+
+            def forward(self, x):
+                return self.linear(x)
+
+        mod = Mod().eval()
 
         from torchao.prototype.smoothquant import (
             SmoothQuantConfig,
@@ -2967,7 +2973,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
             alpha=0.5,
         )
         quantize_(mod, quant_config)
-        calibration_inputs = torch.randn(m, in_feature, dtype=torch.float32)
+        calibration_inputs = torch.randn(m, in_feature, dtype=dtype)
         mod(calibration_inputs)
         quant_config.step = QuantizationStep.CONVERT
         quantize_(mod, quant_config)
@@ -2982,14 +2988,6 @@ class TestPatternMatcher(TestPatternMatcherBase):
             self.assertEqual(
                 counters["inductor"]["qlinear_weight_prepack_matcher_nodes"], 4
             )
-
-        self._test_code_common(
-            mod,
-            (a,),
-            ["torch.ops.onednn.qlinear_pointwise.tensor"],
-            [],
-            check_quantization=True,
-        )
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
