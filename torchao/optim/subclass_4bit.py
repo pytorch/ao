@@ -195,10 +195,10 @@ def _(func, types, args, kwargs):
     x, shape = args
 
     if tuple(x.shape) == tuple(shape):
-        return OptimState4bit(x.codes, x.scale, x.qmap, x.signed, x._shape)
+        return OptimState4bit(x.codes, x.scale, x.qmap, x.signed, x._shape, dtype=x.dtype)
 
     if len(shape) == 1 and shape[0] == -1:
-        return OptimState4bit(x.codes, x.scale, x.qmap, x.signed, (x.numel(),))
+        return OptimState4bit(x.codes, x.scale, x.qmap, x.signed, (x.numel(),), dtype=x.dtype)
 
     raise ValueError(
         f"{x.__class__.__name__} only supports .view() with same shape or shape=[-1]"

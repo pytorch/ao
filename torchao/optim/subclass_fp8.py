@@ -149,7 +149,7 @@ def _(func, types, args, kwargs):
 @OptimStateFp8.implements(aten.view.default)
 def _(func, types, args, kwargs):
     x, shape = args
-    return OptimStateFp8(x.codes.view(shape), x.scale)
+    return OptimStateFp8(x.codes.view(shape), x.scale, dtype=x.dtype)
 
 
 # this is needed for torch.compile fake tensor creation when appearance dtype

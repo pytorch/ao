@@ -174,7 +174,7 @@ def _(func, types, args, kwargs):
 @OptimState8bit.implements(aten.view.default)
 def _(func, types, args, kwargs):
     x, shape = args
-    return OptimState8bit(x.codes.view(shape), x.scale, x.qmap, x.signed)
+    return OptimState8bit(x.codes.view(shape), x.scale, x.qmap, x.signed, dtype=x.dtype)
 
 
 # this is needed for torch.compile fake tensor creation when appearance dtype
