@@ -298,8 +298,8 @@ def gptq_quantize(H: torch.Tensor, W_t: torch.Tensor, config: GPTQConfig):
                     )
 
             # Quantize each column and propagate errors to subsequent columns
-            for i in range(k_group_start - k_block_start, k_group_end - k_block_start):
-                w_t = W_t_quantize_block[:, i].unsqueeze(1)
+            for k in range(k_group_start - k_block_start, k_group_end - k_block_start):
+                w_t = W_t_quantize_block[:, k].unsqueeze(1)
                 if isinstance(base_config, Int4WeightOnlyConfig):
                     q = _int4_row_quantize_zp_precomputed_qparams(
                         w_t, scale, zero_point, group_size
@@ -313,11 +313,11 @@ def gptq_quantize(H: torch.Tensor, W_t: torch.Tensor, config: GPTQConfig):
                     )
                     dq = q.dequantize(output_dtype=torch.float)
 
-                err1 = (w_t - dq) / Hinv_quantize_block[i, i]
-                W_t_quantize_block[:, i:] -= err1.matmul(
-                    Hinv_quantize_block[i, i:].unsqueeze(0)
+                err1 = (w_t - dq) / Hinv_quantize_block[k, k]
+                W_t_quantize_block[:, k:] -= err1.matmul(
+                    Hinv_quantize_block[k, k:].unsqueeze(0)
                 )
-                Err1[:, i] = err1.flatten()
+                Err1[:, k] = err1.flatten()
 
         # Lazy Batch-Updates: We process B columns at a time with local updates above.
         # Once a block is fully processed, perform global updates to H^-1 and W using batched versions of the error propagation equations.
@@ -330,11 +330,11 @@ def gptq_quantize(H: torch.Tensor, W_t: torch.Tensor, config: GPTQConfig):
     # Create the final quantized tensor, which has the same qparams (scale, zero_point), but different qdata
     if isinstance(base_config, Int4WeightOnlyConfig):
         scale, zero_point = [torch.cat(x, dim=0) for x in zip(*group_qparams)]
-        wq = _int4_row_quantize_zp_precomputed_qparams(
+        wq_t = _int4_row_quantize_zp_precomputed_qparams(
             W_t, scale, zero_point, group_size
         )
         result = Int4Tensor(
-            qdata=pack_int4(wq),
+            qdata=pack_int4(wq_t),
             scale=scale.to(W_t.dtype),
             zero_point=zero_point.to(W_t.dtype),
             block_size=block_size,
