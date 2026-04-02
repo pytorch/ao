@@ -74,17 +74,20 @@ class TestBlockwiseFP8DTensorSharding(DTensorTestBase):
         self,
         dist_outputs,
         expected_local_outputs,
+        expected_global_outputs,
         expected_placements,
         expected_global_shapes,
     ):
         for (
             dist_output,
             expected_local,
+            expected_global,
             expected_placement,
             expected_global_shape,
         ) in zip(
             dist_outputs,
             expected_local_outputs,
+            expected_global_outputs,
             expected_placements,
             expected_global_shapes,
         ):
@@ -94,11 +97,18 @@ class TestBlockwiseFP8DTensorSharding(DTensorTestBase):
             torch.testing.assert_close(
                 dist_output.to_local(), expected_local, atol=0, rtol=0
             )
+            torch.testing.assert_close(
+                dist_output.redistribute(placements=[Replicate()]).to_local(),
+                expected_global,
+                atol=0,
+                rtol=0,
+            )
 
     def _assert_gemm_output(
         self,
         dist_output: DTensor,
         expected_local_output: torch.Tensor,
+        expected_global_output: torch.Tensor,
         expected_placement,
         expected_global_shape,
     ):
@@ -106,6 +116,15 @@ class TestBlockwiseFP8DTensorSharding(DTensorTestBase):
         self.assertEqual(tuple(dist_output.shape), tuple(expected_global_shape))
         torch.testing.assert_close(
             dist_output.to_local(), expected_local_output, atol=0, rtol=0
+        )
+        # because we do a distributed reduction for the check against global output
+        # we have a slight tolerance to account for floating point noise
+        atol, rtol = (1e-5, 1e-3) if isinstance(expected_placement, Partial) else (0, 0)
+        torch.testing.assert_close(
+            dist_output.redistribute(placements=[Replicate()]).to_local(),
+            expected_global_output,
+            atol=atol,
+            rtol=rtol,
         )
 
     @with_comms
@@ -182,6 +201,7 @@ class TestBlockwiseFP8DTensorSharding(DTensorTestBase):
                 self._assert_quant_outputs(
                     dist_outputs=dist_outputs,
                     expected_local_outputs=expected_local_outputs,
+                    expected_global_outputs=global_outputs,
                     expected_placements=expected_placements,
                     expected_global_shapes=tuple(
                         output.shape for output in global_outputs
@@ -194,6 +214,7 @@ class TestBlockwiseFP8DTensorSharding(DTensorTestBase):
         mesh = self._build_cuda_mesh()
         device = torch.device(f"cuda:{self.rank % torch.cuda.device_count()}")
         torch.manual_seed(67)
+        out_dtype = torch.float32
 
         gemm_cases = (
             (
@@ -204,6 +225,7 @@ class TestBlockwiseFP8DTensorSharding(DTensorTestBase):
                 torch.randn(256, 512, dtype=torch.bfloat16, device=device),
                 (256, 256),
                 (
+                    # lhs input, rhs input, and output placements
                     (Replicate(), Replicate(), Replicate()),
                     (Shard(0), Replicate(), Shard(0)),
                     (Replicate(), Shard(0), Shard(1)),
@@ -218,6 +240,7 @@ class TestBlockwiseFP8DTensorSharding(DTensorTestBase):
                 torch.randn(512, 256, dtype=torch.bfloat16, device=device),
                 (256, 256),
                 (
+                    # lhs input, rhs input, and output placements
                     (Replicate(), Replicate(), Replicate()),
                     (Shard(1), Replicate(), Shard(0)),
                     (Replicate(), Shard(1), Shard(1)),
@@ -235,6 +258,25 @@ class TestBlockwiseFP8DTensorSharding(DTensorTestBase):
             expected_shape,
             placement_cases,
         ) in gemm_cases:
+            global_a, global_a_s = lhs_quant_op(
+                lhs_input,
+                block_size=self.block_size,
+                dtype=e4m3_dtype,
+            )
+            global_b, global_b_s = rhs_quant_op(
+                rhs_input,
+                block_size=self.block_size,
+                dtype=e4m3_dtype,
+            )
+            expected_global_output = gemm_op(
+                global_a,
+                global_b,
+                global_a_s,
+                global_b_s,
+                block_size=self.block_size,
+                out_dtype=out_dtype,
+            )
+
             for (
                 lhs_input_placement,
                 rhs_input_placement,
@@ -270,7 +312,7 @@ class TestBlockwiseFP8DTensorSharding(DTensorTestBase):
                     dist_a_s,
                     dist_b_s,
                     block_size=self.block_size,
-                    out_dtype=torch.bfloat16,
+                    out_dtype=out_dtype,
                 )
 
                 local_a, local_a_s = lhs_quant_op(
@@ -289,12 +331,13 @@ class TestBlockwiseFP8DTensorSharding(DTensorTestBase):
                     local_a_s,
                     local_b_s,
                     block_size=self.block_size,
-                    out_dtype=torch.bfloat16,
+                    out_dtype=out_dtype,
                 )
 
                 self._assert_gemm_output(
                     dist_output=dist_output,
                     expected_local_output=expected_local_output,
+                    expected_global_output=expected_global_output,
                     expected_placement=expected_output_placement,
                     expected_global_shape=expected_shape,
                 )
