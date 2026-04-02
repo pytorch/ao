@@ -332,10 +332,10 @@ def preprocess_addmm(a: Float8TrainingTensor, b: Float8TrainingTensor):
         b._linear_mm_config,
     )
 
-    if scaled_mm_config.pad_inner_dim:
-        assert a._data.size(1) == b._data.size(0), (
-            f"Inner dims must match for mm, got {a._data.size(1)} and {b._data.size(0)}"
-        )
+    assert a._data.size(1) == b._data.size(0), (
+        f"Inner dims must match for mm, got {a._data.size(1)} and {b._data.size(0)}"
+    )
+    if scaled_mm_config.pad_inner_dim or a_data.size(1) % 16 != 0:
         a_data = pad_tensor_for_matmul(a_data, dims=1)
         b_data = pad_tensor_for_matmul(b_data, dims=0)
 
