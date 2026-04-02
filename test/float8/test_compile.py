@@ -14,10 +14,6 @@ import torch
 import torch.nn as nn
 from torch._dynamo.test_case import TestCase as DynamoTestCase
 from torch._dynamo.testing import CompileCounterWithBackend
-from torch.testing._internal.common_utils import (
-    instantiate_parametrized_tests,
-    parametrize,
-)
 
 from torchao.float8.config import (
     CastConfig,
@@ -43,6 +39,10 @@ from torchao.utils import (
 )
 
 _DEVICES = get_available_devices()[1:]  # Exclude CPU since this test is for GPU kernels
+if not _DEVICES:
+    _DEVICES = [
+        pytest.param("no_gpu", marks=pytest.mark.skip(reason="GPU not available"))
+    ]
 
 
 @pytest.fixture(scope="module", params=_DEVICES)
@@ -163,11 +163,6 @@ def test_aot_eager(
     )
 
 
-@unittest.skipIf(not torch.accelerator.is_available(), "GPU not available")
-@unittest.skipIf(
-    torch.cuda.is_available() and not is_sm_at_least_89(),
-    "CUDA with float8 support not available",
-)
 @pytest.mark.parametrize("fullgraph", [True])
 @pytest.mark.parametrize("emulate", [False])
 @pytest.mark.parametrize("scaling_type_input", [ScalingType.DYNAMIC])
@@ -240,7 +235,6 @@ def test_inductor_from_recipe(recipe_name, device):
     )
 
 
-@instantiate_parametrized_tests
 class TestGraphBreaks(DynamoTestCase):
     class MockLinear(torch.nn.Module):
         def __init__(self, graph_break: bool):
@@ -264,75 +258,83 @@ class TestGraphBreaks(DynamoTestCase):
         torch.cuda.is_available() and not is_sm_at_least_90(),
         "CUDA with capability 9.0 or greater not available",
     )
-    @parametrize("device", _DEVICES)
-    def test_float8_with_graph_break_in_the_middle(self, device):
+    def test_float8_with_graph_break_in_the_middle(self):
         """Test that having Float8TrainingTensor object at the boundary of a subgraph"""
-        cnts = CompileCounterWithBackend("inductor")
-        mod = self.MockLinear(graph_break=True).to(device)
-        compiled_mod = copy.deepcopy(mod)
-        compiled_mod = torch.compile(compiled_mod, backend=cnts)
-        x = torch.randn(16, 16, device=device)
-        y_eager = mod(x)
-        y_compiled = compiled_mod(x)
-        self.assertEqual(cnts.frame_count, 2, "Compiled graph should have 2 frames!")
-        torch.testing.assert_close(y_eager, y_compiled)
+        for device in _DEVICES:
+            with self.subTest(device=device):
+                cnts = CompileCounterWithBackend("inductor")
+                mod = self.MockLinear(graph_break=True).to(device)
+                compiled_mod = copy.deepcopy(mod)
+                compiled_mod = torch.compile(compiled_mod, backend=cnts)
+                x = torch.randn(16, 16, device=device)
+                y_eager = mod(x)
+                y_compiled = compiled_mod(x)
+                self.assertEqual(
+                    cnts.frame_count, 2, "Compiled graph should have 2 frames!"
+                )
+                torch.testing.assert_close(y_eager, y_compiled)
 
     @unittest.skipIf(not torch.accelerator.is_available(), "GPU not available")
     @unittest.skipIf(
         torch.cuda.is_available() and not is_sm_at_least_89(),
         "CUDA with float8 support not available",
     )
-    @parametrize("device", _DEVICES)
-    def test_float8_graph_input(self, device):
+    def test_float8_graph_input(self):
         # """Test that having Float8TrainingTensor object as a graph input"""
+        for device in _DEVICES:
+            with self.subTest(device=device):
 
-        def to_float(x):
-            return x.to_original_precision()
+                def to_float(x):
+                    return x.to_original_precision()
 
-        cnts = CompileCounterWithBackend("inductor")
-        mod = self.MockLinear(graph_break=False).to(device)
-        x = torch.randn(2, 2, device=device)
-        compiled_to_float = torch.compile(to_float, backend=cnts)
-        y = mod(x)
-        y2_eager = to_float(y)
-        y2_compiled = compiled_to_float(y)
-        self.assertEqual(
-            cnts.frame_count,
-            1,
-            "to_float was not compiled into 1 frame and likely encountered a skip!",
-        )
-        torch.testing.assert_close(y2_eager, y2_compiled)
+                cnts = CompileCounterWithBackend("inductor")
+                mod = self.MockLinear(graph_break=False).to(device)
+                x = torch.randn(2, 2, device=device)
+                compiled_to_float = torch.compile(to_float, backend=cnts)
+                y = mod(x)
+                y2_eager = to_float(y)
+                y2_compiled = compiled_to_float(y)
+                self.assertEqual(
+                    cnts.frame_count,
+                    1,
+                    "to_float was not compiled into 1 frame and likely encountered a skip!",
+                )
+                torch.testing.assert_close(y2_eager, y2_compiled)
 
     @unittest.skipIf(not torch.accelerator.is_available(), "GPU not available")
     @unittest.skipIf(
         torch.cuda.is_available() and not is_sm_at_least_89(),
         "CUDA with float8 support not available",
     )
-    @parametrize("device", _DEVICES)
-    def test_float8_graph_output(self, device):
+    def test_float8_graph_output(self):
         """Test that having Float8TrainingTensor object as a graph output works"""
-        cnts = CompileCounterWithBackend("inductor")
-        mod = self.MockLinear(graph_break=False).to(device)
-        compiled_mod = torch.compile(mod, backend=cnts)
-        x = torch.randn(16, 16, device=device)
-        y_compiled = compiled_mod(x)
+        for device in _DEVICES:
+            with self.subTest(device=device):
+                cnts = CompileCounterWithBackend("inductor")
+                mod = self.MockLinear(graph_break=False).to(device)
+                compiled_mod = torch.compile(mod, backend=cnts)
+                x = torch.randn(16, 16, device=device)
+                y_compiled = compiled_mod(x)
 
-        self.assertEqual(cnts.frame_count, 1, "Compiled graph should have 1 frame!")
-        tensors, ctx = y_compiled.__tensor_flatten__()
-        for tensor in tensors:
-            assert not isinstance(
-                getattr(y_compiled, tensor), torch._subclasses.fake_tensor.FakeTensor
-            ), "Float8TrainingTensor should not contain any FakeTensors!"
-        assert isinstance(y_compiled._orig_dtype, torch.dtype), (
-            "Float8TrainingTensor._orig_dtype should be a dtype but got {}".format(
-                type(y_compiled._orig_dtype)
-            )
-        )
-        assert isinstance(y_compiled._linear_mm_config.output.emulate, bool), (
-            "Float8TrainingTensor._emulate should be a bool but got {}".format(
-                type(y_compiled._linear_mm_config.output.emulate)
-            )
-        )
+                self.assertEqual(
+                    cnts.frame_count, 1, "Compiled graph should have 1 frame!"
+                )
+                tensors, ctx = y_compiled.__tensor_flatten__()
+                for tensor in tensors:
+                    assert not isinstance(
+                        getattr(y_compiled, tensor),
+                        torch._subclasses.fake_tensor.FakeTensor,
+                    ), "Float8TrainingTensor should not contain any FakeTensors!"
+                assert isinstance(y_compiled._orig_dtype, torch.dtype), (
+                    "Float8TrainingTensor._orig_dtype should be a dtype but got {}".format(
+                        type(y_compiled._orig_dtype)
+                    )
+                )
+                assert isinstance(y_compiled._linear_mm_config.output.emulate, bool), (
+                    "Float8TrainingTensor._emulate should be a bool but got {}".format(
+                        type(y_compiled._linear_mm_config.output.emulate)
+                    )
+                )
 
 
 class capture_stderr(list):
