@@ -230,16 +230,22 @@ def run_experiment(
 
     fwd_bf16_ms = (end_sec - start_sec) * 1e3 / NUM_BENCH_ITERS
     if args.profile:
+
+        def default_a2a_batch():
+            for _ in range(10):
+                default_a2a_fwd(
+                    ref_x,
+                    input_rank_splits,
+                    input_expert_splits,
+                    mesh,
+                    num_experts_per_rank,
+                )
+
         profile_fn(
-            default_a2a_fwd,
-            ref_x,
-            input_rank_splits,
-            input_expert_splits,
-            mesh,
-            num_experts_per_rank,
+            default_a2a_batch,
             distributed=True,
             profile_name="default_a2a_fwd",
-            active_steps=10,
+            active_steps=1,
         )
 
     # Preallocate buffer manager (not timed - reused across model)
@@ -279,16 +285,18 @@ def run_experiment(
 
     fwd_mxfp8_ms = (end_sec - start_sec) * 1e3 / NUM_BENCH_ITERS
     if args.profile:
+
+        def mxfp8_a2a_batch():
+            for _ in range(10):
+                mxfp8_a2a_fwd(
+                    x, input_rank_splits, input_expert_splits, mesh, buffer_manager
+                )
+
         profile_fn(
-            mxfp8_a2a_fwd,
-            x,
-            input_rank_splits,
-            input_expert_splits,
-            mesh,
-            buffer_manager,
+            mxfp8_a2a_batch,
             distributed=True,
             profile_name="mxfp8_a2a_fwd",
-            active_steps=10,
+            active_steps=1,
         )
 
     # Correctness check: compare outputs
