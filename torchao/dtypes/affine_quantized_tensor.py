@@ -176,15 +176,6 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
                 self.quant_max,
                 output_dtype=output_dtype,
             )
-        from torchao.dtypes.uintx import TensorCoreTiledLayout
-
-        if isinstance(self._layout, TensorCoreTiledLayout):
-            # need to return to original shape if tensor was padded
-            # in preprocessing
-            # TODO: we could add an API for this if there are more use cases
-            # (e.g. dequant_post_process) in TensorImpl or Layout
-            for dim, dim_size in enumerate(self.shape):
-                dq = dq.narrow(dim, 0, dim_size)
         return dq
 
     def __tensor_flatten__(self):
@@ -276,8 +267,6 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
                 else input_float.dtype
             )
             device = input_float.device
-            from torchao.dtypes.uintx import TensorCoreTiledLayout
-
             data, scale, zero_point, _ = _choose_qparams_and_quantize_affine_hqq(
                 input_float,
                 nbits=nbits,
@@ -286,15 +275,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
                 compute_dtype=compute_dtype,
                 device=device,
                 verbose=False,
-                raw_output=not isinstance(
-                    _layout, (TensorCoreTiledLayout, PlainLayout)
-                ),
-                # raw_output=False is basically the 'convert to TensorCoreTiledLayout zero_point version' option (add scale*midpoint)
-                # note in choose_qparams_affine, preserve_zero = False does this same thing while also controlling whether
-                # zero is preserved.
-                # TODO uncouple preserve_zero and conversion of zero_point to TensorCoreTiledLayout version
-                # TODO move the conversion of zero_point out of quant_primitives and into TensorCoreTiledLayout.from_plain
-                # TODO change PlainLayout to use raw_output.
+                raw_output=not isinstance(_layout, PlainLayout),
             )
             data = data.to(target_dtype)
         else:

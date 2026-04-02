@@ -22,6 +22,7 @@ from torchao.prototype.attention.shared_utils.wrapper import (
 def setup_fp8_backend(
     model: nn.Module,
     flash_impl_name: str,
+    hadamard: str = "NONE",
 ) -> nn.Module:
     if flash_impl_name == "FA3":
         from torchao.prototype.attention.fp8_fa3.attention import _ops
@@ -40,5 +41,7 @@ def setup_fp8_backend(
     return _FP8FlashAttentionMonkeyPatchWrapper(
         model,
         flash_impl_name=flash_impl_name,
-        sdpa_patch_fn=_make_causal_aware_sdpa(_ops.fp8_sdpa_op, strip_causal_mask),
+        sdpa_patch_fn=_make_causal_aware_sdpa(
+            _ops.fp8_sdpa_op, strip_causal_mask, hadamard=hadamard
+        ),
     )
