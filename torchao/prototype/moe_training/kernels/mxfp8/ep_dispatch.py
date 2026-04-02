@@ -132,24 +132,9 @@ class MXFP8SynclessAllToAllExpertMajor(torch.autograd.Function):
             group=group,
         )
 
-        hp_dtype = input.dtype
-
-        # Wrap output as MXTensor so autograd sees it as orig_dtype/bf16 (backward will receive bf16 gradients)
-        from torchao.prototype.mx_formats.mx_tensor import MXTensor
-
-        mx_output = MXTensor(
-            buffers.output,
-            buffers.output_scales.view(torch.float8_e8m0fnu),
-            elem_dtype=torch.float8_e4m3fn,
-            block_size=block_size,
-            orig_dtype=hp_dtype,
-            kernel_preference=None,
-            act_quant_kwargs=None,
-            is_swizzled_scales=False,
-        )
-
         return (
-            mx_output,
+            buffers.output,
+            buffers.output_scales,
             output_rank_splits,
             output_expert_splits,
             expert_padded_offsets,
