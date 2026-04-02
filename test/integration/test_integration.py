@@ -56,6 +56,7 @@ from torchao.utils import (
     benchmark_model,
     get_current_accelerator_device,
     is_fbcode,
+    is_ROCM,
     is_sm_at_least_89,
     torch_version_at_least,
     unwrap_tensor_subclass,
@@ -259,6 +260,7 @@ class PythonQuantUtilOpUnitTest(unittest.TestCase):
         sqnr = compute_error(y_ref, y)
         self.assertTrue(sqnr >= 39.0, f"{sqnr=} too low")
 
+    @unittest.skipIf(is_ROCM(), "Don't test CPU for ROCM version of torch")
     def test_per_token_linear_cpu(self):
         for dtype in (torch.float32,):
             self._test_per_token_linear_impl("cpu", dtype)
@@ -757,6 +759,9 @@ class TestExport(unittest.TestCase):
             and torch.cuda.get_device_capability() < (8, 0)
         ):
             self.skipTest("Need CUDA and SM80+ available.")
+
+        if test_device == "cpu" and is_ROCM():
+            self.skipTest("Don't test CPU for ROCM version of torch")
 
         logger.info(f"TestExport: {api}, {test_device}, {test_dtype}")
 

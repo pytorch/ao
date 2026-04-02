@@ -619,3 +619,41 @@ def test_3d_transpose(dims, is_swizzled_scales):
     x_hp_t = x_hp.transpose(dims[0], dims[1])
     x_nvfp4_t = x_nvfp4.transpose(dims[0], dims[1])
     assert x_hp_t.shape == x_nvfp4_t.shape
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(
+    not torch_version_at_least("2.8.0"), reason="NVFP4 requires PyTorch 2.8+"
+)
+@pytest.mark.parametrize("use_per_tensor_scale", [True, False])
+def test_nvfp4_pin_memory(use_per_tensor_scale):
+    x_hp = torch.randn(128, 256, device="cuda", dtype=torch.bfloat16)
+    per_tensor_scale = (
+        per_tensor_amax_to_scale(torch.max(torch.abs(x_hp)))
+        if use_per_tensor_scale
+        else None
+    )
+    act_per_tensor_scale = per_tensor_amax_to_scale(torch.max(torch.abs(x_hp)))
+    x_nvfp4 = NVFP4Tensor.to_nvfp4(
+        x_hp,
+        per_tensor_scale=per_tensor_scale,
+        act_per_tensor_scale=act_per_tensor_scale,
+    )
+    x_cpu = x_nvfp4.cpu()
+
+    assert not x_cpu.is_pinned()
+
+    x_pinned = x_cpu.pin_memory()
+
+    assert x_pinned.is_pinned()
+    assert not x_cpu.is_pinned()
+
+    assert x_pinned.qdata.is_pinned()
+    assert x_pinned.scale.is_pinned()
+    if use_per_tensor_scale:
+        assert x_pinned.per_tensor_scale.is_pinned()
+    assert x_pinned.act_per_tensor_scale.is_pinned()
+
+    assert torch.equal(
+        x_cpu.dequantize(torch.float32), x_pinned.dequantize(torch.float32)
+    )

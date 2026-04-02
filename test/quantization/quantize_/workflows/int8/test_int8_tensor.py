@@ -31,6 +31,7 @@ from torchao.testing.model_architectures import ToyTwoLinearModel
 from torchao.testing.utils import TorchAOIntegrationTestCase, skip_if_xpu
 from torchao.utils import (
     get_available_devices,
+    is_ROCM,
     torch_version_at_least,
 )
 
@@ -125,6 +126,9 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
         sizes: tuple,
     ):
         """Test linear operation supports including shape and compile"""
+        if device == "cpu" and is_ROCM():
+            self.skipTest("Don't test CPU for ROCM version of torch")
+
         torch.compiler.reset()
 
         M, N, K = sizes
@@ -336,6 +340,9 @@ class TestInt8StaticQuant(TorchAOIntegrationTestCase):
     def test_static_activation_per_row_int8_weight(
         self, granularity, dtype, act_mapping_type, device
     ):
+        if device == "cpu" and is_ROCM():
+            self.skipTest("Don't test CPU for ROCM version of torch")
+
         torch.compiler.reset()
 
         M, N, K = 128, 128, 128
@@ -422,6 +429,9 @@ class TestInt8StaticQuant(TorchAOIntegrationTestCase):
         with weight slicing. Per-token activation quantization (PerRow(dim=-1))
         should work with weight slicing since act_quant_scale doesn't need to be sliced.
         """
+        if device == "cpu" and is_ROCM():
+            self.skipTest("Don't test CPU for ROCM version of torch")
+
         N, K = 256, 512
         M = 32  # batch size
         dtype = torch.bfloat16

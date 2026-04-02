@@ -13,7 +13,7 @@ import unittest
 import torch
 from parameterized import parameterized
 
-from torchao.utils import is_sm_at_least_90, torch_version_at_least
+from torchao.utils import is_ROCM, is_sm_at_least_90, torch_version_at_least
 
 logging.basicConfig(level=logging.INFO)
 
@@ -79,6 +79,9 @@ class TestQuantFlow(unittest.TestCase):
     def test_int_scaled_mm(self, device, dtype):
         if device == "cuda" and not torch.cuda.is_available():
             self.skipTest(f"{device} not available")
+
+        if device == "cpu" and is_ROCM():
+            self.skipTest("Don't test CPU for ROCM version of torch")
 
         from torchao.kernel import intmm
 
