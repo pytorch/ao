@@ -474,13 +474,10 @@ if _triton_kernels_available:
     def _calculate_reciprocal_scale(scale_e8m0_biased):
         """
         Helper function to calculate reciprocal scale from E8M0 biased exponent.
-
-        This implements the fast reciprocal calculation logic equivalent to CUDA's exp2f_rcp.
         """
         FP32_MANTISSA_BITS: tl.constexpr = 23
 
         # Handle special cases and normal values using nested tl.where
-        # Based on CUDA reference: https://github.com/NVIDIA/TransformerEngine/blob/b7598aa887eb7d619d64c90692980009669379bf/transformer_engine/common/util/ptx.cuh#L332-L341
         descale_fp = tl.where(
             scale_e8m0_biased == 255,  # NaN case -> return NaN
             float("nan"),
@@ -513,15 +510,18 @@ if _triton_kernels_available:
         # Find the maximum absolute value for each row
         max_abs = tl.max(x, axis=axis)
 
+        # Check for NaN presence: if ANY element in each row is NaN,
+        # set that row's max_abs to NaN (per-axis NaN detection)
+        nan_mask = x != x
+        has_nan_per_axis = tl.max(nan_mask, axis=axis)
+
+        # If any element in a row was NaN, set that row's max_abs to NaN
+        max_abs = tl.where(has_nan_per_axis > 0, float("nan"), max_abs)
+
         F8E4M3_MAX_RCP: tl.constexpr = 1.0 / 448.0
 
-        # Calculate scale input like CUDA: amax * max_norm_rcp
+        # Calculate scale input
         scale_input = max_abs * F8E4M3_MAX_RCP
-
-        # Handle special values at scale calculation level (like CUDA float_to_e8m0)
-        # Ref: https://github.com/NVIDIA/TransformerEngine/blob/b7598aa887eb7d619d64c90692980009669379bf/transformer_engine/common/util/ptx.cuh#L332-L341
-        is_nan = scale_input != scale_input  # NaN check
-        is_inf = tl.abs(scale_input) == float("inf")  # Inf check
 
         if USE_PTX:
             # Use PTX instruction for normal values
@@ -542,12 +542,12 @@ if _triton_kernels_available:
             )
             scale_e8m0_biased = (scale_e8m0_unbiased + 127).to(tl.uint8)
 
-        # Apply special value overrides (like CUDA)
-        # Ref: https://github.com/NVIDIA/TransformerEngine/blob/b7598aa887eb7d619d64c90692980009669379bf/transformer_engine/common/util/ptx.cuh#L332-L341
-        scale_e8m0_biased = tl.where(is_nan, 255, scale_e8m0_biased)  # 0xFF for NaN
-        scale_e8m0_biased = tl.where(is_inf, 254, scale_e8m0_biased)  # 0xFE for inf
+        # Apply special value overrides
+        # is_nan = scale_input != scale_input
+        # is_inf = tl.abs(scale_input) == float("inf")
+        # scale_e8m0_biased = tl.where(is_nan, 255, scale_e8m0_biased)
+        # scale_e8m0_biased = tl.where(is_inf, 254, scale_e8m0_biased)
 
-        # Calculate reciprocal scale using helper function
         descale_fp = _calculate_reciprocal_scale(scale_e8m0_biased)
 
         return descale_fp, scale_e8m0_biased
