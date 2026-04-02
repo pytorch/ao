@@ -250,6 +250,23 @@ def _mxfp8_ep_dispatch_launcher(
         num_warps=16,
     )
 
+    # Phase 3: Zero-fill padding regions after data transfer
+    # Calculate which ranges need to be zeroed (padding regions within experts)
+    begin_offs, end_offs = _compute_padding_ranges(
+        output_expert_splits, expert_padded_offsets, num_experts_per_rank, world_size
+    )
+
+    _zero_fill_ranges_kernel[(num_experts_per_rank, 1, 1)](
+        output,
+        output_scales,
+        begin_offs,
+        end_offs,
+        dim=dim,
+        scale_dim=scale_dim,
+        BLOCK_SIZE=BLOCK_SIZE,
+        num_warps=4,
+    )
+
     return output
 
 
@@ -348,6 +365,83 @@ def _mxfp8_all_to_all_expert_major_kernel(
         local_read_offset += my_tokens_to_expert
 
 
+def _compute_padding_ranges(
+    output_expert_splits, expert_padded_offsets, num_experts_per_rank, world_size
+):
+    """Compute ranges that need to be zero-filled (padding regions within experts)."""
+    # Calculate actual tokens per expert (sum across all source ranks)
+    actual_tokens_per_expert = output_expert_splits.sum(
+        dim=0
+    )  # shape: (num_experts_per_rank,)
+
+    # Where each expert's actual data ends
+    actual_end_offsets = expert_padded_offsets + actual_tokens_per_expert
+
+    # Where each expert's padded region ends = start of next expert (from expert_padded_offsets)
+    # For last expert, compute its padded end
+    if num_experts_per_rank > 1:
+        padded_end_offsets = torch.cat(
+            [
+                expert_padded_offsets[1:],  # Start of next expert for all but last
+                expert_padded_offsets[-1:]
+                + ((actual_tokens_per_expert[-1] + 31) // 32)
+                * 32,  # Last expert padded end
+            ]
+        )
+    else:
+        padded_end_offsets = (
+            expert_padded_offsets + ((actual_tokens_per_expert + 31) // 32) * 32
+        )
+
+    return actual_end_offsets, padded_end_offsets
+
+
+@triton.jit
+def _zero_fill_ranges_kernel(
+    output_ptr,
+    output_scales_ptr,
+    begin_offs_ptr,
+    end_offs_ptr,
+    dim: tl.constexpr,
+    scale_dim: tl.constexpr,
+    BLOCK_SIZE: tl.constexpr,
+):
+    """Zero-fill specified ranges in output buffer."""
+    range_idx = tl.program_id(0)
+
+    # Load range bounds
+    begin_offset = tl.load(begin_offs_ptr + range_idx)
+    end_offset = tl.load(end_offs_ptr + range_idx)
+
+    # Only proceed if there's a valid range to fill (begin < end)
+    if begin_offset < end_offset:
+        # Zero-fill data range
+        total_elems = (end_offset - begin_offset) * dim
+        num_blocks = tl.cdiv(total_elems, BLOCK_SIZE)
+
+        for block_idx in tl.range(num_blocks):
+            offs = block_idx * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
+            mask = offs < total_elems
+            tl.store(
+                output_ptr + begin_offset * dim + offs,
+                tl.zeros([BLOCK_SIZE], dtype=tl.float8e4nv),
+                mask=mask,
+            )
+
+        # Zero-fill scales range
+        total_scale_elems = (end_offset - begin_offset) * scale_dim
+        num_scale_blocks = tl.cdiv(total_scale_elems, BLOCK_SIZE)
+
+        for block_idx in tl.range(num_scale_blocks):
+            offs = block_idx * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
+            mask = offs < total_scale_elems
+            tl.store(
+                output_scales_ptr + begin_offset * scale_dim + offs,
+                tl.zeros([BLOCK_SIZE], dtype=tl.uint8),
+                mask=mask,
+            )
+
+
 @triton.jit
 def _precompute_push_write_offsets_kernel(
     all_expert_splits_ptr,
@@ -363,7 +457,7 @@ def _precompute_push_write_offsets_kernel(
 
     Inputs:
         all_expert_splits[src_rank, dst_rank, expert_idx] = tokens src_rank sends to expert_idx on dst_rank
-        output_expert_splits[src_rank, expert_idx] = tokens src_rank sends to expert_idx on this rank (precomputed on CPU)
+        output_expert_splits[src_rank, expert_idx] = tokens src_rank sends to expert_idx on this rank
 
     Outputs:
         write_offsets[dst_rank, expert_idx] = where this rank writes for (dst_rank, expert_idx)
