@@ -1,13 +1,16 @@
 import pytest
 import torch
 
-from torchao.utils import is_cuda_version_at_least, is_sm_at_least_100
+from torchao.utils import is_cuda_version_at_least, is_sm_at_least_100, is_XPU
 
-_is_xpu = torch.xpu.is_available()
-_is_incompatible_cuda = torch.cuda.is_available() and not (
-    is_sm_at_least_100() and is_cuda_version_at_least(12, 8)
+_is_xpu = is_XPU()
+_is_compatible_cuda = (
+    torch.cuda.is_available()
+    and is_sm_at_least_100()
+    and is_cuda_version_at_least(12, 8)
 )
-if not _is_xpu and _is_incompatible_cuda:
+
+if not (_is_xpu or _is_compatible_cuda):
     pytest.skip(
         "Test requires XPU or CUDA 12.8+ with SM >= 100", allow_module_level=True
     )
