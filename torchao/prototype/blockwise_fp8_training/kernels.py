@@ -52,7 +52,10 @@ def _blockwise_gemm_shardings():
     # Op returns a single tensor and takes:
     # (a, b, a_s, b_s, block_size, out_dtype)
     return [
-        ([Replicate()], [Replicate(), Replicate(), Replicate(), Replicate(), None, None]),
+        (
+            [Replicate()],
+            [Replicate(), Replicate(), Replicate(), Replicate(), None, None],
+        ),
         ([Shard(0)], [Shard(0), Replicate(), Shard(0), Replicate(), None, None]),
         ([Shard(1)], [Replicate(), Shard(1), Replicate(), Shard(1), None, None]),
         ([Partial()], [Shard(1), Shard(0), Shard(1), Shard(0), None, None]),
@@ -853,7 +856,9 @@ def custom_sharding_for_triton_fp8_blockwise_act_quant_rhs(
     )
 
 
-@register_sharding(torch.ops.torchao.triton_fp8_blockwise_act_quant_transposed_lhs.default)
+@register_sharding(
+    torch.ops.torchao.triton_fp8_blockwise_act_quant_transposed_lhs.default
+)
 def custom_sharding_for_triton_fp8_blockwise_act_quant_transposed_lhs(
     x: torch.Tensor,
     block_size: int = 128,
@@ -877,7 +882,9 @@ def custom_sharding_for_triton_fp8_blockwise_weight_quant_rhs(
     )
 
 
-@register_sharding(torch.ops.torchao.triton_fp8_blockwise_weight_quant_transposed_rhs.default)
+@register_sharding(
+    torch.ops.torchao.triton_fp8_blockwise_weight_quant_transposed_rhs.default
+)
 def custom_sharding_for_triton_fp8_blockwise_weight_quant_transposed_rhs(
     x: torch.Tensor,
     block_size: int = 128,
