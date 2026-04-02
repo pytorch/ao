@@ -4,7 +4,7 @@ import torch.distributed._symmetric_memory as symm_mem
 import triton
 import triton.language as tl
 
-from torchao.prototype.moe_training.kernels.mxfp8 import (
+from torchao.prototype.moe_training.ep.syncless import (
     EPBufferManager,
     get_buffer_manager,
 )
@@ -117,7 +117,7 @@ class MXFP8SynclessAllToAllExpertMajor(torch.autograd.Function):
         )
 
         # Push input to remote output buffers
-        _mxfp8_ep_dispatch_launcher(
+        _mxfp8_token_dispatch_launcher(
             input_data,
             input_scales,
             input_rank_splits,
@@ -131,6 +131,9 @@ class MXFP8SynclessAllToAllExpertMajor(torch.autograd.Function):
             expert_padded_offsets,
             group=group,
         )
+
+        # Store metadata for real data views in buffer manager
+        buffers.set_real_data_metadata(output_expert_splits, expert_padded_offsets)
 
         return (
             buffers.output,
@@ -152,11 +155,11 @@ class MXFP8SynclessAllToAllExpertMajor(torch.autograd.Function):
 
 
 # Alias
-mxfp8_ep_dispatch = MXFP8SynclessAllToAllExpertMajor.apply
+mxfp8_token_dispatch = MXFP8SynclessAllToAllExpertMajor.apply
 
 
 # Triton launcher function for push model
-def _mxfp8_ep_dispatch_launcher(
+def _mxfp8_token_dispatch_launcher(
     input_data: torch.Tensor,
     input_scales: torch.Tensor,
     input_rank_splits: torch.Tensor,
