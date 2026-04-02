@@ -24,13 +24,14 @@ from torch.distributed._functional_collectives import (
     all_to_all_single,
     all_to_all_single_autograd,
 )
-from torch.nn import functional as F
 from tqdm import tqdm
 
 from benchmarks.utils import profile_fn
-from torchao.prototype.moe_training.kernels.mxfp8.comms import (
-    to_mxfp8_a2a_dequant,
+from torchao.prototype.moe_training.ep.permute import permute_and_pad
+from torchao.prototype.moe_training.kernels.mxfp8.ep_dispatch import (
+    mxfp8_ep_dispatch,
 )
+from torchao.quantization.utils import compute_error
 
 device = torch.device("cuda")
 
@@ -44,8 +45,7 @@ class ExperimentConfig:
 class ExperimentResult:
     fwd_bf16_ms: float
     fwd_mxfp8_ms: float
-    bwd_bf16_ms: float
-    bwd_mxfp8_ms: float
+    mxfp8_bandwidth_gbps: float
 
 
 @dataclass(frozen=True)
@@ -57,11 +57,7 @@ class Experiment:
 def get_configs() -> List[ExperimentConfig]:
     # (batch_size, seq_len, dim)
     input_shapes = [
-        (1, 8192, 5120),
-        (2, 8192, 5120),
-        (4, 8192, 5120),
-        (8, 8192, 5120),
-        (16, 8192, 5120),
+        (1, 8192, 7168),
     ]
     configs = []
     for shape in input_shapes:
@@ -75,49 +71,98 @@ def get_configs() -> List[ExperimentConfig]:
 
 def default_a2a_fwd(
     routed_input: torch.Tensor,
-    output_splits_list: list[int],
-    input_splits_list: list[int],
+    input_rank_splits: torch.Tensor,
+    input_expert_splits: torch.Tensor,
     device_mesh: DeviceMesh,
+    num_experts_per_rank: int,
 ):
-    routed_input = all_to_all_single_autograd(
+    world_size = dist.get_world_size(device_mesh.get_group())
+
+    # Step 1: Device-to-host sync to get splits for NCCL API (this is the overhead)
+    input_splits_list = input_rank_splits.cpu().tolist()
+
+    # Step 2: Compute output splits from input splits using all_to_all_single
+    output_rank_splits = torch.empty_like(input_rank_splits)
+    dist.all_to_all_single(
+        output_rank_splits, input_rank_splits, group=device_mesh.get_group()
+    )
+    output_splits_list = output_rank_splits.cpu().tolist()  # Another d2h sync
+
+    # Step 3: Do actual all_to_all_single to exchange token data
+    routed_output = all_to_all_single_autograd(
         routed_input,
         output_splits_list,
         input_splits_list,
         device_mesh.get_group(),
     )
-    routed_input = torch.ops._c10d_functional.wait_tensor(routed_input)
-    torch.cuda.synchronize()
-    return routed_input
+    routed_output = torch.ops._c10d_functional.wait_tensor(routed_output)
+
+    # Step 4: Compute actual expert splits after all-to-all
+    # We need to compute how many tokens each expert on this rank received
+    # This requires gathering the expert splits and computing output_expert_splits like in the test
+
+    # All-gather expert splits to get global view
+    all_expert_splits = torch.empty(
+        world_size * world_size,
+        num_experts_per_rank,
+        dtype=input_expert_splits.dtype,
+        device=device,
+    )
+    dist.all_gather_into_tensor(
+        all_expert_splits,
+        input_expert_splits,
+        group=device_mesh.get_group(),
+    )
+    all_expert_splits = all_expert_splits.view(
+        world_size, world_size, num_experts_per_rank
+    )
+
+    # Compute output expert splits: tokens each expert on this rank received
+    rank = dist.get_rank(device_mesh.get_group())
+    output_expert_splits = all_expert_splits[
+        :, rank, :
+    ]  # shape: (world_size, num_experts_per_rank)
+
+    # Sum across source ranks to get total tokens per expert on this rank
+    tokens_per_expert = output_expert_splits.sum(
+        dim=0
+    )  # shape: (num_experts_per_rank,)
+
+    _, expert_major_output, _, _, _ = permute_and_pad(
+        routed_output,
+        tokens_per_expert,
+        ep_degree=world_size,
+        num_local_experts=num_experts_per_rank,
+        alignment=32,
+    )
+
+    return expert_major_output
 
 
 def mxfp8_a2a_fwd(
     routed_input: torch.Tensor,
-    output_splits_list: list[int],
-    input_splits_list: list[int],
+    input_rank_splits: torch.Tensor,
+    input_expert_splits: torch.Tensor,
     device_mesh: DeviceMesh,
 ):
-    routed_input = to_mxfp8_a2a_dequant(
-        routed_input,
-        output_splits_list,
-        input_splits_list,
-        device_mesh.get_group(),
+    world_size = dist.get_world_size(device_mesh.get_group())
+
+    # Calculate max output rows per rank - worst case where all tokens route to one rank
+    total_tokens_across_all_ranks = routed_input.shape[0] * world_size
+    max_output_rows_per_rank = total_tokens_across_all_ranks
+
+    # Call the new mxfp8_ep_dispatch function - all tensors stay on device (zero syncs!)
+    mx_output, output_rank_splits, output_expert_splits, expert_padded_offsets = (
+        mxfp8_ep_dispatch(
+            routed_input,
+            input_rank_splits,
+            input_expert_splits,
+            max_output_rows_per_rank,
+            device_mesh.get_group(),
+        )
     )
-    torch.cuda.synchronize()
-    return routed_input
 
-
-def mse_loss_and_bwd(
-    routed_input: torch.Tensor,
-    labels: torch.Tensor,
-):
-    loss = F.mse_loss(routed_input, labels)
-    loss.backward()
-    torch.cuda.synchronize()
-    return routed_input
-
-
-# Compile target funcs
-mse_loss_and_bwd_compiled = torch.compile(mse_loss_and_bwd)
+    return mx_output
 
 
 def run_experiment(
@@ -128,9 +173,8 @@ def run_experiment(
         (batch_size * seq_len, dim),
         dtype=torch.bfloat16,
         device=device,
-        requires_grad=True,
     )
-    ref_x = x.detach().clone().requires_grad_(True)
+    ref_x = x.detach().clone()
 
     # Set up device mesh
     mesh = init_device_mesh("cuda", (dist.get_world_size(),))
@@ -148,107 +192,207 @@ def run_experiment(
     ).repeat(num_experts)
     input_splits_list, output_splits_list = get_split_lists(input_splits, mesh)
 
-    # Generate labels
-    labels_shape = (sum(output_splits_list), dim)
-    labels = x.new_ones(*labels_shape)
-
-    # Bench default a2a fwd (exclude d2h sync from preparing input splits_list and output_splits_list)
-    warmup(lambda: default_a2a_fwd(ref_x, output_splits_list, input_splits_list, mesh))
-    start_sec = time.perf_counter()
-    bf16_routed_input = default_a2a_fwd(
-        ref_x, output_splits_list, input_splits_list, mesh
+    # Create input_expert_splits for default implementation
+    # For this benchmark, assume uniform distribution across experts
+    tokens_per_expert_per_rank = [
+        split // num_experts_per_rank for split in input_splits_list
+    ]
+    input_expert_splits = (
+        torch.tensor(tokens_per_expert_per_rank, dtype=torch.int64, device=device)
+        .unsqueeze(1)
+        .repeat(1, num_experts_per_rank)
     )
+
+    # Compute input_rank_splits from input_splits
+    input_rank_splits = input_splits.view(dist.get_world_size(), -1).sum(dim=1)
+
+    # Bench default a2a fwd (includes d2h sync overhead for NCCL API)
+    warmup(
+        lambda: default_a2a_fwd(
+            ref_x, input_rank_splits, input_expert_splits, mesh, num_experts_per_rank
+        )
+    )
+
+    # Run 10 iterations and take average
+    NUM_BENCH_ITERS = 10
+    torch.cuda.synchronize()
+    start_sec = time.perf_counter()
+    for _ in range(NUM_BENCH_ITERS):
+        bf16_routed_input = default_a2a_fwd(
+            ref_x, input_rank_splits, input_expert_splits, mesh, num_experts_per_rank
+        )
+    torch.cuda.synchronize()
     end_sec = time.perf_counter()
-    fwd_bf16_ms = (end_sec - start_sec) * 1e3
+
+    fwd_bf16_ms = (end_sec - start_sec) * 1e3 / NUM_BENCH_ITERS
     if args.profile:
         profile_fn(
             default_a2a_fwd,
             ref_x,
-            output_splits_list,
-            input_splits_list,
+            input_rank_splits,
+            input_expert_splits,
             mesh,
+            num_experts_per_rank,
             distributed=True,
             profile_name="default_a2a_fwd",
+            active_steps=10,
         )
 
-    # Bench default a2a backward
-    warmup(lambda: mse_loss_and_bwd_compiled(bf16_routed_input, labels))
-    start_sec = time.perf_counter()
-    mse_loss_and_bwd_compiled(bf16_routed_input, labels)
-    end_sec = time.perf_counter()
-    bwd_bf16_ms = (end_sec - start_sec) * 1e3
-    if args.profile:
-        profile_fn(
-            mse_loss_and_bwd_compiled,
-            bf16_routed_input,
-            labels,
-            distributed=True,
-            profile_name="bf16_a2a_bwd",
-        )
+    # Bench mxfp8 sync a2a fwd (zero device-to-host syncs!)
+    warmup(lambda: mxfp8_a2a_fwd(x, input_rank_splits, input_expert_splits, mesh))
 
-    # Bench mxfp8 sync a2a fwd (exclude d2h sync from preparing input splits_list and output_splits_list)
-    warmup(lambda: mxfp8_a2a_fwd(x, output_splits_list, input_splits_list, mesh))
+    # Run 10 iterations and take average
+    torch.cuda.synchronize()
     start_sec = time.perf_counter()
-    mxfp8_routed_input = mxfp8_a2a_fwd(x, output_splits_list, input_splits_list, mesh)
+    for _ in range(NUM_BENCH_ITERS):
+        mxfp8_routed_input = mxfp8_a2a_fwd(
+            x, input_rank_splits, input_expert_splits, mesh
+        )
+    torch.cuda.synchronize()
     end_sec = time.perf_counter()
-    fwd_mxfp8_ms = (end_sec - start_sec) * 1e3
+
+    fwd_mxfp8_ms = (end_sec - start_sec) * 1e3 / NUM_BENCH_ITERS
     if args.profile:
         profile_fn(
             mxfp8_a2a_fwd,
             x,
-            output_splits_list,
-            input_splits_list,
+            input_rank_splits,
+            input_expert_splits,
             mesh,
             distributed=True,
             profile_name="mxfp8_a2a_fwd",
+            active_steps=10,
         )
 
-    # Bench mxfp8 sync a2a backward
-    warmup(lambda: mse_loss_and_bwd_compiled(mxfp8_routed_input, labels))
-    start_sec = time.perf_counter()
-    mse_loss_and_bwd_compiled(mxfp8_routed_input, labels)
-    end_sec = time.perf_counter()
-    bwd_mxfp8_ms = (end_sec - start_sec) * 1e3
-    if args.profile:
-        profile_fn(
-            mse_loss_and_bwd_compiled,
-            mxfp8_routed_input,
-            labels,
-            distributed=True,
-            profile_name="mxfp8_a2a_bwd",
-        )
+    # Correctness check: compare outputs
+    if dist.get_rank() == 0:
+        print(f"Debug info for shape {config.input_shape}:")
+        print(f"  Input tensor shape: {x.shape}")
+        print(f"  BF16 output shape: {bf16_routed_input.shape}")
+        print(f"  MXFP8 output shape: {mxfp8_routed_input.qdata.shape}")
+        print(f"  Input rank splits: {input_rank_splits}")
+        print(f"  Input expert splits shape: {input_expert_splits.shape}")
+        print(f"  Input expert splits:\n{input_expert_splits}")
+
+    # Dequantize MXFP8 output to BF16 for comparison
+    from torchao.prototype.mx_formats.mx_tensor import MXTensor
+
+    assert isinstance(mxfp8_routed_input, MXTensor)
+
+    # Dequantize the MXTensor back to BF16
+    mxfp8_dequantized = mxfp8_routed_input.dequantize()
+
+    # Use reference size for comparison - it allocates exactly what's needed
+    # while mxfp8_ep_dispatch may overallocate for worst-case scenario
+    compare_size = bf16_routed_input.shape[0]
+
+    if dist.get_rank() == 0:
+        print(f"  Compare size: {compare_size}")
+        print(f"  Ref output first few elements: \n{bf16_routed_input[:5, :3]}")
+        print(f"  MXFP8 dequantized first few elements: \n{mxfp8_dequantized[:5, :3]}")
+
+    # Compute SQNR between outputs
+    sqnr = compute_error(
+        bf16_routed_input[:compare_size], mxfp8_dequantized[:compare_size]
+    )
+
+    if dist.get_rank() == 0:
+        sqnr_val = sqnr.item()
+        if sqnr_val >= 20.0:
+            print(
+                f"Correctness check passed for shape {config.input_shape} (SQNR: {sqnr_val:.2f} dB)"
+            )
+        else:
+            print(
+                f"Correctness check failed for shape {config.input_shape} (SQNR: {sqnr_val:.2f} dB < 20 dB)"
+            )
+
+    # Calculate bandwidth utilization
+    world_size = dist.get_world_size()
+
+    # Data volume calculation
+    # Each rank has input data of size: batch_size * seq_len * dim * 2 bytes (bfloat16)
+    input_data_bytes = batch_size * seq_len * dim * 2
+
+    # In all-to-all, each rank sends its data to all ranks (including itself)
+    # Network traffic excludes the local copy:
+    #   sent_bytes = input_data_bytes * (world_size - 1) / world_size
+    # Each rank both sends and receives, so:
+    #   total network bytes = 2 * sent_bytes
+    network_fraction = (world_size - 1) / world_size if world_size > 1 else 0
+    total_network_bytes_per_rank = 2 * input_data_bytes * network_fraction
+
+    # Convert to GB and calculate bandwidth
+    total_network_gb = total_network_bytes_per_rank / (1024**3)
+
+    # Calculate bandwidth in GB/s (only for MXFP8)
+    mxfp8_bandwidth_gbps = (
+        (total_network_gb / (fwd_mxfp8_ms / 1000)) if fwd_mxfp8_ms > 0 else 0
+    )
 
     return ExperimentResult(
         fwd_bf16_ms=fwd_bf16_ms,
         fwd_mxfp8_ms=fwd_mxfp8_ms,
-        bwd_bf16_ms=bwd_bf16_ms,
-        bwd_mxfp8_ms=bwd_mxfp8_ms,
+        mxfp8_bandwidth_gbps=mxfp8_bandwidth_gbps,
     )
 
 
 def print_results(experiments: List[Experiment]):
     headers = [
         "input_shape",
-        "num_splits",
-        "fwd_bf16_ms",
-        "fwd_mxfp8_ms",
-        "bwd_bf16_ms",
-        "bwd_mxfp8_ms",
+        "num_ranks",
+        "bf16_ms",
+        "mxfp8_ms",
+        "speedup",
+        "mxfp8_bw_gbps",
+        "nvlink_util_%",
     ]
     rows = []
-    num_splits = dist.get_world_size()
+    num_ranks = dist.get_world_size()
+
+    # B200 theoretical max NVLink bandwidth
+    # 18 links * 53.125 GB/s = 956.25 GB/s per GPU
+    theoretical_nvlink_gbps = 956
+
     for experiment in experiments:
+        speedup = (
+            experiment.result.fwd_bf16_ms / experiment.result.fwd_mxfp8_ms
+            if experiment.result.fwd_mxfp8_ms > 0
+            else float("inf")
+        )
+        nvlink_util = (
+            experiment.result.mxfp8_bandwidth_gbps / theoretical_nvlink_gbps * 100
+        )
+
         rows.append(
             [
                 str(experiment.config.input_shape),
-                num_splits,
-                experiment.result.fwd_bf16_ms,
-                experiment.result.fwd_mxfp8_ms,
-                experiment.result.bwd_bf16_ms,
-                experiment.result.bwd_mxfp8_ms,
+                num_ranks,
+                f"{experiment.result.fwd_bf16_ms:.2f}",
+                f"{experiment.result.fwd_mxfp8_ms:.2f}",
+                f"{speedup:.2f}x",
+                f"{experiment.result.mxfp8_bandwidth_gbps:.1f}",
+                f"{nvlink_util:.1f}%",
             ]
         )
-    print(tabulate(rows, headers=headers))
+
+    print("\n" + "=" * 100)
+    print("BENCHMARK RESULTS")
+    print("=" * 100)
+    print(tabulate(rows, headers=headers, tablefmt="grid"))
+
+    if len(experiments) > 0:
+        avg_mxfp8_bw = sum(e.result.mxfp8_bandwidth_gbps for e in experiments) / len(
+            experiments
+        )
+        avg_nvlink_util = avg_mxfp8_bw / theoretical_nvlink_gbps * 100
+
+        print("\nBandwidth Summary:")
+        print(f"  MXFP8 average bandwidth: {avg_mxfp8_bw:.1f} GB/s")
+        print(
+            f"  NVLink utilization: {avg_nvlink_util:.1f}% of theoretical maximum ({theoretical_nvlink_gbps} GB/s)"
+        )
+        print("=" * 80)
 
 
 def get_split_lists(
