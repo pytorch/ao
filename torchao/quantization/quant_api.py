@@ -34,10 +34,8 @@ import torchao
 from torchao.core.config import AOBaseConfig
 from torchao.dtypes import (
     AffineQuantizedTensor,
-    PlainLayout,
     to_affine_quantized_intx,
 )
-from torchao.dtypes.utils import Layout
 from torchao.float8.config import e4m3_dtype
 from torchao.float8.float8_linear import Float8Linear
 from torchao.float8.inference import (
@@ -103,7 +101,6 @@ from .granularity import (
 )
 from .linear_activation_quantized_tensor import (
     LinearActivationQuantizedTensor,
-    to_linear_activation_quantized,
 )
 from .linear_quant_modules import (
     Int4WeightOnlyQuantizer,
@@ -115,7 +112,6 @@ from .qat import (
 from .quant_primitives import (
     _DTYPE_TO_QVALUE_BOUNDS,
     MappingType,
-    ZeroPointDomain,
     quantize_affine,
 )
 from .unified import Quantizer, TwoStepQuantizer
@@ -685,18 +681,15 @@ def _int8_dynamic_activation_intx_weight_transform(
 @dataclass
 class Int4WeightOnlyConfig(AOBaseConfig):
     """
-    Configuration for int4 weight only quantization, only groupwise quantization is supported
-    right now, and we support version 1 and version 2, that are implemented differently although with
-    same support. In version 2, different target are mainly distinguished by `packing_format` arg, and in version 1, mainly by `layout`.
+    Configuration for int4 weight only quantization, only groupwise quantization is supported.
 
     Args:
         `group_size`: parameter for quantization, controls the granularity of quantization, smaller
-         size is more fine grained, choices are [256, 128, 64, 32], used in both version 1 and 2
-        `int4_packing_format`: the packing format for int4 tensor, used in version 2 only
-         `int4_choose_qparams_algorithm`: variants of choose qparams algorithm to use for int4,
-         currently support TINYGEMM ("tinygemm") and HQQ ("hqq"), used in version 2 only
-        `set_inductor_config`: if True, adjusts `torchinductor` settings to recommended values. used in both version 1 and 2
-        `version`: version of the config to use, default is 2
+         size is more fine grained, choices are [256, 128, 64, 32]
+        `int4_packing_format`: the packing format for int4 tensor
+        `int4_choose_qparams_algorithm`: variants of choose qparams algorithm to use for int4,
+         currently support TINYGEMM ("tinygemm") and HQQ ("hqq")
+        `set_inductor_config`: if True, adjusts `torchinductor` settings to recommended values.
         `int4_tile_packed_ntile`: ntile size for TILED_PACKED_TO_4D format, default is 8 for CUDA platform, 16 for ROCm platform
 
     Example:
@@ -707,7 +700,6 @@ class Int4WeightOnlyConfig(AOBaseConfig):
 
     group_size: int = 128
     set_inductor_config: bool = True
-    # only used in version >= 2
     int4_packing_format: Int4PackingFormat = Int4PackingFormat.PLAIN
     int4_choose_qparams_algorithm: Int4ChooseQParamsAlgorithm = (
         Int4ChooseQParamsAlgorithm.TINYGEMM
@@ -909,44 +901,27 @@ class Int8WeightOnlyConfig(AOBaseConfig):
     group_size: Optional[int] = None
     granularity: Optional[Granularity] = PerRow()
     set_inductor_config: bool = True
-    version: int = 1
+    version: int = 2
 
     def __post_init__(self):
         torch._C._log_api_usage_once("torchao.quantization.Int8WeightOnlyConfig")
-        if self.version == 2:
-            assert self.group_size is None, (
-                f"Only support version 2 with group_size=None, got {self.group_size}. "
-                f"Use granularity=PerGroup({self.group_size}) instead."
+        if self.version == 1:
+            raise ValueError(
+                "version 1 of Int8WeightOnlyConfig has been removed, please use version 2, "
+                "see https://github.com/pytorch/ao/issues/2752 for more details"
             )
-            assert isinstance(self.granularity, (PerTensor, PerRow, PerGroup)), (
-                f"granularity must be PerTensor, PerRow, or PerGroup, but got {self.granularity}"
-            )
+        assert self.group_size is None, (
+            f"Only support version 2 with group_size=None, got {self.group_size}. "
+            f"Use granularity=PerGroup({self.group_size}) instead."
+        )
+        assert isinstance(self.granularity, (PerTensor, PerRow, PerGroup)), (
+            f"granularity must be PerTensor, PerRow, or PerGroup, but got {self.granularity}"
+        )
 
 
 def _int8_weight_only_quantize_tensor(weight, config):
-    if config.version == 1:
-        warnings.warn(
-            "Config Deprecation: version 1 of Int8WeightOnlyConfig is deprecated and will no longer be supported in a future release, please use version 2, see https://github.com/pytorch/ao/issues/2752 for more details"
-        )
-        mapping_type = MappingType.SYMMETRIC
-        target_dtype = torch.int8
-        eps = torch.finfo(torch.float32).eps
-        zero_point_dtype = torch.int64
-        group_size = config.group_size
-        if group_size is None:
-            group_size = weight.shape[-1]
-        block_size = tuple([1 for x in range(weight.dim() - 1)] + [group_size])
-        new_weight = to_affine_quantized_intx(
-            weight,
-            mapping_type,
-            block_size,
-            target_dtype,
-            eps=eps,
-            zero_point_dtype=zero_point_dtype,
-        )
-    else:
-        assert config.version == 2, f"Unexpected version: {config.version}"
-        new_weight = Int8Tensor.from_hp(weight, granularity=config.granularity)
+    assert config.version == 2, f"Unexpected version: {config.version}"
+    new_weight = Int8Tensor.from_hp(weight, granularity=config.granularity)
     return new_weight
 
 
@@ -1057,19 +1032,14 @@ class Int8DynamicActivationInt8WeightConfig(AOBaseConfig):
     quantization to linear layers.
 
     Args:
-        layout: Optional[Layout] = PlainLayout() - Tensor layout for the quantized weights. Controls how the
-            quantized data is stored and accessed.
         granularity: Optional[Union[Granularity, Tuple[Granularity, Granularity], List[Granularity]]] = PerRow()
             The granularity for quantization. Can be either a single granularity (applied to both
             activations and weights) or a tuple / list of two granularities (first for activations, second for weights).
             If None, defaults to PerRow for both. Only PerTensor and PerRow are supported.
         act_mapping_type: Optional[MappingType] = MappingType.SYMMETRIC - Mapping type for activation quantization.
-            SYMMETRIC and ASYMMETRIC are supported for version 2.
-        weight_only_decode: bool = False - If True, only quantizes weights during forward pass and keeps activations
-            in original precision during decode operations.
+            SYMMETRIC and ASYMMETRIC are supported.
         set_inductor_config: bool = True - If True, adjusts `torchinductor` settings to recommended values
             for better performance with this quantization scheme.
-        version (int): the version of the config, version 1 is using AffineQuantizedTensor that we plan to deprecate/split, version 2 is using Int8Tensor
 
     Example:
 
@@ -1077,99 +1047,53 @@ class Int8DynamicActivationInt8WeightConfig(AOBaseConfig):
        :language: python
     """
 
-    layout: Optional[Layout] = None
     act_mapping_type: Optional[MappingType] = MappingType.SYMMETRIC
     weight_only_decode: bool = False
     granularity: Optional[
         Union[Granularity, Tuple[Granularity, Granularity], list[Granularity]]
     ] = PerRow()
     set_inductor_config: bool = True
-    version: int = 1
+    version: int = 2
 
     def __post_init__(self):
         torch._C._log_api_usage_once(
             "torchao.quantization.Int8DynamicActivationInt8WeightConfig"
         )
-        if self.layout is None:
-            self.layout = PlainLayout()
-        if self.version == 2:
-            act_granularity, weight_granularity = Int8Tensor._normalize_granularity(
-                self.granularity
+        if self.version == 1:
+            raise ValueError(
+                "version 1 of Int8DynamicActivationInt8WeightConfig has been removed, please use version 2, "
+                "see https://github.com/pytorch/ao/issues/2752 for more details"
             )
-            _validate_granularity_int8(act_granularity, weight_granularity)
-            assert self.act_mapping_type in (
-                MappingType.SYMMETRIC,
-                MappingType.ASYMMETRIC,
-            ), (
-                "Int8DynamicActivationInt8WeightConfig requires "
-                "`act_mapping_type` in (MappingType.SYMMETRIC, "
-                "MappingType.ASYMMETRIC). "
-                "Please set it to MappingType.SYMMETRIC or "
-                "MappingType.ASYMMETRIC."
-            )
+        act_granularity, weight_granularity = Int8Tensor._normalize_granularity(
+            self.granularity
+        )
+        _validate_granularity_int8(act_granularity, weight_granularity)
+        assert self.act_mapping_type in (
+            MappingType.SYMMETRIC,
+            MappingType.ASYMMETRIC,
+        ), (
+            "Int8DynamicActivationInt8WeightConfig requires "
+            "`act_mapping_type` in (MappingType.SYMMETRIC, "
+            "MappingType.ASYMMETRIC). "
+            "Please set it to MappingType.SYMMETRIC or "
+            "MappingType.ASYMMETRIC."
+        )
 
 
 def _int8_dynamic_activation_int8_weight_quantize_tensor(weight, config):
-    if config.version == 1:
-        layout = config.layout
-        act_mapping_type = config.act_mapping_type
-        weight_only_decode = config.weight_only_decode
+    assert config.version == 2, f"Unexpected version: {config.version}"
+    act_granularity, weight_granularity = Int8Tensor._normalize_granularity(
+        config.granularity
+    )
 
-        in_features = weight.shape[-1]
-        # int8 dynamic quantization only has benefit when in_feature > 16
-        if in_features <= 16:
-            logger.info(
-                f"Skipping applying Int8DynamicActivationInt8WeightConfig to weight of shape {weight.shape}"
-                f" because `in_feature` is <= 16: {in_features}"
-            )
-            return weight
-
-        # weight settings
-        mapping_type = MappingType.SYMMETRIC
-        weight_zero_point_domain = ZeroPointDomain.NONE
-
-        def get_weight_block_size(x):
-            return tuple([1 for _ in range(x.dim() - 1)] + [x.shape[-1]])
-
-        target_dtype = torch.int8
-        eps = torch.finfo(torch.float32).eps
-        zero_point_dtype = torch.int64
-
-        if weight_only_decode:
-            input_quant_func = _int8_symm_per_token_reduced_range_quant_noop_decode
-        else:
-            # input settings
-            if act_mapping_type == MappingType.SYMMETRIC:
-                input_quant_func = _int8_symm_per_token_reduced_range_quant
-            else:
-                input_quant_func = _int8_asymm_per_token_quant
-
-        block_size = get_weight_block_size(weight)
-        new_weight = to_affine_quantized_intx(
-            weight,
-            mapping_type,
-            block_size,
-            target_dtype,
-            eps=eps,
-            zero_point_dtype=zero_point_dtype,
-            _layout=layout,
-            zero_point_domain=weight_zero_point_domain,
-        )
-        quantized_weight = to_linear_activation_quantized(new_weight, input_quant_func)
-    else:
-        act_granularity, weight_granularity = Int8Tensor._normalize_granularity(
-            config.granularity
-        )
-        assert config.version == 2, f"Unexpected version: {config.version}"
-
-        quantized_weight = Int8Tensor.from_hp(
-            weight,
-            granularity=weight_granularity,
-            act_quant_kwargs=QuantizeTensorToInt8Kwargs(
-                granularity=act_granularity,
-                mapping_type=config.act_mapping_type,
-            ),
-        )
+    quantized_weight = Int8Tensor.from_hp(
+        weight,
+        granularity=weight_granularity,
+        act_quant_kwargs=QuantizeTensorToInt8Kwargs(
+            granularity=act_granularity,
+            mapping_type=config.act_mapping_type,
+        ),
+    )
 
     return quantized_weight
 
