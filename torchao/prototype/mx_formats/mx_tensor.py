@@ -130,7 +130,7 @@ def _to_mx_rceil(
     """
     descale = max_abs / max_pos
 
-    # Handle special values in scale calculation (like CUDA float_to_e8m0)
+    # Handle special values in scale calculation
     exponent = torch.where(
         torch.isnan(descale),
         255,  # 0xFF for NaN in amax
@@ -165,12 +165,8 @@ def _to_mx_rceil(
         ),
     )
 
-    # Scale the data with per-element special value handling (like CUDA)
+    # Scale the data
     data_lp = data_hp * rcp_fp32
-
-    # Handle per-element special values after scaling (like CUDA quantize_block)
-    # Individual NaN elements should remain NaN regardless of scale
-    data_lp = torch.where(torch.isnan(data_hp), float("nan"), data_lp)
 
     # Note: clamp preserves NaN values
     data_lp = torch.clamp(data_lp, min=-max_pos, max=max_pos)
@@ -210,21 +206,8 @@ def to_mx(
     # https://www.opencompute.org/documents/ocp-microscaling-formats-mx-v1-0-spec-final-pdf
     # section 6.3.
 
-    # NOTE: Align with CUDA/Triton NaN handling behavior:
-    # - Mixed real + NaN: ignore NaNs, return max of real values
-    # - All NaN: return NaN (not -inf)
-    # TE uses `__hmax` which treats NaNs as missing data but returns NaN for all-NaN blocks.
-    # TE ref: https://github.com/NVIDIA/TransformerEngine/blob/f4debf6648a080c47eeb2213a3a040b4b2638adb/transformer_engine/common/cast/mxfp8/quantize_mxfp8.cuh#L225
-    # CUDA ref: https://docs.nvidia.com/cuda/cuda-math-api/cuda_math_api/group__CUDA__MATH____HALF__COMPARISON.html#group__cuda__math____half__comparison_1ga964cd0e2994141acc0fcb7a64792faf1
-    abs_vals = torch.abs(data_hp)
-    # Replace NaNs with -inf for amax calculation
-    abs_vals_no_nan = torch.where(torch.isnan(abs_vals), float("-inf"), abs_vals)
-    max_abs = torch.amax(abs_vals_no_nan, -1).unsqueeze(-1)
-
-    # Handle all-NaN case: if all values in a block were NaN, amax returns -inf
-    # but we need to return NaN to match CUDA/Triton behavior
-    all_nan_mask = torch.all(torch.isnan(abs_vals), dim=-1, keepdim=True)
-    max_abs = torch.where(all_nan_mask, float("nan"), max_abs)
+    # Calculate max_abs normally (torch.amax returns NaN if any input is NaN)
+    max_abs = torch.amax(torch.abs(data_hp), -1).unsqueeze(-1)
 
     # We cast to float32 here because
     # in the `max_abs_int32 = max_abs.view(hp_int_dtype)` line below,
