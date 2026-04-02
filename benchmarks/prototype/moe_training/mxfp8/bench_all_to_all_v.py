@@ -28,11 +28,11 @@ from tqdm import tqdm
 
 from benchmarks.utils import profile_fn
 from torchao.prototype.moe_training.ep.permute import permute_and_pad
-from torchao.prototype.moe_training.kernels.mxfp8 import (
+from torchao.prototype.moe_training.ep.syncless import (
     get_buffer_manager,
 )
-from torchao.prototype.moe_training.kernels.mxfp8.ep_dispatch import (
-    mxfp8_ep_dispatch,
+from torchao.prototype.moe_training.ep.syncless.token_dispatch import (
+    mxfp8_token_dispatch,
 )
 
 device = torch.device("cuda")
@@ -138,14 +138,14 @@ def mxfp8_a2a_fwd(
     total_tokens_across_all_ranks = routed_input.shape[0] * world_size
     max_output_rows_per_rank = total_tokens_across_all_ranks
 
-    # Call the new mxfp8_ep_dispatch function - all tensors stay on device (zero syncs!)
+    # Call the new mxfp8_token_dispatch function - all tensors stay on device (zero syncs!)
     (
         output_e4m3,
         output_scales_e8m0,
         output_rank_splits,
         output_expert_splits,
         expert_padded_offsets,
-    ) = mxfp8_ep_dispatch(
+    ) = mxfp8_token_dispatch(
         routed_input,
         input_rank_splits,
         input_expert_splits,
@@ -293,7 +293,7 @@ def run_experiment(
     from torchao.prototype.mx_formats.kernels import triton_to_mxfp8_dim0
 
     # Use reference size for comparison - it allocates exactly what's needed
-    # while mxfp8_ep_dispatch may overallocate for worst-case scenario
+    # while mxfp8_token_dispatch may overallocate for worst-case scenario
     compare_size = bf16_routed_input.shape[0]
 
     # Quantize reference output to MXFP8 for comparison

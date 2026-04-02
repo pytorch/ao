@@ -19,8 +19,8 @@ from torch.testing._internal.common_utils import (
 
 from test.prototype.moe_training.testing_utils import generate_split_sizes
 from torchao.prototype.moe_training.ep.permute import permute_and_pad
-from torchao.prototype.moe_training.kernels.mxfp8.ep_dispatch import (
-    mxfp8_ep_dispatch,
+from torchao.prototype.moe_training.ep.syncless.token_dispatch import (
+    mxfp8_token_dispatch,
 )
 
 
@@ -111,7 +111,7 @@ class MXFP8SynclessAllToAllExpertMajorTest(MultiProcessTestCase):
                 output_rank_level_splits,
                 output_expert_splits,
                 expert_padded_offsets,
-            ) = mxfp8_ep_dispatch(
+            ) = mxfp8_token_dispatch(
                 input_tensor,
                 input_rank_level_splits,
                 expert_splits_per_rank,
