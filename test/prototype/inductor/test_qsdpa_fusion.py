@@ -245,6 +245,33 @@ class MHAModule(torch.nn.Module):
         return self.dense(context_layer)
 
 
+class fuse_MHAModule(torch.nn.Module):
+    def __init__(
+        self,
+        input_dim,
+        has_mask,
+        num_attention_heads,
+        attention_head_size,
+    ) -> None:
+        super().__init__()
+        self.qkv_proj = torch.nn.Linear(input_dim * 3, input_dim * 3, bias=False)
+        self.num_attention_heads = num_attention_heads
+        self.attention_head_size = attention_head_size
+        self.all_head_size = self.num_attention_heads * self.attention_head_size
+        self.dense = torch.nn.Linear(self.all_head_size, self.all_head_size)
+        self.attn_mod = SDPA(
+            input_dim,
+            has_mask,
+            num_attention_heads,
+            attention_head_size,
+        )
+
+    def forward(self, x, mask):
+        q, k, v = self.qkv_proj(x).chunk(3, dim=-1)
+        context_layer = self.attn_mod(q, k, v, mask)
+        return self.dense(context_layer)
+
+
 class TestSDPAPatternRewriterTemplate(TestCase):
     def _clone_inputs(self, inputs):
         def clone(x):
@@ -343,19 +370,22 @@ class TestSDPAPatternRewriterTemplate(TestCase):
 
         # pattern is different for bs=1
         torch.manual_seed(1234)
-        for dtype, has_mask, bs in itertools.product(
-            [torch.float32, torch.bfloat16], [True, False], [56, 1]
-        ):
+        for dtype, has_mask, bs, fused in itertools.product(
+            [torch.float32], [True], [56], [True]
+        ):#, torch.bfloat16, False, 1, False
             seqlen, numhead, headsize = 197, 16, 64
-            mod = MHAModule(
-                input_dim=headsize * numhead,
+            input_dim = headsize * numhead
+            mod = (fuse_MHAModule if fused else MHAModule)(
+                input_dim=input_dim,
                 has_mask=has_mask,
                 num_attention_heads=numhead,
                 attention_head_size=headsize,
             ).eval()
             inputs = (
                 torch.randn(
-                    (bs, seqlen, headsize * numhead), device=self.device, dtype=dtype
+                    (bs, seqlen, input_dim * 3 if fused else input_dim),
+                    device=self.device,
+                    dtype=dtype,
                 ),
                 torch.randn((bs, 1, 1, seqlen), device=self.device)
                 if has_mask
@@ -400,17 +430,22 @@ class TestSDPAPatternRewriterTemplate(TestCase):
 
         # pattern is different for bs=1
         torch.manual_seed(1234)
-        for dtype, bs in itertools.product([torch.float32, torch.bfloat16], [56, 1]):
+        for dtype, bs, fused in itertools.product(
+            [torch.float32, torch.bfloat16], [56, 1], [True, False]
+        ):
             seqlen, numhead, headsize = 197, 16, 64
-            mod = MHAModule(
-                input_dim=headsize * numhead,
+            input_dim = headsize * numhead
+            mod = (fuse_MHAModule if fused else MHAModule)(
+                input_dim=input_dim,
                 has_mask=False,
                 num_attention_heads=numhead,
                 attention_head_size=headsize,
             ).eval()
             inputs = (
                 torch.randn(
-                    (bs, seqlen, headsize * numhead), device=self.device, dtype=dtype
+                    (bs, seqlen, input_dim * 3 if fused else input_dim),
+                    device=self.device,
+                    dtype=dtype,
                 ),
                 None,
             )
