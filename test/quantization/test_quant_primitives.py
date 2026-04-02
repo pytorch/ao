@@ -37,6 +37,8 @@ from torchao.quantization.utils import (
 from torchao.utils import (
     get_current_accelerator_device,
     is_fbcode,
+    is_on_device,
+    not_on_device,
 )
 
 _SEED = 1234
@@ -150,9 +152,9 @@ def _groupwise_affine_quantize_tensor_from_qparams(
             .reshape_as(w)
         )
 
-    if w.device != "cpu" and w.device != "xpu":
+    if not_on_device(w, ["cpu", "xpu"]):
         w_int4x8 = (w_int4x8[::, ::2] << 4 | w_int4x8[::, 1::2]).to(torch.uint8)
-    if w.device == "xpu":
+    if is_on_device(w, "xpu"):
         w_int4x8 = (w_int4x8[::, 1::2] << 4 | w_int4x8[::, ::2]).to(torch.uint8)
 
     return w_int4x8
@@ -706,9 +708,9 @@ class TestQuantPrimitives(unittest.TestCase):
             if zero_point_domain == ZeroPointDomain.INT:
                 zeros = torch.randint(0, 15, (10, 2), dtype=torch.int32)
             input_tmp = input
-            if input.device != "cpu" and input.device != "xpu":
+            if not_on_device(input, ["cpu", "xpu"]):
                 input_tmp = (input[::, ::2] << 4 | input[::, 1::2]).to(torch.uint8)
-            if input.device == "xpu":
+            if is_on_device(input, "xpu"):
                 input_tmp = (input[::, 1::2] << 4 | input[::, ::2]).to(torch.uint8)
             w_bf16 = groupwise_affine_dequantize_tensor_from_qparams(
                 input_tmp, scales, zeros, n_bit, groupsize, zero_point_domain

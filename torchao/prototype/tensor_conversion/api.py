@@ -7,8 +7,6 @@
 import torch
 import torch.nn as nn
 
-# TODO: move the function to torchao.utils
-from torchao.dtypes.utils import is_device
 from torchao.quantization import (
     Int4PreshuffledTensor,
     Int4Tensor,
@@ -17,6 +15,7 @@ from torchao.quantization import (
 from torchao.utils import (
     TorchAOBaseTensor,
     _is_mslk_available,
+    is_on_device,
     is_sm_at_least_90,
 )
 
@@ -189,7 +188,7 @@ def convert_to_packed_tensor_based_on_current_hardware(tensor: TorchAOBaseTensor
     """
     if (
         isinstance(tensor, Int4Tensor)
-        and is_device("cuda", tensor.device)
+        and is_on_device(tensor, "cuda")
         and _is_mslk_available()
         and is_sm_at_least_90()
     ):

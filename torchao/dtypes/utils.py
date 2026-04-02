@@ -5,7 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 import warnings
 from dataclasses import dataclass
-from typing import Optional, Tuple, Union
+from typing import Optional, Tuple
 
 import torch
 
@@ -89,10 +89,6 @@ class PlainLayout(Layout):
         warnings.warn(
             "Deprecation: PlainLayout is deprecated and will be removed in a future release of torchao, see https://github.com/pytorch/ao/issues/2752 for more details"
         )
-
-
-def is_device(target_device_str: str, device: Union[str, torch.device]):
-    return torch.device(device).type == target_device_str
 
 
 def get_out_shape(input_shape: Tuple[int], weight_shape: Tuple[int]) -> Tuple[int, int]:
