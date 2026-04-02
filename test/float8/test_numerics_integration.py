@@ -34,6 +34,10 @@ from torchao.utils import (
 torch.manual_seed(0)
 
 _DEVICES = get_available_devices()[1:]  # Exclude CPU since this test is for GPU kernels
+if not _DEVICES:
+    _DEVICES = [
+        pytest.param("no_gpu", marks=pytest.mark.skip(reason="GPU not available"))
+    ]
 
 
 # copied from https://github.com/pytorch/torchtitan/blob/main/torchtitan/models/llama/model.py
