@@ -24,11 +24,11 @@ class TestWeightOnlyQuantNaive(unittest.TestCase):
     )
     def test_quantization_intNwo(self):
         try:
-            from torchao.prototype.quantization.quant_api import (
-                UIntxWeightOnlyConfig,
-            )
+            import gemlite  # noqa: F401
         except ImportError:
             self.skipTest("gemlite not available")
+
+        from torchao.prototype.quantization.quant_api import UIntxWeightOnlyConfig
 
         for quantization_bit in [4]:
             with self.subTest(quantization_bit=quantization_bit):

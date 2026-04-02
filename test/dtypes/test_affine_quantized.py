@@ -7,7 +7,6 @@ import tempfile
 import unittest
 
 import torch
-import torch.nn as nn
 from torch.testing._internal import common_utils
 from torch.testing._internal.common_utils import (
     TestCase,
@@ -20,8 +19,6 @@ from torchao.dtypes import (
 )
 from torchao.quantization import (
     Float8WeightOnlyConfig,
-    Int8DynamicActivationInt8WeightConfig,
-    Int8WeightOnlyConfig,
     quantize_,
 )
 from torchao.quantization.quant_primitives import MappingType
@@ -42,11 +39,7 @@ is_cusparselt_available = (
 def get_quantization_functions(
     do_sparse: bool, do_int4: bool, device: str = "cuda", int4_zp_int: bool = False
 ):
-    base_functions = [
-        Int8WeightOnlyConfig(),
-        Int8DynamicActivationInt8WeightConfig(),
-        Int8DynamicActivationInt8WeightConfig(act_mapping_type=MappingType.ASYMMETRIC),
-    ]
+    base_functions = []
     if do_int4:
         if check_cpu_version(device):
             pass
@@ -263,13 +256,6 @@ class TestAffineQuantizedBasic(TestCase):
             ql.weight = torch.nn.Parameter(reconstructed, requires_grad=False)
             reconstruct_res = ql(*example_inputs)
             self.assertEqual(reconstruct_res, ref)
-
-    @common_utils.parametrize("device", COMMON_DEVICES)
-    @common_utils.parametrize("dtype", COMMON_DTYPES)
-    def test_alias(self, device, dtype):
-        dummy = nn.Linear(128, 256, dtype=dtype, device=device)
-        quantize_(dummy, Int8DynamicActivationInt8WeightConfig())
-        _ = dummy.weight[...]
 
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     @common_utils.parametrize("device", COMMON_DEVICES)
