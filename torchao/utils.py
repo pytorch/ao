@@ -1281,7 +1281,7 @@ def is_on_device(tensor: torch.Tensor, device_str: str) -> bool:
 
 
 def not_on_device(
-    tensor: torch.Tensor, devices: Union[str, list[str], tuple[str]]
+    tensor: torch.Tensor, devices: Union[str, list[str], tuple[str, ...]]
 ) -> bool:
     if isinstance(devices, str):
         devices = [devices]
