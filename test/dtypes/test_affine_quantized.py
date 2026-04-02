@@ -17,7 +17,6 @@ from torch.testing._internal.common_utils import (
 from torchao.core.config import AOBaseConfig
 from torchao.dtypes import (
     to_affine_quantized_intx,
-    to_affine_quantized_intx_static,
 )
 from torchao.quantization import (
     Float8WeightOnlyConfig,
@@ -224,15 +223,6 @@ class TestAffineQuantized(TestCase):
             ValueError, "Not supported args for copy_ due to metadata mismatch:"
         ):
             ql2.weight.copy_(ql.weight)
-
-    def test_to_affine_quantized_intx_static(self):
-        to_affine_quantized_intx_static(
-            torch.randn(2, 3),
-            scale=torch.randn(1),
-            zero_point=torch.zeros(1),
-            block_size=(2, 3),
-            target_dtype=torch.int8,
-        )
 
 
 class TestAffineQuantizedBasic(TestCase):
