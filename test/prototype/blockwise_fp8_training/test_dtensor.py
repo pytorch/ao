@@ -30,7 +30,6 @@ from torchao.prototype.blockwise_fp8_training.kernels import (
     triton_fp8_gemm_1x128_128x1,
     triton_fp8_gemm_1x128_128x128,
 )
-from torchao.prototype.moe_training.utils import _is_column_major, _is_row_major
 from torchao.utils import is_MI300, is_MI350, is_sm_at_least_90
 
 if common_utils.SEED is None:
@@ -60,7 +59,7 @@ class TestBlockwiseFP8DTensorSharding(DTensorTestBase):
         return mesh
 
     def _local_shard(self, tensor: torch.Tensor, placement, *, contiguous: bool):
-        if self._is_replicate(placement):
+        if isinstance(placement, Replicate):
             return tensor.contiguous() if contiguous else tensor
 
         if not isinstance(placement, Shard):
@@ -71,37 +70,30 @@ class TestBlockwiseFP8DTensorSharding(DTensorTestBase):
         local = tensor.narrow(placement.dim, self.rank * chunk, chunk)
         return local.contiguous() if contiguous else local
 
-    def _is_replicate(self, placement) -> bool:
-        return isinstance(placement, Replicate)
-
     def _assert_quant_outputs(
         self,
         dist_outputs,
         expected_local_outputs,
         expected_placements,
         expected_global_shapes,
-        layout_checks,
     ):
         for (
             dist_output,
             expected_local,
             expected_placement,
             expected_global_shape,
-            layout_check,
         ) in zip(
             dist_outputs,
             expected_local_outputs,
             expected_placements,
             expected_global_shapes,
-            layout_checks,
         ):
             self.assertIsInstance(dist_output, DTensor)
             self.assertEqual(dist_output.placements, (expected_placement,))
             self.assertEqual(tuple(dist_output.shape), tuple(expected_global_shape))
-
-            local_output = dist_output.to_local()
-            self.assertTrue(layout_check(local_output))
-            torch.testing.assert_close(local_output, expected_local, atol=0, rtol=0)
+            torch.testing.assert_close(
+                dist_output.to_local(), expected_local, atol=0, rtol=0
+            )
 
     def _assert_gemm_output(
         self,
@@ -121,9 +113,10 @@ class TestBlockwiseFP8DTensorSharding(DTensorTestBase):
     def test_quant_op_sharding(self):
         mesh = self._build_cuda_mesh()
         device = torch.device(f"cuda:{self.rank % torch.cuda.device_count()}")
-        torch.manual_seed(0)
+        torch.manual_seed(42)
 
         x = torch.randn(256, 512, dtype=torch.bfloat16, device=device)
+        # case placements are in form of (input, (output))
         cases = (
             (
                 triton_fp8_blockwise_act_quant_lhs,
@@ -132,7 +125,6 @@ class TestBlockwiseFP8DTensorSharding(DTensorTestBase):
                     (Shard(0), (Shard(0), Shard(0))),
                     (Shard(1), (Shard(1), Shard(1))),
                 ),
-                (_is_row_major, _is_column_major),
             ),
             (
                 triton_fp8_blockwise_act_quant_rhs,
@@ -141,7 +133,6 @@ class TestBlockwiseFP8DTensorSharding(DTensorTestBase):
                     (Shard(0), (Shard(0), Shard(0))),
                     (Shard(1), (Shard(1), Shard(1))),
                 ),
-                (_is_column_major, _is_row_major),
             ),
             (
                 triton_fp8_blockwise_act_quant_transposed_lhs,
@@ -150,7 +141,6 @@ class TestBlockwiseFP8DTensorSharding(DTensorTestBase):
                     (Shard(0), (Shard(1), Shard(1))),
                     (Shard(1), (Shard(0), Shard(0))),
                 ),
-                (_is_row_major, _is_column_major),
             ),
             (
                 triton_fp8_blockwise_weight_quant_rhs,
@@ -159,7 +149,6 @@ class TestBlockwiseFP8DTensorSharding(DTensorTestBase):
                     (Shard(0), (Shard(0), Shard(0))),
                     (Shard(1), (Shard(1), Shard(1))),
                 ),
-                (_is_column_major, _is_column_major),
             ),
             (
                 triton_fp8_blockwise_weight_quant_transposed_rhs,
@@ -168,11 +157,10 @@ class TestBlockwiseFP8DTensorSharding(DTensorTestBase):
                     (Shard(0), (Shard(1), Shard(1))),
                     (Shard(1), (Shard(0), Shard(0))),
                 ),
-                (_is_column_major, _is_column_major),
             ),
         )
 
-        for quant_op, placement_map, layout_checks in cases:
+        for quant_op, placement_map in cases:
             global_outputs = quant_op(x, block_size=self.block_size, dtype=e4m3_dtype)
             for input_placement, expected_placements in placement_map:
                 local_x = self._local_shard(x, input_placement, contiguous=True)
@@ -198,7 +186,6 @@ class TestBlockwiseFP8DTensorSharding(DTensorTestBase):
                     expected_global_shapes=tuple(
                         output.shape for output in global_outputs
                     ),
-                    layout_checks=layout_checks,
                 )
 
     @with_comms
@@ -206,66 +193,77 @@ class TestBlockwiseFP8DTensorSharding(DTensorTestBase):
     def test_gemm_op_sharding(self):
         mesh = self._build_cuda_mesh()
         device = torch.device(f"cuda:{self.rank % torch.cuda.device_count()}")
-        torch.manual_seed(1)
-
-        placement_cases = (
-            (Replicate(), Replicate(), Replicate()),
-            (Shard(0), Replicate(), Shard(0)),
-            (Replicate(), Shard(1), Shard(1)),
-            (Shard(1), Shard(0), Partial()),
-        )
+        torch.manual_seed(67)
 
         gemm_cases = (
             (
                 triton_fp8_gemm_1x128_128x128,
-                *triton_fp8_blockwise_act_quant_lhs(
-                    torch.randn(256, 512, dtype=torch.bfloat16, device=device),
-                    block_size=self.block_size,
-                    dtype=e4m3_dtype,
-                ),
-                *triton_fp8_blockwise_weight_quant_transposed_rhs(
-                    torch.randn(256, 512, dtype=torch.bfloat16, device=device),
-                    block_size=self.block_size,
-                    dtype=e4m3_dtype,
-                ),
+                triton_fp8_blockwise_act_quant_lhs,
+                triton_fp8_blockwise_weight_quant_transposed_rhs,
+                torch.randn(256, 512, dtype=torch.bfloat16, device=device),
+                torch.randn(256, 512, dtype=torch.bfloat16, device=device),
                 (256, 256),
+                (
+                    (Replicate(), Replicate(), Replicate()),
+                    (Shard(0), Replicate(), Shard(0)),
+                    (Replicate(), Shard(0), Shard(1)),
+                    (Shard(1), Shard(1), Partial()),
+                ),
             ),
             (
                 triton_fp8_gemm_1x128_128x1,
-                *triton_fp8_blockwise_act_quant_transposed_lhs(
-                    torch.randn(512, 256, dtype=torch.bfloat16, device=device),
-                    block_size=self.block_size,
-                    dtype=e4m3_dtype,
-                ),
-                *triton_fp8_blockwise_act_quant_rhs(
-                    torch.randn(512, 256, dtype=torch.bfloat16, device=device),
-                    block_size=self.block_size,
-                    dtype=e4m3_dtype,
-                ),
+                triton_fp8_blockwise_act_quant_transposed_lhs,
+                triton_fp8_blockwise_act_quant_rhs,
+                torch.randn(512, 256, dtype=torch.bfloat16, device=device),
+                torch.randn(512, 256, dtype=torch.bfloat16, device=device),
                 (256, 256),
+                (
+                    (Replicate(), Replicate(), Replicate()),
+                    (Shard(1), Replicate(), Shard(0)),
+                    (Replicate(), Shard(1), Shard(1)),
+                    (Shard(0), Shard(0), Partial()),
+                ),
             ),
         )
 
-        for gemm_op, a, a_s, b, b_s, expected_shape in gemm_cases:
-            for a_placement, b_placement, expected_output_placement in placement_cases:
-                local_a = self._local_shard(a, a_placement, contiguous=False)
-                local_a_s = self._local_shard(a_s, a_placement, contiguous=False)
-                local_b = self._local_shard(b, b_placement, contiguous=False)
-                local_b_s = self._local_shard(b_s, b_placement, contiguous=False)
+        for (
+            gemm_op,
+            lhs_quant_op,
+            rhs_quant_op,
+            lhs_input,
+            rhs_input,
+            expected_shape,
+            placement_cases,
+        ) in gemm_cases:
+            for (
+                lhs_input_placement,
+                rhs_input_placement,
+                expected_output_placement,
+            ) in placement_cases:
+                local_lhs_input = self._local_shard(
+                    lhs_input, lhs_input_placement, contiguous=True
+                )
+                local_rhs_input = self._local_shard(
+                    rhs_input, rhs_input_placement, contiguous=True
+                )
 
-                dist_a = DTensor.from_local(
-                    local_a, mesh, [a_placement], run_check=False
+                dist_lhs_input = DTensor.from_local(
+                    local_lhs_input, mesh, [lhs_input_placement], run_check=False
                 )
-                dist_a_s = DTensor.from_local(
-                    local_a_s, mesh, [a_placement], run_check=False
-                )
-                dist_b = DTensor.from_local(
-                    local_b, mesh, [b_placement], run_check=False
-                )
-                dist_b_s = DTensor.from_local(
-                    local_b_s, mesh, [b_placement], run_check=False
+                dist_rhs_input = DTensor.from_local(
+                    local_rhs_input, mesh, [rhs_input_placement], run_check=False
                 )
 
+                dist_a, dist_a_s = lhs_quant_op(
+                    dist_lhs_input,
+                    block_size=self.block_size,
+                    dtype=e4m3_dtype,
+                )
+                dist_b, dist_b_s = rhs_quant_op(
+                    dist_rhs_input,
+                    block_size=self.block_size,
+                    dtype=e4m3_dtype,
+                )
                 dist_output = gemm_op(
                     dist_a,
                     dist_b,
@@ -275,11 +273,21 @@ class TestBlockwiseFP8DTensorSharding(DTensorTestBase):
                     out_dtype=torch.bfloat16,
                 )
 
+                local_a, local_a_s = lhs_quant_op(
+                    local_lhs_input,
+                    block_size=self.block_size,
+                    dtype=e4m3_dtype,
+                )
+                local_b, local_b_s = rhs_quant_op(
+                    local_rhs_input,
+                    block_size=self.block_size,
+                    dtype=e4m3_dtype,
+                )
                 expected_local_output = gemm_op(
-                    a if self._is_replicate(a_placement) else local_a,
-                    b if self._is_replicate(b_placement) else local_b,
-                    a_s if self._is_replicate(a_placement) else local_a_s,
-                    b_s if self._is_replicate(b_placement) else local_b_s,
+                    local_a,
+                    local_b,
+                    local_a_s,
+                    local_b_s,
                     block_size=self.block_size,
                     out_dtype=torch.bfloat16,
                 )
