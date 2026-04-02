@@ -655,6 +655,7 @@ def test_nvfp4_pin_memory(use_per_tensor_scale):
         x_cpu.dequantize(torch.float32), x_pinned.dequantize(torch.float32)
     )
 
+
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(
     not is_sm_at_least_100(), reason="requires sm100+ for nvfp4 triton kernel"
@@ -711,4 +712,3 @@ def test_nvfp4_matmul_optional_per_tensor_scale(shapes, a_has_scale, use_triton_
     sqnr = compute_error(C_ref, C_nvfp4)
     SQNR_THRESHOLD = 16.0
     assert sqnr >= SQNR_THRESHOLD, f"SQNR {sqnr:.2f} < {SQNR_THRESHOLD}, {a_has_scale=}"
->>>>>>> 5d1f49520 ([nvfp4] Make per_tensor_scale optional for triton kernel path)
