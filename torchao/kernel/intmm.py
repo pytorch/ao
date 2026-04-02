@@ -10,6 +10,8 @@ import torch
 from torch._dynamo import is_compiling as dynamo_is_compiling
 from torch._higher_order_ops.out_dtype import out_dtype
 
+from torchao.utils import torch_version_at_least
+
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.NullHandler())
 
@@ -149,7 +151,9 @@ def _int_scaled_matmul_cpu(
         torch.Tensor: The result of the scaled matrix multiplication.
     """
     if (
-        not _cpu_is_amx_tile_supported() and _cpu_is_vnni_supported()
+        not _cpu_is_amx_tile_supported()
+        and _cpu_is_vnni_supported()
+        and torch_version_at_least("2.12.0.dev")
     ):  # u8s8: Convert to uint8 to use AVX512_VNNI instructions for better performance
         # on platforms with AVX512_VNNI support but without AMX.
         a = (a.to(torch.int32) + 128).to(torch.uint8)
@@ -188,7 +192,7 @@ def int_scaled_matmul(
     assert 1 == scales1.size(1)
     assert scales1.is_contiguous()
 
-    if scales1.device == "cpu":
+    if scales1.device.type == "cpu":
         return _int_scaled_matmul_cpu(a, b, scales1)
 
     scales1 = scales1.expand((M, N))

@@ -12,10 +12,12 @@ Only supports forward pass — backward is not supported by the underlying backe
 
 from torchao.prototype.attention.api import (
     AttentionBackend,
+    HadamardMode,
     apply_low_precision_attention,
 )
 
 __all__ = [
     "AttentionBackend",
+    "HadamardMode",
     "apply_low_precision_attention",
 ]

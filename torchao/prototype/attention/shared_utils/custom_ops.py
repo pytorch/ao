@@ -43,6 +43,7 @@ def register_fp8_attention_ops(
         scale: float = 0.0,
         enable_gqa: bool = False,
         rope_interleaved: bool = False,
+        hadamard: str = "NONE",
     ) -> torch.Tensor:
         actual_scale = scale if scale != 0.0 else None
         return rope_sdpa_fn(
@@ -55,6 +56,7 @@ def register_fp8_attention_ops(
             scale=actual_scale,
             enable_gqa=enable_gqa,
             rope_interleaved=rope_interleaved,
+            hadamard=hadamard,
         )
 
     @_rope_sdpa_custom_op.register_fake
@@ -68,6 +70,7 @@ def register_fp8_attention_ops(
         scale: float = 0.0,
         enable_gqa: bool = False,
         rope_interleaved: bool = False,
+        hadamard: str = "NONE",
     ) -> torch.Tensor:
         B, S, H, D = q.shape
         return torch.empty(B, H, S, D, dtype=q.dtype, device=q.device)
@@ -82,6 +85,7 @@ def register_fp8_attention_ops(
         is_causal: bool = False,
         scale: float = 0.0,
         enable_gqa: bool = False,
+        hadamard: str = "NONE",
     ) -> torch.Tensor:
         actual_scale = scale if scale != 0.0 else None
         return sdpa_fn(
@@ -91,6 +95,7 @@ def register_fp8_attention_ops(
             is_causal=is_causal,
             scale=actual_scale,
             enable_gqa=enable_gqa,
+            hadamard=hadamard,
         )
 
     @_sdpa_custom_op.register_fake
@@ -101,6 +106,7 @@ def register_fp8_attention_ops(
         is_causal: bool = False,
         scale: float = 0.0,
         enable_gqa: bool = False,
+        hadamard: str = "NONE",
     ) -> torch.Tensor:
         return torch.empty(q.shape, dtype=q.dtype, device=q.device)
 
