@@ -34,7 +34,6 @@ from torchao.prototype.moe_training.kernels.mxfp8 import (
 from torchao.prototype.moe_training.kernels.mxfp8.ep_dispatch import (
     mxfp8_ep_dispatch,
 )
-from torchao.quantization.utils import compute_error
 
 device = torch.device("cuda")
 
@@ -153,18 +152,22 @@ def mxfp8_a2a_fwd(
     max_output_rows_per_rank = total_tokens_across_all_ranks
 
     # Call the new mxfp8_ep_dispatch function - all tensors stay on device (zero syncs!)
-    mx_output, output_rank_splits, output_expert_splits, expert_padded_offsets = (
-        mxfp8_ep_dispatch(
-            routed_input,
-            input_rank_splits,
-            input_expert_splits,
-            max_output_rows_per_rank,
-            device_mesh.get_group(),
-            buffer_manager,
-        )
+    (
+        output_e4m3,
+        output_scales_e8m0,
+        output_rank_splits,
+        output_expert_splits,
+        expert_padded_offsets,
+    ) = mxfp8_ep_dispatch(
+        routed_input,
+        input_rank_splits,
+        input_expert_splits,
+        max_output_rows_per_rank,
+        device_mesh.get_group(),
+        buffer_manager,
     )
 
-    return mx_output, output_expert_splits
+    return output_e4m3, output_scales_e8m0, output_expert_splits
 
 
 def run_experiment(
@@ -268,15 +271,17 @@ def run_experiment(
     warmup(
         lambda: mxfp8_a2a_fwd(
             x, input_rank_splits, input_expert_splits, mesh, buffer_manager
-        )[0]  # Only use the mx_output for warmup
+        )[0]  # Only use the output_e4m3 for warmup
     )
 
     # Run 10 iterations and take average
     torch.cuda.synchronize()
     start_sec = time.perf_counter()
     for _ in range(NUM_BENCH_ITERS):
-        mxfp8_routed_input, output_expert_splits = mxfp8_a2a_fwd(
-            x, input_rank_splits, input_expert_splits, mesh, buffer_manager
+        mxfp8_routed_input_e4m3, mxfp8_routed_input_scales, output_expert_splits = (
+            mxfp8_a2a_fwd(
+                x, input_rank_splits, input_expert_splits, mesh, buffer_manager
+            )
         )
     torch.cuda.synchronize()
     end_sec = time.perf_counter()
@@ -297,35 +302,39 @@ def run_experiment(
             active_steps=1,
         )
 
-    # Correctness check: compare outputs
-    # Dequantize MXFP8 output to BF16 for comparison
-    from torchao.prototype.mx_formats.mx_tensor import MXTensor
-
-    assert isinstance(mxfp8_routed_input, MXTensor)
-
-    # Dequantize the MXTensor back to BF16
-    mxfp8_dequantized = mxfp8_routed_input.dequantize()
+    # Correctness check: quantize reference and compare directly
+    from torchao.prototype.mx_formats.kernels import triton_to_mxfp8_dim0
 
     # Use reference size for comparison - it allocates exactly what's needed
     # while mxfp8_ep_dispatch may overallocate for worst-case scenario
     compare_size = bf16_routed_input.shape[0]
 
-    # Compute SQNR between outputs
-    sqnr = compute_error(
-        bf16_routed_input[:compare_size], mxfp8_dequantized[:compare_size]
+    # Quantize reference output to MXFP8 for comparison
+    block_size = 32
+    ref_output_e4m3, ref_output_scales_e8m0 = triton_to_mxfp8_dim0(
+        bf16_routed_input,
+        inner_block_size=block_size,
+        scaling_mode="rceil",
     )
 
     if dist.get_rank() == 0:
-        sqnr_val = sqnr.item()
-
-        if sqnr_val >= 20.0:
-            print(
-                f"Correctness check passed for shape {config.input_shape} (SQNR: {sqnr_val:.2f} dB)"
+        try:
+            # Compare quantized tensors directly
+            torch.testing.assert_close(
+                mxfp8_routed_input_e4m3[:compare_size].view(torch.float32),
+                ref_output_e4m3.view(torch.float32),
+                atol=0,
+                rtol=0,
             )
-        else:
-            print(
-                f"Correctness check failed for shape {config.input_shape} (SQNR: {sqnr_val:.2f} dB < 20 dB)"
+            torch.testing.assert_close(
+                mxfp8_routed_input_scales[:compare_size].view(torch.uint8),
+                ref_output_scales_e8m0.view(torch.uint8),
+                atol=0,
+                rtol=0,
             )
+            print(f"Correctness check passed for shape {config.input_shape}")
+        except AssertionError as e:
+            print(f"Correctness check failed for shape {config.input_shape}: {e}")
 
     # Calculate bandwidth utilization
     world_size = dist.get_world_size()

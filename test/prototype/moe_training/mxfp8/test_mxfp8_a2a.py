@@ -106,7 +106,8 @@ class MXFP8SynclessAllToAllExpertMajorTest(MultiProcessTestCase):
 
             # Test forward
             (
-                mx_output,
+                output_e4m3,
+                output_scales_e8m0,
                 output_rank_level_splits,
                 output_expert_splits,
                 expert_padded_offsets,
@@ -118,12 +119,8 @@ class MXFP8SynclessAllToAllExpertMajorTest(MultiProcessTestCase):
                 dist.group.WORLD,
             )
 
-            # Extract fp8 data and scales from MXTensor for comparison
-            from torchao.prototype.mx_formats.mx_tensor import MXTensor
-
-            assert isinstance(mx_output, MXTensor)
-            output_e4m3 = mx_output.qdata
-            output_scales_e8m0 = mx_output.scale.view(torch.uint8)
+            # Convert scales to uint8 for comparison
+            output_scales_e8m0 = output_scales_e8m0.view(torch.uint8)
 
             # Reference torch.all_to_all_single to compare against
             output_rank_level_splits_ref = torch.empty_like(output_rank_level_splits)
