@@ -706,8 +706,8 @@ def _register_layout(tensor_class: Callable, layout_class: Callable):
         a decorator that registers the tensor impl constructor in the table
     """
 
-    # tensor_class._LAYOUT_CONSTRUCTOR_TABLE is a map from layout_class like TensorCoreTiledLayout
-    # to tensor_impl class constructor like TensorCoreTiledAQTTensorImpl.from_plain that can construct a tensor_impl
+    # tensor_class._LAYOUT_CONSTRUCTOR_TABLE is a map from layout_class
+    # to tensor_impl class constructor that can construct a tensor_impl
     # from plain data like (quantized, unpacked) `data`, `scale`, `zero_point`
     if not hasattr(tensor_class, "_LAYOUT_CONSTRUCTOR_TABLE"):
         tensor_class._LAYOUT_CONSTRUCTOR_TABLE = {}

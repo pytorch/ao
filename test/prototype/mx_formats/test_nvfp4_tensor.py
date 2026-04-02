@@ -620,6 +620,43 @@ def test_3d_transpose(dims, is_swizzled_scales):
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(
+    not torch_version_at_least("2.8.0"), reason="NVFP4 requires PyTorch 2.8+"
+)
+@pytest.mark.parametrize("use_per_tensor_scale", [True, False])
+def test_nvfp4_pin_memory(use_per_tensor_scale):
+    x_hp = torch.randn(128, 256, device="cuda", dtype=torch.bfloat16)
+    per_tensor_scale = (
+        per_tensor_amax_to_scale(torch.max(torch.abs(x_hp)))
+        if use_per_tensor_scale
+        else None
+    )
+    act_per_tensor_scale = per_tensor_amax_to_scale(torch.max(torch.abs(x_hp)))
+    x_nvfp4 = NVFP4Tensor.to_nvfp4(
+        x_hp,
+        per_tensor_scale=per_tensor_scale,
+        act_per_tensor_scale=act_per_tensor_scale,
+    )
+    x_cpu = x_nvfp4.cpu()
+
+    assert not x_cpu.is_pinned()
+
+    x_pinned = x_cpu.pin_memory()
+
+    assert x_pinned.is_pinned()
+    assert not x_cpu.is_pinned()
+
+    assert x_pinned.qdata.is_pinned()
+    assert x_pinned.scale.is_pinned()
+    if use_per_tensor_scale:
+        assert x_pinned.per_tensor_scale.is_pinned()
+    assert x_pinned.act_per_tensor_scale.is_pinned()
+
+    assert torch.equal(
+        x_cpu.dequantize(torch.float32), x_pinned.dequantize(torch.float32)
+    )
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(
     not is_sm_at_least_100(), reason="requires sm100+ for nvfp4 triton kernel"
 )
 @pytest.mark.parametrize(
@@ -674,3 +711,4 @@ def test_nvfp4_matmul_optional_per_tensor_scale(shapes, a_has_scale, use_triton_
     sqnr = compute_error(C_ref, C_nvfp4)
     SQNR_THRESHOLD = 16.0
     assert sqnr >= SQNR_THRESHOLD, f"SQNR {sqnr:.2f} < {SQNR_THRESHOLD}, {a_has_scale=}"
+>>>>>>> 5d1f49520 ([nvfp4] Make per_tensor_scale optional for triton kernel path)
