@@ -35,7 +35,6 @@ from torchao.core.config import AOBaseConfig
 from torchao.dtypes import (
     AffineQuantizedTensor,
     PlainLayout,
-    TensorCoreTiledLayout,
     to_affine_quantized_intx,
 )
 from torchao.dtypes.utils import Layout
@@ -91,6 +90,7 @@ from torchao.quantization.utils import (
 )
 from torchao.utils import (
     is_MI300,
+    is_MI350,
     is_sm_at_least_89,
 )
 
@@ -135,14 +135,6 @@ __all__ = [
     "Int8DynActInt4WeightQuantizer",
     "ModuleFqnToConfig",
 ]
-
-LAYOUT_TO_ZERO_POINT_DOMAIN = {
-    TensorCoreTiledLayout: [ZeroPointDomain.FLOAT],
-}
-
-LAYOUT_TO_PRESERVE_ZEROS = {
-    TensorCoreTiledLayout: False,
-}
 
 
 def _replace_with_custom_fn_if_matches_filter(
@@ -1105,6 +1097,16 @@ class Int8DynamicActivationInt8WeightConfig(AOBaseConfig):
                 self.granularity
             )
             _validate_granularity_int8(act_granularity, weight_granularity)
+            assert self.act_mapping_type in (
+                MappingType.SYMMETRIC,
+                MappingType.ASYMMETRIC,
+            ), (
+                "Int8DynamicActivationInt8WeightConfig requires "
+                "`act_mapping_type` in (MappingType.SYMMETRIC, "
+                "MappingType.ASYMMETRIC). "
+                "Please set it to MappingType.SYMMETRIC or "
+                "MappingType.ASYMMETRIC."
+            )
 
 
 def _int8_dynamic_activation_int8_weight_quantize_tensor(weight, config):
@@ -1239,6 +1241,16 @@ class Int8StaticActivationInt8WeightConfig(AOBaseConfig):
             self.granularity
         )
         _validate_granularity_int8(act_granularity, weight_granularity)
+        assert self.act_mapping_type in (
+            MappingType.SYMMETRIC,
+            MappingType.ASYMMETRIC,
+        ), (
+            "Int8StaticActivationInt8WeightConfig requires "
+            "`act_mapping_type` in (MappingType.SYMMETRIC, "
+            "MappingType.ASYMMETRIC). "
+            "Please set it to MappingType.SYMMETRIC or "
+            "MappingType.ASYMMETRIC."
+        )
 
     def get_act_quant_kwargs(self) -> QuantizeTensorToInt8Kwargs:
         """Get the activation quantization kwargs for static quantization.
@@ -1527,7 +1539,7 @@ def _float8_dynamic_activation_float8_weight_transform(
     parameter_name: str = "weight",
 ):
     if torch.cuda.is_available():
-        assert is_sm_at_least_89() or is_MI300(), (
+        assert is_sm_at_least_89() or is_MI300() or is_MI350(), (
             "Float8 dynamic activation quantization is only supported on CUDA>=8.9 and MI300+"
         )
     if config.set_inductor_config:

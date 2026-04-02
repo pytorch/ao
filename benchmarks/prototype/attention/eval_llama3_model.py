@@ -31,6 +31,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from torchao.prototype.attention import (
     AttentionBackend,
+    HadamardMode,
     apply_low_precision_attention,
 )
 from torchao.prototype.attention.shared_utils.fusion_utils import (
@@ -56,6 +57,13 @@ BACKENDS = {
         "fp8": True,
         "fp8_backend": AttentionBackend.FP8_FA3,
         "label": "FA3 FP8",
+    },
+    "fa3_fp8_hadamard": {
+        "flash_impl": "FA3",
+        "fp8": True,
+        "fp8_backend": AttentionBackend.FP8_FA3,
+        "hadamard": HadamardMode.QKV,
+        "label": "FA3 FP8 Hadamard",
     },
 }
 
@@ -116,6 +124,7 @@ def setup_backend(orig_model, backend_name, compile_flag):
         model = apply_low_precision_attention(
             orig_model,
             backend=cfg["fp8_backend"],
+            hadamard=cfg.get("hadamard", HadamardMode.NONE),
         )
         if compile_flag:
             print(f"  Compiling model with torch.compile ({backend_name})...")
