@@ -78,7 +78,7 @@ def default_a2a_fwd(
 ):
     world_size = dist.get_world_size(device_mesh.get_group())
 
-    # Step 1: Device-to-host sync to get splits for NCCL API (this is the overhead)
+    # Step 1: Device-to-host sync to get splits for NCCL API
     input_splits_list = input_rank_splits.cpu().tolist()
 
     # Step 2: Compute output splits from input splits using all_to_all_single
@@ -97,39 +97,26 @@ def default_a2a_fwd(
     )
     routed_output = torch.ops._c10d_functional.wait_tensor(routed_output)
 
-    # Step 4: Compute actual expert splits after all-to-all
-    # We need to compute how many tokens each expert on this rank received
-    # This requires gathering the expert splits and computing output_expert_splits like in the test
+    # Step 4: Exchange expert split information using all_to_all_single (like TorchAO)
+    # Flatten input_expert_splits to match TorchAO's num_tokens_per_expert format
+    num_tokens_per_expert = (
+        input_expert_splits.flatten()
+    )  # [world_size * num_experts_per_rank]
 
-    # All-gather expert splits to get global view
-    all_expert_splits = torch.empty(
-        world_size * world_size,
-        num_experts_per_rank,
-        dtype=input_expert_splits.dtype,
-        device=device,
-    )
-    dist.all_gather_into_tensor(
-        all_expert_splits,
-        input_expert_splits,
+    # Use all_to_all_single to exchange expert splits (no redundant all_gather needed!)
+    tokens_per_expert_group = all_to_all_single(
+        num_tokens_per_expert,
+        None,
+        None,
         group=device_mesh.get_group(),
     )
-    all_expert_splits = all_expert_splits.view(
-        world_size, world_size, num_experts_per_rank
+    tokens_per_expert_group = torch.ops._c10d_functional.wait_tensor(
+        tokens_per_expert_group
     )
-
-    # Compute output expert splits: tokens each expert on this rank received
-    rank = dist.get_rank(device_mesh.get_group())
-    output_expert_splits = all_expert_splits[
-        :, rank, :
-    ]  # shape: (world_size, num_experts_per_rank)
-
-    tokens_per_expert_group = (
-        output_expert_splits.flatten()
-    )  # Shape should be (world_size * num_experts_per_rank,)
 
     _, expert_major_output, _, _, _ = permute_and_pad(
         routed_output,
-        tokens_per_expert_group,  # Use flattened version
+        tokens_per_expert_group,
         ep_degree=world_size,
         num_local_experts=num_experts_per_rank,
         alignment=32,

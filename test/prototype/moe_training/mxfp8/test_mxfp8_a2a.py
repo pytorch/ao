@@ -147,39 +147,30 @@ class MXFP8SynclessAllToAllExpertMajorTest(MultiProcessTestCase):
                 dist.group.WORLD,
             )
 
-            # Compute reference expert splits using all-gather.
-            # Gather expert_splits_per_rank from all ranks into a
-            # (world_size, world_size, num_experts_per_rank) tensor where
-            # gathered[source_rank, dest_rank, expert_idx] = tokens source_rank sends to expert_idx on dest_rank.
-            gathered_expert_splits = torch.empty(
-                self.world_size * self.world_size,
-                experts_per_rank,
-                dtype=torch.int64,
-                device=self.device,
-            )
-            dist.all_gather_into_tensor(
-                gathered_expert_splits,  # [world_size * world_size, num_experts_per_rank]
-                expert_splits_per_rank,  # [world_size, num_experts_per_rank]
-                group=dist.group.WORLD,
-            )
-            gathered_expert_splits = gathered_expert_splits.view(
-                self.world_size, self.world_size, experts_per_rank
-            )
-            # output_expert_splits_ref[remote_rank, :] = tokens remote_rank sends to each expert on this rank
-            # shape: (world_size, experts_per_rank)
-            output_expert_splits_per_rank_ref = torch.empty_like(expert_splits_per_rank)
-            for remote_rank in range(self.world_size):
-                output_expert_splits_per_rank_ref[remote_rank, :] = (
-                    gathered_expert_splits[remote_rank, self.rank, :]
-                )
+            # Exchange expert split information using all_to_all_single (like TorchAO and benchmark)
+            # Flatten expert_splits_per_rank to match TorchAO's num_tokens_per_expert format
+            num_tokens_per_expert = (
+                expert_splits_per_rank.flatten()
+            )  # [world_size * num_experts_per_rank]
 
-            # Reduce to get total tokens received per rank
-            output_expert_splits_ref = output_expert_splits_per_rank_ref
-
-            # Build reference expert-major layout using permute_and_pad (same as benchmark)
+            # Use all_to_all_single to exchange expert splits (no redundant all_gather needed!)
             tokens_per_expert_group = (
-                output_expert_splits_ref.flatten()
-            )  # Shape should be (world_size * num_experts_per_rank,)
+                torch.distributed._functional_collectives.all_to_all_single(
+                    num_tokens_per_expert,
+                    None,
+                    None,
+                    group=dist.group.WORLD,
+                )
+            )
+            tokens_per_expert_group = torch.ops._c10d_functional.wait_tensor(
+                tokens_per_expert_group
+            )
+
+            # For comparison with the MXFP8 kernel output, we need output_expert_splits
+            # Reshape tokens_per_expert_group back to match expected format
+            output_expert_splits_ref = tokens_per_expert_group.view(
+                self.world_size, experts_per_rank
+            )
 
             _, ref_output_expert_major, _, _, _ = permute_and_pad(
                 ref_output,
