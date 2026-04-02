@@ -611,6 +611,17 @@ def test_scale_shape_matches_qdata(
 @pytest.mark.skipif(
     not torch_version_at_least("2.8.0"), reason="NVFP4 requires PyTorch 2.8+"
 )
+def test_is_pinned():
+    x_hp = torch.randn(128, 256, device="cuda")
+    x_nvfp4 = NVFP4Tensor.to_nvfp4(x_hp)
+    # Tensor on CUDA is not pinned
+    assert not x_nvfp4.is_pinned()
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(
+    not torch_version_at_least("2.8.0"), reason="NVFP4 requires PyTorch 2.8+"
+)
 @pytest.mark.parametrize("dims", ((1, 2), (2, 1), (-1, -2), (-2, -1)))
 @pytest.mark.parametrize("is_swizzled_scales", [True, False])
 def test_3d_transpose(dims, is_swizzled_scales):

@@ -286,6 +286,12 @@ class NVFP4Tensor(TorchAOBaseTensor):
 implements = NVFP4Tensor.implements
 
 
+@implements([aten.is_pinned.default])
+def nvfp4_is_pinned(func, types, args, kwargs):
+    tensor = args[0]
+    return tensor.qdata.is_pinned() and tensor.scale.is_pinned()
+
+
 # TODO(future PR): move this to AOBaseTensor (will require debugging/fixing CI)
 @implements([aten._to_copy.default])
 def nvfp4_to_copy(func, types, args, kwargs):
