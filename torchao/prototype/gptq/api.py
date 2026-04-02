@@ -264,25 +264,25 @@ def gptq_quantize(H: torch.Tensor, W_t: torch.Tensor, config: GPTQConfig):
     Hinv = H
 
     group_qparams = []
-    for W_t_quantize_block, block_start in zip(
+    for W_t_quantize_block, k_block_start in zip(
         torch.split(W_t, gptq_quantize_block_size, dim=1),
         range(0, columns, gptq_quantize_block_size),
     ):
-        block_end = min(block_start + gptq_quantize_block_size, columns)
+        k_block_end = min(k_block_start + gptq_quantize_block_size, columns)
         Err1 = torch.zeros_like(W_t_quantize_block, dtype=H.dtype)
-        Hinv_quantize_block = Hinv[block_start:block_end, block_start:block_end]
+        Hinv_quantize_block = Hinv[k_block_start:k_block_end, k_block_start:k_block_end]
 
         # If we are doing per-row quantization, the group_size is equal to the number of columns and this will only run once.
         # Otherwise, if we do per-group quantization, we need to iterate through the block one group at a time.
-        for group_start in range(block_start, block_end, group_size):
-            group_end = min(group_start + group_size, block_end)
+        for group_start in range(k_block_start, k_block_end, group_size):
+            group_end = min(group_start + group_size, k_block_end)
 
             # We only need to calculate initial qparams for the group once
             if group_start % group_size == 0:
                 if isinstance(base_config, Int4WeightOnlyConfig):
                     _, scale, zero_point = int4_row_quantize_zp(
                         W_t_quantize_block[
-                            :, group_start - block_start : group_end - block_start
+                            :, group_start - k_block_start : group_end - k_block_start
                         ],
                         group_size,
                     )
@@ -290,13 +290,13 @@ def gptq_quantize(H: torch.Tensor, W_t: torch.Tensor, config: GPTQConfig):
                 elif isinstance(base_config, Int8WeightOnlyConfig):
                     quantized_tensor = Int8Tensor.from_hp(
                         W_t_quantize_block[
-                            :, group_start - block_start : group_end - block_start
+                            :, group_start - k_block_start : group_end - k_block_start
                         ],
                         base_config.granularity,
                     )
 
             # Quantize each column and propagate errors to subsequent columns
-            for i in range(group_start - block_start, group_end - block_start):
+            for i in range(group_start - k_block_start, group_end - k_block_start):
                 w_t = W_t_quantize_block[:, i].unsqueeze(1)
                 if isinstance(base_config, Int4WeightOnlyConfig):
                     q = _int4_row_quantize_zp_precomputed_qparams(
@@ -319,7 +319,9 @@ def gptq_quantize(H: torch.Tensor, W_t: torch.Tensor, config: GPTQConfig):
 
         # Lazy Batch-Updates: We process B columns at a time with local updates above.
         # Once a block is fully processed, perform global updates to H^-1 and W using batched versions of the error propagation equations.
-        W_t[:, block_end:] -= Err1.matmul(Hinv[block_start:block_end, block_end:])
+        W_t[:, k_block_end:] -= Err1.matmul(
+            Hinv[k_block_start:k_block_end, k_block_end:]
+        )
 
     torch.cuda.synchronize()
 
