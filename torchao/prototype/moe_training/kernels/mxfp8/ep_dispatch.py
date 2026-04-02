@@ -352,61 +352,69 @@ def _mxfp8_all_to_all_expert_major_kernel(
         local_read_offset += my_tokens_to_expert
 
     # Zero-fill padding regions in own output buffer
-    if dst_rank == rank:
-        # Each block handles zero-filling for different experts
+    # (no race condition with data writes from other ranks, because writing to separate region)
+    if dst_rank == rank and block_offset == 0:
+        # Get output buffer pointers for own rank
+        own_output_ptr = tl.load(output_ptrs.to(tl.pointer_type(tl.uint64)) + rank).to(
+            tl.pointer_type(tl.float8e4nv)
+        )
+        own_output_scales_ptr = tl.load(
+            output_scales_ptrs.to(tl.pointer_type(tl.uint64)) + rank
+        ).to(tl.pointer_type(tl.uint8))
+
+        # Zero-fill padding for each expert
         for expert_idx in range(num_experts_per_rank):
-            if block_offset == 0:  # Only first block per dst_rank handles zero-filling
-                # Calculate actual tokens for this expert (sum across all source ranks)
-                actual_tokens = tl.zeros([], dtype=tl.int64)
-                for src_rank in range(world_size):
-                    tokens = tl.load(
-                        output_expert_splits_ptr
-                        + src_rank * num_experts_per_rank
-                        + expert_idx
+            # Calculate actual tokens for this expert (sum across all source ranks)
+            actual_tokens = tl.zeros([], dtype=tl.int64)
+            for src_rank in range(world_size):
+                tokens = tl.load(
+                    output_expert_splits_ptr
+                    + src_rank * num_experts_per_rank
+                    + expert_idx
+                )
+                actual_tokens += tokens
+
+            # Expert's start offset and actual end
+            expert_start = tl.load(expert_padded_offsets_ptr + expert_idx)
+            actual_end = expert_start + actual_tokens
+
+            # Calculate padded end (start of next expert, or computed for last expert)
+            if expert_idx < num_experts_per_rank - 1:
+                padded_end = tl.load(expert_padded_offsets_ptr + expert_idx + 1)
+            else:
+                # Last expert: pad to multiple of 32
+                padded_size = ((actual_tokens + 31) // 32) * 32
+                padded_end = expert_start + padded_size
+
+            # Zero-fill padding region if there is one
+            if actual_end < padded_end:
+                padding_tokens = padded_end - actual_end
+
+                # Zero-fill data
+                total_padding_elems = padding_tokens * dim
+                num_padding_blocks = tl.cdiv(total_padding_elems, BLOCK_SIZE)
+                for block_idx in tl.range(num_padding_blocks):
+                    offs = block_idx * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
+                    mask = offs < total_padding_elems
+                    tl.store(
+                        own_output_ptr + actual_end * dim + offs,
+                        tl.zeros([BLOCK_SIZE], dtype=tl.float8e4nv),
+                        mask=mask,
                     )
-                    actual_tokens += tokens
 
-                # Expert's start offset and actual end
-                expert_start = tl.load(expert_padded_offsets_ptr + expert_idx)
-                actual_end = expert_start + actual_tokens
-
-                # Calculate padded end (start of next expert, or computed for last expert)
-                if expert_idx < num_experts_per_rank - 1:
-                    padded_end = tl.load(expert_padded_offsets_ptr + expert_idx + 1)
-                else:
-                    # Last expert: pad to multiple of 32
-                    padded_size = ((actual_tokens + 31) // 32) * 32
-                    padded_end = expert_start + padded_size
-
-                # Zero-fill padding region if there is one
-                if actual_end < padded_end:
-                    padding_tokens = padded_end - actual_end
-
-                    # Zero-fill data
-                    total_padding_elems = padding_tokens * dim
-                    num_padding_blocks = tl.cdiv(total_padding_elems, BLOCK_SIZE)
-                    for block_idx in tl.range(num_padding_blocks):
-                        offs = block_idx * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
-                        mask = offs < total_padding_elems
-                        tl.store(
-                            dst_output_ptr + actual_end * dim + offs,
-                            tl.zeros([BLOCK_SIZE], dtype=tl.float8e4nv),
-                            mask=mask,
-                        )
-
-                    # Zero-fill scales
-                    total_padding_scale_elems = padding_tokens * scale_dim
-                    num_padding_scale_blocks = tl.cdiv(
-                        total_padding_scale_elems, BLOCK_SIZE
+                # Zero-fill scales
+                total_padding_scale_elems = padding_tokens * scale_dim
+                num_padding_scale_blocks = tl.cdiv(
+                    total_padding_scale_elems, BLOCK_SIZE
+                )
+                for block_idx in tl.range(num_padding_scale_blocks):
+                    offs = block_idx * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
+                    mask = offs < total_padding_scale_elems
+                    tl.store(
+                        own_output_scales_ptr + actual_end * scale_dim + offs,
+                        tl.zeros([BLOCK_SIZE], dtype=tl.uint8),
+                        mask=mask,
                     )
-                    for block_idx in tl.range(num_padding_scale_blocks):
-                        offs = block_idx * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
-                        mask = offs < total_padding_scale_elems
-                        tl.store(
-                            dst_output_scales_ptr + actual_end * scale_dim + offs,
-                            tl.zeros([BLOCK_SIZE], dtype=tl.uint8),
-                            mask=mask,
-                        )
 
 
 @triton.jit

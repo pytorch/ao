@@ -18,6 +18,7 @@ from torch.testing._internal.common_utils import (
 )
 
 from test.prototype.moe_training.testing_utils import generate_split_sizes
+from torchao.prototype.moe_training.ep.permute import permute_and_pad
 from torchao.prototype.moe_training.kernels.mxfp8.ep_dispatch import (
     mxfp8_ep_dispatch,
 )
@@ -178,14 +179,17 @@ class MXFP8SynclessAllToAllExpertMajorTest(MultiProcessTestCase):
             # Reduce to get total tokens received per rank
             output_expert_splits_ref = output_expert_splits_per_rank_ref
 
-            # Build reference expert-major layout with padding
-            ref_output_expert_major = build_reference_expert_major_output(
+            # Build reference expert-major layout using permute_and_pad (same as benchmark)
+            tokens_per_expert_group = (
+                output_expert_splits_ref.flatten()
+            )  # Shape should be (world_size * num_experts_per_rank,)
+
+            _, ref_output_expert_major, _, _, _ = permute_and_pad(
                 ref_output,
-                output_expert_splits,
-                output_rank_level_splits_ref,
-                experts_per_rank,
-                self.world_size,
-                self.device,
+                tokens_per_expert_group,  # Use flattened version
+                ep_degree=self.world_size,
+                num_local_experts=experts_per_rank,
+                alignment=32,
             )
 
             # Quantize reference output to mxfp8 for comparison
@@ -231,81 +235,6 @@ class MXFP8SynclessAllToAllExpertMajorTest(MultiProcessTestCase):
 
         finally:
             dist.destroy_process_group()
-
-
-def build_reference_expert_major_output(
-    ref_output: torch.Tensor,
-    output_expert_splits: torch.Tensor,
-    output_rank_level_splits_ref: torch.Tensor,
-    experts_per_rank: int,
-    world_size: int,
-    device: torch.device,
-) -> torch.Tensor:
-    """
-    Build reference output in expert-major layout with padding.
-
-    Args:
-        ref_output: rank-major output from torch all_to_all
-        output_expert_splits: shape (world_size, experts_per_rank) - tokens per expert from each rank
-        output_rank_level_splits_ref: shape (world_size,) - total tokens from each rank
-        experts_per_rank: number of experts per rank
-        world_size: number of ranks
-        device: torch device
-
-    Returns:
-        ref_output_expert_major: expert-major layout with padding (zeros in padded positions)
-    """
-    dim = ref_output.shape[1]
-
-    # Calculate size: sum of padded expert sizes
-    total_size = 0
-    for expert_idx in range(experts_per_rank):
-        tokens_for_expert = output_expert_splits[:, expert_idx].sum().item()
-        padded_size = ((tokens_for_expert + 31) // 32) * 32
-        total_size += padded_size
-
-    # Create padded output buffer
-    ref_output_expert_major = torch.zeros(
-        total_size, dim, dtype=ref_output.dtype, device=device
-    )
-
-    # Compute starting offset for each remote rank's data in ref_output
-    rank_start_offsets = torch.cat(
-        [
-            torch.tensor([0], device=device),
-            output_rank_level_splits_ref.cumsum(0)[:-1],
-        ]
-    )
-
-    # Fill in the data expert by expert
-    ref_write_offset = 0  # where to write in ref_output_expert_major
-
-    for expert_idx in range(experts_per_rank):
-        # Write tokens from each remote rank for this expert
-        for remote_rank in range(world_size):
-            tokens_from_rank = output_expert_splits[remote_rank, expert_idx].item()
-            if tokens_from_rank > 0:
-                # Compute offset into ref_output for this (remote_rank, expert_idx) pair
-                # Start at this rank's base offset
-                rank_base = rank_start_offsets[remote_rank].item()
-                # Add offset for previous experts from this rank
-                expert_offset = (
-                    output_expert_splits[remote_rank, :expert_idx].sum().item()
-                )
-                ref_read_offset = rank_base + expert_offset
-
-                # Copy tokens
-                ref_output_expert_major[
-                    ref_write_offset : ref_write_offset + tokens_from_rank
-                ] = ref_output[ref_read_offset : ref_read_offset + tokens_from_rank]
-                ref_write_offset += tokens_from_rank
-
-        # Pad to next multiple of 32
-        tokens_for_expert = output_expert_splits[:, expert_idx].sum().item()
-        padded_size = ((tokens_for_expert + 31) // 32) * 32
-        ref_write_offset = ref_write_offset - tokens_for_expert + padded_size
-
-    return ref_output_expert_major
 
 
 if __name__ == "__main__":
