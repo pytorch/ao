@@ -326,6 +326,37 @@ def nvfp4_to_copy(func, types, args, kwargs):
     return tensor
 
 
+@implements([aten.is_pinned.default])
+def nvfp4_is_pinned(func, types, args, kwargs):
+    tensor = args[0]
+    is_pinned = tensor.qdata.is_pinned() and tensor.scale.is_pinned()
+    if tensor.per_tensor_scale is not None:
+        is_pinned = is_pinned and tensor.per_tensor_scale.is_pinned()
+    if tensor.act_per_tensor_scale is not None:
+        is_pinned = is_pinned and tensor.act_per_tensor_scale.is_pinned()
+    return is_pinned
+
+
+@implements([aten._pin_memory.default])
+def nvfp4_pin_memory(func, types, args, kwargs):
+    tensor = args[0]
+    return NVFP4Tensor(
+        tensor.qdata.pin_memory(),
+        tensor.scale.pin_memory(),
+        tensor.block_size,
+        tensor.orig_dtype,
+        tensor.per_tensor_scale.pin_memory()
+        if tensor.per_tensor_scale is not None
+        else None,
+        tensor.act_per_tensor_scale.pin_memory()
+        if tensor.act_per_tensor_scale is not None
+        else None,
+        tensor.is_swizzled_scales,
+        tensor.use_triton_kernel,
+        tensor.act_quant_kwargs,
+    )
+
+
 @implements([aten.slice.Tensor])
 def nvfp4_slice(func, types, args, kwargs):
     x, dim, start, end, step = fill_defaults(args, 5, [0, None, None, 1])
