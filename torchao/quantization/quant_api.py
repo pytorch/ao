@@ -1105,9 +1105,13 @@ class Int8DynamicActivationInt8WeightConfig(AOBaseConfig):
                 self.granularity
             )
             _validate_granularity_int8(act_granularity, weight_granularity)
-            assert self.act_mapping_type is not None, (
+            assert self.act_mapping_type in (
+                MappingType.SYMMETRIC,
+                MappingType.ASYMMETRIC,
+            ), (
                 "Int8DynamicActivationInt8WeightConfig requires "
-                "`act_mapping_type` to be set (not be None). "
+                "`act_mapping_type` in (MappingType.SYMMETRIC, "
+                "MappingType.ASYMMETRIC). "
                 "Please set it to MappingType.SYMMETRIC or "
                 "MappingType.ASYMMETRIC."
             )
@@ -1245,9 +1249,13 @@ class Int8StaticActivationInt8WeightConfig(AOBaseConfig):
             self.granularity
         )
         _validate_granularity_int8(act_granularity, weight_granularity)
-        assert self.act_mapping_type is not None, (
+        assert self.act_mapping_type in (
+            MappingType.SYMMETRIC,
+            MappingType.ASYMMETRIC,
+        ), (
             "Int8StaticActivationInt8WeightConfig requires "
-            "`act_mapping_type` to be set (not be None). "
+            "`act_mapping_type` in (MappingType.SYMMETRIC, "
+            "MappingType.ASYMMETRIC). "
             "Please set it to MappingType.SYMMETRIC or "
             "MappingType.ASYMMETRIC."
         )
