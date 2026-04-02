@@ -17,14 +17,14 @@ In this tutorial, we walk through an example of how to achieve this in torchao. 
            super().__init__()
            self.linear1 = torch.nn.Linear(m, k, bias=False)
            self.linear2 = torch.nn.Linear(k, n, bias=False)
-   
+
        def example_inputs(self, batch_size=1, dtype=torch.float32, device="cpu"):
            return (
                torch.randn(
                    batch_size, self.linear1.in_features, dtype=dtype, device=device
                ),
            )
-   
+
        def forward(self, x):
            x = self.linear1(x)
            x = self.linear2(x)
@@ -86,12 +86,12 @@ Next, we define our observed linear that we will swap our `torch.nn.Linear` with
            super().__init__(in_features, out_features, bias, device, dtype)
            self.act_obs = act_obs
            self.weight_obs = weight_obs
-   
+
        def forward(self, input: torch.Tensor):
            observed_input = self.act_obs(input)
            observed_weight = self.weight_obs(self.weight)
            return F.linear(observed_input, observed_weight, self.bias)
-   
+
        @classmethod
        def from_float(cls, float_linear, act_obs, weight_obs):
            observed_linear = cls(
@@ -166,7 +166,7 @@ There are multiple ways to actually quantize the model. Here we walk through the
            self.qweight = to_affine_quantized_intx_static(
                weight, weight_scale, weight_zero_point, block_size, self.target_dtype
            )
-   
+
        def forward(self, input: torch.Tensor):
            block_size = input.shape
            qinput = to_affine_quantized_intx_static(
@@ -177,7 +177,7 @@ There are multiple ways to actually quantize the model. Here we walk through the
                self.target_dtype,
            )
            return F.linear(qinput, self.qweight, self.bias)
-   
+
        @classmethod
        def from_observed(cls, observed_linear, target_dtype):
            quantized_linear = cls(
@@ -202,11 +202,11 @@ This linear class computes the scales and zero points for both input activations
    from torchao.quantization.transform_module import (
        register_quantize_module_handler,
    )
-   
+
    @dataclass
    class StaticQuantConfig(AOBaseConfig):
        target_dtype: torch.dtype
-   
+
    @register_quantize_module_handler(StaticQuantConfig)
    def _apply_static_quant(
        module: torch.nn.Module,
@@ -237,26 +237,7 @@ Now, we will see that the linear layers in our model are swapped to our `Quantiz
    )
    >>> m.linear1.act_scale
    tensor([0.0237], device='cuda:0')
-   >>> m.linear1.qweight
-   AffineQuantizedTensor(tensor_impl=PlainAQTTensorImpl(data=tensor([[142,  31,  42,  ..., 113, 157,  57],
-           [ 59, 160,  70,  ...,  23, 150,  67],
-           [ 44,  49, 241,  ..., 238,  69, 235],
-           ...,
-           [228, 255, 201,  ..., 114, 236,  73],
-           [ 50,  88,  83,  ..., 109, 209,  92],
-           [184, 141,  35,  ..., 224, 110,  66]], device='cuda:0',
-          dtype=torch.uint8)... , scale=tensor([0.0009, 0.0010, 0.0009, 0.0010, 0.0009, 0.0010, 0.0010, 0.0010, 0.0010,
-           0.0010, 0.0010, 0.0010, 0.0010, 0.0010, 0.0010, 0.0010, 0.0010, 0.0010,
-           0.0010, 0.0010, 0.0010, 0.0009, 0.0010, 0.0010, 0.0010, 0.0009, 0.0010,
-           0.0009, 0.0010, 0.0010, 0.0010, 0.0009, 0.0009, 0.0009, 0.0010, 0.0009,
-           0.0010, 0.0009, 0.0010, 0.0010, 0.0010, 0.0009, 0.0009, 0.0009, 0.0010,
-           0.0009, 0.0010, 0.0009, 0.0009, 0.0009, 0.0010, 0.0010, 0.0009, 0.0009,
-           0.0010, 0.0009, 0.0010, 0.0010, 0.0009, 0.0009, 0.0009, 0.0009, 0.0009,
-           0.0010], device='cuda:0')... , zero_point=tensor([130., 128., 122., 130., 132., 128., 125., 130., 126., 128., 129., 126.,
-           128., 128., 128., 128., 129., 127., 130., 125., 128., 133., 126., 126.,
-           128., 124., 127., 128., 128., 128., 129., 124., 126., 133., 129., 127.,
-           126., 124., 130., 126., 127., 129., 124., 125., 127., 130., 128., 132.,
-           128., 129., 128., 129., 131., 132., 127., 135., 126., 130., 124., 136.,
-           131., 124., 130., 129.], device='cuda:0')... , _layout=PlainLayout()), block_size=(1, 64), shape=torch.Size([64, 64]), device=cuda:0, dtype=torch.bfloat16, requires_grad=False)
+   >>> m.linear1.qweight  # quantized weight tensor with scale and zero_point
+   IntxUnpackedToInt8Tensor(...)  # actual repr depends on quantization config
 
 In this tutorial, we walked through a basic example of how to perform integer static quantization in torchao. We also have an example of how to perform the same static quantization in float8. Please see the full `example script <https://github.com/pytorch/ao/tree/main/tutorials/calibration_flow/static_quant.py>`__ for more detail!
