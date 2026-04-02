@@ -1834,45 +1834,50 @@ def _register_smooth_quant_int_mm_pattern():
             aten.reshape.default, pattern, KeywordArg("out_shape_no_bias")
         )
 
-    pattern_no_bias_1 = _with_outer_reshape(get_pattern_no_bias())
-    pattern_no_bias_1_with_matmul_convert = _with_outer_reshape(
+    # The following pattern covers both torchao
+    # Int8DynamicActivationInt8WeightConfig linear and smooth-quant.
+    # It matches the Int8DynamicActivationInt8WeightConfig case where
+    # both activation and weights are symmetrically quantized.
+    # It also matches smooth-quant when the graph is lowered to the
+    # same int_mm + scaling form, especially for 2D input shapes.
+    # Since add is not currently being used as a oneDNN post-op, but
+    # is unfused, we don't need this pattern with bias.
+    # Ideally, we should add mul + add post-op support in ATen int8
+    # oneDNN linear op.
+    pattern_with_no_outer_or_act_reshape = get_pattern_no_bias(reshape_a=False)
+
+    pattern_no_bias = _with_outer_reshape(get_pattern_no_bias())
+    pattern_no_bias_with_matmul_convert = _with_outer_reshape(
         get_pattern_no_bias(convert_scaled_matmul=True)
     )
-    pattern_no_bias_1_with_output_convert = CallFunction(
+    pattern_no_bias_with_output_convert = CallFunction(
         prims.convert_element_type.default,
-        pattern_no_bias_1_with_matmul_convert,
+        pattern_no_bias_with_matmul_convert,
         KeywordArg("dtype"),
     )
-    pattern_with_bias_1 = CallFunction(
+    pattern_with_bias = CallFunction(
         aten.add.Tensor,
-        pattern_no_bias_1,
+        pattern_no_bias,
         KeywordArg("bias"),
     )
-    pattern_with_bias_1_with_matmul_convert = CallFunction(
+    pattern_with_bias_with_matmul_convert = CallFunction(
         aten.add.Tensor,
-        pattern_no_bias_1_with_matmul_convert,
+        pattern_no_bias_with_matmul_convert,
         KeywordArg("bias"),
     )
-    pattern_with_bias_1_with_output_convert = CallFunction(
+    pattern_with_bias_with_output_convert = CallFunction(
         prims.convert_element_type.default,
-        pattern_with_bias_1_with_matmul_convert,
+        pattern_with_bias_with_matmul_convert,
         KeywordArg("dtype"),
     )
-
-    # The following patterns are for torchao Int8DynamicActivationInt8WeightConfig linear,
-    # when both activation and weights are symmetrically quantized.
-    # In practice, though, they may also match smooth-quant pattern when a 2D input shape would be used.
-    # Since add is not currently being used as a oneDNN post-op, but is unfused, we don't need these patterns with bias.
-    # Ideally, we should add mul + add post-op support in ATen int8 oneDNN linear op.
-    pattern1_with_no_outer_or_act_reshape = get_pattern_no_bias(reshape_a=False)
 
     def _validate_pattern(match: Match):
         # Valid node counts correspond to different pattern variations:
-        # 4: pattern1_with_no_outer_or_act_reshape (int_mm + convert + mul + mul)
-        # 6: pattern_no_bias_1 (reshape + int_mm + convert + mul + mul + reshape)
-        # 7: pattern_with_bias_1 (pattern_no_bias_1 + add)
-        # 8: pattern_no_bias_1_with_output_convert (pattern_no_bias_1 with dot scaled + output convert)
-        # 9: pattern_with_bias_1_with_output_convert (pattern_with_bias_1 with dot scaled + output convert)
+        # 4: pattern_with_no_outer_or_act_reshape (int_mm + convert + mul + mul)
+        # 6: pattern_no_bias (reshape + int_mm + convert + mul + mul + reshape)
+        # 7: pattern_with_bias (pattern_no_bias + add)
+        # 8: pattern_no_bias_with_output_convert (pattern_no_bias with scaled matmul + output convert)
+        # 9: pattern_with_bias_with_output_convert (pattern_with_bias with scaled matmul + output convert)
         if len(match.nodes) not in [4, 6, 7, 8, 9]:
             return False
         # Make sure weight is a constant
@@ -1897,11 +1902,11 @@ def _register_smooth_quant_int_mm_pattern():
         return True
 
     pattern_to_pass_number = {
-        pattern_with_bias_1_with_output_convert: 0,
-        pattern_with_bias_1: 0,
-        pattern_no_bias_1_with_output_convert: 1,
-        pattern_no_bias_1: 1,
-        pattern1_with_no_outer_or_act_reshape: 2,
+        pattern_with_bias_with_output_convert: 0,
+        pattern_with_bias: 0,
+        pattern_no_bias_with_output_convert: 1,
+        pattern_no_bias: 1,
+        pattern_with_no_outer_or_act_reshape: 2,
     }
     for pattern, pass_number in pattern_to_pass_number.items():
 
