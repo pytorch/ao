@@ -1058,21 +1058,6 @@ def _validate_granularity_int8(
         )
 
 
-def _validate_act_mapping_type_int8(
-    act_mapping_type: Optional[MappingType],
-) -> MappingType:
-    if act_mapping_type is None:
-        return MappingType.SYMMETRIC
-
-    supported = (MappingType.SYMMETRIC, MappingType.ASYMMETRIC)
-    if act_mapping_type not in supported:
-        raise ValueError(
-            f"Unsupported act_mapping_type: {act_mapping_type}. "
-            f"Only {supported} are supported for int8 activation quantization."
-        )
-    return act_mapping_type
-
-
 @dataclass
 class Int8DynamicActivationInt8WeightConfig(AOBaseConfig):
     """
@@ -1087,7 +1072,7 @@ class Int8DynamicActivationInt8WeightConfig(AOBaseConfig):
             activations and weights) or a tuple / list of two granularities (first for activations, second for weights).
             If None, defaults to PerRow for both. Only PerTensor and PerRow are supported.
         act_mapping_type: Optional[MappingType] = MappingType.SYMMETRIC - Mapping type for activation quantization.
-            SYMMETRIC and ASYMMETRIC are supported for version 2. If None, defaults to SYMMETRIC.
+            SYMMETRIC and ASYMMETRIC are supported for version 2.
         weight_only_decode: bool = False - If True, only quantizes weights during forward pass and keeps activations
             in original precision during decode operations.
         set_inductor_config: bool = True - If True, adjusts `torchinductor` settings to recommended values
@@ -1120,8 +1105,11 @@ class Int8DynamicActivationInt8WeightConfig(AOBaseConfig):
                 self.granularity
             )
             _validate_granularity_int8(act_granularity, weight_granularity)
-            self.act_mapping_type = _validate_act_mapping_type_int8(
-                self.act_mapping_type
+            assert self.act_mapping_type is not None, (
+                "Int8DynamicActivationInt8WeightConfig requires "
+                "`act_mapping_type` to be set (not be None). "
+                "Please set it to MappingType.SYMMETRIC or "
+                "MappingType.ASYMMETRIC."
             )
 
 
@@ -1235,7 +1223,7 @@ class Int8StaticActivationInt8WeightConfig(AOBaseConfig):
             The granularity for quantization. Can be either a single granularity (applied to both
             activations and weights) or a tuple / list of two granularities (first for activations, second for weights).
             If None, defaults to PerRow for both. Only PerTensor and PerRow are supported.
-        act_mapping_type (Optional[MappingType]): The mapping type for activation quantization. SYMMETRIC and ASYMMETRIC are supported.
+        act_mapping_type (MappingType): The mapping type for activation quantization. SYMMETRIC and ASYMMETRIC are supported.
         set_inductor_config (bool): if True, adjusts `torchinductor` settings to recommended values.
         version (int): the version of the config
     """
@@ -1253,11 +1241,16 @@ class Int8StaticActivationInt8WeightConfig(AOBaseConfig):
         torch._C._log_api_usage_once(
             "torchao.quantization.Int8StaticActivationInt8WeightConfig"
         )
-        self.act_mapping_type = _validate_act_mapping_type_int8(self.act_mapping_type)
         act_granularity, weight_granularity = Int8Tensor._normalize_granularity(
             self.granularity
         )
         _validate_granularity_int8(act_granularity, weight_granularity)
+        assert self.act_mapping_type is not None, (
+            "Int8StaticActivationInt8WeightConfig requires "
+            "`act_mapping_type` to be set (not be None). "
+            "Please set it to MappingType.SYMMETRIC or "
+            "MappingType.ASYMMETRIC."
+        )
 
     def get_act_quant_kwargs(self) -> QuantizeTensorToInt8Kwargs:
         """Get the activation quantization kwargs for static quantization.

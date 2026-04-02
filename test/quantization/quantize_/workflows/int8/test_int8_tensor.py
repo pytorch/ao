@@ -63,17 +63,6 @@ INT8_TEST_CONFIGS = [
 ]
 
 
-class TestActMappingType(TorchAOIntegrationTestCase):
-    def test_act_mapping_type_none_defaults_to_symmetric(self):
-        dynamic_config = Int8DynamicActivationInt8WeightConfig(
-            version=2, act_mapping_type=None
-        )
-        self.assertEqual(dynamic_config.act_mapping_type, MappingType.SYMMETRIC)
-
-        static_config = Int8StaticActivationInt8WeightConfig(act_mapping_type=None)
-        self.assertEqual(static_config.act_mapping_type, MappingType.SYMMETRIC)
-
-
 @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
 @common_utils.instantiate_parametrized_tests
 class TestInt8Tensor(TorchAOIntegrationTestCase):
