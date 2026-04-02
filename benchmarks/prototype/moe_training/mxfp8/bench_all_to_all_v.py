@@ -28,6 +28,9 @@ from tqdm import tqdm
 
 from benchmarks.utils import profile_fn
 from torchao.prototype.moe_training.ep.permute import permute_and_pad
+from torchao.prototype.moe_training.kernels.mxfp8 import (
+    get_buffer_manager,
+)
 from torchao.prototype.moe_training.kernels.mxfp8.ep_dispatch import (
     mxfp8_ep_dispatch,
 )
@@ -144,6 +147,7 @@ def mxfp8_a2a_fwd(
     input_rank_splits: torch.Tensor,
     input_expert_splits: torch.Tensor,
     device_mesh: DeviceMesh,
+    buffer_manager=None,
 ):
     world_size = dist.get_world_size(device_mesh.get_group())
 
@@ -159,6 +163,7 @@ def mxfp8_a2a_fwd(
             input_expert_splits,
             max_output_rows_per_rank,
             device_mesh.get_group(),
+            buffer_manager,
         )
     )
 
@@ -238,15 +243,37 @@ def run_experiment(
             active_steps=10,
         )
 
+    # Preallocate buffer manager (not timed - reused across model)
+    buffer_manager = get_buffer_manager()
+
+    # Calculate worst-case buffer size and preallocate buffers
+    world_size = dist.get_world_size()
+    total_tokens_across_all_ranks = x.shape[0] * world_size
+    max_output_rows_per_rank = total_tokens_across_all_ranks
+
+    # Preallocate symmetric memory buffers (simulates what happens during model init)
+    buffer_manager.preallocate_buffers(
+        max_output_rows_per_rank=max_output_rows_per_rank,
+        data_shape=x.shape[1:],  # (dim,)
+        scales_shape=(x.shape[1] // 32,),  # Assuming 32-element blocks for MXFP8 scales
+        data_dtype=torch.float8_e4m3fn,
+        scales_dtype=torch.uint8,
+        device=device,
+    )
+
     # Bench mxfp8 sync a2a fwd (zero device-to-host syncs!)
-    warmup(lambda: mxfp8_a2a_fwd(x, input_rank_splits, input_expert_splits, mesh))
+    warmup(
+        lambda: mxfp8_a2a_fwd(
+            x, input_rank_splits, input_expert_splits, mesh, buffer_manager
+        )
+    )
 
     # Run 10 iterations and take average
     torch.cuda.synchronize()
     start_sec = time.perf_counter()
     for _ in range(NUM_BENCH_ITERS):
         mxfp8_routed_input = mxfp8_a2a_fwd(
-            x, input_rank_splits, input_expert_splits, mesh
+            x, input_rank_splits, input_expert_splits, mesh, buffer_manager
         )
     torch.cuda.synchronize()
     end_sec = time.perf_counter()
@@ -259,6 +286,7 @@ def run_experiment(
             input_rank_splits,
             input_expert_splits,
             mesh,
+            buffer_manager,
             distributed=True,
             profile_name="mxfp8_a2a_fwd",
             active_steps=10,
