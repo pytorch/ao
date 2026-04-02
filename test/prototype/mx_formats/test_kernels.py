@@ -873,7 +873,7 @@ def test_all_nan_block_scale_behavior(scaling_mode):
     scale_pytorch, _ = to_mx(test_vals, torch.float8_e4m3fn, block_size, scaling_mode)
 
     # Convert to regular tensor for easier inspection
-    scale_pytorch_vals = scale_pytorch.view(torch.float32)
+    scale_pytorch_vals = scale_pytorch.to(torch.float32)
 
     # Test expectations:
     # Block 0 (mixed): Should have real scale value (not NaN), based on max real value

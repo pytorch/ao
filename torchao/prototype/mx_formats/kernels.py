@@ -471,16 +471,49 @@ if _triton_kernels_available:
     IS_ROCM = tl.constexpr(is_ROCM())
 
     @triton.jit
+    def _calculate_reciprocal_scale(scale_e8m0_biased):
+        """
+        Helper function to calculate reciprocal scale from E8M0 biased exponent.
+
+        This implements the fast reciprocal calculation logic equivalent to CUDA's exp2f_rcp.
+        """
+        FP32_MANTISSA_BITS: tl.constexpr = 23
+
+        # Handle special cases and normal values using nested tl.where
+        # Based on CUDA reference: https://github.com/NVIDIA/TransformerEngine/blob/b7598aa887eb7d619d64c90692980009669379bf/transformer_engine/common/util/ptx.cuh#L332-L341
+        descale_fp = tl.where(
+            scale_e8m0_biased == 255,  # NaN case -> return NaN
+            float("nan"),
+            tl.where(
+                scale_e8m0_biased == 254,  # Inf case -> return 2^-127
+                2**-127,
+                tl.where(
+                    scale_e8m0_biased == 0,  # Zero case -> return 1.0 (no scaling)
+                    1.0,
+                    # Normal case: fast bit manipulation (254 - biased_exp) << 23
+                    ((254 - scale_e8m0_biased).to(tl.int32) << FP32_MANTISSA_BITS).to(
+                        tl.float32, bitcast=True
+                    ),
+                ),
+            ),
+        )
+
+        return descale_fp
+
+    @triton.jit
     def _triton_calculate_scale_rceil(x, axis, USE_PTX: tl.constexpr):
+        """
+        Calculates and returns reciprocal scale using RCEIL rounding mode
+        """
         # There is no good support for accessing globals from a jit'ed triton
         # function, so we redefine them here. Since this is prototype code which
         # we plan to remove after torch.compile catches up, this is fine.
-        E8M0_EXPONENT_BIAS: tl.constexpr = 127
-        FP32_MANTISSA_BITS: tl.constexpr = 23
-        F8E4M3_MAX_RCP: tl.constexpr = 1.0 / 448.0
+        e8m0_exponent_bias = 127
 
         # Find the maximum absolute value for each row
         max_abs = tl.max(x, axis=axis)
+
+        F8E4M3_MAX_RCP: tl.constexpr = 1.0 / 448.0
 
         # Calculate scale input like CUDA: amax * max_norm_rcp
         scale_input = max_abs * F8E4M3_MAX_RCP
@@ -504,8 +537,8 @@ if _triton_kernels_available:
             # Fallback implementation
             scale_e8m0_unbiased = tl.clamp(
                 tl.ceil(tl.log2(scale_input)),
-                min=-1 * E8M0_EXPONENT_BIAS,
-                max=E8M0_EXPONENT_BIAS,
+                min=-1 * e8m0_exponent_bias,
+                max=e8m0_exponent_bias,
             )
             scale_e8m0_biased = (scale_e8m0_unbiased + 127).to(tl.uint8)
 
@@ -514,35 +547,8 @@ if _triton_kernels_available:
         scale_e8m0_biased = tl.where(is_nan, 255, scale_e8m0_biased)  # 0xFF for NaN
         scale_e8m0_biased = tl.where(is_inf, 254, scale_e8m0_biased)  # 0xFE for inf
 
-        # Equivalent CUDA per-thread code is more readable, copying here as documentation:
-        #
-        # __device__ __forceinline__ float exp2f_rcp(e8m0_t biased_exp) {
-        #   // Handle the special case of NaN.
-        #   if (biased_exp == 255) return __int_as_float(0x7fffffff);
-        #
-        #   // Handle the special case where the unbiased exponent is 127, so the reciprocal is 2^-127 which needs the first bit of
-        #   // the mantissa to be 1, which can't be obtained by shifting `FP32_MANTISSA_BITS` bits to the left.
-        #   if (biased_exp == 254) return __int_as_float(0x00400000);
-        #
-        #   // Fast calculation when the unbiased exp is in [-126, 126], and only the exponent part is used to express the reciprocal.
-        #   return __int_as_float((254 - biased_exp) << FP32_MANTISSA_BITS);
-        # }
-        descale_fp = tl.where(
-            scale_e8m0_biased == 255,  # NaN case -> return NaN
-            float("nan"),
-            tl.where(
-                scale_e8m0_biased == 254,  # Inf case -> return 2^-127
-                2**-127,
-                tl.where(
-                    scale_e8m0_biased == 0,  # Zero case -> return 1.0 (no scaling)
-                    1.0,
-                    # Normal case: fast bit manipulation (254 - biased_exp) << 23
-                    ((254 - scale_e8m0_biased).to(tl.int32) << FP32_MANTISSA_BITS).to(
-                        tl.float32, bitcast=True
-                    ),
-                ),
-            ),
-        )
+        # Calculate reciprocal scale using helper function
+        descale_fp = _calculate_reciprocal_scale(scale_e8m0_biased)
 
         return descale_fp, scale_e8m0_biased
 
@@ -558,7 +564,6 @@ if _triton_kernels_available:
         e8m0_exponent_bias = 127
         bf16_mbits = 7
         bf16_exp_bias = 127
-        fp32_mbits = 23
 
         # Find the maximum absolute value for each row
         max_abs = tl.max(x, axis=axis)
@@ -581,17 +586,8 @@ if _triton_kernels_available:
         scale_e8m0_biased = scale_e8m0_unbiased + e8m0_exponent_bias
         scale_e8m0_biased = scale_e8m0_biased.to(tl.uint8)
 
-        # Calculate the scale in floating point.
-        scale_fp = (scale_e8m0_biased.to(tl.int32) << fp32_mbits).to(
-            tl.float32, bitcast=True
-        )
-
-        fp32_exp_bias = 127.0
-        fp32_min_normal = tl.exp2(-fp32_exp_bias + 1)
-        scale_fp = tl.clamp(scale_fp, min=fp32_min_normal, max=float("inf"))
-
-        # Return reciprocal for consistency with RCEIL (allows both modes to use multiplication)
-        descale_fp = 1.0 / scale_fp
+        # Calculate reciprocal scale using helper function for consistency with RCEIL
+        descale_fp = _calculate_reciprocal_scale(scale_e8m0_biased)
 
         return descale_fp, scale_e8m0_biased
 
@@ -697,14 +693,14 @@ if _triton_kernels_available:
         # Find the maximum absolute value for each column
         # shape: (COL_TILE_SIZE * BLOCKS_PER_ROW_TILE,)
         if SCALING_MODE == "rceil":
-            col_scale_r, col_scale_e8m0_r = _triton_calculate_scale_rceil(
+            col_rcp_scale_fp32, col_scale_e8m0_r = _triton_calculate_scale_rceil(
                 x_block_abs_t_r,
                 axis=1,
                 USE_PTX=not IS_ROCM,
             )
         else:
             tl.static_assert(SCALING_MODE == "floor")
-            col_scale_r, col_scale_e8m0_r = _triton_calculate_scale_floor(
+            col_rcp_scale_fp32, col_scale_e8m0_r = _triton_calculate_scale_floor(
                 x_block_abs_t_r,
                 axis=1,
             )
@@ -713,7 +709,7 @@ if _triton_kernels_available:
         # Broadcasting col_scale to match x_block's shape
         # x_block_t_r shape (COL_TILE_SIZE * BLOCKS_PER_ROW_TILE, INNER_BLOCK_SIZE)
         # col_scale shape (COL_TILE_SIZE * BLOCKS_PER_ROW_TILE,) -> (COL_TILE_SIZE * BLOCKS_PER_ROW_TILE, 1)
-        col_normalized_t_r = x_block_t_r / col_scale_r[:, None]
+        col_normalized_t_r = x_block_t_r * col_rcp_scale_fp32[:, None]
 
         # Reshape back to original tile size
         col_normalized_t = tl.reshape(col_normalized_t_r, COL_TILE_SIZE, ROW_TILE_SIZE)
