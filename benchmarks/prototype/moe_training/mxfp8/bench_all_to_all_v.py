@@ -59,9 +59,7 @@ class Experiment:
 
 def get_configs() -> List[ExperimentConfig]:
     # (batch_size, seq_len, dim)
-    input_shapes = [
-        (1, 8192, 7168),
-    ]
+    input_shapes = [(1, 8192, 7168), (4, 8192, 7168)]
     configs = []
     for shape in input_shapes:
         configs.append(
@@ -367,23 +365,15 @@ def print_results(experiments: List[Experiment]):
         "mxfp8_ms",
         "speedup",
         "mxfp8_bw_gbps",
-        "nvlink_util_%",
     ]
     rows = []
     num_ranks = dist.get_world_size()
-
-    # B200 theoretical max NVLink bandwidth
-    # 18 links * 53.125 GB/s = 956.25 GB/s per GPU
-    theoretical_nvlink_gbps = 956
 
     for experiment in experiments:
         speedup = (
             experiment.result.fwd_bf16_ms / experiment.result.fwd_mxfp8_ms
             if experiment.result.fwd_mxfp8_ms > 0
             else float("inf")
-        )
-        nvlink_util = (
-            experiment.result.mxfp8_bandwidth_gbps / theoretical_nvlink_gbps * 100
         )
 
         rows.append(
@@ -394,7 +384,6 @@ def print_results(experiments: List[Experiment]):
                 f"{experiment.result.fwd_mxfp8_ms:.2f}",
                 f"{speedup:.2f}x",
                 f"{experiment.result.mxfp8_bandwidth_gbps:.1f}",
-                f"{nvlink_util:.1f}%",
             ]
         )
 
@@ -407,13 +396,8 @@ def print_results(experiments: List[Experiment]):
         avg_mxfp8_bw = sum(e.result.mxfp8_bandwidth_gbps for e in experiments) / len(
             experiments
         )
-        avg_nvlink_util = avg_mxfp8_bw / theoretical_nvlink_gbps * 100
-
         print("\nBandwidth Summary:")
-        print(f"  MXFP8 average bandwidth: {avg_mxfp8_bw:.1f} GB/s")
-        print(
-            f"  NVLink utilization: {avg_nvlink_util:.1f}% of theoretical maximum ({theoretical_nvlink_gbps} GB/s)"
-        )
+        print(f"  MXFP8 average NVLink bandwidth: {avg_mxfp8_bw:.1f} GB/s")
         print("=" * 80)
 
 

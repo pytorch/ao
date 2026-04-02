@@ -47,6 +47,8 @@ class MXFP8SynclessAllToAllExpertMajor(torch.autograd.Function):
         buffers = buffer_manager or get_buffer_manager()
         buffers.max_output_rows_per_rank = max_output_rows_per_rank
 
+        # This quantization kernel writes scales to row major layout, appropriate for all2all,
+        # rather than blocked layout for tenscores. The transformation to blocked layout happens on the receiver rank.
         block_size = 32
         input_data, input_scales = triton_to_mxfp8_dim0(
             input,
