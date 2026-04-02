@@ -125,12 +125,15 @@ def _(func, types, args, kwargs):
 
 @OptimStateFp8.implements(aten._to_copy.default)
 def _(func, types, args, kwargs):
-    # only change the appearance dtype
+    # only change the appearance dtype.
+    # clone internal tensors so the result is a true copy (not a view).
+    # without clone, same-device _to_copy shares storage, which confuses
+    # torch.compile's fake-tensor metadata checks.
     dtype = kwargs.get("dtype", args[0].dtype)
     device = kwargs.get("device", None)
     out = OptimStateFp8(
-        args[0].codes.to(device=device),
-        args[0].scale.to(device=device),
+        args[0].codes.to(device=device).clone(),
+        args[0].scale.to(device=device).clone(),
         dtype=dtype,
     )
     return return_and_correct_aliasing(func, args, kwargs, out)
