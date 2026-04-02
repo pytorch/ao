@@ -8,8 +8,7 @@ import pytest
 import torch
 import torch.nn.functional as F
 
-from torchao.utils import torch_version_at_least, is_XPU
-
+from torchao.utils import is_XPU, torch_version_at_least
 
 if not ((is_XPU() or torch.cuda.is_available()) and torch_version_at_least("2.7.0")):
     pytest.skip("CUDA or XPU with PyTorch 2.7.0+ required", allow_module_level=True)
