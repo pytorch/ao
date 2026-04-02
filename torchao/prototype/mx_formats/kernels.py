@@ -1216,12 +1216,9 @@ def _mslk_quantize_nvfp4_custom_op(
         triton_quantize_nvfp4 as _mslk_triton_quantize_nvfp4,
     )
 
-    if global_scale is None and not is_mslk_version_at_least("1.1.0"):
-        import mslk
-
-        raise RuntimeError(
-            f"Optional global_scale support requires MSLK >= 1.1.0, "
-            f"but found MSLK {mslk.__version__}. "
+    if global_scale is None:
+        assert is_mslk_version_at_least("1.1.0"), (
+            "Optional global_scale support requires MSLK >= 1.1.0, "
             "Please upgrade MSLK: https://github.com/pytorch/MSLK"
         )
 
