@@ -8,7 +8,6 @@ import unittest
 
 import pytest
 import torch
-from packaging import version
 from torch.distributed._tensor import DTensor
 from torch.distributed.tensor import Partial, Replicate, Shard
 from torch.testing._internal.common_utils import run_tests
@@ -16,6 +15,8 @@ from torch.testing._internal.distributed._tensor.common_dtensor import (
     DTensorTestBase,
     with_comms,
 )
+
+from packaging import version
 
 triton = pytest.importorskip("triton", reason="Triton required to run this test")
 
@@ -30,7 +31,6 @@ from torchao.prototype.blockwise_fp8_training.kernels import (
     triton_fp8_gemm_1x128_128x128,
 )
 from torchao.utils import is_MI300, is_MI350, is_ROCM, is_sm_at_least_90
-
 
 QUANT_PRESERVE_PLACEMENTS = (
     (Replicate(), (Replicate(), Replicate())),
