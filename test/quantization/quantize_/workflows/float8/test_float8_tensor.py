@@ -1603,5 +1603,73 @@ class TestMI350HardwareSupport(common_utils.TestCase):
             self.assertFalse(is_sm_at_least_89() or is_MI300() or is_MI350())
 
 
+class TestMTIAHardwareSupport(common_utils.TestCase):
+    """Tests that MTIA is accepted by FP8 hardware checks for PerGroup granularity.
+
+    Uses mocking so the tests run on any hardware without needing an actual
+    MTIA device.
+    """
+
+    def _patch_mtia_only(self):
+        """Patches simulating an MTIA-only environment."""
+        from unittest.mock import patch
+
+        return [
+            patch("torchao.float8.inference.is_mtia", return_value=True),
+            patch("torchao.float8.inference.is_MI300", return_value=False),
+            patch("torchao.float8.inference.is_sm_at_least_89", return_value=False),
+            patch("torch.cuda.is_available", return_value=False),
+            patch("torch.xpu.is_available", return_value=False),
+        ]
+
+    def _patch_no_hw(self):
+        """Patches simulating unsupported hardware."""
+        from unittest.mock import patch
+
+        return [
+            patch("torchao.float8.inference.is_mtia", return_value=False),
+            patch("torchao.float8.inference.is_MI300", return_value=False),
+            patch("torchao.float8.inference.is_sm_at_least_89", return_value=False),
+            patch("torch.cuda.is_available", return_value=False),
+            patch("torch.xpu.is_available", return_value=False),
+        ]
+
+    def _start(self, patches):
+        for p in patches:
+            p.start()
+
+    def _stop(self, patches):
+        for p in patches:
+            p.stop()
+
+    def test_check_hardware_support_mtia_per_group(self):
+        from torchao.float8.inference import _check_hardware_support
+
+        patches = self._patch_mtia_only()
+        self._start(patches)
+        try:
+            _check_hardware_support((PerGroup(128), PerGroup(128)))
+        finally:
+            self._stop(patches)
+
+    def test_check_hardware_support_rejects_per_group_without_mtia(self):
+        from torchao.float8.inference import _check_hardware_support
+
+        patches = self._patch_no_hw()
+        self._start(patches)
+        try:
+            with self.assertRaises(AssertionError):
+                _check_hardware_support((PerGroup(128), PerGroup(128)))
+        finally:
+            self._stop(patches)
+
+    def test_normalize_granularity_accepts_per_group(self):
+        from torchao.float8.inference import _normalize_granularity
+
+        result = _normalize_granularity([PerGroup(128), PerGroup(128)])
+        self.assertIsInstance(result[0], PerGroup)
+        self.assertIsInstance(result[1], PerGroup)
+
+
 if __name__ == "__main__":
     run_tests()

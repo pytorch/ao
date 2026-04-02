@@ -17,6 +17,7 @@ from torchao.float8.types import FP8Granularity
 from torchao.utils import (
     is_MI300,
     is_MI350,
+    is_mtia,
     is_sm_at_least_89,
 )
 
@@ -238,6 +239,7 @@ def _normalize_granularity(
     ],
 ) -> Tuple[FP8Granularity, FP8Granularity]:
     from torchao.quantization.granularity import (
+        PerGroup,
         PerRow,
         PerTensor,
     )
@@ -254,9 +256,12 @@ def _normalize_granularity(
         is_per_row = isinstance(granularity[0], PerRow) and isinstance(
             granularity[1], PerRow
         )
+        is_per_group = isinstance(granularity[0], PerGroup) and isinstance(
+            granularity[1], PerGroup
+        )
         is_a_1_128_w_128_128 = _granularity_is_a_1_128_w_128_128(granularity)
 
-        if not (is_per_tensor or is_per_row or is_a_1_128_w_128_128):
+        if not (is_per_tensor or is_per_row or is_per_group or is_a_1_128_w_128_128):
             raise ValueError(f"Unsupported granularity types: {granularity}.")
         if not isinstance(granularity[0], type(granularity[1])):
             raise ValueError(
@@ -282,6 +287,7 @@ def _check_hardware_support(
         ValueError: If invalid granularity type is provided
     """
     from torchao.quantization.granularity import (
+        PerGroup,
         PerRow,
         PerTensor,
     )
@@ -291,6 +297,9 @@ def _check_hardware_support(
     )
     is_per_row = isinstance(granularities[0], PerRow) and isinstance(
         granularities[1], PerRow
+    )
+    is_per_group = isinstance(granularities[0], PerGroup) and isinstance(
+        granularities[1], PerGroup
     )
     is_a_1_128_w_128_128 = _granularity_is_a_1_128_w_128_128(granularities)
 
@@ -307,6 +316,10 @@ def _check_hardware_support(
         # TODO(future PR): look into AMD support
         assert is_sm_at_least_89(), (
             "Float8 1x128 activation and 128x128 weight scaling requires CUDA compute capability ≥8.9."
+        )
+    elif is_per_group:
+        assert is_mtia(), (
+            "PerGroup blockwise FP8 quantization requires MTIA."
         )
     else:
         raise ValueError(f"Invalid granularities {granularities}.")
