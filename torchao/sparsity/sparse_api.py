@@ -4,6 +4,7 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 import types
+import warnings
 from dataclasses import dataclass
 from typing import Callable, Optional
 
@@ -52,6 +53,10 @@ class BlockSparseWeightConfig(AOBaseConfig):
 
     def __post_init__(self):
         torch._C._log_api_usage_once("torchao.sparsity.BlockSparseWeightConfig")
+        warnings.warn(
+            "Deprecation: BlockSparseWeightConfig is deprecated and will be removed in a future release of torchao, "
+            "see https://github.com/pytorch/ao/issues/4230 for more details"
+        )
 
 
 # for bc
