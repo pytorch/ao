@@ -429,7 +429,7 @@ class TestGPTQFlow:
                 id="int4",
                 marks=pytest.mark.skipif(
                     not _is_mslk_available(),
-                    reason="fbgemm_gpu not available",
+                    reason="mslk not available",
                 ),
             ),
             pytest.param(
