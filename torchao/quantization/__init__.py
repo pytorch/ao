@@ -42,8 +42,6 @@ from .quant_api import (
     Int8WeightOnlyConfig,
     IntxWeightOnlyConfig,
     ModuleFqnToConfig,
-    PlainLayout,
-    TensorCoreTiledLayout,
     fqn_matches_fqn_config,
     intx_quantization_aware_training,
     quantize_,
@@ -138,8 +136,5 @@ __all__ = [
     "Int8DynActInt4WeightLinear",
     "TwoStepQuantizer",
     "Quantizer",
-    # Layouts for quant_api
-    "PlainLayout",
-    "TensorCoreTiledLayout",
     "Float8MMConfig",
 ]

@@ -1489,5 +1489,6 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
 
 common_utils.instantiate_parametrized_tests(TestFloat8Tensor)
 
+
 if __name__ == "__main__":
     run_tests()

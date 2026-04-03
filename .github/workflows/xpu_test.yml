@@ -8,6 +8,10 @@ on:
   push:
     tags:
       - ciflow/xpu/*
+  workflow_dispatch:
+  schedule:
+    # Every Saturday at 4 PM UTC
+    - cron: '0 16 * * 6'
 
 permissions:
   id-token: write

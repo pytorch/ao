@@ -11,9 +11,11 @@ import torch
 
 import torchao.prototype.autoround.utils as ar_utils
 import torchao.quantization as ao_quant
-from torchao.dtypes import TensorCoreTiledLayout, to_affine_quantized_intx_static
+from torchao.dtypes import to_affine_quantized_intx_static
 from torchao.prototype.autoround.multi_tensor import MultiTensor, _multi_tensor_config
 from torchao.quantization.quant_primitives import ZeroPointDomain
+from torchao.quantization.quantize_.workflows import Int4TilePackedTo4dTensor
+from torchao.quantization.utils import pack_tinygemm_scales_and_zeros
 from torchao.utils import find_multiple
 
 
@@ -193,7 +195,6 @@ def apply_auto_round():
                     _BIT_WIDTH_TO_DTYPE,
                     UintxLayout,
                 )
-                from torchao.quantization.quant_primitives import ZeroPointDomain
 
                 assert _auto_round_config.bits in _BIT_WIDTH_TO_DTYPE, (
                     f"Invalid bits: {_auto_round_config.bits}"
@@ -231,6 +232,7 @@ def apply_auto_round():
                 mid_point = (quant_max + quant_min + 1) / 2
                 shifted_zero_point = (mid_point - zero_point) * scale
                 block_size = (1, observed_linear.group_size)
+                original_shape = input_float.shape
                 orig_out_features, orig_in_features = input_float.shape
                 in_features = find_multiple(orig_in_features, 1024)
                 out_features = find_multiple(orig_out_features, 8)
@@ -245,7 +247,8 @@ def apply_auto_round():
                         0,
                         out_features - orig_out_features,
                     ),
-                )
+                    value=1.0,
+                ).to(torch.bfloat16)
                 pad_shifted_zero_point = torch.nn.functional.pad(
                     shifted_zero_point,
                     (
@@ -254,17 +257,53 @@ def apply_auto_round():
                         0,
                         out_features - orig_out_features,
                     ),
+                ).to(torch.bfloat16)
+                # Pad and quantize input_float
+                input_float_padded = torch.nn.functional.pad(
+                    input_float,
+                    (
+                        0,
+                        in_features - orig_in_features,
+                        0,
+                        out_features - orig_out_features,
+                    ),
                 )
-                return to_affine_quantized_intx_static(
-                    input_float=input_float,
-                    scale=pad_scale.to(torch.bfloat16),
-                    zero_point=pad_shifted_zero_point.to(torch.bfloat16),
-                    block_size=block_size,
-                    target_dtype=torch.int32,
-                    quant_min=quant_min,
-                    quant_max=quant_max,
-                    zero_point_domain=ZeroPointDomain.FLOAT,
-                    _layout=TensorCoreTiledLayout(inner_k_tiles=inner_k_tiles),
+                # Re-quantize using tinygemm affine quantization:
+                #   min_val = shifted_zero_point - scale * mid_point
+                #   quant = clamp(round((input - min_val) / scale), quant_min, quant_max)
+                group_size = observed_linear.group_size
+                input_for_quant = input_float_padded.reshape(
+                    out_features, new_num_groups, group_size
+                )
+                scale_for_quant = pad_scale.unsqueeze(-1)
+                zp_for_quant = pad_shifted_zero_point.unsqueeze(-1)
+                min_val = zp_for_quant - scale_for_quant * mid_point
+                int_data = (
+                    torch.clamp(
+                        torch.round((input_for_quant - min_val) / scale_for_quant),
+                        quant_min,
+                        quant_max,
+                    )
+                    .to(torch.int32)
+                    .reshape(out_features, in_features)
+                )
+                # Pack into int4 format for tinygemm
+                int_data_packed = (int_data[::, ::2] << 4 | int_data[::, 1::2]).to(
+                    torch.uint8
+                )
+                packed_weight = torch.ops.aten._convert_weight_to_int4pack(
+                    int_data_packed.contiguous(), inner_k_tiles
+                )
+                pad_scale_reshaped = pad_scale.reshape(int_data.shape[0], -1)
+                pad_zp_reshaped = pad_shifted_zero_point.reshape(int_data.shape[0], -1)
+                scale_and_zero = pack_tinygemm_scales_and_zeros(
+                    pad_scale_reshaped, pad_zp_reshaped, pad_scale.dtype
+                )
+                return Int4TilePackedTo4dTensor(
+                    qdata=packed_weight,
+                    scale_and_zero=scale_and_zero,
+                    block_size=list(block_size),
+                    shape=original_shape,
                 )
 
             # TODO(Yi): better way to select the weight quantization function

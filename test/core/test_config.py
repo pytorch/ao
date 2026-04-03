@@ -25,6 +25,7 @@ from torchao.prototype.awq import (
 )
 from torchao.quantization import (
     PerBlock,
+    PerGroup,
     PerRow,
     PerTensor,
 )
@@ -65,7 +66,7 @@ configs = [
     ),
     Int8DynamicActivationInt8WeightConfig(),
     Int8WeightOnlyConfig(
-        group_size=128,
+        granularity=PerGroup(128),
     ),
     # Sparsity configs
     SemiSparseWeightConfig(),

@@ -243,6 +243,9 @@ html_context = {
 # so a file named "default.css" will overwrite the builtin "default.css".
 html_static_path = ["_static"]
 
+# Files to copy to the docs root (served at docs.pytorch.org/ao/llms.txt)
+html_extra_path = ["llms.txt"]
+
 # -- Options for HTMLHelp output ------------------------------------------
 
 # Output file base name for HTML help builder.

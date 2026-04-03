@@ -60,3 +60,4 @@ jobs:
         pytest test/prototype/moe_training/test_fp8_grouped_mm.py --verbose -s
         pytest test/prototype/moe_training/test_mxfp8_grouped_mm.py --verbose -s
         pytest test/prototype/moe_training/test_training.py --verbose -s
+        pytest test/prototype/gptq/ --verbose -s

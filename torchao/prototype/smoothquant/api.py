@@ -25,6 +25,7 @@ from torchao.quantization.transform_module import (
 from torchao.utils import DummyModule
 
 from .core import (
+    RunningAbsMaxSmoothQuantObserver,
     SmoothQuantObservedLinear,
     SmoothQuantObserver,
 )
@@ -42,13 +43,18 @@ class SmoothQuantConfig(AOBaseConfig):
             CONVERT: convert the observed linear modules to quantized modules
             PREPARE_FOR_LOADING: convert the floating point model to a dummy smoothquant quantized model, so we can
             load the quantized weights through copy_ later
+            PREPARE_FOR_SMOOTHQUANT_SMOOTHING_FACTOR: compute smoothing factor after first calibration pass
+                (for RunningAbsMaxSmoothQuantObserver two-pass calibration)
+            PREPARE_FOR_SMOOTHQUANT_ACTIVATION_SCALES: reserved for future use
         alpha: The alpha value to determine smoothing factor. Factor = 1 if alpha is None, which means
             Fall back to conventional quantization if None
+        use_running_absmax: If True, use RunningAbsMaxSmoothQuantObserver for memory-efficient calibration
     """
 
     base_config: AOBaseConfig
     step: QuantizationStep
     alpha: Optional[float] = 0.5
+    use_running_absmax: bool = False
 
     def __post_init__(self):
         self.step = self.step.lower() if isinstance(self.step, str) else self.step.value
@@ -65,8 +71,14 @@ def _smooth_quant_transform(
     step = config.step
     base_config = config.base_config
 
+    observer_cls = (
+        RunningAbsMaxSmoothQuantObserver
+        if config.use_running_absmax
+        else SmoothQuantObserver
+    )
+
     if step == QuantizationStep.PREPARE:
-        observer = SmoothQuantObserver(
+        observer = observer_cls(
             weight=module.weight,
             alpha=config.alpha,
         )
@@ -74,7 +86,7 @@ def _smooth_quant_transform(
 
     if step == QuantizationStep.PREPARE_FOR_LOADING:
         # loading from pre-quantized checkpoint
-        observer = SmoothQuantObserver(
+        observer = observer_cls(
             weight=module.weight,
             alpha=config.alpha,
         )
@@ -93,6 +105,18 @@ def _smooth_quant_transform(
             )
             return module
         observed_linear = module
+
+    elif step == QuantizationStep.PREPARE_FOR_SMOOTHQUANT_SMOOTHING_FACTOR:
+        if not isinstance(module, SmoothQuantObservedLinear):
+            return module
+        obs = module.obs
+        if isinstance(obs, RunningAbsMaxSmoothQuantObserver):
+            obs.compute_smoothing_factor()
+        return module
+
+    elif step == QuantizationStep.PREPARE_FOR_SMOOTHQUANT_ACTIVATION_SCALES:
+        # Reserved for future use
+        return module
     else:
         raise ValueError(f"Unexpected step: {step}")
 

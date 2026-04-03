@@ -13,7 +13,7 @@ import torch
 import torch.nn as nn
 
 try:
-    from mslk.quantize import int4_row_quantize_zp, pack_int4
+    from mslk.quantize.shuffle import int4_row_quantize_zp, pack_int4
 except:
     int4_row_quantize_zp = None
     pack_int4 = None
@@ -71,7 +71,7 @@ class GPTQConfig(AOBaseConfig):
         if isinstance(self.base_config, Int4WeightOnlyConfig):
             if int4_row_quantize_zp is None:
                 raise ValueError(
-                    "fbgemm_gpu is not installed. Please install fbgemm_gpu to use int4 quantization."
+                    "mslk is not installed. Please install mslk to use int4 quantization."
                 )
 
 
@@ -179,7 +179,7 @@ def _int4_row_dequantize_zp(
     return torch.cat(dequant_chunks, dim=-1)
 
 
-def gptq_quantize(H: torch.Tensor, W: torch.Tensor, config: GPTQConfig):
+def gptq_quantize(H: torch.Tensor, W_t: torch.Tensor, config: GPTQConfig):
     """
     This function implements the GPTQ algorithm described in this paper: https://arxiv.org/abs/2210.17323 (Algorithm 1)
 
@@ -219,14 +219,14 @@ def gptq_quantize(H: torch.Tensor, W: torch.Tensor, config: GPTQConfig):
                      X @ W_naive = [[1.8, 2.25]]   Error: ||X@W - X@W_naive||_2^2 = 0.11
 
     Args:
-        H: Hessian matrix approximation (from input activations)
-        W: Weight matrix to quantize
+        H: Hessian matrix approximation (from input activations), with shape (K, K)
+        W_t: Weight matrix to quantize, with shape (N, K)
         config: GPTQ configuration
 
     Returns:
         Int4Tensor or Int8Tensor: Quantized weight matrix
     """
-    assert W.dim() == 2
+    assert W_t.dim() == 2
     gptq_quantize_block_size = config.gptq_quantize_block_size
     percdamp = config.percdamp
     base_config = config.base_config
@@ -238,21 +238,21 @@ def gptq_quantize(H: torch.Tensor, W: torch.Tensor, config: GPTQConfig):
         assert isinstance(base_config.granularity, PerRow), (
             "GPTQ only supports per-row quantization"
         )
-        block_size = get_block_size(W.shape, base_config.granularity)
+        block_size = get_block_size(W_t.shape, base_config.granularity)
         block_size = list(block_size)
         group_size = block_size[-1]
 
     assert group_size > 0
 
-    W = W.view(-1, W.shape[-1]).detach()
-    columns = W.shape[1]
-    device = W.device
+    W_t = W_t.view(-1, W_t.shape[-1]).detach()
+    columns = W_t.shape[1]
+    device = W_t.device
 
     assert device.type == "cuda", "GPTQ only supports CUDA currently"
 
     dead = torch.diag(H) == 0
     H[dead, dead] = 1
-    W[:, dead] = 0
+    W_t[:, dead] = 0
 
     # Apply damping and compute inverse Hessian for numerical stability
     damp = percdamp * torch.mean(torch.diag(H))
@@ -264,80 +264,86 @@ def gptq_quantize(H: torch.Tensor, W: torch.Tensor, config: GPTQConfig):
     Hinv = H
 
     group_qparams = []
-    for W_quantize_block, block_start in zip(
-        torch.split(W, gptq_quantize_block_size, dim=1),
+    for W_t_quantize_block, k_block_start in zip(
+        torch.split(W_t, gptq_quantize_block_size, dim=1),
         range(0, columns, gptq_quantize_block_size),
     ):
-        block_end = min(block_start + gptq_quantize_block_size, columns)
-        Err1 = torch.zeros_like(W_quantize_block, dtype=H.dtype)
-        Hinv_quantize_block = Hinv[block_start:block_end, block_start:block_end]
+        k_block_end = min(k_block_start + gptq_quantize_block_size, columns)
+        Err1 = torch.zeros_like(W_t_quantize_block, dtype=H.dtype)
+        Hinv_quantize_block = Hinv[k_block_start:k_block_end, k_block_start:k_block_end]
 
         # If we are doing per-row quantization, the group_size is equal to the number of columns and this will only run once.
         # Otherwise, if we do per-group quantization, we need to iterate through the block one group at a time.
-        for group_start in range(block_start, block_end, group_size):
-            group_end = min(group_start + group_size, block_end)
+        for k_group_start in range(k_block_start, k_block_end, group_size):
+            k_group_end = min(k_group_start + group_size, k_block_end)
 
             # We only need to calculate initial qparams for the group once
-            if group_start % group_size == 0:
+            if k_group_start % group_size == 0:
                 if isinstance(base_config, Int4WeightOnlyConfig):
                     _, scale, zero_point = int4_row_quantize_zp(
-                        W_quantize_block[
-                            :, group_start - block_start : group_end - block_start
+                        W_t_quantize_block[
+                            :,
+                            k_group_start - k_block_start : k_group_end - k_block_start,
                         ],
                         group_size,
                     )
                     group_qparams.append((scale, zero_point))
                 elif isinstance(base_config, Int8WeightOnlyConfig):
                     quantized_tensor = Int8Tensor.from_hp(
-                        W_quantize_block[
-                            :, group_start - block_start : group_end - block_start
+                        W_t_quantize_block[
+                            :,
+                            k_group_start - k_block_start : k_group_end - k_block_start,
                         ],
                         base_config.granularity,
                     )
 
             # Quantize each column and propagate errors to subsequent columns
-            for i in range(group_start - block_start, group_end - block_start):
-                w = W_quantize_block[:, i].unsqueeze(1)
+            for k in range(k_group_start - k_block_start, k_group_end - k_block_start):
+                w_t = W_t_quantize_block[:, k].unsqueeze(1)
                 if isinstance(base_config, Int4WeightOnlyConfig):
                     q = _int4_row_quantize_zp_precomputed_qparams(
-                        w, scale, zero_point, group_size
+                        w_t, scale, zero_point, group_size
                     )
                     dq = _int4_row_dequantize_zp(q, scale, zero_point, group_size)
                 elif isinstance(base_config, Int8WeightOnlyConfig):
                     q = Int8Tensor.from_hp(
-                        w,
+                        w_t,
                         granularity=base_config.granularity,
                         scale=quantized_tensor.scale,
                     )
                     dq = q.dequantize(output_dtype=torch.float)
 
-                err1 = (w - dq) / Hinv_quantize_block[i, i]
-                W_quantize_block[:, i:] -= err1.matmul(
-                    Hinv_quantize_block[i, i:].unsqueeze(0)
+                err1 = (w_t - dq) / Hinv_quantize_block[k, k]
+                W_t_quantize_block[:, k:] -= err1.matmul(
+                    Hinv_quantize_block[k, k:].unsqueeze(0)
                 )
-                Err1[:, i] = err1.flatten()
+                Err1[:, k] = err1.flatten()
 
         # Lazy Batch-Updates: We process B columns at a time with local updates above.
         # Once a block is fully processed, perform global updates to H^-1 and W using batched versions of the error propagation equations.
-        W[:, block_end:] -= Err1.matmul(Hinv[block_start:block_end, block_end:])
+        W_t[:, k_block_end:] -= Err1.matmul(
+            Hinv[k_block_start:k_block_end, k_block_end:]
+        )
 
     torch.cuda.synchronize()
 
     # Create the final quantized tensor, which has the same qparams (scale, zero_point), but different qdata
     if isinstance(base_config, Int4WeightOnlyConfig):
         scale, zero_point = [torch.cat(x, dim=0) for x in zip(*group_qparams)]
-        wq = _int4_row_quantize_zp_precomputed_qparams(W, scale, zero_point, group_size)
+        wq_t = _int4_row_quantize_zp_precomputed_qparams(
+            W_t, scale, zero_point, group_size
+        )
         result = Int4Tensor(
-            qdata=pack_int4(wq),
-            scale=scale.to(W.dtype),
-            zero_point=zero_point.to(W.dtype),
+            qdata=pack_int4(wq_t),
+            scale=scale.to(W_t.dtype),
+            zero_point=zero_point.to(W_t.dtype),
             block_size=block_size,
-            shape=W.shape,
+            shape=W_t.shape,
             act_pre_scale=None,
         )
     elif isinstance(base_config, Int8WeightOnlyConfig):
         result = Int8Tensor.from_hp(
-            W, granularity=base_config.granularity, scale=quantized_tensor.scale
+            W_t, granularity=base_config.granularity, scale=quantized_tensor.scale
         )
 
     return result
