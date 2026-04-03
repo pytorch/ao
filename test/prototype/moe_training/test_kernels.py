@@ -63,6 +63,7 @@ from torchao.prototype.moe_training.utils import (
 from torchao.prototype.mx_formats.mx_tensor import ScaleCalculationMode, to_mx
 from torchao.prototype.mx_formats.utils import from_blocked
 from torchao.testing.utils import skip_if_rocm
+from torchao.utils import is_sm_at_least_100
 
 
 @pytest.mark.parametrize("round_scales_to_power_of_2", [True, False])
@@ -227,7 +228,6 @@ def test_fp8_rowwise_3d_transpose_rhs_reduction(round_scales_to_power_of_2: bool
     assert torch.allclose(ref_fp8, triton_fp8, rtol=0, atol=0), "fp8 data not equal"
 
 
-@skip_if_rocm("ROCm enablement in progress")
 @pytest.mark.parametrize(
     "m,k,n_groups", [(256, 256, 4), (16640, 5120, 16), (16640, 8192, 16)]
 )
@@ -265,7 +265,6 @@ def test_triton_mx_block_rearrange_2d_M_groups(
     not _is_sm_10x(),
     reason="MXFP8 requires CUDA SM 10.x",
 )
-@skip_if_rocm("ROCm enablement in progress")
 @pytest.mark.parametrize(
     "m,k,n_groups,chunks_per_tb",
     [
@@ -316,7 +315,6 @@ def test_cuda_mx_block_rearrange_2d_M_groups(
     )
 
 
-@skip_if_rocm("ROCm enablement in progress")
 @pytest.mark.parametrize("e,n,k", [(1, 8192, 5120), (2, 8192, 5120), (8, 5120, 8192)])
 def test_mxfp8_per_group_blocked_scales_3d(
     e: int,
@@ -340,7 +338,6 @@ def test_mxfp8_per_group_blocked_scales_3d(
     )
 
 
-@skip_if_rocm("ROCm enablement in progress")
 @pytest.mark.parametrize("m", [256, 512, 1024, 5120])
 @pytest.mark.parametrize("total_k", [512, 1024, 2048, 4096, 8192, 16384])
 @pytest.mark.parametrize("n_groups", [1, 4, 8, 16])
@@ -495,7 +492,6 @@ def test_cuda_mx_dim0_2d_numerics(M, K, input_dtype, scaling_mode):
     not _mxfp8_cuda_kernels_available,
     reason="CUDA kernel requires sm_100 and CUDA 12.8+",
 )
-@skip_if_rocm("ROCm enablement in progress")
 @pytest.mark.parametrize("num_tokens", [128, 157, 4096, 16392])
 @pytest.mark.parametrize("dim", [7168])
 @pytest.mark.parametrize("num_groups", [1, 2, 4, 8])
@@ -542,7 +538,6 @@ def test_cuda_fused_pad_token_groups(
     not _mxfp8_cuda_kernels_available,
     reason="CUDA kernel requires sm_100 and CUDA 12.8+",
 )
-@skip_if_rocm("ROCm enablement in progress")
 @pytest.mark.parametrize("num_tokens", [128, 157, 4096])
 @pytest.mark.parametrize("dim", [7168])
 @pytest.mark.parametrize("num_groups", [1, 2, 4, 8])
