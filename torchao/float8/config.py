@@ -289,7 +289,7 @@ class Float8LinearConfig:
             (cc_i_gw, cc_go_gw, "grad_weight"),
         ):
             is_disabled_1 = cc1.scaling_type is ScalingType.DISABLED
-            is_disabled_2 = cc1.scaling_type is ScalingType.DISABLED
+            is_disabled_2 = cc2.scaling_type is ScalingType.DISABLED
             assert is_disabled_1 == is_disabled_2, (
                 f"incompatible operand precision for {gemm_name}"
             )

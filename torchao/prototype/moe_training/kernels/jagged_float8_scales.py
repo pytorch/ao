@@ -751,6 +751,333 @@ if torch_version_at_least("2.7.0") and has_triton():
         )
         return output_buffer_1, scales_buffer_1, output_buffer_2, scales_buffer_2
 
+
+    # =========================================================================
+    # Tensorwise per-group amax + quantization kernels
+    # =========================================================================
+
+    @torch.library.custom_op(
+        "torchao::triton_fp8_per_group_tensorwise_amax", mutates_args={}
+    )
+    def triton_fp8_per_group_tensorwise_amax(
+        hp_tensor: torch.Tensor,
+        offsets: torch.Tensor,
+    ) -> torch.Tensor:
+        """
+        Compute per-group tensorwise amax (max of absolute values) using
+        a Triton kernel parallelized across (col_blocks, groups).
+
+        Args:
+            - hp_tensor: 2D high precision tensor
+            - offsets: end index for each group/subtensor along dim 0
+        Returns:
+            - per-group amax of shape (num_groups,) in float32
+        """
+        assert hp_tensor.ndim == 2, "input tensor must be 2D"
+        tl_input_dtype = FP8_DTYPE_MAP[hp_tensor.dtype]
+        m, k = hp_tensor.shape
+        n_groups = offsets.numel()
+
+        min_block_size = min(c.kwargs["BLOCK_SIZE"] for c in kernel_configs_2D)
+        n_col_blocks = triton.cdiv(k, min_block_size)
+        partial_amax_buffer = torch.zeros(
+            (n_col_blocks, n_groups),
+            dtype=torch.float32, device=hp_tensor.device,
+        )
+
+        amax_grid = lambda meta: (
+            triton.cdiv(k, meta["BLOCK_SIZE"]),
+            n_groups,
+        )
+        _triton_fp8_tensorwise_amax_kernel[amax_grid](
+            hp_tensor,
+            offsets,
+            partial_amax_buffer,
+            m,
+            k,
+            n_groups,
+            hp_tensor.stride(0),
+            hp_tensor.stride(1),
+            tl_input_dtype,
+            n_col_blocks,
+            EPS=EPS,
+        )
+
+        return partial_amax_buffer.max(dim=0).values  # (n_groups,)
+
+    @triton_fp8_per_group_tensorwise_amax.register_fake
+    def _fake_triton_fp8_per_group_tensorwise_amax(
+        hp_tensor: torch.Tensor,
+        offsets: torch.Tensor,
+    ) -> torch.Tensor:
+        n_groups = offsets.numel()
+        return torch.empty(n_groups, dtype=torch.float32, device=hp_tensor.device)
+
+    @torch.library.custom_op(
+        "torchao::triton_fp8_per_group_tensorwise_scales", mutates_args={}
+    )
+    def triton_fp8_per_group_tensorwise_scales(
+        hp_tensor: torch.Tensor,
+        offsets: torch.Tensor,
+        output_dtype: torch.dtype = torch.float8_e4m3fn,
+        round_scales_to_power_of_2: bool = False,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Converts a high precision tensor to a float8 tensor in row-major memory layout,
+        using per-group tensorwise scales (i.e., a single scale for each group/subtensor
+        as determined by the offsets).
+
+        Uses two Triton kernels for high GPU utilization:
+        1. Amax kernel: computes per-group amax with parallel column blocks
+        2. Quantize kernel: applies per-group scale with parallel column blocks
+
+        Args:
+            - hp_tensor: 2D high precision tensor to be converted
+            - offsets: end index for each group/subtensor along dim 0
+            - output_dtype: desired float8 dtype for the output tensor
+            - round_scales_to_power_of_2: boolean indicating if scales should be rounded
+                down to the nearest power of 2.
+        Returns:
+            - float8 tensor in row-major layout
+            - per-group tensorwise scales of shape (num_groups,)
+        """
+        assert hp_tensor.ndim == 2, "input tensor must be 2D"
+
+        tl_input_dtype = FP8_DTYPE_MAP[hp_tensor.dtype]
+        tl_output_dtype = FP8_DTYPE_MAP[output_dtype]
+
+        fp8_dtype_min = torch.finfo(output_dtype).min
+        fp8_dtype_max = torch.finfo(output_dtype).max
+
+        m, k = hp_tensor.shape
+        n_groups = offsets.numel()
+
+        output_buffer = torch.empty(
+            (m, k), dtype=output_dtype, device=hp_tensor.device
+        )
+
+        # --- Kernel 1: per-column-block amaxes ---
+        # Each block writes its partial amax to a (n_col_blocks, n_groups) buffer.
+        # We then reduce across column blocks in PyTorch to get per-group amax.
+        # This avoids tl.atomic_max which can be unreliable for float32 on AMD.
+        # Use smallest BLOCK_SIZE (32) for a safe upper bound on n_col_blocks.
+        # Blocks with block_col_id >= actual grid dim won't launch.
+        min_block_size = min(c.kwargs["BLOCK_SIZE"] for c in kernel_configs_2D)
+        n_col_blocks = triton.cdiv(k, min_block_size)
+        partial_amax_buffer = torch.zeros(
+            (n_col_blocks, n_groups),
+            dtype=torch.float32, device=hp_tensor.device,
+        )
+
+        amax_grid = lambda meta: (
+            triton.cdiv(k, meta["BLOCK_SIZE"]),
+            n_groups,
+        )
+        _triton_fp8_tensorwise_amax_kernel[amax_grid](
+            hp_tensor,
+            offsets,
+            partial_amax_buffer,
+            m,
+            k,
+            n_groups,
+            hp_tensor.stride(0),
+            hp_tensor.stride(1),
+            tl_input_dtype,
+            n_col_blocks,
+            EPS=EPS,
+        )
+
+        # Reduce partial amaxes to per-group amax, then compute scales.
+        # Upcast to float64 for scale computation to match amax_to_scale()
+        # precision — avoids subtle rounding differences that cause NaN
+        # after many training steps.
+        amax_buffer = partial_amax_buffer.max(dim=0).values  # (n_groups,)
+        scales_buffer = (
+            fp8_dtype_max / torch.clamp(amax_buffer.to(torch.float64), min=EPS)
+        ).to(torch.float32)
+        if round_scales_to_power_of_2:
+            scales_buffer = torch.exp2(torch.floor(torch.log2(scales_buffer)))
+
+        # --- Kernel 2: quantize using per-group scales ---
+        quant_grid = lambda meta: (
+            triton.cdiv(k, meta["BLOCK_SIZE"]),
+            n_groups,
+        )
+        _triton_fp8_tensorwise_quantize_kernel[quant_grid](
+            hp_tensor,
+            offsets,
+            scales_buffer,
+            output_buffer,
+            m,
+            k,
+            n_groups,
+            hp_tensor.stride(0),
+            hp_tensor.stride(1),
+            output_buffer.stride(0),
+            output_buffer.stride(1),
+            fp8_dtype_min,
+            fp8_dtype_max,
+            tl_input_dtype,
+            tl_output_dtype,
+            EPS=EPS,
+        )
+
+        return output_buffer, scales_buffer
+
+    @triton_fp8_per_group_tensorwise_scales.register_fake
+    def _fake_triton_fp8_per_group_tensorwise_scales(
+        hp_tensor: torch.Tensor,
+        offsets: torch.Tensor,
+        output_dtype: torch.dtype = torch.float8_e4m3fn,
+        round_scales_to_power_of_2: bool = False,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        assert hp_tensor.ndim == 2, "input tensor must be 2D"
+        m, k = hp_tensor.shape
+        n_groups = offsets.numel()
+        output = torch.empty(m, k, dtype=output_dtype, device=hp_tensor.device)
+        scales = torch.empty(
+            n_groups, dtype=torch.float32, device=hp_tensor.device
+        )
+        return output, scales
+
+    # --- Kernel 1: Per-column-block amax ---
+    # Grid: (ceil(K/BLOCK_SIZE), num_groups) — parallel across columns AND groups.
+    # Each block iterates over rows in its group for its column chunk,
+    # computes the partial max, and writes to partial_amax[block_col_id, group_idx].
+    # The final per-group reduction is done in PyTorch (avoids tl.atomic_max
+    # which can be unreliable for float32 on AMD ROCm).
+    @triton.autotune(configs=kernel_configs_2D, key=["K", "N_GROUPS"])
+    @triton.jit
+    def _triton_fp8_tensorwise_amax_kernel(
+        input_ptr,
+        offsets_ptr,
+        partial_amax_ptr,  # (N_COL_BLOCKS, N_GROUPS) float32
+        M: tl.int64,
+        K: tl.int64,
+        N_GROUPS: tl.int64,
+        stride_input_row: tl.int64,
+        stride_input_col: tl.int64,
+        input_dtype: tl.constexpr,
+        N_COL_BLOCKS: tl.int64,
+        BLOCK_SIZE: tl.constexpr,
+        BLOCK_SIZE_ITER: tl.constexpr,
+        EPS: tl.constexpr,
+    ):
+        block_col_id = tl.program_id(axis=0)
+        group_idx = tl.program_id(axis=1)
+
+        group_row_start = tl.load(
+            offsets_ptr + group_idx - 1, mask=group_idx > 0, other=0
+        )
+        group_row_end = tl.load(offsets_ptr + group_idx)
+        block_col_offs = (
+            block_col_id * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
+        ).to(tl.int64)
+
+        # Compute per-column amaxes for this column chunk across all group rows.
+        # Accumulate in float32 (not input_dtype/bfloat16) to match PyTorch's
+        # torch.max(torch.abs(x)) precision and avoid subtle amax underestimation
+        # that causes NaN in later training steps.
+        col_amax = tl.zeros((BLOCK_SIZE,), dtype=tl.float32)
+        for row_start in range(
+            group_row_start, group_row_end, BLOCK_SIZE_ITER
+        ):
+            row_offs = (row_start + tl.arange(0, BLOCK_SIZE_ITER)).to(
+                tl.int64
+            )
+            block_offs = (
+                row_offs[:, None] * stride_input_row
+                + block_col_offs[None, :] * stride_input_col
+            )
+            block_mask = (row_offs[:, None] < group_row_end) & (
+                block_col_offs[None, :] < K
+            )
+            data = tl.load(
+                input_ptr + block_offs, mask=block_mask, other=0.0
+            ).to(tl.float32)
+            col_amax = tl.maximum(
+                col_amax, tl.max(tl.abs(data), axis=0)
+            )
+
+        # Reduce per-column amaxes to a single scalar for this block.
+        block_amax = tl.max(col_amax, axis=0).to(tl.float32)
+
+        # Write to partial buffer: partial_amax[block_col_id, group_idx]
+        tl.store(
+            partial_amax_ptr + block_col_id * N_GROUPS + group_idx,
+            block_amax,
+        )
+
+    # --- Kernel 2: Quantize with per-group scale ---
+    # Grid: (ceil(K/BLOCK_SIZE), num_groups) — same parallelism as amax.
+    # Each block loads its group's scale, iterates over rows, quantizes.
+    @triton.autotune(configs=kernel_configs_2D, key=["K", "N_GROUPS"])
+    @triton.jit
+    def _triton_fp8_tensorwise_quantize_kernel(
+        input_ptr,
+        offsets_ptr,
+        scales_ptr,  # (N_GROUPS,) float32 scales
+        out_ptr,
+        M: tl.int64,
+        K: tl.int64,
+        N_GROUPS: tl.int64,
+        stride_input_row: tl.int64,
+        stride_input_col: tl.int64,
+        stride_output_row: tl.int64,
+        stride_output_col: tl.int64,
+        fp8_dtype_min: tl.constexpr,
+        fp8_dtype_max: tl.constexpr,
+        input_dtype: tl.constexpr,
+        output_dtype: tl.constexpr,
+        BLOCK_SIZE: tl.constexpr,
+        BLOCK_SIZE_ITER: tl.constexpr,
+        EPS: tl.constexpr,
+    ):
+        block_col_id = tl.program_id(axis=0)
+        group_idx = tl.program_id(axis=1)
+
+        group_row_start = tl.load(
+            offsets_ptr + group_idx - 1, mask=group_idx > 0, other=0
+        )
+        group_row_end = tl.load(offsets_ptr + group_idx)
+        block_col_offs = (
+            block_col_id * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
+        ).to(tl.int64)
+
+        # Load per-group scale.
+        scale = tl.load(scales_ptr + group_idx)
+
+        for row_start in range(
+            group_row_start, group_row_end, BLOCK_SIZE_ITER
+        ):
+            row_offs = (row_start + tl.arange(0, BLOCK_SIZE_ITER)).to(
+                tl.int64
+            )
+            block_offs = (
+                row_offs[:, None] * stride_input_row
+                + block_col_offs[None, :] * stride_input_col
+            )
+            block_mask = (row_offs[:, None] < group_row_end) & (
+                block_col_offs[None, :] < K
+            )
+            # Cast to float32 before scaling to match Python reference precision.
+            data = tl.load(
+                input_ptr + block_offs, mask=block_mask, other=0.0
+            ).to(tl.float32)
+            scaled_data = data * scale
+            # Use minimum/maximum instead of tl.clamp — tl.clamp produces
+            # wrong FP8 values on AMD ROCm, causing NaN in training.
+            clamped = tl.minimum(
+                tl.maximum(scaled_data, fp8_dtype_min), fp8_dtype_max
+            )
+            fp8_data = clamped.to(output_dtype)
+            out_offs = (
+                row_offs[:, None] * stride_output_row
+                + block_col_offs[None, :] * stride_output_col
+            )
+            tl.store(out_ptr + out_offs, fp8_data, mask=block_mask)
+
+
 else:
 
     def triton_fp8_per_group_rowwise_scales(
@@ -783,3 +1110,22 @@ else:
         raise NotImplementedError(
             "triton_fp8_per_group_colwise_scales_dual requires torch 2.7.0+ and triton installed"
         )
+
+    def triton_fp8_per_group_tensorwise_amax(
+        hp_tensor: torch.Tensor,
+        offsets: torch.Tensor,
+    ) -> torch.Tensor:
+        raise NotImplementedError(
+            "triton_fp8_per_group_tensorwise_amax requires torch 2.7.0+ and triton installed"
+        )
+
+    def triton_fp8_per_group_tensorwise_scales(
+        hp_tensor: torch.Tensor,
+        offsets: torch.Tensor,
+        output_dtype: torch.dtype = torch.float8_e4m3fn,
+        round_scales_to_power_of_2: bool = False,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        raise NotImplementedError(
+            "triton_fp8_per_group_tensorwise_scales requires torch 2.7.0+ and triton installed"
+        )
+
