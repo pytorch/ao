@@ -8,13 +8,13 @@ import json
 import os
 import subprocess
 import tempfile
+import unittest
 import warnings
 from dataclasses import dataclass
 from unittest import mock
 
 import pytest
 import torch
-
 from torchao.core.config import (
     AOBaseConfig,
     config_from_dict,
@@ -241,6 +241,23 @@ def test_default_version():
 
     config = DummyConfig()
     assert config.version == 1, "Default version must be 1"
+
+
+@unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA not available")
+@unittest.skipIf(torch.version.hip, "Not supported on ROCm")
+def test_semi_sparse_weight_config_with_alg_id():
+    """Test that the semi sparse weight config can be instantiated with alg_id and used in quantization"""
+    activiation = torch.randn(128, 128, dtype=torch.float16, device="cuda")
+    linear_module_sparse = torch.nn.Linear(128, 128, bias=False, dtype=torch.float16, device="cuda")
+    linear_module_dense = linear_module_sparse.clone()
+    alg_id = torch._C._cusparselt.mm_search(
+            activiation, linear_module_sparse.weight.t(), None, None, None, False
+        )
+    config = SemiSparseWeightConfig(alg_id=alg_id)
+    quantize_(linear_module_sparse, config=config)
+    sparse_result = linear_module_sparse(activiation)
+    dense_result = linear_module_dense(activiation)
+    assert torch.allclose(sparse_result, dense_result, atol=1e-3, rtol=1e-3)
 
 
 if __name__ == "__main__":
