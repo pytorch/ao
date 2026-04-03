@@ -1193,7 +1193,7 @@ def is_MI350():
 def is_Navi4():
     if is_ROCM():
         archName = torch.cuda.get_device_properties(0).gcnArchName
-        if "gfx1200" or "gfx1201" in archName:
+        if "gfx1200" in archName or "gfx1201" in archName:
             return True
     return False
 
