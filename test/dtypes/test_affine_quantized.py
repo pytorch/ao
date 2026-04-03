@@ -20,8 +20,6 @@ from torchao.quantization import (
 )
 from torchao.testing.utils import skip_if_rocm
 from torchao.utils import (
-    check_cpu_version,
-    check_xpu_version,
     get_current_accelerator_device,
     is_fbcode,
     is_sm_at_least_89,
@@ -36,11 +34,6 @@ def get_quantization_functions(
     do_sparse: bool, do_int4: bool, device: str = "cuda", int4_zp_int: bool = False
 ):
     base_functions = []
-    if do_int4:
-        if check_cpu_version(device):
-            pass
-        elif check_xpu_version(device):
-            pass
 
     if is_sm_at_least_89():
         base_functions.append(Float8WeightOnlyConfig())

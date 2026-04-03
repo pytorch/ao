@@ -11,7 +11,7 @@ import time
 from functools import reduce
 from importlib.metadata import version
 from math import gcd
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, Union
 
 import torch
 import torch.nn.utils.parametrize as parametrize
@@ -1239,18 +1239,6 @@ def is_cuda_version_at_least(major: int, minor: int) -> bool:
     return (cuda_major, cuda_minor) >= (major, minor)
 
 
-def check_cpu_version(device, version="2.6.0"):
-    if isinstance(device, torch.device):
-        device = device.type
-    return device == "cpu" and torch_version_at_least(version)
-
-
-def check_xpu_version(device, version="2.8.0"):
-    if isinstance(device, torch.device):
-        device = device.type
-    return device == "xpu" and torch_version_at_least(version)
-
-
 def ceil_div(a, b):
     return (a + b - 1) // b
 
@@ -1294,6 +1282,18 @@ def _is_flashinfer_available():
         # nvidia-ml-py
         and importlib.util.find_spec("pynvml") is not None
     ) or is_fbcode()
+
+
+def is_on_device(tensor: torch.Tensor, device_str: str) -> bool:
+    return tensor.device.type == device_str
+
+
+def not_on_device(
+    tensor: torch.Tensor, devices: Union[str, list[str], tuple[str, ...]]
+) -> bool:
+    if isinstance(devices, str):
+        devices = [devices]
+    return not any(is_on_device(tensor, device) for device in devices)
 
 
 class DummyModule(torch.nn.Module):

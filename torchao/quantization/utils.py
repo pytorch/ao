@@ -25,10 +25,7 @@ from torchao.quantization.quant_primitives import (
     dequantize_affine,
     quantize_affine,
 )
-from torchao.utils import (
-    check_cpu_version,
-    check_xpu_version,
-)
+from torchao.utils import is_on_device, not_on_device
 
 from .granularity import (
     Granularity,
@@ -465,11 +462,9 @@ def groupwise_affine_quantize_tensor_from_qparams(
         quant_max,
     )
     if w.shape[-1] > 1:
-        if (not (check_cpu_version(int_data.device))) and (
-            not (check_xpu_version(int_data.device))
-        ):
+        if not_on_device(int_data, ["cpu", "xpu"]):
             int_data = (int_data[::, ::2] << 4 | int_data[::, 1::2]).to(torch.uint8)
-        if check_xpu_version(int_data.device):
+        if is_on_device(int_data, "xpu"):
             int_data = (int_data[::, 1::2] << 4 | int_data[::, ::2]).to(torch.uint8)
     return int_data
 
@@ -485,8 +480,8 @@ def groupwise_affine_dequantize_tensor_from_qparams(
     assert groupsize > 1
     assert w_int4x8.dim() == 2
     # need to handle single column case so check for dtype/size from groupwise_affine_quantize_tensor_from_qparams path
-    if (w_int4x8.dtype == torch.uint8 or w_int4x8.shape[-1] > 1) and not (
-        check_cpu_version(w_int4x8.device)
+    if (w_int4x8.dtype == torch.uint8 or w_int4x8.shape[-1] > 1) and not_on_device(
+        w_int4x8, "cpu"
     ):
         data = w_int4x8.to(torch.int32)
         high_bits = data >> 4
@@ -496,7 +491,7 @@ def groupwise_affine_dequantize_tensor_from_qparams(
             dtype=torch.int32,
             device=w_int4x8.device,
         )
-        if not (check_xpu_version(w_int4x8.device)):
+        if not_on_device(w_int4x8, "xpu"):
             w_int32[::, ::2] = high_bits
             w_int32[::, 1::2] = low_bits
         else:

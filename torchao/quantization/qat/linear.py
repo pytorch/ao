@@ -9,7 +9,6 @@ from typing import Any, Optional
 import torch
 import torch.nn.functional as F
 
-from torchao.dtypes.utils import is_device
 from torchao.quantization.granularity import PerGroup, PerRow
 from torchao.quantization.linear_quant_modules import (
     Int8DynActInt4WeightLinear,
@@ -25,6 +24,7 @@ from torchao.quantization.quant_primitives import (
 )
 from torchao.quantization.unified import TwoStepQuantizer
 from torchao.quantization.utils import get_group_qparams_symmetric
+from torchao.utils import is_on_device
 
 from .fake_quantize_config import (
     FakeQuantizeConfigBase,
@@ -478,7 +478,7 @@ class Int4WeightOnlyQATQuantizer(_LegacyQATQuantizer):
                     n_bit,
                     config.group_size,
                 )
-                if is_device(q_weight.device.type, "cpu"):
+                if is_on_device(q_weight, "cpu"):
                     q_weight = torch.ops.aten._convert_weight_to_int4pack_for_cpu(
                         q_weight.to(child.weight.device),
                         child.inner_k_tiles,

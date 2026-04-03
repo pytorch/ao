@@ -15,8 +15,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from torchao.dtypes.utils import is_device
-from torchao.utils import find_multiple
+from torchao.utils import find_multiple, is_on_device
 
 from .quant_primitives import (
     MappingType,
@@ -57,7 +56,7 @@ def linear_forward_int4(
 ):
     origin_x_size = x.size()
     x = x.reshape(-1, origin_x_size[-1])
-    if is_device(x.device.type, "cpu"):
+    if is_on_device(x, "cpu"):
         c = torch.ops.aten._weight_int4pack_mm_for_cpu(
             x.to(precision),
             weight_int4pack,
@@ -117,7 +116,7 @@ class WeightOnlyInt4Linear(torch.nn.Module):
         assert in_features % (inner_k_tiles * 16) == 0, (
             "require in_features % (innerKTiles * 16) == 0"
         )
-        if is_device(device.type, "cpu"):
+        if device.type == "cpu":
             self.register_buffer(
                 "weight",
                 torch.zeros(
@@ -296,7 +295,7 @@ class Int4WeightOnlyQuantizer(Quantizer):
                     self.precision,  # dtype for scales_and_zeros
                 )
                 # TODO: just get the device from mod.weight.device?
-                if is_device(w_int4x8.device.type, "cpu"):
+                if is_on_device(w_int4x8, "cpu"):
                     weight_int4pack = (
                         torch.ops.aten._convert_weight_to_int4pack_for_cpu(
                             w_int4x8.to(self.device), self.inner_k_tiles
