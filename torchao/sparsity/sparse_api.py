@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Callable, Optional
 
 import torch
-from torch.sparse import to_sparse_semi_structured
+from torch.sparse import SparseSemiStructuredTensor, to_sparse_semi_structured
 
 from torchao.core.config import AOBaseConfig
 from torchao.prototype.sparsity.sparsifier.weight_norm_sparsifier import (
@@ -75,6 +75,10 @@ class SemiSparseWeightConfig(AOBaseConfig):
     Configuration for converting the weight of linear modules to semi-structured (2:4) sparsity
     """
 
+    def __init__(self, alg_id: int = SparseSemiStructuredTensor._DEFAULT_ALG_ID):
+        super().__init__()
+        self.alg_id = alg_id
+
     def __post_init__(self):
         torch._C._log_api_usage_once("torchao.sparsity.SemiSparseWeightConfig")
 
@@ -88,7 +92,7 @@ def _semi_sparse_weight_transform(
     module: torch.nn.Module,
     config: SemiSparseWeightConfig,
 ) -> torch.nn.Module:
-    new_weight = to_sparse_semi_structured(module.weight)
+    new_weight = to_sparse_semi_structured(module.weight, alg_id=config.alg_id)
     module.weight = torch.nn.Parameter(new_weight, requires_grad=False)
     module.extra_repr = types.MethodType(_linear_extra_repr, module)
     return module
