@@ -274,15 +274,16 @@ def gptq_quantize(H: torch.Tensor, W_t: torch.Tensor, config: GPTQConfig):
 
         # If we are doing per-row quantization, the group_size is equal to the number of columns and this will only run once.
         # Otherwise, if we do per-group quantization, we need to iterate through the block one group at a time.
-        for group_start in range(k_block_start, k_block_end, group_size):
-            group_end = min(group_start + group_size, k_block_end)
+        for k_group_start in range(k_block_start, k_block_end, group_size):
+            k_group_end = min(k_group_start + group_size, k_block_end)
 
             # We only need to calculate initial qparams for the group once
-            if group_start % group_size == 0:
+            if k_group_start % group_size == 0:
                 if isinstance(base_config, Int4WeightOnlyConfig):
                     _, scale, zero_point = int4_row_quantize_zp(
                         W_t_quantize_block[
-                            :, group_start - k_block_start : group_end - k_block_start
+                            :,
+                            k_group_start - k_block_start : k_group_end - k_block_start,
                         ],
                         group_size,
                     )
@@ -290,13 +291,14 @@ def gptq_quantize(H: torch.Tensor, W_t: torch.Tensor, config: GPTQConfig):
                 elif isinstance(base_config, Int8WeightOnlyConfig):
                     quantized_tensor = Int8Tensor.from_hp(
                         W_t_quantize_block[
-                            :, group_start - k_block_start : group_end - k_block_start
+                            :,
+                            k_group_start - k_block_start : k_group_end - k_block_start,
                         ],
                         base_config.granularity,
                     )
 
             # Quantize each column and propagate errors to subsequent columns
-            for i in range(group_start - k_block_start, group_end - k_block_start):
+            for i in range(k_group_start - k_block_start, k_group_end - k_block_start):
                 w_t = W_t_quantize_block[:, i].unsqueeze(1)
                 if isinstance(base_config, Int4WeightOnlyConfig):
                     q = _int4_row_quantize_zp_precomputed_qparams(
