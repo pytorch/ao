@@ -85,9 +85,7 @@ class TestFloat8MI300(common_utils.TestCase):
         output_quantized = quantized_model(input_tensor)
 
         error = compute_error(output_original, output_quantized)
-        assert error > 20, (
-            f"Quantization error: got a SQNR of {error}"
-        )
+        assert error > 20, f"Quantization error: got a SQNR of {error}"
 
 
 common_utils.instantiate_parametrized_tests(TestFloat8MI300)
