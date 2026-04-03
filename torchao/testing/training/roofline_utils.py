@@ -519,7 +519,7 @@ def get_inference_tensor_memory_traffic_ovhd_s(
             )
             res_bytes = [kernel_1_rw + kernel_3_rw]
 
-        case "nvfp4_static":
+        case "nvfp4_static" | "nvfp4_no_global_scale":
             # nvfp4 with static global scaling
             # x_b16 = ...
             # static_max_abs = ...

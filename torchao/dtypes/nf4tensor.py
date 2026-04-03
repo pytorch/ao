@@ -533,7 +533,9 @@ def wait_tensor(func, *args, **kwargs):
 
 
 # _wrap_tensor_autograd was added in PyTorch 2.11.0.dev and later
-if torch_version_at_least("2.11.0.dev"):
+if torch_version_at_least("2.11.0.dev") and hasattr(
+    torch.ops._c10d_functional, "_wrap_tensor_autograd"
+):
 
     @implements(
         [

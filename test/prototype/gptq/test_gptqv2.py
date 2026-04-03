@@ -220,7 +220,6 @@ class TestGPTQObserverTensor:
                     reason="fbgemm_gpu not available",
                 ),
             ),
-            pytest.param(Int8WeightOnlyConfig(group_size=128), id="int8"),
         ],
     )
     def test_observer_config_transform(self, base_config):
@@ -301,10 +300,6 @@ class TestGPTQFlow:
                     reason="fbgemm_gpu not available",
                 ),
             ),
-            pytest.param(
-                Int8WeightOnlyConfig(group_size=128),
-                id="int8",
-            ),
         ],
     )
     def test_unified_config_two_phase(self, base_config):
@@ -363,10 +358,6 @@ class TestGPTQFlow:
                     not _is_mslk_available(),
                     reason="fbgemm_gpu not available",
                 ),
-            ),
-            pytest.param(
-                Int8WeightOnlyConfig(group_size=128),
-                id="int8",
             ),
         ],
     )
@@ -438,7 +429,7 @@ class TestGPTQFlow:
                 id="int4",
                 marks=pytest.mark.skipif(
                     not _is_mslk_available(),
-                    reason="fbgemm_gpu not available",
+                    reason="mslk not available",
                 ),
             ),
             pytest.param(

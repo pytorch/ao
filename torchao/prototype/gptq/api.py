@@ -13,7 +13,7 @@ import torch
 import torch.nn as nn
 
 try:
-    from mslk.quantize import int4_row_quantize_zp, pack_int4
+    from mslk.quantize.shuffle import int4_row_quantize_zp, pack_int4
 except:
     int4_row_quantize_zp = None
     pack_int4 = None
@@ -71,7 +71,7 @@ class GPTQConfig(AOBaseConfig):
         if isinstance(self.base_config, Int4WeightOnlyConfig):
             if int4_row_quantize_zp is None:
                 raise ValueError(
-                    "fbgemm_gpu is not installed. Please install fbgemm_gpu to use int4 quantization."
+                    "mslk is not installed. Please install mslk to use int4 quantization."
                 )
 
 

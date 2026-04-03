@@ -1265,6 +1265,14 @@ def _is_mslk_available():
     return True
 
 
+def is_mslk_version_at_least(min_version: str) -> bool:
+    if not _is_mslk_available():
+        return False
+    import mslk
+
+    return parse_version(mslk.__version__) >= parse_version(min_version)
+
+
 def _is_flashinfer_available():
     return (
         # flashinfer-python
