@@ -343,6 +343,74 @@ def test_exponent_nan_in(elem_dtype):
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
+def test_all_nan_blocks(elem_dtype):
+    """
+    Test NaN handling for blocks with all NaN values vs mixed NaN + real values.
+    Verifies that PyTorch implementation aligns with CUDA/Triton behavior:
+    - Mixed real + NaN: scale = max of real values
+    - All NaN: scale = NaN
+    """
+    block_size = 4
+
+    # Test case 1: Mixed NaN + real values (should ignore NaNs, use real values)
+    mixed_tensor = torch.tensor(
+        [float("nan"), 2.0, float("nan"), 4.0, 1.0, 3.0, 5.0, 2.0],
+        device="cuda",
+        dtype=torch.bfloat16,
+    )
+    mixed_mx = MXTensor.to_mx(mixed_tensor, elem_dtype, block_size)
+
+    # First block [NaN, 2.0, NaN, 4.0] should have scale based on max(2.0, 4.0) = 4.0
+    # Second block [1.0, 3.0, 5.0, 2.0] should have scale based on max = 5.0
+    assert not torch.isnan(mixed_mx.scale[0]), (
+        "Mixed NaN+real block should not have NaN scale"
+    )
+    assert not torch.isnan(mixed_mx.scale[1]), (
+        "Real-only block should not have NaN scale"
+    )
+
+    # Test case 2: All NaN blocks (should return NaN scale)
+    all_nan_tensor = torch.tensor(
+        [float("nan"), float("nan"), float("nan"), float("nan"), 1.0, 2.0, 3.0, 4.0],
+        device="cuda",
+        dtype=torch.bfloat16,
+    )
+    all_nan_mx = MXTensor.to_mx(all_nan_tensor, elem_dtype, block_size)
+
+    # First block [NaN, NaN, NaN, NaN] should have NaN scale (matches CUDA/Triton)
+    # Second block [1.0, 2.0, 3.0, 4.0] should have real scale
+    assert torch.isnan(all_nan_mx.scale[0]), (
+        "All-NaN block should have NaN scale to match CUDA/Triton"
+    )
+    assert not torch.isnan(all_nan_mx.scale[1]), (
+        "Real-only block should not have NaN scale"
+    )
+
+    # Test case 3: Completely all NaN tensor
+    completely_nan_tensor = torch.tensor(
+        [
+            float("nan"),
+            float("nan"),
+            float("nan"),
+            float("nan"),
+            float("nan"),
+            float("nan"),
+            float("nan"),
+            float("nan"),
+        ],
+        device="cuda",
+        dtype=torch.bfloat16,
+    )
+    completely_nan_mx = MXTensor.to_mx(completely_nan_tensor, elem_dtype, block_size)
+
+    # Both blocks should have NaN scales
+    assert torch.all(torch.isnan(completely_nan_mx.scale)), (
+        "All-NaN tensor should have all NaN scales"
+    )
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
 def test_exponent_nan_out(elem_dtype):
     """
     If block exponent value is NaN, the MX tensor block value is NaN
