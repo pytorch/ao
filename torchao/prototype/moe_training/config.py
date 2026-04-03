@@ -44,6 +44,7 @@ class TrainingOpBaseConfig(AOBaseConfig):
     pass
 
 
+@register_as_pytree_constant
 @dataclass
 class Float8TrainingOpConfig(TrainingOpBaseConfig):
     """
@@ -73,6 +74,25 @@ class Float8TrainingOpConfig(TrainingOpBaseConfig):
             return cls()
         else:
             raise ValueError(f"Unsupported FP8 recipe: {recipe}")
+
+    def __eq__(self, other):
+        if isinstance(other, Float8TrainingOpConfig):
+            return (
+                self.float8_dtype == other.float8_dtype
+                and self.out_dtype == other.out_dtype
+                and self.pad_token_groups_for_grouped_mm
+                == other.pad_token_groups_for_grouped_mm
+            )
+        return NotImplemented
+
+    def __hash__(self):
+        return hash(
+            (
+                self.float8_dtype,
+                self.out_dtype,
+                self.pad_token_groups_for_grouped_mm,
+            )
+        )
 
 
 # register as pytree constant so we can use dynamo nonstrict trace in torchao.prototype.moe_training.ep
