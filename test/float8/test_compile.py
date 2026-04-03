@@ -33,9 +33,21 @@ from torchao.float8.float8_training_tensor import (
 )
 from torchao.testing.training.test_utils import get_test_float8_linear_config
 from torchao.utils import (
+    get_available_devices,
     is_sm_at_least_89,
     is_sm_at_least_90,
 )
+
+_DEVICES = get_available_devices()[1:]  # Exclude CPU since this test is for GPU kernels
+if not _DEVICES:
+    _DEVICES = [
+        pytest.param("no_gpu", marks=pytest.mark.skip(reason="GPU not available"))
+    ]
+
+
+@pytest.fixture(scope="module", params=_DEVICES)
+def device(request):
+    return request.param
 
 
 def _test_compile_base(
@@ -43,15 +55,16 @@ def _test_compile_base(
     fullgraph: bool,
     config: Float8LinearConfig,
     dtype: torch.dtype,
+    device,
 ):
     random.seed(0)
     torch.manual_seed(0)
     x_shape = (16, 16)
     linear_dtype = torch.bfloat16
 
-    x = torch.randn(*x_shape, device="cuda", dtype=linear_dtype).requires_grad_()
+    x = torch.randn(*x_shape, device=device, dtype=linear_dtype).requires_grad_()
     x_ref = copy.deepcopy(x)
-    m_ref = nn.Linear(16, 32, bias=True, device="cuda", dtype=linear_dtype)
+    m_ref = nn.Linear(16, 32, bias=True, device=device, dtype=linear_dtype)
 
     m_fp8 = Float8Linear.from_float(
         copy.deepcopy(m_ref),
@@ -86,7 +99,7 @@ def _test_compile_base(
 )
 @pytest.mark.parametrize("emulate", [False, True] if is_sm_at_least_89() else [True])
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
-@unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
+@unittest.skipIf(not torch.accelerator.is_available(), "GPU not available")
 def test_eager_only(
     fullgraph,
     emulate: bool,
@@ -94,6 +107,7 @@ def test_eager_only(
     scaling_type_weight: ScalingType,
     scaling_type_grad_output: ScalingType,
     dtype: torch.dtype,
+    device,
 ):
     torch._dynamo.reset()
     config = get_test_float8_linear_config(
@@ -107,6 +121,7 @@ def test_eager_only(
         fullgraph,
         config,
         dtype,
+        device,
     )
 
 
@@ -122,7 +137,7 @@ def test_eager_only(
     [ScalingType.DYNAMIC],
 )
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
-@unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
+@unittest.skipIf(not torch.accelerator.is_available(), "GPU not available")
 def test_aot_eager(
     fullgraph,
     emulate: bool,
@@ -130,6 +145,7 @@ def test_aot_eager(
     scaling_type_weight: ScalingType,
     scaling_type_grad_output: ScalingType,
     dtype: torch.dtype,
+    device,
 ):
     torch._dynamo.reset()
     config = get_test_float8_linear_config(
@@ -143,6 +159,7 @@ def test_aot_eager(
         fullgraph,
         config,
         dtype,
+        device,
     )
 
 
@@ -157,11 +174,12 @@ def test_aot_eager(
     "scaling_type_grad_output",
     [ScalingType.DYNAMIC],
 )
+@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
+@unittest.skipIf(not torch.accelerator.is_available(), "GPU not available")
 @unittest.skipIf(
-    not torch.cuda.is_available() or not is_sm_at_least_89(),
+    torch.cuda.is_available() and not is_sm_at_least_89(),
     "CUDA with float8 support not available",
 )
-@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
 def test_inductor_from_config_params(
     fullgraph,
     emulate: bool,
@@ -169,6 +187,7 @@ def test_inductor_from_config_params(
     scaling_type_weight: ScalingType,
     scaling_type_grad_output: ScalingType,
     dtype: torch.dtype,
+    device,
 ):
     torch._dynamo.reset()
     config = get_test_float8_linear_config(
@@ -182,6 +201,7 @@ def test_inductor_from_config_params(
         fullgraph,
         config,
         dtype,
+        device,
     )
 
 
@@ -196,10 +216,12 @@ def test_inductor_from_config_params(
         Float8LinearRecipeName.ROWWISE_WITH_GW_HP,
     ],
 )
+@unittest.skipIf(not torch.accelerator.is_available(), "GPU not available")
 @unittest.skipIf(
-    not is_sm_at_least_90(), "CUDA with capability 9.0 or greater not available"
+    torch.cuda.is_available() and not is_sm_at_least_90(),
+    "CUDA with capability 9.0 or greater not available",
 )
-def test_inductor_from_recipe(recipe_name):
+def test_inductor_from_recipe(recipe_name, device):
     torch._dynamo.reset()
     config = Float8LinearConfig.from_recipe_name(recipe_name)
     fullgraph = True
@@ -209,6 +231,7 @@ def test_inductor_from_recipe(recipe_name):
         fullgraph,
         config,
         dtype,
+        device,
     )
 
 
@@ -230,75 +253,88 @@ class TestGraphBreaks(DynamoTestCase):
                 return x_hp
             return x_fp8
 
-    # TODO(future): figure out why the test below fails on CUDA capability 8.9
+    @unittest.skipIf(not torch.accelerator.is_available(), "GPU not available")
     @unittest.skipIf(
-        not torch.cuda.is_available() or not is_sm_at_least_90(),
+        torch.cuda.is_available() and not is_sm_at_least_90(),
         "CUDA with capability 9.0 or greater not available",
     )
     def test_float8_with_graph_break_in_the_middle(self):
         """Test that having Float8TrainingTensor object at the boundary of a subgraph"""
-        cnts = CompileCounterWithBackend("inductor")
-        mod = self.MockLinear(graph_break=True).cuda()
-        compiled_mod = copy.deepcopy(mod)
-        compiled_mod = torch.compile(compiled_mod, backend=cnts)
-        x = torch.randn(16, 16, device="cuda")
-        y_eager = mod(x)
-        y_compiled = compiled_mod(x)
-        self.assertEqual(cnts.frame_count, 2, "Compiled graph should have 2 frames!")
-        torch.testing.assert_close(y_eager, y_compiled)
+        for device in _DEVICES:
+            with self.subTest(device=device):
+                cnts = CompileCounterWithBackend("inductor")
+                mod = self.MockLinear(graph_break=True).to(device)
+                compiled_mod = copy.deepcopy(mod)
+                compiled_mod = torch.compile(compiled_mod, backend=cnts)
+                x = torch.randn(16, 16, device=device)
+                y_eager = mod(x)
+                y_compiled = compiled_mod(x)
+                self.assertEqual(
+                    cnts.frame_count, 2, "Compiled graph should have 2 frames!"
+                )
+                torch.testing.assert_close(y_eager, y_compiled)
 
+    @unittest.skipIf(not torch.accelerator.is_available(), "GPU not available")
     @unittest.skipIf(
-        not torch.cuda.is_available() or not is_sm_at_least_89(),
+        torch.cuda.is_available() and not is_sm_at_least_89(),
         "CUDA with float8 support not available",
     )
     def test_float8_graph_input(self):
-        """Test that having Float8TrainingTensor object as a graph input"""
+        # """Test that having Float8TrainingTensor object as a graph input"""
+        for device in _DEVICES:
+            with self.subTest(device=device):
 
-        def to_float(x):
-            return x.to_original_precision()
+                def to_float(x):
+                    return x.to_original_precision()
 
-        cnts = CompileCounterWithBackend("inductor")
-        mod = self.MockLinear(graph_break=False).cuda()
-        x = torch.randn(2, 2, device="cuda")
-        compiled_to_float = torch.compile(to_float, backend=cnts)
-        y = mod(x)
-        y2_eager = to_float(y)
-        y2_compiled = compiled_to_float(y)
-        self.assertEqual(
-            cnts.frame_count,
-            1,
-            "to_float was not compiled into 1 frame and likely encountered a skip!",
-        )
-        torch.testing.assert_close(y2_eager, y2_compiled)
+                cnts = CompileCounterWithBackend("inductor")
+                mod = self.MockLinear(graph_break=False).to(device)
+                x = torch.randn(2, 2, device=device)
+                compiled_to_float = torch.compile(to_float, backend=cnts)
+                y = mod(x)
+                y2_eager = to_float(y)
+                y2_compiled = compiled_to_float(y)
+                self.assertEqual(
+                    cnts.frame_count,
+                    1,
+                    "to_float was not compiled into 1 frame and likely encountered a skip!",
+                )
+                torch.testing.assert_close(y2_eager, y2_compiled)
 
+    @unittest.skipIf(not torch.accelerator.is_available(), "GPU not available")
     @unittest.skipIf(
-        not torch.cuda.is_available() or not is_sm_at_least_89(),
+        torch.cuda.is_available() and not is_sm_at_least_89(),
         "CUDA with float8 support not available",
     )
     def test_float8_graph_output(self):
         """Test that having Float8TrainingTensor object as a graph output works"""
-        cnts = CompileCounterWithBackend("inductor")
-        mod = self.MockLinear(graph_break=False).cuda()
-        compiled_mod = torch.compile(mod, backend=cnts)
-        x = torch.randn(16, 16, device="cuda")
-        y_compiled = compiled_mod(x)
+        for device in _DEVICES:
+            with self.subTest(device=device):
+                cnts = CompileCounterWithBackend("inductor")
+                mod = self.MockLinear(graph_break=False).to(device)
+                compiled_mod = torch.compile(mod, backend=cnts)
+                x = torch.randn(16, 16, device=device)
+                y_compiled = compiled_mod(x)
 
-        self.assertEqual(cnts.frame_count, 1, "Compiled graph should have 1 frame!")
-        tensors, ctx = y_compiled.__tensor_flatten__()
-        for tensor in tensors:
-            assert not isinstance(
-                getattr(y_compiled, tensor), torch._subclasses.fake_tensor.FakeTensor
-            ), "Float8TrainingTensor should not contain any FakeTensors!"
-        assert isinstance(y_compiled._orig_dtype, torch.dtype), (
-            "Float8TrainingTensor._orig_dtype should be a dtype but got {}".format(
-                type(y_compiled._orig_dtype)
-            )
-        )
-        assert isinstance(y_compiled._linear_mm_config.output.emulate, bool), (
-            "Float8TrainingTensor._emulate should be a bool but got {}".format(
-                type(y_compiled._linear_mm_config.output.emulate)
-            )
-        )
+                self.assertEqual(
+                    cnts.frame_count, 1, "Compiled graph should have 1 frame!"
+                )
+                tensors, ctx = y_compiled.__tensor_flatten__()
+                for tensor in tensors:
+                    assert not isinstance(
+                        getattr(y_compiled, tensor),
+                        torch._subclasses.fake_tensor.FakeTensor,
+                    ), "Float8TrainingTensor should not contain any FakeTensors!"
+                assert isinstance(y_compiled._orig_dtype, torch.dtype), (
+                    "Float8TrainingTensor._orig_dtype should be a dtype but got {}".format(
+                        type(y_compiled._orig_dtype)
+                    )
+                )
+                assert isinstance(y_compiled._linear_mm_config.output.emulate, bool), (
+                    "Float8TrainingTensor._emulate should be a bool but got {}".format(
+                        type(y_compiled._linear_mm_config.output.emulate)
+                    )
+                )
 
 
 class capture_stderr(list):
@@ -318,10 +354,6 @@ class capture_stderr(list):
         sys.stderr = self.sys_stderr
 
 
-@unittest.skipIf(
-    not is_sm_at_least_89(),
-    "CUDA not available",
-)
 @pytest.mark.parametrize(
     "dtype",
     [
@@ -337,12 +369,17 @@ class capture_stderr(list):
         False,
     ],
 )
+@unittest.skipIf(not torch.accelerator.is_available(), "GPU not available")
+@unittest.skipIf(
+    torch.cuda.is_available() and not is_sm_at_least_89(),
+    "CUDA not available",
+)
 def test_dynamic_scale_numeric_parity(
-    dtype: torch.dtype, round_scales_to_power_of_2: bool
+    dtype: torch.dtype, round_scales_to_power_of_2: bool, device
 ):
     scaling_type_weight = ScalingType.DYNAMIC
     torch.manual_seed(42)
-    hp_tensor1 = torch.randn(16, 16, device="cuda", dtype=dtype)
+    hp_tensor1 = torch.randn(16, 16, device=device, dtype=dtype)
     hp_tensor2 = hp_tensor1.detach().clone()
     float8_config = Float8LinearConfig(
         cast_config_weight=CastConfig(scaling_type=scaling_type_weight),
