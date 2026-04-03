@@ -7,10 +7,8 @@ if not torch.cuda.is_available() or torch.cuda.get_device_capability() != (10, 0
 import torch.distributed as dist
 import torch.distributed._symmetric_memory as symm_mem
 from torch.distributed._functional_collectives import (
-    all_to_all_single,
     all_to_all_single_autograd,
 )
-from torch.nn import functional as F
 from torch.testing._internal.common_distributed import (
     MultiProcessTestCase,
 )
@@ -19,26 +17,22 @@ from torch.testing._internal.common_utils import (
     run_tests,
 )
 
-from torchao.float8.float8_utils import (
-    compute_error,
+from test.prototype.moe_training.testing_utils import generate_split_sizes
+from torchao.prototype.moe_training.ep.permute import permute_and_pad
+from torchao.prototype.moe_training.ep.syncless.token_dispatch import (
+    mxfp8_token_dispatch,
 )
-from torchao.prototype.moe_training.kernels.mxfp8.comms import (
-    mxfp8_on_device_all_to_all_v,
-    to_mxfp8_a2a_dequant,
-)
-
-from ..testing_utils import generate_split_sizes
 
 
 @instantiate_parametrized_tests
-class MXFP8OnDeviceAllToAllVTest(MultiProcessTestCase):
+class MXFP8SynclessAllToAllExpertMajorTest(MultiProcessTestCase):
     def setUp(self) -> None:
         super().setUp()
         self._spawn_processes()
 
     @property
     def world_size(self) -> int:
-        return 4
+        return 2
 
     @property
     def device(self) -> torch.device:
@@ -58,51 +52,86 @@ class MXFP8OnDeviceAllToAllVTest(MultiProcessTestCase):
     def _init_device(self):
         symm_mem.set_backend("NVSHMEM")
 
-    def test_a2a_fwd_bwd(self):
+    def test_mxfp8_a2a(self):
         self._init_process()
         try:
             torch.manual_seed(42 + self.rank)
             self._init_device()
 
-            group_name = dist.group.WORLD.group_name
-            symm_mem.enable_symm_mem_for_group(group_name)
+            tokens_per_expert = 2
+            experts_per_rank = 2
+            total_local_tokens = tokens_per_expert * experts_per_rank
+            dim = 32
 
-            tokens_per_ep_rank = 8192
-            dim = 2048
-            input_tensor = torch.randn(
-                tokens_per_ep_rank,
-                dim,
-                device=self.device,
-                dtype=torch.bfloat16,
-                requires_grad=True,
+            # Create input tensor with uniform distinct data per token
+            # Each rank starts at different values:
+            # Rank 0: rows of [1, 1, ...], [2, 2, ...], [3, 3, ...], [4, 4, ...]
+            # Rank 1: rows of [5, 5, ...], [6, 6, ...], [7, 7, ...], [8, 8, ...]
+            start_value = self.rank * total_local_tokens + 1
+            input_tensor = torch.stack(
+                [
+                    torch.full(
+                        (dim,),
+                        float(start_value + i),
+                        dtype=torch.bfloat16,
+                        device=self.device,
+                    )
+                    for i in range(total_local_tokens)
+                ]
             )
+            input_tensor.requires_grad_(True)
             ref_input_tensor = input_tensor.detach().clone().requires_grad_(True)
 
-            # Generate random input splits that sum to tokens_per_ep_rank
-            num_splits = self.world_size
-            input_splits = generate_split_sizes(
-                num_splits, tokens_per_ep_rank, self.device
+            # generate splits for our local tokens to define which are assigned to each expert GLOBALLY
+            total_experts_global = self.world_size * experts_per_rank
+            num_tokens_per_expert_global = generate_split_sizes(
+                total_experts_global, total_local_tokens, self.device
             )
 
-            # Max output tokens per rank is worst case where one rank receives all tokens
-            max_output_tokens_per_rank = tokens_per_ep_rank * self.world_size
+            # tokens per expert per rank. shape (world_size, experts_per_rank)
+            # [r0e0, r0e1, r1e0, r1e1, ...]
+            expert_splits_per_rank = num_tokens_per_expert_global.view(
+                self.world_size, -1
+            )
+
+            # tokens per rank: sum of tokens per expert per rank. shape (world_size,)
+            input_rank_level_splits = expert_splits_per_rank.sum(dim=1)
+
+            # Max output tokens per rank is worst case where one rank receives all tokens.
+            # Use upper bound padding, assuming 32 padding tokens per expert globally.
+            total_global_tokens = total_local_tokens * self.world_size
+            max_output_tokens_per_rank = (
+                total_global_tokens + 32 * experts_per_rank * self.world_size
+            )
 
             # Test forward
-            output, output_splits = mxfp8_on_device_all_to_all_v(
+            (
+                output_e4m3,
+                output_scales_e8m0,
+                output_rank_level_splits,
+                output_expert_splits,
+                expert_padded_offsets,
+            ) = mxfp8_token_dispatch(
                 input_tensor,
-                input_splits,
+                input_rank_level_splits,
+                expert_splits_per_rank,
                 max_output_tokens_per_rank,
-                group_name,
+                dist.group.WORLD,
             )
 
+            # Convert scales to uint8 for comparison
+            output_scales_e8m0 = output_scales_e8m0.view(torch.uint8)
+
             # Reference torch.all_to_all_single to compare against
-            output_splits_ref = torch.empty_like(output_splits)
+            output_rank_level_splits_ref = torch.empty_like(output_rank_level_splits)
 
             # Compute output splits from input splits
-            dist.all_to_all_single(output_splits_ref, input_splits)
+            dist.all_to_all_single(
+                output_rank_level_splits_ref, input_rank_level_splits
+            )
 
             # Pre-allocate output buffer for reference a2a
-            total_tokens_on_rank_after_a2a = output_splits_ref.sum()
+            total_tokens_on_rank_after_a2a = output_rank_level_splits_ref.sum()
             ref_output = torch.empty(
                 total_tokens_on_rank_after_a2a,
                 dim,
@@ -113,153 +142,83 @@ class MXFP8OnDeviceAllToAllVTest(MultiProcessTestCase):
             # Do the actual all_to_all_single
             ref_output = all_to_all_single_autograd(
                 ref_input_tensor,
-                output_splits_ref.tolist(),
-                input_splits.tolist(),
+                output_rank_level_splits_ref.tolist(),
+                input_rank_level_splits.tolist(),
                 dist.group.WORLD,
             )
 
-            # Compare output
-            assert torch.equal(output_splits, output_splits_ref), (
-                "output_splits mismatch"
-            )
-            out_no_padding = output[:total_tokens_on_rank_after_a2a]
-            sqnr = compute_error(ref_output, out_no_padding)
-            min_sqnr = 30.0
-            assert sqnr > min_sqnr, f"sqnr={sqnr} is less than min_sqnr={min_sqnr}"
+            # Exchange expert split information using all_to_all_single (like TorchAO and benchmark)
+            # Flatten expert_splits_per_rank to match TorchAO's num_tokens_per_expert format
+            num_tokens_per_expert = (
+                expert_splits_per_rank.flatten()
+            )  # [world_size * num_experts_per_rank]
 
-            # Test backwards
-            labels = torch.ones_like(out_no_padding)
-            loss = F.mse_loss(out_no_padding, labels)
-            ref_loss = F.mse_loss(ref_output, labels)
-            loss.backward()
-            ref_loss.backward()
-
-            # Compare grads
-            grad_sqnr = compute_error(ref_input_tensor.grad, input_tensor.grad)
-            min_grad_sqnr = 28.0
-            assert grad_sqnr > min_grad_sqnr, (
-                f"grad_sqnr={grad_sqnr} is less than min_grad_sqnr={min_grad_sqnr}"
-            )
-
-        finally:
-            dist.destroy_process_group()
-
-
-@instantiate_parametrized_tests
-class ToMXFP8AllToAllVDequantTest(MultiProcessTestCase):
-    def setUp(self) -> None:
-        super().setUp()
-        self._spawn_processes()
-
-    @property
-    def world_size(self) -> int:
-        return 4
-
-    @property
-    def device(self) -> torch.device:
-        return torch.device(f"cuda:{self.rank}")
-
-    def _init_process(self):
-        torch.cuda.set_device(self.device)
-        store = dist.FileStore(self.file_name, self.world_size)
-        dist.init_process_group(
-            backend="nccl",
-            world_size=self.world_size,
-            rank=self.rank,
-            store=store,
-        )
-        torch.manual_seed(42 + self.rank)
-
-    def _init_device(self):
-        symm_mem.set_backend("NVSHMEM")
-
-    def test_a2a_fwd_bwd(self):
-        self._init_process()
-        try:
-            torch.manual_seed(42 + self.rank)
-            self._init_device()
-
-            group_name = dist.group.WORLD.group_name
-            symm_mem.enable_symm_mem_for_group(group_name)
-
-            tokens_per_ep_rank = 8192
-            dim = 2048
-            input_tensor = torch.randn(
-                tokens_per_ep_rank,
-                dim,
-                device=self.device,
-                dtype=torch.bfloat16,
-                requires_grad=True,
-            )
-            ref_input_tensor = input_tensor.detach().clone().requires_grad_(True)
-
-            # Generate random input splits that sum to tokens_per_ep_rank
-            experts_per_rank = 2
-            num_splits = experts_per_rank * self.world_size
-            num_tokens_per_expert = generate_split_sizes(
-                num_splits, tokens_per_ep_rank, self.device
-            )
-
-            ep_degree = self.world_size
-
-            # Compute tokens per expert group using tokens per expert
-            with torch.no_grad():
-                num_tokens_per_expert_group = all_to_all_single(
+            # Use all_to_all_single to exchange expert splits (no redundant all_gather needed!)
+            tokens_per_expert_group = (
+                torch.distributed._functional_collectives.all_to_all_single(
                     num_tokens_per_expert,
                     None,
                     None,
                     group=dist.group.WORLD,
                 )
-                # Need to wait explicitly because it is used by a triton kernel later
-                # which doesn't realize that AsyncCollectiveTensor needs unwrapping
-                num_tokens_per_expert_group = torch.ops._c10d_functional.wait_tensor(
-                    num_tokens_per_expert_group
-                )
-                input_splits = (
-                    num_tokens_per_expert.view(ep_degree, -1)
-                    .sum(dim=1)
-                    .to(torch.device("cpu"), non_blocking=True)
-                )
-                # NOTE: this would incur a device-to-host sync
-                output_splits = (
-                    num_tokens_per_expert_group.view(ep_degree, -1)
-                    .sum(dim=1)
-                    .to(torch.device("cpu"), non_blocking=False)
-                )
-
-            # Compute reference a2a autograd
-            ref_output = all_to_all_single_autograd(
-                ref_input_tensor,
-                output_splits.tolist(),
-                input_splits.tolist(),
-                dist.group.WORLD,
+            )
+            tokens_per_expert_group = torch.ops._c10d_functional.wait_tensor(
+                tokens_per_expert_group
             )
 
-            # Compute mxfp8 a2a sync
-            output = to_mxfp8_a2a_dequant(
-                input_tensor,
-                output_splits.tolist(),
-                input_splits.tolist(),
-                group_name,
+            # For comparison with the MXFP8 kernel output, we need output_expert_splits
+            # Reshape tokens_per_expert_group back to match expected format
+            output_expert_splits_ref = tokens_per_expert_group.view(
+                self.world_size, experts_per_rank
             )
 
-            # Compare output
-            sqnr = compute_error(ref_output, output)
-            min_sqnr = 30.0
-            assert sqnr > min_sqnr, f"sqnr={sqnr} is less than min_sqnr={min_sqnr}"
+            _, ref_output_expert_major, _, _, _ = permute_and_pad(
+                ref_output,
+                tokens_per_expert_group,  # Use flattened version
+                ep_degree=self.world_size,
+                num_local_experts=experts_per_rank,
+                alignment=32,
+            )
 
-            # Test backwards
-            labels = torch.ones_like(output)
-            ref_loss = F.mse_loss(ref_output, labels)
-            loss = F.mse_loss(output, labels)
-            ref_loss.backward()
-            loss.backward()
+            # Quantize reference output to mxfp8 for comparison
+            from torchao.prototype.mx_formats.kernels import triton_to_mxfp8_dim0
 
-            # Compare grads
-            grad_sqnr = compute_error(ref_input_tensor.grad, input_tensor.grad)
-            min_grad_sqnr = 28.0
-            assert grad_sqnr > min_grad_sqnr, (
-                f"grad_sqnr={grad_sqnr} is less than min_grad_sqnr={min_grad_sqnr}"
+            block_size = 32
+            ref_output_e4m3, ref_output_scales_e8m0 = triton_to_mxfp8_dim0(
+                ref_output_expert_major,
+                inner_block_size=block_size,
+                scaling_mode="rceil",
+            )
+
+            # Compare output splits
+            assert torch.equal(
+                output_rank_level_splits, output_rank_level_splits_ref
+            ), "output_rank_level_splits mismatch"
+
+            assert torch.equal(output_expert_splits, output_expert_splits_ref), (
+                f"output_expert_splits mismatch: got {output_expert_splits}, expected {output_expert_splits_ref}"
+            )
+
+            # Slice to permute_and_pad size for comparison.
+            # - Triton kernel is "EP aware" and overallocates for case where all tokens go to one EP rank.
+            #   It returns this overallocated buffer with offsets for use by grouped_mm directly.
+            # - permute_and_pad is intended for local use, and overallocates based on case where
+            compare_size = ref_output_e4m3.shape[0]
+
+            # Compare quantized output data and scales
+            torch.testing.assert_close(
+                output_e4m3[:compare_size].view(torch.float32),
+                ref_output_e4m3.view(torch.float32),
+                atol=0,
+                rtol=0,
+            )
+            torch.testing.assert_close(
+                output_scales_e8m0[:compare_size].view(
+                    torch.uint8
+                ),  # output has full overallocated buffer, so only compare relevant part
+                ref_output_scales_e8m0.view(torch.uint8),
+                atol=0,
+                rtol=0,
             )
 
         finally:
