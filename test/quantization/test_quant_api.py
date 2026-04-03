@@ -62,6 +62,7 @@ from torchao.testing.pt2e._xnnpack_quantizer import (
 from torchao.testing.model_architectures import ToyTwoLinearModel
 from torchao.testing.utils import skip_if_rocm, skip_if_xpu
 from torchao.utils import (
+    get_available_devices,
     get_current_accelerator_device,
     is_ROCM,
     is_sm_at_least_89,
@@ -141,14 +142,11 @@ def _get_ref_change_linear_weights_to_woqtensors(deprecated_tenosr_subclass):
 
 
 class TestQuantFlow(TestCase):
-    GPU_DEVICES = (["cuda"] if torch.cuda.is_available() else []) + (
-        ["xpu"] if torch.xpu.is_available() else []
-    )
-
-    def test_dynamic_quant_gpu_singleline(self):
-        if is_ROCM():
-            self.skipTest("Don't test CPU for ROCM version of torch")
-        m = ToyTwoLinearModel(64, 32, 64, dtype=torch.float, device="cpu").eval()
+    @common_utils.parametrize("device", get_available_devices())
+    def test_dynamic_quant_gpu_singleline(self, device):
+        if is_ROCM() and device == "cuda":
+            self.skipTest("Skip on ROCM")
+        m = ToyTwoLinearModel(64, 32, 64, dtype=torch.float, device=device).eval()
         example_inputs = m.example_inputs()
         quantize_(m, Int8DynamicActivationInt8WeightConfig())
         m(*example_inputs)
