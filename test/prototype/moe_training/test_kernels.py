@@ -542,14 +542,8 @@ def test_cuda_mx_dim1_2d_numerics_32x1(
     if blocked_scale_output:
         from torchao.prototype.mx_formats.utils import to_blocked
 
-        # Follow the same pattern as _addmm_mx_dispatch for B operand (32x1 scaling)
-        # s_d1_ref is (K, M//32) from to_mx - need reshape instead of view due to stride layout
-        s_d1_ref = s_d1_ref.t().reshape(
-            K, M // block_size
-        )  # (K, M//32) -> (M//32, K) -> (K, M//32)
+        # s_d1_ref is already (K, M//32) from to_mx, same format as kernel now returns
         s_d1_ref = to_blocked(s_d1_ref)
-    else:
-        s_d1_ref = s_d1_ref.transpose(-2, -1).contiguous()  # Shape: (M//32, K)
 
     # CuTeDSL 32x1 kernel implementation
     y_d1, s_d1 = mxfp8_quantize_cuda_2d_32x1(

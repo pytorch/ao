@@ -260,19 +260,19 @@ def _compile_mxfp8_quantize_2d_cutedsl_32x1(
                         scales_tensor, cutlass.Uint32
                     )
                     scale_buffer_u32 = cute.recast_tensor(scale_buffer, cutlass.Uint32)
-                    scales_tensor_u32[m_block_base // cutlass.Int64(4), k] = (
+                    scales_tensor_u32[k, m_block_base // cutlass.Int64(4)] = (
                         scale_buffer_u32[0]
                     )
                 else:
                     # Fallback for non-4 cases (e.g., tail tiles)
                     for i in range(num_scales):
                         m_block = m_block_base + i
-                        scales_tensor[m_block, k] = scale_buffer[i]
+                        scales_tensor[k, m_block] = scale_buffer[i]
             else:
                 # Row-major layout - scalar stores
                 for i in range(num_scales):
                     m_block = m_block_base + i
-                    scales_tensor[m_block, k] = scale_buffer[i]
+                    scales_tensor[k, m_block] = scale_buffer[i]
 
         @cute.jit
         def _store_q_fp8_reg_to_smem(
@@ -852,29 +852,25 @@ def _compile_mxfp8_quantize_2d_cutedsl_32x1(
 
             blocked_scale_layout = cute.make_layout((1,))
             if cutlass.const_expr(BLOCKED_SCALE_OUTPUT_VALUE):
-                # For 32x1 scaling with 4x128 scale factor tiles
-                # Scales tensor shape is (M//32, K) but we need (4, M//32/4) x (128, K/128) tiles
+                # Use same blocked layout as regular 2D kernel but for (K, M//32) tensor
+                # For scales shape (K, M//32): K is rows, M//32 is columns
                 padded_scale_rows = cute.round_up(
-                    m_blocks, 4
-                )  # M//32 rounded to multiple of 4
-                padded_scale_cols = cute.round_up(
                     K, 128
-                )  # K rounded to multiple of 128
+                )  # K rounded to multiple of 128 (first dim)
+                padded_scale_cols = cute.round_up(
+                    m_blocks, 4
+                )  # M//32 rounded to multiple of 4 (second dim)
                 m_block_tiles = padded_scale_rows // cutlass.Int64(
-                    4
-                )  # number of 4-row tiles
-                k_block_tiles = padded_scale_cols // cutlass.Int64(
                     128
-                )  # number of 128-col tiles
+                )  # Number of 128-row tiles
+                k_block_tiles = padded_scale_cols // cutlass.Int64(
+                    4
+                )  # Number of 4-col tiles
                 blocked_scale_layout = cute.make_layout(
-                    ((4, m_block_tiles), (32, 4, k_block_tiles)),
+                    ((32, 4, m_block_tiles), (4, k_block_tiles)),
                     stride=(
-                        (1, cutlass.Int64(4)),
-                        (
-                            padded_scale_rows,
-                            cutlass.Int64(4) * padded_scale_rows,
-                            cutlass.Int64(128) * padded_scale_rows,
-                        ),
+                        (16, 4, cutlass.Int64(128) * padded_scale_cols),
+                        (1, cutlass.Int64(512)),
                     ),
                 )
 
@@ -934,7 +930,7 @@ def _compile_mxfp8_quantize_2d_cutedsl_32x1(
     else:
         fake_scales = make_fake_tensor(
             cutlass.Uint8,
-            (mb, k),  # Fixed dimensions for 32x1 scaling
+            (k, mb),  # Changed to (K, M//32) to match torch._scaled_mm format
             stride=(scale_stride0, scale_stride1),
         )
     fake_stream = make_fake_stream()
@@ -975,8 +971,8 @@ def mxfp8_quantize_cutedsl_2d_32x1(
 
     Returns:
         q_data: Quantized data in row-major layout with shape (M, K) (no padding on data)
-        scales: Scales tensor with shape (M//32, K_padded) or blocked layout for 4x128 tiles
-                where K_padded = ceil_div(K, 128) * 128 and M//32 is padded to multiple of 4
+        scales: Scales tensor with shape (K, M//32) or blocked layout compatible with torch._scaled_mm
+                Same format as other dim1 MXFP8 kernels for consistency
     """
     assert x.dtype in (
         torch.float32,
@@ -1011,17 +1007,23 @@ def mxfp8_quantize_cutedsl_2d_32x1(
     )
     m_blocks = M // block_size
     if blocked_scale_output:
-        # For 32x1 scaling with 4x128 scale factor tiles
-        padded_scale_rows = ceil_div(m_blocks, 4) * 4
-        padded_scale_cols = ceil_div(K, 128) * 128
-        scales_u8 = torch.empty(
-            (padded_scale_rows * padded_scale_cols,),
-            device=x.device,
-            dtype=torch.uint8,
+        # Use same blocked layout as regular 2D kernel for (K, M//32) tensor
+        padded_scale_rows = (
+            ceil_div(K, 128) * 128
+        )  # K rounded to multiple of 128 (first dim)
+        padded_scale_cols = (
+            ceil_div(m_blocks, 4) * 4
+        )  # M//32 rounded to multiple of 4 (second dim)
+        scales_u8 = (
+            torch.zeros(  # Initialize with zeros to match to_blocked() padding behavior
+                (padded_scale_rows * padded_scale_cols,),
+                device=x.device,
+                dtype=torch.uint8,
+            )
         )
     else:
         scales_u8 = torch.empty(
-            (m_blocks, K),
+            (K, m_blocks),
             device=x.device,
             dtype=torch.uint8,
         )
