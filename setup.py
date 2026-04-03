@@ -9,6 +9,7 @@ import json
 import os
 import pickle
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -390,33 +391,86 @@ class CPUKernelBuild:
     of the build script stays platform-agnostic.
     """
 
+    # Minimum GCC major version required for full AVX10.2 / new-ISA support.
+    _MIN_GCC_MAJOR = 15
+
     @staticmethod
     def is_enabled() -> bool:
         """Return True when CPU aten_kernels should be included in the build."""
         return bool(use_cpu_kernels and is_linux)
 
     @staticmethod
-    def find_gcc15() -> "str | None":
-        """Find GCC 15 from the active conda environment.
+    def _gcc_major(exe: str) -> "int | None":
+        """Return the GCC major version reported by *exe*, or None on failure."""
+        try:
+            out = subprocess.run(
+                [exe, "--version"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            ).stdout
+            # Extract the first MAJOR.MINOR.PATCH version in the output.
+            # Handles upstream GCC ("g++ (GCC) 15.0.1 ..."),
+            # conda-forge ("g++ (conda-forge gcc 15.2.0-18) 15.2.0 ..."),
+            # and distro builds ("g++ (Ubuntu 15.1.0-1ubuntu1) 15.1.0").
+            m = re.search(r"\b(\d+)\.\d+\.\d+", out)
+            if m:
+                return int(m.group(1))
+        except Exception:
+            pass
+        return None
 
-        Returns the path to g++ if found, otherwise None.
-        The conda gcc15 env packages GCC 15 as 'x86_64-conda-linux-gnu-g++'.
+    @staticmethod
+    def find_cxx_compiler() -> "str | None":
+        """Find a C++ compiler that meets the minimum GCC version requirement.
+
+        Search order:
+          1. $CXX environment variable
+          2. ``g++`` on $PATH (via ``which``)
+          3. The conda-packaged cross-compiler wrapper in $CONDA_PREFIX/bin
+             (name pattern: ``*-g++``, used by conda's gcc packages)
+
+        Returns the path of the first qualifying compiler, or None if no
+        compiler at or above _MIN_GCC_MAJOR is found.
         """
+        min_major = CPUKernelBuild._MIN_GCC_MAJOR
+
+        def _check(exe: str) -> "str | None":
+            if not exe:
+                return None
+            if os.sep not in exe:
+                # Plain name — resolve via PATH.
+                resolved = shutil.which(exe)
+                if not resolved:
+                    return None
+                exe = resolved
+            if not os.path.isfile(exe):
+                return None
+            major = CPUKernelBuild._gcc_major(exe)
+            if major is not None and major >= min_major:
+                return exe
+            return None
+
+        # 1. Explicit $CXX
+        result = _check(os.environ.get("CXX", ""))
+        if result:
+            return result
+
+        # 2. g++ on PATH
+        result = _check("g++")
+        if result:
+            return result
+
+        # 3. Conda env cross-compiler wrapper (*-g++ in $CONDA_PREFIX/bin)
         conda_prefix = os.environ.get("CONDA_PREFIX", "")
         if conda_prefix:
-            candidate = os.path.join(conda_prefix, "bin", "x86_64-conda-linux-gnu-g++")
-            if os.path.exists(candidate):
-                try:
-                    result = subprocess.run(
-                        [candidate, "--version"],
-                        capture_output=True,
-                        text=True,
-                        timeout=10,
-                    )
-                    if "15." in result.stdout:
-                        return candidate
-                except Exception:
-                    pass
+            bin_dir = os.path.join(conda_prefix, "bin")
+            for name in sorted(os.listdir(bin_dir)) if os.path.isdir(bin_dir) else []:
+                if name.endswith("-g++"):
+                    result = _check(os.path.join(bin_dir, name))
+                    if result:
+                        return result
+
         return None
 
     @staticmethod
@@ -475,13 +529,15 @@ class CPUKernelBuild:
                 "-fopenmp",
             ]
         )
-        gcc15 = CPUKernelBuild.find_gcc15()
-        if gcc15:
-            os.environ.setdefault("CXX", gcc15)
-            print(f"[CPU Kernels] Using GCC 15 compiler: {gcc15}")
+        cxx_compiler = CPUKernelBuild.find_cxx_compiler()
+        if cxx_compiler:
+            os.environ.setdefault("CXX", cxx_compiler)
+            print(
+                f"[CPU Kernels] Using GCC {CPUKernelBuild._MIN_GCC_MAJOR}+ compiler: {cxx_compiler}"
+            )
         else:
             print(
-                "[CPU Kernels] GCC 15 not found; using default C++ compiler. "
+                f"[CPU Kernels] GCC {CPUKernelBuild._MIN_GCC_MAJOR}+ not found; using default C++ compiler. "
                 "AVX10.2 stub compilation may fail."
             )
 
@@ -491,9 +547,10 @@ class CPUKernelBuild:
 
         Adds an RPATH entry for every PyTorch library directory so that
         libc10.so / libtorch_cpu.so are found at runtime without needing
-        LD_LIBRARY_PATH.  Also statically links libstdc++ to carry the
-        CXXABI_1.3.15 symbols that GCC 15 generates (__cxa_call_terminate)
-        but that PyTorch's bundled libstdc++ may lack.
+        LD_LIBRARY_PATH.  Also statically links libstdc++ to carry new
+        CXXABI symbols (e.g. __cxa_call_terminate from CXXABI_1.3.15)
+        that newer GCC versions generate but PyTorch's bundled libstdc++
+        may lack.
         """
         if not CPUKernelBuild.is_enabled():
             return []
@@ -546,13 +603,11 @@ class CPUKernelBuild:
         ensures that only the AVX10.2 variant code is compiled in the temp
         copy (the main build compiles the #else branch).
         """
-        import shutil
-
         main_ext = next((e for e in extensions if e.name == "torchao._C"), None)
         if main_ext is None:
             return
 
-        cxx = os.environ.get("CXX", CPUKernelBuild.find_gcc15() or "g++")
+        cxx = os.environ.get("CXX", CPUKernelBuild.find_cxx_compiler() or "g++")
         include_flags = CPUKernelBuild.get_include_flags()
 
         cpu_defines = [
