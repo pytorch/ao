@@ -283,7 +283,7 @@ def gptq_quantize(H: torch.Tensor, W_t: torch.Tensor, config: GPTQConfig):
     #
     #    for B_cur in (B1, ..., BN):
     #        # B_cur is of shape (N, B)
-    #        # H_inv_cur corresponding to B_cur is of shape (B, B)
+    #        # Hinv_cur corresponding to B_cur is of shape (B, B)
     #
     #        for G_cur in (G1, ..., GN):
     #            # G_cur is of shape (N, group_size)
@@ -291,17 +291,17 @@ def gptq_quantize(H: torch.Tensor, W_t: torch.Tensor, config: GPTQConfig):
     #            # grid for G_cur. The rest of this for loop will iteratively optimize
     #            # the quantized weight values.
     #
-    #            for k in range(group_size):
-    #                k2 = B_cur_k_start + k
-    #                w_t = B_cur[:, G_cur_start + k2]
+    #            for k in range(G_k_start - B_cur_k_start, G_k_end - B_cur_k_start):
+    #                # k is relative to the start of B_cur
+    #                w_t = B_cur[:, k]
     #                w_t_qdq = quant_dequant(w_t, base_config, qparams)
-    #                err1 = (w_t - w_t_qdq) / H_inv_cur[k2, k2]
+    #                err1 = (w_t - w_t_qdq) / Hinv_cur[k, k]
     #                # propagate errors to remaining columns in B_cur
-    #                B_cur[:, k2:] -= err1.matmul(H_inv_cur[k2, k2:])
-    #                B_cur_Err1[:, k2] = err1.flatten()
+    #                B_cur[:, k:] -= err1.matmul(Hinv_cur[k, k:])
+    #                B_cur_Err1[:, k] = err1.flatten()
     #
     #        # batch propagate errors for all remaining blocks in W_t
-    #        W_t[:, B_cur_k_end:] -= B_cur_Err1.matmul(H_inv[B_cur_k_start:B_cur_k_end, B_cur_k_end:])
+    #        W_t[:, B_cur_k_end:] -= B_cur_Err1.matmul(Hinv[B_cur_k_start:B_cur_k_end, B_cur_k_end:])
     #
 
     group_qparams = []
@@ -340,6 +340,7 @@ def gptq_quantize(H: torch.Tensor, W_t: torch.Tensor, config: GPTQConfig):
 
             # Quantize each column and propagate errors to subsequent columns
             for k in range(G_k_start - B_cur_k_start, G_k_end - B_cur_k_start):
+                # k is relative to the start of B_cur
                 w_t = B_cur[:, k].unsqueeze(1)
                 if isinstance(base_config, Int4WeightOnlyConfig):
                     q = _int4_row_quantize_zp_precomputed_qparams(
