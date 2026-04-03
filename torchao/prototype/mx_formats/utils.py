@@ -14,7 +14,6 @@ from torchao.prototype.mx_formats.config import (
     ScaleCalculationMode,
 )
 from torchao.prototype.mx_formats.kernels import (
-    mxfp8_quantize_cuda,
     triton_mx_block_rearrange,
     triton_to_mxfp8_dim1,
 )
@@ -79,7 +78,7 @@ def to_blocked_32x1(input_matrix, use_triton_kernel: bool = False) -> Tensor:
     For 32x1 scaling:
     - Rows are padded to multiples of 4
     - Cols are padded to multiples of 128
-    
+
     Args:
         input_matrix: Input tensor of shape (H, W)
         use_triton_kernel: Whether to use a triton implementation (not implemented for 32x1)
@@ -237,6 +236,8 @@ def _to_mxfp8_dim1_kernel_wrapper(
     # TODO(future PR): split this utils file in two
     from torchao.prototype.mx_formats.mx_tensor import MXTensor, to_mx
 
+    is_swizzled_scales = False
+
     if kernel_preference == KernelPreference.EMULATED:
         a_scale, a_data = to_mx(
             a.t().contiguous(),
@@ -259,16 +260,21 @@ def _to_mxfp8_dim1_kernel_wrapper(
             ScaleCalculationMode.FLOOR,
             ScaleCalculationMode.RCEIL,
         )
-        _, a_data, _, a_scale = mxfp8_quantize_cuda(
-            a,
-            rowwise=False,
-            colwise=True,
-            scaling_mode=scale_calculation_mode.value,
+        from torchao.prototype.moe_training.kernels.mxfp8.quant import (
+            mxfp8_quantize_cuda_2d_32x1,
         )
+
+        a_data, a_scale = mxfp8_quantize_cuda_2d_32x1(
+            a,
+            block_size=block_size,
+            scaling_mode=scale_calculation_mode.value,
+            blocked_scale_output=False,
+        )
+        # (M//32, K) -> (K, M//32) to match torch._scaled_mm, which expects scaling along last dim
+        a_scale = a_scale.t()
     else:
         raise ValueError(f"must be one of [CUDA, TRITON], got {cast_kernel_choice}")
 
-    is_swizzled_scales = False
     # MXTensor wraps DTensor inner tensors directly (MXTensor(DTensor) ordering).
     # DTensor's .t() handles placement transposition automatically.
     mx_tensor = MXTensor(

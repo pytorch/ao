@@ -1381,10 +1381,11 @@ def mxfp8_quantize_cuda_2d_32x1(
         raise NotImplementedError(
             "mxfp8_quantize_2d_32x1 requires CUDA, SM 10.x, and CUDA 12.8+."
         )
-    return _mxfp8_quantize_2d_cutedsl_32x1_custom_op(
+    qdata, scales = _mxfp8_quantize_2d_cutedsl_32x1_custom_op(
         x,
         block_size=block_size,
         scaling_mode=scaling_mode,
         stage_count=stage_count,
         blocked_scale_output=blocked_scale_output,
     )
+    return qdata, scales

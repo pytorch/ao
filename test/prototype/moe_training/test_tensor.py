@@ -29,7 +29,7 @@ def test_mxfp8_training_tensor_ops_fwd_bwd(op_name, batch_size):
     if op_name == "mm" and batch_size is not None:
         pytest.skip("mm doesn't support batching")
 
-    config = MXFP8TrainingOpConfig.from_recipe(MXFP8TrainingRecipe.MXFP8_EMULATED_RCEIL)
+    config = MXFP8TrainingOpConfig.from_recipe(MXFP8TrainingRecipe.MXFP8_RCEIL)
 
     # Create input tensors - dimensions must be divisible by 32
     # Use larger sizes for better SQNR, especially with bias in linear ops

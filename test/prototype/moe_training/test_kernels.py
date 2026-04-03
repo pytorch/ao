@@ -507,7 +507,9 @@ def test_cuda_mx_dim0_2d_numerics(M, K, input_dtype, scaling_mode):
     "scaling_mode", (ScaleCalculationMode.FLOOR, ScaleCalculationMode.RCEIL)
 )
 @pytest.mark.parametrize("blocked_scale_output", [False, True])
-def test_cuda_mx_dim1_2d_numerics_32x1(M, K, input_dtype, scaling_mode, blocked_scale_output):
+def test_cuda_mx_dim1_2d_numerics_32x1(
+    M, K, input_dtype, scaling_mode, blocked_scale_output
+):
     """Test 32x1 scaling kernel that quantizes along M dimension."""
     scaling_mode_str = scaling_mode.value.lower()
     block_size = 32
@@ -538,8 +540,14 @@ def test_cuda_mx_dim1_2d_numerics_32x1(M, K, input_dtype, scaling_mode, blocked_
     y_d1_ref = y_d1_ref.transpose(-2, -1).contiguous()  # Shape back to (M, K)
 
     if blocked_scale_output:
-        from torchao.prototype.mx_formats.utils import to_blocked_32x1
-        s_d1_ref = to_blocked_32x1(s_d1_ref)
+        from torchao.prototype.mx_formats.utils import to_blocked
+
+        # Follow the same pattern as _addmm_mx_dispatch for B operand (32x1 scaling)
+        # s_d1_ref is (K, M//32) from to_mx - need reshape instead of view due to stride layout
+        s_d1_ref = s_d1_ref.t().reshape(
+            K, M // block_size
+        )  # (K, M//32) -> (M//32, K) -> (K, M//32)
+        s_d1_ref = to_blocked(s_d1_ref)
     else:
         s_d1_ref = s_d1_ref.transpose(-2, -1).contiguous()  # Shape: (M//32, K)
 

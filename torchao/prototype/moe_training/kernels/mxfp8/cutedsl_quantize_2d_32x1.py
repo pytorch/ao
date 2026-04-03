@@ -33,7 +33,7 @@ def _make_tile_smem_layouts(cute, tile_m: int, tile_k: int):
     Returns:
         Tuple of (smem_layout_in, smem_layout_out) for shared memory
     """
-    # Input SMEM: Row-major layout 
+    # Input SMEM: Row-major layout
     smem_layout_in = cute.make_layout(
         (tile_m, tile_k),
         stride=(tile_k, 1),
@@ -838,13 +838,16 @@ def _compile_mxfp8_quantize_2d_cutedsl_32x1(
             )
             out_colmajor = cute.make_tensor(
                 out_mk.iterator,
-                cute.make_layout((M, K), stride=(1, M)) # col major
+                cute.make_layout((M, K), stride=(1, M)),  # col major
             )
             tma_atom_out, tma_tensor_out = cpasync.make_tiled_tma_atom(
                 cpasync.CopyBulkTensorTileS2GOp(),
                 out_colmajor,
                 smem_layout_out,
-                (TILE_M, TILE_K),  # Keep original tile dimensions to match global memory expectation
+                (
+                    TILE_M,
+                    TILE_K,
+                ),  # Keep original tile dimensions to match global memory expectation
             )
 
             blocked_scale_layout = cute.make_layout((1,))
@@ -894,7 +897,7 @@ def _compile_mxfp8_quantize_2d_cutedsl_32x1(
                 IS_FULL_M_TILES=IS_FULL_M_TILES_VALUE,
                 STAGE_COUNT=STAGE_COUNT_VALUE,
             ).launch(
-                grid=(m_cta_tiles, k_cta_tiles, 1),  # Swapped grid dimensions
+                grid=(m_cta_tiles, k_cta_tiles, 1),
                 block=(THREADS_PER_BLOCK, 1, 1),
                 cluster=(1, 1, 1),
                 smem=SharedStorage.size_in_bytes(),  # pyrefly: ignore [missing-attribute]
@@ -904,7 +907,7 @@ def _compile_mxfp8_quantize_2d_cutedsl_32x1(
     kernel = Mxfp8Quantize2dKernel32x1()
 
     m = cute.sym_int(divisibility=32)
-    k = cute.sym_int(divisibility=128)  # Changed divisibility for 32x1 scaling
+    k = cute.sym_int(divisibility=128)
     mb = cute.sym_int()
     inp_stride0 = cute.sym_int()
     inp_stride1 = cute.sym_int()
@@ -919,7 +922,7 @@ def _compile_mxfp8_quantize_2d_cutedsl_32x1(
     fake_out = make_fake_tensor(
         cutlass.Float8E4M3FN,
         (m, k),
-        stride=(1, m),  # Column-major strides: M fastest-changing
+        stride=(1, m),  # col major
     )
     if blocked_scale_output:
         scale_flat = cute.sym_int()

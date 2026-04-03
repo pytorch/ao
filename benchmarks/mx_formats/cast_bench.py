@@ -532,11 +532,19 @@ def run(
         )
 
         for _ in range(2):
-            __ = mxfp8_quantize_cuda_2d_32x1(x, block_size=BLOCK_SIZE, scaling_mode="floor", blocked_scale_output=False)
+            __ = mxfp8_quantize_cuda_2d_32x1(
+                x,
+                block_size=BLOCK_SIZE,
+                scaling_mode="floor",
+                blocked_scale_output=False,
+            )
 
         time_us = benchmark_cuda_function_in_microseconds(
             lambda x: mxfp8_quantize_cuda_2d_32x1(
-                x, block_size=BLOCK_SIZE, scaling_mode="floor", blocked_scale_output=False
+                x,
+                block_size=BLOCK_SIZE,
+                scaling_mode="floor",
+                blocked_scale_output=False,
             ),
             x,
         )
@@ -558,11 +566,19 @@ def run(
         )
 
         for _ in range(2):
-            __ = mxfp8_quantize_cuda_2d_32x1(x, block_size=BLOCK_SIZE, scaling_mode="rceil", blocked_scale_output=False)
+            __ = mxfp8_quantize_cuda_2d_32x1(
+                x,
+                block_size=BLOCK_SIZE,
+                scaling_mode="rceil",
+                blocked_scale_output=False,
+            )
 
         time_us = benchmark_cuda_function_in_microseconds(
             lambda x: mxfp8_quantize_cuda_2d_32x1(
-                x, block_size=BLOCK_SIZE, scaling_mode="rceil", blocked_scale_output=False
+                x,
+                block_size=BLOCK_SIZE,
+                scaling_mode="rceil",
+                blocked_scale_output=False,
             ),
             x,
         )
