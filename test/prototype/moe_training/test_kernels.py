@@ -388,7 +388,7 @@ def test_triton_mx_block_rearrange_2d_K_groups(
 @pytest.mark.parametrize(
     "scaling_mode", (ScaleCalculationMode.FLOOR, ScaleCalculationMode.RCEIL)
 )
-def test_cuda_mx_dim1_3d_numerics(E, N, K, input_dtype, scaling_mode):
+def test_cutedsl_mx_dim1_3d_numerics(E, N, K, input_dtype, scaling_mode):
     if not _mxfp8_cutedsl_kernels_available:
         pytest.skip("mxfp8_quantize_3d is unavailable")
 
@@ -489,6 +489,80 @@ def test_cuda_mx_dim0_2d_numerics(M, K, input_dtype, scaling_mode):
     # Verify row-major layout
     assert y_d0.stride() == (K, 1), "quantized tensor should be row-major"
     assert y_d0.stride() == y_d0_ref.stride(), "quantized tensor strides do not match"
+
+
+@pytest.mark.skipif(
+    not _is_sm_10x(),
+    reason="MXFP8 requires CUDA SM 10.x",
+)
+@pytest.mark.skipif(
+    not _mxfp8_cutedsl_kernels_available,
+    reason="MXFP8 cutedsl kernels not available",
+)
+@pytest.mark.parametrize("M", (32, 160, 8192))
+@pytest.mark.parametrize("K", (32, 96, 1536, 5120, 7168, 8192))
+@pytest.mark.parametrize("input_dtype", (torch.bfloat16,))
+@pytest.mark.parametrize(
+    "scaling_mode", (ScaleCalculationMode.FLOOR, ScaleCalculationMode.RCEIL)
+)
+def test_cutedsl_mx_dim1_2d_numerics(M, K, input_dtype, scaling_mode):
+    """Test MXFP8 quantization with column-wise (32x1) scaling."""
+    from torchao.prototype.moe_training.kernels.mxfp8.cutedsl_quantize_2d import (
+        mxfp8_quantize_cutedsl_2d,
+    )
+
+    scaling_mode_str = scaling_mode.value.lower()
+    block_size = 32
+
+    # Use distinct incrementing values from 0 to M*K-1 to make debugging easier.
+    x = (
+        torch.arange(0, M * K, dtype=input_dtype, device="cuda")
+        .reshape(M, K)
+        .contiguous()
+    )
+
+    # Reference implementation - transpose to scale along M dimension
+    # to_mx scales along the last dimension, so we transpose to (K, M)
+    # to effectively scale along the M dimension of the original (M, K) tensor
+    s_d1_ref, y_d1_ref = to_mx(
+        x.transpose(-2, -1).contiguous(),  # (M, K) -> (K, M)
+        elem_dtype=torch.float8_e4m3fn,
+        block_size=block_size,
+        scaling_mode=scaling_mode,
+    )
+
+    # Transpose back to get the expected output format
+    y_d1_ref = y_d1_ref.transpose(-2, -1).contiguous()  # (K, M) -> (M, K)
+    s_d1_ref = s_d1_ref.transpose(-2, -1).contiguous()  # (K, M//32) -> (M//32, K)
+
+    # CuTeDSL kernel implementation with column-wise scaling
+    y_d1, s_d1 = mxfp8_quantize_cutedsl_2d(
+        x,
+        block_size=block_size,
+        scaling_mode=scaling_mode_str,
+        scaling_dim=1,  # Column-wise scaling (32x1)
+        stage_count=1,  # Use single stage for testing
+        blocked_scale_output=False,  # Use regular tensor output for easier comparison
+    )
+
+    # Convert scales to reference format (scales should already be in right format)
+    s_d1 = s_d1.to(s_d1_ref.dtype)
+
+    # Check scales
+    torch.testing.assert_close(s_d1, s_d1_ref, rtol=0, atol=0)
+
+    # Check quantized values
+    torch.testing.assert_close(y_d1, y_d1_ref, rtol=0, atol=0)
+
+    # Verify row-major layout for quantized data
+    assert y_d1.stride() == (K, 1), "quantized tensor should be row-major"
+    assert y_d1.stride() == y_d1_ref.stride(), "quantized tensor strides do not match"
+
+    # Verify column-wise scale tensor shape
+    expected_scale_shape = (M // block_size, K)
+    assert s_d1.shape == expected_scale_shape, (
+        f"scales shape should be {expected_scale_shape}, got {s_d1.shape}"
+    )
 
 
 @pytest.mark.skipif(
