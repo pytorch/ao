@@ -261,6 +261,21 @@ def _to_mxfp8_dim1_kernel_wrapper(
             ScaleCalculationMode.RCEIL,
         )
         from torchao.prototype.moe_training.kernels.mxfp8.quant import (
+            mxfp8_quantize_cuda,
+        )
+
+        _, a_data, _, a_scale = mxfp8_quantize_cuda(
+            a,
+            rowwise=False,
+            colwise=True,
+            scaling_mode=scale_calculation_mode.value,
+        )
+    elif cast_kernel_choice == MXFP8Dim1CastKernelChoice.CUTEDSL:
+        assert scale_calculation_mode in (
+            ScaleCalculationMode.FLOOR,
+            ScaleCalculationMode.RCEIL,
+        )
+        from torchao.prototype.moe_training.kernels.mxfp8.quant import (
             mxfp8_quantize_cuda_2d_32x1,
         )
 
