@@ -39,6 +39,7 @@ from torchao.prototype.moe_training.kernels.mxfp8 import (
     fused_unpad_token_groups_cuda,
     mx_block_rearrange_2d_M_groups_cuda,
     mxfp8_quantize_cuda_2d,
+    mxfp8_quantize_cuda_2d_32x1,
     mxfp8_quantize_cuda_3d,
     torch_pad_token_groups,
     torch_to_blocked_2d_K_groups,
@@ -489,6 +490,70 @@ def test_cuda_mx_dim0_2d_numerics(M, K, input_dtype, scaling_mode):
     # Verify row-major layout
     assert y_d0.stride() == (K, 1), "quantized tensor should be row-major"
     assert y_d0.stride() == y_d0_ref.stride(), "quantized tensor strides do not match"
+
+
+@pytest.mark.skipif(
+    not _is_sm_10x(),
+    reason="MXFP8 requires CUDA SM 10.x",
+)
+@pytest.mark.skipif(
+    not _mxfp8_cutedsl_kernels_available,
+    reason="MXFP8 cutedsl kernels not available",
+)
+@pytest.mark.parametrize("M", (32, 128, 160, 1024))
+@pytest.mark.parametrize("K", (128, 256, 1536, 5120, 7168, 8192))
+@pytest.mark.parametrize("input_dtype", (torch.bfloat16,))
+@pytest.mark.parametrize(
+    "scaling_mode", (ScaleCalculationMode.FLOOR, ScaleCalculationMode.RCEIL)
+)
+def test_cuda_mx_dim1_2d_numerics_32x1(M, K, input_dtype, scaling_mode):
+    """Test 32x1 scaling kernel that quantizes along M dimension."""
+    scaling_mode_str = scaling_mode.value.lower()
+    block_size = 32
+
+    # Ensure M is divisible by block_size for 32x1 scaling
+    if M % block_size != 0:
+        pytest.skip(
+            f"M={M} must be divisible by block_size={block_size} for 32x1 scaling"
+        )
+
+    # Use distinct incrementing values from 0 to M*K-1 to make debugging easier.
+    x = (
+        torch.arange(0, M * K, dtype=input_dtype, device="cuda")
+        .reshape(M, K)
+        .contiguous()
+    )
+
+    # Reference implementation: transpose so M becomes the last dimension,
+    # since to_mx scales along the final dimension
+    x_t = x.transpose(-2, -1).contiguous()  # Shape: (K, M)
+    s_d1_ref, y_d1_ref = to_mx(
+        x_t,
+        elem_dtype=torch.float8_e4m3fn,
+        block_size=block_size,
+        scaling_mode=scaling_mode,
+    )
+    # Transpose quantized data back to (M, K) for comparison with kernel output
+    y_d1_ref = y_d1_ref.transpose(-2, -1).contiguous()  # Shape back to (M, K)
+    s_d1_ref = s_d1_ref.transpose(-2, -1).contiguous()  # Shape: (M//32, K)
+
+    # CuTeDSL 32x1 kernel implementation
+    y_d1, s_d1 = mxfp8_quantize_cuda_2d_32x1(
+        x,
+        block_size=block_size,
+        scaling_mode=scaling_mode_str,
+        blocked_scale_output=False,
+    )
+
+    # Verify output dimensions - data should not be padded, same as input
+    assert y_d1.shape == (M, K), (
+        f"Quantized data shape mismatch: expected ({M}, {K}), got {y_d1.shape}"
+    )
+    # Check scales - compare unblocked formats
+    torch.testing.assert_close(s_d1, s_d1_ref, rtol=0, atol=0)
+
+    # Check quantized values - no padding needed for data
+    torch.testing.assert_close(y_d1, y_d1_ref, rtol=0, atol=0)
 
 
 @pytest.mark.skipif(
