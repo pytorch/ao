@@ -1198,6 +1198,10 @@ def is_Navi4():
     return False
 
 
+def is_XPU():
+    return hasattr(torch, "xpu") and torch.xpu.is_available()
+
+
 def is_sm_version(major: int, minor: int) -> bool:
     """Check if the CUDA version is exactly major.minor"""
     is_cuda = torch.cuda.is_available() and torch.version.cuda
