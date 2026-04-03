@@ -506,7 +506,8 @@ def test_cuda_mx_dim0_2d_numerics(M, K, input_dtype, scaling_mode):
 @pytest.mark.parametrize(
     "scaling_mode", (ScaleCalculationMode.FLOOR, ScaleCalculationMode.RCEIL)
 )
-def test_cuda_mx_dim1_2d_numerics_32x1(M, K, input_dtype, scaling_mode):
+@pytest.mark.parametrize("blocked_scale_output", [False, True])
+def test_cuda_mx_dim1_2d_numerics_32x1(M, K, input_dtype, scaling_mode, blocked_scale_output):
     """Test 32x1 scaling kernel that quantizes along M dimension."""
     scaling_mode_str = scaling_mode.value.lower()
     block_size = 32
@@ -535,14 +536,19 @@ def test_cuda_mx_dim1_2d_numerics_32x1(M, K, input_dtype, scaling_mode):
     )
     # Transpose quantized data back to (M, K) for comparison with kernel output
     y_d1_ref = y_d1_ref.transpose(-2, -1).contiguous()  # Shape back to (M, K)
-    s_d1_ref = s_d1_ref.transpose(-2, -1).contiguous()  # Shape: (M//32, K)
+
+    if blocked_scale_output:
+        from torchao.prototype.mx_formats.utils import to_blocked_32x1
+        s_d1_ref = to_blocked_32x1(s_d1_ref)
+    else:
+        s_d1_ref = s_d1_ref.transpose(-2, -1).contiguous()  # Shape: (M//32, K)
 
     # CuTeDSL 32x1 kernel implementation
     y_d1, s_d1 = mxfp8_quantize_cuda_2d_32x1(
         x,
         block_size=block_size,
         scaling_mode=scaling_mode_str,
-        blocked_scale_output=False,
+        blocked_scale_output=blocked_scale_output,
     )
 
     # Verify output dimensions - data should not be padded, same as input
