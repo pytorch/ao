@@ -16,10 +16,10 @@ needed to ensure proper gradient updates during training:
 """
 
 import torch
-from my_dtype_tensor_subclass import MyDTypeTensor, MyDTypeTensorImpl
+from my_dtype_tensor_subclass import MyDTypeTensor, MyDTypeTensorImpl, PlainLayout
 from torch.utils._python_dispatch import return_and_correct_aliasing
 
-from torchao.dtypes.utils import Layout, PlainLayout
+from torchao.dtypes.utils import Layout
 from torchao.quantization import (
     MappingType,
     choose_qparams_affine,

@@ -12,6 +12,7 @@ it shows
     * how the tensor subclass composes with torch.compile to get speedup
 """
 
+from dataclasses import dataclass
 from typing import Optional, Tuple
 
 import torch
@@ -19,7 +20,6 @@ from torch.utils._python_dispatch import return_and_correct_aliasing
 
 from torchao.dtypes.utils import (
     Layout,
-    PlainLayout,
 )
 from torchao.quantization import (
     MappingType,
@@ -33,6 +33,13 @@ from torchao.utils import (
 )
 
 aten = torch.ops.aten
+
+
+@dataclass(frozen=True)
+class PlainLayout(Layout):
+    """Layout that stores data in plain (uncompressed) format."""
+
+    pass
 
 
 ###############################
