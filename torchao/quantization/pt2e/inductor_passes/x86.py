@@ -1781,8 +1781,8 @@ def _register_smooth_quant_int_mm_pattern():
     """
     The pattern is:
        (no bias)
-         (optional) reshape(a) -> _int_mm -> convert_element_type -> mul(x_scale)
-         (optional) convert_element_type (output-convert variant) -> mul(w_scale)
+         [reshape(a)] -> _int_mm -> convert_element_type -> mul(x_scale) ->
+         [convert_element_type (scaled matmul)] -> mul(w_scale)
        (with bias)
          pattern_no_bias -> add
     """
@@ -1790,7 +1790,7 @@ def _register_smooth_quant_int_mm_pattern():
     # get_pattern_no_bias models the core int_mm + scaling computation without bias.
     #   - reshape_a controls whether we expect an input reshape on `a` before _int_mm.
     #   - convert_scaled_matmul controls whether there is an extra convert_element_type applied to
-    #     the result of the x_scale multiplication (output-convert variants).
+    #     the result of the x_scale multiplication.
     def get_pattern_no_bias(
         reshape_a: bool = True, convert_scaled_matmul: bool = False
     ):
@@ -1834,16 +1834,7 @@ def _register_smooth_quant_int_mm_pattern():
             aten.reshape.default, pattern, KeywordArg("out_shape_no_bias")
         )
 
-    # The following pattern covers both torchao
-    # Int8DynamicActivationInt8WeightConfig linear and smooth-quant.
-    # It matches the Int8DynamicActivationInt8WeightConfig case where
-    # both activation and weights are symmetrically quantized.
-    # It also matches smooth-quant when the graph is lowered to the
-    # same int_mm + scaling form, especially for 2D input shapes.
-    # Since add is not currently being used as a oneDNN post-op, but
-    # is unfused, we don't need this pattern with bias.
-    # Ideally, we should add mul + add post-op support in ATen int8
-    # oneDNN linear op.
+    # The following pattern covers both torchao DA8W8 and SmoothQuant.
     pattern_with_no_outer_or_act_reshape = get_pattern_no_bias(reshape_a=False)
 
     pattern_no_bias = _with_outer_reshape(get_pattern_no_bias())

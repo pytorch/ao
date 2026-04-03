@@ -2728,9 +2728,10 @@ class TestPatternMatcher(TestPatternMatcherBase):
         r"""
         This testcase check if we can match the SmoothQuant int8 linear pattern from Torchao.
         The pattern is:
-            (no bias) reshape -> _int_mm -> convert_element_type -> mul -> mul -> reshape
-        or
-            (with bias) pattern_no_bias -> add -> reshape -> reshape
+            - pattern_no_bias (6 nodes):
+                reshape -> int_mm -> convert -> mul -> mul -> reshape
+            - pattern_with_bias (7 nodes):
+                reshape -> int_mm -> convert -> mul -> mul -> reshape -> add
         """
         if dtype == torch.bfloat16 and not torch.ops.mkldnn._is_mkldnn_bf16_supported():
             return
@@ -2892,10 +2893,22 @@ class TestPatternMatcher(TestPatternMatcherBase):
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
     @parametrize("dtype", [torch.float32, torch.bfloat16])
-    def test_da8w8_2d_hits_no_outer_or_act_reshape_pattern(self, dtype):
+    @parametrize("dynamic", [False, True])
+    @parametrize(
+        "quant_mode",
+        ["da8w8", "dynamic_smooth_quant", "static_smooth_quant"],
+    )
+    def test_pattern_with_no_outer_or_act_reshape(self, dtype, dynamic, quant_mode):
         r"""
-        Verify a real Int8DynamicActivationInt8WeightConfig 2D linear path matches
-        pattern_with_no_outer_or_act_reshape (no input/output reshape).
+        Verify real 2D linear paths match pattern_with_no_outer_or_act_reshape
+        (no input/output reshape) for:
+        1) Int8DynamicActivationInt8WeightConfig
+        2) Int8DynamicActivationInt8WeightConfig + SmoothQuant
+        3) Int8StaticActivationInt8WeightConfig + SmoothQuant
+
+        The pattern is:
+            - pattern_with_no_outer_or_act_reshape (4 nodes):
+                int_mm -> convert -> mul -> mul
         """
         if dtype == torch.bfloat16 and not torch.ops.mkldnn._is_mkldnn_bf16_supported():
             return
@@ -2903,85 +2916,59 @@ class TestPatternMatcher(TestPatternMatcherBase):
         m = 32
         in_feature = 32
         out_feature = 64
-        mod = torch.nn.Linear(in_feature, out_feature, bias=False, dtype=torch.float32)
-        mod = mod.eval()
 
         from torchao.quantization import (
             Int8DynamicActivationInt8WeightConfig,
+            Int8StaticActivationInt8WeightConfig,
             quantize_,
         )
 
-        quantize_(mod, Int8DynamicActivationInt8WeightConfig(version=2))
-        a = torch.randn([m, in_feature], dtype=dtype)
-
-        with torch.no_grad():
-            counters.clear()
-            torch.compile(mod, dynamic=False)(a)
-            self.assertEqual(
-                counters["inductor"]["qlinear_weight_prepack_matcher_count"], 1
+        if quant_mode != "da8w8":
+            from torchao.prototype.smoothquant import (
+                SmoothQuantConfig,
             )
-            self.assertEqual(
-                counters["inductor"]["qlinear_weight_prepack_matcher_nodes"], 4
+            from torchao.quantization.granularity import PerRow, PerTensor
+            from torchao.quantization.quantize_.common.quantization_step import (
+                QuantizationStep,
             )
 
-    @skipIfNoDynamoSupport
-    @skipIfNoONEDNN
-    @parametrize("dtype", [torch.float32, torch.bfloat16])
-    def test_smooth_quant_2d_hits_no_outer_or_act_reshape_pattern(self, dtype):
-        r"""
-        Verify a real SmoothQuant (Int8DynamicActivationInt8WeightConfig) 2D
-        linear path matches pattern_with_no_outer_or_act_reshape when
-        activation and weight use the same dtype.
+            class Mod(torch.nn.Module):
+                def __init__(self):
+                    super().__init__()
+                    self.linear = torch.nn.Linear(
+                        in_feature, out_feature, bias=False, dtype=dtype
+                    )
 
-        Note: SmoothQuant PREPARE replaces the nn.Linear submodule with a
-        SmoothQuantObservedLinear.  quantize_() can only do that when there is
-        a parent module to call setattr on, so the linear must be wrapped.
-        """
-        if dtype == torch.bfloat16 and not torch.ops.mkldnn._is_mkldnn_bf16_supported():
-            return
+                def forward(self, x):
+                    return self.linear(x)
 
-        m = 32
-        in_feature = 32
-        out_feature = 64
-
-        class Mod(torch.nn.Module):
-            def __init__(self):
-                super().__init__()
-                self.linear = torch.nn.Linear(
-                    in_feature, out_feature, bias=False, dtype=dtype
+            mod = Mod().eval()
+            if quant_mode == "dynamic_smooth_quant":
+                base_config = Int8DynamicActivationInt8WeightConfig(version=2)
+            else:
+                base_config = Int8StaticActivationInt8WeightConfig(
+                    granularity=(PerTensor(), PerRow())
                 )
+            quant_config = SmoothQuantConfig(
+                base_config=base_config,
+                step=QuantizationStep.PREPARE,
+                alpha=0.5,
+            )
+            quantize_(mod, quant_config)
+            calibration_inputs = torch.randn(m, in_feature, dtype=dtype)
+            mod(calibration_inputs)
+            quant_config.step = QuantizationStep.CONVERT
+            quantize_(mod, quant_config)
+        else:
+            mod = torch.nn.Linear(
+                in_feature, out_feature, bias=False, dtype=torch.float32
+            ).eval()
+            quantize_(mod, Int8DynamicActivationInt8WeightConfig(version=2))
 
-            def forward(self, x):
-                return self.linear(x)
-
-        mod = Mod().eval()
-
-        from torchao.prototype.smoothquant import (
-            SmoothQuantConfig,
-        )
-        from torchao.quantization import (
-            Int8DynamicActivationInt8WeightConfig,
-            quantize_,
-        )
-        from torchao.quantization.quantize_.common.quantization_step import (
-            QuantizationStep,
-        )
-
-        quant_config = SmoothQuantConfig(
-            base_config=Int8DynamicActivationInt8WeightConfig(version=2),
-            step=QuantizationStep.PREPARE,
-            alpha=0.5,
-        )
-        quantize_(mod, quant_config)
-        calibration_inputs = torch.randn(m, in_feature, dtype=dtype)
-        mod(calibration_inputs)
-        quant_config.step = QuantizationStep.CONVERT
-        quantize_(mod, quant_config)
         a = torch.randn([m, in_feature], dtype=dtype)
-
         with torch.no_grad():
             counters.clear()
-            torch.compile(mod, dynamic=False)(a)
+            torch.compile(mod, dynamic=dynamic)(a)
             self.assertEqual(
                 counters["inductor"]["qlinear_weight_prepack_matcher_count"], 1
             )
@@ -2992,22 +2979,20 @@ class TestPatternMatcher(TestPatternMatcherBase):
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
     @parametrize("has_bias", [True, False])
-    def test_smooth_quant_with_Int8StaticActivationInt8WeightConfig(self, has_bias):
+    @parametrize("dynamic", [False, True])
+    @parametrize("quant_mode", ["static_smooth_quant", "dynamic_smooth_quant"])
+    def test_smooth_quant_pattern_with_convert(self, has_bias, dynamic, quant_mode):
         r"""
-        This testcase tests Int8StaticActivationInt8WeightConfig
-        quantized linear with scaled matmul convert and output convert.
+        This testcase tests SmoothQuant with Int8StaticActivationInt8WeightConfig
+        and Int8DynamicActivationInt8WeightConfig quantized linear with scaled
+        matmul convert and output convert.
         This test uses bfloat16 input and float32 weight to trigger both convert operations.
 
-        The pattern should match:
-            pattern_no_bias_with_output_convert:
-                reshape -> _int_mm -> convert(to bfloat16) -> mul(x_scale) -> convert(to bfloat16 after mul with float32) -> mul(w_scale) -> reshape -> convert(output)
-        or
-            pattern_with_bias_with_output_convert:
-                pattern_no_bias_with_matmul_convert -> add(bias) -> convert(output)
-
-        Expected node counts:
-            - 8 nodes for no bias: reshape + int_mm + convert + mul + convert(scaled matmul) + mul + reshape + convert(output)
-            - 9 nodes for with bias: reshape + int_mm + convert + mul + convert(scaled matmul) + mul + reshape + add + convert(output)
+        The pattern is:
+            - pattern_no_bias_with_output_convert (8 nodes):
+                reshape -> int_mm -> convert -> mul -> convert(scaled matmul) -> mul -> reshape -> convert(output)
+            - pattern_with_bias_with_output_convert (9 nodes):
+                reshape -> int_mm -> convert -> mul -> convert(scaled matmul) -> mul -> reshape -> add -> convert(output)
         """
 
         in_feature = 32
@@ -3029,6 +3014,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
             SmoothQuantConfig,
         )
         from torchao.quantization import (
+            Int8DynamicActivationInt8WeightConfig,
             Int8StaticActivationInt8WeightConfig,
             quantize_,
         )
@@ -3037,10 +3023,15 @@ class TestPatternMatcher(TestPatternMatcherBase):
             QuantizationStep,
         )
 
+        if quant_mode == "static_smooth_quant":
+            base_config = Int8StaticActivationInt8WeightConfig(
+                granularity=(PerTensor(), PerRow())
+            )
+        else:
+            base_config = Int8DynamicActivationInt8WeightConfig(version=2)
+
         quant_config = SmoothQuantConfig(
-            base_config=Int8StaticActivationInt8WeightConfig(
-                granularity=(PerTensor(), PerRow()),
-            ),
+            base_config=base_config,
             step=QuantizationStep.PREPARE,
             alpha=0.5,
         )
@@ -3065,82 +3056,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
 
         with torch.no_grad():
             counters.clear()
-            torch.compile(mod)(inputs)
-            matcher_check_fn()
-
-    @skipIfNoDynamoSupport
-    @skipIfNoONEDNN
-    @parametrize("has_bias", [True, False])
-    def test_smooth_quant_with_Int8DynamicActivationInt8WeightConfig(self, has_bias):
-        r"""
-        This testcase tests SmoothQuant + Int8DynamicActivationInt8WeightConfig
-        quantized linear int_mm pattern matching after prepare/calibration/convert.
-
-        The pattern should match:
-            pattern_no_bias_with_output_convert:
-                reshape -> _int_mm -> convert(to bfloat16) -> mul(x_scale) -> convert(to bfloat16 after mul with float32) -> mul(w_scale) -> reshape -> convert(output)
-        or
-            pattern_with_bias_with_output_convert:
-                pattern_no_bias_with_matmul_convert -> add(bias) -> convert(output)
-
-        Expected node counts:
-            - 8 nodes for no bias: reshape + int_mm + convert + mul + convert(scaled matmul) + mul + reshape + convert(output)
-            - 9 nodes for with bias: reshape + int_mm + convert + mul + convert(scaled matmul) + mul + reshape + add + convert(output)
-        """
-
-        in_feature = 32
-        out_feature = 64
-
-        class Mod(torch.nn.Module):
-            def __init__(self, has_bias):
-                super().__init__()
-                self.linear = torch.nn.Linear(
-                    in_feature, out_feature, bias=has_bias, dtype=torch.float32
-                )
-
-            def forward(self, x):
-                return self.linear(x)
-
-        mod = Mod(has_bias=has_bias).eval()
-
-        from torchao.prototype.smoothquant import (
-            SmoothQuantConfig,
-        )
-        from torchao.quantization import (
-            Int8DynamicActivationInt8WeightConfig,
-            quantize_,
-        )
-        from torchao.quantization.quantize_.common.quantization_step import (
-            QuantizationStep,
-        )
-
-        quant_config = SmoothQuantConfig(
-            base_config=Int8DynamicActivationInt8WeightConfig(version=2),
-            step=QuantizationStep.PREPARE,
-            alpha=0.5,
-        )
-
-        quantize_(mod, quant_config)
-        calibration_inputs = torch.randn(2, 4, in_feature, dtype=torch.float32)
-        mod(calibration_inputs)
-        quant_config.step = QuantizationStep.CONVERT
-        quantize_(mod, quant_config)
-        inputs = torch.randn(2, 4, in_feature, dtype=torch.bfloat16)
-
-        def matcher_check_fn():
-            self.assertEqual(
-                counters["inductor"]["qlinear_weight_prepack_matcher_count"], 1
-            )
-            expected_nodes = 9 if has_bias else 8
-            if counters["inductor"]["removed_pointless_view_pair"] == 0:
-                self.assertEqual(
-                    counters["inductor"]["qlinear_weight_prepack_matcher_nodes"],
-                    expected_nodes,
-                )
-
-        with torch.no_grad():
-            counters.clear()
-            torch.compile(mod)(inputs)
+            torch.compile(mod, dynamic=dynamic)(inputs)
             matcher_check_fn()
 
 
