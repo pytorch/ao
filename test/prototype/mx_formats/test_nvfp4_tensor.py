@@ -369,9 +369,6 @@ def test_nvfp4_swizzled_scales_get_scales_method():
 @torch.no_grad()
 def test_triton_nvfp4_quantize_equivalence(M, N, use_per_tensor_scale, dtype):
     """Test that Triton and PyTorch NVFP4 quantization produce equivalent results."""
-    if not use_per_tensor_scale:
-        pytest.skip("MSLK triton kernel requires per_tensor_scale")
-
     torch.manual_seed(42)
     x = torch.randn(M, N, dtype=dtype, device="cuda")
 
@@ -619,3 +616,99 @@ def test_3d_transpose(dims, is_swizzled_scales):
     x_hp_t = x_hp.transpose(dims[0], dims[1])
     x_nvfp4_t = x_nvfp4.transpose(dims[0], dims[1])
     assert x_hp_t.shape == x_nvfp4_t.shape
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(
+    not torch_version_at_least("2.8.0"), reason="NVFP4 requires PyTorch 2.8+"
+)
+@pytest.mark.parametrize("use_per_tensor_scale", [True, False])
+def test_nvfp4_pin_memory(use_per_tensor_scale):
+    x_hp = torch.randn(128, 256, device="cuda", dtype=torch.bfloat16)
+    per_tensor_scale = (
+        per_tensor_amax_to_scale(torch.max(torch.abs(x_hp)))
+        if use_per_tensor_scale
+        else None
+    )
+    act_per_tensor_scale = per_tensor_amax_to_scale(torch.max(torch.abs(x_hp)))
+    x_nvfp4 = NVFP4Tensor.to_nvfp4(
+        x_hp,
+        per_tensor_scale=per_tensor_scale,
+        act_per_tensor_scale=act_per_tensor_scale,
+    )
+    x_cpu = x_nvfp4.cpu()
+
+    assert not x_cpu.is_pinned()
+
+    x_pinned = x_cpu.pin_memory()
+
+    assert x_pinned.is_pinned()
+    assert not x_cpu.is_pinned()
+
+    assert x_pinned.qdata.is_pinned()
+    assert x_pinned.scale.is_pinned()
+    if use_per_tensor_scale:
+        assert x_pinned.per_tensor_scale.is_pinned()
+    assert x_pinned.act_per_tensor_scale.is_pinned()
+
+    assert torch.equal(
+        x_cpu.dequantize(torch.float32), x_pinned.dequantize(torch.float32)
+    )
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(
+    not is_sm_at_least_100(), reason="requires sm100+ for nvfp4 triton kernel"
+)
+@pytest.mark.parametrize(
+    "shapes",
+    [
+        (128, 64, 256),
+        (256, 128, 512),
+    ],
+    ids=lambda s: f"{s[0]}x{s[1]}x{s[2]}",
+)
+@pytest.mark.parametrize(
+    "a_has_scale",
+    [True, False],
+    ids=["a_scale", "no_a_scale"],
+)
+@pytest.mark.parametrize("use_triton_kernel", [True, False])
+@torch.no_grad()
+@skip_if_rocm("ROCm float4 gemm require gfx950")
+def test_nvfp4_matmul_optional_per_tensor_scale(shapes, a_has_scale, use_triton_kernel):
+    """Test NVFP4 matmul works when per_tensor_scale is None for activation but always set for weight."""
+    m, k, n = shapes
+
+    A = torch.randn(m, k, dtype=torch.bfloat16, device="cuda")
+    B = torch.randn(n, k, dtype=torch.bfloat16, device="cuda")
+
+    C_ref = F.linear(A, B)
+
+    a_scale = (
+        per_tensor_amax_to_scale(torch.amax(torch.abs(A))) if a_has_scale else None
+    )
+    b_scale = per_tensor_amax_to_scale(torch.amax(torch.abs(B)))
+
+    act_quant_kwargs = QuantizeTensorToNVFP4Kwargs()
+
+    A_nvfp4 = NVFP4Tensor.to_nvfp4(
+        A,
+        per_tensor_scale=a_scale,
+        is_swizzled_scales=True,
+        use_triton_kernel=use_triton_kernel,
+    )
+    B_nvfp4 = NVFP4Tensor.to_nvfp4(
+        B,
+        per_tensor_scale=b_scale,
+        is_swizzled_scales=True,
+        use_triton_kernel=use_triton_kernel,
+        act_quant_kwargs=act_quant_kwargs,
+    )
+
+    C_nvfp4 = F.linear(A_nvfp4, B_nvfp4)
+    assert C_nvfp4.dtype == torch.bfloat16
+
+    sqnr = compute_error(C_ref, C_nvfp4)
+    SQNR_THRESHOLD = 16.0
+    assert sqnr >= SQNR_THRESHOLD, f"SQNR {sqnr:.2f} < {SQNR_THRESHOLD}, {a_has_scale=}"

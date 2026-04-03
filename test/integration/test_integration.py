@@ -21,6 +21,7 @@ from torch.testing import FileCheck
 
 import torchao
 from torchao.quantization import safe_int_mm
+from torchao.quantization.granularity import PerGroup
 
 # APIs to be deprecated (used for torch 2.2.2 and 2.3)
 from torchao.quantization.quant_api import (
@@ -84,7 +85,10 @@ def _int8wo_api(mod):
 def _int8wo_groupwise_api(mod):
     group_size = 32
     quantize_(
-        mod, Int8WeightOnlyConfig(group_size=group_size, set_inductor_config=False)
+        mod,
+        Int8WeightOnlyConfig(
+            granularity=PerGroup(group_size), set_inductor_config=False
+        ),
     )
 
 
@@ -476,10 +480,8 @@ class TestWeightOnlyInt8Quant(unittest.TestCase):
             m = nn.Sequential(nn.Linear(512, 32))
             y_ref = m(x)
             _int8wo_groupwise_api(m)
-            self.assertEqual(
-                m[0].weight.tensor_impl.int_data.shape, torch.Size([32, 512])
-            )
-            self.assertEqual(m[0].weight.tensor_impl.scale.shape, torch.Size([32, 16]))
+            self.assertEqual(m[0].weight.qdata.shape, torch.Size([32, 512]))
+            self.assertEqual(m[0].weight.scale.shape, torch.Size([32, 16]))
             y_wo = m(x)
             sqnr = compute_error(y_ref, y_wo)
             self.assertGreater(sqnr, 45.0)
@@ -491,7 +493,7 @@ class TestWeightOnlyInt8Quant(unittest.TestCase):
 
         quantize_(
             m,
-            Int8WeightOnlyConfig(group_size=group_size),
+            Int8WeightOnlyConfig(granularity=PerGroup(group_size)),
             filter_fn=lambda x, *args: isinstance(x, nn.Embedding),
         )
         y_q = m(input)
@@ -642,9 +644,6 @@ class TestSaveLoadMeta(unittest.TestCase):
         self.assertTrue(torch.equal(ref_q, test))
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
-    @unittest.skipIf(
-        is_fbcode(), "'PlainAQTTensorImpl' object has no attribute 'int_data'"
-    )
     @torch.no_grad()
     def test_save_load_dqtensors(self, device, dtype):
         if device == "cpu":
