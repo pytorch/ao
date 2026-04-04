@@ -18,7 +18,7 @@ from torchao.prototype.moe_training.kernels.mxfp8 import (
     mx_block_rearrange_2d_M_groups_cuda,
 )
 from torchao.prototype.moe_training.kernels.mxfp8.cutedsl_quantize_2d_1x32 import (
-    mxfp8_quantize_cutedsl_2d,
+    mxfp8_quantize_cutedsl_2d_1x32,
 )
 from torchao.prototype.moe_training.utils import generate_jagged_offs
 from torchao.prototype.mx_formats.kernels import triton_to_mxfp8_dim0
@@ -99,14 +99,14 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
     )
 
     # Benchmark 1: CuTeDSL kernel with blocked scale output
-    data_cutedsl, scales_cutedsl = mxfp8_quantize_cutedsl_2d(
+    data_cutedsl, scales_cutedsl = mxfp8_quantize_cutedsl_2d_1x32(
         input_tensor,
         block_size=block_size,
         scaling_mode=scaling_mode,
         blocked_scale_output=True,
     )
     cutedsl_blocked_time_us = benchmark_cuda_function_in_microseconds(
-        mxfp8_quantize_cutedsl_2d,
+        mxfp8_quantize_cutedsl_2d_1x32,
         input_tensor,
         block_size=block_size,
         scaling_mode=scaling_mode,
