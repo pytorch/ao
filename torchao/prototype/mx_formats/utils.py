@@ -198,10 +198,10 @@ def _to_mxfp8_dim1_kernel_wrapper(
             ScaleCalculationMode.RCEIL,
         )
         from torchao.prototype.moe_training.kernels.mxfp8.quant import (
-            mxfp8_quantize_cuda_2d_32x1,
+            mxfp8_quantize_2d_32x1_cutedsl,
         )
 
-        a_data, a_scale = mxfp8_quantize_cuda_2d_32x1(
+        a_data, a_scale = mxfp8_quantize_2d_32x1_cutedsl(
             a,
             block_size=block_size,
             scaling_mode=scale_calculation_mode.value,

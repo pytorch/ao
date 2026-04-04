@@ -76,7 +76,7 @@ def _select_cutedsl_config(
 
 
 @functools.cache
-def _compile_mxfp8_quantize_2d_cutedsl_32x1(
+def _compile_mxfp8_quantize_2d_32x1_cutedsl(
     input_dtype_name: str,
     scaling_mode: str,
     compute_warps: int,
@@ -1028,7 +1028,7 @@ def mxfp8_quantize_cutedsl_2d_32x1(
             dtype=torch.uint8,
         )
 
-    compiled = _compile_mxfp8_quantize_2d_cutedsl_32x1(
+    compiled = _compile_mxfp8_quantize_2d_32x1_cutedsl(
         str(x.dtype),
         scaling_mode,
         compute_warps,

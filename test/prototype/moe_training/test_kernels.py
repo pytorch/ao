@@ -38,8 +38,8 @@ from torchao.prototype.moe_training.kernels.mxfp8 import (
     fused_pad_token_groups_cuda,
     fused_unpad_token_groups_cuda,
     mx_block_rearrange_2d_M_groups_cuda,
-    mxfp8_quantize_cuda_2d,
-    mxfp8_quantize_cuda_2d_32x1,
+    mxfp8_quantize_2d_1x32_cutedsl,
+    mxfp8_quantize_2d_32x1_cutedsl,
     mxfp8_quantize_cuda_3d,
     torch_pad_token_groups,
     torch_to_blocked_2d_K_groups,
@@ -472,7 +472,7 @@ def test_cuda_mx_dim0_2d_numerics(M, K, input_dtype, scaling_mode):
     )
 
     # CuTeDSL kernel implementation
-    y_d0, s_d0 = mxfp8_quantize_cuda_2d(
+    y_d0, s_d0 = mxfp8_quantize_2d_1x32_cutedsl(
         x,
         block_size=block_size,
         scaling_mode=scaling_mode_str,
@@ -546,7 +546,7 @@ def test_cuda_mx_dim1_2d_numerics_32x1(
         s_d1_ref = to_blocked(s_d1_ref)
 
     # CuTeDSL 32x1 kernel implementation
-    y_d1, s_d1 = mxfp8_quantize_cuda_2d_32x1(
+    y_d1, s_d1 = mxfp8_quantize_2d_32x1_cutedsl(
         x,
         block_size=block_size,
         scaling_mode=scaling_mode_str,
