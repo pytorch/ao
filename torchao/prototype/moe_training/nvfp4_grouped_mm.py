@@ -131,20 +131,21 @@ def emulated_nvfp4_scaled_grouped_mm_2d_2d(
     """Emulated NVFP4 scaled grouped GEMM: 2D @ 2D (for wgrad computation).
 
     Dequantizes NVFP4 inputs to BF16, then runs torch._grouped_mm.
+    The caller is responsible for transposing operands as needed.
 
     Args:
         A_packed: Packed FP4 left operand, shape (M, K // 2).
         A_scales: Block scales for A, shape (M, K // block_size),
             dtype float8_e4m3fn.
-        B_packed: Packed FP4 right operand, shape (N, K // 2).
-        B_scales: Block scales for B, shape (N, K // block_size),
+        B_packed: Packed FP4 right operand, shape (K, N // 2).
+        B_scales: Block scales for B, shape (K, N // block_size),
             dtype float8_e4m3fn.
         offs: Group end offsets, shape (E,), dtype int32.
         out_dtype: Output dtype (default: bfloat16).
         block_size: Block size for quantization (default: 16).
 
     Returns:
-        Output tensor of shape (M, N).
+        Output tensor of shape (E, M, N).
     """
     assert A_packed.ndim == 2, f"A must be 2D, got {A_packed.ndim}D"
     assert B_packed.ndim == 2, f"B must be 2D, got {B_packed.ndim}D"
@@ -153,5 +154,4 @@ def emulated_nvfp4_scaled_grouped_mm_2d_2d(
     A = _nvfp4_dequantize(A_packed, A_scales, block_size, output_dtype=out_dtype)
     B = _nvfp4_dequantize(B_packed, B_scales, block_size, output_dtype=out_dtype)
 
-    # B is (N, K), need (K, N) for matmul — _grouped_mm handles this
-    return torch._grouped_mm(A, B.transpose(-2, -1), offs=offs, out_dtype=out_dtype)
+    return torch._grouped_mm(A, B, offs=offs, out_dtype=out_dtype)
