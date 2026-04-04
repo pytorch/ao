@@ -17,7 +17,7 @@ from benchmarks.utils import benchmark_cuda_function_in_microseconds
 from torchao.prototype.moe_training.kernels.mxfp8 import (
     mx_block_rearrange_2d_M_groups_cuda,
 )
-from torchao.prototype.moe_training.kernels.mxfp8.cutedsl_quantize_2d import (
+from torchao.prototype.moe_training.kernels.mxfp8.cutedsl_quantize_2d_1x32 import (
     mxfp8_quantize_cutedsl_2d,
 )
 from torchao.prototype.moe_training.utils import generate_jagged_offs

@@ -938,7 +938,7 @@ def _mxfp8_quantize_2d_cutedsl_custom_op(
     scaling_mode: str = "rceil",
     stage_count: int = 2,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
-    from torchao.prototype.moe_training.kernels.mxfp8.cutedsl_quantize_2d import (
+    from torchao.prototype.moe_training.kernels.mxfp8.cutedsl_quantize_2d_1x32 import (
         mxfp8_quantize_cutedsl_2d,
     )
 
