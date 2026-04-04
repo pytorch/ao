@@ -76,7 +76,7 @@ def test_emulated_nvfp4_grouped_gemm_2d_3d(M, K, N, num_experts):
     # FP4 has much lower precision than FP8 (4 bits vs 8 bits),
     # so SQNR threshold is lower than MXFP8's 27.0 dB.
     sqnr = compute_error(ref_out, out)
-    min_sqnr = 10.0
+    min_sqnr = 16.0
     assert sqnr >= min_sqnr, f"sqnr {sqnr} is too low, must be >= {min_sqnr}"
 
 
@@ -118,7 +118,7 @@ def test_emulated_nvfp4_grouped_gemm_2d_2d(M, K, N, num_experts):
     )
 
     sqnr = compute_error(ref_out, out)
-    min_sqnr = 10.0
+    min_sqnr = 16.0
     assert sqnr >= min_sqnr, f"sqnr {sqnr} is too low, must be >= {min_sqnr}"
 
 
