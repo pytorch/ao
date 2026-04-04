@@ -18,7 +18,6 @@ from typing import List
 import torch
 from my_dtype_tensor_subclass import MyDTypeTensor
 
-import torchao
 from torchao.quantization.quant_primitives import dequantize_affine, register_custom_op
 
 
@@ -78,8 +77,7 @@ def main():
     assert sqnr > 45.0
 
     # export
-    m_unwrapped = torchao.utils.unwrap_tensor_subclass(m)
-    m_exported = torch.export.export(m_unwrapped, (input,), strict=True).module()
+    m_exported = torch.export.export(m, (input,), strict=True).module()
     y_q_exported = m_exported(input)
 
     assert torch.equal(y_ref, y_q_exported)
