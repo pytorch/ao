@@ -260,7 +260,7 @@ def _to_mxfp8_dim1_kernel_wrapper(
             ScaleCalculationMode.FLOOR,
             ScaleCalculationMode.RCEIL,
         )
-        from torchao.prototype.moe_training.kernels.mxfp8.quant import (
+        from torchao.prototype.mx_formats.kernels import (
             mxfp8_quantize_cuda,
         )
 
@@ -283,10 +283,9 @@ def _to_mxfp8_dim1_kernel_wrapper(
             a,
             block_size=block_size,
             scaling_mode=scale_calculation_mode.value,
-            blocked_scale_output=False,
+            blocked_scale_output=True,
         )
-        # (M//32, K) -> (K, M//32) to match torch._scaled_mm, which expects scaling along last dim
-        a_scale = a_scale.t()
+        is_swizzled_scales = True
     else:
         raise ValueError(f"must be one of [CUDA, TRITON], got {cast_kernel_choice}")
 

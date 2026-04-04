@@ -19,17 +19,31 @@ from torchao.prototype.moe_training.config import (
     MXFP8TrainingRecipe,
 )
 from torchao.prototype.moe_training.tensor import MXFP8TrainingWeightWrapperTensor
+from torchao.prototype.mx_formats.config import (
+    MXFP8Dim1CastKernelChoice,
+)
 from torchao.quantization.utils import compute_error
 
 
 @pytest.mark.parametrize("op_name", ["mm", "matmul", "linear"])
 @pytest.mark.parametrize("batch_size", [None, 2, 4])
-def test_mxfp8_training_tensor_ops_fwd_bwd(op_name, batch_size):
+@pytest.mark.parametrize(
+    "recipe",
+    [MXFP8TrainingRecipe.MXFP8_EMULATED_RCEIL, MXFP8TrainingRecipe.MXFP8_RCEIL],
+)
+@pytest.mark.parametrize(
+    "cast_kernel_choice",
+    [MXFP8Dim1CastKernelChoice.CUDA, MXFP8Dim1CastKernelChoice.CUTEDSL],
+)
+def test_mxfp8_training_tensor_ops_fwd_bwd(
+    op_name, batch_size, recipe, cast_kernel_choice
+):
     # mm doesn't support batching
     if op_name == "mm" and batch_size is not None:
         pytest.skip("mm doesn't support batching")
 
-    config = MXFP8TrainingOpConfig.from_recipe(MXFP8TrainingRecipe.MXFP8_RCEIL)
+    config = MXFP8TrainingOpConfig.from_recipe(recipe)
+    config.dim1_cast_kernel_choice = cast_kernel_choice
 
     # Create input tensors - dimensions must be divisible by 32
     # Use larger sizes for better SQNR, especially with bias in linear ops

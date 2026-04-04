@@ -528,7 +528,7 @@ def run(
         )
 
         y_d0, s_d0 = mxfp8_quantize_cuda_2d_32x1(
-            x, block_size=BLOCK_SIZE, scaling_mode="floor", blocked_scale_output=T
+            x, block_size=BLOCK_SIZE, scaling_mode="floor", blocked_scale_output=True
         )
 
         for _ in range(2):
