@@ -18,11 +18,19 @@ from torchao.prototype.moe_training.config import (
     MXFP8TrainingOpConfig,
     MXFP8TrainingRecipe,
 )
+from torchao.prototype.moe_training.kernels.mxfp8.quant import (
+    _mxfp8_cutedsl_kernels_available,
+)
 from torchao.prototype.moe_training.tensor import MXFP8TrainingWeightWrapperTensor
 from torchao.prototype.mx_formats.config import (
     MXFP8Dim1CastKernelChoice,
 )
+from torchao.prototype.mx_formats.kernels import (
+    _mxfp8_cuda_kernels_available,
+    _triton_kernels_available,
+)
 from torchao.quantization.utils import compute_error
+from torchao.utils import is_sm_at_least_100
 
 
 @pytest.mark.parametrize("op_name", ["mm", "matmul", "linear"])
@@ -38,6 +46,20 @@ from torchao.quantization.utils import compute_error
 def test_mxfp8_training_tensor_ops_fwd_bwd(
     op_name, batch_size, recipe, cast_kernel_choice
 ):
+    if recipe != MXFP8TrainingRecipe.MXFP8_EMULATED_RCEIL:
+        if not is_sm_at_least_100() or not _triton_kernels_available:
+            pytest.skip("SM 100+ required for real MXFP8 support")
+        if (
+            cast_kernel_choice == MXFP8Dim1CastKernelChoice.CUDA
+            and not _mxfp8_cuda_kernels_available
+        ):
+            pytest.skip("MXFP8 CUDA kernels not available")
+        if (
+            cast_kernel_choice == MXFP8Dim1CastKernelChoice.CUTEDSL
+            and not _mxfp8_cutedsl_kernels_available
+        ):
+            pytest.skip("MXFP8 CUTEDSL kernels not available")
+
     # mm doesn't support batching
     if op_name == "mm" and batch_size is not None:
         pytest.skip("mm doesn't support batching")
