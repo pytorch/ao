@@ -17,8 +17,8 @@ if not (torch_version_at_least("2.7.0") and torch.cuda.is_available()):
 
 from torchao.float8.float8_utils import compute_error
 from torchao.prototype.moe_training.nvfp4_grouped_mm import (
-    emulated_nvfp4_scaled_grouped_mm_2d_2d,
-    emulated_nvfp4_scaled_grouped_mm_2d_3d,
+    _emulated_nvfp4_scaled_grouped_mm_2d_2d,
+    _emulated_nvfp4_scaled_grouped_mm_2d_3d,
 )
 from torchao.prototype.moe_training.utils import generate_jagged_offs
 from torchao.prototype.mx_formats.nvfp4_tensor import nvfp4_quantize
@@ -60,19 +60,17 @@ def test_emulated_nvfp4_grouped_gemm_2d_3d(M, K, N, num_experts):
     # Quantize activations (M, K) -> packed (M, K//2), scales (M, K//16)
     x_packed, x_scales = _quantize_for_test(x)
 
-    # Quantize weights: transpose to (E, N, K) for K-dim quantization
-    w_transposed = w_t.transpose(-2, -1).contiguous()  # (E, N, K)
-    w_packed, w_scales = _quantize_3d_for_test(w_transposed)
-    # Back to B_t convention: (E, K//2, N), scales (E, K//16, N)
-    w_t_packed = w_packed.transpose(-2, -1)
-    w_t_scales = w_scales.transpose(-2, -1)
+    # Quantize weights: (E, N, K) with K on last dim for block-wise quantization
+    w = w_t.transpose(-2, -1).contiguous()  # (E, K, N) -> (E, N, K)
+    w_packed, w_scales = _quantize_3d_for_test(w)
+    # w_packed shape: (E, N, K//2), w_scales shape: (E, N, K//16)
 
     # BF16 reference
     ref_out = torch._grouped_mm(x_ref, w_t_ref, offs=offs_ref, out_dtype=torch.bfloat16)
 
-    # Emulated NVFP4
-    out = emulated_nvfp4_scaled_grouped_mm_2d_3d(
-        x_packed, x_scales, w_t_packed, w_t_scales, offs=offs
+    # Emulated NVFP4: B_data=(E, N, K//2), B_scale=(E, N, K//16)
+    out = _emulated_nvfp4_scaled_grouped_mm_2d_3d(
+        x_packed, x_scales, w_packed, w_scales, offs=offs
     )
 
     # FP4 has much lower precision than FP8 (4 bits vs 8 bits),
@@ -103,16 +101,20 @@ def test_emulated_nvfp4_grouped_gemm_2d_2d(M, N, num_experts):
         grad_out_t_ref, x_ref, offs=offs_ref, out_dtype=torch.bfloat16
     )
 
-    # Quantize
+    # Quantize: grad_out_t is (N, M), x is (M, N)
     grad_out_t_packed, grad_out_t_scales = _quantize_for_test(grad_out_t)
-    x_packed, x_scales = _quantize_for_test(x)
+    # B is provided as (N, K) where the function transposes internally.
+    # Here x is (M, N) so we transpose to (N, M).
+    x_t = x.t().contiguous()
+    x_t_packed, x_t_scales = _quantize_for_test(x_t)
 
-    # Emulated NVFP4
-    out = emulated_nvfp4_scaled_grouped_mm_2d_2d(
+    # Emulated NVFP4: A=(N, M), B=(N, M) -> internally B^T=(M, N)
+    # Result: (N, M) @ (M, N) = (E, N, N)
+    out = _emulated_nvfp4_scaled_grouped_mm_2d_2d(
         grad_out_t_packed,
         grad_out_t_scales,
-        x_packed,
-        x_scales,
+        x_t_packed,
+        x_t_scales,
         offs=offs,
     )
 
