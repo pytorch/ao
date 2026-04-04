@@ -135,7 +135,7 @@ def test_nvfp4_dequant_roundtrip():
 
     assert x_recon.shape == x.shape
     sqnr = compute_error(x, x_recon)
-    min_sqnr = 5.0  # FP4 is very lossy, low bar for roundtrip
+    min_sqnr = 16.0
     assert sqnr >= min_sqnr, f"Roundtrip sqnr {sqnr} is too low, must be >= {min_sqnr}"
 
 
@@ -159,7 +159,7 @@ def test_nvfp4_dequant_roundtrip_with_per_tensor_scale():
 
     assert x_recon.shape == x.shape
     sqnr = compute_error(x, x_recon)
-    min_sqnr = 5.0
+    min_sqnr = 16.0
     assert sqnr >= min_sqnr, (
         f"Roundtrip sqnr with per_tensor_scale {sqnr} is too low, must be >= {min_sqnr}"
     )
