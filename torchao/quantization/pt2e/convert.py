@@ -14,6 +14,7 @@ import warnings
 from typing import Any, Callable, Optional, Union
 
 import torch
+import torch.utils._pytree as pytree
 from torch.ao.quantization.backend_config import (
     BackendConfig,
     get_native_backend_config,
@@ -123,6 +124,41 @@ def _check_is_graph_module(model: torch.nn.Module) -> None:
         )
 
 
+def _arg_contains_node(arg: Any, node: Node) -> bool:
+    return any(leaf is node for leaf in pytree.arg_tree_leaves(arg))
+
+
+def _is_write_target_arg(user: Node, observed_input: Node) -> bool:
+    if user.op != "call_function" or not hasattr(user.target, "_schema"):
+        return False
+
+    schema = user.target._schema
+    positional_args = list(user.args)
+    for actual_arg, schema_arg in zip(positional_args, schema.arguments):
+        if (
+            schema_arg.alias_info is not None
+            and schema_arg.alias_info.is_write
+            and _arg_contains_node(actual_arg, observed_input)
+        ):
+            return True
+
+    for schema_arg in schema.arguments[len(positional_args) :]:
+        actual_arg = user.kwargs.get(schema_arg.name, None)
+        if (
+            actual_arg is not None
+            and schema_arg.alias_info is not None
+            and schema_arg.alias_info.is_write
+            and _arg_contains_node(actual_arg, observed_input)
+        ):
+            return True
+
+    return False
+
+
+def _should_preserve_observed_input(node: Node) -> bool:
+    return any(_is_write_target_arg(user, node) for user in node.users.keys())
+
+
 def _replace_observer_with_quantize_dequantize_node_decomposed(
     model: torch.fx.GraphModule,
     node: Node,
@@ -158,7 +194,11 @@ def _replace_observer_with_quantize_dequantize_node_decomposed(
         _has_none_qconfig(n, node_name_to_qconfig)
         for n in list(node.args) + list(node.users.keys())
     )
-    if skip_replacement or not _is_conversion_supported(activation_post_process):
+    if (
+        skip_replacement
+        or _should_preserve_observed_input(node)
+        or not _is_conversion_supported(activation_post_process)
+    ):
         # didn't find corresponding quantize op and info for the activation_post_process
         # so we just remove the observer
         with graph.inserting_before(node):
@@ -430,7 +470,11 @@ def _replace_observer_with_quantize_dequantize_node(
         _has_none_qconfig(n, node_name_to_qconfig)
         for n in list(node.args) + list(node.users.keys())
     )
-    if skip_replacement or not _is_conversion_supported(activation_post_process):
+    if (
+        skip_replacement
+        or _should_preserve_observed_input(node)
+        or not _is_conversion_supported(activation_post_process)
+    ):
         # didn't find corresponding quantize op and info for the activation_post_process
         # so we just remove the observer
         with graph.inserting_before(node):

@@ -62,6 +62,7 @@ from torchao.quantization.pt2e.quantizer.composable_quantizer import (  # noqa: 
 from torchao.quantization.pt2e.quantizer.embedding_quantizer import (  # noqa: F811
     EmbeddingQuantizer,
 )
+from torchao.quantization.pt2e.quantizer.quantizer import Q_ANNOTATION_KEY
 from torchao.quantization.utils import compute_error
 from torchao.testing.model_architectures import ConvWithSharedWeightInExportedModel
 from torchao.testing.pt2e._xnnpack_quantizer import (
@@ -3265,6 +3266,103 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
         # Verify the quantized model works
         result = m(*example_inputs)
         self.assertIsNotNone(result)
+
+    def test_convert_pt2e_preserves_index_put_buffer_mutation_on_reexport(self):
+        class MutatingBufferModule(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.register_buffer("buf", torch.zeros(4, dtype=torch.float32))
+
+            def forward(self, x: Tensor, idx: Tensor) -> Tensor:
+                updated = self.buf.index_put_((idx,), x)
+                return updated.clone()
+
+        class IndexPutQuantizer(Quantizer):
+            def __init__(self) -> None:
+                super().__init__()
+                self.qspec = QuantizationSpec(
+                    dtype=torch.int8,
+                    observer_or_fake_quant_ctr=observer.MinMaxObserver.with_args(
+                        eps=2**-12
+                    ),
+                    quant_min=-128,
+                    quant_max=127,
+                    qscheme=torch.per_tensor_affine,
+                )
+
+            def annotate(self, model: torch.fx.GraphModule) -> torch.fx.GraphModule:
+                for node in model.graph.nodes:
+                    if (
+                        node.op == "call_function"
+                        and node.target == torch.ops.aten.index_put_.default
+                    ):
+                        dst = node.args[0]
+                        value = node.args[2]
+                        assert isinstance(dst, Node)
+                        assert isinstance(value, Node)
+                        node.meta[Q_ANNOTATION_KEY] = QuantizationAnnotation(
+                            input_qspec_map={
+                                dst: self.qspec,
+                                value: SharedQuantizationSpec((dst, node)),
+                            },
+                            output_qspec=SharedQuantizationSpec((dst, node)),
+                            _annotated=True,
+                        )
+                return model
+
+            def transform_for_annotation(
+                self, model: torch.fx.GraphModule
+            ) -> torch.fx.GraphModule:
+                return model
+
+            def validate(self, model: torch.fx.GraphModule) -> None:
+                return None
+
+        inputs = (
+            torch.tensor([1.0, 2.0], dtype=torch.float32),
+            torch.tensor([1, 3], dtype=torch.int64),
+        )
+
+        source_ep = torch.export.export(
+            MutatingBufferModule().eval(), inputs, strict=True
+        )
+        source_decomp = source_ep.run_decompositions({})
+        self.assertEqual(
+            source_decomp.graph_signature.inputs_to_buffers, {"b_buf": "buf"}
+        )
+        self.assertEqual(
+            source_decomp.graph_signature.buffers_to_mutate, {"index_put": "buf"}
+        )
+
+        for fold_quantize in (False, True):
+            with self.subTest(fold_quantize=fold_quantize):
+                captured = torch.export.export(
+                    MutatingBufferModule().eval(), inputs, strict=True
+                ).module()
+                prepared = prepare_pt2e(captured, IndexPutQuantizer())
+                prepared(*inputs)
+                converted = convert_pt2e(prepared, fold_quantize=fold_quantize)
+
+                index_put_node = next(
+                    node
+                    for node in converted.graph.nodes
+                    if node.op == "call_function"
+                    and node.target == torch.ops.aten.index_put_.default
+                )
+                self.assertIsInstance(index_put_node.args[0], Node)
+                self.assertEqual(index_put_node.args[0].op, "get_attr")
+                self.assertEqual(index_put_node.args[0].target, "buf")
+
+                converted_ep = torch.export.export(converted, inputs, strict=True)
+                converted_decomp = converted_ep.run_decompositions({})
+                self.assertEqual(
+                    converted_decomp.graph_signature.inputs_to_buffers,
+                    {"b_buf": "buf"},
+                )
+                self.assertEqual(
+                    converted_decomp.graph_signature.buffers_to_mutate,
+                    {"index_put": "buf"},
+                )
 
     def test_scan_op_quantization(self):
         """Test that prepare_pt2e and convert_pt2e correctly quantize ops
