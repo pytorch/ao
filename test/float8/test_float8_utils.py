@@ -8,7 +8,7 @@ import unittest
 import pytest
 import torch
 
-from torchao.float8.float8_utils import _round_scale_down_to_power_of_2
+from torchao.float8.float8_utils import _round_scale_down_to_power_of_2, tensor_to_amax
 from torchao.testing.utils import skip_if_rocm
 
 
@@ -67,3 +67,12 @@ def test_non_float32_input(invalid_dtype: torch.dtype):
     non_float32_tensor = torch.tensor([3.0], dtype=invalid_dtype)
     with pytest.raises(AssertionError, match="scale must be float32 tensor"):
         _round_scale_down_to_power_of_2(non_float32_tensor)
+
+
+@unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
+def test_tensor_to_amax_empty():
+    """tensor_to_amax should return 0 for empty tensors (FSDP2 uneven sharding)."""
+    empty = torch.empty(0, device="cuda", dtype=torch.bfloat16)
+    amax = tensor_to_amax(empty)
+    assert amax.item() == 0.0
+    assert amax.dtype == torch.float32
