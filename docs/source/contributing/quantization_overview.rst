@@ -58,7 +58,7 @@ We'll also have efficient kernels that works with the low precision tensors, for
 * `int_scaled_matmul <https://github.com/pytorch/ao/blob/3e9746cf636e39e3c1ec0de6e0ef2e31f75c4c02/torchao/kernel/intmm.py#L107>`__ that does matmul and also applies a scale to the result.
 
 .. note::
-   We can also rely on torch.compile to generate kernels (through triton), for example the current int8 weight only quantization `kernel <https://github.com/pytorch/ao/blob/e283743b3cc4612bb641b88dca3670231724d396/torchao/dtypes/affine_quantized_tensor.py#L1292-L1309>`__ just relies on torch.compile to get speedup. In this case there is no custom handwritten "efficient kernel" that's corresponding to the type of quantization.
+   We can also rely on torch.compile to generate kernels (through triton), for example the int8 weight only quantization kernel just relies on torch.compile to get speedup. In this case there is no custom handwritten "efficient kernel" that's corresponding to the type of quantization.
 
 Quantized Tensors (derived dtypes and packing format)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

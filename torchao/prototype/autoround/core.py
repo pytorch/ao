@@ -11,9 +11,7 @@ import torch
 
 import torchao.prototype.autoround.utils as ar_utils
 import torchao.quantization as ao_quant
-from torchao.dtypes import to_affine_quantized_intx_static
 from torchao.prototype.autoround.multi_tensor import MultiTensor, _multi_tensor_config
-from torchao.quantization.quant_primitives import ZeroPointDomain
 from torchao.quantization.quantize_.workflows import Int4TilePackedTo4dTensor
 from torchao.quantization.utils import pack_tinygemm_scales_and_zeros
 from torchao.utils import find_multiple
@@ -173,7 +171,8 @@ def apply_auto_round():
     """
 
     raise AssertionError(
-        "Please migrate this function to direct configuration, see https://github.com/pytorch/ao/issues/1690 for details"
+        "Please migrate this function to direct configuration, see https://github.com/pytorch/ao/issues/1690"
+        " and https://github.com/pytorch/ao/pull/4245 for details"
     )
 
     def _apply_auto_round(optimized_model: torch.nn.Module):
@@ -202,7 +201,7 @@ def apply_auto_round():
                 dtype = _BIT_WIDTH_TO_DTYPE[_auto_round_config.bits]
                 pack_dim = -1
                 _layout = UintxLayout(dtype=dtype, pack_dim=pack_dim)
-                return to_affine_quantized_intx_static(
+                return to_affine_quantized_intx_static(  # noqa: F821
                     input_float=input_float,
                     scale=scale.to(input_float.dtype),
                     zero_point=zero_point,
@@ -210,7 +209,7 @@ def apply_auto_round():
                     target_dtype=torch.uint8,
                     quant_min=quant_min,
                     quant_max=quant_max,
-                    zero_point_domain=ZeroPointDomain.INT,
+                    zero_point_domain=ZeroPointDomain.INT,  # noqa: F821
                     _layout=_layout,
                 )
 

@@ -3,6 +3,9 @@
 #
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
+
+# TODO: migrate off AffineQuantizedTensor, see https://github.com/pytorch/ao/pull/4245
+
 """
 Demo for static quantization flow
 """

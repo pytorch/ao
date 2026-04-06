@@ -744,12 +744,6 @@ def get_block_size(
 
 
 def _quantization_type(weight: torch.Tensor):
-    # prevent circular import
-    from torchao.dtypes import AffineQuantizedTensor
-
-    if isinstance(weight, AffineQuantizedTensor):
-        return f"{weight.__class__.__name__}({weight._quantization_type()})"
-
     if isinstance(weight, LinearActivationQuantizedTensor):
         return f"{weight.__class__.__name__}(activation={weight.input_quant_func}, weight={_quantization_type(weight.original_weight_tensor)})"
 

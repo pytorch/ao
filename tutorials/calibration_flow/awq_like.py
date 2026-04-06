@@ -3,6 +3,9 @@
 #
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
+
+# TODO: migrate off AffineQuantizedTensor, see https://github.com/pytorch/ao/pull/4245
+
 """
 Demo for awq like flow that applies equalization scale to input activation
 * insert_observers_: insert observer for activation and weight

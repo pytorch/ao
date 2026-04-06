@@ -13,7 +13,7 @@ This library applies QAT without modifying model-level code. It instead interfac
 There are two main QAT interfaces in torchao:
 
 - Swap modules (e.g., `torch.nn.Linear`) with their quantized counterparts (e.g., `Int4WeightOnlyQATLinear`). See [Quantizer API (legacy)](../../quantization/qat#quantizer-api-legacy) for details.
-- Replace instances of `torch.Tensor` with a quantized tensor subclass such as `AffineQuantizedTensor`. The [`quantize_` API](../../quantization/qat#quantize_-api-recommended) uses this method by default.
+- Replace instances of `torch.Tensor` with a quantized tensor subclass. The [`quantize_` API](../../quantization/qat#quantize_-api-recommended) uses this method by default.
 
 PARQ is conceptually more similar to the tensor subclass interface. It quantizes tensors through the optimizer's parameter groups, leaving the model untouched.
 
