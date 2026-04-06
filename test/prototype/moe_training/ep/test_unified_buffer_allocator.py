@@ -210,33 +210,29 @@ class TestCreateUnifiedBuffer:
 
         free_unified_buffer(tensor.data_ptr())
 
-    def test_500gb_overflow_to_cpu(self):
-        """Allocate ~500 GB total (more than any single GPU has), with ~90%
-        of GPU memory on the GPU and the rest on CPU-pinned memory."""
-        import os
+    def test_combined_gpu_and_cpu_allocation(self):
+        """Allocate a buffer that exceeds GPU memory, proving both GPU and
+        CPU-pinned memory are used simultaneously.
 
-        # Skip if the host doesn't have enough physical RAM.
-        page_size = os.sysconf("SC_PAGE_SIZE")
-        phys_pages = os.sysconf("SC_PHYS_PAGES")
-        host_ram = page_size * phys_pages
-        target_total = 500 * (1024**3)  # 500 GB
-        if host_ram < target_total * 1.05:
-            pytest.skip(
-                f"Not enough host RAM ({host_ram / (1024**3):.0f} GB) to pin ~500 GB"
-            )
-
+        Uses ~50% of GPU memory for the device portion and an equal-sized
+        CPU portion, so the total exceeds what would fit on the GPU alone.
+        Both regions are independently written and read back to confirm
+        they are backed by distinct physical memory.
+        """
         g = _get_granularity()
         gpu_mem = torch.cuda.get_device_properties(
             torch.cuda.current_device()
-        ).total_mem
+        ).total_memory
 
-        # Use ~90% of GPU memory for the GPU portion, rest on CPU.
-        gpu_bytes = _align(int(gpu_mem * 0.9), g)
-        cpu_bytes = _align(target_total - gpu_bytes, g)
+        # GPU portion: ~50% of device memory (conservative to avoid OOM
+        # when other processes share the GPU).
+        gpu_bytes = _align(int(gpu_mem * 0.5), g)
+        # CPU portion: ~60% of device memory, so total strictly exceeds GPU.
+        cpu_bytes = _align(int(gpu_mem * 0.6), g)
         total_bytes = gpu_bytes + cpu_bytes
 
         assert total_bytes > gpu_mem, (
-            f"Total ({total_bytes / (1024**3):.1f} GB) should exceed "
+            f"Total ({total_bytes / (1024**3):.1f} GB) must exceed "
             f"GPU memory ({gpu_mem / (1024**3):.1f} GB)"
         )
 
@@ -245,11 +241,33 @@ class TestCreateUnifiedBuffer:
         assert tensor.numel() == total_bytes
         assert tensor.is_cuda
 
-        # Write to the first byte (GPU region) and last byte (CPU region).
-        tensor[0] = 0xAA
-        tensor[-1] = 0xBB
+        # Both handles must exist.
+        alloc = _g_allocated_cudacpu_buffers[tensor.data_ptr()]
+        assert alloc.gpu_handle is not None, "GPU handle should be allocated"
+        assert alloc.cpu_handle is not None, "CPU handle should be allocated"
+        assert alloc.gpu_bytes == gpu_bytes
+        assert alloc.cpu_bytes == cpu_bytes
+
+        # Write distinct patterns to each region.
+        gpu_region = tensor[:gpu_bytes]
+        cpu_region = tensor[gpu_bytes:]
+
+        gpu_region.fill_(0xAA)
+        cpu_region.fill_(0xBB)
         torch.cuda.synchronize()
-        assert tensor[0].item() == 0xAA
-        assert tensor[-1].item() == 0xBB
+
+        # Verify GPU-backed region.
+        assert gpu_region[0].item() == 0xAA
+        assert gpu_region[-1].item() == 0xAA
+
+        # Verify CPU-backed region.
+        assert cpu_region[0].item() == 0xBB
+        assert cpu_region[-1].item() == 0xBB
+
+        # Cross-region operation: add 1 across the full tensor.
+        tensor += 1
+        torch.cuda.synchronize()
+        assert tensor[0].item() == 0xAB  # was 0xAA
+        assert tensor[gpu_bytes].item() == 0xBC  # was 0xBB
 
         free_unified_buffer(tensor.data_ptr())

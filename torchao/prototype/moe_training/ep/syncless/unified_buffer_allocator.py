@@ -1,3 +1,4 @@
+import weakref
 from dataclasses import dataclass
 from typing import Optional
 
@@ -10,6 +11,9 @@ from cuda.bindings import driver as cuda_drv
 
 # Global registry: maps device_ptr (int) -> _UnifiedBufferAllocation
 _g_allocated_cudacpu_buffers: dict[int, "_UnifiedBufferAllocation"] = {}
+
+# prevent weak-ref destructor pointers from being GC'd
+_g_prevent_destructor_gc: list[weakref.ref] = []
 
 
 @dataclass
@@ -32,6 +36,25 @@ def _check(result: tuple, msg: str = "") -> object:
     if len(result) > 1:
         return result[1]
     return None
+
+
+def _set_optimal_cpu_affinity(device_id: int) -> None:
+    """Set calling thread's CPU affinity to be NUMA-optimal for the given GPU.
+
+    Mirrors the C++ setOptimalCpuAffinity helper. Uses pynvml if available;
+    silently skips if NVML is not installed or the call is unsupported.
+    """
+    try:
+        import pynvml  # type: ignore[import-untyped]
+
+        pynvml.nvmlInit()
+        handle = pynvml.nvmlDeviceGetHandleByIndex(device_id)
+        try:
+            pynvml.nvmlDeviceSetCpuAffinity(handle)
+        except pynvml.NVMLError_NotSupported:
+            pass
+    except (ImportError, Exception):
+        pass
 
 
 def free_unified_buffer(device_ptr_int: int) -> None:
@@ -88,6 +111,26 @@ class _CUDAArrayInterfaceWrapper:
         }
 
 
+def _make_alloc_prop(
+    is_cpu: bool, location_id: int = 0
+) -> "cuda_drv.CUmemAllocationProp":
+    """Build a fully zero-initialized CUmemAllocationProp.
+
+    Mirrors the C++ ``getAllocationProp`` helper — critically sets
+    ``requestedHandleTypes = CU_MEM_HANDLE_TYPE_NONE`` so the driver does
+    not try to create exportable handles (which can block for large allocs).
+    """
+    prop = cuda_drv.CUmemAllocationProp()
+    prop.type = cuda_drv.CUmemAllocationType.CU_MEM_ALLOCATION_TYPE_PINNED
+    if is_cpu:
+        prop.location.type = cuda_drv.CUmemLocationType.CU_MEM_LOCATION_TYPE_HOST_NUMA
+    else:
+        prop.location.type = cuda_drv.CUmemLocationType.CU_MEM_LOCATION_TYPE_DEVICE
+    prop.location.id = location_id
+    prop.requestedHandleTypes = 0  # CU_MEM_HANDLE_TYPE_NONE
+    return prop
+
+
 def create_unified_buffer(cpu_bytes: int, gpu_bytes: int) -> torch.Tensor:
     """Allocate a unified GPU+CPU buffer using CUDA virtual memory management.
 
@@ -97,8 +140,10 @@ def create_unified_buffer(cpu_bytes: int, gpu_bytes: int) -> torch.Tensor:
     GPU.  The returned tensor is a ``torch.uint8`` CUDA tensor covering the
     full ``gpu_bytes + cpu_bytes`` range.
 
-    Call :func:`free_unified_buffer` (passing ``tensor.data_ptr()``) to release
-    the underlying resources.
+    The returned tensor **automatically** frees the underlying VMM resources
+    when it is garbage-collected (mirroring the C++ ``from_blob`` + custom
+    deleter pattern).  You can also call :func:`free_unified_buffer` manually
+    with ``tensor.data_ptr()`` for deterministic cleanup.
 
     Args:
         cpu_bytes: Size of the CPU-pinned portion (must be aligned to the
@@ -111,16 +156,12 @@ def create_unified_buffer(cpu_bytes: int, gpu_bytes: int) -> torch.Tensor:
     """
     device_id = torch.cuda.current_device()
 
-    # -- GPU allocation properties --
-    gpu_prop = cuda_drv.CUmemAllocationProp()
-    gpu_prop.type = cuda_drv.CUmemAllocationType.CU_MEM_ALLOCATION_TYPE_PINNED
-    gpu_prop.location.type = cuda_drv.CUmemLocationType.CU_MEM_LOCATION_TYPE_DEVICE
-    gpu_prop.location.id = device_id
+    # Set CPU affinity for NUMA-optimal host allocation (matches C++ impl).
+    _set_optimal_cpu_affinity(device_id)
 
-    # -- CPU allocation properties --
-    cpu_prop = cuda_drv.CUmemAllocationProp()
-    cpu_prop.type = cuda_drv.CUmemAllocationType.CU_MEM_ALLOCATION_TYPE_PINNED
-    cpu_prop.location.type = cuda_drv.CUmemLocationType.CU_MEM_LOCATION_TYPE_HOST_NUMA
+    # -- Allocation properties (fully initialized, matching C++ getAllocationProp) --
+    gpu_prop = _make_alloc_prop(is_cpu=False, location_id=device_id)
+    cpu_prop = _make_alloc_prop(is_cpu=True, location_id=0)
 
     # Retain primary context and set it current so NUMA queries work.
     ctx = _check(
@@ -228,11 +269,6 @@ def create_unified_buffer(cpu_bytes: int, gpu_bytes: int) -> torch.Tensor:
         )
 
     # -- Wrap as a PyTorch tensor --
-    # We use the CUDA Array Interface protocol (__cuda_array_interface__) to
-    # create a PyTorch tensor that points directly at our externally-managed
-    # device pointer without copying.  PyTorch keeps the wrapper object alive
-    # through its storage, so the memory won't be freed prematurely.
-    # Protocol spec: https://numba.readthedocs.io/en/stable/cuda/cuda_array_interface.html
     wrapper = _CUDAArrayInterfaceWrapper(ptr_int, total_bytes)
     tensor = torch.as_tensor(wrapper, device=f"cuda:{device_id}")
 
@@ -246,5 +282,23 @@ def create_unified_buffer(cpu_bytes: int, gpu_bytes: int) -> torch.Tensor:
         _prevent_gc=wrapper,
     )
     _g_allocated_cudacpu_buffers[ptr_int] = alloc
+
+    # -- Automatic deleter via weak reference --
+    # Mirrors C++ at::from_blob(..., free_cudacpu_buffer, ...): when the
+    # tensor (and all views of it) are garbage-collected, free the underlying
+    # VMM resources automatically.  The weak-ref itself is kept alive in
+    # _g_prevent_destructor_gc so it isn't collected before the tensor.
+    captured_ptr = ptr_int
+
+    def _destructor(ref: weakref.ref) -> None:
+        if captured_ptr in _g_allocated_cudacpu_buffers:
+            free_unified_buffer(captured_ptr)
+        try:
+            _g_prevent_destructor_gc.remove(ref)
+        except ValueError:
+            pass
+
+    weak = weakref.ref(tensor, _destructor)
+    _g_prevent_destructor_gc.append(weak)
 
     return tensor
