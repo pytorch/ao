@@ -2,7 +2,7 @@ import torch
 import torch.distributed._symmetric_memory as symm_mem
 
 
-class EPBufferManager:
+class SymmetricMemoryBufferManager:
     """Manages reusable buffers for MXFP8 all-to-all operations across MoE layers."""
 
     def __init__(self):
@@ -129,5 +129,5 @@ def get_buffer_manager():
     """Get the default buffer manager, creating it if necessary."""
     global _default_buffer_manager
     if _default_buffer_manager is None:
-        _default_buffer_manager = EPBufferManager()
+        _default_buffer_manager = SymmetricMemoryBufferManager()
     return _default_buffer_manager
