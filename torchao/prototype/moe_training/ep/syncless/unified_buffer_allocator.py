@@ -23,8 +23,19 @@ class _UnifiedBufferAllocation:
     gpu_bytes: int
     cpu_bytes: int
     device_ptr: object  # CUdeviceptr
-    # prevent the CUDABuffer (and thus the tensor) from being GC'd while
-    # this allocation is alive
+    # GC anchor for the _CUDAArrayInterfaceWrapper that backs the tensor.
+    #
+    # torch.as_tensor() extracts the raw pointer from __cuda_array_interface__
+    # and builds a Storage — it does NOT necessarily prevent the wrapper object
+    # from being garbage-collected.  Storing it here keeps it alive for as long
+    # as this allocation entry exists in _g_allocated_cudacpu_buffers.
+    #
+    # Ideally we'd use at::from_blob(..., deleter) which ties the tensor's
+    # storage refcount directly to the custom deleter, but from_blob is a
+    # C++-only API with no Python equivalent.  A small C++ extension calling
+    # at::from_blob would eliminate both this field and the weakref destructor
+    # machinery, but we avoid C++ extensions here to keep the implementation
+    # pure-Python.
     _prevent_gc: object = None
 
 
@@ -41,7 +52,21 @@ def _check(result: tuple, msg: str = "") -> object:
 def _set_optimal_cpu_affinity(device_id: int) -> None:
     """Set calling thread's CPU affinity to be NUMA-optimal for the given GPU.
 
-    Mirrors the C++ setOptimalCpuAffinity helper. Uses pynvml if available;
+    On multi-socket NUMA systems (e.g. GB200 nodes), physical RAM is split
+    across NUMA nodes, each attached to a specific CPU socket.  Each GPU is
+    physically closest to one NUMA node.  When cuMemCreate is called with
+    CU_MEM_LOCATION_TYPE_HOST_NUMA, the driver pins pages from the NUMA node
+    in cpu_prop.location.id — but the Linux kernel's first-touch page policy
+    may still allocate pages on whichever NUMA node the *calling thread* is
+    running on.  nvmlDeviceSetCpuAffinity pins the calling thread to the CPU
+    cores on the NUMA node closest to the target GPU, ensuring page faults
+    during pinning land on the correct node.
+
+    Getting this wrong on a multi-tray system means the CPU-overflow memory
+    could be pinned on a remote socket, cutting bandwidth by 3-4x (~200 GB/s
+    local vs ~50-80 GB/s cross-socket).
+
+    Mirrors the C++ setOptimalCpuAffinity helper.  Uses pynvml if available;
     silently skips if NVML is not installed or the call is unsupported.
     """
     try:
@@ -97,9 +122,27 @@ class _CUDAArrayInterfaceWrapper:
     """Exposes a raw CUdeviceptr via ``__cuda_array_interface__`` so that
     ``torch.as_tensor`` can wrap it zero-copy.
 
-    The CUDA Array Interface is a standard protocol for zero-copy interop
-    between CUDA-aware Python libraries (CuPy, Numba, PyTorch, etc.).
-    See: https://numba.readthedocs.io/en/stable/cuda/cuda_array_interface.html
+    Why this exists instead of at::from_blob
+    -----------------------------------------
+    The C++ implementation uses ``at::from_blob(ptr, sizes, deleter, opts)``
+    which directly ties the tensor's storage lifetime to a custom deleter —
+    no wrapper objects or weak references needed.  ``from_blob`` is C++-only;
+    there is no ``torch.Tensor.from_blob`` in Python.
+
+    From pure Python, the two viable ways to wrap a raw CUDA pointer as a
+    PyTorch tensor are:
+
+    1. ``__cuda_array_interface__`` + ``torch.as_tensor()`` (used here).
+    2. DLPack (``__dlpack__`` / ``torch.from_dlpack()``) — requires building
+       a ``DLManagedTensor`` struct via ctypes, which is more boilerplate
+       than this approach.
+
+    Both are zero-copy but neither supports an automatic destructor, so we
+    pair this with a weak-reference destructor (see ``create_unified_buffer``)
+    and a GC anchor (``_UnifiedBufferAllocation._prevent_gc``) to approximate
+    the C++ from_blob lifecycle.
+
+    Protocol spec: https://numba.readthedocs.io/en/stable/cuda/cuda_array_interface.html
     """
 
     def __init__(self, ptr_int: int, nbytes: int):
@@ -231,9 +274,9 @@ def create_unified_buffer(cpu_bytes: int, gpu_bytes: int) -> torch.Tensor:
         cpu_handle = result[1]
 
     # -- Reserve virtual address range --
-    assert gpu_page_size == cpu_page_size, (
-        f"GPU and CPU page sizes differ: {gpu_page_size} vs {cpu_page_size}"
-    )
+    assert (
+        gpu_page_size == cpu_page_size
+    ), f"GPU and CPU page sizes differ: {gpu_page_size} vs {cpu_page_size}"
     total_bytes = gpu_bytes + cpu_bytes
     device_ptr = _check(
         cuda_drv.cuMemAddressReserve(total_bytes, gpu_page_size, 0, 0),
@@ -284,10 +327,18 @@ def create_unified_buffer(cpu_bytes: int, gpu_bytes: int) -> torch.Tensor:
     _g_allocated_cudacpu_buffers[ptr_int] = alloc
 
     # -- Automatic deleter via weak reference --
-    # Mirrors C++ at::from_blob(..., free_cudacpu_buffer, ...): when the
-    # tensor (and all views of it) are garbage-collected, free the underlying
-    # VMM resources automatically.  The weak-ref itself is kept alive in
-    # _g_prevent_destructor_gc so it isn't collected before the tensor.
+    # The C++ version passes free_cudacpu_buffer as the deleter arg to
+    # at::from_blob, so cleanup is driven by the tensor's storage refcount.
+    # Python has no equivalent API (from_blob is C++-only), so we emulate
+    # the same lifecycle with weakref: when the tensor (and all views/slices
+    # sharing its storage) are garbage-collected, the weak-ref callback fires
+    # and releases the VMM resources.  The weak-ref object itself is kept
+    # alive in _g_prevent_destructor_gc so it isn't collected before the
+    # tensor.
+    #
+    # If free_unified_buffer() was already called manually (deterministic
+    # cleanup), the destructor is a no-op because the ptr will no longer be
+    # in _g_allocated_cudacpu_buffers.
     captured_ptr = ptr_int
 
     def _destructor(ref: weakref.ref) -> None:
