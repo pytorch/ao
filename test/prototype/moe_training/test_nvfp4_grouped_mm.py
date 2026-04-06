@@ -135,7 +135,9 @@ def test_nvfp4_dequant_roundtrip():
 
     assert x_recon.shape == x.shape
     sqnr = compute_error(x, x_recon)
-    min_sqnr = 16.0
+    # Roundtrip only quantizes one tensor (vs GEMM quantizing both),
+    # so accuracy is higher. Profiled min=20.0 across 3,200 runs.
+    min_sqnr = 19.0
     assert sqnr >= min_sqnr, f"Roundtrip sqnr {sqnr} is too low, must be >= {min_sqnr}"
 
 
@@ -159,7 +161,9 @@ def test_nvfp4_dequant_roundtrip_with_per_tensor_scale():
 
     assert x_recon.shape == x.shape
     sqnr = compute_error(x, x_recon)
-    min_sqnr = 16.0
+    # Roundtrip only quantizes one tensor (vs GEMM quantizing both),
+    # so accuracy is higher. Profiled min=20.0 across 3,200 runs.
+    min_sqnr = 19.0
     assert sqnr >= min_sqnr, (
         f"Roundtrip sqnr with per_tensor_scale {sqnr} is too low, must be >= {min_sqnr}"
     )
