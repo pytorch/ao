@@ -41,15 +41,63 @@ Run environment: NVIDIA GB200, PyTorch 2.12.0a0, Triton 3.7.0.
 
 | Model | Shape | M | N | time_us | gbps |
 |---|---|---:|---:|---:|---:|
-| DeepSeek-V3 671B | attn.wkv_b input | 4096 | 512 | 43.328 | 96.804 |
-| DeepSeek-V3 671B | attn.wq_b input | 4096 | 1536 | 46.048 | 273.256 |
-| DeepSeek-V3 671B | shared expert w2 input | 4096 | 2048 | 48.128 | 348.596 |
-| DeepSeek-V3 671B | hidden-state input | 4096 | 7168 | 45.088 | 1302.350 |
-| DeepSeek-V3 671B | attn.wo input | 4096 | 16384 | 64.512 | 2080.510 |
-| DeepSeek-V3 671B | dense ffn.w2 input | 4096 | 18432 | 68.672 | 2198.780 |
-| DeepSeek-V3 671B | avg routed expert w2 input | 128 | 2048 | 42.720 | 12.273 |
-| DeepSeek-V3 671B | avg routed expert w1/w3 input | 128 | 7168 | 42.240 | 43.442 |
-| Llama 3 8B | hidden-state input | 2048 | 4096 | 46.496 | 360.831 |
-| Llama 3 8B | mlp.down input | 2048 | 14336 | 46.080 | 1274.310 |
-| Llama 3 70B | hidden-state input | 2048 | 8192 | 44.032 | 762.047 |
-| Llama 3 70B | mlp.down input | 2048 | 28672 | 58.368 | 2012.070 |
+| Llama 3 8B | hidden-state input | 2048 | 4096 | 19.488 | 860.900 |
+| Llama 3 8B | mlp.down input | 2048 | 14336 | 31.744 | 1849.810 |
+| Llama 3 70B | hidden-state input | 2048 | 8192 | 25.600 | 1310.720 |
+| Llama 3 70B | mlp.down input | 2048 | 28672 | 46.048 | 2550.390 |
+
+## Hadamard Quantize Row+Col Benchmark
+
+Benchmarks `triton_rht_quantize_row_col` — the fused RHT + NVFP4 columnwise quantization
+kernel with rowwise quantization. Requires SM100 (Blackwell).
+
+```bash
+python -m benchmarks.prototype.nvfp4_training.bench_hadamard_quantize_row_col
+```
+
+To run model-derived representative shapes:
+
+```bash
+python -m benchmarks.prototype.nvfp4_training.bench_hadamard_quantize_row_col --shape-set representative-models
+```
+
+What it reports:
+
+- `rounding`: `rtne` for round-to-nearest-even or `rs` for stochastic rounding
+- `time_us`: median kernel-only runtime in microseconds
+- `gbps`: effective memory bandwidth (input read + FP4 output + scale factor write bytes / time)
+
+### Methodology
+
+- Sweeps M ∈ {128, 256, 1024, 8192} × N ∈ {128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768}
+- Runs both `stochastic_rounding=False` (`rtne`) and
+  `stochastic_rounding=True` (`rs`) by default; use `--rounding rtne` or
+  `--rounding rs` to benchmark one mode.
+- Skips configurations that raise `NotImplementedError` (pre-SM100 hardware).
+- Uses `benchmark_cuda_function_in_microseconds` from `benchmarks/utils.py`.
+- Precomputes global amax values, the RHT matrix, output tensors, RS seed/offset
+  tensors, and Triton allocator setup before timing; the timed region directly
+  launches the Triton row+col quantization kernel.
+- Bandwidth accounts for bfloat16 input read, columnwise FP4 + swizzled scale write,
+  and rowwise FP4 + swizzled scale write.
+- Device peak memory bandwidth is computed from CUDA device properties as
+  `(memory_bus_width_bits / 8) * (memory_clock_rate_khz * 1e3) * 2`.
+
+### Representative Model Results
+
+The following shapes use the same representative model configurations as
+`bench_hadamard_amax.py`.
+
+Run environment: NVIDIA GB200, PyTorch 2.13.0a0+git1f19af4, Triton 3.7.0.
+Peak memory bandwidth from CUDA device properties: 7928.1 GB/s.
+
+| Model | Shape | M | N | Rounding | time_us | gbps |
+|---|---|---:|---:|---|---:|---:|
+| Llama 3 8B | hidden-state input | 2048 | 4096 | rtne | 31.072 | 843.666 |
+| Llama 3 8B | mlp.down input | 2048 | 14336 | rtne | 65.856 | 1393.200 |
+| Llama 3 70B | hidden-state input | 2048 | 8192 | rtne | 43.776 | 1197.660 |
+| Llama 3 70B | mlp.down input | 2048 | 28672 | rtne | 117.296 | 1564.420 |
+| Llama 3 8B | hidden-state input | 2048 | 4096 | rs | 40.672 | 644.532 |
+| Llama 3 8B | mlp.down input | 2048 | 14336 | rs | 91.168 | 1006.390 |
+| Llama 3 70B | hidden-state input | 2048 | 8192 | rs | 60.128 | 871.953 |
+| Llama 3 70B | mlp.down input | 2048 | 28672 | rs | 166.624 | 1101.290 |

@@ -9,7 +9,7 @@ from torchao.prototype.mx_formats.hadamard_utils import (
     get_rht_matrix,
     get_wgrad_sign_vector,
 )
-from torchao.utils import is_sm_at_least_100
+from torchao.utils import is_sm_at_least_100, torch_version_at_least
 
 _HARDCODED_SIGN_VECTOR = (
     1,
@@ -68,6 +68,9 @@ def test_get_rht_matrix_with_generated_sign_matches_sampled_signs():
 )
 @pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
 @pytest.mark.skipif(not is_sm_at_least_100(), reason="Requires SM100+")
+@pytest.mark.skipif(
+    not torch_version_at_least("2.10.0"), reason="torch.compile requires PyTorch 2.10+"
+)
 @pytest.mark.parametrize("N", _N_VALUES, ids=lambda n: f"N{n}")
 @pytest.mark.parametrize("M", _M_VALUES, ids=lambda m: f"M{m}")
 @torch.no_grad()
