@@ -473,18 +473,20 @@ def _quantize_affine_no_dtype_cast(
     shape_after_reduction = shape_for_reduction
     for i in reduction_dims:
         shape_after_reduction[i] = 1
-    scale = scale.view(shape_after_reduction)
+    if reduction_dims:
+        scale = scale.view(shape_after_reduction)
 
-    if zero_point is not None and zero_point.numel() > 0:
+    if reduction_dims and zero_point is not None and zero_point.numel() > 0:
         zero_point = zero_point.view(shape_after_reduction)
     else:
         # in some cases zero_point being a non-value shows as a tensor
         # with numel=0 which we handle by unifying the two
         zero_point = None
 
-    quant = torch.clamp(
-        _Round.apply(input * (1.0 / scale)) + zero_point, quant_min, quant_max
-    )
+    quant: torch.Tensor = _Round.apply(input * (1.0 / scale))
+    if zero_point is not None:
+        quant = quant + zero_point
+    quant = torch.clamp(quant, quant_min, quant_max)
     quant = quant.view(original_shape)
 
     return quant
@@ -849,9 +851,10 @@ def _dequantize_affine_no_dtype_check(
     shape_after_reduction = shape_for_reduction
     for i in reduction_dims:
         shape_after_reduction[i] = 1
-    scale = scale.view(shape_after_reduction)
+    if reduction_dims:
+        scale = scale.view(shape_after_reduction)
 
-    if zero_point is not None:
+    if reduction_dims and zero_point is not None:
         zero_point = zero_point.view(shape_after_reduction)
 
     # Force a copy to avoid input modification due
