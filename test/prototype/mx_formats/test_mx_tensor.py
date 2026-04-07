@@ -130,22 +130,13 @@ def test_to_mx_rceil():
         dtype=torch.uint32,
     ).view(torch.float32)
 
-    ground_truth_fp8 = torch.tensor(
-        [
-        127, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0,
-        ],
-        dtype=torch.uint8,
-    ).view(torch.float8_e4m3fn)
     # fmt: on
     data_mx = MXTensor.to_mx(
         data_hp, torch.float8_e4m3fn, 32, ScaleCalculationMode.RCEIL
     )
     assert torch.isnan(data_mx.scale)
-    assert torch.isnan(data_mx.qdata[0])
-    assert torch.all(data_mx.qdata[1:] == 0)
+    # When any element in block is NaN, entire quantized block becomes NaN
+    assert torch.all(torch.isnan(data_mx.qdata))
     # fp32 denorm
     # fmt: off
     data_hp = torch.tensor(
@@ -346,13 +337,12 @@ def test_exponent_nan_in(elem_dtype):
 def test_all_nan_blocks(elem_dtype):
     """
     Test NaN handling for blocks with all NaN values vs mixed NaN + real values.
-    Verifies that PyTorch implementation aligns with CUDA/Triton behavior:
-    - Mixed real + NaN: scale = max of real values
+    - Mixed real + NaN: scale = NaN
     - All NaN: scale = NaN
     """
     block_size = 4
 
-    # Test case 1: Mixed NaN + real values (should ignore NaNs, use real values)
+    # Test case 1: Mixed NaN + real values
     mixed_tensor = torch.tensor(
         [float("nan"), 2.0, float("nan"), 4.0, 1.0, 3.0, 5.0, 2.0],
         device="cuda",
@@ -360,11 +350,10 @@ def test_all_nan_blocks(elem_dtype):
     )
     mixed_mx = MXTensor.to_mx(mixed_tensor, elem_dtype, block_size)
 
-    # First block [NaN, 2.0, NaN, 4.0] should have NaN scale 
+    # First block [NaN, 2.0, NaN, 4.0] should have NaN scale
+    assert torch.isnan(mixed_mx.scale[0]), "Mixed NaN+real block should have NaN scale"
+
     # Second block [1.0, 3.0, 5.0, 2.0] should have real scale
-    assert torch.isnan(mixed_mx.scale[0]), (
-        "Mixed NaN+real block should not have NaN scale"
-    )
     assert not torch.isnan(mixed_mx.scale[1]), (
         "Real-only block should not have NaN scale"
     )
@@ -378,10 +367,10 @@ def test_all_nan_blocks(elem_dtype):
     all_nan_mx = MXTensor.to_mx(all_nan_tensor, elem_dtype, block_size)
 
     # First block [NaN, NaN, NaN, NaN] should have NaN scale (matches CUDA/Triton)
-    # Second block [1.0, 2.0, 3.0, 4.0] should have real scale
     assert torch.isnan(all_nan_mx.scale[0]), (
         "All-NaN block should have NaN scale to match CUDA/Triton"
     )
+    # Second block [1.0, 2.0, 3.0, 4.0] should have real scale
     assert not torch.isnan(all_nan_mx.scale[1]), (
         "Real-only block should not have NaN scale"
     )
