@@ -12,7 +12,10 @@ from torchao.prototype.mx_formats.kernels import (
     f4_unpacked_to_f32,
     unpack_uint4,
 )
-from torchao.prototype.mx_formats.nvfp4_tensor import nvfp4_quantize
+from torchao.prototype.mx_formats.nvfp4_tensor import (
+    nvfp4_quantize,
+    per_tensor_amax_to_scale,
+)
 
 NVFP4_BLOCK_SIZE = 16
 
@@ -98,19 +101,29 @@ class _NVFP4GroupedMM(torch.autograd.Function):
         input_act, weight_t, group_end_offsets = ctx.saved_tensors
 
         # --- dgrad: grad_input = grad_output @ weight ---
-        # Use HP grouped GEMM for dgrad because NVFP4's scale dtype
-        # (float8_e4m3fn, 4-bit exponent) has limited dynamic range.
-        # Small gradient values (e.g., from MSE loss with large numel)
-        # underflow to zero during FP4 block scale computation.
-        # MXFP8 doesn't have this issue because its scale dtype is
-        # float8_e8m0fnu (8-bit exponent) with much wider dynamic range.
+        # NVFP4's scale dtype (float8_e4m3fn) has limited dynamic range
+        # (4-bit exponent, min subnormal ~0.002). per_tensor_scale extends
+        # this range so small gradient values don't underflow to zero.
         # grad_output(M,N) @ weight(E,N,K) = (M,K)
-        # weight_t is (E,K,N), transpose to (E,N,K) so contraction dim N matches
-        grad_input = torch._grouped_mm(
-            grad_output,
-            weight_t.transpose(-2, -1),
+        go_pts = per_tensor_amax_to_scale(grad_output.abs().max())
+        go_scales, go_packed = nvfp4_quantize(
+            grad_output, block_size=NVFP4_BLOCK_SIZE, per_tensor_scale=go_pts
+        )
+
+        # weight_t is (E,K,N) — quantize directly, last dim N is contraction dim
+        w_packed, w_scales, w_pts = _nvfp4_quantize_3d(
+            weight_t, with_per_tensor_scale=True
+        )
+
+        grad_input = _emulated_nvfp4_scaled_grouped_mm_2d_3d(
+            go_packed,
+            go_scales,
+            w_packed,
+            w_scales,
             offs=group_end_offsets,
             out_dtype=ctx.out_dtype,
+            A_per_tensor_scale=go_pts,
+            B_per_tensor_scale=w_pts,
         )
 
         # --- wgrad ---
@@ -124,12 +137,18 @@ class _NVFP4GroupedMM(torch.autograd.Function):
             )
             grad_weight_t = grad_weight.transpose(-2, -1)  # (E,N,K) -> (E,K,N)
         else:
-            # Quantized wgrad via 2d_2d
+            # Quantized wgrad via 2d_2d with per_tensor_scale
             go_t = grad_output.t().contiguous()  # (N, M)
-            go_t_scales, go_t_packed = nvfp4_quantize(go_t, block_size=NVFP4_BLOCK_SIZE)
+            go_t_pts = per_tensor_amax_to_scale(go_t.abs().max())
+            go_t_scales, go_t_packed = nvfp4_quantize(
+                go_t, block_size=NVFP4_BLOCK_SIZE, per_tensor_scale=go_t_pts
+            )
 
             x_t = input_act.t().contiguous()  # (K, M)
-            x_t_scales, x_t_packed = nvfp4_quantize(x_t, block_size=NVFP4_BLOCK_SIZE)
+            x_t_pts = per_tensor_amax_to_scale(x_t.abs().max())
+            x_t_scales, x_t_packed = nvfp4_quantize(
+                x_t, block_size=NVFP4_BLOCK_SIZE, per_tensor_scale=x_t_pts
+            )
 
             # 2d_2d: A=(N,M), B=(K,M) -> B^T=(M,K) internal -> (N,M)@(M,K) = (E,N,K)
             grad_weight = _emulated_nvfp4_scaled_grouped_mm_2d_2d(
@@ -139,6 +158,8 @@ class _NVFP4GroupedMM(torch.autograd.Function):
                 x_t_scales,
                 offs=group_end_offsets,
                 out_dtype=ctx.out_dtype,
+                A_per_tensor_scale=go_t_pts,
+                B_per_tensor_scale=x_t_pts,
             )
             grad_weight_t = grad_weight.transpose(-2, -1)  # (E,N,K) -> (E,K,N)
 
@@ -146,14 +167,33 @@ class _NVFP4GroupedMM(torch.autograd.Function):
 
 
 def _nvfp4_quantize_3d(
-    w: torch.Tensor, block_size: int = NVFP4_BLOCK_SIZE
-) -> tuple[torch.Tensor, torch.Tensor]:
-    """Quantize 3D tensor per-expert. Returns (packed_data, scales)."""
+    w: torch.Tensor,
+    block_size: int = NVFP4_BLOCK_SIZE,
+    with_per_tensor_scale: bool = False,
+) -> (
+    tuple[torch.Tensor, torch.Tensor] | tuple[torch.Tensor, torch.Tensor, torch.Tensor]
+):
+    """Quantize 3D tensor per-expert. Returns (packed_data, scales) or
+    (packed_data, scales, per_tensor_scales) when with_per_tensor_scale=True.
+
+    When with_per_tensor_scale=True, computes a single per_tensor_scale from
+    the global amax across ALL experts (not per-expert), matching the semantics
+    of per_tensor_scale as a tensor-level normalizer.
+    """
+    pts = None
+    if with_per_tensor_scale:
+        pts = per_tensor_amax_to_scale(w.abs().max())
+
     packed_list, scales_list = [], []
     for i in range(w.shape[0]):
-        scales, packed = nvfp4_quantize(w[i].contiguous(), block_size=block_size)
+        scales, packed = nvfp4_quantize(
+            w[i].contiguous(), block_size=block_size, per_tensor_scale=pts
+        )
         packed_list.append(packed)
         scales_list.append(scales)
+
+    if with_per_tensor_scale:
+        return torch.stack(packed_list), torch.stack(scales_list), pts
     return torch.stack(packed_list), torch.stack(scales_list)
 
 
@@ -208,13 +248,13 @@ def _emulated_nvfp4_scaled_grouped_mm_2d_3d(
     offs: Optional[torch.Tensor] = None,
     out_dtype: Optional[torch.dtype] = torch.bfloat16,
     block_size: int = NVFP4_BLOCK_SIZE,
+    A_per_tensor_scale: Optional[torch.Tensor] = None,
+    B_per_tensor_scale: Optional[torch.Tensor] = None,
 ) -> torch.Tensor:
     """Emulated NVFP4 scaled grouped GEMM: 2D activations @ 3D expert weights.
 
     Dequantizes NVFP4 inputs to BF16, then runs torch._grouped_mm.
-
-    TODO: plumb per_tensor_scale through when adding the autograd function,
-    to support NVFP4 two-level scaling (block scale * per-tensor scale).
+    Supports optional two-level scaling via per_tensor_scale parameters.
     """
     assert A_data.ndim == 2, f"A must be 2D, got {A_data.ndim}"
     assert B_data.ndim == 3, f"B must be 3D, got {B_data.ndim}"
@@ -238,16 +278,22 @@ def _emulated_nvfp4_scaled_grouped_mm_2d_3d(
     )
 
     # Dequantize activations
-    # A_data shape: (M, K//2) packed
-    # A_scale shape: (M, K//block_size)
-    A = _nvfp4_dequantize(A_data, A_scale, block_size, output_dtype=out_dtype)
-    # A shape: (M, K)
+    A = _nvfp4_dequantize(
+        A_data,
+        A_scale,
+        block_size,
+        per_tensor_scale=A_per_tensor_scale,
+        output_dtype=out_dtype,
+    )
 
     # Dequantize expert weights
-    # B_data shape: (E, N, K//2) packed
-    # B_scale shape: (E, N, K//block_size)
-    B = _nvfp4_dequantize(B_data, B_scale, block_size, output_dtype=out_dtype)
-    # B shape: (E, N, K)
+    B = _nvfp4_dequantize(
+        B_data,
+        B_scale,
+        block_size,
+        per_tensor_scale=B_per_tensor_scale,
+        output_dtype=out_dtype,
+    )
 
     # Transpose to (E, K, N) for grouped GEMM: (M, K) @ (E, K, N) = (M, N)
     B_t = B.transpose(-2, -1)
@@ -265,6 +311,8 @@ def _emulated_nvfp4_scaled_grouped_mm_2d_2d(
     offs: torch.Tensor,
     out_dtype: Optional[torch.dtype] = torch.bfloat16,
     block_size: int = NVFP4_BLOCK_SIZE,
+    A_per_tensor_scale: Optional[torch.Tensor] = None,
+    B_per_tensor_scale: Optional[torch.Tensor] = None,
 ) -> torch.Tensor:
     """Emulated NVFP4 scaled grouped GEMM: 2D @ 2D (for wgrad computation).
 
@@ -272,17 +320,27 @@ def _emulated_nvfp4_scaled_grouped_mm_2d_2d(
 
     Following the MXFP8 convention, B_data is provided as (N, K) and
     transposed internally to (K, N) for the matmul.
-
-    TODO: plumb per_tensor_scale through when adding the autograd function.
     """
     assert A_data.ndim == 2, "A must be 2D"
     assert B_data.ndim == 2, "B must be 2D"
 
     # Dequantize A: (M, K//2) packed -> (M, K)
-    A_dequant = _nvfp4_dequantize(A_data, A_scale, block_size, output_dtype=out_dtype)
+    A_dequant = _nvfp4_dequantize(
+        A_data,
+        A_scale,
+        block_size,
+        per_tensor_scale=A_per_tensor_scale,
+        output_dtype=out_dtype,
+    )
 
     # Dequantize B: (N, K//2) packed -> (N, K)
-    B_dequant = _nvfp4_dequantize(B_data, B_scale, block_size, output_dtype=out_dtype)
+    B_dequant = _nvfp4_dequantize(
+        B_data,
+        B_scale,
+        block_size,
+        per_tensor_scale=B_per_tensor_scale,
+        output_dtype=out_dtype,
+    )
 
     # Transpose B from (N, K) to (K, N) for matmul: A (M, K) @ B^T (K, N) = (M, N)
     out = torch._grouped_mm(
