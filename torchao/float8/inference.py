@@ -60,11 +60,8 @@ def preprocess_data(
         b_data = pad_tensor_for_matmul(b_data, dims=0)
     if not is_row_major(a_data.stride()):
         a_data = a_data.contiguous()
-    if not is_row_major(b_data.stride()):
-        b_data = b_data.contiguous()
-
-    # if is_row_major(b_data.stride()) and not torch.xpu.is_available():
-    #     b_data = b_data.t().contiguous().t()
+    if is_row_major(b_data.stride()):
+        b_data = b_data.t().contiguous().t()
     return a_data, b_data
 
 
