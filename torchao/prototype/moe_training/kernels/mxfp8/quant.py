@@ -931,18 +931,18 @@ def _fake_mxfp8_quantize_3d_cutedsl_custom_op(
     return q_data, scales
 
 
-@torch.library.custom_op("torchao::mxfp8_quantize_2d_cutedsl", mutates_args=())
-def _mxfp8_quantize_2d_cutedsl_custom_op(
+@torch.library.custom_op("torchao::mxfp8_quantize_2d_1x32_cutedsl", mutates_args=())
+def _mxfp8_quantize_2d_1x32_cutedsl_custom_op(
     x: torch.Tensor,
     block_size: int = 32,
     scaling_mode: str = "rceil",
     stage_count: int = 2,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
-    from torchao.prototype.moe_training.kernels.mxfp8.cutedsl_quantize_2d import (
-        mxfp8_quantize_cutedsl_2d,
+    from torchao.prototype.moe_training.kernels.mxfp8.cutedsl_quantize_2d_1x32 import (
+        mxfp8_quantize_cutedsl_2d_1x32,
     )
 
-    return mxfp8_quantize_cutedsl_2d(
+    return mxfp8_quantize_cutedsl_2d_1x32(
         x,
         block_size=block_size,
         scaling_mode=scaling_mode,
@@ -951,8 +951,29 @@ def _mxfp8_quantize_2d_cutedsl_custom_op(
     )
 
 
-@_mxfp8_quantize_2d_cutedsl_custom_op.register_fake
-def _fake_mxfp8_quantize_2d_cutedsl_custom_op(
+@torch.library.custom_op("torchao::mxfp8_quantize_2d_32x1_cutedsl", mutates_args=())
+def _mxfp8_quantize_2d_32x1_cutedsl_custom_op(
+    x: torch.Tensor,
+    block_size: int = 32,
+    scaling_mode: str = "rceil",
+    stage_count: int = 2,
+    blocked_scale_output: bool = True,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    from torchao.prototype.moe_training.kernels.mxfp8.cutedsl_quantize_2d_32x1 import (
+        mxfp8_quantize_cutedsl_2d_32x1,
+    )
+
+    return mxfp8_quantize_cutedsl_2d_32x1(
+        x,
+        block_size=block_size,
+        scaling_mode=scaling_mode,
+        stage_count=stage_count,
+        blocked_scale_output=blocked_scale_output,
+    )
+
+
+@_mxfp8_quantize_2d_1x32_cutedsl_custom_op.register_fake
+def _fake_mxfp8_quantize_2d_1x32_cutedsl_custom_op(
     x: torch.Tensor,
     block_size: int = 32,
     scaling_mode: str = "rceil",
@@ -977,10 +998,41 @@ def _fake_mxfp8_quantize_2d_cutedsl_custom_op(
     return q_data, scales
 
 
+@_mxfp8_quantize_2d_32x1_cutedsl_custom_op.register_fake
+def _fake_mxfp8_quantize_2d_32x1_cutedsl_custom_op(
+    x: torch.Tensor,
+    block_size: int = 32,
+    scaling_mode: str = "rceil",
+    stage_count: int = 2,
+    blocked_scale_output: bool = True,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    assert x.ndim == 2, "input tensor must be 2D"
+    assert block_size == 32, "Only block_size=32 is supported"
+    m, k = x.shape
+
+    # For 32x1 scaling, output data has same dimensions as input (no padding)
+    q_data = torch.empty_strided(
+        (m, k),
+        (k, 1),
+        device=x.device,
+        dtype=torch.float8_e4m3fn,
+    )
+
+    # Only scales tensor needs padding for 4x128 scale factor tiles
+    m_blocks = m // block_size
+    padded_scale_rows = ceil_div(m_blocks, 4) * 4
+    padded_scale_cols = ceil_div(k, 128) * 128
+    scales = x.new_empty(
+        (padded_scale_cols * padded_scale_rows,),
+        dtype=torch.float8_e8m0fnu,
+    )
+    return q_data, scales
+
+
 if _mxfp8_cutedsl_kernels_available:
 
-    @register_sharding(torch.ops.torchao.mxfp8_quantize_2d_cutedsl.default)
-    def custom_sharding_for_cutedsl_mxfp8_dim0_kernel(
+    @register_sharding(torch.ops.torchao.mxfp8_quantize_2d_1x32_cutedsl.default)
+    def custom_sharding_for_cutedsl_mxfp8_2d_1x32_kernel(
         x, block_size=32, scaling_mode: str = "rceil", stage_count: int = 2
     ):
         # order is: ([outputs, ...], [inputs, ...])
@@ -1259,7 +1311,7 @@ def mxfp8_quantize_cuda_3d(
     )
 
 
-def mxfp8_quantize_cuda_2d(
+def mxfp8_quantize_2d_1x32_cutedsl(
     x: torch.Tensor,
     block_size: int = 32,
     scaling_mode: str = "rceil",
@@ -1283,9 +1335,46 @@ def mxfp8_quantize_cuda_2d(
         raise NotImplementedError(
             "mxfp8_quantize_2d requires CUDA, SM 10.x, and CUDA 12.8+."
         )
-    return _mxfp8_quantize_2d_cutedsl_custom_op(
+    return _mxfp8_quantize_2d_1x32_cutedsl_custom_op(
         x,
         block_size=block_size,
         scaling_mode=scaling_mode,
         stage_count=stage_count,
     )
+
+
+def mxfp8_quantize_2d_32x1_cutedsl(
+    x: torch.Tensor,
+    block_size: int = 32,
+    scaling_mode: str = "rceil",
+    stage_count: int = 2,
+    blocked_scale_output: bool = True,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Quantize a 2D tensor of shape (M, K) with 32x1 scaling along M in blocks of 32.
+
+    Returns:
+    - Quantized data with same dimensions as input: (M, K) - no padding
+    - Scales tensor in blocked tcgen05 layout suitable for 4x128 scale factor tiles
+      where only the scales dimensions are padded, not the data tensor
+    """
+    if not _mxfp8_cutedsl_kernels_available:
+        missing_packages = _missing_cutedsl_runtime_packages()
+        if missing_packages:
+            missing = ", ".join(missing_packages)
+            raise NotImplementedError(
+                "mxfp8_quantize_2d_32x1 requires additional Python "
+                f"runtime package(s): {missing}. Please install "
+                "`nvidia-cutlass-dsl` and `apache-tvm-ffi`."
+            )
+        raise NotImplementedError(
+            "mxfp8_quantize_2d_32x1 requires CUDA, SM 10.x, and CUDA 12.8+."
+        )
+    qdata, scales = _mxfp8_quantize_2d_32x1_cutedsl_custom_op(
+        x,
+        block_size=block_size,
+        scaling_mode=scaling_mode,
+        stage_count=stage_count,
+        blocked_scale_output=blocked_scale_output,
+    )
+    return qdata, scales
