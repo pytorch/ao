@@ -17,6 +17,31 @@ from torchao.prototype.mx_formats.nvfp4_tensor import nvfp4_quantize
 NVFP4_BLOCK_SIZE = 16
 
 
+def _nvfp4_scaled_grouped_mm(
+    A: torch.Tensor,
+    B_t: torch.Tensor,
+    offs: Optional[torch.Tensor] = None,
+    out_dtype: Optional[torch.dtype] = torch.bfloat16,
+    wgrad_with_hp: bool = True,
+) -> torch.Tensor:
+    """NVFP4 emulated scaled grouped matrix multiplication with autograd support.
+
+    Quantizes inputs to NVFP4, performs emulated grouped GEMM, and supports
+    backward pass for training.
+
+    Args:
+        A: Input activations, shape (M, K)
+        B_t: Expert weights, shape (E, K, N)
+        offs: Group end offsets, shape (E,)
+        out_dtype: Output dtype (bfloat16 or float32)
+        wgrad_with_hp: If True, compute weight gradients in high precision (BF16).
+                       If False, use NVFP4 quantized weight gradients.
+    Returns:
+        Output tensor, shape (M, N)
+    """
+    return _NVFP4GroupedMM.apply(A, B_t, offs, out_dtype, wgrad_with_hp)
+
+
 class _NVFP4GroupedMM(torch.autograd.Function):
     @staticmethod
     def forward(
