@@ -2,6 +2,18 @@ import torch
 import torch.distributed._symmetric_memory as symm_mem
 
 
+# Module-level singleton for buffer management
+_default_buffer_manager = None
+
+
+def get_buffer_manager():
+    """Get the default buffer manager, creating it if necessary."""
+    global _default_buffer_manager
+    if _default_buffer_manager is None:
+        _default_buffer_manager = SymmetricMemoryBufferManager()
+    return _default_buffer_manager
+
+
 class SymmetricMemoryBufferManager:
     """Manages reusable buffers for MXFP8 all-to-all operations across MoE layers."""
 
@@ -119,15 +131,3 @@ class SymmetricMemoryBufferManager:
     def reset(self):
         """Clear all buffers (useful for testing or changing configs)."""
         self.__init__()
-
-
-# Module-level singleton for buffer management
-_default_buffer_manager = None
-
-
-def get_buffer_manager():
-    """Get the default buffer manager, creating it if necessary."""
-    global _default_buffer_manager
-    if _default_buffer_manager is None:
-        _default_buffer_manager = SymmetricMemoryBufferManager()
-    return _default_buffer_manager

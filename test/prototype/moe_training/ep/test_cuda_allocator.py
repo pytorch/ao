@@ -468,9 +468,8 @@ def _get_granularity() -> int:
 class TestAllocatorWithUnifiedBuffer:
     """Verify the CUDAAllocator composes with the unified GPU+CPU buffer.
 
-    This mirrors the gb200_moe_sol ``StaticBuffers`` pattern:
-    1. ``create_unified_buffer`` allocates physical GPU + CPU memory.
-    2. ``CUDAAllocator`` sub-allocates rows within that buffer.
+    1. `create_unified_buffer` allocates physical GPU + CPU memory.
+    2. CUD allocator sub-allocates rows within that buffer.
     3. Offsets from the allocator index into the buffer for read/write.
     """
 
@@ -592,7 +591,7 @@ class TestAllocatorWithUnifiedBuffer:
 
         allocator = CUDAAllocator(buffer, [total_rows])
 
-        # Reserve a sentinel allocation (matches gb200_moe_sol pattern).
+        # Reserve a sentinel allocation.
         # Note: best-fit places the allocation at the END of the free block,
         # so sentinel_offset = total_rows - sentinel_size.
         sentinel_size = 128

@@ -1,3 +1,4 @@
+import logging
 import weakref
 from dataclasses import dataclass
 from typing import Optional
@@ -32,10 +33,7 @@ class _UnifiedBufferAllocation:
     #
     # Ideally we'd use at::from_blob(..., deleter) which ties the tensor's
     # storage refcount directly to the custom deleter, but from_blob is a
-    # C++-only API with no Python equivalent.  A small C++ extension calling
-    # at::from_blob would eliminate both this field and the weakref destructor
-    # machinery, but we avoid C++ extensions here to keep the implementation
-    # pure-Python.
+    # C++-only API with no Python equivalent.
     _prevent_gc: object = None
 
 
@@ -77,9 +75,19 @@ def _set_optimal_cpu_affinity(device_id: int) -> None:
         try:
             pynvml.nvmlDeviceSetCpuAffinity(handle)
         except pynvml.NVMLError_NotSupported:
-            pass
-    except (ImportError, Exception):
-        pass
+            logging.warning(
+                "nvmlDeviceSetCpuAffinity not supported for device %d",
+                device_id,
+            )
+    except ImportError:
+        logging.warning(
+            "pynvml not installed; skipping NUMA-optimal CPU affinity for device %d",
+            device_id,
+        )
+    except Exception as e:
+        logging.warning(
+            "Failed to set optimal CPU affinity for device %d: %s", device_id, e
+        )
 
 
 def free_unified_buffer(device_ptr_int: int) -> None:

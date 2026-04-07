@@ -7,9 +7,6 @@
 """
 GPU-resident memory allocator using Triton kernels.
 
-Pure-Python port of ``gb200_moe_sol/csrc/cuda_allocator.cu`` — no C++
-extensions, **no CPU synchronisation** on the alloc/free hot path.
-
 Design overview
 ---------------
 Same semantics as the CUDA C++ original:
@@ -26,7 +23,7 @@ performs the scan in parallel (``tl.arange``) and the mutations serially.
 Limitations (same as C++)
 -------------------------
 * Max 1024 blocks per pool (``_MAX_BLOCKS``).
-* NOT thread-safe across streams (caller must synchronise).
+* NOT thread-safe across streams (caller must synchronize).
 * OOM returns addr=0; caller can check ``stats().num_ooms``.
 * Double-free / freeing an unknown address is a silent no-op.
 """
@@ -157,7 +154,10 @@ def _alloc_kernel(
             lens = tl.load(state_ptr + pb + OL + bids, mask=valid, other=0)
             allocs = tl.load(state_ptr + pb + OC + bids, mask=valid, other=1)
 
-            # Best-fit: smallest free block with length >= alloc_sz
+            # Best-fit: smallest free block with length >= alloc_sz.
+            # 0x7FFFFFFF (INT32_MAX) is used as a sentinel "infinity" value
+            # so that non-candidate blocks (allocated, too small, or invalid)
+            # are never selected by the tl.min reduction.
             is_cand = (allocs == 0) & (lens >= alloc_sz) & valid
             search = tl.where(is_cand, lens, 0x7FFFFFFF)
             min_len = tl.min(search)
