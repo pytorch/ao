@@ -171,3 +171,89 @@ def test_nvfp4_dequant_roundtrip_with_per_tensor_scale():
     assert sqnr >= min_sqnr, (
         f"Roundtrip sqnr with per_tensor_scale {sqnr} is too low, must be >= {min_sqnr}"
     )
+
+
+@skip_if_rocm("ROCm not supported")
+@pytest.mark.parametrize("M,K,N", [(1024, 1024, 1024), (1024, 2048, 4096)])
+@pytest.mark.parametrize("num_experts", (1, 8))
+@pytest.mark.parametrize("wgrad_with_hp", (True, False))
+def test_nvfp4_grouped_gemm_fwd_bwd(M, K, N, num_experts, wgrad_with_hp):
+    """Test NVFP4 autograd forward + backward.
+
+    Uses torch.randn grad_output (via out.backward(grad_out)) instead of
+    MSE loss to avoid NVFP4 scale underflow. NVFP4's scale dtype is
+    float8_e4m3fn (4-bit exponent, min subnormal ~0.002), so very small
+    gradient values from MSE (O(1/numel) ~ 1e-6) underflow to zero during
+    FP4 block scale computation. Using O(1) randn gradient avoids this and
+    tests the quantization quality in a realistic range.
+    """
+    from torchao.prototype.moe_training.nvfp4_grouped_mm import (
+        _nvfp4_scaled_grouped_mm,
+    )
+
+    device = "cuda"
+    x = torch.randn(M, K, dtype=torch.bfloat16, device=device, requires_grad=True)
+    w_t = torch.randn(
+        num_experts, K, N, dtype=torch.bfloat16, device=device, requires_grad=True
+    )
+    offs = generate_jagged_offs(num_experts, M, multiple_of=BLOCK_SIZE)
+
+    # Reference: BF16 grouped GEMM
+    x_ref = x.detach().clone().requires_grad_(True)
+    w_t_ref = w_t.detach().clone().requires_grad_(True)
+    ref_out = torch._grouped_mm(
+        x_ref, w_t_ref, offs=offs.clone(), out_dtype=torch.bfloat16
+    )
+
+    # NVFP4 autograd
+    out = _nvfp4_scaled_grouped_mm(
+        x, w_t, offs=offs, out_dtype=torch.bfloat16, wgrad_with_hp=wgrad_with_hp
+    )
+
+    # Forward SQNR
+    fwd_sqnr = compute_error(ref_out, out)
+    assert fwd_sqnr >= 16.0, f"Forward sqnr {fwd_sqnr} < 16.0"
+
+    # Backward with O(1) gradient to avoid FP4 scale underflow
+    grad_out = torch.randn_like(out)
+    out.backward(grad_out)
+    ref_out.backward(grad_out.clone())
+
+    # Check gradients exist
+    assert x.grad is not None, "x.grad is None"
+    assert w_t.grad is not None, "w_t.grad is None"
+
+    # dgrad SQNR (HP dgrad, no quantization — should be high)
+    dgrad_sqnr = compute_error(x_ref.grad, x.grad)
+    assert dgrad_sqnr >= 16.0, f"dgrad sqnr {dgrad_sqnr} < 16.0"
+
+    # wgrad SQNR
+    wgrad_sqnr = compute_error(w_t_ref.grad, w_t.grad)
+    min_wgrad_sqnr = 16.0 if wgrad_with_hp else 16.0
+    assert wgrad_sqnr >= min_wgrad_sqnr, (
+        f"wgrad sqnr {wgrad_sqnr} < {min_wgrad_sqnr} (wgrad_with_hp={wgrad_with_hp})"
+    )
+
+
+@skip_if_rocm("ROCm not supported")
+@pytest.mark.parametrize("M,K,N", [(1024, 1024, 1024)])
+@pytest.mark.parametrize("num_experts", (1, 8, 16))
+def test_nvfp4_grouped_gemm_forward_only(M, K, N, num_experts):
+    """Test NVFP4 autograd forward without backward."""
+    from torchao.prototype.moe_training.nvfp4_grouped_mm import (
+        _nvfp4_scaled_grouped_mm,
+    )
+
+    device = "cuda"
+    x = torch.randn(M, K, dtype=torch.bfloat16, device=device)
+    w_t = torch.randn(num_experts, K, N, dtype=torch.bfloat16, device=device)
+    offs = generate_jagged_offs(num_experts, M)
+
+    # Reference
+    ref_out = torch._grouped_mm(x, w_t, offs=offs.clone(), out_dtype=torch.bfloat16)
+
+    # NVFP4
+    out = _nvfp4_scaled_grouped_mm(x, w_t, offs=offs, out_dtype=torch.bfloat16)
+
+    sqnr = compute_error(ref_out, out)
+    assert sqnr >= 16.0, f"Forward sqnr {sqnr} < 16.0"
