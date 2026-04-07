@@ -637,6 +637,26 @@ def _(func, types, args, kwargs):
     )
 
 
+@implements([aten.is_pinned.default])
+def mx_is_pinned(func, types, args, kwargs):
+    return args[0].qdata.is_pinned() and args[0].scale.is_pinned()
+
+
+@implements([aten._pin_memory.default])
+def mx_pin_memory(func, types, args, kwargs):
+    tensor = args[0]
+    return MXTensor(
+        tensor.qdata.pin_memory(),
+        tensor.scale.pin_memory(),
+        tensor.elem_dtype,
+        tensor.block_size,
+        tensor.orig_dtype,
+        tensor.kernel_preference,
+        tensor.act_quant_kwargs,
+        tensor.is_swizzled_scales,
+    )
+
+
 def _get_gemm_choice(
     choice_a: Optional[KernelPreference], choice_b: Optional[KernelPreference]
 ) -> KernelPreference:

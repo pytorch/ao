@@ -77,20 +77,6 @@ class Layout:
             )
 
 
-@dataclass(frozen=True)
-class PlainLayout(Layout):
-    """PlainLayout is the most basic layout class, inheriting from the Layout base class.
-    It does not add any additional metadata or processing steps to the tensor.
-    Typically, this layout is used as the default when no specific layout is required.
-    """
-
-    def __post_init__(self):
-        super().__post_init__()
-        warnings.warn(
-            "Deprecation: PlainLayout is deprecated and will be removed in a future release of torchao, see https://github.com/pytorch/ao/issues/2752 for more details"
-        )
-
-
 def is_device(target_device_str: str, device: Union[str, torch.device]):
     return torch.device(device).type == target_device_str
 

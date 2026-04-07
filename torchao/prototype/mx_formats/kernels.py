@@ -6,7 +6,7 @@
 
 import importlib
 import logging
-from typing import Tuple
+from typing import Optional, Tuple
 
 import numpy as np
 import torch
@@ -22,6 +22,7 @@ from torchao.prototype.mx_formats.config import ScaleCalculationMode
 from torchao.utils import (
     is_cuda_version_at_least,
     is_MI350,
+    is_mslk_version_at_least,
     is_ROCM,
     is_sm_at_least_100,
     torch_version_at_least,
@@ -1175,30 +1176,34 @@ _mslk_available = importlib.util.find_spec("mslk") is not None
 
 
 def mslk_quantize_nvfp4(
-    x: torch.Tensor, per_tensor_scale: torch.Tensor
+    x: torch.Tensor, per_tensor_scale: Optional[torch.Tensor] = None
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """Quantize a tensor to NVFP4 using the MSLK triton kernel.
 
     Args:
         x: Input tensor to quantize.
-        per_tensor_scale: Per-tensor scale (TorchAO convention: amax / (F8E4M3_MAX * F4_E2M1_MAX)).
+        per_tensor_scale: Optional per-tensor scale (TorchAO convention: amax / (F8E4M3_MAX * F4_E2M1_MAX)).
+            If None, the global scale is not applied (single-level block-wise scaling only).
 
     Returns:
         Tuple of (blockwise_scales, quantized_data_uint8) matching TorchAO's convention.
     """
-    mslk_global_scale = per_tensor_scale.reciprocal()
+    mslk_global_scale = (
+        per_tensor_scale.reciprocal() if per_tensor_scale is not None else None
+    )
     return _mslk_quantize_nvfp4_custom_op(x, mslk_global_scale)
 
 
 @torch.library.custom_op("ao::mslk_quantize_nvfp4", mutates_args=())
 def _mslk_quantize_nvfp4_custom_op(
-    x: torch.Tensor, global_scale: torch.Tensor
+    x: torch.Tensor, global_scale: Optional[torch.Tensor] = None
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """Inner custom op for MSLK NVFP4 quantization.
 
     Args:
         x: Input tensor to quantize.
-        global_scale: Global scale in MSLK convention (1.0 / per_tensor_scale).
+        global_scale: Optional global scale in MSLK convention (1.0 / per_tensor_scale).
+            If None, the global scale is not applied (treated as 1.0).
 
     Returns:
         Tuple of (blockwise_scales, quantized_data_uint8) matching TorchAO's convention.
@@ -1211,12 +1216,18 @@ def _mslk_quantize_nvfp4_custom_op(
         triton_quantize_nvfp4 as _mslk_triton_quantize_nvfp4,
     )
 
+    if global_scale is None:
+        assert is_mslk_version_at_least("1.1.0"), (
+            "Optional global_scale support requires MSLK >= 1.1.0, "
+            "Please upgrade MSLK: https://github.com/pytorch/MSLK"
+        )
+
     data_lp, blockwise_scales = _mslk_triton_quantize_nvfp4(x, global_scale)
     return blockwise_scales, data_lp.view(torch.uint8)
 
 
 @_mslk_quantize_nvfp4_custom_op.register_fake
-def _(x, global_scale):
+def _(x, global_scale=None):
     # Mirror the reshape logic from the real MSLK kernel
     orig_leading_dims, orig_N = x.shape[:-2], x.shape[-1]
     x_2d = x.reshape(-1, orig_N)

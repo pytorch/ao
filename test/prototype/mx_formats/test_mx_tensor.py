@@ -811,3 +811,28 @@ def test_swizzle(elem_dtype, transpose, shape):
     x_dq = x.dequantize(x.dtype)
     xs_dq = xs.dequantize(xs.dtype)
     torch.testing.assert_close(x_dq, xs_dq, atol=0, rtol=0)
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(
+    not torch_version_at_least("2.8.0"), reason="MX requires PyTorch 2.8+"
+)
+@pytest.mark.parametrize("elem_dtype", [torch.float8_e4m3fn, torch.float8_e5m2])
+def test_mx_pin_memory(elem_dtype):
+    x_hp = torch.randn(128, 256, device="cuda", dtype=torch.bfloat16)
+    x_mx = MXTensor.to_mx(x_hp, elem_dtype, block_size=32)
+    x_cpu = x_mx.cpu()
+
+    assert not x_cpu.is_pinned()
+
+    x_pinned = x_cpu.pin_memory()
+
+    assert x_pinned.is_pinned()
+    assert not x_cpu.is_pinned()
+
+    assert x_pinned.qdata.is_pinned()
+    assert x_pinned.scale.is_pinned()
+
+    assert torch.equal(
+        x_cpu.dequantize(torch.float32), x_pinned.dequantize(torch.float32)
+    )

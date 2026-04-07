@@ -18,7 +18,6 @@ from torchao.quantization import (
     Float8DynamicActivationFloat8WeightConfig,
     Float8WeightOnlyConfig,
     Int4WeightOnlyConfig,
-    Int8WeightOnlyConfig,
     PerRow,
     PerTensor,
 )
@@ -31,7 +30,7 @@ if common_utils.SEED is None:
 class TestAffineQuantizedTensorParallel(DTensorTestBase):
     """Basic test case for tensor subclasses"""
 
-    QUANT_METHOD_FN = staticmethod(Int8WeightOnlyConfig)
+    QUANT_METHOD_FN = None
     QUANT_METHOD_KWARGS = {}
 
     @staticmethod
@@ -121,17 +120,6 @@ class TestAffineQuantizedTensorParallel(DTensorTestBase):
         dn_compiled(y_up)
 
 
-class TestInt8woAffineQuantizedTensorParallel(TestAffineQuantizedTensorParallel):
-    QUANT_METHOD_FN = staticmethod(Int8WeightOnlyConfig)
-    COMMON_DTYPES = [torch.bfloat16, torch.float16, torch.float32]
-
-    @common_utils.parametrize("dtype", COMMON_DTYPES)
-    @with_comms
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
-    def test_tp(self, dtype):
-        return self._test_tp(dtype)
-
-
 class TestInt4woAffineQuantizedTensorParallel(TestAffineQuantizedTensorParallel):
     QUANT_METHOD_FN = staticmethod(Int4WeightOnlyConfig)
     QUANT_METHOD_KWARGS = {"version": 1}
@@ -148,7 +136,6 @@ class TestInt4woAffineQuantizedTensorParallel(TestAffineQuantizedTensorParallel)
         return self._test_tp(dtype)
 
 
-common_utils.instantiate_parametrized_tests(TestInt8woAffineQuantizedTensorParallel)
 common_utils.instantiate_parametrized_tests(TestInt4woAffineQuantizedTensorParallel)
 
 # Float8 TP requires FP8-capable hardware (H100+ on CUDA, MI300+ on ROCm)

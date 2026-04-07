@@ -155,9 +155,6 @@ class NVFP4Tensor(TorchAOBaseTensor):
             assert K % 16 == 0, (
                 f"Triton kernel requires K (dim -1) to be divisible by 16, got {K}"
             )
-            assert per_tensor_scale is not None, (
-                "Triton kernel requires per_tensor_scale"
-            )
             blockwise_scales, data_lp = mslk_quantize_nvfp4(data_hp, per_tensor_scale)
         else:
             blockwise_scales, data_lp = nvfp4_quantize(
@@ -326,6 +323,37 @@ def nvfp4_to_copy(func, types, args, kwargs):
     return tensor
 
 
+@implements([aten.is_pinned.default])
+def nvfp4_is_pinned(func, types, args, kwargs):
+    tensor = args[0]
+    is_pinned = tensor.qdata.is_pinned() and tensor.scale.is_pinned()
+    if tensor.per_tensor_scale is not None:
+        is_pinned = is_pinned and tensor.per_tensor_scale.is_pinned()
+    if tensor.act_per_tensor_scale is not None:
+        is_pinned = is_pinned and tensor.act_per_tensor_scale.is_pinned()
+    return is_pinned
+
+
+@implements([aten._pin_memory.default])
+def nvfp4_pin_memory(func, types, args, kwargs):
+    tensor = args[0]
+    return NVFP4Tensor(
+        tensor.qdata.pin_memory(),
+        tensor.scale.pin_memory(),
+        tensor.block_size,
+        tensor.orig_dtype,
+        tensor.per_tensor_scale.pin_memory()
+        if tensor.per_tensor_scale is not None
+        else None,
+        tensor.act_per_tensor_scale.pin_memory()
+        if tensor.act_per_tensor_scale is not None
+        else None,
+        tensor.is_swizzled_scales,
+        tensor.use_triton_kernel,
+        tensor.act_quant_kwargs,
+    )
+
+
 @implements([aten.slice.Tensor])
 def nvfp4_slice(func, types, args, kwargs):
     x, dim, start, end, step = fill_defaults(args, 5, [0, None, None, 1])
@@ -466,11 +494,14 @@ def _addmm_nvfp4_dispatch(
         b_scale_blocked = to_blocked(b_scale)
 
     # Merge double quant scales into 1 scale for Scale_In^D
-    if a.per_tensor_scale is not None:
-        assert b.per_tensor_scale is not None
-        scale_result = a.per_tensor_scale * b.per_tensor_scale
+    # When per_tensor_scale is None for an operand, it's treated as 1.0
+    a_scale = a.per_tensor_scale
+    b_scale = b.per_tensor_scale
+    if a_scale is not None and b_scale is not None:
+        scale_result = a_scale * b_scale
+    elif a_scale is not None or b_scale is not None:
+        scale_result = a_scale if a_scale is not None else b_scale
     else:
-        assert b.per_tensor_scale is None and a.per_tensor_scale is None
         scale_result = None
 
     # THIS IS A WORKAROUND FOR TWO ERRORS:
@@ -689,7 +720,9 @@ def nvfp4_quantize(
             torch.float8_e4m3fn
         )
         block_scale_fp32 = block_scale_fp8.to(torch.float32)
-        data_scaled = data_hp / block_scale_fp32.unsqueeze(-1)
+        # Multiply by reciprocal instead of dividing to match MSLK triton kernel
+        # numerics (global_scale=None treated as 1.0): x * (1.0 / fp8_scale)
+        data_scaled = data_hp * (1.0 / block_scale_fp32).unsqueeze(-1)
         out_scales = block_scale_fp8
     else:
         # We are doing two level scaling,
