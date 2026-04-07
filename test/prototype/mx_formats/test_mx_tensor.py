@@ -360,9 +360,9 @@ def test_all_nan_blocks(elem_dtype):
     )
     mixed_mx = MXTensor.to_mx(mixed_tensor, elem_dtype, block_size)
 
-    # First block [NaN, 2.0, NaN, 4.0] should have scale based on max(2.0, 4.0) = 4.0
-    # Second block [1.0, 3.0, 5.0, 2.0] should have scale based on max = 5.0
-    assert not torch.isnan(mixed_mx.scale[0]), (
+    # First block [NaN, 2.0, NaN, 4.0] should have NaN scale 
+    # Second block [1.0, 3.0, 5.0, 2.0] should have real scale
+    assert torch.isnan(mixed_mx.scale[0]), (
         "Mixed NaN+real block should not have NaN scale"
     )
     assert not torch.isnan(mixed_mx.scale[1]), (

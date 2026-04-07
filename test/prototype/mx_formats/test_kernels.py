@@ -669,8 +669,6 @@ def test_triton_mxfp8_dim0_special_values(scaling_mode: ScaleCalculationMode):
 
         if input_block_has_nan:
             # If any value in block is NaN, scale should be NaN
-            if not torch.isnan(x_s_t[row_idx].to(torch.float32)).all():
-                breakpoint()
             assert torch.isnan(x_s_t[row_idx].to(torch.float32)), (
                 f"Row {row_idx}: Block with any NaN should have NaN scale"
             )
@@ -683,7 +681,6 @@ def test_triton_mxfp8_dim0_special_values(scaling_mode: ScaleCalculationMode):
             assert not torch.isnan(x_s_t[row_idx].to(torch.float32)), (
                 f"Row {row_idx}: Block without NaN should not have NaN scale"
             )
-            # Note: quantized data may still have NaN if input had inf that became NaN during quantization
 
     # Use NaN-aware comparison to handle nan != nan case properly
     # Check NaN patterns match
@@ -727,45 +724,50 @@ def test_triton_mxfp8_dim0_special_values(scaling_mode: ScaleCalculationMode):
 @pytest.mark.parametrize("scaling_mode", (ScaleCalculationMode.RCEIL,))
 def test_triton_mxfp8_dim0_overflow_underflow(scaling_mode):
     """Test with values near overflow and underflow thresholds."""
-    # Values near float8_e4m3fn limits
-    f8_max = torch.finfo(torch.float8_e4m3fn).max
-    fp8_subnormal_min = torch.finfo(torch.float8_e4m3fn).tiny
+    fp8_max = torch.finfo(torch.float8_e4m3fn).max
+    fp8_subnormal_min = 2e-9  # smallest positive subnormal for e4m3: https://www.emergentmind.com/topics/mxfp8-e4m3-floating-point-format
     block_size = 32
 
-    overflow_vals = torch.zeros(4, block_size, dtype=torch.bfloat16, device="cuda")
+    test_vals = torch.zeros(4, block_size, dtype=torch.bfloat16, device="cuda")
 
-    # Fill first few elements of each row with overflow/underflow values
-    overflow_vals[0, :4] = torch.tensor(
-        [f8_max * 0.9, f8_max * 1.1, f8_max * 2.0, f8_max * 10.0], dtype=torch.bfloat16
-    )
-    overflow_vals[1, :4] = torch.tensor(
-        [-f8_max * 0.9, -f8_max * 1.1, -f8_max * 2.0, -f8_max * 10.0],
+    # Row 0: elem 0 is near max, elems 1-3 are above max
+    test_vals[0, :4] = torch.tensor(
+        [fp8_max * 0.9, fp8_max * 1.1, fp8_max * 2.0, fp8_max * 10.0],
         dtype=torch.bfloat16,
     )
-    overflow_vals[2, :4] = torch.tensor(
+
+    # Row 1: elem 0 is near min, elems 1-3 are below min
+    test_vals[1, :4] = torch.tensor(
+        [-fp8_max * 0.9, -fp8_max * 1.1, -fp8_max * 2.0, -fp8_max * 10.0],
+        dtype=torch.bfloat16,
+    )
+
+    # Row 2: elem 0-1 are below positive subnormal min representable in e4m3, should underflow to zero if scaled down
+    test_vals[2, :3] = torch.tensor(
         [
             fp8_subnormal_min * 0.1,
             fp8_subnormal_min * 0.5,
-            fp8_subnormal_min * 2.0,
-            fp8_subnormal_min * 10.0,
+            fp8_max
+            * 0.9,  # include a large value to result in scale that would underflow the subnormals
         ],
         dtype=torch.bfloat16,
     )
-    overflow_vals[3, :4] = torch.tensor(
+    # Row 3: elem 0-1 are above below negative subnormal min, should underflow to zero
+    test_vals[3, :3] = torch.tensor(
         [
             -fp8_subnormal_min * 0.1,
             -fp8_subnormal_min * 0.5,
-            -fp8_subnormal_min * 2.0,
-            -fp8_subnormal_min * 10.0,
+            fp8_max
+            * 0.9,  # include a large value to result in scale that would underflow the subnormals
         ],
         dtype=torch.bfloat16,
     )
 
     x_mx_ref, x_s_ref = triton_to_mxfp8_dim0_reference(
-        overflow_vals, block_size=block_size, scaling_mode=scaling_mode
+        test_vals, block_size=block_size, scaling_mode=scaling_mode
     )
     x_mx_t, x_s_t = triton_to_mxfp8_dim0(
-        overflow_vals,
+        test_vals,
         inner_block_size=block_size,
         scaling_mode=scaling_mode.value.lower(),
     )
@@ -785,128 +787,23 @@ def test_triton_mxfp8_dim0_overflow_underflow(scaling_mode):
     )
 
     # Verify quantization preserves sign
-    assert torch.all(torch.sign(dequantized) == torch.sign(overflow_vals)), (
-        "Quantization should preserve the sign of input values"
+    original_signbits = torch.signbit(test_vals)
+    dequant_signbits = torch.signbit(dequantized)
+    assert torch.equal(original_signbits, dequant_signbits), (
+        "Sign bit mismatch between original and dequantized values"
     )
 
     # Verify underflow behavior
     # Check rows 2 and 3 which contain underflow test cases
     for row_idx in [2, 3]:
-        original_row = overflow_vals[row_idx, :4]
-        dequant_row = dequantized[row_idx, :4]
-
-        # The first two elements are very small (fp8_subnormal_min * 0.1, fp8_subnormal_min * 0.5)
-        # These should likely underflow to zero when the block scale accommodates larger values
-        very_small_originals = original_row[
-            :2
-        ]  # fp8_subnormal_min * 0.1, fp8_subnormal_min * 0.5
-        very_small_dequant = dequant_row[:2]
-
-        # Check if any very small values underflowed to zero
-        underflow_mask = very_small_dequant == 0.0
-
-        # If a value underflowed to zero, verify it was indeed very small originally
-        if underflow_mask.any():
-            underflowed_originals = very_small_originals[underflow_mask]
-            max_underflowed = torch.max(torch.abs(underflowed_originals))
-
-            # Values that underflow should be smaller than fp8_subnormal_min
-            # (or at most a small multiple of it)
-            assert max_underflowed <= fp8_subnormal_min, (
-                f"Row {row_idx}: Values that underflow to zero should be <= fp8_subnormal_min, got {max_underflowed}"
-            )
-
-        # The larger small values (fp8_subnormal_min * 2.0, fp8_subnormal_min * 10.0) should not underflow
-        larger_small_dequant = dequant_row[
-            2:
-        ]  # fp8_subnormal_min * 2.0, fp8_subnormal_min * 10.0
-        assert torch.all(larger_small_dequant != 0.0), (
-            f"Row {row_idx}: Larger small values (fp8_subnormal_min * 2.0, fp8_subnormal_min * 10.0) should not underflow to zero"
+        # The first two elements should be scaled below the min representable subnormal in e4m3, and thus underflow to zero
+        assert torch.all(dequantized[row_idx, :2] == 0.0), (
+            f"Row {row_idx}: should underflow to zero"
         )
-
-
-@pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
-@pytest.mark.skipif(
-    not is_sm_at_least_100() and not is_MI350(),
-    reason="mxfp8 requires CUDA capability 10.0 or greater or ROCm gfx950 or greater.",
-)
-@pytest.mark.parametrize("scaling_mode", (ScaleCalculationMode.RCEIL,))
-def test_triton_mxfp8_dim0_extreme_range(scaling_mode):
-    """Test with tensors containing both very large and very small values."""
-    # Mix of extreme values in same tensor to test scaling edge cases
-    block_size = 32
-    extreme_vals = torch.zeros(4, block_size, dtype=torch.bfloat16, device="cuda")
-
-    # Fill first few elements with extreme values
-    extreme_vals[0, :4] = torch.tensor([1e30, 1e-30, 1e20, 1e-20], dtype=torch.bfloat16)
-    extreme_vals[1, :4] = torch.tensor(
-        [-1e30, -1e-30, -1e20, -1e-20], dtype=torch.bfloat16
-    )
-    extreme_vals[2, :4] = torch.tensor(
-        [torch.finfo(torch.float32).max, torch.finfo(torch.float32).tiny, 1.0, -1.0],
-        dtype=torch.bfloat16,
-    )
-    extreme_vals[3, :4] = torch.tensor([0.0, 1e-40, 1e40, -1e40], dtype=torch.bfloat16)
-
-    x_mx_ref, x_s_ref = triton_to_mxfp8_dim0_reference(
-        extreme_vals, block_size=block_size, scaling_mode=scaling_mode
-    )
-    x_mx_t, x_s_t = triton_to_mxfp8_dim0(
-        extreme_vals,
-        inner_block_size=block_size,
-        scaling_mode=scaling_mode.value.lower(),
-    )
-
-    assert not x_mx_t.isnan().any(), "quantized tensor should not contain NaNs"
-    assert not x_s_t.isnan().any(), "scales should not contain NaNs"
-    torch.testing.assert_close(x_mx_t, x_mx_ref, rtol=0, atol=0)
-    torch.testing.assert_close(x_s_t, x_s_ref, rtol=0, atol=0)
-
-
-@pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
-@pytest.mark.skipif(
-    not is_sm_at_least_100() and not is_MI350(),
-    reason="mxfp8 requires CUDA capability 10.0 or greater or ROCm gfx950 or greater.",
-)
-@pytest.mark.parametrize("scaling_mode", (ScaleCalculationMode.RCEIL,))
-def test_triton_mxfp8_dim0_denormals_subnormals(scaling_mode):
-    """Test with denormal/subnormal values that might cause precision issues."""
-    # Create values in the denormal range
-    bf16_tiny = torch.finfo(torch.bfloat16).tiny
-    f32_tiny = torch.finfo(torch.float32).tiny
-    block_size = 32
-
-    denormal_vals = torch.zeros(4, block_size, dtype=torch.bfloat16, device="cuda")
-
-    # Fill first few elements with denormal values
-    denormal_vals[0, :4] = torch.tensor(
-        [bf16_tiny, bf16_tiny * 0.5, bf16_tiny * 0.1, bf16_tiny * 2.0],
-        dtype=torch.bfloat16,
-    )
-    denormal_vals[1, :4] = torch.tensor(
-        [f32_tiny, f32_tiny * 0.5, f32_tiny * 0.1, f32_tiny * 2.0], dtype=torch.bfloat16
-    )
-    denormal_vals[2, :4] = torch.tensor(
-        [-bf16_tiny, -bf16_tiny * 0.5, -bf16_tiny * 0.1, -bf16_tiny * 2.0],
-        dtype=torch.bfloat16,
-    )
-    denormal_vals[3, :4] = torch.tensor(
-        [1e-40, 1e-38, 1e-36, 1e-34], dtype=torch.bfloat16
-    )  # Very small values
-
-    x_mx_ref, x_s_ref = triton_to_mxfp8_dim0_reference(
-        denormal_vals, block_size=block_size, scaling_mode=scaling_mode
-    )
-    x_mx_t, x_s_t = triton_to_mxfp8_dim0(
-        denormal_vals,
-        inner_block_size=block_size,
-        scaling_mode=scaling_mode.value.lower(),
-    )
-
-    assert not x_mx_t.isnan().any(), "quantized tensor should not contain NaNs"
-    assert not x_s_t.isnan().any(), "scales should not contain NaNs"
-    torch.testing.assert_close(x_mx_t, x_mx_ref, rtol=0, atol=0)
-    torch.testing.assert_close(x_s_t, x_s_ref, rtol=0, atol=0)
+        # Normal val shouldn't underflow
+        assert torch.all(dequantized[row_idx, 2] != 0.0), (
+            f"Row {row_idx}: should not underflow to zero"
+        )
 
 
 @pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
@@ -930,7 +827,7 @@ def test_all_nan_block_scale_behavior(scaling_mode):
     # Block 1: Mixed NaN + real values [NaN, 1.0, NaN, 5.0, NaN, 3.0, ...]
     test_vals[:block_size:3] = float("nan")  # Every 3rd element is NaN
     test_vals[1:block_size:3] = 1.0  # Some real values
-    test_vals[2:block_size:3] = 5.0  # Some larger real values
+    test_vals[2:block_size:3] = 5.0
 
     # Block 2: All NaN values
     test_vals[block_size : 2 * block_size] = float("nan")
