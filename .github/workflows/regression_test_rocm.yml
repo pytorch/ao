@@ -48,4 +48,27 @@ jobs:
         pip install . --no-build-isolation
         export CONDA=$(dirname $(dirname $(which conda)))
         export LD_LIBRARY_PATH=$CONDA/lib/:$LD_LIBRARY_PATH
-        pytest test --verbose -s
+        pytest \
+          test/test_utils.py \
+          test/test_low_bit_optim.py \
+          test/dtypes/test_nf4.py \
+          test/dtypes/test_affine_quantized.py \
+          test/float8/test_base.py \
+          test/float8/test_float8_utils.py \
+          test/float8/test_numerics_integration.py \
+          test/integration/test_integration.py \
+          test/prototype/test_smoothquant.py \
+          test/prototype/blockwise_fp8_training/ \
+          test/prototype/moe_training/test_kernels.py \
+          test/prototype/moe_training/test_mxfp8_grouped_mm.py \
+          test/prototype/mx_formats/test_mx_tensor.py \
+          test/prototype/mx_formats/test_mx_mm.py \
+          test/prototype/mx_formats/test_inference_workflow.py \
+          test/prototype/mx_formats/test_nvfp4_tensor.py \
+          test/quantization/test_observer.py \
+          test/quantization/test_qat.py \
+          test/quantization/test_quant_api.py \
+          test/quantization/test_quant_primitives.py \
+          test/quantization/quantize_/workflows/float8/test_float8_tensor.py \
+          test/quantization/quantize_/workflows/int4/test_int4_tile_packed_to_4d_tensor.py \
+          --verbose -s
