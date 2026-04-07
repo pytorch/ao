@@ -12,8 +12,124 @@ from torchao.prototype.mx_formats.kernels import (
     f4_unpacked_to_f32,
     unpack_uint4,
 )
+from torchao.prototype.mx_formats.nvfp4_tensor import nvfp4_quantize
 
 NVFP4_BLOCK_SIZE = 16
+
+
+class _NVFP4GroupedMM(torch.autograd.Function):
+    @staticmethod
+    def forward(
+        ctx,
+        input_act,
+        weight_t,
+        group_end_offsets,
+        out_dtype=torch.bfloat16,
+        wgrad_with_hp=True,
+    ):
+        """
+        Args:
+            input_act: (M, K) high-precision activations
+            weight_t: (E, K, N) high-precision expert weights
+            group_end_offsets: (E,) int32 cumulative token indices
+            out_dtype: output dtype (bf16 or fp32)
+            wgrad_with_hp: whether to compute wgrad in HP
+        Returns:
+            output: (M, N)
+        """
+        assert input_act.ndim == 2
+        assert weight_t.ndim == 3
+        assert group_end_offsets is not None
+        assert out_dtype in (torch.bfloat16, torch.float32)
+
+        # Quantize input_act (M, K) along last dim
+        x_scales, x_packed = nvfp4_quantize(input_act, block_size=NVFP4_BLOCK_SIZE)
+        # x_packed: (M, K//2), x_scales: (M, K//block_size)
+
+        # Quantize weight: transpose to (E, N, K), then quantize per-expert
+        w = weight_t.transpose(-2, -1).contiguous()  # (E, K, N) -> (E, N, K)
+        w_packed, w_scales = _nvfp4_quantize_3d(w)
+        # w_packed: (E, N, K//2), w_scales: (E, N, K//block_size)
+
+        # Emulated grouped GEMM
+        output = _emulated_nvfp4_scaled_grouped_mm_2d_3d(
+            x_packed,
+            x_scales,
+            w_packed,
+            w_scales,
+            offs=group_end_offsets,
+            out_dtype=out_dtype,
+        )
+
+        # Save for backward
+        ctx.save_for_backward(input_act, weight_t, group_end_offsets)
+        ctx.out_dtype = out_dtype
+        ctx.wgrad_with_hp = wgrad_with_hp
+
+        return output
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        input_act, weight_t, group_end_offsets = ctx.saved_tensors
+
+        # --- dgrad: grad_input = grad_output @ weight ---
+        # Use HP grouped GEMM for dgrad because NVFP4's scale dtype
+        # (float8_e4m3fn, 4-bit exponent) has limited dynamic range.
+        # Small gradient values (e.g., from MSE loss with large numel)
+        # underflow to zero during FP4 block scale computation.
+        # MXFP8 doesn't have this issue because its scale dtype is
+        # float8_e8m0fnu (8-bit exponent) with much wider dynamic range.
+        # grad_output(M,N) @ weight(E,N,K) = (M,K)
+        # weight_t is (E,K,N), transpose to (E,N,K) so contraction dim N matches
+        grad_input = torch._grouped_mm(
+            grad_output,
+            weight_t.transpose(-2, -1),
+            offs=group_end_offsets,
+            out_dtype=ctx.out_dtype,
+        )
+
+        # --- wgrad ---
+        if ctx.wgrad_with_hp:
+            # HP grouped GEMM: grad_output^T (N,M) @ input_act (M,K) = (E,N,K)
+            grad_weight = torch._grouped_mm(
+                grad_output.transpose(-2, -1),
+                input_act,
+                offs=group_end_offsets,
+                out_dtype=ctx.out_dtype,
+            )
+            grad_weight_t = grad_weight.transpose(-2, -1)  # (E,N,K) -> (E,K,N)
+        else:
+            # Quantized wgrad via 2d_2d
+            go_t = grad_output.t().contiguous()  # (N, M)
+            go_t_scales, go_t_packed = nvfp4_quantize(go_t, block_size=NVFP4_BLOCK_SIZE)
+
+            x_t = input_act.t().contiguous()  # (K, M)
+            x_t_scales, x_t_packed = nvfp4_quantize(x_t, block_size=NVFP4_BLOCK_SIZE)
+
+            # 2d_2d: A=(N,M), B=(K,M) -> B^T=(M,K) internal -> (N,M)@(M,K) = (E,N,K)
+            grad_weight = _emulated_nvfp4_scaled_grouped_mm_2d_2d(
+                go_t_packed,
+                go_t_scales,
+                x_t_packed,
+                x_t_scales,
+                offs=group_end_offsets,
+                out_dtype=ctx.out_dtype,
+            )
+            grad_weight_t = grad_weight.transpose(-2, -1)  # (E,N,K) -> (E,K,N)
+
+        return grad_input, grad_weight_t, None, None, None
+
+
+def _nvfp4_quantize_3d(
+    w: torch.Tensor, block_size: int = NVFP4_BLOCK_SIZE
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Quantize 3D tensor per-expert. Returns (packed_data, scales)."""
+    packed_list, scales_list = [], []
+    for i in range(w.shape[0]):
+        scales, packed = nvfp4_quantize(w[i].contiguous(), block_size=block_size)
+        packed_list.append(packed)
+        scales_list.append(scales)
+    return torch.stack(packed_list), torch.stack(scales_list)
 
 
 def _nvfp4_dequantize(
