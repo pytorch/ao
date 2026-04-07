@@ -1954,6 +1954,8 @@ def _register_smooth_quant_int_mm_pattern():
             w_scale = kwargs["w_scale"]
             x_shape = x.meta.get("tensor_meta").shape
             # For Int8Tensor, the scaled-matmul convert and the output convert use the same output_dtype.
+            if "output_dtype" in kwargs and "scaled_matmul_dtype" in kwargs:
+                assert kwargs["output_dtype"] == kwargs["scaled_matmul_dtype"]
             dtype = kwargs.get(
                 "output_dtype", kwargs.get("scaled_matmul_dtype", x_scale_dtype)
             )
@@ -2017,6 +2019,7 @@ def _register_smooth_quant_int_mm_pattern():
                 else:
                     # onednn.qlinear does not support per-channel quantization of x
                     # so in this case, we have to apply x scale and add bias ourselves after qlinear
+                    has_output_convert = "output_dtype" in kwargs
                     in_shape = kwargs.get("in_shape", None)
                     if in_shape is None:
                         x_reshaped = x
@@ -2072,6 +2075,12 @@ def _register_smooth_quant_int_mm_pattern():
                                 aten.reshape.default,
                                 args=(new_out_node, out_shape),  # type: ignore[possibly-undefined]
                             )
+
+                    if has_output_convert:
+                        new_out_node = match.graph.call_function(
+                            prims.convert_element_type.default,
+                            args=(new_out_node, kwargs["output_dtype"]),
+                        )
                     out_node.replace_all_uses_with(new_out_node)
                     new_out_node.meta.update(out_node.meta)
                 for node in reversed(match.nodes):

@@ -180,6 +180,7 @@ class TestPatternMatcherBase(TestCase):
         quantizer=None,
         compile_options={},  # noqa: B006
         is_fp8=False,
+        check_output_dtype=False,
     ):
         if not hasattr(self, "device"):
             has_xpu = any(
@@ -199,12 +200,12 @@ class TestPatternMatcherBase(TestCase):
             maybe_autocast = torch.amp.autocast(
                 device_type=device, dtype=torch.bfloat16
             )
-            atol, rtol = max(atol, 1e-2), max(rtol, 1e-2)
+            atol, rtol = 1e-2, 1e-2
         elif check_autocast == torch.float16 and (
             torch.ops.mkldnn._is_mkldnn_fp16_supported() or device == "xpu"
         ):
             maybe_autocast = torch.amp.autocast(device_type=device, dtype=torch.float16)
-            atol, rtol = max(atol, 1e-2), max(rtol, 1e-2)
+            atol, rtol = 1e-2, 1e-2
         else:
             assert check_autocast == torch.float32
             maybe_autocast = contextlib.nullcontext()
@@ -220,6 +221,8 @@ class TestPatternMatcherBase(TestCase):
                 clone_inputs = self._clone_inputs(inputs)
                 expected = mod(*inputs)
                 actual = torch.compile(mod, **compile_options)(*clone_inputs)
+                if check_output_dtype:
+                    self.assertEqual(actual.dtype, expected.dtype)
                 torch.testing.assert_close(
                     actual.float(), expected.float(), atol=atol, rtol=rtol
                 )
@@ -2830,16 +2833,13 @@ class TestPatternMatcher(TestPatternMatcherBase):
                     expected_nodes,
                 )
 
-        atol, rtol = (1e-2, 1e-2) if output_dtype_convert else (1e-5, 1.3e-6)
-
         self._test_common(
             mod,
             (test_input,),
             matcher_check_fn=matcher_check_fn,
-            check_autocast=torch.float32,
-            atol=atol,
-            rtol=rtol,
+            check_autocast=input_dtype,
             compile_options={"dynamic": dynamic},
+            check_output_dtype=True,
         )
 
     @skipIfNoDynamoSupport
