@@ -1,5 +1,5 @@
 from torchao.prototype.moe_training.ep.syncless.buffer_manager import (
-    EPBufferManager,  # noqa: F401
+    SymmetricMemoryBufferManager,  # noqa: F401
     get_buffer_manager,  # noqa: F401
 )
 from torchao.prototype.moe_training.ep.syncless.token_dispatch import (
@@ -7,7 +7,7 @@ from torchao.prototype.moe_training.ep.syncless.token_dispatch import (
 )
 
 ___all__ = [
-    "EPBufferManager",
+    "SymmetricMemoryBufferManager",
     "get_buffer_manager",
     "mxfp8_token_dispatch",
 ]

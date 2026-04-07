@@ -4,8 +4,8 @@ import torch.distributed._symmetric_memory as symm_mem
 import triton
 import triton.language as tl
 
-from torchao.prototype.moe_training.ep.syncless import (
-    EPBufferManager,
+from torchao.prototype.moe_training.ep.syncless.buffer_manager import (
+    SymmetricMemoryBufferManager,
     get_buffer_manager,
 )
 from torchao.prototype.mx_formats.kernels import triton_to_mxfp8_dim0
@@ -21,7 +21,7 @@ class MXFP8SynclessAllToAllExpertMajor(torch.autograd.Function):
         input_expert_splits: torch.Tensor,
         max_output_rows_per_rank: int,
         group: dist.ProcessGroup = dist.group.WORLD,
-        buffer_manager: EPBufferManager = None,
+        buffer_manager: SymmetricMemoryBufferManager = None,
     ):
         """
         Performs dynamic MXFP8 quantization along dim0, then an on-device all-to-all operation
