@@ -29,26 +29,29 @@
 #
 #    ## Highlights
 #
-#    We are excited to announce the X.Y.Z release of torchao!
+#    We are excited to announce the X.Y.Z release of torchao! This release adds support for A, B, C, D!
 #
 #    ### Highlight Feature 1
 #
 #    ### Highlight Feature 2
 #
 #    ## BC Breaking
+#    ...
 #
-#    ## Deprecations
+#    ## Deprecation
+#    ...
 #
-#    ## quantization
+#    ## Core
 #    * commit1_title (https://github.com/pytorch/ao/pull/123)
 #
-#    ## float8
+#    ## Inference
 #    * commit2_title (https://github.com/pytorch/ao/pull/234)
 #
-#    ## sparsity
+#    ## Training
 #    * commit3_title (https://github.com/pytorch/ao/pull/345)
 #
 #    ## Not User Facing
+#    ...
 #
 #    ## New Contributors
 #    * @userX made their first contribution in https://github.com/pytorch/ao/pull/123
@@ -61,7 +64,7 @@ import os
 import re
 import sys
 from collections import OrderedDict
-from typing import Dict, List, Set
+from typing import Dict, List
 
 try:
     from github import Github
@@ -78,11 +81,18 @@ input_file = sys.argv[1]
 output_file = input_file + ".out"
 VERBOSE = os.getenv("VERBOSE", "true").lower() == "true"
 
-# Special module labels that get their own fixed sections
-SPECIAL_MODULES = OrderedDict(
+# Mapping from module label to display name, in fixed order.
+# New modules discovered from PR labels are appended before "Not User Facing".
+GITHUB_MODULE_LABEL_TO_CATEGORY = OrderedDict(
     [
         ("module: bc-breaking", "BC Breaking"),
-        ("module: deprecation", "Deprecations"),
+        ("module: deprecation", "Deprecation"),
+        ("module: core", "Core"),
+        ("module: inference", "Inference"),
+        ("module: qat", "QAT"),
+        ("module: training", "Training"),
+        ("module: optimizer", "Optimizer"),
+        ("module: pt2e_quant", "PT2E Quantization"),
         ("module: not user facing", "Not User Facing"),
     ]
 )
@@ -100,7 +110,9 @@ def clean_release_notes():
     # Write the header section
     with open(output_file, "w") as out_f:
         out_f.write("## Highlights\n\n")
-        out_f.write("We are excited to announce the X.Y.Z release of torchao!\n\n")
+        out_f.write(
+            "We are excited to announce the X.Y.Z release of torchao! This release adds support for A, B, C, D!\n\n"
+        )
         out_f.write("### Highlight Feature 1\n\n")
         out_f.write("### Highlight Feature 2\n\n")
 
@@ -140,7 +152,7 @@ def parse_pr_number(commit_line: str) -> int:
     """
     Helper function to parse PR number from commit line.
     """
-    return int(re.match(".*pytorch/ao/pull/(.*)", commit_line).groups()[0])
+    return int(re.search(r"pytorch/ao/pull/(\d+)", commit_line).group(1))
 
 
 def fetch_pr_labels(commit_lines: List[str]) -> Dict[int, List[str]]:
@@ -150,8 +162,12 @@ def fetch_pr_labels(commit_lines: List[str]) -> Dict[int, List[str]]:
     """
     pr_number_to_labels: Dict[int, List[str]] = {}
     all_pr_numbers = [parse_pr_number(line) for line in commit_lines]
+    if not all_pr_numbers:
+        return pr_number_to_labels
     smallest_pr_number = min(all_pr_numbers)
-    repo = Github().get_repo("pytorch/ao")
+    token = os.getenv("GITHUB_TOKEN")
+    gh = Github(token) if token else Github()
+    repo = gh.get_repo("pytorch/ao")
 
     # This call fetches 30 PRs at a time in descending order of when the PR was created
     pulls = repo.get_pulls(state="closed")
@@ -173,32 +189,13 @@ def build_module_categories(
     """
     Build an ordered dict of category -> list of commit lines.
 
-    Order: special sections (BC Breaking, Deprecations) first,
-    then discovered module sections sorted alphabetically,
-    then Not User Facing and Uncategorized last.
+    Uses the fixed order from GITHUB_MODULE_LABEL_TO_CATEGORY. New module
+    labels not in the fixed list are inserted before "Not User Facing".
+    Empty categories are omitted from the output.
     """
-    # Collect all unique non-special module labels
-    module_labels: Set[str] = set()
-    for labels in pr_number_to_labels.values():
-        for label in labels:
-            if label not in SPECIAL_MODULES:
-                module_labels.add(label)
-
-    # Build ordered categories: special first, then modules alphabetically
     commits_by_category: OrderedDict = OrderedDict()
-
-    # Add special sections (except "Not User Facing" which goes at the end)
-    for label, display_name in SPECIAL_MODULES.items():
-        if label != "module: not user facing":
-            commits_by_category[display_name] = []
-
-    # Add module sections sorted alphabetically by display name
-    sorted_modules = sorted(module_labels, key=lambda l: module_label_to_display(l))
-    for label in sorted_modules:
-        commits_by_category[module_label_to_display(label)] = []
-
-    # Add "Not User Facing" and "Uncategorized" at the end
-    commits_by_category["Not User Facing"] = []
+    for display_name in GITHUB_MODULE_LABEL_TO_CATEGORY.values():
+        commits_by_category[display_name] = []
     commits_by_category["Uncategorized"] = []
 
     # Assign each commit to categories
@@ -211,21 +208,23 @@ def build_module_categories(
             continue
 
         for label in labels:
-            if label in SPECIAL_MODULES:
-                display_name = SPECIAL_MODULES[label]
+            if label in GITHUB_MODULE_LABEL_TO_CATEGORY:
+                display_name = GITHUB_MODULE_LABEL_TO_CATEGORY[label]
             else:
-                display_name = module_label_to_display(label)
+                # New module not in fixed list, add before "Not User Facing"
+                display_name = label.removeprefix("module: ").title()
+                if display_name not in commits_by_category:
+                    # Insert before "Not User Facing"
+                    new_order = OrderedDict()
+                    for k, v in commits_by_category.items():
+                        if k == "Not User Facing":
+                            new_order[display_name] = []
+                        new_order[k] = v
+                    commits_by_category = new_order
             commits_by_category[display_name].append(commit_line)
 
-    return commits_by_category
-
-
-def module_label_to_display(label: str) -> str:
-    """
-    Convert a module label to a display name.
-    e.g. "module: quantization" -> "quantization"
-    """
-    return label.removeprefix("module: ")
+    # Remove empty categories
+    return OrderedDict((k, v) for k, v in commits_by_category.items() if len(v) > 0)
 
 
 def format_commit(commit_line: str) -> str:
@@ -235,7 +234,7 @@ def format_commit(commit_line: str) -> str:
       After:  * Commit title (https://github.com/pytorch/ao/pull/123)
     """
     # Remove author, put PR link in parentheses
-    commit_line = re.sub(" by @.* in (.*)", r" (\g<1>)", commit_line)
+    commit_line = re.sub(r" by @[\w-]+ in (https://\S+)", r" (\g<1>)", commit_line)
     # Capitalize first letter
     commit_line = commit_line.lstrip("* ")
     commit_line = "* " + commit_line[0].upper() + commit_line[1:]
