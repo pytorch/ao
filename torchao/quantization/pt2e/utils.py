@@ -970,6 +970,33 @@ def _fuse_linear_bn_(m: GraphModule) -> None:
         if not _is_linear_node(n):
             continue
         linear_node = n
+
+        # Linear+BN fusion is only valid when both layers operate on
+        # the same dimension.  Linear always acts on the last dim
+        # while BatchNorm1d acts on the channel dim (dim 1).  These
+        # two coincide only when the linear input is 2-D (N, C).
+        # For higher-rank inputs (e.g. 3-D (N, C, L)), BN normalises
+        # along dim 1 whereas Linear transforms the last dim, so
+        # fusing would silently produce incorrect results.
+        # See https://github.com/pytorch/ao/issues/4116
+        linear_input_node = linear_node.args[0]
+        if isinstance(linear_input_node, Node):
+            linear_input_val = linear_input_node.meta.get("val")
+            if (
+                linear_input_val is not None
+                and isinstance(linear_input_val, torch.Tensor)
+                and linear_input_val.ndim > 2
+            ):
+                warnings.warn(
+                    f"Not fusing linear+bn for node "
+                    f"'{linear_node.name}': the linear input "
+                    f"is {linear_input_val.ndim}-D so Linear "
+                    f"and BatchNorm operate on different "
+                    f"dimensions",
+                    stacklevel=1,
+                )
+                continue
+
         linear_weight_node = linear_node.args[1]
         linear_bias_node = linear_node.args[2] if len(linear_node.args) > 2 else None
         fold_bn_weights_into_linear_node(
