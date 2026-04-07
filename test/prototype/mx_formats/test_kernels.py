@@ -661,19 +661,29 @@ def test_triton_mxfp8_dim0_special_values(scaling_mode: ScaleCalculationMode):
         scaling_mode=scaling_mode.value.lower(),
     )
     x_mx_t = x_mx_t.to(torch.float32)
-    x_s_t = x_s_t.to(torch.uint8)
     x_mx_ref = x_mx_ref.to(torch.float32)
-    x_s_ref = x_s_ref.to(torch.uint8)
 
-    # Check for NaNs in output (allow NaNs if input had NaNs, but check scales)
-    input_has_nan = special_vals.isnan().any()
-    if not input_has_nan:
-        assert not x_mx_t.isnan().any(), (
-            "quantized tensor should not contain NaNs when input has no NaNs"
-        )
-        assert not x_s_t.isnan().any(), (
-            "scales should not contain NaNs when input has no NaNs"
-        )
+    # Check NaN behavior: if any value in a block is NaN, scale and entire block become NaN
+    for row_idx in range(special_vals.shape[0]):
+        input_block_has_nan = special_vals[row_idx].isnan().any()
+
+        if input_block_has_nan:
+            # If any value in block is NaN, scale should be NaN
+            if not torch.isnan(x_s_t[row_idx].to(torch.float32)).all():
+                breakpoint()
+            assert torch.isnan(x_s_t[row_idx].to(torch.float32)), (
+                f"Row {row_idx}: Block with any NaN should have NaN scale"
+            )
+            # And entire quantized block should be NaN
+            assert torch.all(torch.isnan(x_mx_t[row_idx])), (
+                f"Row {row_idx}: Block with any NaN should have all NaN quantized values"
+            )
+        else:
+            # If no NaN in input block, scale and data should not be NaN
+            assert not torch.isnan(x_s_t[row_idx].to(torch.float32)), (
+                f"Row {row_idx}: Block without NaN should not have NaN scale"
+            )
+            # Note: quantized data may still have NaN if input had inf that became NaN during quantization
 
     # Use NaN-aware comparison to handle nan != nan case properly
     # Check NaN patterns match
@@ -718,8 +728,8 @@ def test_triton_mxfp8_dim0_special_values(scaling_mode: ScaleCalculationMode):
 def test_triton_mxfp8_dim0_overflow_underflow(scaling_mode):
     """Test with values near overflow and underflow thresholds."""
     # Values near float8_e4m3fn limits
-    f8_max = torch.finfo(torch.float8_e4m3fn).max  # ~448
-    f8_min = torch.finfo(torch.float8_e4m3fn).tiny  # ~1.95e-06
+    f8_max = torch.finfo(torch.float8_e4m3fn).max
+    fp8_subnormal_min = torch.finfo(torch.float8_e4m3fn).tiny
     block_size = 32
 
     overflow_vals = torch.zeros(4, block_size, dtype=torch.bfloat16, device="cuda")
@@ -733,10 +743,21 @@ def test_triton_mxfp8_dim0_overflow_underflow(scaling_mode):
         dtype=torch.bfloat16,
     )
     overflow_vals[2, :4] = torch.tensor(
-        [f8_min * 0.1, f8_min * 0.5, f8_min * 2.0, f8_min * 10.0], dtype=torch.bfloat16
+        [
+            fp8_subnormal_min * 0.1,
+            fp8_subnormal_min * 0.5,
+            fp8_subnormal_min * 2.0,
+            fp8_subnormal_min * 10.0,
+        ],
+        dtype=torch.bfloat16,
     )
     overflow_vals[3, :4] = torch.tensor(
-        [-f8_min * 0.1, -f8_min * 0.5, -f8_min * 2.0, -f8_min * 10.0],
+        [
+            -fp8_subnormal_min * 0.1,
+            -fp8_subnormal_min * 0.5,
+            -fp8_subnormal_min * 2.0,
+            -fp8_subnormal_min * 10.0,
+        ],
         dtype=torch.bfloat16,
     )
 
@@ -749,10 +770,59 @@ def test_triton_mxfp8_dim0_overflow_underflow(scaling_mode):
         scaling_mode=scaling_mode.value.lower(),
     )
 
+    # Test 1: Verify triton matches reference
     assert not x_mx_t.isnan().any(), "quantized tensor should not contain NaNs"
     assert not x_s_t.isnan().any(), "scales should not contain NaNs"
     torch.testing.assert_close(x_mx_t, x_mx_ref, rtol=0, atol=0)
     torch.testing.assert_close(x_s_t, x_s_ref, rtol=0, atol=0)
+
+    dequantized = to_dtype(
+        x_mx_t,
+        x_s_t.view(torch.float8_e8m0fnu),
+        torch.float8_e4m3fn,
+        block_size,
+        torch.bfloat16,
+    )
+
+    # Verify quantization preserves sign
+    assert torch.all(torch.sign(dequantized) == torch.sign(overflow_vals)), (
+        "Quantization should preserve the sign of input values"
+    )
+
+    # Verify underflow behavior
+    # Check rows 2 and 3 which contain underflow test cases
+    for row_idx in [2, 3]:
+        original_row = overflow_vals[row_idx, :4]
+        dequant_row = dequantized[row_idx, :4]
+
+        # The first two elements are very small (fp8_subnormal_min * 0.1, fp8_subnormal_min * 0.5)
+        # These should likely underflow to zero when the block scale accommodates larger values
+        very_small_originals = original_row[
+            :2
+        ]  # fp8_subnormal_min * 0.1, fp8_subnormal_min * 0.5
+        very_small_dequant = dequant_row[:2]
+
+        # Check if any very small values underflowed to zero
+        underflow_mask = very_small_dequant == 0.0
+
+        # If a value underflowed to zero, verify it was indeed very small originally
+        if underflow_mask.any():
+            underflowed_originals = very_small_originals[underflow_mask]
+            max_underflowed = torch.max(torch.abs(underflowed_originals))
+
+            # Values that underflow should be smaller than fp8_subnormal_min
+            # (or at most a small multiple of it)
+            assert max_underflowed <= fp8_subnormal_min, (
+                f"Row {row_idx}: Values that underflow to zero should be <= fp8_subnormal_min, got {max_underflowed}"
+            )
+
+        # The larger small values (fp8_subnormal_min * 2.0, fp8_subnormal_min * 10.0) should not underflow
+        larger_small_dequant = dequant_row[
+            2:
+        ]  # fp8_subnormal_min * 2.0, fp8_subnormal_min * 10.0
+        assert torch.all(larger_small_dequant != 0.0), (
+            f"Row {row_idx}: Larger small values (fp8_subnormal_min * 2.0, fp8_subnormal_min * 10.0) should not underflow to zero"
+        )
 
 
 @pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
@@ -844,9 +914,8 @@ def test_triton_mxfp8_dim0_denormals_subnormals(scaling_mode):
 @pytest.mark.parametrize("scaling_mode", (ScaleCalculationMode.RCEIL,))
 def test_all_nan_block_scale_behavior(scaling_mode):
     """
-    Test that PyTorch, CUDA, and Triton implementations align on NaN scale behavior:
-    - Mixed real + NaN: scale = max of real values (ignore NaNs)
-    - All NaN block: scale = NaN (not -inf)
+    Test that PyTorch and Triton implementations align on NaN scale behavior:
+    - Any NaN in block: scale = NaN, entire quantized block becomes NaN
     """
     from torchao.prototype.mx_formats.mx_tensor import to_mx
 
@@ -870,21 +939,92 @@ def test_all_nan_block_scale_behavior(scaling_mode):
     test_vals[2 * block_size :] = torch.linspace(1.0, 10.0, block_size)
 
     # Test PyTorch implementation through to_mx
-    scale_pytorch, _ = to_mx(test_vals, torch.float8_e4m3fn, block_size, scaling_mode)
+    scale_pytorch, data_pytorch = to_mx(
+        test_vals, torch.float8_e4m3fn, block_size, scaling_mode
+    )
 
     # Convert to regular tensor for easier inspection
     scale_pytorch_vals = scale_pytorch.to(torch.float32)
+    data_pytorch_vals = data_pytorch.to(torch.float32)
 
-    # Test expectations:
-    # Block 0 (mixed): Should have real scale value (not NaN), based on max real value
-    assert not torch.isnan(scale_pytorch_vals[0]), (
-        "Mixed NaN+real block should have real scale (PyTorch should ignore NaNs)"
+    # Test expectations: If any value in a block is NaN, scale = NaN and entire block becomes NaN
+
+    # Block 0 (mixed NaN + real): Should have NaN scale and all NaN data
+    assert torch.isnan(scale_pytorch_vals[0]), (
+        "Block with any NaN should have NaN scale"
+    )
+    assert torch.all(torch.isnan(data_pytorch_vals[:block_size])), (
+        "Block with any NaN should have all NaN quantized values"
     )
 
-    # Block 1 (all NaN): Should have NaN scale to match CUDA/Triton behavior
-    assert torch.isnan(scale_pytorch_vals[1]), (
-        "All-NaN block should have NaN scale to match CUDA/Triton behavior"
+    # Block 1 (all NaN): Should have NaN scale and all NaN data
+    assert torch.isnan(scale_pytorch_vals[1]), "All-NaN block should have NaN scale"
+    assert torch.all(torch.isnan(data_pytorch_vals[block_size : 2 * block_size])), (
+        "All-NaN block should have all NaN quantized values"
     )
 
-    # Block 2 (normal): Should have real scale
+    # Block 2 (normal): Should have real scale and finite data
     assert not torch.isnan(scale_pytorch_vals[2]), "Normal block should have real scale"
+    assert torch.all(torch.isfinite(data_pytorch_vals[2 * block_size :])), (
+        "Normal block should have finite quantized values"
+    )
+
+    # Also test the Triton implementation to ensure consistency
+    test_vals_2d = test_vals.reshape(3, block_size)
+    x_mx_t, x_s_t = triton_to_mxfp8_dim0(
+        test_vals_2d,
+        inner_block_size=block_size,
+        scaling_mode=scaling_mode.value.lower(),
+    )
+
+    # Convert for comparison
+    x_s_t_vals = x_s_t.to(torch.float32)
+    x_mx_t_vals = x_mx_t.to(torch.float32)
+
+    # Test Triton implementation matches PyTorch behavior
+    # Block 0 (mixed NaN + real): Should have NaN scale and all NaN data
+    assert torch.isnan(x_s_t_vals[0]), (
+        "Triton: Block with any NaN should have NaN scale"
+    )
+    assert torch.all(torch.isnan(x_mx_t_vals[0])), (
+        "Triton: Block with any NaN should have all NaN quantized values"
+    )
+
+    # Block 1 (all NaN): Should have NaN scale and all NaN data
+    assert torch.isnan(x_s_t_vals[1]), "Triton: All-NaN block should have NaN scale"
+    assert torch.all(torch.isnan(x_mx_t_vals[1])), (
+        "Triton: All-NaN block should have all NaN quantized values"
+    )
+
+    # Block 2 (normal): Should have real scale and finite data
+    assert not torch.isnan(x_s_t_vals[2]), "Triton: Normal block should have real scale"
+    assert torch.all(torch.isfinite(x_mx_t_vals[2])), (
+        "Triton: Normal block should have finite quantized values"
+    )
+
+
+@pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
+@pytest.mark.skipif(
+    not is_sm_at_least_100() and not is_MI350(),
+    reason="mxfp8 requires CUDA capability 10.0 or greater or ROCm gfx950 or greater.",
+)
+@pytest.mark.parametrize(
+    "scaling_mode", (ScaleCalculationMode.RCEIL, ScaleCalculationMode.FLOOR)
+)
+def test_triton_mxfp8_dim0_large_tensor_offset_no_overflow(scaling_mode):
+    """Test with large tensor whose offsets exceeds the max int32 value."""
+    x = torch.randn((184320, 14336), dtype=torch.bfloat16, device="cuda")
+    block_size = 32
+    x_mx_ref, x_s_ref = triton_to_mxfp8_dim0_reference(
+        x, block_size=block_size, scaling_mode=scaling_mode
+    )
+    x_mx_t, x_s_t = triton_to_mxfp8_dim0(
+        x,
+        inner_block_size=block_size,
+        scaling_mode=scaling_mode.value.lower(),
+    )
+
+    assert not x_mx_t.isnan().any(), "quantized tensor should not contain NaNs"
+    assert not x_s_t.isnan().any(), "scales should not contain NaNs"
+    torch.testing.assert_close(x_mx_t, x_mx_ref, rtol=0, atol=0)
+    torch.testing.assert_close(x_s_t, x_s_ref, rtol=0, atol=0)

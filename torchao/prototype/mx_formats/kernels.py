@@ -662,10 +662,10 @@ if _triton_kernels_available:
         mask = row_mask & col_mask
 
         # Compute memory offsets for row-major layout (rows, cols)
-        row_major_offsets = (rows * n_cols + cols).to(tl.int32)
+        row_major_offsets = rows.to(tl.int64) * n_cols + cols
 
         # Compute memory offsets for column-major layout (cols, rows)
-        col_major_offsets = (cols * n_rows + rows).to(tl.int32)
+        col_major_offsets = cols.to(tl.int64) * n_rows + rows
 
         # Load the entire block in a single operation
         # shape: (ROW_TILE_SIZE, COL_TILE_SIZE)
@@ -778,7 +778,9 @@ if _triton_kernels_available:
         col_offs = start_col + tl.arange(0, COL_TILE_SIZE)[None, :]
 
         # Compute memory offsets for row-major layout (rows, cols)
-        row_major_offsets = (row_offs * n_cols + col_offs).to(tl.int32)
+        row_major_offsets = (
+            row_offs.to(tl.int64) * n_cols + col_offs
+        )  # use int64 to prevent overlow on large tensors
 
         # Load the entire block in a single operation
         # shape: (ROW_TILE_SIZE, COL_TILE_SIZE)
