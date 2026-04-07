@@ -10,6 +10,7 @@ from typing import Any, Callable, Optional
 import torch
 import torch.utils._pytree as pytree
 from torch._inductor.freezing_utils import maybe_set_is_frozen_param
+from torch.ao.quantization.fx.utils import collect_producer_nodes
 from torch.utils._ordered_set import OrderedSet
 
 aten = torch.ops.aten
@@ -105,37 +106,6 @@ class ConstantFolder(torch.fx.Interpreter):
 
         return False
 
-    def _collect_mutable_chain(self, start: torch.fx.Node) -> set[torch.fx.Node]:
-        """Collects all nodes that lead to a mutable buffer."""
-        stack = [start]
-        node_parents: dict[torch.fx.Node, list[torch.fx.Node]] = {}
-
-        # Generate a map from a node to its parents
-        while stack:
-            node = stack.pop()
-            if node in node_parents:
-                continue
-
-            parents = [
-                arg
-                for arg in pytree.arg_tree_leaves(*node.args, **node.kwargs)
-                if isinstance(arg, torch.fx.Node)
-            ]
-            node_parents[node] = parents
-            stack.extend(parents)
-
-        # Visit the graph in topological order and trace from the buffer to the start node
-        connected = set()
-        for node in self.graph.nodes:
-            if node not in node_parents:
-                continue
-            if self._is_mutable_buffer(node) or any(
-                parent in connected for parent in node_parents[node]
-            ):
-                connected.add(node)
-
-        return connected if start in connected else set()
-
     def _find_mutable_buffers(self) -> set[torch.fx.Node]:
         """Find mutable buffers by identifying copy_ or put_ operations.
         The graph then traces all nodes that lead to a mutable buffer."""
@@ -146,13 +116,15 @@ class ConstantFolder(torch.fx.Interpreter):
                 and hasattr(node.target, "_schema")
                 and ("copy_" in str(node.target) or "put_" in str(node.target))
             ):
-                # The first argument of copy_ or put_ is the mutable input
-                # Work through the graph to find all nodes that lead to a mutable buffer
+                # The first argument of copy_ or put_ is the mutable input.
+                # If any producer in the chain is a mutable buffer, mark
+                # all producers as mutable to prevent constant folding.
                 if len(node.args) > 0 and isinstance(node.args[0], torch.fx.Node):
-                    mutable_chain = self._collect_mutable_chain(node.args[0])
-
-                    if mutable_chain:
-                        mutable_buffers.update(mutable_chain)
+                    producer_nodes = collect_producer_nodes(node.args[0])
+                    if producer_nodes is not None and any(
+                        self._is_mutable_buffer(p) for p in producer_nodes
+                    ):
+                        mutable_buffers.update(producer_nodes)
 
         return mutable_buffers
 
