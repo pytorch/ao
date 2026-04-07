@@ -2747,8 +2747,14 @@ class TestPatternMatcher(TestPatternMatcherBase):
         r"""
         This testcase checks if we can match the SmoothQuant int8 linear pattern from Torchao.
         The patterns are:
-            - pattern_with_no_outer_or_act_reshape (4 nodes):
+            - pattern_no_reshape_no_bias (4 nodes):
                 int_mm -> convert -> mul -> mul
+            - pattern_no_reshape_with_bias (5 nodes):
+                int_mm -> convert -> mul -> mul -> add
+            - pattern_no_reshape_no_bias_with_output_convert (6 nodes):
+                int_mm -> convert -> mul -> convert -> mul -> convert
+            - pattern_no_reshape_with_bias_with_output_convert (7 nodes):
+                int_mm -> convert -> mul -> convert -> mul -> add -> convert
             - pattern_no_bias (6 nodes):
                 reshape -> int_mm -> convert -> mul -> mul -> reshape
             - pattern_with_bias (7 nodes):
@@ -2758,9 +2764,6 @@ class TestPatternMatcher(TestPatternMatcherBase):
             - pattern_with_bias_with_output_convert (9 nodes):
                 reshape -> int_mm -> convert -> mul -> convert -> mul -> reshape -> add -> convert
         """
-        if input_ndim == 2 and output_dtype_convert:
-            return
-
         in_feature = 32
         out_feature = 64
 
@@ -2810,14 +2813,14 @@ class TestPatternMatcher(TestPatternMatcherBase):
 
             if input_ndim == 2:
                 # 2D input: no outer reshape
-                expected_nodes = 4
-            else:
-                # 3D input: with outer reshape
-                expected_nodes = 6
+                expected_nodes = 6 if output_dtype_convert else 4
                 if has_bias:
                     expected_nodes += 1  # add bias operation
-                if output_dtype_convert:
-                    expected_nodes += 2  # scaled matmul convert + output convert
+            else:
+                # 3D input: with outer reshape
+                expected_nodes = 8 if output_dtype_convert else 6
+                if has_bias:
+                    expected_nodes += 1  # add bias operation
 
             if counters["inductor"]["removed_pointless_view_pair"] == 0:
                 # Removing pointless view pairs affect how the pattern

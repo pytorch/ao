@@ -1820,7 +1820,7 @@ def _register_smooth_quant_int_mm_pattern():
             mul_x_scale_pattern = CallFunction(
                 prims.convert_element_type.default,
                 mul_x_scale_pattern,
-                KeywordArg("dtype"),
+                KeywordArg("scaled_matmul_dtype"),
             )
 
         return CallFunction(
@@ -1835,22 +1835,53 @@ def _register_smooth_quant_int_mm_pattern():
         )
 
     # The following pattern covers both torchao DA8W8 and SmoothQuant.
-    pattern_with_no_outer_or_act_reshape = get_pattern_no_bias(reshape_a=False)
+    pattern_no_reshape_no_bias = get_pattern_no_bias(reshape_a=False)
+    pattern_no_reshape_with_bias = CallFunction(
+        aten.add.Tensor,
+        pattern_no_reshape_no_bias,
+        KeywordArg("bias"),
+    )
+    # This is an internal building block. It is intentionally not registered
+    # because it does not occur in practice.
+    # Real graphs here are either:
+    #   1) no extra convert after mul(x_scale), or
+    #   2) both converts present (scaled-matmul convert + output convert).
+    pattern_no_reshape_no_bias_with_matmul_convert = get_pattern_no_bias(
+        reshape_a=False, convert_scaled_matmul=True
+    )
+    pattern_no_reshape_no_bias_with_output_convert = CallFunction(
+        prims.convert_element_type.default,
+        pattern_no_reshape_no_bias_with_matmul_convert,
+        KeywordArg("output_dtype"),
+    )
+    # Similarly, this is an internal building block and is not registered.
+    pattern_no_reshape_with_bias_with_matmul_convert = CallFunction(
+        aten.add.Tensor,
+        pattern_no_reshape_no_bias_with_matmul_convert,
+        KeywordArg("bias"),
+    )
+    pattern_no_reshape_with_bias_with_output_convert = CallFunction(
+        prims.convert_element_type.default,
+        pattern_no_reshape_with_bias_with_matmul_convert,
+        KeywordArg("output_dtype"),
+    )
 
     pattern_no_bias = _with_outer_reshape(get_pattern_no_bias())
+    # Similarly, this is an internal building block and is not registered.
     pattern_no_bias_with_matmul_convert = _with_outer_reshape(
         get_pattern_no_bias(convert_scaled_matmul=True)
     )
     pattern_no_bias_with_output_convert = CallFunction(
         prims.convert_element_type.default,
         pattern_no_bias_with_matmul_convert,
-        KeywordArg("dtype"),
+        KeywordArg("output_dtype"),
     )
     pattern_with_bias = CallFunction(
         aten.add.Tensor,
         pattern_no_bias,
         KeywordArg("bias"),
     )
+    # Similarly, this is an internal building block and is not registered.
     pattern_with_bias_with_matmul_convert = CallFunction(
         aten.add.Tensor,
         pattern_no_bias_with_matmul_convert,
@@ -1859,17 +1890,22 @@ def _register_smooth_quant_int_mm_pattern():
     pattern_with_bias_with_output_convert = CallFunction(
         prims.convert_element_type.default,
         pattern_with_bias_with_matmul_convert,
-        KeywordArg("dtype"),
+        KeywordArg("output_dtype"),
     )
 
     def _validate_pattern(match: Match):
         # Valid node counts correspond to different pattern variations:
-        # 4: pattern_with_no_outer_or_act_reshape (int_mm + convert + mul + mul)
+        # 4: pattern_no_reshape_no_bias (int_mm + convert + mul + mul)
+        # 5: pattern_no_reshape_with_bias (pattern_no_reshape_no_bias + add)
+        # 6: pattern_no_reshape_no_bias_with_output_convert
+        #    (int_mm + convert + mul + scaled-matmul convert + mul + output convert)
+        # 7: pattern_no_reshape_with_bias_with_output_convert
+        #    (pattern_no_reshape_no_bias_with_output_convert + add)
         # 6: pattern_no_bias (reshape + int_mm + convert + mul + mul + reshape)
         # 7: pattern_with_bias (pattern_no_bias + add)
         # 8: pattern_no_bias_with_output_convert (pattern_no_bias with scaled matmul + output convert)
         # 9: pattern_with_bias_with_output_convert (pattern_with_bias with scaled matmul + output convert)
-        if len(match.nodes) not in [4, 6, 7, 8, 9]:
+        if len(match.nodes) not in [4, 5, 6, 7, 8, 9]:
             return False
         # Make sure weight is a constant
         aten_int_mm_node = filter_nodes(match.nodes, aten._int_mm.default)[0]
@@ -1878,7 +1914,7 @@ def _register_smooth_quant_int_mm_pattern():
         if aten_int_mm_node.args[1].op != "get_attr":
             return False
 
-        # If the pattern includes a bias add (7- or 9-node variants), validate bias shape.
+        # If the pattern includes a bias add, validate bias shape.
         bias_add_nodes = [n for n in match.nodes if n.target is aten.add.Tensor]
         if bias_add_nodes:
             add_node = bias_add_nodes[0]
@@ -1897,7 +1933,10 @@ def _register_smooth_quant_int_mm_pattern():
         pattern_with_bias: 0,
         pattern_no_bias_with_output_convert: 1,
         pattern_no_bias: 1,
-        pattern_with_no_outer_or_act_reshape: 2,
+        pattern_no_reshape_with_bias_with_output_convert: 2,
+        pattern_no_reshape_with_bias: 2,
+        pattern_no_reshape_no_bias_with_output_convert: 3,
+        pattern_no_reshape_no_bias: 3,
     }
     for pattern, pass_number in pattern_to_pass_number.items():
 
@@ -1914,7 +1953,10 @@ def _register_smooth_quant_int_mm_pattern():
             x_scale = kwargs["x_scale"]
             w_scale = kwargs["w_scale"]
             x_shape = x.meta.get("tensor_meta").shape
-            dtype = kwargs.get("dtype", x_scale_dtype)
+            # For Int8Tensor, the scaled-matmul convert and the output convert use the same output_dtype.
+            dtype = kwargs.get(
+                "output_dtype", kwargs.get("scaled_matmul_dtype", x_scale_dtype)
+            )
             if has_free_symbols(x_shape):
                 # For dynamic shape case, we can't get activation shape ahead of runtime.
                 x_shape = None
