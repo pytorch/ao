@@ -1866,30 +1866,30 @@ def _register_smooth_quant_int_mm_pattern():
         KeywordArg("output_dtype"),
     )
 
-    pattern_no_bias = _with_outer_reshape(get_pattern_no_bias())
+    pattern_with_reshape_no_bias = _with_outer_reshape(get_pattern_no_bias())
     # Similarly, this is an internal building block and is not registered.
-    pattern_no_bias_with_matmul_convert = _with_outer_reshape(
+    pattern_with_reshape_no_bias_with_matmul_convert = _with_outer_reshape(
         get_pattern_no_bias(convert_scaled_matmul=True)
     )
-    pattern_no_bias_with_output_convert = CallFunction(
+    pattern_with_reshape_no_bias_with_output_convert = CallFunction(
         prims.convert_element_type.default,
-        pattern_no_bias_with_matmul_convert,
+        pattern_with_reshape_no_bias_with_matmul_convert,
         KeywordArg("output_dtype"),
     )
-    pattern_with_bias = CallFunction(
+    pattern_with_reshape_with_bias = CallFunction(
         aten.add.Tensor,
-        pattern_no_bias,
+        pattern_with_reshape_no_bias,
         KeywordArg("bias"),
     )
     # Similarly, this is an internal building block and is not registered.
-    pattern_with_bias_with_matmul_convert = CallFunction(
+    pattern_with_reshape_with_bias_with_matmul_convert = CallFunction(
         aten.add.Tensor,
-        pattern_no_bias_with_matmul_convert,
+        pattern_with_reshape_no_bias_with_matmul_convert,
         KeywordArg("bias"),
     )
-    pattern_with_bias_with_output_convert = CallFunction(
+    pattern_with_reshape_with_bias_with_output_convert = CallFunction(
         prims.convert_element_type.default,
-        pattern_with_bias_with_matmul_convert,
+        pattern_with_reshape_with_bias_with_matmul_convert,
         KeywordArg("output_dtype"),
     )
 
@@ -1899,12 +1899,12 @@ def _register_smooth_quant_int_mm_pattern():
         # 5: pattern_no_reshape_with_bias (pattern_no_reshape_no_bias + add)
         # 6: pattern_no_reshape_no_bias_with_output_convert
         #    (int_mm + convert + mul + scaled-matmul convert + mul + output convert)
+        #    pattern_with_reshape_no_bias (reshape + int_mm + convert + mul + mul + reshape)
         # 7: pattern_no_reshape_with_bias_with_output_convert
         #    (pattern_no_reshape_no_bias_with_output_convert + add)
-        # 6: pattern_no_bias (reshape + int_mm + convert + mul + mul + reshape)
-        # 7: pattern_with_bias (pattern_no_bias + add)
-        # 8: pattern_no_bias_with_output_convert (pattern_no_bias with scaled matmul + output convert)
-        # 9: pattern_with_bias_with_output_convert (pattern_with_bias with scaled matmul + output convert)
+        #    pattern_with_reshape_with_bias (pattern_with_reshape_no_bias + add)
+        # 8: pattern_with_reshape_no_bias_with_output_convert (pattern_with_reshape_no_bias with scaled matmul + output convert)
+        # 9: pattern_with_reshape_with_bias_with_output_convert (pattern_with_reshape_with_bias with scaled matmul + output convert)
         if len(match.nodes) not in [4, 5, 6, 7, 8, 9]:
             return False
         # Make sure weight is a constant
@@ -1929,10 +1929,10 @@ def _register_smooth_quant_int_mm_pattern():
         return True
 
     pattern_to_pass_number = {
-        pattern_with_bias_with_output_convert: 0,
-        pattern_with_bias: 0,
-        pattern_no_bias_with_output_convert: 1,
-        pattern_no_bias: 1,
+        pattern_with_reshape_with_bias_with_output_convert: 0,
+        pattern_with_reshape_with_bias: 0,
+        pattern_with_reshape_no_bias_with_output_convert: 1,
+        pattern_with_reshape_no_bias: 1,
         pattern_no_reshape_with_bias_with_output_convert: 2,
         pattern_no_reshape_with_bias: 2,
         pattern_no_reshape_no_bias_with_output_convert: 3,

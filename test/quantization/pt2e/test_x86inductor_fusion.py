@@ -2753,15 +2753,15 @@ class TestPatternMatcher(TestPatternMatcherBase):
                 int_mm -> convert -> mul -> mul -> add
             - pattern_no_reshape_no_bias_with_output_convert (6 nodes):
                 int_mm -> convert -> mul -> convert -> mul -> convert
+            - pattern_with_reshape_no_bias (6 nodes):
+                reshape -> int_mm -> convert -> mul -> mul -> reshape
             - pattern_no_reshape_with_bias_with_output_convert (7 nodes):
                 int_mm -> convert -> mul -> convert -> mul -> add -> convert
-            - pattern_no_bias (6 nodes):
-                reshape -> int_mm -> convert -> mul -> mul -> reshape
-            - pattern_with_bias (7 nodes):
+            - pattern_with_reshape_with_bias (7 nodes):
                 reshape -> int_mm -> convert -> mul -> mul -> reshape -> add
-            - pattern_no_bias_with_output_convert (8 nodes):
+            - pattern_with_reshape_no_bias_with_output_convert (8 nodes):
                 reshape -> int_mm -> convert -> mul -> convert -> mul -> reshape -> convert
-            - pattern_with_bias_with_output_convert (9 nodes):
+            - pattern_with_reshape_with_bias_with_output_convert (9 nodes):
                 reshape -> int_mm -> convert -> mul -> convert -> mul -> reshape -> add -> convert
         """
         in_feature = 32
