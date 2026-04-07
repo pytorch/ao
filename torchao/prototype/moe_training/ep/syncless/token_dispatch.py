@@ -22,6 +22,7 @@ class MXFP8SynclessAllToAllExpertMajor(torch.autograd.Function):
         max_output_rows_per_rank: int,
         group: dist.ProcessGroup = dist.group.WORLD,
         buffer_manager: SymmetricMemoryBufferManager = None,
+        token_alignment: int = 128,
     ):
         """
         Performs dynamic MXFP8 quantization along dim0, then an on-device all-to-all operation
@@ -40,6 +41,7 @@ class MXFP8SynclessAllToAllExpertMajor(torch.autograd.Function):
                 Will be exchanged during all-to-all to provide per-expert metadata at destination.
             group: process group to scope the collective.
             buffer_manager: optional buffer manager for reusing buffers across layers.
+            token_alignment: pad each expert's token group to a multiple of this value (default 128).
         """
         assert input.dtype in (torch.float32, torch.bfloat16)
 
@@ -130,6 +132,7 @@ class MXFP8SynclessAllToAllExpertMajor(torch.autograd.Function):
             output_expert_splits,
             expert_padded_offsets,
             group=group,
+            token_alignment=token_alignment,
         )
 
         # Store metadata for real data views in buffer manager
@@ -172,6 +175,7 @@ def _mxfp8_token_dispatch_launcher(
     output_expert_splits: torch.Tensor,
     expert_padded_offsets: torch.Tensor,
     group: dist.ProcessGroup = dist.group.WORLD,
+    token_alignment: int = 128,
     BLOCKS_PER_REMOTE_RANK: int = 32,
     BLOCK_SIZE: int = 16384,
 ):
@@ -218,6 +222,7 @@ def _mxfp8_token_dispatch_launcher(
         rank=rank,
         world_size=world_size,
         num_experts_per_rank=num_experts_per_rank,
+        TOKEN_ALIGNMENT=token_alignment,
     )
 
     # Phase 2: Push data to remote ranks and zero-fill padding regions
@@ -237,6 +242,7 @@ def _mxfp8_token_dispatch_launcher(
         num_experts_per_rank=num_experts_per_rank,
         rank=rank,
         world_size=world_size,
+        TOKEN_ALIGNMENT=token_alignment,
         BLOCKS_PER_REMOTE_RANK=BLOCKS_PER_REMOTE_RANK,
         BLOCK_SIZE=BLOCK_SIZE,
         num_warps=16,
@@ -260,6 +266,7 @@ def _mxfp8_all_to_all_expert_major_kernel(
     num_experts_per_rank: tl.constexpr,
     rank: tl.constexpr,
     world_size: tl.constexpr,
+    TOKEN_ALIGNMENT: tl.constexpr,
     BLOCKS_PER_REMOTE_RANK: tl.constexpr,
     BLOCK_SIZE: tl.constexpr,
 ):
@@ -372,8 +379,10 @@ def _mxfp8_all_to_all_expert_major_kernel(
             if expert_idx < num_experts_per_rank - 1:
                 padded_end = tl.load(expert_padded_offsets_ptr + expert_idx + 1)
             else:
-                # Last expert: pad to multiple of 32
-                padded_size = ((actual_tokens + 31) // 32) * 32
+                # Last expert: pad to multiple of TOKEN_ALIGNMENT
+                padded_size = (
+                    (actual_tokens + TOKEN_ALIGNMENT - 1) // TOKEN_ALIGNMENT
+                ) * TOKEN_ALIGNMENT
                 padded_end = expert_start + padded_size
 
             # Zero-fill padding region if there is one
@@ -416,6 +425,7 @@ def _precompute_push_write_offsets_kernel(
     rank: tl.constexpr,
     world_size: tl.constexpr,
     num_experts_per_rank: tl.constexpr,
+    TOKEN_ALIGNMENT: tl.constexpr,
 ):
     """
     Precompute write offsets for push model.
@@ -446,8 +456,10 @@ def _precompute_push_write_offsets_kernel(
                 )
                 total_tokens += tokens
 
-            # Pad to multiple of 32
-            padded_size = ((total_tokens + 31) // 32) * 32
+            # Pad to multiple of TOKEN_ALIGNMENT
+            padded_size = (
+                (total_tokens + TOKEN_ALIGNMENT - 1) // TOKEN_ALIGNMENT
+            ) * TOKEN_ALIGNMENT
             cumulative_offset += padded_size
 
         # Compute write_offsets for this rank (where it writes to each dst_rank)
@@ -466,8 +478,10 @@ def _precompute_push_write_offsets_kernel(
                         )
                         tokens = tl.load(all_expert_splits_ptr + offset)
                         prev_expert_total += tokens
-                    # Pad to multiple of 32
-                    padded_size = ((prev_expert_total + 31) // 32) * 32
+                    # Pad to multiple of TOKEN_ALIGNMENT
+                    padded_size = (
+                        (prev_expert_total + TOKEN_ALIGNMENT - 1) // TOKEN_ALIGNMENT
+                    ) * TOKEN_ALIGNMENT
                     expert_base_offset += padded_size
 
                 # Step 2: Within-expert offset (tokens from ranks 0..rank-1)

@@ -147,13 +147,11 @@ class MXFP8SynclessAllToAllExpertMajorTest(MultiProcessTestCase):
                 dist.group.WORLD,
             )
 
-            # Exchange expert split information using all_to_all_single (like TorchAO and benchmark)
-            # Flatten expert_splits_per_rank to match TorchAO's num_tokens_per_expert format
-            num_tokens_per_expert = (
-                expert_splits_per_rank.flatten()
-            )  # [world_size * num_experts_per_rank]
+            # Exchange expert split information using all_to_all_single
+            # shape: [world_size * num_experts_per_rank]
+            num_tokens_per_expert = expert_splits_per_rank.flatten()
 
-            # Use all_to_all_single to exchange expert splits (no redundant all_gather needed!)
+            # Use all_to_all_single to exchange expert splits
             tokens_per_expert_group = (
                 torch.distributed._functional_collectives.all_to_all_single(
                     num_tokens_per_expert,
@@ -195,9 +193,9 @@ class MXFP8SynclessAllToAllExpertMajorTest(MultiProcessTestCase):
                 output_rank_level_splits, output_rank_level_splits_ref
             ), "output_rank_level_splits mismatch"
 
-            assert torch.equal(output_expert_splits, output_expert_splits_ref), (
-                f"output_expert_splits mismatch: got {output_expert_splits}, expected {output_expert_splits_ref}"
-            )
+            assert torch.equal(
+                output_expert_splits, output_expert_splits_ref
+            ), f"output_expert_splits mismatch: got {output_expert_splits}, expected {output_expert_splits_ref}"
 
             # Slice to permute_and_pad size for comparison.
             # - Triton kernel is "EP aware" and overallocates for case where all tokens go to one EP rank.

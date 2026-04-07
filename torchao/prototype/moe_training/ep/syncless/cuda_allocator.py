@@ -80,11 +80,11 @@ def _remove_block_jit(
     block_id,  # block to remove (swap with last)
     tracked_id,  # block we're tracking (may move during swap)
     # layout offsets (passed as tl.constexpr from caller)
-    OA: tl.constexpr,
-    OL: tl.constexpr,
-    OC: tl.constexpr,
-    OP: tl.constexpr,
-    ON: tl.constexpr,
+    OA: tl.constexpr,  # offset to addrs[] array
+    OL: tl.constexpr,  # offset to lengths[] array
+    OC: tl.constexpr,  # offset to is_allocated[] array
+    OP: tl.constexpr,  # offset to prev_ids[] array
+    ON: tl.constexpr,  # offset to next_ids[] array
 ):
     """Remove *block_id* by swapping with the last block, then decrement
     ``last_block_id``.  Returns the (possibly updated) *tracked_id*.
@@ -146,7 +146,7 @@ def _alloc_kernel(
     for _pool_idx in tl.static_range(NUM_POOLS):
         if allocated == 0:
             pb = _pool_idx * POOL_STRIDE
-            last_bid = tl.load(state_ptr + pb + 0)  # last_block_id
+            last_bid = tl.load(state_ptr + pb)  # last_block_id in this pool
 
             # -- Parallel scan: load all block metadata --
             bids = tl.arange(0, N)
@@ -223,11 +223,11 @@ def _free_kernel(
     NUM_POOLS: tl.constexpr,
     POOL_STRIDE: tl.constexpr,
     N: tl.constexpr,
-    OA: tl.constexpr,
-    OL: tl.constexpr,
-    OC: tl.constexpr,
-    OP: tl.constexpr,
-    ON: tl.constexpr,
+    OA: tl.constexpr,  # offset to addrs[] array
+    OL: tl.constexpr,  # offset to lengths[] array
+    OC: tl.constexpr,  # offset to is_allocated[] array
+    OP: tl.constexpr,  # offset to prev_ids[] array
+    ON: tl.constexpr,  # offset to next_ids[] array
 ):
     addr = tl.load(addr_ptr).to(tl.int32)
 
