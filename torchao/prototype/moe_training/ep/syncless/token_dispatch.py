@@ -8,6 +8,9 @@ from torchao.prototype.moe_training.ep.syncless.buffer_manager import (
     SymmetricMemoryBufferManager,
     get_buffer_manager,
 )
+from torchao.prototype.moe_training.ep.syncless.token_dispatch_bwd import (
+    _token_dispatch_backward_launcher,
+)
 from torchao.prototype.mx_formats.kernels import triton_to_mxfp8_dim0
 
 
@@ -138,6 +141,19 @@ class MXFP8SynclessAllToAllExpertMajor(torch.autograd.Function):
         # Store metadata for real data views in buffer manager
         buffers.set_real_data_metadata(output_expert_splits, expert_padded_offsets)
 
+        # Save what we need for backward
+        ctx.input_rank_splits = input_rank_splits
+        ctx.input_expert_splits = input_expert_splits
+        ctx.all_expert_splits = all_expert_splits
+        ctx.output_rank_splits = output_rank_splits
+        ctx.output_expert_splits = output_expert_splits
+        ctx.expert_padded_offsets = expert_padded_offsets
+        ctx.group = group
+        ctx.token_alignment = token_alignment
+        ctx.num_input_tokens = input.shape[0]
+        ctx.dim = input_data.shape[1]
+        ctx.buffer_manager = buffers
+
         return (
             buffers.output,
             buffers.output_scales,
@@ -147,14 +163,34 @@ class MXFP8SynclessAllToAllExpertMajor(torch.autograd.Function):
         )
 
     @staticmethod
+    @torch.compiler.disable
     def backward(
         ctx,
         grad_output,
-        grad_rank_splits,
-        grad_expert_splits,
+        grad_output_scales,
+        grad_output_rank_splits,
+        grad_output_expert_splits,
         grad_expert_padded_offsets,
     ):
-        raise NotImplementedError("backward support not yet implemented")
+        """
+        Backward pass: reverse the forward dispatch routing.
+
+        Reads bf16 gradients from the local expert-major grad_output buffer
+        and pushes them back to source ranks' grad_input buffers in rank-major
+        order via symmetric memory.
+
+        Only grad_output is non-None (the other forward outputs are integer tensors).
+        """
+        grad_input = _token_dispatch_backward_launcher(
+            grad_output=grad_output,
+            all_expert_splits=ctx.all_expert_splits,
+            expert_padded_offsets=ctx.expert_padded_offsets,
+            num_input_tokens=ctx.num_input_tokens,
+            dim=ctx.dim,
+            buffers=ctx.buffer_manager,
+            group=ctx.group,
+        )
+        return grad_input, None, None, None, None, None, None
 
 
 # Alias

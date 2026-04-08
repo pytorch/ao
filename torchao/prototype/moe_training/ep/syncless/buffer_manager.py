@@ -21,7 +21,9 @@ class SymmetricMemoryBufferManager:
         self.output = None
         self.output_scales = None
         self.max_output_rows_per_rank = None
-        # Metadata for real data views
+        # Backward buffer (separate from output to avoid read/write conflicts)
+        self.grad_input = None
+        self._grad_input_hdl = None
         self.output_expert_splits = None
         self.expert_padded_offsets = None
         self.real_data_size = None
@@ -63,6 +65,33 @@ class SymmetricMemoryBufferManager:
             dtype=scales_dtype,
             device=device,
         )
+
+    def ensure_grad_input_buffer(
+        self,
+        num_tokens: int,
+        dim: int,
+        device: torch.device,
+        group=None,
+    ) -> None:
+        """
+        Ensure the grad_input symmetric memory buffer is allocated and rendezvoused.
+
+        Called once lazily; subsequent calls are no-ops if the buffer is large enough.
+
+        Args:
+            num_tokens: number of rows (must be consistent across ranks for symm_mem)
+            dim: feature dimension
+            device: CUDA device
+            group: process group for symmetric memory rendezvous
+        """
+        if self.grad_input is None:
+            self.grad_input = symm_mem.empty(
+                num_tokens,
+                dim,
+                dtype=torch.bfloat16,
+                device=device,
+            )
+            self._grad_input_hdl = symm_mem.rendezvous(self.grad_input, group=group)
 
     def set_real_data_metadata(
         self,
