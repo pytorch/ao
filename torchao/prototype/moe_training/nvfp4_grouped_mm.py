@@ -8,6 +8,7 @@ from typing import Optional
 
 import torch
 
+from torchao.prototype.moe_training.utils import conditional_nostrict_trace
 from torchao.prototype.mx_formats.kernels import (
     f4_unpacked_to_f32,
     unpack_uint4,
@@ -20,6 +21,7 @@ from torchao.prototype.mx_formats.nvfp4_tensor import (
 NVFP4_BLOCK_SIZE = 16
 
 
+@conditional_nostrict_trace
 def _to_nvfp4_then_scaled_grouped_mm(
     A: torch.Tensor,
     B_t: torch.Tensor,
