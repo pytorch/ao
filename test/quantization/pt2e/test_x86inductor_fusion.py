@@ -2745,11 +2745,18 @@ class TestPatternMatcher(TestPatternMatcherBase):
         ],
     )
     @parametrize("has_bias", [True, False])
-    @parametrize("output_dtype_convert", [True, False])
+    @parametrize(
+        "input_dtype,w_dtype",
+        [
+            (torch.bfloat16, torch.bfloat16),
+            (torch.float32, torch.float32),
+            (torch.bfloat16, torch.float32),
+        ],
+    )
     @parametrize("input_ndim", [2, 3])
     @parametrize("dynamic", [True, False])
     def test_smooth_quant_pattern(
-        self, base_config, has_bias, output_dtype_convert, input_ndim, dynamic
+        self, base_config, has_bias, input_dtype, w_dtype, input_ndim, dynamic
     ):
         r"""
         This testcase checks if we can match the SmoothQuant int8 linear pattern from Torchao.
@@ -2771,14 +2778,21 @@ class TestPatternMatcher(TestPatternMatcherBase):
             - pattern_with_reshape_with_bias_with_output_convert (9 nodes):
                 reshape -> int_mm -> convert -> mul -> convert -> mul -> reshape -> add -> convert
         """
+        if (
+            input_dtype == torch.bfloat16 or w_dtype == torch.bfloat16
+        ) and not torch.ops.mkldnn._is_mkldnn_bf16_supported():
+            return
         in_feature = 32
         out_feature = 64
+        output_dtype_convert = (
+            input_dtype == torch.bfloat16 and w_dtype == torch.float32
+        )
 
         class Mod(torch.nn.Module):
             def __init__(self, has_bias: bool):
                 super().__init__()
                 self.linear = torch.nn.Linear(
-                    in_feature, out_feature, bias=has_bias, dtype=torch.float32
+                    in_feature, out_feature, bias=has_bias, dtype=w_dtype
                 )
 
             def forward(self, x):
@@ -2796,9 +2810,9 @@ class TestPatternMatcher(TestPatternMatcherBase):
 
         # Prepare calibration data
         if input_ndim == 3:
-            calibration_inputs = torch.randn(2, 4, in_feature, dtype=torch.float32)
+            calibration_inputs = torch.randn(2, 4, in_feature, dtype=w_dtype)
         else:
-            calibration_inputs = torch.randn(2, in_feature, dtype=torch.float32)
+            calibration_inputs = torch.randn(2, in_feature, dtype=w_dtype)
 
         mod(calibration_inputs)
 
@@ -2807,7 +2821,6 @@ class TestPatternMatcher(TestPatternMatcherBase):
         quantize_(mod, quant_config)
 
         # Prepare test input
-        input_dtype = torch.bfloat16 if output_dtype_convert else torch.float32
         if input_ndim == 3:
             test_input = torch.randn(2, 4, in_feature, dtype=input_dtype)
         else:
