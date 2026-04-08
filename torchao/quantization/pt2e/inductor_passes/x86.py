@@ -2037,7 +2037,7 @@ def _register_smooth_quant_int_mm_pattern():
                         None,  # bias
                         1.0,  # output_scale
                         0,  # output_zero_point
-                        dtype,  # output_dtype
+                        x_scale_dtype,  # output_dtype
                         "none",  # post op name
                         [],  # post op args
                         "",  # post op algorithm
