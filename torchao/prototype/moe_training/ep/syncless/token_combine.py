@@ -23,10 +23,6 @@ from torchao.prototype.moe_training.ep.syncless.buffer_manager import (
     SymmetricMemoryBufferManager,
 )
 
-# ---------------------------------------------------------------------------
-# Precompute combine offsets kernel
-# ---------------------------------------------------------------------------
-
 
 @triton.jit
 def _precompute_combine_offsets_kernel(
@@ -180,11 +176,6 @@ def _combine_all_to_all_kernel(
                     )
 
 
-# ---------------------------------------------------------------------------
-# Combine launcher
-# ---------------------------------------------------------------------------
-
-
 def _token_combine_launcher(
     input: torch.Tensor,
     all_expert_splits: torch.Tensor,
@@ -270,3 +261,74 @@ def _token_combine_launcher(
     )
 
     return output
+
+
+class SynclessTokenCombine(torch.autograd.Function):
+    """Autograd function for token combine (inverse of token dispatch).
+
+    Routes tokens from expert-major layout back to source ranks in their
+    original rank-major order via symmetric memory push writes.
+
+    Used for both:
+    - Forward combine: after expert computation, send output projections back
+    - Backward dispatch: send gradients from expert-major layout back
+    """
+
+    @staticmethod
+    @torch.compiler.disable
+    def forward(
+        ctx,
+        input: torch.Tensor,
+        all_expert_splits: torch.Tensor,
+        expert_padded_offsets: torch.Tensor,
+        num_output_tokens: int,
+        group: dist.ProcessGroup = dist.group.WORLD,
+        buffer_manager: SymmetricMemoryBufferManager = None,
+    ):
+        """
+        Routes tokens from expert-major layout back to source ranks in
+        rank-major order.
+
+        Args:
+            input: bf16 tensor in expert-major layout (max_rows, dim).
+            all_expert_splits: all-gathered expert splits
+                (world_size, world_size, num_experts_per_rank).
+            expert_padded_offsets: starting offset for each expert
+                (num_experts_per_rank,).
+            num_output_tokens: number of tokens in the output for this rank.
+            group: process group to scope the collective.
+            buffer_manager: optional buffer manager for reusing buffers.
+        """
+        from torchao.prototype.moe_training.ep.syncless.buffer_manager import (
+            get_buffer_manager,
+        )
+
+        buffers = buffer_manager or get_buffer_manager()
+        dim = input.shape[1]
+
+        output = _token_combine_launcher(
+            input=input,
+            all_expert_splits=all_expert_splits,
+            expert_padded_offsets=expert_padded_offsets,
+            num_output_tokens=num_output_tokens,
+            dim=dim,
+            buffers=buffers,
+            group=group,
+        )
+
+        ctx.all_expert_splits = all_expert_splits
+        ctx.expert_padded_offsets = expert_padded_offsets
+        ctx.num_input_tokens = input.shape[0]
+        ctx.dim = dim
+        ctx.group = group
+        ctx.buffer_manager = buffers
+
+        return output
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        raise NotImplementedError("backward support not yet implemented")
+
+
+# Alias
+token_combine = SynclessTokenCombine.apply
