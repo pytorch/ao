@@ -173,10 +173,10 @@ def test_awq(target_dtype: torch.dtype, mapping_type: MappingType):
     torch.manual_seed(0)
 
     dtype = torch.bfloat16
-    m = ToyLinearModel().eval().to(dtype).to("cuda")
+    m = ToyLinearModel().eval().to(dtype).to("cpu")
 
     m_bf16 = copy.deepcopy(m)
-    example_inputs = m.example_inputs(dtype=dtype, device="cuda")
+    example_inputs = m.example_inputs(dtype=dtype, device="cpu")
     print("example inputs shape:", example_inputs[0].shape)
 
     m_bf16 = torch.compile(m_bf16, mode="max-autotune")
@@ -209,7 +209,8 @@ def test_awq(target_dtype: torch.dtype, mapping_type: MappingType):
 
     # quantized linear represented as an nn.Linear with modified tensor subclass weights
     # for both activation and weight quantization
-    quantize_(m, ApplyAWQConfig(target_dtype), is_observed_linear)
+    config = ApplyAWQConfig(target_dtype)
+    quantize_(m, config, is_observed_linear)
     print("quantized model (applying tensor subclass to weight):", m)
     after_quant = m(*example_inputs)
     assert compute_error(before_quant, after_quant) > 25
