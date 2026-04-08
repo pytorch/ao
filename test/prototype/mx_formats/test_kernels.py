@@ -819,6 +819,9 @@ def test_triton_mxfp8_dim0_overflow_underflow(scaling_mode):
 @pytest.mark.skipif(
     not is_cuda_version_at_least(12, 8), reason="CUDA version >= 12.8 required"
 )
+@pytest.mark.skipif(
+    not is_sm_at_least_100(), reason="CUDA capability 10.0 or greater required"
+)
 @pytest.mark.parametrize("scaling_mode", (ScaleCalculationMode.RCEIL,))
 def test_all_nan_block_scale_behavior(scaling_mode):
     """
