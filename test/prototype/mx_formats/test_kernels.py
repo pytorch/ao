@@ -632,6 +632,10 @@ def test_cuda_mx_dim0_not_supported():
     not is_sm_at_least_100() and not is_MI350(),
     reason="mxfp8 requires CUDA capability 10.0 or greater or ROCm gfx950 or greater.",
 )
+@pytest.mark.skipif(
+    not is_cuda_version_at_least(12, 8),
+    reason="CUDA version >= 12.8 required for MXFP8 CUDA kernels",
+)
 @pytest.mark.parametrize("scaling_mode", (ScaleCalculationMode.RCEIL,))
 def test_triton_mxfp8_dim0_special_values(scaling_mode: ScaleCalculationMode):
     # Create tensor with special values - make it compatible with block_size=32
@@ -721,6 +725,10 @@ def test_triton_mxfp8_dim0_special_values(scaling_mode: ScaleCalculationMode):
     not is_sm_at_least_100() and not is_MI350(),
     reason="mxfp8 requires CUDA capability 10.0 or greater or ROCm gfx950 or greater.",
 )
+@pytest.mark.skipif(
+    not is_cuda_version_at_least(12, 8),
+    reason="CUDA version >= 12.8 required for MXFP8 CUDA kernels",
+)
 @pytest.mark.parametrize("scaling_mode", (ScaleCalculationMode.RCEIL,))
 def test_triton_mxfp8_dim0_overflow_underflow(scaling_mode):
     """Test with values near overflow and underflow thresholds."""
@@ -808,6 +816,9 @@ def test_triton_mxfp8_dim0_overflow_underflow(scaling_mode):
 
 @pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(
+    not is_cuda_version_at_least(12, 8), reason="CUDA version >= 12.8 required"
+)
 @pytest.mark.parametrize("scaling_mode", (ScaleCalculationMode.RCEIL,))
 def test_all_nan_block_scale_behavior(scaling_mode):
     """
@@ -904,6 +915,10 @@ def test_all_nan_block_scale_behavior(scaling_mode):
 @pytest.mark.skipif(
     not is_sm_at_least_100() and not is_MI350(),
     reason="mxfp8 requires CUDA capability 10.0 or greater or ROCm gfx950 or greater.",
+)
+@pytest.mark.skipif(
+    not is_cuda_version_at_least(12, 8),
+    reason="CUDA version >= 12.8 required for MXFP8 CUDA kernels",
 )
 @pytest.mark.parametrize(
     "scaling_mode", (ScaleCalculationMode.RCEIL, ScaleCalculationMode.FLOOR)
