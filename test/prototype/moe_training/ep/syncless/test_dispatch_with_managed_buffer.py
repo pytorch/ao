@@ -10,6 +10,13 @@ Integration test: unified buffer allocator + custom allocator + token dispatch.
 Tests the pattern where a forward pass of token dispatch saves both the
 original input (x) and the dispatch result into a unified GPU+CPU managed
 buffer, using the custom allocator for sub-allocation offsets.
+
+NOTE: In production, allocator offsets (GPU tensors) are passed directly to
+compute kernels (e.g., mxfp8_grouped_gemm's out_offset parameter), which write
+results into the buffer without any device-to-host sync. This test uses .item()
+to read offsets for Python-level slicing since we don't have the actual compute
+kernel integration — the .item() syncs are test-only and do NOT reflect the
+production sync-free pattern.
 """
 
 import pytest
@@ -157,62 +164,44 @@ class TestDispatchWithManagedBuffer(MultiProcessTestCase):
 
             # --- Step 3: Allocate unified GPU+CPU buffer + custom allocator ---
             g = _get_granularity()
-            # Size the buffer to hold both the input and the dispatch result
-            # in bfloat16 (2 bytes per element)
-            input_elements = total_local_tokens * dim
-            output_elements = output_e4m3.numel()
-            # Use row-based allocation: each "row" is dim elements of bf16
-            row_bytes = dim * 2  # bf16 = 2 bytes
-            # Total rows needed: input rows + output rows + padding
+            row_bytes = dim * 2  # bf16 = 2 bytes per element
             max_rows = total_local_tokens + output_e4m3.shape[0] + 256
             total_bytes = max_rows * row_bytes
-            gpu_bytes = ((total_bytes // g) + 1) * g  # align up
+            gpu_bytes = ((total_bytes // g) + 1) * g
 
             buffer = create_unified_buffer(cpu_bytes=0, gpu_bytes=gpu_bytes)
             buf_2d = buffer.view(torch.bfloat16).view(-1, dim)
             total_rows = buf_2d.shape[0]
 
             allocator = CUDAAllocator(buffer, [total_rows])
-            # Reserve sentinel offset (match SOL pattern)
-            allocator.alloc(128)
+            allocator.alloc(128)  # sentinel (match SOL pattern)
 
             # --- Step 4: Save input (x) into the managed buffer ---
+            # In production, the compute kernel writes directly at the GPU-side
+            # offset (e.g., mxfp8_grouped_gemm's out_offset parameter).
+            # Here we use .item() for Python slicing — test-only sync.
             input_offset = allocator.alloc(total_local_tokens)
-            torch.cuda.synchronize()
-            input_offset_val = input_offset.item()
-
-            # Copy input into the buffer at the allocated offset
-            buf_2d[input_offset_val : input_offset_val + total_local_tokens].copy_(
-                input_tensor
-            )
-            torch.cuda.synchronize()
+            input_off = input_offset.item()
+            buf_2d[input_off : input_off + total_local_tokens].copy_(input_tensor)
 
             # --- Step 5: Save dispatch result into the managed buffer ---
             num_output_rows = output_e4m3.shape[0]
             output_offset = allocator.alloc(num_output_rows)
-            torch.cuda.synchronize()
-            output_offset_val = output_offset.item()
-
-            # Copy dispatch output (fp8) reinterpreted as bf16 for storage
+            output_off = output_offset.item()
             output_as_bytes = output_e4m3.view(torch.uint8)
             buf_bytes = buffer.view(torch.uint8)
-            dst_byte_start = output_offset_val * row_bytes
+            dst_byte_start = output_off * row_bytes
             src_bytes = output_as_bytes.numel()
             buf_bytes[dst_byte_start : dst_byte_start + src_bytes].copy_(
                 output_as_bytes.view(-1)
             )
-            torch.cuda.synchronize()
 
             # --- Step 6: Verify saved activations are intact ---
-            # Verify saved input
-            saved_input = buf_2d[
-                input_offset_val : input_offset_val + total_local_tokens
-            ]
+            saved_input = buf_2d[input_off : input_off + total_local_tokens]
             assert torch.equal(
                 saved_input, input_tensor
             ), "Saved input does not match original"
 
-            # Verify saved dispatch result
             saved_output_bytes = buf_bytes[dst_byte_start : dst_byte_start + src_bytes]
             assert torch.equal(
                 saved_output_bytes, output_as_bytes.view(-1)
@@ -220,19 +209,17 @@ class TestDispatchWithManagedBuffer(MultiProcessTestCase):
 
             # --- Step 7: Verify allocator stats ---
             stats = allocator.stats()
-            torch.cuda.synchronize()
             expected_allocated = 128 + total_local_tokens + num_output_rows
             assert (
                 stats.sum_allocated[0].item() == expected_allocated
             ), f"Expected {expected_allocated} allocated, got {stats.sum_allocated[0].item()}"
 
             # --- Step 8: Free in reverse order (simulating backward cleanup) ---
+            # allocator.free() accepts GPU tensor offsets directly (no sync needed)
             allocator.free(output_offset)
             allocator.free(input_offset)
-            torch.cuda.synchronize()
 
             stats = allocator.stats()
-            torch.cuda.synchronize()
             assert (
                 stats.sum_allocated[0].item() == 128
             ), "Only sentinel should remain after freeing saved activations"
@@ -247,8 +234,8 @@ class TestDispatchWithManagedBuffer(MultiProcessTestCase):
     def test_multiple_layers_reuse_buffer(self):
         """Simulate multiple MoE layers reusing the same managed buffer.
 
-        Each layer runs dispatch, saves activations, then frees them,
-        mimicking the forward-then-backward pattern across layers.
+        Each layer saves activations during forward, then frees them
+        during backward, mimicking the forward-then-backward pattern.
         """
         self._init_process()
         try:
@@ -277,7 +264,6 @@ class TestDispatchWithManagedBuffer(MultiProcessTestCase):
             saved_offsets = []
             saved_inputs = []
             for layer_idx in range(num_layers):
-                # Create distinct input per layer
                 start_value = self.rank * total_local_tokens + layer_idx * 100 + 1
                 input_tensor = torch.stack(
                     [
@@ -291,16 +277,14 @@ class TestDispatchWithManagedBuffer(MultiProcessTestCase):
                     ]
                 )
 
-                # Save input
+                # In production, the compute kernel writes at the GPU-side offset.
+                # Here we use .item() for Python slicing — test-only sync.
                 offset = allocator.alloc(total_local_tokens)
-                torch.cuda.synchronize()
                 off_val = offset.item()
                 buf_2d[off_val : off_val + total_local_tokens].copy_(input_tensor)
 
                 saved_offsets.append(offset)
                 saved_inputs.append(input_tensor.clone())
-
-            torch.cuda.synchronize()
 
             # --- Backward pass: verify and free in reverse order ---
             for layer_idx in reversed(range(num_layers)):
@@ -312,11 +296,10 @@ class TestDispatchWithManagedBuffer(MultiProcessTestCase):
                     saved, saved_inputs[layer_idx]
                 ), f"Layer {layer_idx}: saved input mismatch"
 
+                # allocator.free() accepts GPU tensor offsets (no sync needed)
                 allocator.free(offset)
 
-            torch.cuda.synchronize()
             stats = allocator.stats()
-            torch.cuda.synchronize()
             assert (
                 stats.sum_allocated[0].item() == 128
             ), "Only sentinel should remain after backward"
