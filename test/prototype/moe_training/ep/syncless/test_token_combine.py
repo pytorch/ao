@@ -123,8 +123,7 @@ class SynclessTokenCombineTest(MultiProcessTestCase):
             )
 
             # --- Create bf16 expert-major data for combine input ---
-            # Dequantize the dispatch fp8 output to bf16. Small integer values
-            # round-trip exactly through fp8 e4m3, so this is lossless.
+            # Convert to bf16 here in a real model we'd go through the mxfp8 grouped_mm which produces bf16 outputs.
             combine_input = output_e4m3.to(torch.bfloat16)
 
             # --- Combine: route tokens back to source ranks ---
@@ -136,7 +135,7 @@ class SynclessTokenCombineTest(MultiProcessTestCase):
                 dist.group.WORLD,
             )
 
-            # --- Build reference using NCCL all_to_all ---
+            # Build reference using standard all_to_all / NCCL APIs
             # Extract actual (non-padded) tokens from expert-major layout,
             # reordered from expert-major to source-rank-major for all_to_all.
             rank = self.rank
@@ -188,10 +187,10 @@ class SynclessTokenCombineTest(MultiProcessTestCase):
                 dist.group.WORLD,
             )
 
-            # --- Verify ---
             assert (
                 combine_output.shape == ref_output.shape
             ), f"Shape mismatch: combine={combine_output.shape}, ref={ref_output.shape}"
+
             torch.testing.assert_close(
                 combine_output,
                 ref_output,
