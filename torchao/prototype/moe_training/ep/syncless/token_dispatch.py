@@ -8,8 +8,8 @@ from torchao.prototype.moe_training.ep.syncless.buffer_manager import (
     SymmetricMemoryBufferManager,
     get_buffer_manager,
 )
-from torchao.prototype.moe_training.ep.syncless.token_dispatch_bwd import (
-    _token_dispatch_backward_launcher,
+from torchao.prototype.moe_training.ep.syncless.token_combine import (
+    _token_combine_launcher,
 )
 from torchao.prototype.mx_formats.kernels import triton_to_mxfp8_dim0
 
@@ -181,11 +181,11 @@ class MXFP8SynclessAllToAllExpertMajor(torch.autograd.Function):
 
         Only grad_output is non-None (the other forward outputs are integer tensors).
         """
-        grad_input = _token_dispatch_backward_launcher(
-            grad_output=grad_output,
+        grad_input = _token_combine_launcher(
+            input=grad_output,
             all_expert_splits=ctx.all_expert_splits,
             expert_padded_offsets=ctx.expert_padded_offsets,
-            num_input_tokens=ctx.num_input_tokens,
+            num_output_tokens=ctx.num_input_tokens,
             dim=ctx.dim,
             buffers=ctx.buffer_manager,
             group=ctx.group,
