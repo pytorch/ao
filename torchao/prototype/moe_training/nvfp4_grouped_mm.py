@@ -20,12 +20,12 @@ from torchao.prototype.mx_formats.nvfp4_tensor import (
 NVFP4_BLOCK_SIZE = 16
 
 
-def _nvfp4_scaled_grouped_mm(
+def _to_nvfp4_then_scaled_grouped_mm(
     A: torch.Tensor,
     B_t: torch.Tensor,
     offs: Optional[torch.Tensor] = None,
     out_dtype: Optional[torch.dtype] = torch.bfloat16,
-    wgrad_with_hp: bool = True,
+    wgrad_with_hp: bool = False,
 ) -> torch.Tensor:
     """NVFP4 emulated scaled grouped matrix multiplication with autograd support.
 
@@ -46,6 +46,14 @@ def _nvfp4_scaled_grouped_mm(
 
 
 class _NVFP4GroupedMM(torch.autograd.Function):
+    """
+    Differentiable implementation of grouped GEMM with dynamic NVFP4 quantization.
+
+    This autograd function performs grouped matrix multiplication with NVFP4 quantization
+    for efficient MoE training. It uses two-level scaling (per-block + per-tensor) to
+    handle the limited dynamic range of FP4 E2M1 format in backward passes.
+    """
+
     @staticmethod
     def forward(
         ctx,
@@ -65,10 +73,12 @@ class _NVFP4GroupedMM(torch.autograd.Function):
         Returns:
             output: (M, N)
         """
-        assert input_act.ndim == 2
-        assert weight_t.ndim == 3
-        assert group_end_offsets is not None
-        assert out_dtype in (torch.bfloat16, torch.float32)
+        assert input_act.ndim == 2, f"input_act must be 2D, got {input_act.ndim}D"
+        assert weight_t.ndim == 3, f"weight_t must be 3D, got {weight_t.ndim}D"
+        assert group_end_offsets is not None, "group_end_offsets (offs) is required"
+        assert out_dtype in (torch.bfloat16, torch.float32), (
+            f"out_dtype must be bfloat16 or float32, got {out_dtype}"
+        )
 
         # Quantize input_act (M, K) along last dim
         x_scales, x_packed = nvfp4_quantize(input_act, block_size=NVFP4_BLOCK_SIZE)
@@ -80,7 +90,7 @@ class _NVFP4GroupedMM(torch.autograd.Function):
         # w_packed: (E, N, K//2), w_scales: (E, N, K//block_size)
 
         # Emulated grouped GEMM
-        output = _emulated_nvfp4_scaled_grouped_mm_2d_3d(
+        output = _emulated_to_nvfp4_then_scaled_grouped_mm_2d_3d(
             x_packed,
             x_scales,
             w_packed,
@@ -115,7 +125,7 @@ class _NVFP4GroupedMM(torch.autograd.Function):
             weight_t, with_per_tensor_scale=True
         )
 
-        grad_input = _emulated_nvfp4_scaled_grouped_mm_2d_3d(
+        grad_input = _emulated_to_nvfp4_then_scaled_grouped_mm_2d_3d(
             go_packed,
             go_scales,
             w_packed,
@@ -151,7 +161,7 @@ class _NVFP4GroupedMM(torch.autograd.Function):
             )
 
             # 2d_2d: A=(N,M), B=(K,M) -> B^T=(M,K) internal -> (N,M)@(M,K) = (E,N,K)
-            grad_weight = _emulated_nvfp4_scaled_grouped_mm_2d_2d(
+            grad_weight = _emulated_to_nvfp4_then_scaled_grouped_mm_2d_2d(
                 go_t_packed,
                 go_t_scales,
                 x_t_packed,
@@ -240,7 +250,7 @@ def _nvfp4_dequantize(
     return data_scaled.reshape(*leading_shape, K).to(output_dtype)
 
 
-def _emulated_nvfp4_scaled_grouped_mm_2d_3d(
+def _emulated_to_nvfp4_then_scaled_grouped_mm_2d_3d(
     A_data: torch.Tensor,
     A_scale: torch.Tensor,
     B_data: torch.Tensor,
@@ -303,7 +313,7 @@ def _emulated_nvfp4_scaled_grouped_mm_2d_3d(
     return out
 
 
-def _emulated_nvfp4_scaled_grouped_mm_2d_2d(
+def _emulated_to_nvfp4_then_scaled_grouped_mm_2d_2d(
     A_data: torch.Tensor,  # (M, K//2) packed
     A_scale: torch.Tensor,  # (M, K//block_size)
     B_data: torch.Tensor,  # (N, K//2) packed
