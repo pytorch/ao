@@ -28,8 +28,8 @@ from tqdm import tqdm
 
 from benchmarks.utils import profile_fn
 from torchao.prototype.moe_training.ep.permute import permute_and_pad
-from torchao.prototype.moe_training.ep.syncless import (
-    get_buffer_manager,
+from torchao.prototype.moe_training.ep.syncless.buffer_manager import (
+    SymmetricMemoryBufferManager,
 )
 from torchao.prototype.moe_training.ep.syncless.token_combine import token_combine
 from torchao.prototype.moe_training.ep.syncless.token_dispatch import (
@@ -206,7 +206,11 @@ def run_experiment(
     # ================================================================
     # Setup for SYNCLESS combine: run syncless dispatch pipeline
     # ================================================================
-    buffer_manager = get_buffer_manager()
+    # Create a fresh buffer manager per experiment so that grad_input
+    # is allocated with the correct size (the singleton from
+    # get_buffer_manager() would keep the stale buffer from a prior
+    # experiment with a smaller token count).
+    buffer_manager = SymmetricMemoryBufferManager()
     total_tokens_across_all_ranks = x.shape[0] * world_size
     max_output_rows_per_rank = total_tokens_across_all_ranks
 
