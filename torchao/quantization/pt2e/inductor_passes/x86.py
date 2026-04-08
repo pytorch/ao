@@ -1830,9 +1830,7 @@ def _register_smooth_quant_int_mm_pattern():
         )
 
     def _with_outer_reshape(pattern):
-        return CallFunction(
-            aten.reshape.default, pattern, KeywordArg("out_shape_no_bias")
-        )
+        return CallFunction(aten.reshape.default, pattern, KeywordArg("out_shape"))
 
     # The following pattern covers both torchao DA8W8 and SmoothQuant.
     pattern_no_reshape_no_bias = get_pattern_no_bias(reshape_a=False)
@@ -2051,26 +2049,18 @@ def _register_smooth_quant_int_mm_pattern():
                     )
 
                     # Add bias and reshape
-                    has_outer_reshape = (
-                        kwargs.get("out_shape_with_bias", None) is not None
-                        or kwargs.get("out_shape_no_bias", None) is not None
-                    )
-
-                    if has_outer_reshape:
-                        out_shape = kwargs.get(
-                            "out_shape_with_bias", kwargs["out_shape_no_bias"]
-                        )
+                    out_shape = kwargs.get("out_shape", None)
                     if bias is not None:
                         new_out_node = match.graph.call_function(
                             aten.add.Tensor, args=(new_out_node, bias)
                         )
-                        if has_outer_reshape:
+                        if out_shape is not None:
                             new_out_node = match.graph.call_function(
                                 aten.reshape.default,
                                 args=(new_out_node, out_shape),  # type: ignore[possibly-undefined]
                             )
                     else:
-                        if has_outer_reshape:
+                        if out_shape is not None:
                             new_out_node = match.graph.call_function(
                                 aten.reshape.default,
                                 args=(new_out_node, out_shape),  # type: ignore[possibly-undefined]
