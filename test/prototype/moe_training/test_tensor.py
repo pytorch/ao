@@ -29,6 +29,7 @@ from torchao.prototype.mx_formats.kernels import (
     _triton_kernels_available,
 )
 from torchao.quantization.utils import compute_error
+from torchao.testing.utils import skip_if_xpu
 from torchao.utils import get_available_devices, is_sm_at_least_100
 
 _DEVICES = get_available_devices()[1:]  # Exclude CPU since this test is for GPU kernels
@@ -49,10 +50,11 @@ def device(request):
     "cast_kernel_choice",
     [MXFP8Dim1CastKernelChoice.CUDA, MXFP8Dim1CastKernelChoice.CUTEDSL],
 )
+@skip_if_xpu("XPU support not yet available")
 def test_mxfp8_training_tensor_ops_fwd_bwd(
     op_name, batch_size, recipe, cast_kernel_choice, device
 ):
-    if recipe != MXFP8TrainingRecipe.MXFP8_EMULATED_RCEIL and device == "cuda":
+    if recipe != MXFP8TrainingRecipe.MXFP8_EMULATED_RCEIL:
         if not is_sm_at_least_100() or not _triton_kernels_available:
             pytest.skip("SM 100+ required for real MXFP8 support")
         if (
