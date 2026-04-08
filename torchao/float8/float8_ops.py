@@ -174,9 +174,9 @@ def float8_transpose(aten_op, args, kwargs=None):
     new_axiswise_dim = old_axiswise_dim
     if old_axiswise_dim is not None:
         if old_axiswise_dim == 0:
-            new_axiswise_dim == -1
+            new_axiswise_dim = -1
         else:
-            new_axiswise_dim == 0
+            new_axiswise_dim = 0
 
     return Float8TrainingTensor(
         new_data,
