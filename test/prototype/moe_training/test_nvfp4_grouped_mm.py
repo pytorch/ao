@@ -21,14 +21,17 @@ if not (
 
 from torchao.float8.float8_utils import compute_error
 from torchao.prototype.moe_training.nvfp4_grouped_mm import (
-    _emulated_nvfp4_scaled_grouped_mm_2d_2d,
-    _emulated_nvfp4_scaled_grouped_mm_2d_3d,
+    _emulated_to_nvfp4_then_scaled_grouped_mm_2d_2d,
+    _emulated_to_nvfp4_then_scaled_grouped_mm_2d_3d,
+    _to_nvfp4_then_scaled_grouped_mm,
 )
 from torchao.prototype.moe_training.utils import generate_jagged_offs
 from torchao.prototype.mx_formats.nvfp4_tensor import nvfp4_quantize
 from torchao.testing.utils import skip_if_rocm
 
 BLOCK_SIZE = 16
+
+torch._dynamo.config.cache_size_limit = 1000
 
 
 def _quantize_for_test(x: torch.Tensor):
@@ -73,7 +76,7 @@ def test_emulated_nvfp4_grouped_gemm_2d_3d(M, K, N, num_experts):
     ref_out = torch._grouped_mm(x_ref, w_t_ref, offs=offs_ref, out_dtype=torch.bfloat16)
 
     # Emulated NVFP4: B_data=(E, N, K//2), B_scale=(E, N, K//16)
-    out = _emulated_nvfp4_scaled_grouped_mm_2d_3d(
+    out = _emulated_to_nvfp4_then_scaled_grouped_mm_2d_3d(
         x_packed, x_scales, w_packed, w_scales, offs=offs
     )
 
@@ -113,7 +116,7 @@ def test_emulated_nvfp4_grouped_gemm_2d_2d(M, K, N, num_experts):
 
     # Emulated NVFP4: A=(N, M), B=(K, M) -> internally B^T=(M, K)
     # Result: (N, M) @ (M, K) = (E, N, K)
-    out = _emulated_nvfp4_scaled_grouped_mm_2d_2d(
+    out = _emulated_to_nvfp4_then_scaled_grouped_mm_2d_2d(
         grad_out_t_packed,
         grad_out_t_scales,
         x_t_packed,
@@ -177,7 +180,8 @@ def test_nvfp4_dequant_roundtrip_with_per_tensor_scale():
 @pytest.mark.parametrize("M,K,N", [(1024, 1024, 1024), (1024, 2048, 4096)])
 @pytest.mark.parametrize("num_experts", (1, 8))
 @pytest.mark.parametrize("wgrad_with_hp", (True, False))
-def test_nvfp4_grouped_gemm_fwd_bwd(M, K, N, num_experts, wgrad_with_hp):
+@pytest.mark.parametrize("use_compile", (False, True))
+def test_nvfp4_grouped_gemm_fwd_bwd(M, K, N, num_experts, wgrad_with_hp, use_compile):
     """Test NVFP4 autograd forward + backward.
 
     Uses torch.randn grad_output (via out.backward(grad_out)) instead of
@@ -187,10 +191,6 @@ def test_nvfp4_grouped_gemm_fwd_bwd(M, K, N, num_experts, wgrad_with_hp):
     FP4 block scale computation. Using O(1) randn gradient avoids this and
     tests the quantization quality in a realistic range.
     """
-    from torchao.prototype.moe_training.nvfp4_grouped_mm import (
-        _nvfp4_scaled_grouped_mm,
-    )
-
     device = "cuda"
     x = torch.randn(M, K, dtype=torch.bfloat16, device=device, requires_grad=True)
     w_t = torch.randn(
@@ -206,7 +206,12 @@ def test_nvfp4_grouped_gemm_fwd_bwd(M, K, N, num_experts, wgrad_with_hp):
     )
 
     # NVFP4 autograd
-    out = _nvfp4_scaled_grouped_mm(
+    nvfp4_gmm = (
+        torch.compile(_to_nvfp4_then_scaled_grouped_mm, fullgraph=True)
+        if use_compile
+        else _to_nvfp4_then_scaled_grouped_mm
+    )
+    out = nvfp4_gmm(
         x, w_t, offs=offs, out_dtype=torch.bfloat16, wgrad_with_hp=wgrad_with_hp
     )
 
@@ -229,7 +234,7 @@ def test_nvfp4_grouped_gemm_fwd_bwd(M, K, N, num_experts, wgrad_with_hp):
 
     # wgrad SQNR
     wgrad_sqnr = compute_error(w_t_ref.grad, w_t.grad)
-    min_wgrad_sqnr = 16.0 if wgrad_with_hp else 16.0
+    min_wgrad_sqnr = 16.0
     assert wgrad_sqnr >= min_wgrad_sqnr, (
         f"wgrad sqnr {wgrad_sqnr} < {min_wgrad_sqnr} (wgrad_with_hp={wgrad_with_hp})"
     )
@@ -240,10 +245,6 @@ def test_nvfp4_grouped_gemm_fwd_bwd(M, K, N, num_experts, wgrad_with_hp):
 @pytest.mark.parametrize("num_experts", (1, 8, 16))
 def test_nvfp4_grouped_gemm_forward_only(M, K, N, num_experts):
     """Test NVFP4 autograd forward without backward."""
-    from torchao.prototype.moe_training.nvfp4_grouped_mm import (
-        _nvfp4_scaled_grouped_mm,
-    )
-
     device = "cuda"
     x = torch.randn(M, K, dtype=torch.bfloat16, device=device)
     w_t = torch.randn(num_experts, K, N, dtype=torch.bfloat16, device=device)
@@ -253,7 +254,7 @@ def test_nvfp4_grouped_gemm_forward_only(M, K, N, num_experts):
     ref_out = torch._grouped_mm(x, w_t, offs=offs.clone(), out_dtype=torch.bfloat16)
 
     # NVFP4
-    out = _nvfp4_scaled_grouped_mm(x, w_t, offs=offs, out_dtype=torch.bfloat16)
+    out = _to_nvfp4_then_scaled_grouped_mm(x, w_t, offs=offs, out_dtype=torch.bfloat16)
 
     sqnr = compute_error(ref_out, out)
     assert sqnr >= 16.0, f"Forward sqnr {sqnr} < 16.0"
