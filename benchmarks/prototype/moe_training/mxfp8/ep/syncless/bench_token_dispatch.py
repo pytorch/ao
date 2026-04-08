@@ -7,7 +7,7 @@
 #
 # To run these benchmarks, use the following command:
 #
-# torchrun --nproc-per-node=4 --local-ranks-filter=0 benchmarks/prototype/moe_training/mxfp8/bench_all_to_all_v.py
+# torchrun --nproc-per-node=4 --local-ranks-filter=0 <path to file>
 #
 #######################################################################
 import argparse

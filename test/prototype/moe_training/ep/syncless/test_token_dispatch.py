@@ -193,9 +193,9 @@ class MXFP8SynclessAllToAllExpertMajorTest(MultiProcessTestCase):
                 output_rank_level_splits, output_rank_level_splits_ref
             ), "output_rank_level_splits mismatch"
 
-            assert torch.equal(
-                output_expert_splits, output_expert_splits_ref
-            ), f"output_expert_splits mismatch: got {output_expert_splits}, expected {output_expert_splits_ref}"
+            assert torch.equal(output_expert_splits, output_expert_splits_ref), (
+                f"output_expert_splits mismatch: got {output_expert_splits}, expected {output_expert_splits_ref}"
+            )
 
             # Slice to permute_and_pad size for comparison.
             # - Triton kernel is "EP aware" and overallocates for case where all tokens go to one EP rank.

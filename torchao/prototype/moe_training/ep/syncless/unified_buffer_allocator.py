@@ -235,9 +235,9 @@ def create_unified_buffer(cpu_bytes: int, gpu_bytes: int) -> torch.Tensor:
         cpu_handle = result[1]
 
     # -- Reserve virtual address range --
-    assert (
-        gpu_page_size == cpu_page_size
-    ), f"GPU and CPU page sizes differ: {gpu_page_size} vs {cpu_page_size}"
+    assert gpu_page_size == cpu_page_size, (
+        f"GPU and CPU page sizes differ: {gpu_page_size} vs {cpu_page_size}"
+    )
     total_bytes = gpu_bytes + cpu_bytes
     device_ptr = _check(
         cuda_drv.cuMemAddressReserve(total_bytes, gpu_page_size, 0, 0),

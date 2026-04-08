@@ -198,21 +198,21 @@ class TestDispatchWithManagedBuffer(MultiProcessTestCase):
 
             # --- Step 6: Verify saved activations are intact ---
             saved_input = buf_2d[input_off : input_off + total_local_tokens]
-            assert torch.equal(
-                saved_input, input_tensor
-            ), "Saved input does not match original"
+            assert torch.equal(saved_input, input_tensor), (
+                "Saved input does not match original"
+            )
 
             saved_output_bytes = buf_bytes[dst_byte_start : dst_byte_start + src_bytes]
-            assert torch.equal(
-                saved_output_bytes, output_as_bytes.view(-1)
-            ), "Saved dispatch output does not match"
+            assert torch.equal(saved_output_bytes, output_as_bytes.view(-1)), (
+                "Saved dispatch output does not match"
+            )
 
             # --- Step 7: Verify allocator stats ---
             stats = allocator.stats()
             expected_allocated = 128 + total_local_tokens + num_output_rows
-            assert (
-                stats.sum_allocated[0].item() == expected_allocated
-            ), f"Expected {expected_allocated} allocated, got {stats.sum_allocated[0].item()}"
+            assert stats.sum_allocated[0].item() == expected_allocated, (
+                f"Expected {expected_allocated} allocated, got {stats.sum_allocated[0].item()}"
+            )
 
             # --- Step 8: Free in reverse order (simulating backward cleanup) ---
             # allocator.free() accepts GPU tensor offsets directly (no sync needed)
@@ -220,9 +220,9 @@ class TestDispatchWithManagedBuffer(MultiProcessTestCase):
             allocator.free(input_offset)
 
             stats = allocator.stats()
-            assert (
-                stats.sum_allocated[0].item() == 128
-            ), "Only sentinel should remain after freeing saved activations"
+            assert stats.sum_allocated[0].item() == 128, (
+                "Only sentinel should remain after freeing saved activations"
+            )
 
             # --- Cleanup ---
             allocator.free_all()
@@ -292,17 +292,17 @@ class TestDispatchWithManagedBuffer(MultiProcessTestCase):
                 off_val = offset.item()
                 saved = buf_2d[off_val : off_val + total_local_tokens]
 
-                assert torch.equal(
-                    saved, saved_inputs[layer_idx]
-                ), f"Layer {layer_idx}: saved input mismatch"
+                assert torch.equal(saved, saved_inputs[layer_idx]), (
+                    f"Layer {layer_idx}: saved input mismatch"
+                )
 
                 # allocator.free() accepts GPU tensor offsets (no sync needed)
                 allocator.free(offset)
 
             stats = allocator.stats()
-            assert (
-                stats.sum_allocated[0].item() == 128
-            ), "Only sentinel should remain after backward"
+            assert stats.sum_allocated[0].item() == 128, (
+                "Only sentinel should remain after backward"
+            )
 
             # --- Cleanup ---
             allocator.free_all()

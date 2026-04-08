@@ -187,9 +187,9 @@ class SynclessTokenCombineTest(MultiProcessTestCase):
                 dist.group.WORLD,
             )
 
-            assert (
-                combine_output.shape == ref_output.shape
-            ), f"Shape mismatch: combine={combine_output.shape}, ref={ref_output.shape}"
+            assert combine_output.shape == ref_output.shape, (
+                f"Shape mismatch: combine={combine_output.shape}, ref={ref_output.shape}"
+            )
 
             torch.testing.assert_close(
                 combine_output,

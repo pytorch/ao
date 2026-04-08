@@ -36,9 +36,7 @@ def get_bits(x: torch.Tensor) -> str:
     # Numpy has a nice function to get the string representation of binary.
     # Since we are using ints as views of floats, need to specify the width
     # to avoid numpy from using two's complement for negative numbers.
-    return np.binary_repr(
-        x.cpu().numpy(), width=x.element_size() * bits_per_byte
-    )  # noqa: E501
+    return np.binary_repr(x.cpu().numpy(), width=x.element_size() * bits_per_byte)  # noqa: E501
 
 
 EBITS_F32, MBITS_F32 = 8, 23
@@ -385,9 +383,9 @@ if torch_version_at_least("2.7.0") and has_triton():
         Returns:
             Rearranged tensor in block-scaled swizzle format
         """
-        assert (
-            scale_tensor.element_size() == 1
-        ), "Expected element size to be 1 byte (8 bits)"
+        assert scale_tensor.element_size() == 1, (
+            "Expected element size to be 1 byte (8 bits)"
+        )
 
         rows, cols = scale_tensor.shape
 
@@ -861,9 +859,9 @@ if _triton_kernels_available:
         """
         assert x.is_contiguous(), "`x` must be contiguous"
         assert inner_block_size <= 32, "inner_block_size must be <= 32"
-        assert (
-            x.dtype == torch.bfloat16
-        ), f"only bfloat16 inputs are supported, got {x.dtype}"
+        assert x.dtype == torch.bfloat16, (
+            f"only bfloat16 inputs are supported, got {x.dtype}"
+        )
         assert scaling_mode in (
             "floor",
             "rceil",
@@ -874,9 +872,9 @@ if _triton_kernels_available:
         x = x.reshape(-1, x.shape[-1])
         n_rows, n_cols = x.shape
 
-        assert (
-            n_cols % inner_block_size == 0
-        ), "columns must be divisible by inner block size"
+        assert n_cols % inner_block_size == 0, (
+            "columns must be divisible by inner block size"
+        )
 
         # Create output tensors
         output = torch.empty(
