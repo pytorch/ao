@@ -24,17 +24,6 @@ class _UnifiedBufferAllocation:
     gpu_bytes: int
     cpu_bytes: int
     device_ptr: object  # CUdeviceptr
-    # GC anchor for the _CUDAArrayInterfaceWrapper that backs the tensor.
-    #
-    # torch.as_tensor() extracts the raw pointer from __cuda_array_interface__
-    # and builds a Storage — it does NOT necessarily prevent the wrapper object
-    # from being garbage-collected.  Storing it here keeps it alive for as long
-    # as this allocation entry exists in _g_allocated_cudacpu_buffers.
-    #
-    # Ideally we'd use at::from_blob(..., deleter) which ties the tensor's
-    # storage refcount directly to the custom deleter, but from_blob is a
-    # C++-only API with no Python equivalent.
-    _prevent_gc: object = None
 
 
 def _check(result: tuple, msg: str = "") -> object:
@@ -124,42 +113,6 @@ def free_unified_buffer(device_ptr_int: int) -> None:
         _check(cuda_drv.cuMemRelease(alloc.cpu_handle), "cuMemRelease CPU")
 
     del _g_allocated_cudacpu_buffers[device_ptr_int]
-
-
-class _CUDAArrayInterfaceWrapper:
-    """Exposes a raw CUdeviceptr via ``__cuda_array_interface__`` so that
-    ``torch.as_tensor`` can wrap it zero-copy.
-
-    Why this exists instead of at::from_blob
-    -----------------------------------------
-    The C++ implementation uses ``at::from_blob(ptr, sizes, deleter, opts)``
-    which directly ties the tensor's storage lifetime to a custom deleter —
-    no wrapper objects or weak references needed.  ``from_blob`` is C++-only;
-    there is no ``torch.Tensor.from_blob`` in Python.
-
-    From pure Python, the two viable ways to wrap a raw CUDA pointer as a
-    PyTorch tensor are:
-
-    1. ``__cuda_array_interface__`` + ``torch.as_tensor()`` (used here).
-    2. DLPack (``__dlpack__`` / ``torch.from_dlpack()``) — requires building
-       a ``DLManagedTensor`` struct via ctypes, which is more boilerplate
-       than this approach.
-
-    Both are zero-copy but neither supports an automatic destructor, so we
-    pair this with a weak-reference destructor (see ``create_unified_buffer``)
-    and a GC anchor (``_UnifiedBufferAllocation._prevent_gc``) to approximate
-    the C++ from_blob lifecycle.
-
-    Protocol spec: https://numba.readthedocs.io/en/stable/cuda/cuda_array_interface.html
-    """
-
-    def __init__(self, ptr_int: int, nbytes: int):
-        self.__cuda_array_interface__ = {
-            "shape": (nbytes,),
-            "typestr": "|u1",  # uint8
-            "data": (ptr_int, False),  # (ptr, read_only)
-            "version": 2,
-        }
 
 
 def _make_alloc_prop(
@@ -319,9 +272,23 @@ def create_unified_buffer(cpu_bytes: int, gpu_bytes: int) -> torch.Tensor:
             "cuMemSetAccess CPU",
         )
 
-    # -- Wrap as a PyTorch tensor --
-    wrapper = _CUDAArrayInterfaceWrapper(ptr_int, total_bytes)
-    tensor = torch.as_tensor(wrapper, device=f"cuda:{device_id}")
+    # -- Wrap as a PyTorch tensor via internal APIs --
+    # _construct_storage_from_data_pointer creates a non-owning Storage
+    # (uses deleteNothing as deleter, so GC won't free the VMM memory).
+    # _construct_CUDA_Tensor_From_Storage_And_Metadata wraps it as a tensor.
+    # This replaces the __cuda_array_interface__ + torch.as_tensor workaround.
+    storage = torch._C._construct_storage_from_data_pointer(
+        ptr_int, torch.device(f"cuda:{device_id}"), total_bytes
+    )
+    tensor = torch._C._construct_CUDA_Tensor_From_Storage_And_Metadata(
+        {
+            "dtype": torch.uint8,
+            "size": (total_bytes,),
+            "stride": (1,),
+            "storage_offset": 0,
+        },
+        storage,
+    )
 
     # Register allocation for later cleanup.
     alloc = _UnifiedBufferAllocation(
@@ -330,19 +297,16 @@ def create_unified_buffer(cpu_bytes: int, gpu_bytes: int) -> torch.Tensor:
         gpu_bytes=gpu_bytes,
         cpu_bytes=cpu_bytes,
         device_ptr=device_ptr,
-        _prevent_gc=wrapper,
     )
     _g_allocated_cudacpu_buffers[ptr_int] = alloc
 
     # -- Automatic deleter via weak reference --
-    # The C++ version passes free_cudacpu_buffer as the deleter arg to
-    # at::from_blob, so cleanup is driven by the tensor's storage refcount.
-    # Python has no equivalent API (from_blob is C++-only), so we emulate
-    # the same lifecycle with weakref: when the tensor (and all views/slices
-    # sharing its storage) are garbage-collected, the weak-ref callback fires
-    # and releases the VMM resources.  The weak-ref object itself is kept
-    # alive in _g_prevent_destructor_gc so it isn't collected before the
-    # tensor.
+    # The storage created by _construct_storage_from_data_pointer is non-owning
+    # (uses deleteNothing), so GC of the tensor/storage will NOT free the VMM
+    # memory.  We use a weakref callback to trigger free_unified_buffer when the
+    # tensor is garbage-collected, approximating the C++ from_blob + custom
+    # deleter pattern.  The weakref object itself is kept alive in
+    # _g_prevent_destructor_gc so it isn't collected before the tensor.
     #
     # If free_unified_buffer() was already called manually (deterministic
     # cleanup), the destructor is a no-op because the ptr will no longer be
