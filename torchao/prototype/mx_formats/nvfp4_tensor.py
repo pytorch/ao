@@ -183,14 +183,10 @@ class NVFP4Tensor(TorchAOBaseTensor):
             assert K % 16 == 0, (
                 f"Triton kernel requires K (dim -1) to be divisible by 16, got {K}"
             )
-            assert per_tensor_scale is not None, (
-                "Triton kernel requires per_tensor_scale"
-            )
-            if kernel_preference = KernelPreference.MSLK:
+            if kernel_preference == KernelPreference.MSLK and rounding_mode == RoundingMode.RN:
                 blockwise_scales, data_lp = mslk_quantize_nvfp4(data_hp, per_tensor_scale)
             else:
-                _seed = torch.randint(2**31, (1,)).item()
-                blockwise_scales, data_lp = triton_quantize_nvfp4(
+                blockwise_scales, data_lp = torch.ops.ao.triton_quantize_nvfp4(
                     data_hp, per_tensor_scale, rounding_mode.value, rand_bits
                 )
         else:

@@ -79,7 +79,7 @@ if has_triton() and torch.cuda.is_available() and is_sm_at_least_100():
         mask = offs < N
         x = tl.load(x_ptr + offs, mask=mask).to(tl.float32)
         x_pairs = x.reshape(32, 2).split()
-        if ROUNDING_MODE == 0:
+        if ROUNDING_MODE == 1:  # RoundingMode.RN
             x_fp4x2 = convert_fp32_to_fp4_packed(x_pairs)
         else:
             out_offs = pid * 32 + tl.arange(0, 32)

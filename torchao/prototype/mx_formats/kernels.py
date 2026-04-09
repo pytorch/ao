@@ -610,7 +610,7 @@ if torch_version_at_least("2.7.0") and has_triton():
 
         # Convert to FP4
         x_pairs = x_blocks.reshape(128, 32, 2).split()
-        if ROUNDING_MODE == 0:
+        if ROUNDING_MODE == 1:  # RoundingMode.RN
             # Round to nearest (RN)
             x_fp4x2 = convert_fp32_to_fp4_packed(x_pairs)
         else:
