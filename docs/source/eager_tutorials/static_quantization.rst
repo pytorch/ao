@@ -5,7 +5,7 @@ Static quantization refers to using a fixed quantization range for all inputs du
 
 In static quantization, this fixed quantization range is typically calibrated on similar inputs before quantizing the model. During the calibration phase, we first insert observers into the model to "observe" the distribution of the inputs to be quantized, and use this distribution to decide what scales and zero points to ultimately use when quantizing the model.
 
-In this tutorial, we walk through an example of how to achieve this in torchao. All code can be found in this `example script <https://github.com/pytorch/ao/tree/main/tutorials/calibration_flow/static_quant.py>`__. Let's start with our toy linear model:
+In this tutorial, we walk through an example of how to achieve this in torchao. Let's start with our toy linear model:
 
 .. code:: py
 
@@ -236,4 +236,4 @@ Now, we will see that the linear layers in our model are swapped to our `Quantiz
    >>> m.linear1.qweight  # quantized weight tensor with scale and zero_point
    IntxUnpackedToInt8Tensor(...)  # actual repr depends on quantization config
 
-In this tutorial, we walked through a basic example of how to perform integer static quantization in torchao. We also have an example of how to perform the same static quantization in float8. Please see the full `example script <https://github.com/pytorch/ao/tree/main/tutorials/calibration_flow/static_quant.py>`__ for more detail!
+In this tutorial, we walked through a basic example of how to perform integer static quantization in torchao.

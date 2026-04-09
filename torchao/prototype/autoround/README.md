@@ -38,7 +38,7 @@ This script allows you to apply `Auto-Round` on a given model directly, more con
 `Auto-Round` is a calibration-based quantization algorithm. The flow involves three main steps: 1) insert hooks to the modules you want to quantize, 2) Wrap the calibration data with `MultiTensor` and run the model, 3) Replace the optimized weight with quantized tensors to select the appropriate low-bit kernel.
 
 > [!NOTE]
-> To learn more about the flow and `MultiTensor`, please refer to [this example](https://github.com/pytorch/ao/blob/main/tutorials/calibration_flow/gptq_like.py).
+> To learn more about the flow and `MultiTensor`, please refer to [MultiTensor](https://gist.github.com/HDCharles/a1b575bbf8875f994af8a01b225e1227).
 
 #### Step 1: Prepare the Model
 ```python
