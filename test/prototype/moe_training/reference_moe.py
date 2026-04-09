@@ -408,6 +408,10 @@ class MXFP8GroupedExperts(nn.Module):
     """MXFP8 grouped experts that accepts the 4-arg dispatch output format
     from SynclessExpertParallel._token_dispatch:
       (output_e4m3, output_scales_e8m0, num_tokens_per_expert, expert_padded_offsets)
+
+    Fuses w1 and w3 into a single w13 parameter of shape
+    (num_experts, 2 * hidden_dim, dim) so the two x @ w1 and x @ w3
+    projections are computed with a single grouped GEMM.
     """
 
     def __init__(
@@ -419,9 +423,9 @@ class MXFP8GroupedExperts(nn.Module):
     ):
         super().__init__()
         self.num_experts = num_experts
-        self.w1 = nn.Parameter(torch.empty(num_experts, hidden_dim, dim))
+        self.hidden_dim = hidden_dim
+        self.w13 = nn.Parameter(torch.empty(num_experts, 2 * hidden_dim, dim))
         self.w2 = nn.Parameter(torch.empty(num_experts, dim, hidden_dim))
-        self.w3 = nn.Parameter(torch.empty(num_experts, hidden_dim, dim))
 
     def forward(
         self,
@@ -433,32 +437,27 @@ class MXFP8GroupedExperts(nn.Module):
         from torchao.prototype.moe_training.mxfp8_grouped_mm import (
             _to_mxfp8_then_scaled_grouped_mm,
         )
-
-        # Decode dispatch MXFP8 output to bf16 for the grouped GEMM
-        # (the MXFP8 GEMM will re-quantize internally).
-        x = output_e4m3.to(torch.bfloat16)
-
-        if isinstance(self.w1, DTensor):
-            w1 = self.w1.to_local()
-            w2 = self.w2.to_local()
-            w3 = self.w3.to_local()
-        else:
-            w1 = self.w1
-            w2 = self.w2
-            w3 = self.w3
+        from torchao.prototype.mx_formats.mx_tensor import MXTensor
 
         mxfp8_gmm = _to_mxfp8_then_scaled_grouped_mm
 
-        group_end_offs = torch.cumsum(num_tokens_per_expert, dim=0, dtype=torch.int32)
-        h = F.silu(mxfp8_gmm(x, w1.transpose(-2, -1), offs=group_end_offs))
-        h = h * mxfp8_gmm(x, w3.transpose(-2, -1), offs=group_end_offs)
-        out = mxfp8_gmm(h, w2.transpose(-2, -1), offs=group_end_offs)
+        # Wrap pre-quantized inputs in MXTensor
+        orig_dtype = torch.bfloat16
+        x = MXTensor.from_qdata_and_scales(output_e4m3, output_scales_e8m0, orig_dtype)
+
+        w13 = self.w13
+        w2 = self.w2
+
+        # Fused w1/w3 projection: single GEMM producing (tokens, 2*hidden_dim)
+        h13 = mxfp8_gmm(x, w13.transpose(-2, -1), offs=expert_padded_offsets)
+        h1, h3 = h13.split(self.hidden_dim, dim=-1)
+        h = F.silu(h1) * h3
+        out = mxfp8_gmm(h, w2.transpose(-2, -1), offs=expert_padded_offsets)
         return out
 
     def init_weights(self, init_std: float):
-        nn.init.trunc_normal_(self.w1, mean=0.0, std=0.02)
+        nn.init.trunc_normal_(self.w13, mean=0.0, std=0.02)
         nn.init.trunc_normal_(self.w2, mean=0.0, std=init_std)
-        nn.init.trunc_normal_(self.w3, mean=0.0, std=init_std)
 
 
 class TokenChoiceTopKRouter(nn.Module):

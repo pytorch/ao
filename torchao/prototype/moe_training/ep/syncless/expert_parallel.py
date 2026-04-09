@@ -16,7 +16,7 @@ Dispatch (input_fn):
     1. Dynamically quantise bf16 tokens to MXFP8 (e4m3 + e8m0 scales).
     2. Push tokens to expert-major padded layout on destination ranks via
        symmetric memory – no NCCL all-to-all, no D2H syncs.
-    3. Return the MXFP8 output tensors + per-expert token counts so the
+    3. Return the MXFP8 output tensors + expert padded offsets so the
        module can feed them into an MXFP8 grouped GEMM.
 
 Combine (output_fn):
@@ -123,7 +123,7 @@ class SynclessExpertParallel(ParallelStyle):
             output_e4m3,
             output_scales_e8m0,
             _output_rank_splits,
-            output_expert_splits,
+            _output_expert_splits,
             expert_padded_offsets,
             all_expert_splits,
         ) = mxfp8_token_dispatch(
@@ -139,13 +139,21 @@ class SynclessExpertParallel(ParallelStyle):
         self._expert_padded_offsets = expert_padded_offsets
         self._all_expert_splits = all_expert_splits
 
-        # Per-expert token counts (actual, not padded) for the grouped GEMM.
-        num_tokens_per_expert_group = output_expert_splits.sum(dim=0)
+        # Padded per-expert token counts for the grouped GEMM.
+        # Consecutive differences of expert_padded_offsets give each expert's
+        # padded group size; the last expert's size must be computed from the
+        # total tokens received since expert_padded_offsets only has start offsets.
+        tokens_per_expert_actual = _output_expert_splits.sum(dim=0)
+        padded_token_per_expert = (
+            (tokens_per_expert_actual + self.token_alignment - 1)
+            // self.token_alignment
+            * self.token_alignment
+        )
 
         return (
             output_e4m3,
             output_scales_e8m0,
-            num_tokens_per_expert_group,
+            padded_token_per_expert,
             expert_padded_offsets,
         )
 
