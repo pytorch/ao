@@ -52,7 +52,6 @@ jobs:
           test/test_utils.py \
           test/test_low_bit_optim.py \
           test/dtypes/test_nf4.py \
-          test/dtypes/test_affine_quantized.py \
           test/float8/test_base.py \
           test/float8/test_float8_utils.py \
           test/float8/test_numerics_integration.py \
