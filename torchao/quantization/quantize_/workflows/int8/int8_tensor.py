@@ -43,10 +43,12 @@ class QuantizeTensorToInt8Kwargs(QuantizeTensorKwargs):
     Args:
         granularity: the granularity for the Tensor, currently either PerRow() or PerTensor()
         mapping_type: whether to use symmetric or asymmetric quant
+        reduce_range: if True, use reduced int8 range [-64, 63] instead of full range [-128, 127]
     """
 
     granularity: Granularity
     mapping_type: MappingType = MappingType.SYMMETRIC
+    reduce_range: bool = False
 
 
 class Int8Tensor(TorchAOBaseTensor):
@@ -70,7 +72,7 @@ class Int8Tensor(TorchAOBaseTensor):
         "act_quant_zero_point",
         "act_pre_scale",
     ]
-    tensor_attribute_names = ["block_size", "dtype"]
+    tensor_attribute_names = ["block_size", "dtype", "reduce_range"]
     optional_tensor_attribute_names = [
         "act_quant_kwargs",
     ]
@@ -81,6 +83,7 @@ class Int8Tensor(TorchAOBaseTensor):
         scale: torch.Tensor,
         block_size: List[int],
         dtype: torch.dtype,
+        reduce_range: bool = False,
         zero_point: Optional[torch.Tensor] = None,
         act_quant_scale: Optional[torch.Tensor] = None,
         act_quant_zero_point: Optional[torch.Tensor] = None,
@@ -100,6 +103,7 @@ class Int8Tensor(TorchAOBaseTensor):
         scale: torch.Tensor,
         block_size: List[int],
         dtype: torch.dtype,
+        reduce_range: bool = False,
         zero_point: Optional[torch.Tensor] = None,
         act_quant_scale: Optional[torch.Tensor] = None,
         act_quant_zero_point: Optional[torch.Tensor] = None,
@@ -110,6 +114,7 @@ class Int8Tensor(TorchAOBaseTensor):
         self.qdata = qdata
         self.scale = scale
         self.block_size = block_size
+        self.reduce_range = reduce_range
         self.zero_point = zero_point
         # don't set dtype because this gets done in __new__
         self.act_quant_kwargs = act_quant_kwargs
@@ -121,6 +126,7 @@ class Int8Tensor(TorchAOBaseTensor):
         return (
             f"{self.__class__.__name__}("
             f"act_quant_kwargs={self.act_quant_kwargs}, "
+            f"reduce_range={self.reduce_range}, "
             f"qdata={self.qdata}, "
             f"scale={self.scale}, "
             f"zero_point={self.zero_point}, "
@@ -167,6 +173,7 @@ class Int8Tensor(TorchAOBaseTensor):
         hp_tensor: torch.Tensor,
         granularity: Granularity,
         mapping_type=MappingType.SYMMETRIC,
+        reduce_range: bool = False,
         scale: Optional[torch.Tensor] = None,
         zero_point: Optional[torch.Tensor] = None,
         act_quant_kwargs: Optional[QuantizeTensorToInt8Kwargs] = None,
@@ -178,14 +185,16 @@ class Int8Tensor(TorchAOBaseTensor):
         block_size = get_block_size(hp_tensor.shape, granularity)
         block_size = list(block_size)
 
+        quant_min, quant_max = (-64, 63) if reduce_range else (-128, 127)
+
         if scale is None:
             scale, zero_point = choose_qparams_affine(
                 input=hp_tensor,
                 mapping_type=mapping_type,
                 block_size=block_size,
                 target_dtype=torch.int8,
-                quant_min=-128,
-                quant_max=127,
+                quant_min=quant_min,
+                quant_max=quant_max,
                 scale_dtype=hp_tensor.dtype,
                 zero_point_dtype=torch.int8,
                 keepdim=True,
@@ -208,6 +217,8 @@ class Int8Tensor(TorchAOBaseTensor):
             scale=scale,
             zero_point=zero_point,
             output_dtype=torch.int8,
+            quant_min=quant_min,
+            quant_max=quant_max,
         )
 
         if mapping_type == MappingType.ASYMMETRIC:
@@ -220,6 +231,7 @@ class Int8Tensor(TorchAOBaseTensor):
             scale,
             block_size,
             hp_tensor.dtype,
+            reduce_range=reduce_range,
             zero_point=zero_point,
             act_quant_scale=act_quant_scale,
             act_quant_zero_point=act_quant_zero_point,
@@ -229,14 +241,15 @@ class Int8Tensor(TorchAOBaseTensor):
 
     def dequantize(self, output_dtype: Optional[torch.dtype] = None) -> torch.Tensor:
         """Dequantize int8 tensor to floating point"""
+        quant_min, quant_max = (-64, 63) if self.reduce_range else (-128, 127)
         return dequantize_affine(
             input=self.qdata,
             block_size=self.block_size,
             scale=self.scale,
             zero_point=self.zero_point,
             input_dtype=torch.int8,
-            quant_min=-128,
-            quant_max=127,
+            quant_min=quant_min,
+            quant_max=quant_max,
             output_dtype=output_dtype if output_dtype is not None else self.dtype,
         )
 
@@ -394,6 +407,7 @@ def _(func, types, args, kwargs):
             sliced_scale,
             block_size,
             self.dtype,
+            reduce_range=self.reduce_range,
             zero_point=sliced_zero_point,
             act_quant_kwargs=self.act_quant_kwargs,
             act_quant_scale=self.act_quant_scale,
@@ -455,6 +469,7 @@ def _(func, types, args, kwargs):
         pinned_scale,
         args[0].block_size,
         args[0].dtype,
+        reduce_range=args[0].reduce_range,
         zero_point=pinned_zero_point,
         act_quant_scale=pinned_act_quant_scale,
         act_quant_zero_point=pinned_act_quant_zero_point,
@@ -482,6 +497,7 @@ def _(func, types, args, kwargs):
         old_int8_tensor.scale[index],
         old_int8_tensor.block_size[1:],
         old_int8_tensor.dtype,
+        reduce_range=old_int8_tensor.reduce_range,
         zero_point=selected_zero_point,
         act_quant_scale=old_int8_tensor.act_quant_scale,
         act_quant_zero_point=old_int8_tensor.act_quant_zero_point,

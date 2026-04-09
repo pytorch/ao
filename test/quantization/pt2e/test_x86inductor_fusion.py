@@ -2736,27 +2736,22 @@ class TestPatternMatcher(TestPatternMatcherBase):
     @parametrize(
         "base_config",
         [
-            Int8StaticActivationInt8WeightConfig(granularity=(PerTensor(), PerRow())),
-            Int8StaticActivationInt8WeightConfig(),
-            Int8DynamicActivationInt8WeightConfig(
-                version=2, granularity=(PerTensor(), PerRow())
+            Int8StaticActivationInt8WeightConfig(
+                granularity=(PerTensor(), PerRow()), reduce_range=True
             ),
-            Int8DynamicActivationInt8WeightConfig(version=2),
+            Int8StaticActivationInt8WeightConfig(reduce_range=True),
+            Int8DynamicActivationInt8WeightConfig(
+                version=2, granularity=(PerTensor(), PerRow()), reduce_range=True
+            ),
+            Int8DynamicActivationInt8WeightConfig(version=2, reduce_range=True),
         ],
     )
     @parametrize("has_bias", [True, False])
-    @parametrize(
-        "input_dtype,w_dtype",
-        [
-            (torch.bfloat16, torch.bfloat16),
-            (torch.float32, torch.float32),
-            (torch.bfloat16, torch.float32),
-        ],
-    )
+    @parametrize("enable_autocast", [True, False])
     @parametrize("input_ndim", [2, 3])
     @parametrize("dynamic", [True, False])
     def test_smooth_quant_pattern(
-        self, base_config, has_bias, input_dtype, w_dtype, input_ndim, dynamic
+        self, base_config, has_bias, enable_autocast, input_ndim, dynamic
     ):
         r"""
         This testcase checks if we can match the SmoothQuant int8 linear pattern from Torchao.
@@ -2778,21 +2773,17 @@ class TestPatternMatcher(TestPatternMatcherBase):
             - pattern_with_reshape_with_bias_with_output_convert (9 nodes):
                 reshape -> int_mm -> convert -> mul -> convert -> mul -> reshape -> add -> convert
         """
-        if (
-            input_dtype == torch.bfloat16 or w_dtype == torch.bfloat16
-        ) and not torch.ops.mkldnn._is_mkldnn_bf16_supported():
+        if enable_autocast and not torch.ops.mkldnn._is_mkldnn_bf16_supported():
             return
+        M = 16
         in_feature = 32
         out_feature = 64
-        output_dtype_convert = (
-            input_dtype == torch.bfloat16 and w_dtype == torch.float32
-        )
 
         class Mod(torch.nn.Module):
             def __init__(self, has_bias: bool):
                 super().__init__()
                 self.linear = torch.nn.Linear(
-                    in_feature, out_feature, bias=has_bias, dtype=w_dtype
+                    in_feature, out_feature, bias=has_bias, dtype=torch.float32
                 )
 
             def forward(self, x):
@@ -2810,9 +2801,9 @@ class TestPatternMatcher(TestPatternMatcherBase):
 
         # Prepare calibration data
         if input_ndim == 3:
-            calibration_inputs = torch.randn(2, 4, in_feature, dtype=w_dtype)
+            calibration_inputs = torch.randn(1, M, in_feature, dtype=torch.float32)
         else:
-            calibration_inputs = torch.randn(2, in_feature, dtype=w_dtype)
+            calibration_inputs = torch.randn(M, in_feature, dtype=torch.float32)
 
         mod(calibration_inputs)
 
@@ -2822,9 +2813,9 @@ class TestPatternMatcher(TestPatternMatcherBase):
 
         # Prepare test input
         if input_ndim == 3:
-            test_input = torch.randn(2, 4, in_feature, dtype=input_dtype)
+            test_input = torch.randn(1, M, in_feature, dtype=torch.float32)
         else:
-            test_input = torch.randn(2, in_feature, dtype=input_dtype)
+            test_input = torch.randn(M, in_feature, dtype=torch.float32)
 
         def matcher_check_fn():
             self.assertEqual(
@@ -2833,12 +2824,12 @@ class TestPatternMatcher(TestPatternMatcherBase):
 
             if input_ndim == 2:
                 # 2D input: no outer reshape
-                expected_nodes = 6 if output_dtype_convert else 4
+                expected_nodes = 6 if enable_autocast else 4
                 if has_bias:
                     expected_nodes += 1  # add bias operation
             else:
                 # 3D input: with outer reshape
-                expected_nodes = 8 if output_dtype_convert else 6
+                expected_nodes = 8 if enable_autocast else 6
                 if has_bias:
                     expected_nodes += 1  # add bias operation
 
@@ -2854,7 +2845,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
             mod,
             (test_input,),
             matcher_check_fn=matcher_check_fn,
-            check_autocast=input_dtype,
+            check_autocast=torch.bfloat16 if enable_autocast else torch.float32,
             compile_options={"dynamic": dynamic},
             check_output_dtype=True,
         )

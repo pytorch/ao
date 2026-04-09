@@ -1038,6 +1038,8 @@ class Int8DynamicActivationInt8WeightConfig(AOBaseConfig):
             If None, defaults to PerRow for both. Only PerTensor and PerRow are supported.
         act_mapping_type: Optional[MappingType] = MappingType.SYMMETRIC - Mapping type for activation quantization.
             SYMMETRIC and ASYMMETRIC are supported.
+        reduce_range: bool = False - If True, both activation and weight int8 quantization use reduced range
+            [-64, 63] instead of full range [-128, 127].
         set_inductor_config: bool = True - If True, adjusts `torchinductor` settings to recommended values
             for better performance with this quantization scheme.
 
@@ -1048,6 +1050,7 @@ class Int8DynamicActivationInt8WeightConfig(AOBaseConfig):
     """
 
     act_mapping_type: Optional[MappingType] = MappingType.SYMMETRIC
+    reduce_range: bool = False
     weight_only_decode: bool = False
     granularity: Optional[
         Union[Granularity, Tuple[Granularity, Granularity], list[Granularity]]
@@ -1089,9 +1092,11 @@ def _int8_dynamic_activation_int8_weight_quantize_tensor(weight, config):
     quantized_weight = Int8Tensor.from_hp(
         weight,
         granularity=weight_granularity,
+        reduce_range=config.reduce_range,
         act_quant_kwargs=QuantizeTensorToInt8Kwargs(
             granularity=act_granularity,
             mapping_type=config.act_mapping_type,
+            reduce_range=config.reduce_range,
         ),
     )
 
@@ -1144,6 +1149,8 @@ class Int8StaticActivationInt8WeightConfig(AOBaseConfig):
             activations and weights) or a tuple / list of two granularities (first for activations, second for weights).
             If None, defaults to PerRow for both. Only PerTensor and PerRow are supported.
         act_mapping_type (MappingType): The mapping type for activation quantization. SYMMETRIC and ASYMMETRIC are supported.
+        reduce_range (bool): If True, both activation and weight int8 quantization use reduced range
+            [-64, 63] instead of full range [-128, 127].
         set_inductor_config (bool): if True, adjusts `torchinductor` settings to recommended values.
         version (int): the version of the config
     """
@@ -1154,6 +1161,7 @@ class Int8StaticActivationInt8WeightConfig(AOBaseConfig):
         Union[Granularity, Tuple[Granularity, Granularity], list[Granularity]]
     ] = PerRow()
     act_mapping_type: Optional[MappingType] = MappingType.SYMMETRIC
+    reduce_range: bool = False
     set_inductor_config: bool = True
     version: int = 1
 
@@ -1189,6 +1197,7 @@ class Int8StaticActivationInt8WeightConfig(AOBaseConfig):
         return QuantizeTensorToInt8Kwargs(
             granularity=act_granularity,
             mapping_type=self.act_mapping_type,
+            reduce_range=self.reduce_range,
         )
 
 
@@ -1216,9 +1225,11 @@ def _int8_static_activation_int8_weight_transform(
     quantized_tensor = Int8Tensor.from_hp(
         getattr(module, parameter_name),
         granularity=weight_granularity,
+        reduce_range=config.reduce_range,
         act_quant_kwargs=QuantizeTensorToInt8Kwargs(
             granularity=activation_granularity,
             mapping_type=config.act_mapping_type,
+            reduce_range=config.reduce_range,
         ),
         act_quant_scale=config.act_quant_scale.detach(),
         act_quant_zero_point=act_quant_zero_point,
