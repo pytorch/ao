@@ -30,9 +30,6 @@ We have utility base class: ``torchao.utils.TorchAOBaseTensor`` that can help de
 
 With the above, we'll have multiple methods and functions available to use for this Tensor, for more details please check the docs for `TorchAOBaseTensor <https://docs.pytorch.org/ao/main/generated/torchao.utils.TorchAOBaseTensor.html#torchao.utils.TorchAOBaseTensor>`__
 
-.. note::
-   Many of the existing use cases in torchao still uses AffineQuantizedTensor, but we plan to move away from it to reduce the abstractions and make it easier for people to contribute to torchao.
-
 Adding Efficient Kernels
 ~~~~~~~~~~~~~~~~~~~~~~~~
 
