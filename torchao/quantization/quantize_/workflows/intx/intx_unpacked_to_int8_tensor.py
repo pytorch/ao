@@ -350,6 +350,13 @@ def _(func, types, args, kwargs):
         dilation,
         groups,
     ) = fill_defaults(args, 7, [None, [1, 1], [0, 0], [1, 1], 1])
+    input_tensor = kwargs.get("input", input_tensor)
+    weight_tensor = kwargs.get("weight", weight_tensor)
+    bias = kwargs.get("bias", bias)
+    stride = kwargs.get("stride", stride)
+    padding = kwargs.get("padding", padding)
+    dilation = kwargs.get("dilation", dilation)
+    groups = kwargs.get("groups", groups)
     assert isinstance(weight_tensor, IntxUnpackedToInt8Tensor)
 
     # Apply dynamic activation quant
