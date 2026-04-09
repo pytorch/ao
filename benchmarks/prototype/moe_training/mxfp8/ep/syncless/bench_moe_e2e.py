@@ -35,6 +35,7 @@ sys.path.insert(
         os.path.dirname(__file__), "../../../../../../test/prototype/moe_training"
     ),
 )
+from benchmarks.utils import profile_fn
 from reference_moe import (
     MoE,
     MoEArgs,
@@ -177,6 +178,19 @@ def run_experiment(
     torch.cuda.synchronize()
     ref_ms = (time.perf_counter() - ref_start_time) * 1e3 / NUM_ITERS
 
+    if args.profile:
+
+        def ref_batch():
+            for _ in range(10):
+                ref_model(x_ref)
+
+        profile_fn(
+            ref_batch,
+            distributed=True,
+            profile_name="ref_ep_moe_fwd",
+            active_steps=3,
+        )
+
     del ref_model
 
     # ---- syncless model ---------------------------------------------------
@@ -210,6 +224,19 @@ def run_experiment(
         syncless_model(x_sync)
     torch.cuda.synchronize()
     syncless_ms = (time.perf_counter() - start_time) * 1e3 / NUM_ITERS
+
+    if args.profile:
+
+        def syncless_batch():
+            for _ in range(10):
+                syncless_model(x_sync)
+
+        profile_fn(
+            syncless_batch,
+            distributed=True,
+            profile_name="syncless_ep_moe_fwd",
+            active_steps=3,
+        )
 
     del syncless_model
 
