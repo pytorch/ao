@@ -100,8 +100,8 @@ def get_configs() -> List[ExperimentConfig]:
 # =========================================================================
 
 
-def _build_ref_model(config: ExperimentConfig, ep_mesh) -> nn.Module:
-    """Standard MoE + ExpertParallel (bf16 all-to-all + bf16 grouped MM)."""
+def _build_ref_model(config: ExperimentConfig) -> nn.Module:
+    """Build standard MoE (bf16), unparallelized."""
     moe_args = MoEArgs(
         num_experts=config.num_experts,
         num_shared_experts=0,
@@ -110,22 +110,14 @@ def _build_ref_model(config: ExperimentConfig, ep_mesh) -> nn.Module:
     )
     model = MoE(moe_args, config.dim, config.hidden_dim).to(torch.bfloat16).cuda()
     model.init_weights(0.02, device)
-
-    set_token_group_alignment_size_m(32)
-    parallelize_module(
-        module=model.experts,
-        device_mesh=ep_mesh,
-        parallelize_plan=ExpertParallel(),
-    )
     return model
 
 
 def _build_syncless_model(
     config: ExperimentConfig,
-    ep_mesh,
-    buffer_manager: SymmetricMemoryBufferManager,
+    ref_model: nn.Module,
 ) -> nn.Module:
-    """SynclessMXFP8MoE + SynclessExpertParallel."""
+    """Build SynclessMXFP8MoE and copy weights from the ref model."""
     moe_args = SynclessMoEArgs(
         num_experts=config.num_experts,
         num_shared_experts=0,
@@ -137,13 +129,17 @@ def _build_syncless_model(
         .to(torch.bfloat16)
         .cuda()
     )
-    model.init_weights(0.02, device)
 
-    parallelize_module(
-        module=model.experts,
-        device_mesh=ep_mesh,
-        parallelize_plan=SynclessExpertParallel(buffer_manager=buffer_manager),
+    # Copy weights from ref model so both models start with identical weights.
+    # Router gate: identical shape, direct copy.
+    model.router.gate.weight.data.copy_(ref_model.router.gate.weight.data)
+    # Expert w13: fuse ref's separate w1 and w3 by concatenating along dim=1.
+    model.experts.w13.data.copy_(
+        torch.cat([ref_model.experts.w1.data, ref_model.experts.w3.data], dim=1)
     )
+    # Expert w2: identical shape, direct copy.
+    model.experts.w2.data.copy_(ref_model.experts.w2.data)
+
     return model
 
 
@@ -173,9 +169,37 @@ def run_experiment(
         device=device,
     )
 
-    # ---- reference model -------------------------------------------------
+    # ---- build both models (unparallelized) and copy weights --------------
     torch.manual_seed(42)
-    ref_model = _build_ref_model(config, ep_mesh)
+    ref_model = _build_ref_model(config)
+
+    buffer_manager = SymmetricMemoryBufferManager()
+    total_tokens = config.batch_size * config.seq_len
+    max_output_rows = total_tokens * world_size
+    buffer_manager.preallocate_buffers(
+        max_output_rows_per_rank=max_output_rows,
+        data_shape=(config.dim,),
+        scales_shape=(config.dim // 32,),
+        data_dtype=torch.float8_e4m3fn,
+        scales_dtype=torch.uint8,
+        device=device,
+    )
+
+    syncless_model = _build_syncless_model(config, ref_model)
+
+    # ---- parallelize both models -----------------------------------------
+    parallelize_module(
+        module=ref_model.experts,
+        device_mesh=ep_mesh,
+        parallelize_plan=ExpertParallel(),
+    )
+    parallelize_module(
+        module=syncless_model.experts,
+        device_mesh=ep_mesh,
+        parallelize_plan=SynclessExpertParallel(buffer_manager=buffer_manager),
+    )
+
+    # ---- reference model timing ------------------------------------------
     if args.compile:
         ref_model = torch.compile(ref_model)
     warmup(lambda: ref_model(x))
@@ -206,22 +230,7 @@ def run_experiment(
 
     del ref_model
 
-    # ---- syncless model ---------------------------------------------------
-    torch.manual_seed(42)
-
-    buffer_manager = SymmetricMemoryBufferManager()
-    total_tokens = config.batch_size * config.seq_len
-    max_output_rows = total_tokens * world_size
-    buffer_manager.preallocate_buffers(
-        max_output_rows_per_rank=max_output_rows,
-        data_shape=(config.dim,),
-        scales_shape=(config.dim // 32,),
-        data_dtype=torch.float8_e4m3fn,
-        scales_dtype=torch.uint8,
-        device=device,
-    )
-
-    syncless_model = _build_syncless_model(config, ep_mesh, buffer_manager)
+    # ---- syncless model timing -------------------------------------------
     if args.compile:
         syncless_model = torch.compile(syncless_model)
     warmup(lambda: syncless_model(x))
