@@ -15,7 +15,7 @@ from torch.distributed.device_mesh import DeviceMesh
 from torch.distributed.tensor import Partial, Replicate, Shard
 from torch.distributed.tensor.parallel import ParallelStyle
 
-from .reference_moe import _permute, _unpermute
+from reference_moe import _permute, _unpermute
 
 
 class NoParallel(ParallelStyle):
