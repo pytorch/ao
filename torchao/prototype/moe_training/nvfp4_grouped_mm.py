@@ -122,7 +122,9 @@ class _NVFP4GroupedMM(torch.autograd.Function):
             grad_output, block_size=NVFP4_BLOCK_SIZE, per_tensor_scale=go_pts
         )
 
-        # weight_t is (E,K,N) — quantize directly, last dim N is contraction dim
+        # weight_t is (E,K,N) — quantize along last dim (N), which is the
+        # contraction dim for dgrad. This differs from forward, which transposes
+        # to (E,N,K) and quantizes along K.
         w_packed, w_scales, w_pts = _nvfp4_quantize_3d(
             weight_t, with_per_tensor_scale=True
         )
@@ -216,16 +218,9 @@ def _nvfp4_dequantize(
     per_tensor_scale: Optional[torch.Tensor] = None,
     output_dtype: torch.dtype = torch.bfloat16,
 ) -> torch.Tensor:
-    """Dequantize packed NVFP4 data using block scales.
+    """Dequantize packed NVFP4 data: unpack uint8 -> FP4 -> float32, then apply block scales.
 
-    Unlike MXFP8 where data.to(bfloat16) suffices, NVFP4 requires unpacking
-    (2 FP4 values per uint8 byte) and explicit FP4-to-FP32 conversion before
-    applying block scales.
-
-    When per_tensor_scale is provided, the effective scale is
-    per_tensor_scale * block_scale (two-level scaling as described in the
-    NVIDIA NVFP4 paper). In this emulated path we simply multiply through
-    after block-level dequantization.
+    With per_tensor_scale, applies two-level scaling: stored_block_scale * per_tensor_scale.
     """
     # Unpack FP4: uint8 (K//2) -> uint8 (K) with one value per byte
     data_unpacked = unpack_uint4(data_packed.contiguous().view(torch.uint8))

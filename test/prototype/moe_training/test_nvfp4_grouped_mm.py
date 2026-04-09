@@ -228,11 +228,10 @@ def test_nvfp4_grouped_gemm_fwd_bwd(M, K, N, num_experts, wgrad_with_hp, use_com
     assert x.grad is not None, "x.grad is None"
     assert w_t.grad is not None, "w_t.grad is None"
 
-    # dgrad SQNR (HP dgrad, no quantization — should be high)
+    # dgrad SQNR (NVFP4 quantized dgrad with per_tensor_scale)
     dgrad_sqnr = compute_error(x_ref.grad, x.grad)
     assert dgrad_sqnr >= 16.0, f"dgrad sqnr {dgrad_sqnr} < 16.0"
 
-    # wgrad SQNR
     wgrad_sqnr = compute_error(w_t_ref.grad, w_t.grad)
     min_wgrad_sqnr = 16.0
     assert wgrad_sqnr >= min_wgrad_sqnr, (
