@@ -2061,11 +2061,28 @@ def _choose_qparams_and_quantize_scale_only_hqq(
     n_groups = k // group_size
     Wg = W.view(n, n_groups, group_size)
 
-    # Initialize per-block scales as max-abs / qabs
-    # scale.shape = [n, n_groups]
-    qabs = max(abs(qmin), abs(qmax)) or 1
-    scale = (Wg.abs().amax(dim=2) / qabs).clamp_min(compute_eps)
+    # Initialize scale using the affine primitive with SYMMETRIC_NO_CLIPPING_ERR,
+    # which properly handles asymmetric int ranges (e.g., [-8, 7] for int4).
+    affine_scale, _ = choose_qparams_affine(
+        W,
+        MappingType.SYMMETRIC_NO_CLIPPING_ERR,
+        block_size,
+        target_dtype=torch.int8,
+        quant_min=qmin,
+        quant_max=qmax,
+        eps=compute_eps,
+        scale_dtype=compute_dtype,
+    )
+    # choose_qparams_affine returns shape [n, n_groups, 1] with keepdim=False default,
+    # but we need [n, n_groups] for our grouped math.
+    affine_scale = affine_scale.reshape(n, n_groups)
+    scale = affine_scale.clone()
     prev_scale = scale.clone()
+
+    # Compute affine baseline max error for per-group fallback.
+    # HQQ optimizes MSE but we don't want to degrade max error vs affine.
+    Qg_affine = _r(Wg / affine_scale.unsqueeze(-1)).clamp(qmin, qmax)
+    affine_max_err = (Wg - affine_scale.unsqueeze(-1) * Qg_affine).abs().amax(dim=2)
 
     # Iterate HQQ updates
     for _ in range(max(1, iters)):
@@ -2088,6 +2105,15 @@ def _choose_qparams_and_quantize_scale_only_hqq(
         prev_scale = scale
 
     # Quantize using final scale
+    Qg = _r(Wg / scale.unsqueeze(-1)).clamp(qmin, qmax)
+
+    # Per-group fallback: if HQQ's max error exceeds affine's max error
+    # for any group, fall back to affine's scale for that group.
+    # This guarantees max_err <= affine's max_err while keeping HQQ's
+    # MSE advantage wherever it doesn't hurt outliers.
+    hqq_max_err = (Wg - scale.unsqueeze(-1) * Qg).abs().amax(dim=2)
+    use_affine = hqq_max_err > affine_max_err
+    scale = torch.where(use_affine, affine_scale, scale)
     Qg = _r(Wg / scale.unsqueeze(-1)).clamp(qmin, qmax)
 
     # Restore shapes
