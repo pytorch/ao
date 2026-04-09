@@ -104,6 +104,21 @@ class MXFP8SynclessAllToAllExpertMajorTest(MultiProcessTestCase):
                 total_global_tokens + 32 * experts_per_rank * self.world_size
             )
 
+            # Preallocate symmetric memory buffers
+            from torchao.prototype.moe_training.ep.syncless.buffer_manager import (
+                get_buffer_manager,
+            )
+
+            buffer_manager = get_buffer_manager()
+            buffer_manager.preallocate_buffers(
+                max_output_rows_per_rank=max_output_tokens_per_rank,
+                data_shape=(dim,),
+                scales_shape=(dim // 32,),
+                data_dtype=torch.float8_e4m3fn,
+                scales_dtype=torch.uint8,
+                device=self.device,
+            )
+
             # Test forward
             (
                 output_e4m3,
@@ -111,11 +126,11 @@ class MXFP8SynclessAllToAllExpertMajorTest(MultiProcessTestCase):
                 output_rank_level_splits,
                 output_expert_splits,
                 expert_padded_offsets,
+                all_expert_splits,
             ) = mxfp8_token_dispatch(
                 input_tensor,
                 input_rank_level_splits,
                 expert_splits_per_rank,
-                max_output_tokens_per_rank,
                 dist.group.WORLD,
             )
 

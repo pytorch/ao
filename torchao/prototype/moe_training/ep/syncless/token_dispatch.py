@@ -22,7 +22,6 @@ class MXFP8SynclessAllToAllExpertMajor(torch.autograd.Function):
         input: torch.Tensor,
         input_rank_splits: torch.Tensor,
         input_expert_splits: torch.Tensor,
-        max_output_rows_per_rank: int,
         group: dist.ProcessGroup = dist.group.WORLD,
         buffer_manager: SymmetricMemoryBufferManager = None,
         token_alignment: int = 128,
@@ -34,23 +33,28 @@ class MXFP8SynclessAllToAllExpertMajor(torch.autograd.Function):
 
         Implementation is syncless (i.e., no device to host syncs).
 
+        The symmetric memory output buffers must be pre-allocated via
+        ``buffer_manager.preallocate_buffers(...)`` before calling this function.
+
         Args:
             input: input float8_e4m3fn tensor with data for all ranks concatenated.
-            input_scales: float8_e8m0fnu scales for the input tensor.
             input_rank_splits: input splits of shape (group.world_size,)
-            max_output_rows_per_rank: maximum output rows/tokens per rank.
             input_expert_splits: per-expert token counts per destination rank, shape (world_size, num_experts_per_rank).
                 input_expert_splits[i, j] = number of tokens this rank is sending to expert j on rank i.
                 Will be exchanged during all-to-all to provide per-expert metadata at destination.
             group: process group to scope the collective.
             buffer_manager: optional buffer manager for reusing buffers across layers.
+                Must have output buffers pre-allocated via ``preallocate_buffers``.
             token_alignment: pad each expert's token group to a multiple of this value (default 128).
         """
         assert input.dtype in (torch.float32, torch.bfloat16)
 
         # Get or create buffer manager
         buffers = buffer_manager or get_buffer_manager()
-        buffers.max_output_rows_per_rank = max_output_rows_per_rank
+        assert buffers.output is not None and buffers.output_scales is not None, (
+            "Symmetric memory buffers must be pre-allocated via "
+            "buffer_manager.preallocate_buffers() before calling mxfp8_token_dispatch."
+        )
 
         # This quantization kernel writes scales to row major layout, appropriate for all2all,
         # rather than blocked layout for tenscores. The transformation to blocked layout happens on the receiver rank.
@@ -66,22 +70,6 @@ class MXFP8SynclessAllToAllExpertMajor(torch.autograd.Function):
         num_experts_per_rank = input_expert_splits.shape[1]
         world_size = dist.get_world_size(group)
         rank = dist.get_rank(group)
-
-        # Allocate symmetric memory buffers for output data and scales (destinations for push writes)
-        if buffers.output is None:
-            buffers.output = symm_mem.empty(
-                buffers.max_output_rows_per_rank,
-                *input_data.shape[1:],
-                dtype=input_data.dtype,
-                device=input_data.device,
-            )
-        if buffers.output_scales is None:
-            buffers.output_scales = symm_mem.empty(
-                buffers.max_output_rows_per_rank,
-                *input_scales.shape[1:],
-                dtype=input_scales.dtype,
-                device=input_scales.device,
-            )
 
         # All-gather expert_splits so all ranks have global view
         # Shape: (world_size, world_size, num_experts_per_rank)
@@ -160,6 +148,7 @@ class MXFP8SynclessAllToAllExpertMajor(torch.autograd.Function):
             output_rank_splits,
             output_expert_splits,
             expert_padded_offsets,
+            all_expert_splits,
         )
 
     @staticmethod
@@ -171,6 +160,7 @@ class MXFP8SynclessAllToAllExpertMajor(torch.autograd.Function):
         grad_output_rank_splits,
         grad_output_expert_splits,
         grad_expert_padded_offsets,
+        grad_all_expert_splits,
     ):
         """
         Backward pass: reverse the forward dispatch routing.
@@ -190,7 +180,7 @@ class MXFP8SynclessAllToAllExpertMajor(torch.autograd.Function):
             buffers=ctx.buffer_manager,
             group=ctx.group,
         )
-        return grad_input, None, None, None, None, None, None
+        return grad_input, None, None, None, None, None
 
 
 # Alias

@@ -134,22 +134,17 @@ def mxfp8_a2a_fwd(
 ):
     world_size = dist.get_world_size(device_mesh.get_group())
 
-    # Calculate max output rows per rank - worst case where all tokens route to one rank
-    total_tokens_across_all_ranks = routed_input.shape[0] * world_size
-    max_output_rows_per_rank = total_tokens_across_all_ranks
-
-    # Call the new mxfp8_token_dispatch function - all tensors stay on device (zero syncs!)
     (
         output_e4m3,
         output_scales_e8m0,
         output_rank_splits,
         output_expert_splits,
         expert_padded_offsets,
+        all_expert_splits,
     ) = mxfp8_token_dispatch(
         routed_input,
         input_rank_splits,
         input_expert_splits,
-        max_output_rows_per_rank,
         device_mesh.get_group(),
         buffer_manager,
     )

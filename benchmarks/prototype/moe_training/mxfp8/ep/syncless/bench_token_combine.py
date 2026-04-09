@@ -229,27 +229,13 @@ def run_experiment(
         output_rank_splits,
         output_expert_splits,
         expert_padded_offsets,
+        all_expert_splits,
     ) = mxfp8_token_dispatch(
         x,
         input_rank_splits,
         input_expert_splits,
-        max_output_rows_per_rank,
         mesh.get_group(),
         buffer_manager,
-    )
-
-    # Build all_expert_splits via all_gather
-    all_expert_splits = torch.empty(
-        world_size * world_size,
-        num_experts_per_rank,
-        dtype=input_expert_splits.dtype,
-        device=device,
-    )
-    dist.all_gather_into_tensor(
-        all_expert_splits, input_expert_splits, group=mesh.get_group()
-    )
-    all_expert_splits = all_expert_splits.view(
-        world_size, world_size, num_experts_per_rank
     )
 
     syncless_combine_input = output_e4m3.to(torch.bfloat16)
