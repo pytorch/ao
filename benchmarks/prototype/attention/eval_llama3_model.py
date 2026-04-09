@@ -65,6 +65,13 @@ BACKENDS = {
         "hadamard": HadamardMode.QKV,
         "label": "FA3 FP8 Hadamard",
     },
+    "fa3_fp8_hadamard_v": {
+        "flash_impl": "FA3",
+        "fp8": True,
+        "fp8_backend": AttentionBackend.FP8_FA3,
+        "hadamard": HadamardMode.V_ONLY,
+        "label": "FA3 FP8 Hadamard V",
+    },
 }
 
 RANDOM_SEED = 42
