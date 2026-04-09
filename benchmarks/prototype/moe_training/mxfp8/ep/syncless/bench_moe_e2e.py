@@ -48,6 +48,10 @@ from torchao.prototype.moe_training.ep.syncless.buffer_manager import (
 from torchao.prototype.moe_training.ep.syncless.expert_parallel import (
     SynclessExpertParallel,
 )
+from torchao.prototype.moe_training.ep.syncless.moe import (
+    MoEArgs as SynclessMoEArgs,
+    SynclessMXFP8MoE,
+)
 
 device = torch.device("cuda")
 
@@ -114,15 +118,15 @@ def _build_syncless_model(
     ep_mesh,
     buffer_manager: SymmetricMemoryBufferManager,
 ) -> nn.Module:
-    """MoE with MXFP8GroupedExperts + SynclessExpertParallel."""
-    moe_args = MoEArgs(
+    """SynclessMXFP8MoE + SynclessExpertParallel."""
+    moe_args = SynclessMoEArgs(
         num_experts=config.num_experts,
         num_shared_experts=0,
         use_grouped_mm=True,
         _debug_force_load_balance=True,
     )
     model = (
-        MoE(moe_args, config.dim, config.hidden_dim, use_mxfp8_grouped_mm=True)
+        SynclessMXFP8MoE(moe_args, config.dim, config.hidden_dim)
         .to(torch.bfloat16)
         .cuda()
     )

@@ -1,262 +1,80 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # All rights reserved.
 #
-# This source code is licensed under the BSD-style license found in the
+# This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
-#
-# This file contains reference implementations copied from torchtitan
-# to allow running tests without requiring torchtitan to be installed.
+"""
+MXFP8 GroupedExperts module for use with the syncless expert-parallel
+dispatch/combine pipeline.
 
-from dataclasses import dataclass
-from typing import Callable, Literal
+Accepts the 4-arg dispatch output format from
+``SynclessExpertParallel._token_dispatch``:
+  (output_e4m3, output_scales_e8m0, num_tokens_per_expert, expert_padded_offsets)
+
+Fuses w1 and w3 into a single w13 parameter of shape
+(num_experts, 2 * hidden_dim, dim) so the two x @ w1 and x @ w3
+projections are computed with a single grouped GEMM.
+"""
 
 import torch
 import torch.nn.functional as F
-import triton
-import triton.language as tl
+from torch import nn
+from dataclasses import dataclass
+from typing import Literal
+
+import torch
+import torch.nn.functional as F
 from torch import nn
 from torch.distributed.tensor import DTensor
 
-# =============================================================================
-# Utils from torchtitan/tools/utils.py
-# =============================================================================
 
+class MXFP8GroupedExperts(nn.Module):
+    def __init__(
+        self,
+        dim: int,
+        hidden_dim: int,
+        num_experts: int,
+        use_grouped_mm: bool = True,
+    ):
+        super().__init__()
+        self.num_experts = num_experts
+        self.hidden_dim = hidden_dim
+        self.w13 = nn.Parameter(torch.empty(num_experts, 2 * hidden_dim, dim))
+        self.w2 = nn.Parameter(torch.empty(num_experts, dim, hidden_dim))
 
-def _round_up(x: int, y: int) -> int:
-    """Round up x to the nearest multiple of y."""
-    x_ceil_div_y = (x + y - 1) // y
-    return x_ceil_div_y * y
-
-
-# =============================================================================
-# Kernels from torchtitan/models/moe/kernels.py
-# =============================================================================
-
-
-@triton.jit
-def _fill_indices_kernel(
-    tokens_per_expert_group_ptr,
-    start_index_values_ptr,
-    write_offsets_ptr,
-    output_ptr,
-    experts_per_rank: tl.constexpr,
-    num_ranks: tl.constexpr,
-    BLOCK_SIZE: tl.constexpr,
-):
-    pid = tl.program_id(axis=0)
-    num_programs = tl.num_programs(axis=0)
-
-    for expert_id in range(pid, experts_per_rank, num_programs):
-        write_offset = tl.load(write_offsets_ptr + expert_id)
-
-        for r in range(num_ranks):
-            i = r * experts_per_rank + expert_id
-            start_index = tl.load(start_index_values_ptr + i)
-            length = tl.load(tokens_per_expert_group_ptr + i)
-
-            offsets = tl.arange(0, BLOCK_SIZE)
-
-            for chunk_start in range(0, length, BLOCK_SIZE):
-                chunk_offsets = chunk_start + offsets
-                mask = chunk_offsets < length
-                values = start_index + chunk_offsets
-                dest_indices = write_offset + chunk_offsets
-                tl.store(output_ptr + dest_indices, values, mask=mask)
-
-            write_offset += length
-
-
-def fill_indices_wrapper(
-    tokens_per_expert_group: torch.Tensor,
-    start_index_values: torch.Tensor,
-    write_offsets: torch.Tensor,
-    experts_per_rank: int,
-    num_ranks: int,
-    max_len: int,
-    block_size: int = 128,
-    max_blocks: int = 1024,
-):
-    permuted_indices = torch.full(
-        (max_len,), -1, dtype=torch.int32, device=tokens_per_expert_group.device
-    )
-
-    num_blocks = min(experts_per_rank, max_blocks)
-    grid = (num_blocks,)
-
-    _fill_indices_kernel[grid](
-        tokens_per_expert_group,
-        start_index_values,
-        write_offsets,
-        permuted_indices,
-        experts_per_rank,
-        num_ranks,
-        BLOCK_SIZE=block_size,
-    )
-    return permuted_indices
-
-
-def fill_indices_cpu(
-    tokens_per_expert_group: torch.Tensor,
-    start_index_values: torch.Tensor,
-    write_offsets: torch.Tensor,
-    experts_per_rank: int,
-    num_ranks: int,
-    max_len: int,
-):
-    permuted_indices = torch.full(
-        (max_len,),
-        -1,
-        dtype=torch.int32,
-    )
-    for e in range(experts_per_rank):
-        write_start = write_offsets[e].item()
-        for r in range(num_ranks):
-            i = r * experts_per_rank + e
-            start_index = start_index_values[i].item()
-            length = tokens_per_expert_group[i].item()
-            if length > 0:
-                end_idx = min(write_start + length, max_len)
-                permuted_indices[write_start:end_idx] = torch.arange(
-                    start_index,
-                    start_index + (end_idx - write_start),
-                    dtype=torch.int32,
-                )
-            write_start += length
-    return permuted_indices
-
-
-def generate_permute_indices(
-    tokens_per_expert_group: torch.Tensor,
-    experts_per_rank: int,
-    num_ranks: int,
-    max_len: int,
-    alignment: int,
-    use_cpu: bool = False,
-):
-    """
-    Prepare permutation indices and the number of tokens for each expert.
-    """
-    # if using generate_permute_indices, capture scalar outputs to avoid graph break
-    torch._dynamo.config.capture_scalar_outputs = True
-
-    start_index_values = (
-        torch.cumsum(tokens_per_expert_group, 0) - tokens_per_expert_group
-    )
-
-    total_tokens_per_expert = tokens_per_expert_group.view(num_ranks, -1).sum(0)
-    total_tokens_per_expert = torch.clamp_min(total_tokens_per_expert, alignment)
-
-    m_sizes = ((total_tokens_per_expert + alignment - 1) // alignment * alignment).to(
-        torch.int32
-    )
-
-    # Ensure m_sizes sums to exactly max_len (the actual data size after permutation)
-    current_sum = m_sizes.sum().item()
-    if current_sum != max_len:
-        # Add the difference to the last expert
-        m_sizes[-1] = m_sizes[-1] + (max_len - current_sum)
-
-    m_offsets = torch.cumsum(m_sizes, 0)
-    write_offsets = m_offsets - m_sizes
-
-    if use_cpu:
-        permuted_indices = fill_indices_cpu(
-            tokens_per_expert_group,
-            start_index_values,
-            write_offsets,
-            experts_per_rank,
-            num_ranks,
-            max_len,
-        )
-    else:
-        permuted_indices = fill_indices_wrapper(
-            tokens_per_expert_group,
-            start_index_values,
-            write_offsets,
-            experts_per_rank,
-            num_ranks,
-            max_len,
-        )
-
-    return permuted_indices, m_sizes, m_offsets.to(torch.int32)
-
-
-# =============================================================================
-# Utils from torchtitan/models/moe/utils.py
-# =============================================================================
-
-TOKEN_GROUP_ALIGN_SIZE_M = 1
-ValidTokenGroupAlignmentSize = Literal[1, 16, 32]
-
-
-def set_token_group_alignment_size_m(
-    alignment_size: ValidTokenGroupAlignmentSize,
-) -> None:
-    """
-    Set the token group alignment size for token groups in MoE.
-    """
-    global TOKEN_GROUP_ALIGN_SIZE_M
-    TOKEN_GROUP_ALIGN_SIZE_M = alignment_size
-
-
-def _permute(x, num_tokens_per_expert, ep_degree, num_local_experts):
-    global TOKEN_GROUP_ALIGN_SIZE_M
-    x_padded_per_expert = x.shape[0] + num_local_experts * TOKEN_GROUP_ALIGN_SIZE_M
-    padded_max_len = _round_up(x_padded_per_expert, TOKEN_GROUP_ALIGN_SIZE_M)
-    with torch.no_grad():
-        (
-            permuted_indices,
-            num_tokens_per_expert,
-            _offsets,
-        ) = generate_permute_indices(
-            num_tokens_per_expert,
-            num_local_experts,
-            ep_degree,
-            padded_max_len,
-            TOKEN_GROUP_ALIGN_SIZE_M,
-        )
-
-    x = torch.vstack((x, x.new_zeros((x.shape[-1]))))
-    input_shape = x.shape
-    x = x[permuted_indices, :]
-
-    return input_shape, x, permuted_indices, num_tokens_per_expert
-
-
-def _unpermute(out, input_shape, permuted_indices):
-    out_unpermuted = out.new_empty(input_shape)
-    out_unpermuted[permuted_indices, :] = out
-    out = out_unpermuted[:-1]
-    return out
-
-
-def indices_padding_wrapper(func: Callable) -> Callable:
-    """
-    In order to use torch._grouped_mm, we need to make sure the number of
-    tokens each expert gets is a multiple of TOKEN_GROUP_ALIGN_SIZE_M.
-    """
-
-    def wrapper(
-        w1: torch.Tensor,
-        w2: torch.Tensor,
-        w3: torch.Tensor,
-        x: torch.Tensor,
+    def forward(
+        self,
+        output_e4m3: torch.Tensor,
+        output_scales_e8m0: torch.Tensor,
         num_tokens_per_expert: torch.Tensor,
+        expert_padded_offsets: torch.Tensor,
     ) -> torch.Tensor:
-        num_local_experts = w1.shape[0]
-        ep_degree = num_tokens_per_expert.shape[0] // num_local_experts
-
-        input_shape, x, permuted_indices, num_tokens_per_expert = _permute(
-            x, num_tokens_per_expert, ep_degree, num_local_experts
+        from torchao.prototype.moe_training.mxfp8_grouped_mm import (
+            _to_mxfp8_then_scaled_grouped_mm,
         )
+        from torchao.prototype.mx_formats.mx_tensor import MXTensor
 
-        out = func(w1, w2, w3, x, num_tokens_per_expert)
+        mxfp8_gmm = _to_mxfp8_then_scaled_grouped_mm
 
-        out = _unpermute(out, input_shape, permuted_indices)
+        # Wrap pre-quantized inputs in MXTensor
+        orig_dtype = torch.bfloat16
+        x = MXTensor.from_qdata_and_scales(output_e4m3, output_scales_e8m0, orig_dtype)
 
+        w13 = self.w13
+        w2 = self.w2
+
+        group_end_offs = torch.cumsum(num_tokens_per_expert, dim=0, dtype=torch.int32)
+
+        # Fused w1/w3 projection: single GEMM producing (tokens, 2*hidden_dim)
+        h13 = mxfp8_gmm(x, w13.transpose(-2, -1), offs=group_end_offs)
+        h1, h3 = h13.split(self.hidden_dim, dim=-1)
+        h = F.silu(h1) * h3
+        out = mxfp8_gmm(h, w2.transpose(-2, -1), offs=group_end_offs)
         return out
 
-    return wrapper
+    def init_weights(self, init_std: float):
+        nn.init.trunc_normal_(self.w13, mean=0.0, std=0.02)
+        nn.init.trunc_normal_(self.w2, mean=0.0, std=init_std)
 
 
 # =============================================================================
@@ -307,101 +125,6 @@ class FeedForward(nn.Module):
         nn.init.trunc_normal_(self.w1.weight, mean=0.0, std=0.02)
         for linear in (self.w2, self.w3):
             nn.init.trunc_normal_(linear.weight, mean=0.0, std=init_std)
-
-
-def _run_experts_for_loop(
-    w1: torch.Tensor,
-    w2: torch.Tensor,
-    w3: torch.Tensor,
-    x: torch.Tensor,
-    num_tokens_per_expert: torch.Tensor,
-) -> torch.Tensor:
-    num_tokens_per_expert_list = num_tokens_per_expert.tolist()
-    num_padding = x.shape[0] - sum(num_tokens_per_expert_list)
-
-    x_splits = torch.split(
-        x[: sum(num_tokens_per_expert_list)],
-        split_size_or_sections=num_tokens_per_expert_list,
-        dim=0,
-    )
-    out_experts_splits = []
-    for expert_idx, x_expert in enumerate(x_splits):
-        h = F.silu(torch.matmul(x_expert, w1[expert_idx].transpose(-2, -1)))
-        h = h * torch.matmul(x_expert, w3[expert_idx].transpose(-2, -1))
-        h = torch.matmul(h, w2[expert_idx].transpose(-2, -1))
-        out_experts_splits.append(h)
-    out = torch.cat(out_experts_splits, dim=0)
-
-    out = torch.vstack((out, out.new_zeros((num_padding, out.shape[-1]))))
-
-    return out
-
-
-def _run_experts_grouped_mm(
-    w1: torch.Tensor,
-    w2: torch.Tensor,
-    w3: torch.Tensor,
-    x: torch.Tensor,
-    num_tokens_per_expert: torch.Tensor,
-) -> torch.Tensor:
-    offsets = torch.cumsum(num_tokens_per_expert, dim=0, dtype=torch.int32)
-
-    h = F.silu(
-        torch._grouped_mm(x.bfloat16(), w1.bfloat16().transpose(-2, -1), offs=offsets)
-    )
-    h = h * torch._grouped_mm(
-        x.bfloat16(), w3.bfloat16().transpose(-2, -1), offs=offsets
-    )
-    out = torch._grouped_mm(h, w2.bfloat16().transpose(-2, -1), offs=offsets).type_as(x)
-
-    return out
-
-
-class GroupedExperts(nn.Module):
-    def __init__(
-        self,
-        dim: int,
-        hidden_dim: int,
-        num_experts: int,
-        use_grouped_mm: bool,
-    ):
-        super().__init__()
-        self.num_experts = num_experts
-        self.w1 = nn.Parameter(torch.empty(num_experts, hidden_dim, dim))
-        self.w2 = nn.Parameter(torch.empty(num_experts, dim, hidden_dim))
-        self.w3 = nn.Parameter(torch.empty(num_experts, hidden_dim, dim))
-        self.use_grouped_mm = use_grouped_mm
-
-    def forward(
-        self,
-        x: torch.Tensor,
-        num_tokens_per_expert: torch.Tensor,
-    ) -> torch.Tensor:
-        if isinstance(self.w1, DTensor):
-            w1 = self.w1.to_local()
-            w2 = self.w2.to_local()
-            w3 = self.w3.to_local()
-        else:
-            w1 = self.w1
-            w2 = self.w2
-            w3 = self.w3
-
-        if self.use_grouped_mm:
-            if (
-                not isinstance(self.w1, DTensor)
-                or "ep" not in self.w1.device_mesh.mesh_dim_names
-            ):
-                run_experts_fn = indices_padding_wrapper(_run_experts_grouped_mm)
-            else:
-                run_experts_fn = _run_experts_grouped_mm
-            return run_experts_fn(w1, w2, w3, x, num_tokens_per_expert)
-        else:
-            return _run_experts_for_loop(w1, w2, w3, x, num_tokens_per_expert)
-
-    def init_weights(self, init_std: float):
-        nn.init.trunc_normal_(self.w1, mean=0.0, std=0.02)
-        nn.init.trunc_normal_(self.w2, mean=0.0, std=init_std)
-        nn.init.trunc_normal_(self.w3, mean=0.0, std=init_std)
 
 
 class TokenChoiceTopKRouter(nn.Module):
@@ -553,7 +276,7 @@ class TokenReorderer(nn.Module):
         )
 
 
-class MoE(nn.Module):
+class SynclessMXFP8MoE(nn.Module):
     def __init__(
         self,
         moe_args: MoEArgs,
@@ -563,11 +286,10 @@ class MoE(nn.Module):
         super().__init__()
 
         num_experts = moe_args.num_experts
-        self.experts = GroupedExperts(
+        self.experts = MXFP8GroupedExperts(
             dim=dim,
             hidden_dim=hidden_dim,
             num_experts=num_experts,
-            use_grouped_mm=moe_args.use_grouped_mm,
         )
         self.router = TokenChoiceTopKRouter(
             dim=dim,
