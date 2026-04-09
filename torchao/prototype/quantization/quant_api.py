@@ -372,41 +372,29 @@ class Float8ObservedLinear(torch.nn.Linear):
 
 class Float8ObservedSoftmax(torch.nn.Softmax):
     """
-    A softmax module with an observer for float8 static quantization.
+    A softmax module placeholder for float8 static quantization.
 
-    This module wraps a softmax layer and adds an AffineQuantizedMinMaxObserver
-    that collects statistics on the output during calibration. After calibration,
-    use `quantize_` with `Float8StaticActivationFloat8WeightConfig(step="convert")`
-    to convert to a quantized softmax module that applies quantize-and-dequantize
-    to simulate quantization error.
+    Softmax output is always in [0, 1], so we use a fixed scale of
+    ``finfo(float8_dtype).max`` instead of observing. This module simply
+    marks the softmax for later conversion by the convert step.
     """
 
     def __init__(
         self,
         dim: Optional[int] = None,
-        output_act_obs: Optional["AffineQuantizedMinMaxObserver"] = None,  # noqa: F821
     ):
         super().__init__(dim=dim)
-        self.output_act_obs = output_act_obs
 
     def forward(self, input: Tensor) -> Tensor:
-        output = F.softmax(input, self.dim, _stacklevel=5)
-        if self.output_act_obs is not None:
-            self.output_act_obs(output)
-        return output
+        return F.softmax(input, self.dim, _stacklevel=5)
 
     @classmethod
     def from_float(
         cls,
         float_softmax: torch.nn.Softmax,
-        output_act_obs: "AffineQuantizedMinMaxObserver",  # noqa: F821
     ) -> "Float8ObservedSoftmax":
         """Create an observed softmax from a float softmax module."""
-        observed_softmax = cls(
-            dim=float_softmax.dim,
-            output_act_obs=output_act_obs,
-        )
-        return observed_softmax
+        return cls(dim=float_softmax.dim)
 
 
 class Float8QuantizedSoftmax(torch.nn.Module):
@@ -497,16 +485,7 @@ def _float8_static_activation_float8_weight_transform(
     if step == QuantizationStep.PREPARE or step == "prepare":
         # Handle Softmax modules
         if isinstance(module, torch.nn.Softmax):
-            output_observer = AffineQuantizedMinMaxObserver(
-                mapping_type=MappingType.SYMMETRIC,
-                target_dtype=config.activation_dtype,
-                granularity=granularity,
-                eps=torch.finfo(torch.float32).eps,
-                scale_dtype=torch.float32,
-                zero_point_dtype=torch.float32,
-                keepdim=True,
-            )
-            return Float8ObservedSoftmax.from_float(module, output_observer)
+            return Float8ObservedSoftmax.from_float(module)
 
         # Handle Linear modules
         # Create input observer and wrap linear
@@ -536,14 +515,10 @@ def _float8_static_activation_float8_weight_transform(
     elif step == QuantizationStep.CONVERT or step == "convert":
         # Handle observed Softmax modules
         if isinstance(module, Float8ObservedSoftmax):
-            if module.output_act_obs is None:
-                logger.warning(
-                    "Float8ObservedSoftmax has no output observer, returning as-is"
-                )
-                return module
-
-            # Extract output scale from observer
-            output_act_quant_scale, _ = module.output_act_obs.calculate_qparams()
+            # Softmax output is in [0, 1], so use a fixed scale:
+            # scale = float8_max / 1.0 = float8_max
+            float8_max = torch.finfo(config.activation_dtype).max
+            output_act_quant_scale = torch.tensor([float8_max], dtype=torch.float32)
 
             output_act_quant_kwargs = QuantizeTensorToFloat8Kwargs(
                 float8_dtype=config.activation_dtype,
@@ -554,7 +529,7 @@ def _float8_static_activation_float8_weight_transform(
 
             return Float8QuantizedSoftmax.from_observed(
                 module,
-                output_act_quant_scale=output_act_quant_scale.detach(),
+                output_act_quant_scale=output_act_quant_scale,
                 output_act_quant_kwargs=output_act_quant_kwargs,
             )
 

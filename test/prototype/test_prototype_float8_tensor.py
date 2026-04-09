@@ -531,7 +531,6 @@ class TestFloat8StaticActivation(TorchAOIntegrationTestCase):
         # Verify observers were inserted
         self.assertIsInstance(model.linear, Float8ObservedLinear)
         self.assertIsInstance(model.softmax, Float8ObservedSoftmax)
-        self.assertIsNotNone(model.softmax.output_act_obs)
 
         # Step 2: Calibrate with representative data
         for _ in range(10):
