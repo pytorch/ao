@@ -203,6 +203,35 @@ ALLOWED_AO_MODULES = {
 }
 
 
+def _register_int4_module() -> None:
+    module_spec = importlib.util.find_spec("torchao.prototype.quantization.int4")
+    if module_spec is None:
+        module_spec = importlib.util.find_spec("torchao.prototype.int4_opaque_tensor")
+    if module_spec is None:
+        return
+
+    int4_module = importlib.import_module(module_spec.name)
+    if not hasattr(int4_module, "Int4WeightOnlyOpaqueTensorConfig") and hasattr(
+        int4_module, "PrototypeInt4WeightOnlyConfig"
+    ):
+        int4_module.Int4WeightOnlyOpaqueTensorConfig = (
+            int4_module.PrototypeInt4WeightOnlyConfig
+        )
+    ALLOWED_AO_MODULES.add(module_spec.name)
+
+    try:
+        from torchao.prototype.safetensors.safetensors_utils import (
+            ALLOWED_CLASSES,
+            ALLOWED_TENSORS_SUBCLASSES,
+        )
+
+        if "Int4OpaqueTensor" not in ALLOWED_TENSORS_SUBCLASSES:
+            ALLOWED_TENSORS_SUBCLASSES.append("Int4OpaqueTensor")
+        ALLOWED_CLASSES["Int4OpaqueTensor"] = int4_module.Int4OpaqueTensor
+    except (ImportError, AttributeError):
+        pass
+
+
 def config_from_dict(data: Dict[str, Any]) -> AOBaseConfig:
     """
     Create an AOBaseConfig subclass instance from a dictionary.
@@ -231,6 +260,9 @@ def config_from_dict(data: Dict[str, Any]) -> AOBaseConfig:
         import torch
 
         return getattr(torch, obj_data)
+
+    _register_int4_module()
+
     # Try to find the class in any of the allowed modules
     cls = None
     for module_path in ALLOWED_AO_MODULES:
