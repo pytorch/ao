@@ -21,7 +21,7 @@ from torchao.core.config import AOBaseConfig
 from torchao.dtypes import (
     to_affine_quantized_intx_static,
 )
-from torchao.quantization import quantize_, to_linear_activation_quantized
+from torchao.quantization import quantize_
 from torchao.quantization.granularity import (
     PerAxis,
     PerTensor,
@@ -122,16 +122,6 @@ def _apply_static_quant_transform(
 
     linear.weight = torch.nn.Parameter(
         weight_quant_func(linear.weight), requires_grad=False
-    )
-
-    # activation quantization
-    act_scale, act_zero_point = observed_linear.act_obs.calculate_qparams()
-    input_quant_func = lambda x: to_affine_quantized_intx_static(
-        x, act_scale, act_zero_point, x.shape, target_dtype
-    )
-    linear.weight = torch.nn.Parameter(
-        to_linear_activation_quantized(linear.weight, input_quant_func),
-        requires_grad=False,
     )
 
     return linear

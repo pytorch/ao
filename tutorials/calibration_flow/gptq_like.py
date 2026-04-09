@@ -44,15 +44,12 @@ from torch.utils._pytree import tree_flatten, tree_unflatten
 from torchao.core.config import AOBaseConfig
 from torchao.dtypes import (
     to_affine_quantized_intx,
-    to_affine_quantized_intx_static,
 )
 from torchao.quantization import (
     AffineQuantizedMinMaxObserver,
-    LinearActivationQuantizedTensor,
     MappingType,
     PerTensor,
     quantize_,
-    to_linear_activation_quantized,
 )
 from torchao.quantization.quant_api import _replace_with_custom_fn_if_matches_filter
 from torchao.quantization.quant_primitives import _fake_quantize_affine
@@ -277,25 +274,14 @@ def _apply_activation_static_weight_quant_transform(
     config: ApplyActivationStaticWeightQuantConfig,
 ):
     observed_linear = module
-    target_dtype = torch.uint8
 
-    # we can quantize the weight here as well
-
-    # activation quantization
-    act_scale, act_zero_point = (
-        observed_linear.input_scale,
-        observed_linear.input_zp,
-    )
-    input_quant_func = lambda x: to_affine_quantized_intx_static(
-        x, act_scale, act_zero_point, x.shape, target_dtype
-    )
     # for demo purpose only, we quantize the weight here
     weight = observed_linear.weight
     weight = to_affine_quantized_intx(
         weight, MappingType.SYMMETRIC, (1, weight.shape[-1]), torch.int8
     )
     observed_linear.weight = torch.nn.Parameter(
-        to_linear_activation_quantized(weight, input_quant_func),
+        weight,
         requires_grad=False,
     )
 
@@ -319,10 +305,6 @@ out = m(mt_input)
 # just quantizing activation since we only observed quantization, this could be extended to support
 # quantizing weight as well
 quantize_(m, ApplyActivationStaticWeightQuantConfig(), _is_linear)
-for l in m.modules():
-    if isinstance(l, torch.nn.Linear):
-        assert isinstance(l.weight, LinearActivationQuantizedTensor)
-
 after_quant = m(*example_inputs)
 print("sqnr:", compute_error(before_quant, after_quant))
 assert compute_error(before_quant, after_quant) > 35
