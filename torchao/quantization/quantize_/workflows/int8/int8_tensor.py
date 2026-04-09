@@ -43,7 +43,8 @@ class QuantizeTensorToInt8Kwargs(QuantizeTensorKwargs):
     Args:
         granularity: the granularity for the Tensor, currently either PerRow() or PerTensor()
         mapping_type: whether to use symmetric or asymmetric quant
-        reduce_range: if True, use reduced int8 range [-64, 63] instead of full range [-128, 127]
+        reduce_range: optional flag. If True, use reduced int8 range [-64, 63]
+            instead of full range [-128, 127]
     """
 
     granularity: Granularity
@@ -63,6 +64,7 @@ class Int8Tensor(TorchAOBaseTensor):
     Non-Tensor Attributes:
         granularity: the granularity for quantization (e.g., PerRow(), PerTensor())
         act_quant_kwargs: flags for dynamic activation quantization
+        reduce_range: optional flag for reduced int8 range behavior
     """
 
     tensor_data_names = ["qdata", "scale"]
@@ -72,9 +74,10 @@ class Int8Tensor(TorchAOBaseTensor):
         "act_quant_zero_point",
         "act_pre_scale",
     ]
-    tensor_attribute_names = ["block_size", "dtype", "reduce_range"]
+    tensor_attribute_names = ["block_size", "dtype"]
     optional_tensor_attribute_names = [
         "act_quant_kwargs",
+        "reduce_range",
     ]
 
     def __new__(
@@ -83,12 +86,12 @@ class Int8Tensor(TorchAOBaseTensor):
         scale: torch.Tensor,
         block_size: List[int],
         dtype: torch.dtype,
-        reduce_range: bool = False,
         zero_point: Optional[torch.Tensor] = None,
         act_quant_scale: Optional[torch.Tensor] = None,
         act_quant_zero_point: Optional[torch.Tensor] = None,
         act_pre_scale: Optional[torch.Tensor] = None,
         act_quant_kwargs: Optional[QuantizeTensorToInt8Kwargs] = None,
+        reduce_range: Optional[bool] = False,
     ):
         kwargs = {
             "device": qdata.device,
@@ -103,30 +106,29 @@ class Int8Tensor(TorchAOBaseTensor):
         scale: torch.Tensor,
         block_size: List[int],
         dtype: torch.dtype,
-        reduce_range: bool = False,
         zero_point: Optional[torch.Tensor] = None,
         act_quant_scale: Optional[torch.Tensor] = None,
         act_quant_zero_point: Optional[torch.Tensor] = None,
         act_pre_scale: Optional[torch.Tensor] = None,
         act_quant_kwargs: Optional[QuantizeTensorToInt8Kwargs] = None,
+        reduce_range: Optional[bool] = False,
     ):
         super().__init__()
         self.qdata = qdata
         self.scale = scale
         self.block_size = block_size
-        self.reduce_range = reduce_range
         self.zero_point = zero_point
         # don't set dtype because this gets done in __new__
         self.act_quant_kwargs = act_quant_kwargs
         self.act_quant_scale = act_quant_scale
         self.act_quant_zero_point = act_quant_zero_point
         self.act_pre_scale = act_pre_scale
+        self.reduce_range = reduce_range
 
     def __repr__(self):
         return (
             f"{self.__class__.__name__}("
             f"act_quant_kwargs={self.act_quant_kwargs}, "
-            f"reduce_range={self.reduce_range}, "
             f"qdata={self.qdata}, "
             f"scale={self.scale}, "
             f"zero_point={self.zero_point}, "
@@ -136,7 +138,8 @@ class Int8Tensor(TorchAOBaseTensor):
             f"block_size={self.block_size}, "
             f"shape={self.shape}, "
             f"device={self.device}, "
-            f"dtype={self.dtype})"
+            f"dtype={self.dtype}, "
+            f"reduce_range={self.reduce_range})"
         )
 
     @classmethod
@@ -173,13 +176,13 @@ class Int8Tensor(TorchAOBaseTensor):
         hp_tensor: torch.Tensor,
         granularity: Granularity,
         mapping_type=MappingType.SYMMETRIC,
-        reduce_range: bool = False,
         scale: Optional[torch.Tensor] = None,
         zero_point: Optional[torch.Tensor] = None,
         act_quant_kwargs: Optional[QuantizeTensorToInt8Kwargs] = None,
         act_quant_scale: Optional[torch.Tensor] = None,
         act_quant_zero_point: Optional[torch.Tensor] = None,
         act_pre_scale: Optional[torch.Tensor] = None,
+        reduce_range: Optional[bool] = False,
     ):
         """Create Int8Tensor from high-precision tensor"""
         block_size = get_block_size(hp_tensor.shape, granularity)
@@ -231,12 +234,12 @@ class Int8Tensor(TorchAOBaseTensor):
             scale,
             block_size,
             hp_tensor.dtype,
-            reduce_range=reduce_range,
             zero_point=zero_point,
             act_quant_scale=act_quant_scale,
             act_quant_zero_point=act_quant_zero_point,
             act_pre_scale=act_pre_scale,
             act_quant_kwargs=act_quant_kwargs,
+            reduce_range=reduce_range,
         )
 
     def dequantize(self, output_dtype: Optional[torch.dtype] = None) -> torch.Tensor:
