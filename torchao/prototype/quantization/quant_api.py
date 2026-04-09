@@ -436,10 +436,14 @@ class Float8QuantizedSoftmax(torch.nn.Module):
 
         # Apply quantize-and-dequantize if configured
         if self.output_act_quant_kwargs is not None:
+            # Reshape scale to match output ndim (e.g. [448.] -> [[448.]] for 2D)
+            scale = self.output_act_quant_scale
+            while scale.ndim < output.ndim:
+                scale = scale.unsqueeze(0)
             quantized_output = _choose_quant_func_and_quantize_tensor(
                 output,
                 self.output_act_quant_kwargs,
-                act_quant_scale=self.output_act_quant_scale,
+                act_quant_scale=scale,
             )
             output = quantized_output.dequantize()
 
