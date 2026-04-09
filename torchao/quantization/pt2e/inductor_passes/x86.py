@@ -2054,17 +2054,11 @@ def _register_smooth_quant_int_mm_pattern():
                         new_out_node = match.graph.call_function(
                             aten.add.Tensor, args=(new_out_node, bias)
                         )
-                        if out_shape is not None:
-                            new_out_node = match.graph.call_function(
-                                aten.reshape.default,
-                                args=(new_out_node, out_shape),  # type: ignore[possibly-undefined]
-                            )
-                    else:
-                        if out_shape is not None:
-                            new_out_node = match.graph.call_function(
-                                aten.reshape.default,
-                                args=(new_out_node, out_shape),  # type: ignore[possibly-undefined]
-                            )
+                    if out_shape is not None:
+                        new_out_node = match.graph.call_function(
+                            aten.reshape.default,
+                            args=(new_out_node, out_shape),
+                        )
 
                     if has_output_convert:
                         new_out_node = match.graph.call_function(

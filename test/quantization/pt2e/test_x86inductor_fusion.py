@@ -2774,7 +2774,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
                 reshape -> int_mm -> convert -> mul -> convert -> mul -> reshape -> add -> convert
         """
         if enable_autocast and not torch.ops.mkldnn._is_mkldnn_bf16_supported():
-            return
+            self.skipTest("bf16 not supported")
         M = 16
         in_feature = 32
         out_feature = 64

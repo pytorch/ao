@@ -49,7 +49,7 @@ class QuantizeTensorToInt8Kwargs(QuantizeTensorKwargs):
 
     granularity: Granularity
     mapping_type: MappingType = MappingType.SYMMETRIC
-    reduce_range: bool = False
+    reduce_range: Optional[bool] = False
 
 
 class Int8Tensor(TorchAOBaseTensor):
@@ -410,12 +410,12 @@ def _(func, types, args, kwargs):
             sliced_scale,
             block_size,
             self.dtype,
-            reduce_range=self.reduce_range,
             zero_point=sliced_zero_point,
             act_quant_kwargs=self.act_quant_kwargs,
             act_quant_scale=self.act_quant_scale,
             act_quant_zero_point=self.act_quant_zero_point,
             act_pre_scale=self.act_pre_scale,
+            reduce_range=self.reduce_range,
         ),
     )
 
@@ -447,6 +447,8 @@ def _(func, types, args, kwargs):
         is_pinned = is_pinned and args[0].act_quant_scale.is_pinned()
     if args[0].act_quant_zero_point is not None:
         is_pinned = is_pinned and args[0].act_quant_zero_point.is_pinned()
+    if args[0].act_pre_scale is not None:
+        is_pinned = is_pinned and args[0].act_pre_scale.is_pinned()
     return is_pinned
 
 
@@ -467,16 +469,21 @@ def _(func, types, args, kwargs):
     if args[0].act_quant_zero_point is not None:
         pinned_act_quant_zero_point = args[0].act_quant_zero_point.pin_memory()
 
+    pinned_act_pre_scale = None
+    if args[0].act_pre_scale is not None:
+        pinned_act_pre_scale = args[0].act_pre_scale.pin_memory()
+
     return Int8Tensor(
         pinned_qdata,
         pinned_scale,
         args[0].block_size,
         args[0].dtype,
-        reduce_range=args[0].reduce_range,
         zero_point=pinned_zero_point,
         act_quant_scale=pinned_act_quant_scale,
         act_quant_zero_point=pinned_act_quant_zero_point,
+        act_pre_scale=pinned_act_pre_scale,
         act_quant_kwargs=args[0].act_quant_kwargs,
+        reduce_range=args[0].reduce_range,
     )
 
 
@@ -500,12 +507,12 @@ def _(func, types, args, kwargs):
         old_int8_tensor.scale[index],
         old_int8_tensor.block_size[1:],
         old_int8_tensor.dtype,
-        reduce_range=old_int8_tensor.reduce_range,
         zero_point=selected_zero_point,
         act_quant_scale=old_int8_tensor.act_quant_scale,
         act_quant_zero_point=old_int8_tensor.act_quant_zero_point,
         act_pre_scale=old_int8_tensor.act_pre_scale,
         act_quant_kwargs=old_int8_tensor.act_quant_kwargs,
+        reduce_range=old_int8_tensor.reduce_range,
     )
     return return_and_correct_aliasing(func, args, kwargs, new_int8_tensor)
 
