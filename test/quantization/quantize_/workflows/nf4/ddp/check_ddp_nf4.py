@@ -8,7 +8,7 @@ from pathlib import Path
 
 import torch
 
-from torchao.dtypes.nf4tensor import NF4Tensor
+from torchao.quantization import NF4Tensor
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
