@@ -58,10 +58,18 @@ class MXFP8GroupedExperts(nn.Module):
 
         # Wrap pre-quantized inputs in MXTensor
         orig_dtype = torch.bfloat16
-        x = MXTensor.from_qdata_and_scales(output_e4m3, output_scales_e8m0, orig_dtype)
+        x = MXTensor.from_qdata_and_scales(
+            output_e4m3, output_scales_e8m0.view(torch.float8_e8m0fnu), orig_dtype
+        )
 
-        w13 = self.w13
-        w2 = self.w2
+        if isinstance(self.w13, DTensor):
+            # Convert parameters from DTensors to plain Tensors, to work with
+            # dynamic-shape inputs in EP which cannot be easily expressed as DTensors.
+            w13 = self.w13.to_local()
+            w2 = self.w2.to_local()
+        else:
+            w13 = self.w13
+            w2 = self.w2
 
         group_end_offs = torch.cumsum(num_tokens_per_expert, dim=0, dtype=torch.int32)
 

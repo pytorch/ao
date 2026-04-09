@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from typing import List
 
 import torch
+from torch import nn
 import torch.distributed as dist
 from tabulate import tabulate
 from torch.distributed.device_mesh import init_device_mesh
