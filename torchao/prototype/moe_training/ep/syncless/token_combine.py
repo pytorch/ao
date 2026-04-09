@@ -176,6 +176,266 @@ def _combine_all_to_all_kernel(
                     )
 
 
+# ---------------------------------------------------------------------------
+# Backward (dispatch direction): rank-major → expert-major
+# ---------------------------------------------------------------------------
+
+
+@triton.jit
+def _precompute_dispatch_write_offsets_kernel(
+    all_expert_splits_ptr,
+    write_offsets_ptr,
+    rank: tl.constexpr,
+    world_size: tl.constexpr,
+    num_experts_per_rank: tl.constexpr,
+    TOKEN_ALIGNMENT: tl.constexpr,
+):
+    """
+    Precompute write offsets for the bf16 dispatch (combine backward).
+
+    write_offsets[dst_rank, expert_idx] = where this rank writes in
+    dst_rank's expert-major buffer for expert_idx.
+    """
+    if tl.program_id(0) == 0:
+        for dst_rank in range(world_size):
+            for expert_idx in range(num_experts_per_rank):
+                # Expert base offset on dst_rank: sum of padded sizes for
+                # all previous experts on dst_rank.
+                expert_base_offset = tl.zeros([], dtype=tl.int64)
+                for prev_expert in range(expert_idx):
+                    prev_expert_total = tl.zeros([], dtype=tl.int64)
+                    for src_rank in range(world_size):
+                        offset = (
+                            src_rank * (world_size * num_experts_per_rank)
+                            + dst_rank * num_experts_per_rank
+                            + prev_expert
+                        )
+                        prev_expert_total += tl.load(all_expert_splits_ptr + offset)
+                    padded_size = (
+                        (prev_expert_total + TOKEN_ALIGNMENT - 1) // TOKEN_ALIGNMENT
+                    ) * TOKEN_ALIGNMENT
+                    expert_base_offset += padded_size
+
+                # Within-expert offset: tokens from ranks before this rank
+                within_expert_offset = tl.zeros([], dtype=tl.int64)
+                for prev_src in range(rank):
+                    offset = (
+                        prev_src * (world_size * num_experts_per_rank)
+                        + dst_rank * num_experts_per_rank
+                        + expert_idx
+                    )
+                    within_expert_offset += tl.load(all_expert_splits_ptr + offset)
+
+                write_offset = expert_base_offset + within_expert_offset
+                tl.store(
+                    write_offsets_ptr + dst_rank * num_experts_per_rank + expert_idx,
+                    write_offset,
+                )
+
+
+@triton.jit
+def _bf16_dispatch_all_to_all_kernel(
+    input_ptr,
+    input_expert_splits_ptr,
+    write_offsets_ptr,
+    output_ptrs,
+    expert_padded_offsets_ptr,
+    output_expert_splits_ptr,
+    dim: tl.constexpr,
+    num_experts_per_rank: tl.constexpr,
+    rank: tl.constexpr,
+    world_size: tl.constexpr,
+    TOKEN_ALIGNMENT: tl.constexpr,
+    BLOCKS_PER_REMOTE_RANK: tl.constexpr,
+    BLOCK_SIZE: tl.constexpr,
+):
+    """
+    Push-based bf16 dispatch kernel for combine backward.
+
+    Reads from this rank's rank-major grad_output and pushes tokens to
+    destination ranks' expert-major grad_input buffers via symmetric memory.
+    Also zero-fills padding regions in this rank's own expert-major buffer.
+    """
+    dst_rank = tl.program_id(0) // BLOCKS_PER_REMOTE_RANK
+    block_offset = tl.program_id(0) % BLOCKS_PER_REMOTE_RANK
+
+    dst_ptr = tl.load(output_ptrs.to(tl.pointer_type(tl.uint64)) + dst_rank).to(
+        tl.pointer_type(tl.bfloat16)
+    )
+
+    # Compute base read offset for this dst_rank
+    base_local_read_offset = tl.zeros([], dtype=tl.int64)
+    for prev_dst_rank in range(dst_rank):
+        for e in range(num_experts_per_rank):
+            base_local_read_offset += tl.load(
+                input_expert_splits_ptr + prev_dst_rank * num_experts_per_rank + e
+            )
+
+    local_read_offset = base_local_read_offset
+
+    for expert_idx in range(num_experts_per_rank):
+        my_tokens_to_expert = tl.load(
+            input_expert_splits_ptr + dst_rank * num_experts_per_rank + expert_idx
+        )
+
+        if my_tokens_to_expert > 0:
+            write_offset = tl.load(
+                write_offsets_ptr + dst_rank * num_experts_per_rank + expert_idx
+            )
+
+            total_elems = my_tokens_to_expert * dim
+            num_blocks = tl.cdiv(total_elems, BLOCK_SIZE)
+            for block_idx in tl.range(num_blocks):
+                if block_idx % BLOCKS_PER_REMOTE_RANK == block_offset:
+                    offs = block_idx * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
+                    mask = offs < total_elems
+                    data = tl.load(
+                        input_ptr + local_read_offset * dim + offs,
+                        mask=mask,
+                        other=0.0,
+                    )
+                    tl.store(
+                        dst_ptr + write_offset * dim + offs,
+                        data,
+                        mask=mask,
+                    )
+
+        local_read_offset += my_tokens_to_expert
+
+    # Zero-fill padding regions in own expert-major buffer
+    if dst_rank == rank and block_offset == 0:
+        own_output_ptr = tl.load(output_ptrs.to(tl.pointer_type(tl.uint64)) + rank).to(
+            tl.pointer_type(tl.bfloat16)
+        )
+
+        for expert_idx in range(num_experts_per_rank):
+            actual_tokens = tl.zeros([], dtype=tl.int64)
+            for src_rank in range(world_size):
+                tokens = tl.load(
+                    output_expert_splits_ptr
+                    + src_rank * num_experts_per_rank
+                    + expert_idx
+                )
+                actual_tokens += tokens
+
+            expert_start = tl.load(expert_padded_offsets_ptr + expert_idx)
+            actual_end = expert_start + actual_tokens
+
+            if expert_idx < num_experts_per_rank - 1:
+                padded_end = tl.load(expert_padded_offsets_ptr + expert_idx + 1)
+            else:
+                padded_size = (
+                    (actual_tokens + TOKEN_ALIGNMENT - 1) // TOKEN_ALIGNMENT
+                ) * TOKEN_ALIGNMENT
+                padded_end = expert_start + padded_size
+
+            if actual_end < padded_end:
+                padding_tokens = padded_end - actual_end
+                total_padding_elems = padding_tokens * dim
+                num_padding_blocks = tl.cdiv(total_padding_elems, BLOCK_SIZE)
+                for block_idx in tl.range(num_padding_blocks):
+                    offs = block_idx * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
+                    mask = offs < total_padding_elems
+                    tl.store(
+                        own_output_ptr + actual_end * dim + offs,
+                        tl.zeros([BLOCK_SIZE], dtype=tl.bfloat16),
+                        mask=mask,
+                    )
+
+
+def _token_dispatch_bf16_launcher(
+    input: torch.Tensor,
+    all_expert_splits: torch.Tensor,
+    expert_padded_offsets: torch.Tensor,
+    num_output_tokens: int,
+    dim: int,
+    buffers: SymmetricMemoryBufferManager,
+    group: dist.ProcessGroup = dist.group.WORLD,
+    token_alignment: int = 128,
+    BLOCKS_PER_REMOTE_RANK: int = 32,
+    BLOCK_SIZE: int = 16384,
+) -> torch.Tensor:
+    """
+    Launcher for the bf16 dispatch operation (combine backward).
+
+    Reads from this rank's rank-major grad_output and pushes tokens to
+    destination ranks' expert-major grad_input buffers via symmetric memory.
+
+    Args:
+        input: bf16 tensor in rank-major layout (num_tokens, dim)
+        all_expert_splits: all-gathered expert splits
+            (world_size, world_size, num_experts_per_rank)
+        expert_padded_offsets: starting offset for each expert on this rank
+            (num_experts_per_rank,)
+        num_output_tokens: number of rows in the expert-major output
+        dim: feature dimension
+        buffers: buffer manager (holds the output symmetric memory buffer)
+        group: process group
+        token_alignment: expert token group alignment (default 128)
+    """
+    world_size = dist.get_world_size(group)
+    rank = dist.get_rank(group)
+    num_experts_per_rank = all_expert_splits.shape[2]
+
+    # Reuse the shared bf16 buffer for expert-major gradient output
+    buffers.ensure_bf16_buffer(dim, input.device, group)
+    output = buffers.bf16_buffer[:num_output_tokens]
+    output_ptrs = buffers._bf16_buffer_hdl.buffer_ptrs_dev
+
+    # input_expert_splits: tokens this rank sent to each (dst_rank, expert_idx)
+    input_expert_splits = all_expert_splits[rank, :, :].contiguous()
+
+    # output_expert_splits: tokens each src_rank sent to each expert on THIS rank
+    output_expert_splits = all_expert_splits[:, rank, :].contiguous()
+
+    # Flatten all_expert_splits for Triton kernel access
+    all_expert_splits_flat = all_expert_splits.contiguous().view(-1)
+
+    # Allocate write offsets
+    write_offsets = torch.empty(
+        world_size,
+        num_experts_per_rank,
+        dtype=torch.int64,
+        device=input.device,
+    )
+
+    # Phase 1: Precompute write offsets
+    _precompute_dispatch_write_offsets_kernel[(1, 1, 1)](
+        all_expert_splits_flat,
+        write_offsets,
+        rank=rank,
+        world_size=world_size,
+        num_experts_per_rank=num_experts_per_rank,
+        TOKEN_ALIGNMENT=token_alignment,
+    )
+
+    # Phase 2: Push grad_output to expert-major layout on destination ranks
+    num_blocks = world_size * BLOCKS_PER_REMOTE_RANK
+    _bf16_dispatch_all_to_all_kernel[(num_blocks, 1, 1)](
+        input,
+        input_expert_splits.view(-1),
+        write_offsets,
+        output_ptrs,
+        expert_padded_offsets,
+        output_expert_splits.view(-1),
+        dim=dim,
+        num_experts_per_rank=num_experts_per_rank,
+        rank=rank,
+        world_size=world_size,
+        TOKEN_ALIGNMENT=token_alignment,
+        BLOCKS_PER_REMOTE_RANK=BLOCKS_PER_REMOTE_RANK,
+        BLOCK_SIZE=BLOCK_SIZE,
+        num_warps=16,
+    )
+
+    return output
+
+
+# ---------------------------------------------------------------------------
+# Forward (combine direction): expert-major → rank-major
+# ---------------------------------------------------------------------------
+
+
 def _token_combine_launcher(
     input: torch.Tensor,
     all_expert_splits: torch.Tensor,
@@ -210,10 +470,10 @@ def _token_combine_launcher(
     rank = dist.get_rank(group)
     num_experts_per_rank = all_expert_splits.shape[2]
 
-    # Ensure output buffer is allocated and rendezvoused
-    buffers.ensure_grad_input_buffer(num_output_tokens, dim, input.device, group)
-    output = buffers.grad_input[:num_output_tokens]
-    output_ptrs = buffers._grad_input_hdl.buffer_ptrs_dev
+    # Ensure shared bf16 buffer is allocated and rendezvoused
+    buffers.ensure_bf16_buffer(dim, input.device, group)
+    output = buffers.bf16_buffer[:num_output_tokens]
+    output_ptrs = buffers._bf16_buffer_hdl.buffer_ptrs_dev
 
     # Flatten all_expert_splits for Triton kernel access
     all_expert_splits_flat = all_expert_splits.contiguous().view(-1)
@@ -284,6 +544,7 @@ class SynclessTokenCombine(torch.autograd.Function):
         num_output_tokens: int,
         group: dist.ProcessGroup = dist.group.WORLD,
         buffer_manager: SymmetricMemoryBufferManager = None,
+        token_alignment: int = 128,
     ):
         """
         Routes tokens from expert-major layout back to source ranks in
@@ -298,6 +559,7 @@ class SynclessTokenCombine(torch.autograd.Function):
             num_output_tokens: number of tokens in the output for this rank.
             group: process group to scope the collective.
             buffer_manager: optional buffer manager for reusing buffers.
+            token_alignment: expert token group alignment (default 128).
         """
         from torchao.prototype.moe_training.ep.syncless.buffer_manager import (
             get_buffer_manager,
@@ -322,12 +584,31 @@ class SynclessTokenCombine(torch.autograd.Function):
         ctx.dim = dim
         ctx.group = group
         ctx.buffer_manager = buffers
+        ctx.token_alignment = token_alignment
 
         return output
 
     @staticmethod
+    @torch.compiler.disable
     def backward(ctx, grad_output):
-        raise NotImplementedError("backward support not yet implemented")
+        """
+        Backward pass: reverse the forward combine routing.
+
+        Reads bf16 gradients from the local rank-major grad_output and
+        pushes them back to expert-major layout on destination ranks via
+        symmetric memory (bf16 dispatch without MXFP8 quantization).
+        """
+        grad_input = _token_dispatch_bf16_launcher(
+            input=grad_output,
+            all_expert_splits=ctx.all_expert_splits,
+            expert_padded_offsets=ctx.expert_padded_offsets,
+            num_output_tokens=ctx.num_input_tokens,
+            dim=ctx.dim,
+            buffers=ctx.buffer_manager,
+            group=ctx.group,
+            token_alignment=ctx.token_alignment,
+        )
+        return grad_input, None, None, None, None, None, None
 
 
 # Alias

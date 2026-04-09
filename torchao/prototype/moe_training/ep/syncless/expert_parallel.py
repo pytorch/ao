@@ -170,6 +170,7 @@ class SynclessExpertParallel(ParallelStyle):
             self._num_input_tokens,
             group,
             buffers,
+            self.token_alignment,
         )
 
     def _apply(self, module: nn.Module, device_mesh: DeviceMesh) -> nn.Module:

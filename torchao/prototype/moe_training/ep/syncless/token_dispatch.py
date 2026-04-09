@@ -172,7 +172,7 @@ class MXFP8SynclessAllToAllExpertMajor(torch.autograd.Function):
         Backward pass: reverse the forward dispatch routing.
 
         Reads bf16 gradients from the local expert-major grad_output buffer
-        and pushes them back to source ranks' grad_input buffers in rank-major
+        and pushes them back to source ranks' buffers in rank-major
         order via symmetric memory.
 
         Only grad_output is non-None (the other forward outputs are integer tensors).
