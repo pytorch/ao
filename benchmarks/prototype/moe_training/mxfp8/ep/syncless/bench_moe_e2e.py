@@ -58,6 +58,8 @@ from torchao.prototype.moe_training.ep.syncless.moe import (
     SynclessMXFP8MoE,
 )
 
+from torchao.float8.float8_utils import compute_error
+
 device = torch.device("cuda")
 
 
@@ -162,24 +164,30 @@ def run_experiment(
 
     NUM_ITERS = 10
 
-    # ---- reference model -------------------------------------------------
-    torch.manual_seed(42)
-    ref_model = _build_ref_model(config, ep_mesh)
-    if args.compile:
-        ref_model = torch.compile(ref_model)
-    x_ref = torch.randn(
+    # Shared input for both models (same routing decisions via _debug_force_load_balance)
+    x = torch.randn(
         config.batch_size,
         config.seq_len,
         config.dim,
         dtype=torch.bfloat16,
         device=device,
     )
-    warmup(lambda: ref_model(x_ref))
+
+    # ---- reference model -------------------------------------------------
+    torch.manual_seed(42)
+    ref_model = _build_ref_model(config, ep_mesh)
+    if args.compile:
+        ref_model = torch.compile(ref_model)
+    warmup(lambda: ref_model(x))
+
+    # Save one output for correctness check
+    with torch.no_grad():
+        ref_out = ref_model(x)
 
     torch.cuda.synchronize()
     ref_start_time = time.perf_counter()
     for _ in range(NUM_ITERS):
-        ref_model(x_ref)
+        ref_model(x)
     torch.cuda.synchronize()
     ref_ms = (time.perf_counter() - ref_start_time) * 1e3 / NUM_ITERS
 
@@ -187,13 +195,13 @@ def run_experiment(
 
         def ref_batch():
             for _ in range(10):
-                ref_model(x_ref)
+                ref_model(x)
 
         profile_fn(
             ref_batch,
             distributed=True,
             profile_name="ref_ep_moe_fwd",
-            active_steps=3,
+            active_steps=1,
         )
 
     del ref_model
@@ -216,19 +224,16 @@ def run_experiment(
     syncless_model = _build_syncless_model(config, ep_mesh, buffer_manager)
     if args.compile:
         syncless_model = torch.compile(syncless_model)
-    x_sync = torch.randn(
-        config.batch_size,
-        config.seq_len,
-        config.dim,
-        dtype=torch.bfloat16,
-        device=device,
-    )
-    warmup(lambda: syncless_model(x_sync))
+    warmup(lambda: syncless_model(x))
+
+    # Save one output for correctness check
+    with torch.no_grad():
+        syncless_out = syncless_model(x)
 
     torch.cuda.synchronize()
     start_time = time.perf_counter()
     for _ in range(NUM_ITERS):
-        syncless_model(x_sync)
+        syncless_model(x)
     torch.cuda.synchronize()
     syncless_ms = (time.perf_counter() - start_time) * 1e3 / NUM_ITERS
 
@@ -236,16 +241,25 @@ def run_experiment(
 
         def syncless_batch():
             for _ in range(10):
-                syncless_model(x_sync)
+                syncless_model(x)
 
         profile_fn(
             syncless_batch,
             distributed=True,
             profile_name="syncless_ep_moe_fwd",
-            active_steps=3,
+            active_steps=1,
         )
 
-    del syncless_model
+    # ---- correctness check -----------------------------------------------
+    out_sqnr = compute_error(syncless_out, ref_out)
+    if dist.get_rank() == 0:
+        print(
+            f"  Output SQNR for shape "
+            f"({config.batch_size}, {config.seq_len}, {config.dim}): "
+            f"{out_sqnr.item():.1f} dB"
+        )
+
+    del syncless_model, ref_out, syncless_out
 
     return ExperimentResult(ref_ms=ref_ms, syncless_ms=syncless_ms)
 
