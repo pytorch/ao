@@ -384,8 +384,10 @@ class Float8ObservedSoftmax(torch.nn.Softmax):
         dim: Optional[int] = None,
     ):
         super().__init__(dim=dim)
+        self._device: Optional[torch.device] = None
 
     def forward(self, input: Tensor) -> Tensor:
+        self._device = input.device
         return F.softmax(input, self.dim, _stacklevel=5)
 
     @classmethod
@@ -518,7 +520,9 @@ def _float8_static_activation_float8_weight_transform(
             # Softmax output is in [0, 1], so use a fixed scale:
             # scale = float8_max / 1.0 = float8_max
             float8_max = torch.finfo(config.activation_dtype).max
-            output_act_quant_scale = torch.tensor([float8_max], dtype=torch.float32)
+            output_act_quant_scale = torch.tensor(
+                [float8_max], dtype=torch.float32, device=module._device
+            )
 
             output_act_quant_kwargs = QuantizeTensorToFloat8Kwargs(
                 float8_dtype=config.activation_dtype,
