@@ -162,6 +162,8 @@ def run_experiment(
     # ---- reference model -------------------------------------------------
     torch.manual_seed(42)
     ref_model = _build_ref_model(config, ep_mesh)
+    if args.compile:
+        ref_model = torch.compile(ref_model)
     x_ref = torch.randn(
         config.batch_size,
         config.seq_len,
@@ -209,6 +211,8 @@ def run_experiment(
     )
 
     syncless_model = _build_syncless_model(config, ep_mesh, buffer_manager)
+    if args.compile:
+        syncless_model = torch.compile(syncless_model)
     x_sync = torch.randn(
         config.batch_size,
         config.seq_len,
@@ -302,5 +306,6 @@ def main(args: argparse.Namespace):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--profile", action="store_true")
+    parser.add_argument("--compile", action="store_true")
     args = parser.parse_args()
     main(args)
