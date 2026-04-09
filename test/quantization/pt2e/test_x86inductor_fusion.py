@@ -2812,10 +2812,11 @@ class TestPatternMatcher(TestPatternMatcherBase):
         quantize_(mod, quant_config)
 
         # Prepare test input
+        input_dtype = torch.bfloat16 if enable_autocast else torch.float32
         if input_ndim == 3:
-            test_input = torch.randn(1, M, in_feature, dtype=torch.float32)
+            test_input = torch.randn(1, M, in_feature, dtype=input_dtype)
         else:
-            test_input = torch.randn(M, in_feature, dtype=torch.float32)
+            test_input = torch.randn(M, in_feature, dtype=input_dtype)
 
         def matcher_check_fn():
             self.assertEqual(
