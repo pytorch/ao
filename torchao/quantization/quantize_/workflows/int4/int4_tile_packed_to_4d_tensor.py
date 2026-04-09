@@ -99,7 +99,7 @@ class Int4TilePackedTo4dTensor(TorchAOBaseTensor):
         hp_tensor: torch.Tensor,
         block_size: List[int],
         int4_choose_qparams_algorithm: Int4ChooseQParamsAlgorithm = Int4ChooseQParamsAlgorithm.TINYGEMM,
-        ntile_size: Optional[int] = 8,
+        ntile_size: Optional[int] = None,
     ):
         assert len(block_size) == hp_tensor.ndim, (
             f"Expecting the length of block_size to be equal to the dimension of the weight, got {block_size=} and {hp_tensor.ndim=}"
@@ -124,6 +124,10 @@ class Int4TilePackedTo4dTensor(TorchAOBaseTensor):
             raise ValueError(
                 f"Cannot use tinygemm int4 kernel with a device of compute capability {torch.cuda.get_device_capability()}, the minimum compute capability is 8.0 for tensor core kernels."
             )
+
+        if ntile_size is None:
+            # HIP `_weight_int4pack_mm` uses 16-wide tiles; CUDA tinygemm uses 8.
+            ntile_size = 16 if torch.version.hip else 8
 
         # Pre-process: pad to required dimensions
         in_features = find_multiple(orig_in_features, 1024)
