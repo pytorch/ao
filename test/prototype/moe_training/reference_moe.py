@@ -404,6 +404,63 @@ class GroupedExperts(nn.Module):
         nn.init.trunc_normal_(self.w3, mean=0.0, std=init_std)
 
 
+class MXFP8GroupedExperts(nn.Module):
+    """MXFP8 grouped experts that accepts the 4-arg dispatch output format
+    from SynclessExpertParallel._token_dispatch:
+      (output_e4m3, output_scales_e8m0, num_tokens_per_expert, expert_padded_offsets)
+    """
+
+    def __init__(
+        self,
+        dim: int,
+        hidden_dim: int,
+        num_experts: int,
+        use_grouped_mm: bool = True,
+    ):
+        super().__init__()
+        self.num_experts = num_experts
+        self.w1 = nn.Parameter(torch.empty(num_experts, hidden_dim, dim))
+        self.w2 = nn.Parameter(torch.empty(num_experts, dim, hidden_dim))
+        self.w3 = nn.Parameter(torch.empty(num_experts, hidden_dim, dim))
+
+    def forward(
+        self,
+        output_e4m3: torch.Tensor,
+        output_scales_e8m0: torch.Tensor,
+        num_tokens_per_expert: torch.Tensor,
+        expert_padded_offsets: torch.Tensor,
+    ) -> torch.Tensor:
+        from torchao.prototype.moe_training.mxfp8_grouped_mm import (
+            _to_mxfp8_then_scaled_grouped_mm,
+        )
+
+        # Decode dispatch MXFP8 output to bf16 for the grouped GEMM
+        # (the MXFP8 GEMM will re-quantize internally).
+        x = output_e4m3.to(torch.bfloat16)
+
+        if isinstance(self.w1, DTensor):
+            w1 = self.w1.to_local()
+            w2 = self.w2.to_local()
+            w3 = self.w3.to_local()
+        else:
+            w1 = self.w1
+            w2 = self.w2
+            w3 = self.w3
+
+        mxfp8_gmm = _to_mxfp8_then_scaled_grouped_mm
+
+        group_end_offs = torch.cumsum(num_tokens_per_expert, dim=0, dtype=torch.int32)
+        h = F.silu(mxfp8_gmm(x, w1.transpose(-2, -1), offs=group_end_offs))
+        h = h * mxfp8_gmm(x, w3.transpose(-2, -1), offs=group_end_offs)
+        out = mxfp8_gmm(h, w2.transpose(-2, -1), offs=group_end_offs)
+        return out
+
+    def init_weights(self, init_std: float):
+        nn.init.trunc_normal_(self.w1, mean=0.0, std=0.02)
+        nn.init.trunc_normal_(self.w2, mean=0.0, std=init_std)
+        nn.init.trunc_normal_(self.w3, mean=0.0, std=init_std)
+
+
 class TokenChoiceTopKRouter(nn.Module):
     """Token-choice routing with optional node-limited routing."""
 
@@ -554,15 +611,30 @@ class TokenReorderer(nn.Module):
 
 
 class MoE(nn.Module):
-    def __init__(self, moe_args: MoEArgs, dim: int, hidden_dim: int):
+    def __init__(
+        self,
+        moe_args: MoEArgs,
+        dim: int,
+        hidden_dim: int,
+        use_mxfp8_grouped_mm: bool = False,
+    ):
         super().__init__()
 
         num_experts = moe_args.num_experts
-        self.experts = GroupedExperts(
-            dim=dim,
-            hidden_dim=hidden_dim,
-            num_experts=num_experts,
-            use_grouped_mm=moe_args.use_grouped_mm,
+        self.experts = (
+            GroupedExperts(
+                dim=dim,
+                hidden_dim=hidden_dim,
+                num_experts=num_experts,
+                use_grouped_mm=moe_args.use_grouped_mm,
+            )
+            if not use_mxfp8_grouped_mm
+            else MXFP8GroupedExperts(
+                dim=dim,
+                hidden_dim=hidden_dim,
+                num_experts=num_experts,
+                use_grouped_mm=moe_args.use_grouped_mm,
+            )
         )
         self.router = TokenChoiceTopKRouter(
             dim=dim,
