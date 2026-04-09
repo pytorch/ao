@@ -169,6 +169,7 @@ class TestDispatchWithManagedBuffer(MultiProcessTestCase):
                 output_expert_splits,
                 expert_padded_offsets,
                 all_expert_splits,
+                _padded_tokens_per_expert,
             ) = mxfp8_token_dispatch(
                 input_tensor,
                 input_rank_level_splits,

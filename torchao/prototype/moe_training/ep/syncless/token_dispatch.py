@@ -93,6 +93,9 @@ class MXFP8SynclessAllToAllExpertMajor(torch.autograd.Function):
         expert_padded_offsets = torch.empty(
             num_experts_per_rank, dtype=torch.int64, device=input_data.device
         )
+        padded_tokens_per_expert = torch.empty(
+            num_experts_per_rank, dtype=torch.int64, device=input_data.device
+        )
 
         # Compute output_rank_splits and output_expert_splits from all_expert_splits
         # output_rank_splits[src_rank] = total tokens src_rank sends to this rank
@@ -122,6 +125,7 @@ class MXFP8SynclessAllToAllExpertMajor(torch.autograd.Function):
             output_rank_splits,
             output_expert_splits,
             expert_padded_offsets,
+            padded_tokens_per_expert,
             group=group,
             token_alignment=token_alignment,
         )
@@ -149,6 +153,7 @@ class MXFP8SynclessAllToAllExpertMajor(torch.autograd.Function):
             output_expert_splits,
             expert_padded_offsets,
             all_expert_splits,
+            padded_tokens_per_expert,
         )
 
     @staticmethod
@@ -161,6 +166,7 @@ class MXFP8SynclessAllToAllExpertMajor(torch.autograd.Function):
         grad_output_expert_splits,
         grad_expert_padded_offsets,
         grad_all_expert_splits,
+        grad_padded_tokens_per_expert,
     ):
         """
         Backward pass: reverse the forward dispatch routing.
@@ -200,6 +206,7 @@ def _mxfp8_token_dispatch_launcher(
     output_rank_splits: torch.Tensor,
     output_expert_splits: torch.Tensor,
     expert_padded_offsets: torch.Tensor,
+    padded_tokens_per_expert: torch.Tensor,
     group: dist.ProcessGroup = dist.group.WORLD,
     token_alignment: int = 128,
     BLOCKS_PER_REMOTE_RANK: int = 32,
@@ -239,12 +246,13 @@ def _mxfp8_token_dispatch_launcher(
     rank = output_hdl.rank
     world_size = output_hdl.world_size
 
-    # Phase 1: Precompute write offsets and expert_padded_offsets
+    # Phase 1: Precompute write offsets, expert_padded_offsets, and padded_tokens_per_expert
     _precompute_push_write_offsets_kernel[(1, 1, 1)](
         all_expert_splits,
         output_expert_splits,
         write_offsets,
         expert_padded_offsets,
+        padded_tokens_per_expert,
         rank=rank,
         world_size=world_size,
         num_experts_per_rank=num_experts_per_rank,
@@ -448,6 +456,7 @@ def _precompute_push_write_offsets_kernel(
     output_expert_splits_ptr,
     write_offsets_ptr,
     expert_padded_offsets_ptr,
+    padded_tokens_per_expert_ptr,
     rank: tl.constexpr,
     world_size: tl.constexpr,
     num_experts_per_rank: tl.constexpr,
@@ -463,10 +472,11 @@ def _precompute_push_write_offsets_kernel(
     Outputs:
         write_offsets[dst_rank, expert_idx] = where this rank writes for (dst_rank, expert_idx)
         expert_padded_offsets[expert_idx] = starting offset for expert_idx in this rank's output buffer
+        padded_tokens_per_expert[expert_idx] = padded token count for expert_idx on this rank
     """
     # Each program handles all computations (single kernel launch)
     if tl.program_id(0) == 0:
-        # Compute expert_padded_offsets for this rank
+        # Compute expert_padded_offsets and padded_tokens_per_expert for this rank
         cumulative_offset = tl.zeros([], dtype=tl.int64)
         for expert_idx in range(num_experts_per_rank):
             # Store starting offset for this expert
@@ -487,6 +497,9 @@ def _precompute_push_write_offsets_kernel(
                 (total_tokens + TOKEN_ALIGNMENT - 1) // TOKEN_ALIGNMENT
             ) * TOKEN_ALIGNMENT
             cumulative_offset += padded_size
+
+            # Store padded token count for this expert
+            tl.store(padded_tokens_per_expert_ptr + expert_idx, padded_size)
 
         # Compute write_offsets for this rank (where it writes to each dst_rank)
         for dst_rank in range(world_size):

@@ -10,12 +10,11 @@
 
 import torch
 import torch.nn as nn
+from reference_moe import _permute, _unpermute
 from torch.distributed._tensor import DTensor
 from torch.distributed.device_mesh import DeviceMesh
 from torch.distributed.tensor import Partial, Replicate, Shard
 from torch.distributed.tensor.parallel import ParallelStyle
-
-from reference_moe import _permute, _unpermute
 
 
 class NoParallel(ParallelStyle):

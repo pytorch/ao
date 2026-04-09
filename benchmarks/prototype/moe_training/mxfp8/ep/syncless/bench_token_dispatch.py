@@ -141,6 +141,7 @@ def mxfp8_a2a_fwd(
         output_expert_splits,
         expert_padded_offsets,
         all_expert_splits,
+        _padded_tokens_per_expert,
     ) = mxfp8_token_dispatch(
         routed_input,
         input_rank_splits,

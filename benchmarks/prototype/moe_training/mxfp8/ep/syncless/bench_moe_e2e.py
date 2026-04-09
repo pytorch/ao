@@ -21,9 +21,9 @@ from dataclasses import dataclass
 from typing import List
 
 import torch
-from torch import nn
 import torch.distributed as dist
 from tabulate import tabulate
+from torch import nn
 from torch.distributed.device_mesh import init_device_mesh
 from torch.distributed.tensor.parallel import parallelize_module
 from tqdm import tqdm
@@ -35,13 +35,14 @@ sys.path.insert(
         os.path.dirname(__file__), "../../../../../../test/prototype/moe_training"
     ),
 )
-from benchmarks.utils import profile_fn
 from reference_moe import (
     MoE,
     MoEArgs,
     set_token_group_alignment_size_m,
 )
 from reference_parallel_styles import ExpertParallel
+
+from benchmarks.utils import profile_fn
 
 # -- syncless EP -----------------------------------------------------------
 from torchao.prototype.moe_training.ep.syncless.buffer_manager import (
@@ -52,6 +53,8 @@ from torchao.prototype.moe_training.ep.syncless.expert_parallel import (
 )
 from torchao.prototype.moe_training.ep.syncless.moe import (
     MoEArgs as SynclessMoEArgs,
+)
+from torchao.prototype.moe_training.ep.syncless.moe import (
     SynclessMXFP8MoE,
 )
 

@@ -126,6 +126,7 @@ class SynclessExpertParallel(ParallelStyle):
             _output_expert_splits,
             expert_padded_offsets,
             all_expert_splits,
+            padded_tokens_per_expert,
         ) = mxfp8_token_dispatch(
             routed_input,
             input_rank_splits,
@@ -139,21 +140,10 @@ class SynclessExpertParallel(ParallelStyle):
         self._expert_padded_offsets = expert_padded_offsets
         self._all_expert_splits = all_expert_splits
 
-        # Padded per-expert token counts for the grouped GEMM.
-        # Consecutive differences of expert_padded_offsets give each expert's
-        # padded group size; the last expert's size must be computed from the
-        # total tokens received since expert_padded_offsets only has start offsets.
-        tokens_per_expert_actual = _output_expert_splits.sum(dim=0)
-        padded_token_per_expert = (
-            (tokens_per_expert_actual + self.token_alignment - 1)
-            // self.token_alignment
-            * self.token_alignment
-        )
-
         return (
             output_e4m3,
             output_scales_e8m0,
-            padded_token_per_expert,
+            padded_tokens_per_expert,
             expert_padded_offsets,
         )
 

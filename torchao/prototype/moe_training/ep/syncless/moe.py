@@ -16,9 +16,6 @@ Fuses w1 and w3 into a single w13 parameter of shape
 projections are computed with a single grouped GEMM.
 """
 
-import torch
-import torch.nn.functional as F
-from torch import nn
 from dataclasses import dataclass
 from typing import Literal
 
