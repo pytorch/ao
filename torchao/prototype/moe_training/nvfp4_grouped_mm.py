@@ -63,7 +63,7 @@ class _NVFP4GroupedMM(torch.autograd.Function):
         weight_t,
         group_end_offsets,
         out_dtype=torch.bfloat16,
-        wgrad_with_hp=True,
+        wgrad_with_hp=False,
     ):
         """
         Args:
@@ -92,7 +92,7 @@ class _NVFP4GroupedMM(torch.autograd.Function):
         # w_packed: (E, N, K//2), w_scales: (E, N, K//block_size)
 
         # Emulated grouped GEMM
-        output = _emulated_to_nvfp4_then_scaled_grouped_mm_2d_3d(
+        output = _emulated_nvfp4_scaled_grouped_mm_2d_3d(
             x_packed,
             x_scales,
             w_packed,
@@ -127,7 +127,7 @@ class _NVFP4GroupedMM(torch.autograd.Function):
             weight_t, with_per_tensor_scale=True
         )
 
-        grad_input = _emulated_to_nvfp4_then_scaled_grouped_mm_2d_3d(
+        grad_input = _emulated_nvfp4_scaled_grouped_mm_2d_3d(
             go_packed,
             go_scales,
             w_packed,
@@ -163,7 +163,7 @@ class _NVFP4GroupedMM(torch.autograd.Function):
             )
 
             # 2d_2d: A=(N,M), B=(K,M) -> B^T=(M,K) internal -> (N,M)@(M,K) = (E,N,K)
-            grad_weight = _emulated_to_nvfp4_then_scaled_grouped_mm_2d_2d(
+            grad_weight = _emulated_nvfp4_scaled_grouped_mm_2d_2d(
                 go_t_packed,
                 go_t_scales,
                 x_t_packed,
@@ -252,7 +252,7 @@ def _nvfp4_dequantize(
     return data_scaled.reshape(*leading_shape, K).to(output_dtype)
 
 
-def _emulated_to_nvfp4_then_scaled_grouped_mm_2d_3d(
+def _emulated_nvfp4_scaled_grouped_mm_2d_3d(
     A_data: torch.Tensor,
     A_scale: torch.Tensor,
     B_data: torch.Tensor,
@@ -315,7 +315,7 @@ def _emulated_to_nvfp4_then_scaled_grouped_mm_2d_3d(
     return out
 
 
-def _emulated_to_nvfp4_then_scaled_grouped_mm_2d_2d(
+def _emulated_nvfp4_scaled_grouped_mm_2d_2d(
     A_data: torch.Tensor,  # (M, K//2) packed
     A_scale: torch.Tensor,  # (M, K//block_size)
     B_data: torch.Tensor,  # (N, K//2) packed

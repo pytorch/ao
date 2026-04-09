@@ -21,8 +21,8 @@ if not (
 
 from torchao.float8.float8_utils import compute_error
 from torchao.prototype.moe_training.nvfp4_grouped_mm import (
-    _emulated_to_nvfp4_then_scaled_grouped_mm_2d_2d,
-    _emulated_to_nvfp4_then_scaled_grouped_mm_2d_3d,
+    _emulated_nvfp4_scaled_grouped_mm_2d_2d,
+    _emulated_nvfp4_scaled_grouped_mm_2d_3d,
     _to_nvfp4_then_scaled_grouped_mm,
 )
 from torchao.prototype.moe_training.utils import generate_jagged_offs
@@ -76,7 +76,7 @@ def test_emulated_nvfp4_grouped_gemm_2d_3d(M, K, N, num_experts):
     ref_out = torch._grouped_mm(x_ref, w_t_ref, offs=offs_ref, out_dtype=torch.bfloat16)
 
     # Emulated NVFP4: B_data=(E, N, K//2), B_scale=(E, N, K//16)
-    out = _emulated_to_nvfp4_then_scaled_grouped_mm_2d_3d(
+    out = _emulated_nvfp4_scaled_grouped_mm_2d_3d(
         x_packed, x_scales, w_packed, w_scales, offs=offs
     )
 
@@ -116,7 +116,7 @@ def test_emulated_nvfp4_grouped_gemm_2d_2d(M, K, N, num_experts):
 
     # Emulated NVFP4: A=(N, M), B=(K, M) -> internally B^T=(M, K)
     # Result: (N, M) @ (M, K) = (E, N, K)
-    out = _emulated_to_nvfp4_then_scaled_grouped_mm_2d_2d(
+    out = _emulated_nvfp4_scaled_grouped_mm_2d_2d(
         grad_out_t_packed,
         grad_out_t_scales,
         x_t_packed,
