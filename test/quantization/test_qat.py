@@ -37,6 +37,7 @@ from torchao.quantization.linear_quant_modules import (
     _replace_linear_8da4w,
     _replace_linear_int4,
 )
+from torchao.quantization.qat import TwoStepQuantizer
 from torchao.quantization.qat.api import (
     ComposableQATQuantizer,
     FromIntXQuantizationAwareTrainingConfig,
@@ -63,7 +64,6 @@ from torchao.quantization.qat.linear import (
     Int4WeightOnlyQATLinear,
     Int8DynActInt4WeightQATLinear,
 )
-from torchao.quantization.qat.two_step_quantizer import TwoStepQuantizer
 from torchao.quantization.qat.utils import (
     _fake_quantize_per_channel_group,
     _fake_quantize_per_token,
