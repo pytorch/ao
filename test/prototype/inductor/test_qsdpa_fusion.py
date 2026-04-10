@@ -371,8 +371,8 @@ class TestSDPAPatternRewriterTemplate(TestCase):
         # pattern is different for bs=1
         torch.manual_seed(1234)
         for dtype, has_mask, bs, fused in itertools.product(
-            [torch.float32], [True], [56], [True]
-        ):#, torch.bfloat16, False, 1, False
+             [torch.float32, torch.bfloat16], [True, False], [56, 1], [True, False]
+        ):
             seqlen, numhead, headsize = 197, 16, 64
             input_dim = headsize * numhead
             mod = (fuse_MHAModule if fused else MHAModule)(
