@@ -4,18 +4,17 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
-import os
 import random
-import socket
 import unittest
 
 import torch
 import torch.distributed as dist
-from torch.distributed.tensor import distribute_tensor, init_device_mesh
+from torch.distributed.tensor import distribute_tensor
 from torch.distributed.tensor.experimental import local_map
 from torch.distributed.tensor.placement_types import Partial, Replicate, Shard
 from torch.testing._internal import common_utils
 
+from test.prototype.pat.test_common import DistributedTestMixin, make_prox_kwargs
 from torchao.prototype.pat.group import Dim0Grouper, Dim1Grouper
 from torchao.prototype.pat.optim import (
     ProxGroupLasso,
@@ -24,17 +23,6 @@ from torchao.prototype.pat.optim import (
     PruneOptimizer,
 )
 from torchao.prototype.pat.utils import get_index_linspace
-
-
-def _make_prox_kwargs(gamma, **overrides):
-    kwargs = {
-        "gamma": gamma,
-        "gamma_index_slope": 0.0,
-        "disable_vmap": False,
-        "is_svd_grouper": False,
-    }
-    kwargs.update(overrides)
-    return kwargs
 
 
 class TestApplyProx(common_utils.TestCase):
@@ -60,7 +48,7 @@ class TestApplyProx(common_utils.TestCase):
 
         # _apply_prox with vmap
         grouper = GrouperCls(p)
-        prox_kwargs = _make_prox_kwargs(gamma)
+        prox_kwargs = make_prox_kwargs(gamma)
         zero_elts, group_norm, zeros_are_summed = PruneOptimizer._apply_prox(
             grouper,
             prox_map,
@@ -96,7 +84,7 @@ class TestApplyProx(common_utils.TestCase):
         # Row 1 norm ~ 13.19, threshold = 0.2 -> survives
 
         grouper = Dim0Grouper(p)
-        prox_kwargs = _make_prox_kwargs(gamma)
+        prox_kwargs = make_prox_kwargs(gamma)
         zero_elts, group_norm, zeros_are_summed = PruneOptimizer._apply_prox(
             grouper, prox_map, p, **prox_kwargs
         )
@@ -118,7 +106,7 @@ class TestApplyProx(common_utils.TestCase):
         p_ref = p.clone()
 
         grouper = Dim0Grouper(p)
-        prox_kwargs = _make_prox_kwargs(gamma, gamma_index_slope=slope)
+        prox_kwargs = make_prox_kwargs(gamma, gamma_index_slope=slope)
         zero_elts, group_norm, zeros_are_summed = PruneOptimizer._apply_prox(
             grouper,
             ProxLasso(reg_lambda),
@@ -175,27 +163,8 @@ class TestProxGroupLassoVectorized(common_utils.TestCase):
 
 
 @unittest.skipUnless(dist.is_available(), "torch.distributed not available")
-class TestApplyProxVmap(common_utils.TestCase):
+class TestApplyProxVmap(DistributedTestMixin, common_utils.TestCase):
     """Tests that _apply_prox handles DTensor inputs via local_map."""
-
-    mesh = None
-
-    @classmethod
-    def setUpClass(cls):
-        os.environ.setdefault("MASTER_ADDR", "localhost")
-        if "MASTER_PORT" not in os.environ:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.bind(("", 0))
-                port = s.getsockname()[1]
-            os.environ["MASTER_PORT"] = str(port)
-        if not dist.is_initialized():
-            dist.init_process_group(backend="gloo", rank=0, world_size=1)
-        cls.mesh = init_device_mesh("cpu", (1, 1))
-
-    @classmethod
-    def tearDownClass(cls):
-        if dist.is_initialized():
-            dist.destroy_process_group()
 
     @common_utils.parametrize(
         "GrouperCls,placements,prox_cls",
@@ -220,7 +189,7 @@ class TestApplyProxVmap(common_utils.TestCase):
 
         # Run regular tensor path
         grouper_reg = GrouperCls(p_regular)
-        prox_kwargs = _make_prox_kwargs(gamma)
+        prox_kwargs = make_prox_kwargs(gamma)
         zero_reg, group_norm_reg, summed_reg = PruneOptimizer._apply_prox(
             grouper_reg, prox_map, p_regular, **prox_kwargs
         )
@@ -260,7 +229,7 @@ class TestApplyProxVmap(common_utils.TestCase):
             p_data.clone(), device_mesh=self.mesh, placements=placements
         )
 
-        prox_kwargs = _make_prox_kwargs(gamma, gamma_index_slope=slope)
+        prox_kwargs = make_prox_kwargs(gamma, gamma_index_slope=slope)
         prox_map = prox_cls(reg_lambda)
 
         grouper_reg = GrouperCls(p_regular)

@@ -72,7 +72,7 @@ class DistributedTestMixin:
         os.environ.setdefault("MASTER_ADDR", "localhost")
         if "MASTER_PORT" not in os.environ:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.bind(("", 0))
+                s.bind(("localhost", 0))
                 port = s.getsockname()[1]
             os.environ["MASTER_PORT"] = str(port)
         if not dist.is_initialized():
