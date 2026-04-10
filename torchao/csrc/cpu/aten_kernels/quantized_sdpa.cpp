@@ -14,10 +14,6 @@
 #include <cstdio>
 #include <mutex>
 
-// When compiled as a temp copy with -DCPU_CAPABILITY_AVX10_2 -march=diamondrapids,
-// only the AVX10.2 section below is emitted.
-#if !defined(CPU_CAPABILITY_AVX10_2)
-
 #ifndef AT_PER_OPERATOR_HEADERS
 #include <ATen/Functions.h>
 #else
@@ -2640,9 +2636,3 @@ TORCH_LIBRARY_IMPL(torchao, CPU, m) {
 
 // } // at::native
 } // namespace torchao
-
-#else // defined(CPU_CAPABILITY_AVX10_2)
-// TODO: Add AVX10.2-optimised quantized_sdpa implementation here.
-namespace torchao { namespace cpu_avx10_2 {} } // placeholder
-
-#endif // !defined(CPU_CAPABILITY_AVX10_2)
