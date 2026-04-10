@@ -85,9 +85,6 @@ from torchao.quantization.quant_primitives import (
     quantize_affine,
 )
 from torchao.quantization.quantize_.workflows import Int4PackingFormat
-from torchao.quantization.unified import (
-    TwoStepQuantizer,
-)
 from torchao.quantization.utils import (
     _get_per_token_block_size,
     compute_error,
@@ -751,7 +748,7 @@ class TestQAT(TestCase):
                 ptq_state_dict[k], converted_state_dict[k], atol=0, rtol=0
             )
 
-    class _MyQATQuantizer(TwoStepQuantizer):
+    class _MyQATQuantizer:
         """
         Dummy quantizer that attaches a certain value to each nn.Linear's
         `_temp_quantizer_values` attribute.

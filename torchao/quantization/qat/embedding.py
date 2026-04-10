@@ -10,7 +10,6 @@ import torch
 import torch.nn.functional as F
 
 from torchao.quantization.quant_primitives import TorchAODType
-from torchao.quantization.unified import TwoStepQuantizer
 from torchao.quantization.utils import get_group_qparams_symmetric
 
 from .fake_quantize_config import (
@@ -136,7 +135,7 @@ class FakeQuantizedEmbedding(torch.nn.Embedding):
 # ======================================
 
 
-class Int4WeightOnlyEmbeddingQATQuantizer(TwoStepQuantizer):
+class Int4WeightOnlyEmbeddingQATQuantizer:
     """
     Quantizer for performing QAT on a model, where embedding layers have
     int4 fake quantized grouped per channel weights.

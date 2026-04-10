@@ -22,7 +22,6 @@ from torchao.quantization.quant_primitives import (
     TorchAODType,
     ZeroPointDomain,
 )
-from torchao.quantization.unified import TwoStepQuantizer
 from torchao.quantization.utils import get_group_qparams_symmetric
 from torchao.utils import _is_device
 
@@ -181,7 +180,7 @@ def disable_linear_fake_quant(mod: torch.nn.Module):
 # ===========================
 
 
-class _LegacyQATQuantizer(TwoStepQuantizer):
+class _LegacyQATQuantizer:
     """
     Base class for sharing common methods across legacy QAT quantizers.
     """
