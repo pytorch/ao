@@ -388,18 +388,14 @@ def _token_dispatch_bf16_launcher(
     # output_expert_splits: tokens each src_rank sent to each expert on THIS rank
     output_expert_splits = all_expert_splits[:, rank, :].contiguous()
 
-    # Flatten all_expert_splits for Triton kernel access
+    # Compute write offsets for dispatch direction
     all_expert_splits_flat = all_expert_splits.contiguous().view(-1)
-
-    # Allocate write offsets
     write_offsets = torch.empty(
         world_size,
         num_experts_per_rank,
         dtype=torch.int64,
         device=input.device,
     )
-
-    # Phase 1: Precompute write offsets
     _precompute_dispatch_write_offsets_kernel[(1, 1, 1)](
         all_expert_splits_flat,
         write_offsets,
@@ -409,7 +405,7 @@ def _token_dispatch_bf16_launcher(
         TOKEN_ALIGNMENT=token_alignment,
     )
 
-    # Phase 2: Push grad_output to expert-major layout on destination ranks
+    # Push grad_output to expert-major layout on destination ranks
     num_blocks = world_size * BLOCKS_PER_REMOTE_RANK
     _bf16_dispatch_all_to_all_kernel[(num_blocks, 1, 1)](
         input,
