@@ -12,6 +12,7 @@ from torch._inductor.utils import run_and_get_code
 from torch.testing import FileCheck
 from torch.testing._internal import common_utils
 
+from torchao.kernel.intmm import _cpu_is_vnni_supported
 from torchao.quantization import (
     Int8DynamicActivationInt8WeightConfig,
     Int8StaticActivationInt8WeightConfig,
@@ -535,6 +536,10 @@ class TestInt8TensorCPU(TorchAOIntegrationTestCase):
         device = "cpu"
         if is_ROCM():
             self.skipTest("Don't test CPU for ROCM version of torch")
+        if not reduce_range and not _cpu_is_vnni_supported():
+            self.skipTest(
+                "Only test reduce_range=True on CPUs without VNNI support to avoid int8 overflow."
+            )
 
         torch.compiler.reset()
 
