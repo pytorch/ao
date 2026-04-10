@@ -385,3 +385,4 @@ CLAUDE.local.md
 .claude
 *.priv
 *.priv.*
+.specstory/
