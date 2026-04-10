@@ -47,8 +47,6 @@ from torchao.quantization.quant_api import (
     ModuleFqnToConfig,
     PerRow,
     PerTensor,
-    Quantizer,
-    TwoStepQuantizer,
     _replace_with_custom_fn_if_matches_filter,
 )
 from torchao.quantization.quant_primitives import MappingType
@@ -90,7 +88,7 @@ def capture_and_prepare(model, example_inputs):
     return m
 
 
-class XNNPackDynamicQuantizer(TwoStepQuantizer):
+class XNNPackDynamicQuantizer:
     def prepare(self, model: torch.nn.Module) -> torch.nn.Module:
         _replace_with_custom_fn_if_matches_filter(
             model,
@@ -110,7 +108,7 @@ class XNNPackDynamicQuantizer(TwoStepQuantizer):
         return model
 
 
-class TorchCompileDynamicQuantizer(Quantizer):
+class TorchCompileDynamicQuantizer:
     def quantize(self, model: torch.nn.Module) -> torch.nn.Module:
         quantize_(model, Int8DynamicActivationInt8WeightConfig())
         return model
