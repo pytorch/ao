@@ -63,6 +63,7 @@ from torchao.quantization.qat.linear import (
     Int4WeightOnlyQATLinear,
     Int8DynActInt4WeightQATLinear,
 )
+from torchao.quantization.qat.two_step_quantizer import TwoStepQuantizer
 from torchao.quantization.qat.utils import (
     _fake_quantize_per_channel_group,
     _fake_quantize_per_token,
@@ -748,7 +749,7 @@ class TestQAT(TestCase):
                 ptq_state_dict[k], converted_state_dict[k], atol=0, rtol=0
             )
 
-    class _MyQATQuantizer:
+    class _MyQATQuantizer(TwoStepQuantizer):
         """
         Dummy quantizer that attaches a certain value to each nn.Linear's
         `_temp_quantizer_values` attribute.
