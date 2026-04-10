@@ -280,7 +280,7 @@ class TestGraphBreaks(DynamoTestCase):
         "CUDA with float8 support not available",
     )
     def test_float8_graph_input(self):
-        # """Test that having Float8TrainingTensor object as a graph input"""
+        """Test that having Float8TrainingTensor object as a graph input"""
         for device in _DEVICES:
             with self.subTest(device=device):
 
