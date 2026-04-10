@@ -24,6 +24,7 @@ from torchao.quantization.quantize_.common import (
     _choose_quant_func_and_quantize_tensor,
 )
 from torchao.quantization.quantize_.workflows.int8.int8_tensor import (
+    Int8Tensor,
     QuantizeTensorToInt8Kwargs,
 )
 from torchao.quantization.utils import compute_error, get_block_size
@@ -513,6 +514,129 @@ class TestInt8StaticQuant(TorchAOIntegrationTestCase):
         # Compute SQNR and make sure it's above 40
         sqnr = compute_error(output_baseline, output)
         self.assertGreater(sqnr, 40, f"SQNR too low: {sqnr}")
+
+
+@common_utils.instantiate_parametrized_tests
+class TestInt8CPU(TorchAOIntegrationTestCase):
+    @common_utils.parametrize("reduce_range", [False, True])
+    @common_utils.parametrize(
+        "granularity",
+        [PerRow(), PerTensor(), (PerRow(), PerTensor()), (PerTensor(), PerRow())],
+    )
+    @common_utils.parametrize(
+        "act_mapping_type", [MappingType.SYMMETRIC, MappingType.ASYMMETRIC]
+    )
+    def test_dynamic_config_reduce_range(
+        self, act_mapping_type, granularity, reduce_range
+    ):
+        device = "cpu"
+        linear = torch.nn.Linear(
+            256, 512, bias=False, dtype=torch.bfloat16, device=device
+        )
+        linear_fp = copy.deepcopy(linear).eval()
+        config = Int8DynamicActivationInt8WeightConfig(
+            version=2,
+            granularity=granularity,
+            act_mapping_type=act_mapping_type,
+            reduce_range=reduce_range,
+        )
+
+        quantize_(linear, config)
+        w = linear.weight
+        expected_min, expected_max = (-64, 63) if reduce_range else (-128, 127)
+
+        self.assertIsInstance(w, Int8Tensor)
+        self.assertEqual(w.reduce_range, reduce_range)
+        self.assertTrue(
+            torch.all(w.qdata >= expected_min) and torch.all(w.qdata <= expected_max)
+        )
+        self.assertIsNotNone(w.act_quant_kwargs)
+        self.assertEqual(w.act_quant_kwargs.reduce_range, reduce_range)
+
+        x = torch.randn(32, 256, dtype=torch.bfloat16, device=device)
+        x_int8 = _choose_quant_func_and_quantize_tensor(x, w.act_quant_kwargs)
+        self.assertTrue(
+            torch.all(x_int8.qdata >= expected_min)
+            and torch.all(x_int8.qdata <= expected_max)
+        )
+
+        y_fp = linear_fp(x)
+        y = linear(x)
+        self.assertGreater(
+            compute_error(y_fp, y),
+            20,
+            f"Dynamic reduce_range SQNR too low: {compute_error(y_fp, y)}",
+        )
+        self.assertFalse(torch.isnan(y).any())
+        self.assertFalse(torch.isinf(y).any())
+
+    @common_utils.parametrize("reduce_range", [False, True])
+    @common_utils.parametrize(
+        "granularity",
+        [PerRow(), PerTensor(), (PerRow(), PerTensor()), (PerTensor(), PerRow())],
+    )
+    @common_utils.parametrize(
+        "act_mapping_type", [MappingType.SYMMETRIC, MappingType.ASYMMETRIC]
+    )
+    def test_static_config_reduce_range(
+        self, granularity, act_mapping_type, reduce_range
+    ):
+        device = "cpu"
+        dtype = torch.bfloat16
+        M, N, K = 64, 128, 256
+
+        linear = torch.nn.Linear(K, N, bias=False, dtype=dtype, device=device)
+        linear_fp = copy.deepcopy(linear).eval()
+        input_tensor = torch.randn(M, K, dtype=dtype, device=device)
+
+        # For tuple/list granularity, activation quant uses the first element.
+        act_granularity, _ = Int8Tensor._normalize_granularity(granularity)
+        int8_input = _choose_quant_func_and_quantize_tensor(
+            input_tensor,
+            QuantizeTensorToInt8Kwargs(
+                granularity=act_granularity,
+                mapping_type=act_mapping_type,
+                reduce_range=reduce_range,
+            ),
+        )
+        expected_min, expected_max = (-64, 63) if reduce_range else (-128, 127)
+        self.assertTrue(
+            torch.all(int8_input.qdata >= expected_min)
+            and torch.all(int8_input.qdata <= expected_max)
+        )
+
+        act_quant_zero_point = None
+        if int8_input.zero_point is not None:
+            act_quant_zero_point = int8_input.zero_point.detach().clone()
+
+        config = Int8StaticActivationInt8WeightConfig(
+            act_quant_scale=int8_input.scale.detach().clone(),
+            act_quant_zero_point=act_quant_zero_point,
+            granularity=granularity,
+            act_mapping_type=act_mapping_type,
+            reduce_range=reduce_range,
+        )
+
+        quantize_(linear, config)
+        w = linear.weight
+
+        self.assertIsInstance(w, Int8Tensor)
+        self.assertEqual(w.reduce_range, reduce_range)
+        self.assertTrue(
+            torch.all(w.qdata >= expected_min) and torch.all(w.qdata <= expected_max)
+        )
+        self.assertIsNotNone(w.act_quant_kwargs)
+        self.assertEqual(w.act_quant_kwargs.reduce_range, reduce_range)
+
+        output_fp = linear_fp(input_tensor)
+        output = linear(input_tensor)
+        self.assertGreater(
+            compute_error(output_fp, output),
+            20,
+            f"Static reduce_range SQNR too low: {compute_error(output_fp, output)}",
+        )
+        self.assertFalse(torch.isnan(output).any())
+        self.assertFalse(torch.isinf(output).any())
 
 
 if __name__ == "__main__":
