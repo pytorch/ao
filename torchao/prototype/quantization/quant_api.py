@@ -377,6 +377,9 @@ class Float8ObservedSoftmax(torch.nn.Softmax):
     Softmax output is always in [0, 1], so we use a fixed scale of
     ``finfo(float8_dtype).max`` instead of observing. This module simply
     marks the softmax for later conversion by the convert step.
+
+    Unlike linear observers, the calibration loop does not collect statistics
+    here — it only records the input device for scale tensor placement.
     """
 
     def __init__(
@@ -422,10 +425,25 @@ class Float8QuantizedSoftmax(torch.nn.Module):
         else:
             self.output_act_quant_scale = None
         self.output_act_quant_kwargs = output_act_quant_kwargs
+        # Cached version of scale reshaped to match input ndim, populated on first forward
+        self._reshaped_scale: Optional[torch.Tensor] = None
 
     @property
     def dim(self) -> Optional[int]:
         return self._dim
+
+    def _get_reshaped_scale(self, target_ndim: int) -> torch.Tensor:
+        """Return the scale reshaped to match target_ndim, caching the result."""
+        if (
+            self._reshaped_scale is not None
+            and self._reshaped_scale.ndim == target_ndim
+        ):
+            return self._reshaped_scale
+        scale = self.output_act_quant_scale
+        while scale.ndim < target_ndim:
+            scale = scale.unsqueeze(0)
+        self._reshaped_scale = scale
+        return scale
 
     def forward(self, input: Tensor) -> Tensor:
         from torchao.prototype.quantization.float8_static_quant.prototype_float8_tensor import (
@@ -436,10 +454,7 @@ class Float8QuantizedSoftmax(torch.nn.Module):
 
         # Apply quantize-and-dequantize if configured
         if self.output_act_quant_kwargs is not None:
-            # Reshape scale to match output ndim (e.g. [448.] -> [[448.]] for 2D)
-            scale = self.output_act_quant_scale
-            while scale.ndim < output.ndim:
-                scale = scale.unsqueeze(0)
+            scale = self._get_reshaped_scale(output.ndim)
             quantized_output = _choose_quant_func_and_quantize_tensor(
                 output,
                 self.output_act_quant_kwargs,
@@ -521,11 +536,18 @@ def _float8_static_activation_float8_weight_transform(
     elif step == QuantizationStep.CONVERT or step == "convert":
         # Handle observed Softmax modules
         if isinstance(module, Float8ObservedSoftmax):
+            device = module._device
+            if device is None:
+                logger.warning(
+                    "Float8ObservedSoftmax._device is None (forward() was never called). "
+                    "Defaulting scale device to CPU."
+                )
+                device = torch.device("cpu")
             # Softmax output is in [0, 1], so use a fixed scale:
             # scale = float8_max / 1.0 = float8_max
             float8_max = torch.finfo(config.activation_dtype).max
             output_act_quant_scale = torch.tensor(
-                [float8_max], dtype=torch.float32, device=module._device
+                [float8_max], dtype=torch.float32, device=device
             )
 
             output_act_quant_kwargs = QuantizeTensorToFloat8Kwargs(

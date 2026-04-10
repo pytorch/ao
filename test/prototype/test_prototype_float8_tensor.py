@@ -517,6 +517,8 @@ class TestFloat8StaticActivation(TorchAOIntegrationTestCase):
         self.assertIsInstance(model.linear, Float8ObservedLinear)
         self.assertIsInstance(model.softmax, Float8ObservedSoftmax)
 
+        # Calibration loop: needed for linear observers to collect min/max stats.
+        # For softmax, this only records the input device (scale is fixed).
         for _ in range(10):
             model(*example_inputs)
 
