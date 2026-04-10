@@ -26,6 +26,7 @@ from .fake_quantize_config import (
     _infer_fake_quantize_configs,
 )
 from .linear import FakeQuantizedLinear
+from .two_step_quantizer import TwoStepQuantizer
 from .utils import _log_deprecation_warning
 
 
@@ -417,9 +418,6 @@ def _from_intx_quantization_aware_training_transform(
         return mod.to_embedding()
     else:
         return mod
-
-
-from .two_step_quantizer import TwoStepQuantizer
 
 
 class ComposableQATQuantizer(TwoStepQuantizer):
