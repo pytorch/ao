@@ -170,6 +170,75 @@ class PruneOptimizer(Optimizer):
         return grouper_kwargs
 
     @staticmethod
+    def _apply_prox_dtensor(
+        grouper, prox_map, p, gamma, gamma_in_dims, tau_reweight, tau_reweight_in_dims
+    ):
+        """Apply prox_map to a DTensor parameter via local_map.
+
+        Returns:
+            zero_elts: number of zero elements (int, globally summed)
+            group_norm: group-level norm DTensor
+        """
+        if not torch.is_tensor(gamma):
+            gamma = torch.tensor(gamma, device=p.device)
+
+        # Derive input placements from grouper.p
+        p_in_placements = tuple(
+            Shard(grouper.in_dims)
+            if grouper.in_dims is not None and plc.is_shard()
+            else plc
+            for plc in grouper.p.placements
+        )
+        if grouper.in_dims is not None and gamma.dim() > 0:
+            # Shard gamma according to grouper.in_dims
+            gamma = distribute_tensor(
+                gamma.unsqueeze(int(not grouper.in_dims)),
+                device_mesh=p.device_mesh,
+                placements=p_in_placements,
+            )
+            gamma_in_dims = grouper.in_dims
+        else:
+            gamma = distribute_tensor(gamma, device_mesh=p.device_mesh)
+
+        if isinstance(prox_map, ProxGroupLasso):
+            # Use ProxGroupLassoVectorized for group lasso
+            prox_map_vec = ProxGroupLassoVectorized(
+                prox_map.reg_lambda,
+                reduce_dim=int(not grouper.in_dims),
+            )
+            local_fn = prox_map_vec.apply_
+            if torch.is_tensor(tau_reweight) and tau_reweight.dim() < grouper.p.dim():
+                tau_reweight = tau_reweight.unsqueeze(int(not grouper.in_dims))
+        else:
+            # Use vmap for other prox types
+            local_fn = torch.vmap(
+                prox_map.apply_,
+                in_dims=(
+                    grouper.in_dims,
+                    gamma_in_dims,
+                    tau_reweight_in_dims,
+                ),
+                out_dims=(0, 0),
+            )
+
+        zero_elts_per_group, group_norm = local_map(
+            local_fn,
+            out_placements=(
+                (Partial(),) * p.device_mesh.ndim,
+                (Shard(0),) * p.device_mesh.ndim,
+            ),
+            in_placements=(
+                p_in_placements,
+                gamma.placements if _is_dtensor(gamma) else None,
+                tau_reweight.placements if _is_dtensor(tau_reweight) else None,
+            ),
+            redistribute_inputs=True,
+        )(grouper.p, gamma, tau_reweight)
+
+        # Gather counts across shards
+        return zero_elts_per_group.full_tensor().sum().item(), group_norm
+
+    @staticmethod
     def _apply_prox(
         grouper, prox_map, p, tau_reweight=1.0, sv_count=None, **prox_kwargs
     ) -> tuple[Tensor, Tensor, bool]:
@@ -207,71 +276,15 @@ class PruneOptimizer(Optimizer):
                 zeros_are_summed = zero_elts.dim() == 0
             else:
                 if not prox_kwargs["is_svd_grouper"] and _is_dtensor(p):
-                    if not torch.is_tensor(gamma):
-                        gamma = torch.tensor(gamma, device=p.device)
-
-                    # Derive input placements from grouper.p
-                    p_in_placements = tuple(
-                        Shard(grouper.in_dims)
-                        if grouper.in_dims is not None and plc.is_shard()
-                        else plc
-                        for plc in grouper.p.placements
+                    zero_elts, group_norm = PruneOptimizer._apply_prox_dtensor(
+                        grouper,
+                        prox_map,
+                        p,
+                        gamma,
+                        gamma_in_dims,
+                        tau_reweight,
+                        tau_reweight_in_dims,
                     )
-                    if grouper.in_dims is not None and gamma.dim() > 0:
-                        # Shard gamma according to grouper.in_dims
-                        gamma = distribute_tensor(
-                            gamma.unsqueeze(int(not grouper.in_dims)),
-                            device_mesh=p.device_mesh,
-                            placements=p_in_placements,
-                        )
-                        gamma_in_dims = grouper.in_dims
-                    else:
-                        gamma = distribute_tensor(gamma, device_mesh=p.device_mesh)
-
-                    if isinstance(prox_map, ProxGroupLasso):
-                        # Use ProxGroupLassoVectorized for group lasso
-                        prox_map_vec = ProxGroupLassoVectorized(
-                            prox_map.reg_lambda,
-                            reduce_dim=int(not grouper.in_dims),
-                        )
-                        local_fn = prox_map_vec.apply_
-                        if (
-                            torch.is_tensor(tau_reweight)
-                            and tau_reweight.dim() < grouper.p.dim()
-                        ):
-                            tau_reweight = tau_reweight.unsqueeze(
-                                int(not grouper.in_dims)
-                            )
-                    else:
-                        # Use vmap for other prox types
-                        local_fn = torch.vmap(
-                            prox_map.apply_,
-                            in_dims=(
-                                grouper.in_dims,
-                                gamma_in_dims,
-                                tau_reweight_in_dims,
-                            ),
-                            out_dims=(0, 0),
-                        )
-
-                    zero_elts_per_group, group_norm = local_map(
-                        local_fn,
-                        out_placements=(
-                            (Partial(),) * p.device_mesh.ndim,
-                            (Shard(0),) * p.device_mesh.ndim,
-                        ),
-                        in_placements=(
-                            p_in_placements,
-                            gamma.placements if _is_dtensor(gamma) else None,
-                            tau_reweight.placements
-                            if _is_dtensor(tau_reweight)
-                            else None,
-                        ),
-                        redistribute_inputs=True,
-                    )(grouper.p, gamma, tau_reweight)
-
-                    # Gather counts by calling redistribute implicitly
-                    zero_elts = zero_elts_per_group.full_tensor().sum().item()
                 else:
                     # torch.Tensor branch - use standard vmap
                     zero_elts_per_group, group_norm = torch.vmap(
