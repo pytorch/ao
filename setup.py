@@ -383,16 +383,12 @@ def bool_to_on_off(value):
     return "ON" if value else "OFF"
 
 
-class CPUKernelBuild:
-    """All CPU-kernel-specific build logic, centralised for easy maintenance.
+class X86KernelBuild:
+    """Class for all x86-kernel-specific build logic"""
 
-    Isolates every CPU-specific decision — compiler selection, compile flags,
-    link flags, source filtering, and ISA object pre-compilation — so the rest
-    of the build script stays platform-agnostic.
-    """
-
-    # Minimum GCC major version required for full AVX10.2 / new-ISA support.
-    _MIN_GCC_MAJOR = 15
+    # Preferred GCC major version required for full AVX10.2 / new-ISA support.
+    # If GCC version is below this, the build will still succeed but AVX10.2 support will be unavailable and a warning will be printed.
+    _PREFERRED_GCC_MAJOR = 15
 
     @staticmethod
     def is_enabled() -> bool:
@@ -421,19 +417,17 @@ class CPUKernelBuild:
         return None
 
     @staticmethod
-    def find_cxx_compiler() -> "str | None":
-        """Find a C++ compiler that meets the minimum GCC version requirement.
+    def find_preferred_cxx_compiler() -> "str | None":
+        """Find a C++ compiler that meets the preferred GCC version requirement.
 
         Search order:
           1. $CXX environment variable
           2. ``g++`` on $PATH (via ``which``)
-          3. The conda-packaged cross-compiler wrapper in $CONDA_PREFIX/bin
-             (name pattern: ``*-g++``, used by conda's gcc packages)
 
         Returns the path of the first qualifying compiler, or None if no
-        compiler at or above _MIN_GCC_MAJOR is found.
+        compiler at or above _PREFERRED_GCC_MAJOR is found.
         """
-        min_major = CPUKernelBuild._MIN_GCC_MAJOR
+        min_major = X86KernelBuild._PREFERRED_GCC_MAJOR
 
         def _check(exe: str) -> "str | None":
             if not exe:
@@ -446,7 +440,7 @@ class CPUKernelBuild:
                 exe = resolved
             if not os.path.isfile(exe):
                 return None
-            major = CPUKernelBuild._gcc_major(exe)
+            major = X86KernelBuild._gcc_major(exe)
             if major is not None and major >= min_major:
                 return exe
             return None
@@ -460,16 +454,6 @@ class CPUKernelBuild:
         result = _check("g++")
         if result:
             return result
-
-        # 3. Conda env cross-compiler wrapper (*-g++ in $CONDA_PREFIX/bin)
-        conda_prefix = os.environ.get("CONDA_PREFIX", "")
-        if conda_prefix:
-            bin_dir = os.path.join(conda_prefix, "bin")
-            for name in sorted(os.listdir(bin_dir)) if os.path.isdir(bin_dir) else []:
-                if name.endswith("-g++"):
-                    result = _check(os.path.join(bin_dir, name))
-                    if result:
-                        return result
 
         return None
 
@@ -492,20 +476,20 @@ class CPUKernelBuild:
     def add_compile_flags(extra_compile_args: dict) -> None:
         """Extend *extra_compile_args* with CPU-kernel compile options.
 
-        The main kernel files are compiled WITHOUT any ISA-specific flags so
-        that they run on any x86 platform.  AVX512-specific code lives in
-        separate *_avx512_impl.cpp files compiled via
-        CPUKernelBuild.precompile_isa_objects() with the correct -mavx512*
-        flags and -DCPU_CAPABILITY_AVX512.
+        The main kernel files are compiled with AVX512 + AMX flags so that
+        PyTorch's vec512 headers (which use Sleef f16 intrinsics under
+        CPU_CAPABILITY_AVX512) compile correctly.  -fno-tree-vectorize
+        prevents the compiler from emitting 512-bit packed instructions in
+        scalar fallback functions; AVX512 pragma regions re-enable
+        vectorization only where explicitly desired.
 
-        Runtime dispatch via __builtin_cpu_supports() ensures the right path
-        is taken at runtime:
-          - Old platforms (no AVX512):  scalar fallback paths are used.
-          - GNR (AVX512 + AMX):        AVX512/AMX optimised paths are selected.
-          - DMR (AVX10.2):              AVX10.2 objects (compiled separately with
-                                        -march=diamondrapids) are also linked in.
+        Runtime dispatch via __builtin_cpu_supports() selects the right path:
+          - no AVX512:      scalar fallback paths are used.
+          - AVX512 + AMX:   AVX512/AMX optimised paths are selected.
+          - AVX10.2:        AVX10.2 objects (compiled separately with
+                            -march=diamondrapids) are also linked in.
         """
-        if not CPUKernelBuild.is_enabled():
+        if not X86KernelBuild.is_enabled():
             return
         # Build with full AVX512 + AMX support so PyTorch's vec512 headers
         # (which use Sleef f16 intrinsics under CPU_CAPABILITY_AVX512) compile
@@ -529,15 +513,15 @@ class CPUKernelBuild:
                 "-fopenmp",
             ]
         )
-        cxx_compiler = CPUKernelBuild.find_cxx_compiler()
+        cxx_compiler = X86KernelBuild.find_preferred_cxx_compiler()
         if cxx_compiler:
             os.environ.setdefault("CXX", cxx_compiler)
             print(
-                f"[CPU Kernels] Using GCC {CPUKernelBuild._MIN_GCC_MAJOR}+ compiler: {cxx_compiler}"
+                f"[CPU Kernels] Using GCC {X86KernelBuild._PREFERRED_GCC_MAJOR}+ compiler: {cxx_compiler}"
             )
         else:
             print(
-                f"[CPU Kernels] GCC {CPUKernelBuild._MIN_GCC_MAJOR}+ not found; using default C++ compiler. "
+                f"[CPU Kernels] GCC {X86KernelBuild._PREFERRED_GCC_MAJOR}+ not found; using default C++ compiler. "
                 "AVX10.2 stub compilation may fail."
             )
 
@@ -552,7 +536,7 @@ class CPUKernelBuild:
         that newer GCC versions generate but PyTorch's bundled libstdc++
         may lack.
         """
-        if not CPUKernelBuild.is_enabled():
+        if not X86KernelBuild.is_enabled():
             return []
         flags = []
         try:
@@ -567,24 +551,12 @@ class CPUKernelBuild:
 
     @staticmethod
     def filter_sources(sources: list, extensions_dir: str) -> list:
-        """Remove CPU ISA-specific sources from *sources* as appropriate.
-
-        When CPU kernels are disabled or we are not on Linux, strip all
-        aten_kernels .cpp files.  When they are enabled, strip only the
-        *_avx512_impl.cpp files (which are pre-compiled as extra_objects).
-        """
+        """Remove CPU aten_kernels sources from *sources* when not building for CPU."""
         aten_kernels_dir = os.path.join(extensions_dir, "cpu", "aten_kernels")
-        if not CPUKernelBuild.is_enabled():
+        if not X86KernelBuild.is_enabled():
             excluded = set(glob.glob(os.path.join(aten_kernels_dir, "*.cpp")))
             return [s for s in sources if s not in excluded]
-        # ISA-specific files are compiled separately with explicit flags and
-        # linked as extra_objects; exclude them from the main sources list.
-        # Note: *_avx10_2.cpp files no longer exist; AVX10.2 variants are
-        # generated at build time as temp copies of the kernel files.
-        isa_sources = set(
-            glob.glob(os.path.join(aten_kernels_dir, "*_avx512_impl.cpp"))
-        )
-        return [s for s in sources if s not in isa_sources]
+        return sources
 
     @staticmethod
     def precompile_isa_objects(build_temp: str, extensions: list) -> None:
@@ -607,8 +579,10 @@ class CPUKernelBuild:
         if main_ext is None:
             return
 
-        cxx = os.environ.get("CXX", CPUKernelBuild.find_cxx_compiler() or "g++")
-        include_flags = CPUKernelBuild.get_include_flags()
+        cxx = os.environ.get(
+            "CXX", X86KernelBuild.find_preferred_cxx_compiler() or "g++"
+        )
+        include_flags = X86KernelBuild.get_include_flags()
 
         cpu_defines = [
             "-DCPU_CAPABILITY_AVX512",
@@ -616,42 +590,6 @@ class CPUKernelBuild:
         ]
 
         aten_kernels_dir = os.path.join("torchao", "csrc", "cpu", "aten_kernels")
-
-        # --- AVX512 implementation files ---
-        avx512_sources = glob.glob(os.path.join(aten_kernels_dir, "*_avx512_impl.cpp"))
-        if avx512_sources:
-            avx512_flags = (
-                ["-O3", "-std=c++20", "-fPIC", "-fopenmp"]
-                + include_flags
-                + cpu_defines
-                + [
-                    "-mavx512f",
-                    "-mavx512bw",
-                    "-mavx512vl",
-                    "-mavx512dq",
-                    "-mavx512vnni",
-                    "-mamx-int8",
-                    "-mamx-tile",
-                    "-mamx-bf16",
-                ]
-            )
-            build_dir_avx512 = os.path.join(build_temp, "cpu_isa_avx512")
-            os.makedirs(build_dir_avx512, exist_ok=True)
-            for src in avx512_sources:
-                obj = os.path.join(
-                    build_dir_avx512,
-                    os.path.basename(src).replace(".cpp", ".o"),
-                )
-                cmd = [cxx] + avx512_flags + ["-c", src, "-o", obj]
-                print(f"[CPU ISA AVX512] Compiling {src}")
-                try:
-                    subprocess.check_call(cmd)
-                    main_ext.extra_objects = list(
-                        getattr(main_ext, "extra_objects", [])
-                    ) + [obj]
-                except subprocess.CalledProcessError as e:
-                    print(f"[ERROR] Failed to compile AVX512 object {src}: {e}")
-                    raise
 
         # --- AVX10.2 variant: copy kernel files and compile with DMR target ---
         # Include the kernel source dir so that relative includes like
@@ -670,7 +608,7 @@ class CPUKernelBuild:
         all_kernel_sources = glob.glob(os.path.join(aten_kernels_dir, "*.cpp"))
         for src in sorted(all_kernel_sources):
             base = os.path.basename(src)
-            if base.endswith("_avx10_2.cpp") or base.endswith("_avx512_impl.cpp"):
+            if base.endswith("_avx10_2.cpp"):
                 continue
             with open(src) as fh:
                 if "CPU_CAPABILITY_AVX10_2" not in fh.read():
@@ -687,7 +625,11 @@ class CPUKernelBuild:
                     getattr(main_ext, "extra_objects", [])
                 ) + [obj]
             except subprocess.CalledProcessError as e:
-                print(f"[WARNING] Failed to compile AVX10.2 variant of {src}: {e}")
+                print(
+                    f"[WARNING] Unable to compile AVX10.2 variant of {src}:\n{e}\n"
+                    "You can ignore this warning if you intend to build without AVX10.2 support, "
+                    "but if you want to enable AVX10.2 optimizations please ensure you have a compatible compiler (GCC >= 15)."
+                )
                 print(
                     "[WARNING] AVX10.2 support will not be available for this kernel."
                 )
@@ -707,20 +649,16 @@ class TorchAOBuildExt(BuildExtension):
         for ext in cmake_extensions:
             self.build_cmake(ext)
 
-        # Pre-compile CPU ISA-specific objects (AVX10.2, etc.) before the
+        # Pre-compile X86 ISA-specific objects (AVX10.2, etc.) before the
         # main build so they can be linked in as extra_objects.
-        if use_cpu_kernels and is_linux:
-            self._precompile_cpu_isa_objects(other_extensions)
+        if X86KernelBuild.is_enabled():
+            X86KernelBuild.precompile_isa_objects(self.build_temp, other_extensions)
 
         # Use BuildExtension to build other extensions
         self.extensions = other_extensions
         super().build_extensions()
 
         self.extensions = other_extensions + cmake_extensions
-
-    def _precompile_cpu_isa_objects(self, extensions):
-        """Thin wrapper — delegates to CPUKernelBuild.precompile_isa_objects."""
-        CPUKernelBuild.precompile_isa_objects(self.build_temp, extensions)
 
     def build_cmake(self, ext):
         extdir = os.path.abspath(os.path.dirname(self.get_ext_fullpath(ext.name)))
@@ -775,11 +713,6 @@ class CMakeExtension(Extension):
         self.cmake_args = cmake_args
 
 
-def add_options_for_x86(extra_compile_args):
-    """Thin wrapper — delegates to CPUKernelBuild.add_compile_flags."""
-    CPUKernelBuild.add_compile_flags(extra_compile_args)
-
-
 def get_extensions():
     # Skip building C++ extensions if USE_CPP is set to "0"
     if use_cpp == "0":
@@ -830,9 +763,9 @@ def get_extensions():
             ["-O3" if not debug_mode else "-O0", "-fdiagnostics-color=always"]
         )
 
-        add_options_for_x86(extra_compile_args)
-
-        extra_link_args.extend(CPUKernelBuild.get_link_flags())
+        # X86-specific compile and link flags
+        X86KernelBuild.add_compile_flags(extra_compile_args)
+        extra_link_args.extend(X86KernelBuild.get_link_flags())
 
         if debug_mode:
             extra_compile_args["cxx"].append("-g")
@@ -900,7 +833,7 @@ def get_extensions():
     )
     sources = [s for s in sources if s not in cpu_cmake_sources]
 
-    sources = CPUKernelBuild.filter_sources(sources, extensions_dir)
+    sources = X86KernelBuild.filter_sources(sources, extensions_dir)
 
     # Collect CUDA source files
     extensions_cuda_dir = os.path.join(extensions_dir, "cuda")
