@@ -12,9 +12,6 @@ from .granularity import (
     PerTensor,
     PerToken,
 )
-from .linear_activation_scale import (
-    to_weight_tensor_with_linear_activation_scale_metadata,
-)
 from .linear_quant_modules import (
     Int4WeightOnlyQuantizer,
     Int8DynActInt4WeightLinear,
@@ -101,7 +98,6 @@ __all__ = [
     "Float8Tensor",
     "compute_error",
     # building blocks
-    "to_weight_tensor_with_linear_activation_scale_metadata",
     "AffineQuantizedMinMaxObserver",
     "AffineQuantizedObserverBase",
     # quant primitive ops
