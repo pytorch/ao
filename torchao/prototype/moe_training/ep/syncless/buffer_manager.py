@@ -19,6 +19,8 @@ class SymmetricMemoryBufferManager:
     def __init__(self):
         self.output = None
         self.output_scales = None
+        self._output_hdl = None
+        self._output_scales_hdl = None
         self.max_output_rows_per_rank = None
         # Shared bf16 symmetric memory buffer, used for both:
         #  - combine forward  (expert-major → rank-major)
@@ -37,9 +39,11 @@ class SymmetricMemoryBufferManager:
         data_dtype: torch.dtype = torch.float8_e4m3fn,
         scales_dtype: torch.dtype = torch.uint8,
         device: torch.device = torch.device("cuda"),
+        group=None,
     ):
         """
-        Preallocate symmetric memory buffers for output data and scales.
+        Preallocate symmetric memory buffers for output data and scales,
+        and rendezvous once to cache the symmetric memory handles.
 
         Args:
             max_output_rows_per_rank: Maximum output rows per rank (worst-case allocation)
@@ -48,6 +52,7 @@ class SymmetricMemoryBufferManager:
             data_dtype: Data tensor dtype
             scales_dtype: Scales tensor dtype
             device: Device to allocate on
+            group: Process group for symmetric memory rendezvous
         """
         self.max_output_rows_per_rank = max_output_rows_per_rank
 
@@ -66,6 +71,10 @@ class SymmetricMemoryBufferManager:
             dtype=scales_dtype,
             device=device,
         )
+
+        # Rendezvous once and cache handles (same pattern as _bf16_buffer_hdl)
+        self._output_hdl = symm_mem.rendezvous(self.output, group=group)
+        self._output_scales_hdl = symm_mem.rendezvous(self.output_scales, group=group)
 
     def ensure_bf16_buffer(
         self,
@@ -92,9 +101,7 @@ class SymmetricMemoryBufferManager:
                 dtype=torch.bfloat16,
                 device=device,
             )
-            self._bf16_buffer_hdl = symm_mem.rendezvous(
-                self.bf16_buffer, group=group
-            )
+            self._bf16_buffer_hdl = symm_mem.rendezvous(self.bf16_buffer, group=group)
 
     def set_real_data_metadata(
         self,

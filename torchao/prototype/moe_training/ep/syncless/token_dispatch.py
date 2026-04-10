@@ -1,6 +1,5 @@
 import torch
 import torch.distributed as dist
-import torch.distributed._symmetric_memory as symm_mem
 import triton
 import triton.language as tl
 
@@ -122,6 +121,8 @@ class MXFP8SynclessAllToAllExpertMajor(torch.autograd.Function):
             write_offsets,
             buffers.output,
             buffers.output_scales,
+            buffers._output_hdl,
+            buffers._output_scales_hdl,
             output_rank_splits,
             output_expert_splits,
             expert_padded_offsets,
@@ -203,6 +204,8 @@ def _mxfp8_token_dispatch_launcher(
     write_offsets: torch.Tensor,
     output: torch.Tensor,
     output_scales: torch.Tensor,
+    output_hdl,
+    output_scales_hdl,
     output_rank_splits: torch.Tensor,
     output_expert_splits: torch.Tensor,
     expert_padded_offsets: torch.Tensor,
@@ -232,10 +235,6 @@ def _mxfp8_token_dispatch_launcher(
     assert input_data.dim() == 2, f"{input_data.shape}"
     assert output.dim() == 2, f"{output.shape}"
     assert output.shape[1] == input_data.shape[1]
-
-    # Setup symmetric memory for output buffers (where remote ranks will push writes)
-    output_hdl = symm_mem.rendezvous(output, group=group)
-    output_scales_hdl = symm_mem.rendezvous(output_scales, group=group)
 
     output_ptrs = output_hdl.buffer_ptrs_dev
     output_scales_ptrs = output_scales_hdl.buffer_ptrs_dev

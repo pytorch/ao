@@ -38,11 +38,11 @@ sys.path.insert(
 from reference_moe import (
     MoE,
     MoEArgs,
-    set_token_group_alignment_size_m,
 )
 from reference_parallel_styles import ExpertParallel
 
 from benchmarks.utils import profile_fn
+from torchao.float8.float8_utils import compute_error
 
 # -- syncless EP -----------------------------------------------------------
 from torchao.prototype.moe_training.ep.syncless.buffer_manager import (
@@ -57,8 +57,9 @@ from torchao.prototype.moe_training.ep.syncless.moe import (
 from torchao.prototype.moe_training.ep.syncless.moe import (
     SynclessMXFP8MoE,
 )
-
-from torchao.float8.float8_utils import compute_error
+from torchao.prototype.moe_training.ep.syncless.saved_activations_buffer import (
+    SavedActivationsBuffer,
+)
 
 device = torch.device("cuda")
 
@@ -79,6 +80,8 @@ class ExperimentConfig:
 class ExperimentResult:
     ref_ms: float
     syncless_ms: float
+    ref_fwd_bwd_ms: float
+    syncless_fwd_bwd_ms: float
 
 
 @dataclass(frozen=True)
@@ -116,6 +119,7 @@ def _build_ref_model(config: ExperimentConfig) -> nn.Module:
 def _build_syncless_model(
     config: ExperimentConfig,
     ref_model: nn.Module,
+    saved_activations_buffer=None,
 ) -> nn.Module:
     """Build SynclessMXFP8MoE and copy weights from the ref model."""
     moe_args = SynclessMoEArgs(
@@ -125,7 +129,12 @@ def _build_syncless_model(
         _debug_force_load_balance=True,
     )
     model = (
-        SynclessMXFP8MoE(moe_args, config.dim, config.hidden_dim)
+        SynclessMXFP8MoE(
+            moe_args,
+            config.dim,
+            config.hidden_dim,
+            saved_activations_buffer=saved_activations_buffer,
+        )
         .to(torch.bfloat16)
         .cuda()
     )
@@ -173,6 +182,8 @@ def run_experiment(
     torch.manual_seed(42)
     ref_model = _build_ref_model(config)
 
+    group = ep_mesh.get_group()
+
     buffer_manager = SymmetricMemoryBufferManager()
     total_tokens = config.batch_size * config.seq_len
     max_output_rows = total_tokens * world_size
@@ -183,9 +194,21 @@ def run_experiment(
         data_dtype=torch.float8_e4m3fn,
         scales_dtype=torch.uint8,
         device=device,
+        group=group,
     )
 
-    syncless_model = _build_syncless_model(config, ref_model)
+    # Create saved activations buffer for backward pass
+    saved_act_buffer = SavedActivationsBuffer(
+        gpu_tokens=max_output_rows,
+        cpu_tokens=0,
+        dim=config.dim,
+        hidden_dim=config.hidden_dim,
+        device=device,
+    )
+
+    syncless_model = _build_syncless_model(
+        config, ref_model, saved_activations_buffer=saved_act_buffer
+    )
 
     # ---- parallelize both models -----------------------------------------
     parallelize_module(
@@ -199,7 +222,7 @@ def run_experiment(
         parallelize_plan=SynclessExpertParallel(buffer_manager=buffer_manager),
     )
 
-    # ---- reference model timing ------------------------------------------
+    # ---- reference model timing (forward) ---------------------------------
     if args.compile:
         ref_model = torch.compile(ref_model)
     warmup(lambda: ref_model(x))
@@ -214,6 +237,31 @@ def run_experiment(
         ref_model(x)
     torch.cuda.synchronize()
     ref_ms = (time.perf_counter() - ref_start_time) * 1e3 / NUM_ITERS
+
+    # ---- reference model timing (forward + backward) ----------------------
+    def ref_fwd_bwd():
+        ref_model.zero_grad()
+        y = ref_model(x)
+        y.backward(torch.ones_like(y))
+
+    warmup(ref_fwd_bwd)
+
+    torch.cuda.synchronize()
+    ref_fb_start = time.perf_counter()
+    for _ in range(NUM_ITERS):
+        ref_fwd_bwd()
+    torch.cuda.synchronize()
+    ref_fwd_bwd_ms = (time.perf_counter() - ref_fb_start) * 1e3 / NUM_ITERS
+
+    # Run once more to capture gradients for correctness check
+    ref_model.zero_grad()
+    ref_out_for_grad = ref_model(x)
+    ref_out_for_grad.backward(torch.ones_like(ref_out_for_grad))
+    ref_w2_grad = ref_model.experts.w2.grad.to_local().clone()
+    ref_w13_grad = torch.cat(
+        [ref_model.experts.w1.grad.to_local(), ref_model.experts.w3.grad.to_local()],
+        dim=1,
+    ).clone()
 
     if args.profile:
 
@@ -230,7 +278,7 @@ def run_experiment(
 
     del ref_model
 
-    # ---- syncless model timing -------------------------------------------
+    # ---- syncless model timing (forward) ----------------------------------
     if args.compile:
         syncless_model = torch.compile(syncless_model)
     warmup(lambda: syncless_model(x))
@@ -245,6 +293,22 @@ def run_experiment(
         syncless_model(x)
     torch.cuda.synchronize()
     syncless_ms = (time.perf_counter() - start_time) * 1e3 / NUM_ITERS
+
+    # ---- syncless model timing (forward + backward) -----------------------
+    def syncless_fwd_bwd():
+        syncless_model.zero_grad()
+        saved_act_buffer.free_all_py()
+        y = syncless_model(x)
+        y.backward(torch.ones_like(y))
+
+    warmup(syncless_fwd_bwd)
+
+    torch.cuda.synchronize()
+    syncless_fb_start = time.perf_counter()
+    for _ in range(NUM_ITERS):
+        syncless_fwd_bwd()
+    torch.cuda.synchronize()
+    syncless_fwd_bwd_ms = (time.perf_counter() - syncless_fb_start) * 1e3 / NUM_ITERS
 
     if args.profile:
 
@@ -261,16 +325,37 @@ def run_experiment(
 
     # ---- correctness check -----------------------------------------------
     out_sqnr = compute_error(syncless_out, ref_out)
+
+    # Gradient correctness check
+    syncless_model.zero_grad()
+    saved_act_buffer.free_all_py()
+    syncless_out_for_grad = syncless_model(x)
+    syncless_out_for_grad.backward(torch.ones_like(syncless_out_for_grad))
+    syncless_w2_grad = syncless_model.experts.w2.grad.to_local().clone()
+    syncless_w13_grad = syncless_model.experts.w13.grad.to_local().clone()
+
+    w2_grad_sqnr = compute_error(syncless_w2_grad, ref_w2_grad)
+    w13_grad_sqnr = compute_error(syncless_w13_grad, ref_w13_grad)
+
     if dist.get_rank() == 0:
         print(
             f"  Output SQNR for shape "
             f"({config.batch_size}, {config.seq_len}, {config.dim}): "
             f"{out_sqnr.item():.1f} dB"
         )
+        print(
+            f"  w2 grad SQNR: {w2_grad_sqnr.item():.1f} dB  |  "
+            f"w13 grad SQNR: {w13_grad_sqnr.item():.1f} dB"
+        )
 
     del syncless_model, ref_out, syncless_out
 
-    return ExperimentResult(ref_ms=ref_ms, syncless_ms=syncless_ms)
+    return ExperimentResult(
+        ref_ms=ref_ms,
+        syncless_ms=syncless_ms,
+        ref_fwd_bwd_ms=ref_fwd_bwd_ms,
+        syncless_fwd_bwd_ms=syncless_fwd_bwd_ms,
+    )
 
 
 # =========================================================================
@@ -283,14 +368,22 @@ def print_results(experiments: List[Experiment]):
         "shape (B,S,D)",
         "num_experts",
         "num_ranks",
-        "ref_EP_ms",
-        "syncless_EP_ms",
-        "speedup",
+        "ref_fwd_ms",
+        "syncless_fwd_ms",
+        "fwd_speedup",
+        "ref_fwd_bwd_ms",
+        "syncless_fwd_bwd_ms",
+        "fwd_bwd_speedup",
     ]
     rows = []
     for exp in experiments:
         c, r = exp.config, exp.result
-        speedup = r.ref_ms / r.syncless_ms if r.syncless_ms > 0 else float("inf")
+        fwd_speedup = r.ref_ms / r.syncless_ms if r.syncless_ms > 0 else float("inf")
+        fb_speedup = (
+            r.ref_fwd_bwd_ms / r.syncless_fwd_bwd_ms
+            if r.syncless_fwd_bwd_ms > 0
+            else float("inf")
+        )
         rows.append(
             [
                 f"({c.batch_size}, {c.seq_len}, {c.dim})",
@@ -298,7 +391,10 @@ def print_results(experiments: List[Experiment]):
                 dist.get_world_size(),
                 f"{r.ref_ms:.2f}",
                 f"{r.syncless_ms:.2f}",
-                f"{speedup:.2f}x",
+                f"{fwd_speedup:.2f}x",
+                f"{r.ref_fwd_bwd_ms:.2f}",
+                f"{r.syncless_fwd_bwd_ms:.2f}",
+                f"{fb_speedup:.2f}x",
             ]
         )
     print("\n" + "=" * 100)

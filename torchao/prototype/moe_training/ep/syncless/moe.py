@@ -25,19 +25,195 @@ from torch import nn
 from torch.distributed.tensor import DTensor
 
 
+class MXFP8GroupedExpertsFunc(torch.autograd.Function):
+    """Manual-grad expert FFN that saves activations to a unified buffer.
+
+    Forward:  x → h13 = x @ w13.T → h = SwiGLU(h13) → out = h @ w2.T
+    Saves x (FP8 data + scales) and h13 (BF16) to the
+    ``SavedActivationsBuffer``.
+
+    Backward: reads saved activations, computes dgrad + wgrad
+    manually, and frees the buffer allocation.
+    """
+
+    @staticmethod
+    @torch.compiler.disable
+    def forward(
+        ctx,
+        output_e4m3,
+        output_scales_e8m0,
+        num_tokens_per_expert,
+        w13,
+        w2,
+        saved_activations_buffer,
+    ):
+        from torchao.prototype.moe_training.mxfp8_grouped_mm import _compute_fwd
+        from torchao.prototype.mx_formats.config import ScaleCalculationMode
+        from torchao.prototype.mx_formats.mx_tensor import MXTensor
+        from torchao.quantization.quantize_.common import KernelPreference
+
+        block_size = 32
+        hidden_dim = w13.shape[1] // 2
+
+        x = MXTensor.from_qdata_and_scales(
+            output_e4m3,
+            output_scales_e8m0.view(torch.float8_e8m0fnu),
+            torch.bfloat16,
+        )
+
+        group_end_offs = torch.cumsum(num_tokens_per_expert, dim=0, dtype=torch.int32)
+
+        # Allocate a fixed-size slot in the unified buffer.
+        # M = output_e4m3.shape[0] is a Python int (tensor shapes
+        # are always host-side), so no D2H sync is needed.
+        M = output_e4m3.shape[0]
+        buf = saved_activations_buffer
+        offset = buf.alloc_py(M)
+
+        # Save dispatch output (FP8 data + scales)
+        buf.dispatch_out_data[offset : offset + M].copy_(output_e4m3)
+        buf.dispatch_out_scales[offset : offset + M].copy_(output_scales_e8m0)
+
+        # First GEMM: h13 = x @ w13.T
+        h13 = _compute_fwd(
+            x,
+            w13.transpose(-2, -1),
+            group_end_offs,
+            block_size,
+            torch.bfloat16,
+            ScaleCalculationMode.RCEIL,
+            KernelPreference.AUTO,
+        )
+
+        # Save SwiGLU input (BF16)
+        buf.swiglu_input[offset : offset + M].copy_(h13)
+
+        # SwiGLU activation
+        h1, h3 = h13.split(hidden_dim, dim=-1)
+        h = F.silu(h1) * h3
+
+        # Second GEMM: out = h @ w2.T
+        out = _compute_fwd(
+            h,
+            w2.transpose(-2, -1),
+            group_end_offs,
+            block_size,
+            torch.bfloat16,
+            ScaleCalculationMode.RCEIL,
+            KernelPreference.AUTO,
+        )
+
+        ctx.offset = offset
+        ctx.M = M
+        ctx.hidden_dim = hidden_dim
+        ctx.saved_activations_buffer = saved_activations_buffer
+        ctx.save_for_backward(group_end_offs, w13, w2)
+
+        return out
+
+    @staticmethod
+    @torch.compiler.disable
+    def backward(ctx, grad_out):
+        from torchao.prototype.moe_training.mxfp8_grouped_mm import (
+            _compute_dgrad,
+        )
+        from torchao.prototype.mx_formats.config import ScaleCalculationMode
+        from torchao.prototype.mx_formats.kernels import (
+            triton_mxfp8_dequant_dim0,
+        )
+        from torchao.quantization.quantize_.common import KernelPreference
+
+        group_end_offs, w13, w2 = ctx.saved_tensors
+        offset = ctx.offset
+        M = ctx.M
+        hidden_dim = ctx.hidden_dim
+        buf = ctx.saved_activations_buffer
+        block_size = 32
+
+        # --- restore saved activations ----------------------------------
+        x_data = buf.dispatch_out_data[offset : offset + M]
+        x_scales = buf.dispatch_out_scales[offset : offset + M]
+        h13 = buf.swiglu_input[offset : offset + M]
+
+        x_bf16 = triton_mxfp8_dequant_dim0(
+            x_data,
+            x_scales.view(torch.uint8),
+            out_dtype=torch.bfloat16,
+            scale_block_size=block_size,
+        )
+
+        # --- recompute SwiGLU from saved h13 ----------------------------
+        h1, h3 = h13.split(hidden_dim, dim=-1)
+        sig_h1 = torch.sigmoid(h1)
+        silu_h1 = h1 * sig_h1
+        h = silu_h1 * h3
+
+        # --- w2 backward ------------------------------------------------
+        # dgrad: grad_h = grad_out @ w2
+        grad_h = _compute_dgrad(
+            grad_out,
+            w2.transpose(-2, -1),
+            group_end_offs,
+            block_size,
+            torch.bfloat16,
+            ScaleCalculationMode.RCEIL,
+            KernelPreference.AUTO,
+        )
+        # wgrad: grad_w2 = grad_out.T @ h  (per group)
+        grad_w2 = torch._grouped_mm(
+            grad_out.transpose(-2, -1),
+            h,
+            offs=group_end_offs,
+            out_dtype=torch.bfloat16,
+        )
+
+        # --- SwiGLU backward --------------------------------------------
+        # h = silu(h1) * h3,  silu(x) = x * sigmoid(x)
+        # d(silu)/d(h1) = sigmoid(h1) + h1 * sigmoid(h1) * (1 - sigmoid(h1))
+        dsilu_h1 = sig_h1 + h1 * sig_h1 * (1.0 - sig_h1)
+        grad_h1 = grad_h * h3 * dsilu_h1
+        grad_h3 = grad_h * silu_h1
+        grad_h13 = torch.cat([grad_h1, grad_h3], dim=-1)
+
+        # --- w13 backward -----------------------------------------------
+        # dgrad: grad_x = grad_h13 @ w13
+        grad_x = _compute_dgrad(
+            grad_h13,
+            w13.transpose(-2, -1),
+            group_end_offs,
+            block_size,
+            torch.bfloat16,
+            ScaleCalculationMode.RCEIL,
+            KernelPreference.AUTO,
+        )
+        # wgrad: grad_w13 = grad_h13.T @ x_bf16  (per group)
+        grad_w13 = torch._grouped_mm(
+            grad_h13.transpose(-2, -1),
+            x_bf16,
+            offs=group_end_offs,
+            out_dtype=torch.bfloat16,
+        )
+
+        # --- free buffer allocation -------------------------------------
+        buf.free_py(M)
+
+        return grad_x, None, None, grad_w13, grad_w2, None
+
+
 class MXFP8GroupedExperts(nn.Module):
     def __init__(
         self,
         dim: int,
         hidden_dim: int,
         num_experts: int,
-        use_grouped_mm: bool = True,
+        saved_activations_buffer,
     ):
         super().__init__()
         self.num_experts = num_experts
         self.hidden_dim = hidden_dim
         self.w13 = nn.Parameter(torch.empty(num_experts, 2 * hidden_dim, dim))
         self.w2 = nn.Parameter(torch.empty(num_experts, dim, hidden_dim))
+        self.saved_activations_buffer = saved_activations_buffer
 
     def forward(
         self,
@@ -46,36 +222,21 @@ class MXFP8GroupedExperts(nn.Module):
         num_tokens_per_expert: torch.Tensor,
         expert_padded_offsets: torch.Tensor,
     ) -> torch.Tensor:
-        from torchao.prototype.moe_training.mxfp8_grouped_mm import (
-            _to_mxfp8_then_scaled_grouped_mm,
-        )
-        from torchao.prototype.mx_formats.mx_tensor import MXTensor
-
-        mxfp8_gmm = _to_mxfp8_then_scaled_grouped_mm
-
-        # Wrap pre-quantized inputs in MXTensor
-        orig_dtype = torch.bfloat16
-        x = MXTensor.from_qdata_and_scales(
-            output_e4m3, output_scales_e8m0.view(torch.float8_e8m0fnu), orig_dtype
-        )
-
         if isinstance(self.w13, DTensor):
-            # Convert parameters from DTensors to plain Tensors, to work with
-            # dynamic-shape inputs in EP which cannot be easily expressed as DTensors.
             w13 = self.w13.to_local()
             w2 = self.w2.to_local()
         else:
             w13 = self.w13
             w2 = self.w2
 
-        group_end_offs = torch.cumsum(num_tokens_per_expert, dim=0, dtype=torch.int32)
-
-        # Fused w1/w3 projection: single GEMM producing (tokens, 2*hidden_dim)
-        h13 = mxfp8_gmm(x, w13.transpose(-2, -1), offs=group_end_offs)
-        h1, h3 = h13.split(self.hidden_dim, dim=-1)
-        h = F.silu(h1) * h3
-        out = mxfp8_gmm(h, w2.transpose(-2, -1), offs=group_end_offs)
-        return out
+        return MXFP8GroupedExpertsFunc.apply(
+            output_e4m3,
+            output_scales_e8m0,
+            num_tokens_per_expert,
+            w13,
+            w2,
+            self.saved_activations_buffer,
+        )
 
     def init_weights(self, init_std: float):
         nn.init.trunc_normal_(self.w13, mean=0.0, std=0.02)
@@ -287,6 +448,7 @@ class SynclessMXFP8MoE(nn.Module):
         moe_args: MoEArgs,
         dim: int,
         hidden_dim: int,
+        saved_activations_buffer,
     ):
         super().__init__()
 
@@ -295,6 +457,7 @@ class SynclessMXFP8MoE(nn.Module):
             dim=dim,
             hidden_dim=hidden_dim,
             num_experts=num_experts,
+            saved_activations_buffer=saved_activations_buffer,
         )
         self.router = TokenChoiceTopKRouter(
             dim=dim,
