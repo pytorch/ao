@@ -419,7 +419,10 @@ def _from_intx_quantization_aware_training_transform(
         return mod
 
 
-class ComposableQATQuantizer:
+from .two_step_quantizer import TwoStepQuantizer
+
+
+class ComposableQATQuantizer(TwoStepQuantizer):
     """
     Composable quantizer that users can use to apply multiple QAT quantizers easily.
     Quantizers will be applied in the order they are specified in the constructor.
@@ -439,7 +442,7 @@ class ComposableQATQuantizer:
         model = my_quantizer.convert(model)
     """
 
-    def __init__(self, quantizers: list):
+    def __init__(self, quantizers: list[TwoStepQuantizer]):
         torch._C._log_api_usage_once("torchao.quantization.qat.ComposableQATQuantizer")
         self.quantizers = quantizers
 

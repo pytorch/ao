@@ -33,6 +33,7 @@ from .fake_quantize_config import (
 from .fake_quantizer import (
     FakeQuantizerBase,
 )
+from .two_step_quantizer import TwoStepQuantizer
 from .utils import (
     _get_qmin_qmax,
 )
@@ -180,7 +181,7 @@ def disable_linear_fake_quant(mod: torch.nn.Module):
 # ===========================
 
 
-class _LegacyQATQuantizer:
+class _LegacyQATQuantizer(TwoStepQuantizer):
     """
     Base class for sharing common methods across legacy QAT quantizers.
     """

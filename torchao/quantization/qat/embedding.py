@@ -17,6 +17,7 @@ from .fake_quantize_config import (
     IntxFakeQuantizeConfig,
 )
 from .fake_quantizer import FakeQuantizerBase
+from .two_step_quantizer import TwoStepQuantizer
 from .utils import (
     _get_qmin_qmax,
 )
@@ -135,7 +136,7 @@ class FakeQuantizedEmbedding(torch.nn.Embedding):
 # ======================================
 
 
-class Int4WeightOnlyEmbeddingQATQuantizer:
+class Int4WeightOnlyEmbeddingQATQuantizer(TwoStepQuantizer):
     """
     Quantizer for performing QAT on a model, where embedding layers have
     int4 fake quantized grouped per channel weights.
