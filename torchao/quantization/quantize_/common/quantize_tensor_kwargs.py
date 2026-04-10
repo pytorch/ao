@@ -63,7 +63,6 @@ def _choose_quant_func_and_quantize_tensor(
             tensor,
             quant_kwargs.granularity,
             mapping_type=quant_kwargs.mapping_type,
-            reduce_range=quant_kwargs.reduce_range,
             scale=scale,
             zero_point=zero_point,
         )

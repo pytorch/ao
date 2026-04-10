@@ -7,6 +7,7 @@
 # Owner(s): ["oncall: quantization"]
 import contextlib
 import copy
+import dataclasses
 import functools
 import itertools
 import unittest
@@ -44,6 +45,7 @@ from torch.testing._internal.inductor_utils import (
 )
 
 import torchao.quantization.pt2e.quantizer.x86_inductor_quantizer as xiq
+from torchao.kernel.intmm import _cpu_is_vnni_supported
 from torchao.prototype.smoothquant import (
     SmoothQuantConfig,
 )
@@ -2736,14 +2738,12 @@ class TestPatternMatcher(TestPatternMatcherBase):
     @parametrize(
         "base_config",
         [
-            Int8StaticActivationInt8WeightConfig(
-                granularity=(PerTensor(), PerRow()), reduce_range=True
-            ),
-            Int8StaticActivationInt8WeightConfig(reduce_range=True),
+            Int8StaticActivationInt8WeightConfig(granularity=(PerTensor(), PerRow())),
+            Int8StaticActivationInt8WeightConfig(),
             Int8DynamicActivationInt8WeightConfig(
-                version=2, granularity=(PerTensor(), PerRow()), reduce_range=True
+                version=2, granularity=(PerTensor(), PerRow())
             ),
-            Int8DynamicActivationInt8WeightConfig(version=2, reduce_range=True),
+            Int8DynamicActivationInt8WeightConfig(version=2),
         ],
     )
     @parametrize("has_bias", [True, False])
@@ -2775,6 +2775,10 @@ class TestPatternMatcher(TestPatternMatcherBase):
         """
         if enable_autocast and not torch.ops.mkldnn._is_mkldnn_bf16_supported():
             self.skipTest("bf16 not supported")
+
+        if not _cpu_is_vnni_supported():
+            base_config = dataclasses.replace(base_config, reduce_range=True)
+
         M = 16
         in_feature = 32
         out_feature = 64
