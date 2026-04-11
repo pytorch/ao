@@ -16,6 +16,7 @@ except ImportError:
     pytest.skip("Test requires cuda.bindings (cuda-python)", allow_module_level=True)
 
 from torchao.prototype.moe_training.ep.syncless.unified_buffer_allocator import (
+    DeferredUnifiedBuffer,
     _check,
     _g_allocated_cudacpu_buffers,
     create_unified_buffer,
@@ -271,3 +272,120 @@ class TestCreateUnifiedBuffer:
         assert tensor[gpu_bytes].item() == 0xBC  # was 0xBB
 
         free_unified_buffer(tensor.data_ptr())
+
+
+class TestDeferredUnifiedBuffer:
+    """Tests for DeferredUnifiedBuffer (deferred physical allocation)."""
+
+    def test_deferred_gpu_only(self):
+        """Reserve GPU+CPU VA, trigger GPU page mapping, verify R/W."""
+        g = _get_granularity()
+        buf = DeferredUnifiedBuffer(gpu_capacity=2 * g, cpu_capacity=2 * g)
+
+        assert buf.gpu_mapped == 0
+        assert buf.cpu_mapped == 0
+
+        buf.ensure_mapped(g)
+        assert buf.gpu_mapped == g
+        assert buf.cpu_mapped == 0
+
+        t = buf.tensor
+        t[:g].fill_(42)
+        torch.cuda.synchronize()
+        assert t[0].item() == 42
+        assert t[g - 1].item() == 42
+
+        buf.release_physical()
+        del buf
+
+    def test_deferred_incremental_mapping(self):
+        """Map pages incrementally, verify each region is usable."""
+        g = _get_granularity()
+        buf = DeferredUnifiedBuffer(gpu_capacity=4 * g, cpu_capacity=0)
+
+        buf.ensure_mapped(g)
+        assert buf.gpu_mapped == g
+        buf.tensor[:g].fill_(1)
+
+        buf.ensure_mapped(3 * g)
+        assert buf.gpu_mapped == 3 * g
+        buf.tensor[g : 3 * g].fill_(2)
+
+        buf.ensure_mapped(4 * g)
+        assert buf.gpu_mapped == 4 * g
+        buf.tensor[3 * g : 4 * g].fill_(3)
+
+        torch.cuda.synchronize()
+        assert buf.tensor[0].item() == 1
+        assert buf.tensor[g].item() == 2
+        assert buf.tensor[3 * g].item() == 3
+
+        buf.release_physical()
+        del buf
+
+    def test_deferred_cpu_overflow(self):
+        """Allocate beyond GPU capacity, verify CPU pages get mapped."""
+        g = _get_granularity()
+        gpu_cap = 2 * g
+        cpu_cap = 2 * g
+        buf = DeferredUnifiedBuffer(gpu_capacity=gpu_cap, cpu_capacity=cpu_cap)
+
+        buf.ensure_mapped(3 * g)
+        assert buf.gpu_mapped == gpu_cap
+        assert buf.cpu_mapped == g
+
+        buf.tensor[:gpu_cap].fill_(0xAA)
+        buf.tensor[gpu_cap : gpu_cap + g].fill_(0xBB)
+        torch.cuda.synchronize()
+
+        assert buf.tensor[0].item() == 0xAA
+        assert buf.tensor[gpu_cap].item() == 0xBB
+
+        buf.release_physical()
+        del buf
+
+    def test_deferred_release_physical(self):
+        """Map pages, release them, verify re-mapping works."""
+        g = _get_granularity()
+        buf = DeferredUnifiedBuffer(gpu_capacity=2 * g, cpu_capacity=2 * g)
+
+        buf.ensure_mapped(2 * g)
+        assert buf.gpu_mapped == 2 * g
+        buf.tensor[: 2 * g].fill_(99)
+        torch.cuda.synchronize()
+
+        buf.release_physical()
+        assert buf.gpu_mapped == 0
+        assert buf.cpu_mapped == 0
+
+        buf.ensure_mapped(g)
+        assert buf.gpu_mapped == g
+        buf.tensor[:g].fill_(77)
+        torch.cuda.synchronize()
+        assert buf.tensor[0].item() == 77
+
+        buf.release_physical()
+        del buf
+
+    def test_deferred_no_cpu_until_needed(self):
+        """Verify zero CPU physical memory when all tokens fit in GPU."""
+        g = _get_granularity()
+        buf = DeferredUnifiedBuffer(gpu_capacity=4 * g, cpu_capacity=4 * g)
+
+        buf.ensure_mapped(g)
+        assert buf.gpu_mapped == g
+        assert buf.cpu_mapped == 0
+        assert len(buf._cpu_handles) == 0
+
+        buf.ensure_mapped(2 * g)
+        assert buf.gpu_mapped == 2 * g
+        assert buf.cpu_mapped == 0
+        assert len(buf._cpu_handles) == 0
+
+        buf.ensure_mapped(4 * g)
+        assert buf.gpu_mapped == 4 * g
+        assert buf.cpu_mapped == 0
+        assert len(buf._cpu_handles) == 0
+
+        buf.release_physical()
+        del buf

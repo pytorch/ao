@@ -9,8 +9,6 @@ GPU-resident memory allocator using Triton kernels.
 
 Design overview
 ---------------
-Same semantics as the CUDA C++ original:
-
 * Doubly-linked list of memory blocks stored entirely in GPU global memory.
 * Best-fit allocation with block splitting.
 * Coalescing on free with block-list compaction.

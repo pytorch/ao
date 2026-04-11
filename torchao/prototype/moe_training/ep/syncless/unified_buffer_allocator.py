@@ -325,3 +325,244 @@ def create_unified_buffer(cpu_bytes: int, gpu_bytes: int) -> torch.Tensor:
     _g_prevent_destructor_gc.append(weak)
 
     return tensor
+
+
+class DeferredUnifiedBuffer:
+    """Unified GPU+CPU buffer with deferred physical memory allocation.
+
+    Separates virtual address reservation (cheap, no physical RAM) from
+    physical memory allocation (expensive, real GPU HBM or CPU-pinned RAM).
+    The full VA range is reserved at construction time, but physical pages
+    are only allocated via ``cuMemCreate`` + ``cuMemMap`` when
+    :meth:`ensure_mapped` is called.
+
+    This avoids pinning tens of GB of host RAM at construction when the
+    CPU overflow pool may never be needed (e.g. balanced routing).
+
+    Args:
+        gpu_capacity: Maximum bytes of GPU device memory.
+        cpu_capacity: Maximum bytes of CPU-pinned memory (overflow pool).
+    """
+
+    def __init__(self, gpu_capacity: int, cpu_capacity: int):
+        device_id = torch.cuda.current_device()
+        _set_optimal_cpu_affinity(device_id)
+
+        self._gpu_prop = _make_alloc_prop(is_cpu=False, location_id=device_id)
+        self._cpu_prop = _make_alloc_prop(is_cpu=True, location_id=0)
+
+        ctx = _check(
+            cuda_drv.cuDevicePrimaryCtxRetain(device_id),
+            "cuDevicePrimaryCtxRetain",
+        )
+        _check(cuda_drv.cuCtxSetCurrent(ctx), "cuCtxSetCurrent")
+
+        numa_id = _check(
+            cuda_drv.cuDeviceGetAttribute(
+                cuda_drv.CUdevice_attribute.CU_DEVICE_ATTRIBUTE_HOST_NUMA_ID,
+                device_id,
+            ),
+            "cuDeviceGetAttribute(HOST_NUMA_ID)",
+        )
+        self._cpu_prop.location.id = numa_id
+
+        self._page_size: int = _check(
+            cuda_drv.cuMemGetAllocationGranularity(
+                self._gpu_prop,
+                cuda_drv.CUmemAllocationGranularity_flags.CU_MEM_ALLOC_GRANULARITY_RECOMMENDED,
+            ),
+            "cuMemGetAllocationGranularity",
+        )
+
+        self._gpu_capacity = self._align_up(gpu_capacity)
+        self._cpu_capacity = self._align_up(cpu_capacity)
+        total = self._gpu_capacity + self._cpu_capacity
+
+        # Step 1: Reserve VA space (cheap — no physical memory).
+        self._device_ptr = _check(
+            cuda_drv.cuMemAddressReserve(total, self._page_size, 0, 0),
+            "cuMemAddressReserve",
+        )
+        self._base_ptr: int = int(self._device_ptr)
+        self._total_bytes: int = total
+        self._device_id: int = device_id
+
+        self._access_desc = cuda_drv.CUmemAccessDesc()
+        self._access_desc.location.type = (
+            cuda_drv.CUmemLocationType.CU_MEM_LOCATION_TYPE_DEVICE
+        )
+        self._access_desc.location.id = device_id
+        self._access_desc.flags = (
+            cuda_drv.CUmemAccess_flags.CU_MEM_ACCESS_FLAGS_PROT_READWRITE
+        )
+
+        self._gpu_mapped: int = 0
+        self._cpu_mapped: int = 0
+        self._gpu_handles: list[tuple[object, int, int]] = []
+        self._cpu_handles: list[tuple[object, int, int]] = []
+
+        storage = torch._C._construct_storage_from_data_pointer(
+            self._base_ptr, torch.device(f"cuda:{device_id}"), total
+        )
+        self._tensor = torch._C._construct_CUDA_Tensor_From_Storage_And_Metadata(
+            {
+                "dtype": torch.uint8,
+                "size": (total,),
+                "stride": (1,),
+                "storage_offset": 0,
+            },
+            storage,
+        )
+
+    # -- public API ----------------------------------------------------------
+
+    @property
+    def tensor(self) -> torch.Tensor:
+        """``torch.uint8`` CUDA tensor spanning the full VA range."""
+        return self._tensor
+
+    @property
+    def gpu_mapped(self) -> int:
+        """Bytes of GPU physical memory currently mapped."""
+        return self._gpu_mapped
+
+    @property
+    def cpu_mapped(self) -> int:
+        """Bytes of CPU physical memory currently mapped."""
+        return self._cpu_mapped
+
+    @property
+    def gpu_capacity(self) -> int:
+        return self._gpu_capacity
+
+    @property
+    def cpu_capacity(self) -> int:
+        return self._cpu_capacity
+
+    @property
+    def page_size(self) -> int:
+        return self._page_size
+
+    def ensure_mapped(self, total_bytes: int) -> None:
+        """Ensure at least *total_bytes* of the buffer are physically backed.
+
+        GPU pages are mapped first.  If *total_bytes* exceeds
+        ``gpu_capacity``, CPU overflow pages are mapped for the remainder.
+        Pages are allocated in ``page_size``-aligned chunks.
+        """
+        if total_bytes <= self._gpu_mapped + self._cpu_mapped:
+            return
+
+        # -- GPU region (bytes 0 .. gpu_capacity-1) --------------------------
+        if self._gpu_mapped < self._gpu_capacity:
+            target_gpu = self._align_up(min(total_bytes, self._gpu_capacity))
+            new_gpu = target_gpu - self._gpu_mapped
+            if new_gpu > 0:
+                handle = _check(
+                    cuda_drv.cuMemCreate(new_gpu, self._gpu_prop, 0),
+                    f"cuMemCreate GPU ({new_gpu} bytes)",
+                )
+                _check(
+                    cuda_drv.cuMemMap(
+                        self._base_ptr + self._gpu_mapped,
+                        new_gpu,
+                        0,
+                        handle,
+                        0,
+                    ),
+                    "cuMemMap GPU",
+                )
+                _check(
+                    cuda_drv.cuMemSetAccess(
+                        self._base_ptr + self._gpu_mapped,
+                        new_gpu,
+                        [self._access_desc],
+                        1,
+                    ),
+                    "cuMemSetAccess GPU",
+                )
+                self._gpu_handles.append((handle, self._gpu_mapped, new_gpu))
+                self._gpu_mapped += new_gpu
+
+        # -- CPU overflow region (bytes gpu_capacity .. total-1) --------------
+        if total_bytes > self._gpu_capacity:
+            cpu_needed = self._align_up(total_bytes - self._gpu_capacity)
+            cpu_new = cpu_needed - self._cpu_mapped
+            if cpu_new > 0:
+                handle = _check(
+                    cuda_drv.cuMemCreate(cpu_new, self._cpu_prop, 0),
+                    f"cuMemCreate CPU ({cpu_new} bytes)",
+                )
+                _check(
+                    cuda_drv.cuMemMap(
+                        self._base_ptr + self._gpu_capacity + self._cpu_mapped,
+                        cpu_new,
+                        0,
+                        handle,
+                        0,
+                    ),
+                    "cuMemMap CPU",
+                )
+                _check(
+                    cuda_drv.cuMemSetAccess(
+                        self._base_ptr + self._gpu_capacity + self._cpu_mapped,
+                        cpu_new,
+                        [self._access_desc],
+                        1,
+                    ),
+                    "cuMemSetAccess CPU",
+                )
+                self._cpu_handles.append((handle, self._cpu_mapped, cpu_new))
+                self._cpu_mapped += cpu_new
+
+    def release_physical(self) -> None:
+        """Unmap and release ALL physical memory.
+
+        The virtual address reservation is kept so the buffer can be
+        re-mapped via :meth:`ensure_mapped`.
+        """
+        if not self._gpu_handles and not self._cpu_handles:
+            return
+
+        torch.cuda.synchronize()
+
+        for handle, offset, size in self._gpu_handles:
+            _check(
+                cuda_drv.cuMemUnmap(self._base_ptr + offset, size),
+                "cuMemUnmap GPU",
+            )
+            _check(cuda_drv.cuMemRelease(handle), "cuMemRelease GPU")
+
+        for handle, offset, size in self._cpu_handles:
+            _check(
+                cuda_drv.cuMemUnmap(self._base_ptr + self._gpu_capacity + offset, size),
+                "cuMemUnmap CPU",
+            )
+            _check(cuda_drv.cuMemRelease(handle), "cuMemRelease CPU")
+
+        self._gpu_handles.clear()
+        self._cpu_handles.clear()
+        self._gpu_mapped = 0
+        self._cpu_mapped = 0
+
+    # -- private helpers -----------------------------------------------------
+
+    def _align_up(self, nbytes: int) -> int:
+        """Round *nbytes* up to ``self._page_size``."""
+        ps = self._page_size
+        return ((nbytes + ps - 1) // ps) * ps
+
+    def __del__(self) -> None:
+        try:
+            self.release_physical()
+        except Exception:
+            pass
+        try:
+            if self._base_ptr:
+                _check(
+                    cuda_drv.cuMemAddressFree(self._base_ptr, self._total_bytes),
+                    "cuMemAddressFree",
+                )
+                self._base_ptr = 0
+        except Exception:
+            pass

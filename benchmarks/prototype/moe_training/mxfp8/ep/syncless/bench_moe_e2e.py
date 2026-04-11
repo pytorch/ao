@@ -28,7 +28,6 @@ from torch.distributed.device_mesh import init_device_mesh
 from torch.distributed.tensor.parallel import parallelize_module
 from tqdm import tqdm
 
-# -- reference MoE and parallel styles (from test/) -----------------------
 sys.path.insert(
     0,
     os.path.join(
@@ -44,7 +43,6 @@ from reference_parallel_styles import ExpertParallel
 from benchmarks.utils import profile_fn
 from torchao.float8.float8_utils import compute_error
 
-# -- syncless EP -----------------------------------------------------------
 from torchao.prototype.moe_training.ep.syncless.buffer_manager import (
     SymmetricMemoryBufferManager,
 )
@@ -64,9 +62,6 @@ from torchao.prototype.moe_training.ep.syncless.saved_activations_buffer import 
 device = torch.device("cuda")
 
 
-# =========================================================================
-# Experiment config / result
-# =========================================================================
 @dataclass(frozen=True)
 class ExperimentConfig:
     batch_size: int
@@ -96,11 +91,6 @@ def get_configs() -> List[ExperimentConfig]:
             batch_size=1, seq_len=8192, dim=7168, hidden_dim=2048, num_experts=8
         ),
     ]
-
-
-# =========================================================================
-# Build models
-# =========================================================================
 
 
 def _build_ref_model(config: ExperimentConfig) -> nn.Module:
@@ -152,11 +142,6 @@ def _build_syncless_model(
     return model
 
 
-# =========================================================================
-# Run experiment
-# =========================================================================
-
-
 def run_experiment(
     config: ExperimentConfig, args: argparse.Namespace
 ) -> ExperimentResult:
@@ -178,7 +163,6 @@ def run_experiment(
         device=device,
     )
 
-    # ---- build both models (unparallelized) and copy weights --------------
     torch.manual_seed(42)
     ref_model = _build_ref_model(config)
 
@@ -210,7 +194,6 @@ def run_experiment(
         config, ref_model, saved_activations_buffer=saved_act_buffer
     )
 
-    # ---- parallelize both models -----------------------------------------
     parallelize_module(
         module=ref_model.experts,
         device_mesh=ep_mesh,
@@ -222,7 +205,6 @@ def run_experiment(
         parallelize_plan=SynclessExpertParallel(buffer_manager=buffer_manager),
     )
 
-    # ---- reference model timing (forward) ---------------------------------
     if args.compile:
         ref_model = torch.compile(ref_model)
     warmup(lambda: ref_model(x))
@@ -231,6 +213,7 @@ def run_experiment(
     with torch.no_grad():
         ref_out = ref_model(x)
 
+    # ref model timing (forward)
     torch.cuda.synchronize()
     ref_start_time = time.perf_counter()
     for _ in range(NUM_ITERS):
@@ -238,7 +221,6 @@ def run_experiment(
     torch.cuda.synchronize()
     ref_ms = (time.perf_counter() - ref_start_time) * 1e3 / NUM_ITERS
 
-    # ---- reference model timing (forward + backward) ----------------------
     def ref_fwd_bwd():
         ref_model.zero_grad()
         y = ref_model(x)
@@ -278,7 +260,7 @@ def run_experiment(
 
     del ref_model
 
-    # ---- syncless model timing (forward) ----------------------------------
+    # syncless model timing (forward)
     if args.compile:
         syncless_model = torch.compile(syncless_model)
     warmup(lambda: syncless_model(x))

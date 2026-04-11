@@ -26,9 +26,9 @@ from torch.distributed.tensor import DTensor
 
 
 class MXFP8GroupedExpertsFunc(torch.autograd.Function):
-    """Manual-grad expert FFN that saves activations to a unified buffer.
+    """MXFP8 grouped experts autograd function that saves activations to a unified GPU+CPU buffer.
 
-    Forward:  x → h13 = x @ w13.T → h = SwiGLU(h13) → out = h @ w2.T
+    Forward:  x -> h13 = x @ w13.T -> h = SwiGLU(h13) → out = h @ w2.T
     Saves x (FP8 data + scales) and h13 (BF16) to the
     ``SavedActivationsBuffer``.
 
@@ -47,52 +47,84 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
         w2,
         saved_activations_buffer,
     ):
+        from torchao.prototype.moe_training.ep.syncless.copy_kernel import (
+            copy_into_buffer_2d,
+        )
+        from torchao.prototype.moe_training.ep.syncless.cutedsl_mxfp8_gmm import (
+            grouped_gemm as cutedsl_grouped_gemm,
+        )
+        from torchao.prototype.moe_training.kernels.mxfp8 import (
+            mx_block_rearrange_2d_M_groups_cuda,
+            mxfp8_quantize_cuda_3d,
+        )
         from torchao.prototype.moe_training.mxfp8_grouped_mm import _compute_fwd
         from torchao.prototype.mx_formats.config import ScaleCalculationMode
-        from torchao.prototype.mx_formats.mx_tensor import MXTensor
         from torchao.quantization.quantize_.common import KernelPreference
 
         block_size = 32
         hidden_dim = w13.shape[1] // 2
 
-        x = MXTensor.from_qdata_and_scales(
-            output_e4m3,
-            output_scales_e8m0.view(torch.float8_e8m0fnu),
-            torch.bfloat16,
-        )
-
         group_end_offs = torch.cumsum(num_tokens_per_expert, dim=0, dtype=torch.int32)
 
-        # Allocate a fixed-size slot in the unified buffer.
-        # M = output_e4m3.shape[0] is a Python int (tensor shapes
-        # are always host-side), so no D2H sync is needed.
-        M = output_e4m3.shape[0]
+        # Get actual token count as a GPU tensor (no D2H sync).
+        num_tokens = group_end_offs[-1].to(torch.int64)
+
+        # Allocate exact rows via CUDAAllocator (GPU-side, no sync).
         buf = saved_activations_buffer
-        offset = buf.alloc_py(M)
+        offset = buf.alloc(num_tokens)
 
-        # Save dispatch output (FP8 data + scales)
-        buf.dispatch_out_data[offset : offset + M].copy_(output_e4m3)
-        buf.dispatch_out_scales[offset : offset + M].copy_(output_scales_e8m0)
-
-        # First GEMM: h13 = x @ w13.T
-        h13 = _compute_fwd(
-            x,
-            w13.transpose(-2, -1),
-            group_end_offs,
-            block_size,
-            torch.bfloat16,
-            ScaleCalculationMode.RCEIL,
-            KernelPreference.AUTO,
+        # Save dispatch output (FP8 data + scales) via Triton copy kernel.
+        copy_into_buffer_2d(
+            output_e4m3, buf.dispatch_out_data_raw, offset, num_tokens, buf.dim
+        )
+        copy_into_buffer_2d(
+            output_scales_e8m0,
+            buf.dispatch_out_scales_raw,
+            offset,
+            num_tokens,
+            buf._scale_dim,
         )
 
-        # Save SwiGLU input (BF16)
-        buf.swiglu_input[offset : offset + M].copy_(h13)
+        # Quantize w13 weights to FP8 with blocked scale layout.
+        # mxfp8_quantize_cuda_3d takes (E, N, K), returns FP8 data in
+        # column-major-per-expert layout and scales in blocked tcgen05 layout.
+        w13_e4m3, w13_scales_blocked = mxfp8_quantize_cuda_3d(
+            w13, block_size, scaling_mode="rceil"
+        )
+
+        # note: these had to be in row major layout for efficient transport with their
+        # corresponding data over the a2a dispatch.
+        # blocked layout would require a bunch of slow discontiguous reads and is harder to reason about.
+        scale_a = output_scales_e8m0.view(torch.float8_e8m0fnu)
+        scale_a_blocked = mx_block_rearrange_2d_M_groups_cuda(scale_a, group_end_offs)
+
+        # First GEMM: h13 = x @ w13.T
+        # We need this special CuTe DSL gmm kernel here, rather than torch._scaled_grouped_mm,
+        # because it accepts out_offset=... arg, to write directly into the GPU+CPU buffer
+        # for saving input activations, with zero copies.
+        cutedsl_grouped_gemm(
+            output_e4m3,
+            w13_e4m3.transpose(-2, -1),
+            scale_a_blocked,
+            w13_scales_blocked,
+            group_end_offs,
+            self=buf.swiglu_input,
+            out_offset=offset,
+            out_dtype=torch.bfloat16,
+        )
+
+        # Read h13 from buffer for SwiGLU (requires CPU offset).
+        # TODO: fused SwiGLU kernel that accepts (buffer, offset, len)
+        # to eliminate this .item() sync.
+        offset_cpu = offset.item()
+        M = output_e4m3.shape[0]
+        h13 = buf.swiglu_input[offset_cpu : offset_cpu + M]
 
         # SwiGLU activation
         h1, h3 = h13.split(hidden_dim, dim=-1)
         h = F.silu(h1) * h3
 
-        # Second GEMM: out = h @ w2.T
+        # Second GEMM: out = h @ w2.T (no out= — output goes to combine)
         out = _compute_fwd(
             h,
             w2.transpose(-2, -1),
@@ -104,6 +136,7 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
         )
 
         ctx.offset = offset
+        ctx.num_tokens = num_tokens
         ctx.M = M
         ctx.hidden_dim = hidden_dim
         ctx.saved_activations_buffer = saved_activations_buffer
@@ -130,11 +163,17 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
         buf = ctx.saved_activations_buffer
         block_size = 32
 
-        # --- restore saved activations ----------------------------------
-        x_data = buf.dispatch_out_data[offset : offset + M]
-        x_scales = buf.dispatch_out_scales[offset : offset + M]
-        h13 = buf.swiglu_input[offset : offset + M]
+        # --- restore saved activations directly from buffer ---------------
+        # offset is a GPU tensor — use Python-int M for slicing since
+        # the buffer's shaped views are indexed by CPU-side offsets.
+        # TODO: When backward kernels support in_buffer=/in_offset=,
+        # pass (buffer, offset, num_tokens) directly and avoid slicing.
+        offset_cpu = offset.item()
+        x_data = buf.dispatch_out_data[offset_cpu : offset_cpu + M]
+        x_scales = buf.dispatch_out_scales[offset_cpu : offset_cpu + M]
+        h13 = buf.swiglu_input[offset_cpu : offset_cpu + M]
 
+        # TODO: fused dequant 1x32 -> requant 32x1 kernel
         x_bf16 = triton_mxfp8_dequant_dim0(
             x_data,
             x_scales.view(torch.uint8),
@@ -142,13 +181,13 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
             scale_block_size=block_size,
         )
 
-        # --- recompute SwiGLU from saved h13 ----------------------------
+        # recompute SwiGLU from saved h13
         h1, h3 = h13.split(hidden_dim, dim=-1)
         sig_h1 = torch.sigmoid(h1)
         silu_h1 = h1 * sig_h1
         h = silu_h1 * h3
 
-        # --- w2 backward ------------------------------------------------
+        # w2 backward
         # dgrad: grad_h = grad_out @ w2
         grad_h = _compute_dgrad(
             grad_out,
@@ -167,7 +206,7 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
             out_dtype=torch.bfloat16,
         )
 
-        # --- SwiGLU backward --------------------------------------------
+        # SwiGLU backward
         # h = silu(h1) * h3,  silu(x) = x * sigmoid(x)
         # d(silu)/d(h1) = sigmoid(h1) + h1 * sigmoid(h1) * (1 - sigmoid(h1))
         dsilu_h1 = sig_h1 + h1 * sig_h1 * (1.0 - sig_h1)
@@ -175,7 +214,7 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
         grad_h3 = grad_h * silu_h1
         grad_h13 = torch.cat([grad_h1, grad_h3], dim=-1)
 
-        # --- w13 backward -----------------------------------------------
+        # w13 backward
         # dgrad: grad_x = grad_h13 @ w13
         grad_x = _compute_dgrad(
             grad_h13,
@@ -194,8 +233,8 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
             out_dtype=torch.bfloat16,
         )
 
-        # --- free buffer allocation -------------------------------------
-        buf.free_py(M)
+        # free buffer allocation (GPU-side, no sync)
+        buf.free(offset)
 
         return grad_x, None, None, grad_w13, grad_w2, None
 
