@@ -28,7 +28,10 @@ from torch.distributed.tensor import DTensor
 class MXFP8GroupedExpertsFunc(torch.autograd.Function):
     """MXFP8 grouped experts autograd function that saves activations to a unified GPU+CPU buffer.
 
-    Forward:  x -> h13 = x @ w13.T -> h = SwiGLU(h13) → out = h @ w2.T
+    Forward:  
+      h13 = x @ w13.T 
+      h = SwiGLU(h13) 
+      out = h @ w2.T
     Saves x (FP8 data + scales) and h13 (BF16) to the
     ``SavedActivationsBuffer``.
 
@@ -55,10 +58,11 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
         )
         from torchao.prototype.moe_training.kernels.mxfp8 import (
             mx_block_rearrange_2d_M_groups_cuda,
-            mxfp8_quantize_cuda_3d,
+            triton_mx_block_rearrange_per_group_3d,
         )
         from torchao.prototype.moe_training.mxfp8_grouped_mm import _compute_fwd
         from torchao.prototype.mx_formats.config import ScaleCalculationMode
+        from torchao.prototype.mx_formats.kernels import triton_to_mxfp8_dim0
         from torchao.quantization.quantize_.common import KernelPreference
 
         block_size = 32
@@ -85,12 +89,14 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
             buf._scale_dim,
         )
 
-        # Quantize w13 weights to FP8 with blocked scale layout.
-        # mxfp8_quantize_cuda_3d takes (E, N, K), returns FP8 data in
-        # column-major-per-expert layout and scales in blocked tcgen05 layout.
-        w13_e4m3, w13_scales_blocked = mxfp8_quantize_cuda_3d(
-            w13, block_size, scaling_mode="rceil"
+        # Quantize w13 weights to FP8 along K (contraction dim) and
+        # rearrange scales to blocked layout.
+        # triton_to_mxfp8_dim0 quantizes along the last dim (K), matching
+        # the forward GEMM's contraction axis.
+        w13_e4m3, w13_scales = triton_to_mxfp8_dim0(
+            w13, inner_block_size=block_size, scaling_mode="rceil"
         )
+        w13_scales_blocked = triton_mx_block_rearrange_per_group_3d(w13_scales)
 
         # note: these had to be in row major layout for efficient transport with their
         # corresponding data over the a2a dispatch.

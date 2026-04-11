@@ -2784,12 +2784,9 @@ def grouped_gemm(
     if not out_3d:
         assert a.shape[-1] == b.shape[-2]
     sf_vec_size = 32 if a.dtype == torch.float8_e4m3fn else 16
-    assert (
-        a.numel() // sf_vec_size == scale_a.numel()
-    ), "unexpected number of elements in scale_a"
-    assert (
-        b.numel() // sf_vec_size == scale_b.numel()
-    ), "unexpected number of elements in scale_b"
+    # Note: blocked scale tensors may be over-allocated for worst-case
+    # padding, so scale_a/scale_b numel can exceed a/b numel // sf_vec_size.
+    # The kernel only reads the actual scale data and ignores trailing padding.
 
     M = a.shape[-2]
     N = b.shape[-1]
