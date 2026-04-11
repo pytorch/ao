@@ -28,9 +28,9 @@ from torch.distributed.tensor import DTensor
 class MXFP8GroupedExpertsFunc(torch.autograd.Function):
     """MXFP8 grouped experts autograd function that saves activations to a unified GPU+CPU buffer.
 
-    Forward:  
-      h13 = x @ w13.T 
-      h = SwiGLU(h13) 
+    Forward:
+      h13 = x @ w13.T
+      h = SwiGLU(h13)
       out = h @ w2.T
     Saves x (FP8 data + scales) and h13 (BF16) to the
     ``SavedActivationsBuffer``.
@@ -123,8 +123,8 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
         # TODO: fused SwiGLU kernel that accepts (buffer, offset, len)
         # to eliminate this .item() sync.
         offset_cpu = offset.item()
-        M = output_e4m3.shape[0]
-        h13 = buf.swiglu_input[offset_cpu : offset_cpu + M]
+        num_tokens_cpu = num_tokens.item()
+        h13 = buf.swiglu_input[offset_cpu : offset_cpu + num_tokens_cpu]
 
         # SwiGLU activation
         h1, h3 = h13.split(hidden_dim, dim=-1)
@@ -143,7 +143,7 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
 
         ctx.offset = offset
         ctx.num_tokens = num_tokens
-        ctx.M = M
+        ctx.M = output_e4m3.shape[0]
         ctx.hidden_dim = hidden_dim
         ctx.saved_activations_buffer = saved_activations_buffer
         ctx.save_for_backward(group_end_offs, w13, w2)

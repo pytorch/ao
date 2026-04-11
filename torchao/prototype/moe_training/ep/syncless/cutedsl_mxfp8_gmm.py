@@ -2792,19 +2792,19 @@ def grouped_gemm(
     N = b.shape[-1]
     K = a.shape[-1]
     if out_3d:
-        assert (
-            a.shape[-2] % 128 == 0
-        ), "for 2d-2d inputs, a non-contraction dimension has to be multiple of 128"
-        assert (
-            b.shape[-1] % 128 == 0
-        ), "for 2d-2d inputs, b non-contraction dimension has to be multiple of 128"
+        assert a.shape[-2] % 128 == 0, (
+            "for 2d-2d inputs, a non-contraction dimension has to be multiple of 128"
+        )
+        assert b.shape[-1] % 128 == 0, (
+            "for 2d-2d inputs, b non-contraction dimension has to be multiple of 128"
+        )
     else:
-        assert (
-            a.shape[-1] % 128 == 0
-        ), "for 3d-2d inputs, a contraction dimension has to be multiple of 128"
-        assert (
-            b.shape[-1] % 128 == 0
-        ), "for 3d-2d inputs, b non-contraction dimension has to be multiple of 128"
+        assert a.shape[-1] % 128 == 0, (
+            "for 3d-2d inputs, a contraction dimension has to be multiple of 128"
+        )
+        assert b.shape[-1] % 128 == 0, (
+            "for 3d-2d inputs, b non-contraction dimension has to be multiple of 128"
+        )
 
     problem_sizes_mnk = (M, N, -1) if out_3d else (-1, N, K)
 
@@ -2820,9 +2820,9 @@ def grouped_gemm(
             assert self.shape[0] >= M
             assert self.shape[1] == N
         else:
-            assert self.shape == torch.Size(
-                out_shape
-            ), f"Provided output shape {self.shape} does not match expected {out_shape}"
+            assert self.shape == torch.Size(out_shape), (
+                f"Provided output shape {self.shape} does not match expected {out_shape}"
+            )
         assert self.dtype in (torch.bfloat16, torch.float32)
         assert out_dtype is None or self.dtype == out_dtype
         out = self

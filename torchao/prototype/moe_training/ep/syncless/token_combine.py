@@ -176,11 +176,7 @@ def _combine_all_to_all_kernel(
                     )
 
 
-# ---------------------------------------------------------------------------
-# Backward (dispatch direction): rank-major → expert-major
-# ---------------------------------------------------------------------------
-
-
+# combine backward: rank-major to expert-major
 @triton.jit
 def _precompute_dispatch_write_offsets_kernel(
     all_expert_splits_ptr,
@@ -382,6 +378,7 @@ def _token_dispatch_bf16_launcher(
     output = buffers.bf16_buffer[:num_output_tokens]
     output_ptrs = buffers._bf16_buffer_hdl.buffer_ptrs_dev
 
+    # TODO: do we need the contiguous calls here?
     # input_expert_splits: tokens this rank sent to each (dst_rank, expert_idx)
     input_expert_splits = all_expert_splits[rank, :, :].contiguous()
 
@@ -427,11 +424,7 @@ def _token_dispatch_bf16_launcher(
     return output
 
 
-# ---------------------------------------------------------------------------
-# Forward (combine direction): expert-major → rank-major
-# ---------------------------------------------------------------------------
-
-
+# Forward combine: expert-major back to rank-major
 def _token_combine_launcher(
     input: torch.Tensor,
     all_expert_splits: torch.Tensor,
