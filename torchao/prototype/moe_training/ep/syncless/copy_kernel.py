@@ -39,10 +39,11 @@ def _copy_into_buffer_2d_kernel(
     elem_ids = pid * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
     mask = elem_ids < total_elems
 
-    vals = tl.load(src_ptr + elem_ids, mask=mask)
-
+    vals = tl.load(src_ptr.to(tl.pointer_type(tl.uint8)) + elem_ids, mask=mask)
     dst_start = offset * cols
-    tl.store(dst_ptr + dst_start + elem_ids, vals, mask=mask)
+    tl.store(
+        dst_ptr.to(tl.pointer_type(tl.uint8)) + dst_start + elem_ids, vals, mask=mask
+    )
 
 
 def copy_into_buffer_2d(
