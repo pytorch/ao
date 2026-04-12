@@ -7,7 +7,7 @@ techniques integrated into our partner frameworks. This is part 1 of 3
 such tutorials showcasing this end-to-end flow, focusing on the
 pre-training step.
 
-.. image:: ../static/e2e_flow_part1.png
+.. image:: ../../static/e2e_flow_part1.png
 
 Pre-training with float8 using torchao can provide `up to 1.5x speedups <https://pytorch.org/blog/training-using-float8-fsdp2/>`__ on 512 GPU clusters,
 and up to `1.34-1.43x speedups <https://pytorch.org/blog/accelerating-large-scale-training-and-convergence-with-pytorch-float8-rowwise-on-crusoe-2k-h200s/>`__ on 2K H200 clusters with the latest `torchao.float8` rowwise recipe.
