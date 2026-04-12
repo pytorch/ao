@@ -101,3 +101,50 @@ Peak memory bandwidth from CUDA device properties: 7928.1 GB/s.
 | Llama 3 8B | mlp.down input | 2048 | 14336 | rs | 91.168 | 1006.390 |
 | Llama 3 70B | hidden-state input | 2048 | 8192 | rs | 60.128 | 871.953 |
 | Llama 3 70B | mlp.down input | 2048 | 28672 | rs | 166.624 | 1101.290 |
+
+## 2D Quantize Benchmark
+
+Benchmarks `triton_quantize_2d_weight` — the 2D 16x16 NVFP4 E2M1 weight
+quantization kernel producing rowwise and colwise packed FP4 outputs with
+swizzled scale factors. Requires SM100 (Blackwell).
+
+```bash
+python -m benchmarks.prototype.nvfp4_training.bench_quantize_2d
+```
+
+To run model-derived representative shapes:
+
+```bash
+python -m benchmarks.prototype.nvfp4_training.bench_quantize_2d --shape-set representative-models
+```
+
+What it reports:
+
+- `time_us`: median kernel-only runtime in microseconds
+- `gbps`: effective memory bandwidth (input read + rowwise/colwise FP4 output +
+  rowwise/colwise scale factor write bytes / time)
+
+### Methodology
+
+- Sweeps M ∈ {128, 256, 1024, 8192} × N ∈ {256, 512, 1024, 2048, 4096, 8192, 16384, 32768}
+- Skips on pre-SM100 hardware.
+- Uses `benchmark_cuda_function_in_microseconds` from `benchmarks/utils.py`.
+- Precomputes global amax values, output tensors, and Triton allocator setup
+  before timing; the timed region directly launches the Triton 2D quantization
+  kernel.
+- Bandwidth accounts for bfloat16 input read, rowwise FP4 + swizzled scale
+  writes, and colwise FP4 + swizzled scale writes.
+
+### Representative Model Results
+
+The following shapes use the same representative model configurations as
+`bench_hadamard_amax.py`.
+
+Run environment: NVIDIA GB200, PyTorch 2.13.0a0+git1f19af4, Triton 3.7.0.
+
+| Model | Shape | M | N | time_us | gbps |
+|---|---|---:|---:|---:|---:|
+| Llama 3 8B | hidden-state input | 2048 | 4096 | 49.600 | 528.516 |
+| Llama 3 8B | mlp.down input | 2048 | 14336 | 123.616 | 742.221 |
+| Llama 3 70B | hidden-state input | 2048 | 8192 | 78.304 | 669.555 |
+| Llama 3 70B | mlp.down input | 2048 | 28672 | 232.160 | 790.407 |
