@@ -284,11 +284,6 @@ def _free_kernel(
                     )
 
 
-# ---------------------------------------------------------------------------
-# Stats (pure PyTorch tensor ops — no CPU sync, results stay on GPU)
-# ---------------------------------------------------------------------------
-
-
 @dataclass
 class MemoryStats:
     """Per-pool allocation statistics.
@@ -303,11 +298,6 @@ class MemoryStats:
     sum_allocated: torch.Tensor
     num_free_blocks: torch.Tensor
     largest_free_block: torch.Tensor
-
-
-# ---------------------------------------------------------------------------
-# Python wrapper
-# ---------------------------------------------------------------------------
 
 
 class CUDAAllocator:
@@ -357,10 +347,6 @@ class CUDAAllocator:
 
         self.states = state
         self.states_init = state.clone()
-
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
 
     def alloc(
         self, sz: "torch.Tensor | int", *, assert_on_oom: bool = True

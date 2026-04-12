@@ -119,22 +119,20 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
             out_dtype=torch.bfloat16,
         )
 
-        # Read h13 from buffer for SwiGLU — only num_tokens valid rows.
-        # TODO: replace with fused SwiGLU kernel that accepts (buffer, offset,
-        # len, out_tokens) like gb200_moe_sol's swiglu_fw_quant.
-        offset_cpu = offset.item()
-        num_tokens_cpu = num_tokens.item()
+        # Fused SwiGLU forward: reads from saved-activations buffer at
+        # GPU-determined offset, computes silu(h1)*h3, zero-pads to M rows.
+        # No D2H sync (.item()) needed.
+        from torchao.prototype.moe_training.ep.syncless.silu_mul_kernel import (
+            silu_mul_fw,
+        )
+
         M = output_e4m3.shape[0]
-        h13 = buf.swiglu_input[offset_cpu : offset_cpu + num_tokens_cpu]
-
-        # SwiGLU activation on num_tokens rows only
-        h1, h3 = h13.split(hidden_dim, dim=-1)
-        h = F.silu(h1) * h3
-
-        # Pad h to M rows for the second GEMM and combine.
-        # TODO: remove once we have the fused SwiGLU kernel.
-        if num_tokens_cpu < M:
-            h = torch.cat([h, h.new_zeros(M - num_tokens_cpu, hidden_dim)], dim=0)
+        h = silu_mul_fw(
+            buf.swiglu_input,
+            saved_activation_buffer_offset=offset,
+            num_tokens=num_tokens,
+            sym_mem_buffer_rows=M,
+        )
 
         # Second GEMM: out = h @ w2.T (no out= — output goes to combine)
         out = _compute_fwd(
@@ -149,7 +147,6 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
 
         ctx.offset = offset
         ctx.num_tokens = num_tokens
-        ctx.num_tokens_cpu = num_tokens_cpu
         ctx.M = M
         ctx.hidden_dim = hidden_dim
         ctx.saved_activations_buffer = saved_activations_buffer
@@ -171,18 +168,18 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
 
         group_end_offs, w13, w2 = ctx.saved_tensors
         offset = ctx.offset
-        num_tokens_cpu = ctx.num_tokens_cpu
+        num_tokens = ctx.num_tokens
         M = ctx.M
         hidden_dim = ctx.hidden_dim
         buf = ctx.saved_activations_buffer
         block_size = 32
 
-        # --- restore saved activations directly from buffer ---------------
-        # TODO: remove when kernels can accept (buffer, offset, len) args
+        # --- restore saved FP8 activations directly from buffer ---------------
+        # TODO: remove when dequant kernel can accept (buffer, offset, len) args
         offset_cpu = offset.item()
+        num_tokens_cpu = num_tokens.item()
         x_data = buf.dispatch_out_data[offset_cpu : offset_cpu + num_tokens_cpu]
         x_scales = buf.dispatch_out_scales[offset_cpu : offset_cpu + num_tokens_cpu]
-        h13 = buf.swiglu_input[offset_cpu : offset_cpu + num_tokens_cpu]
 
         # TODO: fused dequant 1x32 -> requant 32x1 kernel
         x_bf16 = triton_mxfp8_dequant_dim0(
@@ -192,19 +189,7 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
             scale_block_size=block_size,
         )
 
-        # recompute SwiGLU from saved h13 (num_tokens rows)
-        h1, h3 = h13.split(hidden_dim, dim=-1)
-        sig_h1 = torch.sigmoid(h1)
-        silu_h1 = h1 * sig_h1
-        h = silu_h1 * h3
-
-        # Pad h to M rows for w2 wgrad.
-        # TODO: remove once we have fused SwiGLU kernel.
-        if num_tokens_cpu < M:
-            pad_rows = M - num_tokens_cpu
-            h = torch.cat([h, h.new_zeros(pad_rows, hidden_dim)], dim=0)
-
-        # w2 backward
+        # w2 backward — compute dgrad first (needed by SwiGLU bwd kernel)
         # dgrad: grad_h = grad_out @ w2
         grad_h = _compute_dgrad(
             grad_out,
@@ -215,6 +200,26 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
             ScaleCalculationMode.RCEIL,
             KernelPreference.AUTO,
         )
+
+        # Fused SwiGLU backward: recompute h from saved h13, compute grad_h13.
+        # Reads from saved-activations buffer at GPU-determined offset.
+        from torchao.prototype.moe_training.ep.syncless.silu_mul_kernel import (
+            silu_mul_bw,
+        )
+
+        h = torch.empty(M, hidden_dim, device=grad_out.device, dtype=torch.bfloat16)
+        grad_h13 = torch.empty(
+            M, 2 * hidden_dim, device=grad_out.device, dtype=torch.bfloat16
+        )
+        silu_mul_bw(
+            buf.swiglu_input,
+            grad_h,
+            saved_activation_buffer_offset=offset,
+            num_tokens=num_tokens,
+            h_out=h,
+            grad_h13_out=grad_h13,
+        )
+
         # wgrad: grad_w2 = grad_out.T @ h  (per group)
         grad_w2 = torch._grouped_mm(
             grad_out.transpose(-2, -1),
@@ -223,22 +228,9 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
             out_dtype=torch.bfloat16,
         )
 
-        # SwiGLU backward — slice grad_h to num_tokens rows to match
-        # the buffer-sourced intermediates (h1, h3, sig_h1, silu_h1).
-        # TODO: remove slice once we have fused SwiGLU kernel.
-        grad_h_valid = grad_h[:num_tokens_cpu]
-        dsilu_h1 = sig_h1 + h1 * sig_h1 * (1.0 - sig_h1)
-        grad_h1 = grad_h_valid * h3 * dsilu_h1
-        grad_h3 = grad_h_valid * silu_h1
-        grad_h13 = torch.cat([grad_h1, grad_h3], dim=-1)
-
-        # Pad grad_h13 and x_bf16 to M rows for w13 dgrad/wgrad.
-        # TODO: remove once we have fused SwiGLU kernel.
+        # Pad x_bf16 to M rows for w13 wgrad.
         if num_tokens_cpu < M:
             pad_rows = M - num_tokens_cpu
-            grad_h13 = torch.cat(
-                [grad_h13, grad_h13.new_zeros(pad_rows, grad_h13.shape[1])], dim=0
-            )
             x_bf16 = torch.cat(
                 [x_bf16, x_bf16.new_zeros(pad_rows, x_bf16.shape[1])], dim=0
             )
