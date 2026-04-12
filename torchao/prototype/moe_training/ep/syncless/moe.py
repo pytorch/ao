@@ -246,6 +246,7 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
             ScaleCalculationMode.RCEIL,
             KernelPreference.AUTO,
         )
+
         # wgrad: grad_w13 = grad_h13.T @ x_bf16  (per group)
         grad_w13 = torch._grouped_mm(
             grad_h13.transpose(-2, -1),

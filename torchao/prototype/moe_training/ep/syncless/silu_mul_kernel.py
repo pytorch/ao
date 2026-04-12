@@ -58,8 +58,9 @@ def _silu_mul_fw_kernel(
     h1 = tl.load(input_ptr + h1_off, mask=valid_mask & out_mask, other=0.0)
     h3 = tl.load(input_ptr + h3_off, mask=valid_mask & out_mask, other=0.0)
 
-    # silu(h1) = h1 * sigmoid(h1)
-    silu_h1 = h1 * tl.sigmoid(h1)
+    # silu(h1) = h1 * sigmoid(h1), computed in float32 for precision
+    h1_f32 = h1.to(tl.float32)
+    silu_h1 = (h1_f32 * tl.sigmoid(h1_f32)).to(h1.dtype)
     result = silu_h1 * h3
 
     out_off = row * output_stride_row + col
@@ -146,19 +147,24 @@ def _silu_mul_bw_kernel(
     h1 = tl.load(h13_buffer_ptr + h1_off, mask=valid_mask & out_mask, other=0.0)
     h3 = tl.load(h13_buffer_ptr + h3_off, mask=valid_mask & out_mask, other=0.0)
 
-    # Recompute forward
-    sig_h1 = tl.sigmoid(h1)
-    silu_h1 = h1 * sig_h1
-    h = silu_h1 * h3
+    # Recompute forward — must match _silu_mul_fw_kernel exactly so that
+    # h_out is bit-identical to the forward's h (used for grad_w2 wgrad).
+    h1_f32 = h1.to(tl.float32)
+    h3_f32 = h3.to(tl.float32)
+    sig_h1 = tl.sigmoid(h1_f32)
+    silu_h1_f32 = h1_f32 * sig_h1
+    # Cast silu to output dtype BEFORE multiplying by h3, matching forward kernel.
+    h = (silu_h1_f32.to(h1.dtype) * h3).to(h1.dtype)
 
     # Load grad_h[row, col]
     grad_h_off = row * grad_h_stride_row + col
     grad_h_val = tl.load(grad_h_ptr + grad_h_off, mask=valid_mask & out_mask, other=0.0)
 
-    # SwiGLU backward
-    dsilu = sig_h1 + h1 * sig_h1 * (1.0 - sig_h1)
-    grad_h1 = grad_h_val * h3 * dsilu
-    grad_h3 = grad_h_val * silu_h1
+    # SwiGLU backward — keep in float32 for gradient precision
+    grad_h_f32 = grad_h_val.to(tl.float32)
+    dsilu = sig_h1 + h1_f32 * sig_h1 * (1.0 - sig_h1)
+    grad_h1 = (grad_h_f32 * h3_f32 * dsilu).to(h1.dtype)
+    grad_h3 = (grad_h_f32 * silu_h1_f32).to(h1.dtype)
 
     # Write outputs
     h_out_off = row * h_out_stride_row + col
