@@ -161,9 +161,6 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
             _compute_dgrad,
         )
         from torchao.prototype.mx_formats.config import ScaleCalculationMode
-        from torchao.prototype.mx_formats.kernels import (
-            triton_mxfp8_dequant_dim0,
-        )
         from torchao.quantization.quantize_.common import KernelPreference
 
         group_end_offs, w13, w2 = ctx.saved_tensors
@@ -175,16 +172,18 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
         block_size = 32
 
         # --- restore saved FP8 activations directly from buffer ---------------
-        # TODO: remove when dequant kernel can accept (buffer, offset, len) args
-        offset_cpu = offset.item()
-        num_tokens_cpu = num_tokens.item()
-        x_data = buf.dispatch_out_data[offset_cpu : offset_cpu + num_tokens_cpu]
-        x_scales = buf.dispatch_out_scales[offset_cpu : offset_cpu + num_tokens_cpu]
+        # Use syncless dequant kernel - no .item() sync needed!
+        from torchao.prototype.moe_training.ep.syncless.mxfp8_dequant_kernel import (
+            mxfp8_dequant_buffer,
+        )
 
-        # TODO: fused dequant 1x32 -> requant 32x1 kernel
-        x_bf16 = triton_mxfp8_dequant_dim0(
-            x_data,
-            x_scales.view(torch.uint8),
+        # Use the properly sized buffer views (not raw buffers which have padding)
+        x_bf16 = mxfp8_dequant_buffer(
+            buf.dispatch_out_data,      # Already properly shaped as (max_tokens, dim)
+            buf.dispatch_out_scales,    # Already properly shaped as (max_tokens, scale_dim)
+            buffer_offset=offset,
+            num_tokens=num_tokens,
+            sym_mem_buffer_rows=M,
             out_dtype=torch.bfloat16,
             scale_block_size=block_size,
         )
@@ -226,12 +225,7 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
             out_dtype=torch.bfloat16,
         )
 
-        # Pad x_bf16 to M rows for w13 wgrad.
-        if num_tokens_cpu < M:
-            pad_rows = M - num_tokens_cpu
-            x_bf16 = torch.cat(
-                [x_bf16, x_bf16.new_zeros(pad_rows, x_bf16.shape[1])], dim=0
-            )
+        # x_bf16 is already padded to M rows by syncless dequant kernel
 
         # w13 backward
         # dgrad: grad_x = grad_h13 @ w13

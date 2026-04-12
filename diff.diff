@@ -1,0 +1,48 @@
+diff --git a/torchao/prototype/moe_training/ep/syncless/moe.py b/torchao/prototype/moe_training/ep/syncless/moe.py
+index 771a204d8..effedd731 100644
+--- a/torchao/prototype/moe_training/ep/syncless/moe.py
++++ b/torchao/prototype/moe_training/ep/syncless/moe.py
+@@ -174,17 +174,18 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
+         buf = ctx.saved_activations_buffer
+         block_size = 32
+ 
+-        # --- restore saved FP8 activations directly from buffer ---------------
+-        # TODO: remove when dequant kernel can accept (buffer, offset, len) args
+-        offset_cpu = offset.item()
+-        num_tokens_cpu = num_tokens.item()
+-        x_data = buf.dispatch_out_data[offset_cpu : offset_cpu + num_tokens_cpu]
+-        x_scales = buf.dispatch_out_scales[offset_cpu : offset_cpu + num_tokens_cpu]
+-
+-        # TODO: fused dequant 1x32 -> requant 32x1 kernel
+-        x_bf16 = triton_mxfp8_dequant_dim0(
+-            x_data,
+-            x_scales.view(torch.uint8),
++        # --- restore saved FP8 activations using GPU-resident kernel ---------------
++        # Use new kernel that accepts (buffer, offset, num_tokens) - no D2H sync!
++        from torchao.prototype.moe_training.ep.syncless.mxfp8_dequant_kernel import (
++            mxfp8_dequant_buffer,
++        )
++
++        x_bf16 = mxfp8_dequant_buffer(
++            buf.dispatch_out_data,
++            buf.dispatch_out_scales,
++            buffer_offset=offset,
++            num_tokens=num_tokens,
++            sym_mem_buffer_rows=M,
+             out_dtype=torch.bfloat16,
+             scale_block_size=block_size,
+         )
+@@ -240,12 +241,7 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
+             grad_h13_out=grad_h13,
+         )
+ 
+-        # Pad x_bf16 to M rows for w13 wgrad.
+-        if num_tokens_cpu < M:
+-            pad_rows = M - num_tokens_cpu
+-            x_bf16 = torch.cat(
+-                [x_bf16, x_bf16.new_zeros(pad_rows, x_bf16.shape[1])], dim=0
+-            )
++        # x_bf16 is already padded to M rows by mxfp8_dequant_buffer kernel
+ 
+         # w13 backward
+         # dgrad: grad_x = grad_h13 @ w13
