@@ -315,9 +315,13 @@ def run_experiment(
     syncless_out_for_grad.backward(torch.ones_like(syncless_out_for_grad))
     syncless_w2_grad = syncless_model.experts.w2.grad.to_local().clone()
     syncless_w13_grad = syncless_model.experts.w13.grad.to_local().clone()
-
     w2_grad_sqnr = compute_error(syncless_w2_grad, ref_w2_grad)
+    w2_0_grad_sqnr = compute_error(syncless_w2_grad[0], ref_w2_grad[0])
+    w2_2_grad_sqnr = compute_error(syncless_w2_grad[2], ref_w2_grad[2])
+
     w13_grad_sqnr = compute_error(syncless_w13_grad, ref_w13_grad)
+    print("w2.grad[0] SQNR:", w2_0_grad_sqnr.item())
+    print("w2.grad[2] SQNR:", w2_2_grad_sqnr.item())
 
     if dist.get_rank() == 0:
         print(

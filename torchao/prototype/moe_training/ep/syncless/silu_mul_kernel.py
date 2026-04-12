@@ -58,10 +58,11 @@ def _silu_mul_fw_kernel(
     h1 = tl.load(input_ptr + h1_off, mask=valid_mask & out_mask, other=0.0)
     h3 = tl.load(input_ptr + h3_off, mask=valid_mask & out_mask, other=0.0)
 
-    # silu(h1) = h1 * sigmoid(h1), computed in float32 for precision
+    # silu(h1) = h1 * sigmoid(h1), keep everything in float32 for precision
     h1_f32 = h1.to(tl.float32)
-    silu_h1 = (h1_f32 * tl.sigmoid(h1_f32)).to(h1.dtype)
-    result = silu_h1 * h3
+    h3_f32 = h3.to(tl.float32)
+    silu_h1_f32 = h1_f32 * tl.sigmoid(h1_f32)
+    result = (silu_h1_f32 * h3_f32).to(h1.dtype)
 
     out_off = row * output_stride_row + col
     tl.store(output_ptr + out_off, result, mask=out_mask)
@@ -153,8 +154,8 @@ def _silu_mul_bw_kernel(
     h3_f32 = h3.to(tl.float32)
     sig_h1 = tl.sigmoid(h1_f32)
     silu_h1_f32 = h1_f32 * sig_h1
-    # Cast silu to output dtype BEFORE multiplying by h3, matching forward kernel.
-    h = (silu_h1_f32.to(h1.dtype) * h3).to(h1.dtype)
+    # Keep everything in float32 until final cast for precision
+    h = (silu_h1_f32 * h3_f32).to(h1.dtype)
 
     # Load grad_h[row, col]
     grad_h_off = row * grad_h_stride_row + col

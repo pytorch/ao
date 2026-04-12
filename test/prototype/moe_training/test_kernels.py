@@ -704,3 +704,259 @@ def test_triton_fp8_rowwise_2d_scale_and_cast(
     assert ref_scales.shape == triton_scales.shape, "scale shapes not equal"
     assert torch.allclose(ref_fp8, triton_fp8, rtol=0, atol=0), "fp8 data not equal"
     assert torch.allclose(ref_scales, triton_scales, rtol=0, atol=0), "scales not equal"
+
+
+# Import silu_mul kernels
+from torchao.prototype.moe_training.ep.syncless.silu_mul_kernel import (
+    silu_mul_fw,
+    silu_mul_bw,
+)
+
+
+def _torch_silu_mul_fw(h13_input: torch.Tensor, num_tokens: int) -> torch.Tensor:
+    """Reference PyTorch implementation of silu_mul forward (matching kernel precision)."""
+    h1, h3 = h13_input[:num_tokens].chunk(2, dim=-1)
+
+    # Better precision: keep everything in float32 until final cast
+    h1_f32 = h1.to(torch.float32)
+    h3_f32 = h3.to(torch.float32)
+    silu_h1_f32 = h1_f32 * torch.sigmoid(h1_f32)
+    result = (silu_h1_f32 * h3_f32).to(h1.dtype)
+
+    return result
+
+
+def _torch_silu_mul_bw(h13_input: torch.Tensor, grad_h: torch.Tensor, num_tokens: int):
+    """Reference PyTorch implementation of silu_mul backward (matching kernel precision)."""
+    h1, h3 = h13_input[:num_tokens].chunk(2, dim=-1)
+
+    # Recompute forward (must match forward kernel exactly)
+    h1_f32 = h1.to(torch.float32)
+    h3_f32 = h3.to(torch.float32)
+    sig_h1 = torch.sigmoid(h1_f32)
+    silu_h1_f32 = h1_f32 * sig_h1
+    # Keep everything in float32 until final cast for precision
+    h = (silu_h1_f32 * h3_f32).to(h1.dtype)
+
+    # Backward - keep in float32 for gradient precision
+    grad_h_valid = grad_h[:num_tokens]
+    grad_h_f32 = grad_h_valid.to(torch.float32)
+    dsilu = sig_h1 + h1_f32 * sig_h1 * (1.0 - sig_h1)
+    grad_h1 = (grad_h_f32 * h3_f32 * dsilu).to(h1.dtype)
+    grad_h3 = (grad_h_f32 * silu_h1_f32).to(h1.dtype)
+
+    return h, torch.cat([grad_h1, grad_h3], dim=-1)
+
+
+@pytest.mark.parametrize("num_tokens", [32, 128, 256, 512])
+@pytest.mark.parametrize("hidden_dim", [512, 1024, 2048])
+@pytest.mark.parametrize("sym_mem_buffer_rows", [64, 256, 1024])
+@pytest.mark.parametrize("dtype", [torch.bfloat16])
+def test_silu_mul_fw_kernel(
+    num_tokens: int, hidden_dim: int, sym_mem_buffer_rows: int, dtype: torch.dtype
+):
+    """Test silu_mul forward kernel against PyTorch reference."""
+    if sym_mem_buffer_rows < num_tokens:
+        pytest.skip("sym_mem_buffer_rows must be >= num_tokens")
+
+    device = "cuda"
+    saved_activations_buffer_rows = sym_mem_buffer_rows + 100  # Larger buffer
+
+    # Create test inputs
+    input_buffer = torch.randn(
+        saved_activations_buffer_rows, 2 * hidden_dim, dtype=dtype, device=device
+    )
+    saved_activation_buffer_offset = torch.tensor(50, dtype=torch.int64, device=device)
+    num_tokens_tensor = torch.tensor(num_tokens, dtype=torch.int64, device=device)
+
+    # Get slice for reference computation
+    offset_val = saved_activation_buffer_offset.item()
+    h13_slice = input_buffer[offset_val : offset_val + sym_mem_buffer_rows]
+
+    # Reference computation
+    ref_output = _torch_silu_mul_fw(h13_slice, num_tokens)
+
+    # Zero-pad to sym_mem_buffer_rows
+    ref_padded = torch.zeros(
+        sym_mem_buffer_rows, hidden_dim, dtype=dtype, device=device
+    )
+    ref_padded[:num_tokens] = ref_output
+
+    # Kernel computation
+    kernel_output = silu_mul_fw(
+        input_buffer,
+        saved_activation_buffer_offset,
+        num_tokens_tensor,
+        sym_mem_buffer_rows,
+    )
+
+    # Verify shapes
+    assert kernel_output.shape == (sym_mem_buffer_rows, hidden_dim), (
+        "Output shape mismatch"
+    )
+    assert kernel_output.dtype == dtype, "Output dtype mismatch"
+
+    # Verify numerics (relaxed tolerances for BF16 + float32 intermediate computations)
+    torch.testing.assert_close(kernel_output, ref_padded, rtol=1e-2, atol=1e-3)
+
+    # Verify zero-padding beyond num_tokens
+    if num_tokens < sym_mem_buffer_rows:
+        assert torch.all(kernel_output[num_tokens:] == 0), (
+            "Rows beyond num_tokens should be zero"
+        )
+
+
+@pytest.mark.parametrize("num_tokens", [32, 128, 256, 512])
+@pytest.mark.parametrize("hidden_dim", [512, 1024, 2048])
+@pytest.mark.parametrize("sym_mem_buffer_rows", [64, 256, 1024])
+@pytest.mark.parametrize("dtype", [torch.bfloat16])
+def test_silu_mul_bw_kernel(
+    num_tokens: int, hidden_dim: int, sym_mem_buffer_rows: int, dtype: torch.dtype
+):
+    """Test silu_mul backward kernel against PyTorch reference."""
+    if sym_mem_buffer_rows < num_tokens:
+        pytest.skip("sym_mem_buffer_rows must be >= num_tokens")
+
+    device = "cuda"
+    saved_activations_buffer_rows = sym_mem_buffer_rows + 100  # Larger buffer
+
+    # Create test inputs
+    h13_buffer = torch.randn(
+        saved_activations_buffer_rows, 2 * hidden_dim, dtype=dtype, device=device
+    )
+    grad_h = torch.randn(sym_mem_buffer_rows, hidden_dim, dtype=dtype, device=device)
+    saved_activation_buffer_offset = torch.tensor(50, dtype=torch.int64, device=device)
+    num_tokens_tensor = torch.tensor(num_tokens, dtype=torch.int64, device=device)
+
+    # Pre-allocate output buffers
+    h_out = torch.zeros(sym_mem_buffer_rows, hidden_dim, dtype=dtype, device=device)
+    grad_h13_out = torch.zeros(
+        sym_mem_buffer_rows, 2 * hidden_dim, dtype=dtype, device=device
+    )
+
+    # Get slice for reference computation
+    offset_val = saved_activation_buffer_offset.item()
+    h13_slice = h13_buffer[offset_val : offset_val + sym_mem_buffer_rows]
+
+    # Reference computation
+    ref_h, ref_grad_h13 = _torch_silu_mul_bw(h13_slice, grad_h, num_tokens)
+
+    # Zero-pad reference outputs to sym_mem_buffer_rows
+    ref_h_padded = torch.zeros(
+        sym_mem_buffer_rows, hidden_dim, dtype=dtype, device=device
+    )
+    ref_grad_h13_padded = torch.zeros(
+        sym_mem_buffer_rows, 2 * hidden_dim, dtype=dtype, device=device
+    )
+    ref_h_padded[:num_tokens] = ref_h
+    ref_grad_h13_padded[:num_tokens] = ref_grad_h13
+
+    # Kernel computation
+    silu_mul_bw(
+        h13_buffer,
+        grad_h,
+        saved_activation_buffer_offset,
+        num_tokens_tensor,
+        h_out,
+        grad_h13_out,
+    )
+
+    # Verify shapes
+    assert h_out.shape == (sym_mem_buffer_rows, hidden_dim), "h_out shape mismatch"
+    assert grad_h13_out.shape == (sym_mem_buffer_rows, 2 * hidden_dim), (
+        "grad_h13_out shape mismatch"
+    )
+    assert h_out.dtype == dtype, "h_out dtype mismatch"
+    assert grad_h13_out.dtype == dtype, "grad_h13_out dtype mismatch"
+
+    # Verify numerics (relaxed tolerances for BF16 + float32 intermediate computations)
+    torch.testing.assert_close(h_out, ref_h_padded, rtol=1e-2, atol=1e-3)
+    torch.testing.assert_close(grad_h13_out, ref_grad_h13_padded, rtol=1e-2, atol=1e-3)
+
+    # Verify zero-padding beyond num_tokens
+    if num_tokens < sym_mem_buffer_rows:
+        assert torch.all(h_out[num_tokens:] == 0), (
+            "h_out rows beyond num_tokens should be zero"
+        )
+        assert torch.all(grad_h13_out[num_tokens:] == 0), (
+            "grad_h13_out rows beyond num_tokens should be zero"
+        )
+
+
+@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float16])
+def test_silu_mul_kernels_gradient_correctness(dtype: torch.dtype):
+    """Test that silu_mul kernels produce correct gradients via autograd."""
+    device = "cuda"
+    num_tokens = 64
+    hidden_dim = 512
+    sym_mem_buffer_rows = 128
+    saved_activations_buffer_rows = 256
+
+    # Create test inputs with gradient tracking
+    input_buffer = torch.randn(
+        saved_activations_buffer_rows,
+        2 * hidden_dim,
+        dtype=dtype,
+        device=device,
+        requires_grad=True,
+    )
+    saved_activation_buffer_offset = torch.tensor(50, dtype=torch.int64, device=device)
+    num_tokens_tensor = torch.tensor(num_tokens, dtype=torch.int64, device=device)
+
+    # Forward pass with kernel
+    h_fwd = silu_mul_fw(
+        input_buffer,
+        saved_activation_buffer_offset,
+        num_tokens_tensor,
+        sym_mem_buffer_rows,
+    )
+
+    # Create gradient for backward
+    grad_h = torch.randn_like(h_fwd)
+
+    # Pre-allocate backward outputs
+    h_out = torch.zeros_like(h_fwd)
+    grad_h13_out = torch.zeros(
+        sym_mem_buffer_rows, 2 * hidden_dim, dtype=dtype, device=device
+    )
+
+    # Backward pass with kernel
+    silu_mul_bw(
+        input_buffer,
+        grad_h,
+        saved_activation_buffer_offset,
+        num_tokens_tensor,
+        h_out,
+        grad_h13_out,
+    )
+
+    # Verify forward recomputation matches (relaxed tolerances for BF16)
+    torch.testing.assert_close(h_fwd, h_out, rtol=1e-2, atol=1e-3)
+
+    # Reference gradient computation using autograd (matching kernel precision)
+    input_buffer_ref = input_buffer.clone().detach().requires_grad_(True)
+    offset_val = saved_activation_buffer_offset.item()
+    h13_slice = input_buffer_ref[offset_val : offset_val + num_tokens]
+    h1, h3 = h13_slice.chunk(2, dim=-1)
+    # Match kernel precision: keep everything in float32 until final cast
+    h1_f32 = h1.to(torch.float32)
+    h3_f32 = h3.to(torch.float32)
+    silu_h1_f32 = h1_f32 * torch.sigmoid(h1_f32)
+    ref_output = (silu_h1_f32 * h3_f32).to(h1.dtype)
+    ref_output.backward(grad_h[:num_tokens])
+
+    # Compare gradients
+    expected_grad = torch.zeros_like(input_buffer_ref.grad)
+    expected_grad[offset_val : offset_val + num_tokens] = input_buffer_ref.grad[
+        offset_val : offset_val + num_tokens
+    ]
+
+    # Extract kernel gradients at the correct offset
+    kernel_grad_slice = grad_h13_out[:num_tokens]
+
+    torch.testing.assert_close(
+        kernel_grad_slice,
+        input_buffer_ref.grad[offset_val : offset_val + num_tokens],
+        rtol=1e-2,
+        atol=1e-3,
+    )
