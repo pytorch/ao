@@ -167,14 +167,14 @@ def _silu_mul_bw_kernel(
     grad_h1 = (grad_h_f32 * h3_f32 * dsilu).to(h1.dtype)
     grad_h3 = (grad_h_f32 * silu_h1_f32).to(h1.dtype)
 
-    # Write outputs
+    # Write outputs - explicitly zero-fill rows beyond num_tokens
     h_out_off = row * h_out_stride_row + col
-    tl.store(h_out_ptr + h_out_off, h, mask=out_mask)
+    tl.store(h_out_ptr + h_out_off, tl.where(valid_mask, h, 0.0), mask=out_mask)
 
     grad_h1_off = row * grad_h13_stride_row + col
     grad_h3_off = row * grad_h13_stride_row + hidden_dim + col
-    tl.store(grad_h13_out_ptr + grad_h1_off, grad_h1, mask=out_mask)
-    tl.store(grad_h13_out_ptr + grad_h3_off, grad_h3, mask=out_mask)
+    tl.store(grad_h13_out_ptr + grad_h1_off, tl.where(valid_mask, grad_h1, 0.0), mask=out_mask)
+    tl.store(grad_h13_out_ptr + grad_h3_off, tl.where(valid_mask, grad_h3, 0.0), mask=out_mask)
 
 
 def silu_mul_bw(

@@ -189,8 +189,28 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
             scale_block_size=block_size,
         )
 
-        # w2 backward — compute dgrad first (needed by SwiGLU bwd kernel)
-        # dgrad: grad_h = grad_out @ w2
+        # === Use silu_mul_fw kernel to recompute h for grad_w2 ===
+        from torchao.prototype.moe_training.ep.syncless.silu_mul_kernel import (
+            silu_mul_fw,
+        )
+
+        # Recompute activations using silu_mul_fw kernel (matches forward pass exactly)
+        w2_dgrad = silu_mul_fw(
+            buf.swiglu_input,
+            saved_activation_buffer_offset=offset,
+            num_tokens=num_tokens,
+            sym_mem_buffer_rows=M,
+        )
+
+        # w2 wgrad: grad_w2 = grad_out.T @ w2_dgrad  (per group)
+        grad_w2 = torch._grouped_mm(
+            grad_out.transpose(-2, -1),
+            w2_dgrad,
+            offs=group_end_offs,
+            out_dtype=torch.bfloat16,
+        )
+
+        # w2 dgrad: grad_h = grad_out @ w2 
         grad_h = _compute_dgrad(
             grad_out,
             w2.transpose(-2, -1),
@@ -201,31 +221,23 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
             KernelPreference.AUTO,
         )
 
-        # Fused SwiGLU backward: recompute h from saved h13, compute grad_h13.
-        # Reads from saved-activations buffer at GPU-determined offset.
+        # === SwiGLU backward: use silu_mul_bw kernel ===
         from torchao.prototype.moe_training.ep.syncless.silu_mul_kernel import (
             silu_mul_bw,
         )
 
-        h = torch.empty(M, hidden_dim, device=grad_out.device, dtype=torch.bfloat16)
         grad_h13 = torch.empty(
             M, 2 * hidden_dim, device=grad_out.device, dtype=torch.bfloat16
         )
+        h_unused = torch.empty(M, hidden_dim, device=grad_out.device, dtype=torch.bfloat16)
+
         silu_mul_bw(
             buf.swiglu_input,
             grad_h,
             saved_activation_buffer_offset=offset,
             num_tokens=num_tokens,
-            h_out=h,
+            h_out=h_unused,  # Don't use this h, we already computed h with silu_mul_fw
             grad_h13_out=grad_h13,
-        )
-
-        # wgrad: grad_w2 = grad_out.T @ h  (per group)
-        grad_w2 = torch._grouped_mm(
-            grad_out.transpose(-2, -1),
-            h,
-            offs=group_end_offs,
-            out_dtype=torch.bfloat16,
         )
 
         # Pad x_bf16 to M rows for w13 wgrad.
