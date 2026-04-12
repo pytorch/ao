@@ -119,12 +119,18 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
             out_dtype=torch.bfloat16,
         )
 
-        # Read h13 from buffer for SwiGLU (requires CPU offset).
-        # TODO: fused SwiGLU kernel that accepts (buffer, offset, len)
-        # to eliminate this .item() sync.
+        # Read h13 from buffer for SwiGLU.
+        # The CuTe DSL GEMM only writes num_tokens rows (those covered by
+        # group_end_offs). Rows beyond num_tokens are zeroed so SwiGLU and
+        # downstream ops see clean data.
+        # TODO: fused SwiGLU kernel that accepts (buffer, offset, len,
+        # out_tokens) to handle this internally like gb200_moe_sol.
         offset_cpu = offset.item()
         num_tokens_cpu = num_tokens.item()
-        h13 = buf.swiglu_input[offset_cpu : offset_cpu + num_tokens_cpu]
+        M = output_e4m3.shape[0]
+        h13 = buf.swiglu_input[offset_cpu : offset_cpu + M]
+        if num_tokens_cpu < M:
+            h13[num_tokens_cpu:].zero_()
 
         # SwiGLU activation
         h1, h3 = h13.split(hidden_dim, dim=-1)
