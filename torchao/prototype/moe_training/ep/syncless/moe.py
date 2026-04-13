@@ -40,7 +40,7 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
     """
 
     @staticmethod
-    @torch.compiler.disable
+    #    @torch.compiler.disable
     def forward(
         ctx,
         output_e4m3,
@@ -155,7 +155,7 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
         return out
 
     @staticmethod
-    @torch.compiler.disable
+    #    @torch.compiler.disable
     def backward(ctx, grad_out):
         from torchao.prototype.moe_training.mxfp8_grouped_mm import (
             _compute_dgrad,
@@ -179,8 +179,8 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
 
         # Use the properly sized buffer views (not raw buffers which have padding)
         x_bf16 = mxfp8_dequant_buffer(
-            buf.dispatch_out_data,      # Already properly shaped as (max_tokens, dim)
-            buf.dispatch_out_scales,    # Already properly shaped as (max_tokens, scale_dim)
+            buf.dispatch_out_data,  # Already properly shaped as (max_tokens, dim)
+            buf.dispatch_out_scales,  # Already properly shaped as (max_tokens, scale_dim)
             buffer_offset=offset,
             num_tokens=num_tokens,
             sym_mem_buffer_rows=M,

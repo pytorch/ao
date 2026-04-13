@@ -24,6 +24,7 @@ eliminating D2H synchronisation in the MoE expert forward/backward.
 import torch
 import triton
 import triton.language as tl
+from torch.library import triton_op, wrap_triton
 
 
 @triton.jit
@@ -68,6 +69,7 @@ def _silu_mul_fw_kernel(
     tl.store(output_ptr + out_off, result, mask=out_mask)
 
 
+@triton_op("torchao::silu_mul_fw", mutates_args={})
 def silu_mul_fw(
     input_buffer: torch.Tensor,
     saved_activation_buffer_offset: torch.Tensor,
@@ -98,7 +100,7 @@ def silu_mul_fw(
     BLOCK_SIZE = 1024
     grid = ((total_elems + BLOCK_SIZE - 1) // BLOCK_SIZE,)
 
-    _silu_mul_fw_kernel[grid](
+    wrap_triton(_silu_mul_fw_kernel)[grid](
         input_buffer,
         output,
         saved_activation_buffer_offset,
@@ -173,10 +175,19 @@ def _silu_mul_bw_kernel(
 
     grad_h1_off = row * grad_h13_stride_row + col
     grad_h3_off = row * grad_h13_stride_row + hidden_dim + col
-    tl.store(grad_h13_out_ptr + grad_h1_off, tl.where(valid_mask, grad_h1, 0.0), mask=out_mask)
-    tl.store(grad_h13_out_ptr + grad_h3_off, tl.where(valid_mask, grad_h3, 0.0), mask=out_mask)
+    tl.store(
+        grad_h13_out_ptr + grad_h1_off,
+        tl.where(valid_mask, grad_h1, 0.0),
+        mask=out_mask,
+    )
+    tl.store(
+        grad_h13_out_ptr + grad_h3_off,
+        tl.where(valid_mask, grad_h3, 0.0),
+        mask=out_mask,
+    )
 
 
+@triton_op("torchao::silu_mul_bw", mutates_args={"h_out", "grad_h13_out"})
 def silu_mul_bw(
     h13_buffer: torch.Tensor,
     grad_h: torch.Tensor,
@@ -209,7 +220,7 @@ def silu_mul_bw(
     BLOCK_SIZE = 1024
     grid = ((total_elems + BLOCK_SIZE - 1) // BLOCK_SIZE,)
 
-    _silu_mul_bw_kernel[grid](
+    wrap_triton(_silu_mul_bw_kernel)[grid](
         h13_buffer,
         grad_h,
         h_out,
