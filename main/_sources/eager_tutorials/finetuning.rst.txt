@@ -281,10 +281,10 @@ parameters to 4-bits, thereby further reducing the memory footprint.
 TorchAO offers an implementation of the NF4 data type proposed in
 the original `QLoRA paper <https://arxiv.org/pdf/2305.14314>`__.
 This implementation expresses NF4 as a tensor subclass through the
-`NF4Tensor <https://docs.pytorch.org/ao/stable/generated/torchao.dtypes.NF4Tensor.html>`__,
+`NF4Tensor <https://docs.pytorch.org/ao/stable/generated/torchao.quantization.NF4Tensor.html>`__,
 which composes cleanly with other PyTorch features like `torch.compile`
 and FSDP2. Users can convert a high precision tensor to NF4 simply
-by calling `torchao.dtypes.to_nf4 <https://docs.pytorch.org/ao/stable/generated/torchao.dtypes.to_nf4.html>`__.
+by calling `torchao.quantization.to_nf4 <https://docs.pytorch.org/ao/stable/generated/torchao.quantization.to_nf4.html>`__.
 For example:
 
 .. code::
