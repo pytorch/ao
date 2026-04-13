@@ -62,7 +62,6 @@ from .quantize_.workflows import (
     to_nf4,
 )
 from .transform_module import register_quantize_module_handler
-from .unified import Quantizer, TwoStepQuantizer
 from .utils import (
     compute_error,
 )
@@ -128,7 +127,5 @@ __all__ = [
     "Int4WeightOnlyQuantizer",
     "Int8DynActInt4WeightQuantizer",
     "Int8DynActInt4WeightLinear",
-    "TwoStepQuantizer",
-    "Quantizer",
     "Float8MMConfig",
 ]
