@@ -1,0 +1,34 @@
+name: Feature Request
+description: Suggest a new feature or improvement
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What feature would you like? What problem does it solve?
+    validations:
+      required: true
+
+  - type: textarea
+    id: api
+    attributes:
+      label: Proposed API
+      description: What would the user-facing API look like?
+      render: python
+    validations:
+      required: false
+
+  - type: dropdown
+    id: hardware
+    attributes:
+      label: Target hardware
+      options:
+        - CUDA (NVIDIA)
+        - ROCm (AMD)
+        - XPU (Intel)
+        - CPU
+        - Edge / Mobile
+        - All / Not hardware specific
+    validations:
+      required: false

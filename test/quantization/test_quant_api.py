@@ -17,10 +17,6 @@ from torch.testing._internal.common_quantization import TestHelperModules
 from torch.testing._internal.common_utils import TestCase
 
 from torchao import quantize_
-from torchao.dtypes import (
-    AffineQuantizedTensor,
-    PlainLayout,
-)
 from torchao.prototype.mx_formats.inference_workflow import (
     MXDynamicActivationMXWeightConfig,
     NVFP4DynamicActivationNVFP4WeightConfig,
@@ -28,6 +24,7 @@ from torchao.prototype.mx_formats.inference_workflow import (
 from torchao.quantization import (
     Float8Tensor,
     Int4TilePackedTo4dTensor,
+    Int8Tensor,
     IntxUnpackedToInt8Tensor,
     PerGroup,
 )
@@ -63,6 +60,7 @@ from torchao.testing.pt2e._xnnpack_quantizer import (
 from torchao.testing.utils import skip_if_rocm, skip_if_xpu
 from torchao.utils import (
     get_current_accelerator_device,
+    is_ROCM,
     is_sm_at_least_89,
     is_sm_at_least_90,
     is_sm_at_least_100,
@@ -164,6 +162,8 @@ class TestQuantFlow(TestCase):
     )
 
     def test_dynamic_quant_gpu_singleline(self):
+        if is_ROCM():
+            self.skipTest("Don't test CPU for ROCM version of torch")
         m = ToyLinearModel().eval()
         example_inputs = m.example_inputs()
         quantize_(m, Int8DynamicActivationInt8WeightConfig())
@@ -395,8 +395,7 @@ class TestQuantFlow(TestCase):
         quantize_(model, config, filter_fn=None)
         model(*example_inputs)
         assert isinstance(model.linear1.weight, Float8Tensor)
-        assert isinstance(model.linear2.weight, AffineQuantizedTensor)
-        assert isinstance(model.linear2.weight._layout, PlainLayout)
+        assert isinstance(model.linear2.weight, IntxUnpackedToInt8Tensor)
 
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     @unittest.skipIf(not is_sm_at_least_89(), "Need SM 8.9+")
@@ -410,8 +409,7 @@ class TestQuantFlow(TestCase):
         quantize_(model, config, filter_fn=None)
         model(*example_inputs)
         assert isinstance(model.linear1.weight, Float8Tensor)
-        assert isinstance(model.linear2.weight, AffineQuantizedTensor)
-        assert isinstance(model.linear2.weight._layout, PlainLayout)
+        assert isinstance(model.linear2.weight, IntxUnpackedToInt8Tensor)
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_module_fqn_to_config_regex_basic(self):
@@ -977,8 +975,8 @@ class TestFqnToConfig(TestCase):
         )
         quantize_(m, quant_config, filter_fn=None)
 
-        assert isinstance(m.nested.linear.weight, AffineQuantizedTensor)
-        assert isinstance(m.linear1.weight, AffineQuantizedTensor)
+        assert isinstance(m.nested.linear.weight, Int8Tensor)
+        assert isinstance(m.linear1.weight, Int8Tensor)
 
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test_fqn_config_quantized_nested_module_module_swap(self):
@@ -1028,8 +1026,8 @@ class TestFqnToConfig(TestCase):
         )
         quantize_(m, quant_config, filter_fn=None)
 
-        assert isinstance(m.nested.linear.weight, AffineQuantizedTensor)
-        assert isinstance(m.linear1.weight, AffineQuantizedTensor)
+        assert isinstance(m.nested.linear.weight, Int8Tensor)
+        assert isinstance(m.linear1.weight, Int8Tensor)
 
     def test_fqn_to_config_non_weight_param(self):
         configs = [

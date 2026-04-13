@@ -938,7 +938,7 @@ def _compile_mxfp8_quantize_2d_cutedsl(
     )
 
 
-def mxfp8_quantize_cutedsl_2d(
+def mxfp8_quantize_cutedsl_2d_1x32(
     x: torch.Tensor,
     block_size: int = 32,
     scaling_mode: str = "rceil",

@@ -301,7 +301,10 @@ def _(func, types, args, kwargs):
         # Asymmetric activation zero_point correction:
         # Y = (X_int @ W_int^T) * s_x * s_w - zp_x * s_x * row_sum(W_int)^T * s_w
         # The first term is y_dot_scaled * w_scales. The second is the correction.
-        if activation_tensor.zero_point is not None:
+        if (
+            weight_tensor.act_quant_kwargs.mapping_type == MappingType.ASYMMETRIC
+            and activation_tensor.zero_point is not None
+        ):
             w_row_sums = weight_tensor.qdata.sum(dim=-1)  # (N,)
             zp_x = activation_tensor.zero_point.reshape(-1, 1).to(intermediate_dtype)
             x_scales_flat = x_scales.reshape(-1, 1).to(intermediate_dtype)
@@ -408,6 +411,14 @@ def _(func, types, args, kwargs):
         kwargs,
         args[0]._apply_fn_to_data(lambda x: func(x, *args[1:], **kwargs)),
     )
+
+
+@implements(aten.embedding.default)
+def _(func, types, args, kwargs):
+    """Embedding operation for Int8Tensor - dequantize weight and run embedding."""
+    weight, indices = args[0], args[1]
+    # Dequantize the weight and run the embedding on the float weight
+    return aten.embedding.default(weight.dequantize(), indices, *args[2:], **kwargs)
 
 
 @implements(aten.is_pinned.default)
