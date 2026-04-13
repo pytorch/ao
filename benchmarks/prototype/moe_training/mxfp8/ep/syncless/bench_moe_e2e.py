@@ -87,7 +87,7 @@ class Experiment:
 def get_configs() -> List[ExperimentConfig]:
     return [
         ExperimentConfig(
-            batch_size=1, seq_len=8192, dim=7168, hidden_dim=2048, num_experts=8
+            batch_size=4, seq_len=8192, dim=7168, hidden_dim=2048, num_experts=8
         ),
     ]
 
@@ -248,7 +248,7 @@ def run_experiment(
 
         def ref_batch():
             for _ in range(10):
-                ref_model(x)
+                ref_fwd_bwd()
 
         profile_fn(
             ref_batch,
@@ -295,7 +295,7 @@ def run_experiment(
 
         def syncless_batch():
             for _ in range(10):
-                syncless_model(x)
+                syncless_fwd_bwd()
 
         profile_fn(
             syncless_batch,
