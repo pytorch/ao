@@ -187,33 +187,44 @@ def _silu_mul_bw_kernel(
     )
 
 
-@triton_op("torchao::silu_mul_bw", mutates_args={"h_out", "grad_h13_out"})
+@triton_op("torchao::silu_mul_bw", mutates_args={})
 def silu_mul_bw(
-    h13_buffer: torch.Tensor,
+    swiglu_input: torch.Tensor,  # h13
     grad_h: torch.Tensor,
     saved_activation_buffer_offset: torch.Tensor,
     num_tokens: torch.Tensor,
-    h_out: torch.Tensor,
-    grad_h13_out: torch.Tensor,
-) -> None:
+) -> tuple[torch.Tensor, torch.Tensor]:
     """Fused SwiGLU backward: recompute forward + compute gradients.
 
-    Reads ``num_tokens`` rows of ``[h1 | h3]`` from ``h13_buffer`` at
-    ``buffer_offset``, recomputes ``h = silu(h1) * h3``, and writes the
-    SwiGLU gradient into pre-allocated output buffers.
+    Reads `num_tokens` rows of `[h1 | h3]` from `swiglu_input` at
+    `buffer_offset`, recomputes `h = silu(h1) * h3`, and computes
+    grad_h13.
 
     Rows beyond ``num_tokens`` are zero-filled by the kernel.
 
     Args:
-        h13_buffer: ``(saved_activations_buffer_rows, 2*hidden_dim)`` BF16.
-        grad_h: ``(sym_mem_buffer_rows, hidden_dim)`` BF16 — w2 dgrad output.
-        saved_activation_buffer_offset: Scalar int64 GPU tensor — row offset into ``h13_buffer``.
+        swiglu_input: `(saved_activations_buffer_rows, 2*hidden_dim)` BF16.
+        grad_h: `(sym_mem_buffer_rows, hidden_dim)`` BF16 — w2 dgrad output.
+        saved_activation_buffer_offset: Scalar int64 GPU tensor — row offset into `h13_buffer`.
         num_tokens: Scalar int64 GPU tensor — valid row count.
-        h_out: ``(sym_mem_buffer_rows, hidden_dim)`` BF16 — pre-allocated.
-        grad_h13_out: ``(sym_mem_buffer_rows, 2*hidden_dim)`` BF16 — pre-allocated.
+
+    Returns:
+        h: `(sym_mem_buffer_rows, hidden_dim)`  - recomputed forward 'h = silu(h1) * h3'
+        grad_h13: `(sym_mem_buffer_rows, 2*hidden_dim)`
     """
-    hidden_dim = h13_buffer.shape[1] // 2
+    hidden_dim = swiglu_input.shape[1] // 2
     sym_mem_buffer_rows = grad_h.shape[0]
+
+    # preallocate outputs
+    h_out = torch.empty(
+        sym_mem_buffer_rows, hidden_dim, device=grad_h.device, dtype=torch.bfloat16
+    )
+    grad_h13_out = torch.empty(
+        sym_mem_buffer_rows,
+        2 * hidden_dim,
+        device=grad_h.device,
+        dtype=torch.bfloat16,
+    )
 
     # Only process num_tokens rows; upper-bound with sym_mem_buffer_rows
     total_elems = sym_mem_buffer_rows * hidden_dim
@@ -221,14 +232,14 @@ def silu_mul_bw(
     grid = ((total_elems + BLOCK_SIZE - 1) // BLOCK_SIZE,)
 
     wrap_triton(_silu_mul_bw_kernel)[grid](
-        h13_buffer,
+        swiglu_input,
         grad_h,
         h_out,
         grad_h13_out,
         saved_activation_buffer_offset,
         num_tokens,
         hidden_dim=hidden_dim,
-        h13_stride_row=h13_buffer.stride(0),
+        h13_stride_row=swiglu_input.stride(0),
         grad_h_stride_row=grad_h.stride(0),
         h_out_stride_row=h_out.stride(0),
         grad_h13_stride_row=grad_h13_out.stride(0),

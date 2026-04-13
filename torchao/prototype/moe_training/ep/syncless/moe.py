@@ -155,6 +155,22 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad_out):
+        """
+        forward:
+            h13 = x @ w13.T
+            h1, h3 = h13.chunk(2, dim=-1)
+            h = silu(h1) * h3
+            out = h @ w2.T
+        backward:
+            grad_h = grad_out @ w2
+            dsilu = sigmoid(h1) * (1 + h1 * (1 - sigmoid(h1)))  # fused into silu_mul_bw, not materialized
+            grad_h1 = grad_h * h3 * dsilu                       # fused into silu_mul_bw, not materialized
+            grad_h3 = grad_h * silu(h1)                         # fused into silu_mul_bw, not materialized
+            grad_h13 = torch.cat([grad_h1, grad_h3], dim=-1)    # output of silu_mul_bw
+            wgrad_w13 = grad_h13_t @ x
+            wgrad_w2 = grad_out_t @ h
+            grad_x = grad_h13 @ w13
+        """
         from torchao.prototype.moe_training.mxfp8_grouped_mm import (
             _compute_dgrad,
         )
@@ -168,23 +184,6 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
         hidden_dim = ctx.hidden_dim
         buf = ctx.saved_activations_buffer
         block_size = 32
-
-        # --- restore saved FP8 activations directly from buffer ---------------
-        # Use syncless dequant kernel - no .item() sync needed!
-        from torchao.prototype.moe_training.ep.syncless.mxfp8_dequant_kernel import (
-            mxfp8_dequant_buffer,
-        )
-
-        # Use the properly sized buffer views (not raw buffers which have padding)
-        x_bf16 = mxfp8_dequant_buffer(
-            buf.dispatch_out_data,  # Already properly shaped as (max_tokens, dim)
-            buf.dispatch_out_scales,  # Already properly shaped as (max_tokens, scale_dim)
-            buffer_offset=offset,
-            num_tokens=num_tokens,
-            sym_mem_buffer_rows=M,
-            out_dtype=torch.bfloat16,
-            scale_block_size=block_size,
-        )
 
         # w2 dgrad: grad_h = grad_out @ w2
         grad_h = _compute_dgrad(
@@ -202,28 +201,45 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
             silu_mul_bw,
         )
 
-        h = torch.empty(M, hidden_dim, device=grad_out.device, dtype=torch.bfloat16)
-        grad_h13 = torch.empty(
-            M, 2 * hidden_dim, device=grad_out.device, dtype=torch.bfloat16
-        )
-        silu_mul_bw(
+        # recompute 'h' and calc grad_h13 in single kernel
+        h, grad_h13 = silu_mul_bw(
             buf.swiglu_input,
             grad_h,
             saved_activation_buffer_offset=offset,
             num_tokens=num_tokens,
-            h_out=h,
-            grad_h13_out=grad_h13,
+        )
+
+        from torchao.prototype.moe_training.ep.syncless.mxfp8_dequant_kernel import (
+            mxfp8_dequant_buffer,
+        )
+
+        # for now, dequant input tokens to bf16 and do wgrad gmm in bf16
+        # TODO: fused dequant 1x32 -> requant 32x1 kernel and do wgrad in mxfp8
+        x_bf16 = mxfp8_dequant_buffer(
+            buf.dispatch_out_data,
+            buf.dispatch_out_scales,
+            buffer_offset=offset,
+            num_tokens=num_tokens,
+            sym_mem_buffer_rows=M,
+            out_dtype=torch.bfloat16,
+            scale_block_size=block_size,
+        )
+
+        # wgrad: grad_w13 = grad_h13.T @ x_bf16  (per group)
+        wgrad_w13 = torch._grouped_mm(
+            grad_h13.transpose(-2, -1),
+            x_bf16,
+            offs=group_end_offs,
+            out_dtype=torch.bfloat16,
         )
 
         # w2 wgrad: grad_w2 = grad_out.T @ h  (per group)
-        grad_w2 = torch._grouped_mm(
+        wgrad_w2 = torch._grouped_mm(
             grad_out.transpose(-2, -1),
             h,
             offs=group_end_offs,
             out_dtype=torch.bfloat16,
         )
-
-        # x_bf16 is already padded to M rows by syncless dequant kernel
 
         # w13 backward
         # dgrad: grad_x = grad_h13 @ w13
@@ -237,18 +253,10 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
             KernelPreference.AUTO,
         )
 
-        # wgrad: grad_w13 = grad_h13.T @ x_bf16  (per group)
-        grad_w13 = torch._grouped_mm(
-            grad_h13.transpose(-2, -1),
-            x_bf16,
-            offs=group_end_offs,
-            out_dtype=torch.bfloat16,
-        )
-
         # free buffer allocation (GPU-side, no sync)
         buf.free(offset)
 
-        return grad_x, None, None, grad_w13, grad_w2, None
+        return grad_x, None, None, wgrad_w13, wgrad_w2, None
 
 
 class MXFP8GroupedExperts(nn.Module):
