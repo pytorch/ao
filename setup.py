@@ -389,6 +389,7 @@ class X86KernelBuild:
     # Preferred GCC major version required for full AVX10.2 / new-ISA support.
     # If GCC version is below this, the build will still succeed but AVX10.2 support will be unavailable and a warning will be printed.
     _PREFERRED_GCC_MAJOR = 15
+    _MINIMUM_GCC_MAJOR = 11
 
     @staticmethod
     def is_enabled() -> bool:
@@ -553,7 +554,13 @@ class X86KernelBuild:
     def filter_sources(sources: list, extensions_dir: str) -> list:
         """Remove CPU aten_kernels sources from *sources* when not building for CPU."""
         aten_kernels_dir = os.path.join(extensions_dir, "cpu", "aten_kernels")
-        if not X86KernelBuild.is_enabled():
+        cxx = os.environ.get(
+            "CXX", X86KernelBuild.find_preferred_cxx_compiler() or "g++"
+        )
+        compiler_ok = (
+            cxx and X86KernelBuild._gcc_major(cxx) >= X86KernelBuild._MINIMUM_GCC_MAJOR
+        )
+        if not X86KernelBuild.is_enabled() or not compiler_ok:
             excluded = set(glob.glob(os.path.join(aten_kernels_dir, "*.cpp")))
             return [s for s in sources if s not in excluded]
         return sources
@@ -582,6 +589,15 @@ class X86KernelBuild:
         cxx = os.environ.get(
             "CXX", X86KernelBuild.find_preferred_cxx_compiler() or "g++"
         )
+        compiler_ok = (
+            cxx
+            and X86KernelBuild._gcc_major(cxx) >= X86KernelBuild._PREFERRED_GCC_MAJOR
+        )
+        if not compiler_ok:
+            print(
+                f"[WARNING] AVX10.2 support will not be available since compiler does not meet the requirement (GCC >= {X86KernelBuild._PREFERRED_GCC_MAJOR})."
+            )
+            return
         include_flags = X86KernelBuild.get_include_flags()
 
         cpu_defines = [
@@ -608,8 +624,6 @@ class X86KernelBuild:
         all_kernel_sources = glob.glob(os.path.join(aten_kernels_dir, "*.cpp"))
         for src in sorted(all_kernel_sources):
             base = os.path.basename(src)
-            if base.endswith("_avx10_2.cpp"):
-                continue
             with open(src) as fh:
                 if "CPU_CAPABILITY_AVX10_2" not in fh.read():
                     continue
@@ -625,11 +639,7 @@ class X86KernelBuild:
                     getattr(main_ext, "extra_objects", [])
                 ) + [obj]
             except subprocess.CalledProcessError as e:
-                print(
-                    f"[WARNING] Unable to compile AVX10.2 variant of {src}:\n{e}\n"
-                    "You can ignore this warning if you intend to build without AVX10.2 support, "
-                    "but if you want to enable AVX10.2 optimizations please ensure you have a compatible compiler (GCC >= 15)."
-                )
+                print(f"[WARNING] Unable to compile AVX10.2 variant of {src}:\n{e}\n")
                 print(
                     "[WARNING] AVX10.2 support will not be available for this kernel."
                 )
