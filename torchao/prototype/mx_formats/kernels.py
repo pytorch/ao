@@ -231,11 +231,10 @@ if torch_version_at_least("2.7.0") and has_triton():
         return out_buffer.reshape(orig_shape)
 
     def _get_mxfp8_quant_autotune_configs():
-        # Values to sweep over here were determined by a manual
-        # sweep over a small set of shapes, it's likely that this
-        # can be improved in the future.
+        # Tile sweep tuned for both SM100 and MI355X (304 CUs).
+        # ROW_TILE=64 helps small activation shapes on ROCm.
         results = []
-        for ROW_TILE_SIZE in (128, 256, 512):
+        for ROW_TILE_SIZE in (64, 128, 256, 512):
             # TODO: we can't use 512 for COL_TILE_SIZE.
             # This is likely a triton bug, tracked in
             # https://github.com/pytorch/ao/issues/3362
@@ -749,7 +748,9 @@ if _triton_kernels_available:
 
     @triton.autotune(
         configs=_get_mxfp8_quant_autotune_configs(),
-        key=["n_cols", "SCALE_BLOCK_SIZE"],
+        # Include n_rows so small activation tensors get a different tuned
+        # config from large weight tensors that share the same n_cols.
+        key=["n_rows", "n_cols", "SCALE_BLOCK_SIZE"],
     )
     @triton.jit
     def to_mxfp8_dim0_kernel(
@@ -1009,6 +1010,7 @@ else:
         scaling_mode: str = "rceil",
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         raise AssertionError("needs torch version 2.8+ and triton")
+
 
 
 _mxfp8_cuda_kernels_available = (

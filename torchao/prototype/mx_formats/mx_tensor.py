@@ -30,7 +30,7 @@ from torch.utils._python_dispatch import (
 )
 from torch.utils._pytree import tree_map
 
-from torchao.utils import torch_version_at_least
+from torchao.utils import is_ROCM, torch_version_at_least
 
 # ScalingType and SwizzleType are only available in PyTorch 2.10+
 if torch_version_at_least("2.10.0"):
@@ -749,6 +749,44 @@ def _addmm_mx_dispatch(
         assert b.qdata.t().is_contiguous()
         assert a.block_size == 32, f"Invalid block size {a.block_size}"
         assert b.block_size == 32, f"Invalid block size {b.block_size}"
+
+        # ROCm fast path: use our Triton dense MXFP8 kernel which is faster
+        # than torch._scaled_mm and doesn't need to_blocked scale conversion.
+        if (
+            is_ROCM()
+            and not a.is_swizzled_scales
+            and not b.is_swizzled_scales
+            and a.elem_dtype == torch.float8_e4m3fn
+            and b.elem_dtype == torch.float8_e4m3fn
+            and K % 128 == 0
+        ):
+            from torchao.prototype.moe_training.kernels.mxfp8.rocm_mm import (
+                triton_mxfp8_mm,
+            )
+            a_qdata = a.qdata                                        # (M, K)
+            b_qdata = b.qdata                                        # (K, N)
+            a_scale_2d = a.scale.reshape(M, K // a.block_size).contiguous()
+            b_scale_2d = b.scale.t().reshape(N, K // b.block_size).contiguous()
+            # Shape-aware tile selection: K=2816 (w2) benefits from BLOCK_K=256.
+            if K % 256 == 0 and K >= 2560:
+                bm, bn, bk = 256, 128, 256
+            else:
+                bm, bn, bk = 256, 256, 128
+            res = triton_mxfp8_mm(
+                a_qdata,
+                b_qdata,
+                a_scale_2d,
+                b_scale_2d,
+                out_dtype=torch.bfloat16,
+                BLOCK_M=bm,
+                BLOCK_N=bn,
+                BLOCK_K=bk,
+                num_warps=8,
+                num_stages=2,
+            )
+            if bias is not None:
+                res = res + bias
+            return res
 
         if a.is_swizzled_scales:
             a_scale_block = a.scale

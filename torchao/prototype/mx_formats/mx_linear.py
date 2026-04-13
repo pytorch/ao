@@ -62,7 +62,12 @@ def _to_mxfp8_then_scaled_mm(
     grad_elem_dtype = torch.float8_e4m3fn
     block_size = 32
     mxfp8_dim0_cast_kernel_choice = MXFP8Dim0CastKernelChoice.TRITON
-    mxfp8_dim1_cast_kernel_choice = MXFP8Dim1CastKernelChoice.CUDA
+    # On ROCm, CUDA dim1 kernels are not available; use Triton instead.
+    from torchao.utils import is_ROCM
+    mxfp8_dim1_cast_kernel_choice = (
+        MXFP8Dim1CastKernelChoice.TRITON if is_ROCM()
+        else MXFP8Dim1CastKernelChoice.CUDA
+    )
 
     return mx_mm.apply(
         input_hp,

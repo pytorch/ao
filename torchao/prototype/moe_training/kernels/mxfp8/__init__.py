@@ -15,3 +15,7 @@ from torchao.prototype.moe_training.kernels.mxfp8.quant import (
     triton_mx_block_rearrange_2d_M_groups,  # noqa: F401
     triton_mx_block_rearrange_per_group_3d,  # noqa: F401
 )
+from torchao.prototype.moe_training.kernels.mxfp8.rocm_grouped_mm import (
+    triton_mxfp8_grouped_mm,  # noqa: F401
+    triton_mxfp8_wgrad,  # noqa: F401
+)
