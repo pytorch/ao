@@ -36,6 +36,7 @@ __all__ = [
     "is_package_at_least",
     "DummyModule",
     "register_as_pytree_constant",
+    "_cpu_is_vnni_supported",
 ]
 
 
@@ -1173,6 +1174,19 @@ def check_cpu_version(device, version="2.6.0"):
     if isinstance(device, torch.device):
         device = device.type
     return device == "cpu" and torch_version_at_least(version)
+
+
+def _cpu_is_vnni_supported() -> bool:
+    """
+    Safely query AVX512_VNNI support, guarding against private API absence.
+    torch.cpu._is_vnni_supported / torch._C._cpu._is_vnni_supported are
+    private and may be missing in certain PyTorch builds or versions.
+    """
+    if hasattr(torch._C._cpu, "_is_vnni_supported"):
+        return torch._C._cpu._is_vnni_supported()
+    elif hasattr(torch.cpu, "_is_vnni_supported"):
+        return torch.cpu._is_vnni_supported()
+    return False
 
 
 def check_xpu_version(device, version="2.8.0"):

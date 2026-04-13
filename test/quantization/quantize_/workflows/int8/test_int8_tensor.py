@@ -12,7 +12,6 @@ from torch._inductor.utils import run_and_get_code
 from torch.testing import FileCheck
 from torch.testing._internal import common_utils
 
-from torchao.kernel.intmm import _cpu_is_vnni_supported
 from torchao.quantization import (
     Int8DynamicActivationInt8WeightConfig,
     Int8StaticActivationInt8WeightConfig,
@@ -36,6 +35,7 @@ from torchao.quantization.utils import compute_error, get_block_size
 from torchao.testing.model_architectures import ToyTwoLinearModel
 from torchao.testing.utils import TorchAOIntegrationTestCase, skip_if_xpu
 from torchao.utils import (
+    _cpu_is_vnni_supported,
     get_available_devices,
     is_ROCM,
     torch_version_at_least,
@@ -603,6 +603,10 @@ class TestInt8TensorCPU(TorchAOIntegrationTestCase):
             assert compute_error(output_fp, output_quantized) > 20, (
                 f"Quantization error is too high got a SQNR of {compute_error(output_fp, output_quantized)}"
             )
+        else:
+            # At minimum, verify no NaN/Inf in output
+            assert not torch.isnan(output_quantized).any(), "Output contains NaN"
+            assert not torch.isinf(output_quantized).any(), "Output contains Inf"
 
 
 if __name__ == "__main__":
