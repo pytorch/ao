@@ -2,8 +2,6 @@
 #include <ATen/cpu/vec/vec.h>
 #include <ATen/native/CPUBlas.h>
 #include <c10/util/Unroll.h>
-#include <cstdio>
-#include <mutex>
 #include "utils.h"
 #ifndef AT_PER_OPERATOR_HEADERS
 #include <ATen/Functions.h>

@@ -4,8 +4,6 @@
 #include <ATen/native/EmbeddingBag.h>
 #include <c10/util/Float8_e4m3fn.h>
 #include <c10/util/Unroll.h>
-#include <cstdio>
-#include <mutex>
 #include <torch/all.h>
 #include "utils.h"
 

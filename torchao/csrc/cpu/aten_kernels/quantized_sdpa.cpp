@@ -11,8 +11,6 @@
 #include <ATen/Parallel.h>
 #include <ATen/Tensor.h>
 #include <c10/util/irange.h>
-#include <cstdio>
-#include <mutex>
 
 #ifndef AT_PER_OPERATOR_HEADERS
 #include <ATen/Functions.h>
