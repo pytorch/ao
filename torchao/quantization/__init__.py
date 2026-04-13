@@ -58,6 +58,8 @@ from .quantize_.workflows import (
     Int8Tensor,
     IntxOpaqueTensor,
     IntxUnpackedToInt8Tensor,
+    NF4Tensor,
+    to_nf4,
 )
 from .transform_module import register_quantize_module_handler
 from .unified import Quantizer, TwoStepQuantizer
@@ -96,6 +98,8 @@ __all__ = [
     "IntxUnpackedToInt8Tensor",
     "Int4TilePackedTo4dTensor",
     "Float8Tensor",
+    "NF4Tensor",
+    "to_nf4",
     "compute_error",
     # building blocks
     "AffineQuantizedMinMaxObserver",

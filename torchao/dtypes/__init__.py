@@ -1,6 +1,3 @@
-from .nf4tensor import NF4Tensor, to_nf4
-
-
 # TODO: remove this stub once external repos have migrated off AffineQuantizedTensor
 class AffineQuantizedTensor:
     """
@@ -24,7 +21,5 @@ class AffineQuantizedTensor:
 
 
 __all__ = [
-    "NF4Tensor",
-    "to_nf4",
     "AffineQuantizedTensor",
 ]

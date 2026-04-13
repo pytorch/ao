@@ -6,7 +6,7 @@
 import torch
 
 from torchao.core.config import AOBaseConfig
-from torchao.dtypes.nf4tensor import NF4Tensor
+from torchao.quantization import NF4Tensor
 from torchao.quantization.transform_module import (
     register_quantize_module_handler,
 )
