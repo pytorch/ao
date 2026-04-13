@@ -45,7 +45,6 @@ from torch.testing._internal.inductor_utils import (
 )
 
 import torchao.quantization.pt2e.quantizer.x86_inductor_quantizer as xiq
-from torchao.kernel.intmm import _cpu_is_vnni_supported
 from torchao.prototype.smoothquant import (
     SmoothQuantConfig,
 )
@@ -62,7 +61,7 @@ from torchao.quantization.quantize_.common.quantization_step import (
     QuantizationStep,
 )
 from torchao.testing.pt2e.utils import _generate_ref_quantized_model, qdq_fp8
-from torchao.utils import torch_version_at_least
+from torchao.utils import _cpu_is_vnni_supported, torch_version_at_least
 
 # The dict value is match_nodes(computation_op+unary_op)
 unary_list = {
