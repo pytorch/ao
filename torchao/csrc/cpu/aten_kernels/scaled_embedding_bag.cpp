@@ -268,11 +268,13 @@ at::Tensor _scaled_embedding_bag_impl(
     int64_t mode, bool include_last_offset, at::ScalarType output_dtype) {
 #ifndef CPU_CAPABILITY_AVX10_2
   // Runtime dispatch to hardware fp8 path when running on AVX10.2 CPU.
+#if __GNUC__ >= 15
   if (__builtin_cpu_supports("avx10.2")) {
     return cpu_avx10_2::_scaled_embedding_bag_avx10_2(
         qweight, indices, offsets, w_scales, o_scale,
         mode, include_last_offset, output_dtype);
   }
+#endif
   TORCH_CHECK(include_last_offset,
               "_scaled_embedding_bag: only suppport include_last_offset");
   TORCH_CHECK(mode == at::native::EmbeddingBagMode::SUM,
