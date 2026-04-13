@@ -52,8 +52,8 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
         from torchao.prototype.moe_training.ep.syncless.copy_kernel import (
             copy_into_buffer_2d,
         )
-        from torchao.prototype.moe_training.ep.syncless.cutedsl_mxfp8_gmm import (
-            grouped_gemm as cutedsl_grouped_gemm,
+        from torchao.prototype.moe_training.ep.syncless.cutedsl_custom_op import (
+            cutedsl_grouped_gemm,
         )
         from torchao.prototype.moe_training.kernels.mxfp8 import (
             mx_block_rearrange_2d_M_groups_cuda,
