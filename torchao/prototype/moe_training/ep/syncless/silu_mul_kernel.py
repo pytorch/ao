@@ -246,3 +246,5 @@ def silu_mul_bw(
         sym_mem_buffer_rows=sym_mem_buffer_rows,
         BLOCK_SIZE=BLOCK_SIZE,
     )
+
+    return h_out, grad_h13_out
