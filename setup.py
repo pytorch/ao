@@ -419,14 +419,10 @@ class X86KernelBuild:
 
     @staticmethod
     def find_preferred_cxx_compiler() -> "str | None":
-        """Find a C++ compiler that meets the preferred GCC version requirement.
+        """Find a C++ compiler at or above _PREFERRED_GCC_MAJOR.
 
-        Search order:
-          1. $CXX environment variable
-          2. ``g++`` on $PATH (via ``which``)
-
-        Returns the path of the first qualifying compiler, or None if no
-        compiler at or above _PREFERRED_GCC_MAJOR is found.
+        Checks $CXX first, then ``g++`` on $PATH.
+        Returns the compiler path or None.
         """
         min_major = X86KernelBuild._PREFERRED_GCC_MAJOR
 
@@ -434,29 +430,22 @@ class X86KernelBuild:
             if not exe:
                 return None
             if os.sep not in exe:
-                # Plain name — resolve via PATH.
-                resolved = shutil.which(exe)
-                if not resolved:
-                    return None
-                exe = resolved
+                exe = shutil.which(exe) or ""
             if not os.path.isfile(exe):
                 return None
             major = X86KernelBuild._gcc_major(exe)
-            if major is not None and major >= min_major:
-                return exe
-            return None
+            return exe if major is not None and major >= min_major else None
 
-        # 1. Explicit $CXX
-        result = _check(os.environ.get("CXX", ""))
-        if result:
-            return result
+        return _check(os.environ.get("CXX", "")) or _check("g++")
 
-        # 2. g++ on PATH
-        result = _check("g++")
-        if result:
-            return result
-
-        return None
+    @staticmethod
+    def _resolve_cxx() -> str:
+        """Return the effective C++ compiler path (from $CXX or preferred, falling back to g++)."""
+        return (
+            os.environ.get("CXX")
+            or X86KernelBuild.find_preferred_cxx_compiler()
+            or "g++"
+        )
 
     @staticmethod
     def get_include_flags() -> list:
@@ -477,27 +466,12 @@ class X86KernelBuild:
     def add_compile_flags(extra_compile_args: dict) -> None:
         """Extend *extra_compile_args* with CPU-kernel compile options.
 
-        The main kernel files are compiled with AVX512 + AMX flags so that
-        PyTorch's vec512 headers (which use Sleef f16 intrinsics under
-        CPU_CAPABILITY_AVX512) compile correctly.  -fno-tree-vectorize
-        prevents the compiler from emitting 512-bit packed instructions in
-        scalar fallback functions; AVX512 pragma regions re-enable
-        vectorization only where explicitly desired.
-
-        Runtime dispatch via __builtin_cpu_supports() selects the right path:
-          - no AVX512:      scalar fallback paths are used.
-          - AVX512 + AMX:   AVX512/AMX optimised paths are selected.
-          - AVX10.2:        AVX10.2 objects (compiled separately with
-                            -march=diamondrapids) are also linked in.
+        Enables AVX512 + AMX (for PyTorch vec512 headers) and -fno-tree-vectorize
+        (to prevent scalar paths from emitting 512-bit instructions).
+        Runtime dispatch via __builtin_cpu_supports() selects the right path.
         """
         if not X86KernelBuild.is_enabled():
             return
-        # Build with full AVX512 + AMX support so PyTorch's vec512 headers
-        # (which use Sleef f16 intrinsics under CPU_CAPABILITY_AVX512) compile
-        # correctly.  -fno-tree-vectorize prevents the compiler from emitting
-        # 512-bit packed instructions in *scalar* fallback functions; AVX512
-        # pragma regions add #pragma GCC optimize("O3,tree-vectorize") to
-        # re-enable vectorization only where explicitly desired.
         extra_compile_args["cxx"].extend(
             [
                 "-DCPU_CAPABILITY_AVX512",
@@ -528,14 +502,10 @@ class X86KernelBuild:
 
     @staticmethod
     def get_link_flags() -> list:
-        """Return extra link flags for the CPU kernel .so.
+        """Return extra link flags: PyTorch lib RPATHs + -static-libstdc++.
 
-        Adds an RPATH entry for every PyTorch library directory so that
-        libc10.so / libtorch_cpu.so are found at runtime without needing
-        LD_LIBRARY_PATH.  Also statically links libstdc++ to carry new
-        CXXABI symbols (e.g. __cxa_call_terminate from CXXABI_1.3.15)
-        that newer GCC versions generate but PyTorch's bundled libstdc++
-        may lack.
+        Static libstdc++ carries new CXXABI symbols that GCC 15 generates but
+        PyTorch's bundled libstdc++ may lack.
         """
         if not X86KernelBuild.is_enabled():
             return []
@@ -554,11 +524,9 @@ class X86KernelBuild:
     def filter_sources(sources: list, extensions_dir: str) -> list:
         """Remove CPU aten_kernels sources from *sources* when not building for CPU."""
         aten_kernels_dir = os.path.join(extensions_dir, "cpu", "aten_kernels")
-        cxx = os.environ.get(
-            "CXX", X86KernelBuild.find_preferred_cxx_compiler() or "g++"
-        )
+        cxx = X86KernelBuild._resolve_cxx()
         compiler_ok = (
-            cxx and X86KernelBuild._gcc_major(cxx) >= X86KernelBuild._MINIMUM_GCC_MAJOR
+            X86KernelBuild._gcc_major(cxx) >= X86KernelBuild._MINIMUM_GCC_MAJOR
         )
         if not X86KernelBuild.is_enabled() or not compiler_ok:
             excluded = set(glob.glob(os.path.join(aten_kernels_dir, "*.cpp")))
@@ -567,31 +535,19 @@ class X86KernelBuild:
 
     @staticmethod
     def precompile_isa_objects(build_temp: str, extensions: list) -> None:
-        """Pre-compile ISA-specific CPU objects from kernel source files.
+        """Compile AVX10.2 temp copies of kernel files that contain CPU_CAPABILITY_AVX10_2.
 
-        Instead of maintaining separate *_avx10_2.cpp files, each kernel
-        source file contains ISA-specific code guarded by
-        CPU_CAPABILITY_AVX10_2.  At build time we:
-          1. Scan kernel .cpp files for the CPU_CAPABILITY_AVX10_2 marker.
-          2. Copy each matching file to a temp path in the build dir.
-          3. Compile that temp copy with -DCPU_CAPABILITY_AVX10_2
-             -march=diamondrapids.
-          4. Attach the resulting .o as extra_objects on the main extension.
-
-        The #if defined(CPU_CAPABILITY_AVX10_2) guard in each source file
-        ensures that only the AVX10.2 variant code is compiled in the temp
-        copy (the main build compiles the #else branch).
+        Each matching .cpp is copied to a temp dir and compiled with
+        -DCPU_CAPABILITY_AVX10_2 -march=diamondrapids. The resulting .o is
+        attached as an extra_object on the main torchao._C extension.
         """
         main_ext = next((e for e in extensions if e.name == "torchao._C"), None)
         if main_ext is None:
             return
 
-        cxx = os.environ.get(
-            "CXX", X86KernelBuild.find_preferred_cxx_compiler() or "g++"
-        )
+        cxx = X86KernelBuild._resolve_cxx()
         compiler_ok = (
-            cxx
-            and X86KernelBuild._gcc_major(cxx) >= X86KernelBuild._PREFERRED_GCC_MAJOR
+            X86KernelBuild._gcc_major(cxx) >= X86KernelBuild._PREFERRED_GCC_MAJOR
         )
         if not compiler_ok:
             print(
@@ -607,9 +563,8 @@ class X86KernelBuild:
 
         aten_kernels_dir = os.path.join("torchao", "csrc", "cpu", "aten_kernels")
 
-        # --- AVX10.2 variant: copy kernel files and compile with DMR target ---
-        # Include the kernel source dir so that relative includes like
-        # utils.h still resolve when the file is compiled from a temp copy.
+        # Copy each kernel that has AVX10.2 code to a temp dir and compile
+        # with -march=diamondrapids so hardware fp8 instructions are available.
         avx10_2_flags = (
             ["-O3", "-std=c++20", "-fPIC", "-fopenmp"]
             + include_flags

@@ -40,8 +40,6 @@ inline c10::SymFloat calculate_scale(
 }
 
 // Forward declarations for AVX512-compiled kernel entry points.
-// These are defined inside the #pragma GCC target region below and are
-// only called when __builtin_cpu_supports("avx512f") is true at runtime.
 void int8_sdpa_fused_kernel(
     const at::Tensor& output, const at::Tensor& query, const at::Tensor& key,
     const at::Tensor& value, double dropout_p, bool is_causal,
@@ -58,9 +56,6 @@ void fp8_sdpa_fused_kernel(
 #endif // CPUBLAS_BRGEMM_F8F8F32
 
 // === AVX512 IMPLEMENTATION SECTION ===
-// Functions in this section are compiled with AVX512 + AVX512VNNI + AMX
-// target regardless of global compiler flags.  They are only CALLED when
-// __builtin_cpu_supports("avx512f") returns true at runtime.
 #pragma GCC push_options
 #pragma GCC target("avx512f,avx512bw,avx512vl,avx512dq,avx512vnni,amx-int8,amx-tile,amx-bf16")
 #pragma GCC optimize("O3,tree-vectorize")
@@ -2553,8 +2548,7 @@ at::Tensor _qscaled_dot_product_cpu(
   }
 
   if (dtype == at::ScalarType::Byte) {
-      // Use optimized fused int8 SDPA kernel when AVX512 + AMX are available.
-      // Falls back to reference math kernel otherwise.
+      // Use optimized AVX512+AMX fused kernel, fall back to math kernel otherwise.
       if (__builtin_cpu_supports("avx512f") && at::native::cpublas::could_pack(dtype)) {
           at::Tensor output = at::empty_like(query, query.options()).transpose(1, 2);
           int8_sdpa_fused_kernel(output, query, key, value,
@@ -2575,8 +2569,7 @@ at::Tensor _qscaled_dot_product_cpu(
               o_scale, o_zp).transpose(1, 2).contiguous().transpose(1, 2);
       }
   } else if (dtype == at::ScalarType::Float8_e4m3fn) {
-      // Use optimized fused FP8 SDPA kernel when AVX512 + AMX-FP8 are available.
-      // Falls back to reference math kernel otherwise.
+      // Use optimized AVX512+AMX-FP8 fused kernel, fall back to math kernel otherwise.
 #if defined(CPUBLAS_BRGEMM_F8F8F32)
       if (__builtin_cpu_supports("avx512f") && at::native::cpublas::could_pack(dtype)) {
           at::Tensor output = at::empty_like(query, query.options()).transpose(1, 2);

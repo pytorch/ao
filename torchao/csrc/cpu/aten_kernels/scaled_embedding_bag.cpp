@@ -3,7 +3,6 @@
 #include <ATen/native/CPUBlas.h>
 #include <ATen/native/EmbeddingBag.h>
 #include <c10/util/Float8_e4m3fn.h>
-#include <c10/util/Unroll.h>
 #include <torch/all.h>
 #include "utils.h"
 
@@ -43,18 +42,11 @@
     }                                                                          \
   }()
 
-// =============================================================================
-// The AVX10.2 variant of this file is compiled as a temp copy with:
-//   -DCPU_CAPABILITY_AVX10_2 -march=diamondrapids
-// When __AVX10_2__ is set by -march=diamondrapids, the PyTorch helpers
-// cvtfp8e4m3_fp32 / cvtfp32_fp8e4m3 (vec512_float8.h) use the native
-// hardware instructions _mm256_cvthf8_ph / _mm256_cvtph_hf8 instead of the
-// multi-step AVX512 software emulation. All other kernel logic is identical.
-// =============================================================================
+// When compiled as a temp copy with -DCPU_CAPABILITY_AVX10_2 -march=diamondrapids,
+// cvtfp8e4m3_fp32/cvtfp32_fp8e4m3 use hardware instructions instead of AVX512 emulation.
+// All other kernel logic is identical between the two variants.
 
-// Forward-declare the AVX10.2 entry point so the runtime dispatcher can call
-// it when __builtin_cpu_supports("avx10.2") is true. Only needed in the
-// default (non-AVX10.2) build; in the AVX10.2 temp copy this TU defines it.
+// Forward-declare the AVX10.2 entry point for runtime dispatch.
 #ifndef CPU_CAPABILITY_AVX10_2
 namespace torchao {
 namespace cpu_avx10_2 {
@@ -66,9 +58,8 @@ at::Tensor _scaled_embedding_bag_avx10_2(
 } // namespace torchao
 #endif
 
-// All kernel code is compiled with AVX512 enabled. When compiled with
-// -march=diamondrapids (-DCPU_CAPABILITY_AVX10_2), these flags are a subset
-// of what the target already provides, so the pragma is harmless.
+// AVX512 flags are a subset of what -march=diamondrapids provides, so this
+// pragma is safe in both the default build and the AVX10.2 temp copy.
 #pragma GCC push_options
 #pragma GCC target("avx512f,avx512bw,avx512vl,avx512dq,avx512vnni,amx-int8,amx-tile,amx-bf16")
 #pragma GCC optimize("O3,tree-vectorize")
@@ -76,8 +67,7 @@ at::Tensor _scaled_embedding_bag_avx10_2(
 
 namespace torchao {
 
-// In the AVX10.2 temp copy, emit into the cpu_avx10_2 namespace so the linker
-// sees a distinct symbol from the main build.
+// AVX10.2 temp copy emits into cpu_avx10_2 namespace; default build uses anonymous.
 #ifdef CPU_CAPABILITY_AVX10_2
 namespace cpu_avx10_2 {
 #else
@@ -177,14 +167,12 @@ static void _krnl(
     int64_t bs_begin, int64_t bs_end, int64_t num_emb, int64_t emb_dim,
     index_t last_offset, const index_t *indices, const index_t *offsets,
     const data_t *weight, double scale, output_t *result, int64_t num_batch) {
-  // How many batch entries ahead to prefetch to overlap DRAM latency with compute.
-  constexpr int64_t PREFETCH_DIST = 8;
   if (kHasAVX512 && emb_dim % 128 == 0) {
+    constexpr int64_t PREFETCH_DIST = 8;
     constexpr int64_t block_dim = 128;
     const int64_t num_blocks = emb_dim / block_dim;
     __m512 scale_v = _mm512_set1_ps(scale);
     for (int64_t b = bs_begin; b < bs_end; ++b) {
-      // Software prefetch for batch entries ahead to overlap DRAM latency.
       const int64_t pref_b = b + PREFETCH_DIST;
       if (pref_b < bs_end) {
         const int64_t pref_start = offsets[pref_b];
@@ -253,9 +241,7 @@ static void _run(
   }
 }
 
-// Entry-point function. Name and namespace differ by compile variant:
-//   default build  → torchao::{anonymous}::_scaled_embedding_bag_impl
-//   AVX10.2 copy   → torchao::cpu_avx10_2::_scaled_embedding_bag_avx10_2
+// Entry point: name/namespace differ per compile variant.
 #ifdef CPU_CAPABILITY_AVX10_2
 at::Tensor _scaled_embedding_bag_avx10_2(
 #else
@@ -265,7 +251,6 @@ at::Tensor _scaled_embedding_bag_impl(
     const at::Tensor& offsets, const at::Tensor& w_scales, double o_scale,
     int64_t mode, bool include_last_offset, at::ScalarType output_dtype) {
 #ifndef CPU_CAPABILITY_AVX10_2
-  // Runtime dispatch to hardware fp8 path when running on AVX10.2 CPU.
 #if __GNUC__ >= 15
   if (__builtin_cpu_supports("avx10.2")) {
     return cpu_avx10_2::_scaled_embedding_bag_avx10_2(

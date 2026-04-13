@@ -31,12 +31,10 @@ get_m_blocking(int64_t M) {
   return std::make_tuple(parallel_on_M, block_m, Mc, Mc_parallel);
 }
 
-// Runtime check for AVX-512F support; available regardless of compile flags.
-// Use this instead of CPU_CAPABILITY_* macros for runtime dispatch.
+// Runtime AVX-512F check for use by CPU kernels; available regardless of compile flags.
 inline const bool kHasAVX512 = __builtin_cpu_supports("avx512f");
 
-// Zero a buffer of T elements.  Uses memset for portability — the compiler
-// will auto-vectorize with the highest ISA available in the calling context.
+// Uses memset so the compiler auto-vectorizes with whatever ISA is active.
 template<typename T>
 void zero_buffer(T* data, int64_t size) {
   memset(data, 0, sizeof(T) * size);
