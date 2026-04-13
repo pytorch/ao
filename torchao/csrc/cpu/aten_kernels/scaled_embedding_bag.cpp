@@ -182,17 +182,6 @@ static void _krnl(
   // How many batch entries ahead to prefetch to overlap DRAM latency with compute.
   constexpr int64_t PREFETCH_DIST = 8;
   if (kHasAVX512 && emb_dim % 128 == 0) {
-    static std::once_flag _isa_flag;
-    std::call_once(_isa_flag, []() {
-#ifdef CPU_CAPABILITY_AVX10_2
-      fprintf(stderr, "[torchao] scaled_embedding_bag: AVX10.2 path selected "
-              "(hardware fp8 conversion)\n");
-#else
-      fprintf(stderr, "[torchao] scaled_embedding_bag: AVX512 path selected "
-              "(avx512f=1, avx10.2=%d, using software fp8 emulation)\n",
-              __builtin_cpu_supports("avx10.2"));
-#endif
-    });
     constexpr int64_t block_dim = 128;
     const int64_t num_blocks = emb_dim / block_dim;
     __m512 scale_v = _mm512_set1_ps(scale);
@@ -232,14 +221,6 @@ static void _krnl(
       result += num_emb * emb_dim;
     }
     return;
-  }
-  {
-    static std::once_flag _scalar_flag;
-    std::call_once(_scalar_flag, [emb_dim]() {
-      fprintf(stderr, "[torchao] scaled_embedding_bag: scalar path selected "
-              "(avx512f=%d, emb_dim=%ld not multiple of 128)\n",
-              __builtin_cpu_supports("avx512f"), (long)emb_dim);
-    });
   }
   for (int64_t b = bs_begin; b < bs_end; ++b) {
     int64_t start_idx = offsets[b];
