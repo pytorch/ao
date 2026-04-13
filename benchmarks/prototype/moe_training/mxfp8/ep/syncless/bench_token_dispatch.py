@@ -132,8 +132,6 @@ def mxfp8_a2a_fwd(
     device_mesh: DeviceMesh,
     buffer_manager=None,
 ):
-    world_size = dist.get_world_size(device_mesh.get_group())
-
     (
         output_e4m3,
         output_scales_e8m0,

@@ -15,6 +15,7 @@ tensors (int64).
 import torch
 import triton
 import triton.language as tl
+from torch.library import triton_op, wrap_triton
 
 
 @triton.jit
@@ -46,6 +47,7 @@ def _copy_into_buffer_2d_kernel(
     )
 
 
+@triton_op("torchao::copy_into_buffer_2d", mutates_args={"dst"})
 def copy_into_buffer_2d(
     src: torch.Tensor,
     dst: torch.Tensor,
@@ -71,7 +73,7 @@ def copy_into_buffer_2d(
     max_elems = src.shape[0] * cols
     grid = ((max_elems + BLOCK_SIZE - 1) // BLOCK_SIZE,)
 
-    _copy_into_buffer_2d_kernel[grid](
+    wrap_triton(_copy_into_buffer_2d_kernel)[grid](
         src.view(-1),
         dst,
         offset,

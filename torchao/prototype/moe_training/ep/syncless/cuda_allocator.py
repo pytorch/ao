@@ -31,6 +31,7 @@ from dataclasses import dataclass
 import torch
 import triton
 import triton.language as tl
+from torch.library import triton_op, wrap_triton
 
 # ---------------------------------------------------------------------------
 # State layout constants
@@ -300,6 +301,60 @@ class MemoryStats:
     largest_free_block: torch.Tensor
 
 
+@triton_op("torchao::cuda_allocator_alloc", mutates_args={"states"})
+def _cuda_allocator_alloc(
+    states: torch.Tensor,
+    sz: torch.Tensor,
+    num_pools: int,
+    device: torch.device,
+) -> torch.Tensor:
+    """Allocate sz contiguous elements. Returns a scalar int64 GPU tensor containing the start address (offset)."""
+    if isinstance(sz, int):
+        sz = torch.tensor(sz, dtype=torch.int64, device=device)
+
+    out = torch.empty([], dtype=torch.int64, device=device)
+
+    wrap_triton(_alloc_kernel)[(1,)](
+        states,
+        sz,
+        out,
+        NUM_POOLS=num_pools,
+        POOL_STRIDE=_POOL_SIZE,
+        N=_MAX_BLOCKS,
+        OA=_OFF_ADDRS,
+        OL=_OFF_LENS,
+        OC=_OFF_ALLOCS,
+        OP=_OFF_PREVS,
+        ON=_OFF_NEXTS,
+    )
+    return out
+
+
+@triton_op("torchao::cuda_allocator_free", mutates_args={"states"})
+def _cuda_allocator_free(
+    states: torch.Tensor,
+    addr: torch.Tensor,
+    num_pools: int,
+    device: torch.device,
+) -> None:
+    """Free a previously allocated address."""
+    if isinstance(addr, int):
+        addr = torch.tensor(addr, dtype=torch.int64, device=device)
+
+    wrap_triton(_free_kernel)[(1,)](
+        states,
+        addr,
+        NUM_POOLS=num_pools,
+        POOL_STRIDE=_POOL_SIZE,
+        N=_MAX_BLOCKS,
+        OA=_OFF_ADDRS,
+        OL=_OFF_LENS,
+        OC=_OFF_ALLOCS,
+        OP=_OFF_PREVS,
+        ON=_OFF_NEXTS,
+    )
+
+
 class CUDAAllocator:
     """GPU-resident best-fit memory allocator with multi-pool support.
 
@@ -360,25 +415,12 @@ class CUDAAllocator:
         Pools are tried in order.  On OOM the returned tensor contains ``0``
         and ``stats().num_ooms`` is incremented.
         """
-        if isinstance(sz, int):
-            sz = torch.tensor(sz, dtype=torch.int64, device=self.device)
-
-        out = torch.empty([], dtype=torch.int64, device=self.device)
-
-        _alloc_kernel[(1,)](
+        return _cuda_allocator_alloc(
             self.states,
             sz,
-            out,
-            NUM_POOLS=self.num_pools,
-            POOL_STRIDE=_POOL_SIZE,
-            N=_MAX_BLOCKS,
-            OA=_OFF_ADDRS,
-            OL=_OFF_LENS,
-            OC=_OFF_ALLOCS,
-            OP=_OFF_PREVS,
-            ON=_OFF_NEXTS,
+            self.num_pools,
+            self.device,
         )
-        return out
 
     def free(self, addr: "torch.Tensor | int") -> None:
         """Free a previously allocated address.
@@ -386,20 +428,11 @@ class CUDAAllocator:
         *addr* may be a scalar GPU tensor (int64) or a Python int.
         Double-free / unknown address is a silent no-op.
         """
-        if isinstance(addr, int):
-            addr = torch.tensor(addr, dtype=torch.int64, device=self.device)
-
-        _free_kernel[(1,)](
+        _cuda_allocator_free(
             self.states,
             addr,
-            NUM_POOLS=self.num_pools,
-            POOL_STRIDE=_POOL_SIZE,
-            N=_MAX_BLOCKS,
-            OA=_OFF_ADDRS,
-            OL=_OFF_LENS,
-            OC=_OFF_ALLOCS,
-            OP=_OFF_PREVS,
-            ON=_OFF_NEXTS,
+            self.num_pools,
+            self.device,
         )
 
     def free_all(self) -> None:

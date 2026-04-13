@@ -40,7 +40,6 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
     """
 
     @staticmethod
-    #    @torch.compiler.disable
     def forward(
         ctx,
         output_e4m3,
@@ -155,7 +154,6 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
         return out
 
     @staticmethod
-    #    @torch.compiler.disable
     def backward(ctx, grad_out):
         from torchao.prototype.moe_training.mxfp8_grouped_mm import (
             _compute_dgrad,

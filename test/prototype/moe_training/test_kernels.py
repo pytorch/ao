@@ -708,8 +708,8 @@ def test_triton_fp8_rowwise_2d_scale_and_cast(
 
 # Import silu_mul kernels
 from torchao.prototype.moe_training.ep.syncless.silu_mul_kernel import (
-    silu_mul_fw,
     silu_mul_bw,
+    silu_mul_fw,
 )
 
 

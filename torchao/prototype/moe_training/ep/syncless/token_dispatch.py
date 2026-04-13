@@ -2,6 +2,7 @@ import torch
 import torch.distributed as dist
 import triton
 import triton.language as tl
+from torch.library import triton_op, wrap_triton
 
 from torchao.prototype.moe_training.ep.syncless.buffer_manager import (
     SymmetricMemoryBufferManager,
@@ -15,7 +16,6 @@ from torchao.prototype.mx_formats.kernels import triton_to_mxfp8_dim0
 
 class MXFP8SynclessAllToAllExpertMajor(torch.autograd.Function):
     @staticmethod
-    @torch.compiler.disable
     def forward(
         ctx,
         input: torch.Tensor,
@@ -121,13 +121,15 @@ class MXFP8SynclessAllToAllExpertMajor(torch.autograd.Function):
             write_offsets,
             buffers.output,
             buffers.output_scales,
-            buffers._output_hdl,
-            buffers._output_scales_hdl,
+            buffers._output_hdl.buffer_ptrs_dev,
+            buffers._output_scales_hdl.buffer_ptrs_dev,
+            buffers._output_hdl.rank,
+            buffers._output_hdl.world_size,
             output_rank_splits,
             output_expert_splits,
             expert_padded_offsets,
             padded_tokens_per_expert,
-            group=group,
+            group_name=group.group_name,
             token_alignment=token_alignment,
         )
 
@@ -178,14 +180,19 @@ class MXFP8SynclessAllToAllExpertMajor(torch.autograd.Function):
 
         Only grad_output is non-None (the other forward outputs are integer tensors).
         """
-        grad_input = _token_combine_launcher(
+        # Ensure buffer is allocated before passing individual attributes
+        ctx.buffer_manager.ensure_bf16_buffer(ctx.dim, grad_output.device, ctx.group)
+        grad_input = ctx.buffer_manager.bf16_buffer[: ctx.num_input_tokens]
+
+        _token_combine_launcher(
             input=grad_output,
             all_expert_splits=ctx.all_expert_splits,
             expert_padded_offsets=ctx.expert_padded_offsets,
             num_output_tokens=ctx.num_input_tokens,
             dim=ctx.dim,
-            buffers=ctx.buffer_manager,
-            group=ctx.group,
+            output=grad_input,
+            output_dev_ptrs=ctx.buffer_manager._bf16_buffer_hdl.buffer_ptrs_dev,
+            group_name=ctx.group.group_name,
         )
         return grad_input, None, None, None, None, None
 
@@ -195,6 +202,9 @@ mxfp8_token_dispatch = MXFP8SynclessAllToAllExpertMajor.apply
 
 
 # Triton launcher function for push model
+@triton_op(
+    "torchao::mxfp8_token_dispatch_launcher", mutates_args={"output", "output_scales"}
+)
 def _mxfp8_token_dispatch_launcher(
     input_data: torch.Tensor,
     input_scales: torch.Tensor,
@@ -204,17 +214,19 @@ def _mxfp8_token_dispatch_launcher(
     write_offsets: torch.Tensor,
     output: torch.Tensor,
     output_scales: torch.Tensor,
-    output_hdl,
-    output_scales_hdl,
+    output_buffer_ptrs: int,
+    output_scales_buffer_ptrs: int,
+    rank: int,
+    world_size: int,
     output_rank_splits: torch.Tensor,
     output_expert_splits: torch.Tensor,
     expert_padded_offsets: torch.Tensor,
     padded_tokens_per_expert: torch.Tensor,
-    group: dist.ProcessGroup = dist.group.WORLD,
+    group_name: str = "WORLD",
     token_alignment: int = 128,
     BLOCKS_PER_REMOTE_RANK: int = 32,
     BLOCK_SIZE: int = 16384,
-):
+) -> None:
     """
     Push model launcher: each rank pushes its data to remote output buffers.
 
@@ -227,26 +239,28 @@ def _mxfp8_token_dispatch_launcher(
         write_offsets: precomputed write offsets (world_size, num_experts_per_rank)
         output: symmetric memory buffer for output data
         output_scales: symmetric memory buffer for output scales
+        output_buffer_ptrs: device pointers to remote ranks' output buffers
+        output_scales_buffer_ptrs: device pointers to remote ranks' output scales buffers
+        rank: current rank
+        world_size: total number of ranks
         output_rank_splits: output rank splits
         output_expert_splits: output expert splits
         expert_padded_offsets: expert padded offsets
-        group: process group
+        group_name: name of the process group ("WORLD" for default) - unused in this function
     """
     assert input_data.dim() == 2, f"{input_data.shape}"
     assert output.dim() == 2, f"{output.shape}"
     assert output.shape[1] == input_data.shape[1]
 
-    output_ptrs = output_hdl.buffer_ptrs_dev
-    output_scales_ptrs = output_scales_hdl.buffer_ptrs_dev
+    output_ptrs = output_buffer_ptrs
+    output_scales_ptrs = output_scales_buffer_ptrs
 
     dim = output.shape[1]
     scale_dim = input_scales.shape[-1]
     num_experts_per_rank = input_expert_splits.shape[-1]
-    rank = output_hdl.rank
-    world_size = output_hdl.world_size
 
     # Phase 1: Precompute write offsets, expert_padded_offsets, and padded_tokens_per_expert
-    _precompute_push_write_offsets_kernel[(1, 1, 1)](
+    wrap_triton(_precompute_push_write_offsets_kernel)[(1, 1, 1)](
         all_expert_splits,
         output_expert_splits,
         write_offsets,
@@ -261,7 +275,7 @@ def _mxfp8_token_dispatch_launcher(
     # Phase 2: Push data to remote ranks and zero-fill padding regions
     num_blocks = world_size * BLOCKS_PER_REMOTE_RANK
 
-    _mxfp8_all_to_all_expert_major_kernel[(num_blocks, 1, 1)](
+    wrap_triton(_mxfp8_all_to_all_expert_major_kernel)[(num_blocks, 1, 1)](
         input_data,
         input_scales,
         input_expert_splits,
@@ -280,8 +294,6 @@ def _mxfp8_token_dispatch_launcher(
         BLOCK_SIZE=BLOCK_SIZE,
         num_warps=16,
     )
-
-    return output
 
 
 @triton.jit

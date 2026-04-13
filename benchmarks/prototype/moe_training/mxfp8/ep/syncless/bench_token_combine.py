@@ -260,7 +260,7 @@ def run_experiment(
     torch.cuda.synchronize()
     start_sec = time.perf_counter()
     for _ in range(NUM_BENCH_ITERS):
-        bf16_output = default_a2a_combine(
+        _ = default_a2a_combine(
             default_combine_input,
             default_input_shape,
             permuted_indices,
@@ -309,7 +309,7 @@ def run_experiment(
     torch.cuda.synchronize()
     start_sec = time.perf_counter()
     for _ in range(NUM_BENCH_ITERS):
-        syncless_output = syncless_a2a_combine(
+        _ = syncless_a2a_combine(
             syncless_combine_input,
             all_expert_splits,
             expert_padded_offsets,

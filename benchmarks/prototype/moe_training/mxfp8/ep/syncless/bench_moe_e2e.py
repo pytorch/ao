@@ -42,7 +42,6 @@ from reference_parallel_styles import ExpertParallel
 
 from benchmarks.utils import profile_fn
 from torchao.float8.float8_utils import compute_error
-
 from torchao.prototype.moe_training.ep.syncless.buffer_manager import (
     SymmetricMemoryBufferManager,
 )

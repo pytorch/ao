@@ -13,6 +13,7 @@ and token count, avoiding .item() calls in the MoE backward pass.
 import torch
 import triton
 import triton.language as tl
+from torch.library import triton_op, wrap_triton
 
 
 @triton.jit
@@ -68,7 +69,7 @@ def _mxfp8_dequant_buffer_kernel(
     e4m3_data_block = tl.load(
         e4m3_data_buffer + block_offs,
         mask=valid_mask[:, None] & (col_offs[None, :] < hidden_dim),
-        other=0.0
+        other=0.0,
     )
 
     # Load block of e8m0 scales from scales_buffer[offset:offset+num_tokens]
@@ -80,7 +81,7 @@ def _mxfp8_dequant_buffer_kernel(
     e8m0_scale_block = tl.load(
         e8m0_scales_buffer + scale_block_offs,
         mask=valid_mask[:, None] & (scale_col_offs[None, :] < scale_dim),
-        other=0
+        other=0,
     )
 
     # Dequantize: convert e8m0 scales to fp32 and multiply with e4m3 data
@@ -102,10 +103,11 @@ def _mxfp8_dequant_buffer_kernel(
     tl.store(
         out_buffer + out_block_offs,
         tl.where(valid_mask[:, None], out_buffer_block, 0.0),
-        mask=out_mask
+        mask=out_mask,
     )
 
 
+@triton_op("torchao::mxfp8_dequant_buffer", mutates_args={})
 def mxfp8_dequant_buffer(
     e4m3_data_buffer: torch.Tensor,
     e8m0_scales_buffer: torch.Tensor,
@@ -131,7 +133,9 @@ def mxfp8_dequant_buffer(
         containing dequantized data and remaining rows zero-filled
     """
     assert scale_block_size == 32, "scale_block_size must be 32 for now"
-    assert out_dtype in (torch.bfloat16, torch.float32), "out_dtype must be bf16 or fp32"
+    assert out_dtype in (torch.bfloat16, torch.float32), (
+        "out_dtype must be bf16 or fp32"
+    )
 
     # Get dimensions
     hidden_dim = e4m3_data_buffer.shape[1]
@@ -139,9 +143,7 @@ def mxfp8_dequant_buffer(
 
     # Create output buffer with sym_mem_buffer_rows (no .item() sync!)
     out_buffer = torch.empty(
-        sym_mem_buffer_rows, hidden_dim,
-        device=e4m3_data_buffer.device,
-        dtype=out_dtype
+        sym_mem_buffer_rows, hidden_dim, device=e4m3_data_buffer.device, dtype=out_dtype
     )
 
     # Triton dtype
@@ -156,7 +158,7 @@ def mxfp8_dequant_buffer(
         triton.cdiv(hidden_dim, COL_TILE_SIZE),
     )
 
-    _mxfp8_dequant_buffer_kernel[grid](
+    wrap_triton(_mxfp8_dequant_buffer_kernel)[grid](
         e4m3_data_buffer,
         e8m0_scales_buffer.to(torch.uint8),
         out_buffer,
