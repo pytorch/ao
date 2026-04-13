@@ -25,6 +25,10 @@ from torchao.quantization.quantize_.common import (
     _choose_quant_func_and_quantize_tensor,
 )
 from torchao.quantization.quantize_.workflows.int8.int8_tensor import (
+    _FULL_QUANT_MAX,
+    _FULL_QUANT_MIN,
+    _REDUCED_QUANT_MAX,
+    _REDUCED_QUANT_MIN,
     Int8Tensor,
     QuantizeTensorToInt8Kwargs,
 )
@@ -536,10 +540,6 @@ class TestInt8TensorCPU(TorchAOIntegrationTestCase):
         device = "cpu"
         if is_ROCM():
             self.skipTest("Don't test CPU for ROCM version of torch")
-        if not reduce_range and not _cpu_is_vnni_supported():
-            self.skipTest(
-                "Only test reduce_range=True on CPUs without VNNI support to avoid int8 overflow."
-            )
 
         torch.compiler.reset()
 
@@ -557,7 +557,11 @@ class TestInt8TensorCPU(TorchAOIntegrationTestCase):
             )
         else:
             act_granularity, _ = Int8Tensor._normalize_granularity(granularity)
-            quant_min, quant_max = (-64, 63) if reduce_range else (-128, 127)
+            quant_min, quant_max = (
+                (_REDUCED_QUANT_MIN, _REDUCED_QUANT_MAX)
+                if reduce_range
+                else (_FULL_QUANT_MIN, _FULL_QUANT_MAX)
+            )
             block_size = get_block_size(input_tensor.shape, act_granularity)
             act_quant_scale, act_quant_zero_point = choose_qparams_affine(
                 input=input_tensor,
@@ -594,9 +598,11 @@ class TestInt8TensorCPU(TorchAOIntegrationTestCase):
 
         output_fp = model(input_tensor)
         output_quantized = model_q(input_tensor)
-        assert compute_error(output_fp, output_quantized) > 20, (
-            f"Quantization error is too high got a SQNR of {compute_error(output_fp, output_quantized)}"
-        )
+
+        if reduce_range or _cpu_is_vnni_supported():
+            assert compute_error(output_fp, output_quantized) > 20, (
+                f"Quantization error is too high got a SQNR of {compute_error(output_fp, output_quantized)}"
+            )
 
 
 if __name__ == "__main__":

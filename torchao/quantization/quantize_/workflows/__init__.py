@@ -46,8 +46,6 @@ __all__ = [
     "Sparse2x4CUTLASSFloat8Tensor",
     "Float8PackingFormat",
     "QuantizeTensorToFloat8Kwargs",
-    "Int8Tensor",
-    "QuantizeTensorToInt8Kwargs",
     "Int4ChooseQParamsAlgorithm",
     "Int4PackingFormat",
     "IntxChooseQParamsAlgorithm",

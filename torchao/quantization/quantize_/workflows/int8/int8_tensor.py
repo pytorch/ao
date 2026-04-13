@@ -31,9 +31,18 @@ from torchao.utils import TorchAOBaseTensor, fill_defaults
 __all__ = [
     "Int8Tensor",
     "QuantizeTensorToInt8Kwargs",
+    "_REDUCED_QUANT_MIN",
+    "_REDUCED_QUANT_MAX",
+    "_FULL_QUANT_MIN",
+    "_FULL_QUANT_MAX",
 ]
 
 aten = torch.ops.aten
+
+_REDUCED_QUANT_MIN = -64
+_REDUCED_QUANT_MAX = 63
+_FULL_QUANT_MIN = -128
+_FULL_QUANT_MAX = 127
 
 
 @dataclass
@@ -190,7 +199,11 @@ class Int8Tensor(TorchAOBaseTensor):
         block_size = get_block_size(hp_tensor.shape, granularity)
         block_size = list(block_size)
 
-        quant_min, quant_max = (-64, 63) if reduce_range else (-128, 127)
+        quant_min, quant_max = (
+            (_REDUCED_QUANT_MIN, _REDUCED_QUANT_MAX)
+            if reduce_range
+            else (_FULL_QUANT_MIN, _FULL_QUANT_MAX)
+        )
         if scale is None:
             scale, zero_point = choose_qparams_affine(
                 input=hp_tensor,
@@ -245,7 +258,11 @@ class Int8Tensor(TorchAOBaseTensor):
 
     def dequantize(self, output_dtype: Optional[torch.dtype] = None) -> torch.Tensor:
         """Dequantize int8 tensor to floating point"""
-        quant_min, quant_max = (-64, 63) if self.reduce_range else (-128, 127)
+        quant_min, quant_max = (
+            (_REDUCED_QUANT_MIN, _REDUCED_QUANT_MAX)
+            if self.reduce_range
+            else (_FULL_QUANT_MIN, _FULL_QUANT_MAX)
+        )
         return dequantize_affine(
             input=self.qdata,
             block_size=self.block_size,

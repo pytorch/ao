@@ -933,7 +933,8 @@ class Int8DynamicActivationInt8WeightConfig(AOBaseConfig):
             for better performance with this quantization scheme.
         version (int): the version of the config
         reduce_range (Optional[bool] = False): If True, both activation and weight int8 quantization use reduced range
-            [-64, 63] instead of full range [-128, 127] to reduce overflow risk on platforms without VNNI instructions.
+            [_REDUCED_QUANT_MIN, _REDUCED_QUANT_MAX] instead of full range
+            [_FULL_QUANT_MIN, _FULL_QUANT_MAX] to reduce overflow risk on platforms without VNNI instructions.
 
     Example:
 
@@ -1047,7 +1048,8 @@ class Int8StaticActivationInt8WeightConfig(AOBaseConfig):
         set_inductor_config (bool): if True, adjusts `torchinductor` settings to recommended values.
         version (int): the version of the config
         reduce_range (Optional[bool] = False): If True, both activation and weight int8 quantization use reduced range
-            [-64, 63] instead of full range [-128, 127] to reduce overflow risk on platforms without VNNI instructions.
+            [_REDUCED_QUANT_MIN, _REDUCED_QUANT_MAX] instead of full range
+            [_FULL_QUANT_MIN, _FULL_QUANT_MAX] to reduce overflow risk on platforms without VNNI instructions.
     """
 
     act_quant_scale: Optional[torch.Tensor] = None
