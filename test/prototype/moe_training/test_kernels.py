@@ -65,6 +65,8 @@ from torchao.prototype.mx_formats.mx_tensor import ScaleCalculationMode, to_mx
 from torchao.prototype.mx_formats.utils import from_blocked
 from torchao.testing.utils import skip_if_rocm
 
+from .testing_utils import generate_split_sizes
+
 
 @pytest.mark.parametrize("round_scales_to_power_of_2", [True, False])
 def test_row_major_with_jagged_rowwise_scales(round_scales_to_power_of_2: bool):
@@ -636,8 +638,8 @@ def test_cuda_fused_unpad_token_groups(
     )
 
     # First pad the tokens to create padded inputs
-    padded_tokens, padded_group_start_offsets, padded_group_end_offsets = (
-        torch_pad_token_groups(inputs, group_offsets, alignment_size)
+    padded_tokens, padded_group_start_offsets, padded_offsets = torch_pad_token_groups(
+        inputs, group_offsets, alignment_size
     )
 
     # Get reference output using torch implementation
@@ -704,3 +706,115 @@ def test_triton_fp8_rowwise_2d_scale_and_cast(
     assert ref_scales.shape == triton_scales.shape, "scale shapes not equal"
     assert torch.allclose(ref_fp8, triton_fp8, rtol=0, atol=0), "fp8 data not equal"
     assert torch.allclose(ref_scales, triton_scales, rtol=0, atol=0), "scales not equal"
+
+
+@pytest.mark.skipif(
+    not _is_sm_10x(),
+    reason="MXFP8 requires CUDA SM 10.x",
+)
+@pytest.mark.skipif(
+    not _mxfp8_cutedsl_kernels_available,
+    reason="MXFP8 cutedsl kernels not available",
+)
+@skip_if_rocm("ROCm enablement in progress")
+def test_cutedsl_1x32_group_validation_error():
+    """Test that 1x32 CuTeDSL kernel raises error for non-128-multiple group sizes."""
+    device = "cuda"
+    M, K = 512, 1024
+    x = torch.randn(M, K, dtype=torch.bfloat16, device=device)
+    num_groups = 4
+
+    # Generate group sizes and force at least one to be invalid
+    group_sizes = generate_split_sizes(num_groups, M, device)
+    if group_sizes[0] % 128 == 0:
+        group_sizes[0] = group_sizes[0] - 1  # Make it not a multiple of 128
+        group_sizes[1] = group_sizes[1] + 1  # Compensate to maintain total sum
+
+    invalid_offsets = torch.cumsum(group_sizes, dim=0, dtype=torch.int32)
+
+    # Test should raise RuntimeError due to device assertion failure with specific message
+    with pytest.raises(
+        RuntimeError,
+        match=r"unspecified launch failure",
+    ):
+        _ = mxfp8_quantize_2d_1x32_cutedsl(
+            x, block_size=32, scaling_mode="rceil", offs=invalid_offsets
+        )
+        # Force synchronization to ensure device error propagates
+        torch.cuda.synchronize()
+
+
+@pytest.mark.skipif(
+    not _is_sm_10x(),
+    reason="MXFP8 requires CUDA SM 10.x",
+)
+@pytest.mark.skipif(
+    not _mxfp8_cutedsl_kernels_available,
+    reason="MXFP8 cutedsl kernels not available",
+)
+@skip_if_rocm("ROCm enablement in progress")
+def test_cutedsl_32x1_group_validation_error():
+    """Test that 32x1 CuTeDSL kernel raises error for non-128-multiple group sizes."""
+    device = "cuda"
+    M, K = 512, 1024
+    x = torch.randn(M, K, dtype=torch.bfloat16, device=device)
+    num_groups = 4
+
+    # Generate group sizes and force at least one to be invalid
+    group_sizes = generate_split_sizes(num_groups, M, device)
+    if group_sizes[0] % 128 == 0:
+        group_sizes[0] = group_sizes[0] - 1  # Make it not a multiple of 128
+        group_sizes[1] = group_sizes[1] + 1  # Compensate to maintain total sum
+
+    invalid_offsets = torch.cumsum(group_sizes, dim=0, dtype=torch.int32)
+
+    # Test should raise RuntimeError due to device assertion failure with specific message
+    with pytest.raises(RuntimeError, match=r"unspecified launch failure"):
+        _ = mxfp8_quantize_2d_32x1_cutedsl(
+            x, block_size=32, scaling_mode="rceil", offs=invalid_offsets
+        )
+        # Force synchronization to ensure device error propagates
+        torch.cuda.synchronize()
+
+
+@pytest.mark.skipif(
+    not _is_sm_10x(),
+    reason="MXFP8 requires CUDA SM 10.x",
+)
+@pytest.mark.skipif(
+    not _mxfp8_cutedsl_kernels_available,
+    reason="MXFP8 cutedsl kernels not available",
+)
+@skip_if_rocm("ROCm enablement in progress")
+def test_cutedsl_kernels_work_with_valid_128_multiple_groups():
+    """Test that both CuTeDSL kernels work correctly with valid 128-multiple group sizes."""
+    device = "cuda"
+    M, K = 512, 1024
+    x = torch.randn(M, K, dtype=torch.bfloat16, device=device)
+
+    # Create valid group offsets (all group sizes are multiples of 128)
+    valid_group_sizes = [128, 256, 128]  # All multiples of 128
+    valid_offsets = torch.cumsum(
+        torch.tensor(valid_group_sizes, dtype=torch.int32), dim=0
+    ).to(device)
+
+    # Verify all group sizes are multiples of 128
+    group_sizes = torch.diff(
+        torch.cat([torch.zeros(1, device=device, dtype=torch.int32), valid_offsets])
+    )
+    assert torch.all(group_sizes % 128 == 0), (
+        "Test setup failed: not all group sizes are multiples of 128"
+    )
+
+    # Both kernels should work without error
+    y_1x32, s_1x32 = mxfp8_quantize_2d_1x32_cutedsl(
+        x, block_size=32, scaling_mode="rceil", offs=valid_offsets
+    )
+
+    y_32x1, s_32x1 = mxfp8_quantize_2d_32x1_cutedsl(
+        x, block_size=32, scaling_mode="rceil", offs=valid_offsets
+    )
+
+    # Basic output validation
+    assert y_1x32.shape == (M, K)
+    assert y_32x1.shape == (M, K)
