@@ -176,7 +176,7 @@ class TestFreeAndCoalesce:
         a2 = alloc.alloc(200)
         a3 = alloc.alloc(500)
 
-        # Free a1 then a2 → a1 and a2 should coalesce into [FREE:500]
+        # Free a1 then a2 -> a1 and a2 should coalesce into [FREE:500]
         alloc.free(a1)
         alloc.free(a2)
         torch.cuda.synchronize()
@@ -191,7 +191,7 @@ class TestFreeAndCoalesce:
         a2 = alloc.alloc(200)
         a3 = alloc.alloc(500)
 
-        # Free a2 then a1 → a1 and a2 should coalesce into [FREE:500]
+        # Free a2 then a1 -> a1 and a2 should coalesce into [FREE:500]
         alloc.free(a2)
         alloc.free(a1)
         torch.cuda.synchronize()
@@ -206,7 +206,7 @@ class TestFreeAndCoalesce:
         a2 = alloc.alloc(300)
         a3 = alloc.alloc(500)
 
-        # Free a1 and a3, then free a2 → should coalesce into [FREE:1000]
+        # Free a1 and a3, then free a2 -> should coalesce into [FREE:1000]
         alloc.free(a1)
         alloc.free(a3)
         alloc.free(a2)
@@ -425,7 +425,7 @@ class TestAllocFreeCycles:
 
         torch.cuda.synchronize()
         s = alloc.stats()
-        # 30 allocs of 100, freed 10 → 2000 allocated
+        # 30 allocs of 100, freed 10 -> 2000 allocated
         active = sum(1 for a in addrs if a is not None)
         assert s.sum_allocated[0].item() == active * 100
 

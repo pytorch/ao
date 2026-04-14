@@ -27,7 +27,7 @@ def _copy_into_buffer_2d_kernel(
     cols: tl.constexpr,  # number of columns (compile-time constant)
     BLOCK_SIZE: tl.constexpr,  # elements per program instance
 ):
-    """Copy src[0:num_rows, 0:cols] → dst[offset:offset+num_rows, 0:cols].
+    """Copy src[0:num_rows, 0:cols] -> dst[offset:offset+num_rows, 0:cols].
 
     All pointers are element-typed (e.g. uint8 for FP8 data).  The kernel
     is launched with enough programs to cover ``num_rows * cols`` elements.

@@ -554,9 +554,10 @@ def test_cuda_mx_dim1_2d_numerics_32x1(
     )
 
     # Verify output dimensions - data should not be padded, same as input
-    assert y_d1.shape == (M, K), (
-        f"Quantized data shape mismatch: expected ({M}, {K}), got {y_d1.shape}"
-    )
+    assert y_d1.shape == (
+        M,
+        K,
+    ), f"Quantized data shape mismatch: expected ({M}, {K}), got {y_d1.shape}"
     # Check scales - compare unblocked formats
     torch.testing.assert_close(s_d1, s_d1_ref, rtol=0, atol=0)
 
@@ -791,9 +792,10 @@ def test_silu_mul_fw_kernel(
     )
 
     # Verify shapes
-    assert kernel_output.shape == (sym_mem_buffer_rows, hidden_dim), (
-        "Output shape mismatch"
-    )
+    assert kernel_output.shape == (
+        sym_mem_buffer_rows,
+        hidden_dim,
+    ), "Output shape mismatch"
     assert kernel_output.dtype == dtype, "Output dtype mismatch"
 
     # Verify numerics (relaxed tolerances for BF16 + float32 intermediate computations)
@@ -863,9 +865,10 @@ def test_silu_mul_bw_kernel(
 
     # Verify shapes
     assert h_out.shape == (sym_mem_buffer_rows, hidden_dim), "h_out shape mismatch"
-    assert grad_h13_out.shape == (sym_mem_buffer_rows, 2 * hidden_dim), (
-        "grad_h13_out shape mismatch"
-    )
+    assert grad_h13_out.shape == (
+        sym_mem_buffer_rows,
+        2 * hidden_dim,
+    ), "grad_h13_out shape mismatch"
     assert h_out.dtype == dtype, "h_out dtype mismatch"
     assert grad_h13_out.dtype == dtype, "grad_h13_out dtype mismatch"
 
@@ -960,3 +963,127 @@ def test_silu_mul_kernels_gradient_correctness(dtype: torch.dtype):
         rtol=1e-2,
         atol=1e-3,
     )
+
+
+from torchao.prototype.moe_training.ep.syncless.mxfp8_requant_kernel import (
+    mxfp8_dequant_requant_col_major,
+)
+from torchao.prototype.mx_formats.kernels import (
+    triton_to_mxfp8_dim0,
+    triton_to_mxfp8_dim1,
+)
+
+
+@skip_if_rocm("ROCm enablement in progress")
+@pytest.mark.parametrize(
+    "num_tokens,dim,sym_mem_buffer_rows",
+    [
+        (128, 128, 128),
+        (128, 256, 256),
+        (256, 512, 256),
+        (512, 1024, 512),
+        (128, 128, 256),
+        (256, 256, 512),
+    ],
+)
+def test_mxfp8_dequant_requant_col_major(
+    num_tokens: int, dim: int, sym_mem_buffer_rows: int
+):
+    """Test fused dequant-requant against two-step reference: dequant→fp32→requant_dim1.
+
+    Also verifies zero-padding beyond num_tokens when num_tokens < sym_mem_buffer_rows.
+    """
+    device = "cuda"
+    block_size = 32
+    buffer_extra = 64
+
+    torch.manual_seed(42)
+    src_bf16 = torch.randn(
+        num_tokens + buffer_extra, dim, dtype=torch.bfloat16, device=device
+    )
+    src_e4m3, src_scales = triton_to_mxfp8_dim0(
+        src_bf16, inner_block_size=block_size, scaling_mode="rceil"
+    )
+    src_scales_u8 = src_scales.view(torch.uint8)
+
+    offset = torch.tensor(buffer_extra // 2, dtype=torch.int64, device=device)
+    num_tokens_t = torch.tensor(num_tokens, dtype=torch.int64, device=device)
+
+    # Reference: dequant to FP32 with PyTorch, then requant with dim1 (32×1) scaling
+    ref_dequant = _torch_mxfp8_dequant_buffer(
+        src_e4m3,
+        src_scales_u8,
+        buffer_offset=offset.item(),
+        num_tokens=num_tokens,
+        sym_mem_buffer_rows=sym_mem_buffer_rows,
+        out_dtype=torch.float32,
+        scale_block_size=block_size,
+    )
+    ref_data, ref_scales = triton_to_mxfp8_dim1(
+        ref_dequant, inner_block_size=block_size, scaling_mode="rceil"
+    )
+
+    # Fused kernel
+    fused_data, fused_scales = mxfp8_dequant_requant_col_major(
+        src_e4m3,
+        src_scales_u8,
+        buffer_offset=offset,
+        num_tokens=num_tokens_t,
+        sym_mem_buffer_rows=sym_mem_buffer_rows,
+        scale_block_size=block_size,
+    )
+
+    # Both ref_data and fused_data are (M, dim) col-major
+    torch.testing.assert_close(
+        fused_data.to(torch.float32),
+        ref_data.to(torch.float32),
+        rtol=0,
+        atol=0,
+    )
+    torch.testing.assert_close(
+        fused_scales.view(torch.uint8),
+        ref_scales.view(torch.uint8),
+        rtol=0,
+        atol=0,
+    )
+
+    # Verify zero-padding beyond num_tokens
+    if num_tokens < sym_mem_buffer_rows:
+        fused_data_f32 = fused_data.to(torch.float32)
+        assert torch.all(fused_data_f32[num_tokens:, :] == 0), (
+            "Rows beyond num_tokens should be zero"
+        )
+
+
+# for test reference
+def _torch_mxfp8_dequant_buffer(
+    e4m3_data_buffer: torch.Tensor,
+    e8m0_scales_buffer: torch.Tensor,
+    buffer_offset: int,
+    num_tokens: int,
+    sym_mem_buffer_rows: int,
+    out_dtype: torch.dtype,
+    scale_block_size: int = 32,
+) -> torch.Tensor:
+    """Pure PyTorch reference for MXFP8 dequantization from a buffer at offset."""
+    dim = e4m3_data_buffer.shape[1]
+    scale_dim = e8m0_scales_buffer.shape[1]
+
+    data_slice = e4m3_data_buffer[buffer_offset : buffer_offset + num_tokens]
+    scales_slice = e8m0_scales_buffer[buffer_offset : buffer_offset + num_tokens]
+
+    # Dequant: e4m3 * 2^(e8m0 - 127)
+    scales_u8 = scales_slice.view(torch.uint8)
+    scales_fp32 = torch.exp2((scales_u8.to(torch.float32) - 127.0))
+
+    data_f32 = data_slice.to(torch.float32).reshape(
+        num_tokens, scale_dim, scale_block_size
+    )
+    scales_f32 = scales_fp32.unsqueeze(-1)
+    dequanted = (data_f32 * scales_f32).reshape(num_tokens, dim)
+
+    out = torch.zeros(
+        sym_mem_buffer_rows, dim, dtype=out_dtype, device=e4m3_data_buffer.device
+    )
+    out[:num_tokens] = dequanted.to(out_dtype)
+    return out

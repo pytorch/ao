@@ -150,7 +150,7 @@ class SynclessExpertParallel(ParallelStyle):
     def _token_combine(
         self, mod: nn.Module, routed_output: torch.Tensor, device_mesh: DeviceMesh
     ) -> torch.Tensor:
-        """Syncless push-based combine: expert-major → rank-major.
+        """Syncless push-based combine: expert-major -> rank-major.
 
         Args:
             routed_output: bf16 tensor in expert-major padded layout

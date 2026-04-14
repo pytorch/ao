@@ -53,7 +53,7 @@ class SynclessTokenCombineTest(MultiProcessTestCase):
         recovers the original token values on each source rank.
 
         Uses small integer values that are exactly representable in fp8 e4m3,
-        so the dispatch (bf16 → fp8) → combine (bf16) round-trip is exact.
+        so the dispatch (bf16 -> fp8) -> combine (bf16) round-trip is exact.
         """
         self._init_process()
         try:

@@ -52,7 +52,7 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
         from torchao.prototype.moe_training.ep.syncless.copy_kernel import (
             copy_into_buffer_2d,
         )
-        from torchao.prototype.moe_training.ep.syncless.cutedsl_custom_op import (
+        from torchao.prototype.moe_training.ep.syncless.cutedsl_mxfp8_gmm import (
             cutedsl_grouped_gemm,
         )
         from torchao.prototype.moe_training.kernels.mxfp8 import (
@@ -181,7 +181,6 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
         offset = ctx.offset
         num_tokens = ctx.num_tokens
         M = ctx.M
-        hidden_dim = ctx.hidden_dim
         buf = ctx.saved_activations_buffer
         block_size = 32
 
@@ -209,26 +208,44 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
             num_tokens=num_tokens,
         )
 
-        from torchao.prototype.moe_training.ep.syncless.mxfp8_dequant_kernel import (
-            mxfp8_dequant_buffer,
+        from torchao.prototype.moe_training.ep.syncless.mxfp8_requant_kernel import (
+            mxfp8_dequant_requant_col_major,
         )
+        from torchao.prototype.moe_training.kernels.mxfp8 import (
+            triton_mx_block_rearrange_2d_K_groups,
+        )
+        from torchao.prototype.mx_formats.kernels import triton_to_mxfp8_dim1
 
-        # for now, dequant input tokens to bf16 and do wgrad gmm in bf16
-        # TODO: fused dequant 1x32 -> requant 32x1 kernel and do wgrad in mxfp8
-        x_bf16 = mxfp8_dequant_buffer(
+        # Fused dequant 1×32 -> requant 32×1 for saved dispatch activations.
+        x_fp8_col, x_scales_col = mxfp8_dequant_requant_col_major(
             buf.dispatch_out_data,
             buf.dispatch_out_scales,
             buffer_offset=offset,
             num_tokens=num_tokens,
             sym_mem_buffer_rows=M,
-            out_dtype=torch.bfloat16,
             scale_block_size=block_size,
         )
 
-        # wgrad: grad_w13 = grad_h13.T @ x_bf16  (per group)
-        wgrad_w13 = torch._grouped_mm(
-            grad_h13.transpose(-2, -1),
-            x_bf16,
+        # Quantize grad_h13 with 32×1 then transpose before grouped gemm, for final 1x32 scaling of RHS operand
+        grad_h13_fp8, grad_h13_scales = triton_to_mxfp8_dim1(
+            grad_h13, inner_block_size=block_size, scaling_mode="rceil"
+        )
+
+        # Rearrange scales to blocked layout for _scaled_grouped_mm.
+        scale_group_offsets = group_end_offs // block_size
+        grad_h13_scales_blocked = triton_mx_block_rearrange_2d_K_groups(
+            grad_h13_scales, scale_group_offsets
+        )
+        x_scales_blocked = triton_mx_block_rearrange_2d_K_groups(
+            x_scales_col, scale_group_offsets
+        )
+
+        # MXFP8 w13 wgrad GEMM: grad_w13 = grad_h13.T @ x  (per group)
+        wgrad_w13 = torch._scaled_grouped_mm(
+            grad_h13_fp8.transpose(-2, -1),
+            x_fp8_col,
+            grad_h13_scales_blocked,
+            x_scales_blocked,
             offs=group_end_offs,
             out_dtype=torch.bfloat16,
         )

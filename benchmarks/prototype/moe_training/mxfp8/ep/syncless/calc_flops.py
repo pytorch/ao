@@ -25,7 +25,7 @@ def calc_moe_flops(
     total_local_tokens = local_experts * tokens_per_expert
     T = tokens_per_expert  # tokens per expert group
 
-    print(f"=== MoE FLOP Calculation ===")
+    print("=== MoE FLOP Calculation ===")
     print(f"  dim (K)         = {dim}")
     print(f"  hidden_dim      = {hidden_dim}")
     print(f"  num_experts     = {num_experts}")
@@ -74,7 +74,7 @@ def calc_moe_flops(
 
     fwd_total = gemm1_total + swiglu_fw_total + gemm2_total
     fwd_gemm_only = gemm1_total + gemm2_total
-    print(f"  ---")
+    print("  ---")
     print(f"  Forward GEMM FLOPs: {fwd_gemm_only / 1e9:.3f} GFLOP")
     print(
         f"  Forward total:      {fwd_total / 1e9:.3f} GFLOP ({fwd_total / 1e12:.4f} TFLOP)"
@@ -146,7 +146,7 @@ def calc_moe_flops(
         + w13_wgrad_total
     )
     bwd_gemm_only = w2_dgrad_total + w2_wgrad_total + w13_dgrad_total + w13_wgrad_total
-    print(f"  ---")
+    print("  ---")
     print(f"  Backward GEMM FLOPs: {bwd_gemm_only / 1e9:.3f} GFLOP")
     print(
         f"  Backward total:      {bwd_total / 1e9:.3f} GFLOP ({bwd_total / 1e12:.4f} TFLOP)"

@@ -23,8 +23,8 @@ class SymmetricMemoryBufferManager:
         self._output_scales_hdl = None
         self.max_output_rows_per_rank = None
         # Shared bf16 symmetric memory buffer, used for both:
-        #  - combine forward  (expert-major → rank-major)
-        #  - combine backward (rank-major → expert-major)
+        #  - combine forward  (expert-major -> rank-major)
+        #  - combine backward (rank-major -> expert-major)
         self.bf16_buffer = None
         self._bf16_buffer_hdl = None
         self.output_expert_splits = None
