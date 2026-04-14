@@ -7,7 +7,6 @@
 # Owner(s): ["oncall: quantization"]
 import contextlib
 import copy
-import dataclasses
 import functools
 import itertools
 import unittest
@@ -61,7 +60,7 @@ from torchao.quantization.quantize_.common.quantization_step import (
     QuantizationStep,
 )
 from torchao.testing.pt2e.utils import _generate_ref_quantized_model, qdq_fp8
-from torchao.utils import _cpu_is_vnni_supported, torch_version_at_least
+from torchao.utils import torch_version_at_least
 
 # The dict value is match_nodes(computation_op+unary_op)
 unary_list = {
@@ -2774,9 +2773,6 @@ class TestPatternMatcher(TestPatternMatcherBase):
         """
         if enable_autocast and not torch.ops.mkldnn._is_mkldnn_bf16_supported():
             self.skipTest("bf16 not supported")
-
-        if not _cpu_is_vnni_supported():
-            base_config = dataclasses.replace(base_config, reduce_range=True)
 
         M = 16
         in_feature = 32
