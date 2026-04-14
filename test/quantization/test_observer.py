@@ -7,7 +7,6 @@ import re
 import unittest
 
 import torch
-import torch.nn as nn
 
 # NOTE: we can copy paste these here if we decide to deprecate them in torch.ao
 from torch.ao.quantization.observer import MinMaxObserver, PerChannelMinMaxObserver
@@ -20,8 +19,7 @@ from torchao.quantization.observer import (
     AffineQuantizedMinMaxObserver,
     AffineQuantizedMSEObserver,
 )
-from torchao.quantization.quant_api import insert_observers_
-from torchao.quantization.quant_primitives import MappingType, ZeroPointDomain
+from torchao.quantization.quant_primitives import MappingType
 
 
 class TestQuantFlow(TestCase):
@@ -288,83 +286,7 @@ class TestQuantFlow(TestCase):
         )
 
 
-class TestLinearObserver(TestCase):
-    @common_utils.parametrize("observe_weight", [True, False])
-    def test_linear_observer_tensor(self, observe_weight: bool):
-        # Create a simple linear layer
-        in_features, out_features = 10, 5
-        linear = nn.Linear(in_features, out_features)
-
-        # Create observers
-        input_observer = AffineQuantizedMinMaxObserver(
-            MappingType.SYMMETRIC,
-            torch.float8_e4m3fn,
-            granularity=PerTensor(),
-            eps=torch.finfo(torch.float32).eps,
-            scale_dtype=torch.float,
-            zero_point_dtype=torch.int,
-            zero_point_domain=ZeroPointDomain.NONE,
-        )
-        if observe_weight:
-            weight_observer = AffineQuantizedMinMaxObserver(
-                MappingType.SYMMETRIC,
-                torch.float8_e4m3fn,
-                granularity=PerTensor(),
-                eps=torch.finfo(torch.float32).eps,
-                scale_dtype=torch.float,
-                zero_point_dtype=torch.int,
-                zero_point_domain=ZeroPointDomain.NONE,
-            )
-        else:
-            weight_observer = None
-
-        # Wrap the weight with LinearObserverTensor
-        insert_observers_(linear, input_observer, weight_observer)
-
-        # Create some example inputs
-        example_inputs = [torch.randn(5, in_features) for _ in range(3)]
-        max_val = 42.1234
-        min_val = -39.760
-        big_tensor = torch.full((6, in_features), max_val)
-        small_tensor = torch.full((40, in_features), min_val)
-        example_inputs.extend([big_tensor, small_tensor])
-
-        # Run forward passes
-        for example_input in example_inputs:
-            _ = linear(example_input)
-
-        input_observer = linear.weight.input_observer
-
-        # Check that the observers have recorded statistics
-        assert input_observer.min_val == min_val
-        assert input_observer.max_val == max_val
-
-        # Calculate qparams and ensure they're not None
-        input_scale, input_zero_point = input_observer.calculate_qparams()
-
-        max_fp8 = torch.finfo(torch.float8_e4m3fn).max
-        self.assertEqual(
-            input_scale.item(),
-            max_val / max_fp8,
-        )
-        self.assertIsNone(input_zero_point)
-
-        if observe_weight:
-            weight_observer = linear.weight.weight_observer
-            weight_scale, weight_zero_point = weight_observer.calculate_qparams()
-            torch.testing.assert_close(
-                weight_scale,
-                torch.max(linear.weight.original_weight_tensor) / max_fp8,
-                atol=5e-5,
-                rtol=0.0,
-            )
-            self.assertIsNone(weight_zero_point)
-        else:
-            self.assertIsNone(linear.weight.weight_observer)
-
-
 common_utils.instantiate_parametrized_tests(TestQuantFlow)
-common_utils.instantiate_parametrized_tests(TestLinearObserver)
 
 if __name__ == "__main__":
     unittest.main()

@@ -25,13 +25,13 @@ These render at https://docs.pytorch.org/ao/main/
 ## Deprecated APIs
 
 Do not use or recommend these:
-- `AffineQuantizedTensor` (AQT) in `torchao/dtypes/` - old v1 system, being removed
+- `AffineQuantizedTensor` (AQT) - deleted
 - `autoquant()` - deleted
 - Layout registration system (`PlainLayout`, `Float8Layout`, `TensorCoreTiledLayout`, etc.) - deleted
 - `TorchAODType` - deprecated
 - `change_linear_weights_to_int4_woqtensors` - deleted, use `quantize_(model, Int4WeightOnlyConfig())`
 
-New tensor types should inherit from `TorchAOBaseTensor` in `torchao/utils.py`, not AQT.
+New tensor types should inherit from `TorchAOBaseTensor` in `torchao/utils.py`.
 
 ## Development
 

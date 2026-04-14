@@ -35,13 +35,15 @@ if common_utils.SEED is None:
 
 import torchao
 from packaging import version
-from torchao.dtypes.nf4tensor import (
-    _INNER_TENSOR_NAMES_FOR_SHARDING,
-    NF4Tensor,
-    linear_nf4,
-    to_nf4,
-)
 from torchao.prototype._nf4tensor_api import nf4_weight_only
+from torchao.quantization import NF4Tensor, to_nf4
+from torchao.quantization.quantize_.workflows.nf4 import (
+    nf4_tensor as _nf4_tensor_mod,
+)
+from torchao.quantization.quantize_.workflows.nf4.nf4_tensor import (
+    _INNER_TENSOR_NAMES_FOR_SHARDING,
+    linear_nf4,
+)
 from torchao.testing.utils import skip_if_rocm
 from torchao.utils import get_current_accelerator_device, torch_version_at_least
 
@@ -260,7 +262,7 @@ class TestNF4Linear(TestCase):
     def test_smoketest_linear(self, dtype: torch.dtype):
         device = get_current_accelerator_device()
         a = torch.randn(32, 32, dtype=dtype, device=device)
-        a_nf4 = torchao.dtypes.to_nf4(a, 16, 2)
+        a_nf4 = to_nf4(a, 16, 2)
         inp = torch.randn(2, 32, 32, dtype=a.dtype, device=a.device)
         _ = torch.nn.functional.linear(inp, a)
         _ = torch.nn.functional.linear(inp, a_nf4)
@@ -278,7 +280,7 @@ class TestNF4Linear(TestCase):
             self.skipTest("test requires 2.3.0 and above for tracing NF4Tensor")
         device = get_current_accelerator_device()
         a = torch.randn(32, 32, dtype=dtype, device=device)
-        a_nf4 = torchao.dtypes.to_nf4(a, 16, 2)
+        a_nf4 = to_nf4(a, 16, 2)
         inp = torch.randn(2, 32, 32, dtype=a.dtype, device=a.device)
         _ = torch.compile(torch.nn.functional.linear, mode="max-autotune")(inp, a_nf4)
 
@@ -289,7 +291,7 @@ class TestNF4Linear(TestCase):
     def test_chunk_size_equivalence(self, dtype: torch.dtype, shape, chunk_size):
         device = get_current_accelerator_device()
         a = torch.randn(shape, device=device, dtype=dtype)
-        with unittest.mock.patch("torchao.dtypes.nf4tensor.CHUNK_SIZE", chunk_size):
+        with unittest.mock.patch.object(_nf4_tensor_mod, "CHUNK_SIZE", chunk_size):
             nf4_patched = to_nf4(a, 16, 2)
         # This will be essentially no chunking since the numel is alot smaller than default chunk_size
         nf4_base = to_nf4(a, 16, 2)
