@@ -24,6 +24,33 @@ import torch.nn.functional as F
 from torch import nn
 from torch.distributed.tensor import DTensor
 
+from torchao.prototype.moe_training.ep.syncless.cutedsl_mxfp8_gmm import (
+    cutedsl_grouped_gemm,
+)
+from torchao.prototype.moe_training.ep.syncless.mxfp8_requant_kernel import (
+    mxfp8_dequant_requant_col_major,
+    triton_scale_blocked_layout_with_offset,
+)
+from torchao.prototype.moe_training.ep.syncless.silu_mul_kernel import (
+    silu_mul_bw,
+    silu_mul_fw,
+)
+from torchao.prototype.moe_training.kernels.mxfp8 import (
+    triton_mx_block_rearrange_per_group_3d,
+)
+from torchao.prototype.moe_training.mxfp8_grouped_mm import (
+    _compute_dgrad,
+    _compute_fwd,
+)
+from torchao.prototype.mx_formats.config import ScaleCalculationMode
+from torchao.prototype.mx_formats.kernels import (
+    triton_mx_block_rearrange,
+    triton_to_mxfp8_dim0,
+)
+from torchao.quantization.quantize_.common import KernelPreference
+
+USE_BF16 = False
+
 
 class MXFP8GroupedExpertsFunc(torch.autograd.Function):
     """MXFP8 grouped experts autograd function that saves activations to a unified GPU+CPU buffer.
@@ -49,21 +76,6 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
         w2,
         saved_activations_buffer,
     ):
-        from torchao.prototype.moe_training.ep.syncless.cutedsl_mxfp8_gmm import (
-            cutedsl_grouped_gemm,
-        )
-        from torchao.prototype.moe_training.ep.syncless.mxfp8_requant_kernel import (
-            mxfp8_dequant_requant_col_major,
-        )
-        from torchao.prototype.moe_training.kernels.mxfp8 import (
-            mx_block_rearrange_2d_M_groups_cuda,
-            triton_mx_block_rearrange_per_group_3d,
-        )
-        from torchao.prototype.moe_training.mxfp8_grouped_mm import _compute_fwd
-        from torchao.prototype.mx_formats.config import ScaleCalculationMode
-        from torchao.prototype.mx_formats.kernels import triton_to_mxfp8_dim0
-        from torchao.quantization.quantize_.common import KernelPreference
-
         block_size = 32
         hidden_dim = w13.shape[1] // 2
         M = output_e4m3.shape[0]
@@ -84,7 +96,6 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
         mxfp8_dequant_requant_col_major(
             output_e4m3,
             output_scales_e8m0.view(torch.uint8),
-            buffer_offset=torch.zeros(1, dtype=torch.int64, device=output_e4m3.device),
             num_tokens=num_tokens,
             sym_mem_buffer_rows=M,
             out_data=buf.e4m3_data,
@@ -105,7 +116,7 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
         # corresponding data over the a2a dispatch.
         # blocked layout would require a bunch of slow discontiguous reads and is harder to reason about.
         scale_a = output_scales_e8m0.view(torch.float8_e8m0fnu)
-        scale_a_blocked = mx_block_rearrange_2d_M_groups_cuda(scale_a, group_end_offs)
+        scale_a_blocked = triton_mx_block_rearrange(scale_a)
 
         # First GEMM: h13 = x @ w13.T
         # We need this special CuTe DSL gmm kernel here, rather than torch._scaled_grouped_mm,
@@ -125,10 +136,6 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
         # Fused SwiGLU forward: reads from saved-activations buffer at
         # GPU-determined offset, computes silu(h1)*h3, zero-pads to M rows.
         # No D2H sync (.item()) needed.
-        from torchao.prototype.moe_training.ep.syncless.silu_mul_kernel import (
-            silu_mul_fw,
-        )
-
         h = silu_mul_fw(
             buf.swiglu_input,
             saved_activation_buffer_offset=offset,
@@ -174,12 +181,6 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
             wgrad_w2 = grad_out_t @ h
             grad_x = grad_h13 @ w13
         """
-        from torchao.prototype.moe_training.mxfp8_grouped_mm import (
-            _compute_dgrad,
-        )
-        from torchao.prototype.mx_formats.config import ScaleCalculationMode
-        from torchao.quantization.quantize_.common import KernelPreference
-
         group_end_offs, w13, w2 = ctx.saved_tensors
         offset = ctx.offset
         num_tokens = ctx.num_tokens
@@ -187,20 +188,24 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
         block_size = 32
 
         # w2 dgrad: grad_h = grad_out @ w2
-        grad_h = _compute_dgrad(
-            grad_out,
-            w2.transpose(-2, -1),
-            group_end_offs,
-            block_size,
-            torch.bfloat16,
-            ScaleCalculationMode.RCEIL,
-            KernelPreference.AUTO,
-        )
-
-        # SwiGLU backward: recompute h AND compute grad_h13 in one kernel call.
-        from torchao.prototype.moe_training.ep.syncless.silu_mul_kernel import (
-            silu_mul_bw,
-        )
+        # TODO: fused quant grad_out and grad_out_t (read once, write twice)
+        if USE_BF16:
+            grad_h = torch._grouped_mm(
+                grad_out,
+                w2.transpose(-2, -1),
+                offs=group_end_offs,
+                out_dtype=torch.bfloat16,
+            )
+        else:
+            grad_h = _compute_dgrad(
+                grad_out,
+                w2.transpose(-2, -1),
+                group_end_offs,
+                block_size,
+                torch.bfloat16,
+                ScaleCalculationMode.RCEIL,
+                KernelPreference.AUTO,
+            )
 
         # recompute 'h' and calc grad_h13 in single kernel
         h, grad_h13 = silu_mul_bw(
@@ -210,26 +215,13 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
             num_tokens=num_tokens,
         )
 
-        from torchao.prototype.moe_training.ep.syncless.cutedsl_mxfp8_gmm import (
-            cutedsl_grouped_gemm,
-        )
-        from torchao.prototype.moe_training.ep.syncless.mxfp8_requant_kernel import (
-            triton_scale_blocked_layout_with_offset,
-        )
+        # Quantize grad_h13 with 32×1 scaling, producing blocked scales directly.
         from torchao.prototype.moe_training.kernels.mxfp8 import (
-            triton_mx_block_rearrange_2d_K_groups,
-        )
-        from torchao.prototype.mx_formats.kernels import triton_to_mxfp8_dim1
-
-        # Quantize grad_h13 with 32×1 then transpose before grouped gemm, for final 1x32 scaling of RHS operand
-        grad_h13_fp8, grad_h13_scales = triton_to_mxfp8_dim1(
-            grad_h13, inner_block_size=block_size, scaling_mode="rceil"
+            mxfp8_quantize_2d_32x1_cutedsl,
         )
 
-        # Rearrange grad_h13 scales to blocked layout (freshly allocated, no offset needed).
-        scale_group_offsets = group_end_offs // block_size
-        grad_h13_scales_blocked = triton_mx_block_rearrange_2d_K_groups(
-            grad_h13_scales, scale_group_offsets
+        grad_h13_fp8, grad_h13_scales_blocked = mxfp8_quantize_2d_32x1_cutedsl(
+            grad_h13, block_size=block_size, scaling_mode="rceil"
         )
 
         # Rearrange x scales from the buffer directly into the pre-allocated
@@ -247,26 +239,18 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
         # Use cutedsl_grouped_gemm with b_offs=offset to read x data
         # directly from buf.e4m3_data (overallocated buffer) and x scales
         # from buf.blocked_e8m0_scales (at matching offset). Zero copies.
-        hidden_dim = ctx.hidden_dim
-        wgrad_w13 = torch.empty(
-            group_end_offs.shape[0],
-            2 * hidden_dim,
-            buf.dim,
-            dtype=torch.bfloat16,
-            device=grad_out.device,
-        )
-        cutedsl_grouped_gemm(
+        wgrad_w13 = cutedsl_grouped_gemm(
             grad_h13_fp8.transpose(-2, -1),
             buf.e4m3_data.t(),
             grad_h13_scales_blocked,
             buf.blocked_e8m0_scales.view(torch.float8_e8m0fnu),
             group_end_offs,
             b_offs=offset,
-            out=wgrad_w13,
             out_dtype=torch.bfloat16,
         )
 
         # w2 wgrad: grad_w2 = grad_out.T @ h  (per group)
+        # TODO: mxfp8 when silu_mul_bw quantizes and we have fused grad_out+grad_out_t quant kernel
         wgrad_w2 = torch._grouped_mm(
             grad_out.transpose(-2, -1),
             h,
@@ -276,6 +260,7 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
 
         # w13 backward
         # dgrad: grad_x = grad_h13 @ w13
+        # TODO: use prequantized grad_h13 when silu_mul_bw quantizes
         grad_x = _compute_dgrad(
             grad_h13,
             w13.transpose(-2, -1),

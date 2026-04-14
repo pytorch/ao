@@ -86,19 +86,18 @@ def _calculate_scale_rceil(x, axis, USE_PTX: tl.constexpr):
 
 @triton.jit
 def _mxfp8_dequant_requant_col_major_kernel(
-    # Input buffer pointers
-    e4m3_data_buffer,
-    e8m0_scales_buffer,
+    # Input pointers
+    e4m3_data_ptr,
+    e8m0_scales_ptr,
     # Output pointers
     out_data_ptr,
     out_scales_ptr,
-    # GPU-resident offset and count
-    offset_ptr,
+    # GPU-resident count and output offset
     num_tokens_ptr,
     out_offset_ptr,
     # Strides
-    buffer_stride_row: tl.constexpr,
-    scale_buffer_stride_row: tl.constexpr,
+    input_stride_row: tl.constexpr,
+    scale_input_stride_row: tl.constexpr,
     out_data_stride_row: tl.constexpr,
     out_scales_stride_row: tl.constexpr,
     # Dimensions
@@ -113,7 +112,7 @@ def _mxfp8_dequant_requant_col_major_kernel(
 ):
     """Fused dequant 1×32 -> requant 32×1 kernel.
 
-    Reads FP8 data from buffer at GPU-resident offset with 1×32 row-major
+    Reads FP8 data from a contiguous input tensor with 1×32 row-major
     scaling, dequantizes to FP32, requantizes with 32×1 column scaling,
     and writes column-major FP8 output at out_offset position in the
     output buffer.
@@ -123,7 +122,6 @@ def _mxfp8_dequant_requant_col_major_kernel(
     BLOCKS_PER_M_TILE: tl.constexpr = TILE_M // SCALE_BLOCK_SIZE
     SCALE_BLOCKS_PER_K_TILE: tl.constexpr = TILE_K // SCALE_BLOCK_SIZE
 
-    offset = tl.load(offset_ptr).to(tl.int64)
     num_tokens = tl.load(num_tokens_ptr).to(tl.int64)
     out_offset = tl.load(out_offset_ptr).to(tl.int64)
 
@@ -136,24 +134,21 @@ def _mxfp8_dequant_requant_col_major_kernel(
     valid_token_mask = row_offs < num_tokens
     col_mask = col_offs < dim
 
-    # Load e4m3 data from buffer[offset + row, col]
-    buffer_rows = offset + row_offs
-    data_offsets = buffer_rows[:, None] * buffer_stride_row + col_offs[None, :]
+    # Load e4m3 data from input[row, col]
+    data_offsets = row_offs[:, None] * input_stride_row + col_offs[None, :]
     e4m3_block = tl.load(
-        e4m3_data_buffer + data_offsets,
+        e4m3_data_ptr + data_offsets,
         mask=valid_token_mask[:, None] & col_mask[None, :],
         other=0.0,
     )
 
-    # Load e8m0 scales from buffer[offset + row, col // 32]
+    # Load e8m0 scales from input[row, col // 32]
     scale_col_offs = pid_col * SCALE_BLOCKS_PER_K_TILE + tl.arange(
         0, SCALE_BLOCKS_PER_K_TILE
     )
-    scale_offsets = (
-        buffer_rows[:, None] * scale_buffer_stride_row + scale_col_offs[None, :]
-    )
+    scale_offsets = row_offs[:, None] * scale_input_stride_row + scale_col_offs[None, :]
     e8m0_block = tl.load(
-        e8m0_scales_buffer + scale_offsets,
+        e8m0_scales_ptr + scale_offsets,
         mask=valid_token_mask[:, None] & (scale_col_offs[None, :] < scale_dim),
         other=0,
     )
@@ -208,9 +203,8 @@ def _mxfp8_dequant_requant_col_major_kernel(
     mutates_args={"out_data", "out_scales"},
 )
 def mxfp8_dequant_requant_col_major(
-    e4m3_data_buffer: torch.Tensor,
-    e8m0_scales_buffer: torch.Tensor,
-    buffer_offset: torch.Tensor,
+    e4m3_data: torch.Tensor,
+    e8m0_scales: torch.Tensor,
     num_tokens: torch.Tensor,
     sym_mem_buffer_rows: int,
     out_data: torch.Tensor,
@@ -218,17 +212,16 @@ def mxfp8_dequant_requant_col_major(
     out_offset: torch.Tensor,
     scale_block_size: int = 32,
 ) -> None:
-    """Fused dequant 1×32 -> requant 32×1 with GPU-resident offset/count.
+    """Fused dequant 1×32 -> requant 32×1 with GPU-resident count/offset.
 
-    Takes FP8 data + E8M0 scales from an input buffer (quantized with 1×32
+    Takes contiguous FP8 data + E8M0 scales (quantized with 1×32
     row-major scaling along dim) and produces column-major FP8 data with
     32×1 column scaling along M, written into preallocated output buffers
     at a GPU-resident output offset.
 
     Args:
-        e4m3_data_buffer: (buffer_rows, dim) float8_e4m3fn data buffer
-        e8m0_scales_buffer: (buffer_rows, dim//32) uint8 scales buffer
-        buffer_offset: Scalar int64 GPU tensor — start row in input buffers
+        e4m3_data: (M, dim) float8_e4m3fn contiguous input data
+        e8m0_scales: (M, dim//32) uint8 input scales
         num_tokens: Scalar int64 GPU tensor — number of valid rows
         sym_mem_buffer_rows: Number of output M rows to process (Python int, % 32 == 0)
         out_data: (dim, out_total_cols) float8_e4m3fn — preallocated output data buffer
@@ -241,8 +234,8 @@ def mxfp8_dequant_requant_col_major(
         f"sym_mem_buffer_rows ({sym_mem_buffer_rows}) must be divisible by {scale_block_size}"
     )
 
-    dim = e4m3_data_buffer.shape[1]
-    scale_dim = e8m0_scales_buffer.shape[1]
+    dim = e4m3_data.shape[1]
+    scale_dim = e8m0_scales.shape[1]
     out_scale_cols = sym_mem_buffer_rows // scale_block_size
 
     TILE_M = 128
@@ -254,15 +247,14 @@ def mxfp8_dequant_requant_col_major(
     )
 
     wrap_triton(_mxfp8_dequant_requant_col_major_kernel)[grid](
-        e4m3_data_buffer,
-        e8m0_scales_buffer.to(torch.uint8),
+        e4m3_data,
+        e8m0_scales.to(torch.uint8),
         out_data,
         out_scales,
-        buffer_offset,
         num_tokens,
         out_offset,
-        buffer_stride_row=e4m3_data_buffer.stride(0),
-        scale_buffer_stride_row=e8m0_scales_buffer.stride(0),
+        input_stride_row=e4m3_data.stride(0),
+        scale_input_stride_row=e8m0_scales.stride(0),
         out_data_stride_row=out_data.stride(0),
         out_scales_stride_row=out_scales.stride(0),
         dim=dim,
