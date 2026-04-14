@@ -26,7 +26,7 @@ from torchao.quantization.quantize_.common import (
     _choose_quant_func_and_quantize_tensor,
 )
 from torchao.quantization.utils import get_block_size
-from torchao.utils import TorchAOBaseTensor, fill_defaults
+from torchao.utils import TorchAOBaseTensor, _cpu_is_vnni_supported, fill_defaults
 
 __all__ = [
     "Int8Tensor",
@@ -45,6 +45,10 @@ _FULL_QUANT_MIN = -128
 _FULL_QUANT_MAX = 127
 
 
+def _should_use_reduced_range(tensor: torch.Tensor) -> bool:
+    return tensor.device.type == "cpu" and not _cpu_is_vnni_supported()
+
+
 @dataclass
 class QuantizeTensorToInt8Kwargs(QuantizeTensorKwargs):
     """Tensor kwargs for creating int8 tensor for activation.
@@ -52,15 +56,10 @@ class QuantizeTensorToInt8Kwargs(QuantizeTensorKwargs):
     Args:
         granularity: the granularity for the Tensor, currently either PerRow() or PerTensor()
         mapping_type: whether to use symmetric or asymmetric quant
-        reduce_range: optional flag. If True, use reduced int8 range [-64, 63]
-            instead of full range [-128, 127] to reduce overflow risk on
-            platforms without VNNI instructions. Kept optional for backward
-            compatibility with older call sites and serialized configs.
     """
 
     granularity: Granularity
     mapping_type: MappingType = MappingType.SYMMETRIC
-    reduce_range: Optional[bool] = False
 
 
 class Int8Tensor(TorchAOBaseTensor):
@@ -75,7 +74,10 @@ class Int8Tensor(TorchAOBaseTensor):
     Non-Tensor Attributes:
         granularity: the granularity for quantization (e.g., PerRow(), PerTensor())
         act_quant_kwargs: flags for dynamic activation quantization
-        reduce_range: optional flag for reduced int8 quantization range
+        reduce_range: internal flag for reduced int8 quantization range.
+            If True, use [-64, 63] (defined by [_REDUCED_QUANT_MIN,
+            _REDUCED_QUANT_MAX]) instead of full range [-128, 127]
+            (defined by [_FULL_QUANT_MIN, _FULL_QUANT_MAX])
     """
 
     tensor_data_names = ["qdata", "scale"]
@@ -193,11 +195,12 @@ class Int8Tensor(TorchAOBaseTensor):
         act_quant_scale: Optional[torch.Tensor] = None,
         act_quant_zero_point: Optional[torch.Tensor] = None,
         act_pre_scale: Optional[torch.Tensor] = None,
-        reduce_range: Optional[bool] = False,
     ):
         """Create Int8Tensor from high-precision tensor"""
         block_size = get_block_size(hp_tensor.shape, granularity)
         block_size = list(block_size)
+
+        reduce_range = _should_use_reduced_range(hp_tensor)
 
         quant_min, quant_max = (
             (_REDUCED_QUANT_MIN, _REDUCED_QUANT_MAX)
