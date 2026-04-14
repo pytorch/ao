@@ -472,6 +472,11 @@ def test_triton_scale_blocked_layout_with_offset(
 
     offset_blocked = output_buffer[: ref_blocked.numel()].view(ref_blocked.shape)
 
-    assert torch.equal(ref_blocked.view(torch.uint8), offset_blocked), (
-        "Offset-aware rearranged scales do not match reference"
+    # Use assert_close with rtol=0,atol=0 instead of torch.equal to avoid
+    # PyTorch reduce_kernel which can hit illegal instruction on SM 10.x.
+    torch.testing.assert_close(
+        ref_blocked.view(torch.uint8).to(torch.int32),
+        offset_blocked.to(torch.int32),
+        rtol=0,
+        atol=0,
     )
