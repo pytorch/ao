@@ -7,7 +7,7 @@ techniques integrated into our partner frameworks. This is part 2 of 3
 such tutorials showcasing this end-to-end flow, focusing on the
 fine-tuning step.
 
-.. image:: ../static/e2e_flow_part2.png
+.. image:: ../../static/e2e_flow_part2.png
 
 Fine-tuning is an important step for adapting your pre-trained model
 to more domain-specific data. In this tutorial, we demonstrate 3 model
