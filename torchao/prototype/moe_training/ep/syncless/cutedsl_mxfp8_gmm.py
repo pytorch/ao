@@ -34,7 +34,7 @@
 
 import os
 from inspect import isclass
-from typing import Tuple, Type, Union
+from typing import Optional, Tuple, Type, Union
 
 import cuda.bindings.driver as cuda
 import cutlass
@@ -3215,3 +3215,124 @@ if __name__ == "__main__":
     # verify(A_q, W, offs1, out, True)
 
     print("PASS")
+
+
+@torch.library.custom_op(
+    "torchao::cutedsl_grouped_gemm", mutates_args={"output_tensor"}
+)
+def _cutedsl_grouped_gemm_custom_op(
+    a: torch.Tensor,
+    b: torch.Tensor,
+    scale_a: torch.Tensor,
+    scale_b: torch.Tensor,
+    offs: torch.Tensor,
+    output_tensor: torch.Tensor,
+    addmm: bool = False,
+    a_offs: Optional[torch.Tensor] = None,
+    b_offs: Optional[torch.Tensor] = None,
+    out_offset: Optional[torch.Tensor] = None,
+    num_sms: Optional[int] = None,
+    out_dtype: Optional[torch.dtype] = None,
+) -> None:
+    """Custom op wrapper for CuTe DSL grouped GEMM (in-place operation)."""
+    grouped_gemm(
+        a=a,
+        b=b,
+        scale_a=scale_a,
+        scale_b=scale_b,
+        offs=offs,
+        addmm=addmm,
+        a_offs=a_offs,
+        b_offs=b_offs,
+        out_offset=out_offset,
+        num_sms=num_sms,
+        self=output_tensor,
+        out_dtype=out_dtype,
+    )
+
+
+@_cutedsl_grouped_gemm_custom_op.register_fake
+def _fake_cutedsl_grouped_gemm_custom_op(
+    a: torch.Tensor,
+    b: torch.Tensor,
+    scale_a: torch.Tensor,
+    scale_b: torch.Tensor,
+    offs: torch.Tensor,
+    output_tensor: torch.Tensor,
+    addmm: bool = False,
+    a_offs: Optional[torch.Tensor] = None,
+    b_offs: Optional[torch.Tensor] = None,
+    out_offset: Optional[torch.Tensor] = None,
+    num_sms: Optional[int] = None,
+    out_dtype: Optional[torch.dtype] = None,
+) -> None:
+    """Fake implementation for meta/shape inference."""
+    assert a.dtype == b.dtype == torch.float8_e4m3fn
+    assert scale_a.dtype == scale_b.dtype == torch.float8_e8m0fnu
+    assert a.ndim == 2
+    assert b.ndim in (2, 3)
+
+    G = offs.shape[0]
+    if b.ndim == 3:
+        assert b.shape[0] == G
+
+    out_3d = a.ndim == b.ndim
+    if out_3d:
+        M, K = a.shape[-2:]
+        N = b.shape[-1]
+        out_shape = (G, M, N)
+    else:
+        M, K = a.shape
+        N = b.shape[-1]
+        out_shape = (M, N)
+
+    if not out_3d:
+        assert a.shape[-1] == b.shape[-2]
+
+    if out_dtype is None:
+        out_dtype = torch.bfloat16
+
+    if out_offset is not None:
+        assert not out_3d
+        assert output_tensor.shape[0] >= M and output_tensor.shape[1] == N
+    else:
+        assert output_tensor.shape == torch.Size(out_shape)
+
+    expected_dtype = out_dtype if out_dtype is not None else torch.bfloat16
+    assert output_tensor.dtype == expected_dtype
+
+
+def cutedsl_grouped_gemm(
+    a: torch.Tensor,
+    b: torch.Tensor,
+    scale_a: torch.Tensor,
+    scale_b: torch.Tensor,
+    offs: torch.Tensor,
+    *,
+    addmm: bool = False,
+    a_offs: Optional[torch.Tensor] = None,
+    b_offs: Optional[torch.Tensor] = None,
+    out_offset: Optional[torch.Tensor] = None,
+    num_sms: Optional[int] = None,
+    self: torch.Tensor,
+    out_dtype: Optional[torch.dtype] = None,
+) -> None:
+    """Public API for CuTe DSL grouped GEMM custom op (in-place operation).
+
+    Drop-in replacement for grouped_gemm that uses PyTorch's custom op
+    system for torch.compile compatibility.
+    """
+    _cutedsl_grouped_gemm_custom_op(
+        a=a,
+        b=b,
+        scale_a=scale_a,
+        scale_b=scale_b,
+        offs=offs,
+        output_tensor=self,
+        addmm=addmm,
+        a_offs=a_offs,
+        b_offs=b_offs,
+        out_offset=out_offset,
+        num_sms=num_sms,
+        out_dtype=out_dtype,
+    )
