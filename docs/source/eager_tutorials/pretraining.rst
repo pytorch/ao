@@ -116,7 +116,7 @@ This is because rowwise scaling using a more granular scaling factor (per row, i
 
 Below you can see the loss curves comparing bfloat16, float8 tensorwise, and float8 rowwise training for training Llama3-8B on 8xH100 GPUs:
 
-.. image:: ../static/fp8-loss-curves.png
+.. image:: ../../static/fp8-loss-curves.png
   :alt: Loss curves for training Llama3-8B on 8xH100s with torchtitan using bfloat16, float8 tensorwise, and float8 rowwise training.
 
 
