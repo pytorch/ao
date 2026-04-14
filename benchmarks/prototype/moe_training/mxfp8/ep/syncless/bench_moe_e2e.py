@@ -278,7 +278,7 @@ def run_experiment(
     # ---- syncless model timing (forward + backward) -----------------------
     def syncless_fwd_bwd():
         syncless_model.zero_grad()
-        saved_act_buffer.free_all_py()
+        saved_act_buffer.free_all()
         y = syncless_model(x)
         y.backward(torch.ones_like(y))
 
@@ -309,7 +309,7 @@ def run_experiment(
 
     # Gradient correctness check
     syncless_model.zero_grad()
-    saved_act_buffer.free_all_py()
+    saved_act_buffer.free_all()
     syncless_out_for_grad = syncless_model(x)
     syncless_out_for_grad.backward(torch.ones_like(syncless_out_for_grad))
     syncless_w2_grad = syncless_model.experts.w2.grad.to_local().clone()

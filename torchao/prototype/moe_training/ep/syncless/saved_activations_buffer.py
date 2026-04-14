@@ -8,8 +8,8 @@ Unified CPU+GPU buffer for saving expert FFN intermediate activations
 during the forward pass and restoring them during backward.
 
 Three sub-buffers, all indexed by the same token offset:
-- dispatch_out_data (FP8 e4m3): the quantised dispatch output ``x``
-- dispatch_out_scales (uint8): the MXFP8 scales for ``x``
+- e4m3_data (FP8 e4m3): requanted dispatch output ``x`` in (dim, max_tokens) col-major storage
+- e8m0_scales (uint8): 32×1 MXFP8 scales for ``x`` in (dim, max_tokens//32) layout
 - swiglu_input (BF16): the SwiGLU input ``h13``
 
 Two allocation modes:
@@ -48,9 +48,12 @@ def _align(size: int) -> int:
 class SavedActivationsBuffer:
     """Unified GPU+CPU buffer for saving/restoring expert FFN activations.
 
-    Owns three unified-memory sub-buffers (dispatch output FP8 data,
-    dispatch output scales, and SwiGLU input in BF16).  All three are
-    indexed by the same token offset.
+    Owns three unified-memory sub-buffers:
+    - e4m3_data: (dim, max_tokens) col-major FP8 data with 32×1 scaling
+    - e8m0_scales: (dim, max_tokens//32) uint8 E8M0 scales for 32×1 scaling
+    - swiglu_input: (max_tokens, 2*hidden_dim) BF16 SwiGLU input
+
+    All three are indexed by the same token offset.
 
     Supports two allocation modes:
     - Python-side bump allocator (``alloc_py`` / ``free_py``)
@@ -80,26 +83,40 @@ class SavedActivationsBuffer:
         max_tokens = gpu_tokens + cpu_tokens
 
         block_size = 32  # MXFP8 block size
+        assert max_tokens % block_size == 0, (
+            f"max_tokens ({max_tokens}) must be divisible by block_size ({block_size})"
+        )
         self._scale_dim = dim // block_size
         self._h13_cols = 2 * hidden_dim
 
-        # -- dispatch_out_data: FP8 e4m3, 1 byte per element ---------
+        # -- e4m3_data: (dim, max_tokens) FP8 e4m3, 1 byte per element --
+        # Transposed storage for col-major 32×1 scaled data written by
+        # the fused dequant-requant kernel in the forward pass.
         gpu_data_bytes = _align(gpu_tokens * dim)
         cpu_data_bytes = _align(cpu_tokens * dim) if cpu_tokens > 0 else 0
         self._raw_data = DeferredUnifiedBuffer(gpu_data_bytes, cpu_data_bytes)
-        self.dispatch_out_data = (
-            self._raw_data.tensor[: max_tokens * dim]
+        self.e4m3_data = (
+            self._raw_data.tensor[: dim * max_tokens]
             .view(torch.float8_e4m3fn)
-            .view(max_tokens, dim)
+            .view(dim, max_tokens)
         )
 
-        # -- dispatch_out_scales: uint8, 1 byte per element -----------
+        # -- e8m0_scales: (dim, max_tokens//32) uint8, 1 byte per element --
+        # 32×1 E8M0 scales matching e4m3_data layout.
+        # The same raw buffer is also used for blocked-format scale output
+        # in the backward (via blocked_e8m0_scales flat view).
+        scale_cols = max_tokens // block_size
         gpu_scale_bytes = _align(gpu_tokens * self._scale_dim)
         cpu_scale_bytes = _align(cpu_tokens * self._scale_dim) if cpu_tokens > 0 else 0
         self._raw_scales = DeferredUnifiedBuffer(gpu_scale_bytes, cpu_scale_bytes)
-        self.dispatch_out_scales = self._raw_scales.tensor[
-            : max_tokens * self._scale_dim
-        ].view(max_tokens, self._scale_dim)
+        self.e8m0_scales = self._raw_scales.tensor[: dim * scale_cols].view(
+            dim, scale_cols
+        )
+
+        # Flat view of the same raw scale buffer for the backward's
+        # triton_scale_blocked_layout_with_offset to write
+        # blocked scales at a GPU-resident offset.
+        self.blocked_e8m0_scales = self._raw_scales.tensor
 
         # -- swiglu_input: BF16, 2 bytes per element ------------------
         gpu_h13_bytes = _align(gpu_tokens * self._h13_cols * 2)
@@ -110,9 +127,6 @@ class SavedActivationsBuffer:
             .view(torch.bfloat16)
             .view(max_tokens, self._h13_cols)
         )
-
-        # -- Python-side bump allocator (zero D2H sync) ---------------
-        self._py_offset: int = 0
 
         # -- GPU-side CUDAAllocator -----------------------------------
         # Logical token-offset allocator shared across all three
@@ -132,16 +146,6 @@ class SavedActivationsBuffer:
         self._cpu_mapped: bool = False
 
     # -- Raw buffer accessors (flat uint8, no shape/view transforms) ---
-
-    @property
-    def dispatch_out_data_raw(self) -> torch.Tensor:
-        """Flat uint8 tensor for dispatch output FP8 data."""
-        return self._raw_data.tensor
-
-    @property
-    def dispatch_out_scales_raw(self) -> torch.Tensor:
-        """Flat uint8 tensor for dispatch output scales."""
-        return self._raw_scales.tensor
 
     @property
     def swiglu_input_raw(self) -> torch.Tensor:
@@ -192,36 +196,3 @@ class SavedActivationsBuffer:
     def free_all(self) -> None:
         """Reset the GPU-side CUDAAllocator (all pools to initial state)."""
         self.allocator.free_all()
-
-    # -- Python-side bump allocator (backward compat) ------------------
-
-    def alloc_py(self, num_tokens: int) -> int:
-        """Claim *num_tokens* rows and return a **Python int** offset.
-
-        Zero device-to-host synchronisation — the offset is tracked
-        purely on the CPU side.  Callers must free in LIFO order via
-        :meth:`free_py`.
-
-        Physical pages are mapped lazily on the first access via
-        ``DeferredUnifiedBuffer.ensure_mapped``.
-        """
-        offset = self._py_offset
-        end = offset + num_tokens
-        if end > self.gpu_tokens + self.cpu_tokens:
-            raise RuntimeError(
-                f"SavedActivationsBuffer overflow: requested {num_tokens} "
-                f"at offset {offset}, capacity {self.gpu_tokens + self.cpu_tokens}"
-            )
-        self._raw_data.ensure_mapped(end * self.dim)
-        self._raw_scales.ensure_mapped(end * self._scale_dim)
-        self._raw_h13.ensure_mapped(end * self._h13_cols * 2)
-        self._py_offset = end
-        return offset
-
-    def free_py(self, num_tokens: int) -> None:
-        """Release *num_tokens* rows (LIFO order)."""
-        self._py_offset -= num_tokens
-
-    def free_all_py(self) -> None:
-        """Reset the Python-side offset tracker."""
-        self._py_offset = 0

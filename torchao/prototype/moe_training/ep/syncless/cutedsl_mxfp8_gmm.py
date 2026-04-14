@@ -3314,21 +3314,35 @@ def cutedsl_grouped_gemm(
     b_offs: Optional[torch.Tensor] = None,
     out_offset: Optional[torch.Tensor] = None,
     num_sms: Optional[int] = None,
-    self: torch.Tensor,
+    out: Optional[torch.Tensor] = None,
     out_dtype: Optional[torch.dtype] = None,
 ) -> None:
     """Public API for CuTe DSL grouped GEMM custom op (in-place operation).
 
     Drop-in replacement for grouped_gemm that uses PyTorch's custom op
     system for torch.compile compatibility.
+
+    If ``out`` is None, the output tensor is allocated automatically.
     """
+    if out is None:
+        G = offs.shape[0]
+        out_3d = a.ndim == b.ndim
+        M = a.shape[-2]
+        N = b.shape[-1]
+        out_shape = (G, M, N) if out_3d else (M, N)
+        out = torch.empty(
+            out_shape,
+            dtype=out_dtype if out_dtype is not None else torch.bfloat16,
+            device=a.device,
+        )
+
     _cutedsl_grouped_gemm_custom_op(
         a=a,
         b=b,
         scale_a=scale_a,
         scale_b=scale_b,
         offs=offs,
-        output_tensor=self,
+        output_tensor=out,
         addmm=addmm,
         a_offs=a_offs,
         b_offs=b_offs,

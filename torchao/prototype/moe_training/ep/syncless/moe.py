@@ -32,8 +32,8 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
       h13 = x @ w13.T
       h = SwiGLU(h13)
       out = h @ w2.T
-    Saves x (FP8 data + scales) and h13 (BF16) to the
-    ``SavedActivationsBuffer``.
+    Saves x (FP8 data + scales, dequant-requanted to 32×1 col-major) and
+    h13 (BF16) to the ``SavedActivationsBuffer``.
 
     Backward: reads saved activations, computes dgrad + wgrad
     manually, and frees the buffer allocation.
@@ -49,11 +49,11 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
         w2,
         saved_activations_buffer,
     ):
-        from torchao.prototype.moe_training.ep.syncless.copy_kernel import (
-            copy_into_buffer_2d,
-        )
         from torchao.prototype.moe_training.ep.syncless.cutedsl_mxfp8_gmm import (
             cutedsl_grouped_gemm,
+        )
+        from torchao.prototype.moe_training.ep.syncless.mxfp8_requant_kernel import (
+            mxfp8_dequant_requant_col_major,
         )
         from torchao.prototype.moe_training.kernels.mxfp8 import (
             mx_block_rearrange_2d_M_groups_cuda,
@@ -66,6 +66,7 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
 
         block_size = 32
         hidden_dim = w13.shape[1] // 2
+        M = output_e4m3.shape[0]
 
         group_end_offs = torch.cumsum(num_tokens_per_expert, dim=0, dtype=torch.int32)
 
@@ -76,16 +77,19 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
         buf = saved_activations_buffer
         offset = buf.alloc(num_tokens)
 
-        # Save dispatch output (FP8 data + scales) via Triton copy kernel.
-        copy_into_buffer_2d(
-            output_e4m3, buf.dispatch_out_data_raw, offset, num_tokens, buf.dim
-        )
-        copy_into_buffer_2d(
-            output_scales_e8m0,
-            buf.dispatch_out_scales_raw,
-            offset,
-            num_tokens,
-            buf._scale_dim,
+        # Fused dequant-requant from 1×32 row-major → 32×1 col-major,
+        # writing directly into the saved-activations buffer.
+        # buffer_offset=0 because input is contiguous dispatch output.
+        # out_offset=offset writes to the correct position in the buffer.
+        mxfp8_dequant_requant_col_major(
+            output_e4m3,
+            output_scales_e8m0.view(torch.uint8),
+            buffer_offset=torch.zeros(1, dtype=torch.int64, device=output_e4m3.device),
+            num_tokens=num_tokens,
+            sym_mem_buffer_rows=M,
+            out_data=buf.e4m3_data,
+            out_scales=buf.e8m0_scales,
+            out_offset=offset,
         )
 
         # Quantize w13 weights to FP8 along K (contraction dim) and
@@ -113,7 +117,7 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
             scale_a_blocked,
             w13_scales_blocked,
             group_end_offs,
-            self=buf.swiglu_input,
+            out=buf.swiglu_input,
             out_offset=offset,
             out_dtype=torch.bfloat16,
         )
@@ -125,7 +129,6 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
             silu_mul_fw,
         )
 
-        M = output_e4m3.shape[0]
         h = silu_mul_fw(
             buf.swiglu_input,
             saved_activation_buffer_offset=offset,
@@ -180,7 +183,6 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
         group_end_offs, w13, w2 = ctx.saved_tensors
         offset = ctx.offset
         num_tokens = ctx.num_tokens
-        M = ctx.M
         buf = ctx.saved_activations_buffer
         block_size = 32
 
@@ -208,45 +210,59 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
             num_tokens=num_tokens,
         )
 
+        from torchao.prototype.moe_training.ep.syncless.cutedsl_mxfp8_gmm import (
+            cutedsl_grouped_gemm,
+        )
         from torchao.prototype.moe_training.ep.syncless.mxfp8_requant_kernel import (
-            mxfp8_dequant_requant_col_major,
+            triton_scale_blocked_layout_with_offset,
         )
         from torchao.prototype.moe_training.kernels.mxfp8 import (
             triton_mx_block_rearrange_2d_K_groups,
         )
         from torchao.prototype.mx_formats.kernels import triton_to_mxfp8_dim1
 
-        # Fused dequant 1×32 -> requant 32×1 for saved dispatch activations.
-        x_fp8_col, x_scales_col = mxfp8_dequant_requant_col_major(
-            buf.dispatch_out_data,
-            buf.dispatch_out_scales,
-            buffer_offset=offset,
-            num_tokens=num_tokens,
-            sym_mem_buffer_rows=M,
-            scale_block_size=block_size,
-        )
-
         # Quantize grad_h13 with 32×1 then transpose before grouped gemm, for final 1x32 scaling of RHS operand
         grad_h13_fp8, grad_h13_scales = triton_to_mxfp8_dim1(
             grad_h13, inner_block_size=block_size, scaling_mode="rceil"
         )
 
-        # Rearrange scales to blocked layout for _scaled_grouped_mm.
+        # Rearrange grad_h13 scales to blocked layout (freshly allocated, no offset needed).
         scale_group_offsets = group_end_offs // block_size
         grad_h13_scales_blocked = triton_mx_block_rearrange_2d_K_groups(
             grad_h13_scales, scale_group_offsets
         )
-        x_scales_blocked = triton_mx_block_rearrange_2d_K_groups(
-            x_scales_col, scale_group_offsets
+
+        # Rearrange x scales from the buffer directly into the pre-allocated
+        # blocked scales buffer at the output offset matching b_offs.
+        # This writes at flat position offset * 128 // block_size so the
+        # CuTe DSL GEMM's b_offs pointer shift lands correctly.
+        triton_scale_blocked_layout_with_offset(
+            buf.e8m0_scales.view(torch.float8_e8m0fnu),
+            input_col_offset=offset,
+            output_buffer=buf.blocked_e8m0_scales,
+            output_write_offset=offset,
         )
 
         # MXFP8 w13 wgrad GEMM: grad_w13 = grad_h13.T @ x  (per group)
-        wgrad_w13 = torch._scaled_grouped_mm(
+        # Use cutedsl_grouped_gemm with b_offs=offset to read x data
+        # directly from buf.e4m3_data (overallocated buffer) and x scales
+        # from buf.blocked_e8m0_scales (at matching offset). Zero copies.
+        hidden_dim = ctx.hidden_dim
+        wgrad_w13 = torch.empty(
+            group_end_offs.shape[0],
+            2 * hidden_dim,
+            buf.dim,
+            dtype=torch.bfloat16,
+            device=grad_out.device,
+        )
+        cutedsl_grouped_gemm(
             grad_h13_fp8.transpose(-2, -1),
-            x_fp8_col,
+            buf.e4m3_data.t(),
             grad_h13_scales_blocked,
-            x_scales_blocked,
-            offs=group_end_offs,
+            buf.blocked_e8m0_scales.view(torch.float8_e8m0fnu),
+            group_end_offs,
+            b_offs=offset,
+            out=wgrad_w13,
             out_dtype=torch.bfloat16,
         )
 

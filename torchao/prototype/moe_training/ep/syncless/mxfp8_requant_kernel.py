@@ -95,6 +95,7 @@ def _mxfp8_dequant_requant_col_major_kernel(
     # GPU-resident offset and count
     offset_ptr,
     num_tokens_ptr,
+    out_offset_ptr,
     # Strides
     buffer_stride_row: tl.constexpr,
     scale_buffer_stride_row: tl.constexpr,
@@ -114,7 +115,8 @@ def _mxfp8_dequant_requant_col_major_kernel(
 
     Reads FP8 data from buffer at GPU-resident offset with 1×32 row-major
     scaling, dequantizes to FP32, requantizes with 32×1 column scaling,
-    and writes column-major FP8 output.
+    and writes column-major FP8 output at out_offset position in the
+    output buffer.
 
     Grid: (cdiv(sym_mem_buffer_rows, TILE_M), cdiv(dim, TILE_K))
     """
@@ -123,6 +125,7 @@ def _mxfp8_dequant_requant_col_major_kernel(
 
     offset = tl.load(offset_ptr).to(tl.int64)
     num_tokens = tl.load(num_tokens_ptr).to(tl.int64)
+    out_offset = tl.load(out_offset_ptr).to(tl.int64)
 
     pid_row = tl.program_id(0)
     pid_col = tl.program_id(1)
@@ -175,56 +178,63 @@ def _mxfp8_dequant_requant_col_major_kernel(
     requanted_t = tl.reshape(requanted_t_r, TILE_K, TILE_M)
     requanted_t_fp8 = requanted_t.to(tl.float8e4nv)
 
-    # Store output data in (K, M) row-major layout
+    # Store output data in (K, M) row-major layout, shifted by out_offset
+    out_row_offs = out_offset + row_offs
     out_row_mask = col_offs[:, None] < dim
     out_col_mask = row_offs[None, :] < sym_mem_buffer_rows
     out_mask = out_row_mask & out_col_mask
 
-    out_offsets = col_offs[:, None] * out_data_stride_row + row_offs[None, :]
+    out_offsets = col_offs[:, None] * out_data_stride_row + out_row_offs[None, :]
     tl.store(out_data_ptr + out_offsets, requanted_t_fp8, mask=out_mask)
 
-    # Store output scales in (K, M//32) row-major layout
+    # Store output scales in (K, M//32) row-major layout, shifted by out_offset // SCALE_BLOCK_SIZE
     scale_e8m0_2d = scale_e8m0.reshape(TILE_K, BLOCKS_PER_M_TILE)
 
     scale_row_offs = col_offs
-    scale_col_offs_out = pid_row * BLOCKS_PER_M_TILE + tl.arange(0, BLOCKS_PER_M_TILE)
+    local_scale_col_offs = pid_row * BLOCKS_PER_M_TILE + tl.arange(0, BLOCKS_PER_M_TILE)
+    out_scale_col_offs = out_offset // SCALE_BLOCK_SIZE + local_scale_col_offs
 
     scale_mask = (scale_row_offs[:, None] < dim) & (
-        scale_col_offs_out[None, :] < out_scale_cols
+        local_scale_col_offs[None, :] < out_scale_cols
     )
     scale_offsets_out = (
-        scale_row_offs[:, None] * out_scales_stride_row + scale_col_offs_out[None, :]
+        scale_row_offs[:, None] * out_scales_stride_row + out_scale_col_offs[None, :]
     )
     tl.store(out_scales_ptr + scale_offsets_out, scale_e8m0_2d, mask=scale_mask)
 
 
-@triton_op("torchao::mxfp8_dequant_requant_col_major", mutates_args={})
+@triton_op(
+    "torchao::mxfp8_dequant_requant_col_major",
+    mutates_args={"out_data", "out_scales"},
+)
 def mxfp8_dequant_requant_col_major(
     e4m3_data_buffer: torch.Tensor,
     e8m0_scales_buffer: torch.Tensor,
     buffer_offset: torch.Tensor,
     num_tokens: torch.Tensor,
     sym_mem_buffer_rows: int,
+    out_data: torch.Tensor,
+    out_scales: torch.Tensor,
+    out_offset: torch.Tensor,
     scale_block_size: int = 32,
-) -> tuple[torch.Tensor, torch.Tensor]:
+) -> None:
     """Fused dequant 1×32 -> requant 32×1 with GPU-resident offset/count.
 
-    Takes FP8 data + E8M0 scales from a saved-activations buffer (quantized
-    with 1×32 row-major scaling along dim) and produces column-major FP8 data
-    with 32×1 column scaling along M, ready for MXFP8 wgrad GEMMs.
+    Takes FP8 data + E8M0 scales from an input buffer (quantized with 1×32
+    row-major scaling along dim) and produces column-major FP8 data with
+    32×1 column scaling along M, written into preallocated output buffers
+    at a GPU-resident output offset.
 
     Args:
         e4m3_data_buffer: (buffer_rows, dim) float8_e4m3fn data buffer
-        e8m0_scales_buffer: (buffer_rows, dim//32) float8_e8m0fnu scales buffer
-        buffer_offset: Scalar int64 GPU tensor — start row in buffers
+        e8m0_scales_buffer: (buffer_rows, dim//32) uint8 scales buffer
+        buffer_offset: Scalar int64 GPU tensor — start row in input buffers
         num_tokens: Scalar int64 GPU tensor — number of valid rows
-        sym_mem_buffer_rows: Total output rows M (Python int, must be % 32 == 0)
+        sym_mem_buffer_rows: Number of output M rows to process (Python int, % 32 == 0)
+        out_data: (dim, out_total_cols) float8_e4m3fn — preallocated output data buffer
+        out_scales: (dim, out_total_scale_cols) uint8 — preallocated output scales buffer
+        out_offset: Scalar int64 GPU tensor — column offset in output buffers
         scale_block_size: Scale block size (must be 32)
-
-    Returns:
-        out_data: (M, dim) float8_e4m3fn in column-major layout.
-        out_scales: (dim, M//32) float8_e8m0fnu — 32×1 scales for rearrangement
-            into blocked layout via triton_mx_block_rearrange_2d_K_groups.
     """
     assert scale_block_size == 32, "scale_block_size must be 32"
     assert sym_mem_buffer_rows % scale_block_size == 0, (
@@ -234,19 +244,6 @@ def mxfp8_dequant_requant_col_major(
     dim = e4m3_data_buffer.shape[1]
     scale_dim = e8m0_scales_buffer.shape[1]
     out_scale_cols = sym_mem_buffer_rows // scale_block_size
-
-    out_data = torch.empty(
-        dim,
-        sym_mem_buffer_rows,
-        dtype=torch.float8_e4m3fn,
-        device=e4m3_data_buffer.device,
-    )
-    out_scales = torch.empty(
-        dim,
-        out_scale_cols,
-        dtype=torch.uint8,
-        device=e4m3_data_buffer.device,
-    )
 
     TILE_M = 128
     TILE_K = 128
@@ -263,6 +260,7 @@ def mxfp8_dequant_requant_col_major(
         out_scales,
         buffer_offset,
         num_tokens,
+        out_offset,
         buffer_stride_row=e4m3_data_buffer.stride(0),
         scale_buffer_stride_row=e8m0_scales_buffer.stride(0),
         out_data_stride_row=out_data.stride(0),
@@ -276,4 +274,131 @@ def mxfp8_dequant_requant_col_major(
         TILE_K=TILE_K,
     )
 
-    return out_data.t(), out_scales.view(torch.float8_e8m0fnu)
+
+# ── scale rearrangement with column offset ────────────────────────────
+#
+# Copy of triton_mx_block_rearrange_2d_K_groups from
+# torchao/prototype/moe_training/kernels/mxfp8/quant.py, modified to
+# accept an input column offset so it can read directly from the
+# saved-activations buffer without an intermediate copy.
+
+
+def _ceil_div(a, b):
+    return (a + b - 1) // b
+
+
+@triton.jit
+def _triton_scale_swizzle_with_offset(
+    scale_ptr,
+    scale_rows,
+    scale_cols,
+    output_ptr,
+    input_row_stride,
+    input_col_stride,
+    input_col_offset_ptr,
+    output_write_offset_ptr,
+    output_block_stride,
+    SCALE_BLOCK_SIZE: tl.constexpr,
+    BLOCK_ROWS: tl.constexpr,
+    BLOCK_COLS: tl.constexpr,
+):
+    """Identical to triton_scale_swizzle from mx_formats/kernels.py,
+    but reads from an input column offset and writes at a flat output
+    offset.  Both offsets are GPU-resident (zero D2H sync).
+
+    Grid: (num_row_blocks, num_col_blocks)
+    """
+    pid_row = tl.program_id(0)
+    pid_col = tl.program_id(1)
+
+    in_col_offset = tl.load(input_col_offset_ptr).to(tl.int64) // SCALE_BLOCK_SIZE
+    out_write_offset = (
+        tl.load(output_write_offset_ptr).to(tl.int64) * 128 // SCALE_BLOCK_SIZE
+    )
+
+    rows = tl.arange(0, BLOCK_ROWS)[:, None]
+    cols = tl.arange(0, BLOCK_COLS)[None, :]
+
+    start_row = pid_row * BLOCK_ROWS
+    start_col = in_col_offset + pid_col * BLOCK_COLS
+    global_rows = start_row + rows
+    global_cols = start_col + cols
+
+    mask = (global_rows < scale_rows) & (global_cols < (in_col_offset + scale_cols))
+
+    input_scales = tl.load(
+        scale_ptr + global_rows * input_row_stride + global_cols * input_col_stride,
+        mask=mask,
+        other=0.0,
+    )
+
+    r_div_32 = rows // 32
+    r_mod_32 = rows % 32
+    dest_indices = r_mod_32 * 16 + r_div_32 * 4 + cols
+
+    dest_indices_flat = tl.reshape(dest_indices, (BLOCK_ROWS * BLOCK_COLS))
+    scales_flat = tl.reshape(input_scales, (BLOCK_ROWS * BLOCK_COLS))
+
+    LOCAL_NUMEL = BLOCK_ROWS * BLOCK_COLS
+    block_offset = pid_col * LOCAL_NUMEL + (pid_row * output_block_stride)
+
+    tl.store(
+        output_ptr + out_write_offset + block_offset + dest_indices_flat,
+        scales_flat,
+    )
+
+
+@triton_op(
+    "torchao::triton_scale_blocked_layout_with_offset", mutates_args={"output_buffer"}
+)
+def triton_scale_blocked_layout_with_offset(
+    scales_buffer: torch.Tensor,
+    input_col_offset: torch.Tensor,
+    output_buffer: torch.Tensor,
+    output_write_offset: torch.Tensor,
+    scale_block_size: int = 32,
+) -> None:
+    """Identical to ``triton_mx_block_rearrange`` from mx_formats/kernels.py,
+    but reads from ``scales_buffer`` at a GPU-resident input column offset
+    and writes into ``output_buffer`` at a GPU-resident flat output offset.
+
+    Zero D2H sync — all offsets are GPU tensors.
+
+    Args:
+        scales_buffer: (rows, total_scale_cols) uint8 or e8m0 scale buffer.
+        input_col_offset: Scalar int64 GPU tensor — raw token offset
+            (divided by scale_block_size inside the kernel).
+        output_buffer: Pre-allocated flat uint8 buffer (mutated in-place).
+        output_write_offset: Scalar int64 GPU tensor — raw token offset
+            for output position (multiplied by 128 // scale_block_size
+            inside kernel to match CuTe DSL b_offs pointer arithmetic).
+        scale_block_size: MXFP8 block size (default 32).
+    """
+    assert scales_buffer.ndim == 2
+    assert scales_buffer.element_size() == 1
+
+    rows = scales_buffer.shape[0]
+    cols = scales_buffer.shape[1]
+
+    BLOCK_ROWS, BLOCK_COLS = 128, 4
+    n_row_blocks = _ceil_div(rows, BLOCK_ROWS)
+    n_col_blocks = _ceil_div(cols, BLOCK_COLS)
+    padded_cols = n_col_blocks * BLOCK_COLS
+
+    output_block_stride = BLOCK_ROWS * BLOCK_COLS * (padded_cols // BLOCK_COLS)
+
+    grid = (n_row_blocks, n_col_blocks)
+    wrap_triton(_triton_scale_swizzle_with_offset)[grid](
+        scales_buffer.view(torch.uint8),
+        rows,
+        cols,
+        output_buffer.view(torch.uint8),
+        scales_buffer.stride(0),
+        scales_buffer.stride(1),
+        input_col_offset,
+        output_write_offset,
+        output_block_stride,
+        SCALE_BLOCK_SIZE=scale_block_size,
+        BLOCK_ROWS=BLOCK_ROWS,
+        BLOCK_COLS=BLOCK_COLS,
+    )
