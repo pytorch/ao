@@ -2587,9 +2587,5 @@ at::Tensor _qscaled_dot_product_cpu(
 
 } // ISA namespace
 
-// TORCH_LIBRARY_IMPL(torchao, CPU, m) {
-//   m.impl("torchao::qscaled_dot_product", &_qscaled_dot_product_cpu);
-// }
-
 // } // at::native
 } // namespace torchao

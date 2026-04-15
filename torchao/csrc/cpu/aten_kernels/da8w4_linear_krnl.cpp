@@ -748,9 +748,4 @@ at::Tensor da8w4_linear_impl(
 
 } // ISA namespace
 
-// TORCH_LIBRARY_IMPL(torchao, CPU, m) {
-//   m.impl("torchao::da8w4_linear_prepack_cpu", &da8w4_linear_prepack_impl);
-//   m.impl("torchao::da8w4_linear_cpu", &da8w4_linear_impl);
-// }
-
 } // namespace torchao

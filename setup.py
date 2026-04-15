@@ -443,25 +443,28 @@ class X86KernelBuild:
             X86KernelBuild._cxx = "g++"
             X86KernelBuild._cxx_major = X86KernelBuild._gcc_major("g++")
         X86KernelBuild._cxx_checked = True
-        if (
-            not X86KernelBuild._cxx
-            or X86KernelBuild._cxx_major < X86KernelBuild._MINIMUM_GCC_MAJOR
-        ):
-            if use_cpu_kernels and is_linux:
-                print(
-                    "[WARNING] No suitable C++ compiler found for building X86 kernels. "
-                    "Please set the CXX environment variable to a GCC compiler "
-                    "(version 15 for full features, 11 or higher required)."
-                )
         return X86KernelBuild._cxx
 
     @staticmethod
     def is_enabled() -> bool:
         """Return True when CPU aten_kernels should be included in the build."""
-        compiler_ok = False
-        if X86KernelBuild.find_cxx_compiler() is not None:
-            compiler_ok = X86KernelBuild._cxx_major >= X86KernelBuild._MINIMUM_GCC_MAJOR
-        return bool(use_cpu_kernels and is_linux and compiler_ok)
+        # compiler_ok = False
+        # if X86KernelBuild.find_cxx_compiler() is not None:
+        #     compiler_ok = X86KernelBuild._cxx_major >= X86KernelBuild._MINIMUM_GCC_MAJOR
+        enabled = bool(use_cpu_kernels and is_linux)
+        if enabled and not X86KernelBuild._cxx_checked:
+            X86KernelBuild.find_cxx_compiler()
+            if (
+                not X86KernelBuild._cxx
+                or X86KernelBuild._cxx_major < X86KernelBuild._MINIMUM_GCC_MAJOR
+            ):
+                raise RuntimeError(
+                    "You are building with `USE_CPU_KERNELS=1` but "
+                    "no suitable C++ compiler found for building X86 kernels. "
+                    "Please set the CXX environment variable to a GCC compiler "
+                    "(version 15 for full features, 11 or higher required)."
+                )
+        return enabled
 
     @staticmethod
     def get_include_flags() -> list:

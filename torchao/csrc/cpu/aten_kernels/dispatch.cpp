@@ -4,7 +4,7 @@
 
 namespace torchao {
 
-/********** DA8W4 Linear Kernel **********/
+/********** DA8W4 Linear Kernel Declare **********/
 #define declare_da8w4_linear_prepack_impl \
   std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor> \
   da8w4_linear_prepack_impl( \
@@ -39,7 +39,7 @@ namespace torchao {
     bias, \
     output_dtype)
 
-/********** FLOAT8 Linear Kernel **********/
+/********** FLOAT8 Linear Kernel Declare **********/
 #define declare_float8_linear_prepack_impl \
   std::tuple<at::Tensor, at::Tensor> \
   float8_linear_prepack_impl( \
@@ -67,7 +67,7 @@ namespace torchao {
     bias, \
     output_dtype)
 
-/********** Scaled Embedding Bag Kernel **********/
+/********** Scaled Embedding Bag Kernel Declare **********/
 #define declare_scaled_embedding_bag_impl \
   at::Tensor _scaled_embedding_bag_impl( \
     const at::Tensor &qweight, \
@@ -90,7 +90,7 @@ namespace torchao {
     include_last_offset, \
     output_dtype)
 
-/********** Quantized SDPA Kernel **********/
+/********** Quantized SDPA Kernel Declare **********/
 #define declare_qscaled_dot_product_impl \
   at::Tensor _qscaled_dot_product_cpu( \
     const at::Tensor& query, \

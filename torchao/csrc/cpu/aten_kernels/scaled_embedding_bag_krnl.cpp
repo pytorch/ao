@@ -369,8 +369,4 @@ at::Tensor _scaled_embedding_bag_impl(
 
 } // anonymous namespace
 
-// TORCH_LIBRARY_IMPL(torchao, CPU, m) {
-//   m.impl("torchao::_scaled_embedding_bag", &_scaled_embedding_bag_impl);
-// }
-
 } // namespace torchao
