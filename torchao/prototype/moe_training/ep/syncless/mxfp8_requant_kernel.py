@@ -301,6 +301,9 @@ def triton_scale_blocked_layout_with_offset(
 
     BLOCK_ROWS, BLOCK_COLS = 128, 4
 
+    def _ceil_div(x, y):
+        return (x + y - 1) // y
+
     n_row_blocks = _ceil_div(rows, BLOCK_ROWS)
     n_col_blocks = _ceil_div(num_scale_cols, BLOCK_COLS)
     padded_rows = n_row_blocks * BLOCK_ROWS
@@ -308,7 +311,8 @@ def triton_scale_blocked_layout_with_offset(
 
     out = scales_buffer.new_empty(padded_rows * padded_cols, dtype=torch.uint8)
 
-    output_block_stride = BLOCK_ROWS * BLOCK_COLS * n_col_blocks
+    stride_per_block = BLOCK_ROWS * BLOCK_COLS
+    out_stride_per_row_of_blocks = BLOCK_ROWS * BLOCK_COLS * n_col_blocks
 
     grid = (n_row_blocks, n_col_blocks)
     wrap_triton(_triton_scale_swizzle_with_offset)[grid](
@@ -319,7 +323,8 @@ def triton_scale_blocked_layout_with_offset(
         scales_buffer.stride(0),
         scales_buffer.stride(1),
         input_col_offset,
-        output_block_stride,
+        OUT_STRIDE_PER_BLOCK=stride_per_block,
+        OUT_STRIDE_PER_ROW_OF_BLOCKS=out_stride_per_row_of_blocks,
         SCALE_BLOCK_SIZE=scale_block_size,
         BLOCK_ROWS=BLOCK_ROWS,
         BLOCK_COLS=BLOCK_COLS,
@@ -337,7 +342,8 @@ def _triton_scale_swizzle_with_offset(
     input_row_stride,
     input_col_stride,
     input_col_offset_ptr,
-    output_block_stride,
+    OUT_STRIDE_PER_BLOCK: tl.constexpr,
+    OUT_STRIDE_PER_ROW_OF_BLOCKS: tl.constexpr,
     SCALE_BLOCK_SIZE: tl.constexpr,
     BLOCK_ROWS: tl.constexpr,
     BLOCK_COLS: tl.constexpr,
@@ -376,11 +382,9 @@ def _triton_scale_swizzle_with_offset(
     dest_indices_flat = tl.reshape(dest_indices, (BLOCK_ROWS * BLOCK_COLS))
     scales_flat = tl.reshape(input_scales, (BLOCK_ROWS * BLOCK_COLS))
 
-    STRIDE_PER_BLOCK: tl.constexpr = BLOCK_ROWS * BLOCK_COLS
-    stride_per_row_of_blocks = STRIDE_PER_BLOCK * (
-        (scale_cols + BLOCK_COLS - 1) // BLOCK_COLS
+    block_offset = (
+        pid_row * OUT_STRIDE_PER_ROW_OF_BLOCKS + pid_col * OUT_STRIDE_PER_BLOCK
     )
-    block_offset = pid_row * stride_per_row_of_blocks + pid_col * STRIDE_PER_BLOCK
 
     tl.store(
         output_ptr + block_offset + dest_indices_flat,
