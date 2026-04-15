@@ -139,9 +139,9 @@ def _to_mx_rceil(
         # not work properly in eager mode due to mismatch between input and
         # output tensor dtype (limitation of JITerator).
         # Note: we use both `torch.compiler.is_compiling()` as well as `is_fake`
-        # because `torch.compiler.is_compiling()` properly covers 
+        # because `torch.compiler.is_compiling()` properly covers
         # microbenchmarks, and `is_fake` properly covers e2e runs where this code
-        # path is hit through `__torch_dispatch__` and 
+        # path is hit through `__torch_dispatch__` and
         # `torch.compiler.is_compiling()` returns False.
         # Note that we need both checks, as neither of them work in both benchmark
         # and e2e use cases by themselves.
