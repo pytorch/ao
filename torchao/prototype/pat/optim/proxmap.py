@@ -28,17 +28,15 @@ class ProxMap(ABC):
         self,
         p: Tensor,
         gamma: Union[Tensor, float],
-        tau_reweight: Union[Tensor, float] = 1.0,
     ) -> Union[Tensor, float]:
         """Return pruning threshold"""
-        return self.reg_lambda * self.tau(p) * tau_reweight * gamma
+        return self.reg_lambda * self.tau(p) * gamma
 
     @abstractmethod
     def apply_(
         self,
         p: Tensor,
         gamma: Union[Tensor, float],
-        tau_reweight: Union[Tensor, float] = 1.0,
     ) -> Tuple[Tensor, Tensor]:
         """Apply proximal mapping to p in-place and return number of zero
         elements and group-level norm of p.

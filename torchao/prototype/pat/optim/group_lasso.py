@@ -25,11 +25,10 @@ class ProxGroupLasso(ProxMap):
         self,
         p: Tensor,
         gamma: Union[Tensor, float],
-        tau_reweight: Union[Tensor, float] = 1.0,
     ) -> Tuple[Tensor, Tensor]:
         p_norm = self._get_norm(p)
         mult = torch.maximum(
-            1 - self.threshold(p, gamma, tau_reweight) / p_norm,
+            1 - self.threshold(p, gamma) / p_norm,
             torch.zeros_like(p_norm),
         )
         p.mul_(mult)
@@ -55,11 +54,10 @@ class ProxGroupLassoVectorized(ProxGroupLasso):
         self,
         p: Tensor,
         gamma: Union[Tensor, float],
-        tau_reweight: Union[Tensor, float] = 1.0,
     ) -> Tuple[Tensor, Tensor]:
         p_norm_vec = self._get_norm(p)
         mult = torch.maximum(
-            1 - self.threshold(p, gamma, tau_reweight) / p_norm_vec,
+            1 - self.threshold(p, gamma) / p_norm_vec,
             torch.zeros_like(p_norm_vec),
         )
         p.mul_(mult)
