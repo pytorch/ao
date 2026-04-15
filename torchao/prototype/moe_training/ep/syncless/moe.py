@@ -234,7 +234,7 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
         # Use cutedsl_grouped_gemm with b_offs=offset to read x data
         # directly from buf.e4m3_data (overallocated buffer).
         # NOTE: x_scales_blocked is a freshly allocated tensor starting at 0,
-        # so b_offs should NOT shift the scales pointer.
+        # so we pass b_sf_offs=torch.zeros to prevent shifting the scale pointer.
         wgrad_w13 = cutedsl_grouped_gemm(
             grad_h13_fp8.transpose(-2, -1),
             buf.e4m3_data.t(),
@@ -242,6 +242,7 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
             x_scales_blocked.view(torch.float8_e8m0fnu),
             group_end_offs,
             b_offs=offset,
+            b_sf_offs=torch.zeros(1, dtype=torch.int64, device=grad_out.device),
             out_dtype=torch.bfloat16,
         )
 

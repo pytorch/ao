@@ -558,6 +558,8 @@ class Sm100GroupedBlockScaledGemmKernel:
         cute_offs: cute.Tensor,
         a_offs: cute.Tensor | None,
         b_offs: cute.Tensor | None,
+        a_sf_offs: cute.Tensor | None,
+        b_sf_offs: cute.Tensor | None,
         out_offset: cute.Tensor | None,
         total_num_clusters: cute.Tensor,
         problem_shape_mnkl: cute.Tensor,
@@ -850,6 +852,8 @@ class Sm100GroupedBlockScaledGemmKernel:
             offs=cute_offs,
             a_offs=a_offs,
             b_offs=b_offs,
+            a_sf_offs=a_sf_offs,
+            b_sf_offs=b_sf_offs,
             out_offset=out_offset,
             input_problem_sizes_gmnk=problem_sizes_gmnk,
             input_strides_abc=input_strides_abc,
@@ -2548,6 +2552,8 @@ class Sm100GroupedBlockScaledGemmKernel:
         offs: cute.Tensor,
         a_offs: cute.Tensor | None,
         b_offs: cute.Tensor | None,
+        a_sf_offs: cute.Tensor | None,
+        b_sf_offs: cute.Tensor | None,
         out_offset: cute.Tensor | None,
         input_problem_sizes_gmnk: tuple[int, int, int, int],
         input_strides_abc: tuple[
@@ -2676,11 +2682,21 @@ class Sm100GroupedBlockScaledGemmKernel:
                         )
                         if cutlass.const_expr(a_offs is not None):
                             a_offset += a_offs[0] * stride_ak * element_size_sf
+                        if cutlass.const_expr(a_sf_offs is not None):
+                            a_sf_offset += (
+                                a_sf_offs[0] * 128 // sf_block_size * element_size_sf
+                            )
+                        elif cutlass.const_expr(a_offs is not None):
                             a_sf_offset += (
                                 a_offs[0] * 128 // sf_block_size * element_size_sf
                             )
                         if cutlass.const_expr(b_offs is not None):
                             b_offset += b_offs[0] * stride_bk * element_size_sf
+                        if cutlass.const_expr(b_sf_offs is not None):
+                            b_sf_offset += (
+                                b_sf_offs[0] * 128 // sf_block_size * element_size_sf
+                            )
+                        elif cutlass.const_expr(b_offs is not None):
                             b_sf_offset += (
                                 b_offs[0] * 128 // sf_block_size * element_size_sf
                             )
@@ -2730,7 +2746,9 @@ _CACHE_KEY_TYPE = tuple[
     tuple[torch.dtype, ...],
     tuple[int, int, int],  # leading dims
     tuple[int, int],  # a and b ranks
-    tuple[bool, bool, bool],  # a_offs, b_offs, out_offset are absent
+    tuple[
+        bool, bool, bool, bool, bool
+    ],  # a_offs, b_offs, a_sf_offs, b_sf_offs, out_offset are absent
     tuple[int, int, int, int],  # gmnk with -1 for dynamic dim
     tuple[int, int],  # runtime dynamic dims
     bool,  # addmm
@@ -2756,6 +2774,8 @@ def grouped_gemm(
     addmm: bool = False,
     a_offs: torch.Tensor | None = None,
     b_offs: torch.Tensor | None = None,
+    a_sf_offs: torch.Tensor | None = None,
+    b_sf_offs: torch.Tensor | None = None,
     out_offset: torch.Tensor | None = None,
     num_sms: int | None = None,
     self: torch.Tensor | None = None,
@@ -2765,10 +2785,9 @@ def grouped_gemm(
 
     assert a.dtype == b.dtype == torch.float8_e4m3fn
     assert scale_a.dtype == scale_b.dtype == torch.float8_e8m0fnu
-    for start_off in (a_offs, b_offs):
+    for start_off in (a_offs, b_offs, a_sf_offs, b_sf_offs):
         if start_off is not None:
             assert start_off.numel() == 1
-            # assert start_off.dtype == torch.int64
     if out_offset is not None:
         assert out_offset.numel() == 1
         assert b.ndim == 3, "out_offset is only supported for 2d A x 3d B (M < 0 case)"
@@ -2792,19 +2811,19 @@ def grouped_gemm(
     N = b.shape[-1]
     K = a.shape[-1]
     if out_3d:
-        assert a.shape[-2] % 128 == 0, (
-            "for 2d-2d inputs, a non-contraction dimension has to be multiple of 128"
-        )
-        assert b.shape[-1] % 128 == 0, (
-            "for 2d-2d inputs, b non-contraction dimension has to be multiple of 128"
-        )
+        assert (
+            a.shape[-2] % 128 == 0
+        ), "for 2d-2d inputs, a non-contraction dimension has to be multiple of 128"
+        assert (
+            b.shape[-1] % 128 == 0
+        ), "for 2d-2d inputs, b non-contraction dimension has to be multiple of 128"
     else:
-        assert a.shape[-1] % 128 == 0, (
-            "for 3d-2d inputs, a contraction dimension has to be multiple of 128"
-        )
-        assert b.shape[-1] % 128 == 0, (
-            "for 3d-2d inputs, b non-contraction dimension has to be multiple of 128"
-        )
+        assert (
+            a.shape[-1] % 128 == 0
+        ), "for 3d-2d inputs, a contraction dimension has to be multiple of 128"
+        assert (
+            b.shape[-1] % 128 == 0
+        ), "for 3d-2d inputs, b non-contraction dimension has to be multiple of 128"
 
     problem_sizes_mnk = (M, N, -1) if out_3d else (-1, N, K)
 
@@ -2820,9 +2839,9 @@ def grouped_gemm(
             assert self.shape[0] >= M
             assert self.shape[1] == N
         else:
-            assert self.shape == torch.Size(out_shape), (
-                f"Provided output shape {self.shape} does not match expected {out_shape}"
-            )
+            assert self.shape == torch.Size(
+                out_shape
+            ), f"Provided output shape {self.shape} does not match expected {out_shape}"
         assert self.dtype in (torch.bfloat16, torch.float32)
         assert out_dtype is None or self.dtype == out_dtype
         out = self
@@ -2885,6 +2904,10 @@ def grouped_gemm(
     # Workaround CuteDSL bug that could not infer dtype of scalar tensors by turning it into 1D tensor
     cute_start_offs: list[cute.Tensor | None] = [
         x if x is None else from_dlpack(x.view(-1).detach()) for x in (a_offs, b_offs)
+    ]
+    cute_sf_offs: list[cute.Tensor | None] = [
+        x if x is None else from_dlpack(x.view(-1).detach())
+        for x in (a_sf_offs, b_sf_offs)
     ]
     cute_out_offset: cute.Tensor | None = (
         None if out_offset is None else from_dlpack(out_offset.view(-1).detach())
@@ -2987,7 +3010,13 @@ def grouped_gemm(
         (a.dtype, b.dtype, out.dtype),
         leading_dims,
         (a.ndim, b.ndim),
-        (a_offs is None, b_offs is None, out_offset is None),
+        (
+            a_offs is None,
+            b_offs is None,
+            a_sf_offs is None,
+            b_sf_offs is None,
+            out_offset is None,
+        ),
         (G, *problem_sizes_mnk),
         dynamic_dims,
         addmm,
@@ -3013,6 +3042,8 @@ def grouped_gemm(
             cute_offs,
             cute_start_offs[0],
             cute_start_offs[1],
+            cute_sf_offs[0],
+            cute_sf_offs[1],
             cute_out_offset,
             cute_num_total_clusters,
             cute_problem_sizes_mnkl,
@@ -3052,6 +3083,8 @@ def grouped_gemm(
         cute_offs,
         cute_start_offs[0],
         cute_start_offs[1],
+        cute_sf_offs[0],
+        cute_sf_offs[1],
         cute_out_offset,
         cute_num_total_clusters,
         cute_problem_sizes_mnkl,
@@ -3078,6 +3111,8 @@ def grouped_addmm_(
     *,
     a_offs=None,
     b_offs=None,
+    a_sf_offs=None,
+    b_sf_offs=None,
     out_offset=None,
     num_sms=None,
     out_dtype=None,
@@ -3090,6 +3125,8 @@ def grouped_addmm_(
         offs,
         a_offs=a_offs,
         b_offs=b_offs,
+        a_sf_offs=a_sf_offs,
+        b_sf_offs=b_sf_offs,
         out_offset=out_offset,
         num_sms=num_sms,
         self=out,
@@ -3230,6 +3267,8 @@ def _cutedsl_grouped_gemm_custom_op(
     addmm: bool = False,
     a_offs: Optional[torch.Tensor] = None,
     b_offs: Optional[torch.Tensor] = None,
+    a_sf_offs: Optional[torch.Tensor] = None,
+    b_sf_offs: Optional[torch.Tensor] = None,
     out_offset: Optional[torch.Tensor] = None,
     num_sms: Optional[int] = None,
     out_dtype: Optional[torch.dtype] = None,
@@ -3244,6 +3283,8 @@ def _cutedsl_grouped_gemm_custom_op(
         addmm=addmm,
         a_offs=a_offs,
         b_offs=b_offs,
+        a_sf_offs=a_sf_offs,
+        b_sf_offs=b_sf_offs,
         out_offset=out_offset,
         num_sms=num_sms,
         self=output_tensor,
@@ -3262,6 +3303,8 @@ def _fake_cutedsl_grouped_gemm_custom_op(
     addmm: bool = False,
     a_offs: Optional[torch.Tensor] = None,
     b_offs: Optional[torch.Tensor] = None,
+    a_sf_offs: Optional[torch.Tensor] = None,
+    b_sf_offs: Optional[torch.Tensor] = None,
     out_offset: Optional[torch.Tensor] = None,
     num_sms: Optional[int] = None,
     out_dtype: Optional[torch.dtype] = None,
@@ -3312,6 +3355,8 @@ def cutedsl_grouped_gemm(
     addmm: bool = False,
     a_offs: Optional[torch.Tensor] = None,
     b_offs: Optional[torch.Tensor] = None,
+    a_sf_offs: Optional[torch.Tensor] = None,
+    b_sf_offs: Optional[torch.Tensor] = None,
     out_offset: Optional[torch.Tensor] = None,
     num_sms: Optional[int] = None,
     out: Optional[torch.Tensor] = None,
@@ -3345,6 +3390,8 @@ def cutedsl_grouped_gemm(
         addmm=addmm,
         a_offs=a_offs,
         b_offs=b_offs,
+        a_sf_offs=a_sf_offs,
+        b_sf_offs=b_sf_offs,
         out_offset=out_offset,
         num_sms=num_sms,
         out_dtype=out_dtype,
