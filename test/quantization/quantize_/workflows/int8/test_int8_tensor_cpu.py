@@ -15,19 +15,19 @@ from torchao.quantization import (
     quantize_,
 )
 from torchao.quantization.granularity import PerRow, PerTensor
-from torchao.quantization.quant_primitives import MappingType, choose_qparams_affine
+from torchao.quantization.quant_primitives import (
+    _DTYPE_TO_QVALUE_BOUNDS,
+    MappingType,
+    choose_qparams_affine,
+)
 from torchao.quantization.quantize_.workflows.int8.int8_tensor import (
-    _FULL_QUANT_MAX,
-    _FULL_QUANT_MIN,
-    _REDUCED_QUANT_MAX,
-    _REDUCED_QUANT_MIN,
     Int8Tensor,
+    _should_reduce_range,
 )
 from torchao.quantization.utils import compute_error, get_block_size
 from torchao.testing.model_architectures import ToyTwoLinearModel
 from torchao.testing.utils import TorchAOIntegrationTestCase
 from torchao.utils import (
-    _cpu_is_vnni_supported,
     is_ROCM,
 )
 
@@ -57,7 +57,6 @@ class TestInt8TensorCPU(TorchAOIntegrationTestCase):
         input_tensor = torch.randn(M, K, dtype=dtype, device=device)
         model = ToyTwoLinearModel(K, N, K, dtype=dtype, device=device).eval()
         model_q = copy.deepcopy(model)
-        expected_reduce_range = not _cpu_is_vnni_supported()
 
         if config_mode == "dynamic":
             config = Int8DynamicActivationInt8WeightConfig(
@@ -67,11 +66,10 @@ class TestInt8TensorCPU(TorchAOIntegrationTestCase):
             )
         else:
             act_granularity, _ = Int8Tensor._normalize_granularity(granularity)
-            quant_min, quant_max = (
-                (_REDUCED_QUANT_MIN, _REDUCED_QUANT_MAX)
-                if expected_reduce_range
-                else (_FULL_QUANT_MIN, _FULL_QUANT_MAX)
-            )
+            reduce_range = _should_reduce_range(input_tensor.device)
+            quant_min, quant_max = _DTYPE_TO_QVALUE_BOUNDS[torch.int8]
+            if reduce_range:
+                quant_min, quant_max = quant_min // 2, quant_max // 2
             block_size = get_block_size(input_tensor.shape, act_granularity)
             act_quant_scale, act_quant_zero_point = choose_qparams_affine(
                 input=input_tensor,

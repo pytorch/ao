@@ -16,6 +16,7 @@ from torchao.quantization.granularity import (
     PerRow,
 )
 from torchao.quantization.quant_primitives import (
+    _DTYPE_TO_QVALUE_BOUNDS,
     MappingType,
     choose_qparams_affine,
     dequantize_affine,
@@ -31,22 +32,13 @@ from torchao.utils import TorchAOBaseTensor, _cpu_is_vnni_supported, fill_defaul
 __all__ = [
     "Int8Tensor",
     "QuantizeTensorToInt8Kwargs",
-    "_REDUCED_QUANT_MIN",
-    "_REDUCED_QUANT_MAX",
-    "_FULL_QUANT_MIN",
-    "_FULL_QUANT_MAX",
 ]
 
 aten = torch.ops.aten
 
-_REDUCED_QUANT_MIN = -64
-_REDUCED_QUANT_MAX = 63
-_FULL_QUANT_MIN = -128
-_FULL_QUANT_MAX = 127
 
-
-def _should_use_reduced_range(tensor: torch.Tensor) -> bool:
-    return tensor.device.type == "cpu" and not _cpu_is_vnni_supported()
+def _should_reduce_range(device: torch.device) -> bool:
+    return device.type == "cpu" and not _cpu_is_vnni_supported()
 
 
 @dataclass
@@ -56,10 +48,14 @@ class QuantizeTensorToInt8Kwargs(QuantizeTensorKwargs):
     Args:
         granularity: the granularity for the Tensor, currently either PerRow() or PerTensor()
         mapping_type: whether to use symmetric or asymmetric quant
+        reduce_range: If None, choose the int8 quantization range automatically.
+            Use the reduced range on CPU without VNNI, otherwise use the full range.
+            If True or False, use that value directly.
     """
 
     granularity: Granularity
     mapping_type: MappingType = MappingType.SYMMETRIC
+    reduce_range: Optional[bool] = None
 
 
 class Int8Tensor(TorchAOBaseTensor):
@@ -74,10 +70,7 @@ class Int8Tensor(TorchAOBaseTensor):
     Non-Tensor Attributes:
         granularity: the granularity for quantization (e.g., PerRow(), PerTensor())
         act_quant_kwargs: flags for dynamic activation quantization
-        reduce_range: internal flag for reduced int8 quantization range.
-            If True, use [-64, 63] (defined by [_REDUCED_QUANT_MIN,
-            _REDUCED_QUANT_MAX]) instead of full range [-128, 127]
-            (defined by [_FULL_QUANT_MIN, _FULL_QUANT_MAX])
+        reduce_range: optional flag for reduced int8 quantization range.
     """
 
     tensor_data_names = ["qdata", "scale"]
@@ -195,18 +188,22 @@ class Int8Tensor(TorchAOBaseTensor):
         act_quant_scale: Optional[torch.Tensor] = None,
         act_quant_zero_point: Optional[torch.Tensor] = None,
         act_pre_scale: Optional[torch.Tensor] = None,
+        reduce_range: Optional[bool] = None,
     ):
         """Create Int8Tensor from high-precision tensor"""
         block_size = get_block_size(hp_tensor.shape, granularity)
         block_size = list(block_size)
 
-        reduce_range = _should_use_reduced_range(hp_tensor)
+        if reduce_range is None:
+            # If users do not set reduce_range explicitly, set it automatically.
+            reduce_range = _should_reduce_range(hp_tensor.device)
+            if act_quant_kwargs is not None and act_quant_kwargs.reduce_range is None:
+                act_quant_kwargs.reduce_range = reduce_range
 
-        quant_min, quant_max = (
-            (_REDUCED_QUANT_MIN, _REDUCED_QUANT_MAX)
-            if reduce_range
-            else (_FULL_QUANT_MIN, _FULL_QUANT_MAX)
-        )
+        quant_min, quant_max = _DTYPE_TO_QVALUE_BOUNDS[torch.int8]
+        if reduce_range:
+            quant_min, quant_max = quant_min // 2, quant_max // 2
+
         if scale is None:
             scale, zero_point = choose_qparams_affine(
                 input=hp_tensor,
@@ -261,19 +258,12 @@ class Int8Tensor(TorchAOBaseTensor):
 
     def dequantize(self, output_dtype: Optional[torch.dtype] = None) -> torch.Tensor:
         """Dequantize int8 tensor to floating point"""
-        quant_min, quant_max = (
-            (_REDUCED_QUANT_MIN, _REDUCED_QUANT_MAX)
-            if self.reduce_range
-            else (_FULL_QUANT_MIN, _FULL_QUANT_MAX)
-        )
         return dequantize_affine(
             input=self.qdata,
             block_size=self.block_size,
             scale=self.scale,
             zero_point=self.zero_point,
             input_dtype=torch.int8,
-            quant_min=quant_min,
-            quant_max=quant_max,
             output_dtype=output_dtype if output_dtype is not None else self.dtype,
         )
 
