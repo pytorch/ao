@@ -226,13 +226,11 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
 
         # Rearrange x scales from the buffer directly into the pre-allocated
         # blocked scales buffer at the output offset matching b_offs.
-        # This writes at flat position offset * 128 // block_size so the
-        # CuTe DSL GEMM's b_offs pointer shift lands correctly.
         triton_scale_blocked_layout_with_offset(
             buf.e8m0_scales.view(torch.float8_e8m0fnu),
             input_col_offset=offset,
-            output_buffer=buf.blocked_e8m0_scales,
-            output_write_offset=offset,
+            out=buf.blocked_e8m0_scales,
+            out_offset=offset,
         )
 
         # MXFP8 w13 wgrad GEMM: grad_w13 = grad_h13.T @ x  (per group)

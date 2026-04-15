@@ -143,35 +143,6 @@ class SavedActivationsBuffer:
         self._raw_scales.ensure_mapped(gpu_tokens * self._scale_dim)
         self._raw_h13.ensure_mapped(gpu_tokens * self._h13_cols * 2)
 
-        self._cpu_mapped: bool = False
-
-    # -- Raw buffer accessors (flat uint8, no shape/view transforms) ---
-
-    @property
-    def swiglu_input_raw(self) -> torch.Tensor:
-        """Flat uint8 tensor for SwiGLU input (BF16 data as raw bytes)."""
-        return self._raw_h13.tensor
-
-    # -- CPU overflow mapping ------------------------------------------
-
-    def ensure_cpu_mapped(self) -> None:
-        """Eagerly map all CPU overflow pages across the three sub-buffers.
-
-        Called when the allocator's GPU pool is exhausted and allocation
-        spills to the CPU pool.  No-op after the first call.
-        """
-        if self._cpu_mapped or self.cpu_tokens == 0:
-            return
-        total_data = (self.gpu_tokens + self.cpu_tokens) * self.dim
-        total_scales = (self.gpu_tokens + self.cpu_tokens) * self._scale_dim
-        total_h13 = (self.gpu_tokens + self.cpu_tokens) * self._h13_cols * 2
-        self._raw_data.ensure_mapped(total_data)
-        self._raw_scales.ensure_mapped(total_scales)
-        self._raw_h13.ensure_mapped(total_h13)
-        self._cpu_mapped = True
-
-    # -- GPU-side allocator methods ------------------------------------
-
     def alloc(self, num_tokens: "torch.Tensor | int") -> torch.Tensor:
         """Allocate *num_tokens* rows and return a scalar int64 GPU tensor offset.
 

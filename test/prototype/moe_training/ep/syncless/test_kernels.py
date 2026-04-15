@@ -422,7 +422,7 @@ def _torch_mxfp8_dequant_buffer(
 @skip_if_rocm("ROCm enablement in progress")
 @pytest.mark.parametrize("m", [256, 512, 1024])
 @pytest.mark.parametrize("total_k", [1024, 2048, 4096])
-@pytest.mark.parametrize("buffer_extra_cols", [0, 128, 256])
+@pytest.mark.parametrize("offset", [0, 32, 64])
 def test_triton_scale_blocked_layout_with_offset(
     m: int,
     total_k: int,
@@ -437,37 +437,29 @@ def test_triton_scale_blocked_layout_with_offset(
     device = "cuda"
     block_size = 32
     scale_cols = total_k // block_size
-    col_offset = buffer_extra_cols // block_size
-    total_buffer_scale_cols = scale_cols + col_offset + 16  # extra padding
 
     # Create scale data for the region
     input_data = torch.randn(m, total_k, device=device)
+
+    # Reference
     e8m0_scales, _ = to_mx(
         input_data, elem_dtype=torch.float8_e4m3fn, block_size=block_size
     )
-
-    # Place scales into a larger buffer at the offset
-    scale_buffer = torch.zeros(
-        m, total_buffer_scale_cols, dtype=torch.uint8, device=device
-    )
-    scale_buffer[:, col_offset : col_offset + scale_cols] = e8m0_scales.view(
-        torch.uint8
-    )
-
-    # Reference: call triton_mx_block_rearrange on contiguous slice
     ref_blocked = triton_mx_block_rearrange(e8m0_scales)
 
-    # Offset-aware kernel: reads from buffer at col_offset, writes at output offset 0
-    col_offset_tensor = torch.tensor(
-        col_offset * block_size, dtype=torch.int64, device=device
-    )
-    output_buffer = torch.zeros(ref_blocked.numel(), dtype=torch.uint8, device=device)
+    # Offset-aware kernel: reads from buffer at col_offset, writes at output offset 0.
+    # Embed the row major scales in a larger buffer at the specified offset, and 
+    # rearrange with the kernel under test.
+    scales_buffer = torch.zeros((m * total_k)*2, dtype=torch.uint8, device=device).view(m, -1)
+    scales_buffer[:, offset:offset + scale_cols] = e8m0_scales.view(torch.uint8)
+    offset_tensor = torch.tensor(offset, dtype=torch.int64, device=device)
+    output_buffer = torch.zeros(ref_blocked.numel() + offset + 1, dtype=torch.uint8, device=device)
 
     triton_scale_blocked_layout_with_offset(
-        scale_buffer.view(torch.float8_e8m0fnu),
-        input_col_offset=col_offset_tensor,
-        output_buffer=output_buffer,
-        output_write_offset=torch.zeros(1, dtype=torch.int64, device=device),
+        e8m0_scales.view(torch.float8_e8m0fnu),
+        input_col_offset=offset_tensor,
+        out=output_buffer,
+        out_offset=torch.zeros(1, dtype=torch.int64, device=device),
     )
 
     offset_blocked = output_buffer[: ref_blocked.numel()].view(ref_blocked.shape)
