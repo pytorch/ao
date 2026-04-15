@@ -149,14 +149,14 @@ class TestProxGroupLassoVectorized(common_utils.TestCase):
 
         # Vectorized path
         prox_vec = ProxGroupLassoVectorized(reg_lambda, reduce_dim=reduce_dim)
-        zero_vec, group_norm_vec = prox_vec.apply_(p_vec, gamma, 1.0)
+        zero_vec, group_norm_vec = prox_vec.apply_(p_vec, gamma)
 
         # vmap path
         prox_map = ProxGroupLasso(reg_lambda)
         in_dims = int(not reduce_dim)  # vmap iterates over groups dimension
         zero_vmap, group_norm_vmap = torch.vmap(
-            prox_map.apply_, in_dims=(in_dims, None, None), out_dims=(0, 0)
-        )(p_vmap, gamma, 1.0)
+            prox_map.apply_, in_dims=(in_dims, None), out_dims=(0, 0)
+        )(p_vmap, gamma)
 
         self.assertEqual(p_vec, p_vmap)
         self.assertEqual(zero_vec, zero_vmap.sum())
@@ -290,17 +290,17 @@ class TestApplyProxVmap(DistributedTestMixin, common_utils.TestCase):
                 (Partial(),) * self.mesh.ndim,
                 (Shard(0),) * self.mesh.ndim,
             ),
-            in_placements=(p_in_placements, gamma_dt.placements, None),
+            in_placements=(p_in_placements, gamma_dt.placements),
             redistribute_inputs=True,
-        )(p_dt, gamma_dt, 1.0)
+        )(p_dt, gamma_dt)
 
         # --- Reference path (vmap on regular tensor) ---
         p_ref = p.clone()
         prox_ref = ProxGroupLasso(reg_lambda)
         in_dims = int(not reduce_dim)
         zero_ref, group_norm_ref = torch.vmap(
-            prox_ref.apply_, in_dims=(in_dims, 0, None), out_dims=(0, 0)
-        )(p_ref, gamma, 1.0)
+            prox_ref.apply_, in_dims=(in_dims, 0), out_dims=(0, 0)
+        )(p_ref, gamma)
 
         self.assertEqual(p_dt.full_tensor(), p_ref)
         self.assertEqual(zero_dt.full_tensor().sum(), zero_ref.sum())
