@@ -230,9 +230,9 @@ def mxfp8_dequant_requant_col_major(
         scale_block_size: Scale block size (must be 32)
     """
     assert scale_block_size == 32, "scale_block_size must be 32"
-    assert sym_mem_buffer_rows % scale_block_size == 0, (
-        f"sym_mem_buffer_rows ({sym_mem_buffer_rows}) must be divisible by {scale_block_size}"
-    )
+    assert (
+        sym_mem_buffer_rows % scale_block_size == 0
+    ), f"sym_mem_buffer_rows ({sym_mem_buffer_rows}) must be divisible by {scale_block_size}"
 
     dim = e4m3_data.shape[1]
     scale_dim = e8m0_scales.shape[1]
@@ -267,75 +267,18 @@ def mxfp8_dequant_requant_col_major(
     )
 
 
-
-@triton_op(
-    "torchao::triton_scale_blocked_layout_with_offset", mutates_args={"output_buffer"}
-)
-def triton_scale_blocked_layout_with_offset(
-    scales_buffer: torch.Tensor,
-    input_col_offset: torch.Tensor,
-    output_buffer: torch.Tensor,
-    output_write_offset: torch.Tensor,
-    scale_block_size: int = 32,
-) -> None:
-    """Identical to ``triton_mx_block_rearrange`` from mx_formats/kernels.py,
-    but reads from ``scales_buffer`` at a GPU-resident input column offset
-    and writes into ``output_buffer`` at a GPU-resident flat output offset.
-
-    Zero D2H sync — all offsets are GPU tensors.
-
-    Args:
-        scales_buffer: (rows, total_scale_cols) uint8 or e8m0 scale buffer.
-        input_col_offset: Scalar int64 GPU tensor — raw token offset
-            (divided by scale_block_size inside the kernel).
-        output_buffer: Pre-allocated flat uint8 buffer (mutated in-place).
-        output_write_offset: Scalar int64 GPU tensor — raw token offset
-            for output position (multiplied by 128 // scale_block_size
-            inside kernel to match CuTe DSL b_offs pointer arithmetic).
-        scale_block_size: MXFP8 block size (default 32).
-    """
-    assert scales_buffer.ndim == 2
-    assert scales_buffer.element_size() == 1
-
-    rows = scales_buffer.shape[0]
-    cols = scales_buffer.shape[1]
-
-    BLOCK_ROWS, BLOCK_COLS = 128, 4
-    n_row_blocks = _ceil_div(rows, BLOCK_ROWS)
-    n_col_blocks = _ceil_div(cols, BLOCK_COLS)
-    padded_cols = n_col_blocks * BLOCK_COLS
-
-    output_block_stride = BLOCK_ROWS * BLOCK_COLS * (padded_cols // BLOCK_COLS)
-
-    grid = (n_row_blocks, n_col_blocks)
-    wrap_triton(_triton_scale_swizzle_with_offset)[grid](
-        scales_buffer.view(torch.uint8),
-        rows,
-        cols,
-        output_buffer.view(torch.uint8),
-        scales_buffer.stride(0),
-        scales_buffer.stride(1),
-        input_col_offset,
-        output_write_offset,
-        output_block_stride,
-        SCALE_BLOCK_SIZE=scale_block_size,
-        BLOCK_ROWS=BLOCK_ROWS,
-        BLOCK_COLS=BLOCK_COLS,
-    )
-
-@triton_op(
-    "torchao::triton_scale_blocked_layout_with_offset", mutates_args={"out"}
-)
+@triton_op("torchao::triton_scale_blocked_layout_with_offset", mutates_args={"out"})
 def triton_scale_blocked_layout_with_offset(
     scales_buffer: torch.Tensor,
     input_col_offset: torch.Tensor,
     out: torch.Tensor,
     out_offset: torch.Tensor,
+    num_scale_cols: int = -1,
     scale_block_size: int = 32,
 ) -> None:
     """Identical to ``triton_mx_block_rearrange`` from mx_formats/kernels.py,
     but reads from ``scales_buffer`` at a GPU-resident input column offset
-    and writes into ``output_buffer`` at a GPU-resident flat output offset.
+    and writes into ``out`` at a GPU-resident flat output offset.
 
     Zero D2H sync — all offsets are GPU tensors.
 
@@ -345,8 +288,9 @@ def triton_scale_blocked_layout_with_offset(
             (divided by scale_block_size inside the kernel).
         out: Pre-allocated flat uint8 buffer (mutated in-place).
         out_offset: Scalar int64 GPU tensor — raw token offset
-            for output position (multiplied by 128 // scale_block_size
-            inside kernel to match CuTe DSL b_offs pointer arithmetic).
+            for output position (currently unused, reserved for future use).
+        num_scale_cols: Number of scale columns to process. If -1,
+            defaults to ``scales_buffer.shape[1]``.
         scale_block_size: MXFP8 block size (default 32).
     """
     assert scales_buffer.ndim == 2
@@ -355,13 +299,13 @@ def triton_scale_blocked_layout_with_offset(
     rows = scales_buffer.shape[0]
     cols = scales_buffer.shape[1]
 
+    if num_scale_cols < 0:
+        num_scale_cols = cols
+
     BLOCK_ROWS, BLOCK_COLS = 128, 4
 
-    def _ceil_div(a, b):
-        return (a + b - 1) // b
-
     n_row_blocks = _ceil_div(rows, BLOCK_ROWS)
-    n_col_blocks = _ceil_div(cols, BLOCK_COLS)
+    n_col_blocks = _ceil_div(num_scale_cols, BLOCK_COLS)
     padded_cols = n_col_blocks * BLOCK_COLS
 
     output_block_stride = BLOCK_ROWS * BLOCK_COLS * (padded_cols // BLOCK_COLS)
@@ -417,7 +361,7 @@ def _triton_scale_swizzle_with_offset(
     global_rows = start_row + rows
     global_cols = start_col + cols
 
-    mask = (global_rows < scale_rows) & (global_cols < (in_col_offset + scale_cols))
+    mask = (global_rows < scale_rows) & (global_cols < scale_cols)
 
     input_scales = tl.load(
         scale_ptr + global_rows * input_row_stride + global_cols * input_col_stride,
@@ -433,11 +377,12 @@ def _triton_scale_swizzle_with_offset(
     scales_flat = tl.reshape(input_scales, (BLOCK_ROWS * BLOCK_COLS))
 
     STRIDE_PER_BLOCK: tl.constexpr = BLOCK_ROWS * BLOCK_COLS
-    stride_per_row_of_blocks = STRIDE_PER_BLOCK * ((scale_cols + BLOCK_COLS - 1) // BLOCK_COLS)
-    block_offset = pid_row * output_block_stride + pid_col * STRIDE_PER_BLOCK
+    stride_per_row_of_blocks = STRIDE_PER_BLOCK * (
+        (scale_cols + BLOCK_COLS - 1) // BLOCK_COLS
+    )
+    block_offset = pid_row * stride_per_row_of_blocks + pid_col * STRIDE_PER_BLOCK
 
     tl.store(
         output_ptr + block_offset + dest_indices_flat,
         scales_flat,
     )
-

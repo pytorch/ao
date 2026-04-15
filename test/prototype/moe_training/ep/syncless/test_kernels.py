@@ -448,21 +448,26 @@ def test_triton_scale_blocked_layout_with_offset(
     ref_blocked = triton_mx_block_rearrange(e8m0_scales)
 
     # Offset-aware kernel: reads from buffer at col_offset, writes at output offset 0.
-    # Embed the row major scales in a larger buffer at the specified offset, and 
-    # rearrange with the kernel under test.
-    scales_buffer = torch.zeros((m * total_k)*2, dtype=torch.uint8, device=device).view(m, -1)
-    scales_buffer[:, offset:offset + scale_cols] = e8m0_scales.view(torch.uint8)
+    # The kernel divides input_col_offset by block_size to get the scale column index,
+    # so place data at the corresponding scale column offset.
+    scale_col_offset = offset // block_size
+    total_buf_cols = scale_col_offset + scale_cols
+    scales_buffer = torch.zeros(m, total_buf_cols, dtype=torch.uint8, device=device)
+    scales_buffer[:, scale_col_offset : scale_col_offset + scale_cols] = e8m0_scales.view(torch.uint8)
+
     offset_tensor = torch.tensor(offset, dtype=torch.int64, device=device)
-    output_buffer = torch.zeros(ref_blocked.numel() + offset + 1, dtype=torch.uint8, device=device)
+    zero_tensor = torch.tensor(0, dtype=torch.int64, device=device)
+    output_buffer = torch.zeros(ref_blocked.numel(), dtype=torch.uint8, device=device)
 
     triton_scale_blocked_layout_with_offset(
         scales_buffer.view(torch.float8_e8m0fnu),
         input_col_offset=offset_tensor,
         out=output_buffer,
-        out_offset=offset_tensor,
+        out_offset=zero_tensor,
+        num_scale_cols=scale_cols,
     )
 
-    offset_blocked = output_buffer[: ref_blocked.numel()].view(ref_blocked.shape)
+    offset_blocked = output_buffer.view(ref_blocked.shape)
 
     torch.testing.assert_close(
         ref_blocked.view(torch.uint8).to(torch.int32),
