@@ -33,12 +33,8 @@ get_m_blocking(int64_t M) {
 
 // Runtime AVX-512F check for use by CPU kernels; available regardless of compile flags.
 inline const bool kHasAVX512 = __builtin_cpu_supports("avx512f");
-
-// Uses memset so the compiler auto-vectorizes with whatever ISA is active.
-template<typename T>
-void zero_buffer(T* data, int64_t size) {
-  memset(data, 0, sizeof(T) * size);
-}
+inline const bool kHasAVX512VNNI = __builtin_cpu_supports("avx512vnni");
+inline const bool kHasAVX10_2 = __builtin_cpu_supports("avx10.2");
 
 template <typename T> struct vnni_traits;
 template <> struct vnni_traits<at::Half> { static constexpr int size = 2; };

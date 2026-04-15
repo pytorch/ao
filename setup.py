@@ -390,11 +390,9 @@ class X86KernelBuild:
     # If GCC version is below this, the build will still succeed but AVX10.2 support will be unavailable and a warning will be printed.
     _PREFERRED_GCC_MAJOR = 15
     _MINIMUM_GCC_MAJOR = 11
-
-    @staticmethod
-    def is_enabled() -> bool:
-        """Return True when CPU aten_kernels should be included in the build."""
-        return bool(use_cpu_kernels and is_linux)
+    _cxx = None
+    _cxx_major = None
+    _cxx_checked = False
 
     @staticmethod
     def _gcc_major(exe: str) -> "int | None":
@@ -418,13 +416,14 @@ class X86KernelBuild:
         return None
 
     @staticmethod
-    def find_preferred_cxx_compiler() -> "str | None":
-        """Find a C++ compiler at or above _PREFERRED_GCC_MAJOR.
+    def find_cxx_compiler() -> "str | None":
+        """Find a C++ compiler
 
         Checks $CXX first, then ``g++`` on $PATH.
         Returns the compiler path or None.
         """
-        min_major = X86KernelBuild._PREFERRED_GCC_MAJOR
+        if X86KernelBuild._cxx_checked:
+            return X86KernelBuild._cxx
 
         def _check(exe: str) -> "str | None":
             if not exe:
@@ -434,18 +433,35 @@ class X86KernelBuild:
             if not os.path.isfile(exe):
                 return None
             major = X86KernelBuild._gcc_major(exe)
-            return exe if major is not None and major >= min_major else None
+            return exe if major is not None else None
 
-        return _check(os.environ.get("CXX", "")) or _check("g++")
+        cxx = _check(os.environ.get("CXX", ""))
+        if _check(cxx):
+            X86KernelBuild._cxx = cxx
+            X86KernelBuild._cxx_major = X86KernelBuild._gcc_major(cxx)
+        elif _check("g++"):
+            X86KernelBuild._cxx = "g++"
+            X86KernelBuild._cxx_major = X86KernelBuild._gcc_major("g++")
+        X86KernelBuild._cxx_checked = True
+        if (
+            not X86KernelBuild._cxx
+            or X86KernelBuild._cxx_major < X86KernelBuild._MINIMUM_GCC_MAJOR
+        ):
+            if use_cpu_kernels and is_linux:
+                print(
+                    "[WARNING] No suitable C++ compiler found for building X86 kernels. "
+                    "Please set the CXX environment variable to a GCC compiler "
+                    "(version 15 for full features, 11 or higher required)."
+                )
+        return X86KernelBuild._cxx
 
     @staticmethod
-    def _resolve_cxx() -> str:
-        """Return the effective C++ compiler path (from $CXX or preferred, falling back to g++)."""
-        return (
-            os.environ.get("CXX")
-            or X86KernelBuild.find_preferred_cxx_compiler()
-            or "g++"
-        )
+    def is_enabled() -> bool:
+        """Return True when CPU aten_kernels should be included in the build."""
+        compiler_ok = False
+        if X86KernelBuild.find_cxx_compiler() is not None:
+            compiler_ok = X86KernelBuild._cxx_major >= X86KernelBuild._MINIMUM_GCC_MAJOR
+        return bool(use_cpu_kernels and is_linux and compiler_ok)
 
     @staticmethod
     def get_include_flags() -> list:
@@ -466,39 +482,20 @@ class X86KernelBuild:
     def add_compile_flags(extra_compile_args: dict) -> None:
         """Extend *extra_compile_args* with CPU-kernel compile options.
 
-        Enables AVX512 + AMX (for PyTorch vec512 headers) and -fno-tree-vectorize
-        (to prevent scalar paths from emitting 512-bit instructions).
-        Runtime dispatch via __builtin_cpu_supports() selects the right path.
+        These flags are for non-AVX512/AVX10.2 builds only.
+        The AVX512/AVX10.2-specific flags are added in precompile_isa_objects.
         """
         if not X86KernelBuild.is_enabled():
             return
-        extra_compile_args["cxx"].extend(
-            [
-                "-DCPU_CAPABILITY_AVX512",
-                "-DCPU_CAPABILITY_AVX512_VNNI",
-                "-mavx512f",
-                "-mavx512bw",
-                "-mavx512vl",
-                "-mavx512dq",
-                "-mavx512vnni",
-                "-mamx-int8",
-                "-mamx-tile",
-                "-mamx-bf16",
-                "-fno-tree-vectorize",
-                "-fopenmp",
-            ]
-        )
-        cxx_compiler = X86KernelBuild.find_preferred_cxx_compiler()
-        if cxx_compiler:
-            os.environ.setdefault("CXX", cxx_compiler)
-            print(
-                f"[CPU Kernels] Using GCC {X86KernelBuild._PREFERRED_GCC_MAJOR}+ compiler: {cxx_compiler}"
-            )
-        else:
-            print(
-                f"[CPU Kernels] GCC {X86KernelBuild._PREFERRED_GCC_MAJOR}+ not found; using default C++ compiler. "
-                "AVX10.2 stub compilation may fail."
-            )
+        flags = [
+            "-fno-tree-vectorize",
+            "-fopenmp",
+        ]
+        if X86KernelBuild._cxx_major >= X86KernelBuild._MINIMUM_GCC_MAJOR:
+            flags.append("-DBUILD_AVX512")
+        if X86KernelBuild._cxx_major >= X86KernelBuild._PREFERRED_GCC_MAJOR:
+            flags.append("-DBUILD_AVX10_2")
+        extra_compile_args["cxx"].extend(flags)
 
     @staticmethod
     def get_link_flags() -> list:
@@ -524,80 +521,93 @@ class X86KernelBuild:
     def filter_sources(sources: list, extensions_dir: str) -> list:
         """Remove CPU aten_kernels sources from *sources* when not building for CPU."""
         aten_kernels_dir = os.path.join(extensions_dir, "cpu", "aten_kernels")
-        cxx = X86KernelBuild._resolve_cxx()
-        compiler_ok = (
-            X86KernelBuild._gcc_major(cxx) >= X86KernelBuild._MINIMUM_GCC_MAJOR
-        )
-        if not X86KernelBuild.is_enabled() or not compiler_ok:
+        if not X86KernelBuild.is_enabled():
             excluded = set(glob.glob(os.path.join(aten_kernels_dir, "*.cpp")))
             return [s for s in sources if s not in excluded]
         return sources
 
     @staticmethod
     def precompile_isa_objects(build_temp: str, extensions: list) -> None:
-        """Compile AVX10.2 temp copies of kernel files that contain CPU_CAPABILITY_AVX10_2.
+        """Compile copies of kernel files for different ISA.
 
-        Each matching .cpp is copied to a temp dir and compiled with
-        -DCPU_CAPABILITY_AVX10_2 -march=diamondrapids. The resulting .o is
-        attached as an extra_object on the main torchao._C extension.
+        Each .cpp is copied to a temp dir and compiled for AVX512 and AVX10.2
+        The resulting .o is attached as an extra_object on the main torchao._C extension.
         """
+        from concurrent.futures import ThreadPoolExecutor
+
         main_ext = next((e for e in extensions if e.name == "torchao._C"), None)
         if main_ext is None:
             return
 
-        cxx = X86KernelBuild._resolve_cxx()
-        compiler_ok = (
-            X86KernelBuild._gcc_major(cxx) >= X86KernelBuild._PREFERRED_GCC_MAJOR
-        )
-        if not compiler_ok:
-            print(
-                f"[WARNING] AVX10.2 support will not be available since compiler does not meet the requirement (GCC >= {X86KernelBuild._PREFERRED_GCC_MAJOR})."
-            )
-            return
+        cxx = X86KernelBuild._cxx
+        aten_kernels_dir = os.path.join("torchao", "csrc", "cpu", "aten_kernels")
+        all_kernel_sources = glob.glob(os.path.join(aten_kernels_dir, "*_krnl.cpp"))
         include_flags = X86KernelBuild.get_include_flags()
 
-        cpu_defines = [
-            "-DCPU_CAPABILITY_AVX512",
-            "-DCPU_CAPABILITY_AVX512_VNNI",
-        ]
-
-        aten_kernels_dir = os.path.join("torchao", "csrc", "cpu", "aten_kernels")
-
-        # Copy each kernel that has AVX10.2 code to a temp dir and compile
-        # with -march=diamondrapids so hardware fp8 instructions are available.
-        avx10_2_flags = (
+        common_build_flags = (
             ["-O3", "-std=c++20", "-fPIC", "-fopenmp"]
             + include_flags
             + ["-I", aten_kernels_dir]
-            + cpu_defines
-            + ["-march=diamondrapids", "-DCPU_CAPABILITY_AVX10_2"]
         )
+        build_configs = [
+            {
+                "isa": "avx512",
+                "gcc_min_ver": X86KernelBuild._MINIMUM_GCC_MAJOR,
+                "defines": ["-DCPU_CAPABILITY_AVX512", "-DCPU_CAPABILITY_AVX512_VNNI"],
+                "flags": ["-march=sapphirerapids"],
+            },
+            {
+                "isa": "avx10_2",
+                "gcc_min_ver": X86KernelBuild._PREFERRED_GCC_MAJOR,
+                "defines": [
+                    "-DCPU_CAPABILITY_AVX512",
+                    "-DCPU_CAPABILITY_AVX512_VNNI",
+                    "-DCPU_CAPABILITY_AVX10_2",
+                ],
+                "flags": ["-march=diamondrapids"],
+            },
+        ]
 
-        build_dir_avx10_2 = os.path.join(build_temp, "cpu_isa_avx10_2")
-        os.makedirs(build_dir_avx10_2, exist_ok=True)
+        for config in build_configs:
+            if X86KernelBuild._cxx_major < config["gcc_min_ver"]:
+                print(
+                    f"[WARNING] GCC {config['gcc_min_ver']} or higher is required to build {config['isa'].upper()} kernels. "
+                    f"Current compiler: {cxx} (GCC {X86KernelBuild._cxx_major}). "
+                    f"{config['isa'].upper()} kernels will not be built."
+                )
+                continue
+            cxx_flags = common_build_flags + config["defines"] + config["flags"]
+            build_dir = os.path.join(build_temp, f"cpu_isa_{config['isa']}")
+            os.makedirs(build_dir, exist_ok=True)
 
-        all_kernel_sources = glob.glob(os.path.join(aten_kernels_dir, "*.cpp"))
-        for src in sorted(all_kernel_sources):
-            base = os.path.basename(src)
-            with open(src) as fh:
-                if "CPU_CAPABILITY_AVX10_2" not in fh.read():
-                    continue
-            stem = os.path.splitext(base)[0]
-            temp_src = os.path.join(build_dir_avx10_2, f"{stem}.avx10_2.cpp")
-            shutil.copy2(src, temp_src)
-            obj = os.path.join(build_dir_avx10_2, f"{stem}.avx10_2.o")
-            cmd = [cxx] + avx10_2_flags + ["-c", temp_src, "-o", obj]
-            print(f"[CPU ISA AVX10.2] Compiling {src} → {os.path.basename(obj)}")
-            try:
-                subprocess.check_call(cmd)
+            def compile_kernel(src):
+                base = os.path.basename(src)
+                stem = os.path.splitext(base)[0]
+                temp_src = os.path.join(build_dir, f"{stem}.{config['isa']}.cpp")
+                shutil.copy2(src, temp_src)
+                obj = os.path.join(build_dir, f"{stem}.{config['isa']}.o")
+                cmd = [cxx] + cxx_flags + ["-c", temp_src, "-o", obj]
+                print(
+                    f"[CPU ISA {config['isa'].upper()}] Compiling {src} → {os.path.basename(obj)}"
+                )
+                try:
+                    subprocess.check_call(cmd)
+                    return obj
+                except subprocess.CalledProcessError as e:
+                    print(
+                        f"[WARNING] Unable to compile {config['isa'].upper()} variant of {src}:\n{e}\n"
+                    )
+                    print(
+                        f"[WARNING] {config['isa'].upper()} support will not be available for this kernel."
+                    )
+                    return None
+
+            # Compile kernels in parallel to speed up the build
+            with ThreadPoolExecutor() as executor:
+                results = list(executor.map(compile_kernel, sorted(all_kernel_sources)))
                 main_ext.extra_objects = list(
                     getattr(main_ext, "extra_objects", [])
-                ) + [obj]
-            except subprocess.CalledProcessError as e:
-                print(f"[WARNING] Unable to compile AVX10.2 variant of {src}:\n{e}\n")
-                print(
-                    "[WARNING] AVX10.2 support will not be available for this kernel."
-                )
+                ) + [obj for obj in results if obj is not None]
 
 
 class TorchAOBuildExt(BuildExtension):
