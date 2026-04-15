@@ -426,7 +426,7 @@ def _torch_mxfp8_dequant_buffer(
 def test_triton_scale_blocked_layout_with_offset(
     m: int,
     total_k: int,
-    buffer_extra_cols: int,
+    offset: int,
 ):
     """Test offset-aware scale rearrangement against reference without offset.
 
@@ -456,16 +456,14 @@ def test_triton_scale_blocked_layout_with_offset(
     output_buffer = torch.zeros(ref_blocked.numel() + offset + 1, dtype=torch.uint8, device=device)
 
     triton_scale_blocked_layout_with_offset(
-        e8m0_scales.view(torch.float8_e8m0fnu),
+        scales_buffer.view(torch.float8_e8m0fnu),
         input_col_offset=offset_tensor,
         out=output_buffer,
-        out_offset=torch.zeros(1, dtype=torch.int64, device=device),
+        out_offset=offset_tensor,
     )
 
     offset_blocked = output_buffer[: ref_blocked.numel()].view(ref_blocked.shape)
 
-    # Use assert_close with rtol=0,atol=0 instead of torch.equal to avoid
-    # PyTorch reduce_kernel which can hit illegal instruction on SM 10.x.
     torch.testing.assert_close(
         ref_blocked.view(torch.uint8).to(torch.int32),
         offset_blocked.to(torch.int32),

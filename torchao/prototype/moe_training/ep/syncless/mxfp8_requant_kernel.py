@@ -324,13 +324,13 @@ def triton_scale_blocked_layout_with_offset(
     )
 
 @triton_op(
-    "torchao::triton_scale_blocked_layout_with_offset", mutates_args={"output_buffer"}
+    "torchao::triton_scale_blocked_layout_with_offset", mutates_args={"out"}
 )
 def triton_scale_blocked_layout_with_offset(
     scales_buffer: torch.Tensor,
     input_col_offset: torch.Tensor,
-    output_buffer: torch.Tensor,
-    output_write_offset: torch.Tensor,
+    out: torch.Tensor,
+    out_offset: torch.Tensor,
     scale_block_size: int = 32,
 ) -> None:
     """Identical to ``triton_mx_block_rearrange`` from mx_formats/kernels.py,
@@ -343,8 +343,8 @@ def triton_scale_blocked_layout_with_offset(
         scales_buffer: (rows, total_scale_cols) uint8 or e8m0 scale buffer.
         input_col_offset: Scalar int64 GPU tensor — raw token offset
             (divided by scale_block_size inside the kernel).
-        output_buffer: Pre-allocated flat uint8 buffer (mutated in-place).
-        output_write_offset: Scalar int64 GPU tensor — raw token offset
+        out: Pre-allocated flat uint8 buffer (mutated in-place).
+        out_offset: Scalar int64 GPU tensor — raw token offset
             for output position (multiplied by 128 // scale_block_size
             inside kernel to match CuTe DSL b_offs pointer arithmetic).
         scale_block_size: MXFP8 block size (default 32).
@@ -371,11 +371,11 @@ def triton_scale_blocked_layout_with_offset(
         scales_buffer.view(torch.uint8),
         rows,
         cols,
-        output_buffer.view(torch.uint8),
+        out.view(torch.uint8),
         scales_buffer.stride(0),
         scales_buffer.stride(1),
         input_col_offset,
-        output_write_offset,
+        out_offset,
         output_block_stride,
         SCALE_BLOCK_SIZE=scale_block_size,
         BLOCK_ROWS=BLOCK_ROWS,
