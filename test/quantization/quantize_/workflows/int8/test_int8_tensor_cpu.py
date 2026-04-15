@@ -34,6 +34,8 @@ from torchao.utils import (
 
 @common_utils.instantiate_parametrized_tests
 class TestInt8TensorCPU(TorchAOIntegrationTestCase):
+    # Note: The reduce_range parameter can be manually set by users via the config.
+    # This UT only tests automatic reduce_range to avoid CI failures on CPUs without VNNI support.
     @common_utils.parametrize("dtype", [torch.bfloat16, torch.float32])
     @common_utils.parametrize("compile", [True, False])
     @common_utils.parametrize("config_mode", ["dynamic", "static"])
