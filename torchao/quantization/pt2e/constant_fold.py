@@ -10,8 +10,9 @@ from typing import Any, Callable, Optional
 import torch
 import torch.utils._pytree as pytree
 from torch._inductor.freezing_utils import maybe_set_is_frozen_param
-from torch.ao.quantization.fx.utils import collect_producer_nodes
 from torch.utils._ordered_set import OrderedSet
+
+from torchao.quantization.pt2e.graph_utils import collect_producer_nodes
 
 aten = torch.ops.aten
 
