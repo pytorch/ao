@@ -4,6 +4,7 @@
 #include <c10/util/Unroll.h>
 #include <cstring>
 #include <mutex>
+#include "utils.h"
 
 namespace torchao {
 

@@ -595,12 +595,9 @@ class X86KernelBuild:
                     return obj
                 except subprocess.CalledProcessError as e:
                     print(
-                        f"[WARNING] Unable to compile {config['isa'].upper()} variant of {src}:\n{e}\n"
+                        f"[ERROR] Unable to compile {config['isa'].upper()} variant of {src}:\n{e}\n"
                     )
-                    print(
-                        f"[WARNING] {config['isa'].upper()} support will not be available for this kernel."
-                    )
-                    return None
+                    raise e
 
             # Compile kernels in parallel to speed up the build
             with ThreadPoolExecutor() as executor:
