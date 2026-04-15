@@ -230,9 +230,9 @@ def mxfp8_dequant_requant_col_major(
         scale_block_size: Scale block size (must be 32)
     """
     assert scale_block_size == 32, "scale_block_size must be 32"
-    assert (
-        sym_mem_buffer_rows % scale_block_size == 0
-    ), f"sym_mem_buffer_rows ({sym_mem_buffer_rows}) must be divisible by {scale_block_size}"
+    assert sym_mem_buffer_rows % scale_block_size == 0, (
+        f"sym_mem_buffer_rows ({sym_mem_buffer_rows}) must be divisible by {scale_block_size}"
+    )
 
     dim = e4m3_data.shape[1]
     scale_dim = e8m0_scales.shape[1]
@@ -267,31 +267,28 @@ def mxfp8_dequant_requant_col_major(
     )
 
 
-@triton_op("torchao::triton_scale_blocked_layout_with_offset", mutates_args={"out"})
+@triton_op("torchao::triton_scale_blocked_layout_with_offset", mutates_args=())
 def triton_scale_blocked_layout_with_offset(
     scales_buffer: torch.Tensor,
     input_col_offset: torch.Tensor,
-    out: torch.Tensor,
-    out_offset: torch.Tensor,
     num_scale_cols: int = -1,
     scale_block_size: int = 32,
-) -> None:
+) -> torch.Tensor:
     """Identical to ``triton_mx_block_rearrange`` from mx_formats/kernels.py,
-    but reads from ``scales_buffer`` at a GPU-resident input column offset
-    and writes into ``out`` at a GPU-resident flat output offset.
+    but reads from ``scales_buffer`` at a GPU-resident input column offset.
 
-    Zero D2H sync — all offsets are GPU tensors.
+    Zero D2H sync — the offset is a GPU tensor.
 
     Args:
         scales_buffer: (rows, total_scale_cols) uint8 or e8m0 scale buffer.
         input_col_offset: Scalar int64 GPU tensor — raw token offset
             (divided by scale_block_size inside the kernel).
-        out: Pre-allocated flat uint8 buffer (mutated in-place).
-        out_offset: Scalar int64 GPU tensor — raw token offset
-            for output position (currently unused, reserved for future use).
         num_scale_cols: Number of scale columns to process. If -1,
             defaults to ``scales_buffer.shape[1]``.
         scale_block_size: MXFP8 block size (default 32).
+
+    Returns:
+        Rearranged tensor in block-scaled swizzle format (flat uint8).
     """
     assert scales_buffer.ndim == 2
     assert scales_buffer.element_size() == 1
@@ -306,25 +303,29 @@ def triton_scale_blocked_layout_with_offset(
 
     n_row_blocks = _ceil_div(rows, BLOCK_ROWS)
     n_col_blocks = _ceil_div(num_scale_cols, BLOCK_COLS)
+    padded_rows = n_row_blocks * BLOCK_ROWS
     padded_cols = n_col_blocks * BLOCK_COLS
 
-    output_block_stride = BLOCK_ROWS * BLOCK_COLS * (padded_cols // BLOCK_COLS)
+    out = scales_buffer.new_empty(padded_rows * padded_cols, dtype=torch.uint8)
+
+    output_block_stride = BLOCK_ROWS * BLOCK_COLS * n_col_blocks
 
     grid = (n_row_blocks, n_col_blocks)
     wrap_triton(_triton_scale_swizzle_with_offset)[grid](
         scales_buffer.view(torch.uint8),
         rows,
         cols,
-        out.view(torch.uint8),
+        out,
         scales_buffer.stride(0),
         scales_buffer.stride(1),
         input_col_offset,
-        out_offset,
         output_block_stride,
         SCALE_BLOCK_SIZE=scale_block_size,
         BLOCK_ROWS=BLOCK_ROWS,
         BLOCK_COLS=BLOCK_COLS,
     )
+
+    return out
 
 
 @triton.jit
@@ -336,15 +337,14 @@ def _triton_scale_swizzle_with_offset(
     input_row_stride,
     input_col_stride,
     input_col_offset_ptr,
-    output_write_offset_ptr,
     output_block_stride,
     SCALE_BLOCK_SIZE: tl.constexpr,
     BLOCK_ROWS: tl.constexpr,
     BLOCK_COLS: tl.constexpr,
 ):
     """Identical to triton_scale_swizzle from mx_formats/kernels.py,
-    but reads from an input column offset and writes at a flat output
-    offset.  Both offsets are GPU-resident (zero D2H sync).
+    but reads from an input column offset.  The offset is GPU-resident
+    (zero D2H sync).
 
     Grid: (num_row_blocks, num_col_blocks)
     """

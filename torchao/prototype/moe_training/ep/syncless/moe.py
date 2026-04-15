@@ -224,24 +224,22 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
             grad_h13, block_size=block_size, scaling_mode="rceil"
         )
 
-        # Rearrange x scales from the buffer directly into the pre-allocated
-        # blocked scales buffer at the output offset matching b_offs.
-        triton_scale_blocked_layout_with_offset(
+        # Rearrange x scales from the buffer into blocked layout.
+        x_scales_blocked = triton_scale_blocked_layout_with_offset(
             buf.e8m0_scales.view(torch.float8_e8m0fnu),
             input_col_offset=offset,
-            out=buf.blocked_e8m0_scales,
-            out_offset=offset,
         )
 
         # MXFP8 w13 wgrad GEMM: grad_w13 = grad_h13.T @ x  (per group)
         # Use cutedsl_grouped_gemm with b_offs=offset to read x data
-        # directly from buf.e4m3_data (overallocated buffer) and x scales
-        # from buf.blocked_e8m0_scales (at matching offset). Zero copies.
+        # directly from buf.e4m3_data (overallocated buffer).
+        # NOTE: x_scales_blocked is a freshly allocated tensor starting at 0,
+        # so b_offs should NOT shift the scales pointer.
         wgrad_w13 = cutedsl_grouped_gemm(
             grad_h13_fp8.transpose(-2, -1),
             buf.e4m3_data.t(),
             grad_h13_scales_blocked,
-            buf.blocked_e8m0_scales.view(torch.float8_e8m0fnu),
+            x_scales_blocked.view(torch.float8_e8m0fnu),
             group_end_offs,
             b_offs=offset,
             out_dtype=torch.bfloat16,
