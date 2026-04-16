@@ -2,6 +2,14 @@
 #include "utils.h"
 #include <iostream>
 
+/*
+To add a new kernel:
+1. Implement the kernel in the all namespace (e.g., avx10_2, avx512, default_scalar). See exisiting kernel files for reference.
+  Note: Kernel files must be named in the format of <kernel_name>_krnl.cpp (e.g., da8w4_linear_krnl.cpp).
+2. Declare the kernel function using the corresponding macro (e.g., declare_da8w4_linear_impl) in the same namespace.
+3. Add a call macro (e.g., call_da8w4_linear_impl) in the same namespace that calls the implemented kernel function.
+4. Add a dispatch function outside ISA-related namespace, which calls the appropriate kernel based on the available hardware features.
+*/
 namespace torchao {
 
 /********** DA8W4 Linear Kernel Declare **********/

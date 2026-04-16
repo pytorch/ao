@@ -386,8 +386,8 @@ def bool_to_on_off(value):
 class X86KernelBuild:
     """Class for all x86-kernel-specific build logic"""
 
-    # Preferred GCC major version required for full AVX10.2 / new-ISA support.
-    # If GCC version is below this, the build will still succeed but AVX10.2 support will be unavailable and a warning will be printed.
+    # Preferred GCC major version required for full AVX10.2 support.
+    # Minimum GCC major version required for building x86 kernels.
     _PREFERRED_GCC_MAJOR = 15
     _MINIMUM_GCC_MAJOR = 11
     _cxx = None
@@ -405,9 +405,6 @@ class X86KernelBuild:
                 timeout=10,
             ).stdout
             # Extract the first MAJOR.MINOR.PATCH version in the output.
-            # Handles upstream GCC ("g++ (GCC) 15.0.1 ..."),
-            # conda-forge ("g++ (conda-forge gcc 15.2.0-18) 15.2.0 ..."),
-            # and distro builds ("g++ (Ubuntu 15.1.0-1ubuntu1) 15.1.0").
             m = re.search(r"\b(\d+)\.\d+\.\d+", out)
             if m:
                 return int(m.group(1))
@@ -448,9 +445,6 @@ class X86KernelBuild:
     @staticmethod
     def is_enabled() -> bool:
         """Return True when CPU aten_kernels should be included in the build."""
-        # compiler_ok = False
-        # if X86KernelBuild.find_cxx_compiler() is not None:
-        #     compiler_ok = X86KernelBuild._cxx_major >= X86KernelBuild._MINIMUM_GCC_MAJOR
         enabled = bool(use_cpu_kernels and is_linux)
         if enabled and not X86KernelBuild._cxx_checked:
             X86KernelBuild.find_cxx_compiler()
@@ -501,26 +495,6 @@ class X86KernelBuild:
         extra_compile_args["cxx"].extend(flags)
 
     @staticmethod
-    def get_link_flags() -> list:
-        """Return extra link flags: PyTorch lib RPATHs + -static-libstdc++.
-
-        Static libstdc++ carries new CXXABI symbols that GCC 15 generates but
-        PyTorch's bundled libstdc++ may lack.
-        """
-        if not X86KernelBuild.is_enabled():
-            return []
-        flags = []
-        try:
-            import torch.utils.cpp_extension as _tce
-
-            for _lib_dir in _tce.library_paths():
-                flags.append(f"-Wl,-rpath,{_lib_dir}")
-        except Exception:
-            pass
-        flags.append("-static-libstdc++")
-        return flags
-
-    @staticmethod
     def filter_sources(sources: list, extensions_dir: str) -> list:
         """Remove CPU aten_kernels sources from *sources* when not building for CPU."""
         aten_kernels_dir = os.path.join(extensions_dir, "cpu", "aten_kernels")
@@ -552,21 +526,19 @@ class X86KernelBuild:
             + include_flags
             + ["-I", aten_kernels_dir]
         )
+        avx512_defines = ["-DCPU_CAPABILITY_AVX512", "-DCPU_CAPABILITY_AVX512_VNNI"]
+        avx10_2_defines = avx512_defines + ["-DCPU_CAPABILITY_AVX10_2"]
         build_configs = [
             {
                 "isa": "avx512",
                 "gcc_min_ver": X86KernelBuild._MINIMUM_GCC_MAJOR,
-                "defines": ["-DCPU_CAPABILITY_AVX512", "-DCPU_CAPABILITY_AVX512_VNNI"],
+                "defines": avx512_defines,
                 "flags": ["-march=sapphirerapids"],
             },
             {
                 "isa": "avx10_2",
                 "gcc_min_ver": X86KernelBuild._PREFERRED_GCC_MAJOR,
-                "defines": [
-                    "-DCPU_CAPABILITY_AVX512",
-                    "-DCPU_CAPABILITY_AVX512_VNNI",
-                    "-DCPU_CAPABILITY_AVX10_2",
-                ],
+                "defines": avx10_2_defines,
                 "flags": ["-march=diamondrapids"],
             },
         ]
@@ -591,7 +563,7 @@ class X86KernelBuild:
                 obj = os.path.join(build_dir, f"{stem}.{config['isa']}.o")
                 cmd = [cxx] + cxx_flags + ["-c", temp_src, "-o", obj]
                 print(
-                    f"[CPU ISA {config['isa'].upper()}] Compiling {src} → {os.path.basename(obj)}"
+                    f"[X86 {config['isa'].upper()}] Compiling {src} -> {os.path.basename(obj)}"
                 )
                 try:
                     subprocess.check_call(cmd)
@@ -738,9 +710,8 @@ def get_extensions():
             ["-O3" if not debug_mode else "-O0", "-fdiagnostics-color=always"]
         )
 
-        # X86-specific compile and link flags
+        # X86-specific compile flags
         X86KernelBuild.add_compile_flags(extra_compile_args)
-        extra_link_args.extend(X86KernelBuild.get_link_flags())
 
         if debug_mode:
             extra_compile_args["cxx"].append("-g")

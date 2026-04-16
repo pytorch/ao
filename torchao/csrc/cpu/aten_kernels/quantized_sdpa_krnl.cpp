@@ -25,6 +25,7 @@
 #include <iostream>
 #include <fstream>
 #include <string>
+#include "utils.h"
 
 namespace torchao {
 
@@ -2561,7 +2562,7 @@ at::Tensor _qscaled_dot_product_cpu(
   } else if (dtype == at::ScalarType::Float8_e4m3fn) {
 #if defined(CPUBLAS_BRGEMM_F8F8F32) && defined(CPU_CAPABILITY_AVX512)
 // CPUBLAS_BRGEMM_F8F8F32 is defined if FP8 BRGEMM is supported in PyTorch CPUBlas.
-      if (at::native::cpublas::could_pack(dtype)) {
+      if (at::native::cpublas::could_pack(dtype) && kHasAVX10_2) {
           at::Tensor output = at::empty_like(query, query.options()).transpose(1, 2);
           fp8_sdpa_fused_kernel(output, query, key, value,
               dropout_p, is_causal, attn_mask, scale,

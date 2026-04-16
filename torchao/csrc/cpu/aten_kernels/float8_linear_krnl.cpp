@@ -33,7 +33,7 @@ static bool cpublas_can_pack = false;
 static inline bool cpublas_could_pack() {
   std::call_once(cpublas_flag, []() {
 #ifdef CPUBLAS_BRGEMM_F8F8F32
-    cpublas_can_pack = at::native::cpublas::could_pack(at::kFloat8_e4m3fn);
+    cpublas_can_pack = at::native::cpublas::could_pack(at::kFloat8_e4m3fn) && kHasAVX10_2;
 #else
     cpublas_can_pack = at::native::cpublas::could_pack(at::kBFloat16);
 #endif
