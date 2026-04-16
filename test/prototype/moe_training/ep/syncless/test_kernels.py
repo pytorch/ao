@@ -2,9 +2,9 @@ import pytest
 import torch
 
 # Import requant kernel
-from torchao.prototype.moe_training.ep.syncless.mxfp8_requant_kernel import (
+from torchao.prototype.moe_training.ep.syncless.mxfp8_kernels import (
     mxfp8_dequant_requant_col_major,
-    triton_scale_blocked_layout_with_offset,
+    triton_scale_blocked_layout_saved_activation_buffer,
 )
 
 # Import silu_mul kernels
@@ -112,9 +112,9 @@ def test_silu_mul_fw_kernel(
 
     # Verify zero-padding beyond num_tokens
     if num_tokens < sym_mem_buffer_rows:
-        assert torch.all(kernel_output[num_tokens:] == 0), (
-            "Rows beyond num_tokens should be zero"
-        )
+        assert torch.all(
+            kernel_output[num_tokens:] == 0
+        ), "Rows beyond num_tokens should be zero"
 
 
 @pytest.mark.parametrize("num_tokens", [32, 128, 256, 512])
@@ -187,12 +187,12 @@ def test_silu_mul_bw_kernel(
 
     # Verify zero-padding beyond num_tokens
     if num_tokens < sym_mem_buffer_rows:
-        assert torch.all(h_out[num_tokens:] == 0), (
-            "h_out rows beyond num_tokens should be zero"
-        )
-        assert torch.all(grad_h13_out[num_tokens:] == 0), (
-            "grad_h13_out rows beyond num_tokens should be zero"
-        )
+        assert torch.all(
+            h_out[num_tokens:] == 0
+        ), "h_out rows beyond num_tokens should be zero"
+        assert torch.all(
+            grad_h13_out[num_tokens:] == 0
+        ), "grad_h13_out rows beyond num_tokens should be zero"
 
 
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float16])
@@ -374,15 +374,15 @@ def test_mxfp8_dequant_requant_col_major(
     # Verify zero-padding beyond num_tokens
     if num_tokens < sym_mem_buffer_rows:
         fused_data_f32 = fused_data.to(torch.float32)
-        assert torch.all(fused_data_f32[num_tokens:, :] == 0), (
-            "Rows beyond num_tokens should be zero"
-        )
+        assert torch.all(
+            fused_data_f32[num_tokens:, :] == 0
+        ), "Rows beyond num_tokens should be zero"
 
     # Verify output buffer is untouched outside the written region
     before_region = out_data[:, :out_offset_val]
-    assert torch.all(before_region.to(torch.float32) == 0), (
-        "Output buffer before out_offset should be untouched"
-    )
+    assert torch.all(
+        before_region.to(torch.float32) == 0
+    ), "Output buffer before out_offset should be untouched"
 
 
 # for test reference
@@ -423,7 +423,7 @@ def _torch_mxfp8_dequant_buffer(
 @pytest.mark.parametrize("m", [256, 512, 1024])
 @pytest.mark.parametrize("total_k", [1024, 2048, 4096])
 @pytest.mark.parametrize("offset", [0, 32, 64])
-def test_triton_scale_blocked_layout_with_offset(
+def test_triton_scale_blocked_layout_saved_activation_buffer(
     m: int,
     total_k: int,
     offset: int,
@@ -459,7 +459,7 @@ def test_triton_scale_blocked_layout_with_offset(
 
     offset_tensor = torch.tensor(offset, dtype=torch.int64, device=device)
 
-    result = triton_scale_blocked_layout_with_offset(
+    result = triton_scale_blocked_layout_saved_activation_buffer(
         scales_buffer.view(torch.float8_e8m0fnu),
         input_col_offset=offset_tensor,
         num_scale_cols=scale_cols,

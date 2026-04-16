@@ -29,7 +29,8 @@ from torchao.prototype.moe_training.ep.syncless.cutedsl_mxfp8_gmm import (
 )
 from torchao.prototype.moe_training.ep.syncless.mxfp8_kernels import (
     mxfp8_dequant_requant_col_major,
-    triton_scale_blocked_layout_with_offset,
+    triton_mx_block_rearrange_num_tokens,
+    triton_scale_blocked_layout_saved_activation_buffer,
 )
 from torchao.prototype.moe_training.ep.syncless.silu_mul_kernel import (
     silu_mul_bw,
@@ -44,7 +45,6 @@ from torchao.prototype.moe_training.mxfp8_grouped_mm import (
 )
 from torchao.prototype.mx_formats.config import ScaleCalculationMode
 from torchao.prototype.mx_formats.kernels import (
-    triton_mx_block_rearrange,
     triton_to_mxfp8_dim0,
 )
 from torchao.quantization.quantize_.common import KernelPreference
@@ -116,7 +116,9 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
         # corresponding data over the a2a dispatch.
         # blocked layout would require a bunch of slow discontiguous reads and is harder to reason about.
         scale_a = output_scales_e8m0.view(torch.float8_e8m0fnu)
-        scale_a_blocked = triton_mx_block_rearrange(scale_a)
+        scale_a_blocked = triton_mx_block_rearrange_num_tokens(
+            scale_a, num_tokens
+        )
 
         # First GEMM: h13 = x @ w13.T
         # We need this special CuTe DSL gmm kernel here, rather than torch._scaled_grouped_mm,
@@ -225,7 +227,7 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
         )
 
         # Rearrange x scales from the buffer into blocked layout.
-        x_scales_blocked = triton_scale_blocked_layout_with_offset(
+        x_scales_blocked = triton_scale_blocked_layout_saved_activation_buffer(
             buf.e8m0_scales.view(torch.float8_e8m0fnu),
             input_col_offset=offset,
         )

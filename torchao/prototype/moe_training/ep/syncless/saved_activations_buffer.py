@@ -83,9 +83,9 @@ class SavedActivationsBuffer:
         max_tokens = gpu_tokens + cpu_tokens
 
         block_size = 32  # MXFP8 block size
-        assert max_tokens % block_size == 0, (
-            f"max_tokens ({max_tokens}) must be divisible by block_size ({block_size})"
-        )
+        assert (
+            max_tokens % block_size == 0
+        ), f"max_tokens ({max_tokens}) must be divisible by block_size ({block_size})"
         self._scale_dim = dim // block_size
         self._h13_cols = 2 * hidden_dim
 
@@ -114,7 +114,7 @@ class SavedActivationsBuffer:
         )
 
         # Flat view of the same raw scale buffer for the backward's
-        # triton_scale_blocked_layout_with_offset to write
+        # triton_scale_blocked_layout_saved_activation_buffer to write
         # blocked scales at a GPU-resident offset.
         self.blocked_e8m0_scales = self._raw_scales.tensor
 

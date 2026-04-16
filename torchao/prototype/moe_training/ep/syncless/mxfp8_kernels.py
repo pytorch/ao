@@ -250,9 +250,9 @@ def mxfp8_dequant_requant_col_major(
         scale_block_size: Scale block size (must be 32)
     """
     assert scale_block_size == 32, "scale_block_size must be 32"
-    assert sym_mem_buffer_rows % scale_block_size == 0, (
-        f"sym_mem_buffer_rows ({sym_mem_buffer_rows}) must be divisible by {scale_block_size}"
-    )
+    assert (
+        sym_mem_buffer_rows % scale_block_size == 0
+    ), f"sym_mem_buffer_rows ({sym_mem_buffer_rows}) must be divisible by {scale_block_size}"
 
     dim = e4m3_data.shape[1]
     scale_dim = e8m0_scales.shape[1]
@@ -282,8 +282,10 @@ def mxfp8_dequant_requant_col_major(
     )
 
 
-@triton_op("torchao::triton_scale_blocked_layout_with_offset", mutates_args=())
-def triton_scale_blocked_layout_with_offset(
+@triton_op(
+    "torchao::triton_scale_blocked_layout_saved_activation_buffer", mutates_args=()
+)
+def triton_scale_blocked_layout_saved_activation_buffer(
     scales_buffer: torch.Tensor,
     input_col_offset: torch.Tensor,
     num_scale_cols: int = -1,
@@ -539,3 +541,130 @@ def _mxfp8_dequant_buffer_kernel(
         tl.where(valid_mask[:, None], out_buffer_block, 0.0),
         mask=out_mask,
     )
+
+
+# ---------------------------------------------------------------------------
+# Scale block rearrange with GPU-resident num_tokens bound.
+#
+# Identical to ``triton_mx_block_rearrange`` from mx_formats/kernels.py,
+# but only processes ``num_tokens`` rows (GPU tensor) instead of the full
+# overallocated buffer.  Avoids launching threadblocks and touching memory
+# for empty rows.
+# ---------------------------------------------------------------------------
+
+
+@triton.jit
+def _scale_swizzle_num_tokens_kernel(
+    scale_ptr,
+    num_tokens_ptr,
+    scale_cols,
+    output_ptr,
+    input_row_stride,
+    input_col_stride,
+    OUT_STRIDE_PER_BLOCK: tl.constexpr,
+    OUT_STRIDE_PER_ROW_OF_BLOCKS: tl.constexpr,
+    BLOCK_ROWS: tl.constexpr,
+    BLOCK_COLS: tl.constexpr,
+):
+    """Block-scale swizzle kernel bounded by GPU-resident num_tokens.
+
+    Grid: (cdiv(num_tokens, BLOCK_ROWS), cdiv(scale_cols, BLOCK_COLS))
+    Rows beyond num_tokens are zero-filled in the output.
+    """
+    num_tokens = tl.load(num_tokens_ptr).to(tl.int64)
+
+    pid_row = tl.program_id(0)
+    pid_col = tl.program_id(1)
+
+    rows = tl.arange(0, BLOCK_ROWS)[:, None]
+    cols = tl.arange(0, BLOCK_COLS)[None, :]
+
+    start_row = pid_row * BLOCK_ROWS
+    start_col = pid_col * BLOCK_COLS
+    global_rows = start_row + rows
+    global_cols = start_col + cols
+
+    mask = (global_rows < num_tokens) & (global_cols < scale_cols)
+
+    input_scales = tl.load(
+        scale_ptr + global_rows * input_row_stride + global_cols * input_col_stride,
+        mask=mask,
+        other=0,
+    )
+
+    r_div_32 = rows // 32
+    r_mod_32 = rows % 32
+    dest_indices = r_mod_32 * 16 + r_div_32 * 4 + cols
+
+    dest_indices_flat = tl.reshape(dest_indices, (BLOCK_ROWS * BLOCK_COLS))
+    scales_flat = tl.reshape(input_scales, (BLOCK_ROWS * BLOCK_COLS))
+
+    block_offset = (
+        pid_row * OUT_STRIDE_PER_ROW_OF_BLOCKS + pid_col * OUT_STRIDE_PER_BLOCK
+    )
+
+    tl.store(
+        output_ptr + block_offset + dest_indices_flat,
+        scales_flat,
+    )
+
+
+@triton_op(
+    "torchao::triton_mx_block_rearrange_num_tokens",
+    mutates_args=(),
+)
+def triton_mx_block_rearrange_num_tokens(
+    scale_tensor: torch.Tensor,
+    num_tokens: torch.Tensor,
+) -> torch.Tensor:
+    """Rearrange E8M0 scales to blocked swizzle format, bounded by num_tokens.
+
+    Only processes ``num_tokens`` rows of the input scale tensor (GPU-resident,
+    zero D2H sync).  Rows beyond num_tokens are zero-filled.  Output is padded
+    to multiples of (128, 4) as required by the blocked layout.
+
+    Args:
+        scale_tensor: (rows, scale_cols) uint8 or float8_e8m0fnu scale tensor.
+            ``rows`` may be larger than ``num_tokens`` (overallocated buffer).
+        num_tokens: Scalar int64 GPU tensor — number of valid rows.
+
+    Returns:
+        Flat uint8 tensor in blocked swizzle format, sized for ``num_tokens``
+        rows (padded to 128).
+    """
+    assert scale_tensor.ndim == 2
+    assert scale_tensor.element_size() == 1
+
+    # We size the output based on the static buffer rows, but only read
+    # num_tokens rows.  The grid is sized to cover rows (overallocated),
+    # and the kernel masks reads beyond num_tokens.
+    rows = scale_tensor.shape[0]
+    cols = scale_tensor.shape[1]
+
+    BLOCK_ROWS, BLOCK_COLS = 128, 4
+
+    n_row_blocks = triton.cdiv(rows, BLOCK_ROWS)
+    n_col_blocks = triton.cdiv(cols, BLOCK_COLS)
+    padded_rows = n_row_blocks * BLOCK_ROWS
+    padded_cols = n_col_blocks * BLOCK_COLS
+
+    out = scale_tensor.new_empty(padded_rows * padded_cols, dtype=torch.uint8)
+
+    stride_per_block = BLOCK_ROWS * BLOCK_COLS
+    out_stride_per_row_of_blocks = BLOCK_ROWS * BLOCK_COLS * n_col_blocks
+
+    grid = (n_row_blocks, n_col_blocks)
+    wrap_triton(_scale_swizzle_num_tokens_kernel)[grid](
+        scale_tensor.view(torch.uint8),
+        num_tokens,
+        cols,
+        out,
+        scale_tensor.stride(0),
+        scale_tensor.stride(1),
+        OUT_STRIDE_PER_BLOCK=stride_per_block,
+        OUT_STRIDE_PER_ROW_OF_BLOCKS=out_stride_per_row_of_blocks,
+        BLOCK_ROWS=BLOCK_ROWS,
+        BLOCK_COLS=BLOCK_COLS,
+    )
+
+    return out.view(torch.float8_e8m0fnu)
