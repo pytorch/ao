@@ -98,6 +98,7 @@ use_cpu_kernels = os.getenv("USE_CPU_KERNELS", "0") == "1"
 
 # Platform detection
 is_arm64 = platform.machine().startswith("arm64") or platform.machine() == "aarch64"
+is_x86_64 = platform.machine() == "x86_64"
 is_macos = platform.system() == "Darwin"
 is_linux = platform.system() == "Linux"
 
@@ -445,7 +446,7 @@ class X86KernelBuild:
     @staticmethod
     def is_enabled() -> bool:
         """Return True when CPU aten_kernels should be included in the build."""
-        enabled = bool(use_cpu_kernels and is_linux)
+        enabled = bool(use_cpu_kernels and is_linux and is_x86_64)
         if enabled and not X86KernelBuild._cxx_checked:
             X86KernelBuild.find_cxx_compiler()
             if (
