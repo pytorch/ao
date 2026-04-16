@@ -31,7 +31,7 @@ from torch.utils._python_dispatch import (
 )
 from torch.utils._pytree import tree_map
 
-from torchao.utils import is_sm_at_least_100, torch_version_at_least
+from torchao.utils import is_MI350, is_sm_at_least_100, torch_version_at_least
 
 if torch_version_at_least("2.12.0.dev0"):
     from torch._higher_order_ops.inline_asm_elementwise import inline_asm_elementwise
@@ -785,48 +785,99 @@ def _addmm_mx_dispatch(
         assert a.block_size == 32, f"Invalid block size {a.block_size}"
         assert b.block_size == 32, f"Invalid block size {b.block_size}"
 
-        if a.is_swizzled_scales:
-            a_scale_block = a.scale
-        else:
-            a_scale = a.scale.view(M, K // a.block_size)
-            a_scale_block = maybe_dtensor_to_blocked(a_scale)
+        if not is_MI350():
+            # CUDA path - swizzle
 
-        if b.is_swizzled_scales:
-            b_scale_block = b.scale.t()
-        else:
-            b_scale = b.scale.t().view(N, K // b.block_size)
-            b_scale_block = maybe_dtensor_to_blocked(b_scale)
+            if a.is_swizzled_scales:
+                a_scale_block = a.scale
+            else:
+                a_scale = a.scale.view(M, K // a.block_size)
+                a_scale_block = maybe_dtensor_to_blocked(a_scale)
 
-        if a.elem_dtype == torch.float8_e4m3fn:
-            assert b.elem_dtype == torch.float8_e4m3fn
-            res = torch._scaled_mm(
-                a.qdata,
-                b.qdata,
-                a_scale_block.view(torch.float8_e8m0fnu),
-                b_scale_block.view(torch.float8_e8m0fnu),
-                bias=bias,
-                out_dtype=torch.bfloat16,
-            )
-        else:
-            assert a.elem_dtype == torch.float4_e2m1fn_x2
-            assert b.elem_dtype == torch.float4_e2m1fn_x2
-            if not torch_version_at_least("2.10.0"):
-                raise RuntimeError(
-                    "MXFP4 matmul requires PyTorch 2.10.0 or later for F.scaled_mm support"
+            if b.is_swizzled_scales:
+                b_scale_block = b.scale.t()
+            else:
+                b_scale = b.scale.t().view(N, K // b.block_size)
+                b_scale_block = maybe_dtensor_to_blocked(b_scale)
+
+            if a.elem_dtype == torch.float8_e4m3fn:
+                assert b.elem_dtype == torch.float8_e4m3fn
+                # TODO(future PR): convert this to F.scaled_mm
+                res = torch._scaled_mm(
+                    a.qdata,
+                    b.qdata,
+                    a_scale_block.view(torch.float8_e8m0fnu),
+                    b_scale_block.view(torch.float8_e8m0fnu),
+                    bias=bias,
+                    out_dtype=torch.bfloat16,
                 )
-            # FP4 operations using F.scaled_mm
-            res = F.scaled_mm(
-                a.qdata.view(torch.float4_e2m1fn_x2),
-                b.qdata.view(torch.float4_e2m1fn_x2),
-                scale_a=a_scale_block,
-                scale_recipe_a=ScalingType.BlockWise1x32,
-                scale_b=b_scale_block,
-                scale_recipe_b=ScalingType.BlockWise1x32,
-                swizzle_a=SwizzleType.SWIZZLE_32_4_4,
-                swizzle_b=SwizzleType.SWIZZLE_32_4_4,
-                bias=bias,
-                output_dtype=torch.bfloat16,
-            )
+            else:
+                assert a.elem_dtype == torch.float4_e2m1fn_x2
+                assert b.elem_dtype == torch.float4_e2m1fn_x2
+                if not torch_version_at_least("2.10.0"):
+                    raise RuntimeError(
+                        "MXFP4 matmul requires PyTorch 2.10.0 or later for F.scaled_mm support"
+                    )
+                # FP4 operations using F.scaled_mm
+                res = F.scaled_mm(
+                    a.qdata.view(torch.float4_e2m1fn_x2),
+                    b.qdata.view(torch.float4_e2m1fn_x2),
+                    scale_a=a_scale_block,
+                    scale_recipe_a=ScalingType.BlockWise1x32,
+                    scale_b=b_scale_block,
+                    scale_recipe_b=ScalingType.BlockWise1x32,
+                    swizzle_a=SwizzleType.SWIZZLE_32_4_4,
+                    swizzle_b=SwizzleType.SWIZZLE_32_4_4,
+                    bias=bias,
+                    output_dtype=torch.bfloat16,
+                )
+        else:
+            # MI350 path - do not swizzle, and add bias separately
+            assert not a.is_swizzled_scales
+            assert not b.is_swizzled_scales
+
+            if a.elem_dtype == torch.float8_e4m3fn:
+                assert b.elem_dtype == torch.float8_e4m3fn
+                res = F.scaled_mm(
+                    a.qdata,
+                    b.qdata,
+                    scale_a=a.scale,
+                    scale_recipe_a=ScalingType.BlockWise1x32,
+                    scale_b=b.scale.t(),
+                    scale_recipe_b=ScalingType.BlockWise1x32,
+                    swizzle_a=SwizzleType.NO_SWIZZLE,
+                    swizzle_b=SwizzleType.NO_SWIZZLE,
+                    bias=None,
+                    output_dtype=torch.bfloat16,
+                )
+                if bias is not None:
+                    # bias addition not currently supported for
+                    # ROCm + mxfp8 + scaled_mm, so we do it separately
+                    res = res + bias
+            else:
+                assert a.elem_dtype == torch.float4_e2m1fn_x2
+                assert b.elem_dtype == torch.float4_e2m1fn_x2
+                if not torch_version_at_least("2.10.0"):
+                    raise RuntimeError(
+                        "MXFP4 matmul requires PyTorch 2.10.0 or later for F.scaled_mm support"
+                    )
+                # FP4 operations using F.scaled_mm
+                res = F.scaled_mm(
+                    a.qdata.view(torch.float4_e2m1fn_x2),
+                    b.qdata.view(torch.float4_e2m1fn_x2),
+                    scale_a=a.scale,
+                    scale_recipe_a=ScalingType.BlockWise1x32,
+                    scale_b=b.scale.t(),
+                    scale_recipe_b=ScalingType.BlockWise1x32,
+                    swizzle_a=SwizzleType.NO_SWIZZLE,
+                    swizzle_b=SwizzleType.NO_SWIZZLE,
+                    bias=None,
+                    output_dtype=torch.bfloat16,
+                )
+                if bias is not None:
+                    # bias addition not currently supported for
+                    # ROCm + mxfp8 + scaled_mm, so we do it separately
+                    res = res + bias
 
     else:
         assert gemm_choice == KernelPreference.EMULATED, "unimplemented"
