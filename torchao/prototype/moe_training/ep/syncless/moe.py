@@ -27,7 +27,7 @@ from torch.distributed.tensor import DTensor
 from torchao.prototype.moe_training.ep.syncless.cutedsl_mxfp8_gmm import (
     cutedsl_grouped_gemm,
 )
-from torchao.prototype.moe_training.ep.syncless.mxfp8_requant_kernel import (
+from torchao.prototype.moe_training.ep.syncless.mxfp8_kernels import (
     mxfp8_dequant_requant_col_major,
     triton_scale_blocked_layout_with_offset,
 )

@@ -250,9 +250,9 @@ def mxfp8_dequant_requant_col_major(
         scale_block_size: Scale block size (must be 32)
     """
     assert scale_block_size == 32, "scale_block_size must be 32"
-    assert (
-        sym_mem_buffer_rows % scale_block_size == 0
-    ), f"sym_mem_buffer_rows ({sym_mem_buffer_rows}) must be divisible by {scale_block_size}"
+    assert sym_mem_buffer_rows % scale_block_size == 0, (
+        f"sym_mem_buffer_rows ({sym_mem_buffer_rows}) must be divisible by {scale_block_size}"
+    )
 
     dim = e4m3_data.shape[1]
     scale_dim = e8m0_scales.shape[1]

@@ -7,7 +7,8 @@
 #
 # End-to-end MoE benchmark comparing:
 #   1. Standard ExpertParallel (bf16 all-to-all + permute/unpermute + bf16 grouped MM, requires d2h syncs)
-#   2. Syncless ExpertParallel (MXFP8 symm-mem dispatch/combine + MXFP8 grouped MM, no d2h syncs)
+#   2. TorchAO MXFP8 ExpertParallel (quantize_ API + TorchAOExpertParallel, MXFP8 grouped MM, requires d2h syncs)
+#   3. Syncless ExpertParallel (MXFP8 symm-mem dispatch/combine + MXFP8 grouped MM, no d2h syncs)
 #
 # To run:
 #   torchrun --nproc-per-node=2 --local-ranks-filter=0 <path to file>
@@ -38,10 +39,14 @@ from reference_moe import (
     MoE,
     MoEArgs,
 )
-from reference_parallel_styles import ExpertParallel
+from reference_parallel_styles import ExpertParallel, TorchAOExpertParallel
 
 from benchmarks.utils import profile_fn
 from torchao.float8.float8_utils import compute_error
+from torchao.prototype.moe_training.config import (
+    MXFP8TrainingOpConfig,
+    MXFP8TrainingRecipe,
+)
 from torchao.prototype.moe_training.ep.syncless.buffer_manager import (
     SymmetricMemoryBufferManager,
 )
@@ -57,6 +62,7 @@ from torchao.prototype.moe_training.ep.syncless.moe import (
 from torchao.prototype.moe_training.ep.syncless.saved_activations_buffer import (
     SavedActivationsBuffer,
 )
+from torchao.quantization.quant_api import quantize_
 
 device = torch.device("cuda")
 
@@ -73,8 +79,10 @@ class ExperimentConfig:
 @dataclass(frozen=True)
 class ExperimentResult:
     ref_ms: float
+    torchao_mxfp8_ms: float
     syncless_ms: float
     ref_fwd_bwd_ms: float
+    torchao_mxfp8_fwd_bwd_ms: float
     syncless_fwd_bwd_ms: float
 
 
@@ -259,6 +267,73 @@ def run_experiment(
 
     del ref_model
 
+    # =========================================================================
+    # Approach 2: TorchAO MXFP8 quantize_ API + TorchAOExpertParallel
+    # =========================================================================
+    torch.manual_seed(42)
+    torchao_model = _build_ref_model(config)
+
+    # Apply MXFP8 quantization via quantize_ API
+    def moe_module_filter_fn(mod: nn.Module, cur_fqn: str) -> bool:
+        return "experts" in cur_fqn
+
+    mxfp8_config = MXFP8TrainingOpConfig.from_recipe(MXFP8TrainingRecipe.MXFP8_RCEIL)
+    quantize_(torchao_model, config=mxfp8_config, filter_fn=moe_module_filter_fn)
+
+    # Apply TorchAOExpertParallel (EP with permute_and_pad for MXFP8 alignment)
+    parallelize_module(
+        module=torchao_model.experts,
+        device_mesh=ep_mesh,
+        parallelize_plan=TorchAOExpertParallel(pad_multiple=32),
+    )
+
+    if args.compile:
+        torchao_model = torch.compile(torchao_model)
+    warmup(lambda: torchao_model(x))
+
+    # torchao MXFP8 forward timing
+    torch.cuda.synchronize()
+    torchao_start = time.perf_counter()
+    for _ in range(NUM_ITERS):
+        torchao_model(x)
+    torch.cuda.synchronize()
+    torchao_mxfp8_ms = (time.perf_counter() - torchao_start) * 1e3 / NUM_ITERS
+
+    def torchao_fwd_bwd():
+        torchao_model.zero_grad()
+        y = torchao_model(x)
+        y.backward(torch.ones_like(y))
+
+    warmup(torchao_fwd_bwd)
+
+    torch.cuda.synchronize()
+    torchao_fb_start = time.perf_counter()
+    for _ in range(NUM_ITERS):
+        torchao_fwd_bwd()
+    torch.cuda.synchronize()
+    torchao_mxfp8_fwd_bwd_ms = (
+        (time.perf_counter() - torchao_fb_start) * 1e3 / NUM_ITERS
+    )
+
+    if args.profile:
+
+        def torchao_batch():
+            for _ in range(10):
+                torchao_fwd_bwd()
+
+        profile_fn(
+            torchao_batch,
+            distributed=True,
+            profile_name="torchao_mxfp8_ep_moe",
+            active_steps=1,
+        )
+
+    del torchao_model
+
+    # =========================================================================
+    # Approach 3: Syncless ExpertParallel
+    # =========================================================================
+
     # syncless model timing (forward)
     if args.compile:
         syncless_model = torch.compile(syncless_model)
@@ -332,8 +407,10 @@ def run_experiment(
 
     return ExperimentResult(
         ref_ms=ref_ms,
+        torchao_mxfp8_ms=torchao_mxfp8_ms,
         syncless_ms=syncless_ms,
         ref_fwd_bwd_ms=ref_fwd_bwd_ms,
+        torchao_mxfp8_fwd_bwd_ms=torchao_mxfp8_fwd_bwd_ms,
         syncless_fwd_bwd_ms=syncless_fwd_bwd_ms,
     )
 
@@ -349,17 +426,23 @@ def print_results(experiments: List[Experiment]):
         "num_experts",
         "num_ranks",
         "ref_fwd_ms",
+        "torchao_fwd_ms",
         "syncless_fwd_ms",
-        "fwd_speedup",
         "ref_fwd_bwd_ms",
+        "torchao_fwd_bwd_ms",
         "syncless_fwd_bwd_ms",
-        "fwd_bwd_speedup",
+        "torchao_fb_speedup",
+        "syncless_fb_speedup",
     ]
     rows = []
     for exp in experiments:
         c, r = exp.config, exp.result
-        fwd_speedup = r.ref_ms / r.syncless_ms if r.syncless_ms > 0 else float("inf")
-        fb_speedup = (
+        torchao_fb_speedup = (
+            r.ref_fwd_bwd_ms / r.torchao_mxfp8_fwd_bwd_ms
+            if r.torchao_mxfp8_fwd_bwd_ms > 0
+            else float("inf")
+        )
+        syncless_fb_speedup = (
             r.ref_fwd_bwd_ms / r.syncless_fwd_bwd_ms
             if r.syncless_fwd_bwd_ms > 0
             else float("inf")
@@ -370,16 +453,18 @@ def print_results(experiments: List[Experiment]):
                 c.num_experts,
                 dist.get_world_size(),
                 f"{r.ref_ms:.2f}",
+                f"{r.torchao_mxfp8_ms:.2f}",
                 f"{r.syncless_ms:.2f}",
-                f"{fwd_speedup:.2f}x",
                 f"{r.ref_fwd_bwd_ms:.2f}",
+                f"{r.torchao_mxfp8_fwd_bwd_ms:.2f}",
                 f"{r.syncless_fwd_bwd_ms:.2f}",
-                f"{fb_speedup:.2f}x",
+                f"{torchao_fb_speedup:.2f}x",
+                f"{syncless_fb_speedup:.2f}x",
             ]
         )
-    print("\n" + "=" * 100)
-    print("MoE END-TO-END BENCHMARK: Standard EP vs Syncless MXFP8 EP")
-    print("=" * 100)
+    print("\n" + "=" * 120)
+    print("MoE END-TO-END BENCHMARK: BF16 EP vs TorchAO MXFP8 EP vs Syncless MXFP8 EP")
+    print("=" * 120)
     print(tabulate(rows, headers=headers, tablefmt="grid"))
 
 
