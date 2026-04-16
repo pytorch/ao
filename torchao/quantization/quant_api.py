@@ -853,7 +853,9 @@ class Int8WeightOnlyConfig(AOBaseConfig):
 
 def _int8_weight_only_quantize_tensor(weight, config):
     assert config.version == 2, f"Unexpected version: {config.version}"
-    new_weight = Int8Tensor.from_hp(weight, granularity=config.granularity)
+    new_weight = Int8Tensor.from_hp(
+        weight, granularity=config.granularity, reduce_range=False
+    )
     return new_weight
 
 
