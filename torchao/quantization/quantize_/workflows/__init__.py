@@ -34,6 +34,7 @@ from .intx.intx_packing_format import (
 from .intx.intx_unpacked_to_int8_tensor import (
     IntxUnpackedToInt8Tensor,
 )
+from .nf4.nf4_tensor import NF4Tensor, to_nf4
 
 __all__ = [
     "Int4Tensor",
@@ -54,4 +55,6 @@ __all__ = [
     "IntxPackingFormat",
     "IntxUnpackedToInt8Tensor",
     "IntxOpaqueTensor",
+    "NF4Tensor",
+    "to_nf4",
 ]

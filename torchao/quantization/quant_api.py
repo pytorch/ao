@@ -103,15 +103,12 @@ from .quant_primitives import (
     MappingType,
     quantize_affine,
 )
-from .unified import Quantizer, TwoStepQuantizer
 
 logger = logging.getLogger(__name__)
 
 # TODO: revisit this list?
 __all__ = [
     "swap_conv2d_1x1_to_linear",
-    "Quantizer",
-    "TwoStepQuantizer",
     "Int4WeightOnlyQuantizer",
     "_get_subclass_inserter",
     "quantize_",
