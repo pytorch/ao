@@ -1,6 +1,5 @@
 #include <torch/all.h>
 #include "utils.h"
-#include <iostream>
 
 /*
 To add a new kernel:
@@ -158,34 +157,28 @@ declare_all_kernels(default_scalar)
 declare_da8w4_linear_prepack_impl {
 #if defined(BUILD_AVX10_2) && __GNUC__ >= 15
   if (kHasAVX10_2) {
-    std::cout << "Using AVX10.2 DA8W4 linear prepack kernel" << std::endl;
     return avx10_2::call_da8w4_linear_prepack_impl();
   }
 #endif
 #if defined(BUILD_AVX512)
   if (kHasAVX512) {
-    std::cout << "Using AVX512 DA8W4 linear prepack kernel" << std::endl;
     return avx512::call_da8w4_linear_prepack_impl();
   }
 #endif
-  std::cout << "Using default scalar DA8W4 linear prepack kernel" << std::endl;
   return default_scalar::call_da8w4_linear_prepack_impl();
 }
 
 declare_da8w4_linear_impl {
 #if defined(BUILD_AVX10_2) && __GNUC__ >= 15
   if (kHasAVX10_2) {
-    std::cout << "Using AVX10.2 DA8W4 linear kernel" << std::endl;
     return avx10_2::call_da8w4_linear_impl();
   }
 #endif
 #if defined(BUILD_AVX512)
   if (kHasAVX512) {
-    std::cout << "Using AVX512 DA8W4 linear kernel" << std::endl;
     return avx512::call_da8w4_linear_impl();
   }
 #endif
-  std::cout << "Using default scalar DA8W4 linear kernel" << std::endl;
   return default_scalar::call_da8w4_linear_impl();
 }
 
@@ -193,34 +186,28 @@ declare_da8w4_linear_impl {
 declare_float8_linear_prepack_impl {
 #if defined(BUILD_AVX10_2) && __GNUC__ >= 15
   if (kHasAVX10_2) {
-    std::cout << "Using AVX10.2 FLOAT8 linear prepack kernel" << std::endl;
     return avx10_2::call_float8_linear_prepack_impl();
   }
 #endif
 #if defined(BUILD_AVX512)
   if (kHasAVX512) {
-    std::cout << "Using AVX512 FLOAT8 linear prepack kernel" << std::endl;
     return avx512::call_float8_linear_prepack_impl();
   }
 #endif
-  std::cout << "Using default scalar FLOAT8 linear prepack kernel" << std::endl;
   return default_scalar::call_float8_linear_prepack_impl();
 }
 
 declare_float8_linear_impl {
 #if defined(BUILD_AVX10_2) && __GNUC__ >= 15
   if (kHasAVX10_2) {
-    std::cout << "Using AVX10.2 FLOAT8 linear kernel" << std::endl;
     return avx10_2::call_float8_linear_impl();
   }
 #endif
 #if defined(BUILD_AVX512)
   if (kHasAVX512) {
-    std::cout << "Using AVX512 FLOAT8 linear kernel" << std::endl;
     return avx512::call_float8_linear_impl();
   }
 #endif
-  std::cout << "Using default scalar FLOAT8 linear kernel" << std::endl;
   return default_scalar::call_float8_linear_impl();
 }
 
@@ -228,17 +215,14 @@ declare_float8_linear_impl {
 declare_scaled_embedding_bag_impl {
 #if defined(BUILD_AVX10_2) && __GNUC__ >= 15
   if (kHasAVX10_2) {
-    std::cout << "Using AVX10.2 Scaled Embedding Bag kernel" << std::endl;
     return avx10_2::call_scaled_embedding_bag_impl();
   }
 #endif
 #if defined(BUILD_AVX512)
   if (kHasAVX512) {
-    std::cout << "Using AVX512 Scaled Embedding Bag kernel" << std::endl;
     return avx512::call_scaled_embedding_bag_impl();
   }
 #endif
-  std::cout << "Using default scalar Scaled Embedding Bag kernel" << std::endl;
   return default_scalar::call_scaled_embedding_bag_impl();
 }
 
@@ -246,17 +230,14 @@ declare_scaled_embedding_bag_impl {
 declare_qscaled_dot_product_impl {
 #if defined(BUILD_AVX10_2) && __GNUC__ >= 15
   if (kHasAVX10_2) {
-    std::cout << "Using AVX10.2 Quantized SDPA kernel" << std::endl;
     return avx10_2::call_qscaled_dot_product_impl();
   }
 #endif
 #if defined(BUILD_AVX512)
   if (kHasAVX512) {
-    std::cout << "Using AVX512 Quantized SDPA kernel" << std::endl;
     return avx512::call_qscaled_dot_product_impl();
   }
 #endif
-  std::cout << "Using default scalar Quantized SDPA kernel" << std::endl;
   return default_scalar::call_qscaled_dot_product_impl();
 }
 
