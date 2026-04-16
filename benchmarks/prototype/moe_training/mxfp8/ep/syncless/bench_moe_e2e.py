@@ -87,7 +87,7 @@ class Experiment:
 def get_configs() -> List[ExperimentConfig]:
     return [
         ExperimentConfig(
-            batch_size=4, seq_len=8192, dim=7168, hidden_dim=2048, num_experts=4
+            batch_size=4, seq_len=4096, dim=7168, hidden_dim=2048, num_experts=4
         ),
     ]
 

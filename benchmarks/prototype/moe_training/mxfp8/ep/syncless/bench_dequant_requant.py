@@ -14,12 +14,12 @@ from tqdm import tqdm
 
 from benchmarks.utils import benchmark_cuda_function_in_microseconds
 from torchao.prototype.moe_training.ep.syncless.mxfp8_requant_kernel import (
+    mxfp8_dequant_buffer,
     mxfp8_dequant_requant_col_major,
 )
 from torchao.prototype.moe_training.kernels.mxfp8.quant import (
     mxfp8_quantize_2d_32x1_cutedsl,
 )
-from torchao.prototype.mx_formats.kernels import triton_mxfp8_dequant_dim0
 from torchao.prototype.mx_formats.mx_tensor import to_mx
 
 device = torch.device("cuda")
@@ -69,13 +69,26 @@ def get_configs() -> List[ExperimentConfig]:
     return configs
 
 
-def _two_stage_dequant_requant(e4m3_data, e8m0_scales):
-    """2-stage: dequant to bf16 via triton, then requant 32x1 via CuTeDSL."""
-    bf16 = triton_mxfp8_dequant_dim0(
-        e4m3_data, e8m0_scales, torch.bfloat16, SCALE_BLOCK_SIZE
+def _two_stage_dequant_requant(
+    e4m3_data,
+    e8m0_scales,
+    num_tokens,
+    sym_mem_buffer_rows,
+    out_buffer,
+    out_offset,
+):
+    """2-stage: dequant to bf16 via mxfp8_dequant_buffer, then requant 32x1 via CuTeDSL."""
+    mxfp8_dequant_buffer(
+        e4m3_data,
+        e8m0_scales,
+        num_tokens,
+        sym_mem_buffer_rows,
+        out_buffer,
+        out_offset,
+        torch.bfloat16,
+        SCALE_BLOCK_SIZE,
     )
-    # Transpose so that requant 32x1 along dim0 gives column-major scaling
-    return mxfp8_quantize_2d_32x1_cutedsl(bf16, SCALE_BLOCK_SIZE)
+    return mxfp8_quantize_2d_32x1_cutedsl(out_buffer, SCALE_BLOCK_SIZE)
 
 
 def run_experiment(config: ExperimentConfig) -> ExperimentResult:
@@ -123,14 +136,27 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
     )
 
     # --- 2-stage setup ---
+    dequant_buffer = torch.empty(M, dim, dtype=torch.bfloat16, device=device)
+
     # Warmup 2-stage
-    _two_stage_dequant_requant(e4m3_data, e8m0_scales)
+    _two_stage_dequant_requant(
+        e4m3_data,
+        e8m0_scales,
+        num_tokens,
+        sym_mem_buffer_rows,
+        dequant_buffer,
+        out_offset,
+    )
 
     # Benchmark 2-stage
     two_stage_us = benchmark_cuda_function_in_microseconds(
         _two_stage_dequant_requant,
         e4m3_data,
         e8m0_scales,
+        num_tokens,
+        sym_mem_buffer_rows,
+        dequant_buffer,
+        out_offset,
     )
 
     # --- Memory bandwidth calculation (same logical I/O for both) ---

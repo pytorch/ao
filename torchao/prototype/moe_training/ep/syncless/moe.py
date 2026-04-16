@@ -192,7 +192,7 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
         if USE_BF16:
             grad_h = torch._grouped_mm(
                 grad_out,
-                w2.transpose(-2, -1),
+                w2,
                 offs=group_end_offs,
                 out_dtype=torch.bfloat16,
             )
@@ -258,15 +258,23 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
         # w13 backward
         # dgrad: grad_x = grad_h13 @ w13
         # TODO: use prequantized grad_h13 when silu_mul_bw quantizes
-        grad_x = _compute_dgrad(
-            grad_h13,
-            w13.transpose(-2, -1),
-            group_end_offs,
-            block_size,
-            torch.bfloat16,
-            ScaleCalculationMode.RCEIL,
-            KernelPreference.AUTO,
-        )
+        if USE_BF16:
+            grad_x = torch._grouped_mm(
+                grad_h13,
+                w13,
+                offs=group_end_offs,
+                out_dtype=torch.bfloat16,
+            )
+        else:
+            grad_x = _compute_dgrad(
+                grad_h13,
+                w13.transpose(-2, -1),
+                group_end_offs,
+                block_size,
+                torch.bfloat16,
+                ScaleCalculationMode.RCEIL,
+                KernelPreference.AUTO,
+            )
 
         # free buffer allocation (GPU-side, no sync)
         buf.free(offset)

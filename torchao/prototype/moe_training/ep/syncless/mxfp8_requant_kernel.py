@@ -84,6 +84,26 @@ def _calculate_scale_rceil(x, axis, USE_PTX: tl.constexpr):
     return descale_fp, scale_e8m0_biased
 
 
+def _get_dequant_requant_autotune_configs():
+    results = []
+    for TILE_M in (64, 128, 256):
+        for TILE_K in (64, 128, 256):
+            for num_warps in (4, 8):
+                for num_stages in (2,):
+                    results.append(
+                        triton.Config(
+                            {"TILE_M": TILE_M, "TILE_K": TILE_K},
+                            num_warps=num_warps,
+                            num_stages=num_stages,
+                        )
+                    )
+    return results
+
+
+@triton.autotune(
+    configs=_get_dequant_requant_autotune_configs(),
+    key=["dim", "sym_mem_buffer_rows"],
+)
 @triton.jit
 def _mxfp8_dequant_requant_col_major_kernel(
     # Input pointers
@@ -230,20 +250,17 @@ def mxfp8_dequant_requant_col_major(
         scale_block_size: Scale block size (must be 32)
     """
     assert scale_block_size == 32, "scale_block_size must be 32"
-    assert sym_mem_buffer_rows % scale_block_size == 0, (
-        f"sym_mem_buffer_rows ({sym_mem_buffer_rows}) must be divisible by {scale_block_size}"
-    )
+    assert (
+        sym_mem_buffer_rows % scale_block_size == 0
+    ), f"sym_mem_buffer_rows ({sym_mem_buffer_rows}) must be divisible by {scale_block_size}"
 
     dim = e4m3_data.shape[1]
     scale_dim = e8m0_scales.shape[1]
     out_scale_cols = sym_mem_buffer_rows // scale_block_size
 
-    TILE_M = 128
-    TILE_K = 128
-
-    grid = (
-        triton.cdiv(sym_mem_buffer_rows, TILE_M),
-        triton.cdiv(dim, TILE_K),
+    grid = lambda META: (
+        triton.cdiv(sym_mem_buffer_rows, META["TILE_M"]),
+        triton.cdiv(dim, META["TILE_K"]),
     )
 
     wrap_triton(_mxfp8_dequant_requant_col_major_kernel)[grid](
@@ -262,8 +279,6 @@ def mxfp8_dequant_requant_col_major(
         sym_mem_buffer_rows=sym_mem_buffer_rows,
         out_scale_cols=out_scale_cols,
         SCALE_BLOCK_SIZE=scale_block_size,
-        TILE_M=TILE_M,
-        TILE_K=TILE_K,
     )
 
 
@@ -389,4 +404,138 @@ def _triton_scale_swizzle_with_offset(
     tl.store(
         output_ptr + block_offset + dest_indices_flat,
         scales_flat,
+    )
+
+
+@triton_op("torchao::mxfp8_dequant_buffer", mutates_args={"out_buffer"})
+def mxfp8_dequant_buffer(
+    e4m3_data_buffer: torch.Tensor,
+    e8m0_scales_buffer: torch.Tensor,
+    num_tokens: torch.Tensor,
+    sym_mem_buffer_rows: int,
+    out_buffer: torch.Tensor,
+    out_offset: torch.Tensor,
+    out_dtype: torch.dtype,
+    scale_block_size: int = 32,
+) -> torch.Tensor:
+    """MXFP8 dequantization with GPU-resident num_tokens/out_offset.
+    Reads FP8 data + E8M0 scales from input tensors (rows 0..num_tokens-1),
+    dequantizes to out_dtype, and writes into out_buffer at out_offset.
+    Rows beyond num_tokens are zero-filled.
+    Args:
+        e4m3_data_buffer: (rows, hidden_dim) FP8 E4M3 input data
+        e8m0_scales_buffer: (rows, scale_dim) E8M0 input scales
+        num_tokens: Scalar int64 GPU tensor - number of valid rows to read
+        sym_mem_buffer_rows: Number of output rows to process (Python int)
+        out_buffer: Pre-allocated output buffer to write into at out_offset
+        out_offset: Scalar int64 GPU tensor - start row in output buffer
+        out_dtype: Output dtype (torch.bfloat16 or torch.float32)
+        scale_block_size: Scale block size (must be 32)
+    Returns:
+        out_buffer
+    """
+    assert scale_block_size == 32, "scale_block_size must be 32 for now"
+    assert out_dtype in (
+        torch.bfloat16,
+        torch.float32,
+    ), "out_dtype must be bf16 or fp32"
+    # Get dimensions
+    hidden_dim = e4m3_data_buffer.shape[1]
+    scale_dim = e8m0_scales_buffer.shape[1]
+    # Triton dtype
+    out_dtype_tl = tl.bfloat16 if out_dtype == torch.bfloat16 else tl.float32
+    # Launch kernel
+    ROW_TILE_SIZE = 256
+    COL_TILE_SIZE = 256
+    grid = (
+        triton.cdiv(sym_mem_buffer_rows, ROW_TILE_SIZE),
+        triton.cdiv(hidden_dim, COL_TILE_SIZE),
+    )
+    wrap_triton(_mxfp8_dequant_buffer_kernel)[grid](
+        e4m3_data_buffer,
+        e8m0_scales_buffer.to(torch.uint8),
+        out_buffer,
+        num_tokens,
+        out_offset,
+        buffer_stride_row=e4m3_data_buffer.stride(0),
+        scale_stride_row=e8m0_scales_buffer.stride(0),
+        out_stride_row=out_buffer.stride(0),
+        hidden_dim=hidden_dim,
+        scale_dim=scale_dim,
+        sym_mem_buffer_rows=sym_mem_buffer_rows,
+        out_dtype=out_dtype_tl,
+        SCALE_BLOCK_SIZE=scale_block_size,
+        ROW_TILE_SIZE=ROW_TILE_SIZE,
+        COL_TILE_SIZE=COL_TILE_SIZE,
+    )
+
+
+@triton.jit
+def _mxfp8_dequant_buffer_kernel(
+    e4m3_data_buffer,
+    e8m0_scales_buffer,
+    out_buffer,
+    num_tokens_ptr,
+    out_offset_ptr,
+    buffer_stride_row: tl.constexpr,
+    scale_stride_row: tl.constexpr,
+    out_stride_row: tl.constexpr,
+    hidden_dim: tl.constexpr,
+    scale_dim: tl.constexpr,
+    sym_mem_buffer_rows: tl.constexpr,
+    out_dtype: tl.constexpr,
+    SCALE_BLOCK_SIZE: tl.constexpr,
+    ROW_TILE_SIZE: tl.constexpr,
+    COL_TILE_SIZE: tl.constexpr,
+):
+    """MXFP8 dequantization kernel with GPU-resident offset/num_tokens."""
+    num_tokens = tl.load(num_tokens_ptr).to(tl.int64)
+    out_off = tl.load(out_offset_ptr).to(tl.int64)
+    pid_row = tl.program_id(0)
+    pid_col = tl.program_id(1)
+    SCALE_BLOCKS_PER_COL_TILE: tl.constexpr = COL_TILE_SIZE // SCALE_BLOCK_SIZE
+    # Load block of e4m3 data from buffer[offset:offset+num_tokens]
+    row_offs = pid_row * ROW_TILE_SIZE + tl.arange(0, ROW_TILE_SIZE)
+    col_offs = pid_col * COL_TILE_SIZE + tl.arange(0, COL_TILE_SIZE)
+    # Output masking
+    out_mask = (row_offs < sym_mem_buffer_rows) & (col_offs < hidden_dim)
+    valid_mask = row_offs < num_tokens
+    # Add offset to read from correct buffer position
+    block_offs = row_offs[:, None] * buffer_stride_row + col_offs[None, :]
+    # Load e4m3 data only for valid tokens
+    e4m3_data_block = tl.load(
+        e4m3_data_buffer + block_offs,
+        mask=valid_mask[:, None] & (col_offs[None, :] < hidden_dim),
+        other=0.0,
+    )
+    # Load block of e8m0 scales from scales_buffer[offset:offset+num_tokens]
+    scale_col_offs = pid_col * SCALE_BLOCKS_PER_COL_TILE + tl.arange(
+        0, SCALE_BLOCKS_PER_COL_TILE
+    )
+    scale_block_offs = row_offs[:, None] * scale_stride_row + scale_col_offs[None, :]
+    e8m0_scale_block = tl.load(
+        e8m0_scales_buffer + scale_block_offs,
+        mask=valid_mask[:, None] & (scale_col_offs[None, :] < scale_dim),
+        other=0,
+    )
+    # Dequantize: convert e8m0 scales to fp32 and multiply with e4m3 data
+    e4m3_data_block_r = e4m3_data_block.reshape(
+        ROW_TILE_SIZE * SCALE_BLOCKS_PER_COL_TILE, SCALE_BLOCK_SIZE
+    )
+    e8m0_scale_block_r = e8m0_scale_block.reshape(
+        ROW_TILE_SIZE * SCALE_BLOCKS_PER_COL_TILE, 1
+    )
+    fp32_scale = _e8m0_to_fp32(e8m0_scale_block_r)
+    data_hp = e4m3_data_block_r.to(tl.float32) * fp32_scale
+    # Convert to output dtype and reshape
+    out_buffer_block = data_hp.to(out_dtype)
+    out_buffer_block = out_buffer_block.reshape(ROW_TILE_SIZE, COL_TILE_SIZE)
+    # Write to output buffer at out_offset
+    out_row_offs = out_off + row_offs
+    out_block_offs = out_row_offs[:, None] * out_stride_row + col_offs[None, :]
+    out_mask = (row_offs < sym_mem_buffer_rows) & (col_offs < hidden_dim)
+    tl.store(
+        out_buffer + out_block_offs,
+        tl.where(valid_mask[:, None], out_buffer_block, 0.0),
+        mask=out_mask,
     )
