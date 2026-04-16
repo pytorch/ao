@@ -7,9 +7,12 @@
 import torch
 import torch.nn.functional as F
 from torch import nn
+from torch.distributed._tensor import DTensor
 
 from torchao.core.config import AOBaseConfig
 from torchao.prototype.blockwise_fp8_training.kernels import (
+    _pad_blockwise_128x128_scale_k_major,
+    blockwise_scaled_mm,
     triton_fp8_blockwise_act_quant_lhs,
     triton_fp8_blockwise_act_quant_rhs,
     triton_fp8_blockwise_act_quant_transposed_lhs,
@@ -24,19 +27,6 @@ from torchao.quantization.transform_module import (
 from torchao.utils import is_sm_at_least_90
 
 
-def _pad_blockwise_128x128_scale_k_major(scale: torch.Tensor) -> torch.Tensor:
-    # cuBLASLt requires BLK128x128 scales to be K-major with the K stride padded to a multiple of 4.
-    padded_k_blocks = (scale.shape[0] + 3) // 4 * 4
-    if padded_k_blocks == scale.shape[0]:
-        return scale
-
-    padded_scale = scale.new_full((scale.shape[1], padded_k_blocks), 1.0).transpose(
-        0, 1
-    )
-    padded_scale[: scale.shape[0], :] = scale
-    return padded_scale
-
-
 def _scaled_mm(
     mat_a: torch.Tensor,
     mat_b: torch.Tensor,
@@ -46,30 +36,29 @@ def _scaled_mm(
     scale_recipe_b,
     out_dtype: torch.dtype,
 ) -> torch.Tensor:
-    if torch.compiler.is_compiling():
-        return torch.ops.aten._scaled_mm_v2.default(
+    if not any(
+        isinstance(tensor, DTensor) for tensor in (mat_a, mat_b, scale_a, scale_b)
+    ):
+        if scale_recipe_b is F.ScalingType.BlockWise128x128:
+            scale_b = _pad_blockwise_128x128_scale_k_major(scale_b)
+        return F.scaled_mm(
             mat_a,
             mat_b,
-            [scale_a],
-            [scale_recipe_a.value],
-            [],
-            [scale_b],
-            [scale_recipe_b.value],
-            [],
-            None,
-            out_dtype,
-            [],
-            False,
+            scale_a=scale_a,
+            scale_recipe_a=scale_recipe_a,
+            scale_b=scale_b,
+            scale_recipe_b=scale_recipe_b,
+            output_dtype=out_dtype,
         )
 
-    return F.scaled_mm(
+    return blockwise_scaled_mm(
         mat_a,
         mat_b,
-        scale_a=scale_a,
-        scale_recipe_a=scale_recipe_a,
-        scale_b=scale_b,
-        scale_recipe_b=scale_recipe_b,
-        output_dtype=out_dtype,
+        scale_a,
+        scale_recipe_a.value,
+        scale_b,
+        scale_recipe_b.value,
+        out_dtype,
     )
 
 
@@ -106,7 +95,7 @@ class fp8_blockwise_mm(torch.autograd.Function):
                 weight_t_fp8,
                 x_scale,
                 F.ScalingType.BlockWise1x128,
-                _pad_blockwise_128x128_scale_k_major(weight_t_scale),
+                weight_t_scale,
                 F.ScalingType.BlockWise128x128,
                 out_dtype,
             )
@@ -160,7 +149,7 @@ class fp8_blockwise_mm(torch.autograd.Function):
                 weight_fp8,
                 grad_output_scale,
                 F.ScalingType.BlockWise1x128,
-                _pad_blockwise_128x128_scale_k_major(weight_scale),
+                weight_scale,
                 F.ScalingType.BlockWise128x128,
                 out_dtype,
             )

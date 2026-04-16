@@ -4,23 +4,38 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
+import copy
 import unittest
 
 import pytest
 import torch
 from torch.distributed._tensor import DTensor
 from torch.distributed.tensor import Partial, Replicate, Shard
+from torch.nn import functional as F
 from torch.testing._internal.common_utils import run_tests
 from torch.testing._internal.distributed._tensor.common_dtensor import (
     DTensorTestBase,
     with_comms,
 )
 
+try:
+    from torch.distributed.tensor.parallel import (
+        ColwiseParallel,
+        RowwiseParallel,
+        parallelize_module,
+    )
+except ImportError:
+    ColwiseParallel = RowwiseParallel = parallelize_module = None
+
 from packaging import version
 
 triton = pytest.importorskip("triton", reason="Triton required to run this test")
 
 from torchao.float8.config import e4m3_dtype
+from torchao.prototype.blockwise_fp8_training.linear import (
+    Float8BlockwiseLinear,
+    Float8BlockwiseLinearConfig,
+)
 from torchao.prototype.blockwise_fp8_training.kernels import (
     triton_fp8_blockwise_act_quant_lhs,
     triton_fp8_blockwise_act_quant_rhs,
@@ -30,6 +45,8 @@ from torchao.prototype.blockwise_fp8_training.kernels import (
     triton_fp8_gemm_1x128_128x1,
     triton_fp8_gemm_1x128_128x128,
 )
+from torchao.quantization import quantize_
+from torchao.testing.training.dtensor_utils import ToyModel
 from torchao.utils import is_MI300, is_MI350, is_ROCM, is_sm_at_least_90
 
 QUANT_PRESERVE_PLACEMENTS = (
@@ -65,17 +82,56 @@ def _gemm_skip_reason() -> str | None:
     return None
 
 
+def _linear_skip_reason() -> str | None:
+    if not torch.cuda.is_available():
+        return "Need CUDA available"
+    if torch.cuda.device_count() < 2:
+        return "Need at least 2 CUDA devices"
+    if not is_sm_at_least_90():
+        return "Float8BlockwiseLinear currently requires CUDA SM90+"
+    if version.parse(triton.__version__) < version.parse("3.3.0"):
+        return "Triton version < 3.3.0"
+    return None
+
+
 def _op_name(op) -> str:
     return getattr(op, "_name", repr(op))
 
 
 QUANT_SKIP_REASON = _quant_skip_reason()
 GEMM_SKIP_REASON = _gemm_skip_reason()
+LINEAR_SKIP_REASON = _linear_skip_reason()
 
 
 class TestBlockwiseFP8DTensorSharding(DTensorTestBase):
     world_size = 2
     block_size = 128
+
+    def _full_tensor(self, tensor: torch.Tensor) -> torch.Tensor:
+        return tensor.full_tensor() if isinstance(tensor, DTensor) else tensor
+
+    def _set_use_triton(self, model: torch.nn.Module, use_triton: bool) -> None:
+        converted = 0
+        for module in model.modules():
+            if isinstance(module, Float8BlockwiseLinear):
+                module.use_triton = use_triton
+                converted += 1
+        self.assertGreater(converted, 0)
+
+    def _assert_close(
+        self,
+        actual: torch.Tensor,
+        expected: torch.Tensor,
+        *,
+        atol: float = 2e-2,
+        rtol: float = 2e-2,
+    ) -> None:
+        torch.testing.assert_close(
+            actual.float(),
+            expected.float(),
+            atol=atol,
+            rtol=rtol,
+        )
 
     def _build_cuda_mesh(self):
         torch.cuda.set_device(self.rank % torch.cuda.device_count())
@@ -369,6 +425,83 @@ class TestBlockwiseFP8DTensorSharding(DTensorTestBase):
                         expected_placement=expected_output_placement,
                         expected_global_shape=expected_shape,
                     )
+
+    @with_comms
+    @unittest.skipIf(LINEAR_SKIP_REASON is not None, LINEAR_SKIP_REASON or "")
+    def test_linear_tp_parity(self):
+        if parallelize_module is None:
+            self.skipTest("Tensor parallel APIs require a newer torch build")
+
+        mesh = self._build_cuda_mesh()
+        device = torch.device(f"cuda:{self.rank % torch.cuda.device_count()}")
+        size = 128
+        tp_plan = {
+            "ffn.w1": ColwiseParallel(),
+            "ffn.w2": ColwiseParallel(),
+            "ffn.out_proj": RowwiseParallel(),
+        }
+
+        for use_triton in (False, True):
+            with self.subTest(use_triton=use_triton):
+                torch.manual_seed(11)
+                ref_model = ToyModel(size).to(device=device, dtype=torch.bfloat16)
+                tp_model = copy.deepcopy(ref_model)
+
+                quantize_(ref_model, Float8BlockwiseLinearConfig())
+                quantize_(tp_model, Float8BlockwiseLinearConfig())
+                self._set_use_triton(ref_model, use_triton)
+                self._set_use_triton(tp_model, use_triton)
+
+                tp_model = parallelize_module(tp_model, mesh, tp_plan)
+
+                self.assertIsInstance(tp_model.ffn.w1.weight, DTensor)
+                self.assertIsInstance(tp_model.ffn.w2.weight, DTensor)
+                self.assertIsInstance(tp_model.ffn.out_proj.weight, DTensor)
+                self.assertEqual(tp_model.ffn.w1.weight.placements, (Shard(0),))
+                self.assertEqual(tp_model.ffn.w2.weight.placements, (Shard(0),))
+                self.assertEqual(tp_model.ffn.out_proj.weight.placements, (Shard(1),))
+
+                ref_optim = torch.optim.SGD(ref_model.parameters(), lr=1e-2)
+                tp_optim = torch.optim.SGD(tp_model.parameters(), lr=1e-2)
+
+                for iter_idx in range(2):
+                    torch.manual_seed(101 + iter_idx)
+                    x = torch.randn(2, 64, size, device=device, dtype=torch.bfloat16)
+                    target = torch.randn_like(x)
+
+                    ref_optim.zero_grad(set_to_none=True)
+                    tp_optim.zero_grad(set_to_none=True)
+
+                    ref_out = ref_model(x)
+                    tp_out = tp_model(x)
+                    self._assert_close(tp_out, ref_out)
+
+                    ref_loss = F.mse_loss(ref_out, target)
+                    tp_loss = F.mse_loss(tp_out, target)
+                    self._assert_close(tp_loss, ref_loss, atol=1e-3, rtol=1e-3)
+
+                    ref_loss.backward()
+                    tp_loss.backward()
+
+                    for ref_param, tp_param in zip(
+                        ref_model.parameters(), tp_model.parameters(), strict=True
+                    ):
+                        self.assertIsNotNone(ref_param.grad)
+                        self.assertIsNotNone(tp_param.grad)
+                        self.assertIsInstance(tp_param, DTensor)
+                        self.assertIsInstance(tp_param.grad, DTensor)
+                        self._assert_close(
+                            self._full_tensor(tp_param.grad),
+                            ref_param.grad,
+                        )
+
+                    ref_optim.step()
+                    tp_optim.step()
+
+                    for ref_param, tp_param in zip(
+                        ref_model.parameters(), tp_model.parameters(), strict=True
+                    ):
+                        self._assert_close(self._full_tensor(tp_param), ref_param)
 
 
 if __name__ == "__main__":

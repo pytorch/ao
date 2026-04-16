@@ -7,6 +7,7 @@
 from typing import Tuple
 
 import torch
+import torch.nn.functional as F
 import triton
 import triton.language as tl
 from torch.distributed.tensor import Partial, Replicate, Shard
@@ -14,10 +15,6 @@ from torch.distributed.tensor.experimental import register_sharding
 from torch.library import triton_op, wrap_triton
 
 from torchao.float8.config import e4m3_dtype
-from torchao.prototype.moe_training.utils import (
-    _is_column_major,
-    _is_row_major,
-)
 
 FP8_E4M3_DTYPES = {torch.float8_e4m3fn, torch.float8_e4m3fnuz}
 
@@ -33,6 +30,29 @@ fp8_gemm_configs_max_autotune = [
 ]
 
 EPS = 1e-12
+
+
+def _pad_blockwise_128x128_scale_k_major(scale: torch.Tensor) -> torch.Tensor:
+    # cuBLASLt requires BLK128x128 scales to be K-major with the K stride padded to a multiple of 4.
+    padded_k_blocks = (scale.shape[0] + 3) // 4 * 4
+    if padded_k_blocks == scale.shape[0]:
+        return scale
+
+    padded_scale = scale.new_full((scale.shape[1], padded_k_blocks), 1.0).transpose(
+        0, 1
+    )
+    padded_scale[: scale.shape[0], :] = scale
+    return padded_scale
+
+
+def _is_column_major(x: torch.Tensor) -> bool:
+    assert x.ndim == 2 or x.ndim == 3, "input tensor must be 2D or 3D"
+    return x.stride(-2) == 1
+
+
+def _is_row_major(x: torch.Tensor) -> bool:
+    assert x.ndim == 2 or x.ndim == 3, "input tensor must be 2D or 3D"
+    return x.stride(-1) == 1
 
 
 def _two_output_quant_shardings(
@@ -60,6 +80,79 @@ def _blockwise_gemm_shardings():
         ([Shard(1)], [Replicate(), Shard(1), Replicate(), Shard(1), None, None]),
         ([Partial()], [Shard(1), Shard(0), Shard(1), Shard(0), None, None]),
     ]
+
+
+def _blockwise_scaled_mm_shardings():
+    # Op returns a single tensor and takes:
+    # (a, b, a_s, scale_recipe_a, b_s, scale_recipe_b, out_dtype)
+    return [
+        (
+            [Replicate()],
+            [Replicate(), Replicate(), Replicate(), None, Replicate(), None, None],
+        ),
+        ([Shard(0)], [Shard(0), Replicate(), Shard(0), None, Replicate(), None, None]),
+        ([Shard(1)], [Replicate(), Shard(1), Replicate(), None, Shard(1), None, None]),
+        ([Partial()], [Shard(1), Shard(0), Shard(1), None, Shard(0), None, None]),
+    ]
+
+
+@torch.library.custom_op("torchao::blockwise_scaled_mm", mutates_args=())
+def blockwise_scaled_mm(
+    a: torch.Tensor,
+    b: torch.Tensor,
+    a_s: torch.Tensor,
+    scale_recipe_a: int,
+    b_s: torch.Tensor,
+    scale_recipe_b: int,
+    out_dtype: torch.dtype,
+) -> torch.Tensor:
+    if not _is_row_major(a):
+        a = a.contiguous()
+    if not _is_column_major(b):
+        b = b.t().contiguous().t()
+    if scale_recipe_b == F.ScalingType.BlockWise128x128.value:
+        b_s = _pad_blockwise_128x128_scale_k_major(b_s)
+
+    return torch.ops.aten._scaled_mm_v2.default(
+        a,
+        b,
+        [a_s],
+        [scale_recipe_a],
+        [],
+        [b_s],
+        [scale_recipe_b],
+        [],
+        None,
+        out_dtype,
+        [],
+        False,
+    )
+
+
+@blockwise_scaled_mm.register_fake
+def _(
+    a: torch.Tensor,
+    b: torch.Tensor,
+    a_s: torch.Tensor,
+    scale_recipe_a: int,
+    b_s: torch.Tensor,
+    scale_recipe_b: int,
+    out_dtype: torch.dtype,
+) -> torch.Tensor:
+    return a.new_empty((*a.shape[:-1], b.shape[-1]), dtype=out_dtype)
+
+
+@register_sharding(torch.ops.torchao.blockwise_scaled_mm.default)
+def custom_sharding_for_blockwise_scaled_mm(
+    a: torch.Tensor,
+    b: torch.Tensor,
+    a_s: torch.Tensor,
+    scale_recipe_a: int,
+    b_s: torch.Tensor,
+    scale_recipe_b: int,
+    out_dtype: torch.dtype,
+):
+    return _blockwise_scaled_mm_shardings()
 
 
 @triton.autotune(configs=fp8_gemm_configs_max_autotune, key=["N", "K", "BLOCK_SIZE_K"])
