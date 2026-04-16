@@ -1213,7 +1213,7 @@ def _mslk_quantize_nvfp4_custom_op(
     """
     assert _mslk_available, (
         "mslk is required for NVFP4 triton quantization. "
-        "Install from https://github.com/pytorch/MSLK"
+        "Install from https://github.com/meta-pytorch/MSLK"
     )
     from mslk.quantize.triton.fp4_quantize import (
         triton_quantize_nvfp4 as _mslk_triton_quantize_nvfp4,
