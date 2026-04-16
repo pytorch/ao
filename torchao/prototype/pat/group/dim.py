@@ -16,10 +16,14 @@ class DimGrouperMixin:
 
     def __enter__(self):
         if self.p.dim() > 2:
-            self.p.data = self.p.data.flatten(
-                start_dim=self.start_dim, end_dim=self.end_dim
-            )
+            self._write_back = not self.p.is_contiguous()
+            self.p = self.p.flatten(start_dim=self.start_dim, end_dim=self.end_dim)
         return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self.p.dim() > 2 and self._write_back:
+            self._param.copy_(self.p.view_as(self._param))
+        return super().__exit__(exc_type, exc_val, exc_tb)
 
 
 class Dim0Grouper(DimGrouperMixin, Grouper):

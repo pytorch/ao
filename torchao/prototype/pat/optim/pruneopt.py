@@ -13,7 +13,7 @@ import torch
 from torch import Tensor
 from torch.distributed.tensor import distribute_tensor
 from torch.distributed.tensor.experimental import local_map
-from torch.distributed.tensor.placement_types import Partial, Replicate, Shard
+from torch.distributed.tensor.placement_types import Partial, Shard
 from torch.optim import Optimizer
 from torch.optim.optimizer import StateDict
 
@@ -24,16 +24,23 @@ from ..distributed_utils import (
     _sum_async_streams,
 )
 from ..utils import get_index_linspace, instantiate_module
+from .group_lasso import ProxGroupLasso, ProxGroupLassoVectorized
 
 
 class PruneOptimizer(Optimizer):
-    """PruneOptimizer assembles functionalities of the following objects:
-    a base optimizer (e.g., SGD or AdamW)
-        - update the latent variables for QAT
-    Other parameters:
-        warmup_steps: int >= 0
-        healing_start_step: int > warmup_steps, or sys.maxsize to disable healing
-        reg_lambda: float >= 0, regularization strength for the prox map
+    """PruneOptimizer is a wrapper around a base optimizer that applies proximal
+    updates to induce sparsity or low-rank structure in the parameters during
+    training.
+
+    Arguments:
+        base_optimizer: The underlying optimizer (e.g., SGD or AdamW) that
+            updates the latent parameters.
+        warmup_steps: Number of initial steps to run before applying proximal
+            updates, during which the optimizer behaves like the base optimizer.
+        healing_start_step: Step at which to start the "healing" phase, where
+            pruned parameters are frozen. Must be greater than warmup_steps.
+        reg_lambda: Regularization strength for the proximal updates. Can be
+            overridden per parameter group.
     """
 
     def __init__(
@@ -54,12 +61,9 @@ class PruneOptimizer(Optimizer):
         self.warmup_steps = warmup_steps
         self.healing_start_step = healing_start_step
 
-        self.has_svd = False
         for group in self.regularized_param_groups():
             group.setdefault("gamma", 0.0)
             group.setdefault("reg_lambda", reg_lambda)
-            if group.get("group_type", None) == "SVDGrouper":
-                self.has_svd = True
 
         self.relative_sparsity = 0
         self.relative_factored_frac = 0
@@ -136,6 +140,13 @@ class PruneOptimizer(Optimizer):
         grouper_kwargs = {}
         if group["group_type"].startswith("AttentionHeadGrouper"):
             grouper_kwargs["num_heads"] = group["num_heads"]
+        elif group["group_type"] == "QKGrouper":
+            if "qk_pack_dim" in group:
+                grouper_kwargs["qk_pack_dim"] = group["qk_pack_dim"]
+            if "qk_reg_index" in group:
+                grouper_kwargs["qk_reg_index"] = group["qk_reg_index"]
+        elif group["group_type"] == "KElementGrouper":
+            grouper_kwargs["k"] = group["k"]
         elif group["group_type"] == "PackedSVDGrouper":
             grouper_kwargs["npack"] = group["npack"]
             if "pack_dim" in group:
@@ -143,9 +154,72 @@ class PruneOptimizer(Optimizer):
         return grouper_kwargs
 
     @staticmethod
+    def _apply_prox_dtensor(grouper, prox_map, p, gamma, gamma_in_dims):
+        """Apply prox_map to a DTensor parameter via local_map.
+
+        Returns:
+            zero_elts: number of zero elements (int, globally summed)
+            group_norm: group-level norm DTensor
+        """
+        if not torch.is_tensor(gamma):
+            gamma = torch.tensor(gamma, device=p.device)
+
+        # Derive input placements from grouper.p
+        p_in_placements = tuple(
+            Shard(grouper.in_dims)
+            if grouper.in_dims is not None and plc.is_shard()
+            else plc
+            for plc in grouper.p.placements
+        )
+        if grouper.in_dims is not None and gamma.dim() > 0:
+            # Shard gamma according to grouper.in_dims
+            gamma = distribute_tensor(
+                gamma.unsqueeze(int(not grouper.in_dims)),
+                device_mesh=p.device_mesh,
+                placements=p_in_placements,
+            )
+            gamma_in_dims = grouper.in_dims
+        else:
+            gamma = distribute_tensor(gamma, device_mesh=p.device_mesh)
+
+        if isinstance(prox_map, ProxGroupLasso):
+            # Use ProxGroupLassoVectorized for group lasso
+            prox_map_vec = ProxGroupLassoVectorized(
+                prox_map.reg_lambda,
+                reduce_dim=int(not grouper.in_dims),
+            )
+            local_fn = prox_map_vec.apply_
+        else:
+            # Use vmap for other prox types
+            local_fn = torch.vmap(
+                prox_map.apply_,
+                in_dims=(
+                    grouper.in_dims,
+                    gamma_in_dims,
+                ),
+                out_dims=(0, 0),
+            )
+
+        zero_elts_per_group, group_norm = local_map(
+            local_fn,
+            out_placements=(
+                (Partial(),) * p.device_mesh.ndim,
+                (Shard(0),) * p.device_mesh.ndim,
+            ),
+            in_placements=(
+                p_in_placements,
+                gamma.placements if _is_dtensor(gamma) else None,
+            ),
+            redistribute_inputs=True,
+        )(grouper.p, gamma)
+
+        # Gather counts across shards
+        return zero_elts_per_group.full_tensor().sum().item(), group_norm
+
+    @staticmethod
     def _apply_prox(
         grouper, prox_map, p, sv_count=None, **prox_kwargs
-    ) -> tuple[Tensor, bool]:
+    ) -> tuple[Tensor, Tensor, bool]:
         """
         Apply `prox_map` to the grouped parameter tensor `p` in place. Update
         `sv_count` if provided. Handles both torch.Tensor and DTensor inputs,
@@ -154,6 +228,8 @@ class PruneOptimizer(Optimizer):
 
         Returns:
             zero_elts: number of zero elements after applying prox map
+            group_norm: group-level norm of parameters after applying prox map,
+                divided by the prox map's tau term
             zeros_are_summed: whether zero_elts is already globally summed
         """
         gamma = prox_kwargs["gamma"]
@@ -171,51 +247,26 @@ class PruneOptimizer(Optimizer):
 
             if prox_kwargs["disable_vmap"]:
                 # Element- or layer-wise pruning
-                zero_elts = prox_map.apply_(grouper.p, gamma)
+                zero_elts, group_norm = prox_map.apply_(grouper.p, gamma)
                 zeros_are_summed = zero_elts.dim() == 0
             else:
                 if not prox_kwargs["is_svd_grouper"] and _is_dtensor(p):
-                    if not torch.is_tensor(gamma):
-                        gamma = torch.tensor(gamma, device=p.device)
-
-                    gamma_placements = (Replicate(),)
-                    if grouper.in_dims is not None and gamma.dim() > 0:
-                        # Shard gamma according to grouper.in_dims
-                        gamma_placements = (Shard(grouper.in_dims),)
-                        gamma = gamma.unsqueeze(int(not grouper.in_dims))
-                    gamma = distribute_tensor(
+                    zero_elts, group_norm = PruneOptimizer._apply_prox_dtensor(
+                        grouper,
+                        prox_map,
+                        p,
                         gamma,
-                        device_mesh=p.device_mesh,
-                        placements=gamma_placements,
+                        gamma_in_dims,
                     )
-
-                    # Derive input placements from grouper.p
-                    p_in_placements = (
-                        Shard(grouper.in_dims)
-                        if grouper.in_dims is not None and plc.is_shard()
-                        else plc
-                        for plc in grouper.p.placements
-                    )
-
-                    # Use local_map for DTensor-aware vectorization
-                    zero_elts_per_group = local_map(
-                        prox_map.apply_,
-                        out_placements=[Partial()],
-                        in_placements=(
-                            p_in_placements,
-                            gamma.placements if _is_dtensor(gamma) else None,
-                        ),
-                        redistribute_inputs=True,
-                    )(grouper.p, gamma)
-
-                    # Gather counts by calling redistribute implicitly
-                    zero_elts = zero_elts_per_group.full_tensor().item()
                 else:
                     # torch.Tensor branch - use standard vmap
-                    zero_elts_per_group = torch.vmap(
+                    zero_elts_per_group, group_norm = torch.vmap(
                         prox_map.apply_,
-                        in_dims=(grouper.in_dims, gamma_in_dims),
-                        out_dims=0,
+                        in_dims=(
+                            grouper.in_dims,
+                            gamma_in_dims,
+                        ),
+                        out_dims=(0, 0),
                     )(grouper.p, gamma)
                     zero_elts = zero_elts_per_group.sum().item()
                 zeros_are_summed = True
@@ -233,14 +284,13 @@ class PruneOptimizer(Optimizer):
                     else torch.count_nonzero(grouper.p, dim=dim)
                 )
 
-            return zero_elts, zeros_are_summed
+            return zero_elts, group_norm, zeros_are_summed
 
     def _set_gamma(self, group):
         # AProx in practice: ensure shrinkage coefficient >= 1
         group["gamma"] += group["lr"]
 
     def _init_latent_state(self):
-        """Initialize latent state for QAT if not already initialized."""
         for group in self.regularized_param_groups():
             for p in group["params"]:
                 state = self.state[p]
@@ -257,16 +307,20 @@ class PruneOptimizer(Optimizer):
                 and returns the loss.
         """
         # during healing, freeze pruned params by zeroing out their gradients
+        # and saving masks to re-zero after optimizer step (momentum may push
+        # pruned params away from zero)
+        healing_masks = {}
         if self.num_steps >= self.healing_start_step:
             for group in self.regularized_param_groups():
                 for p in group["params"]:
+                    if p.grad is None:
+                        continue
+                    mask = p.ne(0)
+                    healing_masks[id(p)] = mask
                     if _is_dtensor(p):
-                        local_map(
-                            lambda p_grad, mask: p_grad.masked_fill_(mask, 0),
-                            out_placements=(p.grad.placements,),
-                        )(p.grad, p.eq(0))
+                        p.grad.mul_(mask)
                     else:
-                        p.grad.masked_fill_(p.eq(0), 0)
+                        p.grad.masked_fill_(~mask, 0)
 
         if (
             self.num_steps < self.warmup_steps
@@ -274,15 +328,25 @@ class PruneOptimizer(Optimizer):
         ):
             # run base optimizer only during warmup and healing periods
             loss = self.base_optimizer.step(closure=closure)  # pyre-ignore[6]
+            # re-zero pruned params (optimizer momentum may push them non-zero)
+            for group in self.regularized_param_groups():
+                for p in group["params"]:
+                    mask = healing_masks.get(id(p))
+                    if mask is not None:
+                        if _is_dtensor(p):
+                            p.mul_(mask)
+                        else:
+                            p.masked_fill_(~mask, 0)
+            del healing_masks
             self._init_latent_state()
             self.num_steps += 1
             return loss
 
         if self.num_steps == self.warmup_steps:
-            # first step of qat, save latent params, instead of restore
+            # first step of PAT: save latent params for future proximal updates
             self.save_latent_params()
         else:
-            # qat: restore latent params for update by the base optimizer
+            # restore latent params for update by the base optimizer
             self.restore_latent_params()
 
         # call base optimizer step() method to update latent parameters
@@ -301,9 +365,9 @@ class PruneOptimizer(Optimizer):
         if dist_is_init:
             regularized_zeros_buf = []
             regularized_factored_size_buf = []
+
         regularized_zeros = 0
         regularized_factored_size = 0
-
         for group in self.regularized_param_groups():
             self._set_gamma(group)
 
@@ -350,14 +414,17 @@ class PruneOptimizer(Optimizer):
                 sv_count = state.get("sv_count")
                 if sharded_p is None or sharded_p.device_mesh.get_rank() == 0:
                     grouper = grouper_cls(p, **grouper_kwargs)
-                    zero_elts, zeros_are_summed = self._apply_prox(
-                        grouper, prox_map, p, sv_count=sv_count, **prox_kwargs
+                    zero_elts, group_norm, zeros_are_summed = self._apply_prox(
+                        grouper,
+                        prox_map,
+                        p,
+                        sv_count=sv_count,
+                        **prox_kwargs,
                     )
 
                     if zeros_are_summed:
                         state["sparsity_frac"] = zero_elts / grouper.p.numel()
-                    else:
-                        assert dist_is_init, "Distributed must be initialized"
+                    elif dist_is_init:
                         _maybe_async_aggregate(regularized_zeros_buf, zero_elts)
 
                     if torch.is_tensor(zero_elts):
@@ -445,8 +512,7 @@ class PruneOptimizer(Optimizer):
         for group in self.regularized_param_groups():
             for p in group["params"]:
                 if p.requires_grad:
-                    state = self.state[p]
                     try:
-                        state["latent"].copy_(p)
+                        self.state[p]["latent"].copy_(p)
                     except KeyError:
-                        state["latent"] = p.detach().clone()
+                        self.state[p]["latent"] = p.detach().clone()
