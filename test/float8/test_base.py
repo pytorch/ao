@@ -281,7 +281,7 @@ class TestFloat8TrainingTensor:
         sqnr = compute_error(c_ref, c_fp8_compute)
         assert sqnr >= 25.0
 
-    @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
+    @unittest.skipIf(not torch.accelerator.is_available(), "GPU not available")
     def test_fp8_dtype(
         self,
     ):
@@ -327,9 +327,7 @@ class TestFloat8Linear:
         if m_ref.bias is not None:
             torch.testing.assert_close(m_ref.bias.grad, m_fp8.bias.grad)
 
-    @pytest.mark.parametrize(
-        "emulate", [True, False] if is_sm_at_least_89() else [True]
-    )
+    @pytest.mark.parametrize("emulate", [True, False])
     @pytest.mark.parametrize("x_shape", [(16, 16), (2, 16, 16), (3, 2, 16, 16)])
     @pytest.mark.parametrize(
         "scaling_type_input",
@@ -360,6 +358,8 @@ class TestFloat8Linear:
         use_ac: bool,
         device: torch.device,
     ):
+        if not emulate and device == "cuda" and not is_sm_at_least_89():
+            self.skipTest("CUDA capability >= 8.9 required for native float8 support")
         x = torch.randn(*x_shape, device=device, dtype=linear_dtype)
         m_ref = nn.Linear(16, 32, bias=linear_bias, device=device, dtype=linear_dtype)
         config = get_test_float8_linear_config(
@@ -416,9 +416,7 @@ class TestFloat8Linear:
             config,
         )
 
-    @pytest.mark.parametrize(
-        "emulate", [True, False] if is_sm_at_least_89() else [True]
-    )
+    @pytest.mark.parametrize("emulate", [True, False])
     @pytest.mark.parametrize(
         "linear_dtype", [torch.float16, torch.bfloat16, torch.float32]
     )
@@ -439,6 +437,8 @@ class TestFloat8Linear:
         recipe_name: Float8LinearRecipeName,
         device,
     ):
+        if not emulate and device == "cuda" and not is_sm_at_least_89():
+            self.skipTest("CUDA capability >= 8.9 required for native float8 support")
         m_ref = nn.Sequential(
             nn.Linear(32, 32, device=device, dtype=linear_dtype),
             nn.Linear(32, 32, device=device, dtype=linear_dtype),
