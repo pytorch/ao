@@ -45,15 +45,7 @@
 
 namespace torchao {
 
-#if defined(CPU_CAPABILITY_AVX10_2)
-  #define ISA_NAMESPACE avx10_2
-#elif defined(CPU_CAPABILITY_AVX512)
-  #define ISA_NAMESPACE avx512
-#else
-  #define ISA_NAMESPACE default_scalar
-#endif
-
-namespace ISA_NAMESPACE {
+namespace CPU_CAPABILITY {
 
 #if defined(CPU_CAPABILITY_AVX512)
 using CHUNK =
@@ -367,6 +359,6 @@ at::Tensor _scaled_embedding_bag_impl(
   return output;
 }
 
-} // ISA namespace
+} // CPU_CAPABILITY namespace
 
 } // namespace torchao

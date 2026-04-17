@@ -3,7 +3,7 @@
 
 /*
 To add a new kernel:
-1. Implement the kernel in the all namespace (e.g., avx10_2, avx512, default_scalar). See existing kernel files for reference.
+1. Implement the kernel in the all namespace (e.g., AVX10_2, AVX512, DEFAULT). See existing kernel files for reference.
   Note: Kernel files must be named in the format of <kernel_name>_krnl.cpp (e.g., da8w4_linear_krnl.cpp).
 2. Declare the kernel function using the corresponding macro (e.g., declare_da8w4_linear_impl) in the same namespace.
 3. Add a call macro (e.g., call_da8w4_linear_impl) in the same namespace that calls the implemented kernel function.
@@ -149,101 +149,97 @@ namespace torchao {
     declare_qscaled_dot_product_impl; \
   }
 
-declare_all_kernels(avx10_2)
-declare_all_kernels(avx512)
-declare_all_kernels(default_scalar)
+declare_all_kernels(AVX10_2)
+declare_all_kernels(AVX512)
+declare_all_kernels(DEFAULT)
 
 /********** DA8W4 Linear Kernel Dispatch **********/
 declare_da8w4_linear_prepack_impl {
+// BUILD_AVX10_2 should be only set when __GNUC__ >= 15. Here is just a double check. Same below.
 #if defined(BUILD_AVX10_2) && __GNUC__ >= 15
   if (kHasAVX10_2) {
-    return avx10_2::call_da8w4_linear_prepack_impl();
+    return AVX10_2::call_da8w4_linear_prepack_impl();
   }
 #endif
 #if defined(BUILD_AVX512)
   if (kHasAVX512) {
-    return avx512::call_da8w4_linear_prepack_impl();
+    return AVX512::call_da8w4_linear_prepack_impl();
   }
 #endif
-  return default_scalar::call_da8w4_linear_prepack_impl();
+  return DEFAULT::call_da8w4_linear_prepack_impl();
 }
 
 declare_da8w4_linear_impl {
-// BUILD_AVX10_2 should be only set when __GNUC__ >= 15. Here is just a double check.
 #if defined(BUILD_AVX10_2) && __GNUC__ >= 15
   if (kHasAVX10_2) {
-    return avx10_2::call_da8w4_linear_impl();
+    return AVX10_2::call_da8w4_linear_impl();
   }
 #endif
 #if defined(BUILD_AVX512)
   if (kHasAVX512) {
-    return avx512::call_da8w4_linear_impl();
+    return AVX512::call_da8w4_linear_impl();
   }
 #endif
-  return default_scalar::call_da8w4_linear_impl();
+  return DEFAULT::call_da8w4_linear_impl();
 }
 
 /********** FLOAT8 Linear Kernel Dispatch **********/
 declare_float8_linear_prepack_impl {
-// BUILD_AVX10_2 should be only set when __GNUC__ >= 15. Here is just a double check.
 #if defined(BUILD_AVX10_2) && __GNUC__ >= 15
   if (kHasAVX10_2) {
-    return avx10_2::call_float8_linear_prepack_impl();
+    return AVX10_2::call_float8_linear_prepack_impl();
   }
 #endif
 #if defined(BUILD_AVX512)
   if (kHasAVX512) {
-    return avx512::call_float8_linear_prepack_impl();
+    return AVX512::call_float8_linear_prepack_impl();
   }
 #endif
-  return default_scalar::call_float8_linear_prepack_impl();
+  return DEFAULT::call_float8_linear_prepack_impl();
 }
 
 declare_float8_linear_impl {
-// BUILD_AVX10_2 should be only set when __GNUC__ >= 15. Here is just a double check.
 #if defined(BUILD_AVX10_2) && __GNUC__ >= 15
   if (kHasAVX10_2) {
-    return avx10_2::call_float8_linear_impl();
+    return AVX10_2::call_float8_linear_impl();
   }
 #endif
 #if defined(BUILD_AVX512)
   if (kHasAVX512) {
-    return avx512::call_float8_linear_impl();
+    return AVX512::call_float8_linear_impl();
   }
 #endif
-  return default_scalar::call_float8_linear_impl();
+  return DEFAULT::call_float8_linear_impl();
 }
 
 /********** Scaled Embedding Bag Kernel Dispatch **********/
 declare_scaled_embedding_bag_impl {
-// BUILD_AVX10_2 should be only set when __GNUC__ >= 15. Here is just a double check.
 #if defined(BUILD_AVX10_2) && __GNUC__ >= 15
   if (kHasAVX10_2) {
-    return avx10_2::call_scaled_embedding_bag_impl();
+    return AVX10_2::call_scaled_embedding_bag_impl();
   }
 #endif
 #if defined(BUILD_AVX512)
   if (kHasAVX512) {
-    return avx512::call_scaled_embedding_bag_impl();
+    return AVX512::call_scaled_embedding_bag_impl();
   }
 #endif
-  return default_scalar::call_scaled_embedding_bag_impl();
+  return DEFAULT::call_scaled_embedding_bag_impl();
 }
 
 /********** Quantized SDPA Kernel **********/
 declare_qscaled_dot_product_impl {
-// BUILD_AVX10_2 should be only set when __GNUC__ >= 15. Here is just a double check.
 #if defined(BUILD_AVX10_2) && __GNUC__ >= 15
   if (kHasAVX10_2) {
-    return avx10_2::call_qscaled_dot_product_impl();
+    return AVX10_2::call_qscaled_dot_product_impl();
   }
 #endif
 #if defined(BUILD_AVX512)
   if (kHasAVX512) {
-    return avx512::call_qscaled_dot_product_impl();
+    return AVX512::call_qscaled_dot_product_impl();
   }
 #endif
-  return default_scalar::call_qscaled_dot_product_impl();
+  return DEFAULT::call_qscaled_dot_product_impl();
 }
 
 TORCH_LIBRARY_IMPL(torchao, CPU, m) {

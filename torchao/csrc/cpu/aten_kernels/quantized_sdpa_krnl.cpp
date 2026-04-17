@@ -29,15 +29,7 @@
 
 namespace torchao {
 
-#if defined(CPU_CAPABILITY_AVX10_2)
-  #define ISA_NAMESPACE avx10_2
-#elif defined(CPU_CAPABILITY_AVX512)
-  #define ISA_NAMESPACE avx512
-#else
-  #define ISA_NAMESPACE default_scalar
-#endif
-
-namespace ISA_NAMESPACE {
+namespace CPU_CAPABILITY {
 
 inline c10::SymFloat calculate_scale(
     const at::Tensor& query,
@@ -2586,6 +2578,6 @@ at::Tensor _qscaled_dot_product_cpu(
 }
 
 
-} // ISA namespace
+} // CPU_CAPABILITY namespace
 
 } // namespace torchao

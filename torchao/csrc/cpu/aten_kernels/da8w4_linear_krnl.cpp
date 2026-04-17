@@ -2,20 +2,11 @@
 #include <ATen/cpu/vec/vec.h>
 #include <ATen/native/CPUBlas.h>
 #include <c10/util/Unroll.h>
-#include <mutex>
 #include "utils.h"
 
 namespace torchao {
 
-#if defined(CPU_CAPABILITY_AVX10_2)
-  #define ISA_NAMESPACE avx10_2
-#elif defined(CPU_CAPABILITY_AVX512)
-  #define ISA_NAMESPACE avx512
-#else
-  #define ISA_NAMESPACE default_scalar
-#endif
-
-namespace ISA_NAMESPACE {
+namespace CPU_CAPABILITY {
 
 #define BLOCK_N 32
 
@@ -745,6 +736,6 @@ at::Tensor da8w4_linear_impl(
   return output;
 }
 
-} // ISA namespace
+} // CPU_CAPABILITY namespace
 
 } // namespace torchao

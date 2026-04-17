@@ -11,15 +11,7 @@
 
 namespace torchao {
 
-#if defined(CPU_CAPABILITY_AVX10_2)
-  #define ISA_NAMESPACE avx10_2
-#elif defined(CPU_CAPABILITY_AVX512)
-  #define ISA_NAMESPACE avx512
-#else
-  #define ISA_NAMESPACE default_scalar
-#endif
-
-namespace ISA_NAMESPACE {
+namespace CPU_CAPABILITY {
 
 #define BLOCK_N 32
 
@@ -142,33 +134,17 @@ static void cvt_f8e4m3_to_bf16(
     int64_t rows,
     int64_t cols,
     int64_t stride) {
-  constexpr int64_t vec_len = 16;
-  if (stride == cols) {
-    // A contiguous buffer
-    size_t len = rows * cols;
+  constexpr int64_t vec_len = 16; // 128 bit = 16 fp8 values
+  for (int r = 0; r < rows; ++r) {
     size_t i = 0;
-    for (; i < len; i += vec_len) {
-      __m128i fp8_vec = _mm_loadu_si128((__m128i*)&in[i]);
+    size_t vec_len_aligned = cols / vec_len * vec_len;
+    for (; i < vec_len_aligned; i += vec_len) {
+      __m128i fp8_vec = _mm_loadu_si128((__m128i*)&in[r * stride + i]);
       __m256bh bf16_vec = cvt_fp8e4m3_to_bf16(fp8_vec);
-      _mm256_storeu_si256((__m256i*)(out + i), (__m256i)bf16_vec);
+      _mm256_storeu_si256((__m256i*)(out + r * cols + i), (__m256i)bf16_vec);
     }
-    for (; i < len; ++i) {
-      out[i] = (at::BFloat16)in[i];
-    }
-  } else {
-    // Non-contiguous. Access each row with stride
-    TORCH_CHECK(stride > cols);
-    for (int r = 0; r < rows; ++r) {
-      size_t i = 0;
-      size_t vec_len = cols / vec_len * vec_len;
-      for (; i < vec_len; i += vec_len) {
-        __m128i fp8_vec = _mm_loadu_si128((__m128i*)&in[r * stride + i]);
-        __m256bh bf16_vec = cvt_fp8e4m3_to_bf16(fp8_vec);
-        _mm256_storeu_si256((__m256i*)(out + r * cols + i), (__m256i)bf16_vec);
-      }
-      for (; i < cols; ++i) {
-        out[r * cols + i] = (at::BFloat16)in[r * stride + i];
-      }
+    for (; i < cols; ++i) {
+      out[r * cols + i] = (at::BFloat16)in[r * stride + i];
     }
   }
 }
@@ -596,6 +572,6 @@ at::Tensor float8_linear_impl(
   return output;
 }
 
-} // ISA namespace
+} // CPU_CAPABILITY namespace
 
 } // namespace torchao

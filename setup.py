@@ -531,15 +531,15 @@ class X86KernelBuild:
         avx10_2_defines = avx512_defines + ["-DCPU_CAPABILITY_AVX10_2"]
         build_configs = [
             {
-                "isa": "avx512",
+                "isa": "AVX512",
                 "gcc_min_ver": X86KernelBuild._MINIMUM_GCC_MAJOR,
-                "defines": avx512_defines,
+                "defines": avx512_defines + ["-DCPU_CAPABILITY=AVX512"],
                 "flags": ["-march=sapphirerapids"],
             },
             {
-                "isa": "avx10_2",
+                "isa": "AVX10_2",
                 "gcc_min_ver": X86KernelBuild._PREFERRED_GCC_MAJOR,
-                "defines": avx10_2_defines,
+                "defines": avx10_2_defines + ["-DCPU_CAPABILITY=AVX10_2"],
                 "flags": ["-march=diamondrapids"],
             },
         ]
@@ -551,24 +551,22 @@ class X86KernelBuild:
             shutil.copy2(src, temp_src)
             obj = os.path.join(build_dir, f"{stem}.{config['isa']}.o")
             cmd = [cxx] + cxx_flags + ["-c", temp_src, "-o", obj]
-            print(
-                f"[X86 {config['isa'].upper()}] Compiling {src} -> {os.path.basename(obj)}"
-            )
+            print(f"[X86 {config['isa']}] Compiling {src} -> {os.path.basename(obj)}")
             try:
                 subprocess.check_call(cmd)
                 return obj
             except subprocess.CalledProcessError as e:
                 print(
-                    f"[ERROR] Unable to compile {config['isa'].upper()} variant of {src}:\n{e}\n"
+                    f"[ERROR] Unable to compile {config['isa']} variant of {src}:\n{e}\n"
                 )
                 raise e
 
         for config in build_configs:
             if X86KernelBuild._cxx_major < config["gcc_min_ver"]:
                 print(
-                    f"[WARNING] GCC {config['gcc_min_ver']} or higher is required to build {config['isa'].upper()} kernels. "
+                    f"[WARNING] GCC {config['gcc_min_ver']} or higher is required to build {config['isa']} kernels. "
                     f"Current compiler: {cxx} (GCC {X86KernelBuild._cxx_major}). "
-                    f"{config['isa'].upper()} kernels will not be built."
+                    f"{config['isa']} kernels will not be built."
                 )
                 continue
             cxx_flags = common_build_flags + config["defines"] + config["flags"]
