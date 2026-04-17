@@ -12,7 +12,6 @@ import torch
 from torch import nn
 
 from torchao.core.config import AOBaseConfig
-from torchao.dtypes import Layout
 from torchao.quantization import MappingType, PerAxis, PerGroup
 from torchao.quantization.quant_api import (
     Granularity,
@@ -44,7 +43,6 @@ except ImportError:
 class StretchedIntxWeightConfig(AOBaseConfig):
     granularity: Granularity = PerAxis(0)
     scale_dtype: Optional[torch.dtype] = None
-    layout: Optional[Layout] = None
     version: int = 2
     b: Optional[int] = None
     quant_min: Optional[int] = None

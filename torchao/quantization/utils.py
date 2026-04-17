@@ -36,9 +36,6 @@ from .granularity import (
     PerTensor,
     PerToken,
 )
-from .linear_activation_quantized_tensor import (
-    LinearActivationQuantizedTensor,
-)
 
 __all__ = [
     "compute_error",
@@ -739,15 +736,6 @@ def get_block_size(
 
 
 def _quantization_type(weight: torch.Tensor):
-    # prevent circular import
-    from torchao.dtypes import AffineQuantizedTensor
-
-    if isinstance(weight, AffineQuantizedTensor):
-        return f"{weight.__class__.__name__}({weight._quantization_type()})"
-
-    if isinstance(weight, LinearActivationQuantizedTensor):
-        return f"{weight.__class__.__name__}(activation={weight.input_quant_func}, weight={_quantization_type(weight.original_weight_tensor)})"
-
     if hasattr(weight, "_quantization_type"):
         return f"{weight.__class__.__name__}({weight._quantization_type()})"
 

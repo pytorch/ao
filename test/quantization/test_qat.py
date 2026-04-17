@@ -37,6 +37,7 @@ from torchao.quantization.linear_quant_modules import (
     _replace_linear_8da4w,
     _replace_linear_int4,
 )
+from torchao.quantization.qat import TwoStepQuantizer
 from torchao.quantization.qat.api import (
     ComposableQATQuantizer,
     FromIntXQuantizationAwareTrainingConfig,
@@ -85,9 +86,6 @@ from torchao.quantization.quant_primitives import (
     quantize_affine,
 )
 from torchao.quantization.quantize_.workflows import Int4PackingFormat
-from torchao.quantization.unified import (
-    TwoStepQuantizer,
-)
 from torchao.quantization.utils import (
     _get_per_token_block_size,
     compute_error,

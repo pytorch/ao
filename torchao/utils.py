@@ -11,7 +11,7 @@ import time
 from functools import reduce
 from importlib.metadata import version
 from math import gcd
-from typing import Any, Callable, Optional, Union
+from typing import Any, Optional, Union
 
 import torch
 import torch.nn.utils.parametrize as parametrize
@@ -43,6 +43,10 @@ def register_as_pytree_constant(cls):
     """Decorator to register a class as a pytree constant for dynamo non-strict trace mode."""
     torch.utils._pytree.register_constant(cls)
     return cls
+
+
+def _is_device(target_device_str: str, device: Union[str, torch.device]):
+    return torch.device(device).type == target_device_str
 
 
 # Referenced from: https://github.com/pytorch/pytorch/blob/9105d54c6b37099575c0059ef274c86c4dc80c57/torch/ao/quantization/utils.py#L711
@@ -686,76 +690,6 @@ def _dispatch__torch_dispatch__(cls, func, types, args, kwargs):
     )
 
 
-def _register_layout(tensor_class: Callable, layout_class: Callable):
-    """
-    .. deprecated:: 0.15.1
-       This method is deprecated as of version 0.15.1 since it's
-       part of the older tensor subclass development stack,
-       for information about new dev stack, please check
-       https://docs.pytorch.org/ao/main/quantization_overview.html
-       and https://docs.pytorch.org/ao/main/contributor_guide.html
-
-    Helper function for layout registrations, this is used to implement
-    register_layout decorator for each tensor subclass, see aqt.py for example usage
-
-    Args:
-        tensor_class: Tensor subclass type
-        layout_class: the class type of subclass of `Layout`, e.g. `PlainLayout`
-
-    Returns:
-        a decorator that registers the tensor impl constructor in the table
-    """
-
-    # tensor_class._LAYOUT_CONSTRUCTOR_TABLE is a map from layout_class
-    # to tensor_impl class constructor that can construct a tensor_impl
-    # from plain data like (quantized, unpacked) `data`, `scale`, `zero_point`
-    if not hasattr(tensor_class, "_LAYOUT_CONSTRUCTOR_TABLE"):
-        tensor_class._LAYOUT_CONSTRUCTOR_TABLE = {}
-
-    def decorator(tensor_impl_class):
-        tensor_class._LAYOUT_CONSTRUCTOR_TABLE[layout_class] = (
-            tensor_impl_class.from_plain
-        )
-        # Allow serialization to work for models uses this tensor impl subclass
-        torch.serialization.add_safe_globals([layout_class, tensor_impl_class])
-        return tensor_impl_class
-
-    return decorator
-
-
-def _get_tensor_impl_constructor(
-    tensor_class: Callable, layout_class: Callable
-) -> Callable:
-    """
-    .. deprecated:: 0.15.1
-       This method is deprecated as of version 0.15.1 since it's
-       part of the older tensor subclass development stack,
-       for information about new dev stack, please check
-       https://docs.pytorch.org/ao/main/quantization_overview.html
-       and https://docs.pytorch.org/ao/main/contributor_guide.html
-
-    Get TensorImpl class constructor (TensorImplClass.from_plain) for `tensor_class` based on `layout_class`
-    `layout_class` means the class type of subclass of `Layout`, e.g. `PlainLayout`
-
-    Args:
-        tensor_class: Tensor subclass type
-        layout_class: the class type of subclass of `Layout`, e.g. `PlainLayout`
-
-    Returns:
-        tensor impl subclass constructor for the layout_class
-    """
-    if not hasattr(tensor_class, "_LAYOUT_CONSTRUCTOR_TABLE"):
-        raise ValueError(
-            f"no registered tensor_impl class constructor for: {tensor_class}"
-        )
-    if layout_class not in tensor_class._LAYOUT_CONSTRUCTOR_TABLE:
-        raise ValueError(
-            f"layout_name: {layout_class} is not supported yet for {tensor_class}"
-        )
-
-    return tensor_class._LAYOUT_CONSTRUCTOR_TABLE[layout_class]
-
-
 def _get_to_kwargs(self, *args, **kwargs):
     """Helper function to get the device and dtype keyword args for `aten._to_copy.default` op
     only device and dtype are kept
@@ -979,10 +913,6 @@ class TorchAOBaseTensor(torch.Tensor):
     __torch_dispatch__ = classmethod(_dispatch__torch_dispatch__)
     __torch_function__ = classmethod(_dispatch__torch_function__)
     _get_to_kwargs = _get_to_kwargs
-
-    # deprecated, will be removed later
-    register_layout = classmethod(_register_layout)
-    get_tensor_impl_constructor = classmethod(_get_tensor_impl_constructor)
 
     def __init__(self, *args, **kwargs):
         torch._C._log_api_usage_once(str(type(self)))

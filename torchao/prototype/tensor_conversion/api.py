@@ -14,8 +14,8 @@ from torchao.quantization import (
 )
 from torchao.utils import (
     TorchAOBaseTensor,
+    _is_device,
     _is_mslk_available,
-    is_on_device,
     is_sm_at_least_90,
 )
 
@@ -188,7 +188,7 @@ def convert_to_packed_tensor_based_on_current_hardware(tensor: TorchAOBaseTensor
     """
     if (
         isinstance(tensor, Int4Tensor)
-        and is_on_device(tensor, "cuda")
+        and _is_device("cuda", tensor.device)
         and _is_mslk_available()
         and is_sm_at_least_90()
     ):

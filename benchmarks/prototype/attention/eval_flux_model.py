@@ -50,6 +50,12 @@ BACKENDS = {
         "fp8_backend": AttentionBackend.FP8_FA3,
         "hadamard": HadamardMode.QKV,
     },
+    "fa3_fp8_hadamard_v": {
+        "flash_impl": "FA3",
+        "fp8": True,
+        "fp8_backend": AttentionBackend.FP8_FA3,
+        "hadamard": HadamardMode.V_ONLY,
+    },
 }
 
 IMAGE_SIZE = (512, 512)  # (width, height) - resize for consistent LPIPS

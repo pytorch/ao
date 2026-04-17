@@ -91,9 +91,9 @@ To deserialize an optimized model, we can initialize the floating point model in
 
 The reason we initialize the model in ``meta`` device is to avoid initializing the original floating point model since original floating point model may not fit into the device that we want to use for inference.
 
-What happens in ``m_loaded.load_state_dict(state_dict, assign=True)`` is that the corresponding weights (e.g. m_loaded.linear1.weight) are updated with the Tensors in ``state_dict``, which is an optimized tensor subclass instance (e.g. int4 ``AffineQuantizedTensor``). No dependency on torchao is needed for this to work.
+What happens in ``m_loaded.load_state_dict(state_dict, assign=True)`` is that the corresponding weights (e.g. m_loaded.linear1.weight) are updated with the Tensors in ``state_dict``, which is an optimized tensor subclass instance (e.g. ``Int4Tensor``). No dependency on torchao is needed for this to work.
 
 We can also verify that the weight is properly loaded by checking the type of weight tensor::
 
   type of weight before loading: (<class 'torch.Tensor'>, <class 'torch.Tensor'>)
-  type of weight after loading: (<class 'torchao.dtypes.affine_quantized_tensor.AffineQuantizedTensor'>, <class 'torchao.dtypes.affine_quantized_tensor.AffineQuantizedTensor'>)
+  type of weight after loading: (<class 'torchao.quantization.Int4Tensor'>, <class 'torchao.quantization.Int4Tensor'>)

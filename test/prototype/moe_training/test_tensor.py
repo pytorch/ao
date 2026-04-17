@@ -18,18 +18,54 @@ from torchao.prototype.moe_training.config import (
     MXFP8TrainingOpConfig,
     MXFP8TrainingRecipe,
 )
+from torchao.prototype.moe_training.kernels.mxfp8.quant import (
+    _mxfp8_cutedsl_kernels_available,
+)
 from torchao.prototype.moe_training.tensor import MXFP8TrainingWeightWrapperTensor
+from torchao.prototype.mx_formats.config import (
+    MXFP8Dim1CastKernelChoice,
+)
+from torchao.prototype.mx_formats.kernels import (
+    _mxfp8_cuda_kernels_available,
+    _triton_kernels_available,
+)
 from torchao.quantization.utils import compute_error
+from torchao.utils import is_sm_at_least_100
 
 
 @pytest.mark.parametrize("op_name", ["mm", "matmul", "linear"])
 @pytest.mark.parametrize("batch_size", [None, 2, 4])
-def test_mxfp8_training_tensor_ops_fwd_bwd(op_name, batch_size):
+@pytest.mark.parametrize(
+    "recipe",
+    [MXFP8TrainingRecipe.MXFP8_EMULATED_RCEIL, MXFP8TrainingRecipe.MXFP8_RCEIL],
+)
+@pytest.mark.parametrize(
+    "cast_kernel_choice",
+    [MXFP8Dim1CastKernelChoice.CUDA, MXFP8Dim1CastKernelChoice.CUTEDSL],
+)
+def test_mxfp8_training_tensor_ops_fwd_bwd(
+    op_name, batch_size, recipe, cast_kernel_choice
+):
+    if recipe != MXFP8TrainingRecipe.MXFP8_EMULATED_RCEIL:
+        if not is_sm_at_least_100() or not _triton_kernels_available:
+            pytest.skip("SM 100+ required for real MXFP8 support")
+        if (
+            cast_kernel_choice == MXFP8Dim1CastKernelChoice.CUDA
+            and not _mxfp8_cuda_kernels_available
+        ):
+            pytest.skip("MXFP8 CUDA kernels not available")
+        if (
+            cast_kernel_choice == MXFP8Dim1CastKernelChoice.CUTEDSL
+            and not _mxfp8_cutedsl_kernels_available
+        ):
+            pytest.skip("MXFP8 CUTEDSL kernels not available")
+
     # mm doesn't support batching
     if op_name == "mm" and batch_size is not None:
         pytest.skip("mm doesn't support batching")
 
-    config = MXFP8TrainingOpConfig.from_recipe(MXFP8TrainingRecipe.MXFP8_EMULATED_RCEIL)
+    config = MXFP8TrainingOpConfig.from_recipe(recipe)
+    config.dim1_cast_kernel_choice = cast_kernel_choice
 
     # Create input tensors - dimensions must be divisible by 32
     # Use larger sizes for better SQNR, especially with bias in linear ops
