@@ -1214,18 +1214,6 @@ def _is_flashinfer_available():
     ) or is_fbcode()
 
 
-def is_on_device(tensor: torch.Tensor, device_str: str) -> bool:
-    return tensor.device.type == device_str
-
-
-def not_on_device(
-    tensor: torch.Tensor, devices: Union[str, list[str], tuple[str, ...]]
-) -> bool:
-    if isinstance(devices, str):
-        devices = [devices]
-    return not any(is_on_device(tensor, device) for device in devices)
-
-
 class DummyModule(torch.nn.Module):
     """This is used because the TorchAO quantization functions tend to operate on modules so to apply the transform to a tensor, we can load a
     DummyModule with the target tensor and then apply the transformation to the module and then extract the transformed tensor.

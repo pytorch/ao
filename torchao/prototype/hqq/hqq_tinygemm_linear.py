@@ -166,7 +166,7 @@ class HQQLinearTorchWeightOnlyInt4(torch.nn.Module):
         W_q_torch, scales_torch, zeros_torch = self.hqq_quants_to_torch_quants(
             W_q=W_q, scales=scales, zeros=zeros, shape=shape, nbits=self.nbits
         )
-        if _is_device("cpu", W_q_torch.device):
+        if _is_device("cpu", W_q.device):
             self.weight_int4pack = torch.ops.aten._convert_weight_to_int4pack_for_cpu(
                 W_q_torch, self.inner_k_tiles
             )
