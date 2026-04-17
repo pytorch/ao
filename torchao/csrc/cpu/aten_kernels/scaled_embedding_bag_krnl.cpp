@@ -367,6 +367,6 @@ at::Tensor _scaled_embedding_bag_impl(
   return output;
 }
 
-} // anonymous namespace
+} // ISA namespace
 
 } // namespace torchao

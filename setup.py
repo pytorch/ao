@@ -544,6 +544,25 @@ class X86KernelBuild:
             },
         ]
 
+        def compile_kernel(src):
+            base = os.path.basename(src)
+            stem = os.path.splitext(base)[0]
+            temp_src = os.path.join(build_dir, f"{stem}.{config['isa']}.cpp")
+            shutil.copy2(src, temp_src)
+            obj = os.path.join(build_dir, f"{stem}.{config['isa']}.o")
+            cmd = [cxx] + cxx_flags + ["-c", temp_src, "-o", obj]
+            print(
+                f"[X86 {config['isa'].upper()}] Compiling {src} -> {os.path.basename(obj)}"
+            )
+            try:
+                subprocess.check_call(cmd)
+                return obj
+            except subprocess.CalledProcessError as e:
+                print(
+                    f"[ERROR] Unable to compile {config['isa'].upper()} variant of {src}:\n{e}\n"
+                )
+                raise e
+
         for config in build_configs:
             if X86KernelBuild._cxx_major < config["gcc_min_ver"]:
                 print(
@@ -555,25 +574,6 @@ class X86KernelBuild:
             cxx_flags = common_build_flags + config["defines"] + config["flags"]
             build_dir = os.path.join(build_temp, f"cpu_isa_{config['isa']}")
             os.makedirs(build_dir, exist_ok=True)
-
-            def compile_kernel(src):
-                base = os.path.basename(src)
-                stem = os.path.splitext(base)[0]
-                temp_src = os.path.join(build_dir, f"{stem}.{config['isa']}.cpp")
-                shutil.copy2(src, temp_src)
-                obj = os.path.join(build_dir, f"{stem}.{config['isa']}.o")
-                cmd = [cxx] + cxx_flags + ["-c", temp_src, "-o", obj]
-                print(
-                    f"[X86 {config['isa'].upper()}] Compiling {src} -> {os.path.basename(obj)}"
-                )
-                try:
-                    subprocess.check_call(cmd)
-                    return obj
-                except subprocess.CalledProcessError as e:
-                    print(
-                        f"[ERROR] Unable to compile {config['isa'].upper()} variant of {src}:\n{e}\n"
-                    )
-                    raise e
 
             # Compile kernels in parallel to speed up the build
             with ThreadPoolExecutor() as executor:
