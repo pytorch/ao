@@ -6,7 +6,8 @@
 import warnings
 
 warnings.warn(
-    "torchao.sparsity.blocksparse is deprecated, please use torchao.prototype.sparsity.blocksparse instead.",
+    "torchao.sparsity.blocksparse is deprecated, please use torchao.prototype.sparsity.blocksparse instead. "
+    "See https://github.com/pytorch/ao/issues/4230 for more details.",
     DeprecationWarning,
     stacklevel=2,
 )

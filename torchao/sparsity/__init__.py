@@ -31,7 +31,8 @@ def __getattr__(name):
     if name in ("block_sparse_weight", "BlockSparseWeightConfig"):
         warnings.warn(
             f"Importing {name} from torchao.sparsity is deprecated, "
-            "please use torchao.prototype.sparsity instead.",
+            "please use torchao.prototype.sparsity instead. "
+            "See https://github.com/pytorch/ao/issues/4230 for more details.",
             DeprecationWarning,
             stacklevel=2,
         )
