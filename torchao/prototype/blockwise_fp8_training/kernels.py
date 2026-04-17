@@ -45,6 +45,18 @@ def _pad_blockwise_128x128_scale_k_major(scale: torch.Tensor) -> torch.Tensor:
     return padded_scale
 
 
+def _prepare_blockwise_scaled_mm_rhs_scale(
+    scale: torch.Tensor,
+    scale_recipe: F.ScalingType | int,
+) -> torch.Tensor:
+    scale_recipe_value = (
+        scale_recipe.value if isinstance(scale_recipe, F.ScalingType) else scale_recipe
+    )
+    if scale_recipe_value != F.ScalingType.BlockWise128x128.value:
+        return scale
+    return _pad_blockwise_128x128_scale_k_major(scale)
+
+
 def _is_column_major(x: torch.Tensor) -> bool:
     assert x.ndim == 2 or x.ndim == 3, "input tensor must be 2D or 3D"
     return x.stride(-2) == 1
@@ -110,8 +122,7 @@ def blockwise_scaled_mm(
         a = a.contiguous()
     if not _is_column_major(b):
         b = b.t().contiguous().t()
-    if scale_recipe_b == F.ScalingType.BlockWise128x128.value:
-        b_s = _pad_blockwise_128x128_scale_k_major(b_s)
+    b_s = _prepare_blockwise_scaled_mm_rhs_scale(b_s, scale_recipe_b)
 
     return torch.ops.aten._scaled_mm_v2.default(
         a,
